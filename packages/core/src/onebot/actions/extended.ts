@@ -772,8 +772,29 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return okResponse(clientKeyInfo);
   });
 
-  h.registerAction('get_mini_app_ark', async () => {
-    return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
+  h.registerAction('get_mini_app_ark', async (params) => {
+    const type = params.type || 'bili';
+    const title = params.title || '';
+    const desc = params.desc || '';
+    const picUrl = params.picUrl || params.pic_url || '';
+    const jumpUrl = params.jumpUrl || params.jump_url || '';
+
+    if (!ctx.getMiniAppArk) {
+      return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+    }
+
+    try {
+      const data = await ctx.getMiniAppArk(
+          String(type),
+          String(title),
+          String(desc),
+          String(picUrl),
+          String(jumpUrl)
+      );
+      return okResponse(data);
+    } catch (e) {
+      return failedResponse(RETCODE.ACTION_FAILED, String(e));
+    }
   });
 
   h.registerAction('click_inline_keyboard_button', async () => {

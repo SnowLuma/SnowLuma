@@ -968,4 +968,27 @@ export const Oidb0x990RespSchema = {
   translateResp: { field: 2, type: 'message' as const, schema: Oidb0x990TranslateRespSchema }
 } satisfies ProtoSchema;
 
+export const MiniAppShareReqBodySchema = {
+  appid:   { field: 2, type: 'string' as const },
+  title:   { field: 3, type: 'string' as const },
+  desc:    { field: 4, type: 'string' as const },
+  picUrl:  { field: 9, type: 'string' as const },
+  jumpUrl: { field: 11, type: 'string' as const },
+  iconUrl: { field: 12, type: 'string' as const },
+} satisfies ProtoSchema;
+
+export const MiniAppShareReqSchema = {
+  sdkVersion: { field: 2, type: 'string' as const },
+  body:       { field: 4, type: 'message' as const, schema: MiniAppShareReqBodySchema },
+} satisfies ProtoSchema;
+
+export const MiniAppShareRespBodySchema = {
+  jsonStr: { field: 2, type: 'string' as const },
+} satisfies ProtoSchema;
+
+export const MiniAppShareRespSchema = {
+  status: { field: 2, type: 'uint32' as const },
+  msg:    { field: 3, type: 'string' as const },
+  body:   { field: 4, type: 'message' as const, schema: MiniAppShareRespBodySchema },
+} satisfies ProtoSchema;
 

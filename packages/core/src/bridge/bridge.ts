@@ -73,6 +73,7 @@ import {
   setSelfLongNick as setSelfLongNick_,
   setInputStatus as setInputStatus_,
   translateEn2Zh as translateEn2Zh_,
+  getMiniAppArk as getMiniAppArk_,
 } from './bridge-actions';
 import {
   getGroupHonorInfo as getGroupHonorInfo_,
@@ -527,6 +528,9 @@ export class Bridge {
   }
   async translateEn2Zh(words: string[]) {
     return translateEn2Zh_(this, words);
+  }
+  async getMiniAppArk(type: string, title: string, desc: string, picUrl: string, jumpUrl: string) {
+    return getMiniAppArk_(this, type, title, desc, picUrl, jumpUrl);
   }
 }
 

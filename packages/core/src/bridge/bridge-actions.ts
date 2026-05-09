@@ -59,6 +59,8 @@ import {
   Oidb0xcd4RespSchema,
   Oidb0x990ReqSchema,
   Oidb0x990RespSchema,
+  MiniAppShareReqSchema,
+  MiniAppShareRespSchema,
 } from './proto/oidb-action';
 import { FileUploadExtSchema } from './proto/highway';
 import {
@@ -1587,4 +1589,63 @@ export async function translateEn2Zh(
   }
 
   return resp.dstWords || [];
+}
+
+export async function getMiniAppArk(
+    bridge: Bridge,
+    type: string,
+    title: string,
+    desc: string,
+    picUrl: string,
+    jumpUrl: string
+) {
+  let appid = "1109937557"; // 默认 bili
+  let iconUrl = "http://miniapp.gtimg.cn/public/appicon/51f90239b78a2e4994c11215f4c4ba15_200.jpg";
+
+  if (type === 'weibo') {
+    appid = "1109224783";
+    iconUrl = "http://miniapp.gtimg.cn/public/appicon/35bbb44dc68e65194cfacfb206b8f1f7_200.jpg";
+  } else if (type !== 'bili') {
+    throw new Error(`unsupported type: ${type}, only support bili and weibo`);
+  }
+
+  const request = protoEncode({
+    sdkVersion: "V1_PC_MINISDK_99.99.99_1_APP_A",
+    body: {
+      appid,
+      title,
+      desc,
+      picUrl,
+      jumpUrl,
+      iconUrl
+    }
+  }, MiniAppShareReqSchema);
+
+  const result = await bridge.sendRawPacket('LightAppSvc.mini_app_share.AdaptShareInfo', request);
+
+  if (!result.success || !result.responseData) {
+    throw new Error(result.errorMessage || 'get mini app ark failed');
+  }
+
+  const decoded = protoDecode(result.responseData, MiniAppShareRespSchema);
+  const jsonStr = decoded?.body?.jsonStr;
+
+  if (!jsonStr) {
+    throw new Error('mini app share json empty');
+  }
+
+  const parsed = JSON.parse(jsonStr);
+
+  return {
+    data: {
+      ver: parsed.ver,
+      prompt: parsed.prompt,
+      config: parsed.config,
+      app: parsed.appName,
+      view: parsed.appView,
+      meta: parsed.metaData,
+      miniappShareOrigin: 3,
+      miniappOpenRefer: "10002"
+    }
+  };
 }

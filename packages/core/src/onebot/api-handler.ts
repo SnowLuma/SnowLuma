@@ -83,6 +83,7 @@ export interface ApiActionContext {
   setSelfLongNick?: (longNick: string) => Promise<void>;
   setInputStatus?: (userId: number, eventType: number) => Promise<void>;
   translateEn2Zh?: (words: string[]) => Promise<string[]>;
+  getMiniAppArk?: (type: string, title: string, desc: string, picUrl: string, jumpUrl: string) => Promise<any>;
   // New context methods
   setGroupReaction?: (groupId: number, sequence: number, code: string, isSet: boolean) => Promise<void>;
   handleDeleteFriend?: (userId: number, block?: boolean) => Promise<void>;
