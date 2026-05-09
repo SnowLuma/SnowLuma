@@ -53,6 +53,8 @@ import {
   Oidb0x8a7ReqSchema,
   Oidb0xe17RespSchema,
   Oidb0xe17ReqSchema,
+  Oidb0x112aReqSchema,
+  Oidb0x112aRespSchema,
 } from './proto/oidb-action';
 import { FileUploadExtSchema } from './proto/highway';
 import {
@@ -1496,5 +1498,28 @@ export async function getUnidirectionalFriendList(
 
   const parsed = JSON.parse(result.jsonBody);
   return parsed.rpt_block_list || [];
+}
+
+export async function setSelfLongNick(
+    bridge: Bridge,
+    longNick: string
+) {
+  const req = {
+    uin: BigInt(bridge.qqInfo.uin),
+    profile: {
+      tag: 102,
+      value: String(longNick)
+    }
+  };
+
+  await sendOidbAndDecode<any>(
+      bridge,
+      'OidbSvcTrpcTcp.0x112a_2',
+      0x112A,
+      2,
+      req,
+      Oidb0x112aReqSchema,
+      Oidb0x112aRespSchema
+  );
 }
 

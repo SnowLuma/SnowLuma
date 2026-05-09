@@ -80,6 +80,7 @@ export interface ApiActionContext {
   setOnlineStatus?: (status: number, extStatus?: number, batteryStatus?: number) => Promise<void>;
   setProfile?: (nickname?: string, personalNote?: string) => Promise<void>;
   getUnidirectionalFriendList?: () => Promise<any>;
+  setSelfLongNick?: (longNick: string) => Promise<void>;
   // New context methods
   setGroupReaction?: (groupId: number, sequence: number, code: string, isSet: boolean) => Promise<void>;
   handleDeleteFriend?: (userId: number, block?: boolean) => Promise<void>;

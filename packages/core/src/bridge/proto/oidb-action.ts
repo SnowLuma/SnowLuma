@@ -917,3 +917,17 @@ export const Oidb0xe17ReqSchema = {
 export const Oidb0xe17RespSchema = {
   jsonBody: { field: 4, type: 'string' as const },
 } satisfies ProtoSchema;
+
+export const Oidb0x112aProfileInfoSchema = {
+  tag:   { field: 1, type: 'uint32' as const },
+  value: { field: 2, type: 'string' as const },
+} satisfies ProtoSchema;
+
+export const Oidb0x112aReqSchema = {
+  uin:     { field: 1, type: 'uint64' as const },
+  profile: { field: 2, type: 'message' as const, schema: Oidb0x112aProfileInfoSchema },
+} satisfies ProtoSchema;
+
+export const Oidb0x112aRespSchema = {} satisfies ProtoSchema;
+
+

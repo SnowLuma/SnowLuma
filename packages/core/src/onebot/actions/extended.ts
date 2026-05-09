@@ -684,8 +684,23 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
   });
 
-  h.registerAction('set_self_longnick', async () => {
-    return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
+  h.registerAction('set_self_longnick', async (params) => {
+    const longNick = params.longNick || params.long_nick;
+
+    if (typeof longNick !== 'string') {
+      return failedResponse(RETCODE.BAD_REQUEST, 'invalid longNick');
+    }
+
+    if (!ctx.setSelfLongNick) {
+      return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+    }
+
+    try {
+      await ctx.setSelfLongNick(longNick);
+      return okResponse({});
+    } catch (e) {
+      return failedResponse(RETCODE.ACTION_FAILED, String(e));
+    }
   });
 
   h.registerAction('get_collection_list', async () => {

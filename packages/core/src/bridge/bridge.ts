@@ -70,6 +70,7 @@ import {
   getProfileLike as getProfileLike_,
   getGroupAtAllRemain as getGroupAtAllRemain_,
   getUnidirectionalFriendList as getUnidirectionalFriendList_,
+  setSelfLongNick as setSelfLongNick_,
 } from './bridge-actions';
 import {
   getGroupHonorInfo as getGroupHonorInfo_,
@@ -515,6 +516,9 @@ export class Bridge {
   }
   async getUnidirectionalFriendList() {
     return getUnidirectionalFriendList_(this);
+  }
+  async setSelfLongNick(longNick: string) {
+    return setSelfLongNick_(this, longNick);
   }
 }
 
