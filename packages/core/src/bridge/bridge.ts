@@ -67,6 +67,7 @@ import {
   fetchGroupFileCount as fetchGroupFileCount_,
   setOnlineStatus as setOnlineStatus_,
   setProfile as setProfile_,
+  getProfileLike as getProfileLike_,
 } from './bridge-actions';
 import {
   getGroupHonorInfo as getGroupHonorInfo_,
@@ -504,7 +505,9 @@ export class Bridge {
   async getCookiesStr(domain: string): Promise<string> { return getCookiesStr_(this, domain); }
   async getCsrfToken(): Promise<number> { return getCsrfToken_(this); }
   async getCredentials(domain: string) { return getCredentials_(this, domain); }
-
+  async getProfileLike(userId?: number, start?: number, limit?: number) {
+    return getProfileLike_(this, userId, start, limit);
+  }
 }
 
 // --- Module-level helper functions ---

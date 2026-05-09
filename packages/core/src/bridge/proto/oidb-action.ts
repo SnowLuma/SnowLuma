@@ -863,3 +863,33 @@ export const OidbSetProfileSchema = {
   stringProfiles: { field: 2, type: 'repeated_message' as const, schema: OidbProfileStringItemSchema },
   intProfiles:    { field: 3, type: 'repeated_message' as const, schema: OidbProfileIntItemSchema },
 } satisfies ProtoSchema;
+
+
+export const Oidb0x7edInteractionSchema = {
+  totalCount: { field: 1, type: 'uint32' as const },
+  newCount:   { field: 2, type: 'uint32' as const },
+  todayCount: { field: 3, type: 'uint32' as const },
+  lastTime:   { field: 4, type: 'uint64' as const },
+  // userInfos: { field: 7, type: 'repeated_message' ... } // 我没有这个字段，期待未来补全
+} satisfies ProtoSchema;
+
+export const Oidb0x7edUserLikeInfoSchema = {
+  uid:          { field: 1, type: 'string' as const },
+  time:         { field: 2, type: 'uint64' as const },
+  favoriteInfo: { field: 3, type: 'message' as const, schema: Oidb0x7edInteractionSchema },
+  voteInfo:     { field: 4, type: 'message' as const, schema: Oidb0x7edInteractionSchema },
+} satisfies ProtoSchema;
+
+export const Oidb0x7edReqSchema = {
+  targetUid: { field: 1, type: 'string' as const },
+  basic:     { field: 2, type: 'uint32' as const },
+  vote:      { field: 3, type: 'uint32' as const },
+  favorite:  { field: 4, type: 'uint32' as const },
+  start:     { field: 12, type: 'uint32' as const },
+  limit:     { field: 103, type: 'uint32' as const }, // 0xB8 0x06
+} satisfies ProtoSchema;
+
+export const Oidb0x7edRespSchema = {
+  userLikeInfos: { field: 1, type: 'repeated_message' as const, schema: Oidb0x7edUserLikeInfoSchema },
+} satisfies ProtoSchema;
+

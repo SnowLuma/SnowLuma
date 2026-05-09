@@ -47,6 +47,8 @@ import {
   SetStatusReqSchema,
   SetStatusRespSchema,
   OidbSetProfileSchema,
+  Oidb0x7edReqSchema,
+  Oidb0x7edRespSchema,
 } from './proto/oidb-action';
 import { FileUploadExtSchema } from './proto/highway';
 import {
@@ -1359,3 +1361,71 @@ export async function setProfile(
       OidbSetProfileSchema
   );
 }
+
+
+export async function getProfileLike(
+    bridge: Bridge,
+    userId?: number,
+    start: number = 0,
+    limit: number = 10
+) {
+
+  // const isSelf = !userId || userId === bridge.qqInfo.uin;
+  // const targetUid = isSelf
+  //     ? bridge.qqInfo.uid
+  //     : await bridge.getUidByUinV2(userId!);
+
+
+  const isSelf = !userId
+  const targetUid = isSelf
+      ? await resolveSelfUid(bridge)
+      : await resolveUserUid(bridge, userId)
+
+  if (!targetUid) {
+    throw new Error('target uid not found');
+  }
+
+  const req = {
+    targetUid: targetUid,
+    basic: 1,
+    vote: 1,
+    favorite: 1,
+    start: start,
+    limit: limit,
+  };
+
+  const result = await sendOidbAndDecode<any>(
+      bridge,
+      'OidbSvcTrpcTcp.0x7ed_12',
+      0x7ED,
+      12,
+      req,
+      Oidb0x7edReqSchema,
+      Oidb0x7edRespSchema
+  );
+
+  const data = result?.userLikeInfos?.[0];
+  if (!data) {
+    throw new Error('get profile like info empty');
+  }
+
+  return {
+    uid: data.uid,
+    time: Number(data.time),
+    favoriteInfo: {
+      total_count: data.favoriteInfo?.totalCount || 0,
+      last_time: Number(data.favoriteInfo?.lastTime || 0),
+      today_count: data.favoriteInfo?.newCount || 0,
+      userInfos: []
+    },
+    voteInfo: {
+      total_count: data.voteInfo?.totalCount || 0,
+      new_count: data.voteInfo?.newCount || 0,
+      new_nearby_count: 0,
+      last_visit_time: Number(data.voteInfo?.lastTime || 0),
+      userInfos: []
+    }
+  };
+}
+
+

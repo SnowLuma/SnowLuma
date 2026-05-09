@@ -609,8 +609,21 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return okResponse([]);
   });
 
-  h.registerAction('get_profile_like', async () => {
-    return okResponse({});
+  h.registerAction('get_profile_like', async (params) => {
+    const userId = asNumber(params.user_id);
+    const start = asNumber(params.start) || 0;
+    const count = asNumber(params.count) || 10;
+
+    if (!ctx.getProfileLike) {
+      return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+    }
+
+    try {
+      const data = await ctx.getProfileLike(userId, start, count);
+      return okResponse(data);
+    } catch (e) {
+      return failedResponse(RETCODE.ACTION_FAILED, String(e));
+    }
   });
 
   h.registerAction('get_friends_with_category', async () => {

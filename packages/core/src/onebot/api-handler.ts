@@ -96,6 +96,7 @@ export interface ApiActionContext {
   setMsgEmojiLike?: (messageId: number, emojiId: string, set: boolean) => Promise<void>;
   markGroupMsgAsRead?: (groupId: number, sequence: number) => Promise<void>;
   markPrivateMsgAsRead?: (userId: number, sequence: number) => Promise<void>;
+  getProfileLike?: (userId?: number, start?: number, limit?: number) => Promise<any>;
   // Web
   getGroupHonorInfo?: (groupId: number, type: WebHonorType | string) => Promise<any>;
   getGroupEssence?: (groupId: number, pageStart?: number, pageLimit?: number) => Promise<GroupEssenceMsgRet>;
