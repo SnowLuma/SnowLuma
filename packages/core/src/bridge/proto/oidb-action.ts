@@ -943,3 +943,29 @@ export const Oidb0xcd4ReqSchema = {
 export const Oidb0xcd4RespSchema = {} satisfies ProtoSchema;
 
 
+export const Oidb0x990TranslateReqSchema = {
+  srcLang: { field: 1, type: 'string' as const },
+  dstLang: { field: 2, type: 'string' as const },
+  words:   { field: 3, type: 'repeated_string' as const },
+} satisfies ProtoSchema;
+
+export const Oidb0x990ReqSchema = {
+  translateReq: { field: 2, type: 'message' as const, schema: Oidb0x990TranslateReqSchema },
+  tag10:        { field: 10, type: 'uint32' as const },
+  tag12:        { field: 12, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
+export const Oidb0x990TranslateRespSchema = {
+  errorCode: { field: 1, type: 'uint32' as const },
+  errorMsg:  { field: 2, type: 'string' as const },
+  srcLang:   { field: 3, type: 'string' as const },
+  dstLang:   { field: 4, type: 'string' as const },
+  srcWords:  { field: 5, type: 'repeated_string' as const },
+  dstWords:  { field: 6, type: 'repeated_string' as const },
+} satisfies ProtoSchema;
+
+export const Oidb0x990RespSchema = {
+  translateResp: { field: 2, type: 'message' as const, schema: Oidb0x990TranslateRespSchema }
+} satisfies ProtoSchema;
+
+

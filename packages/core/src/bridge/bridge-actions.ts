@@ -57,6 +57,8 @@ import {
   Oidb0x112aRespSchema,
   Oidb0xcd4ReqSchema,
   Oidb0xcd4RespSchema,
+  Oidb0x990ReqSchema,
+  Oidb0x990RespSchema,
 } from './proto/oidb-action';
 import { FileUploadExtSchema } from './proto/highway';
 import {
@@ -1555,3 +1557,34 @@ export async function setInputStatus(
   );
 }
 
+export async function translateEn2Zh(
+    bridge: Bridge,
+    words: string[]
+) {
+  const req = {
+    translateReq: {
+      srcLang: 'en',
+      dstLang: 'zh',
+      words: words
+    },
+    tag10: 1,
+    tag12: 1
+  };
+
+  const result = await sendOidbAndDecode<any>(
+      bridge,
+      'OidbSvcTrpcTcp.0x990_2',
+      0x990,
+      2,
+      req,
+      Oidb0x990ReqSchema,
+      Oidb0x990RespSchema
+  );
+
+  const resp = result?.translateResp;
+  if (!resp) {
+    throw new Error('translate response empty');
+  }
+
+  return resp.dstWords || [];
+}

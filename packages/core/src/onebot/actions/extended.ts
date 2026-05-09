@@ -740,8 +740,25 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
   });
 
-  h.registerAction('translate_en2zh', async () => {
-    return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
+  h.registerAction('translate_en2zh', async (params) => {
+    const rawWords = params.words;
+
+    if (!Array.isArray(rawWords)) {
+      return failedResponse(RETCODE.BAD_REQUEST, 'invalid words array');
+    }
+
+    const words = rawWords.map(w => String(w));
+
+    if (!ctx.translateEn2Zh) {
+      return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+    }
+
+    try {
+      const translated = await ctx.translateEn2Zh(words);
+      return okResponse({ words: translated });
+    } catch (e) {
+      return failedResponse(RETCODE.ACTION_FAILED, String(e));
+    }
   });
 
   h.registerAction('get_clientkey', async () => {

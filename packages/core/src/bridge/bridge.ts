@@ -72,6 +72,7 @@ import {
   getUnidirectionalFriendList as getUnidirectionalFriendList_,
   setSelfLongNick as setSelfLongNick_,
   setInputStatus as setInputStatus_,
+  translateEn2Zh as translateEn2Zh_,
 } from './bridge-actions';
 import {
   getGroupHonorInfo as getGroupHonorInfo_,
@@ -523,6 +524,9 @@ export class Bridge {
   }
   async setInputStatus(userId: number, eventType: number) {
     return setInputStatus_(this, userId, eventType);
+  }
+  async translateEn2Zh(words: string[]) {
+    return translateEn2Zh_(this, words);
   }
 }
 
