@@ -635,6 +635,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
   // --- Additional NapCat-compatible stubs ---
 
+  ///napcat 似乎也用不了，暂时不管了
   h.registerAction('get_online_clients', async () => {
     return okResponse({ clients: [] });
   });
@@ -651,8 +652,23 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
   });
 
-  h.registerAction('get_group_at_all_remain', async () => {
-    return okResponse({ can_at_all: false, remain_at_all_count_for_group: 0, remain_at_all_count_for_uin: 0 });
+  h.registerAction('get_group_at_all_remain', async (params) => {
+    const groupId = asNumber(params.group_id);
+
+    if (!groupId) {
+      return failedResponse(RETCODE.BAD_REQUEST, 'invalid group_id');
+    }
+
+    if (!ctx.getGroupAtAllRemain) {
+      return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+    }
+
+    try {
+      const data = await ctx.getGroupAtAllRemain(groupId);
+      return okResponse(data);
+    } catch (e) {
+      return failedResponse(RETCODE.ACTION_FAILED, String(e));
+    }
   });
 
   h.registerAction('get_unidirectional_friend_list', async () => {

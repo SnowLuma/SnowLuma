@@ -55,6 +55,7 @@ export interface ApiActionContext {
   setGroupName?: (groupId: number, name: string) => Promise<void>;
   setGroupLeave?: (groupId: number) => Promise<void>;
   setGroupSpecialTitle?: (groupId: number, userId: number, title: string) => Promise<void>;
+  getGroupAtAllRemain?: (groupId: number) => Promise<any>;
   // Group file
   uploadGroupFile?: (groupId: number, file: string, name?: string, folderId?: string, uploadFile?: boolean) => Promise<string | null>;
   uploadPrivateFile?: (userId: number, file: string, name?: string, uploadFile?: boolean) => Promise<string | null>;

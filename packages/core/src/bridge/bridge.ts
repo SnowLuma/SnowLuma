@@ -68,6 +68,7 @@ import {
   setOnlineStatus as setOnlineStatus_,
   setProfile as setProfile_,
   getProfileLike as getProfileLike_,
+  getGroupAtAllRemain as getGroupAtAllRemain_,
 } from './bridge-actions';
 import {
   getGroupHonorInfo as getGroupHonorInfo_,
@@ -495,6 +496,9 @@ export class Bridge {
 
   async fetchGroupFileCount(groupId: number): Promise<{ fileCount: number; maxCount: number }> { return fetchGroupFileCount_(this, groupId); }
 
+  async getGroupAtAllRemain(groupId: number) {
+    return getGroupAtAllRemain_(this, groupId);
+  }
   // extend
   async setOnlineStatus(status: number, extStatus: number = 0, batteryStatus: number = 100): Promise<void> {
     return setOnlineStatus_(this, status, extStatus, batteryStatus);

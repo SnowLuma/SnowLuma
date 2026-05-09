@@ -79,6 +79,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     setGroupName: (groupId, name) => bridge.setGroupName(groupId, name),
     setGroupLeave: (groupId) => bridge.leaveGroup(groupId),
     setGroupSpecialTitle: (groupId, userId, title) => bridge.setGroupSpecialTitle(groupId, userId, title),
+    getGroupAtAllRemain: (groupId) => bridge.getGroupAtAllRemain(groupId),
     // Group file
     uploadGroupFile: async (groupId, file, name, folderId, uploadFile) => {
       const result = await bridge.uploadGroupFile(groupId, file, name ?? '', folderId ?? '/', uploadFile ?? true);

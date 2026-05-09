@@ -893,3 +893,19 @@ export const Oidb0x7edRespSchema = {
   userLikeInfos: { field: 1, type: 'repeated_message' as const, schema: Oidb0x7edUserLikeInfoSchema },
 } satisfies ProtoSchema;
 
+
+export const Oidb0x8a7ReqSchema = {
+  basic1:  { field: 1, type: 'uint32' as const },
+  basic2:  { field: 2, type: 'uint32' as const },
+  basic3:  { field: 3, type: 'uint32' as const },
+  uin:     { field: 4, type: 'uint64' as const },
+  groupId: { field: 5, type: 'uint64' as const },
+  type:    { field: 12, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
+export const Oidb0x8a7RespSchema = {
+  uinRemain:   { field: 2, type: 'uint32' as const },
+  groupRemain: { field: 3, type: 'uint32' as const },
+  msg:         { field: 4, type: 'string' as const },
+  canAtAll:    { field: 6, type: 'bool' as const },
+} satisfies ProtoSchema;

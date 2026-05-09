@@ -49,6 +49,8 @@ import {
   OidbSetProfileSchema,
   Oidb0x7edReqSchema,
   Oidb0x7edRespSchema,
+  Oidb0x8a7RespSchema,
+  Oidb0x8a7ReqSchema
 } from './proto/oidb-action';
 import { FileUploadExtSchema } from './proto/highway';
 import {
@@ -1428,4 +1430,37 @@ export async function getProfileLike(
   };
 }
 
+export async function getGroupAtAllRemain(
+    bridge: Bridge,
+    groupId: number
+) {
+  const req = {
+    basic1: 1,
+    basic2: 2,
+    basic3: 1,
+    uin: BigInt(bridge.qqInfo.uin),
+    groupId: BigInt(groupId),
+    type: 0,
+  };
+
+  const result = await sendOidbAndDecode<any>(
+      bridge,
+      'OidbSvcTrpcTcp.0x8a7_0',
+      0x8A7,
+      0,
+      req,
+      Oidb0x8a7ReqSchema,
+      Oidb0x8a7RespSchema
+  );
+
+  if (!result) {
+    throw new Error('get group at all remain result empty');
+  }
+
+  return {
+    can_at_all: !!result.canAtAll,
+    remain_at_all_count_for_group: Number(result.groupRemain || 0), // 【修改点】：防止底层库将 uint32 也返回成 BigInt 导致无法被 JSON 序列化
+    remain_at_all_count_for_uin: Number(result.uinRemain || 0)      // 【修改点】：同上
+  };
+}
 
