@@ -71,6 +71,7 @@ import {
   getGroupAtAllRemain as getGroupAtAllRemain_,
   getUnidirectionalFriendList as getUnidirectionalFriendList_,
   setSelfLongNick as setSelfLongNick_,
+  setInputStatus as setInputStatus_,
 } from './bridge-actions';
 import {
   getGroupHonorInfo as getGroupHonorInfo_,
@@ -519,6 +520,9 @@ export class Bridge {
   }
   async setSelfLongNick(longNick: string) {
     return setSelfLongNick_(this, longNick);
+  }
+  async setInputStatus(userId: number, eventType: number) {
+    return setInputStatus_(this, userId, eventType);
   }
 }
 

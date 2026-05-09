@@ -109,6 +109,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     getProfileLike: (userId?: number, start: number = 0, limit: number = 10) => bridge.getProfileLike(userId, start, limit),
     getUnidirectionalFriendList: () => bridge.getUnidirectionalFriendList(),
     setSelfLongNick: (longNick) => bridge.setSelfLongNick(longNick),
+    setInputStatus: (userId, eventType) => bridge.setInputStatus(userId, eventType),
     // New extended
     setGroupReaction: (groupId, sequence, code, isSet) => bridge.setGroupReaction(groupId, sequence, code, isSet),
     handleDeleteFriend: (userId, block) => bridge.deleteFriend(userId, !!block),

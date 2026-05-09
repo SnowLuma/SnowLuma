@@ -55,6 +55,8 @@ import {
   Oidb0xe17ReqSchema,
   Oidb0x112aReqSchema,
   Oidb0x112aRespSchema,
+  Oidb0xcd4ReqSchema,
+  Oidb0xcd4RespSchema,
 } from './proto/oidb-action';
 import { FileUploadExtSchema } from './proto/highway';
 import {
@@ -1520,6 +1522,36 @@ export async function setSelfLongNick(
       req,
       Oidb0x112aReqSchema,
       Oidb0x112aRespSchema
+  );
+}
+
+export async function setInputStatus(
+    bridge: Bridge,
+    userId: number,
+    eventType: number
+) {
+  const targetUid = await resolveUserUid(bridge, userId);
+
+  if (!targetUid) {
+    throw new Error('target uid not found');
+  }
+
+  const req = {
+    reqBody: {
+      uid: targetUid,
+      chatType: 0,
+      eventType: eventType
+    }
+  };
+
+  await sendOidbAndDecode<any>(
+      bridge,
+      'OidbSvcTrpcTcp.0xcd4_1',
+      0xCD4,
+      1,
+      req,
+      Oidb0xcd4ReqSchema,
+      Oidb0xcd4RespSchema
   );
 }
 

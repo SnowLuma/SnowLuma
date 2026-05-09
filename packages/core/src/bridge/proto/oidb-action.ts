@@ -930,4 +930,16 @@ export const Oidb0x112aReqSchema = {
 
 export const Oidb0x112aRespSchema = {} satisfies ProtoSchema;
 
+export const Oidb0xcd4ReqBodySchema = {
+  uid:       { field: 1, type: 'string' as const },
+  chatType:  { field: 2, type: 'uint32' as const }, // 默认为 0
+  eventType: { field: 3, type: 'uint32' as const }, // 输入状态 1 等
+} satisfies ProtoSchema;
+
+export const Oidb0xcd4ReqSchema = {
+  reqBody: { field: 1, type: 'message' as const, schema: Oidb0xcd4ReqBodySchema },
+} satisfies ProtoSchema;
+
+export const Oidb0xcd4RespSchema = {} satisfies ProtoSchema;
+
 

@@ -715,8 +715,29 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
   });
 
-  h.registerAction('set_input_status', async () => {
-    return okResponse();
+  h.registerAction('set_input_status', async (params) => {
+    const userId = asNumber(params.user_id);
+    const eventType = asNumber(params.event_type);
+
+    if (!userId) {
+      return failedResponse(RETCODE.BAD_REQUEST, 'invalid user_id');
+    }
+
+    // event_type 有可能是 0 (取消输入状态)，所以这里严格判断 undefined 或 isNaN
+    if (eventType === undefined || isNaN(eventType)) {
+      return failedResponse(RETCODE.BAD_REQUEST, 'invalid event_type');
+    }
+
+    if (!ctx.setInputStatus) {
+      return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+    }
+
+    try {
+      await ctx.setInputStatus(userId, eventType);
+      return okResponse({});
+    } catch (e) {
+      return failedResponse(RETCODE.ACTION_FAILED, String(e));
+    }
   });
 
   h.registerAction('translate_en2zh', async () => {
