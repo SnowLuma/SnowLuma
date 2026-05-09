@@ -1,8 +1,16 @@
 import { RequestUtil, cookieToString, getBknFromCookie } from './request-util';
+import https from 'node:https';
+import { readFileSync } from 'node:fs';
 
 export interface SetNoticeRetSuccess {
     ec?: number;
     em?: string;
+    [key: string]: any;
+}
+
+export interface UploadImageRetSuccess {
+    ec?: number;
+    id?: string;
     [key: string]: any;
 }
 
@@ -44,33 +52,41 @@ export async function setGroupNoticeWebAPI(
     imgHeight: number = 300
 ): Promise<SetNoticeRetSuccess | undefined> {
     try {
+        const bkn = getBknFromCookie(cookieObject);
         const settings = JSON.stringify({
             is_show_edit_card: isShowEditCard,
             tip_window_type: tipWindowType,
             confirm_required: confirmRequired,
         });
 
-        const externalParam = {
-            pic: picId,
-            imgWidth: imgWidth.toString(),
-            imgHeight: imgHeight.toString(),
-        };
-
-        const url = `https://web.qun.qq.com/cgi-bin/announce/add_qun_notice?${new URLSearchParams({
-            bkn: getBknFromCookie(cookieObject),
+        const bodyParams: Record<string, string> = {
             qid: groupCode,
+            bkn: bkn,
             text: content,
             pinned: pinned.toString(),
             type: type.toString(),
             settings,
-            ...(picId === '' ? {} : externalParam),
-        }).toString()}`;
+        };
+
+        if (picId !== '') {
+            bodyParams.pic = picId;
+            bodyParams.imgWidth = imgWidth.toString();
+            bodyParams.imgHeight = imgHeight.toString();
+        }
+
+        const url = `https://web.qun.qq.com/cgi-bin/announce/add_qun_notice?bkn=${bkn}`;
+        const body = new URLSearchParams(bodyParams).toString();
 
         const ret = await RequestUtil.HttpGetJson<SetNoticeRetSuccess>(
             url,
-            'POST', // 注意这里必须是 POST
-            '',
-            { Cookie: cookieToString(cookieObject) }
+            'POST',
+            body,
+            {
+                Cookie: cookieToString(cookieObject),
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            true,
+            false
         );
         return ret;
     } catch (e) {
@@ -108,5 +124,100 @@ export async function getGroupNoticeWebAPI(
         return ret?.ec === 0 ? ret : undefined;
     } catch {
         return undefined;
+    }
+}
+
+/**
+ * 上传群公告图片 Web API
+ */
+export async function uploadGroupNoticeImage(
+    cookieObject: Record<string, string>,
+    imageBuffer: Buffer
+): Promise<{ id: string; width: number; height: number } | undefined> {
+    try {
+        const bkn = getBknFromCookie(cookieObject);
+        const boundary = `-----------------------------${Date.now()}`;
+
+        const parts: Buffer[] = [];
+        parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="bkn"\r\n\r\n${bkn}\r\n`));
+        parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="source"\r\n\r\ntroopNotice\r\n`));
+        parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="m"\r\n\r\n0\r\n`));
+        parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="pic_up"; filename="image.jpg"\r\nContent-Type: image/jpeg\r\n\r\n`));
+        parts.push(imageBuffer);
+        parts.push(Buffer.from(`\r\n--${boundary}--\r\n`));
+
+        const body = Buffer.concat(parts);
+
+        const url = 'https://web.qun.qq.com/cgi-bin/announce/upload_img';
+        const options = {
+            hostname: 'web.qun.qq.com',
+            path: '/cgi-bin/announce/upload_img',
+            method: 'POST',
+            headers: {
+                'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                'Content-Length': body.length,
+                'Cookie': cookieToString(cookieObject),
+            },
+        };
+
+        return new Promise((resolve, reject) => {
+            const req = https.request(options, (res) => {
+                let data = '';
+                res.on('data', (chunk) => { data += chunk; });
+                res.on('end', () => {
+                    try {
+                        const result = JSON.parse(data) as UploadImageRetSuccess;
+                        if (result.ec === 0 && result.id) {
+                            const idObj = JSON.parse(result.id);
+                            resolve({ id: idObj.id, width: parseInt(idObj.w), height: parseInt(idObj.h) });
+                        } else {
+                            resolve(undefined);
+                        }
+                    } catch {
+                        resolve(undefined);
+                    }
+                });
+            });
+            req.on('error', () => resolve(undefined));
+            req.write(body);
+            req.end();
+        });
+    } catch {
+        return undefined;
+    }
+}
+
+/**
+ * 删除群公告 Web API
+ */
+export async function deleteGroupNotice(
+    cookieObject: Record<string, string>,
+    groupCode: string,
+    fid: string
+): Promise<boolean> {
+    try {
+        const bkn = getBknFromCookie(cookieObject);
+        const params = new URLSearchParams({
+            bkn: bkn,
+            fid: fid,
+            qid: groupCode,
+        }).toString();
+
+        const url = `https://web.qun.qq.com/cgi-bin/announce/del_feed?bkn=${bkn}`;
+
+        const ret = await RequestUtil.HttpGetJson<SetNoticeRetSuccess>(
+            url,
+            'POST',
+            params,
+            {
+                Cookie: cookieToString(cookieObject),
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            true,
+            false
+        );
+        return ret?.ec === 0;
+    } catch {
+        return false;
     }
 }

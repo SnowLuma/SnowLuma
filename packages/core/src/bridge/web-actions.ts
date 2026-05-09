@@ -12,7 +12,7 @@ import {
 import { RequestUtil } from './web/request-util';
 import { getHonorListWebAPI, WebHonorType } from './web/group-honor';
 import { getGroupEssenceMsg, getGroupEssenceMsgAll } from './web/group-essence';
-import { setGroupNoticeWebAPI, getGroupNoticeWebAPI } from './web/group-notice';
+import { setGroupNoticeWebAPI, getGroupNoticeWebAPI, uploadGroupNoticeImage, deleteGroupNotice } from './web/group-notice';
 
 export async function forceFetchClientKey(bridge: Bridge) {
   const resp = await sendOidbAndDecode<any>(
@@ -189,15 +189,25 @@ export async function sendGroupNotice(
   let imgWidth = 540;
   let imgHeight = 300;
 
+  if (options?.image) {
+    let imageBuffer: Buffer;
 
-  // 暂时不知道怎么实现，后面有空再看看
+    if (options.image.startsWith('http://') || options.image.startsWith('https://')) {
+      const response = await fetch(options.image);
+      if (!response.ok) throw new Error(`Failed to download image: ${response.status}`);
+      imageBuffer = Buffer.from(await response.arrayBuffer());
+    } else {
+      const { readFileSync } = await import('fs');
+      imageBuffer = readFileSync(options.image);
+    }
 
-  // if (options?.image) {
-  //   const picInfo = await bridge.uploadGroupBulletinPic(groupCode, options.image);
-  //   picId = picInfo.id;
-  //   imgWidth = picInfo.width;
-  //   imgHeight = picInfo.height;
-  // }
+    const picInfo = await uploadGroupNoticeImage(cookieObject, imageBuffer);
+    if (picInfo) {
+      picId = picInfo.id;
+      imgWidth = picInfo.width;
+      imgHeight = picInfo.height;
+    }
+  }
 
   const ret = await setGroupNoticeWebAPI(
       cookieObject,
@@ -259,6 +269,12 @@ export async function getGroupNotice(bridge: Bridge, groupId: number) {
   }
 
   return retNotices;
+}
+
+export async function deleteGroupNoticeByFid(bridge: Bridge, groupId: number, fid: string): Promise<boolean> {
+  const groupCode = groupId.toString();
+  const cookieObject = await getCookies(bridge, 'qun.qq.com');
+  return await deleteGroupNotice(cookieObject, groupCode, fid);
 }
 
 /**

@@ -239,16 +239,13 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
       return failedResponse(RETCODE.BAD_REQUEST, 'group_id and content are required');
     }
 
-    if (image) {
-      return failedResponse(RETCODE.ACTION_FAILED, 'not implemented: image upload for group notice is not supported yet');
-    }
-
     if (!ctx.sendGroupNotice) {
       return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
     }
 
     try {
       const options = {
+        image: image || undefined,
         pinned: params.pinned !== undefined ? Number(params.pinned) : 0,
         type: params.type !== undefined ? Number(params.type) : 1,
         confirm_required: params.confirm_required !== undefined ? Number(params.confirm_required) : 1,
@@ -277,8 +274,28 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
   });
 
-  h.registerAction('_del_group_notice', async () => {
-    return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
+  h.registerAction('_del_group_notice', async (params) => {
+    const groupId = asNumber(params.group_id);
+    const fid = asString(params.fid) || asString(params.notice_id);
+
+    if (!groupId || !fid) {
+      return failedResponse(RETCODE.BAD_REQUEST, 'group_id and fid/notice_id are required');
+    }
+
+    if (!ctx.deleteGroupNotice) {
+      return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+    }
+
+    try {
+      const success = await ctx.deleteGroupNotice(groupId, fid);
+      if (success) {
+        return okResponse();
+      } else {
+        return failedResponse(RETCODE.ACTION_FAILED, 'delete failed');
+      }
+    } catch (e) {
+      return failedResponse(RETCODE.ACTION_FAILED, String(e));
+    }
   });
 
   // --- Forward messages ---

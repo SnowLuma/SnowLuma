@@ -85,6 +85,7 @@ import {
   getGroupEssenceAll as getGroupEssenceAll_,
   sendGroupNotice as sendGroupNotice_,
   getGroupNotice as getGroupNotice_,
+  deleteGroupNoticeByFid as deleteGroupNotice_,
   getCookiesStr as getCookiesStr_,
   getCsrfToken as getCsrfToken_,
   getCredentials as getCredentials_,
@@ -500,6 +501,10 @@ export class Bridge {
 
   async getGroupNotice(groupId: number) {
     return getGroupNotice_(this, groupId);
+  }
+
+  async deleteGroupNotice(groupId: number, fid: string): Promise<boolean> {
+    return deleteGroupNotice_(this, groupId, fid);
   }
 
   async fetchGroupFileCount(groupId: number): Promise<{ fileCount: number; maxCount: number }> { return fetchGroupFileCount_(this, groupId); }

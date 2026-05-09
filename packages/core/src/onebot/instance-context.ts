@@ -170,6 +170,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     getGroupEssenceAll: (groupId: number) => bridge.getGroupEssenceAll(groupId),
     sendGroupNotice: (groupId: number, content: string, options?: any) => bridge.sendGroupNotice(groupId, content, options),
     getGroupNotice: (groupId: number) => bridge.getGroupNotice(groupId),
+    deleteGroupNotice: (groupId: number, fid: string) => bridge.deleteGroupNotice(groupId, fid),
     getCookiesStr: (domain: string) => bridge.getCookiesStr(domain),
     getCsrfToken: () => bridge.getCsrfToken(),
     getCredentials: (domain: string) => bridge.getCredentials(domain),
