@@ -176,6 +176,8 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     // Media lookup
     getImageInfo: (file) => handleGetImageInfo(mediaStore, file),
     getRecordInfo: (file) => handleGetRecordInfo(bridge, mediaStore, file),
+    // Avatar
+    setAvatar: (source: string) => bridge.setAvatar(source),
   };
 }
 

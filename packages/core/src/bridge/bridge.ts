@@ -76,6 +76,7 @@ import {
   getMiniAppArk as getMiniAppArk_,
   clickInlineKeyboardButton as clickInlineKeyboardButton_,
   sendGroupSign as sendGroupSign_,
+  setAvatar as setAvatar_,
 } from './bridge-actions';
 import {
   getGroupHonorInfo as getGroupHonorInfo_,
@@ -539,6 +540,9 @@ export class Bridge {
   }
   async sendGroupSign(groupId: number) {
     return sendGroupSign_(this, groupId);
+  }
+  async setAvatar(source: string): Promise<void> {
+    return setAvatar_(this, source);
   }
 }
 

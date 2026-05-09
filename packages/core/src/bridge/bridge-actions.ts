@@ -1720,3 +1720,15 @@ export async function sendGroupSign(
   );
 }
 
+export async function setAvatar(
+  bridge: Bridge,
+  source: string,
+): Promise<void> {
+  const loaded = await loadBinarySource(source, 'avatar');
+  if (!loaded.bytes.length) throw new Error('avatar file is empty');
+
+  const hashes = computeHashes(loaded.bytes);
+  const session = await fetchHighwaySession(bridge);
+  await uploadHighwayHttp(bridge, session, 90, loaded.bytes, hashes.md5, new Uint8Array(0));
+}
+

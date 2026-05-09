@@ -117,6 +117,8 @@ export interface ApiActionContext {
   // Media lookup (populated from previously dispatched message segments)
   getImageInfo?: (file: string) => Promise<JsonObject | null>;
   getRecordInfo?: (file: string) => Promise<JsonObject | null>;
+  // Avatar
+  setAvatar?: (source: string) => Promise<void>;
 }
 
 type ActionHandler = (params: JsonObject) => Promise<import('./types').ApiResponse>;

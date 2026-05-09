@@ -605,6 +605,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
   });
 
+  // todo 我的建议是引入数据库api   纯协议我不知道这种api怎么实现，ntQQ在实现这个方法的时候只进行了数据库查询，完全没碰网络
   h.registerAction('get_recent_contact', async () => {
     return okResponse([]);
   });
@@ -635,7 +636,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
   // --- Additional NapCat-compatible stubs ---
 
-  ///napcat 似乎也用不了，暂时不管了
+  ///napcat 似乎也用不了？？，暂时不管了
   h.registerAction('get_online_clients', async () => {
     return okResponse({ clients: [] });
   });
@@ -711,8 +712,20 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
   });
 
-  h.registerAction('set_qq_avatar', async () => {
-    return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
+  h.registerAction('set_qq_avatar', async (params) => {
+    const file = asString(params.file);
+    if (!file) return failedResponse(RETCODE.BAD_REQUEST, 'file is required');
+
+    if (!ctx.setAvatar) {
+      return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+    }
+
+    try {
+      await ctx.setAvatar(file);
+      return okResponse();
+    } catch (e) {
+      return failedResponse(RETCODE.ACTION_FAILED, String(e));
+    }
   });
 
   h.registerAction('set_input_status', async (params) => {
