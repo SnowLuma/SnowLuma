@@ -69,6 +69,7 @@ import {
   setProfile as setProfile_,
   getProfileLike as getProfileLike_,
   getGroupAtAllRemain as getGroupAtAllRemain_,
+  getUnidirectionalFriendList as getUnidirectionalFriendList_,
 } from './bridge-actions';
 import {
   getGroupHonorInfo as getGroupHonorInfo_,
@@ -511,6 +512,9 @@ export class Bridge {
   async getCredentials(domain: string) { return getCredentials_(this, domain); }
   async getProfileLike(userId?: number, start?: number, limit?: number) {
     return getProfileLike_(this, userId, start, limit);
+  }
+  async getUnidirectionalFriendList() {
+    return getUnidirectionalFriendList_(this);
   }
 }
 

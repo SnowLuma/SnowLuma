@@ -909,3 +909,11 @@ export const Oidb0x8a7RespSchema = {
   msg:         { field: 4, type: 'string' as const },
   canAtAll:    { field: 6, type: 'bool' as const },
 } satisfies ProtoSchema;
+
+export const Oidb0xe17ReqSchema = {
+  jsonBody: { field: 3, type: 'string' as const },
+} satisfies ProtoSchema;
+
+export const Oidb0xe17RespSchema = {
+  jsonBody: { field: 4, type: 'string' as const },
+} satisfies ProtoSchema;

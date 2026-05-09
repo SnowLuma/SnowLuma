@@ -50,7 +50,9 @@ import {
   Oidb0x7edReqSchema,
   Oidb0x7edRespSchema,
   Oidb0x8a7RespSchema,
-  Oidb0x8a7ReqSchema
+  Oidb0x8a7ReqSchema,
+  Oidb0xe17RespSchema,
+  Oidb0xe17ReqSchema,
 } from './proto/oidb-action';
 import { FileUploadExtSchema } from './proto/highway';
 import {
@@ -1462,5 +1464,37 @@ export async function getGroupAtAllRemain(
     remain_at_all_count_for_group: Number(result.groupRemain || 0), // 【修改点】：防止底层库将 uint32 也返回成 BigInt 导致无法被 JSON 序列化
     remain_at_all_count_for_uin: Number(result.uinRemain || 0)      // 【修改点】：同上
   };
+}
+
+export async function getUnidirectionalFriendList(
+    bridge: Bridge
+) {
+  const reqObj = {
+    uint64_uin: String(bridge.qqInfo.uin),
+    uint64_top: 0,
+    uint32_req_num: 99,
+    bytes_cookies: ""
+  };
+
+  const req = {
+    jsonBody: JSON.stringify(reqObj)
+  };
+
+  const result = await sendOidbAndDecode<any>(
+      bridge,
+      'MQUpdateSvc_com_qq_ti.web.OidbSvc.0xe17_0',
+      0xE17,
+      0,
+      req,
+      Oidb0xe17ReqSchema,
+      Oidb0xe17RespSchema
+  );
+
+  if (!result || !result.jsonBody) {
+    throw new Error('get unidirectional friend list empty');
+  }
+
+  const parsed = JSON.parse(result.jsonBody);
+  return parsed.rpt_block_list || [];
 }
 

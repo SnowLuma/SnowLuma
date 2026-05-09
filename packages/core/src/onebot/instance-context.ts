@@ -107,6 +107,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     setEssenceMsg: (messageId) => handleSetEssence(bridge, messageStore, messageId, true),
     deleteEssenceMsg: (messageId) => handleSetEssence(bridge, messageStore, messageId, false),
     getProfileLike: (userId?: number, start: number = 0, limit: number = 10) => bridge.getProfileLike(userId, start, limit),
+    getUnidirectionalFriendList: () => bridge.getUnidirectionalFriendList(),
     // New extended
     setGroupReaction: (groupId, sequence, code, isSet) => bridge.setGroupReaction(groupId, sequence, code, isSet),
     handleDeleteFriend: (userId, block) => bridge.deleteFriend(userId, !!block),

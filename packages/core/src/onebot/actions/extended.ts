@@ -672,7 +672,16 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   });
 
   h.registerAction('get_unidirectional_friend_list', async () => {
-    return okResponse([]);
+    if (!ctx.getUnidirectionalFriendList) {
+      return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+    }
+
+    try {
+      const data = await ctx.getUnidirectionalFriendList();
+      return okResponse(data);
+    } catch (e) {
+      return failedResponse(RETCODE.ACTION_FAILED, String(e));
+    }
   });
 
   h.registerAction('set_self_longnick', async () => {
