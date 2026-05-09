@@ -992,3 +992,19 @@ export const MiniAppShareRespSchema = {
   body:   { field: 4, type: 'message' as const, schema: MiniAppShareRespBodySchema },
 } satisfies ProtoSchema;
 
+export const Oidb0x112eReqSchema = {
+  botAppid:     { field: 3, type: 'uint64' as const },
+  msgSeq:       { field: 4, type: 'uint64' as const },
+  buttonId:     { field: 5, type: 'string' as const },
+  callbackData: { field: 6, type: 'string' as const },
+  unknown7:     { field: 7, type: 'uint32' as const },
+  groupId:      { field: 8, type: 'uint64' as const },
+  unknown9:     { field: 9, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
+export const Oidb0x112eRespSchema = {
+  result:     { field: 3, type: 'uint32' as const },
+  promptText: { field: 4, type: 'string' as const },
+  errMsg:     { field: 5, type: 'string' as const },
+} satisfies ProtoSchema;
+

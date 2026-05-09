@@ -74,6 +74,7 @@ import {
   setInputStatus as setInputStatus_,
   translateEn2Zh as translateEn2Zh_,
   getMiniAppArk as getMiniAppArk_,
+  clickInlineKeyboardButton as clickInlineKeyboardButton_,
 } from './bridge-actions';
 import {
   getGroupHonorInfo as getGroupHonorInfo_,
@@ -531,6 +532,9 @@ export class Bridge {
   }
   async getMiniAppArk(type: string, title: string, desc: string, picUrl: string, jumpUrl: string) {
     return getMiniAppArk_(this, type, title, desc, picUrl, jumpUrl);
+  }
+  async clickInlineKeyboardButton(groupId: number, botAppid: number, buttonId: string, callbackData: string, msgSeq: number) {
+    return clickInlineKeyboardButton_(this, groupId, botAppid, buttonId, callbackData, msgSeq);
   }
 }
 

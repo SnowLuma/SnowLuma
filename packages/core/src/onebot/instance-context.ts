@@ -112,6 +112,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     setInputStatus: (userId, eventType) => bridge.setInputStatus(userId, eventType),
     translateEn2Zh: (words) => bridge.translateEn2Zh(words),
     getMiniAppArk: (type, title, desc, picUrl, jumpUrl) => bridge.getMiniAppArk(type, title, desc, picUrl, jumpUrl),
+    clickInlineKeyboardButton: (groupId, botAppid, buttonId, callbackData, msgSeq) => bridge.clickInlineKeyboardButton(groupId, botAppid, buttonId, callbackData, msgSeq),
     // New extended
     setGroupReaction: (groupId, sequence, code, isSet) => bridge.setGroupReaction(groupId, sequence, code, isSet),
     handleDeleteFriend: (userId, block) => bridge.deleteFriend(userId, !!block),

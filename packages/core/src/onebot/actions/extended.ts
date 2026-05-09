@@ -797,8 +797,33 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
   });
 
-  h.registerAction('click_inline_keyboard_button', async () => {
-    return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
+  h.registerAction('click_inline_keyboard_button', async (params) => {
+    const groupId = asNumber(params.group_id);
+    const botAppid = asNumber(params.bot_appid);
+    const buttonId = params.button_id;
+    const callbackData = params.callback_data || '';
+    const msgSeq = asNumber(params.msg_seq);
+
+    if (!groupId || !botAppid || !buttonId || !msgSeq) {
+      return failedResponse(RETCODE.BAD_REQUEST, 'missing required parameters');
+    }
+
+    if (!ctx.clickInlineKeyboardButton) {
+      return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+    }
+
+    try {
+      const data = await ctx.clickInlineKeyboardButton(
+          groupId,
+          botAppid,
+          String(buttonId),
+          String(callbackData),
+          msgSeq
+      );
+      return okResponse(data);
+    } catch (e) {
+      return failedResponse(RETCODE.ACTION_FAILED, String(e));
+    }
   });
 
   h.registerAction('set_group_sign', async () => {

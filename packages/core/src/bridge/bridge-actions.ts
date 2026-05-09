@@ -61,6 +61,8 @@ import {
   Oidb0x990RespSchema,
   MiniAppShareReqSchema,
   MiniAppShareRespSchema,
+  Oidb0x112eReqSchema,
+  Oidb0x112eRespSchema,
 } from './proto/oidb-action';
 import { FileUploadExtSchema } from './proto/highway';
 import {
@@ -1649,3 +1651,46 @@ export async function getMiniAppArk(
     }
   };
 }
+
+export async function clickInlineKeyboardButton(
+    bridge: Bridge,
+    groupId: number,
+    botAppid: number,
+    buttonId: string,
+    callbackData: string,
+    msgSeq: number
+) {
+  const req = {
+    botAppid: BigInt(botAppid),
+    msgSeq: BigInt(msgSeq),
+    buttonId: String(buttonId),
+    callbackData: String(callbackData || ''),
+    unknown7: 0,
+    groupId: BigInt(groupId),
+    unknown9: 1,
+  };
+
+  const result = await sendOidbAndDecode<any>(
+      bridge,
+      'OidbSvcTrpcTcp.0x112e_1',
+      0x112E,
+      1,
+      req,
+      Oidb0x112eReqSchema,
+      Oidb0x112eRespSchema
+  );
+
+  if (!result) {
+    throw new Error('click inline keyboard button result empty');
+  }
+
+  return {
+    result: Number(result.result || 0),
+    errMsg: result.errMsg || '',
+    status: 0,
+    promptText: result.promptText || '',
+    promptType: 0,
+    promptIcon: 0
+  };
+}
+
