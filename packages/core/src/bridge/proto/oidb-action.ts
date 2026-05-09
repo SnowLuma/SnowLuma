@@ -1008,3 +1008,14 @@ export const Oidb0x112eRespSchema = {
   errMsg:     { field: 5, type: 'string' as const },
 } satisfies ProtoSchema;
 
+export const Oidb0xeb7SignInInfoSchema = {
+  uin:     { field: 1, type: 'string' as const },
+  groupId: { field: 2, type: 'string' as const },
+  version: { field: 3, type: 'string' as const },
+} satisfies ProtoSchema;
+
+export const Oidb0xeb7ReqSchema = {
+  signInInfo: { field: 2, type: 'message' as const, schema: Oidb0xeb7SignInInfoSchema },
+} satisfies ProtoSchema;
+
+export const Oidb0xeb7RespSchema = {} satisfies ProtoSchema;

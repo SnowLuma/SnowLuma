@@ -826,13 +826,27 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
   });
 
-  h.registerAction('set_group_sign', async () => {
-    return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
-  });
+  const handleGroupSign = async (params: any) => {
+    const groupId = asNumber(params.group_id);
 
-  h.registerAction('send_group_sign', async () => {
-    return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
-  });
+    if (!groupId) {
+      return failedResponse(RETCODE.BAD_REQUEST, 'invalid group_id');
+    }
+
+    if (!ctx.sendGroupSign) {
+      return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+    }
+
+    try {
+      await ctx.sendGroupSign(groupId);
+      return okResponse({});
+    } catch (e) {
+      return failedResponse(RETCODE.ACTION_FAILED, String(e));
+    }
+  };
+
+  h.registerAction('set_group_sign', handleGroupSign);
+  h.registerAction('send_group_sign', handleGroupSign);
 
   h.registerAction('get_group_info_ex', async (params) => {
     const groupId = asNumber(params.group_id);

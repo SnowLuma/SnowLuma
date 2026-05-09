@@ -75,6 +75,7 @@ import {
   translateEn2Zh as translateEn2Zh_,
   getMiniAppArk as getMiniAppArk_,
   clickInlineKeyboardButton as clickInlineKeyboardButton_,
+  sendGroupSign as sendGroupSign_,
 } from './bridge-actions';
 import {
   getGroupHonorInfo as getGroupHonorInfo_,
@@ -535,6 +536,9 @@ export class Bridge {
   }
   async clickInlineKeyboardButton(groupId: number, botAppid: number, buttonId: string, callbackData: string, msgSeq: number) {
     return clickInlineKeyboardButton_(this, groupId, botAppid, buttonId, callbackData, msgSeq);
+  }
+  async sendGroupSign(groupId: number) {
+    return sendGroupSign_(this, groupId);
   }
 }
 

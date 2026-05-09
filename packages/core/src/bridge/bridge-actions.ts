@@ -63,6 +63,8 @@ import {
   MiniAppShareRespSchema,
   Oidb0x112eReqSchema,
   Oidb0x112eRespSchema,
+  Oidb0xeb7ReqSchema,
+  Oidb0xeb7RespSchema,
 } from './proto/oidb-action';
 import { FileUploadExtSchema } from './proto/highway';
 import {
@@ -1692,5 +1694,29 @@ export async function clickInlineKeyboardButton(
     promptType: 0,
     promptIcon: 0
   };
+}
+
+
+export async function sendGroupSign(
+    bridge: Bridge,
+    groupId: number
+) {
+  const req = {
+    signInInfo: {
+      uin: String(bridge.qqInfo.uin),
+      groupId: String(groupId),
+      version: "9.0.90"
+    }
+  };
+
+  await sendOidbAndDecode<any>(
+      bridge,
+      'OidbSvcTrpcTcp.0xEB7_1',
+      0xEB7,
+      1,
+      req,
+      Oidb0xeb7ReqSchema,
+      Oidb0xeb7RespSchema
+  );
 }
 

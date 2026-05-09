@@ -85,6 +85,7 @@ export interface ApiActionContext {
   translateEn2Zh?: (words: string[]) => Promise<string[]>;
   getMiniAppArk?: (type: string, title: string, desc: string, picUrl: string, jumpUrl: string) => Promise<any>;
   clickInlineKeyboardButton?: (groupId: number, botAppid: number, buttonId: string, callbackData: string, msgSeq: number) => Promise<any>;
+  sendGroupSign?: (groupId: number) => Promise<void>;
   // New context methods
   setGroupReaction?: (groupId: number, sequence: number, code: string, isSet: boolean) => Promise<void>;
   handleDeleteFriend?: (userId: number, block?: boolean) => Promise<void>;
