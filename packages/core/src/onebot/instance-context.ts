@@ -72,8 +72,11 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     getStrangerInfo: (userId) => handleGetStrangerInfo(bridge, qqInfo, userId),
     // Group admin
     setGroupKick: (groupId, userId, reject) => bridge.kickGroupMember(groupId, userId, reject),
+    setGroupKickMembers: (groupId, userIds, reject) => bridge.kickGroupMembers(groupId, userIds, reject),
     setGroupBan: (groupId, userId, duration) => bridge.muteGroupMember(groupId, userId, duration),
     setGroupWholeBan: (groupId, enable) => bridge.muteGroupAll(groupId, enable),
+    setGroupAddOption: (groupId, addType) => bridge.setGroupAddOption(groupId, addType),
+    setGroupSearch: (groupId) => bridge.setGroupSearch(groupId),
     setGroupAdmin: (groupId, userId, enable) => bridge.setGroupAdmin(groupId, userId, enable),
     setGroupCard: (groupId, userId, card) => bridge.setGroupCard(groupId, userId, card),
     setGroupName: (groupId, name) => bridge.setGroupName(groupId, name),

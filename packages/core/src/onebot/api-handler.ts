@@ -48,8 +48,11 @@ export interface ApiActionContext {
   getStrangerInfo?: (userId: number) => Promise<JsonObject | null>;
   // Group admin
   setGroupKick?: (groupId: number, userId: number, rejectAdd: boolean) => Promise<void>;
+  setGroupKickMembers?: (groupId: number, userIds: number[], rejectAdd: boolean) => Promise<void>;
   setGroupBan?: (groupId: number, userId: number, duration: number) => Promise<void>;
   setGroupWholeBan?: (groupId: number, enable: boolean) => Promise<void>;
+  setGroupAddOption?: (groupId: number, addType: number) => Promise<void>;
+  setGroupSearch?: (groupId: number) => Promise<void>;
   setGroupAdmin?: (groupId: number, userId: number, enable: boolean) => Promise<void>;
   setGroupCard?: (groupId: number, userId: number, card: string) => Promise<void>;
   setGroupName?: (groupId: number, name: string) => Promise<void>;

@@ -13,6 +13,16 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return okResponse();
   });
 
+  h.registerAction('set_group_kick_members', async (params) => {
+    const groupId = asNumber(params.group_id);
+    const userIds = Array.isArray(params.user_id) ? params.user_id.map(asNumber).filter(Boolean) : [];
+    const reject = asBoolean(params.reject_add_request, false);
+    if (!groupId || userIds.length === 0) return failedResponse(RETCODE.BAD_REQUEST, 'group_id and user_id array are required');
+    if (!ctx.setGroupKickMembers) return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+    await ctx.setGroupKickMembers(groupId, userIds, reject);
+    return okResponse();
+  });
+
   h.registerAction('set_group_ban', async (params) => {
     const groupId = asNumber(params.group_id);
     const userId = asNumber(params.user_id);
@@ -29,6 +39,23 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
     if (!ctx.setGroupWholeBan) return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
     await ctx.setGroupWholeBan(groupId, enable);
+    return okResponse();
+  });
+
+  h.registerAction('set_group_add_option', async (params) => {
+    const groupId = asNumber(params.group_id);
+    const addType = asNumber(params.add_type);
+    if (!groupId || addType === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'group_id and add_type are required');
+    if (!ctx.setGroupAddOption) return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+    await ctx.setGroupAddOption(groupId, addType);
+    return okResponse();
+  });
+
+  h.registerAction('set_group_search', async (params) => {
+    const groupId = asNumber(params.group_id);
+    if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
+    if (!ctx.setGroupSearch) return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+    await ctx.setGroupSearch(groupId);
     return okResponse();
   });
 

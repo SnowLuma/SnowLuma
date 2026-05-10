@@ -13,6 +13,8 @@ import { PushMsgSchema } from './proto/message';
 import {
   OidbMuteMemberSchema,
   OidbMuteAllSchema,
+  Oidb0x89a_0AddOptionSchema,
+  Oidb0x89a_0SearchSchema,
   OidbKickMemberSchema,
   OidbLeaveGroupSchema,
   OidbFriendRequestActionSchema,
@@ -49,6 +51,8 @@ import {
   OidbSetProfileSchema,
   Oidb0x7edReqSchema,
   Oidb0x7edRespSchema,
+  Oidb0x8a0ReqSchema,
+  Oidb0x8a0RespSchema,
   Oidb0x8a7RespSchema,
   Oidb0x8a7ReqSchema,
   Oidb0xe17RespSchema,
@@ -438,10 +442,26 @@ export async function muteGroupAll(bridge: Bridge, groupId: number, enable: bool
     { groupUin: groupId, muteState: { state: enable ? 0xFFFFFFFF : 0 } }, OidbMuteAllSchema);
 }
 
+export async function setGroupAddOption(bridge: Bridge, groupId: number, addType: number): Promise<void> {
+  await sendOidbAndCheck(bridge, 'OidbSvcTrpcTcp.0x89a_0', 0x89A, 0,
+    { groupUin: BigInt(groupId), settings: { addType }, field12: 0 }, Oidb0x89a_0AddOptionSchema);
+}
+
+export async function setGroupSearch(bridge: Bridge, groupId: number): Promise<void> {
+  await sendOidbAndCheck(bridge, 'OidbSvcTrpcTcp.0x89a_0', 0x89A, 0,
+    { groupUin: BigInt(groupId), settings: new Uint8Array(0), field12: 0 }, Oidb0x89a_0SearchSchema);
+}
+
 export async function kickGroupMember(bridge: Bridge, groupId: number, userId: number, reject: boolean, reason = ''): Promise<void> {
   const uid = await resolveUserUid(bridge, userId, groupId);
   await sendOidbAndCheck(bridge, 'OidbSvcTrpcTcp.0x8a0_1', 0x8A0, 1,
     { groupUin: groupId, targetUid: uid, rejectAddRequest: reject, reason }, OidbKickMemberSchema);
+}
+
+export async function kickGroupMembers(bridge: Bridge, groupId: number, userIds: number[], reject: boolean): Promise<void> {
+  const targetUids = await Promise.all(userIds.map(userId => resolveUserUid(bridge, userId, groupId)));
+  await sendOidbAndCheck(bridge, 'OidbSvcTrpcTcp.0x8a0_1', 0x8A0, 1,
+    { groupId: BigInt(groupId), targetUids, rejectAddRequest: reject ? 1 : 0, kickReason: new Uint8Array(0), field12: 0 }, Oidb0x8a0ReqSchema);
 }
 
 export async function leaveGroup(bridge: Bridge, groupId: number): Promise<void> {

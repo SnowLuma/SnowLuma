@@ -30,7 +30,10 @@ import type { WebHonorType } from './web/group-honor';
 import {
   muteGroupMember as muteGroupMember_,
   muteGroupAll as muteGroupAll_,
+  setGroupAddOption as setGroupAddOption_,
+  setGroupSearch as setGroupSearch_,
   kickGroupMember as kickGroupMember_,
+  kickGroupMembers as kickGroupMembers_,
   leaveGroup as leaveGroup_,
   setGroupAdmin as setGroupAdmin_,
   setGroupCard as setGroupCard_,
@@ -512,7 +515,10 @@ export class Bridge {
 
   async muteGroupMember(groupId: number, userId: number, duration: number): Promise<void> { return muteGroupMember_(this, groupId, userId, duration); }
   async muteGroupAll(groupId: number, enable: boolean): Promise<void> { return muteGroupAll_(this, groupId, enable); }
+  async setGroupAddOption(groupId: number, addType: number): Promise<void> { return setGroupAddOption_(this, groupId, addType); }
+  async setGroupSearch(groupId: number): Promise<void> { return setGroupSearch_(this, groupId); }
   async kickGroupMember(groupId: number, userId: number, reject: boolean, reason = ''): Promise<void> { return kickGroupMember_(this, groupId, userId, reject, reason); }
+  async kickGroupMembers(groupId: number, userIds: number[], reject: boolean): Promise<void> { return kickGroupMembers_(this, groupId, userIds, reject); }
   async leaveGroup(groupId: number): Promise<void> { return leaveGroup_(this, groupId); }
   async setGroupAdmin(groupId: number, userId: number, enable: boolean): Promise<void> { return setGroupAdmin_(this, groupId, userId, enable); }
   async setGroupCard(groupId: number, userId: number, card: string): Promise<void> { return setGroupCard_(this, groupId, userId, card); }
