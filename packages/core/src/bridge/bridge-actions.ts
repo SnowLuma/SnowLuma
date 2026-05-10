@@ -53,6 +53,8 @@ import {
   Oidb0x7edRespSchema,
   Oidb0x8a0ReqSchema,
   Oidb0x8a0RespSchema,
+  Oidb0xf16ReqSchema,
+  Oidb0xf16RespSchema,
   Oidb0x8a7RespSchema,
   Oidb0x8a7ReqSchema,
   Oidb0xe17RespSchema,
@@ -69,6 +71,8 @@ import {
   Oidb0x112eRespSchema,
   Oidb0xeb7ReqSchema,
   Oidb0xeb7RespSchema,
+  FaceroamOpReqSchema,
+  FaceroamOpRespSchema,
 } from './proto/oidb-action';
 import { FileUploadExtSchema } from './proto/highway';
 import {
@@ -409,6 +413,11 @@ export async function setFriendRemark(bridge: Bridge, userId: number, remark: st
   const uid = await resolveUserUid(bridge, userId);
   await sendOidbAndCheck(bridge, 'OidbSvcTrpcTcp.0xb6e_2', 0xB6E, 2,
     { targetUid: uid, remark }, OidbSetFriendRemarkSchema);
+}
+
+export async function setGroupRemark(bridge: Bridge, groupId: number, remark: string): Promise<void> {
+  await sendOidbAndCheck(bridge, 'OidbSvcTrpcTcp.0xf16_1', 0xF16, 1,
+    { inner: { groupId: BigInt(groupId), remark }, field12: 0 }, Oidb0xf16ReqSchema);
 }
 
 // ---------------------------------------------------------------------------
@@ -1750,5 +1759,25 @@ export async function setAvatar(
   const hashes = computeHashes(loaded.bytes);
   const session = await fetchHighwaySession(bridge);
   await uploadHighwayHttp(bridge, session, 90, loaded.bytes, hashes.md5, new Uint8Array(0));
+}
+
+export async function fetchCustomFace(bridge: Bridge, count: number = 10): Promise<string[]> {
+  const req = {
+    inner: { field1: 1, osVersion: '10.0.26200', qqVersion: '9.9.28-46928' },
+    uin: BigInt(bridge.qqInfo.uin),
+    field3: 1,
+    field6: 1,
+  };
+  const request = protoEncode(req, FaceroamOpReqSchema);
+  const result = await bridge.sendRawPacket('Faceroam.OpReq', request);
+  if (!result.success || !result.gotResponse || !result.responseData) {
+    throw new Error(result.errorMessage || 'fetch custom face failed');
+  }
+  const resp = protoDecode(result.responseData, FaceroamOpRespSchema);
+  if (!resp || (resp as any).retCode !== 0) {
+    throw new Error(`fetch custom face error: ${(resp as any)?.message || 'unknown'}`);
+  }
+  const faceIds = (resp as any).item?.faceIds || [];
+  return faceIds.slice(0, count).map((id: string) => `https://p.qpic.cn/qq_expression/${bridge.qqInfo.uin}/${id}/0`);
 }
 

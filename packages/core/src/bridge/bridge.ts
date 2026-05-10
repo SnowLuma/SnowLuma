@@ -67,6 +67,7 @@ import {
   markPrivateMessageRead as markGroupMsgAsRead_,
   markGroupMessageRead as markPrivateMsgAsRead_,
   setFriendRemark as setFriendRemark_,
+  setGroupRemark as setGroupRemark_,
   fetchGroupFileCount as fetchGroupFileCount_,
   setOnlineStatus as setOnlineStatus_,
   setProfile as setProfile_,
@@ -80,6 +81,7 @@ import {
   clickInlineKeyboardButton as clickInlineKeyboardButton_,
   sendGroupSign as sendGroupSign_,
   setAvatar as setAvatar_,
+  fetchCustomFace as fetchCustomFace_,
 } from './bridge-actions';
 import {
   getGroupHonorInfo as getGroupHonorInfo_,
@@ -556,6 +558,7 @@ export class Bridge {
   async markGroupMsgAsRead(groupId: number, sequence: number): Promise<void> { return markGroupMsgAsRead_(this, groupId, sequence); }
   async markPrivateMsgAsRead(userId: number, sequence: number): Promise<void> { return markPrivateMsgAsRead_(this, userId, sequence); }
   async setFriendRemark(userId: number, remark: string): Promise<void> { return setFriendRemark_(this, userId, remark); }
+  async setGroupRemark(groupId: number, remark: string): Promise<void> { return setGroupRemark_(this, groupId, remark); }
   async getGroupHonorInfo(groupId: number, type: WebHonorType | string): Promise<any> {
     return getGroupHonorInfo_(this, groupId, type);
   }
@@ -621,6 +624,9 @@ export class Bridge {
   }
   async setAvatar(source: string): Promise<void> {
     return setAvatar_(this, source);
+  }
+  async fetchCustomFace(count?: number): Promise<string[]> {
+    return fetchCustomFace_(this, count);
   }
 }
 

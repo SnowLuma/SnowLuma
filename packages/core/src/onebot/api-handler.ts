@@ -103,11 +103,13 @@ export interface ApiActionContext {
   getForwardMsg?: (resId: string) => Promise<JsonObject[]>;
   // Extended NapCat-compatible
   setFriendRemark?: (userId: number, remark: string) => Promise<void>;
+  setGroupRemark?: (groupId: number, remark: string) => Promise<void>;
   getGroupFileCount?: (groupId: number) => Promise<{ fileCount: number; maxCount: number }>;
   setMsgEmojiLike?: (messageId: number, emojiId: string, set: boolean) => Promise<void>;
   markGroupMsgAsRead?: (groupId: number, sequence: number) => Promise<void>;
   markPrivateMsgAsRead?: (userId: number, sequence: number) => Promise<void>;
   getProfileLike?: (userId?: number, start?: number, limit?: number) => Promise<any>;
+  fetchCustomFace?: (count?: number) => Promise<string[]>;
   // Web
   getGroupHonorInfo?: (groupId: number, type: WebHonorType | string) => Promise<any>;
   getGroupEssence?: (groupId: number, pageStart?: number, pageLimit?: number) => Promise<GroupEssenceMsgRet>;

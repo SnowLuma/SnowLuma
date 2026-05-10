@@ -110,6 +110,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     setEssenceMsg: (messageId) => handleSetEssence(bridge, messageStore, messageId, true),
     deleteEssenceMsg: (messageId) => handleSetEssence(bridge, messageStore, messageId, false),
     getProfileLike: (userId?: number, start: number = 0, limit: number = 10) => bridge.getProfileLike(userId, start, limit),
+    fetchCustomFace: (count?: number) => bridge.fetchCustomFace(count),
     getUnidirectionalFriendList: () => bridge.getUnidirectionalFriendList(),
     setSelfLongNick: (longNick) => bridge.setSelfLongNick(longNick),
     setInputStatus: (userId, eventType) => bridge.setInputStatus(userId, eventType),
@@ -157,6 +158,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
 
     // Extended NapCat-compatible
     setFriendRemark: (userId, remark) => bridge.setFriendRemark(userId, remark),
+    setGroupRemark: (groupId, remark) => bridge.setGroupRemark(groupId, remark),
     getGroupFileCount: (groupId) => bridge.fetchGroupFileCount(groupId),
     setMsgEmojiLike: async (messageId, emojiId, set) => {
       const meta = messageStore.findMeta(messageId);

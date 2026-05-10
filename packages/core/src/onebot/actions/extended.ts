@@ -494,6 +494,15 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return okResponse();
   });
 
+  h.registerAction('set_group_remark', async (params) => {
+    const groupId = asNumber(params.group_id);
+    const remark = asString(params.remark) ?? '';
+    if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
+    if (!ctx.setGroupRemark) return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+    await ctx.setGroupRemark(groupId, remark);
+    return okResponse();
+  });
+
   h.registerAction('set_msg_emoji_like', async (params) => {
     const messageId = asNumber(params.message_id);
     const emojiId = asString(params.emoji_id);
@@ -639,6 +648,19 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     try {
       const data = await ctx.getProfileLike(userId, start, count);
       return okResponse(data);
+    } catch (e) {
+      return failedResponse(RETCODE.ACTION_FAILED, String(e));
+    }
+  });
+
+  h.registerAction('fetch_custom_face', async (params) => {
+    const count = asNumber(params.count) || 10;
+    if (!ctx.fetchCustomFace) {
+      return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+    }
+    try {
+      const urls = await ctx.fetchCustomFace(count);
+      return okResponse(urls);
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
     }

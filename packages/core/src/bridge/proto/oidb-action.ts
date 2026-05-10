@@ -1040,6 +1040,34 @@ export const Oidb0xeb7ReqSchema = {
 
 export const Oidb0xeb7RespSchema = {} satisfies ProtoSchema;
 
+// --- Faceroam.OpReq: Fetch custom face ---
+
+export const FaceroamOpReqInnerSchema = {
+  field1:    { field: 1, type: 'uint32' as const },
+  osVersion: { field: 2, type: 'string' as const },
+  qqVersion: { field: 3, type: 'string' as const },
+} satisfies ProtoSchema;
+
+export const FaceroamOpReqSchema = {
+  inner:  { field: 1, type: 'message' as const, schema: FaceroamOpReqInnerSchema },
+  uin:    { field: 2, type: 'uint64' as const },
+  field3: { field: 3, type: 'uint32' as const },
+  field6: { field: 6, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
+export const FaceroamOpRespItemSchema = {
+  faceIds:    { field: 1, type: 'repeated_string' as const },
+  category:   { field: 3, type: 'string' as const },
+  totalCount: { field: 4, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
+export const FaceroamOpRespSchema = {
+  retCode: { field: 1, type: 'uint32' as const },
+  message: { field: 2, type: 'string' as const },
+  field3:  { field: 3, type: 'uint32' as const },
+  item:    { field: 4, type: 'message' as const, schema: FaceroamOpRespItemSchema },
+} satisfies ProtoSchema;
+
 // --- 0x8a0_1: Kick group members (batch) ---
 
 export const Oidb0x8a0ReqSchema = {
@@ -1051,3 +1079,17 @@ export const Oidb0x8a0ReqSchema = {
 } satisfies ProtoSchema;
 
 export const Oidb0x8a0RespSchema = {} satisfies ProtoSchema;
+
+// --- 0xf16_1: Set group remark ---
+
+export const Oidb0xf16InnerSchema = {
+  groupId: { field: 1, type: 'uint64' as const },
+  remark:  { field: 3, type: 'string' as const },
+} satisfies ProtoSchema;
+
+export const Oidb0xf16ReqSchema = {
+  inner:   { field: 1, type: 'message' as const, schema: Oidb0xf16InnerSchema },
+  field12: { field: 12, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
+export const Oidb0xf16RespSchema = {} satisfies ProtoSchema;
