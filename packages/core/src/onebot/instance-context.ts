@@ -111,6 +111,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     deleteEssenceMsg: (messageId) => handleSetEssence(bridge, messageStore, messageId, false),
     getProfileLike: (userId?: number, start: number = 0, limit: number = 10) => bridge.getProfileLike(userId, start, limit),
     fetchCustomFace: (count?: number) => bridge.fetchCustomFace(count),
+    getEmojiLikes: (groupId, sequence, emojiId, emojiType, count, cookie) => bridge.getEmojiLikes(groupId, sequence, emojiId, emojiType, count, cookie),
     getUnidirectionalFriendList: () => bridge.getUnidirectionalFriendList(),
     setSelfLongNick: (longNick) => bridge.setSelfLongNick(longNick),
     setInputStatus: (userId, eventType) => bridge.setInputStatus(userId, eventType),

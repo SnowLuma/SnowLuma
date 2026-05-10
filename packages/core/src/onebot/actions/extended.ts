@@ -666,6 +666,46 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
   });
 
+  h.registerAction('get_emoji_likes', async (params) => {
+    const messageId = asNumber(params.message_id);
+    const emojiId = asString(params.emoji_id) || '';
+    if (!messageId || !emojiId) return failedResponse(RETCODE.BAD_REQUEST, 'message_id and emoji_id are required');
+    if (!ctx.getEmojiLikes) return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+    try {
+      const meta = ctx.getMessageMeta(messageId);
+      if (!meta?.isGroup || !meta?.sequence) return failedResponse(RETCODE.BAD_REQUEST, 'message not found or not a group message');
+      const result = await ctx.getEmojiLikes(meta.targetId, meta.sequence, emojiId);
+      return okResponse({ emoji_like_list: result.users.map(u => ({ user_id: String(u.uin), nick_name: '' })) });
+    } catch (e) {
+      return failedResponse(RETCODE.ACTION_FAILED, String(e));
+    }
+  });
+
+  h.registerAction('fetch_emoji_like', async (params) => {
+    const messageId = asNumber(params.message_id);
+    const emojiId = asString(params.emojiId) || '';
+    const emojiType = asNumber(params.emojiType) || 1;
+    const count = asNumber(params.count) || 10;
+    const cookie = asString(params.cookie) || '';
+    if (!messageId || !emojiId) return failedResponse(RETCODE.BAD_REQUEST, 'message_id and emojiId are required');
+    if (!ctx.getEmojiLikes) return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+    try {
+      const meta = ctx.getMessageMeta(messageId);
+      if (!meta?.isGroup || !meta?.sequence) return failedResponse(RETCODE.BAD_REQUEST, 'message not found or not a group message');
+      const result = await ctx.getEmojiLikes(meta.targetId, meta.sequence, emojiId, emojiType, count, cookie);
+      return okResponse({
+        result: 0,
+        errMsg: '',
+        emojiLikesList: result.users.map(u => ({ tinyId: String(u.uin), nickName: '', headUrl: '' })),
+        cookie: result.cookie,
+        isLastPage: result.isLast,
+        isFirstPage: !cookie,
+      });
+    } catch (e) {
+      return failedResponse(RETCODE.ACTION_FAILED, String(e));
+    }
+  });
+
   h.registerAction('get_friends_with_category', async () => {
     if (ctx.getFriendList) {
       return okResponse(await ctx.getFriendList());

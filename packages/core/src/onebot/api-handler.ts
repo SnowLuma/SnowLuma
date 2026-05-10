@@ -110,6 +110,7 @@ export interface ApiActionContext {
   markPrivateMsgAsRead?: (userId: number, sequence: number) => Promise<void>;
   getProfileLike?: (userId?: number, start?: number, limit?: number) => Promise<any>;
   fetchCustomFace?: (count?: number) => Promise<string[]>;
+  getEmojiLikes?: (groupId: number, sequence: number, emojiId: string, emojiType?: number, count?: number, cookie?: string) => Promise<{ users: Array<{ uin: number }>, cookie: string, isLast: boolean }>;
   // Web
   getGroupHonorInfo?: (groupId: number, type: WebHonorType | string) => Promise<any>;
   getGroupEssence?: (groupId: number, pageStart?: number, pageLimit?: number) => Promise<GroupEssenceMsgRet>;

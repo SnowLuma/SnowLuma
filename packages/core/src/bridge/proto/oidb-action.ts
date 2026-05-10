@@ -1068,6 +1068,34 @@ export const FaceroamOpRespSchema = {
   item:    { field: 4, type: 'message' as const, schema: FaceroamOpRespItemSchema },
 } satisfies ProtoSchema;
 
+// --- 0x9083_1: Get emoji likes ---
+
+export const Oidb0x9083ReqSchema = {
+  groupId:   { field: 2, type: 'uint64' as const },
+  sequence:  { field: 3, type: 'uint32' as const },
+  emojiType: { field: 4, type: 'uint32' as const },
+  emojiId:   { field: 5, type: 'string' as const },
+  cookie:    { field: 6, type: 'bytes' as const },
+  field7:    { field: 7, type: 'uint32' as const },
+  count:     { field: 8, type: 'uint32' as const },
+  field12:   { field: 12, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
+export const Oidb0x9083RespUserInfoSchema = {
+  uin:    { field: 1, type: 'uint64' as const },
+  field3: { field: 3, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
+export const Oidb0x9083RespInnerSchema = {
+  userInfo: { field: 1, type: 'message' as const, schema: Oidb0x9083RespUserInfoSchema },
+  field4:   { field: 4, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
+export const Oidb0x9083RespSchema = {
+  inner:  { field: 4, type: 'message' as const, schema: Oidb0x9083RespInnerSchema },
+  cookie: { field: 5, type: 'bytes' as const },
+} satisfies ProtoSchema;
+
 // --- 0x8a0_1: Kick group members (batch) ---
 
 export const Oidb0x8a0ReqSchema = {

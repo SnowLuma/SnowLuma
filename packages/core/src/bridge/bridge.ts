@@ -82,6 +82,7 @@ import {
   sendGroupSign as sendGroupSign_,
   setAvatar as setAvatar_,
   fetchCustomFace as fetchCustomFace_,
+  getEmojiLikes as getEmojiLikes_,
 } from './bridge-actions';
 import {
   getGroupHonorInfo as getGroupHonorInfo_,
@@ -627,6 +628,9 @@ export class Bridge {
   }
   async fetchCustomFace(count?: number): Promise<string[]> {
     return fetchCustomFace_(this, count);
+  }
+  async getEmojiLikes(groupId: number, sequence: number, emojiId: string, emojiType?: number, count?: number, cookie?: string) {
+    return getEmojiLikes_(this, groupId, sequence, emojiId, emojiType, count, cookie);
   }
 }
 

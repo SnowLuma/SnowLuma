@@ -9,6 +9,7 @@ import { computeHashes, computeMd5, loadBinarySource } from './highway/utils';
 import { buildSendElems } from './builders/element-builder';
 import { parseMsgPush } from './handlers/msg-push-handler';
 import type { ForwardNodePayload, MessageElement } from './events';
+import { createLogger } from '../utils/logger';
 import { PushMsgSchema } from './proto/message';
 import {
   OidbMuteMemberSchema,
@@ -73,6 +74,8 @@ import {
   Oidb0xeb7RespSchema,
   FaceroamOpReqSchema,
   FaceroamOpRespSchema,
+  Oidb0x9083ReqSchema,
+  Oidb0x9083RespSchema,
 } from './proto/oidb-action';
 import { FileUploadExtSchema } from './proto/highway';
 import {
@@ -83,6 +86,8 @@ import {
   SendLongMsgRespSchema,
 } from './proto/longmsg';
 import { gzipSync, gunzipSync } from 'zlib';
+
+const log = createLogger('BridgeActions');
 
 export interface GroupFileInfo {
   fileId: string;
@@ -1779,5 +1784,31 @@ export async function fetchCustomFace(bridge: Bridge, count: number = 10): Promi
   }
   const faceIds = (resp as any).item?.faceIds || [];
   return faceIds.slice(0, count).map((id: string) => `https://p.qpic.cn/qq_expression/${bridge.qqInfo.uin}/${id}/0`);
+}
+
+export async function getEmojiLikes(
+  bridge: Bridge,
+  groupId: number,
+  sequence: number,
+  emojiId: string,
+  emojiType: number = 1,
+  count: number = 10,
+  cookie: string = ''
+): Promise<{ users: Array<{ uin: number }>, cookie: string, isLast: boolean }> {
+  const req = {
+    groupId: BigInt(groupId),
+    sequence,
+    emojiType,
+    emojiId,
+    cookie: cookie ? Buffer.from(cookie, 'base64') : new Uint8Array(0),
+    field7: 0,
+    count,
+    field12: 1,
+  };
+  const resp = await sendOidbAndDecode<any>(bridge, 'OidbSvcTrpcTcp.0x9083_1', 0x9083, 1, req, Oidb0x9083ReqSchema, Oidb0x9083RespSchema);
+  const uin = resp?.inner?.userInfo?.uin;
+  const users = uin ? [{ uin: Number(uin) }] : [];
+  const respCookie = resp?.cookie ? Buffer.from(resp.cookie).toString('base64') : '';
+  return { users, cookie: respCookie, isLast: !respCookie };
 }
 
