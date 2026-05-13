@@ -171,6 +171,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     forceFetchClientKey: () => bridge.forceFetchClientKey(),
     setFriendRemark: (userId, remark) => bridge.setFriendRemark(userId, remark),
     setGroupRemark: (groupId, remark) => bridge.setGroupRemark(groupId, remark),
+    setGroupAvatar: (groupId, source) => bridge.setGroupAvatar(groupId, source),
     getGroupFileCount: (groupId) => bridge.fetchGroupFileCount(groupId),
     setMsgEmojiLike: async (messageId, emojiId, set) => {
       const meta = messageStore.findMeta(messageId);

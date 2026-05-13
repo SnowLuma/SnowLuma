@@ -106,6 +106,7 @@ export interface ApiActionContext {
   // Extended NapCat-compatible
   setFriendRemark: (userId: number, remark: string) => Promise<void>;
   setGroupRemark: (groupId: number, remark: string) => Promise<void>;
+  setGroupAvatar: (groupId: number, source: string) => Promise<void>;
   getGroupFileCount: (groupId: number) => Promise<{ fileCount: number; maxCount: number }>;
   setMsgEmojiLike: (messageId: number, emojiId: string, set: boolean) => Promise<void>;
   markGroupMsgAsRead: (groupId: number, sequence: number) => Promise<void>;

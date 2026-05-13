@@ -43,6 +43,7 @@ import {
   setGroupSpecialTitle as setGroupSpecialTitle_,
   setGroupRemark as setGroupRemark_,
   getGroupAtAllRemain as getGroupAtAllRemain_,
+  setGroupAvatar as setGroupAvatar_,
 } from './actions/group-admin';
 import {
   uploadGroupFile as uploadGroupFile_,
@@ -631,6 +632,7 @@ export class Bridge {
   async markPrivateMsgAsRead(userId: number, sequence: number): Promise<void> { return markPrivateMsgAsRead_(this, userId, sequence); }
   async setFriendRemark(userId: number, remark: string): Promise<void> { return setFriendRemark_(this, userId, remark); }
   async setGroupRemark(groupId: number, remark: string): Promise<void> { return setGroupRemark_(this, groupId, remark); }
+  async setGroupAvatar(groupId: number, source: string): Promise<void> { return setGroupAvatar_(this, groupId, source); }
   async getGroupHonorInfo(groupId: number, type: WebHonorType | string): Promise<any> {
     return getGroupHonorInfo_(this, groupId, type);
   }

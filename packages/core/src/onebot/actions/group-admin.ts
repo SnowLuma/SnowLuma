@@ -103,7 +103,11 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return okResponse();
   });
 
-  h.registerAction('set_group_portrait', async () => {
-    return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
+  h.registerAction('set_group_portrait', async (params) => {
+    const groupId = asNumber(params.group_id);
+    const file = asString(params.file);
+    if (!groupId || !file) return failedResponse(RETCODE.BAD_REQUEST, 'group_id and file are required');
+    await ctx.setGroupAvatar(groupId, file);
+    return okResponse();
   });
 }

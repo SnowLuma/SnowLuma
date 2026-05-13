@@ -151,3 +151,32 @@ export async function getGroupAtAllRemain(
   };
 }
 
+// ─────────────── group avatar ───────────────
+
+export async function setGroupAvatar(
+  bridge: Bridge,
+  groupId: number,
+  source: string,
+): Promise<void> {
+  const { loadBinarySource, computeHashes } = await import('../highway/utils');
+  const { fetchHighwaySession, uploadHighwayHttp } = await import('../highway/highway-client');
+  const { protoEncode } = await import('../../protobuf/decode');
+  const { GroupAvatarUploadExtSchema } = await import('../proto/highway');
+
+  const loaded = await loadBinarySource(source, 'group avatar');
+  if (!loaded.bytes.length) throw new Error('group avatar file is empty');
+
+  const extend = protoEncode({
+    field1: 101,
+    groupId: BigInt(groupId),
+    field3: new Uint8Array([0x08, 0x01, 0x12, 0x00]),
+    field5: 3,
+    field6: 0,
+  }, GroupAvatarUploadExtSchema);
+
+  const hashes = computeHashes(loaded.bytes);
+  const session = await fetchHighwaySession(bridge);
+
+  await uploadHighwayHttp(bridge, session, 3000, loaded.bytes, hashes.md5, extend);
+}
+
