@@ -125,6 +125,7 @@ export interface BridgeInterface {
   setSelfLongNick(longNick: string): Promise<any>;
   setInputStatus(userId: number, eventType: number): Promise<any>;
   setAvatar(source: string): Promise<void>;
+  setGroupAvatar(groupId: number, source: string): Promise<void>;
   fetchCustomFace(count?: number): Promise<string[]>;
   getProfileLike(userId?: number, start?: number, limit?: number): Promise<any>;
   getUnidirectionalFriendList(): Promise<any>;

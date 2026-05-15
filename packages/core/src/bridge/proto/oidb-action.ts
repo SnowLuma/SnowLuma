@@ -1258,3 +1258,19 @@ export const OidbAiVoiceRespSchema = {
   field3:     { field: 3, type: 'uint32' as const },
   msgInfo:    { field: 4, type: 'message' as const, schema: OidbAiVoiceMsgInfoSchema },
 } satisfies ProtoSchema;
+
+// --- Highway cmdId 3000: GroupAvatarExtra ---
+// Ported from Lagrange.Core/Internal/Packets/Service/Highway/GroupAvatarExtra.cs.
+// Field values are protocol-prescribed constants (Lagrange comments on each).
+
+export const GroupAvatarExtraField3Schema = {
+  field1: { field: 1, type: 'uint32' as const }, // observed value: 1
+} satisfies ProtoSchema;
+
+export const GroupAvatarExtraSchema = {
+  type:     { field: 1, type: 'uint32' as const }, // observed value: 101
+  groupUin: { field: 2, type: 'uint32' as const },
+  field3:   { field: 3, type: 'message' as const, schema: GroupAvatarExtraField3Schema },
+  field5:   { field: 5, type: 'uint32' as const }, // observed value: 3
+  field6:   { field: 6, type: 'uint32' as const }, // observed value: 1
+} satisfies ProtoSchema;

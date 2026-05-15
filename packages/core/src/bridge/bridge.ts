@@ -90,6 +90,7 @@ import {
   setSelfLongNick as setSelfLongNick_,
   setInputStatus as setInputStatus_,
   setAvatar as setAvatar_,
+  setGroupAvatar as setGroupAvatar_,
   fetchCustomFace as fetchCustomFace_,
   getProfileLike as getProfileLike_,
   getUnidirectionalFriendList as getUnidirectionalFriendList_,
@@ -539,6 +540,9 @@ export class Bridge implements BridgeInterface {
   }
   async setAvatar(source: string): Promise<void> {
     return setAvatar_(this, source);
+  }
+  async setGroupAvatar(groupId: number, source: string): Promise<void> {
+    return setGroupAvatar_(this, groupId, source);
   }
   async fetchCustomFace(count?: number): Promise<string[]> {
     return fetchCustomFace_(this, count);

@@ -497,3 +497,37 @@ describe('extended-actions / set_diy_online_status', () => {
     expect(res).toMatchObject({ status: 'failed', retcode: 100, wording: 'denied' });
   });
 });
+
+// ─── set_group_portrait (Lagrange-protocol highway upload, cmdId 3000) ───
+
+describe('extended-actions / set_group_portrait', () => {
+  it('forwards group_id + file to bridge.setGroupAvatar', async () => {
+    const setGroupAvatar = vi.fn(async () => {});
+    const bridge = fakeBridge({ setGroupAvatar: setGroupAvatar as any });
+    const res = await makeHandler(fakeCtx(bridge)).handle('set_group_portrait', {
+      group_id: 12345, file: '/tmp/avatar.png',
+    });
+    expect(res.status).toBe('ok');
+    expect(setGroupAvatar).toHaveBeenCalledWith(12345, '/tmp/avatar.png');
+  });
+
+  it('rejects missing group_id or file', async () => {
+    const setGroupAvatar = vi.fn();
+    const bridge = fakeBridge({ setGroupAvatar: setGroupAvatar as any });
+    const r1 = await makeHandler(fakeCtx(bridge)).handle('set_group_portrait', { file: 'x' });
+    const r2 = await makeHandler(fakeCtx(bridge)).handle('set_group_portrait', { group_id: 1 });
+    expect(r1).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(r2).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(setGroupAvatar).not.toHaveBeenCalled();
+  });
+
+  it('surfaces highway / decode errors as action_failed', async () => {
+    const bridge = fakeBridge({
+      setGroupAvatar: (async () => { throw new Error('highway 500'); }) as any,
+    });
+    const res = await makeHandler(fakeCtx(bridge)).handle('set_group_portrait', {
+      group_id: 1, file: 'x.png',
+    });
+    expect(res).toMatchObject({ status: 'failed', retcode: 100, wording: 'highway 500' });
+  });
+});

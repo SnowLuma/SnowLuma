@@ -103,7 +103,20 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return okResponse();
   });
 
-  h.registerAction('set_group_portrait', async () => {
-    return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
+  // Highway upload with cmdId 3000 + GroupAvatarExtra (Lagrange protocol).
+  // `file` accepts everything bridge.setGroupAvatar's underlying
+  // loadBinarySource handles: local paths, file:// URLs, http(s) URLs,
+  // and base64:// data URIs — same surface as set_qq_avatar.
+  h.registerAction('set_group_portrait', async (params) => {
+    const groupId = asNumber(params.group_id);
+    const file = asString(params.file);
+    if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
+    if (!file) return failedResponse(RETCODE.BAD_REQUEST, 'file is required');
+    try {
+      await ctx.bridge.setGroupAvatar(groupId, file);
+      return okResponse();
+    } catch (err) {
+      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
+    }
   });
 }

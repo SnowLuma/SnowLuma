@@ -117,8 +117,40 @@ describe('actions/profile', () => {
     await profile.setAvatar(bridge as any, '/some/avatar.png');
     expect(highwayClient.fetchHighwaySession).toHaveBeenCalledOnce();
     expect(highwayClient.uploadHighwayHttp).toHaveBeenCalledOnce();
-    const [, , cmdId] = vi.mocked(highwayClient.uploadHighwayHttp).mock.calls[0]!;
+    const [, , cmdId, , , extend] = vi.mocked(highwayClient.uploadHighwayHttp).mock.calls[0]!;
     expect(cmdId).toBe(90);
+    expect((extend as Uint8Array).length).toBe(0); // personal avatar has no extra payload
+  });
+
+  it('setGroupAvatar uses cmdId 3000 and packs the Lagrange GroupAvatarExtra constants', async () => {
+    const bridge = mockBridge();
+    await profile.setGroupAvatar(bridge as any, 12345, '/some/group-avatar.png');
+    expect(highwayClient.fetchHighwaySession).toHaveBeenCalledOnce();
+    expect(highwayClient.uploadHighwayHttp).toHaveBeenCalledOnce();
+    const [, , cmdId, , , extend] = vi.mocked(highwayClient.uploadHighwayHttp).mock.calls[0]!;
+    expect(cmdId).toBe(3000);
+    // Decode the extra blob back through the schema and assert every
+    // protocol-prescribed constant lands where it should.
+    const { protoDecode } = await import('../../src/protobuf/decode');
+    const { GroupAvatarExtraSchema } = await import('../../src/bridge/proto/oidb-action');
+    const decoded = protoDecode(extend as Uint8Array, GroupAvatarExtraSchema);
+    expect(decoded).toEqual({
+      type: 101,
+      groupUin: 12345,
+      field3: { field1: 1 },
+      field5: 3,
+      field6: 1,
+    });
+  });
+
+  it('setGroupAvatar rejects an empty file before hitting highway', async () => {
+    const bridge = mockBridge();
+    const { loadBinarySource } = await import('../../src/bridge/highway/utils');
+    vi.mocked(loadBinarySource).mockResolvedValueOnce({
+      bytes: new Uint8Array(0), fileName: 'empty.png',
+    } as any);
+    await expect(profile.setGroupAvatar(bridge as any, 1, 'empty.png')).rejects.toThrow(/empty/);
+    expect(highwayClient.fetchHighwaySession).not.toHaveBeenCalled();
   });
 
   it('getProfileLike (self): resolves self UID, returns formatted favorite + vote info', async () => {

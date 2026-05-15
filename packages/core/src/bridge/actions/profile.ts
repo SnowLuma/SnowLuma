@@ -10,6 +10,7 @@ import { computeHashes, loadBinarySource } from '../highway/utils';
 import {
   FaceroamOpReqSchema,
   FaceroamOpRespSchema,
+  GroupAvatarExtraSchema,
   Oidb0x112aReqSchema,
   Oidb0x112aRespSchema,
   Oidb0x7edReqSchema,
@@ -173,6 +174,36 @@ export async function setAvatar(
   const hashes = computeHashes(loaded.bytes);
   const session = await fetchHighwaySession(bridge);
   await uploadHighwayHttp(bridge, session, 90, loaded.bytes, hashes.md5, new Uint8Array(0));
+}
+
+/**
+ * Set group avatar. Mirrors Lagrange.Core's GroupSetAvatar:
+ *   - same highway HTTP upload as personal avatar
+ *   - cmdId 3000 (instead of 90)
+ *   - GroupAvatarExtra proto carried as the `extend` blob, with the
+ *     four protocol-prescribed constants (type=101, field5=3, field6=1,
+ *     field3.field1=1) and the target groupUin.
+ *
+ * Source ref: Lagrange.Core/Internal/Context/Logic/Implementation/OperationLogic.cs#GroupSetAvatar.
+ */
+export async function setGroupAvatar(
+  bridge: Bridge,
+  groupId: number,
+  source: string,
+): Promise<void> {
+  const loaded = await loadBinarySource(source, 'group-avatar');
+  if (!loaded.bytes.length) throw new Error('group avatar file is empty');
+
+  const hashes = computeHashes(loaded.bytes);
+  const session = await fetchHighwaySession(bridge);
+  const extra = protoEncode({
+    type: 101,
+    groupUin: groupId,
+    field3: { field1: 1 },
+    field5: 3,
+    field6: 1,
+  }, GroupAvatarExtraSchema);
+  await uploadHighwayHttp(bridge, session, 3000, loaded.bytes, hashes.md5, extra);
 }
 
 // ─────────────── queries on me / my contacts ───────────────
