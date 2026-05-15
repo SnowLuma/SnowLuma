@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Pause, Play, RefreshCw, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,10 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import type { LogEntry } from '@/types';
-
-interface LogsPageProps {
-  fetchApi: (url: string, options?: RequestInit) => Promise<Response>;
-}
+import { useApi } from '@/lib/api';
 
 const levelClass: Record<LogEntry['level'], string> = {
   debug: 'text-muted-foreground',
@@ -24,7 +21,8 @@ const levelClass: Record<LogEntry['level'], string> = {
 
 const LEVELS: LogEntry['level'][] = ['debug', 'info', 'success', 'warn', 'error'];
 
-export function LogsPage({ fetchApi }: LogsPageProps) {
+export function LogsPage() {
+  const api = useApi();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [streamStatus, setStreamStatus] = useState('连接中');
   const [paused, setPaused] = useState(false);
@@ -34,36 +32,30 @@ export function LogsPage({ fetchApi }: LogsPageProps) {
   const endRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
-  const token = useMemo(() => localStorage.getItem('snowluma_token') || '', []);
-
-  async function loadLogs() {
-    const res = await fetchApi('/api/logs?limit=500');
-    if (!res.ok) return;
-    const data = await res.json();
-    setLogs(data.list || []);
-  }
-
-  useEffect(() => {
-    loadLogs().catch(console.error);
-  }, []);
+  const loadLogs = useCallback(async () => {
+    try {
+      setLogs(await api.logs.list(500));
+    } catch (e) {
+      console.error('logs', e);
+    }
+  }, [api]);
 
   useEffect(() => {
-    if (!token) return;
-    const url = `/api/logs/stream?token=${encodeURIComponent(token)}`;
-    const source = new EventSource(url);
-    source.onopen = () => setStreamStatus('实时');
-    source.onerror = () => setStreamStatus('重连中');
-    source.onmessage = (event) => {
-      try {
-        const entry = JSON.parse(event.data) as LogEntry | { type: string };
-        if ('type' in entry) return;
+    void loadLogs();
+  }, [loadLogs]);
+
+  useEffect(() => {
+    return api.logs.stream({
+      onLine: (entry) => {
         setLogs((prev) => [...prev.filter((it) => it.id !== entry.id), entry].slice(-1000));
-      } catch {
-        // ignore
-      }
-    };
-    return () => source.close();
-  }, [token]);
+      },
+      onStatus: (s) => {
+        if (s === 'open') setStreamStatus('实时');
+        else if (s === 'reconnecting') setStreamStatus('重连中');
+        else setStreamStatus('已断开');
+      },
+    });
+  }, [api]);
 
   useEffect(() => {
     if (paused) return;
@@ -115,7 +107,7 @@ export function LogsPage({ fetchApi }: LogsPageProps) {
             {paused ? <Play className="size-3.5" /> : <Pause className="size-3.5" />}
             {paused ? '继续' : '暂停'}
           </Button>
-          <Button variant="outline" size="sm" onClick={() => loadLogs().catch(console.error)}>
+          <Button variant="outline" size="sm" onClick={() => void loadLogs()}>
             <RefreshCw className="size-3.5" /> 刷新
           </Button>
           <Button

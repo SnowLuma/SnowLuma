@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 import { LoginPage } from '@/components/pages/login-page';
@@ -7,31 +7,115 @@ import { OverviewPage } from '@/components/pages/overview-page';
 import { ConfigPage } from '@/components/pages/config-page';
 import { LogsPage } from '@/components/pages/logs-page';
 import { SettingsPage } from '@/components/pages/settings-page';
-import { ChangePasswordPage, type PasswordRule } from '@/components/pages/change-password-page';
+import { ChangePasswordPage } from '@/components/pages/change-password-page';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import type { Page } from '@/components/layout/sidebar';
-import type { HookProcessInfo, OneBotConfig, QQInfo, SystemInfo } from '@/types';
-
-const TOKEN_KEY = 'snowluma_token';
-
-function readToken() {
-  return localStorage.getItem(TOKEN_KEY) || '';
-}
+import type { HookProcessInfo, QQInfo, SystemInfo } from '@/types';
+import { ApiProvider, createApiClient, useApi, type ApiClient } from '@/lib/api';
 
 export default function App() {
   return (
     <ThemeProvider>
-      <AppInner />
+      <AuthBoundary />
     </ThemeProvider>
   );
 }
 
-function AppInner() {
-  const { pollInterval } = useTheme();
+function AuthBoundary() {
   const [authChecked, setAuthChecked] = useState(false);
   const [authed, setAuthed] = useState(false);
   const [mustChange, setMustChange] = useState(false);
   const [status, setStatus] = useState('未连接');
+
+  const client = useMemo<ApiClient>(
+    () =>
+      createApiClient({
+        onUnauthorized: () => {
+          setAuthed(false);
+          setStatus('未授权');
+        },
+      }),
+    [],
+  );
+
+  useEffect(() => {
+    (async () => {
+      const ok = await client.status();
+      if (ok) {
+        setAuthed(true);
+        setStatus('已连接');
+        setMustChange(await client.mustChangePassword());
+      }
+      setAuthChecked(true);
+    })();
+  }, [client]);
+
+  return (
+    <ApiProvider client={client}>
+      <TooltipProvider delayDuration={150}>
+        {!authChecked ? (
+          <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
+            初始化中…
+          </div>
+        ) : !authed ? (
+          <LoginGate
+            onAuthed={(needsChange) => {
+              setAuthed(true);
+              setStatus('已连接');
+              setMustChange(needsChange);
+            }}
+          />
+        ) : mustChange ? (
+          <ForcedChangePasswordGate onSuccess={() => setMustChange(false)} />
+        ) : (
+          <AppInner
+            status={status}
+            onLogoutComplete={() => {
+              setAuthed(false);
+              setStatus('未连接');
+              setMustChange(false);
+            }}
+          />
+        )}
+      </TooltipProvider>
+    </ApiProvider>
+  );
+}
+
+function LoginGate({ onAuthed }: { onAuthed: (mustChange: boolean) => void }) {
+  const api = useApi();
+  const handleLogin = useCallback(
+    async (password: string) => {
+      const result = await api.login(password);
+      if (!result.ok) return { success: false, error: result.message };
+      onAuthed(result.mustChangePassword);
+      return { success: true };
+    },
+    [api, onAuthed],
+  );
+  return <LoginPage onLogin={handleLogin} />;
+}
+
+function ForcedChangePasswordGate({ onSuccess }: { onSuccess: () => void }) {
+  const api = useApi();
+  return (
+    <ChangePasswordPage
+      forced
+      checkStrength={(p) => api.checkPasswordStrength(p)}
+      submit={(o, n) => api.changePassword(o, n)}
+      onSuccess={onSuccess}
+    />
+  );
+}
+
+interface AppInnerProps {
+  status: string;
+  onLogoutComplete: () => void;
+}
+
+function AppInner({ status, onLogoutComplete }: AppInnerProps) {
+  const api = useApi();
+  const { pollInterval } = useTheme();
   const [active, setActive] = useState<Page>('overview');
 
   const [qqList, setQqList] = useState<QQInfo[]>([]);
@@ -47,100 +131,31 @@ function AppInner() {
   // collapse spam-clicks instead of firing a second concurrent request.
   const inflightProcessOps = useRef(new Set<number>());
 
-  const [selectedUin, setSelectedUin] = useState<string | null>(null);
-  const [config, setConfig] = useState<OneBotConfig | null>(null);
-  const [saveStatus, setSaveStatus] = useState('');
-
-  const tokenRef = useRef(readToken());
-
-  // ---------- API helpers ----------
-  const fetchApi = useCallback(async (url: string, options: RequestInit = {}) => {
-    const headers: Record<string, string> = {
-      ...(options.headers as Record<string, string> | undefined),
-    };
-    if (tokenRef.current) headers['Authorization'] = `Bearer ${tokenRef.current}`;
-    if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
-    const res = await fetch(url, { ...options, headers });
-    if (res.status === 401) {
-      tokenRef.current = '';
-      localStorage.removeItem(TOKEN_KEY);
-      setAuthed(false);
-      setStatus('未授权');
-    }
-    return res;
-  }, []);
-
-  // ---------- Polling ----------
   const refreshQqList = useCallback(async () => {
     try {
-      const res = await fetchApi('/api/qq-list');
-      if (!res.ok) return;
-      const data = await res.json();
-      setQqList(data.list || []);
+      setQqList(await api.qqList());
     } catch (e) {
       console.error('qq-list', e);
     }
-  }, [fetchApi]);
+  }, [api]);
 
   const refreshProcesses = useCallback(async () => {
     try {
-      const res = await fetchApi('/api/processes');
-      if (!res.ok) return;
-      const data = await res.json();
-      setProcessList(data.list || []);
+      setProcessList(await api.processes.list());
     } catch (e) {
       console.error('processes', e);
     }
-  }, [fetchApi]);
+  }, [api]);
 
   const refreshSystem = useCallback(async () => {
     try {
-      const res = await fetchApi('/api/system');
-      if (!res.ok) return;
-      const data = (await res.json()) as SystemInfo;
-      setSystemInfo(data);
+      setSystemInfo(await api.system());
     } catch (e) {
       console.error('system', e);
     }
-  }, [fetchApi]);
-
-  const checkStatus = useCallback(async () => {
-    try {
-      const res = await fetchApi('/api/status');
-      if (res.ok) {
-        setAuthed(true);
-        setStatus('已连接');
-        return true;
-      }
-      setStatus('未连接');
-      return false;
-    } catch {
-      setStatus('未连接');
-      return false;
-    }
-  }, [fetchApi]);
+  }, [api]);
 
   useEffect(() => {
-    (async () => {
-      if (tokenRef.current) {
-        const ok = await checkStatus();
-        if (ok) {
-          // Existing session may still need to change password.
-          try {
-            const r = await fetchApi('/api/auth/state');
-            if (r.ok) {
-              const d = await r.json();
-              setMustChange(!!d.mustChangePassword);
-            }
-          } catch { /* ignore */ }
-        }
-      }
-      setAuthChecked(true);
-    })();
-  }, [checkStatus, fetchApi]);
-
-  useEffect(() => {
-    if (!authed || mustChange) return;
     if (pollInterval <= 0) return;
     let cancelled = false;
     const tick = async () => {
@@ -153,250 +168,108 @@ function AppInner() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [authed, mustChange, pollInterval, refreshQqList, refreshProcesses, refreshSystem]);
-
-  // Auto-select first uin when navigating to config
-  useEffect(() => {
-    if (active !== 'config') return;
-    if (!selectedUin && qqList.length > 0) setSelectedUin(qqList[0].uin);
-  }, [active, qqList, selectedUin]);
-
-  // Load config when selectedUin changes
-  useEffect(() => {
-    if (!selectedUin) {
-      setConfig(null);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetchApi(`/api/config/${encodeURIComponent(selectedUin)}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        const loaded = data?.config ?? data;
-        if (cancelled) return;
-        const nets = loaded?.networks ?? {};
-        const legacyFormat = loaded?.messageFormat === 'string' ? 'string' : 'array';
-        const legacyReport = !!loaded?.reportSelfMessage;
-        const normalizeNetwork = <T extends Record<string, unknown>>(item: T) => ({
-          ...item,
-          messageFormat: item.messageFormat === 'string' ? 'string' : legacyFormat,
-          reportSelfMessage:
-            typeof item.reportSelfMessage === 'boolean' ? item.reportSelfMessage : legacyReport,
-        });
-        setConfig({
-          networks: {
-            httpServers: Array.isArray(nets.httpServers) ? nets.httpServers.map(normalizeNetwork) : [],
-            httpClients: Array.isArray(nets.httpClients) ? nets.httpClients.map(normalizeNetwork) : [],
-            wsServers: Array.isArray(nets.wsServers) ? nets.wsServers.map(normalizeNetwork) : [],
-            wsClients: Array.isArray(nets.wsClients) ? nets.wsClients.map(normalizeNetwork) : [],
-          },
-          musicSignUrl: loaded?.musicSignUrl,
-        });
-      } catch (e) {
-        console.error('load-config', e);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedUin, fetchApi]);
-
-  // ---------- Actions ----------
-  const handleLogin = useCallback(async (password: string) => {
-    try {
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        return { success: false, error: data.message || data.error || '令牌错误' };
-      }
-      const data = await res.json();
-      const token = data.token as string;
-      localStorage.setItem(TOKEN_KEY, token);
-      tokenRef.current = token;
-      setMustChange(!!data.mustChangePassword);
-      const ok = await checkStatus();
-      return ok ? { success: true } : { success: false, error: '校验失败' };
-    } catch (e) {
-      return { success: false, error: (e as Error).message || '网络错误' };
-    }
-  }, [checkStatus]);
+  }, [pollInterval, refreshQqList, refreshProcesses, refreshSystem]);
 
   const handleLogout = useCallback(async () => {
-    try { await fetchApi('/api/logout', { method: 'POST' }); } catch { /* ignore */ }
-    localStorage.removeItem(TOKEN_KEY);
-    tokenRef.current = '';
-    setAuthed(false);
-    setMustChange(false);
-    setStatus('未连接');
+    await api.logout();
     setQqList([]);
     setProcessList([]);
     setSystemInfo(null);
-    setSelectedUin(null);
-    setConfig(null);
-  }, [fetchApi]);
+    onLogoutComplete();
+  }, [api, onLogoutComplete]);
 
-  const handleLoadProcess = useCallback(async (pid: number) => {
-    if (inflightProcessOps.current.has(pid)) return;
-    inflightProcessOps.current.add(pid);
-    setProcessLoadingPid(pid);
-    setProcessActionStatus(`正在向进程 ${pid} 加载 SnowLuma…`);
-    try {
-      const res = await fetchApi(`/api/processes/${pid}/load`, { method: 'POST' });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.message || data.error || '加载失败');
-      setProcessActionStatus(`已向进程 ${pid} 注入 SnowLuma，等待管道连接…`);
-      await refreshProcesses();
-    } catch (e) {
-      setProcessActionStatus(`加载失败：${(e as Error).message}`);
-    } finally {
-      inflightProcessOps.current.delete(pid);
-      setProcessLoadingPid(null);
-      setTimeout(() => setProcessActionStatus(''), 4000);
-    }
-  }, [fetchApi, refreshProcesses]);
-
-  const handleUnloadProcess = useCallback(async (pid: number) => {
-    if (inflightProcessOps.current.has(pid)) return;
-    inflightProcessOps.current.add(pid);
-    setProcessUnloadingPid(pid);
-    setProcessActionStatus(`正在从进程 ${pid} 卸载…`);
-    try {
-      const res = await fetchApi(`/api/processes/${pid}/unload`, { method: 'POST' });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.message || data.error || '卸载失败');
-      
-      // Check if unload actually failed (pipe still exists)
-      if (data.process?.status === 'connecting' && data.process?.error) {
-        setUnloadFailedAlert({ pid, error: data.process.error });
-        setProcessActionStatus(`进程 ${pid} 卸载失败`);
-      } else {
-        setProcessActionStatus(`已从进程 ${pid} 卸载`);
+  const handleLoadProcess = useCallback(
+    async (pid: number) => {
+      if (inflightProcessOps.current.has(pid)) return;
+      inflightProcessOps.current.add(pid);
+      setProcessLoadingPid(pid);
+      setProcessActionStatus(`正在向进程 ${pid} 加载 SnowLuma…`);
+      try {
+        await api.processes.load(pid);
+        setProcessActionStatus(`已向进程 ${pid} 注入 SnowLuma，等待管道连接…`);
+        await refreshProcesses();
+      } catch (e) {
+        setProcessActionStatus(`加载失败：${e instanceof Error ? e.message : '未知错误'}`);
+      } finally {
+        inflightProcessOps.current.delete(pid);
+        setProcessLoadingPid(null);
+        setTimeout(() => setProcessActionStatus(''), 4000);
       }
-      
-      await refreshProcesses();
-    } catch (e) {
-      setProcessActionStatus(`卸载失败：${(e as Error).message}`);
-    } finally {
-      inflightProcessOps.current.delete(pid);
-      setProcessUnloadingPid(null);
-      setTimeout(() => setProcessActionStatus(''), 4000);
-    }
-  }, [fetchApi, refreshProcesses]);
+    },
+    [api, refreshProcesses],
+  );
 
-  const handleRefreshProcess = useCallback(async (pid: number) => {
-    if (inflightProcessOps.current.has(pid)) return;
-    inflightProcessOps.current.add(pid);
-    setProcessRefreshingPid(pid);
-    setProcessActionStatus(`正在刷新进程 ${pid} 的管道状态…`);
-    try {
-      const res = await fetchApi(`/api/processes/${pid}/refresh`, { method: 'POST' });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.message || data.error || '刷新失败');
-      setProcessActionStatus(`已刷新进程 ${pid} 的管道状态`);
-      await refreshProcesses();
-    } catch (e) {
-      setProcessActionStatus(`刷新失败：${(e as Error).message}`);
-    } finally {
-      inflightProcessOps.current.delete(pid);
-      setProcessRefreshingPid(null);
-      setTimeout(() => setProcessActionStatus(''), 4000);
-    }
-  }, [fetchApi, refreshProcesses]);
+  const handleUnloadProcess = useCallback(
+    async (pid: number) => {
+      if (inflightProcessOps.current.has(pid)) return;
+      inflightProcessOps.current.add(pid);
+      setProcessUnloadingPid(pid);
+      setProcessActionStatus(`正在从进程 ${pid} 卸载…`);
+      try {
+        const result = await api.processes.unload(pid);
+        if (result.process?.status === 'connecting' && result.process.error) {
+          setUnloadFailedAlert({ pid, error: result.process.error });
+          setProcessActionStatus(`进程 ${pid} 卸载失败`);
+        } else {
+          setProcessActionStatus(`已从进程 ${pid} 卸载`);
+        }
+        await refreshProcesses();
+      } catch (e) {
+        setProcessActionStatus(`卸载失败：${e instanceof Error ? e.message : '未知错误'}`);
+      } finally {
+        inflightProcessOps.current.delete(pid);
+        setProcessUnloadingPid(null);
+        setTimeout(() => setProcessActionStatus(''), 4000);
+      }
+    },
+    [api, refreshProcesses],
+  );
 
-  const handleSaveConfig = useCallback(async () => {
-    if (!selectedUin || !config) return;
-    setSaveStatus('保存中...');
-    try {
-      const res = await fetchApi(`/api/config/${encodeURIComponent(selectedUin)}`, {
-        method: 'POST',
-        body: JSON.stringify(config),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || '保存失败');
-      setSaveStatus('保存成功');
-    } catch (e) {
-      setSaveStatus(`保存失败：${(e as Error).message}`);
-    } finally {
-      setTimeout(() => setSaveStatus(''), 3000);
-    }
-  }, [selectedUin, config, fetchApi]);
-
-  // ---------- Render ----------
-  if (!authChecked) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
-        初始化中…
-      </div>
-    );
-  }
-
-  const checkStrength = async (password: string) => {
-    const res = await fetchApi('/api/auth/check-strength', {
-      method: 'POST',
-      body: JSON.stringify({ password }),
-    });
-    const data = (await res.json().catch(() => ({}))) as { rules?: PasswordRule[]; valid?: boolean };
-    return { rules: data.rules ?? [], valid: !!data.valid };
-  };
-  const submitPwd = async (oldPassword: string, newPassword: string) => {
-    const res = await fetchApi('/api/auth/change-password', {
-      method: 'POST',
-      body: JSON.stringify({ oldPassword, newPassword }),
-    });
-    const data = (await res.json().catch(() => ({}))) as { success?: boolean; message?: string };
-    return { success: !!data.success, message: data.message };
-  };
+  const handleRefreshProcess = useCallback(
+    async (pid: number) => {
+      if (inflightProcessOps.current.has(pid)) return;
+      inflightProcessOps.current.add(pid);
+      setProcessRefreshingPid(pid);
+      setProcessActionStatus(`正在刷新进程 ${pid} 的管道状态…`);
+      try {
+        await api.processes.refresh(pid);
+        setProcessActionStatus(`已刷新进程 ${pid} 的管道状态`);
+        await refreshProcesses();
+      } catch (e) {
+        setProcessActionStatus(`刷新失败：${e instanceof Error ? e.message : '未知错误'}`);
+      } finally {
+        inflightProcessOps.current.delete(pid);
+        setProcessRefreshingPid(null);
+        setTimeout(() => setProcessActionStatus(''), 4000);
+      }
+    },
+    [api, refreshProcesses],
+  );
 
   return (
-    <TooltipProvider delayDuration={150}>
-      {!authed ? (
-        <LoginPage onLogin={handleLogin} />
-      ) : mustChange ? (
-        <ChangePasswordPage
-          forced
-          checkStrength={checkStrength}
-          submit={submitPwd}
-          onSuccess={() => setMustChange(false)}
-        />
-      ) : (
-        <MainLayout active={active} onNavigate={setActive} status={status} onLogout={handleLogout}>
-          {active === 'overview' && (
-            <OverviewPage
-              qqList={qqList}
-              status={status}
-              processList={processList}
-              processLoadingPid={processLoadingPid}
-              processUnloadingPid={processUnloadingPid}
-              processRefreshingPid={processRefreshingPid}
-              processActionStatus={processActionStatus}
-              systemInfo={systemInfo}
-              onRefreshProcesses={refreshProcesses}
-              onRefreshSystem={refreshSystem}
-              onLoadProcess={handleLoadProcess}
-              onUnloadProcess={handleUnloadProcess}
-              onRefreshProcess={handleRefreshProcess}
-            />
-          )}
-          {active === 'config' && (
-            <ConfigPage
-              qqList={qqList}
-              selectedUin={selectedUin}
-              config={config}
-              saveStatus={saveStatus}
-              onSelectAccount={setSelectedUin}
-              onSave={handleSaveConfig}
-              onConfigChange={setConfig}
-            />
-          )}
-          {active === 'logs' && <LogsPage fetchApi={fetchApi} />}
-          {active === 'settings' && <SettingsPage fetchApi={fetchApi} onLogout={handleLogout} />}
-        </MainLayout>
-      )}
+    <>
+      <MainLayout active={active} onNavigate={setActive} status={status} onLogout={handleLogout}>
+        {active === 'overview' && (
+          <OverviewPage
+            qqList={qqList}
+            status={status}
+            processList={processList}
+            processLoadingPid={processLoadingPid}
+            processUnloadingPid={processUnloadingPid}
+            processRefreshingPid={processRefreshingPid}
+            processActionStatus={processActionStatus}
+            systemInfo={systemInfo}
+            onRefreshProcesses={refreshProcesses}
+            onRefreshSystem={refreshSystem}
+            onLoadProcess={handleLoadProcess}
+            onUnloadProcess={handleUnloadProcess}
+            onRefreshProcess={handleRefreshProcess}
+          />
+        )}
+        {active === 'config' && <ConfigPage qqList={qqList} />}
+        {active === 'logs' && <LogsPage />}
+        {active === 'settings' && <SettingsPage onLogout={handleLogout} />}
+      </MainLayout>
 
       <ConfirmDialog
         open={!!unloadFailedAlert}
@@ -416,6 +289,6 @@ function AppInner() {
         confirmText="知道了"
         onConfirm={() => setUnloadFailedAlert(null)}
       />
-    </TooltipProvider>
+    </>
   );
 }

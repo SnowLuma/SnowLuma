@@ -14,14 +14,11 @@ import {
   type Density,
   type ThemeMode,
 } from '@/contexts/ThemeContext';
-import {
-  ChangePasswordPage,
-  type PasswordRule,
-} from '@/components/pages/change-password-page';
+import { ChangePasswordPage } from '@/components/pages/change-password-page';
+import { useApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 interface SettingsPageProps {
-  fetchApi: (url: string, options?: RequestInit) => Promise<Response>;
   /** Called after successful logout (e.g. all-sessions invalidated). */
   onLogout: () => void;
 }
@@ -37,7 +34,8 @@ const DENSITY_OPTIONS: { value: Density; label: string; description: string }[] 
   { value: 'compact', label: '紧凑', description: '更小的字号与行距，单屏放更多内容' },
 ];
 
-export function SettingsPage({ fetchApi, onLogout }: SettingsPageProps) {
+export function SettingsPage({ onLogout }: SettingsPageProps) {
+  const api = useApi();
   const {
     mode, setMode,
     accent, setAccent,
@@ -49,30 +47,12 @@ export function SettingsPage({ fetchApi, onLogout }: SettingsPageProps) {
   const [showChangePwd, setShowChangePwd] = useState(false);
   const [pwdSavedAt, setPwdSavedAt] = useState<number | null>(null);
 
-  const checkStrength = async (password: string) => {
-    const res = await fetchApi('/api/auth/check-strength', {
-      method: 'POST',
-      body: JSON.stringify({ password }),
-    });
-    const data = (await res.json().catch(() => ({}))) as { rules?: PasswordRule[]; valid?: boolean };
-    return { rules: data.rules ?? [], valid: !!data.valid };
-  };
-
-  const submitPwd = async (oldPassword: string, newPassword: string) => {
-    const res = await fetchApi('/api/auth/change-password', {
-      method: 'POST',
-      body: JSON.stringify({ oldPassword, newPassword }),
-    });
-    const data = (await res.json().catch(() => ({}))) as { success?: boolean; message?: string };
-    return { success: !!data.success, message: data.message };
-  };
-
   if (showChangePwd) {
     return (
       <ChangePasswordPage
         forced={false}
-        checkStrength={checkStrength}
-        submit={submitPwd}
+        checkStrength={(p) => api.checkPasswordStrength(p)}
+        submit={(o, n) => api.changePassword(o, n)}
         onSuccess={() => {
           setShowChangePwd(false);
           setPwdSavedAt(Date.now());

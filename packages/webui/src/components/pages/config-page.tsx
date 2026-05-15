@@ -19,15 +19,10 @@ import type {
   QQInfo,
   WsRole,
 } from '@/types';
+import { useOneBotInstanceConfig } from '@/hooks/use-onebot-instance-config';
 
 interface ConfigPageProps {
   qqList: QQInfo[];
-  selectedUin: string | null;
-  config: OneBotConfig | null;
-  saveStatus: string;
-  onSelectAccount: (uin: string) => void;
-  onSave: () => Promise<void> | void;
-  onConfigChange: (config: OneBotConfig) => void;
 }
 
 function qqAvatarUrl(uin: string) {
@@ -98,18 +93,25 @@ function Section({ title, description, onAdd, children, count }: SectionProps) {
   );
 }
 
-export function ConfigPage({
-  qqList,
-  selectedUin,
-  config,
-  saveStatus,
-  onSelectAccount,
-  onSave,
-  onConfigChange,
-}: ConfigPageProps) {
+export function ConfigPage({ qqList }: ConfigPageProps) {
+  const {
+    selectedUin,
+    config,
+    setConfig,
+    dirty,
+    requestSwitchUin,
+    pendingSwitchUin,
+    confirmSwitch,
+    cancelSwitch,
+    save,
+    saveStatus,
+  } = useOneBotInstanceConfig(qqList);
   const [confirmSave, setConfirmSave] = useState(false);
 
-  const update = (next: OneBotConfig) => onConfigChange(next);
+  const update = (next: OneBotConfig) => setConfig(next);
+  const pendingSwitchAccount = pendingSwitchUin
+    ? qqList.find((q) => q.uin === pendingSwitchUin) ?? null
+    : null;
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
@@ -132,7 +134,7 @@ export function ConfigPage({
                       type="button"
                       whileHover={{ scale: 1.01 }}
                       whileTap={{ scale: 0.98 }}
-                      onClick={() => onSelectAccount(q.uin)}
+                      onClick={() => requestSwitchUin(q.uin)}
                       className={cn(
                         'flex items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors cursor-pointer',
                         isActive ? 'border-primary/30 bg-primary/10' : 'border-transparent hover:bg-accent/40'
@@ -193,7 +195,12 @@ export function ConfigPage({
                     {saveStatus}
                   </span>
                 )}
-                <Button onClick={() => setConfirmSave(true)} size="sm">
+                {dirty && !saveStatus && (
+                  <span className="rounded-full border border-warning/30 bg-warning/10 px-2.5 py-1 text-[11px] font-medium text-warning">
+                    未保存
+                  </span>
+                )}
+                <Button onClick={() => setConfirmSave(true)} size="sm" disabled={!dirty}>
                   <Save className="size-3.5" /> 保存设定
                 </Button>
               </div>
@@ -421,7 +428,27 @@ export function ConfigPage({
         title="保存配置变更？"
         description={`即将把当前修改保存到 UIN ${selectedUin ?? ''} 的配置文件，并尝试热重载该会话。`}
         confirmText="保存"
-        onConfirm={onSave}
+        onConfirm={save}
+      />
+
+      <ConfirmDialog
+        open={pendingSwitchUin != null}
+        onOpenChange={(open) => !open && cancelSwitch()}
+        title="放弃未保存的修改？"
+        description={
+          <>
+            <p>
+              当前会话 <code className="font-mono">{selectedUin}</code> 还有未保存的修改。
+            </p>
+            <p className="mt-2">
+              切换到 <code className="font-mono">{pendingSwitchAccount?.uin ?? pendingSwitchUin}</code>
+              {pendingSwitchAccount?.nickname ? `（${pendingSwitchAccount.nickname}）` : ''} 会丢弃这些修改。
+            </p>
+          </>
+        }
+        confirmText="放弃并切换"
+        destructive
+        onConfirm={confirmSwitch}
       />
     </div>
   );
