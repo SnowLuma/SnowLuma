@@ -122,6 +122,24 @@ export const SNOWLUMA_ACTIONS = [
   'rename_group_file',
   'get_file',
   '.send_packet',
+
+  // napcat-parity extensions (Tier 1 + Tier 2)
+  'send_packet',
+  'bot_exit',
+  'nc_get_packet_status',
+  'nc_get_rkey',
+  'nc_get_user_status',
+  'get_group_ignore_add_request',
+  'delete_group_folder',
+  'set_group_todo',
+  'complete_group_todo',
+  'cancel_group_todo',
+  // Tier 3: DIY status
+  'set_diy_online_status',
+  // AI voice trio
+  'get_ai_characters',
+  'get_ai_record',
+  'send_group_ai_record',
 ] as const satisfies readonly (keyof SnowLumaActionMap)[];
 
 export type SnowLumaKnownAction = typeof SNOWLUMA_ACTIONS[number];
