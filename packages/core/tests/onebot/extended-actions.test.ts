@@ -456,3 +456,44 @@ describe('extended-actions / send_group_ai_record', () => {
     expect(res).toMatchObject({ status: 'ok', data: { message_id: 0 } });
   });
 });
+
+// ─── Tier 3: set_diy_online_status ───
+
+describe('extended-actions / set_diy_online_status', () => {
+  it('coerces face_id / face_type from string-or-number and forwards to bridge.setDiyOnlineStatus', async () => {
+    const setDiyOnlineStatus = vi.fn(async () => {});
+    const bridge = fakeBridge({ setDiyOnlineStatus: setDiyOnlineStatus as any });
+    const res = await makeHandler(fakeCtx(bridge)).handle('set_diy_online_status', {
+      face_id: '1234',
+      face_type: '2',
+      wording: '摸鱼中',
+    });
+    expect(res.status).toBe('ok');
+    expect(setDiyOnlineStatus).toHaveBeenCalledWith(1234, '摸鱼中', 2);
+  });
+
+  it('defaults face_type to 1 when omitted, wording to empty string', async () => {
+    const setDiyOnlineStatus = vi.fn(async () => {});
+    const bridge = fakeBridge({ setDiyOnlineStatus: setDiyOnlineStatus as any });
+    await makeHandler(fakeCtx(bridge)).handle('set_diy_online_status', { face_id: 99 });
+    expect(setDiyOnlineStatus).toHaveBeenCalledWith(99, '', 1);
+  });
+
+  it('rejects missing face_id', async () => {
+    const setDiyOnlineStatus = vi.fn();
+    const bridge = fakeBridge({ setDiyOnlineStatus: setDiyOnlineStatus as any });
+    const res = await makeHandler(fakeCtx(bridge)).handle('set_diy_online_status', { wording: 'x' });
+    expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(setDiyOnlineStatus).not.toHaveBeenCalled();
+  });
+
+  it('surfaces bridge errors as action_failed with the original message', async () => {
+    const bridge = fakeBridge({
+      setDiyOnlineStatus: (async () => { throw new Error('denied'); }) as any,
+    });
+    const res = await makeHandler(fakeCtx(bridge)).handle('set_diy_online_status', {
+      face_id: 1, wording: 'x',
+    });
+    expect(res).toMatchObject({ status: 'failed', retcode: 100, wording: 'denied' });
+  });
+});

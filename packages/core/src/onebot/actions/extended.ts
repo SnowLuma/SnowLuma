@@ -601,6 +601,24 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
   });
 
+  // DIY status — same wire packet as set_online_status, only the
+  // customExt sub-message is populated and status/extStatus are forced
+  // to the QQ-defined "I have a custom status" values (10 / 2000).
+  // face_id / face_type accept either number or numeric string (napcat
+  // parity); wording is the human-readable text shown next to the icon.
+  h.registerAction('set_diy_online_status', async (params) => {
+    const faceId = asNumber(params.face_id);
+    const faceType = asNumber(params.face_type) || 1;
+    const wording = asString(params.wording);
+    if (!faceId) return failedResponse(RETCODE.BAD_REQUEST, 'face_id is required');
+    try {
+      await ctx.bridge.setDiyOnlineStatus(faceId, wording, faceType);
+      return okResponse();
+    } catch (err) {
+      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
+    }
+  });
+
   // Filtered (机器人/被忽略) group join requests. SnowLuma already
   // implements the underlying oidb 0x10c8_2 fetch via fetchGroupRequests;
   // these three actions just rename / project the same data for the

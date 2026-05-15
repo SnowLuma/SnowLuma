@@ -35,6 +35,54 @@ describe('actions/profile', () => {
     expect(serviceCmd).toBe('trpc.qq_new_tech.status_svc.StatusService.SetStatus');
   });
 
+  it('setOnlineStatus does NOT include the customExt field 4 (varint 0x22 absent in body)', async () => {
+    const bridge = mockBridge();
+    await profile.setOnlineStatus(bridge as any, 11, 0, 100);
+    const [, body] = bridge.sendRawPacket.mock.calls[0]!;
+    // proto field 4 length-delimited tag = (4 << 3) | 2 = 0x22. The
+    // body should not contain that byte; if encoder ever leaks an
+    // empty customExt it'd appear here.
+    expect(Buffer.from(body).includes(0x22)).toBe(false);
+  });
+
+  it('setDiyOnlineStatus hardcodes status=10 / extStatus=2000 and packs faceId+wording+faceType into customExt', async () => {
+    const bridge = mockBridge();
+    await profile.setDiyOnlineStatus(bridge as any, 1234, '摸鱼中', 2);
+    const [serviceCmd, body] = bridge.sendRawPacket.mock.calls[0]!;
+    expect(serviceCmd).toBe('trpc.qq_new_tech.status_svc.StatusService.SetStatus');
+    // Decode the wire bytes back through the same schema to assert
+    // every field landed in the right place.
+    const { protoDecode } = await import('../../src/protobuf/decode');
+    const { SetStatusReqSchema } = await import('../../src/bridge/proto/oidb-action');
+    const decoded = protoDecode(body as Uint8Array, SetStatusReqSchema);
+    expect(decoded).toMatchObject({
+      status: 10,
+      extStatus: 2000,
+      batteryStatus: 0,
+      customExt: { faceId: 1234, text: '摸鱼中', faceType: 2 },
+    });
+  });
+
+  it('setDiyOnlineStatus surfaces server errors via the same path as setOnlineStatus', async () => {
+    const bridge = mockBridge();
+    // Build a response that decodes to errCode != 0.
+    const { protoEncode } = await import('../../src/protobuf/decode');
+    const { SetStatusRespSchema } = await import('../../src/bridge/proto/oidb-action');
+    const respBuf = Buffer.from(protoEncode({ errCode: 1, errMsg: 'denied' }, SetStatusRespSchema));
+    bridge.sendRawPacket.mockResolvedValueOnce({
+      success: true, gotResponse: true, errorCode: 0, errorMessage: '', responseData: respBuf,
+    } as any);
+    await expect(profile.setDiyOnlineStatus(bridge as any, 1, 't', 1)).rejects.toThrow(/denied/);
+  });
+
+  it('setDiyOnlineStatus rejects when the transport itself fails', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce({
+      success: false, gotResponse: false, errorCode: -1, errorMessage: 'pipe closed', responseData: null,
+    } as any);
+    await expect(profile.setDiyOnlineStatus(bridge as any, 1, 't', 1)).rejects.toThrow(/pipe closed/);
+  });
+
   it('setProfile is a no-op when both arguments are undefined', async () => {
     const bridge = mockBridge();
     await profile.setProfile(bridge as any);

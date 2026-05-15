@@ -32,11 +32,39 @@ export async function setOnlineStatus(
   extStatus: number = 0,
   batteryStatus: number = 100,
 ): Promise<void> {
-  const request = protoEncode({
-    status,
-    extStatus,
-    batteryStatus,
-  }, SetStatusReqSchema);
+  await dispatchSetStatus(bridge, { status, extStatus, batteryStatus });
+}
+
+/**
+ * DIY (custom) online status. napcat fixes status=10 / extStatus=2000
+ * — the values QQ associates with "I have a custom status string" —
+ * and threads the faceId / wording / faceType through the customExt
+ * sub-message of the same SetStatus wire call.
+ */
+export async function setDiyOnlineStatus(
+  bridge: Bridge,
+  faceId: number,
+  wording: string,
+  faceType: number,
+): Promise<void> {
+  await dispatchSetStatus(bridge, {
+    status: 10,
+    extStatus: 2000,
+    batteryStatus: 0,
+    customExt: { faceId, text: wording, faceType },
+  });
+}
+
+async function dispatchSetStatus(
+  bridge: Bridge,
+  value: {
+    status: number;
+    extStatus: number;
+    batteryStatus: number;
+    customExt?: { faceId: number; text: string; faceType: number };
+  },
+): Promise<void> {
+  const request = protoEncode(value, SetStatusReqSchema);
 
   const result = await bridge.sendRawPacket('trpc.qq_new_tech.status_svc.StatusService.SetStatus', request);
 

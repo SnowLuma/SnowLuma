@@ -85,6 +85,7 @@ import {
 } from './actions/friend';
 import {
   setOnlineStatus as setOnlineStatus_,
+  setDiyOnlineStatus as setDiyOnlineStatus_,
   setProfile as setProfile_,
   setSelfLongNick as setSelfLongNick_,
   setInputStatus as setInputStatus_,
@@ -502,6 +503,9 @@ export class Bridge implements BridgeInterface {
   // extend
   async setOnlineStatus(status: number, extStatus: number = 0, batteryStatus: number = 100): Promise<void> {
     return setOnlineStatus_(this, status, extStatus, batteryStatus);
+  }
+  async setDiyOnlineStatus(faceId: number, wording: string, faceType: number): Promise<void> {
+    return setDiyOnlineStatus_(this, faceId, wording, faceType);
   }
   async setProfile(nickname?: string, personalNote?: string): Promise<void> {
     return setProfile_(this, nickname, personalNote);

@@ -861,10 +861,25 @@ export const OidbGetPskeyRespSchema = {
 } satisfies ProtoSchema;
 
 
+// customExt sub-message of SetStatus. Populated only by
+// set_diy_online_status (status=10 + extStatus=2000 + this payload);
+// regular set_online_status leaves field 4 unset.
+//
+// Wire (from napcat packet/transformer/proto/action/action.ts SetStatusCustomExt):
+//   1 faceId  (uint32) — face icon id, e.g. "Q我吧" sticker
+//   2 text    (string) — wording shown next to the icon
+//   3 field3  (uint32) — face_type / template id; observed values 1..3
+export const SetStatusCustomExtSchema = {
+  faceId:   { field: 1, type: 'uint32' as const },
+  text:     { field: 2, type: 'string' as const },
+  faceType: { field: 3, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
 export const SetStatusReqSchema = {
   status:        { field: 1, type: 'int32' as const },
   extStatus:     { field: 2, type: 'int32' as const },
   batteryStatus: { field: 3, type: 'int32' as const },
+  customExt:     { field: 4, type: 'message' as const, schema: SetStatusCustomExtSchema },
 } satisfies ProtoSchema;
 
 export const SetStatusRespSchema = {
