@@ -100,6 +100,20 @@ import {
   sendGroupSign as sendGroupSign_,
 } from './actions/misc';
 import {
+  setGroupTodo as setGroupTodo_,
+  completeGroupTodo as completeGroupTodo_,
+  cancelGroupTodo as cancelGroupTodo_,
+  getStrangerStatus as getStrangerStatus_,
+  fetchAiVoiceList as fetchAiVoiceList_,
+  fetchAiVoice as fetchAiVoice_,
+  AiVoiceChatType,
+  type AiVoiceCategory,
+  type AiVoiceChatType as AiVoiceChatTypeT,
+  type StrangerStatus,
+} from './actions/extras';
+export { AiVoiceChatType };
+export type { AiVoiceCategory, StrangerStatus };
+import {
   getGroupHonorInfo as getGroupHonorInfo_,
   forceFetchClientKey as forceFetchClientKey_,
   getGroupEssence as getGroupEssence_,
@@ -527,6 +541,27 @@ export class Bridge implements BridgeInterface {
   }
   async getEmojiLikes(groupId: number, sequence: number, emojiId: string, emojiType?: number, count?: number, cookie?: string) {
     return getEmojiLikes_(this, groupId, sequence, emojiId, emojiType, count, cookie);
+  }
+
+  // --- Tier-2 napcat-parity extras (group todo, stranger status, AI voice) ---
+
+  async setGroupTodo(groupId: number, msgSeq: bigint | number | string): Promise<void> {
+    return setGroupTodo_(this, groupId, BigInt(msgSeq));
+  }
+  async completeGroupTodo(groupId: number, msgSeq: bigint | number | string): Promise<void> {
+    return completeGroupTodo_(this, groupId, BigInt(msgSeq));
+  }
+  async cancelGroupTodo(groupId: number, msgSeq: bigint | number | string): Promise<void> {
+    return cancelGroupTodo_(this, groupId, BigInt(msgSeq));
+  }
+  async getStrangerStatus(uin: number): Promise<StrangerStatus | null> {
+    return getStrangerStatus_(this, uin);
+  }
+  async fetchAiVoiceList(groupId: number, chatType: AiVoiceChatTypeT): Promise<AiVoiceCategory[]> {
+    return fetchAiVoiceList_(this, groupId, chatType);
+  }
+  async fetchAiVoice(groupId: number, voiceId: string, text: string, chatType: AiVoiceChatTypeT) {
+    return fetchAiVoice_(this, groupId, voiceId, text, chatType);
   }
 }
 

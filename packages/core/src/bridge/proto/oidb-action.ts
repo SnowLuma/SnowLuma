@@ -1126,3 +1126,120 @@ export const Oidb0xf16ReqSchema = {
 } satisfies ProtoSchema;
 
 export const Oidb0xf16RespSchema = {} satisfies ProtoSchema;
+
+// --- 0xF90_{1,2,3}: Set / complete / cancel group todo ---
+// All three subCmds share the same body (groupUin + msgSeq); only the
+// envelope subCmd differs. Sources: napcat
+// packet/transformer/action/{Set,Complete,Cancel}GroupTodo.ts.
+
+export const OidbGroupTodoSchema = {
+  groupUin: { field: 1, type: 'uint32' as const },
+  msgSeq:   { field: 2, type: 'uint64' as const },
+} satisfies ProtoSchema;
+
+// --- 0xFE1_2: Get stranger profile (used for online/ext status lookup) ---
+
+export const OidbStrangerStatusKeySchema = {
+  key: { field: 1, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
+export const OidbStrangerStatusReqSchema = {
+  uin: { field: 1, type: 'uint32' as const },
+  key: { field: 3, type: 'repeated_message' as const, schema: OidbStrangerStatusKeySchema },
+} satisfies ProtoSchema;
+
+export const OidbStrangerStatusRespStatusSchema = {
+  key:   { field: 1, type: 'uint32' as const },
+  value: { field: 2, type: 'uint64' as const },
+} satisfies ProtoSchema;
+
+export const OidbStrangerStatusRespDataSchema = {
+  status: { field: 2, type: 'message' as const, schema: OidbStrangerStatusRespStatusSchema },
+} satisfies ProtoSchema;
+
+export const OidbStrangerStatusRespSchema = {
+  data: { field: 1, type: 'message' as const, schema: OidbStrangerStatusRespDataSchema },
+} satisfies ProtoSchema;
+
+// --- 0x929D_0: Fetch AI voice character list ---
+
+export const OidbAiVoiceListReqSchema = {
+  groupUin: { field: 1, type: 'uint32' as const },
+  chatType: { field: 2, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
+export const OidbAiVoiceListEntrySchema = {
+  voiceId:          { field: 1, type: 'string' as const },
+  voiceDisplayName: { field: 2, type: 'string' as const },
+  voiceExampleUrl:  { field: 3, type: 'string' as const },
+} satisfies ProtoSchema;
+
+export const OidbAiVoiceListCategorySchema = {
+  category: { field: 1, type: 'string' as const },
+  voices:   { field: 2, type: 'repeated_message' as const, schema: OidbAiVoiceListEntrySchema },
+} satisfies ProtoSchema;
+
+export const OidbAiVoiceListRespSchema = {
+  content: { field: 1, type: 'repeated_message' as const, schema: OidbAiVoiceListCategorySchema },
+} satisfies ProtoSchema;
+
+// --- 0x929B_0: Trigger AI voice synthesis (returns server-side IndexNode) ---
+
+export const OidbAiVoiceSessionSchema = {
+  sessionId: { field: 1, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
+export const OidbAiVoiceReqSchema = {
+  groupUin: { field: 1, type: 'uint32' as const },
+  voiceId:  { field: 2, type: 'string' as const },
+  text:     { field: 3, type: 'string' as const },
+  chatType: { field: 4, type: 'uint32' as const },
+  session:  { field: 5, type: 'message' as const, schema: OidbAiVoiceSessionSchema },
+} satisfies ProtoSchema;
+
+// We only need the fields the OneBot adapter consumes back: the
+// IndexNode payload (which feeds fetchGroupPttUrlByNode) and the
+// statusCode that the server uses to signal "still rendering, retry".
+
+export const OidbAiVoiceFileTypeSchema = {
+  type:        { field: 1, type: 'uint32' as const },
+  picFormat:   { field: 2, type: 'uint32' as const },
+  videoFormat: { field: 3, type: 'uint32' as const },
+  voiceFormat: { field: 4, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
+export const OidbAiVoiceFileInfoSchema = {
+  fileSize: { field: 1, type: 'uint32' as const },
+  fileHash: { field: 2, type: 'string' as const },
+  fileSha1: { field: 3, type: 'string' as const },
+  fileName: { field: 4, type: 'string' as const },
+  type:     { field: 5, type: 'message' as const, schema: OidbAiVoiceFileTypeSchema },
+  width:    { field: 6, type: 'uint32' as const },
+  height:   { field: 7, type: 'uint32' as const },
+  time:     { field: 8, type: 'uint32' as const },
+  original: { field: 9, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
+export const OidbAiVoiceIndexNodeSchema = {
+  info:       { field: 1, type: 'message' as const, schema: OidbAiVoiceFileInfoSchema },
+  fileUuid:   { field: 2, type: 'string' as const },
+  storeId:    { field: 3, type: 'uint32' as const },
+  uploadTime: { field: 4, type: 'uint32' as const },
+  ttl:        { field: 5, type: 'uint32' as const },
+  subType:    { field: 6, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
+export const OidbAiVoiceMsgInfoBodySchema = {
+  index: { field: 1, type: 'message' as const, schema: OidbAiVoiceIndexNodeSchema },
+} satisfies ProtoSchema;
+
+export const OidbAiVoiceMsgInfoSchema = {
+  msgInfoBody: { field: 1, type: 'repeated_message' as const, schema: OidbAiVoiceMsgInfoBodySchema },
+} satisfies ProtoSchema;
+
+export const OidbAiVoiceRespSchema = {
+  statusCode: { field: 1, type: 'uint32' as const },
+  field2:     { field: 2, type: 'uint32' as const },
+  field3:     { field: 3, type: 'uint32' as const },
+  msgInfo:    { field: 4, type: 'message' as const, schema: OidbAiVoiceMsgInfoSchema },
+} satisfies ProtoSchema;

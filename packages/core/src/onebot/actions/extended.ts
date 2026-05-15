@@ -221,12 +221,16 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
   // --- RKey ---
 
-  h.registerAction('get_rkey', async () => {
+  const handleGetRkey = async () => {
     if (ctx.getDownloadRKeys) {
       return okResponse(await ctx.getDownloadRKeys());
     }
     return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
-  });
+  };
+  h.registerAction('get_rkey', handleGetRkey);
+  // napcat exposes the same payload under `nc_get_rkey`; mirror the alias
+  // so clients that follow napcat's docs work out-of-the-box.
+  h.registerAction('nc_get_rkey', handleGetRkey);
 
   // --- OCR stubs ---
 
@@ -597,10 +601,56 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
   });
 
+  // Filtered (机器人/被忽略) group join requests. SnowLuma already
+  // implements the underlying oidb 0x10c8_2 fetch via fetchGroupRequests;
+  // these three actions just rename / project the same data for the
+  // OneBot dialects clients use in the wild.
+  const fetchFilteredGroupRequests = async () => {
+    try {
+      return await ctx.bridge.fetchGroupRequests(true);
+    } catch {
+      return [];
+    }
+  };
+
   h.registerAction('get_group_ignored_notifies', async () => {
-    return okResponse([]);
+    const reqs = await fetchFilteredGroupRequests();
+    return okResponse(reqs.map((r) => ({
+      group_id: r.groupId,
+      group_name: r.groupName,
+      request_id: r.sequence,
+      requester_uin: r.targetUin,
+      requester_nick: r.targetName,
+      message: r.comment,
+      checked: r.state !== 1,
+      actor: r.operatorUin,
+      invitor_uin: r.invitorUin,
+      invitor_nick: r.invitorName,
+      flag: `${r.eventType}:${r.groupId}:${r.targetUid}:filtered`,
+    })));
   });
 
+  // napcat name for the subset of ignored notifies that are join requests
+  // (notify type==7). We map every entry that flowed through filtered
+  // 0x10c8_2 into napcat's shape — eventType already encodes the request
+  // category in our pipeline.
+  h.registerAction('get_group_ignore_add_request', async () => {
+    const reqs = await fetchFilteredGroupRequests();
+    return okResponse(reqs.map((r) => ({
+      request_id: r.sequence,
+      invitor_uin: r.invitorUin,
+      invitor_nick: r.invitorName,
+      group_id: r.groupId,
+      message: r.comment,
+      group_name: r.groupName,
+      checked: r.state !== 1,
+      actor: r.operatorUin,
+      requester_nick: r.targetName,
+    })));
+  });
+
+  // get_group_shut_list lives behind an oidb we don't yet wrap; honour
+  // the napcat contract (empty list) so callers don't blow up.
   h.registerAction('get_group_shut_list', async () => {
     return okResponse([]);
   });
@@ -934,9 +984,170 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
   });
 
-  h.registerAction('.send_packet', async () => {
-    return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
+  // --- Raw packet escape hatch (napcat parity) ---
+  //
+  // napcat exposes both names; the dot-prefix variant is the original
+  // gocqhttp-era backdoor, the no-prefix one is the modern API. They do
+  // the same thing in SnowLuma: encode hex → Bridge.sendRawPacket → hex.
+  const handleSendPacket = async (params: import('../types').JsonObject) => {
+    const cmd = asString(params.cmd);
+    const dataHex = asString(params.data);
+    const rsp = asBoolean(params.rsp, true);
+    if (!cmd) return failedResponse(RETCODE.BAD_REQUEST, 'cmd is required');
+    if (!/^[0-9a-fA-F]*$/.test(dataHex) || dataHex.length % 2 !== 0) {
+      return failedResponse(RETCODE.BAD_REQUEST, 'data must be a hex string of even length');
+    }
+    try {
+      const body = hexToBytes(dataHex);
+      const result = await ctx.bridge.sendRawPacket(cmd, body);
+      if (!result.success) {
+        return failedResponse(RETCODE.ACTION_FAILED, result.errorMessage || 'send failed');
+      }
+      if (!rsp) return okResponse(null);
+      const respHex = result.responseData ? bytesToHex(result.responseData) : '';
+      return okResponse(respHex);
+    } catch (err) {
+      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
+    }
+  };
+  h.registerAction('send_packet', handleSendPacket);
+  h.registerAction('.send_packet', handleSendPacket);
+
+  // --- Bot lifecycle (napcat parity) ---
+
+  h.registerAction('bot_exit', async () => {
+    // Defer so the OK response actually flushes before the process dies.
+    setTimeout(() => process.exit(0), 50);
+    return okResponse();
   });
+
+  // SnowLuma has no separate packet-backend process (napcat's packet
+  // service runs out-of-process and can fail independently). Always
+  // report healthy.
+  h.registerAction('nc_get_packet_status', async () => {
+    return okResponse(null);
+  });
+
+  // napcat exposes `delete_group_folder`; SnowLuma's existing
+  // `delete_group_file_folder` is the same operation. Alias so clients
+  // following napcat docs work without rewriting payloads.
+  h.registerAction('delete_group_folder', async (params) => {
+    const groupId = asNumber(params.group_id);
+    const folderId = asString(params.folder_id);
+    if (!groupId || !folderId) {
+      return failedResponse(RETCODE.BAD_REQUEST, 'group_id and folder_id are required');
+    }
+    await ctx.bridge.deleteGroupFileFolder(groupId, folderId);
+    return okResponse();
+  });
+
+  // --- Group todo (oidb 0xF90) ---
+  //
+  // The three subcommands share an identical payload (group + msgSeq);
+  // we extract once and dispatch by action name. msgSeq comes from the
+  // message metadata cache (set/complete/cancel always target a real
+  // message the bot has seen).
+  type GroupTodoOp = (groupId: number, msgSeq: bigint | number | string) => Promise<void>;
+  const handleGroupTodo = (op: GroupTodoOp) => async (params: import('../types').JsonObject) => {
+    const groupId = asNumber(params.group_id);
+    const messageId = asNumber(params.message_id);
+    if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
+    if (!messageId) return failedResponse(RETCODE.BAD_REQUEST, 'message_id is required');
+    const meta = ctx.getMessageMeta(messageId);
+    if (!meta) return failedResponse(RETCODE.ACTION_FAILED, 'message not found');
+    if (!meta.isGroup || meta.targetId !== groupId) {
+      return failedResponse(RETCODE.ACTION_FAILED, 'message does not belong to this group');
+    }
+    try {
+      await op(groupId, BigInt(meta.sequence));
+      return okResponse();
+    } catch (err) {
+      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
+    }
+  };
+  h.registerAction('set_group_todo', handleGroupTodo((g, s) => ctx.bridge.setGroupTodo(g, s)));
+  h.registerAction('complete_group_todo', handleGroupTodo((g, s) => ctx.bridge.completeGroupTodo(g, s)));
+  h.registerAction('cancel_group_todo', handleGroupTodo((g, s) => ctx.bridge.cancelGroupTodo(g, s)));
+
+  // --- User online/ext status (napcat: nc_get_user_status) ---
+
+  h.registerAction('nc_get_user_status', async (params) => {
+    const userId = asNumber(params.user_id);
+    if (!userId) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
+    const status = await ctx.bridge.getStrangerStatus(userId);
+    if (!status) return failedResponse(RETCODE.ACTION_FAILED, 'failed to fetch user status');
+    return okResponse(status);
+  });
+
+  // --- AI voice (oidb 0x929D / 0x929B) ---
+
+  h.registerAction('get_ai_characters', async (params) => {
+    const groupId = asNumber(params.group_id);
+    const chatType = asNumber(params.chat_type) || 1;
+    if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
+    try {
+      const list = await ctx.bridge.fetchAiVoiceList(groupId, chatType);
+      return okResponse(list.map((cat) => ({
+        type: cat.category,
+        characters: cat.voices.map((v) => ({
+          character_id: v.voiceId,
+          character_name: v.voiceDisplayName,
+          preview_url: v.voiceExampleUrl,
+        })),
+      })));
+    } catch (err) {
+      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  h.registerAction('get_ai_record', async (params) => {
+    const groupId = asNumber(params.group_id);
+    const character = asString(params.character);
+    const text = asString(params.text);
+    const chatType = asNumber(params.chat_type) || 1;
+    if (!groupId || !character || !text) {
+      return failedResponse(RETCODE.BAD_REQUEST, 'group_id, character and text are required');
+    }
+    try {
+      const node = await ctx.bridge.fetchAiVoice(groupId, character, text, chatType);
+      const url = await ctx.bridge.fetchGroupPttUrlByNode(groupId, node);
+      return okResponse(url);
+    } catch (err) {
+      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  // napcat's send_group_ai_record is a side-effect-only call: invoking
+  // fetchAiVoice publishes the voice into the group; the returned
+  // message_id is always 0 because the oidb call doesn't echo one back.
+  h.registerAction('send_group_ai_record', async (params) => {
+    const groupId = asNumber(params.group_id);
+    const character = asString(params.character);
+    const text = asString(params.text);
+    const chatType = asNumber(params.chat_type) || 1;
+    if (!groupId || !character || !text) {
+      return failedResponse(RETCODE.BAD_REQUEST, 'group_id, character and text are required');
+    }
+    try {
+      await ctx.bridge.fetchAiVoice(groupId, character, text, chatType);
+      return okResponse({ message_id: 0 });
+    } catch (err) {
+      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
+    }
+  });
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(hex.substr(i * 2, 2), 16);
+  }
+  return out;
+}
+
+function bytesToHex(buf: Buffer | Uint8Array): string {
+  const arr = buf instanceof Buffer ? buf : Buffer.from(buf);
+  return arr.toString('hex');
 }
 
 /**

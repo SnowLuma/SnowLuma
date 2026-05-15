@@ -23,6 +23,7 @@ import type {
   DownloadRKeyInfo,
   ClientKeyInfo,
 } from './bridge';
+import type { SendPacketResult } from '../protocol/packet-sender';
 
 export interface BridgeInterface {
   // ─── Shared state ───
@@ -32,6 +33,12 @@ export interface BridgeInterface {
 
   // ─── Resolution ───
   resolveUserUid(uin: number, groupId?: number): Promise<string>;
+
+  // ─── Raw packet (deliberate escape hatch for `send_packet` action) ───
+  // OneBot clients use this to debug or invoke commands SnowLuma has no
+  // typed wrapper for. Every other method on this interface eventually
+  // routes through here.
+  sendRawPacket(serviceCmd: string, body: Uint8Array, timeoutMs?: number): Promise<SendPacketResult>;
 
   // ─── Send (messages) ───
   sendGroupMessage(groupId: number, elements: MessageElement[]): Promise<SendMessageReceipt>;
@@ -127,4 +134,12 @@ export interface BridgeInterface {
   getMiniAppArk(type: string, title: string, desc: string, picUrl: string, jumpUrl: string): Promise<any>;
   clickInlineKeyboardButton(groupId: number, botAppid: number, buttonId: string, callbackData: string, msgSeq: number): Promise<any>;
   sendGroupSign(groupId: number): Promise<any>;
+
+  // ─── Tier-2 napcat parity extras ───
+  setGroupTodo(groupId: number, msgSeq: bigint | number | string): Promise<void>;
+  completeGroupTodo(groupId: number, msgSeq: bigint | number | string): Promise<void>;
+  cancelGroupTodo(groupId: number, msgSeq: bigint | number | string): Promise<void>;
+  getStrangerStatus(uin: number): Promise<{ status: number; ext_status: number } | null>;
+  fetchAiVoiceList(groupId: number, chatType: number): Promise<Array<{ category: string; voices: Array<{ voiceId: string; voiceDisplayName: string; voiceExampleUrl: string }> }>>;
+  fetchAiVoice(groupId: number, voiceId: string, text: string, chatType: number): Promise<MediaIndexNode>;
 }
