@@ -5,7 +5,7 @@
 import type { PacketInfo } from '../protocol/types';
 import type { ForwardNodePayload, QQEventVariant, MessageElement } from './events';
 import type { FriendInfo, QQGroupInfo, GroupMemberInfo, UserProfileInfo, GroupRequestInfo } from './qq-info';
-import { MSG_PUSH_CMD, parseMsgPush } from './msg-push-handler';
+import { MSG_PUSH_CMD, parseMsgPush } from './msg-push';
 import type { PacketSender, SendPacketResult } from '../protocol/packet-sender';
 import { protoEncode, protoDecode } from '../protobuf/decode';
 import { buildSendElems } from './element-builder';

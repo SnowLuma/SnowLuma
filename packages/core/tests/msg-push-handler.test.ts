@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseMsgPush, MSG_PUSH_CMD } from '../src/bridge/msg-push-handler';
+import { parseMsgPush, MSG_PUSH_CMD } from '../src/bridge/msg-push';
 import { IdentityService } from '../src/bridge/identity-service';
 import type { GroupMemberInfo, QQGroupInfo } from '../src/bridge/qq-info';
 import { PushMsgSchema } from '../src/bridge/proto/message';
