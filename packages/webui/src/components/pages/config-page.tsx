@@ -16,16 +16,10 @@ import type {
   NetworkKind,
   OneBotConfig,
   OneBotNetworks,
-  QQInfo,
   WsRole,
 } from '@/types';
 import { useOneBotInstanceConfig } from '@/hooks/use-onebot-instance-config';
-
-interface ConfigPageProps {
-  qqList: QQInfo[];
-  selectedUin: string | null;
-  onSelectedUinChange: (uin: string | null) => void;
-}
+import { useAppState } from '@/contexts/AppStateContext';
 
 function qqAvatarUrl(uin: string) {
   return `/avatar/${encodeURIComponent(uin)}`;
@@ -95,7 +89,8 @@ function Section({ title, description, onAdd, children, count }: SectionProps) {
   );
 }
 
-export function ConfigPage({ qqList, selectedUin, onSelectedUinChange }: ConfigPageProps) {
+export function ConfigPage() {
+  const { qqList, selectedUin, setSelectedUin } = useAppState();
   const {
     config,
     setConfig,
@@ -106,7 +101,10 @@ export function ConfigPage({ qqList, selectedUin, onSelectedUinChange }: ConfigP
     cancelSwitch,
     save,
     saveStatus,
-  } = useOneBotInstanceConfig(qqList, { selectedUin, onSelectedUinChange });
+  } = useOneBotInstanceConfig(qqList, {
+    selectedUin,
+    onSelectedUinChange: setSelectedUin,
+  });
   const [confirmSave, setConfirmSave] = useState(false);
 
   const update = (next: OneBotConfig) => setConfig(next);

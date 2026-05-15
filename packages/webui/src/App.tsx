@@ -1,18 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { RouterProvider } from '@tanstack/react-router';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
+import { ThemeProvider } from '@/contexts/ThemeContext';
+import { SessionProvider } from '@/contexts/SessionContext';
 import { LoginPage } from '@/components/pages/login-page';
-import { MainLayout } from '@/components/layout/main-layout';
-import { OverviewPage } from '@/components/pages/overview-page';
-import { ConfigPage } from '@/components/pages/config-page';
-import { LogsPage } from '@/components/pages/logs-page';
-import { SettingsPage } from '@/components/pages/settings-page';
 import { ChangePasswordPage } from '@/components/pages/change-password-page';
-import { ConfirmDialog } from '@/components/confirm-dialog';
-import type { Page } from '@/components/layout/sidebar';
-import type { HookProcessInfo, QQInfo, SystemInfo } from '@/types';
 import { ApiProvider, createApiClient, useApi, type ApiClient } from '@/lib/api';
-import { useHookProcessOps } from '@/hooks/use-hook-process-ops';
+import { appRouter } from '@/router';
 
 export default function App() {
   return (
@@ -51,6 +45,15 @@ function AuthBoundary() {
     })();
   }, [client]);
 
+  const handleLogoutComplete = useCallback(() => {
+    // Reset the URL so the next login lands on the overview page, matching
+    // the pre-router behaviour.
+    window.history.replaceState({}, '', '/');
+    setAuthed(false);
+    setStatus('未连接');
+    setMustChange(false);
+  }, []);
+
   return (
     <ApiProvider client={client}>
       <TooltipProvider delayDuration={150}>
@@ -69,14 +72,9 @@ function AuthBoundary() {
         ) : mustChange ? (
           <ForcedChangePasswordGate onSuccess={() => setMustChange(false)} />
         ) : (
-          <AppInner
-            status={status}
-            onLogoutComplete={() => {
-              setAuthed(false);
-              setStatus('未连接');
-              setMustChange(false);
-            }}
-          />
+          <SessionProvider value={{ status, onLogoutComplete: handleLogoutComplete }}>
+            <RouterProvider router={appRouter} />
+          </SessionProvider>
         )}
       </TooltipProvider>
     </ApiProvider>
@@ -106,121 +104,5 @@ function ForcedChangePasswordGate({ onSuccess }: { onSuccess: () => void }) {
       submit={(o, n) => api.changePassword(o, n)}
       onSuccess={onSuccess}
     />
-  );
-}
-
-interface AppInnerProps {
-  status: string;
-  onLogoutComplete: () => void;
-}
-
-function AppInner({ status, onLogoutComplete }: AppInnerProps) {
-  const api = useApi();
-  const { pollInterval } = useTheme();
-  const [active, setActive] = useState<Page>('overview');
-
-  const [qqList, setQqList] = useState<QQInfo[]>([]);
-  const [processList, setProcessList] = useState<HookProcessInfo[]>([]);
-  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
-  // Lives at AppInner level so the user's selection survives across page
-  // navigation (ConfigPage gets unmounted when you switch tabs).
-  const [selectedUin, setSelectedUin] = useState<string | null>(null);
-
-  const refreshQqList = useCallback(async () => {
-    try {
-      setQqList(await api.qqList());
-    } catch (e) {
-      console.error('qq-list', e);
-    }
-  }, [api]);
-
-  const refreshProcesses = useCallback(async () => {
-    try {
-      setProcessList(await api.processes.list());
-    } catch (e) {
-      console.error('processes', e);
-    }
-  }, [api]);
-
-  const refreshSystem = useCallback(async () => {
-    try {
-      setSystemInfo(await api.system());
-    } catch (e) {
-      console.error('system', e);
-    }
-  }, [api]);
-
-  const { ops: processOps, unloadFailedAlert, dismissUnloadFailedAlert } = useHookProcessOps({
-    onAfterOp: refreshProcesses,
-  });
-
-  useEffect(() => {
-    if (pollInterval <= 0) return;
-    let cancelled = false;
-    const tick = async () => {
-      if (cancelled) return;
-      await Promise.all([refreshQqList(), refreshProcesses(), refreshSystem()]);
-    };
-    tick();
-    const interval = setInterval(tick, pollInterval);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [pollInterval, refreshQqList, refreshProcesses, refreshSystem]);
-
-  const handleLogout = useCallback(async () => {
-    await api.logout();
-    setQqList([]);
-    setProcessList([]);
-    setSystemInfo(null);
-    setSelectedUin(null);
-    onLogoutComplete();
-  }, [api, onLogoutComplete]);
-
-  return (
-    <>
-      <MainLayout active={active} onNavigate={setActive} status={status} onLogout={handleLogout}>
-        {active === 'overview' && (
-          <OverviewPage
-            qqList={qqList}
-            status={status}
-            processList={processList}
-            systemInfo={systemInfo}
-            onRefreshProcesses={refreshProcesses}
-            onRefreshSystem={refreshSystem}
-            processOps={processOps}
-          />
-        )}
-        {active === 'config' && (
-          <ConfigPage
-            qqList={qqList}
-            selectedUin={selectedUin}
-            onSelectedUinChange={setSelectedUin}
-          />
-        )}
-        {active === 'logs' && <LogsPage />}
-        {active === 'settings' && <SettingsPage onLogout={handleLogout} />}
-      </MainLayout>
-
-      <ConfirmDialog
-        open={!!unloadFailedAlert}
-        onOpenChange={(open) => !open && dismissUnloadFailedAlert()}
-        title="卸载失败"
-        description={
-          unloadFailedAlert ? (
-            <>
-              <p>进程 {unloadFailedAlert.pid} 的 SnowLuma DLL 卸载失败。</p>
-              <p className="mt-2 text-sm">{unloadFailedAlert.error}</p>
-              <p className="mt-2 text-sm text-muted-foreground">
-                系统将继续尝试重新连接该进程。如需彻底卸载，请重启 QQ 进程。
-              </p>
-            </>
-          ) : null
-        }
-        confirmText="知道了"
-        onConfirm={dismissUnloadFailedAlert}
-      />
-    </>
   );
 }

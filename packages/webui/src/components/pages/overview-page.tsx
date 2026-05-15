@@ -22,18 +22,9 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn, formatBytes, formatUptime } from '@/lib/utils';
-import type { HookProcessInfo, QQInfo, SystemInfo } from '@/types';
-import type { HookProcessOps } from '@/hooks/use-hook-process-ops';
-
-interface OverviewPageProps {
-  qqList: QQInfo[];
-  status: string;
-  processList: HookProcessInfo[];
-  systemInfo: SystemInfo | null;
-  onRefreshProcesses: () => void;
-  onRefreshSystem: () => void;
-  processOps: HookProcessOps;
-}
+import type { HookProcessInfo } from '@/types';
+import { useAppState } from '@/contexts/AppStateContext';
+import { useSession } from '@/contexts/SessionContext';
 
 const processStatusLabel: Record<HookProcessInfo['status'], string> = {
   available: '可加载',
@@ -91,15 +82,10 @@ function StatTile({
   );
 }
 
-export function OverviewPage({
-  qqList,
-  status,
-  processList,
-  systemInfo,
-  onRefreshProcesses,
-  onRefreshSystem,
-  processOps,
-}: OverviewPageProps) {
+export function OverviewPage() {
+  const { qqList, processList, systemInfo, processOps, refreshProcesses, refreshSystem } =
+    useAppState();
+  const { status } = useSession();
   const { statusOf, banner: processActionStatus, load, unload, refresh } = processOps;
   const [confirm, setConfirm] = useState<
     | { kind: 'load' | 'unload'; pid: number; name: string }
@@ -157,7 +143,7 @@ export function OverviewPage({
                 : '正在采集主机信息…'}
             </CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={onRefreshSystem}>
+          <Button variant="outline" size="sm" onClick={refreshSystem}>
             <RefreshCw className="size-3.5" /> 刷新
           </Button>
         </CardHeader>
@@ -260,7 +246,7 @@ export function OverviewPage({
               加载 SnowLuma 后会监听登录状态，登录后自动接入 OneBot 流程
             </CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={onRefreshProcesses}>
+          <Button variant="outline" size="sm" onClick={refreshProcesses}>
             <RefreshCw className="size-3.5" /> 刷新
           </Button>
         </CardHeader>

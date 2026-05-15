@@ -1,0 +1,118 @@
+import { useCallback, useEffect, useState } from 'react';
+import { Outlet } from '@tanstack/react-router';
+import { useTheme } from '@/contexts/ThemeContext';
+import { useApi } from '@/lib/api';
+import { useHookProcessOps } from '@/hooks/use-hook-process-ops';
+import { MainLayout } from '@/components/layout/main-layout';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { AppStateProvider } from '@/contexts/AppStateContext';
+import { useSession } from '@/contexts/SessionContext';
+import type { HookProcessInfo, QQInfo, SystemInfo } from '@/types';
+
+/**
+ * The layout route. Owns the live state shared across the four pages
+ * (polling lists, processOps, selectedUin) and renders `<Outlet />` inside
+ * the chrome. The unload-failed alert sits here so it survives navigation
+ * away from the overview page.
+ */
+export function AppLayout() {
+  const api = useApi();
+  const { pollInterval } = useTheme();
+  const session = useSession();
+
+  const [qqList, setQqList] = useState<QQInfo[]>([]);
+  const [processList, setProcessList] = useState<HookProcessInfo[]>([]);
+  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
+  const [selectedUin, setSelectedUin] = useState<string | null>(null);
+
+  const refreshQqList = useCallback(async () => {
+    try {
+      setQqList(await api.qqList());
+    } catch (e) {
+      console.error('qq-list', e);
+    }
+  }, [api]);
+
+  const refreshProcesses = useCallback(async () => {
+    try {
+      setProcessList(await api.processes.list());
+    } catch (e) {
+      console.error('processes', e);
+    }
+  }, [api]);
+
+  const refreshSystem = useCallback(async () => {
+    try {
+      setSystemInfo(await api.system());
+    } catch (e) {
+      console.error('system', e);
+    }
+  }, [api]);
+
+  const { ops: processOps, unloadFailedAlert, dismissUnloadFailedAlert } = useHookProcessOps({
+    onAfterOp: refreshProcesses,
+  });
+
+  useEffect(() => {
+    if (pollInterval <= 0) return;
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled) return;
+      await Promise.all([refreshQqList(), refreshProcesses(), refreshSystem()]);
+    };
+    tick();
+    const interval = setInterval(tick, pollInterval);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [pollInterval, refreshQqList, refreshProcesses, refreshSystem]);
+
+  const handleLogout = useCallback(async () => {
+    await api.logout();
+    setQqList([]);
+    setProcessList([]);
+    setSystemInfo(null);
+    setSelectedUin(null);
+    session.onLogoutComplete();
+  }, [api, session]);
+
+  return (
+    <AppStateProvider
+      value={{
+        qqList,
+        processList,
+        systemInfo,
+        selectedUin,
+        setSelectedUin,
+        processOps,
+        refreshProcesses,
+        refreshSystem,
+        onLogout: handleLogout,
+      }}
+    >
+      <MainLayout status={session.status} onLogout={handleLogout}>
+        <Outlet />
+      </MainLayout>
+
+      <ConfirmDialog
+        open={!!unloadFailedAlert}
+        onOpenChange={(open) => !open && dismissUnloadFailedAlert()}
+        title="卸载失败"
+        description={
+          unloadFailedAlert ? (
+            <>
+              <p>进程 {unloadFailedAlert.pid} 的 SnowLuma DLL 卸载失败。</p>
+              <p className="mt-2 text-sm">{unloadFailedAlert.error}</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                系统将继续尝试重新连接该进程。如需彻底卸载，请重启 QQ 进程。
+              </p>
+            </>
+          ) : null
+        }
+        confirmText="知道了"
+        onConfirm={dismissUnloadFailedAlert}
+      />
+    </AppStateProvider>
+  );
+}

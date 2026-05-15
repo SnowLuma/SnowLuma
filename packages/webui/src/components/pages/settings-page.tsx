@@ -16,12 +16,8 @@ import {
 } from '@/contexts/ThemeContext';
 import { ChangePasswordPage } from '@/components/pages/change-password-page';
 import { useApi } from '@/lib/api';
+import { useAppState } from '@/contexts/AppStateContext';
 import { cn } from '@/lib/utils';
-
-interface SettingsPageProps {
-  /** Called after successful logout (e.g. all-sessions invalidated). */
-  onLogout: () => void;
-}
 
 const MODE_OPTIONS: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: '浅色', icon: Sun },
@@ -34,8 +30,9 @@ const DENSITY_OPTIONS: { value: Density; label: string; description: string }[] 
   { value: 'compact', label: '紧凑', description: '更小的字号与行距，单屏放更多内容' },
 ];
 
-export function SettingsPage({ onLogout }: SettingsPageProps) {
+export function SettingsPage() {
   const api = useApi();
+  const { onLogout } = useAppState();
   const {
     mode, setMode,
     accent, setAccent,

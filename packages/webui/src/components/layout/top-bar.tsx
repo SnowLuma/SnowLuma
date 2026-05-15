@@ -1,15 +1,14 @@
 import { useState } from 'react';
 import { LogOut, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useRouterState } from '@tanstack/react-router';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import type { Page } from '@/components/layout/sidebar';
 import { NAV_ITEMS } from '@/components/layout/sidebar';
 
 interface TopBarProps {
-  active: Page;
   status: string;
   collapsed: boolean;
   onToggleCollapse: () => void;
@@ -19,7 +18,6 @@ interface TopBarProps {
 }
 
 export function TopBar({
-  active,
   status,
   collapsed,
   onToggleCollapse,
@@ -28,7 +26,8 @@ export function TopBar({
   isMobile,
 }: TopBarProps) {
   const [confirmLogout, setConfirmLogout] = useState(false);
-  const meta = NAV_ITEMS.find((n) => n.page === active);
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const meta = NAV_ITEMS.find((n) => n.to === pathname);
   const PageIcon = meta?.icon;
   const online = status === '已连接';
 
@@ -56,7 +55,7 @@ export function TopBar({
       {/* Page title */}
       <AnimatePresence mode="wait">
         <motion.div
-          key={active}
+          key={pathname}
           initial={{ opacity: 0, x: -8 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: 8 }}
