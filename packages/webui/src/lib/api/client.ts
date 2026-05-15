@@ -67,15 +67,14 @@ class HttpApiClient implements ApiClient {
       },
       save: async (uin, config) => {
         const url = `/api/config/${encodeURIComponent(uin)}`;
-        const data = await this.fetchJson<{ config?: unknown } | unknown>(url, {
+        // POST returns { success, reloaded, message } — no config body. To
+        // honour the "save returns canonical server view" contract, refetch
+        // after a successful POST.
+        await this.fetchJson<unknown>(url, {
           method: 'POST',
           body: JSON.stringify(config),
         });
-        const raw =
-          typeof data === 'object' && data != null && 'config' in (data as Record<string, unknown>)
-            ? (data as { config: unknown }).config
-            : data;
-        return normalizeOneBotConfig(raw);
+        return this.config.get(uin);
       },
     };
 

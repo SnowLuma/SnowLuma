@@ -122,6 +122,9 @@ function AppInner({ status, onLogoutComplete }: AppInnerProps) {
   const [qqList, setQqList] = useState<QQInfo[]>([]);
   const [processList, setProcessList] = useState<HookProcessInfo[]>([]);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
+  // Lives at AppInner level so the user's selection survives across page
+  // navigation (ConfigPage gets unmounted when you switch tabs).
+  const [selectedUin, setSelectedUin] = useState<string | null>(null);
 
   const refreshQqList = useCallback(async () => {
     try {
@@ -171,6 +174,7 @@ function AppInner({ status, onLogoutComplete }: AppInnerProps) {
     setQqList([]);
     setProcessList([]);
     setSystemInfo(null);
+    setSelectedUin(null);
     onLogoutComplete();
   }, [api, onLogoutComplete]);
 
@@ -188,7 +192,13 @@ function AppInner({ status, onLogoutComplete }: AppInnerProps) {
             processOps={processOps}
           />
         )}
-        {active === 'config' && <ConfigPage qqList={qqList} />}
+        {active === 'config' && (
+          <ConfigPage
+            qqList={qqList}
+            selectedUin={selectedUin}
+            onSelectedUinChange={setSelectedUin}
+          />
+        )}
         {active === 'logs' && <LogsPage />}
         {active === 'settings' && <SettingsPage onLogout={handleLogout} />}
       </MainLayout>

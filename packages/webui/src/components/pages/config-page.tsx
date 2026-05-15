@@ -23,6 +23,8 @@ import { useOneBotInstanceConfig } from '@/hooks/use-onebot-instance-config';
 
 interface ConfigPageProps {
   qqList: QQInfo[];
+  selectedUin: string | null;
+  onSelectedUinChange: (uin: string | null) => void;
 }
 
 function qqAvatarUrl(uin: string) {
@@ -93,9 +95,8 @@ function Section({ title, description, onAdd, children, count }: SectionProps) {
   );
 }
 
-export function ConfigPage({ qqList }: ConfigPageProps) {
+export function ConfigPage({ qqList, selectedUin, onSelectedUinChange }: ConfigPageProps) {
   const {
-    selectedUin,
     config,
     setConfig,
     dirty,
@@ -105,7 +106,7 @@ export function ConfigPage({ qqList }: ConfigPageProps) {
     cancelSwitch,
     save,
     saveStatus,
-  } = useOneBotInstanceConfig(qqList);
+  } = useOneBotInstanceConfig(qqList, { selectedUin, onSelectedUinChange });
   const [confirmSave, setConfirmSave] = useState(false);
 
   const update = (next: OneBotConfig) => setConfig(next);

@@ -31,9 +31,19 @@ export interface UseOneBotInstanceConfig {
 
 const CLEAR_SAVE_STATUS_MS = 3000;
 
-export function useOneBotInstanceConfig(accounts: QQInfo[]): UseOneBotInstanceConfig {
+export interface UseOneBotInstanceConfigOptions {
+  /** Externally-owned current UIN. The hook reads it but does not own it. */
+  selectedUin: string | null;
+  /** Called when the hook wants to mutate selection (auto-select / confirmed switch). */
+  onSelectedUinChange: (uin: string | null) => void;
+}
+
+export function useOneBotInstanceConfig(
+  accounts: QQInfo[],
+  options: UseOneBotInstanceConfigOptions,
+): UseOneBotInstanceConfig {
   const api = useApi();
-  const [selectedUin, setSelectedUin] = useState<string | null>(null);
+  const { selectedUin, onSelectedUinChange } = options;
   const [config, setConfigState] = useState<OneBotConfig | null>(null);
   const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState('');
@@ -42,8 +52,8 @@ export function useOneBotInstanceConfig(accounts: QQInfo[]): UseOneBotInstanceCo
 
   // Auto-select first account when none is selected yet.
   useEffect(() => {
-    if (!selectedUin && accounts.length > 0) setSelectedUin(accounts[0].uin);
-  }, [accounts, selectedUin]);
+    if (!selectedUin && accounts.length > 0) onSelectedUinChange(accounts[0].uin);
+  }, [accounts, selectedUin, onSelectedUinChange]);
 
   // Load on UIN change. The api client already runs normalizeOneBotConfig.
   useEffect(() => {
@@ -86,16 +96,16 @@ export function useOneBotInstanceConfig(accounts: QQInfo[]): UseOneBotInstanceCo
     (uin: string) => {
       if (uin === selectedUin) return;
       if (dirty) setPendingSwitchUin(uin);
-      else setSelectedUin(uin);
+      else onSelectedUinChange(uin);
     },
-    [dirty, selectedUin],
+    [dirty, selectedUin, onSelectedUinChange],
   );
 
   const confirmSwitch = useCallback(() => {
     if (pendingSwitchUin == null) return;
-    setSelectedUin(pendingSwitchUin);
+    onSelectedUinChange(pendingSwitchUin);
     setPendingSwitchUin(null);
-  }, [pendingSwitchUin]);
+  }, [pendingSwitchUin, onSelectedUinChange]);
 
   const cancelSwitch = useCallback(() => setPendingSwitchUin(null), []);
 
