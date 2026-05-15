@@ -10,6 +10,7 @@ import { computeHashes, loadBinarySource } from '../highway/utils';
 import {
   FaceroamOpReqSchema,
   FaceroamOpRespSchema,
+  GroupAvatarExtraSchema,
   Oidb0x112aReqSchema,
   Oidb0x112aRespSchema,
   Oidb0x7edReqSchema,
@@ -32,11 +33,39 @@ export async function setOnlineStatus(
   extStatus: number = 0,
   batteryStatus: number = 100,
 ): Promise<void> {
-  const request = protoEncode({
-    status,
-    extStatus,
-    batteryStatus,
-  }, SetStatusReqSchema);
+  await dispatchSetStatus(bridge, { status, extStatus, batteryStatus });
+}
+
+/**
+ * DIY (custom) online status. napcat fixes status=10 / extStatus=2000
+ * — the values QQ associates with "I have a custom status string" —
+ * and threads the faceId / wording / faceType through the customExt
+ * sub-message of the same SetStatus wire call.
+ */
+export async function setDiyOnlineStatus(
+  bridge: Bridge,
+  faceId: number,
+  wording: string,
+  faceType: number,
+): Promise<void> {
+  await dispatchSetStatus(bridge, {
+    status: 10,
+    extStatus: 2000,
+    batteryStatus: 0,
+    customExt: { faceId, text: wording, faceType },
+  });
+}
+
+async function dispatchSetStatus(
+  bridge: Bridge,
+  value: {
+    status: number;
+    extStatus: number;
+    batteryStatus: number;
+    customExt?: { faceId: number; text: string; faceType: number };
+  },
+): Promise<void> {
+  const request = protoEncode(value, SetStatusReqSchema);
 
   const result = await bridge.sendRawPacket('trpc.qq_new_tech.status_svc.StatusService.SetStatus', request);
 
@@ -145,6 +174,36 @@ export async function setAvatar(
   const hashes = computeHashes(loaded.bytes);
   const session = await fetchHighwaySession(bridge);
   await uploadHighwayHttp(bridge, session, 90, loaded.bytes, hashes.md5, new Uint8Array(0));
+}
+
+/**
+ * Set group avatar. Mirrors Lagrange.Core's GroupSetAvatar:
+ *   - same highway HTTP upload as personal avatar
+ *   - cmdId 3000 (instead of 90)
+ *   - GroupAvatarExtra proto carried as the `extend` blob, with the
+ *     four protocol-prescribed constants (type=101, field5=3, field6=1,
+ *     field3.field1=1) and the target groupUin.
+ *
+ * Source ref: Lagrange.Core/Internal/Context/Logic/Implementation/OperationLogic.cs#GroupSetAvatar.
+ */
+export async function setGroupAvatar(
+  bridge: Bridge,
+  groupId: number,
+  source: string,
+): Promise<void> {
+  const loaded = await loadBinarySource(source, 'group-avatar');
+  if (!loaded.bytes.length) throw new Error('group avatar file is empty');
+
+  const hashes = computeHashes(loaded.bytes);
+  const session = await fetchHighwaySession(bridge);
+  const extra = protoEncode({
+    type: 101,
+    groupUin: groupId,
+    field3: { field1: 1 },
+    field5: 3,
+    field6: 1,
+  }, GroupAvatarExtraSchema);
+  await uploadHighwayHttp(bridge, session, 3000, loaded.bytes, hashes.md5, extra);
 }
 
 // ─────────────── queries on me / my contacts ───────────────

@@ -5,7 +5,7 @@
 import type { PacketInfo } from '../protocol/types';
 import type { ForwardNodePayload, QQEventVariant, MessageElement } from './events';
 import type { FriendInfo, QQGroupInfo, GroupMemberInfo, UserProfileInfo, GroupRequestInfo } from './qq-info';
-import { MSG_PUSH_CMD, parseMsgPush } from './msg-push-handler';
+import { MSG_PUSH_CMD, parseMsgPush } from './msg-push';
 import type { PacketSender, SendPacketResult } from '../protocol/packet-sender';
 import { protoEncode, protoDecode } from '../protobuf/decode';
 import { buildSendElems } from './element-builder';
@@ -85,10 +85,12 @@ import {
 } from './actions/friend';
 import {
   setOnlineStatus as setOnlineStatus_,
+  setDiyOnlineStatus as setDiyOnlineStatus_,
   setProfile as setProfile_,
   setSelfLongNick as setSelfLongNick_,
   setInputStatus as setInputStatus_,
   setAvatar as setAvatar_,
+  setGroupAvatar as setGroupAvatar_,
   fetchCustomFace as fetchCustomFace_,
   getProfileLike as getProfileLike_,
   getUnidirectionalFriendList as getUnidirectionalFriendList_,
@@ -99,6 +101,20 @@ import {
   clickInlineKeyboardButton as clickInlineKeyboardButton_,
   sendGroupSign as sendGroupSign_,
 } from './actions/misc';
+import {
+  setGroupTodo as setGroupTodo_,
+  completeGroupTodo as completeGroupTodo_,
+  cancelGroupTodo as cancelGroupTodo_,
+  getStrangerStatus as getStrangerStatus_,
+  fetchAiVoiceList as fetchAiVoiceList_,
+  fetchAiVoice as fetchAiVoice_,
+  AiVoiceChatType,
+  type AiVoiceCategory,
+  type AiVoiceChatType as AiVoiceChatTypeT,
+  type StrangerStatus,
+} from './actions/extras';
+export { AiVoiceChatType };
+export type { AiVoiceCategory, StrangerStatus };
 import {
   getGroupHonorInfo as getGroupHonorInfo_,
   forceFetchClientKey as forceFetchClientKey_,
@@ -489,6 +505,9 @@ export class Bridge implements BridgeInterface {
   async setOnlineStatus(status: number, extStatus: number = 0, batteryStatus: number = 100): Promise<void> {
     return setOnlineStatus_(this, status, extStatus, batteryStatus);
   }
+  async setDiyOnlineStatus(faceId: number, wording: string, faceType: number): Promise<void> {
+    return setDiyOnlineStatus_(this, faceId, wording, faceType);
+  }
   async setProfile(nickname?: string, personalNote?: string): Promise<void> {
     return setProfile_(this, nickname, personalNote);
   }
@@ -522,11 +541,35 @@ export class Bridge implements BridgeInterface {
   async setAvatar(source: string): Promise<void> {
     return setAvatar_(this, source);
   }
+  async setGroupAvatar(groupId: number, source: string): Promise<void> {
+    return setGroupAvatar_(this, groupId, source);
+  }
   async fetchCustomFace(count?: number): Promise<string[]> {
     return fetchCustomFace_(this, count);
   }
   async getEmojiLikes(groupId: number, sequence: number, emojiId: string, emojiType?: number, count?: number, cookie?: string) {
     return getEmojiLikes_(this, groupId, sequence, emojiId, emojiType, count, cookie);
+  }
+
+  // --- Tier-2 napcat-parity extras (group todo, stranger status, AI voice) ---
+
+  async setGroupTodo(groupId: number, msgSeq: bigint | number | string): Promise<void> {
+    return setGroupTodo_(this, groupId, BigInt(msgSeq));
+  }
+  async completeGroupTodo(groupId: number, msgSeq: bigint | number | string): Promise<void> {
+    return completeGroupTodo_(this, groupId, BigInt(msgSeq));
+  }
+  async cancelGroupTodo(groupId: number, msgSeq: bigint | number | string): Promise<void> {
+    return cancelGroupTodo_(this, groupId, BigInt(msgSeq));
+  }
+  async getStrangerStatus(uin: number): Promise<StrangerStatus | null> {
+    return getStrangerStatus_(this, uin);
+  }
+  async fetchAiVoiceList(groupId: number, chatType: AiVoiceChatTypeT): Promise<AiVoiceCategory[]> {
+    return fetchAiVoiceList_(this, groupId, chatType);
+  }
+  async fetchAiVoice(groupId: number, voiceId: string, text: string, chatType: AiVoiceChatTypeT) {
+    return fetchAiVoice_(this, groupId, voiceId, text, chatType);
   }
 }
 

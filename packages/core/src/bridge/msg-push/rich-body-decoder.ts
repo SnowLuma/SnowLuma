@@ -1,0 +1,447 @@
+// Rich body decoder — turns the proto MessageBody (richText.elems +
+// richText.ptt/notOnlineFile + msgContent) of a MsgPush message into
+// the bridge-internal MessageElement[] sequence. Pure, no identity
+// lookups, no I/O. The single small interface `decodeRichBody` hides
+// ~400 lines of per-element-type decoding behind it.
+
+import { protoDecode } from '../../protobuf/decode';
+import type { ProtoDecoded } from '../../protobuf/decode';
+import { ElemSchema } from '../proto/element';
+import {
+  MentionExtraSchema, QFaceExtraSchema, QSmallFaceExtraSchema,
+  MsgInfoSchema, GroupFileExtraSchema, NotOnlineImageSchema,
+} from '../proto/element';
+import {
+  MessageBodySchema, RichTextSchema, FileExtraSchema,
+} from '../proto/message';
+import type { MessageElement } from '../events';
+import { toHexUpper } from '../../utils/hex';
+import { decompressData, makeImageUrl } from './helpers';
+
+type ElemDecoded = ProtoDecoded<typeof ElemSchema>;
+type RichTextDecoded = ProtoDecoded<typeof RichTextSchema>;
+export type PushMsgBody = ProtoDecoded<typeof MessageBodySchema>;
+
+export function decodeRichBody(body: PushMsgBody | undefined, isGroup: boolean): MessageElement[] {
+  const elements: MessageElement[] = [];
+  if (body?.richText) {
+    const rt = body.richText;
+    if (rt.elems) elements.push(...convertElements(rt.elems as ElemDecoded[]));
+    extractRichtextExtras(rt, elements, isGroup);
+  }
+  if (body?.msgContent && body.msgContent.length > 0) {
+    extractMsgContent(body.msgContent, elements);
+  }
+  return elements;
+}
+
+function convertElements(elems: ElemDecoded[]): MessageElement[] {
+  const result: MessageElement[] = [];
+  let skipNext = false;
+
+  for (const elem of elems) {
+    if (skipNext) { skipNext = false; continue; }
+
+    // Reply / quote
+    if (elem.srcMsg?.origSeqs && elem.srcMsg.origSeqs.length > 0) {
+      result.push({ type: 'reply', replySeq: elem.srcMsg.origSeqs[0] });
+    }
+
+    // Text (with possible @ detection)
+    if (elem.text) {
+      const t = elem.text;
+      let mention: ProtoDecoded<typeof MentionExtraSchema> | null = null;
+      if (t.pbReserve && t.pbReserve.length > 0) {
+        mention = protoDecode(t.pbReserve, MentionExtraSchema);
+      }
+      const hasAttr6 = t.attr6Buf && t.attr6Buf.length > 11;
+      const hasMention = mention && (mention.type === 1 || mention.type === 2);
+
+      if (hasAttr6 || hasMention) {
+        const me: MessageElement = { type: 'at', text: t.str ?? '' };
+        if (hasAttr6) {
+          const buf = t.attr6Buf!;
+          me.targetUin = ((buf[7] << 24) | (buf[8] << 16) | (buf[9] << 8) | buf[10]) >>> 0;
+        }
+        if (hasMention && mention) {
+          me.uid = mention.uid ?? '';
+          if (!me.targetUin) me.targetUin = mention.uin ?? 0;
+        }
+        result.push(me);
+      } else {
+        const text = t.str ?? '';
+        if (text) result.push({ type: 'text', text });
+      }
+    }
+
+    // Face
+    if (elem.face) {
+      result.push({ type: 'face', faceId: elem.face.index ?? 0 });
+    }
+
+    // MarketFace
+    if (elem.marketFace) {
+      result.push({
+        type: 'mface',
+        text: elem.marketFace.faceName ?? '',
+        faceId: elem.marketFace.tabId ?? 0,
+        subType: elem.marketFace.subType ?? 0,
+      });
+    }
+
+    // NotOnlineImage (C2C image)
+    if (elem.notOnlineImage) {
+      const img = elem.notOnlineImage;
+      if (img.picMd5 && img.picMd5.length > 0) {
+        const urlPath = img.origUrl || img.bigUrl || '';
+        result.push({
+          type: 'image',
+          imageUrl: makeImageUrl(urlPath),
+          fileId: img.filePath ?? '',
+          fileSize: img.fileLen ?? 0,
+          width: img.picWidth ?? 0,
+          height: img.picHeight ?? 0,
+          subType: img.pbRes?.subType ?? 0,
+          summary: img.pbRes?.summary ?? '[image]',
+          md5Hex: toHexUpper(img.picMd5),
+        });
+      }
+    }
+
+    // CustomFace (group image)
+    if (elem.customFace) {
+      const img = elem.customFace;
+      if (img.md5 && img.md5.length > 0) {
+        result.push({
+          type: 'image',
+          imageUrl: makeImageUrl(img.origUrl ?? ''),
+          fileId: img.filePath ?? '',
+          fileSize: img.size ?? 0,
+          width: img.width ?? 0,
+          height: img.height ?? 0,
+          subType: img.pbRes?.subType ?? 0,
+          summary: img.pbRes?.summary ?? '[image]',
+          md5Hex: toHexUpper(img.md5),
+        });
+      }
+    }
+
+    // VideoFile
+    if (elem.videoFile) {
+      const v = elem.videoFile;
+      result.push({
+        type: 'video',
+        fileId: v.fileUuid ?? '',
+        fileName: v.fileName ?? '',
+        fileSize: v.fileSize ?? 0,
+        duration: v.fileTime ?? 0,
+        fileHash: v.fileMd5 && v.fileMd5.length > 0 ? toHexUpper(v.fileMd5) : '',
+        mediaNode: {
+          fileUuid: v.fileUuid ?? '',
+          info: {
+            fileSize: v.fileSize ?? 0,
+            fileHash: v.fileMd5 && v.fileMd5.length > 0 ? toHexUpper(v.fileMd5) : '',
+            fileName: v.fileName ?? '',
+            width: v.fileWidth ?? 0,
+            height: v.fileHeight ?? 0,
+            time: v.fileTime ?? 0,
+            type: {
+              type: 2,
+              videoFormat: v.fileFormat ?? 0,
+            },
+          },
+        },
+      });
+    }
+
+    // GroupFile
+    if (elem.groupFile) {
+      const f = elem.groupFile;
+      result.push({
+        type: 'file',
+        fileId: f.fileId ?? '',
+        fileName: f.filename ?? '',
+        fileSize: f.fileSize !== undefined ? Number(f.fileSize) : 0,
+      });
+    }
+
+    // TransElem type=24 (group file via transport)
+    if (elem.transElem) {
+      const te = elem.transElem;
+      if ((te.elemType ?? 0) === 24 && te.elemValue && te.elemValue.length > 3) {
+        const val = te.elemValue;
+        const len = (val[1] << 8) | val[2];
+        if (val.length >= 3 + len) {
+          const extra = protoDecode(val.subarray(3, 3 + len), GroupFileExtraSchema);
+          if (extra?.inner?.info) {
+            const info = extra.inner.info;
+            result.push({
+              type: 'file',
+              fileName: info.fileName ?? '',
+              fileSize: info.fileSize !== undefined ? Number(info.fileSize) : 0,
+              fileId: info.fileId ?? '',
+            });
+          }
+        }
+      }
+    }
+
+    // RichMsg
+    if (elem.richMsg) {
+      const rm = elem.richMsg;
+      if (rm.template1 && rm.template1.length > 0) {
+        const content = decompressData(rm.template1);
+        if (content) {
+          const svcId = rm.serviceId ?? 0;
+          if (svcId === 35) {
+            const pos = content.indexOf('m_resid="');
+            if (pos !== -1) {
+              const start = pos + 9;
+              const end = content.indexOf('"', start);
+              if (end !== -1) {
+                result.push({ type: 'forward', resId: content.substring(start, end) });
+                continue;
+              }
+            }
+            result.push({ type: 'xml', text: content, subType: svcId });
+          } else if (svcId === 1) {
+            result.push({ type: 'json', text: content });
+          } else {
+            result.push({ type: 'xml', text: content, subType: svcId });
+          }
+        }
+      }
+    }
+
+    // LightApp
+    if (elem.lightApp) {
+      const la = elem.lightApp;
+      if (la.data && la.data.length > 0) {
+        const content = decompressData(la.data);
+        if (content) result.push({ type: 'json', text: content });
+      }
+    }
+
+    // CommonElem
+    if (elem.commonElem) {
+      const ce = elem.commonElem;
+      const svcType = ce.serviceType ?? 0;
+      const bizType = ce.businessType ?? 0;
+
+      if (svcType === 2) {
+        // Poke
+        result.push({ type: 'poke', subType: bizType });
+      } else if (svcType === 3 && ce.pbElem && ce.pbElem.length > 1) {
+        // Flash image
+        const pb = ce.pbElem;
+        let pos = 1;
+        let length = 0, shift = 0;
+        while (pos < pb.length) {
+          const b = pb[pos++];
+          length |= (b & 0x7f) << shift;
+          shift += 7;
+          if ((b & 0x80) === 0) break;
+        }
+        if (pos + length <= pb.length) {
+          const img = protoDecode(pb.subarray(pos, pos + length), NotOnlineImageSchema);
+          if (img) {
+            const me: MessageElement = {
+              type: 'image', fileId: img.filePath ?? '',
+              fileSize: img.fileLen ?? 0, width: img.picWidth ?? 0,
+              height: img.picHeight ?? 0, flash: true, summary: '[flash image]',
+            };
+            if (img.pbRes) me.subType = img.pbRes.subType ?? 0;
+            if (img.picMd5 && img.picMd5.length > 0) {
+              me.imageUrl = 'http://gchat.qpic.cn/gchatpic_new/0/0-0-' + toHexUpper(img.picMd5) + '/0';
+            }
+            result.push(me);
+          }
+        }
+        skipNext = true;
+      } else if (ce.pbElem && (svcType === 48 || bizType === 10 || bizType === 20 || bizType === 11 || bizType === 21 || bizType === 12 || bizType === 22)) {
+        // NTQQ new protocol image/record/video
+        const info = protoDecode(ce.pbElem, MsgInfoSchema);
+        if (info?.msgInfoBody && info.msgInfoBody.length > 0) {
+          const body = info.msgInfoBody[0];
+          if (body.index?.info) {
+            const idx = body.index;
+            const fi = idx.info!;
+
+            if (bizType === 10 || bizType === 20) {
+              // Image
+              let url = '';
+              if (body.picture) {
+                const domain = body.picture.domain ?? 'multimedia.nt.qq.com.cn';
+                const path = body.picture.urlPath ?? '';
+                if (path) {
+                  url = 'https://' + domain + path;
+                  if (body.picture.ext?.originalParameter) {
+                    url += body.picture.ext.originalParameter;
+                  }
+                }
+              }
+              const me: MessageElement = {
+                type: 'image', fileId: fi.fileName ?? '',
+                fileSize: fi.fileSize ?? 0, width: fi.width ?? 0,
+                height: fi.height ?? 0, imageUrl: url,
+              };
+              if (fi.fileHash) me.md5Hex = fi.fileHash;
+              if (fi.fileSha1) me.sha1Hex = fi.fileSha1;
+              if (fi.type?.picFormat) me.picFormat = fi.type.picFormat;
+              if (info.extBizInfo?.pic) {
+                me.subType = info.extBizInfo.pic.bizType ?? 0;
+                me.summary = info.extBizInfo.pic.textSummary || '[image]';
+              }
+              result.push(me);
+            } else if (bizType === 12 || bizType === 22) {
+              // Record
+              result.push({
+                type: 'record', fileName: fi.fileName ?? '',
+                fileId: idx.fileUuid ?? '', duration: fi.time ?? 0,
+                fileHash: fi.fileHash ?? '',
+                fileSize: fi.fileSize ?? 0,
+                md5Hex: fi.fileHash ?? '',
+                sha1Hex: fi.fileSha1 ?? '',
+                voiceFormat: fi.type?.voiceFormat ?? 0,
+                mediaNode: {
+                  fileUuid: idx.fileUuid,
+                  storeId: idx.storeId,
+                  uploadTime: idx.uploadTime,
+                  ttl: idx.ttl,
+                  subType: idx.subType,
+                  info: {
+                    fileSize: fi.fileSize,
+                    fileHash: fi.fileHash,
+                    fileSha1: fi.fileSha1,
+                    fileName: fi.fileName,
+                    width: fi.width,
+                    height: fi.height,
+                    time: fi.time,
+                    original: fi.original,
+                    type: {
+                      type: fi.type?.type,
+                      picFormat: fi.type?.picFormat,
+                      videoFormat: fi.type?.videoFormat,
+                      voiceFormat: fi.type?.voiceFormat,
+                    },
+                  },
+                },
+              });
+            } else if (bizType === 11 || bizType === 21) {
+              // Video
+              result.push({
+                type: 'video', fileName: fi.fileName ?? '',
+                fileId: idx.fileUuid ?? '', fileSize: fi.fileSize ?? 0,
+                duration: fi.time ?? 0,
+                fileHash: fi.fileHash ?? '',
+                width: fi.width ?? 0,
+                height: fi.height ?? 0,
+                md5Hex: fi.fileHash ?? '',
+                sha1Hex: fi.fileSha1 ?? '',
+                videoFormat: fi.type?.videoFormat ?? 0,
+                mediaNode: {
+                  fileUuid: idx.fileUuid,
+                  storeId: idx.storeId,
+                  uploadTime: idx.uploadTime,
+                  ttl: idx.ttl,
+                  subType: idx.subType,
+                  info: {
+                    fileSize: fi.fileSize,
+                    fileHash: fi.fileHash,
+                    fileSha1: fi.fileSha1,
+                    fileName: fi.fileName,
+                    width: fi.width,
+                    height: fi.height,
+                    time: fi.time,
+                    original: fi.original,
+                    type: {
+                      type: fi.type?.type,
+                      picFormat: fi.type?.picFormat,
+                      videoFormat: fi.type?.videoFormat,
+                      voiceFormat: fi.type?.voiceFormat,
+                    },
+                  },
+                },
+              });
+            }
+          }
+        }
+      } else if (svcType === 33 && ce.pbElem) {
+        // Small face
+        const extra = protoDecode(ce.pbElem, QSmallFaceExtraSchema);
+        if (extra) result.push({ type: 'face', faceId: extra.faceId ?? 0 });
+      } else if (svcType === 37 && ce.pbElem) {
+        // Big face
+        const extra = protoDecode(ce.pbElem, QFaceExtraSchema);
+        if (extra?.qsid !== undefined) result.push({ type: 'face', faceId: extra.qsid });
+        skipNext = true;
+      }
+    }
+  }
+
+  return result;
+}
+
+function extractRichtextExtras(
+  rt: RichTextDecoded,
+  elements: MessageElement[],
+  isGroup = false
+): void {
+  // Ptt (voice)
+  if (rt.ptt) {
+    const p = rt.ptt;
+    const md5Hex = p.fileMd5 && p.fileMd5.length > 0 ? toHexUpper(p.fileMd5) : '';
+    const me: MessageElement = {
+      type: 'record', fileName: p.fileName ?? '',
+      fileSize: p.fileSize ?? 0, duration: p.time ?? 0,
+      fileHash: md5Hex,
+      md5Hex,
+      voiceFormat: p.format ?? 0,
+    };
+    if (isGroup && (p.fileId ?? 0n) !== 0n) {
+      me.fileId = p.groupFileKey ?? '';
+    } else {
+      if (p.fileUuid && p.fileUuid.length > 0) {
+        me.fileId = Buffer.from(p.fileUuid).toString('utf8');
+      }
+    }
+    me.mediaNode = {
+      fileUuid: me.fileId ?? '',
+      info: {
+        fileSize: p.fileSize ?? 0,
+        fileHash: p.fileMd5 && p.fileMd5.length > 0 ? toHexUpper(p.fileMd5) : '',
+        fileName: p.fileName ?? '',
+        time: p.time ?? 0,
+        type: {
+          type: 3,
+          voiceFormat: p.format ?? 0,
+        },
+      },
+    };
+    elements.push(me);
+  }
+
+  // NotOnlineFile (C2C file)
+  if (rt.notOnlineFile) {
+    const f = rt.notOnlineFile;
+    elements.push({
+      type: 'file', fileId: f.fileUuid ?? '',
+      fileName: f.fileName ?? '',
+      fileSize: f.fileSize !== undefined ? Number(f.fileSize) : 0,
+      fileHash: f.fileHash ?? '',
+    });
+  }
+}
+
+function extractMsgContent(msgContent: Uint8Array, elements: MessageElement[]): void {
+  const extra = protoDecode(msgContent, FileExtraSchema);
+  if (!extra?.file) return;
+  const f = extra.file;
+  if (f.fileSize !== undefined && f.fileName && f.fileMd5 && f.fileUuid && f.fileHash) {
+    elements.push({
+      type: 'file', fileName: f.fileName, fileId: f.fileUuid,
+      fileSize: f.fileSize !== undefined ? Number(f.fileSize) : 0,
+      fileHash: f.fileHash,
+    });
+  }
+}
