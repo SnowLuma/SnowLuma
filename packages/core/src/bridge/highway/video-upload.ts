@@ -487,7 +487,11 @@ export async function uploadVideoMsgInfo(
           subFileType: 100,
         },
       ],
-      compatQmsgSceneType: 2,
+      // Scene tag the NTV2 upload registers under. image-upload and
+      // ptt-upload both differentiate (group=2, c2c=1); video was
+      // hardcoded to the group value, which contributed to the c2c
+      // send-back rejection (PbSendMsg result=79).
+      compatQmsgSceneType: isGroup ? 2 : 1,
       extBizInfo: {
         pic: { bizType: 0, textSummary: 'Nya~' },
         video: { bytesPbReserve: new Uint8Array([0x80, 0x01, 0x00]) },
