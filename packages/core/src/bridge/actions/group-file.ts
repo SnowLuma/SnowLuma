@@ -27,6 +27,7 @@ import {
   NTV2RichMediaRespSchema,
 } from '../proto/oidb-action';
 import { FileUploadExtSchema } from '../proto/highway';
+import { toHexUpper } from '../../utils/hex';
 import { ensureRetCodeZero, resolveSelfUid, toInt, type MediaIndexNode } from './shared';
 
 // ─────────────── public result types ───────────────
@@ -76,7 +77,7 @@ function normalizeDirectory(dir?: string): string {
 
 function bytesToHexUpper(data: unknown): string {
   if (!(data instanceof Uint8Array) || data.length === 0) return '';
-  return Buffer.from(data).toString('hex').toUpperCase();
+  return toHexUpper(data);
 }
 
 function normalizeUploadFileName(name: string, fallback: string): string {
