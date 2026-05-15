@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 import { LoginPage } from '@/components/pages/login-page';
@@ -12,6 +12,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import type { Page } from '@/components/layout/sidebar';
 import type { HookProcessInfo, QQInfo, SystemInfo } from '@/types';
 import { ApiProvider, createApiClient, useApi, type ApiClient } from '@/lib/api';
+import { useHookProcessOps } from '@/hooks/use-hook-process-ops';
 
 export default function App() {
   return (
@@ -122,15 +123,6 @@ function AppInner({ status, onLogoutComplete }: AppInnerProps) {
   const [processList, setProcessList] = useState<HookProcessInfo[]>([]);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
 
-  const [processLoadingPid, setProcessLoadingPid] = useState<number | null>(null);
-  const [processUnloadingPid, setProcessUnloadingPid] = useState<number | null>(null);
-  const [processRefreshingPid, setProcessRefreshingPid] = useState<number | null>(null);
-  const [processActionStatus, setProcessActionStatus] = useState('');
-  const [unloadFailedAlert, setUnloadFailedAlert] = useState<{ pid: number; error: string } | null>(null);
-  // Tracks PIDs with an in-flight load/unload/refresh request so the UI can
-  // collapse spam-clicks instead of firing a second concurrent request.
-  const inflightProcessOps = useRef(new Set<number>());
-
   const refreshQqList = useCallback(async () => {
     try {
       setQqList(await api.qqList());
@@ -155,6 +147,10 @@ function AppInner({ status, onLogoutComplete }: AppInnerProps) {
     }
   }, [api]);
 
+  const { ops: processOps, unloadFailedAlert, dismissUnloadFailedAlert } = useHookProcessOps({
+    onAfterOp: refreshProcesses,
+  });
+
   useEffect(() => {
     if (pollInterval <= 0) return;
     let cancelled = false;
@@ -178,74 +174,6 @@ function AppInner({ status, onLogoutComplete }: AppInnerProps) {
     onLogoutComplete();
   }, [api, onLogoutComplete]);
 
-  const handleLoadProcess = useCallback(
-    async (pid: number) => {
-      if (inflightProcessOps.current.has(pid)) return;
-      inflightProcessOps.current.add(pid);
-      setProcessLoadingPid(pid);
-      setProcessActionStatus(`正在向进程 ${pid} 加载 SnowLuma…`);
-      try {
-        await api.processes.load(pid);
-        setProcessActionStatus(`已向进程 ${pid} 注入 SnowLuma，等待管道连接…`);
-        await refreshProcesses();
-      } catch (e) {
-        setProcessActionStatus(`加载失败：${e instanceof Error ? e.message : '未知错误'}`);
-      } finally {
-        inflightProcessOps.current.delete(pid);
-        setProcessLoadingPid(null);
-        setTimeout(() => setProcessActionStatus(''), 4000);
-      }
-    },
-    [api, refreshProcesses],
-  );
-
-  const handleUnloadProcess = useCallback(
-    async (pid: number) => {
-      if (inflightProcessOps.current.has(pid)) return;
-      inflightProcessOps.current.add(pid);
-      setProcessUnloadingPid(pid);
-      setProcessActionStatus(`正在从进程 ${pid} 卸载…`);
-      try {
-        const result = await api.processes.unload(pid);
-        if (result.process?.status === 'connecting' && result.process.error) {
-          setUnloadFailedAlert({ pid, error: result.process.error });
-          setProcessActionStatus(`进程 ${pid} 卸载失败`);
-        } else {
-          setProcessActionStatus(`已从进程 ${pid} 卸载`);
-        }
-        await refreshProcesses();
-      } catch (e) {
-        setProcessActionStatus(`卸载失败：${e instanceof Error ? e.message : '未知错误'}`);
-      } finally {
-        inflightProcessOps.current.delete(pid);
-        setProcessUnloadingPid(null);
-        setTimeout(() => setProcessActionStatus(''), 4000);
-      }
-    },
-    [api, refreshProcesses],
-  );
-
-  const handleRefreshProcess = useCallback(
-    async (pid: number) => {
-      if (inflightProcessOps.current.has(pid)) return;
-      inflightProcessOps.current.add(pid);
-      setProcessRefreshingPid(pid);
-      setProcessActionStatus(`正在刷新进程 ${pid} 的管道状态…`);
-      try {
-        await api.processes.refresh(pid);
-        setProcessActionStatus(`已刷新进程 ${pid} 的管道状态`);
-        await refreshProcesses();
-      } catch (e) {
-        setProcessActionStatus(`刷新失败：${e instanceof Error ? e.message : '未知错误'}`);
-      } finally {
-        inflightProcessOps.current.delete(pid);
-        setProcessRefreshingPid(null);
-        setTimeout(() => setProcessActionStatus(''), 4000);
-      }
-    },
-    [api, refreshProcesses],
-  );
-
   return (
     <>
       <MainLayout active={active} onNavigate={setActive} status={status} onLogout={handleLogout}>
@@ -254,16 +182,10 @@ function AppInner({ status, onLogoutComplete }: AppInnerProps) {
             qqList={qqList}
             status={status}
             processList={processList}
-            processLoadingPid={processLoadingPid}
-            processUnloadingPid={processUnloadingPid}
-            processRefreshingPid={processRefreshingPid}
-            processActionStatus={processActionStatus}
             systemInfo={systemInfo}
             onRefreshProcesses={refreshProcesses}
             onRefreshSystem={refreshSystem}
-            onLoadProcess={handleLoadProcess}
-            onUnloadProcess={handleUnloadProcess}
-            onRefreshProcess={handleRefreshProcess}
+            processOps={processOps}
           />
         )}
         {active === 'config' && <ConfigPage qqList={qqList} />}
@@ -273,7 +195,7 @@ function AppInner({ status, onLogoutComplete }: AppInnerProps) {
 
       <ConfirmDialog
         open={!!unloadFailedAlert}
-        onOpenChange={(open) => !open && setUnloadFailedAlert(null)}
+        onOpenChange={(open) => !open && dismissUnloadFailedAlert()}
         title="卸载失败"
         description={
           unloadFailedAlert ? (
@@ -287,7 +209,7 @@ function AppInner({ status, onLogoutComplete }: AppInnerProps) {
           ) : null
         }
         confirmText="知道了"
-        onConfirm={() => setUnloadFailedAlert(null)}
+        onConfirm={dismissUnloadFailedAlert}
       />
     </>
   );
