@@ -35,7 +35,7 @@ export class OneBotManager {
     const instance = this.instances.get(uin);
     if (!instance) return false;
 
-    const config = loadOneBotConfig(uin);
+    const config = loadOneBotConfig(uin, { persistDefaults: true });
     instance.reloadConfig(config);
     log.info('configuration reloaded: UIN=%s', uin);
     return true;
@@ -51,7 +51,7 @@ export class OneBotManager {
   private onSessionStarted(uin: string, bridge: BridgeInterface): void {
     if (this.instances.has(uin)) return;
 
-    const config = loadOneBotConfig(uin);
+    const config = loadOneBotConfig(uin, { persistDefaults: true });
     const instance = new OneBotInstance(uin, bridge, config);
 
     const activePid = bridge.activePid;
