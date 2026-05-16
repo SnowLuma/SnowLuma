@@ -94,7 +94,7 @@ export interface BridgeInterface {
   // ─── Group Album ───
   getGroupAlbumList(groupId: number): Promise<any>;
   uploadImageToGroupAlbum(groupId: number, albumId: string, albumName: string, filePath: string): Promise<void>;
-  getGroupAlbumMediaList(groupId: number, albumId: string): Promise<any>;
+  getGroupAlbumMediaList(groupId: number, albumId: string, attachInfo?: string): Promise<any>;
 
   // ─── Forward ───
   uploadForwardNodes(nodes: ForwardNodePayload[], groupId?: number): Promise<string>;

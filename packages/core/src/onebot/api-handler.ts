@@ -111,7 +111,7 @@ export interface ApiActionContext {
   getGroupEssenceAll: (groupId: number) => Promise<GroupEssenceMsgRet[]>;
   getGroupAlbumList: (groupId: number) => Promise<any>;
   uploadImageToGroupAlbum: (groupId: number, albumId: string, albumName: string, filePath: string) => Promise<void>;
-  getGroupAlbumMediaList: (groupId: number, albumId: string) => Promise<any>;
+  getGroupAlbumMediaList: (groupId: number, albumId: string, attachInfo?: string) => Promise<any>;
   sendGroupNotice: (groupId: number, content: string, options?: any) => Promise<any>;
   getGroupNotice: (groupId: number) => Promise<any[]>;
   deleteGroupNotice: (groupId: number, fid: string) => Promise<boolean>;

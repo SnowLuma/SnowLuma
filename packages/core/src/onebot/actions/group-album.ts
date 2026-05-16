@@ -39,12 +39,13 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   h.registerAction('get_group_album_media_list', async (params) => {
     const groupId = asNumber(params.group_id);
     const albumId = asString(params.album_id);
+    const attachInfo = asString(params.attach_info) || '';
 
     if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
     if (!albumId) return failedResponse(RETCODE.BAD_REQUEST, 'album_id is required');
 
     try {
-      const mediaList = await ctx.getGroupAlbumMediaList(groupId, albumId);
+      const mediaList = await ctx.getGroupAlbumMediaList(groupId, albumId, attachInfo);
       return okResponse(mediaList);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'failed to get group album media list';

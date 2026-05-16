@@ -128,10 +128,6 @@ async function createAlbumUploadSession(
 
   const api = `https://h5.qzone.qq.com/webapp/json/sliceUpload/FileBatchControl/${imgMd5}?g_tk=${bkn}`;
   const cookie = `p_uin=o${uin}; p_skey=${pskey}; skey=${skey}; uin=o${uin}`;
-  //
-  // console.log(api);
-  // console.log(cookie);
-  // console.log(JSON.stringify(body));
 
   const response = await RequestUtil.HttpGetJson<{ data: { session: string }, ret: number, msg: string }>(
     api,

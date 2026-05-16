@@ -495,8 +495,8 @@ export class Bridge implements BridgeInterface {
     return uploadImageToGroupAlbumWeb_(this, groupId, albumId, albumName, filePath);
   }
 
-  async getGroupAlbumMediaList(groupId: number, albumId: string): Promise<any> {
-    return getGroupAlbumMediaList_(this, groupId, albumId);
+  async getGroupAlbumMediaList(groupId: number, albumId: string, attachInfo?: string): Promise<any> {
+    return getGroupAlbumMediaList_(this, groupId, albumId, attachInfo);
   }
 
   async sendGroupNotice(groupId: number, content: string, options?: any) {

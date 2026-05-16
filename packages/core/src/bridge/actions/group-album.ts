@@ -7,7 +7,6 @@ import { GetMediaListRequestSchema, GetMediaListResponseSchema } from '../proto/
 export interface GroupAlbumMediaResult {
   mediaList: any[];
   nextAttachInfo: string;
-  raw: any;
 }
 
 function convertBigIntToString(obj: any): any {
@@ -40,7 +39,7 @@ export async function getGroupAlbumMediaList(
       groupId: groupId.toString(),
       albumId: albumId,
       field3: 0,
-      attachInfo: attachInfo, // 填入翻页游标
+      attachInfo: attachInfo,
       field5: '',
     },
     traceId: traceId,
@@ -59,7 +58,6 @@ export async function getGroupAlbumMediaList(
 
   const resp = protoDecode(result.responseData, GetMediaListResponseSchema);
 
-  // 校验外层 TRPC 状态码
   if (!resp || (resp as any).field1 !== 0) {
     throw new Error(`fetch album media list error: retCode ${(resp as any)?.field1 || 'unknown'}`);
   }
@@ -71,6 +69,5 @@ export async function getGroupAlbumMediaList(
   return convertBigIntToString({
     mediaList,
     nextAttachInfo,
-    raw: resp
   });
 }

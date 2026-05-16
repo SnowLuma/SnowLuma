@@ -188,7 +188,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     getGroupEssenceAll: (groupId) => bridge.getGroupEssenceAll(groupId),
     getGroupAlbumList: (groupId) => bridge.getGroupAlbumList(groupId),
     uploadImageToGroupAlbum: (groupId, albumId, albumName, filePath) => bridge.uploadImageToGroupAlbum(groupId, albumId, albumName, filePath),
-    getGroupAlbumMediaList: (groupId, albumId) => bridge.getGroupAlbumMediaList(groupId, albumId),
+    getGroupAlbumMediaList: (groupId, albumId, attachInfo) => bridge.getGroupAlbumMediaList(groupId, albumId, attachInfo),
     sendGroupNotice: (groupId, content, options) => bridge.sendGroupNotice(groupId, content, options),
     getGroupNotice: (groupId) => bridge.getGroupNotice(groupId),
     deleteGroupNotice: (groupId, fid) => bridge.deleteGroupNotice(groupId, fid),

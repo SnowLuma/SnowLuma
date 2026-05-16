@@ -879,6 +879,7 @@ export const SetStatusReqSchema = {
   status:        { field: 1, type: 'int32' as const },
   extStatus:     { field: 2, type: 'int32' as const },
   batteryStatus: { field: 3, type: 'int32' as const },
+  customExt:     { field: 4, type: 'message' as const, schema: SetStatusCustomExtSchema },
 } satisfies ProtoSchema;
 
 export const SetStatusRespSchema = {
