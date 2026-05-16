@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server';
-import { getConnInfo } from '@hono/node-server/conninfo';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono, type Context } from 'hono';
+import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
 import { createLogger, getRecentLogs, subscribeLogs } from '../utils/logger';
 import { randomBytes } from 'crypto';
 import type { OneBotManager } from '../onebot/manager';
@@ -66,19 +66,13 @@ function purgeExpiredTokens() {
 }
 
 /**
- * Resolve the client IP from the underlying TCP socket via the official
- * @hono/node-server conninfo helper. We deliberately do NOT trust
- * `X-Forwarded-For` — the WebUI listens on a local port with no required
- * reverse proxy, so accepting that header would let any client rotate it
- * to bypass the per-IP login lockout.
+ * Resolve the client IP for per-IP rate limiting. Default is the TCP
+ * socket peer (cannot be spoofed by the client). Operators behind a
+ * reverse proxy must opt in via the `SNOWLUMA_WEBUI_TRUST_PROXY` env
+ * var; see `./client-ip.ts` for the accepted values.
  */
-function getClientIp(c: Context): string {
-  try {
-    return getConnInfo(c).remote.address ?? '127.0.0.1';
-  } catch {
-    return '127.0.0.1';
-  }
-}
+const trustProxyMode = parseTrustProxy(process.env.SNOWLUMA_WEBUI_TRUST_PROXY);
+const getClientIp = makeClientIpResolver(trustProxyMode);
 
 async function fetchQqAvatar(uin: string): Promise<{ body: Uint8Array; contentType: string }> {
   const response = await fetch(`https://q1.qlogo.cn/g?b=qq&nk=${encodeURIComponent(uin)}&s=100`, {
@@ -108,6 +102,10 @@ export async function initWebUI(
     log.info('password change required after first login');
   } else if (auth.mustChangePassword()) {
     log.warn('password change is still required');
+  }
+  log.info('login rate-limit keyed by: %s', describeTrustProxy(trustProxyMode));
+  if (trustProxyMode.kind === 'all') {
+    log.warn('SNOWLUMA_WEBUI_TRUST_PROXY=1 — only safe behind a reverse proxy that strips client-set X-Real-IP / X-Forwarded-For');
   }
 
   const app = new Hono();
