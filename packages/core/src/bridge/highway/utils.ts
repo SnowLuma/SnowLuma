@@ -12,10 +12,13 @@ export interface LoadedBinary {
 }
 
 /**
- * Default cap on a single binary load. Image/voice/video paths use this
- * to defend against an authenticated OneBot client triggering a multi-GB
- * read into memory. Group/private file uploads override this cap because
- * QQ's file protocol legitimately supports up to 4 GiB.
+ * Default cap on a single binary load issued through this helper. Callers
+ * that route here (image / voice via base64+HTTP, group/private file
+ * uploads, avatar) get bounded reads. Not all callers route through here
+ * — in particular `video-upload.stageVideoSource` reads local-video files
+ * directly and enforces its own cap via `MAX_VIDEO_SIZE`. Group/private
+ * file uploads override this via `FILE_UPLOAD_MAX_BYTES` because QQ's
+ * file protocol legitimately supports up to 4 GiB.
  */
 const DEFAULT_MAX_BINARY_SIZE = 1024 * 1024 * 1024; // 1 GiB
 /** Hard ceiling QQ's file protocol supports — used by group/private files. */
@@ -87,11 +90,42 @@ export async function loadBinarySource(
     if (Number.isFinite(declared) && declared > maxBytes) {
       throw new Error(`${resourceName} too large: ${declared} > ${maxBytes}`);
     }
-    const bytes = new Uint8Array(await resp.arrayBuffer());
-    if (bytes.length > maxBytes) {
-      throw new Error(`${resourceName} too large: ${bytes.length} > ${maxBytes}`);
-    }
     const fileName = guessFileNameFromUrl(source);
+    // Stream the body incrementally so a server that omits or
+    // understates Content-Length can't make us buffer a chunked response
+    // past maxBytes — `await resp.arrayBuffer()` would happily allocate
+    // the entire payload before we get a chance to length-check it.
+    const reader = resp.body?.getReader();
+    if (!reader) {
+      const bytes = new Uint8Array(await resp.arrayBuffer());
+      if (bytes.length > maxBytes) {
+        throw new Error(`${resourceName} too large: ${bytes.length} > ${maxBytes}`);
+      }
+      return { bytes, fileName };
+    }
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        total += value.byteLength;
+        if (total > maxBytes) {
+          await reader.cancel().catch(() => { /* ignore */ });
+          throw new Error(`${resourceName} too large: > ${maxBytes}`);
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
     return { bytes, fileName };
   }
 

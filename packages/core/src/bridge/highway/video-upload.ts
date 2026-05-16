@@ -280,6 +280,14 @@ async function stageVideoSource(element: MessageElement, tempDir: string, cleanu
 
   const local = resolveLocalFilePath(source);
   if (local && fs.existsSync(local)) {
+    // Pre-check on disk size BEFORE reading bytes into memory. The later
+    // `staged.bytes.length > MAX_VIDEO_SIZE` guard would otherwise only
+    // run after we'd already allocated the entire file (so a 10 GiB
+    // local path still OOMs us before the check fires).
+    const stat = fs.statSync(local);
+    if (stat.size > MAX_VIDEO_SIZE) {
+      throw new Error(`video file too large: ${(stat.size / (1024 * 1024)).toFixed(2)} MB > ${MAX_VIDEO_SIZE / (1024 * 1024)} MB`);
+    }
     return {
       bytes: new Uint8Array(fs.readFileSync(local)),
       filePath: local,
@@ -287,7 +295,7 @@ async function stageVideoSource(element: MessageElement, tempDir: string, cleanu
     };
   }
 
-  const loaded = await loadBinarySource(source, 'video');
+  const loaded = await loadBinarySource(source, 'video', MAX_VIDEO_SIZE);
   const fileName = element.fileName || loaded.fileName || '';
   const stagedPath = path.join(tempDir, `snowluma-video-in-${crypto.randomUUID()}${sourceExtension(fileName, source)}`);
   fs.writeFileSync(stagedPath, Buffer.from(loaded.bytes));
