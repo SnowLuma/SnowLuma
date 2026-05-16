@@ -1121,3 +1121,81 @@ export const Oidb0xf16ReqSchema = {
 } satisfies ProtoSchema;
 
 export const Oidb0xf16RespSchema = {} satisfies ProtoSchema;
+
+///////// ---  group  album
+// --- Request Schemas ---
+
+export const ExtMapEntrySchema = {
+  key:   { field: 1, type: 'string' as const },
+  value: { field: 2, type: 'string' as const },
+} satisfies ProtoSchema;
+
+export const ReqInfoSchema = {
+  groupId:    { field: 1, type: 'string' as const },
+  albumId:    { field: 2, type: 'string' as const },
+  field3:     { field: 3, type: 'int32' as const },
+  attachInfo: { field: 4, type: 'string' as const },
+  field5:     { field: 5, type: 'string' as const },
+} satisfies ProtoSchema;
+
+export const GetMediaListRequestSchema = {
+  field1:  { field: 1, type: 'int32' as const },
+  field2:  { field: 2, type: 'bytes' as const },
+  field3:  { field: 3, type: 'bytes' as const },
+  reqInfo: { field: 4, type: 'message' as const, schema: ReqInfoSchema },
+  traceId: { field: 5, type: 'string' as const },
+  extMap:  { field: 10, type: 'repeated_message' as const, schema: ExtMapEntrySchema },
+} satisfies ProtoSchema;
+
+// --- Response Schemas ---
+
+export const UrlInfoSchema = {
+  url:    { field: 1, type: 'string' as const },
+  width:  { field: 2, type: 'uint32' as const },
+  height: { field: 3, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
+export const PhotoUrlSchema = {
+  spec: { field: 1, type: 'uint32' as const },
+  url:  { field: 2, type: 'message' as const, schema: UrlInfoSchema }
+} satisfies ProtoSchema;
+
+export const ImageInfoSchema = {
+  name:       { field: 1, type: 'string' as const },
+  sloc:       { field: 2, type: 'string' as const },
+  lloc:       { field: 3, type: 'string' as const },
+  photoUrls:  { field: 4, type: 'repeated_message' as const, schema: PhotoUrlSchema },
+  defaultUrl: { field: 5, type: 'message' as const, schema: UrlInfoSchema },
+  isGif:      { field: 6, type: 'bool' as const },
+  hasRaw:     { field: 7, type: 'bool' as const },
+} satisfies ProtoSchema;
+
+export const MediaInfoSchema = {
+  type:       { field: 1, type: 'uint32' as const },
+  image:      { field: 2, type: 'message' as const, schema: ImageInfoSchema },
+  uploader:   { field: 6, type: 'string' as const },
+  batchId:    { field: 7, type: 'uint64' as const },
+  uploadTime: { field: 8, type: 'uint64' as const },
+} satisfies ProtoSchema;
+
+export const GetMediaListRspDataSchema = {
+  albumInfo: {
+    field: 1,
+    type: 'message' as const,
+    schema: {
+      albumId: { field: 1, type: 'string' as const },
+      owner:   { field: 2, type: 'string' as const },
+      name:    { field: 3, type: 'string' as const },
+    } satisfies ProtoSchema
+  },
+  mediaList:      { field: 3, type: 'repeated_message' as const, schema: MediaInfoSchema },
+  prevAttachInfo: { field: 4, type: 'string' as const },
+  nextAttachInfo: { field: 5, type: 'string' as const }, // 用于翻页拉取的 token
+} satisfies ProtoSchema;
+
+export const GetMediaListResponseSchema = {
+  field1: { field: 1, type: 'int32' as const },
+  field2: { field: 2, type: 'bytes' as const },
+  field3: { field: 3, type: 'bytes' as const },
+  data:   { field: 4, type: 'message' as const, schema: GetMediaListRspDataSchema }, // 将原本的 bytes 修正为 message 解析
+} satisfies ProtoSchema;

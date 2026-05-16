@@ -25,3 +25,8 @@ export {
   getGroupNotice,
   deleteGroupNoticeByFid,
 } from './group-notice';
+
+export {
+  getGroupAlbumListWeb,
+  uploadImageToGroupAlbumWeb,
+} from './group-album';

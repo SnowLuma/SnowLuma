@@ -111,7 +111,10 @@ import {
   getCookiesStr as getCookiesStr_,
   getCsrfToken as getCsrfToken_,
   getCredentials as getCredentials_,
+  getGroupAlbumListWeb as getGroupAlbumListWeb_,
+  uploadImageToGroupAlbumWeb as uploadImageToGroupAlbumWeb_,
 } from './web-actions';
+import { getGroupAlbumMediaList as getGroupAlbumMediaList_ } from './actions/group-album';
 import type { GroupFilesResult } from './actions/group-file';
 import type { MediaIndexNode } from './actions/shared';
 import { BridgeEventBus } from './event-bus';
@@ -643,6 +646,18 @@ export class Bridge {
 
   async getGroupEssenceAll(groupId: number): Promise<any> {
     return getGroupEssenceAll_(this, groupId);
+  }
+
+  async getGroupAlbumList(groupId: number): Promise<any> {
+    return getGroupAlbumListWeb_(this, groupId);
+  }
+
+  async uploadImageToGroupAlbum(groupId: number, albumId: string, albumName: string, filePath: string): Promise<void> {
+    return uploadImageToGroupAlbumWeb_(this, groupId, albumId, albumName, filePath);
+  }
+
+  async getGroupAlbumMediaList(groupId: number, albumId: string): Promise<any> {
+    return getGroupAlbumMediaList_(this, groupId, albumId);
   }
 
   async sendGroupNotice(groupId: number, content: string, options?: any) {

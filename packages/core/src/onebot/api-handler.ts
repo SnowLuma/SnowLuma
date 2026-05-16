@@ -10,6 +10,7 @@ import { register as registerGroupAdmin } from './actions/group-admin';
 import { register as registerGroupFile } from './actions/group-file';
 import { register as registerRequest } from './actions/request';
 import { register as registerExtended } from './actions/extended';
+import { register as registerGroupAlbum } from './actions/group-album';
 
 import { WebHonorType } from '@/bridge/web/group-honor';
 // import {ClientKeyInfo} from "@/bridge/bridge";
@@ -118,6 +119,9 @@ export interface ApiActionContext {
   getGroupHonorInfo: (groupId: number, type: WebHonorType | string) => Promise<any>;
   getGroupEssence: (groupId: number, pageStart?: number, pageLimit?: number) => Promise<GroupEssenceMsgRet>;
   getGroupEssenceAll: (groupId: number) => Promise<GroupEssenceMsgRet[]>;
+  getGroupAlbumList: (groupId: number) => Promise<any>;
+  uploadImageToGroupAlbum: (groupId: number, albumId: string, albumName: string, filePath: string) => Promise<void>;
+  getGroupAlbumMediaList: (groupId: number, albumId: string) => Promise<any>;
   sendGroupNotice: (groupId: number, content: string, options?: any) => Promise<any>;
   getGroupNotice: (groupId: number) => Promise<any[]>;
   deleteGroupNotice: (groupId: number, fid: string) => Promise<boolean>;
@@ -145,6 +149,7 @@ export class ApiHandler {
     registerGroupFile(this, context);
     registerRequest(this, context);
     registerExtended(this, context);
+    registerGroupAlbum(this, context);
   }
 
   registerAction(action: string, handler: ActionHandler): void {
