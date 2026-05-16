@@ -11,19 +11,19 @@ import { vi } from 'vitest';
 import type { SendPacketResult } from '../../src/protocol/packet-sender';
 
 export interface MockBridge {
-  qqInfo: {
+  identity: {
     uin: string;
     selfUid: string;
-    findGroupMember: ReturnType<typeof vi.fn>;
-  };
-  identity: {
+    nickname: string;
     findUidByUin: ReturnType<typeof vi.fn>;
     findUinByUid: ReturnType<typeof vi.fn>;
+    findGroupMember: ReturnType<typeof vi.fn>;
   };
   sendRawPacket: ReturnType<typeof vi.fn>;
   fetchFriendList: ReturnType<typeof vi.fn>;
   fetchGroupMemberList: ReturnType<typeof vi.fn>;
   fetchUserProfile: ReturnType<typeof vi.fn>;
+  resolveUserUid: ReturnType<typeof vi.fn>;
 }
 
 export function mockBridge(overrides: Partial<MockBridge> = {}): MockBridge {
@@ -35,21 +35,20 @@ export function mockBridge(overrides: Partial<MockBridge> = {}): MockBridge {
     responseData: Buffer.alloc(0),
   };
   return {
-    qqInfo: {
+    identity: {
       uin: '10001',
       selfUid: 'self-uid',
-      findGroupMember: vi.fn(() => null),
-      ...(overrides.qqInfo ?? {}),
-    } as MockBridge['qqInfo'],
-    identity: {
+      nickname: 'self-nick',
       findUidByUin: vi.fn(() => 'cached-uid'),
       findUinByUid: vi.fn(() => 0),
+      findGroupMember: vi.fn(() => null),
       ...(overrides.identity ?? {}),
     } as MockBridge['identity'],
     sendRawPacket: vi.fn(async () => defaultResp),
     fetchFriendList: vi.fn(async () => []),
     fetchGroupMemberList: vi.fn(async () => []),
     fetchUserProfile: vi.fn(async () => ({ uid: 'profile-uid' })),
+    resolveUserUid: vi.fn(async () => 'resolved-uid'),
     ...overrides,
   };
 }

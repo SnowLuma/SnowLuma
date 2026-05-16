@@ -7,7 +7,7 @@ import type { Bridge } from '../bridge';
 import { gunzipSync, gzipSync } from 'zlib';
 import { protoDecode, protoEncode } from '../../protobuf/decode';
 import { buildSendElems } from '../element-builder';
-import { parseMsgPush } from '../msg-push-handler';
+import { parseMsgPush } from '../msg-push';
 import type { ForwardNodePayload } from '../events';
 import type { PacketInfo } from '../../protocol/types';
 import {
@@ -29,7 +29,7 @@ async function buildForwardPushBody(
   bridge: Bridge,
   node: ForwardNodePayload,
 ): Promise<Record<string, unknown>> {
-  const fromUin = node.userUin > 0 ? node.userUin : toInt(bridge.qqInfo.uin);
+  const fromUin = node.userUin > 0 ? node.userUin : toInt(bridge.identity.uin);
   if (fromUin <= 0) throw new Error('forward node user uin is invalid');
 
   const nickname = node.nickname.trim() || String(fromUin);
@@ -41,7 +41,7 @@ async function buildForwardPushBody(
   return {
     responseHead: {
       fromUin,
-      toUid: bridge.qqInfo.selfUid ?? '',
+      toUid: bridge.identity.selfUid ?? '',
       forward: {
         friendName: nickname,
       },
@@ -173,14 +173,14 @@ export async function fetchForwardNodes(bridge: Bridge, resId: string): Promise<
     const wrapped = protoEncode({ message: msgBody }, PushMsgSchema);
     const pkt: PacketInfo = {
       pid: 0,
-      uin: bridge.qqInfo.uin,
+      uin: bridge.identity.uin,
       serviceCmd: 'trpc.msg.olpush.OlPushService.MsgPush',
       seqId: 0,
       retCode: 0,
       fromClient: false,
       body: wrapped,
     };
-    const events = parseMsgPush(pkt, bridge.qqInfo);
+    const events = parseMsgPush(pkt, bridge.identity);
     const event = events.find(e =>
       e.kind === 'friend_message' || e.kind === 'group_message' || e.kind === 'temp_message');
     if (!event) continue;

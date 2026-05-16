@@ -3,10 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Mock the OIDB shim so we can control what `forceFetchClientKey` and
 // `getPSkey` see without standing up a Bridge.
 vi.mock('../../src/bridge/bridge-oidb', () => ({
-  sendOidbAndDecode: vi.fn(async () => ({})),
-  sendOidbAndCheck: vi.fn(async () => undefined),
-  resolveUserUid: vi.fn(async () => 'uid'),
-  makeOidbRequest: vi.fn(() => new Uint8Array(0)),
+  runOidb: vi.fn(async () => ({})),
 }));
 
 // Mock the actual HTTP cookie fetch.
@@ -29,13 +26,13 @@ import {
   getCredentials,
 } from '../../src/bridge/web-actions/cookies';
 
-const bridge = { qqInfo: { uin: '10001' } } as any;
+const bridge = { identity: { uin: '10001' } } as any;
 
 describe('cookies — forceFetchClientKey', () => {
-  beforeEach(() => { vi.mocked(oidb.sendOidbAndDecode).mockReset(); });
+  beforeEach(() => { vi.mocked(oidb.runOidb).mockReset(); });
 
   it('returns clientKey + keyIndex + expireTime from the OIDB response', async () => {
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
       clientKey: 'ck-xyz', keyIndex: 42, expireTime: 3600,
     });
     const out = await forceFetchClientKey(bridge);
@@ -43,17 +40,17 @@ describe('cookies — forceFetchClientKey', () => {
   });
 
   it('falls back to default keyIndex/expireTime when the response omits them', async () => {
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({ clientKey: 'ck' });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({ clientKey: 'ck' });
     const out = await forceFetchClientKey(bridge);
     expect(out).toEqual({ clientKey: 'ck', keyIndex: '19', expireTime: '1800' });
   });
 });
 
 describe('cookies — getPSkey', () => {
-  beforeEach(() => { vi.mocked(oidb.sendOidbAndDecode).mockReset(); });
+  beforeEach(() => { vi.mocked(oidb.runOidb).mockReset(); });
 
   it('folds pskeyItems into a domain → pskey Map', async () => {
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
       pskeyItems: [
         { domain: 'qun.qq.com', pskey: 'psk-a' },
         { domain: 'qzone.qq.com', pskey: 'psk-b' },
@@ -69,12 +66,12 @@ describe('cookies — getPSkey', () => {
 
 describe('cookies — getCookies', () => {
   beforeEach(() => {
-    vi.mocked(oidb.sendOidbAndDecode).mockReset();
+    vi.mocked(oidb.runOidb).mockReset();
     vi.mocked(RequestUtil.HttpsGetCookies).mockReset();
   });
 
   it('builds the ptlogin2 jump URL with the right query params', async () => {
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({ clientKey: 'ck', keyIndex: 19 });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({ clientKey: 'ck', keyIndex: 19 });
     vi.mocked(RequestUtil.HttpsGetCookies).mockResolvedValueOnce({
       p_skey: 'psk',
       skey: 'sk',
@@ -91,7 +88,7 @@ describe('cookies — getCookies', () => {
   });
 
   it('falls back to getPSkey when p_skey is missing in the cookie response', async () => {
-    vi.mocked(oidb.sendOidbAndDecode)
+    vi.mocked(oidb.runOidb)
       .mockResolvedValueOnce({ clientKey: 'ck', keyIndex: 19 })       // forceFetchClientKey
       .mockResolvedValueOnce({                                          // getPSkey
         pskeyItems: [{ domain: 'qun.qq.com', pskey: 'psk-from-oidb' }],
@@ -103,7 +100,7 @@ describe('cookies — getCookies', () => {
   });
 
   it('returns whatever cookies it got if getPSkey fallback throws', async () => {
-    vi.mocked(oidb.sendOidbAndDecode)
+    vi.mocked(oidb.runOidb)
       .mockResolvedValueOnce({ clientKey: 'ck', keyIndex: 19 })
       .mockRejectedValueOnce(new Error('pskey unavailable'));
     vi.mocked(RequestUtil.HttpsGetCookies).mockResolvedValueOnce({ skey: 'sk' });
@@ -115,23 +112,23 @@ describe('cookies — getCookies', () => {
 
 describe('cookies — getSKey', () => {
   beforeEach(() => {
-    vi.mocked(oidb.sendOidbAndDecode).mockReset();
+    vi.mocked(oidb.runOidb).mockReset();
     vi.mocked(RequestUtil.HttpsGetCookies).mockReset();
   });
 
   it('returns skey from the qzone-targeted ptlogin2 jump', async () => {
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({ clientKey: 'ck', keyIndex: 19 });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({ clientKey: 'ck', keyIndex: 19 });
     vi.mocked(RequestUtil.HttpsGetCookies).mockResolvedValueOnce({ skey: 'the-skey' });
     expect(await getSKey(bridge)).toBe('the-skey');
   });
 
   it('throws when clientKey comes back empty', async () => {
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({ clientKey: '' });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({ clientKey: '' });
     await expect(getSKey(bridge)).rejects.toThrow(/clientKey is empty/);
   });
 
   it('throws when the jump response omits skey', async () => {
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({ clientKey: 'ck', keyIndex: 19 });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({ clientKey: 'ck', keyIndex: 19 });
     vi.mocked(RequestUtil.HttpsGetCookies).mockResolvedValueOnce({});
     await expect(getSKey(bridge)).rejects.toThrow(/SKey is Empty/);
   });
@@ -150,21 +147,21 @@ describe('cookies — pure helpers', () => {
   });
 
   it('getCookiesStr: joins cookies with "; "', async () => {
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({ clientKey: 'ck', keyIndex: 19 });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({ clientKey: 'ck', keyIndex: 19 });
     vi.mocked(RequestUtil.HttpsGetCookies).mockResolvedValueOnce({ p_skey: 'p', skey: 's' });
     const out = await getCookiesStr(bridge, 'qun.qq.com');
     expect(out).toBe('p_skey=p; skey=s');
   });
 
   it('getCsrfToken: combines getSKey + getBknFromSKey', async () => {
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({ clientKey: 'ck', keyIndex: 19 });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({ clientKey: 'ck', keyIndex: 19 });
     vi.mocked(RequestUtil.HttpsGetCookies).mockResolvedValueOnce({ skey: 'abc' });
     const csrf = await getCsrfToken(bridge);
     expect(csrf).toBe(getBknFromSKey('abc'));
   });
 
   it('getCredentials: returns { cookies, token, csrf_token } with bkn(p_skey)', async () => {
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({ clientKey: 'ck', keyIndex: 19 });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({ clientKey: 'ck', keyIndex: 19 });
     vi.mocked(RequestUtil.HttpsGetCookies).mockResolvedValueOnce({ p_skey: 'p', skey: 's' });
 
     const out = await getCredentials(bridge, 'qun.qq.com');
@@ -174,7 +171,7 @@ describe('cookies — pure helpers', () => {
   });
 
   it('getCredentials: token is 0 when no skey/p_skey available', async () => {
-    vi.mocked(oidb.sendOidbAndDecode)
+    vi.mocked(oidb.runOidb)
       .mockResolvedValueOnce({ clientKey: 'ck', keyIndex: 19 })
       .mockRejectedValueOnce(new Error('no pskey'));
     vi.mocked(RequestUtil.HttpsGetCookies).mockResolvedValueOnce({});

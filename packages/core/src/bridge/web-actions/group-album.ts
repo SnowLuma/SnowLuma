@@ -6,7 +6,7 @@ import { getCookies } from './cookies';
 
 export async function getGroupAlbumListWeb(bridge: Bridge, groupId: number) {
   const groupCode = groupId.toString();
-  const uin = bridge.qqInfo.uin;
+  const uin = bridge.identity.uin;
   const cookieObject = await getCookies(bridge, 'qzone.qq.com');
 
   const albumData = await getGroupAlbumList(cookieObject, groupCode, uin);
@@ -22,7 +22,7 @@ export async function uploadImageToGroupAlbumWeb(
   filePath: string
 ): Promise<void> {
   const groupCode = groupId.toString();
-  const uin = bridge.qqInfo.uin;
+  const uin = bridge.identity.uin;
   const cookieObject = await getCookies(bridge, 'qzone.qq.com');
 
   await uploadImageToGroupAlbum(cookieObject, groupCode, albumId, albumName, filePath, uin);

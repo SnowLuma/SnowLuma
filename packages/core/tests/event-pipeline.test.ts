@@ -104,7 +104,6 @@ function makeContext(extra: Partial<OneBotInstanceContext> = {}): {
   const ctx: OneBotInstanceContext = {
     uin: SELF_UIN,
     selfId: SELF_ID,
-    qqInfo: {} as never,
     bridge: fakeBridge as never,
     messageStore: {} as never,
     mediaStore: {} as never,

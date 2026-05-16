@@ -101,3 +101,26 @@ export interface GroupAtAllRemainInfo {
 }
 
 export type EmptyData = null;
+
+// — AI 语音角色：get_ai_characters 返回的分类数组 —
+export interface AiCharacter {
+  character_id: string;
+  character_name: string;
+  preview_url: string;
+}
+
+export interface AiCharacterCategory {
+  type: string;
+  characters: AiCharacter[];
+}
+
+// — nc_get_user_status 返回的状态字 —
+export interface UserOnlineStatus {
+  status: number;
+  ext_status: number;
+}
+
+// — send_group_ai_record 返回（合成是异步副作用，message_id 总为 0） —
+export interface SendGroupAiRecordResult {
+  message_id: number;
+}

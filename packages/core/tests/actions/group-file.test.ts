@@ -1,10 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/bridge/bridge-oidb', () => ({
-  sendOidbAndCheck: vi.fn(async () => undefined),
-  sendOidbAndDecode: vi.fn(async () => ({})),
-  resolveUserUid: vi.fn(async () => 'resolved-uid'),
-  makeOidbRequest: vi.fn(() => new Uint8Array(0)),
+  runOidb: vi.fn(async () => ({})),
 }));
 
 vi.mock('../../src/bridge/highway/highway-client', () => ({
@@ -28,16 +25,15 @@ import { mockBridge } from './_helpers';
 
 describe('actions/group-file', () => {
   beforeEach(() => {
-    vi.mocked(oidb.sendOidbAndCheck).mockClear();
-    vi.mocked(oidb.sendOidbAndDecode).mockClear();
-    vi.mocked(oidb.resolveUserUid).mockClear();
+    vi.mocked(oidb.runOidb).mockReset();
+    vi.mocked(oidb.runOidb).mockResolvedValue({});
     vi.mocked(highwayClient.fetchHighwaySession).mockClear();
     vi.mocked(highwayClient.uploadHighwayHttp).mockClear();
   });
 
   it('fetchGroupFileCount returns { fileCount, maxCount } from the OIDB response', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
       count: { fileCount: 42, maxCount: 1000 },
     });
     const out = await groupFile.fetchGroupFileCount(bridge as any, 12345);
@@ -46,14 +42,14 @@ describe('actions/group-file', () => {
 
   it('fetchGroupFileCount falls back to defaults on partial response', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({ count: {} });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({ count: {} });
     const out = await groupFile.fetchGroupFileCount(bridge as any, 12345);
     expect(out).toEqual({ fileCount: 0, maxCount: 10000 });
   });
 
   it('uploadGroupFile skips highway when boolFileExist is true', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
       upload: {
         retCode: 0,
         fileId: 'fid-xyz',
@@ -68,7 +64,7 @@ describe('actions/group-file', () => {
 
   it('uploadGroupFile runs highway PUT when boolFileExist is false', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
       upload: {
         retCode: 0,
         fileId: 'fid-xyz',
@@ -86,14 +82,14 @@ describe('actions/group-file', () => {
 
   it('uploadGroupFile throws on missing upload response', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({});
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({});
     await expect(groupFile.uploadGroupFile(bridge as any, 12345, '/path/file.bin'))
       .rejects.toThrow(/response missing/);
   });
 
   it('uploadGroupFile bubbles up OIDB retCode errors', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
       upload: { retCode: 999, retMsg: 'quota exceeded' },
     });
     await expect(groupFile.uploadGroupFile(bridge as any, 12345, '/path/file.bin'))
@@ -102,22 +98,29 @@ describe('actions/group-file', () => {
 
   it('uploadPrivateFile resolves both target + self UID before OIDB call', async () => {
     const bridge = mockBridge({
-      qqInfo: { uin: '10001', selfUid: '', findGroupMember: vi.fn(() => null) },
+      identity: {
+        uin: '10001',
+        selfUid: '',
+        nickname: 'self-nick',
+        findUidByUin: vi.fn(() => 'cached-uid'),
+        findUinByUid: vi.fn(() => 0),
+        findGroupMember: vi.fn(() => null),
+      },
     });
-    vi.mocked(oidb.resolveUserUid)
+    vi.mocked(bridge.resolveUserUid)
       .mockResolvedValueOnce('target-uid')   // target user
       .mockResolvedValueOnce('self-uid-resolved'); // self fallback
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
       upload: { retCode: 0, uuid: 'fid', fileAddon: 'hash', boolFileExist: true },
     });
     const out = await groupFile.uploadPrivateFile(bridge as any, 67890, '/path/file');
     expect(out).toEqual({ fileId: 'fid', fileHash: 'hash' });
-    expect(oidb.resolveUserUid).toHaveBeenCalledTimes(2);
+    expect(bridge.resolveUserUid).toHaveBeenCalledTimes(2);
   });
 
   it('fetchGroupFiles paginates files + folders out of OIDB items', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
       list: {
         retCode: 0,
         isEnd: true,
@@ -136,7 +139,7 @@ describe('actions/group-file', () => {
 
   it('fetchGroupFileUrl builds the https URL from downloadDns + hex-encoded path', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
       download: {
         retCode: 0,
         downloadDns: 'cdn.example.com',
@@ -149,7 +152,7 @@ describe('actions/group-file', () => {
 
   it('fetchGroupFileUrl throws when response is missing dns or url', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
       download: { retCode: 0 },
     });
     await expect(groupFile.fetchGroupFileUrl(bridge as any, 12345, 'fid-xyz'))
@@ -158,29 +161,29 @@ describe('actions/group-file', () => {
 
   it('deleteGroupFile / moveGroupFile dispatch the right sub-commands', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.sendOidbAndDecode)
+    vi.mocked(oidb.runOidb)
       .mockResolvedValueOnce({ delete: { retCode: 0 } })
       .mockResolvedValueOnce({ move: { retCode: 0 } });
     await groupFile.deleteGroupFile(bridge as any, 12345, 'fid');
     await groupFile.moveGroupFile(bridge as any, 12345, 'fid', '/a', '/b');
-    expect(vi.mocked(oidb.sendOidbAndDecode).mock.calls.map(c => c[3])).toEqual([3, 5]);
+    expect(vi.mocked(oidb.runOidb).mock.calls.map(c => c[1].subCmd)).toEqual([3, 5]);
   });
 
   it('createGroupFileFolder / deleteGroupFileFolder / renameGroupFileFolder dispatch 0x6d7 family', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.sendOidbAndDecode)
+    vi.mocked(oidb.runOidb)
       .mockResolvedValueOnce({ create: { retcode: 0 } })
       .mockResolvedValueOnce({ delete: { retcode: 0 } })
       .mockResolvedValueOnce({ rename: { retcode: 0 } });
     await groupFile.createGroupFileFolder(bridge as any, 1, 'folder');
     await groupFile.deleteGroupFileFolder(bridge as any, 1, 'fid');
     await groupFile.renameGroupFileFolder(bridge as any, 1, 'fid', 'newname');
-    expect(vi.mocked(oidb.sendOidbAndDecode).mock.calls.map(c => c[2])).toEqual([0x6D7, 0x6D7, 0x6D7]);
+    expect(vi.mocked(oidb.runOidb).mock.calls.map(c => c[1].oidbCmd)).toEqual([0x6D7, 0x6D7, 0x6D7]);
   });
 
   it('fetch*UrlByNode builds https://domain/path?rkey from the NTV2 response', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValue({
+    vi.mocked(oidb.runOidb).mockResolvedValue({
       respHead: { retCode: 0 },
       download: {
         info: { domain: 'media.example.com', urlPath: '/path/x' },

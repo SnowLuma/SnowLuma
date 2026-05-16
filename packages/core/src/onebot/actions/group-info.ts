@@ -68,7 +68,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
 
     try {
-      const honorInfo = await ctx.getGroupHonorInfo(groupId, typeStr as WebHonorType);
+      const honorInfo = await ctx.bridge.getGroupHonorInfo(groupId, typeStr as WebHonorType);
       return okResponse(honorInfo);
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, `failed to get group honor info: ${(e as Error).message}`);

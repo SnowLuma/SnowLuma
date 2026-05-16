@@ -1,10 +1,20 @@
 const HEX_CHARS = '0123456789abcdef';
+const HEX_CHARS_UPPER = '0123456789ABCDEF';
 
 export function toHex(data: Uint8Array | Buffer): string {
   let h = '';
   for (const b of data) {
     h += HEX_CHARS[b >> 4];
     h += HEX_CHARS[b & 0xf];
+  }
+  return h;
+}
+
+export function toHexUpper(data: Uint8Array | Buffer): string {
+  let h = '';
+  for (const b of data) {
+    h += HEX_CHARS_UPPER[b >> 4];
+    h += HEX_CHARS_UPPER[b & 0xf];
   }
   return h;
 }

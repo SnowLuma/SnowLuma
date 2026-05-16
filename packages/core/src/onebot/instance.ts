@@ -1,6 +1,5 @@
 import path from 'path';
-import type { Bridge } from '../bridge/bridge';
-import type { QQInfo } from '../bridge/qq-info';
+import type { BridgeInterface } from '../bridge/bridge-interface';
 import { ApiHandler } from './api-handler';
 import type { ConverterContext } from './event-converter';
 import { MediaIndexer } from './media-indexer';
@@ -27,8 +26,7 @@ const log = createLogger('Event');
 export class OneBotInstance {
   readonly uin: string;
 
-  readonly qqInfo: QQInfo;
-  private readonly bridge: Bridge;
+  private readonly bridge: BridgeInterface;
   private readonly apiHandler: ApiHandler;
   private readonly converterCtx: ConverterContext;
   private readonly messageStore: MessageStore;
@@ -43,9 +41,10 @@ export class OneBotInstance {
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private static readonly HEARTBEAT_INTERVAL = 30000;
 
-  constructor(uin: string, qqInfo: QQInfo, bridge: Bridge, config: OneBotConfig) {
+  get nickname(): string { return this.bridge.identity.nickname; }
+
+  constructor(uin: string, bridge: BridgeInterface, config: OneBotConfig) {
     this.uin = uin;
-    this.qqInfo = qqInfo;
     this.bridge = bridge;
 
     this.rkeyCache = new RKeyCache();
@@ -75,7 +74,6 @@ export class OneBotInstance {
     const ctx: OneBotInstanceContext = {
       uin: this.uin,
       selfId: parseInt(this.uin, 10) || 0,
-      qqInfo: this.qqInfo,
       bridge: this.bridge,
       messageStore: this.messageStore,
       mediaStore: this.mediaStore,

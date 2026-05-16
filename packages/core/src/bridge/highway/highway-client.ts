@@ -191,7 +191,7 @@ export async function uploadHighwayHttp(
   bridge: Bridge, session: HighwaySession, commandId: number,
   bytes: Uint8Array, fileMd5: Uint8Array, extend: Uint8Array,
 ): Promise<void> {
-  const pathStr = `/cgi-bin/httpconn?htcmd=0x6FF0087&uin=${bridge.qqInfo.uin}`;
+  const pathStr = `/cgi-bin/httpconn?htcmd=0x6FF0087&uin=${bridge.identity.uin}`;
   const socket = await tcpConnect(session.host, session.port);
 
   try {
@@ -201,7 +201,7 @@ export async function uploadHighwayHttp(
       const chunk = bytes.subarray(offset, offset + chunkSize);
       const chunkMd5 = computeMd5(chunk);
       const head = makeHighwayHead(
-        bridge.qqInfo.uin, commandId, bytes.length, offset, chunkSize,
+        bridge.identity.uin, commandId, bytes.length, offset, chunkSize,
         chunkMd5, fileMd5, session.sigSession, extend,
       );
       const frame = packHighwayFrame(head, chunk);

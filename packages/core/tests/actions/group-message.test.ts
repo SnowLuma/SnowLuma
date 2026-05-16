@@ -1,10 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/bridge/bridge-oidb', () => ({
-  sendOidbAndCheck: vi.fn(async () => undefined),
-  sendOidbAndDecode: vi.fn(async () => ({})),
-  resolveUserUid: vi.fn(async () => 'resolved-uid'),
-  makeOidbRequest: vi.fn(() => new Uint8Array(0)),
+  runOidb: vi.fn(async () => ({})),
 }));
 
 import * as oidb from '../../src/bridge/bridge-oidb';
@@ -13,8 +10,7 @@ import { mockBridge } from './_helpers';
 
 describe('actions/group-message', () => {
   beforeEach(() => {
-    vi.mocked(oidb.sendOidbAndCheck).mockClear();
-    vi.mocked(oidb.resolveUserUid).mockClear();
+    vi.mocked(oidb.runOidb).mockClear();
   });
 
   it('recallGroupMessage sends to SsoGroupRecallMsg with the group sequence', async () => {
@@ -42,7 +38,7 @@ describe('actions/group-message', () => {
   it('recallPrivateMessage resolves the target UID before dispatch', async () => {
     const bridge = mockBridge();
     await msg.recallPrivateMessage(bridge as any, 10001, 100, 200, 123, 1700000000);
-    expect(oidb.resolveUserUid).toHaveBeenCalledWith(bridge, 10001);
+    expect(bridge.resolveUserUid).toHaveBeenCalledWith(10001);
     const [serviceCmd] = bridge.sendRawPacket.mock.calls[0]!;
     expect(serviceCmd).toBe('trpc.msg.msg_svc.MsgService.SsoC2CRecallMsg');
   });
@@ -63,7 +59,7 @@ describe('actions/group-message', () => {
     const bridge = mockBridge();
     await msg.setGroupEssence(bridge as any, 12345, 5, 7, true);
     await msg.setGroupEssence(bridge as any, 12345, 5, 7, false);
-    const cmds = vi.mocked(oidb.sendOidbAndCheck).mock.calls.map(c => c[1]);
+    const cmds = vi.mocked(oidb.runOidb).mock.calls.map(c => c[1].cmd);
     expect(cmds).toEqual(['OidbSvcTrpcTcp.0xeac_1', 'OidbSvcTrpcTcp.0xeac_2']);
   });
 });

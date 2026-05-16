@@ -1,7 +1,7 @@
-import type { Bridge } from '../../bridge/bridge';
+import type { BridgeInterface } from '../../bridge/bridge-interface';
 
 export async function handleGroupAddRequest(
-  bridge: Bridge,
+  bridge: BridgeInterface,
   flag: string,
   approve: boolean,
   reason: string,

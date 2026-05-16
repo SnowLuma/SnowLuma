@@ -1,4 +1,4 @@
-import type { Bridge } from '../../bridge/bridge';
+import type { BridgeInterface } from '../../bridge/bridge-interface';
 import { createLogger } from '../../utils/logger';
 import type { MediaStore } from '../media-store';
 import type { JsonObject } from '../types';
@@ -21,7 +21,7 @@ export async function getImageInfo(
 }
 
 export async function getRecordInfo(
-  bridge: Bridge,
+  bridge: BridgeInterface,
   mediaStore: MediaStore,
   file: string,
 ): Promise<JsonObject | null> {

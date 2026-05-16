@@ -42,14 +42,14 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const groupId = asNumber(params.group_id);
     const addType = asNumber(params.add_type);
     if (!groupId || addType === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'group_id and add_type are required');
-    await ctx.setGroupAddOption(groupId, addType);
+    await ctx.bridge.setGroupAddOption(groupId, addType);
     return okResponse();
   });
 
   h.registerAction('set_group_search', async (params) => {
     const groupId = asNumber(params.group_id);
     if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-    await ctx.setGroupSearch(groupId);
+    await ctx.bridge.setGroupSearch(groupId);
     return okResponse();
   });
 
@@ -58,7 +58,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const userId = asNumber(params.user_id);
     const enable = asBoolean(params.enable, true);
     if (!groupId || !userId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id and user_id are required');
-    await ctx.setGroupAdmin(groupId, userId, enable);
+    await ctx.bridge.setGroupAdmin(groupId, userId, enable);
     return okResponse();
   });
 
@@ -67,7 +67,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const userId = asNumber(params.user_id);
     const card = asString(params.card);
     if (!groupId || !userId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id and user_id are required');
-    await ctx.setGroupCard(groupId, userId, card);
+    await ctx.bridge.setGroupCard(groupId, userId, card);
     return okResponse();
   });
 
@@ -75,7 +75,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const groupId = asNumber(params.group_id);
     const name = asString(params.group_name);
     if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-    await ctx.setGroupName(groupId, name);
+    await ctx.bridge.setGroupName(groupId, name);
     return okResponse();
   });
 
@@ -91,7 +91,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const userId = asNumber(params.user_id);
     const title = asString(params.special_title);
     if (!groupId || !userId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id and user_id are required');
-    await ctx.setGroupSpecialTitle(groupId, userId, title);
+    await ctx.bridge.setGroupSpecialTitle(groupId, userId, title);
     return okResponse();
   });
 
@@ -103,11 +103,20 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return okResponse();
   });
 
+  // Highway upload with cmdId 3000 + GroupAvatarExtra (Lagrange protocol).
+  // `file` accepts everything bridge.setGroupAvatar's underlying
+  // loadBinarySource handles: local paths, file:// URLs, http(s) URLs,
+  // and base64:// data URIs — same surface as set_qq_avatar.
   h.registerAction('set_group_portrait', async (params) => {
     const groupId = asNumber(params.group_id);
     const file = asString(params.file);
-    if (!groupId || !file) return failedResponse(RETCODE.BAD_REQUEST, 'group_id and file are required');
-    await ctx.setGroupAvatar(groupId, file);
-    return okResponse();
+    if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
+    if (!file) return failedResponse(RETCODE.BAD_REQUEST, 'file is required');
+    try {
+      await ctx.bridge.setGroupAvatar(groupId, file);
+      return okResponse();
+    } catch (err) {
+      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
+    }
   });
 }

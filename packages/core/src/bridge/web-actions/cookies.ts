@@ -4,7 +4,7 @@
 // thread the cookies into a qun.qq.com REST endpoint.
 
 import type { Bridge } from '../bridge';
-import { sendOidbAndDecode } from '../bridge-oidb';
+import { runOidb } from '../bridge-oidb';
 import {
   OidbClientKeyRespSchema,
   OidbClientKeyReqSchema,
@@ -14,15 +14,12 @@ import {
 import { RequestUtil } from '../web/request-util';
 
 export async function forceFetchClientKey(bridge: Bridge) {
-  const resp = await sendOidbAndDecode<any>(
-    bridge,
-    'OidbSvcTrpcTcp.0x102a_1',
-    0x102A,
-    1,
-    {},
-    OidbClientKeyReqSchema,
-    OidbClientKeyRespSchema,
-  );
+  const resp = await runOidb<any>(bridge, {
+    cmd: 'OidbSvcTrpcTcp.0x102a_1',
+    oidbCmd: 0x102A, subCmd: 1,
+    request: { schema: OidbClientKeyReqSchema, value: {} },
+    response: { schema: OidbClientKeyRespSchema },
+  });
 
   const clientKey = resp?.clientKey || '';
   // keyIndex falls back to "19" — origin unknown but the value is what
@@ -37,15 +34,12 @@ export async function forceFetchClientKey(bridge: Bridge) {
 }
 
 export async function getPSkey(bridge: Bridge, domainList: string[]) {
-  const resp = await sendOidbAndDecode<any>(
-    bridge,
-    'OidbSvcTrpcTcp.0x102a_0',
-    0x102A,
-    0,
-    { domainList },
-    OidbGetPskeyReqSchema,
-    OidbGetPskeyRespSchema,
-  );
+  const resp = await runOidb<any>(bridge, {
+    cmd: 'OidbSvcTrpcTcp.0x102a_0',
+    oidbCmd: 0x102A, subCmd: 0,
+    request: { schema: OidbGetPskeyReqSchema, value: { domainList } },
+    response: { schema: OidbGetPskeyRespSchema },
+  });
 
   const domainPskeyMap = new Map<string, string>();
 
@@ -66,9 +60,9 @@ export async function getCookies(bridge: Bridge, domain: string) {
   // Build the ptlogin2 jump URL: this is the canonical way for the
   // bot to swap its clientKey for cookie-jar entries on a given
   // qq.com subdomain.
-  const requestUrl = 'https://ssl.ptlogin2.qq.com/jump?ptlang=1033&clientuin=' + bridge.qqInfo.uin +
+  const requestUrl = 'https://ssl.ptlogin2.qq.com/jump?ptlang=1033&clientuin=' + bridge.identity.uin +
       '&clientkey=' + ClientKeyData.clientKey +
-      '&u1=https%3A%2F%2F' + domain + '%2F' + bridge.qqInfo.uin + '%2Finfocenter&keyindex=' + ClientKeyData.keyIndex;
+      '&u1=https%3A%2F%2F' + domain + '%2F' + bridge.identity.uin + '%2Finfocenter&keyindex=' + ClientKeyData.keyIndex;
 
   const data = await RequestUtil.HttpsGetCookies(requestUrl);
 
@@ -99,7 +93,7 @@ export async function getSKey(bridge: Bridge): Promise<string> {
 
   const u1 = encodeURIComponent('https://h5.qzone.qq.com/qqnt/qzoneinpcqq/friend?refresh=0&clientuin=0&darkMode=0');
   const requestUrl = 'https://ssl.ptlogin2.qq.com/jump?ptlang=1033' +
-      '&clientuin=' + bridge.qqInfo.uin +
+      '&clientuin=' + bridge.identity.uin +
       '&clientkey=' + ClientKeyData.clientKey +
       '&u1=' + u1 +
       '&keyindex=' + ClientKeyData.keyIndex;

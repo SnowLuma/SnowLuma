@@ -1,10 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/bridge/bridge-oidb', () => ({
-  sendOidbAndCheck: vi.fn(async () => undefined),
-  sendOidbAndDecode: vi.fn(async () => ({})),
-  resolveUserUid: vi.fn(async () => 'resolved-uid'),
-  makeOidbRequest: vi.fn(() => new Uint8Array(0)),
+  runOidb: vi.fn(async () => ({})),
 }));
 
 import * as oidb from '../../src/bridge/bridge-oidb';
@@ -13,12 +10,13 @@ import { mockBridge } from './_helpers';
 
 describe('actions/misc', () => {
   beforeEach(() => {
-    vi.mocked(oidb.sendOidbAndDecode).mockClear();
+    vi.mocked(oidb.runOidb).mockReset();
+    vi.mocked(oidb.runOidb).mockResolvedValue({});
   });
 
   it('translateEn2Zh returns dstWords when present', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
       translateResp: { dstWords: ['你好', '世界'] },
     });
     const out = await misc.translateEn2Zh(bridge as any, ['hello', 'world']);
@@ -27,7 +25,7 @@ describe('actions/misc', () => {
 
   it('translateEn2Zh throws on empty response', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({});
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({});
     await expect(misc.translateEn2Zh(bridge as any, ['hello']))
       .rejects.toThrow(/empty/);
   });
@@ -62,7 +60,7 @@ describe('actions/misc', () => {
 
   it('clickInlineKeyboardButton returns shaped result', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.sendOidbAndDecode).mockResolvedValueOnce({
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
       result: 1, errMsg: 'ok', promptText: 'hi',
     });
     const out = await misc.clickInlineKeyboardButton(bridge as any, 1, 2, 'btn', 'data', 100);
@@ -72,7 +70,7 @@ describe('actions/misc', () => {
   it('sendGroupSign dispatches to 0xEB7_1', async () => {
     const bridge = mockBridge();
     await misc.sendGroupSign(bridge as any, 12345);
-    const call = vi.mocked(oidb.sendOidbAndDecode).mock.calls[0]!;
-    expect(call[1]).toBe('OidbSvcTrpcTcp.0xEB7_1');
+    const call = vi.mocked(oidb.runOidb).mock.calls[0]![1];
+    expect(call.cmd).toBe('OidbSvcTrpcTcp.0xEB7_1');
   });
 });

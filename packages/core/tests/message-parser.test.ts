@@ -258,7 +258,7 @@ describe('parseMessage', () => {
       }, respSchema);
 
       const bridge = {
-        qqInfo: { uin: '10000' },
+        identity: { uin: '10000' },
         sendRawPacket: vi.fn(async () => ({
           success: true,
           gotResponse: true,

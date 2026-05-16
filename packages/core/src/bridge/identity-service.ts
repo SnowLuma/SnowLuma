@@ -2,11 +2,24 @@ import fs from 'fs';
 import path from 'path';
 import { DatabaseSync } from 'node:sqlite';
 
-import type { FriendInfo, GroupMemberInfo, QQGroupInfo, UserProfileInfo, GroupRequestInfo } from './qq-info';
-import { QQInfo } from './qq-info';
+import type {
+  FriendInfo, GroupMemberInfo, QQGroupInfo,
+  UserProfileInfo, GroupRequestInfo,
+} from './qq-info';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('Identity');
+
+/**
+ * Hooks Identity uses when its read methods miss every cache layer. Wired in
+ * after construction (Bridge owns these methods, but Bridge can't exist
+ * before Identity does). Each call is expected to invoke the matching
+ * remember* observation on this service as a side effect.
+ */
+export interface IdentityFetcher {
+  fetchProfile(uin: number): Promise<UserProfileInfo>;
+  fetchGroupMemberList?(groupId: number): Promise<unknown>;
+}
 
 interface UserInput {
   uid?: string;
@@ -66,16 +79,43 @@ interface MemberRow {
   active: number;
 }
 
+/**
+ * Authoritative store for everything we know about QQ actors observed
+ * during this session: the bot's own identity, friends, groups, group
+ * members, user profiles, plus the bidirectional UID↔UIN index that
+ * powers all OIDB-bound translation.
+ *
+ * Two layers internally:
+ *   - In-memory state (this file) — O(1) for find* on the hot path.
+ *   - SQLite (optional, opened by openForUin) — survives restarts.
+ *
+ * Both layers are kept in sync by the remember* / refresh paths.
+ * Callers should never reach below the public surface; the cascade and
+ * storage details are intentionally hidden.
+ */
 export class IdentityService {
-  private readonly db: DatabaseSync | null;
+  // ─── Self identity ───
+  private readonly uin_: string;
+  private nickname_ = '';
+  private selfProfile_: UserProfileInfo | null = null;
+
+  // ─── In-memory domain state ───
+  private readonly userProfiles_ = new Map<number, UserProfileInfo>();
+  private friends_: FriendInfo[] = [];
+  private readonly groups_ = new Map<number, QQGroupInfo>();
+
+  // ─── Bidirectional UID↔UIN index (O(1), populated by every observation) ───
   private readonly uinByUid = new Map<string, number>();
   private readonly uidByUin = new Map<number, string>();
-  private inTransaction = false;
 
-  constructor(
-    private readonly qqInfo: QQInfo,
-    dbPath: string | null,
-  ) {
+  // ─── Persistence + fetcher ───
+  private readonly db: DatabaseSync | null;
+  private inTransaction = false;
+  private fetcher: IdentityFetcher | null = null;
+
+  constructor(uin: string, dbPath: string | null) {
+    this.uin_ = uin;
+
     if (!dbPath) {
       this.db = null;
       return;
@@ -89,12 +129,12 @@ export class IdentityService {
     this.loadSnapshot();
   }
 
-  static openForUin(qqInfo: QQInfo, dataRoot = 'data'): IdentityService {
-    return new IdentityService(qqInfo, path.join(dataRoot, qqInfo.uin, 'snowluma_identity.db'));
+  static openForUin(uin: string, dataRoot = 'data'): IdentityService {
+    return new IdentityService(uin, path.join(dataRoot, uin, 'snowluma_identity.db'));
   }
 
-  static memory(qqInfo: QQInfo): IdentityService {
-    return new IdentityService(qqInfo, null);
+  static memory(uin: string): IdentityService {
+    return new IdentityService(uin, null);
   }
 
   close(): void {
@@ -105,8 +145,143 @@ export class IdentityService {
     return this.db !== null;
   }
 
+  setFetcher(fetcher: IdentityFetcher): void {
+    this.fetcher = fetcher;
+  }
+
+  // ─── Self identity surface ───
+
+  get uin(): string { return this.uin_; }
+
+  get nickname(): string { return this.nickname_; }
+  set nickname(v: string) { this.nickname_ = v; }
+
+  get selfProfile(): UserProfileInfo | null { return this.selfProfile_; }
+  get selfUid(): string | null { return this.selfProfile_?.uid ?? null; }
+
+  setSelfProfile(info: UserProfileInfo): void { this.selfProfile_ = info; }
+
+  // ─── Domain object reads ───
+
+  findUserProfile(uin: number): UserProfileInfo | null {
+    return this.userProfiles_.get(uin) ?? null;
+  }
+
+  get friends(): FriendInfo[] { return this.friends_; }
+
+  findFriend(uin: number): FriendInfo | null {
+    return this.friends_.find((f) => f.uin === uin) ?? null;
+  }
+
+  get groups(): QQGroupInfo[] { return [...this.groups_.values()]; }
+
+  findGroup(groupId: number): QQGroupInfo | null {
+    return this.groups_.get(groupId) ?? null;
+  }
+
+  findGroupMember(groupId: number, uin: number): GroupMemberInfo | null {
+    return this.groups_.get(groupId)?.members.get(uin) ?? null;
+  }
+
+  updateGroupMember(groupId: number, member: GroupMemberInfo): void {
+    const g = this.groups_.get(groupId);
+    if (!g) return;
+    g.members.set(member.uin, member);
+    this.rememberUidUin(member.uid, member.uin);
+  }
+
+  // ─── ID translation ───
+
+  /**
+   * UIN → UID with network fallback. Returns cached value on hit; otherwise
+   * invokes the registered fetcher (typically `bridge.fetchUserProfile`),
+   * which is expected to write the result back through `rememberUserProfile`
+   * before this method re-queries the cache. Throws if no UID can be
+   * obtained from any layer.
+   */
+  async resolveUid(uin: number, groupId?: number): Promise<string> {
+    const normalized = normalizeUin(uin);
+    if (normalized === null) throw new Error(`invalid uin: ${uin}`);
+
+    const cached = this.findUidByUin(normalized, groupId);
+    if (cached) return cached;
+
+    if (groupId !== undefined && this.fetcher?.fetchGroupMemberList) {
+      try { await this.fetcher.fetchGroupMemberList(groupId); } catch { /* ignore */ }
+      const afterMembers = this.findUidByUin(normalized, groupId);
+      if (afterMembers) return afterMembers;
+    }
+
+    if (!this.fetcher) throw new Error(`failed to resolve UID for UIN ${normalized}: no fetcher`);
+
+    const profile = await this.fetcher.fetchProfile(normalized);
+    if (profile.uid) return profile.uid;
+
+    throw new Error(`failed to resolve UID for UIN ${normalized}`);
+  }
+
+  findUinByUid(uid: string, groupId?: number): number | null {
+    const normalized = normalizeUid(uid);
+    if (!normalized) return null;
+
+    if (groupId !== undefined) {
+      const member = this.findGroupMemberByUid(groupId, normalized);
+      if (member) return member.uin;
+    }
+    const mapped = this.uinByUid.get(normalized);
+    if (mapped !== undefined) return mapped;
+
+    if (!this.db) return null;
+    if (groupId !== undefined) {
+      const row = this.db.prepare(
+        `SELECT uin FROM group_members
+         WHERE group_id = ? AND uid = ? AND uin IS NOT NULL
+         ORDER BY active DESC, updated_at DESC
+         LIMIT 1`,
+      ).get(groupId, normalized) as { uin: number | null } | undefined;
+      const uin = normalizeUin(row?.uin);
+      if (uin !== null) return uin;
+    }
+
+    const row = this.db.prepare(
+      'SELECT uin FROM users WHERE uid = ? AND uin IS NOT NULL LIMIT 1',
+    ).get(normalized) as { uin: number | null } | undefined;
+    return normalizeUin(row?.uin);
+  }
+
+  findUidByUin(uin: number, groupId?: number): string | null {
+    const normalized = normalizeUin(uin);
+    if (normalized === null) return null;
+
+    if (groupId !== undefined) {
+      const member = this.groups_.get(groupId)?.members.get(normalized);
+      if (member?.uid) return member.uid;
+    }
+    const mapped = this.uidByUin.get(normalized);
+    if (mapped) return mapped;
+
+    if (!this.db) return null;
+    if (groupId !== undefined) {
+      const row = this.db.prepare(
+        `SELECT uid FROM group_members
+         WHERE group_id = ? AND uin = ? AND uid IS NOT NULL
+         ORDER BY active DESC, updated_at DESC
+         LIMIT 1`,
+      ).get(groupId, normalized) as { uid: string | null } | undefined;
+      const uid = normalizeUid(row?.uid);
+      if (uid) return uid;
+    }
+
+    const row = this.db.prepare(
+      'SELECT uid FROM users WHERE uin = ? AND uid IS NOT NULL LIMIT 1',
+    ).get(normalized) as { uid: string | null } | undefined;
+    return normalizeUid(row?.uid) || null;
+  }
+
+  // ─── Observation (write side) ───
+
   rememberFriends(friends: FriendInfo[]): void {
-    this.qqInfo.setFriends(friends);
+    this.friends_ = friends;
     for (const friend of friends) this.rememberUidUin(friend.uid, friend.uin);
     this.runWrite('friends', () => this.transaction(() => {
       this.db!.prepare('UPDATE users SET is_friend = 0, updated_at = ? WHERE is_friend = 1')
@@ -125,7 +300,7 @@ export class IdentityService {
   }
 
   rememberGroups(groups: QQGroupInfo[]): void {
-    this.qqInfo.setGroups(groups);
+    this.setGroupsInMemory(groups);
     this.runWrite('groups', () => this.transaction(() => {
       this.db!.prepare('UPDATE groups SET active = 0, updated_at = ? WHERE active = 1')
         .run(nowSeconds());
@@ -143,7 +318,7 @@ export class IdentityService {
   }
 
   rememberGroupMembers(groupId: number, members: GroupMemberInfo[]): void {
-    this.qqInfo.setGroupMembers(groupId, members);
+    this.setGroupMembersInMemory(groupId, members);
     for (const member of members) this.rememberUidUin(member.uid, member.uin);
     this.runWrite('group members', () => this.transaction(() => {
       this.upsertGroup({ groupId, memberCount: members.length });
@@ -169,9 +344,9 @@ export class IdentityService {
   }
 
   rememberUserProfile(info: UserProfileInfo): void {
-    this.qqInfo.setUserProfile(info);
-    const selfUin = parseInt(this.qqInfo.uin, 10) || 0;
-    if (info.uin === selfUin) this.qqInfo.setSelfProfile(info);
+    this.userProfiles_.set(info.uin, info);
+    const selfUin = parseInt(this.uin_, 10) || 0;
+    if (info.uin === selfUin) this.selfProfile_ = info;
     this.rememberUidUin(info.uid, info.uin);
     this.runWrite('user profile', () => this.transaction(() => this.upsertUser({
       uid: info.uid,
@@ -259,67 +434,7 @@ export class IdentityService {
     });
   }
 
-  findUinByUid(uid: string, groupId?: number): number | null {
-    const normalized = normalizeUid(uid);
-    if (!normalized) return null;
-
-    if (groupId !== undefined) {
-      const cached = this.qqInfo.resolveGroupMemberUid(groupId, normalized);
-      if (cached !== null) return cached;
-    }
-    const globalCached = this.qqInfo.resolveUid(normalized);
-    if (globalCached !== null) return globalCached;
-    const mapped = this.uinByUid.get(normalized);
-    if (mapped !== undefined) return mapped;
-
-    if (!this.db) return null;
-    if (groupId !== undefined) {
-      const row = this.db.prepare(
-        `SELECT uin FROM group_members
-         WHERE group_id = ? AND uid = ? AND uin IS NOT NULL
-         ORDER BY active DESC, updated_at DESC
-         LIMIT 1`,
-      ).get(groupId, normalized) as { uin: number | null } | undefined;
-      const uin = normalizeUin(row?.uin);
-      if (uin !== null) return uin;
-    }
-
-    const row = this.db.prepare(
-      'SELECT uin FROM users WHERE uid = ? AND uin IS NOT NULL LIMIT 1',
-    ).get(normalized) as { uin: number | null } | undefined;
-    return normalizeUin(row?.uin);
-  }
-
-  findUidByUin(uin: number, groupId?: number): string | null {
-    const normalized = normalizeUin(uin);
-    if (normalized === null) return null;
-
-    if (groupId !== undefined) {
-      const cached = this.qqInfo.findUidByUinInGroup(groupId, normalized);
-      if (cached) return cached;
-    }
-    const globalCached = this.qqInfo.findUidByUin(normalized);
-    if (globalCached) return globalCached;
-    const mapped = this.uidByUin.get(normalized);
-    if (mapped) return mapped;
-
-    if (!this.db) return null;
-    if (groupId !== undefined) {
-      const row = this.db.prepare(
-        `SELECT uid FROM group_members
-         WHERE group_id = ? AND uin = ? AND uid IS NOT NULL
-         ORDER BY active DESC, updated_at DESC
-         LIMIT 1`,
-      ).get(groupId, normalized) as { uid: string | null } | undefined;
-      const uid = normalizeUid(row?.uid);
-      if (uid) return uid;
-    }
-
-    const row = this.db.prepare(
-      'SELECT uid FROM users WHERE uin = ? AND uid IS NOT NULL LIMIT 1',
-    ).get(normalized) as { uid: string | null } | undefined;
-    return normalizeUid(row?.uid) || null;
-  }
+  // ─── Private helpers ───
 
   private rememberUidUin(uid: unknown, uin: unknown): void {
     const normalizedUid = normalizeUid(uid);
@@ -327,6 +442,38 @@ export class IdentityService {
     if (!normalizedUid || normalizedUin === null) return;
     this.uinByUid.set(normalizedUid, normalizedUin);
     this.uidByUin.set(normalizedUin, normalizedUid);
+  }
+
+  private setGroupsInMemory(groups: QQGroupInfo[]): void {
+    // Preserve existing member maps where possible so a roster refresh
+    // doesn't blow away cached members for groups we already track.
+    const previous = new Map(this.groups_);
+    this.groups_.clear();
+    for (const g of groups) {
+      const existing = previous.get(g.groupId);
+      this.groups_.set(g.groupId, {
+        ...g,
+        members: existing?.members ?? g.members ?? new Map(),
+      });
+    }
+  }
+
+  private setGroupMembersInMemory(groupId: number, members: GroupMemberInfo[]): void {
+    const g = this.groups_.get(groupId);
+    if (!g) return;
+    g.members.clear();
+    for (const m of members) {
+      g.members.set(m.uin, m);
+    }
+  }
+
+  private findGroupMemberByUid(groupId: number, uid: string): GroupMemberInfo | null {
+    const g = this.groups_.get(groupId);
+    if (!g) return null;
+    for (const [, m] of g.members) {
+      if (m.uid === uid) return m;
+    }
+    return null;
   }
 
   private initSchema(): void {
@@ -387,12 +534,13 @@ export class IdentityService {
        FROM users
        WHERE is_friend = 1 AND uin IS NOT NULL`,
     ).all() as Array<{ uid: string | null; uin: number | null; nickname: string; remark: string }>;
-    this.qqInfo.setFriends(friendRows.map((row) => ({
+    this.friends_ = friendRows.map((row) => ({
       uid: row.uid ?? '',
       uin: row.uin ?? 0,
       nickname: row.nickname,
       remark: row.remark,
-    })));
+    }));
+    for (const friend of this.friends_) this.rememberUidUin(friend.uid, friend.uin);
 
     const groups = this.db!.prepare(
       `SELECT group_id, group_name, remark, member_count, member_max
@@ -405,7 +553,7 @@ export class IdentityService {
       member_count: number;
       member_max: number;
     }>;
-    this.qqInfo.setGroups(groups.map((row) => ({
+    this.setGroupsInMemory(groups.map((row) => ({
       groupId: row.group_id,
       groupName: row.group_name,
       remark: row.remark,
@@ -419,7 +567,6 @@ export class IdentityService {
   private hydrateActiveMembersForGroups(groupIds: number[]): void {
     if (!this.db || groupIds.length === 0) return;
 
-    const membersByGroup = new Map<number, GroupMemberInfo[]>();
     const select = this.db.prepare(
       `SELECT group_id, uid, uin, nickname, card, role, level, title,
               join_time, last_sent_time, shut_up_time
@@ -440,11 +587,9 @@ export class IdentityService {
         last_sent_time: number;
         shut_up_time: number;
       }>;
-      membersByGroup.set(groupId, rows.map(rowToMemberInfo));
-    }
-
-    for (const [groupId, members] of membersByGroup) {
-      this.qqInfo.setGroupMembers(groupId, members);
+      const members = rows.map(rowToMemberInfo);
+      this.setGroupMembersInMemory(groupId, members);
+      for (const m of members) this.rememberUidUin(m.uid, m.uin);
     }
   }
 

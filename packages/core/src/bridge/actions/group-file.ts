@@ -7,7 +7,7 @@
 
 import type { Bridge } from '../bridge';
 import { protoEncode } from '../../protobuf/decode';
-import { sendOidbAndDecode, resolveUserUid } from '../bridge-oidb';
+import { runOidb } from '../bridge-oidb';
 import { fetchHighwaySession, uploadHighwayHttp } from '../highway/highway-client';
 import { computeHashes, computeMd5, loadBinarySource } from '../highway/utils';
 import {
@@ -27,6 +27,7 @@ import {
   NTV2RichMediaRespSchema,
 } from '../proto/oidb-action';
 import { FileUploadExtSchema } from '../proto/highway';
+import { toHexUpper } from '../../utils/hex';
 import { ensureRetCodeZero, resolveSelfUid, toInt, type MediaIndexNode } from './shared';
 
 // ─────────────── public result types ───────────────
@@ -76,7 +77,7 @@ function normalizeDirectory(dir?: string): string {
 
 function bytesToHexUpper(data: unknown): string {
   if (!(data instanceof Uint8Array) || data.length === 0) return '';
-  return Buffer.from(data).toString('hex').toUpperCase();
+  return toHexUpper(data);
 }
 
 function normalizeUploadFileName(name: string, fallback: string): string {
@@ -241,16 +242,12 @@ async function fetchNtv2DownloadUrl(
   oidbCmd: number,
   payload: Record<string, unknown>,
 ): Promise<string> {
-  const resp = await sendOidbAndDecode<any>(
-    bridge,
-    serviceCmd,
-    oidbCmd,
-    200,
-    payload,
-    NTV2RichMediaReqSchema,
-    NTV2RichMediaRespSchema,
-    true,
-  );
+  const resp = await runOidb<any>(bridge, {
+    cmd: serviceCmd,
+    oidbCmd, subCmd: 200,
+    request: { schema: NTV2RichMediaReqSchema, value: payload, isUid: true },
+    response: { schema: NTV2RichMediaRespSchema },
+  });
 
   ensureRetCodeZero('ntv2 download', resp?.respHead?.retCode, resp?.respHead?.message, undefined);
   const domain = typeof resp?.download?.info?.domain === 'string' ? resp.download.info.domain : '';
@@ -266,11 +263,15 @@ async function fetchNtv2DownloadUrl(
 // ─────────────── file count ───────────────
 
 export async function fetchGroupFileCount(bridge: Bridge, groupId: number): Promise<{ fileCount: number; maxCount: number }> {
-  const resp = await sendOidbAndDecode<any>(bridge,
-    'OidbSvcTrpcTcp.0x6d8_3', 0x6D8, 3,
-    { count: { groupUin: groupId, appId: 7, busId: 0 } },
-    OidbGroupFileCountViewReqSchema,
-    OidbGroupFileCountViewRespSchema);
+  const resp = await runOidb<any>(bridge, {
+    cmd: 'OidbSvcTrpcTcp.0x6d8_3',
+    oidbCmd: 0x6D8, subCmd: 3,
+    request: {
+      schema: OidbGroupFileCountViewReqSchema,
+      value: { count: { groupUin: groupId, appId: 7, busId: 0 } },
+    },
+    response: { schema: OidbGroupFileCountViewRespSchema },
+  });
   return {
     fileCount: toInt(resp?.count?.fileCount ?? 0),
     maxCount: toInt(resp?.count?.maxCount ?? 10000),
@@ -293,31 +294,31 @@ export async function uploadGroupFile(
   const fileName = normalizeUploadFileName(name, loaded.fileName);
   const hashes = computeHashes(loaded.bytes);
 
-  const resp = await sendOidbAndDecode<any>(
-    bridge,
-    'OidbSvcTrpcTcp.0x6d6_0',
-    0x6D6,
-    0,
-    {
-      file: {
-        groupUin: groupId,
-        appId: 4,
-        busId: 102,
-        entrance: 6,
-        targetDirectory: normalizeDirectory(folderId),
-        fileName,
-        localDirectory: `/${fileName}`,
-        fileSize: BigInt(loaded.bytes.length),
-        fileSha1: hashes.sha1,
-        fileSha3: new Uint8Array(0),
-        fileMd5: hashes.md5,
-        field15: true,
+  const resp = await runOidb<any>(bridge, {
+    cmd: 'OidbSvcTrpcTcp.0x6d6_0',
+    oidbCmd: 0x6D6, subCmd: 0,
+    request: {
+      schema: OidbGroupFileReqSchema,
+      value: {
+        file: {
+          groupUin: groupId,
+          appId: 4,
+          busId: 102,
+          entrance: 6,
+          targetDirectory: normalizeDirectory(folderId),
+          fileName,
+          localDirectory: `/${fileName}`,
+          fileSize: BigInt(loaded.bytes.length),
+          fileSha1: hashes.sha1,
+          fileSha3: new Uint8Array(0),
+          fileMd5: hashes.md5,
+          field15: true,
+        },
       },
+      isUid: true,
     },
-    OidbGroupFileReqSchema,
-    OidbGroupFileRespSchema,
-    true,
-  );
+    response: { schema: OidbGroupFileRespSchema },
+  });
 
   const upload = resp?.upload;
   if (!upload) throw new Error('group file upload response missing');
@@ -327,7 +328,7 @@ export async function uploadGroupFile(
   if (!fileId) throw new Error('group file upload response missing file_id');
 
   if (!upload.boolFileExist && uploadFile) {
-    const senderUin = toInt(bridge.qqInfo.uin);
+    const senderUin = toInt(bridge.identity.uin);
     if (senderUin <= 0) throw new Error('invalid self uin for group file upload');
 
     const uploadHost = (typeof upload.uploadIp === 'string' && upload.uploadIp)
@@ -368,48 +369,48 @@ export async function uploadPrivateFile(
   const loaded = await loadBinarySource(source, 'file');
   if (!loaded.bytes.length) throw new Error('private file is empty');
 
-  const targetUid = await resolveUserUid(bridge, userId);
-  let selfUid = bridge.qqInfo.selfUid;
+  const targetUid = await bridge.resolveUserUid(userId);
+  let selfUid = bridge.identity.selfUid;
   if (!selfUid) {
-    const selfUin = toInt(bridge.qqInfo.uin);
+    const selfUin = toInt(bridge.identity.uin);
     if (selfUin > 0) {
-      selfUid = await resolveUserUid(bridge, selfUin);
+      selfUid = await bridge.resolveUserUid(selfUin);
     }
   }
   if (!selfUid) throw new Error('self uid is unavailable');
 
-  const senderUin = toInt(bridge.qqInfo.uin);
+  const senderUin = toInt(bridge.identity.uin);
   if (senderUin <= 0) throw new Error('invalid self uin for private file upload');
 
   const fileName = normalizeUploadFileName(name, loaded.fileName);
   const hashes = computeHashes(loaded.bytes);
 
-  const resp = await sendOidbAndDecode<any>(
-    bridge,
-    'OidbSvcTrpcTcp.0xe37_1700',
-    0xE37,
-    1700,
-    {
-      command: 1700,
-      seq: 0,
-      upload: {
-        senderUid: selfUid,
-        receiverUid: targetUid,
-        fileSize: loaded.bytes.length,
-        fileName,
-        md510MCheckSum: md5First10MB(loaded.bytes),
-        sha1CheckSum: hashes.sha1,
-        localPath: '/',
-        md5CheckSum: hashes.md5,
-        sha3CheckSum: new Uint8Array(0),
+  const resp = await runOidb<any>(bridge, {
+    cmd: 'OidbSvcTrpcTcp.0xe37_1700',
+    oidbCmd: 0xE37, subCmd: 1700,
+    request: {
+      schema: OidbPrivateFileUploadReqSchema,
+      value: {
+        command: 1700,
+        seq: 0,
+        upload: {
+          senderUid: selfUid,
+          receiverUid: targetUid,
+          fileSize: loaded.bytes.length,
+          fileName,
+          md510MCheckSum: md5First10MB(loaded.bytes),
+          sha1CheckSum: hashes.sha1,
+          localPath: '/',
+          md5CheckSum: hashes.md5,
+          sha3CheckSum: new Uint8Array(0),
+        },
+        businessId: 3,
+        clientType: 1,
+        flagSupportMediaPlatform: 1,
       },
-      businessId: 3,
-      clientType: 1,
-      flagSupportMediaPlatform: 1,
     },
-    OidbPrivateFileUploadReqSchema,
-    OidbPrivateFileUploadRespSchema,
-  );
+    response: { schema: OidbPrivateFileUploadRespSchema },
+  });
 
   const upload = resp?.upload;
   if (!upload) throw new Error('private file upload response missing');
@@ -458,27 +459,27 @@ export async function fetchGroupFiles(bridge: Bridge, groupId: number, folderId 
   const pageSize = 20;
   let startIndex = 0;
   for (let page = 0; page < 200; page++) {
-    const resp = await sendOidbAndDecode<any>(
-      bridge,
-      'OidbSvcTrpcTcp.0x6d8_1',
-      0x6D8,
-      1,
-      {
-        list: {
-          groupUin: groupId,
-          appId: 7,
-          targetDirectory,
-          fileCount: pageSize,
-          sortBy: 1,
-          startIndex,
-          field17: 2,
-          field18: 0,
+    const resp = await runOidb<any>(bridge, {
+      cmd: 'OidbSvcTrpcTcp.0x6d8_1',
+      oidbCmd: 0x6D8, subCmd: 1,
+      request: {
+        schema: OidbGroupFileViewReqSchema,
+        value: {
+          list: {
+            groupUin: groupId,
+            appId: 7,
+            targetDirectory,
+            fileCount: pageSize,
+            sortBy: 1,
+            startIndex,
+            field17: 2,
+            field18: 0,
+          },
         },
+        isUid: true,
       },
-      OidbGroupFileViewReqSchema,
-      OidbGroupFileViewRespSchema,
-      true,
-    );
+      response: { schema: OidbGroupFileViewRespSchema },
+    });
 
     const list = resp?.list;
     if (!list) break;
@@ -489,7 +490,7 @@ export async function fetchGroupFiles(bridge: Bridge, groupId: number, folderId 
       if (type === 1 && item?.fileInfo) {
         const file = item.fileInfo;
         const uploader = toInt(file.uploaderUin);
-        const cached = bridge.qqInfo.findGroupMember(groupId, uploader);
+        const cached = bridge.identity.findGroupMember(groupId, uploader);
         files.push({
           fileId: typeof file.fileId === 'string' ? file.fileId : '',
           fileName: typeof file.fileName === 'string' ? file.fileName : '',
@@ -508,7 +509,7 @@ export async function fetchGroupFiles(bridge: Bridge, groupId: number, folderId 
       } else if (type === 2 && item?.folderInfo) {
         const folder = item.folderInfo;
         const creator = toInt(folder.creatorUin);
-        const cached = bridge.qqInfo.findGroupMember(groupId, creator);
+        const cached = bridge.identity.findGroupMember(groupId, creator);
         folders.push({
           folderId: typeof folder.folderId === 'string' ? folder.folderId : '',
           folderName: typeof folder.folderName === 'string' ? folder.folderName : '',
@@ -533,23 +534,23 @@ export async function fetchGroupFiles(bridge: Bridge, groupId: number, folderId 
 // ─────────────── url fetch (group / private files) ───────────────
 
 export async function fetchGroupFileUrl(bridge: Bridge, groupId: number, fileId: string, busId = 102): Promise<string> {
-  const resp = await sendOidbAndDecode<any>(
-    bridge,
-    'OidbSvcTrpcTcp.0x6d6_2',
-    0x6D6,
-    2,
-    {
-      download: {
-        groupUin: groupId,
-        appId: 7,
-        busId,
-        fileId,
+  const resp = await runOidb<any>(bridge, {
+    cmd: 'OidbSvcTrpcTcp.0x6d6_2',
+    oidbCmd: 0x6D6, subCmd: 2,
+    request: {
+      schema: OidbGroupFileReqSchema,
+      value: {
+        download: {
+          groupUin: groupId,
+          appId: 7,
+          busId,
+          fileId,
+        },
       },
+      isUid: true,
     },
-    OidbGroupFileReqSchema,
-    OidbGroupFileRespSchema,
-    true,
-  );
+    response: { schema: OidbGroupFileRespSchema },
+  });
 
   const download = resp?.download;
   if (!download) throw new Error('group file url response missing');
@@ -568,30 +569,30 @@ export async function fetchGroupFileUrl(bridge: Bridge, groupId: number, fileId:
 }
 
 export async function fetchPrivateFileUrl(bridge: Bridge, userId: number, fileId: string, fileHash: string): Promise<string> {
-  const uid = await resolveUserUid(bridge, userId);
-  const resp = await sendOidbAndDecode<any>(
-    bridge,
-    'OidbSvcTrpcTcp.0xe37_1200',
-    0xE37,
-    1200,
-    {
-      subCommand: 1200,
-      field2: 1,
-      body: {
-        receiverUid: uid,
-        fileUuid: fileId,
-        type: 2,
-        fileHash,
-        t2: 0,
+  const uid = await bridge.resolveUserUid(userId);
+  const resp = await runOidb<any>(bridge, {
+    cmd: 'OidbSvcTrpcTcp.0xe37_1200',
+    oidbCmd: 0xE37, subCmd: 1200,
+    request: {
+      schema: OidbPrivateFileDownloadReqSchema,
+      value: {
+        subCommand: 1200,
+        field2: 1,
+        body: {
+          receiverUid: uid,
+          fileUuid: fileId,
+          type: 2,
+          fileHash,
+          t2: 0,
+        },
+        field101: 3,
+        field102: 103,
+        field200: 1,
+        field99999: new Uint8Array([0xC0, 0x85, 0x2C, 0x01]),
       },
-      field101: 3,
-      field102: 103,
-      field200: 1,
-      field99999: new Uint8Array([0xC0, 0x85, 0x2C, 0x01]),
     },
-    OidbPrivateFileDownloadReqSchema,
-    OidbPrivateFileDownloadRespSchema,
-  );
+    response: { schema: OidbPrivateFileDownloadRespSchema },
+  });
 
   const result = resp?.body?.result;
   const server = typeof result?.server === 'string' ? result.server : '';
@@ -606,22 +607,22 @@ export async function fetchPrivateFileUrl(bridge: Bridge, userId: number, fileId
 // ─────────────── delete / move ───────────────
 
 export async function deleteGroupFile(bridge: Bridge, groupId: number, fileId: string): Promise<void> {
-  const resp = await sendOidbAndDecode<any>(
-    bridge,
-    'OidbSvcTrpcTcp.0x6d6_3',
-    0x6D6,
-    3,
-    {
-      delete: {
-        groupUin: groupId,
-        busId: 102,
-        fileId,
+  const resp = await runOidb<any>(bridge, {
+    cmd: 'OidbSvcTrpcTcp.0x6d6_3',
+    oidbCmd: 0x6D6, subCmd: 3,
+    request: {
+      schema: OidbGroupFileReqSchema,
+      value: {
+        delete: {
+          groupUin: groupId,
+          busId: 102,
+          fileId,
+        },
       },
+      isUid: true,
     },
-    OidbGroupFileReqSchema,
-    OidbGroupFileRespSchema,
-    true,
-  );
+    response: { schema: OidbGroupFileRespSchema },
+  });
 
   const result = resp?.delete;
   if (!result) throw new Error('group file delete response missing');
@@ -635,25 +636,25 @@ export async function moveGroupFile(
   parentDirectory: string,
   targetDirectory: string,
 ): Promise<void> {
-  const resp = await sendOidbAndDecode<any>(
-    bridge,
-    'OidbSvcTrpcTcp.0x6d6_5',
-    0x6D6,
-    5,
-    {
-      move: {
-        groupUin: groupId,
-        appId: 7,
-        busId: 102,
-        fileId,
-        parentDirectory,
-        targetDirectory,
+  const resp = await runOidb<any>(bridge, {
+    cmd: 'OidbSvcTrpcTcp.0x6d6_5',
+    oidbCmd: 0x6D6, subCmd: 5,
+    request: {
+      schema: OidbGroupFileReqSchema,
+      value: {
+        move: {
+          groupUin: groupId,
+          appId: 7,
+          busId: 102,
+          fileId,
+          parentDirectory,
+          targetDirectory,
+        },
       },
+      isUid: true,
     },
-    OidbGroupFileReqSchema,
-    OidbGroupFileRespSchema,
-    true,
-  );
+    response: { schema: OidbGroupFileRespSchema },
+  });
 
   const result = resp?.move;
   if (!result) throw new Error('group file move response missing');
@@ -663,22 +664,22 @@ export async function moveGroupFile(
 // ─────────────── folders ───────────────
 
 export async function createGroupFileFolder(bridge: Bridge, groupId: number, name: string, parentId = '/'): Promise<void> {
-  const resp = await sendOidbAndDecode<any>(
-    bridge,
-    'OidbSvcTrpcTcp.0x6d7_0',
-    0x6D7,
-    0,
-    {
-      create: {
-        groupUin: groupId,
-        rootDirectory: normalizeDirectory(parentId),
-        folderName: name,
+  const resp = await runOidb<any>(bridge, {
+    cmd: 'OidbSvcTrpcTcp.0x6d7_0',
+    oidbCmd: 0x6D7, subCmd: 0,
+    request: {
+      schema: OidbGroupFileFolderReqSchema,
+      value: {
+        create: {
+          groupUin: groupId,
+          rootDirectory: normalizeDirectory(parentId),
+          folderName: name,
+        },
       },
+      isUid: true,
     },
-    OidbGroupFileFolderReqSchema,
-    OidbGroupFileFolderRespSchema,
-    true,
-  );
+    response: { schema: OidbGroupFileFolderRespSchema },
+  });
 
   const result = resp?.create;
   if (!result) throw new Error('group folder create response missing');
@@ -686,21 +687,21 @@ export async function createGroupFileFolder(bridge: Bridge, groupId: number, nam
 }
 
 export async function deleteGroupFileFolder(bridge: Bridge, groupId: number, folderId: string): Promise<void> {
-  const resp = await sendOidbAndDecode<any>(
-    bridge,
-    'OidbSvcTrpcTcp.0x6d7_1',
-    0x6D7,
-    1,
-    {
-      delete: {
-        groupUin: groupId,
-        folderId,
+  const resp = await runOidb<any>(bridge, {
+    cmd: 'OidbSvcTrpcTcp.0x6d7_1',
+    oidbCmd: 0x6D7, subCmd: 1,
+    request: {
+      schema: OidbGroupFileFolderReqSchema,
+      value: {
+        delete: {
+          groupUin: groupId,
+          folderId,
+        },
       },
+      isUid: true,
     },
-    OidbGroupFileFolderReqSchema,
-    OidbGroupFileFolderRespSchema,
-    true,
-  );
+    response: { schema: OidbGroupFileFolderRespSchema },
+  });
 
   const result = resp?.delete;
   if (!result) throw new Error('group folder delete response missing');
@@ -708,22 +709,22 @@ export async function deleteGroupFileFolder(bridge: Bridge, groupId: number, fol
 }
 
 export async function renameGroupFileFolder(bridge: Bridge, groupId: number, folderId: string, newFolderName: string): Promise<void> {
-  const resp = await sendOidbAndDecode<any>(
-    bridge,
-    'OidbSvcTrpcTcp.0x6d7_2',
-    0x6D7,
-    2,
-    {
-      rename: {
-        groupUin: groupId,
-        folderId,
-        newFolderName,
+  const resp = await runOidb<any>(bridge, {
+    cmd: 'OidbSvcTrpcTcp.0x6d7_2',
+    oidbCmd: 0x6D7, subCmd: 2,
+    request: {
+      schema: OidbGroupFileFolderReqSchema,
+      value: {
+        rename: {
+          groupUin: groupId,
+          folderId,
+          newFolderName,
+        },
       },
+      isUid: true,
     },
-    OidbGroupFileFolderReqSchema,
-    OidbGroupFileFolderRespSchema,
-    true,
-  );
+    response: { schema: OidbGroupFileFolderRespSchema },
+  });
 
   const result = resp?.rename;
   if (!result) throw new Error('group folder rename response missing');

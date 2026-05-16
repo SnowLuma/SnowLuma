@@ -4,7 +4,7 @@
 
 import type { Bridge } from '../bridge';
 import { protoDecode, protoEncode } from '../../protobuf/decode';
-import { sendOidbAndDecode } from '../bridge-oidb';
+import { runOidb } from '../bridge-oidb';
 import {
   MiniAppShareReqSchema,
   MiniAppShareRespSchema,
@@ -30,15 +30,12 @@ export async function translateEn2Zh(
     tag12: 1,
   };
 
-  const result = await sendOidbAndDecode<any>(
-    bridge,
-    'OidbSvcTrpcTcp.0x990_2',
-    0x990,
-    2,
-    req,
-    Oidb0x990ReqSchema,
-    Oidb0x990RespSchema,
-  );
+  const result = await runOidb<any>(bridge, {
+    cmd: 'OidbSvcTrpcTcp.0x990_2',
+    oidbCmd: 0x990, subCmd: 2,
+    request: { schema: Oidb0x990ReqSchema, value: req },
+    response: { schema: Oidb0x990RespSchema },
+  });
 
   const resp = result?.translateResp;
   if (!resp) {
@@ -125,15 +122,12 @@ export async function clickInlineKeyboardButton(
     unknown9: 1,
   };
 
-  const result = await sendOidbAndDecode<any>(
-    bridge,
-    'OidbSvcTrpcTcp.0x112e_1',
-    0x112E,
-    1,
-    req,
-    Oidb0x112eReqSchema,
-    Oidb0x112eRespSchema,
-  );
+  const result = await runOidb<any>(bridge, {
+    cmd: 'OidbSvcTrpcTcp.0x112e_1',
+    oidbCmd: 0x112E, subCmd: 1,
+    request: { schema: Oidb0x112eReqSchema, value: req },
+    response: { schema: Oidb0x112eRespSchema },
+  });
 
   if (!result) {
     throw new Error('click inline keyboard button result empty');
@@ -155,19 +149,16 @@ export async function sendGroupSign(
 ) {
   const req = {
     signInInfo: {
-      uin: String(bridge.qqInfo.uin),
+      uin: String(bridge.identity.uin),
       groupId: String(groupId),
       version: '9.0.90',
     },
   };
 
-  await sendOidbAndDecode<any>(
-    bridge,
-    'OidbSvcTrpcTcp.0xEB7_1',
-    0xEB7,
-    1,
-    req,
-    Oidb0xeb7ReqSchema,
-    Oidb0xeb7RespSchema,
-  );
+  await runOidb<any>(bridge, {
+    cmd: 'OidbSvcTrpcTcp.0xEB7_1',
+    oidbCmd: 0xEB7, subCmd: 1,
+    request: { schema: Oidb0xeb7ReqSchema, value: req },
+    response: { schema: Oidb0xeb7RespSchema },
+  });
 }

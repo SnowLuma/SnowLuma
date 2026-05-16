@@ -10,7 +10,7 @@ vi.mock('../src/bridge/element-builder', () => ({
 describe('Bridge private media routing', () => {
   it('includes resolved uid in the final c2c send request for media messages', async () => {
     const { Bridge } = await import('../src/bridge/bridge');
-    const { QQInfo } = await import('../src/bridge/qq-info');
+    const { IdentityService } = await import('../src/bridge/identity-service');
 
     class TestBridge extends Bridge {
       capturedBody: Uint8Array | null = null;
@@ -37,7 +37,7 @@ describe('Bridge private media routing', () => {
       }
     }
 
-    const bridge = new TestBridge(new QQInfo('10000'));
+    const bridge = new TestBridge(IdentityService.memory('10000'));
     await bridge.sendPrivateMessage(12345, [{ type: 'video', url: 'file:///tmp/clip.mp4' } as any]);
 
     expect(bridge.capturedBody).toBeInstanceOf(Uint8Array);

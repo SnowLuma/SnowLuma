@@ -1,5 +1,4 @@
-import type { Bridge } from '../bridge/bridge';
-import type { QQInfo } from '../bridge/qq-info';
+import type { BridgeInterface } from '../bridge/bridge-interface';
 import type { BridgeManager } from '../bridge/manager';
 import { loadOneBotConfig } from './config';
 import { OneBotInstance } from './instance';
@@ -12,8 +11,8 @@ export class OneBotManager {
   private readonly instances = new Map<string, OneBotInstance>();
 
   bind(bridgeManager: BridgeManager): void {
-    bridgeManager.setSessionStartedCallback((uin, qqInfo, bridge) => {
-      this.onSessionStarted(uin, qqInfo, bridge);
+    bridgeManager.setSessionStartedCallback((uin, bridge) => {
+      this.onSessionStarted(uin, bridge);
     });
 
     bridgeManager.setSessionClosedCallback((uin) => {
@@ -49,11 +48,11 @@ export class OneBotManager {
     this.instances.clear();
   }
 
-  private onSessionStarted(uin: string, qqInfo: QQInfo, bridge: Bridge): void {
+  private onSessionStarted(uin: string, bridge: BridgeInterface): void {
     if (this.instances.has(uin)) return;
 
     const config = loadOneBotConfig(uin);
-    const instance = new OneBotInstance(uin, qqInfo, bridge, config);
+    const instance = new OneBotInstance(uin, bridge, config);
 
     const activePid = bridge.activePid;
     if (activePid !== null) {
@@ -62,13 +61,13 @@ export class OneBotManager {
 
     // Seed nickname with the UIN so the WebUI never renders blank while
     // warmup is in flight or if warmup never resolves a real nickname.
-    if (!qqInfo.nickname) qqInfo.nickname = uin;
+    if (!bridge.identity.nickname) bridge.identity.nickname = uin;
 
     this.instances.set(uin, instance);
     log.info('session started: UIN=%s', uin);
 
     // Warm up bridge state asynchronously (mirrors C++ warm_up_bridge_state)
-    warmUpBridgeState(uin, qqInfo, bridge).catch((err) => {
+    warmUpBridgeState(uin, bridge).catch((err) => {
       log.warn('warmup error for UIN %s: %s', uin, err instanceof Error ? (err.stack ?? err.message) : String(err));
     });
   }
@@ -84,13 +83,13 @@ export class OneBotManager {
 
 }
 
-async function warmUpBridgeState(uin: string, qqInfo: QQInfo, bridge: Bridge): Promise<void> {
+async function warmUpBridgeState(uin: string, bridge: BridgeInterface): Promise<void> {
   const selfUin = parseInt(uin, 10) || 0;
   let selfResolved = false;
 
   // Step 1: Fetch friend list + derive self profile when QQ happens to
   // include self in the response. Some accounts / versions omit self,
-  // which used to leave qqInfo.nickname empty — see step 1b for the
+  // which used to leave identity.nickname empty — see step 1b for the
   // explicit fallback.
   try {
     const friends = await bridge.fetchFriendList();
@@ -98,12 +97,12 @@ async function warmUpBridgeState(uin: string, qqInfo: QQInfo, bridge: Bridge): P
 
     for (const f of friends) {
       if (f.uin === selfUin) {
-        qqInfo.setSelfProfile({
+        bridge.identity.setSelfProfile({
           uin: f.uin, uid: f.uid,
           nickname: f.nickname || uin,
           remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '',
         });
-        qqInfo.nickname = f.nickname || uin;
+        bridge.identity.nickname = f.nickname || uin;
         log.debug('self info: UIN=%s uid=%s nickname=%s', uin, f.uid, f.nickname ?? '');
         selfResolved = true;
         break;
@@ -120,8 +119,8 @@ async function warmUpBridgeState(uin: string, qqInfo: QQInfo, bridge: Bridge): P
   if (!selfResolved && selfUin > 0) {
     try {
       const profile = await bridge.fetchUserProfile(selfUin);
-      qqInfo.setSelfProfile(profile);
-      qqInfo.nickname = profile.nickname || uin;
+      bridge.identity.setSelfProfile(profile);
+      bridge.identity.nickname = profile.nickname || uin;
       log.debug('self info via profile: UIN=%s uid=%s nickname=%s',
         uin, profile.uid, profile.nickname);
     } catch (e) {

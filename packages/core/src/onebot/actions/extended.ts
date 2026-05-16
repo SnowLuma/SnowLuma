@@ -36,7 +36,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const userId = asNumber(params.user_id);
     const times = asNumber(params.times) || 1;
     if (!userId) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
-    await ctx.sendLike(userId, times);
+    await ctx.bridge.sendLike(userId, times);
     return okResponse();
   });
 
@@ -94,9 +94,9 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      const essenceDataAll = await ctx.getGroupEssenceAll(groupId);
+      const essenceDataAll = await ctx.bridge.getGroupEssenceAll(groupId);
 
-      const allMsgs = essenceDataAll.flatMap(res => res.data?.msg_list || []);
+      const allMsgs = essenceDataAll.flatMap((res: any) => res.data?.msg_list || []);
 
       return okResponse(allMsgs);
     } catch (e) {
@@ -125,7 +125,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
       return failedResponse(RETCODE.BAD_REQUEST, 'group_id does not match message session');
     }
 
-    await ctx.setGroupReaction(meta.targetId, meta.sequence, code, isSet);
+    await ctx.bridge.setGroupReaction(meta.targetId, meta.sequence, code, isSet);
     return okResponse();
   });
 
@@ -168,7 +168,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
 
 
-    await ctx.markGroupMsgAsRead(groupId, meta.sequence);
+    await ctx.bridge.markGroupMsgAsRead(groupId, meta.sequence);
     return okResponse();
   });
 
@@ -191,7 +191,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
 
 
-    await ctx.markPrivateMsgAsRead(userId, meta.sequence);
+    await ctx.bridge.markPrivateMsgAsRead(userId, meta.sequence);
     return okResponse();
   });
 
@@ -211,9 +211,9 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
 
     if (meta.isGroup) {
-      await ctx.markGroupMsgAsRead(targetId, meta.sequence);
+      await ctx.bridge.markGroupMsgAsRead(targetId, meta.sequence);
     } else {
-      await ctx.markPrivateMsgAsRead(targetId, meta.sequence);
+      await ctx.bridge.markPrivateMsgAsRead(targetId, meta.sequence);
     }
     return okResponse();
   });
@@ -221,12 +221,16 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
   // --- RKey ---
 
-  h.registerAction('get_rkey', async () => {
+  const handleGetRkey = async () => {
     if (ctx.getDownloadRKeys) {
       return okResponse(await ctx.getDownloadRKeys());
     }
     return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
-  });
+  };
+  h.registerAction('get_rkey', handleGetRkey);
+  // napcat exposes the same payload under `nc_get_rkey`; mirror the alias
+  // so clients that follow napcat's docs work out-of-the-box.
+  h.registerAction('nc_get_rkey', handleGetRkey);
 
   // --- OCR stubs ---
 
@@ -258,7 +262,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
         confirm_required: params.confirm_required !== undefined ? Number(params.confirm_required) : 1,
       };
 
-      await ctx.sendGroupNotice(groupId, content, options);
+      await ctx.bridge.sendGroupNotice(groupId, content, options);
       return okResponse();
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -271,7 +275,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      const notices = await ctx.getGroupNotice(groupId);
+      const notices = await ctx.bridge.getGroupNotice(groupId);
       return okResponse(notices);
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -288,7 +292,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      const success = await ctx.deleteGroupNotice(groupId, fid);
+      const success = await ctx.bridge.deleteGroupNotice(groupId, fid);
       if (success) {
         return okResponse();
       } else {
@@ -427,7 +431,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      const cookies = await ctx.getCookiesStr(domain);
+      const cookies = await ctx.bridge.getCookiesStr(domain);
       return okResponse({ cookies });
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -437,7 +441,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   h.registerAction('get_csrf_token', async () => {
 
     try {
-      const token = await ctx.getCsrfToken();
+      const token = await ctx.bridge.getCsrfToken();
       return okResponse({ token });
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -449,7 +453,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      const creds = await ctx.getCredentials(domain);
+      const creds = await ctx.bridge.getCredentials(domain);
       return okResponse(creds);
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -480,7 +484,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const userId = asNumber(params.user_id);
     const remark = asString(params.remark) ?? '';
     if (!userId) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
-    await ctx.setFriendRemark(userId, remark);
+    await ctx.bridge.setFriendRemark(userId, remark);
     return okResponse();
   });
 
@@ -488,7 +492,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const groupId = asNumber(params.group_id);
     const remark = asString(params.remark) ?? '';
     if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-    await ctx.setGroupRemark(groupId, remark);
+    await ctx.bridge.setGroupRemark(groupId, remark);
     return okResponse();
   });
 
@@ -570,7 +574,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      await ctx.setProfile(nickname, personalNote);
+      await ctx.bridge.setProfile(nickname, personalNote);
       return okResponse();
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -590,17 +594,81 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      await ctx.setOnlineStatus(status, extStatus, batteryStatus);
+      await ctx.bridge.setOnlineStatus(status, extStatus, batteryStatus);
       return okResponse();
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
     }
   });
 
-  h.registerAction('get_group_ignored_notifies', async () => {
-    return okResponse([]);
+  // DIY status — same wire packet as set_online_status, only the
+  // customExt sub-message is populated and status/extStatus are forced
+  // to the QQ-defined "I have a custom status" values (10 / 2000).
+  // face_id / face_type accept either number or numeric string (napcat
+  // parity); wording is the human-readable text shown next to the icon.
+  h.registerAction('set_diy_online_status', async (params) => {
+    const faceId = asNumber(params.face_id);
+    const faceType = asNumber(params.face_type) || 1;
+    const wording = asString(params.wording);
+    if (!faceId) return failedResponse(RETCODE.BAD_REQUEST, 'face_id is required');
+    try {
+      await ctx.bridge.setDiyOnlineStatus(faceId, wording, faceType);
+      return okResponse();
+    } catch (err) {
+      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
+    }
   });
 
+  // Filtered (机器人/被忽略) group join requests. SnowLuma already
+  // implements the underlying oidb 0x10c8_2 fetch via fetchGroupRequests;
+  // these three actions just rename / project the same data for the
+  // OneBot dialects clients use in the wild.
+  const fetchFilteredGroupRequests = async () => {
+    try {
+      return await ctx.bridge.fetchGroupRequests(true);
+    } catch {
+      return [];
+    }
+  };
+
+  h.registerAction('get_group_ignored_notifies', async () => {
+    const reqs = await fetchFilteredGroupRequests();
+    return okResponse(reqs.map((r) => ({
+      group_id: r.groupId,
+      group_name: r.groupName,
+      request_id: r.sequence,
+      requester_uin: r.targetUin,
+      requester_nick: r.targetName,
+      message: r.comment,
+      checked: r.state !== 1,
+      actor: r.operatorUin,
+      invitor_uin: r.invitorUin,
+      invitor_nick: r.invitorName,
+      flag: `${r.eventType}:${r.groupId}:${r.targetUid}:filtered`,
+    })));
+  });
+
+  // napcat name for the subset of ignored notifies that are join requests
+  // (notify type==7). We map every entry that flowed through filtered
+  // 0x10c8_2 into napcat's shape — eventType already encodes the request
+  // category in our pipeline.
+  h.registerAction('get_group_ignore_add_request', async () => {
+    const reqs = await fetchFilteredGroupRequests();
+    return okResponse(reqs.map((r) => ({
+      request_id: r.sequence,
+      invitor_uin: r.invitorUin,
+      invitor_nick: r.invitorName,
+      group_id: r.groupId,
+      message: r.comment,
+      group_name: r.groupName,
+      checked: r.state !== 1,
+      actor: r.operatorUin,
+      requester_nick: r.targetName,
+    })));
+  });
+
+  // get_group_shut_list lives behind an oidb we don't yet wrap; honour
+  // the napcat contract (empty list) so callers don't blow up.
   h.registerAction('get_group_shut_list', async () => {
     return okResponse([]);
   });
@@ -653,7 +721,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   h.registerAction('fetch_custom_face', async (params) => {
     const count = asNumber(params.count) || 10;
     try {
-      const urls = await ctx.fetchCustomFace(count);
+      const urls = await ctx.bridge.fetchCustomFace(count);
       return okResponse(urls);
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -667,7 +735,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     try {
       const meta = ctx.getMessageMeta(messageId);
       if (!meta?.isGroup || !meta?.sequence) return failedResponse(RETCODE.BAD_REQUEST, 'message not found or not a group message');
-      const result = await ctx.getEmojiLikes(meta.targetId, meta.sequence, emojiId);
+      const result = await ctx.bridge.getEmojiLikes(meta.targetId, meta.sequence, emojiId);
       return okResponse({ emoji_like_list: result.users.map(u => ({ user_id: String(u.uin), nick_name: '' })) });
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -684,7 +752,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     try {
       const meta = ctx.getMessageMeta(messageId);
       if (!meta?.isGroup || !meta?.sequence) return failedResponse(RETCODE.BAD_REQUEST, 'message not found or not a group message');
-      const result = await ctx.getEmojiLikes(meta.targetId, meta.sequence, emojiId, emojiType, count, cookie);
+      const result = await ctx.bridge.getEmojiLikes(meta.targetId, meta.sequence, emojiId, emojiType, count, cookie);
       return okResponse({
         result: 0,
         errMsg: '',
@@ -733,7 +801,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      const data = await ctx.getGroupAtAllRemain(groupId);
+      const data = await ctx.bridge.getGroupAtAllRemain(groupId);
       return okResponse(data);
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -743,7 +811,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   h.registerAction('get_unidirectional_friend_list', async () => {
 
     try {
-      const data = await ctx.getUnidirectionalFriendList();
+      const data = await ctx.bridge.getUnidirectionalFriendList();
       return okResponse(data);
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -759,7 +827,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      await ctx.setSelfLongNick(longNick);
+      await ctx.bridge.setSelfLongNick(longNick);
       return okResponse({});
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -780,7 +848,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      await ctx.setAvatar(file);
+      await ctx.bridge.setAvatar(file);
       return okResponse();
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -802,7 +870,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      await ctx.setInputStatus(userId, eventType);
+      await ctx.bridge.setInputStatus(userId, eventType);
       return okResponse({});
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -820,7 +888,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      const translated = await ctx.translateEn2Zh(words);
+      const translated = await ctx.bridge.translateEn2Zh(words);
       return okResponse({ words: translated });
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -828,11 +896,11 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   });
 
   h.registerAction('get_clientkey', async () => {
-    const clientKeyInfo = await ctx.forceFetchClientKey();
+    const clientKeyInfo = await ctx.bridge.forceFetchClientKey();
     if (!clientKeyInfo.clientKey) {
       return failedResponse(RETCODE.ACTION_FAILED, 'get clientkey error');
     }
-    return okResponse(clientKeyInfo);
+    return okResponse({ ...clientKeyInfo });
   });
 
   h.registerAction('get_mini_app_ark', async (params) => {
@@ -844,7 +912,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      const data = await ctx.getMiniAppArk(
+      const data = await ctx.bridge.getMiniAppArk(
           String(type),
           String(title),
           String(desc),
@@ -870,7 +938,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      const data = await ctx.clickInlineKeyboardButton(
+      const data = await ctx.bridge.clickInlineKeyboardButton(
           groupId,
           botAppid,
           String(buttonId),
@@ -892,7 +960,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      await ctx.sendGroupSign(groupId);
+      await ctx.bridge.sendGroupSign(groupId);
       return okResponse({});
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -934,9 +1002,170 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
   });
 
-  h.registerAction('.send_packet', async () => {
-    return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
+  // --- Raw packet escape hatch (napcat parity) ---
+  //
+  // napcat exposes both names; the dot-prefix variant is the original
+  // gocqhttp-era backdoor, the no-prefix one is the modern API. They do
+  // the same thing in SnowLuma: encode hex → Bridge.sendRawPacket → hex.
+  const handleSendPacket = async (params: import('../types').JsonObject) => {
+    const cmd = asString(params.cmd);
+    const dataHex = asString(params.data);
+    const rsp = asBoolean(params.rsp, true);
+    if (!cmd) return failedResponse(RETCODE.BAD_REQUEST, 'cmd is required');
+    if (!/^[0-9a-fA-F]*$/.test(dataHex) || dataHex.length % 2 !== 0) {
+      return failedResponse(RETCODE.BAD_REQUEST, 'data must be a hex string of even length');
+    }
+    try {
+      const body = hexToBytes(dataHex);
+      const result = await ctx.bridge.sendRawPacket(cmd, body);
+      if (!result.success) {
+        return failedResponse(RETCODE.ACTION_FAILED, result.errorMessage || 'send failed');
+      }
+      if (!rsp) return okResponse(null);
+      const respHex = result.responseData ? bytesToHex(result.responseData) : '';
+      return okResponse(respHex);
+    } catch (err) {
+      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
+    }
+  };
+  h.registerAction('send_packet', handleSendPacket);
+  h.registerAction('.send_packet', handleSendPacket);
+
+  // --- Bot lifecycle (napcat parity) ---
+
+  h.registerAction('bot_exit', async () => {
+    // Defer so the OK response actually flushes before the process dies.
+    setTimeout(() => process.exit(0), 50);
+    return okResponse();
   });
+
+  // SnowLuma has no separate packet-backend process (napcat's packet
+  // service runs out-of-process and can fail independently). Always
+  // report healthy.
+  h.registerAction('nc_get_packet_status', async () => {
+    return okResponse(null);
+  });
+
+  // napcat exposes `delete_group_folder`; SnowLuma's existing
+  // `delete_group_file_folder` is the same operation. Alias so clients
+  // following napcat docs work without rewriting payloads.
+  h.registerAction('delete_group_folder', async (params) => {
+    const groupId = asNumber(params.group_id);
+    const folderId = asString(params.folder_id);
+    if (!groupId || !folderId) {
+      return failedResponse(RETCODE.BAD_REQUEST, 'group_id and folder_id are required');
+    }
+    await ctx.bridge.deleteGroupFileFolder(groupId, folderId);
+    return okResponse();
+  });
+
+  // --- Group todo (oidb 0xF90) ---
+  //
+  // The three subcommands share an identical payload (group + msgSeq);
+  // we extract once and dispatch by action name. msgSeq comes from the
+  // message metadata cache (set/complete/cancel always target a real
+  // message the bot has seen).
+  type GroupTodoOp = (groupId: number, msgSeq: bigint | number | string) => Promise<void>;
+  const handleGroupTodo = (op: GroupTodoOp) => async (params: import('../types').JsonObject) => {
+    const groupId = asNumber(params.group_id);
+    const messageId = asNumber(params.message_id);
+    if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
+    if (!messageId) return failedResponse(RETCODE.BAD_REQUEST, 'message_id is required');
+    const meta = ctx.getMessageMeta(messageId);
+    if (!meta) return failedResponse(RETCODE.ACTION_FAILED, 'message not found');
+    if (!meta.isGroup || meta.targetId !== groupId) {
+      return failedResponse(RETCODE.ACTION_FAILED, 'message does not belong to this group');
+    }
+    try {
+      await op(groupId, BigInt(meta.sequence));
+      return okResponse();
+    } catch (err) {
+      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
+    }
+  };
+  h.registerAction('set_group_todo', handleGroupTodo((g, s) => ctx.bridge.setGroupTodo(g, s)));
+  h.registerAction('complete_group_todo', handleGroupTodo((g, s) => ctx.bridge.completeGroupTodo(g, s)));
+  h.registerAction('cancel_group_todo', handleGroupTodo((g, s) => ctx.bridge.cancelGroupTodo(g, s)));
+
+  // --- User online/ext status (napcat: nc_get_user_status) ---
+
+  h.registerAction('nc_get_user_status', async (params) => {
+    const userId = asNumber(params.user_id);
+    if (!userId) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
+    const status = await ctx.bridge.getStrangerStatus(userId);
+    if (!status) return failedResponse(RETCODE.ACTION_FAILED, 'failed to fetch user status');
+    return okResponse(status);
+  });
+
+  // --- AI voice (oidb 0x929D / 0x929B) ---
+
+  h.registerAction('get_ai_characters', async (params) => {
+    const groupId = asNumber(params.group_id);
+    const chatType = asNumber(params.chat_type) || 1;
+    if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
+    try {
+      const list = await ctx.bridge.fetchAiVoiceList(groupId, chatType);
+      return okResponse(list.map((cat) => ({
+        type: cat.category,
+        characters: cat.voices.map((v) => ({
+          character_id: v.voiceId,
+          character_name: v.voiceDisplayName,
+          preview_url: v.voiceExampleUrl,
+        })),
+      })));
+    } catch (err) {
+      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  h.registerAction('get_ai_record', async (params) => {
+    const groupId = asNumber(params.group_id);
+    const character = asString(params.character);
+    const text = asString(params.text);
+    const chatType = asNumber(params.chat_type) || 1;
+    if (!groupId || !character || !text) {
+      return failedResponse(RETCODE.BAD_REQUEST, 'group_id, character and text are required');
+    }
+    try {
+      const node = await ctx.bridge.fetchAiVoice(groupId, character, text, chatType);
+      const url = await ctx.bridge.fetchGroupPttUrlByNode(groupId, node);
+      return okResponse(url);
+    } catch (err) {
+      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  // napcat's send_group_ai_record is a side-effect-only call: invoking
+  // fetchAiVoice publishes the voice into the group; the returned
+  // message_id is always 0 because the oidb call doesn't echo one back.
+  h.registerAction('send_group_ai_record', async (params) => {
+    const groupId = asNumber(params.group_id);
+    const character = asString(params.character);
+    const text = asString(params.text);
+    const chatType = asNumber(params.chat_type) || 1;
+    if (!groupId || !character || !text) {
+      return failedResponse(RETCODE.BAD_REQUEST, 'group_id, character and text are required');
+    }
+    try {
+      await ctx.bridge.fetchAiVoice(groupId, character, text, chatType);
+      return okResponse({ message_id: 0 });
+    } catch (err) {
+      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
+    }
+  });
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(hex.substr(i * 2, 2), 16);
+  }
+  return out;
+}
+
+function bytesToHex(buf: Buffer | Uint8Array): string {
+  const arr = buf instanceof Buffer ? buf : Buffer.from(buf);
+  return arr.toString('hex');
 }
 
 /**

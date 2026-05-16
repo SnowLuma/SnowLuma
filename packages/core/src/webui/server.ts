@@ -306,7 +306,7 @@ export async function initWebUI(
 
   app.get('/api/qq-list', (c) => {
     const instances = oneBotManager.getInstances();
-    const list = instances.map((inst) => ({ uin: inst.uin, nickname: inst.qqInfo.nickname }));
+    const list = instances.map((inst) => ({ uin: inst.uin, nickname: inst.nickname }));
     return c.json({ list });
   });
 

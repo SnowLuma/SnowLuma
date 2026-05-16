@@ -208,11 +208,14 @@ async function makePttElem(ctx: SendContext, element: MessageElement): Promise<P
 
   const msgInfo = await uploadPttMsgInfo(ctx.bridge, isGroup, targetIdOrUid, element);
 
+  // commonElem.businessType is the QQ NT scene tag the receive-side
+  // decoder pairs with: 12=c2c, 22=group. Sending the group tag on a
+  // c2c message bounces with PbSendMsg result=79.
   return {
     commonElem: {
       serviceType: 48,
       pbElem: msgInfo,
-      businessType: 22,
+      businessType: isGroup ? 22 : 12,
     } as any,
   };
 }
@@ -226,11 +229,14 @@ async function makeVideoElem(ctx: SendContext, element: MessageElement): Promise
 
   const msgInfo = await uploadVideoMsgInfo(ctx.bridge, isGroup, targetIdOrUid, element);
 
+  // commonElem.businessType is the QQ NT scene tag the receive-side
+  // decoder pairs with: 11=c2c, 21=group. Sending the group tag on a
+  // c2c message bounces with PbSendMsg result=79.
   return {
     commonElem: {
       serviceType: 48,
       pbElem: msgInfo,
-      businessType: 21,
+      businessType: isGroup ? 21 : 11,
     } as any,
   };
 }

@@ -3,7 +3,6 @@
 // same five-line utility from every themed file.
 
 import type { Bridge } from '../bridge';
-import { resolveUserUid } from '../bridge-oidb';
 
 /**
  * Coerce numbers, strings, and bigints to a plain integer.
@@ -37,18 +36,19 @@ export function ensureRetCodeZero(operation: string, code: unknown, msg: unknown
 }
 
 /**
- * Look up the bot's own UID. Cached on QQInfo when warmed up, but
- * forward/profile actions need a fast path before warmup completes.
+ * Look up the bot's own UID. Cached on Identity once warmup populates
+ * `selfProfile`; forward/profile actions need this fast path before
+ * warmup completes.
  */
 export async function resolveSelfUid(bridge: Bridge): Promise<string> {
-  let selfUid = bridge.qqInfo.selfUid;
+  let selfUid = bridge.identity.selfUid;
   if (selfUid) return selfUid;
 
-  const selfUin = toInt(bridge.qqInfo.uin);
+  const selfUin = toInt(bridge.identity.uin);
   if (selfUin <= 0) {
     throw new Error('self uid is unavailable');
   }
-  selfUid = await resolveUserUid(bridge, selfUin);
+  selfUid = await bridge.resolveUserUid(selfUin);
   return selfUid;
 }
 

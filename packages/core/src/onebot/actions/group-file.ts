@@ -58,7 +58,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (!groupId || !fileId) {
       return failedResponse(RETCODE.BAD_REQUEST, 'group_id and file_id are required');
     }
-    await ctx.deleteGroupFile(groupId, fileId);
+    await ctx.bridge.deleteGroupFile(groupId, fileId);
     return okResponse();
   });
 
@@ -70,7 +70,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (!groupId || !fileId || !parentDirectory || !targetDirectory) {
       return failedResponse(RETCODE.BAD_REQUEST, 'group_id, file_id, parent_directory and target_directory are required');
     }
-    await ctx.moveGroupFile(groupId, fileId, parentDirectory, targetDirectory);
+    await ctx.bridge.moveGroupFile(groupId, fileId, parentDirectory, targetDirectory);
     return okResponse();
   });
 
@@ -91,7 +91,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (!groupId || !folderId) {
       return failedResponse(RETCODE.BAD_REQUEST, 'group_id and folder_id are required');
     }
-    await ctx.deleteGroupFileFolder(groupId, folderId);
+    await ctx.bridge.deleteGroupFileFolder(groupId, folderId);
     return okResponse();
   });
 
@@ -102,7 +102,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (!groupId || !folderId || !newName) {
       return failedResponse(RETCODE.BAD_REQUEST, 'group_id, folder_id and new_folder_name are required');
     }
-    await ctx.renameGroupFileFolder(groupId, folderId, newName);
+    await ctx.bridge.renameGroupFileFolder(groupId, folderId, newName);
     return okResponse();
   });
 

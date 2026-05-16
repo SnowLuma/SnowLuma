@@ -12,13 +12,13 @@
 //
 // Used as the `mediaUrlResolver` callback in `ConverterContext`.
 
-import type { Bridge } from '../bridge/bridge';
+import type { BridgeInterface } from '../bridge/bridge-interface';
 import type { MessageElement } from '../bridge/events';
 import type { RKeyCache } from './instance-rkey';
 
 export class MediaUrlResolver {
   constructor(
-    private readonly bridge: Bridge,
+    private readonly bridge: BridgeInterface,
     private readonly rkeyCache: RKeyCache,
   ) {}
 

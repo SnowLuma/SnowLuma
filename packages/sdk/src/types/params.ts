@@ -316,3 +316,47 @@ export interface SetOnlineStatusParams extends JsonObject {
   ext_status?: number;
   battery_status?: number;
 }
+
+// DIY online status — status/extStatus are forced to 10/2000 server-side,
+// and these three fields land in the customExt sub-message.
+export interface SetDiyOnlineStatusParams extends JsonObject {
+  face_id: number | string;
+  wording?: string;
+  face_type?: number | string;
+}
+
+// nc_get_user_status — read the QQ-side online/ext-status word for a uin.
+export interface NcGetUserStatusParams extends UserIdParams {}
+
+// set_/complete_/cancel_group_todo all share this shape; the action verb
+// lives in the route, not the body.
+export interface GroupTodoParams extends GroupIdParams {
+  message_id: number | string;
+}
+
+// AI voice — fetch the in-group AI character list.
+export interface GetAiCharactersParams extends GroupIdParams {
+  chat_type?: number | string;
+}
+
+// AI voice — `get_ai_record` and `send_group_ai_record` share params.
+// The action's verb (read vs send) is the route, not the body.
+export interface AiVoiceParams extends GroupIdParams {
+  character: string;
+  text: string;
+  chat_type?: number | string;
+}
+
+// delete_group_folder — napcat's alias for delete_group_file_folder.
+// Same body, different action name.
+export interface DeleteGroupFolderParams extends GroupIdParams {
+  folder_id: string;
+}
+
+// send_packet — debug endpoint, sends a hex-encoded raw packet.
+// `rsp=false` skips waiting for a response.
+export interface SendPacketParams extends JsonObject {
+  cmd: string;
+  data?: string;
+  rsp?: boolean;
+}

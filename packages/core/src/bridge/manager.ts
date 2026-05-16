@@ -6,15 +6,13 @@
 import type { PacketInfo } from '../protocol/types';
 import { Bridge } from './bridge';
 import { IdentityService } from './identity-service';
-import { QQInfo } from './qq-info';
 import type { PacketSender } from '../protocol/packet-sender';
 import { createLogger } from '../utils/logger';
 
-export type SessionStartedCallback = (uin: string, qqInfo: QQInfo, bridge: Bridge) => void;
+export type SessionStartedCallback = (uin: string, bridge: Bridge) => void;
 export type SessionClosedCallback = (uin: string) => void;
 
 interface QQSession {
-  qqInfo: QQInfo;
   bridge: Bridge;
 }
 
@@ -67,7 +65,7 @@ export class BridgeManager {
     if (created) {
       log.debug('session started: UIN=%s', uin);
       if (this.onSessionStarted_) {
-        this.onSessionStarted_(uin, session.qqInfo, session.bridge);
+        this.onSessionStarted_(uin, session.bridge);
       }
     }
   }
@@ -92,7 +90,7 @@ export class BridgeManager {
     if (created) {
       log.debug('session started: UIN=%s', uin);
       if (this.onSessionStarted_) {
-        this.onSessionStarted_(uin, session.qqInfo, session.bridge);
+        this.onSessionStarted_(uin, session.bridge);
       }
     }
 
@@ -104,9 +102,8 @@ export class BridgeManager {
     let session = this.sessions_.get(uin);
     if (session) return { session, created: false };
 
-    const qqInfo = new QQInfo(uin);
-    const bridge = new Bridge(qqInfo, IdentityService.openForUin(qqInfo));
-    session = { qqInfo, bridge };
+    const bridge = new Bridge(IdentityService.openForUin(uin));
+    session = { bridge };
     this.sessions_.set(uin, session);
 
     // Each downstream consumer (e.g. OneBotInstance) subscribes to
@@ -119,7 +116,7 @@ export class BridgeManager {
     return this.sessions_.get(uin) ?? null;
   }
 
-  get sessions(): Map<string, { qqInfo: QQInfo; bridge: Bridge }> {
+  get sessions(): Map<string, { bridge: Bridge }> {
     return this.sessions_;
   }
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { parseMsgPush, MSG_PUSH_CMD } from '../src/bridge/msg-push-handler';
-import { QQInfo, type GroupMemberInfo, type QQGroupInfo } from '../src/bridge/qq-info';
+import { parseMsgPush, MSG_PUSH_CMD } from '../src/bridge/msg-push';
+import { IdentityService } from '../src/bridge/identity-service';
+import type { GroupMemberInfo, QQGroupInfo } from '../src/bridge/qq-info';
 import { PushMsgSchema } from '../src/bridge/proto/message';
 import { GroupChangeSchema, OperatorInfoSchema } from '../src/bridge/proto/notify';
 import type { GroupMemberJoin } from '../src/bridge/events';
@@ -36,10 +37,11 @@ function makeGroup(members: GroupMemberInfo[] = []): QQGroupInfo {
   };
 }
 
-function makeQqInfo(members: GroupMemberInfo[] = []): QQInfo {
-  const qqInfo = new QQInfo(SELF_UIN);
-  qqInfo.setGroups([makeGroup(members)]);
-  return qqInfo;
+function makeIdentity(members: GroupMemberInfo[] = []): IdentityService {
+  const identity = IdentityService.memory(SELF_UIN);
+  identity.rememberGroups([makeGroup(members)]);
+  if (members.length) identity.rememberGroupMembers(GROUP_ID, members);
+  return identity;
 }
 
 function makeGroupIncreasePacket(memberUid: string, operatorUid = '', fromUin = GROUP_ID): PacketInfo {
@@ -73,7 +75,7 @@ function makeGroupIncreasePacket(memberUid: string, operatorUid = '', fromUin = 
 
 describe('parseMsgPush group member increase', () => {
   it('does not fall back to the group id when a joining uid is unresolved', () => {
-    const [event] = parseMsgPush(makeGroupIncreasePacket('u_new_member'), makeQqInfo()) as GroupMemberJoin[];
+    const [event] = parseMsgPush(makeGroupIncreasePacket('u_new_member'), makeIdentity()) as GroupMemberJoin[];
 
     expect(event.kind).toBe('group_member_join');
     expect(event.groupId).toBe(GROUP_ID);
@@ -85,7 +87,10 @@ describe('parseMsgPush group member increase', () => {
   it('resolves joining uid and operator uid from the member cache when available', () => {
     const member = makeGroupMember(22222, 'u_member');
     const operator = makeGroupMember(33333, 'u_operator');
-    const [event] = parseMsgPush(makeGroupIncreasePacket(member.uid, operator.uid), makeQqInfo([member, operator])) as GroupMemberJoin[];
+    const [event] = parseMsgPush(
+      makeGroupIncreasePacket(member.uid, operator.uid),
+      makeIdentity([member, operator]),
+    ) as GroupMemberJoin[];
 
     expect(event.userUin).toBe(member.uin);
     expect(event.operatorUin).toBe(operator.uin);

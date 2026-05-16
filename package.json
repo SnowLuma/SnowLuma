@@ -1,6 +1,6 @@
 {
   "name": "snowluma-monorepo",
-  "version": "1.7.9",
+  "version": "1.8.1",
   "description": "SnowLuma monorepo workspace (pnpm)",
   "private": true,
   "type": "module",
@@ -17,7 +17,8 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "lint": "pnpm -r --if-present lint",
     "start": "node dist/index.mjs",
-    "bump": "node tools/bump-version.mjs"
+    "bump": "node tools/bump-version.mjs",
+    "release": "node tools/release.mjs"
   },
   "devDependencies": {
     "cross-env": "^10.1.0",

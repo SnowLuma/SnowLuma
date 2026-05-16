@@ -1,26 +1,26 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useRouterState } from '@tanstack/react-router';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Sidebar, type Page } from '@/components/layout/sidebar';
+import { Sidebar } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/top-bar';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { cn } from '@/lib/utils';
 
 interface MainLayoutProps {
-  active: Page;
-  onNavigate: (page: Page) => void;
   status: string;
   onLogout: () => void;
   children: ReactNode;
 }
 
-export function MainLayout({ active, onNavigate, status, onLogout, children }: MainLayoutProps) {
+export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
   const isMobile = !useMediaQuery('(min-width: 768px)');
   const [collapsed, setCollapsed] = useState(() => {
     return localStorage.getItem('snowluma_sidebar_collapsed') === '1';
   });
   const [mobileOpen, setMobileOpen] = useState(false);
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   useEffect(() => {
     localStorage.setItem('snowluma_sidebar_collapsed', collapsed ? '1' : '0');
@@ -36,7 +36,7 @@ export function MainLayout({ active, onNavigate, status, onLogout, children }: M
           transition={{ type: 'spring', stiffness: 280, damping: 32 }}
           className="relative h-full shrink-0 border-r overflow-hidden"
         >
-          <Sidebar active={active} onNavigate={onNavigate} collapsed={collapsed} />
+          <Sidebar collapsed={collapsed} />
         </motion.aside>
       )}
 
@@ -44,11 +44,7 @@ export function MainLayout({ active, onNavigate, status, onLogout, children }: M
       {isMobile && (
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetContent side="left" className="w-64 max-w-[80vw] p-0">
-            <Sidebar
-              active={active}
-              onNavigate={onNavigate}
-              onItemClick={() => setMobileOpen(false)}
-            />
+            <Sidebar onItemClick={() => setMobileOpen(false)} />
           </SheetContent>
         </Sheet>
       )}
@@ -56,7 +52,6 @@ export function MainLayout({ active, onNavigate, status, onLogout, children }: M
       {/* Main column */}
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar
-          active={active}
           status={status}
           collapsed={collapsed}
           onToggleCollapse={() => setCollapsed((v) => !v)}
@@ -70,7 +65,7 @@ export function MainLayout({ active, onNavigate, status, onLogout, children }: M
             <div className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
               <AnimatePresence mode="wait">
                 <motion.div
-                  key={active}
+                  key={pathname}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}

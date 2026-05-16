@@ -1,91 +1,90 @@
-// OIDB protocol helpers -- encode requests, send+check, send+decode, UID resolution.
+// One deep entry point for a single OIDB round-trip: build the envelope,
+// dispatch via Bridge.sendRawPacket, validate the response status, and
+// optionally decode the body. Replaces the three positional helpers
+// (makeOidbRequest / sendOidbAndCheck / sendOidbAndDecode) that used to
+// scatter the same five-step pattern across every action file.
 
 import type { Bridge } from './bridge';
 import type { ProtoSchema } from '../protobuf/decode';
 import { protoEncode, protoDecode } from '../protobuf/decode';
 import { makeOidbBaseSchema } from './proto/oidb';
 
-/**
- * Build a raw OIDB request buffer (base envelope wrapping a typed body).
- */
-export function makeOidbRequest(
-  command: number, subCommand: number,
-  body: any, bodySchema: ProtoSchema, isUid = false,
-): Uint8Array {
-  const baseSchema = makeOidbBaseSchema(bodySchema);
-  return protoEncode({
-    command,
-    subCommand,
-    errorCode: 0,
-    body,
-    errorMsg: '',
-    reserved: isUid ? 1 : 0,
-  }, baseSchema);
+export interface OidbCall<TResp = void> {
+  /** Service-cmd string sent on the wire, e.g. 'OidbSvcTrpcTcp.0x1253_1'. */
+  cmd: string;
+  /** OIDB command number, e.g. 0x1253. */
+  oidbCmd: number;
+  /** OIDB sub-command, e.g. 1. */
+  subCmd: number;
+  request: {
+    schema: ProtoSchema;
+    value: any;
+    /**
+     * Sets the OIDB envelope `reserved` field to 1 when true. A handful
+     * of commands (group/friend list, rkey download) operate on
+     * UID-keyed data and require this flag — the wire format is
+     * otherwise identical.
+     */
+    isUid?: boolean;
+  };
+  /** Omit to skip decoding the response body (fire-and-check). */
+  response?: {
+    schema: ProtoSchema;
+  };
 }
 
 /**
- * Send an OIDB packet and verify it succeeded (no decode of body).
+ * Issue one OIDB request. Without `response`, returns void after
+ * verifying the envelope's retCode. With `response`, decodes the
+ * envelope, validates retCode, and returns the inner body.
+ *
+ * Throws on transport failure, missing response, decode failure, or any
+ * non-zero envelope retCode. Action modules layer their own retCode
+ * checks (on inner sub-replies like `upload.retCode`) on top of this.
  */
-export async function sendOidbAndCheck(
-  bridge: Bridge,
-  serviceCmd: string, command: number, subCommand: number,
-  body: any, bodySchema: ProtoSchema, isUid = false,
-): Promise<void> {
-  const request = makeOidbRequest(command, subCommand, body, bodySchema, isUid);
-  const result = await bridge.sendRawPacket(serviceCmd, request);
+export function runOidb(bridge: Bridge, call: OidbCall<void> & { response?: undefined }): Promise<void>;
+export function runOidb<TResp>(bridge: Bridge, call: OidbCall<TResp> & { response: { schema: ProtoSchema } }): Promise<TResp>;
+export async function runOidb<TResp>(bridge: Bridge, call: OidbCall<TResp>): Promise<TResp | void> {
+  const envelope = encodeOidbEnvelope(call);
+  const result = await bridge.sendRawPacket(call.cmd, envelope);
   if (!result.success) throw new Error(result.errorMessage || 'packet send failed');
+
+  if (call.response) {
+    if (!result.gotResponse || !result.responseData) {
+      throw new Error(result.errorMessage || 'no response');
+    }
+    const baseSchema = makeOidbBaseSchema(call.response.schema);
+    const resp = protoDecode(result.responseData, baseSchema);
+    if (!resp) throw new Error('failed to decode OIDB response');
+    throwIfOidbError(resp);
+    return (resp as any).body as TResp;
+  }
+
+  // Fire-and-check: response data is optional, but if present we still
+  // peek at the envelope so a server-side retCode doesn't silently slip past.
   if (!result.gotResponse) throw new Error(result.errorMessage || 'no response');
-  // Check OIDB error code if response present
   if (result.responseData && result.responseData.length > 0) {
     const emptyBase = makeOidbBaseSchema({ _dummy: { field: 99, type: 'uint32' as const } });
     const resp = protoDecode(result.responseData, emptyBase);
-    if (resp && (resp as any).errorCode && (resp as any).errorCode !== 0) {
-      throw new Error(`OIDB error ${(resp as any).errorCode}: ${(resp as any).errorMsg ?? ''}`);
-    }
+    if (resp) throwIfOidbError(resp);
   }
 }
 
-/**
- * Send an OIDB packet and decode the response body with the given schema.
- */
-export async function sendOidbAndDecode<T>(
-  bridge: Bridge,
-  serviceCmd: string, command: number, subCommand: number,
-  body: any, bodySchema: ProtoSchema, responseSchema: ProtoSchema, isUid = false,
-): Promise<T> {
-  const request = makeOidbRequest(command, subCommand, body, bodySchema, isUid);
-  const result = await bridge.sendRawPacket(serviceCmd, request);
-  if (!result.success) throw new Error(result.errorMessage || 'packet send failed');
-  if (!result.gotResponse || !result.responseData) throw new Error(result.errorMessage || 'no response');
-
-  const baseSchema = makeOidbBaseSchema(responseSchema);
-  const resp = protoDecode(result.responseData, baseSchema);
-  if (!resp) throw new Error('failed to decode OIDB response');
-  if ((resp as any).errorCode && (resp as any).errorCode !== 0) {
-    throw new Error(`OIDB error ${(resp as any).errorCode}: ${(resp as any).errorMsg ?? ''}`);
-  }
-  return (resp as any).body as T;
+function encodeOidbEnvelope(call: OidbCall<unknown>): Uint8Array {
+  const baseSchema = makeOidbBaseSchema(call.request.schema);
+  return protoEncode({
+    command: call.oidbCmd,
+    subCommand: call.subCmd,
+    errorCode: 0,
+    body: call.request.value,
+    errorMsg: '',
+    reserved: call.request.isUid ? 1 : 0,
+  }, baseSchema);
 }
 
-/**
- * Resolve a UIN to a UID string, using cache or fetching as needed.
- * Mirrors C++ resolve_user_uid_for_action.
- */
-export async function resolveUserUid(bridge: Bridge, uin: number, groupId?: number): Promise<string> {
-  // Try group member first
-  if (groupId !== undefined) {
-    const uid = bridge.identity.findUidByUin(uin, groupId);
-    if (uid) return uid;
-    // Try fetching member list
-    try { await bridge.fetchGroupMemberList(groupId); } catch { /* ignore */ }
-    const uid2 = bridge.identity.findUidByUin(uin, groupId);
-    if (uid2) return uid2;
+function throwIfOidbError(resp: unknown): void {
+  const code = (resp as any).errorCode;
+  if (code && code !== 0) {
+    throw new Error(`OIDB error ${code}: ${(resp as any).errorMsg ?? ''}`);
   }
-  // Try cached
-  const uid = bridge.identity.findUidByUin(uin);
-  if (uid) return uid;
-  // Fetch profile
-  const profile = await bridge.fetchUserProfile(uin);
-  if (profile.uid) return profile.uid;
-  throw new Error(`failed to resolve UID for UIN ${uin}`);
 }

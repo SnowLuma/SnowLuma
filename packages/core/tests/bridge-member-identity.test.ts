@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Bridge } from '../src/bridge/bridge';
-import { QQInfo, type GroupMemberInfo, type QQGroupInfo } from '../src/bridge/qq-info';
+import { IdentityService } from '../src/bridge/identity-service';
+import type { GroupMemberInfo, QQGroupInfo } from '../src/bridge/qq-info';
 import type { GroupMemberJoin, QQEventVariant } from '../src/bridge/events';
 import type { PacketInfo } from '../src/protocol/types';
 
@@ -36,14 +37,14 @@ function makeGroup(members: GroupMemberInfo[] = []): QQGroupInfo {
 class RefreshingBridge extends Bridge {
   readonly memberFetches: Array<{ groupId: number; force: boolean }> = [];
 
-  constructor(qqInfo: QQInfo, private readonly refreshedMembers: GroupMemberInfo[]) {
-    super(qqInfo);
+  constructor(identity: IdentityService, private readonly refreshedMembers: GroupMemberInfo[]) {
+    super(identity);
   }
 
   override async fetchGroupMemberList(groupId: number, options: { force?: boolean } = {}): Promise<GroupMemberInfo[]> {
     this.memberFetches.push({ groupId, force: Boolean(options.force) });
     for (const member of this.refreshedMembers) {
-      this.qqInfo.updateGroupMember(groupId, member);
+      this.identity.updateGroupMember(groupId, member);
     }
     return this.refreshedMembers;
   }
@@ -79,9 +80,9 @@ async function waitForEvent(events: GroupMemberJoin[]): Promise<GroupMemberJoin>
 describe('Bridge group member identity refresh', () => {
   it('forces a fresh member list before dispatching an unresolved join event', async () => {
     const member = makeGroupMember(22222, 'u_new_member');
-    const qqInfo = new QQInfo(SELF_UIN);
-    qqInfo.setGroups([makeGroup()]);
-    const bridge = new RefreshingBridge(qqInfo, [member]);
+    const identity = IdentityService.memory(SELF_UIN);
+    identity.rememberGroups([makeGroup()]);
+    const bridge = new RefreshingBridge(identity, [member]);
     const seen: GroupMemberJoin[] = [];
 
     bridge.registerCmd('test.member_join', () => [{
@@ -107,8 +108,7 @@ describe('Bridge group member identity refresh', () => {
   });
 
   it('remembers UID mappings from realtime request events', () => {
-    const qqInfo = new QQInfo(SELF_UIN);
-    const bridge = new Bridge(qqInfo);
+    const bridge = new Bridge(IdentityService.memory(SELF_UIN));
     const events: QQEventVariant[] = [
       {
         kind: 'friend_request',

@@ -1,5 +1,6 @@
 import type { MessageElement } from '../bridge/events';
-import type { Bridge, DownloadRKeyInfo } from '../bridge/bridge';
+import type { DownloadRKeyInfo } from '../bridge/bridge';
+import type { BridgeInterface } from '../bridge/bridge-interface';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('OneBot');
@@ -26,7 +27,7 @@ export class RKeyCache {
   private cache = new Map<number, CachedRKey>();
   private lastRefreshAttempt = 0;
 
-  warmUp(bridge: Bridge, uin: string): void {
+  warmUp(bridge: BridgeInterface, uin: string): void {
     bridge.fetchDownloadRKeys().then(
       (rkeys) => {
         this.updateCache(rkeys);
@@ -38,7 +39,7 @@ export class RKeyCache {
     );
   }
 
-  resolveImageUrl(bridge: Bridge, element: MessageElement, isGroup: boolean): string {
+  resolveImageUrl(bridge: BridgeInterface, element: MessageElement, isGroup: boolean): string {
     const url = element.imageUrl ?? '';
     if (!urlNeedsRKey(url)) return url;
 
@@ -54,7 +55,7 @@ export class RKeyCache {
    * Resolve a URL for video/record/file media elements.
    * Appends the correct RKey type based on media kind and group/private context.
    */
-  resolveMediaUrl(bridge: Bridge, element: MessageElement, isGroup: boolean): string {
+  resolveMediaUrl(bridge: BridgeInterface, element: MessageElement, isGroup: boolean): string {
     const url = element.url ?? '';
     if (!url || !urlNeedsRKey(url)) return url;
 
@@ -93,12 +94,12 @@ export class RKeyCache {
     }
   }
 
-  private findRKey(bridge: Bridge, isGroup: boolean): string | null {
+  private findRKey(bridge: BridgeInterface, isGroup: boolean): string | null {
     const primaryType = isGroup ? GROUP_IMAGE_RKEY_TYPE : PRIVATE_IMAGE_RKEY_TYPE;
     return this.findRKeyForType(bridge, primaryType);
   }
 
-  private findRKeyForType(bridge: Bridge, primaryType: number): string | null {
+  private findRKeyForType(bridge: BridgeInterface, primaryType: number): string | null {
     const now = Math.floor(Date.now() / 1000);
 
     const tryFind = (type: number): string | null => {

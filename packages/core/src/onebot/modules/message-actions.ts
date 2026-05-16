@@ -1,4 +1,4 @@
-import type { Bridge } from '../../bridge/bridge';
+import type { BridgeInterface } from '../../bridge/bridge-interface';
 import type { ForwardNodePayload, MessageElement } from '../../bridge/events';
 import { createLogger } from '../../utils/logger';
 import type { MessageSendResult } from '../api-handler';
@@ -63,7 +63,7 @@ export async function getFriendMsgHistory(
     .map(sanitizeMessageEventForApi);
 }
 
-export async function deleteMessage(bridge: Bridge, meta: MessageMeta): Promise<void> {
+export async function deleteMessage(bridge: BridgeInterface, meta: MessageMeta): Promise<void> {
   if (meta.isGroup) {
     await bridge.recallGroupMessage(meta.targetId, meta.sequence);
   } else {
@@ -78,7 +78,7 @@ export async function deleteMessage(bridge: Bridge, meta: MessageMeta): Promise<
 }
 
 export async function setEssenceMessage(
-  bridge: Bridge,
+  bridge: BridgeInterface,
   messageStore: MessageStore,
   messageId: number,
   enable: boolean,
