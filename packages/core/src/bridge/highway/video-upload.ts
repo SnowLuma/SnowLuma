@@ -487,11 +487,17 @@ export async function uploadVideoMsgInfo(
           subFileType: 100,
         },
       ],
-      // Scene tag the NTV2 upload registers under. image-upload and
-      // ptt-upload both differentiate (group=2, c2c=1); video was
-      // hardcoded to the group value, which contributed to the c2c
-      // send-back rejection (PbSendMsg result=79).
-      compatQmsgSceneType: isGroup ? 2 : 1,
+      // Hardcoded 2 even on c2c (matches NapCat). Image/PTT use
+      // `isGroup ? 2 : 1` because their legacy compat elements differ
+      // per scene (notOnlineImage vs customFace; ptt c2c vs group),
+      // but the legacy `videoFile` element has no scene split — its
+      // fromChatType/toChatType live inside the element itself — so
+      // the server generates a single group-shaped compat payload
+      // regardless. Setting 1 here makes the server emit a c2c-scene
+      // shaped compat blob that old QQ clients fail to resolve,
+      // showing the message as "视频已过期" on those receivers while
+      // new clients (which only read the commonElem) display fine.
+      compatQmsgSceneType: 2,
       extBizInfo: {
         pic: { bizType: 0, textSummary: 'Nya~' },
         video: { bytesPbReserve: new Uint8Array([0x80, 0x01, 0x00]) },
