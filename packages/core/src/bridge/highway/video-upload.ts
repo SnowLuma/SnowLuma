@@ -286,7 +286,7 @@ async function stageVideoSource(element: MessageElement, tempDir: string, cleanu
     // local path still OOMs us before the check fires).
     const stat = fs.statSync(local);
     if (stat.size > MAX_VIDEO_SIZE) {
-      throw new Error(`video file too large: ${(stat.size / (1024 * 1024)).toFixed(2)} MB > ${MAX_VIDEO_SIZE / (1024 * 1024)} MB`);
+      throw new Error(`video file too large: ${(stat.size / (1024 * 1024)).toFixed(2)} MB > ${MAX_VIDEO_SIZE / (1024 * 1024)} MB. Use upload_group_file / upload_private_file for files larger than 100 MB.`);
     }
     return {
       bytes: new Uint8Array(fs.readFileSync(local)),
@@ -383,7 +383,7 @@ async function loadVideo(element: MessageElement): Promise<VideoPayload> {
     const staged = await stageVideoSource(element, tempDir, cleanups);
     if (staged.bytes.length === 0) throw new Error('video file is empty');
     if (staged.bytes.length > MAX_VIDEO_SIZE) {
-      throw new Error(`video file too large: ${(staged.bytes.length / (1024 * 1024)).toFixed(2)} MB > 100 MB`);
+      throw new Error(`video file too large: ${(staged.bytes.length / (1024 * 1024)).toFixed(2)} MB > 100 MB. Use upload_group_file / upload_private_file for files larger than 100 MB.`);
     }
 
     const hashes = computeHashes(staged.bytes);
