@@ -2,6 +2,19 @@ import type { ApiHandler, ApiActionContext } from '../api-handler';
 import { asMessage, asNumber, asString, asBoolean } from '../api-handler';
 import type { ForwardPreviewMeta } from '../modules/message-actions';
 import { RETCODE, failedResponse, okResponse } from '../types';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('OneBot.Action');
+
+/**
+ * Standard error wrapper. Logs the full error (so operators can debug) but
+ * surfaces only `Error.message` (or the supplied fallback) to the caller.
+ */
+function actionFailed(action: string, err: unknown, fallback = 'action failed') {
+  const detail = err instanceof Error ? err.message : String(err);
+  log.warn('%s failed: %s', action, detail);
+  return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : fallback);
+}
 
 /**
  * Pull NapCat-compatible forward preview overrides off a send_*_forward_msg
@@ -157,8 +170,6 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
       return failedResponse(RETCODE.BAD_REQUEST, 'message_id is required');
     }
     const meta = ctx.getMessageMeta(messageId);
-    if (!meta) return failedResponse(RETCODE.ACTION_FAILED, 'message not found');
-
     if (!meta || !meta.isGroup) {
       return failedResponse(RETCODE.ACTION_FAILED, 'message not found or not a group message');
     }
@@ -167,8 +178,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
       return failedResponse(RETCODE.BAD_REQUEST, 'group_id does not match message session');
     }
 
-
-    await ctx.bridge.markGroupMsgAsRead(groupId, meta.sequence);
+    await ctx.bridge.markGroupMsgAsRead(meta.targetId, meta.sequence);
     return okResponse();
   });
 
@@ -180,8 +190,6 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
       return failedResponse(RETCODE.BAD_REQUEST, 'message_id is required');
     }
     const meta = ctx.getMessageMeta(messageId);
-    if (!meta) return failedResponse(RETCODE.ACTION_FAILED, 'message not found');
-
     if (!meta || meta.isGroup) {
       return failedResponse(RETCODE.ACTION_FAILED, 'message not found or not a private message');
     }
@@ -190,8 +198,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
       return failedResponse(RETCODE.BAD_REQUEST, 'user_id does not match message session');
     }
 
-
-    await ctx.bridge.markPrivateMsgAsRead(userId, meta.sequence);
+    await ctx.bridge.markPrivateMsgAsRead(meta.targetId, meta.sequence);
     return okResponse();
   });
 
@@ -205,15 +212,14 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const meta = ctx.getMessageMeta(messageId);
     if (!meta) return failedResponse(RETCODE.ACTION_FAILED, 'message not found');
 
-
     if (targetId && targetId !== meta.targetId) {
       return failedResponse(RETCODE.BAD_REQUEST, 'target_id does not match message session');
     }
 
     if (meta.isGroup) {
-      await ctx.bridge.markGroupMsgAsRead(targetId, meta.sequence);
+      await ctx.bridge.markGroupMsgAsRead(meta.targetId, meta.sequence);
     } else {
-      await ctx.bridge.markPrivateMsgAsRead(targetId, meta.sequence);
+      await ctx.bridge.markPrivateMsgAsRead(meta.targetId, meta.sequence);
     }
     return okResponse();
   });
@@ -310,7 +316,11 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const groupId = asNumber(params.group_id);
     if (messages === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'message/messages is required');
 
-    const result = await ctx.sendForwardMsg(messages);
+    // Group and private forwards live in different resId namespaces
+    // (see bridge/actions/forward.ts: type=3+groupUin vs type=1+selfUid).
+    // Passing groupId through is what makes the resulting resId usable
+    // when the caller later sends it into the same group.
+    const result = await ctx.sendForwardMsg(messages, groupId > 0 ? groupId : undefined);
     const data: Record<string, unknown> = {
       res_id: result.forwardId,
       forward_id: result.forwardId,
@@ -320,10 +330,13 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return okResponse(data as any);
   });
 
+  // Kept for backward compat with clients that follow the historical
+  // gocqhttp/NapCat docs misspelling; same semantics as upload_forward_msg.
   h.registerAction('upload_foward_msg', async (params) => {
     const messages = asMessage(params.messages ?? params.message);
+    const groupId = asNumber(params.group_id);
     if (messages === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'message/messages is required');
-    const result = await ctx.sendForwardMsg(messages);
+    const result = await ctx.sendForwardMsg(messages, groupId > 0 ? groupId : undefined);
     return okResponse({ res_id: result.forwardId, forward_id: result.forwardId, message_id: 0 });
   });
 
@@ -482,17 +495,23 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
   h.registerAction('set_friend_remark', async (params) => {
     const userId = asNumber(params.user_id);
-    const remark = asString(params.remark) ?? '';
     if (!userId) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
-    await ctx.bridge.setFriendRemark(userId, remark);
+    // remark must be explicitly provided. Falling back to '' on a missing
+    // field would silently CLEAR the operator's existing remark.
+    if (params.remark === undefined) {
+      return failedResponse(RETCODE.BAD_REQUEST, 'remark is required (pass an empty string to clear)');
+    }
+    await ctx.bridge.setFriendRemark(userId, asString(params.remark));
     return okResponse();
   });
 
   h.registerAction('set_group_remark', async (params) => {
     const groupId = asNumber(params.group_id);
-    const remark = asString(params.remark) ?? '';
     if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-    await ctx.bridge.setGroupRemark(groupId, remark);
+    if (params.remark === undefined) {
+      return failedResponse(RETCODE.BAD_REQUEST, 'remark is required (pass an empty string to clear)');
+    }
+    await ctx.bridge.setGroupRemark(groupId, asString(params.remark));
     return okResponse();
   });
 
@@ -545,14 +564,29 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const fs = await import('fs');
     const pathMod = await import('path');
     const cryptoMod = await import('crypto');
-    const tempDir = pathMod.join('data', 'downloads');
+    const tempDir = pathMod.resolve('data', 'downloads');
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+    // Sanitize file name: strip any path components, reject anything that
+    // resolves outside `tempDir`. Without this guard, `name = "../../config/onebot_x.json"`
+    // would let an authenticated OneBot client overwrite arbitrary files
+    // (config / dist / node_modules) under the working directory.
+    const resolveSafePath = (preferredName: string, fallbackBuf: Buffer): string | null => {
+      const raw = preferredName || cryptoMod.createHash('md5').update(fallbackBuf).digest('hex');
+      const safeName = pathMod.basename(raw);
+      if (!safeName || safeName === '.' || safeName === '..' || /[\\/]/.test(safeName)) return null;
+      const resolved = pathMod.resolve(tempDir, safeName);
+      const rel = pathMod.relative(tempDir, resolved);
+      if (rel.startsWith('..') || pathMod.isAbsolute(rel)) return null;
+      return resolved;
+    };
 
     let filePath: string;
     if (base64) {
       const buf = Buffer.from(base64, 'base64');
-      const fileName = name || cryptoMod.createHash('md5').update(buf).digest('hex');
-      filePath = pathMod.join(tempDir, fileName);
+      const safe = resolveSafePath(name, buf);
+      if (!safe) return failedResponse(RETCODE.BAD_REQUEST, 'invalid file name');
+      filePath = safe;
       fs.writeFileSync(filePath, buf);
     } else {
       const response = await fetch(url!, {
@@ -560,11 +594,12 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
       });
       if (!response.ok) return failedResponse(RETCODE.ACTION_FAILED, `download failed: ${response.status}`);
       const buf = Buffer.from(await response.arrayBuffer());
-      const fileName = name || cryptoMod.createHash('md5').update(buf).digest('hex');
-      filePath = pathMod.join(tempDir, fileName);
+      const safe = resolveSafePath(name, buf);
+      if (!safe) return failedResponse(RETCODE.BAD_REQUEST, 'invalid file name');
+      filePath = safe;
       fs.writeFileSync(filePath, buf);
     }
-    return okResponse({ file: pathMod.resolve(filePath) });
+    return okResponse({ file: filePath });
   });
 
   h.registerAction('set_qq_profile', async (params) => {

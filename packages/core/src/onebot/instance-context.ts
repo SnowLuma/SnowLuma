@@ -158,7 +158,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     getDownloadRKeys: () => getDownloadRKeys(bridge),
     sendGroupForwardMsg: (groupId, messages, meta) => sendGroupForwardMessage(ref, groupId, messages, meta),
     sendPrivateForwardMsg: (userId, messages, meta) => sendPrivateForwardMessage(ref, userId, messages, meta),
-    sendForwardMsg: (messages) => uploadForwardMessage(ref, messages),
+    sendForwardMsg: (messages, groupId) => uploadForwardMessage(ref, messages, groupId),
     getForwardMsg: (resId) => getForwardMessage(ref, resId),
     forwardSingleMsg: (messageId, target) => forwardSingleMessage(ref, messageId, target),
     handleDeleteFriend: (userId, block) => bridge.deleteFriend(userId, !!block),
