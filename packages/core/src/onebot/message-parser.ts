@@ -105,12 +105,13 @@ async function segmentToElement(type: string, data: Record<string, unknown>, opt
         uid = (await options.resolveMentionUid(uin))?.trim() ?? '';
       }
 
-      return {
-        type: 'at',
-        targetUin: uin,
-        uid: uid || undefined,
-        text: name ? `@${name} ` : `@${uin} `,
-      };
+      // Leave `text` undefined when the caller didn't supply a display
+      // name. The element-builder then resolves it from the group roster
+      // (so QQ renders `@昵称` instead of `@QQ号`).
+      const element: MessageElement = { type: 'at', targetUin: uin };
+      if (uid) element.uid = uid;
+      if (name) element.text = `@${name} `;
+      return element;
     }
     case 'reply': {
       const id = parseInt(String(data.id ?? '0'), 10);

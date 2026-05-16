@@ -28,12 +28,16 @@ const forwardResCache = new Map<string, ForwardNodePayload[]>();
 async function buildForwardPushBody(
   bridge: Bridge,
   node: ForwardNodePayload,
+  groupId?: number,
 ): Promise<Record<string, unknown>> {
   const fromUin = node.userUin > 0 ? node.userUin : toInt(bridge.identity.uin);
   if (fromUin <= 0) throw new Error('forward node user uin is invalid');
 
   const nickname = node.nickname.trim() || String(fromUin);
-  const elems = await buildSendElems(node.elements);
+  const sendCtx = groupId !== undefined
+    ? { bridge, groupId }
+    : { bridge };
+  const elems = await buildSendElems(node.elements, sendCtx);
   const now = Math.floor(Date.now() / 1000);
   const random = Math.floor(Math.random() * 0x7fffffff) >>> 0;
   const seq = Math.floor(Math.random() * 9000000) + 1000000;
@@ -67,7 +71,7 @@ export async function uploadForwardNodes(bridge: Bridge, nodes: ForwardNodePaylo
     throw new Error('forward nodes are required');
   }
 
-  const msgBody = await Promise.all(nodes.map(node => buildForwardPushBody(bridge, node)));
+  const msgBody = await Promise.all(nodes.map(node => buildForwardPushBody(bridge, node, groupId)));
   const longMsgResult = protoEncode({
     action: [
       {
