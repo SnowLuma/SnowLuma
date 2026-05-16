@@ -12,9 +12,6 @@ import { register as registerGroupFile } from './actions/group-file';
 import { register as registerRequest } from './actions/request';
 import { register as registerExtended } from './actions/extended';
 
-import { WebHonorType } from '@/bridge/web/group-honor';
-// import {ClientKeyInfo} from "@/bridge/bridge";
-
 export interface MessageSendResult {
   messageId: number;
   meta?: MessageMeta;
@@ -91,7 +88,7 @@ export interface ApiActionContext {
   getDownloadRKeys: () => Promise<JsonObject[]>;
   sendGroupForwardMsg: (groupId: number, messages: JsonValue, meta?: ForwardPreviewMeta) => Promise<{ messageId: number; forwardId: string }>;
   sendPrivateForwardMsg: (userId: number, messages: JsonValue, meta?: ForwardPreviewMeta) => Promise<{ messageId: number; forwardId: string }>;
-  sendForwardMsg: (messages: JsonValue) => Promise<{ forwardId: string }>;
+  sendForwardMsg: (messages: JsonValue, groupId?: number) => Promise<{ forwardId: string }>;
   getForwardMsg: (resId: string) => Promise<JsonObject[]>;
   forwardSingleMsg: (messageId: number, target: { groupId?: number; userId?: number }) => Promise<{ messageId: number }>;
   setMsgEmojiLike: (messageId: number, emojiId: string, set: boolean) => Promise<void>;
