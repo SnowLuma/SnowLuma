@@ -1,0 +1,140 @@
+/**
+ * @snowluma/ui — Tailwind 4 theme tokens
+ *
+ * Usage in consumers (webui, SnowLumaDesktop):
+ *   @import "tailwindcss";
+ *   @import "@snowluma/ui/styles/theme.css";
+ *
+ * Tailwind 4 will inline these via `@theme` and pick up classes used in
+ * `@snowluma/ui` components if the consumer adds:
+ *   @source "../node_modules/@snowluma/ui/dist/**\/*.js";
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --radius: 0.75rem;
+
+  --background: oklch(99% 0.004 240);
+  --foreground: oklch(20% 0.03 250);
+
+  --card: oklch(100% 0 0);
+  --card-foreground: oklch(20% 0.03 250);
+
+  --popover: oklch(100% 0 0);
+  --popover-foreground: oklch(20% 0.03 250);
+
+  /* sky-500 */
+  --primary: oklch(68.5% 0.155 230);
+  --primary-foreground: oklch(99% 0.005 240);
+
+  --secondary: oklch(96% 0.012 240);
+  --secondary-foreground: oklch(25% 0.03 250);
+
+  --muted: oklch(96% 0.012 240);
+  --muted-foreground: oklch(50% 0.02 250);
+
+  --accent: oklch(94% 0.03 230);
+  --accent-foreground: oklch(35% 0.07 230);
+
+  --destructive: oklch(60% 0.22 27);
+  --destructive-foreground: oklch(99% 0.005 240);
+
+  --success: oklch(70% 0.15 160);
+  --warning: oklch(78% 0.16 80);
+
+  --border: oklch(92% 0.01 240);
+  --input: oklch(94% 0.012 240);
+  --ring: oklch(68.5% 0.155 230);
+
+  --sidebar: oklch(98% 0.006 240);
+  --sidebar-foreground: oklch(25% 0.03 250);
+  --sidebar-primary: oklch(68.5% 0.155 230);
+  --sidebar-primary-foreground: oklch(99% 0.005 240);
+  --sidebar-accent: oklch(94% 0.025 230);
+  --sidebar-accent-foreground: oklch(35% 0.08 230);
+  --sidebar-border: oklch(92% 0.01 240);
+  --sidebar-ring: oklch(68.5% 0.155 230);
+}
+
+.dark {
+  --background: oklch(16% 0.02 250);
+  --foreground: oklch(96% 0.01 240);
+
+  --card: oklch(20% 0.025 250);
+  --card-foreground: oklch(96% 0.01 240);
+
+  --popover: oklch(20% 0.025 250);
+  --popover-foreground: oklch(96% 0.01 240);
+
+  --primary: oklch(75% 0.14 230);
+  --primary-foreground: oklch(15% 0.02 250);
+
+  --secondary: oklch(25% 0.025 250);
+  --secondary-foreground: oklch(96% 0.01 240);
+
+  --muted: oklch(24% 0.02 250);
+  --muted-foreground: oklch(68% 0.02 240);
+
+  --accent: oklch(28% 0.05 230);
+  --accent-foreground: oklch(85% 0.1 230);
+
+  --destructive: oklch(62% 0.2 27);
+  --destructive-foreground: oklch(98% 0.005 240);
+
+  --success: oklch(72% 0.15 160);
+  --warning: oklch(80% 0.16 80);
+
+  --border: oklch(28% 0.02 250);
+  --input: oklch(26% 0.02 250);
+  --ring: oklch(75% 0.14 230);
+
+  --sidebar: oklch(18% 0.022 250);
+  --sidebar-foreground: oklch(92% 0.01 240);
+  --sidebar-primary: oklch(75% 0.14 230);
+  --sidebar-primary-foreground: oklch(15% 0.02 250);
+  --sidebar-accent: oklch(28% 0.05 230);
+  --sidebar-accent-foreground: oklch(85% 0.1 230);
+  --sidebar-border: oklch(26% 0.02 250);
+  --sidebar-ring: oklch(75% 0.14 230);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: 'Inter', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+}
