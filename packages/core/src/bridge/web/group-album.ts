@@ -3,6 +3,7 @@ import { createHash } from 'crypto';
 import { readFileSync, statSync, createReadStream, writeFileSync, unlinkSync } from 'fs';
 import { basename, join } from 'path';
 import { tmpdir } from 'os';
+import * as console from "node:console";
 
 // 群相册信息
 export interface GroupAlbumInfo {
@@ -127,11 +128,15 @@ async function createAlbumUploadSession(
 
   const api = `https://h5.qzone.qq.com/webapp/json/sliceUpload/FileBatchControl/${imgMd5}?g_tk=${bkn}`;
   const cookie = `p_uin=o${uin}; p_skey=${pskey}; skey=${skey}; uin=o${uin}`;
+  //
+  // console.log(api);
+  // console.log(cookie);
+  // console.log(JSON.stringify(body));
 
   const response = await RequestUtil.HttpGetJson<{ data: { session: string }, ret: number, msg: string }>(
     api,
     'POST',
-    JSON.stringify(body),
+    body,
     { Cookie: cookie, 'Content-Type': 'application/json' }
   );
 
