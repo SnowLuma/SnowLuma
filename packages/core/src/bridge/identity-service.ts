@@ -440,6 +440,13 @@ export class IdentityService {
     const normalizedUid = normalizeUid(uid);
     const normalizedUin = normalizeUin(uin);
     if (!normalizedUid || normalizedUin === null) return;
+    // Drop any stale mapping for the old partner first; otherwise the two
+    // maps disagree (`findUinByUid(oldUid) -> uin` while
+    // `findUidByUin(uin) -> newUid`) after a uid/uin re-binding.
+    const oldUid = this.uidByUin.get(normalizedUin);
+    if (oldUid && oldUid !== normalizedUid) this.uinByUid.delete(oldUid);
+    const oldUin = this.uinByUid.get(normalizedUid);
+    if (oldUin !== undefined && oldUin !== normalizedUin) this.uidByUin.delete(oldUin);
     this.uinByUid.set(normalizedUid, normalizedUin);
     this.uidByUin.set(normalizedUin, normalizedUid);
   }

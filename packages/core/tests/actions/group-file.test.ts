@@ -16,6 +16,7 @@ vi.mock('../../src/bridge/highway/utils', () => ({
   })),
   computeHashes: vi.fn(() => ({ md5: new Uint8Array(16), sha1: new Uint8Array(20) })),
   computeMd5: vi.fn(() => new Uint8Array(16)),
+  FILE_UPLOAD_MAX_BYTES: 4 * 1024 * 1024 * 1024,
 }));
 
 import * as oidb from '../../src/bridge/bridge-oidb';
