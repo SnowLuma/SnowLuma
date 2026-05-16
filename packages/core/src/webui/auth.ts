@@ -1,6 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('WebUI.Auth');
 
 const CONFIG_DIR = 'config';
 const WEBUI_CONFIG_PATH = path.join(CONFIG_DIR, 'webui.json');
@@ -84,6 +87,16 @@ function generateInitialState(initialPassword: string): WebuiAuthState {
   };
 }
 
+function backupCorruptConfig(): void {
+  try {
+    const dest = `${WEBUI_CONFIG_PATH}.bak.${Date.now()}`;
+    fs.renameSync(WEBUI_CONFIG_PATH, dest);
+    log.warn('previous webui.json moved to %s', dest);
+  } catch (err) {
+    log.warn('failed to back up corrupt webui.json: %s', err instanceof Error ? err.message : String(err));
+  }
+}
+
 function atomicWrite(state: WebuiAuthState): void {
   ensureConfigDir();
   const tmp = WEBUI_CONFIG_PATH + '.tmp';
@@ -130,8 +143,14 @@ export class WebuiAuth {
         if (isValidState(parsed)) {
           return new WebuiAuth(parsed, null, false);
         }
-      } catch {
-        /* fallthrough — regenerate */
+        log.error('webui.json schema invalid; backing up and regenerating credentials');
+        backupCorruptConfig();
+      } catch (err) {
+        log.error(
+          'webui.json is corrupt and will be regenerated; the previous file is backed up: %s',
+          err instanceof Error ? err.message : String(err),
+        );
+        backupCorruptConfig();
       }
     }
     const initialPassword = randomBytes(8).toString('hex');
