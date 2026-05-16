@@ -2,18 +2,61 @@ import type { ApiHandler, ApiActionContext } from '../api-handler';
 import { asMessage, asNumber, asString, asBoolean } from '../api-handler';
 import type { ForwardPreviewMeta } from '../modules/message-actions';
 import { RETCODE, failedResponse, okResponse } from '../types';
-import { createLogger } from '../../utils/logger';
 
-const log = createLogger('OneBot.Action');
+// Bounded download for the OneBot `download_file` action. An authenticated
+// client could otherwise hand us a multi-GB URL (or chunked response with
+// no Content-Length) and OOM the bot — `await response.arrayBuffer()`
+// happily allocates the whole payload before any size check fires.
+const DOWNLOAD_FILE_MAX_BYTES = 1024 * 1024 * 1024; // 1 GiB
+const DOWNLOAD_FILE_TIMEOUT_MS = 60_000;
 
-/**
- * Standard error wrapper. Logs the full error (so operators can debug) but
- * surfaces only `Error.message` (or the supplied fallback) to the caller.
- */
-function actionFailed(action: string, err: unknown, fallback = 'action failed') {
-  const detail = err instanceof Error ? err.message : String(err);
-  log.warn('%s failed: %s', action, detail);
-  return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : fallback);
+async function fetchDownloadFile(
+  url: string,
+  headers: Record<string, string>,
+  maxBytes: number,
+  timeoutMs: number,
+): Promise<Buffer> {
+  const response = await fetch(url, {
+    headers,
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!response.ok) throw new Error(`download failed: HTTP ${response.status}`);
+
+  const declared = Number(response.headers.get('content-length') ?? '0');
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw new Error(`download too large: ${declared} > ${maxBytes}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > maxBytes) {
+      throw new Error(`download too large: ${bytes.length} > ${maxBytes}`);
+    }
+    return bytes;
+  }
+
+  // Stream so a server that omits / understates Content-Length can't make
+  // us buffer past maxBytes — abort the read as soon as the running total
+  // crosses the cap.
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => { /* ignore */ });
+        throw new Error(`download too large: > ${maxBytes}`);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, total);
 }
 
 /**
@@ -581,25 +624,38 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
       return resolved;
     };
 
-    let filePath: string;
+    let buf: Buffer;
     if (base64) {
-      const buf = Buffer.from(base64, 'base64');
-      const safe = resolveSafePath(name, buf);
-      if (!safe) return failedResponse(RETCODE.BAD_REQUEST, 'invalid file name');
-      filePath = safe;
-      fs.writeFileSync(filePath, buf);
+      // Every 4 base64 chars decode to at most 3 bytes. Reject before
+      // `Buffer.from` allocates anything to avoid OOM on a giant payload
+      // that wouldn't pass the post-decode check anyway.
+      const upperBound = Math.floor((base64.length * 3) / 4);
+      if (upperBound > DOWNLOAD_FILE_MAX_BYTES) {
+        return failedResponse(RETCODE.BAD_REQUEST, `base64 payload too large: > ${DOWNLOAD_FILE_MAX_BYTES} bytes`);
+      }
+      buf = Buffer.from(base64, 'base64');
+      if (buf.length > DOWNLOAD_FILE_MAX_BYTES) {
+        return failedResponse(RETCODE.BAD_REQUEST, `base64 payload too large: ${buf.length} > ${DOWNLOAD_FILE_MAX_BYTES} bytes`);
+      }
     } else {
-      const response = await fetch(url!, {
-        headers: parseDownloadHeaders(params.headers),
-      });
-      if (!response.ok) return failedResponse(RETCODE.ACTION_FAILED, `download failed: ${response.status}`);
-      const buf = Buffer.from(await response.arrayBuffer());
-      const safe = resolveSafePath(name, buf);
-      if (!safe) return failedResponse(RETCODE.BAD_REQUEST, 'invalid file name');
-      filePath = safe;
-      fs.writeFileSync(filePath, buf);
+      try {
+        buf = await fetchDownloadFile(
+          url!,
+          parseDownloadHeaders(params.headers),
+          DOWNLOAD_FILE_MAX_BYTES,
+          DOWNLOAD_FILE_TIMEOUT_MS,
+        );
+      } catch (err) {
+        return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
+      }
     }
-    return okResponse({ file: filePath });
+
+    const safe = resolveSafePath(name, buf);
+    if (!safe) return failedResponse(RETCODE.BAD_REQUEST, 'invalid file name');
+    // Async write so we don't block the event loop on a GiB-class download
+    // (the prior `writeFileSync` stalled every other bot action while it ran).
+    await fs.promises.writeFile(safe, buf);
+    return okResponse({ file: safe });
   });
 
   h.registerAction('set_qq_profile', async (params) => {
