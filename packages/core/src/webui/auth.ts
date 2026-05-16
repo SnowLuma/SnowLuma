@@ -24,6 +24,16 @@ export function isDevAuthMode(): boolean {
   return process.env.SNOWLUMA_DEV_MODE === '1';
 }
 
+function envBootstrapPassword(): string | null {
+  const raw = process.env.SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD;
+  if (!raw || typeof raw !== 'string') return null;
+  // Minimum sanity: avoid accidental empty / 1-char seeds. Strength
+  // rules still don't apply because we want trusted launchers to be
+  // able to pick a high-entropy random secret (e.g. base64(16)).
+  if (raw.length < 8) return null;
+  return raw;
+}
+
 export interface WebuiAuthState {
   passwordHash: string; // hex
   passwordSalt: string; // hex
@@ -152,6 +162,27 @@ export class WebuiAuth {
         );
         backupCorruptConfig();
       }
+    }
+    // SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD lets a trusted launcher seed the
+    // password on first run instead of having to scrape it from logs.
+    // Effect: write webui.json with the env-provided password, hashed,
+    // and mustChangePassword=false. Only honoured when there is NO existing
+    // webui.json — once persisted, password changes happen via the UI.
+    const envPassword = envBootstrapPassword();
+    if (envPassword !== null) {
+      const salt = randomBytes(16);
+      const hash = hashPassword(envPassword, salt);
+      const now = new Date().toISOString();
+      const state: WebuiAuthState = {
+        passwordHash: hash.toString('hex'),
+        passwordSalt: salt.toString('hex'),
+        mustChangePassword: false,
+        generatedAt: now,
+        updatedAt: now,
+      };
+      atomicWrite(state);
+      log.info('webui credentials seeded from SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD');
+      return new WebuiAuth(state, null, false);
     }
     const initialPassword = randomBytes(8).toString('hex');
     const state = generateInitialState(initialPassword);
