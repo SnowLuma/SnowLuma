@@ -19,9 +19,9 @@ import {
   HttpPostAdapter,
   type NetworkAdapterContext,
 } from './network';
-import { createLogger } from '../utils/logger';
+import { createLogger, type Logger } from '../utils/logger';
 
-const log = createLogger('Event');
+const moduleLog = createLogger('Event');
 
 export class OneBotInstance {
   readonly uin: string;
@@ -40,12 +40,17 @@ export class OneBotInstance {
   private online = true;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private static readonly HEARTBEAT_INTERVAL = 30000;
+  private readonly log: Logger;
 
   get nickname(): string { return this.bridge.identity.nickname; }
 
   constructor(uin: string, bridge: BridgeInterface, config: OneBotConfig) {
     this.uin = uin;
     this.bridge = bridge;
+    const uinNum = Number.parseInt(uin, 10);
+    this.log = Number.isFinite(uinNum) && uinNum > 0
+      ? moduleLog.child({ uin: uinNum })
+      : moduleLog;
 
     this.rkeyCache = new RKeyCache();
     this.mediaStore = new MediaStore(path.join('data', this.uin, 'media.db'));
@@ -206,7 +211,7 @@ export class OneBotInstance {
         try {
           await existing.reload(net as never);
         } catch (err) {
-          log.warn('reload [%s] failed: %s', name, err instanceof Error ? err.message : String(err));
+          this.log.warn('reload [%s] failed: %s', name, err instanceof Error ? err.message : String(err));
         }
       } else if (net.enabled !== false) {
         const factory = factories.get(name);
@@ -268,12 +273,12 @@ export class OneBotInstance {
       const userId = toInt(event.user_id);
       const sender = event.sender as any;
       const nickname = sender?.card || sender?.nickname || String(userId);
-      log.success(`${selfTag}群 ${groupId} | ${nickname}(${userId}): ${idStr} ${content}`);
+      this.log.success(`${selfTag}群 ${groupId} | ${nickname}(${userId}): ${idStr} ${content}`);
     } else {
       const userId = toInt(event.user_id);
       const sender = event.sender as any;
       const nickname = sender?.nickname || String(userId);
-      log.success(`${selfTag}私聊 ${nickname}(${userId}): ${idStr} ${content}`);
+      this.log.success(`${selfTag}私聊 ${nickname}(${userId}): ${idStr} ${content}`);
     }
   }
 

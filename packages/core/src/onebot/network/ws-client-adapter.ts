@@ -13,11 +13,11 @@ import {
   type DispatchPayload,
   type EventReportOptions,
 } from '../event-filter';
-import { createLogger } from '../../utils/logger';
+import { createLogger, type Logger } from '../../utils/logger';
 import { IOneBotNetworkAdapter, NetworkReloadType, type NetworkAdapterContext } from './adapter';
 import { rawDataToString, safeClose, safeSend } from './utils';
 
-const log = createLogger('OneBot.WS-Client');
+const moduleLog = createLogger('OneBot.WS-Client');
 const DEFAULT_RECONNECT_INTERVAL_MS = 5000;
 
 export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
@@ -26,11 +26,14 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
   private options: EventReportOptions;
   private role: WsRole;
   private explicitlyClosed = false;
+  private readonly log: Logger;
 
   constructor(name: string, config: WsClientNetwork, ctx: NetworkAdapterContext) {
     super(name, config, ctx);
     this.options = resolveReportOptions(config);
     this.role = config.role ?? 'Universal';
+    const uinNum = Number.parseInt(ctx.uin, 10);
+    this.log = Number.isFinite(uinNum) && uinNum > 0 ? moduleLog.child({ uin: uinNum }) : moduleLog;
   }
 
   override get isActive(): boolean {
@@ -111,7 +114,7 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
     this.socket = socket;
 
     socket.on('open', () => {
-      log.info('[%s] connected %s', this.name, this.config.url);
+      this.log.info('[%s] connected %s', this.name, this.config.url);
       this.sendBootstrapMetaEvents(socket);
     });
 
@@ -126,7 +129,7 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
     });
 
     socket.on('error', (err: Error) => {
-      log.warn('[%s] error %s: %s', this.name, this.config.url, err instanceof Error ? err.message : String(err));
+      this.log.warn('[%s] error %s: %s', this.name, this.config.url, err instanceof Error ? err.message : String(err));
     });
   }
 

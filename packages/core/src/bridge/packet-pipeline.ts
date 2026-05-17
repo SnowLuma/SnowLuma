@@ -20,10 +20,10 @@ import type { PacketInfo } from '../protocol/types';
 import type { QQEventVariant } from './events';
 import type { IdentityService } from './identity-service';
 import type { BridgeEventBus } from './event-bus';
-import { createLogger } from '../utils/logger';
+import { createLogger, type Logger } from '../utils/logger';
 
-const log = createLogger('Bridge');
-const eventLog = createLogger('Event');
+const moduleLog = createLogger('Bridge');
+const moduleEventLog = createLogger('Event');
 
 type GroupMemberIdentityEvent = Extract<QQEventVariant, { kind: 'group_member_join' | 'group_member_leave' }>;
 
@@ -43,8 +43,18 @@ export interface PacketPipelineDeps {
 export class IncomingPacketPipeline {
   private cmdHandlers_ = new Map<string, CmdParser[]>();
   private memberRefreshTasks_ = new Map<number, Promise<void>>();
+  private readonly log: Logger;
+  private readonly eventLog: Logger;
 
-  constructor(private readonly deps: PacketPipelineDeps) {}
+  constructor(private readonly deps: PacketPipelineDeps) {
+    // Tag every line we emit with this Bridge's UIN so per-account file
+    // routing works. Unparseable uin (shouldn't happen) falls back to
+    // the module-level logger so we still log, just without the slot.
+    const uinNum = Number.parseInt(deps.identity.uin, 10);
+    const bind = Number.isFinite(uinNum) && uinNum > 0 ? { uin: uinNum } : null;
+    this.log = bind ? moduleLog.child(bind) : moduleLog;
+    this.eventLog = bind ? moduleEventLog.child(bind) : moduleEventLog;
+  }
 
   registerCmd(cmd: string, parser: CmdParser): void {
     const arr = this.cmdHandlers_.get(cmd) ?? [];
@@ -68,12 +78,12 @@ export class IncomingPacketPipeline {
             void this.dispatchAfterIdentityRefresh(event);
           } else {
             this.handleSideEffects(event);
-            printEvent(event);
+            printEvent(this.eventLog, event);
             this.emit(event);
           }
         }
       } catch (e) {
-        log.error('handler error for %s: %s', pkt.serviceCmd, e instanceof Error ? (e.stack ?? e.message) : String(e));
+        this.log.error('handler error for %s: %s', pkt.serviceCmd, e instanceof Error ? (e.stack ?? e.message) : String(e));
       }
     }
   }
@@ -93,12 +103,12 @@ export class IncomingPacketPipeline {
     try {
       refreshed = await this.prepareGroupMemberJoinIdentity(event);
     } catch (e) {
-      log.warn('failed to resolve group member join identity: group=%d uid=%s err=%s',
+      this.log.warn('failed to resolve group member join identity: group=%d uid=%s err=%s',
         event.groupId, event.userUid ?? '', e instanceof Error ? e.message : String(e));
     }
 
     this.handleSideEffects(event, refreshed);
-    printEvent(event);
+    printEvent(this.eventLog, event);
     this.emit(event);
   }
 
@@ -166,9 +176,9 @@ export class IncomingPacketPipeline {
     const task = (async () => {
       try {
         await this.deps.refreshMemberCache(groupId, refreshGroupList, false);
-        log.debug('member cache refreshed: group=%d reason=%s', groupId, reason);
+        this.log.debug('member cache refreshed: group=%d reason=%s', groupId, reason);
       } catch (e) {
-        log.warn('failed to refresh member cache: group=%d reason=%s err=%s',
+        this.log.warn('failed to refresh member cache: group=%d reason=%s err=%s',
           groupId, reason, e instanceof Error ? e.message : String(e));
       } finally {
         this.memberRefreshTasks_.delete(groupId);
@@ -231,7 +241,7 @@ function formatEventUser(uin: number, uid?: string): string {
   return uid || '未知用户';
 }
 
-function printEvent(event: QQEventVariant): void {
+function printEvent(log: Logger, event: QQEventVariant): void {
   switch (event.kind) {
     case 'group_message':
     case 'friend_message':
@@ -239,37 +249,37 @@ function printEvent(event: QQEventVariant): void {
       // Message logging is handled by OneBot layer with message ID
       break;
     case 'group_recall':
-      eventLog.warn('群撤回 %d | %d 被 %d 撤回', event.groupId, event.authorUin, event.operatorUin);
+      log.warn('群撤回 %d | %d 被 %d 撤回', event.groupId, event.authorUin, event.operatorUin);
       break;
     case 'friend_recall':
-      eventLog.warn('私聊撤回 %d 撤回了消息', event.userUin);
+      log.warn('私聊撤回 %d 撤回了消息', event.userUin);
       break;
     case 'group_member_join':
-      eventLog.info('入群 %s 加入 %d', formatEventUser(event.userUin, event.userUid), event.groupId);
+      log.info('入群 %s 加入 %d', formatEventUser(event.userUin, event.userUid), event.groupId);
       break;
     case 'group_member_leave':
-      eventLog.warn('退群 %s %s %d', formatEventUser(event.userUin, event.userUid), event.isKick ? '被踢出' : '退出', event.groupId);
+      log.warn('退群 %s %s %d', formatEventUser(event.userUin, event.userUid), event.isKick ? '被踢出' : '退出', event.groupId);
       break;
     case 'group_mute':
-      eventLog.warn('禁言 %d | %d %d秒', event.groupId, event.userUin, event.duration);
+      log.warn('禁言 %d | %d %d秒', event.groupId, event.userUin, event.duration);
       break;
     case 'group_admin':
-      eventLog.info('管理 %d | %d %s管理员', event.groupId, event.userUin, event.set ? '+' : '-');
+      log.info('管理 %d | %d %s管理员', event.groupId, event.userUin, event.set ? '+' : '-');
       break;
     case 'friend_poke':
-      eventLog.info('戳一戳 %d -> %d', event.userUin, event.targetUin);
+      log.info('戳一戳 %d -> %d', event.userUin, event.targetUin);
       break;
     case 'group_poke':
-      eventLog.info('群戳 %d | %d -> %d', event.groupId, event.userUin, event.targetUin);
+      log.info('群戳 %d | %d -> %d', event.groupId, event.userUin, event.targetUin);
       break;
     case 'friend_request':
-      eventLog.warn('好友请求 %d: %s', event.fromUin, event.message);
+      log.warn('好友请求 %d: %s', event.fromUin, event.message);
       break;
     case 'group_invite':
-      eventLog.warn('群邀请 %d -> 群%d', event.fromUin, event.groupId);
+      log.warn('群邀请 %d -> 群%d', event.fromUin, event.groupId);
       break;
     case 'group_essence':
-      eventLog.info('精华 %d | %s精华', event.groupId, event.set ? '+' : '-');
+      log.info('精华 %d | %s精华', event.groupId, event.set ? '+' : '-');
       break;
   }
 }

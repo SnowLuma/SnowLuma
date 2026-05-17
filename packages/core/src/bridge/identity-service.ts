@@ -6,9 +6,9 @@ import type {
   FriendInfo, GroupMemberInfo, QQGroupInfo,
   UserProfileInfo, GroupRequestInfo,
 } from './qq-info';
-import { createLogger } from '../utils/logger';
+import { createLogger, type Logger } from '../utils/logger';
 
-const log = createLogger('Identity');
+const moduleLogger = createLogger('Identity');
 
 /**
  * Hooks Identity uses when its read methods miss every cache layer. Wired in
@@ -112,9 +112,14 @@ export class IdentityService {
   private readonly db: DatabaseSync | null;
   private inTransaction = false;
   private fetcher: IdentityFetcher | null = null;
+  private readonly log: Logger;
 
   constructor(uin: string, dbPath: string | null) {
     this.uin_ = uin;
+    const uinNum = Number.parseInt(uin, 10);
+    this.log = Number.isFinite(uinNum) && uinNum > 0
+      ? moduleLogger.child({ uin: uinNum })
+      : moduleLogger;
 
     if (!dbPath) {
       this.db = null;
@@ -840,7 +845,7 @@ export class IdentityService {
     try {
       fn();
     } catch (err) {
-      log.error('identity db write failed [%s]: %s', label, err instanceof Error ? (err.stack ?? err.message) : String(err));
+      this.log.error('identity db write failed [%s]: %s', label, err instanceof Error ? (err.stack ?? err.message) : String(err));
     }
   }
 }

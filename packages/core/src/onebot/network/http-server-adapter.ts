@@ -12,14 +12,21 @@ import {
 } from 'http';
 import type { HttpServerNetwork, JsonObject, JsonValue } from '../types';
 import type { DispatchPayload } from '../event-filter';
-import { createLogger } from '../../utils/logger';
+import { createLogger, type Logger } from '../../utils/logger';
 import { IOneBotNetworkAdapter, NetworkReloadType, type NetworkAdapterContext } from './adapter';
 import { isAuthorized, normalizePath } from './utils';
 
-const log = createLogger('OneBot.HTTP');
+const moduleLog = createLogger('OneBot.HTTP');
 
 export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> {
   private server: Server | null = null;
+  private readonly log: Logger;
+
+  constructor(name: string, config: HttpServerNetwork, ctx: NetworkAdapterContext) {
+    super(name, config, ctx);
+    const uinNum = Number.parseInt(ctx.uin, 10);
+    this.log = Number.isFinite(uinNum) && uinNum > 0 ? moduleLog.child({ uin: uinNum }) : moduleLog;
+  }
 
   override get isActive(): boolean {
     // HTTP server never receives events — `isActive` purely tracks the
@@ -81,7 +88,7 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
     this.server = server;
 
     server.on('listening', () => {
-      log.success(
+      this.log.success(
         '[%s] listening %s:%d%s',
         this.name,
         this.config.host ?? '0.0.0.0',
@@ -90,7 +97,7 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
       );
     });
     server.on('error', (err) => {
-      log.warn('[%s] server error: %s', this.name, err instanceof Error ? err.message : String(err));
+      this.log.warn('[%s] server error: %s', this.name, err instanceof Error ? err.message : String(err));
     });
 
     server.listen(this.config.port, this.config.host ?? '0.0.0.0');

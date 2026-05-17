@@ -10,21 +10,24 @@ import {
   type DispatchPayload,
   type EventReportOptions,
 } from '../event-filter';
-import { createLogger } from '../../utils/logger';
+import { createLogger, type Logger } from '../../utils/logger';
 import { IOneBotNetworkAdapter, NetworkReloadType, type NetworkAdapterContext } from './adapter';
 import { executeQuickOperation } from './quick-operation';
 
-const log = createLogger('OneBot.POST');
+const moduleLog = createLogger('OneBot.POST');
 const DEFAULT_TIMEOUT_MS = 5000;
 
 export class HttpPostAdapter extends IOneBotNetworkAdapter<HttpClientNetwork> {
   private options: EventReportOptions;
   private signature_: string;
+  private readonly log: Logger;
 
   constructor(name: string, config: HttpClientNetwork, ctx: NetworkAdapterContext) {
     super(name, config, ctx);
     this.options = resolveReportOptions(config);
     this.signature_ = bindingSignature(config);
+    const uinNum = Number.parseInt(ctx.uin, 10);
+    this.log = Number.isFinite(uinNum) && uinNum > 0 ? moduleLog.child({ uin: uinNum }) : moduleLog;
   }
 
   override get isActive(): boolean {
@@ -106,11 +109,11 @@ export class HttpPostAdapter extends IOneBotNetworkAdapter<HttpClientNetwork> {
           }
         }
       } else {
-        log.warn('[%s] POST %s returned %d', this.name, this.config.url, response.status);
+        this.log.warn('[%s] POST %s returned %d', this.name, this.config.url, response.status);
       }
     } catch (error) {
       if (this.isEnabled) {
-        log.warn('[%s] POST %s failed: %s', this.name, this.config.url, error instanceof Error ? error.message : String(error));
+        this.log.warn('[%s] POST %s failed: %s', this.name, this.config.url, error instanceof Error ? error.message : String(error));
       }
     }
   }
@@ -121,7 +124,7 @@ export class HttpPostAdapter extends IOneBotNetworkAdapter<HttpClientNetwork> {
       if (!operation || typeof operation !== 'object') return;
       await executeQuickOperation(event, operation, this.ctx.api);
     } catch (error) {
-      log.warn('[%s] quick operation failed: %s', this.name, error instanceof Error ? error.message : String(error));
+      this.log.warn('[%s] quick operation failed: %s', this.name, error instanceof Error ? error.message : String(error));
     }
   }
 }
