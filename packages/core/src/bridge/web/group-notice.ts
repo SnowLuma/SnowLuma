@@ -1,7 +1,8 @@
 import { RequestUtil, cookieToString } from './request-util';
 import https from 'node:https';
-// import { readFileSync } from 'node:fs';
-// import * as console from "node:console";
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('Bridge.Web');
 
 export interface SetNoticeRetSuccess {
     ec?: number;
@@ -112,6 +113,7 @@ export async function setGroupNoticeWebAPI(
         );
         return ret;
     } catch (e) {
+        log.warn('group-notice add failed: %s', e instanceof Error ? (e.stack ?? e.message) : String(e));
         return undefined;
     }
 }
@@ -158,7 +160,8 @@ export async function getGroupNoticeWebAPI(
         );
         // console.log(JSON.stringify(ret, null, 2));
         return ret?.ec === 0 ? ret : undefined;
-    } catch {
+    } catch (e) {
+        log.warn('getGroupNoticeList failed: %s', e instanceof Error ? (e.stack ?? e.message) : String(e));
         return undefined;
     }
 }
@@ -215,11 +218,15 @@ export async function uploadGroupNoticeImage(
                     }
                 });
             });
-            req.on('error', () => resolve(undefined));
+            req.on('error', (err) => {
+              log.warn('uploadGroupNoticeImage transport error: %s', err.message);
+              resolve(undefined);
+            });
             req.write(body);
             req.end();
         });
-    } catch {
+    } catch (e) {
+        log.warn('uploadGroupNoticeImage failed: %s', e instanceof Error ? (e.stack ?? e.message) : String(e));
         return undefined;
     }
 }
@@ -260,7 +267,8 @@ export async function deleteGroupNotice(
             false
         );
         return ret?.ec === 0;
-    } catch {
+    } catch (e) {
+        log.warn('deleteGroupNotice failed (group=%s fid=%s): %s', groupCode, fid, e instanceof Error ? (e.stack ?? e.message) : String(e));
         return false;
     }
 }

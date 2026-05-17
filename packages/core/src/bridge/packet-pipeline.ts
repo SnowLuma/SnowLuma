@@ -75,7 +75,10 @@ export class IncomingPacketPipeline {
         const events = handler(pkt, this.deps.identity);
         for (const event of events) {
           if (this.needsPreDispatchIdentityRefresh(event)) {
-            void this.dispatchAfterIdentityRefresh(event);
+            void this.dispatchAfterIdentityRefresh(event).catch((err) => {
+              this.log.warn('dispatchAfterIdentityRefresh failed: %s',
+                err instanceof Error ? (err.stack ?? err.message) : String(err));
+            });
           } else {
             this.handleSideEffects(event);
             printEvent(this.eventLog, event);

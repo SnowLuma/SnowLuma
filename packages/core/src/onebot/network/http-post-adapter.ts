@@ -77,7 +77,9 @@ export class HttpPostAdapter extends IOneBotNetworkAdapter<HttpClientNetwork> {
     if (!this.isEnabled) return;
     const json = pickDispatchJson(payload, this.options);
     if (json === null) return;
-    void this.postEvent(json, event);
+    void this.postEvent(json, event).catch((err) => {
+      this.log.warn('[%s] postEvent threw: %s', this.name, err instanceof Error ? (err.stack ?? err.message) : String(err));
+    });
   }
 
   private async postEvent(payload: string, event: JsonObject): Promise<void> {

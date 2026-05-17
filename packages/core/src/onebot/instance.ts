@@ -93,7 +93,9 @@ export class OneBotInstance {
     this.apiHandler = new ApiHandler(buildApiContext(ctx), uinNum > 0 ? uinNum : undefined);
     this.networkManager = new OneBotNetworkManager();
     this.installAdaptersFromConfig(config);
-    void this.networkManager.openAll();
+    void this.networkManager.openAll().catch((err) => {
+      this.log.warn('openAll failed: %s', err instanceof Error ? (err.stack ?? err.message) : String(err));
+    });
 
     this.startHeartbeat();
     this.rkeyCache.warmUp(this.bridge, this.uin);
@@ -104,7 +106,9 @@ export class OneBotInstance {
   }
 
   reloadConfig(config: OneBotConfig): void {
-    void this.applyConfigDiff(config);
+    void this.applyConfigDiff(config).catch((err) => {
+      this.log.warn('applyConfigDiff failed: %s', err instanceof Error ? (err.stack ?? err.message) : String(err));
+    });
   }
 
   dispose(): void {
@@ -112,7 +116,9 @@ export class OneBotInstance {
     this.stopHeartbeat();
     this.disposeEventPipeline?.();
     this.disposeEventPipeline = null;
-    void this.networkManager.closeAll();
+    void this.networkManager.closeAll().catch((err) => {
+      this.log.warn('closeAll failed: %s', err instanceof Error ? (err.stack ?? err.message) : String(err));
+    });
     this.messageStore.close();
     this.mediaStore.close();
   }
@@ -141,8 +147,12 @@ export class OneBotInstance {
     this.cacheMessageEvent(event);
     this.logReceivedMessage(event);
     // NetworkManager builds the dispatch payload once and fans out to every
-    // active adapter in parallel via Promise.allSettled.
-    void this.networkManager.emitEvent(event);
+    // active adapter in parallel via Promise.allSettled — per-adapter errors
+    // are already isolated, so the outer promise should never reject. The
+    // .catch is a belt-and-suspenders guard against future refactors.
+    void this.networkManager.emitEvent(event).catch((err) => {
+      this.log.warn('emitEvent failed: %s', err instanceof Error ? (err.stack ?? err.message) : String(err));
+    });
   }
 
   private buildNetworkContext(): NetworkAdapterContext {

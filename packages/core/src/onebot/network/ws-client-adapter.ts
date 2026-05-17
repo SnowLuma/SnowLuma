@@ -119,7 +119,9 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
     });
 
     socket.on('message', (raw: Buffer) => {
-      void this.handleApiMessage(socket, raw);
+      void this.handleApiMessage(socket, raw).catch((err) => {
+        this.log.warn('[%s] handleApiMessage threw: %s', this.name, err instanceof Error ? (err.stack ?? err.message) : String(err));
+      });
     });
 
     socket.on('close', () => {
