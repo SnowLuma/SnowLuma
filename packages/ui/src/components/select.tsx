@@ -14,20 +14,22 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      'group flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-1 text-sm shadow-xs outline-none transition-[color,box-shadow,background-color,border-color]',
+      'group flex h-9 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-1 text-sm shadow-xs outline-none transition-[color,box-shadow,background-color,border-color]',
       'hover:border-border/80 hover:bg-card/70',
       'placeholder:text-muted-foreground',
       'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40',
       'data-[state=open]:border-ring data-[state=open]:ring-[3px] data-[state=open]:ring-ring/40',
       'disabled:cursor-not-allowed disabled:opacity-50',
       'data-[placeholder]:text-muted-foreground',
+      // Selected text mustn't push the chevron out of the trigger.
+      '[&>span:not([data-radix-select-icon])]:flex-1 [&>span:not([data-radix-select-icon])]:min-w-0 [&>span:not([data-radix-select-icon])]:truncate [&>span:not([data-radix-select-icon])]:text-left',
       className,
     )}
     {...props}
   >
     {children}
-    <SelectPrimitive.Icon asChild>
-      <ChevronDown className="size-4 opacity-60 transition-transform group-data-[state=open]:rotate-180" />
+    <SelectPrimitive.Icon asChild data-radix-select-icon>
+      <ChevronDown className="size-4 shrink-0 opacity-60 transition-transform group-data-[state=open]:rotate-180" />
     </SelectPrimitive.Icon>
   </SelectPrimitive.Trigger>
 ));
