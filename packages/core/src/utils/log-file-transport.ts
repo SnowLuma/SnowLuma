@@ -1,16 +1,20 @@
 // File transport for the SnowLuma logger.
 //
 // Writes plain text (ANSI stripped) to:
-//   <SNOWLUMA_LOG_DIR>/snowluma-YYYY-MM-DD.log
-// with daily rollover and a per-file size cap. When the cap is hit the
-// in-flight file is closed and writes continue in
+//   <SNOWLUMA_LOG_DIR>/snowluma-YYYY-MM-DD.log         (shared, all UINs)
+//   <SNOWLUMA_LOG_DIR>/<uin>/snowluma-YYYY-MM-DD.log   (per-account)
+//
+// Both pathways use the same daily rotation + per-file size cap. When the
+// cap is hit the in-flight file is closed and writes continue in
 //   snowluma-YYYY-MM-DD.1.log, .2.log, ...
 // at the same date. Files older than the retain window are unlinked on
-// startup and again on each day rollover.
+// startup and on each day rollover.
 //
-// Disabled via SNOWLUMA_LOG_FILE=0. Any I/O failure during init or write
-// degrades silently to console-only; we deliberately do NOT use the
-// logger from inside this module to avoid recursion.
+// Disabled via SNOWLUMA_LOG_FILE=0. Per-UIN sub-files are additionally
+// gated by SNOWLUMA_LOG_PER_UIN=0 (still keeps the shared file). Any I/O
+// failure during init or write degrades silently to console-only — we
+// deliberately do NOT use the logger from inside this module to avoid
+// recursion.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -57,73 +61,59 @@ interface OpenFile {
   path: string;
 }
 
-export class FileTransport {
+/**
+ * Owns one output directory: keeps at most one open WriteStream, handles
+ * daily rollover, per-file size cap, and retention cleanup. The shared
+ * top-level dir uses one of these; each per-UIN sub-dir gets its own.
+ */
+class FileWriter {
   private disabled = false;
-  private readonly dir: string;
-  private readonly maxBytes: number;
-  private readonly retainDays: number;
-  private shared: OpenFile | null = null;
+  private file: OpenFile | null = null;
 
-  constructor() {
-    this.dir = process.env.SNOWLUMA_LOG_DIR || DEFAULT_DIR;
-    this.maxBytes =
-      parsePositiveInt(process.env.SNOWLUMA_LOG_MAX_MB, DEFAULT_MAX_MB) * 1024 * 1024;
-    this.retainDays = parsePositiveInt(
-      process.env.SNOWLUMA_LOG_RETAIN_DAYS,
-      DEFAULT_RETAIN_DAYS,
-    );
-
-    if (process.env.SNOWLUMA_LOG_FILE === '0') {
-      this.disabled = true;
-      return;
-    }
-
+  constructor(
+    private readonly dir: string,
+    private readonly maxBytes: number,
+    private readonly retainDays: number,
+  ) {
     try {
-      fs.mkdirSync(this.dir, { recursive: true });
+      fs.mkdirSync(dir, { recursive: true });
     } catch (err) {
       this.disabled = true;
-      // Direct stderr — logger would recurse.
       // eslint-disable-next-line no-console
       console.error(
-        `[logger] failed to create log dir ${this.dir}: ${err instanceof Error ? err.message : String(err)}`,
+        `[logger] failed to create log dir ${dir}: ${err instanceof Error ? err.message : String(err)}`,
       );
       return;
     }
-
     this.cleanup();
   }
 
-  /** True when file output is suppressed (env disable or init failure). */
   get isDisabled(): boolean {
     return this.disabled;
   }
 
-  /** Current target file path (or null if disabled / not yet opened). */
   get currentPath(): string | null {
-    return this.shared?.path ?? null;
+    return this.file?.path ?? null;
   }
 
-  write(line: string): void {
+  write(data: string, bytes: number): void {
     if (this.disabled) return;
     const today = todayString();
-    const data = stripAnsi(line) + '\n';
-    const bytes = Buffer.byteLength(data, 'utf8');
-
     this.ensureForToday(today);
-    if (!this.shared) return;
+    if (!this.file) return;
 
-    if (this.shared.bytes + bytes > this.maxBytes && this.shared.bytes > 0) {
+    if (this.file.bytes + bytes > this.maxBytes && this.file.bytes > 0) {
       this.rotateBySize();
-      if (!this.shared) return;
+      if (!this.file) return;
     }
 
-    this.shared.stream.write(data);
-    this.shared.bytes += bytes;
+    this.file.stream.write(data);
+    this.file.bytes += bytes;
   }
 
   close(): Promise<void> {
-    const f = this.shared;
-    this.shared = null;
+    const f = this.file;
+    this.file = null;
     if (!f) return Promise.resolve();
     return new Promise((resolve) => {
       try {
@@ -135,37 +125,36 @@ export class FileTransport {
   }
 
   private ensureForToday(today: string): void {
-    if (this.shared && this.shared.date === today) return;
+    if (this.file && this.file.date === today) return;
 
-    if (this.shared) {
+    if (this.file) {
       try {
-        this.shared.stream.end();
+        this.file.stream.end();
       } catch {
         /* ignore */
       }
-      this.shared = null;
-      // Day rolled over — also a good moment to evict stale files.
+      this.file = null;
       this.cleanup();
     }
 
-    // Find the highest existing split index for today and continue appending
-    // to it (so multiple process starts on the same day share files).
+    // Resume from the highest existing split index for today (so two
+    // process starts on the same day share files / don't clobber).
     let idx = 0;
     while (fs.existsSync(this.pathFor(today, idx + 1))) idx++;
-    this.shared = this.openFile(today, idx);
+    this.file = this.openFile(today, idx);
   }
 
   private rotateBySize(): void {
-    if (!this.shared) return;
-    const date = this.shared.date;
+    if (!this.file) return;
+    const date = this.file.date;
     try {
-      this.shared.stream.end();
+      this.file.stream.end();
     } catch {
       /* ignore */
     }
-    let next = this.shared.splitIndex + 1;
+    let next = this.file.splitIndex + 1;
     while (fs.existsSync(this.pathFor(date, next))) next++;
-    this.shared = this.openFile(date, next);
+    this.file = this.openFile(date, next);
   }
 
   private openFile(date: string, splitIndex: number): OpenFile | null {
@@ -210,8 +199,7 @@ export class FileTransport {
       const m = FILE_RE.exec(name);
       if (!m) continue;
       const dateStr = m[1]!;
-      const fileDate = dateOf(dateStr);
-      if (fileDate.getTime() < cutoff) {
+      if (dateOf(dateStr).getTime() < cutoff) {
         try {
           fs.unlinkSync(path.join(this.dir, name));
         } catch {
@@ -222,6 +210,75 @@ export class FileTransport {
   }
 }
 
+export class FileTransport {
+  private readonly dir: string;
+  private readonly maxBytes: number;
+  private readonly retainDays: number;
+  private readonly enabled: boolean;
+  private readonly perUinEnabled: boolean;
+  private shared: FileWriter | null = null;
+  private perUin = new Map<number, FileWriter>();
+
+  constructor() {
+    this.dir = process.env.SNOWLUMA_LOG_DIR || DEFAULT_DIR;
+    this.maxBytes =
+      parsePositiveInt(process.env.SNOWLUMA_LOG_MAX_MB, DEFAULT_MAX_MB) * 1024 * 1024;
+    this.retainDays = parsePositiveInt(
+      process.env.SNOWLUMA_LOG_RETAIN_DAYS,
+      DEFAULT_RETAIN_DAYS,
+    );
+    this.enabled = process.env.SNOWLUMA_LOG_FILE !== '0';
+    this.perUinEnabled = process.env.SNOWLUMA_LOG_PER_UIN !== '0';
+
+    if (this.enabled) {
+      const w = new FileWriter(this.dir, this.maxBytes, this.retainDays);
+      this.shared = w.isDisabled ? null : w;
+    }
+  }
+
+  /** True when no file output will happen (env disable or init failure). */
+  get isDisabled(): boolean {
+    return !this.shared;
+  }
+
+  /** Current shared-file path (or null if disabled / not yet opened). */
+  get currentPath(): string | null {
+    return this.shared?.currentPath ?? null;
+  }
+
+  /** Path of the per-UIN file for the given UIN, if open. */
+  perUinPath(uin: number): string | null {
+    return this.perUin.get(uin)?.currentPath ?? null;
+  }
+
+  write(line: string, uin?: number): void {
+    if (!this.shared) return;
+    const data = stripAnsi(line) + '\n';
+    const bytes = Buffer.byteLength(data, 'utf8');
+
+    this.shared.write(data, bytes);
+
+    if (uin !== undefined && this.perUinEnabled) {
+      let w = this.perUin.get(uin);
+      if (!w) {
+        w = new FileWriter(path.join(this.dir, String(uin)), this.maxBytes, this.retainDays);
+        if (w.isDisabled) return;
+        this.perUin.set(uin, w);
+      }
+      w.write(data, bytes);
+    }
+  }
+
+  async close(): Promise<void> {
+    const closes: Promise<void>[] = [];
+    if (this.shared) closes.push(this.shared.close());
+    for (const w of this.perUin.values()) closes.push(w.close());
+    this.shared = null;
+    this.perUin.clear();
+    await Promise.all(closes);
+  }
+}
+
 let singleton: FileTransport | null = null;
 
 export function getFileTransport(): FileTransport {
@@ -229,7 +286,7 @@ export function getFileTransport(): FileTransport {
   return singleton;
 }
 
-/** Reset state between tests. Closes the active file handle. */
+/** Reset state between tests. Closes all active file handles. */
 export async function _resetFileTransportForTesting(): Promise<void> {
   if (singleton) await singleton.close();
   singleton = null;
