@@ -136,10 +136,11 @@ function emit(level: LogLevel, options: LogOptions, args: unknown[]): void {
     const stream = level === 'warn' || level === 'error' ? process.stderr : process.stdout;
     // Strip ASCII control characters before writing to terminal to prevent
     // BEL (0x07) in user-provided strings (e.g. group member names) from
-    // triggering Windows system beep sounds. ESC (0x1B) is preserved so the
-    // ANSI color sequences emitted by render() actually reach the terminal.
+    // triggering Windows system beep sounds. Exempt TAB (0x09), LF (0x0A)
+    // and ESC (0x1B) so multi-line records (stack traces) and ANSI color
+    // sequences emitted by render() pass through intact.
     // eslint-disable-next-line no-control-regex
-    stream.write(line.replace(/[\x00-\x1A\x1C-\x1F\x7F]/g, '') + '\n');
+    stream.write(line.replace(/[\x00-\x08\x0B-\x1A\x1C-\x1F\x7F]/g, '') + '\n');
   }
 
   // File transport always sees every level (debug-and-up) for post-mortem

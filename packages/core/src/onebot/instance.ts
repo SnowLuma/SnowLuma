@@ -90,7 +90,7 @@ export class OneBotInstance {
     };
     this.ctx = ctx;
 
-    this.apiHandler = new ApiHandler(buildApiContext(ctx));
+    this.apiHandler = new ApiHandler(buildApiContext(ctx), uinNum > 0 ? uinNum : undefined);
     this.networkManager = new OneBotNetworkManager();
     this.installAdaptersFromConfig(config);
     void this.networkManager.openAll();

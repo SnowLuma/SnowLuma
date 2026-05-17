@@ -28,8 +28,10 @@ const FILE_RE = /^snowluma-(\d{4}-\d{2}-\d{2})(?:\.(\d+))?\.log$/;
 
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /\x1B\[[0-?]*[ -/]*[@-~]/g;
+// Preserve TAB (0x09), LF (0x0A) and ESC (0x1B) — TAB / LF for legit
+// multi-line records (stack traces), ESC is stripped through ANSI_RE.
 // eslint-disable-next-line no-control-regex
-const CTRL_RE = /[\x00-\x1A\x1C-\x1F\x7F]/g;
+const CTRL_RE = /[\x00-\x08\x0B-\x1A\x1C-\x1F\x7F]/g;
 
 function parsePositiveInt(v: string | undefined, dflt: number): number {
   if (!v) return dflt;

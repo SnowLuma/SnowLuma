@@ -2,6 +2,10 @@ import type { JsonObject, JsonValue, MessageMeta } from './types';
 import type { ForwardPreviewMeta } from './modules/message-actions';
 import type { BridgeInterface } from '../bridge/bridge-interface';
 import { RETCODE, failedResponse } from './types';
+import { createLogger, type Logger } from '../utils/logger';
+import { summarizeParams } from '../utils/log-summary';
+
+const moduleLog = createLogger('Bridge.Action');
 
 import { register as registerInfo } from './actions/info';
 import { register as registerMessage } from './actions/message';
@@ -101,8 +105,10 @@ type ActionHandler = (params: JsonObject) => Promise<import('./types').ApiRespon
 
 export class ApiHandler {
   private readonly handlers = new Map<string, ActionHandler>();
+  private readonly log: Logger;
 
-  constructor(context: ApiActionContext) {
+  constructor(context: ApiActionContext, uin?: number) {
+    this.log = typeof uin === 'number' && uin > 0 ? moduleLog.child({ uin }) : moduleLog;
     registerInfo(this, context);
     registerMessage(this, context);
     registerFriend(this, context);
@@ -120,12 +126,25 @@ export class ApiHandler {
   async handle(action: string, params: JsonObject): Promise<import('./types').ApiResponse> {
     const handler = this.handlers.get(action);
     if (!handler) {
+      this.log.debug('unknown action %s', action);
       return failedResponse(RETCODE.UNKNOWN_ACTION, 'unknown action');
     }
+
+    // Entry log goes to file always (debug); console only when level is
+    // dialed down to debug. Caller-perspective summary lets the operator
+    // grep "what did the bot get asked to do" without scraping wire logs.
+    this.log.debug('%s params=%s', action, summarizeParams(params));
 
     try {
       return await handler(params);
     } catch (error) {
+      // Action failures are almost always param-shape problems coming
+      // from the OneBot client; warn (not error) is the right level so
+      // the log file stays a useful signal of real internal faults.
+      this.log.warn('%s failed: %s\n%s',
+        action,
+        error instanceof Error ? error.message : String(error),
+        error instanceof Error ? (error.stack ?? '') : '');
       const message = error instanceof Error ? error.message : 'internal error';
       return failedResponse(RETCODE.INTERNAL_ERROR, message);
     }
