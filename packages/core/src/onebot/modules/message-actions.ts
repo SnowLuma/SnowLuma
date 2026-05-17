@@ -241,7 +241,10 @@ export async function sendPrivateForwardMessage(
   meta?: ForwardPreviewMeta,
 ): Promise<{ messageId: number; forwardId: string }> {
   const nodes = await parseForwardNodes(ref, messages);
-  const forwardId = await ref.bridge.uploadForwardNodes(nodes);
+  // userId is plumbed through so inner image/record/video can be uploaded
+  // under the recipient's scene (otherwise the OIDB private-image upload
+  // has no target uid and the element builder bails).
+  const forwardId = await ref.bridge.uploadForwardNodes(nodes, undefined, userId);
   const previewElement = buildForwardPreviewElement(forwardId, nodes, false, meta);
   const receipt = await ref.bridge.sendPrivateMessage(userId, [previewElement]);
   const messageId = hashMessageIdInt32(receipt.sequence, userId, PRIVATE_MESSAGE_EVENT);

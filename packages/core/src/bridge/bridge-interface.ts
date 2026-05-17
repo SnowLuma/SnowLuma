@@ -92,7 +92,7 @@ export interface BridgeInterface {
   fetchGroupFileCount(groupId: number): Promise<{ fileCount: number; maxCount: number }>;
 
   // ─── Forward ───
-  uploadForwardNodes(nodes: ForwardNodePayload[], groupId?: number): Promise<string>;
+  uploadForwardNodes(nodes: ForwardNodePayload[], groupId?: number, userId?: number): Promise<string>;
   fetchForwardNodes(resId: string): Promise<ForwardNodePayload[]>;
 
   // ─── Message ops ───
