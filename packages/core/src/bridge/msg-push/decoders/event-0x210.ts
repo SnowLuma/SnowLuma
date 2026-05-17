@@ -14,6 +14,9 @@ import { Event0x210SubType } from '../enums';
 import {
   resolveUidToUin, parseU64OrZero, buildTemplateMap, findTemplateValue,
 } from '../helpers';
+import { createLogger } from '../../../utils/logger';
+
+const unknownLog = createLogger('MsgPush.Unknown');
 
 export const decodeEvent0x210: MsgPushDecoder = (ctx) => {
   switch (ctx.head.subType as Event0x210SubType) {
@@ -21,6 +24,7 @@ export const decodeEvent0x210: MsgPushDecoder = (ctx) => {
     case Event0x210SubType.FriendRecallNotice: return decodeFriendRecall(ctx);
     case Event0x210SubType.FriendPokeNotice: return decodeFriendPoke(ctx);
   }
+  unknownLog.debug('Event0x210 unknown subType=%d', ctx.head.subType);
   return [];
 };
 

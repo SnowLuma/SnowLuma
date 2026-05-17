@@ -29,7 +29,13 @@ import {
   type MediaSubFileUpload,
 } from './pipeline';
 
-const log = createLogger('Video');
+const moduleLog = createLogger('Highway.Video');
+
+function loggerFor(bridge: Bridge) {
+  const raw = bridge.identity?.uin;
+  const uin = typeof raw === 'string' ? Number.parseInt(raw, 10) : 0;
+  return Number.isFinite(uin) && uin > 0 ? moduleLog.child({ uin }) : moduleLog;
+}
 
 export const PRIVATE_VIDEO_CMD_ID = 1001;
 export const PRIVATE_VIDEO_THUMB_CMD_ID = 1002;
@@ -323,7 +329,7 @@ async function loadThumb(element: MessageElement, videoPath: string): Promise<{
     try {
       thumbBytes = (await loadBinarySource(element.thumbUrl, 'video thumbnail')).bytes;
     } catch (err) {
-      log.warn('custom video thumbnail load failed: %s', err instanceof Error ? err.message : String(err));
+      moduleLog.warn('custom video thumbnail load failed: %s', err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -337,7 +343,7 @@ async function loadThumb(element: MessageElement, videoPath: string): Promise<{
         thumbBytes = new Uint8Array(info.image);
       }
     } catch (err) {
-      log.warn('video thumbnail generation failed: %s', err instanceof Error ? err.message : String(err));
+      moduleLog.warn('video thumbnail generation failed: %s', err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -430,7 +436,13 @@ export async function uploadVideoMsgInfo(
   targetIdOrUid: string | number,
   element: MessageElement,
 ): Promise<Uint8Array> {
+  const log = loggerFor(bridge);
   const video = await loadVideo(element);
+  log.debug('uploading %d bytes md5=%s... → %s %s',
+    video.fileSize,
+    video.md5Hex.slice(0, 8),
+    isGroup ? 'group' : 'c2c',
+    String(targetIdOrUid));
   try {
     const uploads: MediaSubFileUpload[] = [
       {
