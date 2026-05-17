@@ -151,6 +151,17 @@ export class WebuiAuth {
         const raw = fs.readFileSync(WEBUI_CONFIG_PATH, 'utf8');
         const parsed = JSON.parse(raw) as unknown;
         if (isValidState(parsed)) {
+          if (parsed.mustChangePassword) {
+            // Previous start generated a bootstrap password but the operator
+            // never completed the forced-change flow. The plaintext is gone
+            // (only the hash is on disk, and the log line from last run may
+            // be lost), so rotate to a fresh CSPRNG password they can see.
+            const initialPassword = randomBytes(8).toString('hex');
+            const state = generateInitialState(initialPassword);
+            atomicWrite(state);
+            log.warn('previous bootstrap password was never rotated; regenerated a new one');
+            return new WebuiAuth(state, initialPassword, false);
+          }
           return new WebuiAuth(parsed, null, false);
         }
         log.error('webui.json schema invalid; backing up and regenerating credentials');

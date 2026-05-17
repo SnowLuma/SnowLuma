@@ -98,8 +98,14 @@ export async function initWebUI(
     log.warn('dev mode enabled: password=%s', WebuiAuth.devPassword);
     log.warn('dev mode skips config/webui.json and password rotation');
   } else if (initialPassword) {
+    log.info('════════════════════════════════════════════════════════════════');
+    log.info('  ★ WebUI 初始登录凭据 / Initial WebUI Credentials ★');
+    log.info('  请立即登录并修改密码 —— 关闭程序后此密码无法找回。');
+    log.info('  若跳过初始改密，下次启动将自动生成新的随机密码。');
+    log.info('  Log in and change the password now; it will not be shown again.');
+    log.info('────────────────────────────────────────────────────────────────');
     log.info('initial credentials: user=admin password=%s', initialPassword);
-    log.info('password change required after first login');
+    log.info('════════════════════════════════════════════════════════════════');
   } else if (auth.mustChangePassword()) {
     log.warn('password change is still required');
   }
