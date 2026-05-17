@@ -66,3 +66,7 @@ export { Switch } from './components/switch';
 export { Tabs, TabsList, TabsTrigger, TabsContent } from './components/tabs';
 export { Toaster, toast, type ToasterProps } from './components/toaster';
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from './components/tooltip';
+export { Popover, PopoverTrigger, PopoverAnchor, PopoverContent } from './components/popover';
+export { Kbd } from './components/kbd';
+export { StatusDot, type StatusDotProps } from './components/status-dot';
+export { EmptyState } from './components/empty-state';
