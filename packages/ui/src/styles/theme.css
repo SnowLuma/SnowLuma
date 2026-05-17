@@ -62,6 +62,7 @@
   --sidebar-ring: oklch(64% 0.16 230);
 
   --chrome-height: 3.25rem; /* 52px — uniform top-bar height */
+  --titlebar-height: 2rem; /* 32px — Windows native titlebar height */
 
   --shadow-color: 240 6% 10%;
   --shadow-xs: 0 1px 2px 0 hsl(var(--shadow-color) / 0.05);
