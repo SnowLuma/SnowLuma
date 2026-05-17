@@ -1,0 +1,236 @@
+// File transport for the SnowLuma logger.
+//
+// Writes plain text (ANSI stripped) to:
+//   <SNOWLUMA_LOG_DIR>/snowluma-YYYY-MM-DD.log
+// with daily rollover and a per-file size cap. When the cap is hit the
+// in-flight file is closed and writes continue in
+//   snowluma-YYYY-MM-DD.1.log, .2.log, ...
+// at the same date. Files older than the retain window are unlinked on
+// startup and again on each day rollover.
+//
+// Disabled via SNOWLUMA_LOG_FILE=0. Any I/O failure during init or write
+// degrades silently to console-only; we deliberately do NOT use the
+// logger from inside this module to avoid recursion.
+
+import fs from 'node:fs';
+import path from 'node:path';
+
+const DEFAULT_DIR = 'logs';
+const DEFAULT_MAX_MB = 50;
+const DEFAULT_RETAIN_DAYS = 7;
+const FILE_PREFIX = 'snowluma-';
+const FILE_SUFFIX = '.log';
+const FILE_RE = /^snowluma-(\d{4}-\d{2}-\d{2})(?:\.(\d+))?\.log$/;
+
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /\x1B\[[0-?]*[ -/]*[@-~]/g;
+// eslint-disable-next-line no-control-regex
+const CTRL_RE = /[\x00-\x1A\x1C-\x1F\x7F]/g;
+
+function parsePositiveInt(v: string | undefined, dflt: number): number {
+  if (!v) return dflt;
+  const n = Number.parseInt(v, 10);
+  return Number.isFinite(n) && n > 0 ? n : dflt;
+}
+
+function todayString(d: Date = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function dateOf(s: string): Date {
+  const [y, m, d] = s.split('-').map((v) => Number.parseInt(v, 10));
+  return new Date(y!, m! - 1, d!);
+}
+
+function stripAnsi(line: string): string {
+  return line.replace(ANSI_RE, '').replace(CTRL_RE, '');
+}
+
+interface OpenFile {
+  stream: fs.WriteStream;
+  bytes: number;
+  date: string;
+  splitIndex: number;
+  path: string;
+}
+
+export class FileTransport {
+  private disabled = false;
+  private readonly dir: string;
+  private readonly maxBytes: number;
+  private readonly retainDays: number;
+  private shared: OpenFile | null = null;
+
+  constructor() {
+    this.dir = process.env.SNOWLUMA_LOG_DIR || DEFAULT_DIR;
+    this.maxBytes =
+      parsePositiveInt(process.env.SNOWLUMA_LOG_MAX_MB, DEFAULT_MAX_MB) * 1024 * 1024;
+    this.retainDays = parsePositiveInt(
+      process.env.SNOWLUMA_LOG_RETAIN_DAYS,
+      DEFAULT_RETAIN_DAYS,
+    );
+
+    if (process.env.SNOWLUMA_LOG_FILE === '0') {
+      this.disabled = true;
+      return;
+    }
+
+    try {
+      fs.mkdirSync(this.dir, { recursive: true });
+    } catch (err) {
+      this.disabled = true;
+      // Direct stderr — logger would recurse.
+      // eslint-disable-next-line no-console
+      console.error(
+        `[logger] failed to create log dir ${this.dir}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+
+    this.cleanup();
+  }
+
+  /** True when file output is suppressed (env disable or init failure). */
+  get isDisabled(): boolean {
+    return this.disabled;
+  }
+
+  /** Current target file path (or null if disabled / not yet opened). */
+  get currentPath(): string | null {
+    return this.shared?.path ?? null;
+  }
+
+  write(line: string): void {
+    if (this.disabled) return;
+    const today = todayString();
+    const data = stripAnsi(line) + '\n';
+    const bytes = Buffer.byteLength(data, 'utf8');
+
+    this.ensureForToday(today);
+    if (!this.shared) return;
+
+    if (this.shared.bytes + bytes > this.maxBytes && this.shared.bytes > 0) {
+      this.rotateBySize();
+      if (!this.shared) return;
+    }
+
+    this.shared.stream.write(data);
+    this.shared.bytes += bytes;
+  }
+
+  close(): Promise<void> {
+    const f = this.shared;
+    this.shared = null;
+    if (!f) return Promise.resolve();
+    return new Promise((resolve) => {
+      try {
+        f.stream.end(() => resolve());
+      } catch {
+        resolve();
+      }
+    });
+  }
+
+  private ensureForToday(today: string): void {
+    if (this.shared && this.shared.date === today) return;
+
+    if (this.shared) {
+      try {
+        this.shared.stream.end();
+      } catch {
+        /* ignore */
+      }
+      this.shared = null;
+      // Day rolled over — also a good moment to evict stale files.
+      this.cleanup();
+    }
+
+    // Find the highest existing split index for today and continue appending
+    // to it (so multiple process starts on the same day share files).
+    let idx = 0;
+    while (fs.existsSync(this.pathFor(today, idx + 1))) idx++;
+    this.shared = this.openFile(today, idx);
+  }
+
+  private rotateBySize(): void {
+    if (!this.shared) return;
+    const date = this.shared.date;
+    try {
+      this.shared.stream.end();
+    } catch {
+      /* ignore */
+    }
+    let next = this.shared.splitIndex + 1;
+    while (fs.existsSync(this.pathFor(date, next))) next++;
+    this.shared = this.openFile(date, next);
+  }
+
+  private openFile(date: string, splitIndex: number): OpenFile | null {
+    const p = this.pathFor(date, splitIndex);
+    try {
+      let bytes = 0;
+      try {
+        bytes = fs.statSync(p).size;
+      } catch {
+        /* file doesn't exist yet */
+      }
+      const stream = fs.createWriteStream(p, { flags: 'a' });
+      stream.on('error', (err) => {
+        // eslint-disable-next-line no-console
+        console.error(`[logger] file write error on ${p}: ${err.message}`);
+      });
+      return { stream, bytes, date, splitIndex, path: p };
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[logger] failed to open log file ${p}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
+  }
+
+  private pathFor(date: string, splitIndex: number): string {
+    const tail = splitIndex > 0 ? `.${splitIndex}` : '';
+    return path.join(this.dir, `${FILE_PREFIX}${date}${tail}${FILE_SUFFIX}`);
+  }
+
+  private cleanup(): void {
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(this.dir);
+    } catch {
+      return;
+    }
+    const retainMs = this.retainDays * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - retainMs;
+    for (const name of entries) {
+      const m = FILE_RE.exec(name);
+      if (!m) continue;
+      const dateStr = m[1]!;
+      const fileDate = dateOf(dateStr);
+      if (fileDate.getTime() < cutoff) {
+        try {
+          fs.unlinkSync(path.join(this.dir, name));
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+}
+
+let singleton: FileTransport | null = null;
+
+export function getFileTransport(): FileTransport {
+  if (!singleton) singleton = new FileTransport();
+  return singleton;
+}
+
+/** Reset state between tests. Closes the active file handle. */
+export async function _resetFileTransportForTesting(): Promise<void> {
+  if (singleton) await singleton.close();
+  singleton = null;
+}

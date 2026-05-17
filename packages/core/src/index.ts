@@ -1,7 +1,7 @@
 import { BridgeManager } from './bridge/manager';
 import { OneBotManager } from './onebot/manager';
 import { loadRuntimeConfig } from './common/runtime';
-import { createLogger } from './utils/logger';
+import { closeLogger, createLogger } from './utils/logger';
 import { HookManager } from './hook/hook-manager';
 
 const runtimeConfig = loadRuntimeConfig();
@@ -38,13 +38,17 @@ async function main() {
     }
   }
 
-  // Graceful shutdown
-  process.on('SIGINT', () => {
-    log.warn('Shutting down...');
+  // Graceful shutdown: dispose managers, await log flush, then exit.
+  // SIGINT (Ctrl-C) and SIGTERM (Docker/systemd) take the same path.
+  const shutdown = (signal: string) => async () => {
+    log.warn(`Shutting down (${signal})...`);
     oneBotManager.dispose();
     hookManager.dispose();
+    await closeLogger();
     process.exit(0);
-  });
+  };
+  process.on('SIGINT', shutdown('SIGINT'));
+  process.on('SIGTERM', shutdown('SIGTERM'));
 }
 
 function resolveAutoLoad(fromConfig: boolean | undefined): boolean {
@@ -57,7 +61,8 @@ function resolveAutoLoad(fromConfig: boolean | undefined): boolean {
   return fromConfig === true;
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
   log.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
+  await closeLogger();
   process.exit(1);
 });

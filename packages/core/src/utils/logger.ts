@@ -1,4 +1,5 @@
 import { format } from 'util';
+import { getFileTransport } from './log-file-transport';
 
 type LogLevel = 'debug' | 'info' | 'success' | 'warn' | 'error';
 
@@ -94,7 +95,9 @@ function render(level: LogLevel, scope: string, args: unknown[]): string {
 }
 
 function emit(level: LogLevel, options: LogOptions, args: unknown[]): void {
-  if (!shouldLog(level)) return;
+  // Console / subscriber level filter. File output is debug-and-up always;
+  // see log-file-transport.ts.
+  const passesConsole = shouldLog(level);
   const message = format(...args);
   const line = render(level, options.scope, args);
   const entry: LogEntry = {
@@ -105,16 +108,33 @@ function emit(level: LogLevel, options: LogOptions, args: unknown[]): void {
     message,
     line,
   };
-  logEntries.push(entry);
-  if (logEntries.length > MAX_LOG_ENTRIES) logEntries.shift();
-  for (const subscriber of logSubscribers) subscriber(entry);
-  const stream = level === 'warn' || level === 'error' ? process.stderr : process.stdout;
-  // Strip ASCII control characters before writing to terminal to prevent
-  // BEL (0x07) in user-provided strings (e.g. group member names) from
-  // triggering Windows system beep sounds. ESC (0x1B) is preserved so the
-  // ANSI color sequences emitted by render() actually reach the terminal.
-  // eslint-disable-next-line no-control-regex
-  stream.write(line.replace(/[\x00-\x1A\x1C-\x1F\x7F]/g, '') + '\n');
+
+  if (passesConsole) {
+    logEntries.push(entry);
+    if (logEntries.length > MAX_LOG_ENTRIES) logEntries.shift();
+    for (const subscriber of logSubscribers) subscriber(entry);
+    const stream = level === 'warn' || level === 'error' ? process.stderr : process.stdout;
+    // Strip ASCII control characters before writing to terminal to prevent
+    // BEL (0x07) in user-provided strings (e.g. group member names) from
+    // triggering Windows system beep sounds. ESC (0x1B) is preserved so the
+    // ANSI color sequences emitted by render() actually reach the terminal.
+    // eslint-disable-next-line no-control-regex
+    stream.write(line.replace(/[\x00-\x1A\x1C-\x1F\x7F]/g, '') + '\n');
+  }
+
+  // File transport always sees every level (debug-and-up) for post-mortem
+  // value; ANSI stripping happens inside the transport.
+  getFileTransport().write(line);
+}
+
+/**
+ * Flush and close the underlying log file. Call from shutdown hooks
+ * (SIGINT / SIGTERM / uncaughtException) so the WriteStream's internal
+ * buffer makes it to disk. Returns a promise that resolves once the OS
+ * has finalized the write.
+ */
+export function closeLogger(): Promise<void> {
+  return getFileTransport().close();
 }
 
 export function getRecentLogs(limit = 300): LogEntry[] {
