@@ -1,0 +1,88 @@
+import type {
+  HookProcessInfo,
+  LogEntry,
+  OneBotConfig,
+  QQInfo,
+  SystemInfo,
+} from '@/types';
+import type { PasswordRule } from '@/components/pages/change-password-page';
+
+export class ApiError extends Error {
+  status: number;
+  code: string | undefined;
+  constructor(status: number, message: string, code?: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+export type LoginResult =
+  | { ok: true; mustChangePassword: boolean }
+  | { ok: false; message: string };
+
+export type ChangePasswordResult = { success: boolean; message?: string };
+
+export type ProcessActionResult = {
+  process?: HookProcessInfo & { error?: string };
+};
+
+export type StreamStatus = 'open' | 'reconnecting' | 'closed';
+
+export interface LogsStreamOptions {
+  onLine: (line: LogEntry) => void;
+  onStatus?: (status: StreamStatus) => void;
+}
+
+export interface ApiClient {
+  // ---- auth ----
+  login(password: string): Promise<LoginResult>;
+  logout(): Promise<void>;
+  /** True if the current token is still valid. */
+  status(): Promise<boolean>;
+  /** Whether the current session must rotate its password before doing anything else. */
+  mustChangePassword(): Promise<boolean>;
+  checkPasswordStrength(password: string): Promise<{ rules: PasswordRule[]; valid: boolean }>;
+  changePassword(oldPassword: string, newPassword: string): Promise<ChangePasswordResult>;
+
+  // ---- system ----
+  qqList(): Promise<QQInfo[]>;
+  system(): Promise<SystemInfo>;
+
+  // ---- hook processes ----
+  processes: {
+    list(): Promise<HookProcessInfo[]>;
+    load(pid: number): Promise<ProcessActionResult>;
+    unload(pid: number): Promise<ProcessActionResult>;
+    refresh(pid: number): Promise<ProcessActionResult>;
+  };
+
+  // ---- OneBotInstance per-UIN config ----
+  config: {
+    get(uin: string): Promise<OneBotConfig>;
+    save(uin: string, config: OneBotConfig): Promise<OneBotConfig>;
+  };
+
+  // ---- logs ----
+  logs: {
+    list(limit?: number): Promise<LogEntry[]>;
+    /** Subscribe to the SSE log stream. Returns a disposer. */
+    stream(options: LogsStreamOptions): () => void;
+  };
+
+  /** Escape hatch for endpoints not yet wrapped above. */
+  request(url: string, init?: RequestInit): Promise<Response>;
+}
+
+export interface TokenStore {
+  load(): string | null;
+  save(token: string | null): void;
+}
+
+export interface CreateApiClientOptions {
+  /** Persists the bearer token across reloads. Defaults to localStorage('snowluma_token'). */
+  tokenStore?: TokenStore;
+  /** Fires whenever a request returns 401, after the token has been cleared. */
+  onUnauthorized?: () => void;
+}

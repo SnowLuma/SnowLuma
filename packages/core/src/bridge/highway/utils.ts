@@ -11,6 +11,20 @@ export interface LoadedBinary {
   fileName: string;
 }
 
+/**
+ * Default cap on a single binary load issued through this helper. Callers
+ * that route here (image / voice via base64+HTTP, group/private file
+ * uploads, avatar) get bounded reads. Not all callers route through here
+ * — in particular `video-upload.stageVideoSource` reads local-video files
+ * directly and enforces its own cap via `MAX_VIDEO_SIZE`. Group/private
+ * file uploads override this via `FILE_UPLOAD_MAX_BYTES` because QQ's
+ * file protocol legitimately supports up to 4 GiB.
+ */
+const DEFAULT_MAX_BINARY_SIZE = 1024 * 1024 * 1024; // 1 GiB
+/** Hard ceiling QQ's file protocol supports — used by group/private files. */
+export const FILE_UPLOAD_MAX_BYTES = 4 * 1024 * 1024 * 1024; // 4 GiB
+const FETCH_TIMEOUT_MS = 60_000;
+
 export interface ImageHashes {
   md5: Uint8Array;
   sha1: Uint8Array;
@@ -54,24 +68,74 @@ export function resolveLocalFilePath(source: string): string | null {
   return filePath;
 }
 
-export async function loadBinarySource(source: string, resourceName: string): Promise<LoadedBinary> {
+export async function loadBinarySource(
+  source: string,
+  resourceName: string,
+  maxBytes: number = DEFAULT_MAX_BINARY_SIZE,
+): Promise<LoadedBinary> {
   if (!source) throw new Error(`${resourceName} source is empty`);
 
   if (/^base64:\/\//i.test(source)) {
-    return { bytes: Buffer.from(source.slice(9), 'base64'), fileName: '' };
+    const bytes = Buffer.from(source.slice(9), 'base64');
+    if (bytes.length > maxBytes) {
+      throw new Error(`${resourceName} too large: ${bytes.length} > ${maxBytes}`);
+    }
+    return { bytes, fileName: '' };
   }
 
   if (/^https?:\/\//i.test(source)) {
-    const resp = await fetch(source);
+    const resp = await fetch(source, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (!resp.ok) throw new Error(`HTTP download failed: ${resp.status}`);
-    const bytes = new Uint8Array(await resp.arrayBuffer());
+    const declared = Number(resp.headers.get('content-length') ?? '0');
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      throw new Error(`${resourceName} too large: ${declared} > ${maxBytes}`);
+    }
     const fileName = guessFileNameFromUrl(source);
+    // Stream the body incrementally so a server that omits or
+    // understates Content-Length can't make us buffer a chunked response
+    // past maxBytes — `await resp.arrayBuffer()` would happily allocate
+    // the entire payload before we get a chance to length-check it.
+    const reader = resp.body?.getReader();
+    if (!reader) {
+      const bytes = new Uint8Array(await resp.arrayBuffer());
+      if (bytes.length > maxBytes) {
+        throw new Error(`${resourceName} too large: ${bytes.length} > ${maxBytes}`);
+      }
+      return { bytes, fileName };
+    }
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        total += value.byteLength;
+        if (total > maxBytes) {
+          await reader.cancel().catch(() => { /* ignore */ });
+          throw new Error(`${resourceName} too large: > ${maxBytes}`);
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
     return { bytes, fileName };
   }
 
   const filePath = resolveLocalFilePath(source);
   if (!filePath) throw new Error(`${resourceName} source is not a local file`);
 
+  const stat = fs.statSync(filePath);
+  if (stat.size > maxBytes) {
+    throw new Error(`${resourceName} too large: ${stat.size} > ${maxBytes}`);
+  }
   const bytes = fs.readFileSync(filePath);
   const fileName = path.basename(filePath);
   return { bytes, fileName };
@@ -183,7 +247,12 @@ export function detectImageFormat(bytes: Uint8Array): ImageFormat {
       if (offset + 4 > bytes.length) break;
       const segLen = readBE16(bytes, offset + 2);
       if (segLen < 2 || offset + 2 + segLen > bytes.length) break;
-      if ((marker & 0xFC) === 0xC0 && offset + 9 <= bytes.length) {
+      // Real SOF markers: 0xC0..0xCF EXCEPT 0xC4 (DHT), 0xC8 (JPG), 0xCC
+      // (DAC). The previous `(marker & 0xFC) === 0xC0` check accepted DHT
+      // and friends, then misread Huffman table bytes as image dimensions.
+      const isSof = marker >= 0xC0 && marker <= 0xCF
+                  && marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC;
+      if (isSof && segLen >= 7 && offset + 9 <= bytes.length) {
         height = readBE16(bytes, offset + 5);
         width = readBE16(bytes, offset + 7);
         return { format: 1000, width, height };

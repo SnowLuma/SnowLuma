@@ -60,6 +60,13 @@ import type {
   UploadPrivateFileParams,
   UserIdParams,
   QuickOperationParams,
+  SetDiyOnlineStatusParams,
+  NcGetUserStatusParams,
+  GroupTodoParams,
+  GetAiCharactersParams,
+  AiVoiceParams,
+  DeleteGroupFolderParams,
+  SendPacketParams,
 } from './params';
 import type {
   CapabilityInfo,
@@ -84,6 +91,9 @@ import type {
   UploadForwardResult,
   UrlSafetyInfo,
   VersionInfo,
+  AiCharacterCategory,
+  UserOnlineStatus,
+  SendGroupAiRecordResult,
 } from './results';
 
 export type ActionData = JsonValue;
@@ -209,7 +219,27 @@ export interface SnowLumaActionMap {
   trans_group_file: { params: JsonObject; data: JsonValue };
   rename_group_file: { params: JsonObject; data: JsonValue };
   get_file: { params: GetMediaParams; data: JsonValue };
-  '.send_packet': { params: JsonObject; data: JsonValue };
+  '.send_packet': { params: SendPacketParams; data: string };
+
+  // — napcat-parity extensions (Tier 1 + Tier 2) —
+  send_packet: { params: SendPacketParams; data: string };
+  bot_exit: { params: JsonObject; data: EmptyData };
+  nc_get_packet_status: { params: JsonObject; data: JsonValue };
+  nc_get_rkey: { params: JsonObject; data: JsonObject[] };
+  nc_get_user_status: { params: NcGetUserStatusParams; data: UserOnlineStatus };
+  get_group_ignore_add_request: { params: JsonObject; data: JsonArray };
+  delete_group_folder: { params: DeleteGroupFolderParams; data: EmptyData };
+  set_group_todo: { params: GroupTodoParams; data: EmptyData };
+  complete_group_todo: { params: GroupTodoParams; data: EmptyData };
+  cancel_group_todo: { params: GroupTodoParams; data: EmptyData };
+
+  // — Tier 3: DIY status —
+  set_diy_online_status: { params: SetDiyOnlineStatusParams; data: EmptyData };
+
+  // — AI voice trio —
+  get_ai_characters: { params: GetAiCharactersParams; data: AiCharacterCategory[] };
+  get_ai_record: { params: AiVoiceParams; data: string };
+  send_group_ai_record: { params: AiVoiceParams; data: SendGroupAiRecordResult };
 }
 
 export type SnowLumaAction = keyof SnowLumaActionMap | (string & {});

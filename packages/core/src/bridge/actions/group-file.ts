@@ -9,7 +9,7 @@ import type { Bridge } from '../bridge';
 import { protoEncode } from '../../protobuf/decode';
 import { runOidb } from '../bridge-oidb';
 import { fetchHighwaySession, uploadHighwayHttp } from '../highway/highway-client';
-import { computeHashes, computeMd5, loadBinarySource } from '../highway/utils';
+import { computeHashes, computeMd5, FILE_UPLOAD_MAX_BYTES, loadBinarySource } from '../highway/utils';
 import {
   OidbGroupFileCountViewReqSchema,
   OidbGroupFileCountViewRespSchema,
@@ -288,7 +288,9 @@ export async function uploadGroupFile(
   folderId = '/',
   uploadFile = true,
 ): Promise<UploadFileResult> {
-  const loaded = await loadBinarySource(source, 'file');
+  // Group/private files may legitimately be up to 4 GiB on QQ's wire,
+  // so override the default 1 GiB cap with the protocol ceiling.
+  const loaded = await loadBinarySource(source, 'file', FILE_UPLOAD_MAX_BYTES);
   if (!loaded.bytes.length) throw new Error('group file is empty');
 
   const fileName = normalizeUploadFileName(name, loaded.fileName);
@@ -366,7 +368,9 @@ export async function uploadPrivateFile(
   name = '',
   uploadFile = true,
 ): Promise<UploadFileResult> {
-  const loaded = await loadBinarySource(source, 'file');
+  // Group/private files may legitimately be up to 4 GiB on QQ's wire,
+  // so override the default 1 GiB cap with the protocol ceiling.
+  const loaded = await loadBinarySource(source, 'file', FILE_UPLOAD_MAX_BYTES);
   if (!loaded.bytes.length) throw new Error('private file is empty');
 
   const targetUid = await bridge.resolveUserUid(userId);

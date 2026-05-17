@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SnowLuma QQ compatibility manifest",
+  "type": "object",
+  "required": ["version", "policy", "knownGoodVersions", "knownBadVersions"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "type": "integer", "const": 1 },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "policy": {
+      "type": "object",
+      "required": ["allowUnknown"],
+      "properties": {
+        "allowUnknown": {
+          "type": "boolean",
+          "description": "若 true，未在 known* 中列出的版本视为允许；若 false，需明确出现在 knownGoodVersions"
+        },
+        "warnUnknown": {
+          "type": "boolean",
+          "description": "未列出的版本启动时是否弹警告"
+        }
+      }
+    },
+    "knownGoodVersions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["version"],
+        "properties": {
+          "version": { "type": "string", "description": "QQ 版本号字符串，如 '9.9.20.123'" },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "knownBadVersions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["version"],
+        "properties": {
+          "version": { "type": "string" },
+          "reason": { "type": "string" },
+          "fixedInDesktopVersion": { "type": "string" }
+        }
+      }
+    },
+    "minVersion": {
+      "type": ["string", "null"],
+      "description": "最低支持版本（SemVer），null = 不限"
+    },
+    "notes": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

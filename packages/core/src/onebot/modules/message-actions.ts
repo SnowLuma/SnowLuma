@@ -99,10 +99,32 @@ export async function sendPrivateMessage(
       return ref.messageStore.resolveReplySequence(false, userId, replyMessageId);
     },
     resolveReplyMeta: (replyMessageId) => {
+      // Prefer the cached event (it carries the REAL sender). When only
+      // meta exists — typically because the message we're replying to was
+      // sent by the bot itself and never round-tripped through dispatch
+      // (reportSelfMessage off / no message_sent event) — fall back to
+      // selfId. The previous code used `meta.targetId` here, which is the
+      // conversation PEER and shows the wrong "回复 @某人" in QQ for any
+      // self-reply.
+      const event = ref.messageStore.findEvent(replyMessageId);
+      if (event) {
+        const senderUin = typeof event.user_id === 'number'
+          ? event.user_id
+          : parseInt(String(event.user_id || '0'), 10);
+        const time = typeof event.time === 'number'
+          ? event.time
+          : parseInt(String(event.time || '0'), 10);
+        const meta = ref.messageStore.findMeta(replyMessageId);
+        return {
+          senderUin,
+          time,
+          random: meta?.random ?? 0,
+        };
+      }
       const meta = ref.messageStore.findMeta(replyMessageId);
       if (meta) {
         return {
-          senderUin: meta.targetId,
+          senderUin: ref.selfId,
           time: meta.timestamp,
           random: meta.random,
         };
@@ -240,9 +262,12 @@ export async function sendPrivateForwardMessage(
 export async function uploadForwardMessage(
   ref: OneBotInstanceContext,
   messages: JsonValue,
+  groupId?: number,
 ): Promise<{ forwardId: string }> {
   const nodes = await parseForwardNodes(ref, messages);
-  const forwardId = await ref.bridge.uploadForwardNodes(nodes);
+  // groupId controls the resId namespace (group vs private). Without it,
+  // a resId minted here is unusable when later sent into a group.
+  const forwardId = await ref.bridge.uploadForwardNodes(nodes, groupId);
   return { forwardId };
 }
 

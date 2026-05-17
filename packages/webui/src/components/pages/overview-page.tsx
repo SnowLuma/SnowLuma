@@ -22,23 +22,9 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn, formatBytes, formatUptime } from '@/lib/utils';
-import type { HookProcessInfo, QQInfo, SystemInfo } from '@/types';
-
-interface OverviewPageProps {
-  qqList: QQInfo[];
-  status: string;
-  processList: HookProcessInfo[];
-  processLoadingPid: number | null;
-  processUnloadingPid: number | null;
-  processRefreshingPid: number | null;
-  processActionStatus: string;
-  systemInfo: SystemInfo | null;
-  onRefreshProcesses: () => void;
-  onRefreshSystem: () => void;
-  onLoadProcess: (pid: number) => Promise<void> | void;
-  onUnloadProcess: (pid: number) => Promise<void> | void;
-  onRefreshProcess: (pid: number) => Promise<void> | void;
-}
+import type { HookProcessInfo } from '@/types';
+import { useAppState } from '@/contexts/AppStateContext';
+import { useSession } from '@/contexts/SessionContext';
 
 const processStatusLabel: Record<HookProcessInfo['status'], string> = {
   available: '可加载',
@@ -96,21 +82,11 @@ function StatTile({
   );
 }
 
-export function OverviewPage({
-  qqList,
-  status,
-  processList,
-  processLoadingPid,
-  processUnloadingPid,
-  processRefreshingPid,
-  processActionStatus,
-  systemInfo,
-  onRefreshProcesses,
-  onRefreshSystem,
-  onLoadProcess,
-  onUnloadProcess,
-  onRefreshProcess,
-}: OverviewPageProps) {
+export function OverviewPage() {
+  const { qqList, processList, systemInfo, processOps, refreshProcesses, refreshSystem } =
+    useAppState();
+  const { status } = useSession();
+  const { statusOf, banner: processActionStatus, load, unload, refresh } = processOps;
   const [confirm, setConfirm] = useState<
     | { kind: 'load' | 'unload'; pid: number; name: string }
     | null
@@ -167,7 +143,7 @@ export function OverviewPage({
                 : '正在采集主机信息…'}
             </CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={onRefreshSystem}>
+          <Button variant="outline" size="sm" onClick={refreshSystem}>
             <RefreshCw className="size-3.5" /> 刷新
           </Button>
         </CardHeader>
@@ -270,7 +246,7 @@ export function OverviewPage({
               加载 SnowLuma 后会监听登录状态，登录后自动接入 OneBot 流程
             </CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={onRefreshProcesses}>
+          <Button variant="outline" size="sm" onClick={refreshProcesses}>
             <RefreshCw className="size-3.5" /> 刷新
           </Button>
         </CardHeader>
@@ -292,10 +268,11 @@ export function OverviewPage({
           ) : (
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
               {processList.map((proc, idx) => {
-                const loading = processLoadingPid === proc.pid || proc.status === 'loading';
-                const unloading = processUnloadingPid === proc.pid;
-                const refreshing = processRefreshingPid === proc.pid;
-                const busy = loading || unloading || refreshing;
+                const op = statusOf(proc.pid);
+                const loading = op === 'load' || proc.status === 'loading';
+                const unloading = op === 'unload';
+                const refreshing = op === 'refresh';
+                const busy = op != null || proc.status === 'loading';
                 const isOnline = proc.status === 'online';
                 const canUnload = proc.injected;
                 // Refresh is meaningful whenever a hook may exist (so the user
@@ -355,7 +332,7 @@ export function OverviewPage({
                           disabled={busy}
                           aria-label={`刷新进程 ${proc.pid} 管道状态`}
                           title="刷新管道状态 / 重连"
-                          onClick={() => onRefreshProcess(proc.pid)}
+                          onClick={() => refresh(proc.pid)}
                           className="size-8 text-muted-foreground hover:text-foreground"
                         >
                           {refreshing ? (
@@ -449,8 +426,8 @@ export function OverviewPage({
         destructive={confirm?.kind === 'unload'}
         onConfirm={async () => {
           if (!confirm) return;
-          if (confirm.kind === 'unload') await onUnloadProcess(confirm.pid);
-          else await onLoadProcess(confirm.pid);
+          if (confirm.kind === 'unload') await unload(confirm.pid);
+          else await load(confirm.pid);
         }}
       />
     </div>

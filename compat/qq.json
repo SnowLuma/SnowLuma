@@ -1,0 +1,19 @@
+{
+  "$schema": "./qq.schema.json",
+  "version": 1,
+  "updatedAt": "2026-05-16T00:00:00Z",
+  "policy": {
+    "allowUnknown": true,
+    "warnUnknown": true
+  },
+  "knownGoodVersions": [],
+  "knownBadVersions": [],
+  "minVersion": null,
+  "notes": [
+    "QQ 兼容性 manifest — Desktop 启动时拉 https://raw.githubusercontent.com/SnowLuma/SnowLuma/main/compat/qq.json 校验本地 QQ 版本",
+    "policy.allowUnknown = true: 任何不在 knownBadVersions 里的版本都允许（理论上所有 QQ 新版本都可用）",
+    "knownBadVersions: 列在这里的版本 Desktop 会拒绝注入，弹出引导让用户切版本",
+    "minVersion: 设为 SemVer 字符串则更早的版本会被拒",
+    "知道某个版本会破坏 Hook 后把它加进 knownBadVersions，加 reason 字段说明"
+  ]
+}

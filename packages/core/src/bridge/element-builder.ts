@@ -37,19 +37,43 @@ function makeFaceElem(faceId: number): ProtoElem {
   };
 }
 
-function makeMentionElem(element: MessageElement): ProtoElem {
+function resolveMentionDisplay(ctx: SendContext | undefined, targetUin: number): string {
+  if (!ctx || !targetUin) return '';
+  if (ctx.groupId !== undefined) {
+    const member = ctx.bridge.identity.findGroupMember(ctx.groupId, targetUin);
+    return member?.card?.trim() || member?.nickname?.trim() || '';
+  }
+  const friend = ctx.bridge.identity.findFriend(targetUin);
+  return friend?.remark?.trim() || friend?.nickname?.trim() || '';
+}
+
+function makeMentionElem(element: MessageElement, ctx?: SendContext): ProtoElem {
   const mentionAll = element.uid === 'all' || element.targetUin === 0;
+  const targetUin = element.targetUin ?? 0;
 
   const extra = protoEncode({
     type: mentionAll ? 1 : 2,
-    uin: mentionAll ? 0 : (element.targetUin ?? 0),
+    uin: mentionAll ? 0 : targetUin,
     field5: 0,
     uid: mentionAll ? 'all' : (element.uid ?? ''),
   }, MentionExtraSendSchema);
 
+  // Prefer an explicit display string from the caller; otherwise look the
+  // target up in the roster so QQ renders `@昵称` instead of `@QQ号`.
+  // Falls back to the bare uin when the roster doesn't know them yet.
+  let str = element.text;
+  if (!str) {
+    if (mentionAll) {
+      str = '@全体成员 ';
+    } else {
+      const name = resolveMentionDisplay(ctx, targetUin);
+      str = name ? `@${name} ` : `@${targetUin} `;
+    }
+  }
+
   return {
     text: {
-      str: element.text || (mentionAll ? '@全体成员 ' : `@${element.targetUin} `),
+      str,
       pbReserve: extra,
     } as any,
   };
@@ -260,7 +284,7 @@ export async function buildSendElems(elements: MessageElement[], ctx?: SendConte
         break;
 
       case 'at':
-        result.push(makeMentionElem(elem));
+        result.push(makeMentionElem(elem, ctx));
         break;
 
       case 'reply':

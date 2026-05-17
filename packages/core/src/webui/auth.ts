@@ -1,6 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('WebUI.Auth');
 
 const CONFIG_DIR = 'config';
 const WEBUI_CONFIG_PATH = path.join(CONFIG_DIR, 'webui.json');
@@ -19,6 +22,16 @@ const DEV_PASSWORD = 'snowluma-dev';
 
 export function isDevAuthMode(): boolean {
   return process.env.SNOWLUMA_DEV_MODE === '1';
+}
+
+function envBootstrapPassword(): string | null {
+  const raw = process.env.SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD;
+  if (!raw || typeof raw !== 'string') return null;
+  // Minimum sanity: avoid accidental empty / 1-char seeds. Strength
+  // rules still don't apply because we want trusted launchers to be
+  // able to pick a high-entropy random secret (e.g. base64(16)).
+  if (raw.length < 8) return null;
+  return raw;
 }
 
 export interface WebuiAuthState {
@@ -84,6 +97,16 @@ function generateInitialState(initialPassword: string): WebuiAuthState {
   };
 }
 
+function backupCorruptConfig(): void {
+  try {
+    const dest = `${WEBUI_CONFIG_PATH}.bak.${Date.now()}`;
+    fs.renameSync(WEBUI_CONFIG_PATH, dest);
+    log.warn('previous webui.json moved to %s', dest);
+  } catch (err) {
+    log.warn('failed to back up corrupt webui.json: %s', err instanceof Error ? err.message : String(err));
+  }
+}
+
 function atomicWrite(state: WebuiAuthState): void {
   ensureConfigDir();
   const tmp = WEBUI_CONFIG_PATH + '.tmp';
@@ -128,11 +151,49 @@ export class WebuiAuth {
         const raw = fs.readFileSync(WEBUI_CONFIG_PATH, 'utf8');
         const parsed = JSON.parse(raw) as unknown;
         if (isValidState(parsed)) {
+          if (parsed.mustChangePassword) {
+            // Previous start generated a bootstrap password but the operator
+            // never completed the forced-change flow. The plaintext is gone
+            // (only the hash is on disk, and the log line from last run may
+            // be lost), so rotate to a fresh CSPRNG password they can see.
+            const initialPassword = randomBytes(8).toString('hex');
+            const state = generateInitialState(initialPassword);
+            atomicWrite(state);
+            log.warn('previous bootstrap password was never rotated; regenerated a new one');
+            return new WebuiAuth(state, initialPassword, false);
+          }
           return new WebuiAuth(parsed, null, false);
         }
-      } catch {
-        /* fallthrough — regenerate */
+        log.error('webui.json schema invalid; backing up and regenerating credentials');
+        backupCorruptConfig();
+      } catch (err) {
+        log.error(
+          'webui.json is corrupt and will be regenerated; the previous file is backed up: %s',
+          err instanceof Error ? err.message : String(err),
+        );
+        backupCorruptConfig();
       }
+    }
+    // SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD lets a trusted launcher seed the
+    // password on first run instead of having to scrape it from logs.
+    // Effect: write webui.json with the env-provided password, hashed,
+    // and mustChangePassword=false. Only honoured when there is NO existing
+    // webui.json — once persisted, password changes happen via the UI.
+    const envPassword = envBootstrapPassword();
+    if (envPassword !== null) {
+      const salt = randomBytes(16);
+      const hash = hashPassword(envPassword, salt);
+      const now = new Date().toISOString();
+      const state: WebuiAuthState = {
+        passwordHash: hash.toString('hex'),
+        passwordSalt: salt.toString('hex'),
+        mustChangePassword: false,
+        generatedAt: now,
+        updatedAt: now,
+      };
+      atomicWrite(state);
+      log.info('webui credentials seeded from SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD');
+      return new WebuiAuth(state, null, false);
     }
     const initialPassword = randomBytes(8).toString('hex');
     const state = generateInitialState(initialPassword);

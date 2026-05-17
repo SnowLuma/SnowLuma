@@ -1,27 +1,34 @@
 import { LayoutDashboard, Settings, SlidersHorizontal, Terminal } from 'lucide-react';
 import { motion } from 'motion/react';
+import { Link, useRouterState } from '@tanstack/react-router';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { APP_NAME, APP_VERSION } from '@/types';
+import type { AppPath } from '@/router';
 
-export type Page = 'overview' | 'config' | 'logs' | 'settings';
+export interface NavItem {
+  to: AppPath;
+  label: string;
+  icon: typeof LayoutDashboard;
+  description: string;
+}
 
-export const NAV_ITEMS: { page: Page; label: string; icon: typeof LayoutDashboard; description: string }[] = [
-  { page: 'overview', label: '总览', icon: LayoutDashboard, description: '主机与服务状态' },
-  { page: 'config', label: '节点配置', icon: Settings, description: 'OneBot 协议端点' },
-  { page: 'logs', label: '日志', icon: Terminal, description: '实时事件流' },
-  { page: 'settings', label: '系统设置', icon: SlidersHorizontal, description: '主题与账号' },
+export const NAV_ITEMS: NavItem[] = [
+  { to: '/', label: '总览', icon: LayoutDashboard, description: '主机与服务状态' },
+  { to: '/config', label: '节点配置', icon: Settings, description: 'OneBot 协议端点' },
+  { to: '/logs', label: '日志', icon: Terminal, description: '实时事件流' },
+  { to: '/settings', label: '系统设置', icon: SlidersHorizontal, description: '主题与账号' },
 ];
 
 interface SidebarProps {
-  active: Page;
-  onNavigate: (page: Page) => void;
   collapsed?: boolean;
   onItemClick?: () => void;
 }
 
-export function Sidebar({ active, onNavigate, collapsed = false, onItemClick }: SidebarProps) {
+export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+
   return (
     <div className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
       {/* Brand */}
@@ -43,23 +50,21 @@ export function Sidebar({ active, onNavigate, collapsed = false, onItemClick }: 
       {/* Nav */}
       <ScrollArea className="flex-1 min-h-0" viewportClassName="[&>div]:!block">
         <nav className={cn('flex flex-col gap-1 p-2', collapsed && 'items-center')}>
-          {NAV_ITEMS.map(({ page, label, icon: Icon, description }) => {
-            const isActive = active === page;
+          {NAV_ITEMS.map(({ to, label, icon: Icon, description }) => {
+            const isActive = pathname === to;
             return (
-              <button
-                key={page}
-                type="button"
+              <Link
+                key={to}
+                to={to}
                 title={collapsed ? label : undefined}
-                onClick={() => {
-                  onNavigate(page);
-                  onItemClick?.();
-                }}
+                onClick={onItemClick}
+                aria-current={isActive ? 'page' : undefined}
                 className={cn(
                   'group relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors cursor-pointer outline-none',
                   collapsed && 'w-10 justify-center px-0',
                   isActive
                     ? 'text-sidebar-accent-foreground'
-                    : 'text-muted-foreground hover:bg-sidebar-accent/40 hover:text-foreground'
+                    : 'text-muted-foreground hover:bg-sidebar-accent/40 hover:text-foreground',
                 )}
               >
                 {isActive && (
@@ -76,7 +81,7 @@ export function Sidebar({ active, onNavigate, collapsed = false, onItemClick }: 
                     <span className="text-[10px] font-normal text-muted-foreground truncate">{description}</span>
                   </span>
                 )}
-              </button>
+              </Link>
             );
           })}
         </nav>

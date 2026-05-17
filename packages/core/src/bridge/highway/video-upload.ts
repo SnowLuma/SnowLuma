@@ -280,6 +280,14 @@ async function stageVideoSource(element: MessageElement, tempDir: string, cleanu
 
   const local = resolveLocalFilePath(source);
   if (local && fs.existsSync(local)) {
+    // Pre-check on disk size BEFORE reading bytes into memory. The later
+    // `staged.bytes.length > MAX_VIDEO_SIZE` guard would otherwise only
+    // run after we'd already allocated the entire file (so a 10 GiB
+    // local path still OOMs us before the check fires).
+    const stat = fs.statSync(local);
+    if (stat.size > MAX_VIDEO_SIZE) {
+      throw new Error(`video file too large: ${(stat.size / (1024 * 1024)).toFixed(2)} MB > ${MAX_VIDEO_SIZE / (1024 * 1024)} MB. Use upload_group_file / upload_private_file for files larger than 100 MB.`);
+    }
     return {
       bytes: new Uint8Array(fs.readFileSync(local)),
       filePath: local,
@@ -287,7 +295,7 @@ async function stageVideoSource(element: MessageElement, tempDir: string, cleanu
     };
   }
 
-  const loaded = await loadBinarySource(source, 'video');
+  const loaded = await loadBinarySource(source, 'video', MAX_VIDEO_SIZE);
   const fileName = element.fileName || loaded.fileName || '';
   const stagedPath = path.join(tempDir, `snowluma-video-in-${crypto.randomUUID()}${sourceExtension(fileName, source)}`);
   fs.writeFileSync(stagedPath, Buffer.from(loaded.bytes));
@@ -375,7 +383,7 @@ async function loadVideo(element: MessageElement): Promise<VideoPayload> {
     const staged = await stageVideoSource(element, tempDir, cleanups);
     if (staged.bytes.length === 0) throw new Error('video file is empty');
     if (staged.bytes.length > MAX_VIDEO_SIZE) {
-      throw new Error(`video file too large: ${(staged.bytes.length / (1024 * 1024)).toFixed(2)} MB > 100 MB`);
+      throw new Error(`video file too large: ${(staged.bytes.length / (1024 * 1024)).toFixed(2)} MB > 100 MB. Use upload_group_file / upload_private_file for files larger than 100 MB.`);
     }
 
     const hashes = computeHashes(staged.bytes);
@@ -487,11 +495,17 @@ export async function uploadVideoMsgInfo(
           subFileType: 100,
         },
       ],
-      // Scene tag the NTV2 upload registers under. image-upload and
-      // ptt-upload both differentiate (group=2, c2c=1); video was
-      // hardcoded to the group value, which contributed to the c2c
-      // send-back rejection (PbSendMsg result=79).
-      compatQmsgSceneType: isGroup ? 2 : 1,
+      // Hardcoded 2 even on c2c (matches NapCat). Image/PTT use
+      // `isGroup ? 2 : 1` because their legacy compat elements differ
+      // per scene (notOnlineImage vs customFace; ptt c2c vs group),
+      // but the legacy `videoFile` element has no scene split — its
+      // fromChatType/toChatType live inside the element itself — so
+      // the server generates a single group-shaped compat payload
+      // regardless. Setting 1 here makes the server emit a c2c-scene
+      // shaped compat blob that old QQ clients fail to resolve,
+      // showing the message as "视频已过期" on those receivers while
+      // new clients (which only read the commonElem) display fine.
+      compatQmsgSceneType: 2,
       extBizInfo: {
         pic: { bizType: 0, textSummary: 'Nya~' },
         video: { bytesPbReserve: new Uint8Array([0x80, 0x01, 0x00]) },

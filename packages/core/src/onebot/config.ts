@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { randomBytes } from 'crypto';
+import { createLogger } from '../utils/logger';
 import type {
   HttpClientNetwork,
   HttpServerNetwork,
@@ -12,6 +13,8 @@ import type {
   WsRole,
   WsServerNetwork,
 } from './types';
+
+const log = createLogger('OneBot.Config');
 
 const CONFIG_DIR = 'config';
 const DEFAULT_CONFIG_PATH = path.join(CONFIG_DIR, 'onebot.json');
@@ -50,7 +53,18 @@ function generateAccessToken(): string {
   return randomBytes(DEFAULT_ACCESS_TOKEN_BYTES).toString('base64url');
 }
 
-export function loadOneBotConfig(uin: string): OneBotConfig {
+export interface LoadOneBotConfigOptions {
+  /**
+   * Persist the normalized config to disk when the file is missing or was
+   * in legacy format. Default `false` so accidental call sites (read-only
+   * GETs in particular) don't generate fresh access tokens, race on
+   * concurrent writes, or surprise the operator with materialized files.
+   * Pass `true` from boot / explicit POST handlers.
+   */
+  persistDefaults?: boolean;
+}
+
+export function loadOneBotConfig(uin: string, options: LoadOneBotConfigOptions = {}): OneBotConfig {
   ensureConfigDir();
 
   const perUinPath = path.join(CONFIG_DIR, `onebot_${uin}.json`);
@@ -65,12 +79,11 @@ export function loadOneBotConfig(uin: string): OneBotConfig {
   if (globalRaw) sources.push(globalRaw);
   if (perUinRaw) sources.push(perUinRaw);
 
-  const config = fromJson(sources);
+  const config = fromJson(sources, !perUinRaw && !globalRaw);
 
-  // Persist normalized form whenever the file is missing OR was in legacy
-  // format, so downstream code can rely on the unified shape on disk.
-  const shouldSave = !perUinRaw || legacy;
-  if (shouldSave) saveOneBotConfig(uin, config);
+  if (options.persistDefaults && (!perUinRaw || legacy)) {
+    saveOneBotConfig(uin, config);
+  }
 
   return config;
 }
@@ -148,7 +161,7 @@ function wsClientToJson(n: WsClientNetwork): JsonObject {
   return out;
 }
 
-function fromJson(sources: JsonObject[]): OneBotConfig {
+function fromJson(sources: JsonObject[], freshInstall: boolean): OneBotConfig {
   // Legacy top-level scalars are pulled DOWN into each adapter on the first
   // load: the on-disk schema has no globals anymore, every adapter is
   // self-describing. We compute the legacy fallbacks here so that adapters
@@ -175,8 +188,11 @@ function fromJson(sources: JsonObject[]): OneBotConfig {
   const wsServers = collectByName<WsServerNetwork>(sources, 'wsServers', (raw) => parseWsServer(raw, adapterDefaults));
   const wsClients = collectByName<WsClientNetwork>(sources, 'wsClients', (raw) => parseWsClient(raw, adapterDefaults));
 
-  // Seed defaults if all four arrays are empty (brand-new install).
+  // Seed defaults ONLY for a brand-new install (no source files at all).
+  // If the operator deliberately emptied every adapter, respect that and
+  // do NOT silently revive default 0.0.0.0 listeners.
   if (
+    freshInstall &&
     httpServers.length === 0 &&
     httpClients.length === 0 &&
     wsServers.length === 0 &&
@@ -354,7 +370,8 @@ function tryLoadJson(filePath: string): JsonObject | null {
     const raw = fs.readFileSync(filePath, 'utf8');
     const parsed = JSON.parse(raw) as unknown;
     return isObject(parsed) ? parsed : null;
-  } catch {
+  } catch (err) {
+    log.warn('config file %s is corrupt and will be ignored: %s', filePath, err instanceof Error ? err.message : String(err));
     return null;
   }
 }
@@ -362,20 +379,6 @@ function tryLoadJson(filePath: string): JsonObject | null {
 function saveJson(filePath: string, json: JsonObject): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(json, null, 2), 'utf8');
-}
-
-function deepClone(obj: JsonObject): JsonObject {
-  return JSON.parse(JSON.stringify(obj)) as JsonObject;
-}
-
-function deepMerge(base: JsonObject, override: JsonObject): void {
-  for (const [key, value] of Object.entries(override)) {
-    if (isObject(base[key]) && isObject(value)) {
-      deepMerge(base[key] as JsonObject, value);
-    } else {
-      base[key] = value as never;
-    }
-  }
 }
 
 function isObject(value: unknown): value is JsonObject {
