@@ -45,7 +45,7 @@ describe('loadOneBotConfig', () => {
 
   it('creates and persists default config when none exists', () => {
     const uin = '10001';
-    const config = loadOneBotConfig(uin);
+    const config = loadOneBotConfig(uin, { persistDefaults: true });
     expect(config.networks.httpServers).toHaveLength(1);
 
     const onDisk = JSON.parse(fs.readFileSync(path.join(tempDir, 'config', `onebot_${uin}.json`), 'utf8'));
@@ -74,7 +74,7 @@ describe('loadOneBotConfig', () => {
     };
     fs.writeFileSync(path.join(dir, `onebot_${uin}.json`), JSON.stringify(legacy), 'utf8');
 
-    const config = loadOneBotConfig(uin);
+    const config = loadOneBotConfig(uin, { persistDefaults: true });
     expect(config.networks.httpServers).toHaveLength(1);
     expect(config.networks.httpServers[0].port).toBe(3100);
     expect(config.networks.httpServers[0].accessToken).toBe('tok');
@@ -126,6 +126,34 @@ describe('loadOneBotConfig', () => {
     expect(reloaded.networks.httpClients[0].name).toBe('self-mirror');
     expect(reloaded.networks.httpClients[0].messageFormat).toBe('string');
     expect(reloaded.networks.httpClients[0].reportSelfMessage).toBe(true);
+  });
+
+  it('does not write to disk by default (read-only contract)', () => {
+    const uin = '10006';
+    const cfgPath = path.join(tempDir, 'config', `onebot_${uin}.json`);
+
+    // Default call must not materialize the file or mint a fresh access token.
+    const config = loadOneBotConfig(uin);
+    expect(config.networks.httpServers).toHaveLength(1);
+    expect(fs.existsSync(cfgPath)).toBe(false);
+
+    // Explicit opt-in still writes.
+    loadOneBotConfig(uin, { persistDefaults: true });
+    expect(fs.existsSync(cfgPath)).toBe(true);
+  });
+
+  it('respects an operator-emptied adapter list instead of seeding defaults back', () => {
+    const uin = '10007';
+    const dir = path.join(tempDir, 'config');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `onebot_${uin}.json`), JSON.stringify({
+      networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
+      musicSignUrl: '',
+    }), 'utf8');
+
+    const config = loadOneBotConfig(uin, { persistDefaults: true });
+    expect(config.networks.httpServers).toEqual([]);
+    expect(config.networks.wsServers).toEqual([]);
   });
 
   it('migrates legacy lowercase WsRole values into canonical uppercase form', () => {

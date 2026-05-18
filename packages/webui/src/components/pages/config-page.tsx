@@ -1,93 +1,42 @@
-import { useState } from 'react';
+// OneBot per-UIN configuration page.
+//
+// Layout: collapsible left sidebar for account selection + tabbed right
+// pane (通用 / 4 network kinds). Each network tab is a list view of
+// summary cards with inline enable/disable; create + edit both go
+// through `NodeEditDialog`. The dirty-modify guard from the original
+// hook is preserved end-to-end — switching accounts or kinds doesn't
+// drop unsaved changes silently.
+
+import { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { MousePointerClick, Plus, Save, Trash2 } from 'lucide-react';
+import { MousePointerClick, Plus, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import type {
-  MessageFormat,
   NetworkKind,
   OneBotConfig,
   OneBotNetworks,
-  WsRole,
 } from '@/types';
 import { useOneBotInstanceConfig } from '@/hooks/use-onebot-instance-config';
 import { useAppState } from '@/contexts/AppStateContext';
+import { AccountSidebar } from '@/components/config/account-sidebar';
+import { GeneralSettingsTab } from '@/components/config/general-settings-tab';
+import { NodeSummaryCard } from '@/components/config/node-summary-card';
+import { NodeEditDialog } from '@/components/config/node-edit-dialog';
+import {
+  ALL_TABS,
+  NETWORK_TABS,
+  nextUniqueSuffix,
+  type TabKey,
+} from '@/components/config/defaults';
 
-function qqAvatarUrl(uin: string) {
-  return `/avatar/${encodeURIComponent(uin)}`;
-}
-
-function generateAccessToken(): string {
-  const bytes = new Uint8Array(32);
-  globalThis.crypto.getRandomValues(bytes);
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  placeholder,
-  type = 'text',
-  className,
-}: {
-  label: string;
-  value: string | number | undefined;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  type?: 'text' | 'number' | 'url';
-  className?: string;
-}) {
-  return (
-    <div className={cn('flex flex-col gap-1.5', className)}>
-      <Label>{label}</Label>
-      <Input
-        type={type}
-        value={value ?? ''}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-      />
-    </div>
-  );
-}
-
-interface SectionProps {
-  title: string;
-  description?: string;
-  onAdd?: () => void;
-  children: React.ReactNode;
-  count?: number;
-}
-
-function Section({ title, description, onAdd, children, count }: SectionProps) {
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <CardTitle className="text-sm">{title}</CardTitle>
-            {typeof count === 'number' && <Badge variant="secondary">{count}</Badge>}
-          </div>
-          {description && <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>}
-        </div>
-        {onAdd && (
-          <Button size="sm" variant="outline" onClick={onAdd}>
-            <Plus className="size-3.5" /> 添加
-          </Button>
-        )}
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3 pt-0">{children}</CardContent>
-    </Card>
-  );
-}
+type DialogState =
+  | { open: false }
+  | { open: true; kind: NetworkKind; index: number | null; seed: OneBotNetworks[NetworkKind][number] };
+//   index: null → create with `seed`, otherwise edit the item at that position.
 
 export function ConfigPage() {
   const { qqList, selectedUin, setSelectedUin } = useAppState();
@@ -105,321 +54,136 @@ export function ConfigPage() {
     selectedUin,
     onSelectedUinChange: setSelectedUin,
   });
-  const [confirmSave, setConfirmSave] = useState(false);
 
-  const update = (next: OneBotConfig) => setConfig(next);
-  const pendingSwitchAccount = pendingSwitchUin
-    ? qqList.find((q) => q.uin === pendingSwitchUin) ?? null
-    : null;
+  const [activeTab, setActiveTab] = useState<TabKey>('general');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [confirmSave, setConfirmSave] = useState(false);
+  // The edit dialog is modal and blocks every other click in the page,
+  // so `selectedUin` cannot change while it's open — no defensive close
+  // wiring needed beyond the dialog's own open/close.
+  const [dialog, setDialog] = useState<DialogState>({ open: false });
+
+  const pendingSwitchAccount = useMemo(
+    () => (pendingSwitchUin ? qqList.find((q) => q.uin === pendingSwitchUin) ?? null : null),
+    [pendingSwitchUin, qqList],
+  );
+
+  // Per-kind helpers (typed at the call site so the dialog's onSubmit
+  // payload is exactly the kind's adapter shape).
+  function updateKind<K extends NetworkKind>(kind: K, next: OneBotNetworks[K]): void {
+    if (!config) return;
+    setConfig({ ...config, networks: { ...config.networks, [kind]: next } });
+  }
+
+  function handleCreate<K extends NetworkKind>(kind: K, item: OneBotNetworks[K][number]): void {
+    if (!config) return;
+    const list = config.networks[kind] as OneBotNetworks[K];
+    updateKind(kind, [...list, item] as OneBotNetworks[K]);
+  }
+
+  function handleEdit<K extends NetworkKind>(kind: K, index: number, item: OneBotNetworks[K][number]): void {
+    if (!config) return;
+    const list = config.networks[kind] as OneBotNetworks[K];
+    const next = list.map((it, i) => (i === index ? item : it)) as OneBotNetworks[K];
+    updateKind(kind, next);
+  }
+
+  function handleDelete<K extends NetworkKind>(kind: K, index: number): void {
+    if (!config) return;
+    const list = config.networks[kind] as OneBotNetworks[K];
+    const next = list.filter((_, i) => i !== index) as OneBotNetworks[K];
+    updateKind(kind, next);
+  }
+
+  function handleToggleEnabled<K extends NetworkKind>(kind: K, index: number, enabled: boolean): void {
+    if (!config) return;
+    const list = config.networks[kind] as OneBotNetworks[K];
+    const next = list.map((it, i) =>
+      i === index ? ({ ...it, enabled: enabled ? undefined : false } as OneBotNetworks[K][number]) : it,
+    ) as OneBotNetworks[K];
+    updateKind(kind, next);
+  }
+
+  const openCreate = (kind: NetworkKind) => {
+    if (!config) return;
+    const tab = NETWORK_TABS[kind];
+    const list = config.networks[kind];
+    const suffix = nextUniqueSuffix(list, tab.defaultEntry);
+    setDialog({ open: true, kind, index: null, seed: tab.defaultEntry(suffix) });
+  };
+
+  const openEdit = (kind: NetworkKind, index: number) => {
+    if (!config) return;
+    const item = config.networks[kind][index];
+    if (!item) return;
+    setDialog({ open: true, kind, index, seed: item });
+  };
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
-      {/* Account list */}
-      <Card className="lg:sticky lg:top-2 lg:self-start">
-        <CardHeader>
-          <CardTitle className="text-sm">在线连接</CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0">
-          {qqList.length === 0 ? (
-            <p className="py-6 text-center text-xs text-muted-foreground">暂无在线会话</p>
-          ) : (
-            <ScrollArea className="max-h-[60vh]" viewportClassName="[&>div]:!block">
-              <div className="grid grid-cols-2 gap-1.5 lg:grid-cols-1">
-                {qqList.map((q) => {
-                  const isActive = selectedUin === q.uin;
-                  return (
-                    <motion.button
-                      key={q.uin}
-                      type="button"
-                      whileHover={{ scale: 1.01 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => requestSwitchUin(q.uin)}
-                      className={cn(
-                        'flex items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors cursor-pointer',
-                        isActive ? 'border-primary/30 bg-primary/10' : 'border-transparent hover:bg-accent/40'
-                      )}
-                    >
-                      <Avatar size={28}>
-                        <AvatarImage src={qqAvatarUrl(q.uin)} alt={q.nickname || q.uin} />
-                        <AvatarFallback>{(q.nickname || q.uin).slice(0, 2)}</AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1">
-                        <div
-                          className={cn('truncate text-sm font-medium', isActive ? 'text-primary' : 'text-foreground')}
-                        >
-                          {q.nickname}
-                        </div>
-                        <div className="truncate font-mono text-[10px] text-muted-foreground tabular-nums">{q.uin}</div>
-                      </div>
-                    </motion.button>
-                  );
-                })}
-              </div>
-            </ScrollArea>
-          )}
-        </CardContent>
-      </Card>
+    <div className="flex gap-4">
+      <AccountSidebar
+        accounts={qqList}
+        selectedUin={selectedUin}
+        onSelect={requestSwitchUin}
+        collapsed={sidebarCollapsed}
+        onToggleCollapsed={() => setSidebarCollapsed((v) => !v)}
+      />
 
-      {/* Editor */}
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         {!selectedUin ? (
-          <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-lg border border-dashed text-muted-foreground">
-            <MousePointerClick className="size-7" strokeWidth={1.5} />
-            <p className="text-sm">请在左栏选择会话以配置通信节点</p>
-          </div>
+          <EmptyState />
         ) : !config ? (
-          <div className="space-y-3">
-            <Skeleton className="h-9 w-48" />
-            <Skeleton className="h-32" />
-            <Skeleton className="h-32" />
-          </div>
+          <LoadingSkeleton />
         ) : (
           <div className="flex flex-col gap-4">
-            {/* Header */}
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-base font-semibold tracking-tight">OneBot 协议端点</h2>
-                <code className="mt-0.5 block font-mono text-xs text-muted-foreground tabular-nums">UIN {selectedUin}</code>
-              </div>
-              <div className="flex items-center gap-2">
-                {saveStatus && (
-                  <span
-                    className={cn(
-                      'rounded-full border px-2.5 py-1 text-[11px] font-medium',
-                      saveStatus === '保存成功' && 'border-success/30 bg-success/10 text-success',
-                      saveStatus === '保存中...' && 'border-border bg-muted text-muted-foreground',
-                      saveStatus !== '保存成功' && saveStatus !== '保存中...' && 'border-destructive/30 bg-destructive/10 text-destructive'
-                    )}
-                  >
-                    {saveStatus}
-                  </span>
-                )}
-                {dirty && !saveStatus && (
-                  <span className="rounded-full border border-warning/30 bg-warning/10 px-2.5 py-1 text-[11px] font-medium text-warning">
-                    未保存
-                  </span>
-                )}
-                <Button onClick={() => setConfirmSave(true)} size="sm" disabled={!dirty}>
-                  <Save className="size-3.5" /> 保存设定
-                </Button>
-              </div>
-            </div>
+            <HeaderBar
+              selectedUin={selectedUin}
+              dirty={dirty}
+              saveStatus={saveStatus}
+              onSave={() => setConfirmSave(true)}
+              activeTab={activeTab}
+              onCreate={
+                activeTab !== 'general' ? () => openCreate(activeTab as NetworkKind) : undefined
+              }
+            />
 
-            <Section
-              title="通用设置"
-              description="OneBot 共享功能配置"
-            >
-              <Field
-                label="音乐签名服务 URL"
-                type="url"
-                placeholder="留空则不启用"
-                value={config.musicSignUrl}
-                onChange={(v) => update({ ...config, musicSignUrl: v || undefined })}
+            <TabStrip
+              activeTab={activeTab}
+              onChange={setActiveTab}
+              counts={countMap(config.networks)}
+            />
+
+            {activeTab === 'general' ? (
+              <GeneralSettingsTab config={config} onChange={setConfig} />
+            ) : (
+              <NetworkTabView
+                kind={activeTab}
+                config={config}
+                onCreateClick={() => openCreate(activeTab)}
+                onEdit={(idx) => openEdit(activeTab, idx)}
+                onDelete={(idx) => handleDelete(activeTab, idx)}
+                onToggleEnabled={(idx, v) => handleToggleEnabled(activeTab, idx, v)}
               />
-            </Section>
-
-            {/* HTTP Servers */}
-            <NetworkSection
-              title="HTTP API 服务"
-              description="本地监听 HTTP 端口，OneBot 客户端发起请求"
-              kind="httpServers"
-              networks={config.networks.httpServers}
-              onChange={(arr) => updateNetworks(config, update, 'httpServers', arr)}
-              renderFields={(item, patch) => (
-                <>
-                  <Field
-                    label="主机"
-                    placeholder="0.0.0.0"
-                    value={item.host}
-                    onChange={(v) => patch({ host: v || undefined })}
-                    className="sm:w-40"
-                  />
-                  <Field
-                    label="端口"
-                    type="number"
-                    value={item.port}
-                    onChange={(v) => patch({ port: Number(v) || 0 })}
-                    className="sm:w-28"
-                  />
-                  <Field
-                    label="路径"
-                    placeholder="/"
-                    value={item.path}
-                    onChange={(v) => patch({ path: v || undefined })}
-                    className="sm:w-32"
-                  />
-                  <Field
-                    label="授权 Token"
-                    placeholder="不填则无密码"
-                    value={item.accessToken}
-                    onChange={(v) => patch({ accessToken: v || undefined })}
-                    className="flex-1"
-                  />
-                </>
-              )}
-              defaultEntry={(suffix) => ({
-                name: `http-${suffix}`,
-                host: '0.0.0.0',
-                port: 3000,
-                path: '/',
-                accessToken: generateAccessToken(),
-                messageFormat: 'array',
-                reportSelfMessage: false,
-              })}
-            />
-
-            {/* HTTP Clients (POST push) */}
-            <NetworkSection
-              title="HTTP 推送客户端"
-              description="主动向远端 URL POST 推送事件"
-              kind="httpClients"
-              networks={config.networks.httpClients}
-              onChange={(arr) => updateNetworks(config, update, 'httpClients', arr)}
-              renderFields={(item, patch) => (
-                <>
-                  <Field
-                    label="目标 URL"
-                    type="url"
-                    placeholder="http://..."
-                    value={item.url}
-                    onChange={(v) => patch({ url: v })}
-                    className="flex-1"
-                  />
-                  <Field
-                    label="授权 Token"
-                    placeholder="可选"
-                    value={item.accessToken}
-                    onChange={(v) => patch({ accessToken: v || undefined })}
-                    className="sm:w-56"
-                  />
-                  <Field
-                    label="超时 (ms)"
-                    type="number"
-                    placeholder="5000"
-                    value={item.timeoutMs}
-                    onChange={(v) => patch({ timeoutMs: Number(v) || undefined })}
-                    className="sm:w-32"
-                  />
-                </>
-              )}
-              defaultEntry={(suffix) => ({
-                name: `httppost-${suffix}`,
-                url: 'http://127.0.0.1:5700',
-                messageFormat: 'array',
-                reportSelfMessage: false,
-              })}
-            />
-
-            {/* WebSocket Servers */}
-            <NetworkSection
-              title="WebSocket 服务"
-              description="本地监听 WebSocket 端口，客户端建立持久连接"
-              kind="wsServers"
-              networks={config.networks.wsServers}
-              onChange={(arr) => updateNetworks(config, update, 'wsServers', arr)}
-              renderFields={(item, patch) => (
-                <>
-                  <Field
-                    label="主机"
-                    placeholder="0.0.0.0"
-                    value={item.host}
-                    onChange={(v) => patch({ host: v || undefined })}
-                    className="sm:w-40"
-                  />
-                  <Field
-                    label="端口"
-                    type="number"
-                    value={item.port}
-                    onChange={(v) => patch({ port: Number(v) || 0 })}
-                    className="sm:w-28"
-                  />
-                  <Field
-                    label="路径"
-                    placeholder="/"
-                    value={item.path}
-                    onChange={(v) => patch({ path: v || undefined })}
-                    className="sm:w-32"
-                  />
-                  <SelectField
-                    label="角色"
-                    value={item.role ?? 'Universal'}
-                    options={WS_ROLE_OPTIONS}
-                    onChange={(v) => patch({ role: v })}
-                    className="sm:w-32"
-                  />
-                  <Field
-                    label="授权 Token"
-                    placeholder="不填则无密码"
-                    value={item.accessToken}
-                    onChange={(v) => patch({ accessToken: v || undefined })}
-                    className="flex-1"
-                  />
-                </>
-              )}
-              defaultEntry={(suffix) => ({
-                name: `ws-${suffix}`,
-                host: '0.0.0.0',
-                port: 3001,
-                path: '/',
-                role: 'Universal' as WsRole,
-                accessToken: generateAccessToken(),
-                messageFormat: 'array',
-                reportSelfMessage: false,
-              })}
-            />
-
-            {/* WebSocket Clients (reverse) */}
-            <NetworkSection
-              title="WebSocket 反向客户端"
-              description="主动连接到外部 WebSocket 服务器（reverse-ws）"
-              kind="wsClients"
-              networks={config.networks.wsClients}
-              onChange={(arr) => updateNetworks(config, update, 'wsClients', arr)}
-              renderFields={(item, patch) => (
-                <>
-                  <Field
-                    label="目标 URL"
-                    type="url"
-                    placeholder="ws://..."
-                    value={item.url}
-                    onChange={(v) => patch({ url: v })}
-                    className="flex-1"
-                  />
-                  <SelectField
-                    label="角色"
-                    value={item.role ?? 'Universal'}
-                    options={WS_ROLE_OPTIONS}
-                    onChange={(v) => patch({ role: v })}
-                    className="sm:w-32"
-                  />
-                  <Field
-                    label="重连间隔 (ms)"
-                    type="number"
-                    value={item.reconnectIntervalMs}
-                    onChange={(v) => patch({ reconnectIntervalMs: Number(v) || undefined })}
-                    className="sm:w-36"
-                  />
-                  <Field
-                    label="授权 Token"
-                    placeholder="可选"
-                    value={item.accessToken}
-                    onChange={(v) => patch({ accessToken: v || undefined })}
-                    className="sm:w-56"
-                  />
-                </>
-              )}
-              defaultEntry={(suffix) => ({
-                name: `wsclient-${suffix}`,
-                url: 'ws://127.0.0.1:8080/ws',
-                role: 'Universal' as WsRole,
-                reconnectIntervalMs: 5000,
-                messageFormat: 'array',
-                reportSelfMessage: false,
-              })}
-            />
+            )}
           </div>
         )}
       </div>
+
+      {/* Single dialog covers create + edit across all 4 kinds. */}
+      {dialog.open && config && (
+        <NodeEditDialog
+          open={dialog.open}
+          onOpenChange={(open) => !open && setDialog({ open: false })}
+          kind={dialog.kind}
+          initial={dialog.seed}
+          isEdit={dialog.index != null}
+          otherNames={otherNames(config.networks, dialog.kind, dialog.index)}
+          onSubmit={(item) => {
+            if (dialog.index == null) handleCreate(dialog.kind, item);
+            else handleEdit(dialog.kind, dialog.index, item);
+          }}
+        />
+      )}
 
       <ConfirmDialog
         open={confirmSave}
@@ -453,89 +217,170 @@ export function ConfigPage() {
   );
 }
 
-function EmptyHint({ label }: { label: string }) {
-  return (
-    <div className="rounded-md border border-dashed py-6 text-center text-xs text-muted-foreground">{label}</div>
-  );
+// ─────────────── header ───────────────
+
+interface HeaderBarProps {
+  selectedUin: string;
+  dirty: boolean;
+  saveStatus: string;
+  onSave: () => void;
+  activeTab: TabKey;
+  onCreate?: () => void;
 }
 
-interface ToggleFieldProps {
-  label: string;
-  description?: string;
-  value: boolean;
-  onChange: (v: boolean) => void;
-}
-
-function ToggleField({ label, description, value, onChange }: ToggleFieldProps) {
+function HeaderBar({ selectedUin, dirty, saveStatus, onSave, activeTab, onCreate }: HeaderBarProps) {
   return (
-    <div className="flex items-start justify-between gap-3 rounded-lg border bg-card/40 p-3">
-      <div className="min-w-0 flex-1">
-        <Label className="text-sm">{label}</Label>
-        {description && (
-          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{description}</p>
-        )}
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <h2 className="text-base font-semibold tracking-tight">OneBot 协议端点</h2>
+        <code className="mt-0.5 block font-mono text-xs text-muted-foreground tabular-nums">
+          UIN {selectedUin}
+        </code>
       </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={value}
-        aria-label={label}
-        onClick={() => onChange(!value)}
-        className={cn(
-          'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border transition-colors',
-          value
-            ? 'border-primary bg-primary'
-            : 'border-input bg-muted',
+      <div className="flex items-center gap-2">
+        {saveStatus && (
+          <span
+            className={cn(
+              'rounded-full border px-2.5 py-1 text-[11px] font-medium',
+              saveStatus === '保存成功' && 'border-success/30 bg-success/10 text-success',
+              saveStatus === '保存中...' && 'border-border bg-muted text-muted-foreground',
+              saveStatus !== '保存成功' &&
+                saveStatus !== '保存中...' &&
+                'border-destructive/30 bg-destructive/10 text-destructive',
+            )}
+          >
+            {saveStatus}
+          </span>
         )}
-      >
-        <motion.span
-          className="inline-block size-4 rounded-full bg-background shadow-sm"
-          animate={{ x: value ? 22 : 4 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-        />
-      </button>
+        {dirty && !saveStatus && (
+          <span className="rounded-full border border-warning/30 bg-warning/10 px-2.5 py-1 text-[11px] font-medium text-warning">
+            未保存
+          </span>
+        )}
+        {onCreate && (
+          <Button size="sm" variant="outline" onClick={onCreate}>
+            <Plus className="size-3.5" />
+            新建{activeTab === 'general' ? '' : NETWORK_TABS[activeTab as NetworkKind].title}
+          </Button>
+        )}
+        <Button onClick={onSave} size="sm" disabled={!dirty}>
+          <Save className="size-3.5" /> 保存
+        </Button>
+      </div>
     </div>
   );
 }
 
-interface SegmentedOption<T extends string> {
-  value: T;
-  label: string;
+// ─────────────── tab strip ───────────────
+
+interface TabStripProps {
+  activeTab: TabKey;
+  onChange: (key: TabKey) => void;
+  counts: Record<NetworkKind, number>;
 }
 
-function SegmentedField<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-  className,
-}: {
-  label: string;
-  value: T;
-  options: ReadonlyArray<SegmentedOption<T>>;
-  onChange: (v: T) => void;
-  className?: string;
-}) {
+function TabStrip({ activeTab, onChange, counts }: TabStripProps) {
   return (
-    <div className={cn('flex flex-col gap-1.5', className)}>
-      <Label>{label}</Label>
-      <div className="flex flex-wrap gap-1 rounded-md border bg-muted/30 p-1">
-        {options.map((opt) => {
-          const active = value === opt.value;
+    <div className="flex flex-wrap gap-1 border-b">
+      {ALL_TABS.map((key) => {
+        const label = key === 'general' ? '通用设置' : NETWORK_TABS[key].title;
+        const count = key === 'general' ? null : counts[key];
+        const active = activeTab === key;
+        return (
+          <button
+            key={key}
+            type="button"
+            onClick={() => onChange(key)}
+            className={cn(
+              'group relative inline-flex items-center gap-1.5 px-3 py-2 text-sm transition-colors cursor-pointer',
+              active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {label}
+            {count != null && (
+              <Badge
+                variant={active ? 'default' : 'secondary'}
+                className="h-4 px-1.5 font-mono text-[10px] tabular-nums"
+              >
+                {count}
+              </Badge>
+            )}
+            {active && (
+              <motion.span
+                layoutId="config-tab-underline"
+                className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-primary"
+                transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+              />
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function countMap(networks: OneBotNetworks): Record<NetworkKind, number> {
+  return {
+    httpServers: networks.httpServers.length,
+    httpClients: networks.httpClients.length,
+    wsServers: networks.wsServers.length,
+    wsClients: networks.wsClients.length,
+  };
+}
+
+// ─────────────── network tab body ───────────────
+
+interface NetworkTabViewProps {
+  kind: NetworkKind;
+  config: OneBotConfig;
+  onCreateClick: () => void;
+  onEdit: (index: number) => void;
+  onDelete: (index: number) => void;
+  onToggleEnabled: (index: number, enabled: boolean) => void;
+}
+
+function NetworkTabView({
+  kind,
+  config,
+  onCreateClick,
+  onEdit,
+  onDelete,
+  onToggleEnabled,
+}: NetworkTabViewProps) {
+  const tab = NETWORK_TABS[kind];
+  const list = config.networks[kind];
+  // `summarize` is typed per K in NETWORK_TABS; the union here forces a
+  // widening cast at the call site rather than ladder-of-ifs per tab.
+  const summarize = tab.summarize as (it: typeof list[number]) => string;
+
+  if (list.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-muted-foreground">
+        <p className="text-sm">暂无 {tab.title} 节点</p>
+        <Button variant="outline" size="sm" onClick={onCreateClick}>
+          <Plus className="size-3.5" /> 创建第一个
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-muted-foreground">{tab.description}</p>
+      <div className="flex flex-col gap-2">
+        {list.map((item, idx) => {
+          const others = list.filter((_, i) => i !== idx).map((n) => n.name);
+          const duplicate = !!item.name && others.includes(item.name);
           return (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => onChange(opt.value)}
-              className={cn(
-                'flex-1 rounded px-2.5 py-1 text-xs transition-colors cursor-pointer',
-                active
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:bg-accent/50',
-              )}
-            >
-              {opt.label}
-            </button>
+            <NodeSummaryCard
+              key={`${item.name}-${idx}`}
+              item={item}
+              summary={summarize(item)}
+              duplicateName={duplicate}
+              onToggleEnabled={(v) => onToggleEnabled(idx, v)}
+              onEdit={() => onEdit(idx)}
+              onDelete={() => onDelete(idx)}
+            />
           );
         })}
       </div>
@@ -543,211 +388,39 @@ function SegmentedField<T extends string>({
   );
 }
 
-function SelectField<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-  className,
-}: {
-  label: string;
-  value: T;
-  options: ReadonlyArray<SegmentedOption<T>>;
-  onChange: (v: T) => void;
-  className?: string;
-}) {
+// ─────────────── empty + loading ───────────────
+
+function EmptyState() {
   return (
-    <div className={cn('flex flex-col gap-1.5', className)}>
-      <Label>{label}</Label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value as T)}
-        className="h-9 rounded-md border bg-background px-2 text-sm shadow-xs"
-      >
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+    <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-lg border border-dashed text-muted-foreground">
+      <MousePointerClick className="size-7" strokeWidth={1.5} />
+      <p className="text-sm">请在左栏选择会话以配置通信节点</p>
     </div>
   );
 }
 
-const ADAPTER_FORMAT_OPTIONS: ReadonlyArray<SegmentedOption<MessageFormat>> = [
-  { value: 'array', label: '数组' },
-  { value: 'string', label: 'CQ 码' },
-];
-
-const ADAPTER_REPORT_OPTIONS: ReadonlyArray<SegmentedOption<'on' | 'off'>> = [
-  { value: 'on', label: '开启' },
-  { value: 'off', label: '关闭' },
-];
-
-const WS_ROLE_OPTIONS: ReadonlyArray<SegmentedOption<WsRole>> = [
-  { value: 'Universal', label: 'Universal' },
-  { value: 'Event', label: 'Event' },
-  { value: 'Api', label: 'Api' },
-];
-
-interface BaseAdapter {
-  name: string;
-  enabled?: boolean;
-  accessToken?: string;
-  messageFormat: MessageFormat;
-  reportSelfMessage: boolean;
-}
-
-interface NetworkSectionProps<T extends BaseAdapter> {
-  title: string;
-  description?: string;
-  kind: NetworkKind;
-  networks: T[];
-  onChange: (next: T[]) => void;
-  renderFields: (item: T, patch: (changes: Partial<T>) => void) => React.ReactNode;
-  defaultEntry: (suffix: number) => T;
-}
-
-function NetworkSection<T extends BaseAdapter>({
-  title,
-  description,
-  networks,
-  onChange,
-  renderFields,
-  defaultEntry,
-}: NetworkSectionProps<T>) {
-  const handleAdd = () => {
-    const used = new Set(networks.map((n) => n.name));
-    let suffix = networks.length + 1;
-    let entry = defaultEntry(suffix);
-    while (used.has(entry.name)) {
-      suffix += 1;
-      entry = defaultEntry(suffix);
-    }
-    onChange([...networks, entry]);
-  };
-
-  const patchAt = (idx: number, changes: Partial<T>) => {
-    onChange(networks.map((it, i) => (i === idx ? { ...it, ...changes } : it)));
-  };
-
-  const removeAt = (idx: number) => {
-    onChange(networks.filter((_, i) => i !== idx));
-  };
-
+function LoadingSkeleton() {
   return (
-    <Section title={title} description={description} count={networks.length} onAdd={handleAdd}>
-      {networks.length === 0 ? (
-        <EmptyHint label="暂无适配器，点击右上角『添加』新建" />
-      ) : (
-        networks.map((item, idx) => (
-          <AdapterRow
-            key={`${item.name}-${idx}`}
-            item={item}
-            otherNames={networks.filter((_, i) => i !== idx).map((n) => n.name)}
-            onPatch={(changes) => patchAt(idx, changes)}
-            onRemove={() => removeAt(idx)}
-            renderFields={renderFields}
-          />
-        ))
-      )}
-    </Section>
+    <div className="space-y-3">
+      <Skeleton className="h-9 w-48" />
+      <Skeleton className="h-10" />
+      <Skeleton className="h-20" />
+      <Skeleton className="h-20" />
+    </div>
   );
 }
 
-interface AdapterRowProps<T extends BaseAdapter> {
-  item: T;
-  otherNames: string[];
-  onPatch: (changes: Partial<T>) => void;
-  onRemove: () => void;
-  renderFields: (item: T, patch: (changes: Partial<T>) => void) => React.ReactNode;
-}
+// ─────────────── helpers ───────────────
 
-function AdapterRow<T extends BaseAdapter>({
-  item,
-  otherNames,
-  onPatch,
-  onRemove,
-  renderFields,
-}: AdapterRowProps<T>) {
-  const enabled = item.enabled !== false;
-  const duplicateName = !!item.name && otherNames.includes(item.name);
-  const blankName = !item.name?.trim();
-
-  const formatValue: MessageFormat = item.messageFormat ?? 'array';
-  const reportValue: 'on' | 'off' = item.reportSelfMessage ? 'on' : 'off';
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.18 }}
-      className={cn(
-        'flex flex-col gap-3 rounded-lg border bg-card/40 p-3',
-        !enabled && 'opacity-60',
-      )}
-    >
-      <div className="flex flex-wrap items-end gap-3">
-        <Field
-          label="名称"
-          placeholder="自定义"
-          value={item.name}
-          onChange={(v) => onPatch({ name: v } as Partial<T>)}
-          className="sm:w-44"
-        />
-        <ToggleField
-          label="启用"
-          value={enabled}
-          onChange={(v) => onPatch({ enabled: v ? undefined : false } as Partial<T>)}
-        />
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onRemove}
-          aria-label="删除"
-          className="ml-auto self-center text-muted-foreground hover:text-destructive"
-        >
-          <Trash2 className="size-4" />
-        </Button>
-      </div>
-      {(blankName || duplicateName) && (
-        <p className="text-[11px] text-destructive">
-          {blankName ? '请填写名称' : '名称与其它适配器重复'}
-        </p>
-      )}
-
-      <div className="flex flex-wrap items-end gap-3">{renderFields(item, onPatch)}</div>
-
-      <div className="grid gap-3 border-t pt-3 sm:grid-cols-2">
-        <SegmentedField
-          label="消息格式"
-          value={formatValue}
-          options={ADAPTER_FORMAT_OPTIONS}
-          onChange={(v) => onPatch({ messageFormat: v } as Partial<T>)}
-        />
-        <SegmentedField
-          label="上报自身消息"
-          value={reportValue}
-          options={ADAPTER_REPORT_OPTIONS}
-          onChange={(v) =>
-            onPatch({
-              reportSelfMessage: v === 'on',
-            } as Partial<T>)
-          }
-        />
-      </div>
-    </motion.div>
-  );
-}
-
-function updateNetworks<K extends NetworkKind>(
-  config: OneBotConfig,
-  update: (next: OneBotConfig) => void,
+/** Names of every adapter except the one currently being edited. */
+function otherNames<K extends NetworkKind>(
+  networks: OneBotNetworks,
   kind: K,
-  next: OneBotNetworks[K],
-): void {
-  update({
-    ...config,
-    networks: { ...config.networks, [kind]: next },
-  });
+  excludeIndex: number | null,
+): string[] {
+  const list = networks[kind];
+  return list
+    .filter((_, i) => i !== excludeIndex)
+    .map((n) => n.name)
+    .filter((s): s is string => typeof s === 'string' && s.length > 0);
 }

@@ -4,6 +4,9 @@
 
 import type { MessageElement } from '../bridge/events';
 import type { JsonValue, JsonObject } from './types';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('MsgParser');
 
 export interface ParseMessageOptions {
   resolveReplySequence?: (replyMessageId: number) => number | null;
@@ -15,6 +18,19 @@ export interface ParseMessageOptions {
 // --- CQ Code parsing ---
 
 const CQ_REGEX = /\[CQ:([A-Za-z]+)(?:,([^\]]*))?\]/g;
+
+/**
+ * Best-effort base-10 integer coercion. Falls back to `fallback` (default 0)
+ * when the input can't be parsed as a finite integer — `parseInt('abc')`
+ * is `NaN`, which silently turns into `0`/`null` further down the wire
+ * pipeline and produces undebuggable protocol-level failures.
+ */
+function intOr(value: unknown, fallback = 0): number {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === 'number') return Number.isFinite(value) ? Math.trunc(value) : fallback;
+  const n = parseInt(String(value), 10);
+  return Number.isFinite(n) ? n : fallback;
+}
 
 function parseCQParams(raw: string): Record<string, string> {
   const params: Record<string, string> = {};
@@ -33,9 +49,12 @@ function parseCQParams(raw: string): Record<string, string> {
 }
 
 function cqUnescape(text: string): string {
+  // Order matters: `&amp;` MUST be last so that, e.g., `&amp;#91;` keeps
+  // the literal `&#91;` instead of decoding twice into `[`.
   return text
     .replace(/&#91;/g, '[')
     .replace(/&#93;/g, ']')
+    .replace(/&#44;/g, ',')
     .replace(/&amp;/g, '&');
 }
 
@@ -88,7 +107,8 @@ async function segmentToElement(type: string, data: Record<string, unknown>, opt
       return text ? { type: 'text', text } : null;
     }
     case 'face': {
-      const id = parseInt(String(data.id ?? '0'), 10);
+      const id = intOr(data.id, -1);
+      if (id < 0) return null;
       return { type: 'face', faceId: id };
     }
     case 'at': {
@@ -96,7 +116,7 @@ async function segmentToElement(type: string, data: Record<string, unknown>, opt
       if (qq === 'all') {
         return { type: 'at', targetUin: 0, uid: 'all', text: '@全体成员 ' };
       }
-      const uin = parseInt(qq, 10);
+      const uin = intOr(qq, 0);
       if (uin <= 0) return null;
 
       const name = String(data.name ?? data.nickname ?? data.card ?? '').trim();
@@ -105,16 +125,17 @@ async function segmentToElement(type: string, data: Record<string, unknown>, opt
         uid = (await options.resolveMentionUid(uin))?.trim() ?? '';
       }
 
-      return {
-        type: 'at',
-        targetUin: uin,
-        uid: uid || undefined,
-        text: name ? `@${name} ` : `@${uin} `,
-      };
+      // Leave `text` undefined when the caller didn't supply a display
+      // name. The element-builder then resolves it from the group roster
+      // (so QQ renders `@昵称` instead of `@QQ号`).
+      const element: MessageElement = { type: 'at', targetUin: uin };
+      if (uid) element.uid = uid;
+      if (name) element.text = `@${name} `;
+      return element;
     }
     case 'reply': {
-      const id = parseInt(String(data.id ?? '0'), 10);
-      if (!Number.isInteger(id) || id === 0) return null;
+      const id = intOr(data.id, 0);
+      if (id === 0) return null;
 
       if (options?.resolveReplySequence) {
         const resolved = options.resolveReplySequence(id);
@@ -147,7 +168,7 @@ async function segmentToElement(type: string, data: Record<string, unknown>, opt
         type: 'image',
         url: String(data.file ?? data.url ?? data.path ?? data.media ?? ''),
         flash: data.type === 'flash',
-        subType: parseInt(String(data.subType ?? '0'), 10),
+        subType: intOr(data.subType, 0),
         summary: data.summary ? String(data.summary) : undefined,
       };
     }
@@ -178,13 +199,13 @@ async function segmentToElement(type: string, data: Record<string, unknown>, opt
       return {
         type: 'xml',
         text: String(data.data ?? ''),
-        subType: parseInt(String(data.id ?? '0'), 10),
+        subType: intOr(data.id, 0),
       };
     }
     case 'poke': {
       return {
         type: 'poke',
-        faceId: parseInt(String(data.type ?? data.id ?? '0'), 10),
+        faceId: intOr(data.type ?? data.id, 0),
       };
     }
     case 'forward': {
@@ -196,11 +217,10 @@ async function segmentToElement(type: string, data: Record<string, unknown>, opt
     case 'node': {
       // Fake forward node segment — store the raw data for later processing
       // The content field may be a segment array, a single segment, or a CQ string
-      const uin = String(data.user_id ?? data.uin ?? '0');
       const name = String(data.nickname ?? data.name ?? '');
       return {
         type: 'node',
-        targetUin: parseInt(uin, 10) || 0,
+        targetUin: intOr(data.user_id ?? data.uin, 0),
         text: name,
         // Raw content is stored as JSON string in resId for later processing
         resId: JSON.stringify(data.content ?? ''),
@@ -254,7 +274,7 @@ async function segmentToElement(type: string, data: Record<string, unknown>, opt
         const musicJson = await resp.text();
         return { type: 'json', text: musicJson };
       } catch (e) {
-        console.warn(`[MsgParser] music sign failed: ${e}, falling back to local card`);
+        log.warn('music sign failed: %s, falling back to local card', e instanceof Error ? e.message : String(e));
         // Fallback: build a basic card locally
         const title = String(data.title ?? 'Music');
         const jsonData = JSON.stringify({

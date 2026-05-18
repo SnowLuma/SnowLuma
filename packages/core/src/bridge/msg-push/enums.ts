@@ -21,6 +21,7 @@ export enum PkgType {
 
 export enum Event0x2DCSubType {
   GroupMuteNotice = 12,
+  GroupMsgEmojiLikeNotice = 16,
   GroupRecallNotice = 17,
   GroupGreyTipNotice = 20,
   GroupEssenceNotice = 21,

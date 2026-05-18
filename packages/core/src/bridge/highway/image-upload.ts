@@ -7,6 +7,7 @@
 
 import type { Bridge } from '../bridge';
 import type { MessageElement } from '../events';
+import { createLogger } from '../../utils/logger';
 import { GROUP_IMAGE_CMD_ID, PRIVATE_IMAGE_CMD_ID } from './highway-client';
 import {
   finalizeMediaMsgInfo,
@@ -15,6 +16,14 @@ import {
   type MediaSubFileUpload,
 } from './pipeline';
 import { computeHashes, detectImageFormat, loadBinarySource } from './utils';
+
+const moduleLog = createLogger('Highway.Image');
+
+function loggerFor(bridge: Bridge) {
+  const raw = bridge.identity?.uin;
+  const uin = typeof raw === 'string' ? Number.parseInt(raw, 10) : 0;
+  return Number.isFinite(uin) && uin > 0 ? moduleLog.child({ uin }) : moduleLog;
+}
 
 interface ImageData {
   /** Empty when the caller is forwarding from cached fingerprints. */
@@ -106,7 +115,13 @@ export async function uploadImageMsgInfo(
   targetIdOrUid: string | number,
   element: MessageElement,
 ): Promise<Uint8Array> {
+  const log = loggerFor(bridge);
   const image = await loadImage(element);
+  log.debug('uploading %d bytes md5=%s... → %s %s',
+    image.fileSize,
+    image.md5Hex.slice(0, 8),
+    isGroup ? 'group' : 'c2c',
+    String(targetIdOrUid));
 
   const uploads: MediaSubFileUpload[] = [{
     source: 'top',

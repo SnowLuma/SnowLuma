@@ -129,10 +129,31 @@ export function buildHighwayExtend(
 
 function tcpConnect(host: string, port: number, timeoutMs = 10000): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
-    const socket = net.createConnection({ host, port }, () => resolve(socket));
+    let settled = false;
+    const onTimeout = () => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      reject(new Error('TCP connect timeout'));
+    };
+    const onError = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    };
+    const socket = net.createConnection({ host, port }, () => {
+      if (settled) return;
+      settled = true;
+      // Drop the connect-only listeners so subsequent IO errors / idle
+      // timeouts don't try to reject this already-resolved promise.
+      socket.setTimeout(0);
+      socket.removeListener('timeout', onTimeout);
+      socket.removeListener('error', onError);
+      resolve(socket);
+    });
     socket.setTimeout(timeoutMs);
-    socket.on('timeout', () => { socket.destroy(); reject(new Error('TCP connect timeout')); });
-    socket.on('error', reject);
+    socket.once('timeout', onTimeout);
+    socket.once('error', onError);
   });
 }
 
@@ -148,8 +169,21 @@ function readHttpResponseBody(socket: net.Socket): Promise<Uint8Array> {
     let headerEnd = -1;
     let contentLength = 0;
     let totalNeeded = 0;
+    let settled = false;
 
-    const checkComplete = () => {
+    const detach = () => {
+      socket.off('data', onData);
+      socket.off('error', onError);
+      socket.off('close', onClose);
+    };
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      detach();
+      fn();
+    };
+    const onData = (chunk: Buffer) => {
+      chunks.push(chunk);
       const buf = Buffer.concat(chunks);
       if (headerEnd < 0) {
         const idx = buf.indexOf('\r\n\r\n');
@@ -162,19 +196,19 @@ function readHttpResponseBody(socket: net.Socket): Promise<Uint8Array> {
         }
       }
       if (headerEnd >= 0 && buf.length >= totalNeeded) {
-        socket.removeAllListeners('data');
-        socket.removeAllListeners('error');
-        resolve(new Uint8Array(buf.subarray(headerEnd, totalNeeded)));
+        finish(() => resolve(new Uint8Array(buf.subarray(headerEnd, totalNeeded))));
       }
     };
-
-    socket.on('data', (chunk) => { chunks.push(chunk); checkComplete(); });
-    socket.on('error', reject);
-    socket.on('close', () => {
+    const onError = (err: Error) => finish(() => reject(err));
+    const onClose = () => finish(() => {
       const buf = Buffer.concat(chunks);
       if (headerEnd >= 0) resolve(new Uint8Array(buf.subarray(headerEnd)));
       else reject(new Error('connection closed before response'));
     });
+
+    socket.on('data', onData);
+    socket.on('error', onError);
+    socket.on('close', onClose);
   });
 }
 

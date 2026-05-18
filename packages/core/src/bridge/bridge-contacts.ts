@@ -103,6 +103,19 @@ export async function fetchFriendList(bridge: Bridge): Promise<FriendInfo[]> {
 // ---------------------------------------------------------------------------
 
 export async function fetchGroupList(bridge: Bridge): Promise<QQGroupInfo[]> {
+  // The config flags ask QQ which per-group fields to include in the
+  // response. Asking for everything looks innocent on small accounts
+  // but on ~200+ groups it makes the QQ NT process write a payload
+  // large enough to blow the named-pipe write buffer — we then read
+  // EPIPE and the whole session dies. See issue #42.
+  //
+  // The user-verified safe combination: keep `config1.*` mostly on
+  // (the response decoder pulls groupOwner / memberMax / memberCount /
+  // groupName / description / question / announcement from this
+  // group), but turn off the costly groups of bools that never map
+  // back to a decoded field:
+  //   - config1.field5002, field5003 (expansive 5xxx-range descriptors)
+  //   - all of config2 (auxiliary per-group blob the decoder ignores)
   const allTrue = true;
   const body = {
     config: {
@@ -114,11 +127,11 @@ export async function fetchGroupList(bridge: Bridge): Promise<QQGroupInfo[]> {
         question: allTrue, field20: allTrue, field22: allTrue, field23: allTrue,
         field24: allTrue, field25: allTrue, field26: allTrue, field27: allTrue,
         field28: allTrue, field29: allTrue, field30: allTrue, field31: allTrue,
-        field32: allTrue, field5001: allTrue, field5002: allTrue, field5003: allTrue,
+        field32: allTrue, field5001: allTrue, field5002: false, field5003: false,
       },
       config2: {
-        field1: allTrue, field2: allTrue, field3: allTrue, field4: allTrue,
-        field5: allTrue, field6: allTrue, field7: allTrue, field8: allTrue,
+        field1: false, field2: false, field3: false, field4: false,
+        field5: false, field6: false, field7: false, field8: false,
       },
       config3: { field5: allTrue, field6: allTrue },
     },
@@ -208,16 +221,23 @@ export async function fetchGroupMemberList(bridge: Bridge, groupId: number): Pro
 
 export async function fetchUserProfile(bridge: Bridge, uin: number): Promise<UserProfileInfo> {
   const keys = [20002, 27394, 20009, 20031, 101, 103, 102, 20020, 20003, 20026, 105, 27372, 27406, 20037];
+  // Only `uin` and `keys` — see OidbUserInfoRequestSchema for why
+  // sending field 2 makes the server reject the request.
   const body = {
     uin,
-    field2: 0,
     keys: keys.map(k => ({ key: k })),
   };
 
+  // Set OIDB envelope `reserved = 1` (the `isUid: true` flag — the
+  // name is historical, the wire semantic is "this is the UIN-form
+  // variant of the call"). Without it newer QQ NT versions take the
+  // UID-form validation path, find neither uid nor openid in the body
+  // and bounce the request with `[oidb] one of uid/openid is invaild`.
+  // Matches Lagrange.Core's FetchStrangerByUin (Reserved = 1).
   const resp = await runOidb<any>(bridge, {
     cmd: 'OidbSvcTrpcTcp.0xfe1_2',
     oidbCmd: 0xFE1, subCmd: 2,
-    request: { schema: OidbUserInfoRequestSchema, value: body },
+    request: { schema: OidbUserInfoRequestSchema, value: body, isUid: true },
     response: { schema: OidbUserInfoResponseSchema },
   });
 

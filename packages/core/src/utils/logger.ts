@@ -1,4 +1,5 @@
 import { format } from 'util';
+import { getFileTransport } from './log-file-transport';
 
 type LogLevel = 'debug' | 'info' | 'success' | 'warn' | 'error';
 
@@ -7,13 +8,25 @@ export interface LogEntry {
   time: string;
   level: LogLevel;
   scope: string;
+  /** QQ uin, when the source logger was derived via `.child({ uin })`. */
+  uin?: number;
   message: string;
   line: string;
 }
 
 interface LogOptions {
   scope: string;
+  uin?: number;
+  /** Free-form meta carried across `.child(...)` calls. Currently only
+   *  `uin` is rendered, but the bag is preserved for future fields
+   *  (requestId / traceId / etc.). */
+  meta?: Record<string, unknown>;
 }
+
+// Fixed-width slot for the UIN tag in rendered output so the [Scope]
+// column stays vertically aligned across lines with and without a UIN.
+// Width covers `[1234567890]` (12 chars); anything longer just won't pad.
+const UIN_SLOT_WIDTH = 12;
 
 const LEVEL_WEIGHT: Record<LogLevel, number> = {
   debug: 10,
@@ -55,10 +68,32 @@ function resolveMinLevel(): LogLevel {
   return 'info';
 }
 
-const MIN_LEVEL = resolveMinLevel();
+// Mutable — seeded from SNOWLUMA_LOG_LEVEL at module load, but
+// setLogLevel() lets WebUI / SDK callers flip it without a restart.
+// Only governs console + ring buffer + subscribers; the file
+// transport always sees debug-and-up regardless.
+let currentLevel: LogLevel = resolveMinLevel();
 
 function shouldLog(level: LogLevel): boolean {
-  return LEVEL_WEIGHT[level] >= LEVEL_WEIGHT[MIN_LEVEL];
+  return LEVEL_WEIGHT[level] >= LEVEL_WEIGHT[currentLevel];
+}
+
+export const LOG_LEVELS: readonly LogLevel[] = ['debug', 'info', 'success', 'warn', 'error'];
+
+export function getLogLevel(): LogLevel {
+  return currentLevel;
+}
+
+/**
+ * Change the console / subscriber level at runtime. Invalid input is
+ * a no-op (returns false). File transport is unaffected — it always
+ * sees every level so post-mortems remain useful.
+ */
+export function setLogLevel(level: string): boolean {
+  const lower = String(level).toLowerCase();
+  if (!LOG_LEVELS.includes(lower as LogLevel)) return false;
+  currentLevel = lower as LogLevel;
+  return true;
 }
 
 function useColor(): boolean {
@@ -78,43 +113,72 @@ function currentTime(): string {
   return `${hh}:${mm}:${ss}`;
 }
 
-function render(level: LogLevel, scope: string, args: unknown[]): string {
+function render(level: LogLevel, options: LogOptions, args: unknown[]): string {
   const message = format(...args);
   const ts = currentTime();
   const label = LEVEL_LABEL[level].padEnd(5, ' ');
+  const uinTag = options.uin !== undefined ? `[${options.uin}]` : '';
+  const uinSlot = uinTag.padEnd(UIN_SLOT_WIDTH);
 
   if (!useColor()) {
-    return `${ts} ${label} [${scope}] ${message}`;
+    return `${ts} ${label} ${uinSlot} [${options.scope}] ${message}`;
   }
 
   const cTs = ansi(COLOR_DIM, ts);
   const cLabel = ansi(COLOR_CODE[level], label);
-  const cScope = ansi(COLOR_SCOPE, `[${scope}]`);
-  return `${cTs} ${cLabel} ${cScope} ${message}`;
+  // Pad first, then color only the visible tag so escape codes don't eat
+  // into the alignment width.
+  const cUin = uinTag
+    ? ansi(COLOR_DIM, uinTag) + ' '.repeat(UIN_SLOT_WIDTH - uinTag.length)
+    : ' '.repeat(UIN_SLOT_WIDTH);
+  const cScope = ansi(COLOR_SCOPE, `[${options.scope}]`);
+  return `${cTs} ${cLabel} ${cUin} ${cScope} ${message}`;
 }
 
 function emit(level: LogLevel, options: LogOptions, args: unknown[]): void {
-  if (!shouldLog(level)) return;
+  // Console / subscriber level filter. File output is debug-and-up always;
+  // see log-file-transport.ts.
+  const passesConsole = shouldLog(level);
   const message = format(...args);
-  const line = render(level, options.scope, args);
+  const line = render(level, options, args);
   const entry: LogEntry = {
     id: nextLogId++,
     time: new Date().toISOString(),
     level,
     scope: options.scope,
+    ...(options.uin !== undefined ? { uin: options.uin } : {}),
     message,
     line,
   };
-  logEntries.push(entry);
-  if (logEntries.length > MAX_LOG_ENTRIES) logEntries.shift();
-  for (const subscriber of logSubscribers) subscriber(entry);
-  const stream = level === 'warn' || level === 'error' ? process.stderr : process.stdout;
-  // Strip ASCII control characters before writing to terminal to prevent
-  // BEL (0x07) in user-provided strings (e.g. group member names) from
-  // triggering Windows system beep sounds. ESC (0x1B) is preserved so the
-  // ANSI color sequences emitted by render() actually reach the terminal.
-  // eslint-disable-next-line no-control-regex
-  stream.write(line.replace(/[\x00-\x1A\x1C-\x1F\x7F]/g, '') + '\n');
+
+  if (passesConsole) {
+    logEntries.push(entry);
+    if (logEntries.length > MAX_LOG_ENTRIES) logEntries.shift();
+    for (const subscriber of logSubscribers) subscriber(entry);
+    const stream = level === 'warn' || level === 'error' ? process.stderr : process.stdout;
+    // Strip ASCII control characters before writing to terminal to prevent
+    // BEL (0x07) in user-provided strings (e.g. group member names) from
+    // triggering Windows system beep sounds. Exempt TAB (0x09), LF (0x0A)
+    // and ESC (0x1B) so multi-line records (stack traces) and ANSI color
+    // sequences emitted by render() pass through intact.
+    // eslint-disable-next-line no-control-regex
+    stream.write(line.replace(/[\x00-\x08\x0B-\x1A\x1C-\x1F\x7F]/g, '') + '\n');
+  }
+
+  // File transport always sees every level (debug-and-up) for post-mortem
+  // value; ANSI stripping happens inside the transport. UIN routes the
+  // line to its per-account sub-file in addition to the shared one.
+  getFileTransport().write(line, options.uin);
+}
+
+/**
+ * Flush and close the underlying log file. Call from shutdown hooks
+ * (SIGINT / SIGTERM / uncaughtException) so the WriteStream's internal
+ * buffer makes it to disk. Returns a promise that resolves once the OS
+ * has finalized the write.
+ */
+export function closeLogger(): Promise<void> {
+  return getFileTransport().close();
 }
 
 export function getRecentLogs(limit = 300): LogEntry[] {
@@ -135,15 +199,33 @@ export interface Logger {
   success: (...args: unknown[]) => void;
   warn: (...args: unknown[]) => void;
   error: (...args: unknown[]) => void;
+  /**
+   * Derive a new logger that inherits this one's scope and carries
+   * additional metadata. Currently `uin` is the only key with rendering
+   * support (shown in the `[UIN]` slot and routed to a per-UIN file);
+   * other keys are preserved on the options bag for forward compat.
+   */
+  child: (meta: { uin?: number; [k: string]: unknown }) => Logger;
+}
+
+function makeLogger(opts: LogOptions): Logger {
+  return {
+    debug: (...args: unknown[]) => emit('debug', opts, args),
+    info: (...args: unknown[]) => emit('info', opts, args),
+    success: (...args: unknown[]) => emit('success', opts, args),
+    warn: (...args: unknown[]) => emit('warn', opts, args),
+    error: (...args: unknown[]) => emit('error', opts, args),
+    child: (meta) => {
+      const nextUin = typeof meta.uin === 'number' ? meta.uin : opts.uin;
+      return makeLogger({
+        scope: opts.scope,
+        uin: nextUin,
+        meta: { ...(opts.meta ?? {}), ...meta },
+      });
+    },
+  };
 }
 
 export function createLogger(scope: string): Logger {
-  const options: LogOptions = { scope };
-  return {
-    debug: (...args: unknown[]) => emit('debug', options, args),
-    info: (...args: unknown[]) => emit('info', options, args),
-    success: (...args: unknown[]) => emit('success', options, args),
-    warn: (...args: unknown[]) => emit('warn', options, args),
-    error: (...args: unknown[]) => emit('error', options, args),
-  };
+  return makeLogger({ scope });
 }

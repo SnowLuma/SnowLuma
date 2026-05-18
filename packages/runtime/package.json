@@ -1,6 +1,6 @@
 {
   "name": "@snowluma/runtime",
-  "version": "1.8.1",
+  "version": "1.8.5",
   "private": true,
   "type": "module",
   "main": "index.mjs",

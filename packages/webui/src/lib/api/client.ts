@@ -1,4 +1,4 @@
-import type { HookProcessInfo, LogEntry, QQInfo, SystemInfo } from '@/types';
+import type { HookProcessInfo, LogEntry, LogLevel, QQInfo, SystemInfo } from '@/types';
 import type { PasswordRule } from '@/components/pages/change-password-page';
 import { normalizeOneBotConfig } from '@/lib/onebot-config';
 import {
@@ -84,6 +84,9 @@ class HttpApiClient implements ApiClient {
         return data.list ?? [];
       },
       stream: (options) => this.openLogStream(options),
+      getLevel: () => this.getJson<{ level: LogLevel; levels: LogLevel[] }>(`/api/logs/level`),
+      setLevel: (level) =>
+        this.postJson<{ level: LogLevel; levels: LogLevel[] }>(`/api/logs/level`, { level }),
     };
   }
 

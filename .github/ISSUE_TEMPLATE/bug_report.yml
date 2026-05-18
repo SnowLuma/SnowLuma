@@ -1,0 +1,119 @@
+name: Bug 反馈
+description: 报告一个可复现的问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢花时间反馈 Bug。请尽量填全以下信息，方便我们定位问题。
+        在提交前，请先在 [Issues](https://github.com/SnowLuma/SnowLuma/issues?q=is%3Aissue) 中搜索是否已有相同问题。
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: 提交前检查
+      options:
+        - label: 我已搜索过 Issues，确认没有重复的反馈
+          required: true
+        - label: 我使用的是 [最新 Release](https://github.com/SnowLuma/SnowLuma/releases) 或当前 `dev` 分支构建
+          required: true
+
+  - type: input
+    id: snowluma-version
+    attributes:
+      label: SnowLuma 版本
+      description: 启动日志首行或 `package.json` 里的版本号
+      placeholder: "例如 1.8.5"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: adapter
+    attributes:
+      label: 出问题的适配器
+      description: 可多选
+      multiple: true
+      options:
+        - WebSocket Server
+        - WebSocket Client
+        - HTTP Server
+        - HTTP Post
+        - WebUI
+        - Bridge / Core(协议层)
+        - 其他 / 不确定
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: 操作系统
+      placeholder: "例如 Windows 11 23H2 / macOS 14.5 / Ubuntu 22.04"
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js 版本
+      description: '`node -v` 的输出。如果使用预构建包可填"预构建包"'
+      placeholder: "例如 v20.11.0 或 预构建包"
+    validations:
+      required: true
+
+  - type: input
+    id: qq-version
+    attributes:
+      label: QQ 客户端版本
+      description: QQ NT 客户端的版本号
+      placeholder: "例如 9.9.15-29722"
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 简要说明发生了什么
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 详细列出如何触发这个问题
+      placeholder: |
+        1. 启动 SnowLuma 并登录账号 ...
+        2. 通过 HTTP Server 调用 `send_group_msg` ...
+        3. 观察到 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志 / 错误堆栈
+      description: |
+        粘贴控制台日志、SSE 实时日志或错误堆栈。
+        请注意脱敏：移除 access token、账号密码、私聊内容等敏感信息。
+      render: shell
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息
+      description: 配置片段（脱敏后）、截图、相关 Issue / PR 链接等

@@ -21,24 +21,43 @@ export function loadRuntimeConfig(): RuntimeConfig {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
 
   const loaded = tryLoadRuntimeConfig();
+  let normalized: RuntimeConfig;
   if (!loaded) {
     saveRuntimeConfig(DEFAULT_RUNTIME_CONFIG);
-    return { ...DEFAULT_RUNTIME_CONFIG };
+    normalized = { ...DEFAULT_RUNTIME_CONFIG };
+  } else {
+    normalized = {
+      webuiPort: normalizePort(loaded.webuiPort ?? 5099, 5099),
+      hookAutoLoad: normalizeBool(loaded.hookAutoLoad, false),
+    };
+    if (
+      normalized.webuiPort !== loaded.webuiPort
+      || normalized.hookAutoLoad !== loaded.hookAutoLoad
+    ) {
+      saveRuntimeConfig(normalized);
+    }
   }
 
-  const normalized: RuntimeConfig = {
-    webuiPort: normalizePort(loaded.webuiPort ?? 5099, 5099),
-    hookAutoLoad: normalizeBool(loaded.hookAutoLoad, false),
-  };
-
-  if (
-    normalized.webuiPort !== loaded.webuiPort
-    || normalized.hookAutoLoad !== loaded.hookAutoLoad
-  ) {
-    saveRuntimeConfig(normalized);
+  // SNOWLUMA_WEBUI_PORT overrides the on-disk value at runtime without
+  // rewriting runtime.json. Lets a trusted launcher (e.g. SnowLumaDesktop)
+  // pick a free port per-launch while CLI/Docker users continue to drive
+  // it from runtime.json.
+  const envPort = envPortOverride();
+  if (envPort !== undefined) {
+    normalized = { ...normalized, webuiPort: envPort };
   }
 
   return normalized;
+}
+
+function envPortOverride(): number | undefined {
+  const raw = process.env.SNOWLUMA_WEBUI_PORT;
+  if (!raw || typeof raw !== 'string') return undefined;
+  const n = Number(raw.trim());
+  if (!Number.isFinite(n)) return undefined;
+  const port = Math.trunc(n);
+  if (port <= 0 || port > 65535) return undefined;
+  return port;
 }
 
 function tryLoadRuntimeConfig(): RuntimeConfig | null {

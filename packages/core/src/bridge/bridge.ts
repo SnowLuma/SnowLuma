@@ -461,7 +461,7 @@ export class Bridge implements BridgeInterface {
   async fetchPrivatePttUrlByNode(node: MediaIndexNode): Promise<string> { return fetchPrivatePttUrlByNode_(this, node); }
   async fetchGroupVideoUrlByNode(groupId: number, node: MediaIndexNode): Promise<string> { return fetchGroupVideoUrlByNode_(this, groupId, node); }
   async fetchPrivateVideoUrlByNode(node: MediaIndexNode): Promise<string> { return fetchPrivateVideoUrlByNode_(this, node); }
-  async uploadForwardNodes(nodes: ForwardNodePayload[], groupId?: number): Promise<string> { return uploadForwardNodes_(this, nodes, groupId); }
+  async uploadForwardNodes(nodes: ForwardNodePayload[], groupId?: number, userId?: number): Promise<string> { return uploadForwardNodes_(this, nodes, groupId, userId); }
   async fetchForwardNodes(resId: string): Promise<ForwardNodePayload[]> { return fetchForwardNodes_(this, resId); }
   async deleteGroupFile(groupId: number, fileId: string): Promise<void> { return deleteGroupFile_(this, groupId, fileId); }
   async moveGroupFile(groupId: number, fileId: string, parentDirectory: string, targetDirectory: string): Promise<void> { return moveGroupFile_(this, groupId, fileId, parentDirectory, targetDirectory); }

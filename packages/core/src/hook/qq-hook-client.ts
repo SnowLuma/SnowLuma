@@ -444,7 +444,18 @@ export class QqHookClient extends EventEmitter {
   }: QqHookSendOptions = {}): Promise<QqHookSendReply | { requestId: number }> {
     await this.connect();
 
-    const requestId = this.nextRequestId++ >>> 0;
+    // Wrap inside uint32 explicitly. `nextRequestId++ >>> 0` would
+    // misbehave once the integer exceeds Number.MAX_SAFE_INTEGER (the
+    // postfix increment loses precision before the shift), letting two
+    // distinct requests collide on the same id. Skip 0 because zero is
+    // used as a sentinel by the wire protocol.
+    let requestId = this.nextRequestId;
+    while (this.pendingAcks.has(requestId) || this.pendingReplies.has(requestId)) {
+      requestId = (requestId + 1) >>> 0;
+      if (requestId === 0) requestId = 1;
+    }
+    this.nextRequestId = (requestId + 1) >>> 0;
+    if (this.nextRequestId === 0) this.nextRequestId = 1;
     const payload = encodeFrame({
       op: PipeOp.sendRequest,
       requestId,

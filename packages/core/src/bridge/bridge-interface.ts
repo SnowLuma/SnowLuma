@@ -100,7 +100,7 @@ export interface BridgeInterface {
   likeGroupAlbumMedia(groupId: number, albumId: string, batchId: string, lloc: string | undefined, isLike: boolean): Promise<any>;
 
   // ─── Forward ───
-  uploadForwardNodes(nodes: ForwardNodePayload[], groupId?: number): Promise<string>;
+  uploadForwardNodes(nodes: ForwardNodePayload[], groupId?: number, userId?: number): Promise<string>;
   fetchForwardNodes(resId: string): Promise<ForwardNodePayload[]>;
 
   // ─── Message ops ───

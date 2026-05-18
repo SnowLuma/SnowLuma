@@ -99,10 +99,32 @@ export async function sendPrivateMessage(
       return ref.messageStore.resolveReplySequence(false, userId, replyMessageId);
     },
     resolveReplyMeta: (replyMessageId) => {
+      // Prefer the cached event (it carries the REAL sender). When only
+      // meta exists — typically because the message we're replying to was
+      // sent by the bot itself and never round-tripped through dispatch
+      // (reportSelfMessage off / no message_sent event) — fall back to
+      // selfId. The previous code used `meta.targetId` here, which is the
+      // conversation PEER and shows the wrong "回复 @某人" in QQ for any
+      // self-reply.
+      const event = ref.messageStore.findEvent(replyMessageId);
+      if (event) {
+        const senderUin = typeof event.user_id === 'number'
+          ? event.user_id
+          : parseInt(String(event.user_id || '0'), 10);
+        const time = typeof event.time === 'number'
+          ? event.time
+          : parseInt(String(event.time || '0'), 10);
+        const meta = ref.messageStore.findMeta(replyMessageId);
+        return {
+          senderUin,
+          time,
+          random: meta?.random ?? 0,
+        };
+      }
       const meta = ref.messageStore.findMeta(replyMessageId);
       if (meta) {
         return {
-          senderUin: meta.targetId,
+          senderUin: ref.selfId,
           time: meta.timestamp,
           random: meta.random,
         };
@@ -219,7 +241,10 @@ export async function sendPrivateForwardMessage(
   meta?: ForwardPreviewMeta,
 ): Promise<{ messageId: number; forwardId: string }> {
   const nodes = await parseForwardNodes(ref, messages);
-  const forwardId = await ref.bridge.uploadForwardNodes(nodes);
+  // userId is plumbed through so inner image/record/video can be uploaded
+  // under the recipient's scene (otherwise the OIDB private-image upload
+  // has no target uid and the element builder bails).
+  const forwardId = await ref.bridge.uploadForwardNodes(nodes, undefined, userId);
   const previewElement = buildForwardPreviewElement(forwardId, nodes, false, meta);
   const receipt = await ref.bridge.sendPrivateMessage(userId, [previewElement]);
   const messageId = hashMessageIdInt32(receipt.sequence, userId, PRIVATE_MESSAGE_EVENT);
@@ -240,9 +265,12 @@ export async function sendPrivateForwardMessage(
 export async function uploadForwardMessage(
   ref: OneBotInstanceContext,
   messages: JsonValue,
+  groupId?: number,
 ): Promise<{ forwardId: string }> {
   const nodes = await parseForwardNodes(ref, messages);
-  const forwardId = await ref.bridge.uploadForwardNodes(nodes);
+  // groupId controls the resId namespace (group vs private). Without it,
+  // a resId minted here is unusable when later sent into a group.
+  const forwardId = await ref.bridge.uploadForwardNodes(nodes, groupId);
   return { forwardId };
 }
 

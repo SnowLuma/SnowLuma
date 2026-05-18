@@ -6,8 +6,7 @@ import type { WebSocket } from '@snowluma/websocket';
 /** Validate a request's bearer token / `?access_token=` query against the configured token. */
 export function isAuthorized(request: IncomingMessage, token: string): boolean {
   if (!token) return true;
-  const rawAuth = request.headers.authorization;
-  const auth = Array.isArray(rawAuth) ? rawAuth[0] : rawAuth ?? '';
+  const auth = request.headers.authorization ?? '';
   if (auth === `Bearer ${token}`) return true;
   try {
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');

@@ -20,10 +20,16 @@ export interface OidbCall<TResp = void> {
     schema: ProtoSchema;
     value: any;
     /**
-     * Sets the OIDB envelope `reserved` field to 1 when true. A handful
-     * of commands (group/friend list, rkey download) operate on
-     * UID-keyed data and require this flag — the wire format is
-     * otherwise identical.
+     * Sets the OIDB envelope `reserved` field to 1 when true.
+     *
+     * The name is historical and misleading: empirically (see Lagrange
+     * FetchStrangerByUin vs FetchStrangerByUid, fetchGroupList, our own
+     * highway uploads) the `reserved = 1` flag indicates the UIN-form
+     * variant of an OIDB call — it tells newer QQ NT to translate the
+     * UIN in the body to an internal UID rather than running the
+     * UID-form validator that expects a uid/openid string in the body.
+     *
+     * Omit (default false) for genuinely UID-keyed calls.
      */
     isUid?: boolean;
   };

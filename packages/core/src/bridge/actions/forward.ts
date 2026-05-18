@@ -28,12 +28,23 @@ const forwardResCache = new Map<string, ForwardNodePayload[]>();
 async function buildForwardPushBody(
   bridge: Bridge,
   node: ForwardNodePayload,
+  groupId?: number,
+  userUid?: string,
 ): Promise<Record<string, unknown>> {
   const fromUin = node.userUin > 0 ? node.userUin : toInt(bridge.identity.uin);
   if (fromUin <= 0) throw new Error('forward node user uin is invalid');
 
   const nickname = node.nickname.trim() || String(fromUin);
-  const elems = await buildSendElems(node.elements);
+  // image/record/video upload inside a forward node must be scoped to the
+  // forward's recipient: group → groupId, private → recipient uid.
+  // Without this the OIDB upload (0x11c4/0x11c5) has no scene and the
+  // element builder throws "private image target uid is missing".
+  const sendCtx = groupId !== undefined
+    ? { bridge, groupId }
+    : userUid
+      ? { bridge, userUid }
+      : { bridge };
+  const elems = await buildSendElems(node.elements, sendCtx);
   const now = Math.floor(Date.now() / 1000);
   const random = Math.floor(Math.random() * 0x7fffffff) >>> 0;
   const seq = Math.floor(Math.random() * 9000000) + 1000000;
@@ -62,12 +73,32 @@ async function buildForwardPushBody(
   };
 }
 
-export async function uploadForwardNodes(bridge: Bridge, nodes: ForwardNodePayload[], groupId?: number): Promise<string> {
+export async function uploadForwardNodes(
+  bridge: Bridge,
+  nodes: ForwardNodePayload[],
+  groupId?: number,
+  userId?: number,
+): Promise<string> {
   if (!Array.isArray(nodes) || nodes.length === 0) {
     throw new Error('forward nodes are required');
   }
 
-  const msgBody = await Promise.all(nodes.map(node => buildForwardPushBody(bridge, node)));
+  // For a private forward to `userId`, any image/record/video inside a node
+  // needs the recipient's uid as upload scene. Resolve it once up-front,
+  // and only when at least one node actually contains media (saves an RPC
+  // for text-only forwards).
+  let userUid: string | undefined;
+  if (groupId === undefined && userId !== undefined && userId > 0) {
+    const hasMedia = nodes.some(node => node.elements.some(
+      e => e.type === 'image' || e.type === 'record' || e.type === 'video',
+    ));
+    if (hasMedia) {
+      const resolved = await bridge.resolveUserUid(userId);
+      if (resolved) userUid = resolved;
+    }
+  }
+
+  const msgBody = await Promise.all(nodes.map(node => buildForwardPushBody(bridge, node, groupId, userUid)));
   const longMsgResult = protoEncode({
     action: [
       {

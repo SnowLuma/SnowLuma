@@ -1,0 +1,76 @@
+name: 功能请求
+description: 提议一个新功能或对现有功能的增强
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您的建议。在提交前，请先在 [Issues](https://github.com/SnowLuma/SnowLuma/issues?q=is%3Aissue) 中搜索是否已有类似提案。
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: 提交前检查
+      options:
+        - label: 我已搜索过 Issues，确认没有重复的提案
+          required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 涉及范围
+      multiple: true
+      options:
+        - OneBot 协议 / 消息段
+        - WebSocket Server / Client 适配器
+        - HTTP Server / Post 适配器
+        - WebUI 管理面板
+        - SDK (`@snowluma/sdk`)
+        - UI 组件 (`@snowluma/ui`)
+        - Bridge / Core(协议层)
+        - 构建 / 发布流程
+        - 文档
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 需求场景 / 当前痛点
+      description: 这个功能要解决什么问题？目前是如何变通处理的？
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望方案
+      description: 您希望它如何工作？如果是 API 改动，建议给出示例输入 / 输出
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 已考虑的替代方案
+      description: 还想过哪些其他实现路径，为什么放弃
+
+  - type: textarea
+    id: references
+    attributes:
+      label: 参考链接
+      description: 例如 OneBot 规范条目、其他实现的对应特性、相关 Issue / PR
+      placeholder: |
+        - OneBot v11 规范: https://github.com/botuniverse/onebot-11/...
+        - 相关讨论: #xxx
+
+  - type: checkboxes
+    id: willingness
+    attributes:
+      label: 您是否愿意提交 PR 来实现这个功能？
+      options:
+        - label: 愿意，且需要维护者讨论方案后再动手
+        - label: 愿意，已有大致实现思路
+        - label: 暂时只提建议

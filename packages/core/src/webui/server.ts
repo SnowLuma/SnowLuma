@@ -1,12 +1,13 @@
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
-import { Hono } from 'hono';
-import { createLogger, getRecentLogs, subscribeLogs } from '../utils/logger';
+import { Hono, type Context } from 'hono';
+import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
+import { createLogger, getLogLevel, getRecentLogs, LOG_LEVELS, setLogLevel, subscribeLogs } from '../utils/logger';
 import { randomBytes } from 'crypto';
 import type { OneBotManager } from '../onebot/manager';
 import { loadOneBotConfig, saveOneBotConfig } from '../onebot/config';
 import type { OneBotConfig } from '../onebot/types';
-import type { HookManager } from '../hook/hook-manager';
+import type { HookManager, HookProcessInfo } from '../hook/hook-manager';
 import path from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -40,6 +41,14 @@ const MUST_CHANGE_ALLOWLIST = new Set([
   '/api/logout',
 ]);
 
+// Endpoints that may authenticate via `?token=` query parameter. Only the
+// SSE log stream is here because EventSource cannot set custom headers; all
+// other endpoints MUST use the Authorization header so tokens never leak
+// into access logs / Referer / browser history.
+const TOKEN_QUERY_ALLOWLIST = new Set([
+  '/api/logs/stream',
+]);
+
 // uin = QQ number; 5–12 digits. Used to construct config file paths,
 // so we MUST refuse anything else (path traversal, NUL bytes, etc.).
 const UIN_REGEX = /^\d{5,12}$/;
@@ -51,11 +60,19 @@ function purgeExpiredTokens() {
   for (const [token, info] of sessionTokens) {
     if (now > info.expiresAt) sessionTokens.delete(token);
   }
+  for (const [ip, attempt] of loginAttempts) {
+    if (now > attempt.resetAt) loginAttempts.delete(ip);
+  }
 }
 
-function getClientIp(req: Request): string {
-  return req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? '127.0.0.1';
-}
+/**
+ * Resolve the client IP for per-IP rate limiting. Default is the TCP
+ * socket peer (cannot be spoofed by the client). Operators behind a
+ * reverse proxy must opt in via the `SNOWLUMA_WEBUI_TRUST_PROXY` env
+ * var; see `./client-ip.ts` for the accepted values.
+ */
+const trustProxyMode = parseTrustProxy(process.env.SNOWLUMA_WEBUI_TRUST_PROXY);
+const getClientIp = makeClientIpResolver(trustProxyMode);
 
 async function fetchQqAvatar(uin: string): Promise<{ body: Uint8Array; contentType: string }> {
   const response = await fetch(`https://q1.qlogo.cn/g?b=qq&nk=${encodeURIComponent(uin)}&s=100`, {
@@ -81,13 +98,43 @@ export async function initWebUI(
     log.warn('dev mode enabled: password=%s', WebuiAuth.devPassword);
     log.warn('dev mode skips config/webui.json and password rotation');
   } else if (initialPassword) {
+    log.info('════════════════════════════════════════════════════════════════');
+    log.info('  ★ WebUI 初始登录凭据 / Initial WebUI Credentials ★');
+    log.info('  请立即登录并修改密码 —— 关闭程序后此密码无法找回。');
+    log.info('  若跳过初始改密，下次启动将自动生成新的随机密码。');
+    log.info('  Log in and change the password now; it will not be shown again.');
+    log.info('────────────────────────────────────────────────────────────────');
     log.info('initial credentials: user=admin password=%s', initialPassword);
-    log.info('password change required after first login');
+    log.info('════════════════════════════════════════════════════════════════');
   } else if (auth.mustChangePassword()) {
     log.warn('password change is still required');
   }
+  log.info('login rate-limit keyed by: %s', describeTrustProxy(trustProxyMode));
+  if (trustProxyMode.kind === 'all') {
+    log.warn('SNOWLUMA_WEBUI_TRUST_PROXY=1 — only safe behind a reverse proxy that strips client-set X-Real-IP / X-Forwarded-For');
+  }
 
   const app = new Hono();
+
+  // ─── Anti-indexing ───────────────────────────────────────────────────────
+  // The WebUI is an admin surface that has no business showing up in
+  // search results — even the login page leaks the existence of a
+  // SnowLuma instance to anyone scanning the IP. Three overlapping
+  // signals: a hard X-Robots-Tag on every response, a robots.txt for
+  // crawlers that read it before pages, and a <meta robots> in the
+  // SPA shell for the case where a proxy strips headers.
+  app.use('*', async (c, next) => {
+    await next();
+    c.res.headers.set(
+      'X-Robots-Tag',
+      'noindex, nofollow, noarchive, nosnippet, noimageindex',
+    );
+  });
+
+  app.get('/robots.txt', (c) => {
+    c.res.headers.set('Content-Type', 'text/plain; charset=utf-8');
+    return c.body('User-agent: *\nDisallow: /\n');
+  });
 
   // ─── Auth middleware ─────────────────────────────────────────────────────
   app.use('/api/*', async (c, next) => {
@@ -96,11 +143,10 @@ export async function initWebUI(
 
     const authHeader = c.req.header('Authorization');
     const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
-    const queryToken = c.req.query('token') ?? '';
+    const queryToken = TOKEN_QUERY_ALLOWLIST.has(reqPath) ? (c.req.query('token') ?? '') : '';
     const token = bearerToken || queryToken;
     if (!token) return c.json({ status: 'failed', message: 'Unauthorized' }, 401);
 
-    purgeExpiredTokens();
     const info = sessionTokens.get(token);
     if (!info || Date.now() > info.expiresAt) {
       return c.json({ status: 'failed', message: 'Token expired or invalid' }, 401);
@@ -114,9 +160,14 @@ export async function initWebUI(
     await next();
   });
 
+  // Periodic janitor — keeps sessionTokens / loginAttempts from growing
+  // unbounded and replaces the per-request O(n) sweep we used to do.
+  const tokenJanitor = setInterval(purgeExpiredTokens, 60_000);
+  tokenJanitor.unref?.();
+
   // ─── Login ───────────────────────────────────────────────────────────────
   app.post('/api/login', async (c) => {
-    const ip = getClientIp(c.req.raw);
+    const ip = getClientIp(c);
     const now = Date.now();
     const attempt = loginAttempts.get(ip);
     if (attempt && attempt.count >= LOGIN_MAX_ATTEMPTS && now < attempt.resetAt) {
@@ -140,7 +191,6 @@ export async function initWebUI(
     }
 
     loginAttempts.delete(ip);
-    purgeExpiredTokens();
     const token = randomBytes(32).toString('hex');
     const mustChange = auth.mustChangePassword();
     sessionTokens.set(token, { expiresAt: now + TOKEN_TTL_MS, mustChangePassword: mustChange });
@@ -196,20 +246,15 @@ export async function initWebUI(
     try {
       auth.setPassword(newPassword);
     } catch (err) {
-      return c.json({ success: false, message: err instanceof Error ? err.message : String(err) }, 400);
+      log.warn('change password failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '密码修改失败' }, 400);
     }
-    // Invalidate all other sessions; current keeps but loses must-change flag.
-    const currentToken = c.get('sessionToken' as never) as string | undefined;
-    for (const [tok, info] of sessionTokens) {
-      if (tok === currentToken) {
-        info.mustChangePassword = false;
-        sessionTokens.set(tok, info);
-      } else {
-        sessionTokens.delete(tok);
-      }
-    }
-    log.info('password updated');
-    return c.json({ success: true });
+    // Invalidate every session, including the current one. If the old
+    // password was compromised, the attacker may already hold the current
+    // token; rotating credentials must rotate sessions too.
+    sessionTokens.clear();
+    log.info('password updated; all sessions invalidated');
+    return c.json({ success: true, requireRelogin: true });
   });
 
   // ─── Avatar proxy (uin validated) ────────────────────────────────────────
@@ -315,27 +360,53 @@ export async function initWebUI(
     return c.json({ list: getRecentLogs(limit) });
   });
 
+  app.get('/api/logs/level', (c) => {
+    return c.json({ level: getLogLevel(), levels: [...LOG_LEVELS] });
+  });
+
+  app.post('/api/logs/level', async (c) => {
+    const body = await c.req.json().catch(() => null) as { level?: unknown } | null;
+    const next = typeof body?.level === 'string' ? body.level : '';
+    if (!setLogLevel(next)) {
+      return c.json({ message: `invalid level: ${next}`, levels: [...LOG_LEVELS] }, 400);
+    }
+    log.info('console log level set to %s via WebUI', getLogLevel());
+    return c.json({ level: getLogLevel(), levels: [...LOG_LEVELS] });
+  });
+
   app.get('/api/logs/stream', (c) => {
     const stream = new ReadableStream({
       start(controller) {
         const encoder = new TextEncoder();
+        let closed = false;
+        let unsubscribe: (() => void) | undefined;
+        let heartbeat: NodeJS.Timeout | undefined;
+        const teardown = () => {
+          if (closed) return;
+          closed = true;
+          if (heartbeat) clearInterval(heartbeat);
+          unsubscribe?.();
+          try { controller.close(); } catch { /* ignore */ }
+        };
+        const safeEnqueue = (chunk: Uint8Array) => {
+          if (closed) return;
+          try {
+            controller.enqueue(chunk);
+          } catch {
+            // The peer dropped between abort and the next enqueue —
+            // treat as end-of-stream so we don't leak listeners.
+            teardown();
+          }
+        };
         const send = (event: unknown) => {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+          safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
         };
         send({ type: 'ready' });
-        const unsubscribe = subscribeLogs((entry) => send(entry));
-        const heartbeat = setInterval(() => {
-          controller.enqueue(encoder.encode(': heartbeat\n\n'));
+        unsubscribe = subscribeLogs((entry) => send(entry));
+        heartbeat = setInterval(() => {
+          safeEnqueue(encoder.encode(': heartbeat\n\n'));
         }, 15000);
-        c.req.raw.signal.addEventListener('abort', () => {
-          clearInterval(heartbeat);
-          unsubscribe();
-          try {
-            controller.close();
-          } catch {
-            /* ignore */
-          }
-        });
+        c.req.raw.signal.addEventListener('abort', teardown);
       },
     });
     return new Response(stream, {
@@ -356,62 +427,43 @@ export async function initWebUI(
     }
   });
 
-  app.post('/api/processes/:pid/load', async (c) => {
-    if (!hookManager) return c.json({ success: false, message: 'hook manager is not available' }, 503);
-    const pid = Number(c.req.param('pid'));
-    if (!Number.isInteger(pid) || pid <= 0 || pid > 4_194_304) {
-      return c.json({ success: false, message: 'invalid pid' }, 400);
-    }
-    try {
-      const processInfo = await hookManager.loadProcess(pid);
-      return c.json({ success: processInfo.status !== 'error', process: processInfo });
-    } catch (err) {
-      return c.json({ success: false, message: err instanceof Error ? err.message : String(err) }, 500);
-    }
-  });
-
-  app.post('/api/processes/:pid/unload', async (c) => {
-    if (!hookManager) return c.json({ success: false, message: 'hook manager is not available' }, 503);
-    const pid = Number(c.req.param('pid'));
-    if (!Number.isInteger(pid) || pid <= 0 || pid > 4_194_304) {
-      return c.json({ success: false, message: 'invalid pid' }, 400);
-    }
-    try {
-      const processInfo = await hookManager.unloadProcess(pid);
-      return c.json({ success: processInfo.status !== 'error', process: processInfo });
-    } catch (err) {
-      return c.json({ success: false, message: err instanceof Error ? err.message : String(err) }, 500);
-    }
-  });
-
-  app.post('/api/processes/:pid/refresh', async (c) => {
-    if (!hookManager) return c.json({ success: false, message: 'hook manager is not available' }, 503);
-    const pid = Number(c.req.param('pid'));
-    if (!Number.isInteger(pid) || pid <= 0 || pid > 4_194_304) {
-      return c.json({ success: false, message: 'invalid pid' }, 400);
-    }
-    try {
-      const processInfo = await hookManager.refreshProcess(pid);
-      return c.json({ success: processInfo.status !== 'error', process: processInfo });
-    } catch (err) {
-      return c.json({ success: false, message: err instanceof Error ? err.message : String(err) }, 500);
-    }
-  });
+  // Per-process action handler. The three routes below differ only in
+  // which HookManager method they call.
+  const MAX_PID = 4_194_304;
+  function processAction(label: string, action: (pid: number) => Promise<HookProcessInfo>) {
+    return async (c: Context) => {
+      if (!hookManager) return c.json({ success: false, message: 'hook manager is not available' }, 503);
+      const pid = Number(c.req.param('pid'));
+      if (!Number.isInteger(pid) || pid <= 0 || pid > MAX_PID) {
+        return c.json({ success: false, message: 'invalid pid' }, 400);
+      }
+      try {
+        const processInfo = await action(pid);
+        return c.json({ success: processInfo.status !== 'error', process: processInfo });
+      } catch (err) {
+        log.warn('%s pid=%d failed: %s', label, pid, err instanceof Error ? err.message : String(err));
+        return c.json({ success: false, message: '操作失败，请检查服务器日志' }, 500);
+      }
+    };
+  }
+  app.post('/api/processes/:pid/load',    processAction('load',    (pid) => hookManager!.loadProcess(pid)));
+  app.post('/api/processes/:pid/unload',  processAction('unload',  (pid) => hookManager!.unloadProcess(pid)));
+  app.post('/api/processes/:pid/refresh', processAction('refresh', (pid) => hookManager!.refreshProcess(pid)));
 
   app.get('/api/config/:uin', (c) => {
     const uin = c.req.param('uin');
     if (!UIN_REGEX.test(uin)) return c.json({ message: 'invalid uin' }, 400);
+    // Read-only: never write defaults to disk on a GET. The persisted
+    // file is created when manager.onSessionStarted boots an instance
+    // or when the operator POSTs from this very endpoint.
     const config = loadOneBotConfig(uin);
-    return c.json({
-      ...config,
-      config,
-    });
+    return c.json({ config });
   });
 
   app.post('/api/config/:uin', async (c) => {
+    const uin = c.req.param('uin');
+    if (!UIN_REGEX.test(uin)) return c.json({ success: false, message: 'invalid uin' }, 400);
     try {
-      const uin = c.req.param('uin');
-      if (!UIN_REGEX.test(uin)) return c.json({ success: false, message: 'invalid uin' }, 400);
       const body = (await c.req.json()) as OneBotConfig;
       saveOneBotConfig(uin, body);
       const reloaded = oneBotManager.reloadConfig(uin);
@@ -422,7 +474,8 @@ export async function initWebUI(
         message: reloaded ? '配置保存成功，已热重载当前会话。' : '配置保存成功，当前会话未在线，将在下次连接时生效。',
       });
     } catch (err) {
-      return c.json({ success: false, message: String(err) }, 400);
+      log.warn('save config for uin=%s failed: %s', uin, err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '配置保存失败，请检查服务器日志' }, 400);
     }
   });
 
