@@ -3,7 +3,8 @@
 // throw away changes). Validation is minimal — blank-name and dup-name
 // disable the save button; everything else is best-effort coercion.
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { Check, Copy, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -80,7 +81,7 @@ export function NodeEditDialog<K extends NetworkKind>(props: NodeEditDialogProps
 
           <KindFields kind={kind} draft={draft} patch={patch} />
 
-          <Field
+          <TokenField
             label="授权 Token"
             placeholder="不填则无密码"
             value={draft.accessToken}
@@ -287,6 +288,106 @@ function Field({ label, value, onChange, placeholder, type = 'text', error }: Fi
         className={cn(error && 'border-destructive focus-visible:ring-destructive/40')}
       />
       {error && <p className="text-[11px] text-destructive">{error}</p>}
+    </div>
+  );
+}
+
+interface TokenFieldProps {
+  label: string;
+  value: string | undefined;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}
+
+/** Insecure-context clipboard fallback. Returns true on success.
+ *  Cast through a local alias so ts(6387) doesn't flag the call site —
+ *  the deprecation tag is on the live signature and we know we're using
+ *  the still-supported legacy form on purpose. */
+function legacyCopyToClipboard(value: string): boolean {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = value;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const exec = (document as unknown as { execCommand(cmd: string): boolean }).execCommand;
+    const ok = exec.call(document, 'copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Password-style input for the access token. Hidden by default to keep
+ * the value out of over-the-shoulder reads / screenshots; an eye toggle
+ * unmasks it and a copy button shoves the current value to the system
+ * clipboard with a short "已复制" confirmation flash.
+ */
+function TokenField({ label, value, onChange, placeholder }: TokenFieldProps) {
+  const [visible, setVisible] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copiedTimerRef = useRef<number | null>(null);
+
+  const handleCopy = async () => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      // navigator.clipboard is undefined on insecure origins (LAN HTTP
+      // outside localhost). Fall back to a transient textarea +
+      // document.execCommand('copy'). The latter is deprecated but every
+      // current browser still honours it and there is no modern
+      // replacement for non-secure-context clipboard writes.
+      if (!legacyCopyToClipboard(value)) return;
+    }
+    setCopied(true);
+    if (copiedTimerRef.current != null) window.clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = window.setTimeout(() => {
+      setCopied(false);
+      copiedTimerRef.current = null;
+    }, 1400);
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label>{label}</Label>
+      <div className="flex gap-1.5">
+        <Input
+          // Switch input type rather than masking the string so paste /
+          // selection / autofill all behave like a native password field.
+          type={visible ? 'text' : 'password'}
+          value={value ?? ''}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          autoComplete="off"
+          spellCheck={false}
+          className="flex-1 font-mono"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          onClick={handleCopy}
+          disabled={!value}
+          aria-label={copied ? '已复制' : '复制'}
+          title={copied ? '已复制' : '复制'}
+        >
+          {copied ? <Check className="size-4 text-success" /> : <Copy className="size-4" />}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          onClick={() => setVisible((v) => !v)}
+          aria-label={visible ? '隐藏' : '显示'}
+          title={visible ? '隐藏' : '显示'}
+        >
+          {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+        </Button>
+      </div>
     </div>
   );
 }
