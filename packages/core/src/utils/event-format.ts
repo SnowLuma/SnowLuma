@@ -198,6 +198,8 @@ export function formatEvent(identity: IdentityService, event: QQEventVariant): s
         return `群邀请 ${formatUser(identity, undefined, event.fromUin)} -> ${formatGroup(identity, event.groupId)}`;
       case 'group_essence':
         return `精华 ${formatGroup(identity, event.groupId)} | ${event.set ? '+' : '-'}精华`;
+      case 'group_msg_emoji_like':
+        return `表情回应 ${formatGroup(identity, event.groupId)} | ${formatUser(identity, event.groupId, event.operatorUin, event.operatorUid)} ${event.isAdd ? '+' : '-'}[${event.emojiId}] msgSeq=${event.msgSeq}`;
       default:
         return null;
     }

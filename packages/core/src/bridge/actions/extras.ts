@@ -66,6 +66,9 @@ export async function getStrangerStatus(bridge: Bridge, uin: number): Promise<St
       request: {
         schema: OidbStrangerStatusReqSchema,
         value: { uin, key: [{ key: 27372 }] },
+        // Same UIN-form flag fetchUserProfile sets — without it newer
+        // QQ NT rejects with `[oidb] one of uid/openid is invaild`.
+        isUid: true,
       },
       response: { schema: OidbStrangerStatusRespSchema },
     });

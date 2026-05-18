@@ -205,3 +205,41 @@ export const NotifyMessageBodySchema = {
   msgSequence:      { field: 37, type: 'uint32' as const },
   field39:          { field: 39, type: 'uint32' as const },
 } satisfies ProtoSchema;
+
+// ─── Event0x2DC subType=16: GroupMsgEmojiLike ──────────────────────────────
+//
+// QQ pushes a Group message emoji reaction (someone tapped an emoji on a
+// message in a group). The payload nesting matches NapCat's transformer
+// (packet/transformer/proto/message/message.ts → GroupReactNotify); the
+// outermost message is preceded by a 7-byte prefix that must be stripped
+// before decoding (see the call site).
+
+export const GroupReactionDataInnerDataTargetSchema = {
+  seq: { field: 1, type: 'uint64' as const },
+} satisfies ProtoSchema;
+
+export const GroupReactionDataContentSchema = {
+  code:        { field: 1, type: 'string' as const },
+  count:       { field: 3, type: 'uint32' as const },
+  operatorUid: { field: 4, type: 'string' as const },
+  type:        { field: 5, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
+export const GroupReactionDataInnerDataSchema = {
+  groupReactionTarget:      { field: 2, type: 'message' as const, schema: GroupReactionDataInnerDataTargetSchema },
+  groupReactionDataContent: { field: 3, type: 'message' as const, schema: GroupReactionDataContentSchema },
+} satisfies ProtoSchema;
+
+export const GroupReactionDataInnerSchema = {
+  data: { field: 1, type: 'message' as const, schema: GroupReactionDataInnerDataSchema },
+} satisfies ProtoSchema;
+
+export const GroupReactionDataSchema = {
+  data: { field: 1, type: 'message' as const, schema: GroupReactionDataInnerSchema },
+} satisfies ProtoSchema;
+
+export const GroupReactNotifySchema = {
+  groupUin:          { field: 4, type: 'uint64' as const },
+  field13:           { field: 13, type: 'uint32' as const },
+  groupReactionData: { field: 44, type: 'message' as const, schema: GroupReactionDataSchema },
+} satisfies ProtoSchema;

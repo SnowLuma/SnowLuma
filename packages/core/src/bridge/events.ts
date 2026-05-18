@@ -230,6 +230,22 @@ export interface FriendAddEvent extends QQEvent {
   userUin: number;
 }
 
+export interface GroupMsgEmojiLikeEvent extends QQEvent {
+  kind: 'group_msg_emoji_like';
+  groupId: number;
+  operatorUin: number;
+  operatorUid: string;
+  /** Sequence of the message that was reacted to (server-assigned msg_seq). */
+  msgSeq: number;
+  /** Emoji ID. QQ system faces are short numeric strings; market faces
+   *  are alphanumeric. We keep the wire string verbatim. */
+  emojiId: string;
+  /** Multiplicity of the reaction event. Usually 1. */
+  count: number;
+  /** True when the reaction is being added; false when removed. */
+  isAdd: boolean;
+}
+
 export type QQEventVariant =
   | FriendMessage
   | GroupMessage
@@ -246,4 +262,5 @@ export type QQEventVariant =
   | GroupPokeEvent
   | GroupEssenceEvent
   | GroupFileUploadEvent
-  | FriendAddEvent;
+  | FriendAddEvent
+  | GroupMsgEmojiLikeEvent;
