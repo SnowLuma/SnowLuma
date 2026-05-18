@@ -143,19 +143,61 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
       } else if (req.method === 'POST') {
         const bodyContent = await readRequestBody(req);
         if (bodyContent.trim()) {
-          try {
-            const parsedBody = JSON.parse(bodyContent);
-            if (typeof parsedBody === 'object' && parsedBody !== null && !Array.isArray(parsedBody)) {
-              if (parsedBody.action && !action) action = String(parsedBody.action);
-              if (parsedBody.params && typeof parsedBody.params === 'object' && !Array.isArray(parsedBody.params)) {
-                params = parsedBody.params as Record<string, unknown>;
-              } else {
-                params = parsedBody as Record<string, unknown>;
+          const contentType = req.headers['content-type'] ?? '';
+          if (contentType.includes('application/x-www-form-urlencoded')) {
+            const parsed = new URLSearchParams(bodyContent);
+            parsed.forEach((value, key) => {
+              try {
+                params[key] = JSON.parse(value);
+              } catch {
+                params[key] = value;
               }
-              echo = parsedBody.echo;
+            });
+            if (params.action && !action) {
+              action = String(params.action);
+              delete params.action;
             }
-          } catch {
-            writeJson(res, 400, { status: 'failed', retcode: 1400, data: null, wording: 'bad request: invalid json' });
+            if (params.echo !== undefined) {
+              echo = params.echo;
+              delete params.echo;
+            }
+          } else if (contentType.includes('application/json') || !contentType) {
+            try {
+              const parsedBody = JSON.parse(bodyContent);
+              if (typeof parsedBody === 'object' && parsedBody !== null && !Array.isArray(parsedBody)) {
+                if (parsedBody.action && !action) action = String(parsedBody.action);
+                if (parsedBody.params && typeof parsedBody.params === 'object' && !Array.isArray(parsedBody.params)) {
+                  params = parsedBody.params as Record<string, unknown>;
+                } else {
+                  params = parsedBody as Record<string, unknown>;
+                }
+                echo = parsedBody.echo;
+              }
+            } catch {
+              if (contentType.includes('application/json')) {
+                writeJson(res, 400, { status: 'failed', retcode: 1400, data: null, wording: 'bad request: invalid json' });
+                return;
+              }
+              // 无 content-type，JSON 失败则 fallback 到 urlencoded
+              const parsed = new URLSearchParams(bodyContent);
+              parsed.forEach((value, key) => {
+                try {
+                  params[key] = JSON.parse(value);
+                } catch {
+                  params[key] = value;
+                }
+              });
+              if (params.action && !action) {
+                action = String(params.action);
+                delete params.action;
+              }
+              if (params.echo !== undefined) {
+                echo = params.echo;
+                delete params.echo;
+              }
+            }
+          } else {
+            writeJson(res, 400, { status: 'failed', retcode: 1400, data: null, wording: `bad request: unsupported content-type: ${contentType}` });
             return;
           }
         }
