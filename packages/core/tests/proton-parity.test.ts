@@ -43,6 +43,13 @@ import {
   MentionExtraSendSchema,
   MarkdownDataSchema,
 } from '../src/bridge/proto/action';
+import {
+  HttpConn0x6FF501RequestSchema,
+  HttpConn0x6FF501ResponseSchema,
+  ReqDataHighwayHeadSchema,
+  NTV2RichMediaHighwayExtSchema,
+  FileUploadExtSchema,
+} from '../src/bridge/proto/highway';
 
 import type {
   SendLongMsgResp,
@@ -80,6 +87,13 @@ import type {
   MentionExtraSend,
   MarkdownData,
 } from '../src/bridge/proto/proton/action';
+import type {
+  HttpConn0x6FF501Request,
+  HttpConn0x6FF501Response,
+  ReqDataHighwayHead,
+  NTV2RichMediaHighwayExt,
+  FileUploadExt,
+} from '../src/bridge/proto/proton/highway';
 
 function hex(buf: Uint8Array): string {
   return Buffer.from(buf).toString('hex');
@@ -460,6 +474,108 @@ describe('proton ↔ legacy parity (longmsg subset)', () => {
     const data: MarkdownData = { content: '**bold** _italic_' };
     const legacy = protoEncode(data as any, MarkdownDataSchema);
     const proton = protobuf_encode<MarkdownData>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  // ── highway.ts coverage ────────────────────────────────────────────
+
+  it('encodes HttpConn0x6FF501Request (high-numbered field tag 0x501) identically', () => {
+    const data: HttpConn0x6FF501Request = {
+      httpConn: {
+        field1: 1, field2: 2, field3: 16, field4: 1, field6: 3,
+        serviceTypes: [1, 5, 10, 21],
+        field9: 2, field10: 9, field11: 8, ver: '1.0.1',
+      },
+    };
+    const legacy = protoEncode(data as any, HttpConn0x6FF501RequestSchema);
+    const proton = protobuf_encode<HttpConn0x6FF501Request>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes HttpConn0x6FF501Response (with repeated server infos) identically', () => {
+    const data: HttpConn0x6FF501Response = {
+      httpConn: {
+        sigSession: new Uint8Array([1, 2, 3]),
+        sessionKey: new Uint8Array([4, 5, 6]),
+        serverInfos: [
+          { serviceType: 1, serverAddrs: [{ type: 1, ip: 0x01020304, port: 8080, area: 1 }] },
+          { serviceType: 2, serverAddrs: [{ type: 1, ip: 0x05060708, port: 8081, area: 2 }] },
+        ],
+      },
+    };
+    const legacy = protoEncode(data as any, HttpConn0x6FF501ResponseSchema);
+    const proton = protobuf_encode<HttpConn0x6FF501Response>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes ReqDataHighwayHead (multiple nested messages) identically', () => {
+    const data: ReqDataHighwayHead = {
+      msgBaseHead: {
+        version: 1, uin: '10001', command: 'PicUp.DataUp', seq: 1, retryTimes: 1,
+        appId: 1600001604, dataFlag: 16, commandId: 1003,
+      },
+      msgSegHead: {
+        serviceId: 1, filesize: 100n, dataOffset: 50n, dataLength: 100,
+        retCode: 1, serviceTicket: new Uint8Array([1, 2, 3]), flag: 1,
+        md5: new Uint8Array([4, 5, 6]), fileMd5: new Uint8Array([7, 8, 9]),
+        cacheAddr: 1, cachePort: 80,
+      },
+      bytesReqExtendInfo: new Uint8Array([0xab, 0xcd]),
+      timestamp: 1234567890n,
+      msgLoginSigHead: { loginSigType: 8, appId: 1600001604 },
+    };
+    const legacy = protoEncode(data as any, ReqDataHighwayHeadSchema);
+    const proton = protobuf_encode<ReqDataHighwayHead>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes NTV2RichMediaHighwayExt (repeated_bytes hash) identically', () => {
+    const data: NTV2RichMediaHighwayExt = {
+      fileUuid: 'uuid-1',
+      uKey: 'key-1',
+      network: { ipv4s: [{ domain: { isEnable: true, ip: '127.0.0.1' }, port: 80 }] },
+      blockSize: 1048576,
+      hash: { fileSha1: [new Uint8Array([1, 2]), new Uint8Array([3, 4])] },
+    };
+    const legacy = protoEncode(data as any, NTV2RichMediaHighwayExtSchema);
+    const proton = protobuf_encode<NTV2RichMediaHighwayExt>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes FileUploadExt (high-numbered tags 100/200/400/600/700) identically', () => {
+    const data: FileUploadExt = {
+      unknown1: 100,
+      unknown2: 1,
+      unknown3: 1,
+      entry: {
+        busiBuff: {
+          busId: 102,
+          senderUin: 10001n,
+          receiverUin: 555n,
+          groupCode: 555n,
+        },
+        fileEntry: {
+          fileSize: 12345n,
+          md5: new Uint8Array([0x11, 0x22]),
+          checkKey: new Uint8Array([0x33, 0x44]),
+          md5S2: new Uint8Array([0x55]),
+          fileId: 'file-1',
+          uploadKey: new Uint8Array([0x66]),
+        },
+        clientInfo: {
+          clientType: 3, appId: '100', terminalType: 3, clientVer: '1.1.1', unknown: 4,
+        },
+        fileNameInfo: { fileName: 'a.bin' },
+        host: {
+          hosts: [
+            { url: { unknown: 1, host: 'upload.qq.com' }, port: 80 },
+          ],
+        },
+      },
+      unknown200: 1,
+    };
+    const legacy = protoEncode(data as any, FileUploadExtSchema);
+    const proton = protobuf_encode<FileUploadExt>(data);
     expect(hex(proton)).toBe(hex(legacy));
   });
 

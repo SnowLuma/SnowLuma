@@ -6,7 +6,7 @@
 // stay as separate functions.
 
 import type { Bridge } from '../bridge';
-import { protoEncode } from '../../protobuf/decode';
+import { protobuf_encode } from '@snowluma/proton';
 import { runOidb } from '../bridge-oidb';
 import { fetchHighwaySession, uploadHighwayHttp } from '../highway/highway-client';
 import { computeHashes, computeMd5, FILE_UPLOAD_MAX_BYTES, loadBinarySource } from '../highway/utils';
@@ -26,7 +26,7 @@ import {
   NTV2RichMediaReqSchema,
   NTV2RichMediaRespSchema,
 } from '../proto/oidb-action';
-import { FileUploadExtSchema } from '../proto/highway';
+import type { FileUploadExt } from '../proto/proton/highway';
 import { toHexUpper } from '../../utils/hex';
 import { ensureRetCodeZero, resolveSelfUid, toInt, type MediaIndexNode } from './shared';
 
@@ -104,7 +104,7 @@ function buildGroupFileUploadExt(
   uploadHost: string,
   uploadPort: number,
 ): Uint8Array {
-  return protoEncode({
+  return protobuf_encode<FileUploadExt>({
     unknown1: 100,
     unknown2: 1,
     entry: {
@@ -145,7 +145,7 @@ function buildGroupFileUploadExt(
       },
     },
     unknown200: 0,
-  }, FileUploadExtSchema);
+  });
 }
 
 function buildPrivateFileUploadExt(
@@ -159,7 +159,7 @@ function buildPrivateFileUploadExt(
   uploadHost: string,
   uploadPort: number,
 ): Uint8Array {
-  return protoEncode({
+  return protobuf_encode<FileUploadExt>({
     unknown1: 100,
     unknown2: 1,
     entry: {
@@ -201,7 +201,7 @@ function buildPrivateFileUploadExt(
     },
     unknown3: 0,
     unknown200: 1,
-  }, FileUploadExtSchema);
+  });
 }
 
 function normalizeMediaNode(node: MediaIndexNode): Record<string, unknown> {
