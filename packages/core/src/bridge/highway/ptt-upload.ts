@@ -22,7 +22,13 @@ import {
   type MediaSubFileUpload,
 } from './pipeline';
 
-const log = createLogger('Ptt');
+const moduleLog = createLogger('Highway.Ptt');
+
+function loggerFor(bridge: Bridge) {
+  const raw = bridge.identity?.uin;
+  const uin = typeof raw === 'string' ? Number.parseInt(raw, 10) : 0;
+  return Number.isFinite(uin) && uin > 0 ? moduleLog.child({ uin }) : moduleLog;
+}
 
 export const PRIVATE_PTT_CMD_ID = 1007;
 export const GROUP_PTT_CMD_ID = 1008;
@@ -105,7 +111,7 @@ async function loadPtt(element: MessageElement, tempDir: string): Promise<PttPay
     const silk = await encodeSilk(inputPath, tempDir);
     if (silk.converted) {
       cleanups.push(() => { try { fs.unlinkSync(silk.path); } catch { /* ignore */ } });
-      log.debug('converted record to silk: %s -> %s (duration=%ds)', inputPath, silk.path, silk.duration);
+      moduleLog.debug('converted record to silk: %s -> %s (duration=%ds)', inputPath, silk.path, silk.duration);
     }
 
     const silkBytes = new Uint8Array(fs.readFileSync(silk.path));
@@ -141,8 +147,15 @@ export async function uploadPttMsgInfo(
   targetIdOrUid: string | number,
   element: MessageElement,
 ): Promise<Uint8Array> {
+  const log = loggerFor(bridge);
   const tempDir = defaultPttTempDir();
   const ptt = await loadPtt(element, tempDir);
+  log.debug('uploading %d bytes md5=%s... → %s %s duration=%ds',
+    ptt.fileSize,
+    ptt.md5Hex.slice(0, 8),
+    isGroup ? 'group' : 'c2c',
+    String(targetIdOrUid),
+    ptt.duration);
   try {
     const uploads: MediaSubFileUpload[] = [{
       source: 'top',

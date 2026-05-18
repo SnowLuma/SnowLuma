@@ -8,10 +8,10 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
-import type { LogEntry } from '@/types';
+import type { LogEntry, LogLevel } from '@/types';
 import { useApi } from '@/lib/api';
 
-const levelClass: Record<LogEntry['level'], string> = {
+const levelClass: Record<LogLevel, string> = {
   debug: 'text-muted-foreground',
   info: 'text-primary',
   success: 'text-success',
@@ -19,7 +19,7 @@ const levelClass: Record<LogEntry['level'], string> = {
   error: 'text-destructive',
 };
 
-const LEVELS: LogEntry['level'][] = ['debug', 'info', 'success', 'warn', 'error'];
+const LEVELS: LogLevel[] = ['debug', 'info', 'success', 'warn', 'error'];
 
 export function LogsPage() {
   const api = useApi();
@@ -27,8 +27,10 @@ export function LogsPage() {
   const [streamStatus, setStreamStatus] = useState('连接中');
   const [paused, setPaused] = useState(false);
   const [filter, setFilter] = useState('');
-  const [enabledLevels, setEnabledLevels] = useState<Set<LogEntry['level']>>(new Set(LEVELS));
+  const [enabledLevels, setEnabledLevels] = useState<Set<LogLevel>>(new Set(LEVELS));
   const [confirmClear, setConfirmClear] = useState(false);
+  const [serverLevel, setServerLevel] = useState<LogLevel | null>(null);
+  const [levelBusy, setLevelBusy] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
@@ -43,6 +45,25 @@ export function LogsPage() {
   useEffect(() => {
     void loadLogs();
   }, [loadLogs]);
+
+  useEffect(() => {
+    api.logs.getLevel().then(({ level }) => setServerLevel(level)).catch((err) => {
+      console.error('getLevel', err);
+    });
+  }, [api]);
+
+  const changeServerLevel = useCallback(async (lv: LogLevel) => {
+    if (lv === serverLevel || levelBusy) return;
+    setLevelBusy(true);
+    try {
+      const { level } = await api.logs.setLevel(lv);
+      setServerLevel(level);
+    } catch (err) {
+      console.error('setLevel', err);
+    } finally {
+      setLevelBusy(false);
+    }
+  }, [api, serverLevel, levelBusy]);
 
   useEffect(() => {
     return api.logs.stream({
@@ -75,7 +96,7 @@ export function LogsPage() {
     });
   }, [logs, filter, enabledLevels]);
 
-  const toggleLevel = (lv: LogEntry['level']) => {
+  const toggleLevel = (lv: LogLevel) => {
     setEnabledLevels((prev) => {
       const next = new Set(prev);
       if (next.has(lv)) next.delete(lv);
@@ -121,7 +142,8 @@ export function LogsPage() {
         </div>
       </CardHeader>
 
-      <div className="flex flex-wrap items-center gap-1 px-5 pb-3">
+      <div className="flex flex-wrap items-center gap-1 px-5 pb-2">
+        <span className="mr-2 text-[11px] text-muted-foreground/80">视图过滤</span>
         {LEVELS.map((lv) => {
           const active = enabledLevels.has(lv);
           return (
@@ -134,6 +156,31 @@ export function LogsPage() {
                 active
                   ? cn('border-transparent', levelClass[lv], 'bg-muted')
                   : 'border-border text-muted-foreground/60 line-through'
+              )}
+            >
+              {lv.toUpperCase()}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1 px-5 pb-3">
+        <span className="mr-2 text-[11px] text-muted-foreground/80" title="文件落盘始终为 debug，此处仅控制控制台 / 实时流的级别">
+          服务端级别
+        </span>
+        {LEVELS.map((lv) => {
+          const active = serverLevel === lv;
+          return (
+            <button
+              key={lv}
+              type="button"
+              onClick={() => void changeServerLevel(lv)}
+              disabled={levelBusy || serverLevel === null}
+              className={cn(
+                'rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50',
+                active
+                  ? cn('border-primary', levelClass[lv], 'bg-primary/10')
+                  : 'border-border text-muted-foreground/70 hover:text-foreground'
               )}
             >
               {lv.toUpperCase()}

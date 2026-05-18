@@ -1,4 +1,7 @@
 import { RequestUtil, cookieToString, getBknFromCookie } from './request-util';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('Bridge.Web');
 
 // 定义接口返回类型
 export interface GroupEssenceMsgRet {
@@ -39,6 +42,8 @@ export async function getGroupEssenceMsg(
         );
         return ret.retcode === 0 ? ret : undefined;
     } catch (e) {
+        log.warn('getGroupEssenceMsg failed (group=%s page=%d/%d): %s',
+          groupCode, pageStart, pageLimit, e instanceof Error ? (e.stack ?? e.message) : String(e));
         return undefined;
     }
 }

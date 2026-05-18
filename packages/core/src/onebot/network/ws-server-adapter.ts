@@ -14,11 +14,11 @@ import {
   type DispatchPayload,
   type EventReportOptions,
 } from '../event-filter';
-import { createLogger } from '../../utils/logger';
+import { createLogger, type Logger } from '../../utils/logger';
 import { IOneBotNetworkAdapter, NetworkReloadType, type NetworkAdapterContext } from './adapter';
 import { isAuthorized, parseRequestPath, rawDataToString, safeClose, safeSend, normalizePath } from './utils';
 
-const log = createLogger('OneBot.WS-Server');
+const moduleLog = createLogger('OneBot.WS-Server');
 
 interface ForwardConn {
   socket: WebSocket;
@@ -30,10 +30,13 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
   private wss: WebSocketServer | null = null;
   private connections = new Map<WebSocket, ForwardConn>();
   private options: EventReportOptions;
+  private readonly log: Logger;
 
   constructor(name: string, config: WsServerNetwork, ctx: NetworkAdapterContext) {
     super(name, config, ctx);
     this.options = resolveReportOptions(config);
+    const uinNum = Number.parseInt(ctx.uin, 10);
+    this.log = Number.isFinite(uinNum) && uinNum > 0 ? moduleLog.child({ uin: uinNum }) : moduleLog;
   }
 
   override get isActive(): boolean {
@@ -114,7 +117,7 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
     this.wss = wss;
 
     wss.on('listening', () => {
-      log.success(
+      this.log.success(
         '[%s] listening %s:%d%s',
         this.name,
         this.config.host ?? '0.0.0.0',
@@ -124,7 +127,7 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
     });
 
     wss.on('error', (err: Error) => {
-      log.warn('[%s] server error: %s', this.name, err instanceof Error ? err.message : String(err));
+      this.log.warn('[%s] server error: %s', this.name, err instanceof Error ? err.message : String(err));
     });
 
     wss.on('connection', (socket: WebSocket, request: IncomingMessage) => this.onConnection(socket, request));
@@ -145,7 +148,7 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
     });
     socket.on('close', () => this.connections.delete(socket));
     socket.on('error', (err: Error) => {
-      log.warn('[%s] socket error: %s', this.name, err instanceof Error ? err.message : String(err));
+      this.log.warn('[%s] socket error: %s', this.name, err instanceof Error ? err.message : String(err));
     });
 
     if (role === 'Event' || role === 'Universal') {

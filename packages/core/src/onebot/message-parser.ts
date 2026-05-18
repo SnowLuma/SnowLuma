@@ -4,6 +4,9 @@
 
 import type { MessageElement } from '../bridge/events';
 import type { JsonValue, JsonObject } from './types';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('MsgParser');
 
 export interface ParseMessageOptions {
   resolveReplySequence?: (replyMessageId: number) => number | null;
@@ -271,7 +274,7 @@ async function segmentToElement(type: string, data: Record<string, unknown>, opt
         const musicJson = await resp.text();
         return { type: 'json', text: musicJson };
       } catch (e) {
-        console.warn(`[MsgParser] music sign failed: ${e}, falling back to local card`);
+        log.warn('music sign failed: %s, falling back to local card', e instanceof Error ? e.message : String(e));
         // Fallback: build a basic card locally
         const title = String(data.title ?? 'Music');
         const jsonData = JSON.stringify({

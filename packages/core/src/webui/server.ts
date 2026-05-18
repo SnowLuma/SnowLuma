@@ -2,7 +2,7 @@ import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono, type Context } from 'hono';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
-import { createLogger, getRecentLogs, subscribeLogs } from '../utils/logger';
+import { createLogger, getLogLevel, getRecentLogs, LOG_LEVELS, setLogLevel, subscribeLogs } from '../utils/logger';
 import { randomBytes } from 'crypto';
 import type { OneBotManager } from '../onebot/manager';
 import { loadOneBotConfig, saveOneBotConfig } from '../onebot/config';
@@ -115,6 +115,26 @@ export async function initWebUI(
   }
 
   const app = new Hono();
+
+  // ─── Anti-indexing ───────────────────────────────────────────────────────
+  // The WebUI is an admin surface that has no business showing up in
+  // search results — even the login page leaks the existence of a
+  // SnowLuma instance to anyone scanning the IP. Three overlapping
+  // signals: a hard X-Robots-Tag on every response, a robots.txt for
+  // crawlers that read it before pages, and a <meta robots> in the
+  // SPA shell for the case where a proxy strips headers.
+  app.use('*', async (c, next) => {
+    await next();
+    c.res.headers.set(
+      'X-Robots-Tag',
+      'noindex, nofollow, noarchive, nosnippet, noimageindex',
+    );
+  });
+
+  app.get('/robots.txt', (c) => {
+    c.res.headers.set('Content-Type', 'text/plain; charset=utf-8');
+    return c.body('User-agent: *\nDisallow: /\n');
+  });
 
   // ─── Auth middleware ─────────────────────────────────────────────────────
   app.use('/api/*', async (c, next) => {
@@ -338,6 +358,20 @@ export async function initWebUI(
   app.get('/api/logs', (c) => {
     const limit = Number(c.req.query('limit') ?? 300);
     return c.json({ list: getRecentLogs(limit) });
+  });
+
+  app.get('/api/logs/level', (c) => {
+    return c.json({ level: getLogLevel(), levels: [...LOG_LEVELS] });
+  });
+
+  app.post('/api/logs/level', async (c) => {
+    const body = await c.req.json().catch(() => null) as { level?: unknown } | null;
+    const next = typeof body?.level === 'string' ? body.level : '';
+    if (!setLogLevel(next)) {
+      return c.json({ message: `invalid level: ${next}`, levels: [...LOG_LEVELS] }, 400);
+    }
+    log.info('console log level set to %s via WebUI', getLogLevel());
+    return c.json({ level: getLogLevel(), levels: [...LOG_LEVELS] });
   });
 
   app.get('/api/logs/stream', (c) => {

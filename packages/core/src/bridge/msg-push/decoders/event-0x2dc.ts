@@ -16,6 +16,9 @@ import {
   resolveUidToUin, parseU64OrZero, buildTemplateMap, findTemplateValue,
   unwrapGroupNotifyPayload,
 } from '../helpers';
+import { createLogger } from '../../../utils/logger';
+
+const unknownLog = createLogger('MsgPush.Unknown');
 
 export const decodeEvent0x2DC: MsgPushDecoder = (ctx) => {
   switch (ctx.head.subType as Event0x2DCSubType) {
@@ -24,6 +27,7 @@ export const decodeEvent0x2DC: MsgPushDecoder = (ctx) => {
     case Event0x2DCSubType.GroupGreyTipNotice: return decodeGroupGreyTip(ctx);
     case Event0x2DCSubType.GroupEssenceNotice: return decodeGroupEssence(ctx);
   }
+  unknownLog.debug('Event0x2DC unknown subType=%d', ctx.head.subType);
   return [];
 };
 

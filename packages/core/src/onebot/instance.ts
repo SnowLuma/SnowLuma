@@ -10,7 +10,7 @@ import { RKeyCache } from './instance-rkey';
 import { buildApiContext, type OneBotInstanceContext } from './instance-context';
 import { registerEventPipeline } from './event-pipeline';
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from './message-id';
-import type { JsonObject, MessageMeta, OneBotConfig, NetworkBase } from './types';
+import type { JsonObject, JsonValue, MessageMeta, OneBotConfig, NetworkBase } from './types';
 import {
   OneBotNetworkManager,
   WsServerAdapter,
@@ -19,9 +19,10 @@ import {
   HttpPostAdapter,
   type NetworkAdapterContext,
 } from './network';
-import { createLogger } from '../utils/logger';
+import { createLogger, type Logger } from '../utils/logger';
+import { formatGroup, formatMessageSegments, formatReply, formatUser } from '../utils/event-format';
 
-const log = createLogger('Event');
+const moduleLog = createLogger('Event');
 
 export class OneBotInstance {
   readonly uin: string;
@@ -40,12 +41,17 @@ export class OneBotInstance {
   private online = true;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private static readonly HEARTBEAT_INTERVAL = 30000;
+  private readonly log: Logger;
 
   get nickname(): string { return this.bridge.identity.nickname; }
 
   constructor(uin: string, bridge: BridgeInterface, config: OneBotConfig) {
     this.uin = uin;
     this.bridge = bridge;
+    const uinNum = Number.parseInt(uin, 10);
+    this.log = Number.isFinite(uinNum) && uinNum > 0
+      ? moduleLog.child({ uin: uinNum })
+      : moduleLog;
 
     this.rkeyCache = new RKeyCache();
     this.mediaStore = new MediaStore(path.join('data', this.uin, 'media.db'));
@@ -85,10 +91,12 @@ export class OneBotInstance {
     };
     this.ctx = ctx;
 
-    this.apiHandler = new ApiHandler(buildApiContext(ctx));
+    this.apiHandler = new ApiHandler(buildApiContext(ctx), uinNum > 0 ? uinNum : undefined);
     this.networkManager = new OneBotNetworkManager();
     this.installAdaptersFromConfig(config);
-    void this.networkManager.openAll();
+    void this.networkManager.openAll().catch((err) => {
+      this.log.warn('openAll failed: %s', err instanceof Error ? (err.stack ?? err.message) : String(err));
+    });
 
     this.startHeartbeat();
     this.rkeyCache.warmUp(this.bridge, this.uin);
@@ -99,7 +107,9 @@ export class OneBotInstance {
   }
 
   reloadConfig(config: OneBotConfig): void {
-    void this.applyConfigDiff(config);
+    void this.applyConfigDiff(config).catch((err) => {
+      this.log.warn('applyConfigDiff failed: %s', err instanceof Error ? (err.stack ?? err.message) : String(err));
+    });
   }
 
   dispose(): void {
@@ -107,7 +117,9 @@ export class OneBotInstance {
     this.stopHeartbeat();
     this.disposeEventPipeline?.();
     this.disposeEventPipeline = null;
-    void this.networkManager.closeAll();
+    void this.networkManager.closeAll().catch((err) => {
+      this.log.warn('closeAll failed: %s', err instanceof Error ? (err.stack ?? err.message) : String(err));
+    });
     this.messageStore.close();
     this.mediaStore.close();
   }
@@ -136,8 +148,12 @@ export class OneBotInstance {
     this.cacheMessageEvent(event);
     this.logReceivedMessage(event);
     // NetworkManager builds the dispatch payload once and fans out to every
-    // active adapter in parallel via Promise.allSettled.
-    void this.networkManager.emitEvent(event);
+    // active adapter in parallel via Promise.allSettled — per-adapter errors
+    // are already isolated, so the outer promise should never reject. The
+    // .catch is a belt-and-suspenders guard against future refactors.
+    void this.networkManager.emitEvent(event).catch((err) => {
+      this.log.warn('emitEvent failed: %s', err instanceof Error ? (err.stack ?? err.message) : String(err));
+    });
   }
 
   private buildNetworkContext(): NetworkAdapterContext {
@@ -206,7 +222,7 @@ export class OneBotInstance {
         try {
           await existing.reload(net as never);
         } catch (err) {
-          log.warn('reload [%s] failed: %s', name, err instanceof Error ? err.message : String(err));
+          this.log.warn('reload [%s] failed: %s', name, err instanceof Error ? err.message : String(err));
         }
       } else if (net.enabled !== false) {
         const factory = factories.get(name);
@@ -224,56 +240,56 @@ export class OneBotInstance {
 
     const messageId = toInt(event.message_id);
     const isGroup = event.message_type === 'group';
-    
-    // Build message preview
-    const parts: string[] = [];
+    const idStr = `ID:${messageId}`;
+    const selfTag = isSelf ? '[自身] ' : '';
+    const identity = this.bridge.identity;
+
+    // Walk the segment array once: render via the shared formatter for
+    // non-reply segments, and resolve `reply` segments through the
+    // message store so the chain reference becomes legible
+    // ("[回复 <user>: <body>...]" instead of "[回复:1234567890]").
+    const renderedParts: string[] = [];
     const message = event.message;
-    
     if (Array.isArray(message)) {
       for (const seg of message) {
         if (typeof seg !== 'object' || seg === null || Array.isArray(seg)) continue;
-        const type = String(seg.type ?? '');
-        const data: Record<string, unknown> = (
-          typeof seg.data === 'object' && seg.data !== null && !Array.isArray(seg.data)
-        ) ? seg.data : {};
-
-        if (type === 'text' && data.text) {
-          const text = String(data.text);
-          const preview = text.length > 50 ? text.substring(0, 50) + '...' : text;
-          parts.push(preview);
-        } else if (type === 'image') {
-          parts.push('[图片]');
-        } else if (type === 'face') {
-          parts.push('[表情]');
-        } else if (type === 'at') {
-          parts.push(`@${data.qq || ''}`);
-        } else if (type === 'reply') {
-          parts.push(`[回复:${data.id || ''}]`);
-        } else if (type === 'record') {
-          parts.push('[语音]');
-        } else if (type === 'video') {
-          parts.push('[视频]');
+        const type = String((seg as JsonObject).type ?? '');
+        const data = (typeof (seg as JsonObject).data === 'object' && (seg as JsonObject).data !== null && !Array.isArray((seg as JsonObject).data))
+          ? (seg as JsonObject).data as Record<string, unknown>
+          : {};
+        if (type === 'reply') {
+          const replyId = toInt(data.id);
+          renderedParts.push(formatReply(this.messageStore, identity, replyId));
         } else {
-          parts.push(`[${type}]`);
+          renderedParts.push(formatMessageSegments([seg as JsonValue]));
         }
       }
+    } else if (typeof message === 'string') {
+      renderedParts.push(formatMessageSegments(message));
     }
-    
-    const content = parts.join(' ').trim() || '[空消息]';
-    const idStr = `ID:${messageId}`;
-    const selfTag = isSelf ? '[自身] ' : '';
-    
+    const content = renderedParts.join(' ').trim() || '[空消息]';
+
     if (isGroup) {
       const groupId = toInt(event.group_id);
       const userId = toInt(event.user_id);
-      const sender = event.sender as any;
-      const nickname = sender?.card || sender?.nickname || String(userId);
-      log.success(`${selfTag}群 ${groupId} | ${nickname}(${userId}): ${idStr} ${content}`);
+      const sender = (typeof event.sender === 'object' && event.sender !== null && !Array.isArray(event.sender))
+        ? event.sender as JsonObject
+        : {};
+      const nicknameFromEvent = (sender.card as string) || (sender.nickname as string) || '';
+      const userPart = nicknameFromEvent
+        ? `[${nicknameFromEvent}(${userId})]`
+        : formatUser(identity, groupId, userId);
+      this.log.success(`${selfTag}群 ${formatGroup(identity, groupId)} | ${userPart}: ${idStr} ${content}`);
     } else {
       const userId = toInt(event.user_id);
-      const sender = event.sender as any;
-      const nickname = sender?.nickname || String(userId);
-      log.success(`${selfTag}私聊 ${nickname}(${userId}): ${idStr} ${content}`);
+      const sender = (typeof event.sender === 'object' && event.sender !== null && !Array.isArray(event.sender))
+        ? event.sender as JsonObject
+        : {};
+      const nicknameFromEvent = (sender.nickname as string) || '';
+      const userPart = nicknameFromEvent
+        ? `[${nicknameFromEvent}(${userId})]`
+        : formatUser(identity, undefined, userId);
+      this.log.success(`${selfTag}私聊 ${userPart}: ${idStr} ${content}`);
     }
   }
 

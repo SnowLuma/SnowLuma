@@ -25,6 +25,9 @@ import {
   NTV2UploadRichMediaRespSchema,
 } from '../proto/highway';
 import { buildHighwayExtend, fetchHighwaySession, uploadHighwayHttp } from './highway-client';
+import { createLogger } from '../../utils/logger';
+
+const moduleLog = createLogger('Highway');
 
 // ─────────────── public types ───────────────
 
@@ -123,6 +126,11 @@ export function hexToBytes(hex: string): Uint8Array {
 export async function runNtv2Upload(params: NtV2UploadParams): Promise<any> {
   const { bridge, isGroup, targetIdOrUid, oidbCmd, serviceCmd, uploads } = params;
   const label = params.label ?? 'media';
+  const raw = bridge.identity?.uin;
+  const uinNum = typeof raw === 'string' ? Number.parseInt(raw, 10) : 0;
+  const log = Number.isFinite(uinNum) && uinNum > 0
+    ? moduleLog.child({ uin: uinNum })
+    : moduleLog;
 
   // Build the full body once. Pulling this in here means each format file
   // only specifies the seven fields that actually vary.
@@ -184,6 +192,7 @@ export async function runNtv2Upload(params: NtV2UploadParams): Promise<any> {
     return session;
   };
 
+  let didPut = false;
   for (const sub of uploads) {
     const target = sub.source === 'top' ? upload : upload.subFileInfos?.[sub.source];
     const uKey = target?.uKey ?? '';
@@ -203,7 +212,15 @@ export async function runNtv2Upload(params: NtV2UploadParams): Promise<any> {
       sub.sha1 as any, // sha1 may be Uint8Array | Uint8Array[]; the helper accepts both
       sub.subFileIndex ?? 0,
     );
+    log.debug('%s OIDB requires bytes, PUT %d bytes (sub=%s)', label, sub.bytes.length, String(sub.source));
+    const t0 = Date.now();
     await uploadHighwayHttp(bridge, await getSession(), sub.cmdId, sub.bytes, sub.md5, extend);
+    log.debug('%s PUT done in %dms', label, Date.now() - t0);
+    didPut = true;
+  }
+
+  if (!didPut) {
+    log.debug('%s fast-upload hit (server already had bytes)', label);
   }
 
   return upload;

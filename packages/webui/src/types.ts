@@ -101,10 +101,14 @@ export interface SystemInfo {
   };
 }
 
+export type LogLevel = 'debug' | 'info' | 'success' | 'warn' | 'error';
+
 export interface LogEntry {
   id: number;
   time: string;
-  level: 'debug' | 'info' | 'success' | 'warn' | 'error';
+  level: LogLevel;
+  /** QQ uin, when the source logger was derived via `.child({ uin })`. */
+  uin?: number;
   scope: string;
   message: string;
   line: string;

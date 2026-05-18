@@ -1,4 +1,7 @@
 import { RequestUtil, cookieToString } from './request-util';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('Bridge.Web');
 
 export enum WebHonorType {
     TALKATIVE = 'talkative',
@@ -43,7 +46,8 @@ export async function getHonorListWebAPI(cookieObject: Record<string, string>, g
             description: item?.desc,
         }));
     } catch (e) {
-        // console.error(e);
+        log.warn('getHonorListWebAPI failed (group=%s type=%d): %s',
+          groupCode, type, e instanceof Error ? (e.stack ?? e.message) : String(e));
         return [];
     }
 }
