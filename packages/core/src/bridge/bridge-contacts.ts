@@ -228,10 +228,16 @@ export async function fetchUserProfile(bridge: Bridge, uin: number): Promise<Use
     keys: keys.map(k => ({ key: k })),
   };
 
+  // Set OIDB envelope `reserved = 1` (the `isUid: true` flag — the
+  // name is historical, the wire semantic is "this is the UIN-form
+  // variant of the call"). Without it newer QQ NT versions take the
+  // UID-form validation path, find neither uid nor openid in the body
+  // and bounce the request with `[oidb] one of uid/openid is invaild`.
+  // Matches Lagrange.Core's FetchStrangerByUin (Reserved = 1).
   const resp = await runOidb<any>(bridge, {
     cmd: 'OidbSvcTrpcTcp.0xfe1_2',
     oidbCmd: 0xFE1, subCmd: 2,
-    request: { schema: OidbUserInfoRequestSchema, value: body },
+    request: { schema: OidbUserInfoRequestSchema, value: body, isUid: true },
     response: { schema: OidbUserInfoResponseSchema },
   });
 
