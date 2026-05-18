@@ -7,16 +7,16 @@ import type { ForwardNodePayload, QQEventVariant, MessageElement } from './event
 import type { FriendInfo, QQGroupInfo, GroupMemberInfo, UserProfileInfo, GroupRequestInfo } from './qq-info';
 import { MSG_PUSH_CMD, parseMsgPush } from './msg-push';
 import type { PacketSender, SendPacketResult } from '../protocol/packet-sender';
-import { protoEncode, protoDecode } from '../protobuf/decode';
+import { protobuf_encode, protobuf_decode } from '@snowluma/proton';
 import { buildSendElems } from './element-builder';
 import { IdentityService } from './identity-service';
 import type { BridgeInterface } from './bridge-interface';
 import { IncomingPacketPipeline, type CmdParser } from './packet-pipeline';
 import { createLogger } from '../utils/logger';
-import {
-  SendMessageRequestSchema,
-  SendMessageResponseSchema,
-} from './proto/action';
+import type {
+  SendMessageRequest,
+  SendMessageResponse,
+} from './proto/proton/action';
 
 // Delegated modules
 import {
@@ -282,13 +282,13 @@ export class Bridge implements BridgeInterface {
     const protoElems = await buildSendElems(elements, { bridge: this, groupId });
     const random = this.nextMessageRandom();
 
-    const request = protoEncode({
+    const request = protobuf_encode<SendMessageRequest>({
       routingHead: {
         grp: { groupCode: BigInt(groupId) },
-      } as any,
+      },
       contentHead: {
         type: 1,
-      } as any,
+      },
       messageBody: {
         richText: {
           elems: protoElems,
@@ -300,7 +300,7 @@ export class Bridge implements BridgeInterface {
       via: 0,
       dataStatist: 0,
       multiSendSeq: 0,
-    }, SendMessageRequestSchema);
+    });
 
     const result = await this.sendRawPacket(Bridge.SEND_MSG_CMD, request);
 
@@ -308,7 +308,7 @@ export class Bridge implements BridgeInterface {
       throw new Error(`send group message failed: ${result.errorMessage || 'no response'}`);
     }
 
-    const response = protoDecode(result.responseData, SendMessageResponseSchema);
+    const response = protobuf_decode<SendMessageResponse>(result.responseData);
     if (!response) {
       throw new Error('failed to decode SendMessageResponse');
     }
@@ -343,18 +343,18 @@ export class Bridge implements BridgeInterface {
     const random = this.nextMessageRandom();
     const clientSeq = this.nextClientSequence();
 
-    const request = protoEncode({
+    const request = protobuf_encode<SendMessageRequest>({
       routingHead: {
         c2c: {
           uin: userUin,
           ...(userUid ? { uid: userUid } : {}),
         },
-      } as any,
+      },
       contentHead: {
         type: 1,
         subType: 0,
         c2cCmd: 11,
-      } as any,
+      },
       messageBody: {
         richText: {
           elems: protoElems,
@@ -367,9 +367,9 @@ export class Bridge implements BridgeInterface {
       dataStatist: 0,
       ctrl: {
         msgFlag: Math.floor(Date.now() / 1000),
-      } as any,
+      },
       multiSendSeq: 0,
-    }, SendMessageRequestSchema);
+    });
 
     const result = await this.sendRawPacket(Bridge.SEND_MSG_CMD, request);
 
@@ -377,7 +377,7 @@ export class Bridge implements BridgeInterface {
       throw new Error(`send private message failed: ${result.errorMessage || 'no response'}`);
     }
 
-    const response = protoDecode(result.responseData, SendMessageResponseSchema);
+    const response = protobuf_decode<SendMessageResponse>(result.responseData);
     if (!response) {
       throw new Error('failed to decode SendMessageResponse');
     }

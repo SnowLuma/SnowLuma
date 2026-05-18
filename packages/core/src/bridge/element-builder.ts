@@ -5,14 +5,14 @@
 import type { Bridge } from './bridge';
 import type { MessageElement } from './events';
 import type { ProtoDecoded } from '../protobuf/decode';
-import { protoEncode } from '../protobuf/decode';
+import { protobuf_encode } from '@snowluma/proton';
 import {
   ElemSchema,
 } from './proto/element';
-import {
-  MentionExtraSendSchema,
-  MarkdownDataSchema,
-} from './proto/action';
+import type {
+  MentionExtraSend,
+  MarkdownData,
+} from './proto/proton/action';
 import { uploadImageMsgInfo } from './highway/image-upload';
 import { uploadPttMsgInfo } from './highway/ptt-upload';
 import { uploadVideoMsgInfo } from './highway/video-upload';
@@ -51,12 +51,12 @@ function makeMentionElem(element: MessageElement, ctx?: SendContext): ProtoElem 
   const mentionAll = element.uid === 'all' || element.targetUin === 0;
   const targetUin = element.targetUin ?? 0;
 
-  const extra = protoEncode({
+  const extra = protobuf_encode<MentionExtraSend>({
     type: mentionAll ? 1 : 2,
     uin: mentionAll ? 0 : targetUin,
     field5: 0,
     uid: mentionAll ? 'all' : (element.uid ?? ''),
-  }, MentionExtraSendSchema);
+  });
 
   // Prefer an explicit display string from the caller; otherwise look the
   // target up in the roster so QQ renders `@昵称` instead of `@QQ号`.
@@ -128,7 +128,7 @@ function makeXmlElem(element: MessageElement): ProtoElem {
 }
 
 function makeMarkdownElem(element: MessageElement): ProtoElem {
-  const data = protoEncode({ content: element.text ?? '' }, MarkdownDataSchema);
+  const data = protobuf_encode<MarkdownData>({ content: element.text ?? '' });
 
   return {
     commonElem: {

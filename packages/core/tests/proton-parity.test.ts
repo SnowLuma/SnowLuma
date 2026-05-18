@@ -36,6 +36,13 @@ import {
   FriendRequestSchema,
   GroupJoinSchema,
 } from '../src/bridge/proto/notify';
+import {
+  RoutingHeadSchema,
+  SendMessageRequestSchema,
+  SendMessageResponseSchema,
+  MentionExtraSendSchema,
+  MarkdownDataSchema,
+} from '../src/bridge/proto/action';
 
 import type {
   SendLongMsgResp,
@@ -66,6 +73,13 @@ import type {
   FriendRequest as FriendRequestNotify,
   GroupJoin,
 } from '../src/bridge/proto/proton/notify';
+import type {
+  RoutingHead,
+  SendMessageRequest,
+  SendMessageResponse,
+  MentionExtraSend,
+  MarkdownData,
+} from '../src/bridge/proto/proton/action';
 
 function hex(buf: Uint8Array): string {
   return Buffer.from(buf).toString('hex');
@@ -382,6 +396,70 @@ describe('proton ↔ legacy parity (longmsg subset)', () => {
     };
     const legacy = protoEncode(data as any, GroupJoinSchema);
     const proton = protobuf_encode<GroupJoin>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  // ── action.ts coverage ─────────────────────────────────────────────
+
+  it('encodes RoutingHead (c2c variant) identically', () => {
+    const data: RoutingHead = { c2c: { uin: 10001, uid: 'u_a' } };
+    const legacy = protoEncode(data as any, RoutingHeadSchema);
+    const proton = protobuf_encode<RoutingHead>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes RoutingHead (group variant) identically', () => {
+    const data: RoutingHead = { grp: { groupCode: 555n } };
+    const legacy = protoEncode(data as any, RoutingHeadSchema);
+    const proton = protobuf_encode<RoutingHead>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes SendMessageRequest (group with two text elements) identically', () => {
+    const data: SendMessageRequest = {
+      routingHead: { grp: { groupCode: 555n } },
+      contentHead: { type: 1, subType: 1, c2cCmd: 11 },
+      messageBody: {
+        richText: {
+          elems: [
+            { text: { str: 'hi ' } },
+            { text: { str: 'world', link: 'lnk' } },
+          ],
+        },
+      },
+      clientSequence: 1,
+      random: 12345,
+      syncCookie: new Uint8Array([0xaa, 0xbb]),
+      via: 1,
+      dataStatist: 1,
+      multiSendSeq: 1,
+    };
+    const legacy = protoEncode(data as any, SendMessageRequestSchema);
+    const proton = protobuf_encode<SendMessageRequest>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes SendMessageResponse identically', () => {
+    const data: SendMessageResponse = {
+      result: 1, errMsg: 'ok', timestamp1: 1234567890,
+      field10: 1, groupSequence: 100, timestamp2: 1234567891, privateSequence: 200,
+    };
+    const legacy = protoEncode(data as any, SendMessageResponseSchema);
+    const proton = protobuf_encode<SendMessageResponse>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes MentionExtraSend identically', () => {
+    const data: MentionExtraSend = { type: 2, uin: 10001, field5: 1, uid: 'u_a' };
+    const legacy = protoEncode(data as any, MentionExtraSendSchema);
+    const proton = protobuf_encode<MentionExtraSend>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes MarkdownData identically', () => {
+    const data: MarkdownData = { content: '**bold** _italic_' };
+    const legacy = protoEncode(data as any, MarkdownDataSchema);
+    const proton = protobuf_encode<MarkdownData>(data);
     expect(hex(proton)).toBe(hex(legacy));
   });
 
