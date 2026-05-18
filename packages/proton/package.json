@@ -13,13 +13,15 @@
     },
     "./vite": {
       "types": "./src/index.ts",
-      "default": "./src/index.ts"
+      "default": "./dist/index.js"
     }
   },
   "scripts": {
+    "build": "tsup src/index.ts --format esm --out-dir dist --target node20 --external typescript --external vite",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepare": "test -f dist/index.js || pnpm build"
   },
   "dependencies": {
     "typescript": "catalog:"
@@ -34,6 +36,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.12.2",
+    "tsup": "^8.5.0",
     "vite": "catalog:",
     "vitest": "^4.1.4"
   }

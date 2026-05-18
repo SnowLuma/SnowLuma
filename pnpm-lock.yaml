@@ -29,6 +29,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@snowluma/proton':
+        specifier: workspace:*
+        version: link:../proton
       '@snowluma/websocket':
         specifier: workspace:*
         version: link:../websocket
@@ -73,6 +76,9 @@ importers:
       '@types/node':
         specifier: ^24.12.2
         version: 24.12.2
+      tsup:
+        specifier: ^8.5.0
+        version: 8.5.1(jiti@2.6.1)(postcss@8.5.10)(tsx@4.21.0)(typescript@6.0.2)
       vite:
         specifier: 'catalog:'
         version: 8.0.8(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(sass@1.99.0)(tsx@4.21.0)

@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@snowluma/proton": "workspace:*",
     "@snowluma/websocket": "workspace:*"
   },
   "devDependencies": {
