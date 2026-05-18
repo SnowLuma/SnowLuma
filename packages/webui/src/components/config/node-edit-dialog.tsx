@@ -372,7 +372,7 @@ function ToggleSwitch({ value, onChange, ariaLabel }: ToggleSwitchProps) {
     <button
       type="button"
       role="switch"
-      aria-checked={value}
+      aria-checked={value ? 'true' : 'false'}
       aria-label={ariaLabel}
       onClick={() => onChange(!value)}
       className={cn(
