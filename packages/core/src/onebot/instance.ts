@@ -10,7 +10,7 @@ import { RKeyCache } from './instance-rkey';
 import { buildApiContext, type OneBotInstanceContext } from './instance-context';
 import { registerEventPipeline } from './event-pipeline';
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from './message-id';
-import type { JsonObject, MessageMeta, OneBotConfig, NetworkBase } from './types';
+import type { JsonObject, JsonValue, MessageMeta, OneBotConfig, NetworkBase } from './types';
 import {
   OneBotNetworkManager,
   WsServerAdapter,
@@ -20,6 +20,7 @@ import {
   type NetworkAdapterContext,
 } from './network';
 import { createLogger, type Logger } from '../utils/logger';
+import { formatGroup, formatMessageSegments, formatReply, formatUser } from '../utils/event-format';
 
 const moduleLog = createLogger('Event');
 
@@ -239,56 +240,56 @@ export class OneBotInstance {
 
     const messageId = toInt(event.message_id);
     const isGroup = event.message_type === 'group';
-    
-    // Build message preview
-    const parts: string[] = [];
+    const idStr = `ID:${messageId}`;
+    const selfTag = isSelf ? '[自身] ' : '';
+    const identity = this.bridge.identity;
+
+    // Walk the segment array once: render via the shared formatter for
+    // non-reply segments, and resolve `reply` segments through the
+    // message store so the chain reference becomes legible
+    // ("[回复 <user>: <body>...]" instead of "[回复:1234567890]").
+    const renderedParts: string[] = [];
     const message = event.message;
-    
     if (Array.isArray(message)) {
       for (const seg of message) {
         if (typeof seg !== 'object' || seg === null || Array.isArray(seg)) continue;
-        const type = String(seg.type ?? '');
-        const data: Record<string, unknown> = (
-          typeof seg.data === 'object' && seg.data !== null && !Array.isArray(seg.data)
-        ) ? seg.data : {};
-
-        if (type === 'text' && data.text) {
-          const text = String(data.text);
-          const preview = text.length > 50 ? text.substring(0, 50) + '...' : text;
-          parts.push(preview);
-        } else if (type === 'image') {
-          parts.push('[图片]');
-        } else if (type === 'face') {
-          parts.push('[表情]');
-        } else if (type === 'at') {
-          parts.push(`@${data.qq || ''}`);
-        } else if (type === 'reply') {
-          parts.push(`[回复:${data.id || ''}]`);
-        } else if (type === 'record') {
-          parts.push('[语音]');
-        } else if (type === 'video') {
-          parts.push('[视频]');
+        const type = String((seg as JsonObject).type ?? '');
+        const data = (typeof (seg as JsonObject).data === 'object' && (seg as JsonObject).data !== null && !Array.isArray((seg as JsonObject).data))
+          ? (seg as JsonObject).data as Record<string, unknown>
+          : {};
+        if (type === 'reply') {
+          const replyId = toInt(data.id);
+          renderedParts.push(formatReply(this.messageStore, identity, replyId));
         } else {
-          parts.push(`[${type}]`);
+          renderedParts.push(formatMessageSegments([seg as JsonValue]));
         }
       }
+    } else if (typeof message === 'string') {
+      renderedParts.push(formatMessageSegments(message));
     }
-    
-    const content = parts.join(' ').trim() || '[空消息]';
-    const idStr = `ID:${messageId}`;
-    const selfTag = isSelf ? '[自身] ' : '';
-    
+    const content = renderedParts.join(' ').trim() || '[空消息]';
+
     if (isGroup) {
       const groupId = toInt(event.group_id);
       const userId = toInt(event.user_id);
-      const sender = event.sender as any;
-      const nickname = sender?.card || sender?.nickname || String(userId);
-      this.log.success(`${selfTag}群 ${groupId} | ${nickname}(${userId}): ${idStr} ${content}`);
+      const sender = (typeof event.sender === 'object' && event.sender !== null && !Array.isArray(event.sender))
+        ? event.sender as JsonObject
+        : {};
+      const nicknameFromEvent = (sender.card as string) || (sender.nickname as string) || '';
+      const userPart = nicknameFromEvent
+        ? `[${nicknameFromEvent}(${userId})]`
+        : formatUser(identity, groupId, userId);
+      this.log.success(`${selfTag}群 ${formatGroup(identity, groupId)} | ${userPart}: ${idStr} ${content}`);
     } else {
       const userId = toInt(event.user_id);
-      const sender = event.sender as any;
-      const nickname = sender?.nickname || String(userId);
-      this.log.success(`${selfTag}私聊 ${nickname}(${userId}): ${idStr} ${content}`);
+      const sender = (typeof event.sender === 'object' && event.sender !== null && !Array.isArray(event.sender))
+        ? event.sender as JsonObject
+        : {};
+      const nicknameFromEvent = (sender.nickname as string) || '';
+      const userPart = nicknameFromEvent
+        ? `[${nicknameFromEvent}(${userId})]`
+        : formatUser(identity, undefined, userId);
+      this.log.success(`${selfTag}私聊 ${userPart}: ${idStr} ${content}`);
     }
   }
 
