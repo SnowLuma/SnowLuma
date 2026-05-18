@@ -13,7 +13,21 @@ import {
   RecvLongMsgReqSchema,
   RecvLongMsgRespSchema,
   LongMsgSettingsSchema,
+  LongMsgResultSchema,
 } from '../src/bridge/proto/longmsg';
+import {
+  TextElemSchema,
+  NotOnlineImageSchema,
+  ExtraInfoSchema,
+  SrcMsgSchema,
+  ElemSchema,
+  MsgInfoSchema,
+} from '../src/bridge/proto/element';
+import {
+  ResponseHeadSchema,
+  PushMsgBodySchema,
+  PushMsgSchema,
+} from '../src/bridge/proto/message';
 
 import type {
   SendLongMsgResp,
@@ -21,7 +35,21 @@ import type {
   RecvLongMsgReq,
   RecvLongMsgResp,
   LongMsgSettings,
+  LongMsgResult,
 } from '../src/bridge/proto/proton/longmsg';
+import type {
+  TextElem,
+  NotOnlineImage,
+  ExtraInfo,
+  SrcMsg,
+  Elem,
+  MsgInfo,
+} from '../src/bridge/proto/proton/element';
+import type {
+  ResponseHead,
+  PushMsgBody,
+  PushMsg,
+} from '../src/bridge/proto/proton/message';
 
 function hex(buf: Uint8Array): string {
   return Buffer.from(buf).toString('hex');
@@ -30,14 +58,14 @@ function hex(buf: Uint8Array): string {
 describe('proton ↔ legacy parity (longmsg subset)', () => {
   it('encodes LongMsgSettings identically', () => {
     const data: LongMsgSettings = { field1: 1, field2: 2, field3: 3, field4: 4 };
-    const legacy = protoEncode(data, LongMsgSettingsSchema);
+    const legacy = protoEncode(data as any, LongMsgSettingsSchema);
     const proton = protobuf_encode<LongMsgSettings>(data);
     expect(hex(proton)).toBe(hex(legacy));
   });
 
   it('encodes SendLongMsgResp (nested message) identically', () => {
     const data: SendLongMsgResp = { result: { resId: 'res-001' } };
-    const legacy = protoEncode(data, SendLongMsgRespSchema);
+    const legacy = protoEncode(data as any, SendLongMsgRespSchema);
     const proton = protobuf_encode<SendLongMsgResp>(data);
     expect(hex(proton)).toBe(hex(legacy));
   });
@@ -56,7 +84,7 @@ describe('proton ↔ legacy parity (longmsg subset)', () => {
       },
       settings: { field1: 4, field2: 1, field3: 7, field4: 2 },
     };
-    const legacy = protoEncode(data, SendLongMsgReqSchema);
+    const legacy = protoEncode(data as any, SendLongMsgReqSchema);
     const proton = protobuf_encode<SendLongMsgReq>(data);
     expect(hex(proton)).toBe(hex(legacy));
   });
@@ -66,7 +94,7 @@ describe('proton ↔ legacy parity (longmsg subset)', () => {
       info: { uid: { uid: 'u_recv' }, resId: 'r-9', acquire: true },
       settings: { field1: 4, field2: 1, field3: 7, field4: 2 },
     };
-    const legacy = protoEncode(data, RecvLongMsgReqSchema);
+    const legacy = protoEncode(data as any, RecvLongMsgReqSchema);
     const proton = protobuf_encode<RecvLongMsgReq>(data);
     expect(hex(proton)).toBe(hex(legacy));
   });
@@ -76,8 +104,185 @@ describe('proton ↔ legacy parity (longmsg subset)', () => {
       result: { resId: 'r-1', payload: new Uint8Array([1, 2, 3, 4, 5]) },
       settings: { field1: 4, field2: 1, field3: 7, field4: 2 },
     };
-    const legacy = protoEncode(data, RecvLongMsgRespSchema);
+    const legacy = protoEncode(data as any, RecvLongMsgRespSchema);
     const proton = protobuf_encode<RecvLongMsgResp>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  // ── element.ts coverage ─────────────────────────────────────────────
+
+  it('encodes TextElem (only primitive bytes + strings) identically', () => {
+    const data: TextElem = {
+      str: 'hello',
+      link: 'https://example.com',
+      attr6Buf: new Uint8Array([1, 2, 3]),
+      buf: new Uint8Array([0xff, 0xee]),
+    };
+    const legacy = protoEncode(data as any, TextElemSchema);
+    const proton = protobuf_encode<TextElem>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes NotOnlineImage with nested PbReserve identically', () => {
+    const data: NotOnlineImage = {
+      filePath: 'pic.jpg',
+      fileLen: 12345,
+      picMd5: new Uint8Array([0x11, 0x22, 0x33, 0x44]),
+      picHeight: 600,
+      picWidth: 800,
+      resId: 'res-abc',
+      original: 1,
+      bigUrl: 'https://q.qq.com/big/abc',
+      bizType: 5,
+      pbRes: {
+        subType: 1,
+        summary: '[picture]',
+        field10: 7,
+        field20: { field1: 1, field2: 'inner', field3: 2, field4: 3, field5: 4, field7: 'tail' },
+        url: 'https://q.qq.com/abc',
+        md5Str: 'abc123',
+      },
+    };
+    const legacy = protoEncode(data as any, NotOnlineImageSchema);
+    const proton = protobuf_encode<NotOnlineImage>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes ExtraInfo (mix of bytes + int32 + uint64) identically', () => {
+    const data: ExtraInfo = {
+      nick: new Uint8Array([0x41, 0x42]),
+      groupCard: new Uint8Array([0x43]),
+      level: 7,
+      flags: 1,
+      groupMask: 2,
+      msgTailId: 3,
+      uin: 10001n,
+      msgStateFlag: 4,
+    };
+    const legacy = protoEncode(data as any, ExtraInfoSchema);
+    const proton = protobuf_encode<ExtraInfo>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes SrcMsg with repeated_uint32 + repeated_bytes identically', () => {
+    const data: SrcMsg = {
+      origSeqs: [100, 200, 300, 400],
+      senderUin: 10001n,
+      time: 1234567890,
+      flag: 1,
+      elemsRaw: [new Uint8Array([1, 2]), new Uint8Array([3, 4]), new Uint8Array([5, 6])],
+      type: 1,
+      toUin: 20002n,
+    };
+    const legacy = protoEncode(data as any, SrcMsgSchema);
+    const proton = protobuf_encode<SrcMsg>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes Elem (oneOf-style union) identically across multiple shapes', () => {
+    const textOnly: Elem = { text: { str: 'hi', link: 'lnk' } };
+    expect(hex(protobuf_encode<Elem>(textOnly))).toBe(hex(protoEncode(textOnly as any, ElemSchema)));
+
+    const faceOnly: Elem = { face: { index: 42, buf: new Uint8Array([1, 2, 3]) } };
+    expect(hex(protobuf_encode<Elem>(faceOnly))).toBe(hex(protoEncode(faceOnly as any, ElemSchema)));
+
+    const generalFlags: Elem = { generalFlags: { uin: 10001n, longTextFlag: 1, longTextResId: 'rs' } };
+    expect(hex(protobuf_encode<Elem>(generalFlags))).toBe(hex(protoEncode(generalFlags as any, ElemSchema)));
+  });
+
+  it('encodes MsgInfo with repeated_message + deeply nested ExtBizInfo identically', () => {
+    const data: MsgInfo = {
+      msgInfoBody: [
+        {
+          index: {
+            info: { fileSize: 1024, fileHash: 'sha-1', fileSha1: 'sha-2', fileName: 'a.png', type: { type: 1, picFormat: 2, videoFormat: 3, voiceFormat: 4 }, width: 100, height: 200, time: 99, original: 1 },
+            fileUuid: 'uuid-1', storeId: 5, uploadTime: 1000, ttl: 86400, subType: 1,
+          },
+          picture: {
+            urlPath: '/p/1',
+            ext: { originalParameter: 'op', bigParameter: 'bp', thumbParameter: 'tp' },
+            domain: 'q.qq.com',
+          },
+          fileExist: true,
+        },
+      ],
+      extBizInfo: {
+        pic: {
+          bizType: 5, textSummary: '[pic]',
+          extData: { subType: 2, textSummary: 'sum' },
+          fromScene: 1, toScene: 2, oldFileId: 999,
+        },
+        busiType: 3,
+      },
+    };
+    const legacy = protoEncode(data as any, MsgInfoSchema);
+    const proton = protobuf_encode<MsgInfo>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  // ── message.ts coverage ─────────────────────────────────────────────
+
+  it('encodes ResponseHead (nested forward + grp) identically', () => {
+    const data: ResponseHead = {
+      fromUin: 10001, fromUid: 'u_a', type: 1, sigMap: 2, toUin: 20002, toUid: 'u_b',
+      forward: { friendName: 'Alice' },
+      grp: { groupUin: 555, memberName: 'Bob', groupName: 'TestGroup' },
+    };
+    const legacy = protoEncode(data as any, ResponseHeadSchema);
+    const proton = protobuf_encode<ResponseHead>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes PushMsgBody (with RichText holding Elem[]) identically', () => {
+    const data: PushMsgBody = {
+      responseHead: { fromUin: 1, toUin: 2, type: 1, sigMap: 3, fromUid: 'a', toUid: 'b' },
+      contentHead: { msgType: 1, subType: 1, divSeq: 1, msgId: 99, sequence: 100, timestamp: 1234567890 },
+      body: {
+        richText: {
+          elems: [
+            { text: { str: 'hi ' } },
+            { text: { str: 'world', link: 'lnk' } },
+          ],
+        },
+      },
+    };
+    const legacy = protoEncode(data as any, PushMsgBodySchema);
+    const proton = protobuf_encode<PushMsgBody>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes PushMsg (top-level) identically', () => {
+    const data: PushMsg = {
+      message: {
+        responseHead: { fromUin: 1, toUin: 2, type: 1, sigMap: 1, fromUid: 'a', toUid: 'b' },
+        contentHead: { msgType: 1, subType: 1, divSeq: 1, msgId: 1, sequence: 1, timestamp: 1 },
+        body: { richText: { elems: [{ text: { str: 'x' } }] } },
+      },
+      status: 1,
+    };
+    const legacy = protoEncode(data as any, PushMsgSchema);
+    const proton = protobuf_encode<PushMsg>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  // ── longmsg.ts: full migration (Content / Action / Result) ─────────
+
+  it('encodes LongMsgResult (repeated Action → Content → PushMsgBody[]) identically', () => {
+    const inner: PushMsgBody = {
+      responseHead: { fromUin: 1, toUin: 2, type: 1, sigMap: 1, fromUid: 'a', toUid: 'b' },
+      contentHead: { msgType: 1, subType: 1, divSeq: 1, msgId: 1, sequence: 1, timestamp: 1 },
+      body: { richText: { elems: [{ text: { str: 'forwarded' } }] } },
+    };
+    const data: LongMsgResult = {
+      action: [
+        {
+          actionCommand: 'MultiMsg',
+          actionData: { msgBody: [inner, inner] },
+        },
+      ],
+    };
+    const legacy = protoEncode(data as any, LongMsgResultSchema);
+    const proton = protobuf_encode<LongMsgResult>(data);
     expect(hex(proton)).toBe(hex(legacy));
   });
 
@@ -89,7 +294,7 @@ describe('proton ↔ legacy parity (longmsg subset)', () => {
     // Either form is round-trippable through a conforming proto3 reader — the
     // missing field decodes as its default. This test pins that behaviour.
     const data: LongMsgSettings = { field1: 0, field2: 0, field3: 0, field4: 0 };
-    const legacy = protoEncode(data, LongMsgSettingsSchema);
+    const legacy = protoEncode(data as any, LongMsgSettingsSchema);
     const proton = protobuf_encode<LongMsgSettings>(data);
     expect(hex(proton)).toBe('');                          // nothing on the wire
     expect(legacy.length).toBeGreaterThan(0);              // legacy emits all zeros
@@ -113,7 +318,7 @@ describe('proton ↔ legacy parity (longmsg subset)', () => {
 
   it('round-trips SendLongMsgResp through legacy encode → proton decode', () => {
     const data: SendLongMsgResp = { result: { resId: 'rt-2' } };
-    const encoded = protoEncode(data, SendLongMsgRespSchema);
+    const encoded = protoEncode(data as any, SendLongMsgRespSchema);
     const decoded = protobuf_decode<SendLongMsgResp>(encoded);
     expect(decoded.result?.resId).toBe('rt-2');
   });

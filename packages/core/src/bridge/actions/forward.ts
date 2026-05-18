@@ -5,19 +5,19 @@
 
 import type { Bridge } from '../bridge';
 import { gunzipSync, gzipSync } from 'zlib';
-import { protoDecode, protoEncode } from '../../protobuf/decode';
+import { protobuf_encode, protobuf_decode } from '@snowluma/proton';
 import { buildSendElems } from '../element-builder';
 import { parseMsgPush } from '../msg-push';
 import type { ForwardNodePayload } from '../events';
 import type { PacketInfo } from '../../protocol/types';
-import {
-  LongMsgResultSchema,
-  RecvLongMsgReqSchema,
-  RecvLongMsgRespSchema,
-  SendLongMsgReqSchema,
-  SendLongMsgRespSchema,
-} from '../proto/longmsg';
-import { PushMsgSchema } from '../proto/message';
+import type {
+  LongMsgResult,
+  RecvLongMsgReq,
+  RecvLongMsgResp,
+  SendLongMsgReq,
+  SendLongMsgResp,
+} from '../proto/proton/longmsg';
+import type { PushMsg, PushMsgBody } from '../proto/proton/message';
 import { resolveSelfUid, toInt } from './shared';
 
 // Module-scoped cache, keyed by res_id. Survives only for the lifetime
@@ -30,7 +30,7 @@ async function buildForwardPushBody(
   node: ForwardNodePayload,
   groupId?: number,
   userUid?: string,
-): Promise<Record<string, unknown>> {
+): Promise<PushMsgBody> {
   const fromUin = node.userUin > 0 ? node.userUin : toInt(bridge.identity.uin);
   if (fromUin <= 0) throw new Error('forward node user uin is invalid');
 
@@ -99,24 +99,24 @@ export async function uploadForwardNodes(
   }
 
   const msgBody = await Promise.all(nodes.map(node => buildForwardPushBody(bridge, node, groupId, userUid)));
-  const longMsgResult = protoEncode({
+  const longMsgResult = protobuf_encode<LongMsgResult>({
     action: [
       {
         actionCommand: 'MultiMsg',
-        actionData: { msgBody: msgBody as any },
+        actionData: { msgBody },
       },
     ],
-  }, LongMsgResultSchema);
+  });
 
   const selfUid = await resolveSelfUid(bridge);
-  const info: any = {
+  const info: SendLongMsgReq['info'] = {
     type: groupId ? 3 : 1,
     uid: { uid: groupId ? String(groupId) : selfUid },
     payload: gzipSync(Buffer.from(longMsgResult)),
   };
   if (groupId) info.groupUin = groupId;
 
-  const request = protoEncode({
+  const request = protobuf_encode<SendLongMsgReq>({
     info,
     settings: {
       field1: 4,
@@ -124,14 +124,14 @@ export async function uploadForwardNodes(
       field3: 7,
       field4: 0,
     },
-  }, SendLongMsgReqSchema);
+  });
 
   const result = await bridge.sendRawPacket('trpc.group.long_msg_interface.MsgService.SsoSendLongMsg', request);
   if (!result.success || !result.gotResponse || !result.responseData) {
     throw new Error(result.errorMessage || 'upload forward message failed');
   }
 
-  const resp = protoDecode(result.responseData, SendLongMsgRespSchema);
+  const resp = protobuf_decode<SendLongMsgResp>(result.responseData);
   const resId = typeof resp?.result?.resId === 'string' ? resp.result.resId : '';
   if (!resId) {
     throw new Error('upload forward message response missing res_id');
@@ -169,7 +169,7 @@ export async function fetchForwardNodes(bridge: Bridge, resId: string): Promise<
   }
 
   const selfUid = await resolveSelfUid(bridge);
-  const request = protoEncode({
+  const request = protobuf_encode<RecvLongMsgReq>({
     info: {
       uid: { uid: selfUid },
       resId,
@@ -181,27 +181,27 @@ export async function fetchForwardNodes(bridge: Bridge, resId: string): Promise<
       field3: 0,
       field4: 0,
     },
-  }, RecvLongMsgReqSchema);
+  });
 
   const result = await bridge.sendRawPacket('trpc.group.long_msg_interface.MsgService.SsoRecvLongMsg', request);
   if (!result.success || !result.gotResponse || !result.responseData) {
     throw new Error(result.errorMessage || 'download forward message failed');
   }
 
-  const resp = protoDecode(result.responseData, RecvLongMsgRespSchema);
+  const resp = protobuf_decode<RecvLongMsgResp>(result.responseData);
   const payload = resp?.result?.payload;
   if (!(payload instanceof Uint8Array) || payload.length === 0) {
     throw new Error('download forward message payload is empty');
   }
 
   const inflate = gunzipSync(Buffer.from(payload));
-  const longMsg = protoDecode(inflate, LongMsgResultSchema);
-  const action = longMsg?.action?.find((item: any) => item?.actionCommand === 'MultiMsg');
+  const longMsg = protobuf_decode<LongMsgResult>(inflate);
+  const action = longMsg?.action?.find((item) => item?.actionCommand === 'MultiMsg');
   const msgBodyList = Array.isArray(action?.actionData?.msgBody) ? action.actionData.msgBody : [];
 
   const nodes: ForwardNodePayload[] = [];
   for (const msgBody of msgBodyList) {
-    const wrapped = protoEncode({ message: msgBody }, PushMsgSchema);
+    const wrapped = protobuf_encode<PushMsg>({ message: msgBody });
     const pkt: PacketInfo = {
       pid: 0,
       uin: bridge.identity.uin,

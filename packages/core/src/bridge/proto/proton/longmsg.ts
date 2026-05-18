@@ -1,15 +1,12 @@
 // Proton (compile-time) form of the long-message schemas.
 //
-// Mirror of the self-contained subset of `bridge/proto/longmsg.ts`. Only the
-// schemas that DON'T reach into `PushMsgBodySchema` (and thus into element.ts)
-// are migrated here — `LongMsgContent` / `LongMsgAction` / `LongMsgResult`
-// stay on the legacy runtime API until message.ts + element.ts get migrated.
-//
-// This file is the proof-of-concept target for the @snowluma/proton plugin.
-// The parity test at `tests/proton-parity.test.ts` asserts that proton's
-// generated codec produces the exact same wire bytes as `protoEncode`.
+// One-to-one mirror of `bridge/proto/longmsg.ts`. All 12 schemas are now
+// migrated — the three (`LongMsgContent` / `LongMsgAction` / `LongMsgResult`)
+// that reach into `PushMsgBody` resolve via the proton-form `message.ts`
+// migration alongside this file.
 
-import type { pb, uint_32, bool, bytes } from '@snowluma/proton';
+import type { pb, pb_repeated, uint_32, bool, bytes } from '@snowluma/proton';
+import type { PushMsgBody } from './message';
 
 export interface LongMsgUid {
   uid?: pb<2, string>;
@@ -62,4 +59,19 @@ export interface RecvLongMsgRespResult {
 export interface RecvLongMsgResp {
   result?:   pb<1, RecvLongMsgRespResult>;
   settings?: pb<15, LongMsgSettings>;
+}
+
+// ── Schemas that reach into PushMsgBody (via message.ts) ────────────
+
+export interface LongMsgContent {
+  msgBody?: pb_repeated<1, PushMsgBody>;
+}
+
+export interface LongMsgAction {
+  actionCommand?: pb<1, string>;
+  actionData?:    pb<2, LongMsgContent>;
+}
+
+export interface LongMsgResult {
+  action?: pb_repeated<2, LongMsgAction>;
 }
