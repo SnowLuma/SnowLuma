@@ -116,6 +116,26 @@ export async function initWebUI(
 
   const app = new Hono();
 
+  // ─── Anti-indexing ───────────────────────────────────────────────────────
+  // The WebUI is an admin surface that has no business showing up in
+  // search results — even the login page leaks the existence of a
+  // SnowLuma instance to anyone scanning the IP. Three overlapping
+  // signals: a hard X-Robots-Tag on every response, a robots.txt for
+  // crawlers that read it before pages, and a <meta robots> in the
+  // SPA shell for the case where a proxy strips headers.
+  app.use('*', async (c, next) => {
+    await next();
+    c.res.headers.set(
+      'X-Robots-Tag',
+      'noindex, nofollow, noarchive, nosnippet, noimageindex',
+    );
+  });
+
+  app.get('/robots.txt', (c) => {
+    c.res.headers.set('Content-Type', 'text/plain; charset=utf-8');
+    return c.body('User-agent: *\nDisallow: /\n');
+  });
+
   // ─── Auth middleware ─────────────────────────────────────────────────────
   app.use('/api/*', async (c, next) => {
     const reqPath = c.req.path;
