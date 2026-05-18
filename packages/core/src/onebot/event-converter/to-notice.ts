@@ -21,6 +21,7 @@ type GroupPoke = Extract<QQEventVariant, { kind: 'group_poke' }>;
 type GroupEssence = Extract<QQEventVariant, { kind: 'group_essence' }>;
 type GroupFileUpload = Extract<QQEventVariant, { kind: 'group_file_upload' }>;
 type FriendAdd = Extract<QQEventVariant, { kind: 'friend_add' }>;
+type GroupMsgEmojiLike = Extract<QQEventVariant, { kind: 'group_msg_emoji_like' }>;
 
 export function convertGroupMemberJoin(ctx: ConverterContext, event: GroupMemberJoin): JsonObject {
   return {
@@ -185,5 +186,34 @@ export function convertFriendAdd(ctx: ConverterContext, event: FriendAdd): JsonO
     post_type: 'notice',
     notice_type: 'friend_add',
     user_id: event.userUin,
+  };
+}
+
+/**
+ * Group message emoji reaction notice. Matches the gocqhttp / NapCat
+ * extension shape (`notice_type: 'group_msg_emoji_like'`) since OneBot
+ * v11 standard has no slot for reactions and that's what every
+ * downstream framework keys off.
+ */
+export function convertGroupMsgEmojiLike(ctx: ConverterContext, event: GroupMsgEmojiLike): JsonObject {
+  // Reconstruct the OneBot message_id we originally minted for the
+  // reacted-to message. hashMessageIdInt32 is deterministic so the ID
+  // matches whatever the client received at receive-time, even when
+  // the message has fallen out of our store.
+  const messageId = applyMessageIdResolver(
+    ctx.messageIdResolver, true, event.groupId, event.msgSeq, GROUP_MESSAGE_EVENT,
+  );
+  return {
+    time: event.time,
+    self_id: ctx.selfId,
+    post_type: 'notice',
+    notice_type: 'group_msg_emoji_like',
+    sub_type: event.isAdd ? 'add' : 'remove',
+    group_id: event.groupId,
+    user_id: event.operatorUin,
+    operator_id: event.operatorUin,
+    message_id: messageId,
+    message_seq: event.msgSeq,
+    likes: [{ emoji_id: event.emojiId, count: event.count }],
   };
 }

@@ -23,6 +23,7 @@ import {
   convertGroupFileUpload,
   convertGroupMemberJoin,
   convertGroupMemberLeave,
+  convertGroupMsgEmojiLike,
   convertGroupMute,
   convertGroupPoke,
   convertGroupRecall,
@@ -98,6 +99,7 @@ export async function convertEvent(
     case 'group_essence':      return convertGroupEssence(ctx, event);
     case 'group_file_upload':  return convertGroupFileUpload(ctx, event);
     case 'friend_add':         return convertFriendAdd(ctx, event);
+    case 'group_msg_emoji_like': return convertGroupMsgEmojiLike(ctx, event);
 
     // Requests.
     case 'friend_request':     return convertFriendRequest(ctx, event);

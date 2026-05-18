@@ -73,6 +73,7 @@ const NOTICE_KINDS = [
   'group_essence',
   'group_file_upload',
   'friend_add',
+  'group_msg_emoji_like',
 ] as const satisfies readonly QQEventVariant['kind'][];
 
 async function convertAndDispatch(ctx: OneBotInstanceContext, event: QQEventVariant): Promise<void> {
