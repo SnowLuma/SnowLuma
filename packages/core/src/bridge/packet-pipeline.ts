@@ -124,7 +124,7 @@ export class IncomingPacketPipeline {
     }
 
     this.handleSideEffects(event, refreshed);
-    printEvent(this.eventLog, event);
+    printEvent(this.eventLog, this.deps.identity, event);
     this.emit(event);
   }
 
