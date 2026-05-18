@@ -68,10 +68,32 @@ function resolveMinLevel(): LogLevel {
   return 'info';
 }
 
-const MIN_LEVEL = resolveMinLevel();
+// Mutable — seeded from SNOWLUMA_LOG_LEVEL at module load, but
+// setLogLevel() lets WebUI / SDK callers flip it without a restart.
+// Only governs console + ring buffer + subscribers; the file
+// transport always sees debug-and-up regardless.
+let currentLevel: LogLevel = resolveMinLevel();
 
 function shouldLog(level: LogLevel): boolean {
-  return LEVEL_WEIGHT[level] >= LEVEL_WEIGHT[MIN_LEVEL];
+  return LEVEL_WEIGHT[level] >= LEVEL_WEIGHT[currentLevel];
+}
+
+export const LOG_LEVELS: readonly LogLevel[] = ['debug', 'info', 'success', 'warn', 'error'];
+
+export function getLogLevel(): LogLevel {
+  return currentLevel;
+}
+
+/**
+ * Change the console / subscriber level at runtime. Invalid input is
+ * a no-op (returns false). File transport is unaffected — it always
+ * sees every level so post-mortems remain useful.
+ */
+export function setLogLevel(level: string): boolean {
+  const lower = String(level).toLowerCase();
+  if (!LOG_LEVELS.includes(lower as LogLevel)) return false;
+  currentLevel = lower as LogLevel;
+  return true;
 }
 
 function useColor(): boolean {

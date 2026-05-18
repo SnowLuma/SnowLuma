@@ -2,7 +2,7 @@ import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono, type Context } from 'hono';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
-import { createLogger, getRecentLogs, subscribeLogs } from '../utils/logger';
+import { createLogger, getLogLevel, getRecentLogs, LOG_LEVELS, setLogLevel, subscribeLogs } from '../utils/logger';
 import { randomBytes } from 'crypto';
 import type { OneBotManager } from '../onebot/manager';
 import { loadOneBotConfig, saveOneBotConfig } from '../onebot/config';
@@ -338,6 +338,20 @@ export async function initWebUI(
   app.get('/api/logs', (c) => {
     const limit = Number(c.req.query('limit') ?? 300);
     return c.json({ list: getRecentLogs(limit) });
+  });
+
+  app.get('/api/logs/level', (c) => {
+    return c.json({ level: getLogLevel(), levels: [...LOG_LEVELS] });
+  });
+
+  app.post('/api/logs/level', async (c) => {
+    const body = await c.req.json().catch(() => null) as { level?: unknown } | null;
+    const next = typeof body?.level === 'string' ? body.level : '';
+    if (!setLogLevel(next)) {
+      return c.json({ message: `invalid level: ${next}`, levels: [...LOG_LEVELS] }, 400);
+    }
+    log.info('console log level set to %s via WebUI', getLogLevel());
+    return c.json({ level: getLogLevel(), levels: [...LOG_LEVELS] });
   });
 
   app.get('/api/logs/stream', (c) => {

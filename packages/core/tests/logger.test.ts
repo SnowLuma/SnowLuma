@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createLogger, subscribeLogs, type LogEntry } from '../src/utils/logger';
+import { createLogger, getLogLevel, setLogLevel, subscribeLogs, type LogEntry } from '../src/utils/logger';
 import { _resetFileTransportForTesting } from '../src/utils/log-file-transport';
 
 let tmpDir: string;
@@ -176,5 +176,52 @@ describe('createLogger', () => {
 
     const entries = fs.readdirSync(tmpDir);
     expect(entries).toHaveLength(0);
+  });
+});
+
+describe('setLogLevel / getLogLevel — runtime level toggle', () => {
+  // Each test restores whatever level was active going in so the suite
+  // ordering can't bleed state between specs.
+  let saved: ReturnType<typeof getLogLevel>;
+  beforeEach(() => { saved = getLogLevel(); });
+  afterEach(() => { setLogLevel(saved); });
+
+  it('setLogLevel updates getLogLevel for valid input', () => {
+    expect(setLogLevel('warn')).toBe(true);
+    expect(getLogLevel()).toBe('warn');
+    expect(setLogLevel('debug')).toBe(true);
+    expect(getLogLevel()).toBe('debug');
+  });
+
+  it('setLogLevel rejects unknown values without mutating state', () => {
+    setLogLevel('info');
+    expect(setLogLevel('nonsense')).toBe(false);
+    expect(getLogLevel()).toBe('info');
+    expect(setLogLevel('')).toBe(false);
+    expect(setLogLevel('Verbose')).toBe(false);
+  });
+
+  it('setLogLevel is case-insensitive', () => {
+    expect(setLogLevel('WARN')).toBe(true);
+    expect(getLogLevel()).toBe('warn');
+  });
+
+  it('changes which entries reach the ring buffer / subscribers', () => {
+    const captured: LogEntry[] = [];
+    const unsub = subscribeLogs((e) => captured.push(e));
+    const log = createLogger('LevelTest');
+
+    setLogLevel('warn');
+    log.debug('hidden-debug');
+    log.info('hidden-info');
+    log.warn('visible-warn');
+    log.error('visible-error');
+
+    unsub();
+
+    const messages = captured
+      .filter((e) => e.scope === 'LevelTest')
+      .map((e) => e.message);
+    expect(messages).toEqual(['visible-warn', 'visible-error']);
   });
 });

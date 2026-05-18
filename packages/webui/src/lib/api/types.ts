@@ -1,6 +1,7 @@
 import type {
   HookProcessInfo,
   LogEntry,
+  LogLevel,
   OneBotConfig,
   QQInfo,
   SystemInfo,
@@ -69,6 +70,10 @@ export interface ApiClient {
     list(limit?: number): Promise<LogEntry[]>;
     /** Subscribe to the SSE log stream. Returns a disposer. */
     stream(options: LogsStreamOptions): () => void;
+    /** Current console / subscriber level. File output is always debug. */
+    getLevel(): Promise<{ level: LogLevel; levels: LogLevel[] }>;
+    /** Change the console / subscriber level at runtime. No restart needed. */
+    setLevel(level: LogLevel): Promise<{ level: LogLevel; levels: LogLevel[] }>;
   };
 
   /** Escape hatch for endpoints not yet wrapped above. */
