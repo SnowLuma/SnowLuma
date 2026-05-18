@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": [
+    "src/**/*",
+    "test/__tests__/**/*",
+    "test/helpers/**/*",
+    "protobuf.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test/fixtures"
+  ]
+}
+

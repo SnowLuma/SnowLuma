@@ -1,0 +1,40 @@
+{
+  "name": "@snowluma/proton",
+  "version": "1.8.5",
+  "private": true,
+  "type": "module",
+  "description": "Compile-time protobuf encoder/decoder generator for SnowLuma. TypeScript interfaces → fully-inlined, zero-runtime protobuf codec functions. Vendored from SnowLuma/protobuf-dsl (reference copy under dev/protobuf-dsl/) with edge-case fixes applied.",
+  "main": "./src/runtime.ts",
+  "types": "./protobuf.d.ts",
+  "exports": {
+    ".": {
+      "types": "./protobuf.d.ts",
+      "default": "./src/runtime.ts"
+    },
+    "./vite": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "typescript": "catalog:"
+  },
+  "peerDependencies": {
+    "vite": "catalog:"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.2",
+    "vite": "catalog:",
+    "vitest": "^4.1.4"
+  }
+}
