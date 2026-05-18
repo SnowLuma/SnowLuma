@@ -28,6 +28,14 @@ import {
   PushMsgBodySchema,
   PushMsgSchema,
 } from '../src/bridge/proto/message';
+import {
+  GroupChangeSchema,
+  GroupAdminSchema,
+  NotifyMessageBodySchema,
+  GroupReactNotifySchema,
+  FriendRequestSchema,
+  GroupJoinSchema,
+} from '../src/bridge/proto/notify';
 
 import type {
   SendLongMsgResp,
@@ -50,6 +58,14 @@ import type {
   PushMsgBody,
   PushMsg,
 } from '../src/bridge/proto/proton/message';
+import type {
+  GroupChange,
+  GroupAdmin,
+  NotifyMessageBody,
+  GroupReactNotify,
+  FriendRequest as FriendRequestNotify,
+  GroupJoin,
+} from '../src/bridge/proto/proton/notify';
 
 function hex(buf: Uint8Array): string {
   return Buffer.from(buf).toString('hex');
@@ -283,6 +299,89 @@ describe('proton ↔ legacy parity (longmsg subset)', () => {
     };
     const legacy = protoEncode(data as any, LongMsgResultSchema);
     const proton = protobuf_encode<LongMsgResult>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  // ── notify.ts coverage ──────────────────────────────────────────────
+
+  it('encodes GroupChange identically', () => {
+    const data: GroupChange = {
+      groupUin: 555,
+      flag: 1,
+      memberUid: 'u_x',
+      decreaseType: 130,
+      operatorBytes: new Uint8Array([1, 2, 3]),
+      increaseType: 1,
+    };
+    const legacy = protoEncode(data as any, GroupChangeSchema);
+    const proton = protobuf_encode<GroupChange>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes GroupAdmin (extraEnable variant) identically', () => {
+    const data: GroupAdmin = {
+      groupUin: 777, flag: 1, isPromote: true,
+      body: { extraEnable: { adminUid: 'u_admin', isPromote: true } },
+    };
+    const legacy = protoEncode(data as any, GroupAdminSchema);
+    const proton = protobuf_encode<GroupAdmin>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes NotifyMessageBody (recall variant with repeated RecallMessage) identically', () => {
+    const data: NotifyMessageBody = {
+      type: 17,
+      groupUin: 555,
+      recall: {
+        operatorUid: 'u_op',
+        recallMessages: [
+          { sequence: 1, time: 100, random: 42, type: 1, flag: 1, authorUid: 'u_a' },
+          { sequence: 2, time: 200, random: 43, type: 1, flag: 1, authorUid: 'u_a' },
+        ],
+        groupType: 1, opType: 2,
+        tipInfo: { tip: 'recalled' },
+      },
+      msgSequence: 99,
+    };
+    const legacy = protoEncode(data as any, NotifyMessageBodySchema);
+    const proton = protobuf_encode<NotifyMessageBody>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes GroupReactNotify (deeply nested) identically', () => {
+    const data: GroupReactNotify = {
+      groupUin: 555n,
+      field13: 35,
+      groupReactionData: {
+        data: {
+          data: {
+            groupReactionTarget: { seq: 12345n },
+            groupReactionDataContent: { code: '128516', count: 1, operatorUid: 'u_op', type: 1 },
+          },
+        },
+      },
+    };
+    const legacy = protoEncode(data as any, GroupReactNotifySchema);
+    const proton = protobuf_encode<GroupReactNotify>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes FriendRequest identically', () => {
+    const data: FriendRequestNotify = {
+      info: { targetUid: 'u_me', sourceUid: 'u_them', newSource: 'qrcode', message: 'hello!', source: 'web' },
+    };
+    const legacy = protoEncode(data as any, FriendRequestSchema);
+    const proton = protobuf_encode<FriendRequestNotify>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes GroupJoin identically', () => {
+    const data: GroupJoin = {
+      groupUin: 555, field2: 1, targetUid: 'u_them', field4: 1,
+      field6: 1, field7: 'reason', field8: 1, field9: new Uint8Array([0xaa]),
+    };
+    const legacy = protoEncode(data as any, GroupJoinSchema);
+    const proton = protobuf_encode<GroupJoin>(data);
     expect(hex(proton)).toBe(hex(legacy));
   });
 

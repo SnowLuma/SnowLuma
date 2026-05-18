@@ -1,10 +1,12 @@
 // Handles Event0x210 wrapper (528). Internal switch on subType dispatches
 // to FriendRequest (35) / FriendRecall (138) / FriendPoke (290).
 
-import { protoDecode } from '../../../protobuf/decode';
-import {
-  FriendRequestSchema, FriendRecallSchema, GeneralGrayTipInfoSchema,
-} from '../../proto/notify';
+import { protobuf_decode } from '@snowluma/proton';
+import type {
+  FriendRequest as FriendRequestNotify,
+  FriendRecall as FriendRecallNotify,
+  GeneralGrayTipInfo,
+} from '../../proto/proton/notify';
 import type {
   FriendRequestEvent, FriendRecall, FriendPokeEvent, QQEventVariant,
 } from '../../events';
@@ -29,7 +31,7 @@ export const decodeEvent0x210: MsgPushDecoder = (ctx) => {
 };
 
 function decodeFriendRequest(ctx: MsgPushContext): QQEventVariant[] {
-  const request = protoDecode(ctx.content, FriendRequestSchema);
+  const request = protobuf_decode<FriendRequestNotify>(ctx.content);
   if (!request?.info) return [];
   const sourceUid = request.info.newSource || request.info.sourceUid || '';
   const ev: FriendRequestEvent = {
@@ -45,7 +47,7 @@ function decodeFriendRequest(ctx: MsgPushContext): QQEventVariant[] {
 }
 
 function decodeFriendRecall(ctx: MsgPushContext): QQEventVariant[] {
-  const recall = protoDecode(ctx.content, FriendRecallSchema);
+  const recall = protobuf_decode<FriendRecallNotify>(ctx.content);
   if (!recall?.info) return [];
   const ev: FriendRecall = {
     kind: 'friend_recall',
@@ -58,7 +60,7 @@ function decodeFriendRecall(ctx: MsgPushContext): QQEventVariant[] {
 }
 
 function decodeFriendPoke(ctx: MsgPushContext): QQEventVariant[] {
-  const grayTip = protoDecode(ctx.content, GeneralGrayTipInfoSchema);
+  const grayTip = protobuf_decode<GeneralGrayTipInfo>(ctx.content);
   if (!grayTip || (grayTip.busiType ?? 0n) !== 12n) return [];
   const templates = buildTemplateMap(grayTip.msgTemplParam ?? []);
   const actor = findTemplateValue(templates, 'uin_str1');

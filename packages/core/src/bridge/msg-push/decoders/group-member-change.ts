@@ -2,14 +2,14 @@
 // Both share GroupChangeSchema; the decreaseType field distinguishes kick vs
 // voluntary leave (dt != 0 && dt != 130 means kicked).
 
-import { protoDecode } from '../../../protobuf/decode';
-import { GroupChangeSchema } from '../../proto/notify';
+import { protobuf_decode } from '@snowluma/proton';
+import type { GroupChange } from '../../proto/proton/notify';
 import type { GroupMemberJoin, GroupMemberLeave } from '../../events';
 import type { MsgPushDecoder } from '../registry';
 import { decodeOperatorUid, resolveUidToUin } from '../helpers';
 
 export const decodeGroupMemberJoin: MsgPushDecoder = (ctx) => {
-  const change = protoDecode(ctx.content, GroupChangeSchema);
+  const change = protobuf_decode<GroupChange>(ctx.content);
   if (!change) return [];
   const groupId = change.groupUin ?? 0;
   const userUid = change.memberUid ?? '';
@@ -28,7 +28,7 @@ export const decodeGroupMemberJoin: MsgPushDecoder = (ctx) => {
 };
 
 export const decodeGroupMemberLeave: MsgPushDecoder = (ctx) => {
-  const change = protoDecode(ctx.content, GroupChangeSchema);
+  const change = protobuf_decode<GroupChange>(ctx.content);
   if (!change) return [];
   const dt = change.decreaseType ?? 0;
   const groupId = change.groupUin ?? 0;

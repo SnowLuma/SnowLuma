@@ -1,14 +1,14 @@
 // Handles GroupAdminChangedNotice (44). extraEnable / extraDisable
 // distinguishes set vs. unset.
 
-import { protoDecode } from '../../../protobuf/decode';
-import { GroupAdminSchema } from '../../proto/notify';
+import { protobuf_decode } from '@snowluma/proton';
+import type { GroupAdmin } from '../../proto/proton/notify';
 import type { GroupAdminEvent } from '../../events';
 import type { MsgPushDecoder } from '../registry';
 import { resolveUidToUin } from '../helpers';
 
 export const decodeGroupAdmin: MsgPushDecoder = (ctx) => {
-  const admin = protoDecode(ctx.content, GroupAdminSchema);
+  const admin = protobuf_decode<GroupAdmin>(ctx.content);
   if (!admin?.body) return [];
   const extra = admin.body.extraEnable ?? admin.body.extraDisable;
   if (!extra) return [];

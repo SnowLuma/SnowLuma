@@ -2,16 +2,16 @@
 // + GroupInviteNotice (87). All three produce GroupInviteEvent with
 // different subType ('add' / 'invite') and flag prefixes.
 
-import { protoDecode } from '../../../protobuf/decode';
-import {
-  GroupJoinSchema, GroupInvitationSchema, GroupInviteSchema,
-} from '../../proto/notify';
+import { protobuf_decode } from '@snowluma/proton';
+import type {
+  GroupJoin, GroupInvitation, GroupInvite,
+} from '../../proto/proton/notify';
 import type { GroupInviteEvent } from '../../events';
 import type { MsgPushDecoder } from '../registry';
 import { resolveUidToUin } from '../helpers';
 
 export const decodeGroupJoinRequest: MsgPushDecoder = (ctx) => {
-  const join = protoDecode(ctx.content, GroupJoinSchema);
+  const join = protobuf_decode<GroupJoin>(ctx.content);
   if (!join) return [];
   const ev: GroupInviteEvent = {
     kind: 'group_invite',
@@ -28,7 +28,7 @@ export const decodeGroupJoinRequest: MsgPushDecoder = (ctx) => {
 };
 
 export const decodeGroupInvitation: MsgPushDecoder = (ctx) => {
-  const invitation = protoDecode(ctx.content, GroupInvitationSchema);
+  const invitation = protobuf_decode<GroupInvitation>(ctx.content);
   if (!invitation?.info?.inner) return [];
   const inner = invitation.info.inner;
   const ev: GroupInviteEvent = {
@@ -46,7 +46,7 @@ export const decodeGroupInvitation: MsgPushDecoder = (ctx) => {
 };
 
 export const decodeGroupInvite: MsgPushDecoder = (ctx) => {
-  const invite = protoDecode(ctx.content, GroupInviteSchema);
+  const invite = protobuf_decode<GroupInvite>(ctx.content);
   if (!invite) return [];
   const ev: GroupInviteEvent = {
     kind: 'group_invite',
