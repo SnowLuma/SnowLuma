@@ -112,9 +112,9 @@ export async function fetchGroupList(bridge: Bridge): Promise<QQGroupInfo[]> {
   // The user-verified safe combination: keep `config1.*` mostly on
   // (the response decoder pulls groupOwner / memberMax / memberCount /
   // groupName / description / question / announcement from this
-  // group), but turn off the two costly groups of bools that never
-  // map back to a decoded field:
-  //   - config1.field5003 (an expansive 5xxx-range descriptor)
+  // group), but turn off the costly groups of bools that never map
+  // back to a decoded field:
+  //   - config1.field5002, field5003 (expansive 5xxx-range descriptors)
   //   - all of config2 (auxiliary per-group blob the decoder ignores)
   const allTrue = true;
   const body = {
@@ -127,7 +127,7 @@ export async function fetchGroupList(bridge: Bridge): Promise<QQGroupInfo[]> {
         question: allTrue, field20: allTrue, field22: allTrue, field23: allTrue,
         field24: allTrue, field25: allTrue, field26: allTrue, field27: allTrue,
         field28: allTrue, field29: allTrue, field30: allTrue, field31: allTrue,
-        field32: allTrue, field5001: allTrue, field5002: allTrue, field5003: false,
+        field32: allTrue, field5001: allTrue, field5002: false, field5003: false,
       },
       config2: {
         field1: false, field2: false, field3: false, field4: false,
