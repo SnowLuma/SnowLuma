@@ -4,25 +4,27 @@
 
 import type { Bridge } from '../bridge';
 import { protoDecode, protoEncode } from '../../protobuf/decode';
-import { runOidb } from '../bridge-oidb';
+import { runOidb, makeOidbEnvelope, encodeOidbEnv, decodeOidbEnv } from '../bridge-oidb';
 import { fetchHighwaySession, uploadHighwayHttp } from '../highway/highway-client';
 import { computeHashes, loadBinarySource } from '../highway/utils';
 import {
   FaceroamOpReqSchema,
   FaceroamOpRespSchema,
   GroupAvatarExtraSchema,
-  Oidb0x112aReqSchema,
-  Oidb0x112aRespSchema,
-  Oidb0x7edReqSchema,
-  Oidb0x7edRespSchema,
-  Oidb0xcd4ReqSchema,
-  Oidb0xcd4RespSchema,
-  Oidb0xe17ReqSchema,
-  Oidb0xe17RespSchema,
-  OidbSetProfileSchema,
   SetStatusReqSchema,
   SetStatusRespSchema,
 } from '../proto/oidb-action';
+import type {
+  Oidb0x112aReq,
+  Oidb0x112aResp,
+  Oidb0x7edReq,
+  Oidb0x7edResp,
+  Oidb0xcd4Req,
+  Oidb0xcd4Resp,
+  Oidb0xe17Req,
+  Oidb0xe17Resp,
+  OidbSetProfile,
+} from '../proto/proton/oidb-action';
 import { resolveSelfUid } from './shared';
 
 // ─────────────── status / profile setters ───────────────
@@ -110,11 +112,8 @@ export async function setProfile(
     stringProfiles,
   };
 
-  await runOidb(bridge, {
-    cmd: 'OidbSvcTrpcTcp.0x112a_2',
-    oidbCmd: 0x112A, subCmd: 2,
-    request: { schema: OidbSetProfileSchema, value: req },
-  });
+  const env = makeOidbEnvelope<OidbSetProfile>(0x112A, 2, req);
+  await runOidb(bridge, 'OidbSvcTrpcTcp.0x112a_2', encodeOidbEnv<OidbSetProfile>(env));
 }
 
 export async function setSelfLongNick(
@@ -129,12 +128,10 @@ export async function setSelfLongNick(
     },
   };
 
-  await runOidb<any>(bridge, {
-    cmd: 'OidbSvcTrpcTcp.0x112a_2',
-    oidbCmd: 0x112A, subCmd: 2,
-    request: { schema: Oidb0x112aReqSchema, value: req },
-    response: { schema: Oidb0x112aRespSchema },
-  });
+  const env = makeOidbEnvelope<Oidb0x112aReq>(0x112A, 2, req);
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x112a_2', encodeOidbEnv<Oidb0x112aReq>(env));
+  // Decode just to maintain the original behaviour of "consume the response".
+  decodeOidbEnv<Oidb0x112aResp>(respBytes);
 }
 
 export async function setInputStatus(
@@ -156,12 +153,10 @@ export async function setInputStatus(
     },
   };
 
-  await runOidb<any>(bridge, {
-    cmd: 'OidbSvcTrpcTcp.0xcd4_1',
-    oidbCmd: 0xCD4, subCmd: 1,
-    request: { schema: Oidb0xcd4ReqSchema, value: req },
-    response: { schema: Oidb0xcd4RespSchema },
-  });
+  const env = makeOidbEnvelope<Oidb0xcd4Req>(0xCD4, 1, req);
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xcd4_1', encodeOidbEnv<Oidb0xcd4Req>(env));
+  // Decode just to maintain the original behaviour of "consume the response".
+  decodeOidbEnv<Oidb0xcd4Resp>(respBytes);
 }
 
 export async function setAvatar(
@@ -232,12 +227,9 @@ export async function getProfileLike(
     limit: limit,
   };
 
-  const result = await runOidb<any>(bridge, {
-    cmd: 'OidbSvcTrpcTcp.0x7ed_12',
-    oidbCmd: 0x7ED, subCmd: 12,
-    request: { schema: Oidb0x7edReqSchema, value: req },
-    response: { schema: Oidb0x7edRespSchema },
-  });
+  const env = makeOidbEnvelope<Oidb0x7edReq>(0x7ED, 12, req);
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x7ed_12', encodeOidbEnv<Oidb0x7edReq>(env));
+  const result = decodeOidbEnv<Oidb0x7edResp>(respBytes).body;
 
   const data = result?.userLikeInfos?.[0];
   if (!data) {
@@ -277,12 +269,9 @@ export async function getUnidirectionalFriendList(
     jsonBody: JSON.stringify(reqObj),
   };
 
-  const result = await runOidb<any>(bridge, {
-    cmd: 'MQUpdateSvc_com_qq_ti.web.OidbSvc.0xe17_0',
-    oidbCmd: 0xE17, subCmd: 0,
-    request: { schema: Oidb0xe17ReqSchema, value: req },
-    response: { schema: Oidb0xe17RespSchema },
-  });
+  const env = makeOidbEnvelope<Oidb0xe17Req>(0xE17, 0, req);
+  const respBytes = await runOidb(bridge, 'MQUpdateSvc_com_qq_ti.web.OidbSvc.0xe17_0', encodeOidbEnv<Oidb0xe17Req>(env));
+  const result = decodeOidbEnv<Oidb0xe17Resp>(respBytes).body;
 
   if (!result || !result.jsonBody) {
     throw new Error('get unidirectional friend list empty');

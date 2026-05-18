@@ -4,24 +4,24 @@ import type { Bridge } from './bridge';
 import type { DownloadRKeyInfo } from './bridge';
 import type { FriendInfo, QQGroupInfo, GroupMemberInfo, UserProfileInfo, GroupRequestInfo } from './qq-info';
 import { protoDecode } from '../protobuf/decode';
-import { runOidb } from './bridge-oidb';
-import {
-  OidbSvcTrpcTcp0xFD4_1ResponseSchema,
-  OidbSvcTrpcTcp0xFE5_2ResponseSchema,
-  OidbSvcTrpcTcp0xFE7_3ResponseSchema,
-  OidbSvcTrpcTcp0x10C0ResponseSchema,
-} from './proto/oidb';
-import {
-  OidbFriendListRequestSchema,
-  OidbGroupListRequestSchema,
-  OidbGroupMemberListRequestSchema,
-  OidbUserInfoRequestSchema,
-  OidbUserInfoResponseSchema,
-  AvatarInfoSchema,
-  OidbGroupRequestListSchema,
-  NTV2RichMediaReqSchema,
-  NTV2RichMediaRespSchema,
-} from './proto/oidb-action';
+import { runOidb, makeOidbEnvelope, encodeOidbEnv, decodeOidbEnv } from './bridge-oidb';
+import { AvatarInfoSchema } from './proto/oidb-action';
+import type {
+  OidbSvcTrpcTcp0xFD4_1Response,
+  OidbSvcTrpcTcp0xFE5_2Response,
+  OidbSvcTrpcTcp0xFE7_3Response,
+  OidbSvcTrpcTcp0x10C0Response,
+} from './proto/proton/oidb';
+import type {
+  OidbFriendListRequest,
+  OidbGroupListRequest,
+  OidbGroupMemberListRequest,
+  OidbUserInfoRequest,
+  OidbUserInfoResponse,
+  OidbGroupRequestList,
+  NTV2RichMediaReq,
+  NTV2RichMediaResp,
+} from './proto/proton/oidb-action';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -71,12 +71,9 @@ export async function fetchFriendList(bridge: Bridge): Promise<FriendInfo[]> {
       body.nextUin = { uin: nextUin };
     }
 
-    const resp = await runOidb<any>(bridge, {
-      cmd: 'OidbSvcTrpcTcp.0xfd4_1',
-      oidbCmd: 0xFD4, subCmd: 1,
-      request: { schema: OidbFriendListRequestSchema, value: body },
-      response: { schema: OidbSvcTrpcTcp0xFD4_1ResponseSchema },
-    });
+    const env = makeOidbEnvelope<OidbFriendListRequest>(0xFD4, 1, body);
+    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xfd4_1', encodeOidbEnv<OidbFriendListRequest>(env));
+    const resp = decodeOidbEnv<OidbSvcTrpcTcp0xFD4_1Response>(respBytes).body;
 
     if (resp?.friends) {
       for (const raw of resp.friends) {
@@ -137,12 +134,9 @@ export async function fetchGroupList(bridge: Bridge): Promise<QQGroupInfo[]> {
     },
   };
 
-  const resp = await runOidb<any>(bridge, {
-    cmd: 'OidbSvcTrpcTcp.0xfe5_2',
-    oidbCmd: 0xFE5, subCmd: 2,
-    request: { schema: OidbGroupListRequestSchema, value: body, isUid: true },
-    response: { schema: OidbSvcTrpcTcp0xFE5_2ResponseSchema },
-  });
+  const env = makeOidbEnvelope<OidbGroupListRequest>(0xFE5, 2, body, true);
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xfe5_2', encodeOidbEnv<OidbGroupListRequest>(env));
+  const resp = decodeOidbEnv<OidbSvcTrpcTcp0xFE5_2Response>(respBytes).body;
 
   const groups: QQGroupInfo[] = [];
   if (resp?.groups) {
@@ -184,12 +178,9 @@ export async function fetchGroupMemberList(bridge: Bridge, groupId: number): Pro
     };
     if (token) body.token = token;
 
-    const resp = await runOidb<any>(bridge, {
-      cmd: 'OidbSvcTrpcTcp.0xfe7_3',
-      oidbCmd: 0xFE7, subCmd: 3,
-      request: { schema: OidbGroupMemberListRequestSchema, value: body },
-      response: { schema: OidbSvcTrpcTcp0xFE7_3ResponseSchema },
-    });
+    const env = makeOidbEnvelope<OidbGroupMemberListRequest>(0xFE7, 3, body);
+    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xfe7_3', encodeOidbEnv<OidbGroupMemberListRequest>(env));
+    const resp = decodeOidbEnv<OidbSvcTrpcTcp0xFE7_3Response>(respBytes).body;
 
     if (resp?.members) {
       for (const raw of resp.members) {
@@ -234,12 +225,9 @@ export async function fetchUserProfile(bridge: Bridge, uin: number): Promise<Use
   // UID-form validation path, find neither uid nor openid in the body
   // and bounce the request with `[oidb] one of uid/openid is invaild`.
   // Matches Lagrange.Core's FetchStrangerByUin (Reserved = 1).
-  const resp = await runOidb<any>(bridge, {
-    cmd: 'OidbSvcTrpcTcp.0xfe1_2',
-    oidbCmd: 0xFE1, subCmd: 2,
-    request: { schema: OidbUserInfoRequestSchema, value: body, isUid: true },
-    response: { schema: OidbUserInfoResponseSchema },
-  });
+  const env = makeOidbEnvelope<OidbUserInfoRequest>(0xFE1, 2, body, true);
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xfe1_2', encodeOidbEnv<OidbUserInfoRequest>(env));
+  const resp = decodeOidbEnv<OidbUserInfoResponse>(respBytes).body;
 
   if (!resp?.body) throw new Error('user info response body missing');
 
@@ -291,12 +279,9 @@ export async function fetchUserProfile(bridge: Bridge, uin: number): Promise<Use
 export async function fetchGroupRequests(bridge: Bridge, filtered = false): Promise<GroupRequestInfo[]> {
   const subCmd = filtered ? 2 : 1;
   const cmd = filtered ? 'OidbSvcTrpcTcp.0x10c0_2' : 'OidbSvcTrpcTcp.0x10c0_1';
-  const resp = await runOidb<any>(bridge, {
-    cmd,
-    oidbCmd: 0x10C0, subCmd,
-    request: { schema: OidbGroupRequestListSchema, value: { count: 20, field2: 0 } },
-    response: { schema: OidbSvcTrpcTcp0x10C0ResponseSchema },
-  });
+  const env = makeOidbEnvelope<OidbGroupRequestList>(0x10C0, subCmd, { count: 20, field2: 0 });
+  const respBytes = await runOidb(bridge, cmd, encodeOidbEnv<OidbGroupRequestList>(env));
+  const resp = decodeOidbEnv<OidbSvcTrpcTcp0x10C0Response>(respBytes).body;
 
   const requests: GroupRequestInfo[] = [];
   for (const raw of resp?.requests ?? []) {
@@ -343,12 +328,9 @@ export async function fetchDownloadRKeys(bridge: Bridge): Promise<DownloadRKeyIn
     },
   };
 
-  const resp = await runOidb<any>(bridge, {
-    cmd: 'OidbSvcTrpcTcp.0x9067_202',
-    oidbCmd: 0x9067, subCmd: 202,
-    request: { schema: NTV2RichMediaReqSchema, value: body, isUid: true },
-    response: { schema: NTV2RichMediaRespSchema },
-  });
+  const env = makeOidbEnvelope<NTV2RichMediaReq>(0x9067, 202, body, true);
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x9067_202', encodeOidbEnv<NTV2RichMediaReq>(env));
+  const resp = decodeOidbEnv<NTV2RichMediaResp>(respBytes).body;
 
   if (resp?.respHead?.retCode && resp.respHead.retCode !== 0) {
     throw new Error(resp.respHead.message ?? 'fetch download rkey failed');

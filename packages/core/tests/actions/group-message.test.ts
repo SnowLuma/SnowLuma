@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/bridge/bridge-oidb', () => ({
-  runOidb: vi.fn(async () => ({})),
+  runOidb: vi.fn(async () => new Uint8Array()),
+  makeOidbEnvelope: vi.fn((_oidbCmd, _subCmd, body) => ({ body })),
+  encodeOidbEnv: vi.fn(() => new Uint8Array()),
+  decodeOidbEnv: vi.fn(() => ({ body: {} })),
 }));
 
 import * as oidb from '../../src/bridge/bridge-oidb';
@@ -11,6 +14,9 @@ import { mockBridge } from './_helpers';
 describe('actions/group-message', () => {
   beforeEach(() => {
     vi.mocked(oidb.runOidb).mockClear();
+    vi.mocked(oidb.makeOidbEnvelope).mockClear();
+    vi.mocked(oidb.encodeOidbEnv).mockClear();
+    vi.mocked(oidb.decodeOidbEnv).mockClear();
   });
 
   it('recallGroupMessage sends to SsoGroupRecallMsg with the group sequence', async () => {
@@ -59,7 +65,7 @@ describe('actions/group-message', () => {
     const bridge = mockBridge();
     await msg.setGroupEssence(bridge as any, 12345, 5, 7, true);
     await msg.setGroupEssence(bridge as any, 12345, 5, 7, false);
-    const cmds = vi.mocked(oidb.runOidb).mock.calls.map(c => c[1].cmd);
+    const cmds = vi.mocked(oidb.runOidb).mock.calls.map(c => c[1]);
     expect(cmds).toEqual(['OidbSvcTrpcTcp.0xeac_1', 'OidbSvcTrpcTcp.0xeac_2']);
   });
 });

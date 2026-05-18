@@ -3,37 +3,28 @@
 // edit message content — they're purely social signals.
 
 import type { Bridge } from '../bridge';
-import { runOidb } from '../bridge-oidb';
-import {
-  Oidb0x9083ReqSchema,
-  Oidb0x9083RespSchema,
-  OidbGroupReactionSchema,
-  OidbLikeSchema,
-  OidbPokeSchema,
-} from '../proto/oidb-action';
+import { runOidb, makeOidbEnvelope, encodeOidbEnv, decodeOidbEnv } from '../bridge-oidb';
+import type {
+  Oidb0x9083Req,
+  Oidb0x9083Resp,
+  OidbGroupReaction,
+  OidbLike,
+  OidbPoke,
+} from '../proto/proton/oidb-action';
 
 export async function sendPoke(bridge: Bridge, isGroup: boolean, peerUin: number, targetUin?: number): Promise<void> {
-  await runOidb(bridge, {
-    cmd: 'OidbSvcTrpcTcp.0xed3_1',
-    oidbCmd: 0xED3, subCmd: 1,
-    request: {
-      schema: OidbPokeSchema,
-      value: {
-        uin: targetUin ?? peerUin,
-        groupUin: isGroup ? peerUin : 0,
-        friendUin: isGroup ? 0 : peerUin,
-        ext: 0,
-      },
-    },
+  const env = makeOidbEnvelope<OidbPoke>(0xED3, 1, {
+    uin: targetUin ?? peerUin,
+    groupUin: isGroup ? peerUin : 0,
+    friendUin: isGroup ? 0 : peerUin,
+    ext: 0,
   });
+  await runOidb(bridge, 'OidbSvcTrpcTcp.0xed3_1', encodeOidbEnv<OidbPoke>(env));
 }
 
 export async function sendLike(bridge: Bridge, userId: number, count: number): Promise<void> {
-  await runOidb(bridge, {
-    cmd: 'OidbSvcTrpcTcp.0x7e5_104',
-    oidbCmd: 0x7E5, subCmd: 104,
-    request: { schema: OidbLikeSchema, value: { targetUin: userId, count } },
-  });
+  const env = makeOidbEnvelope<OidbLike>(0x7E5, 104, { targetUin: userId, count });
+  await runOidb(bridge, 'OidbSvcTrpcTcp.0x7e5_104', encodeOidbEnv<OidbLike>(env));
 }
 
 export async function setGroupReaction(bridge: Bridge, groupId: number, sequence: number, code: string, isSet: boolean): Promise<void> {
@@ -44,14 +35,8 @@ export async function setGroupReaction(bridge: Bridge, groupId: number, sequence
   // type field to pick the right resolution table; omitting it makes
   // unicode reactions silently fail.
   const type = code.length > 3 ? 2 : 1;
-  await runOidb(bridge, {
-    cmd,
-    oidbCmd: 0x9082, subCmd,
-    request: {
-      schema: OidbGroupReactionSchema,
-      value: { groupUin: groupId, sequence, code, type },
-    },
-  });
+  const env = makeOidbEnvelope<OidbGroupReaction>(0x9082, subCmd, { groupUin: groupId, sequence, code, type });
+  await runOidb(bridge, cmd, encodeOidbEnv<OidbGroupReaction>(env));
 }
 
 export async function getEmojiLikes(
@@ -63,7 +48,7 @@ export async function getEmojiLikes(
   count: number = 10,
   cookie: string = '',
 ): Promise<{ users: Array<{ uin: number }>, cookie: string, isLast: boolean }> {
-  const req = {
+  const req: any = {
     groupId: BigInt(groupId),
     sequence,
     emojiType,
@@ -73,12 +58,9 @@ export async function getEmojiLikes(
     count,
     field12: 1,
   };
-  const resp = await runOidb<any>(bridge, {
-    cmd: 'OidbSvcTrpcTcp.0x9083_1',
-    oidbCmd: 0x9083, subCmd: 1,
-    request: { schema: Oidb0x9083ReqSchema, value: req },
-    response: { schema: Oidb0x9083RespSchema },
-  });
+  const env = makeOidbEnvelope<Oidb0x9083Req>(0x9083, 1, req);
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x9083_1', encodeOidbEnv<Oidb0x9083Req>(env));
+  const resp = decodeOidbEnv<Oidb0x9083Resp>(respBytes).body;
   const uin = resp?.inner?.userInfo?.uin;
   const users = uin ? [{ uin: Number(uin) }] : [];
   const respCookie = resp?.cookie ? Buffer.from(resp.cookie).toString('base64') : '';

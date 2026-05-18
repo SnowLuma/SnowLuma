@@ -46,7 +46,15 @@ export function collectInterface(
         const f = extractField(m, sf, resolveImportedTypeName);
         if (f) fields.push(f);
     }
-    return fields.length ? { name: node.name.text, fields } : null;
+    // Register interfaces that are EXPLICITLY empty (`interface X {}`) as
+    // zero-field proto messages — proto3 wire format allows them and
+    // downstream code routinely uses them for "this OIDB call has no
+    // meaningful response body" placeholders. Interfaces that have
+    // members but no pb-marked fields are NOT proto messages — they
+    // belong to regular TS types and must stay unregistered to avoid
+    // polluting the registry.
+    if (fields.length === 0 && node.members.length > 0) return null;
+    return { name: node.name.text, fields };
 }
 
 /** Collect a generic interface template. */

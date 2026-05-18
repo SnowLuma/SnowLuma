@@ -51,6 +51,7 @@ import {
   FileUploadExtSchema,
 } from '../src/bridge/proto/highway';
 import { makeOidbBaseSchema, OidbSvcTrpcTcp0xFE5_2ResponseSchema } from '../src/bridge/proto/oidb';
+import { makeOidbEnvelope, encodeOidbEnv, decodeOidbEnv } from '../src/bridge/bridge-oidb';
 
 import type {
   SendLongMsgResp,
@@ -616,6 +617,24 @@ describe('proton ↔ legacy parity (longmsg subset)', () => {
     const legacy = protoEncode(envelope as any, makeOidbBaseSchema(OidbSvcTrpcTcp0xFE5_2ResponseSchema));
     const proton = protobuf_encode<OidbBase<OidbSvcTrpcTcp0xFE5_2Response>>(envelope);
     expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodeOidbEnv<T> pass-through wrapper byte-equivalent to direct codec', () => {
+    // The bridge-oidb.ts module exposes encodeOidbEnv<T> / decodeOidbEnv<T>
+    // as pure pass-through wrappers around protobuf_encode/decode<OidbBase<T>>.
+    // Proton wrapper-binds them and substitutes each call site with the
+    // monomorphized codec, so byte-output must match a direct call.
+    const body: OidbSvcTrpcTcp0xFE5_2Response = {
+      groups: [{ groupUin: 100, info: { groupName: 'G' } }],
+    };
+    const env = makeOidbEnvelope<OidbSvcTrpcTcp0xFE5_2Response>(0xFE5, 2, body, false);
+    const viaWrapper = encodeOidbEnv<OidbSvcTrpcTcp0xFE5_2Response>(env);
+    const viaDirect = protobuf_encode<OidbBase<OidbSvcTrpcTcp0xFE5_2Response>>(env);
+    expect(hex(viaWrapper)).toBe(hex(viaDirect));
+
+    const back = decodeOidbEnv<OidbSvcTrpcTcp0xFE5_2Response>(viaWrapper);
+    expect(back.body?.groups?.[0]?.groupUin).toBe(100);
+    expect(back.body?.groups?.[0]?.info?.groupName).toBe('G');
   });
 
   it('round-trips OidbBase<T> with non-trivial nested body', () => {

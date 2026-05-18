@@ -1,8 +1,30 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { protobuf_encode } from '@snowluma/proton';
+import type { OidbBase } from '../../src/bridge/proto/proton/oidb';
+import type {
+  OidbGroupFileCountViewResp,
+  OidbGroupFileResp,
+  OidbGroupFileViewResp,
+  OidbPrivateFileUploadResp,
+  OidbGroupFileFolderResp,
+  NTV2RichMediaResp,
+} from '../../src/bridge/proto/proton/oidb-action';
 
-vi.mock('../../src/bridge/bridge-oidb', () => ({
-  runOidb: vi.fn(async () => ({})),
-}));
+// `encodeOidbEnv` / `decodeOidbEnv` are proton-bound pass-through wrappers
+// (substituted at the call site with the inlined codec). Mocking them on
+// the module object is a no-op — proton has already inlined the call.
+// We mock `runOidb` (non-generic, proton leaves it alone) to return real
+// proton-encoded bytes, which the production-side codec then decodes.
+vi.mock('../../src/bridge/bridge-oidb', async () => {
+  const actual = await vi.importActual<typeof import('../../src/bridge/bridge-oidb')>(
+    '../../src/bridge/bridge-oidb',
+  );
+  return {
+    ...actual,
+    runOidb: vi.fn(async () => new Uint8Array()),
+    makeOidbEnvelope: vi.fn((_oidbCmd, _subCmd, body) => ({ body })),
+  };
+});
 
 vi.mock('../../src/bridge/highway/highway-client', () => ({
   fetchHighwaySession: vi.fn(async () => ({})),
@@ -27,36 +49,45 @@ import { mockBridge } from './_helpers';
 describe('actions/group-file', () => {
   beforeEach(() => {
     vi.mocked(oidb.runOidb).mockReset();
-    vi.mocked(oidb.runOidb).mockResolvedValue({});
+    vi.mocked(oidb.runOidb).mockResolvedValue(new Uint8Array());
+    vi.mocked(oidb.makeOidbEnvelope).mockClear();
     vi.mocked(highwayClient.fetchHighwaySession).mockClear();
     vi.mocked(highwayClient.uploadHighwayHttp).mockClear();
   });
 
   it('fetchGroupFileCount returns { fileCount, maxCount } from the OIDB response', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
-      count: { fileCount: 42, maxCount: 1000 },
-    });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+      protobuf_encode<OidbBase<OidbGroupFileCountViewResp>>({
+        body: { count: { fileCount: 42, maxCount: 1000 } },
+      }),
+    );
     const out = await groupFile.fetchGroupFileCount(bridge as any, 12345);
     expect(out).toEqual({ fileCount: 42, maxCount: 1000 });
   });
 
   it('fetchGroupFileCount falls back to defaults on partial response', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce({ count: {} });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+      protobuf_encode<OidbBase<OidbGroupFileCountViewResp>>({ body: { count: {} } }),
+    );
     const out = await groupFile.fetchGroupFileCount(bridge as any, 12345);
     expect(out).toEqual({ fileCount: 0, maxCount: 10000 });
   });
 
   it('uploadGroupFile skips highway when boolFileExist is true', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
-      upload: {
-        retCode: 0,
-        fileId: 'fid-xyz',
-        boolFileExist: true,
-      },
-    });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+      protobuf_encode<OidbBase<OidbGroupFileResp>>({
+        body: {
+          upload: {
+            // retCode 0 omitted by proto3 — production only checks against nonzero
+            fileId: 'fid-xyz',
+            boolFileExist: true,
+          },
+        } as any,
+      }),
+    );
     const out = await groupFile.uploadGroupFile(bridge as any, 12345, '/path/file.bin');
     expect(out).toEqual({ fileId: 'fid-xyz' });
     expect(highwayClient.fetchHighwaySession).not.toHaveBeenCalled();
@@ -65,17 +96,21 @@ describe('actions/group-file', () => {
 
   it('uploadGroupFile runs highway PUT when boolFileExist is false', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
-      upload: {
-        retCode: 0,
-        fileId: 'fid-xyz',
-        boolFileExist: false,
-        uploadIp: '1.2.3.4',
-        uploadPort: 8080,
-        fileKey: new Uint8Array([9]),
-        checkKey: new Uint8Array([8]),
-      },
-    });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+      protobuf_encode<OidbBase<OidbGroupFileResp>>({
+        body: {
+          upload: {
+            fileId: 'fid-xyz',
+            // boolFileExist is the proto3 default (false) — omit, production
+            // sees undefined which the helper treats as "must upload via highway".
+            uploadIp: '1.2.3.4',
+            uploadPort: 8080,
+            fileKey: new Uint8Array([9]),
+            checkKey: new Uint8Array([8]),
+          },
+        } as any,
+      }),
+    );
     await groupFile.uploadGroupFile(bridge as any, 12345, '/path/file.bin');
     expect(highwayClient.fetchHighwaySession).toHaveBeenCalledOnce();
     expect(highwayClient.uploadHighwayHttp).toHaveBeenCalledOnce();
@@ -83,16 +118,20 @@ describe('actions/group-file', () => {
 
   it('uploadGroupFile throws on missing upload response', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce({});
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+      protobuf_encode<OidbBase<OidbGroupFileResp>>({ body: {} }),
+    );
     await expect(groupFile.uploadGroupFile(bridge as any, 12345, '/path/file.bin'))
       .rejects.toThrow(/response missing/);
   });
 
   it('uploadGroupFile bubbles up OIDB retCode errors', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
-      upload: { retCode: 999, retMsg: 'quota exceeded' },
-    });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+      protobuf_encode<OidbBase<OidbGroupFileResp>>({
+        body: { upload: { retCode: 999, retMsg: 'quota exceeded' } as any },
+      }),
+    );
     await expect(groupFile.uploadGroupFile(bridge as any, 12345, '/path/file.bin'))
       .rejects.toThrow(/code=999/);
   });
@@ -111,9 +150,11 @@ describe('actions/group-file', () => {
     vi.mocked(bridge.resolveUserUid)
       .mockResolvedValueOnce('target-uid')   // target user
       .mockResolvedValueOnce('self-uid-resolved'); // self fallback
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
-      upload: { retCode: 0, uuid: 'fid', fileAddon: 'hash', boolFileExist: true },
-    });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+      protobuf_encode<OidbBase<OidbPrivateFileUploadResp>>({
+        body: { upload: { uuid: 'fid', fileAddon: 'hash', boolFileExist: true } as any },
+      }),
+    );
     const out = await groupFile.uploadPrivateFile(bridge as any, 67890, '/path/file');
     expect(out).toEqual({ fileId: 'fid', fileHash: 'hash' });
     expect(bridge.resolveUserUid).toHaveBeenCalledTimes(2);
@@ -121,16 +162,19 @@ describe('actions/group-file', () => {
 
   it('fetchGroupFiles paginates files + folders out of OIDB items', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
-      list: {
-        retCode: 0,
-        isEnd: true,
-        items: [
-          { type: 1, fileInfo: { fileId: 'f1', fileName: 'a.txt', uploaderUin: 1, uploaderName: 'alice' } },
-          { type: 2, folderInfo: { folderId: 'd1', folderName: 'dir', creatorUin: 2, creatorName: 'bob' } },
-        ],
-      },
-    });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+      protobuf_encode<OidbBase<OidbGroupFileViewResp>>({
+        body: {
+          list: {
+            isEnd: true,
+            items: [
+              { type: 1, fileInfo: { fileId: 'f1', fileName: 'a.txt', uploaderUin: 1, uploaderName: 'alice' } },
+              { type: 2, folderInfo: { folderId: 'd1', folderName: 'dir', creatorUin: 2, creatorName: 'bob' } },
+            ],
+          } as any,
+        },
+      }),
+    );
     const out = await groupFile.fetchGroupFiles(bridge as any, 12345);
     expect(out.files).toHaveLength(1);
     expect(out.files[0]).toMatchObject({ fileId: 'f1', fileName: 'a.txt', uploader: 1, uploaderName: 'alice' });
@@ -140,22 +184,27 @@ describe('actions/group-file', () => {
 
   it('fetchGroupFileUrl builds the https URL from downloadDns + hex-encoded path', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
-      download: {
-        retCode: 0,
-        downloadDns: 'cdn.example.com',
-        downloadUrl: new Uint8Array([0x01, 0x02]),
-      },
-    });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+      protobuf_encode<OidbBase<OidbGroupFileResp>>({
+        body: {
+          download: {
+            downloadDns: 'cdn.example.com',
+            downloadUrl: new Uint8Array([0x01, 0x02]),
+          } as any,
+        },
+      }),
+    );
     const url = await groupFile.fetchGroupFileUrl(bridge as any, 12345, 'fid-xyz');
     expect(url).toBe('https://cdn.example.com/ftn_handler/0102/?fname=fid-xyz');
   });
 
   it('fetchGroupFileUrl throws when response is missing dns or url', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
-      download: { retCode: 0 },
-    });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+      protobuf_encode<OidbBase<OidbGroupFileResp>>({
+        body: { download: {} as any },
+      }),
+    );
     await expect(groupFile.fetchGroupFileUrl(bridge as any, 12345, 'fid-xyz'))
       .rejects.toThrow(/invalid/);
   });
@@ -163,34 +212,38 @@ describe('actions/group-file', () => {
   it('deleteGroupFile / moveGroupFile dispatch the right sub-commands', async () => {
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb)
-      .mockResolvedValueOnce({ delete: { retCode: 0 } })
-      .mockResolvedValueOnce({ move: { retCode: 0 } });
+      .mockResolvedValueOnce(protobuf_encode<OidbBase<OidbGroupFileResp>>({ body: { delete: {} as any } }))
+      .mockResolvedValueOnce(protobuf_encode<OidbBase<OidbGroupFileResp>>({ body: { move: {} as any } }));
     await groupFile.deleteGroupFile(bridge as any, 12345, 'fid');
     await groupFile.moveGroupFile(bridge as any, 12345, 'fid', '/a', '/b');
-    expect(vi.mocked(oidb.runOidb).mock.calls.map(c => c[1].subCmd)).toEqual([3, 5]);
+    expect(vi.mocked(oidb.makeOidbEnvelope).mock.calls.map(c => c[1])).toEqual([3, 5]);
   });
 
   it('createGroupFileFolder / deleteGroupFileFolder / renameGroupFileFolder dispatch 0x6d7 family', async () => {
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb)
-      .mockResolvedValueOnce({ create: { retcode: 0 } })
-      .mockResolvedValueOnce({ delete: { retcode: 0 } })
-      .mockResolvedValueOnce({ rename: { retcode: 0 } });
+      .mockResolvedValueOnce(protobuf_encode<OidbBase<OidbGroupFileFolderResp>>({ body: { create: {} as any } }))
+      .mockResolvedValueOnce(protobuf_encode<OidbBase<OidbGroupFileFolderResp>>({ body: { delete: {} as any } }))
+      .mockResolvedValueOnce(protobuf_encode<OidbBase<OidbGroupFileFolderResp>>({ body: { rename: {} as any } }));
     await groupFile.createGroupFileFolder(bridge as any, 1, 'folder');
     await groupFile.deleteGroupFileFolder(bridge as any, 1, 'fid');
     await groupFile.renameGroupFileFolder(bridge as any, 1, 'fid', 'newname');
-    expect(vi.mocked(oidb.runOidb).mock.calls.map(c => c[1].oidbCmd)).toEqual([0x6D7, 0x6D7, 0x6D7]);
+    expect(vi.mocked(oidb.makeOidbEnvelope).mock.calls.map(c => c[0])).toEqual([0x6D7, 0x6D7, 0x6D7]);
   });
 
   it('fetch*UrlByNode builds https://domain/path?rkey from the NTV2 response', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValue({
-      respHead: { retCode: 0 },
-      download: {
-        info: { domain: 'media.example.com', urlPath: '/path/x' },
-        rKeyParam: '?rkey=abc',
-      },
-    });
+    vi.mocked(oidb.runOidb).mockResolvedValue(
+      protobuf_encode<OidbBase<NTV2RichMediaResp>>({
+        body: {
+          respHead: {},
+          download: {
+            info: { domain: 'media.example.com', urlPath: '/path/x' },
+            rKeyParam: '?rkey=abc',
+          } as any,
+        } as any,
+      }),
+    );
     const url = await groupFile.fetchGroupVideoUrlByNode(bridge as any, 12345, { fileUuid: 'uuid' });
     expect(url).toBe('https://media.example.com/path/x?rkey=abc');
   });

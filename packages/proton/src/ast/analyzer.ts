@@ -107,58 +107,108 @@ export function analyze(code: string, filePath: string, imported?: ImportedDefin
     for (const [k, v] of imported.templates) templates.set(k, v);
   }
 
+  // Stack of generic-function type-param scopes. When visiting a
+  // `protobuf_encode/decode<X>` call whose type arg references one of
+  // these (e.g. `protobuf_encode<OidbBase<T>>(env)` inside
+  // `function encodeOidbEnv<T>(...)`), we MUST skip monomorphization —
+  // the type arg only resolves once the wrapper itself is instantiated
+  // at a downstream call site, and that case is handled separately by
+  // the wrapper-binding path in `matchForwardedProtobufFn`. Without
+  // this skip, the analyzer would happily mint a literal `OidbBase__T`
+  // registry entry with a `body.typeName = 'T'` field, which the
+  // wire-type guard then trips on.
+  const enclosingTypeParamStack: Set<string>[] = [];
+  function typeArgReferencesEnclosingParam(typeArg: ts.TypeNode): boolean {
+    if (enclosingTypeParamStack.length === 0) return false;
+    let found = false;
+    function check(n: ts.Node): void {
+      if (found) return;
+      if (ts.isTypeReferenceNode(n) && ts.isIdentifier(n.typeName)) {
+        const name = n.typeName.text;
+        for (const scope of enclosingTypeParamStack) {
+          if (scope.has(name)) { found = true; return; }
+        }
+      }
+      ts.forEachChild(n, check);
+    }
+    check(typeArg);
+    return found;
+  }
+  function nodeIntroducesTypeParams(n: ts.Node): readonly ts.TypeParameterDeclaration[] | undefined {
+    if (ts.isFunctionDeclaration(n)) return n.typeParameters;
+    if (ts.isFunctionExpression(n)) return n.typeParameters;
+    if (ts.isArrowFunction(n)) return n.typeParameters;
+    if (ts.isMethodDeclaration(n)) return n.typeParameters;
+    return undefined;
+  }
+
   // ── single walk ─────────────────────────────────────────────────────
   ts.forEachChild(sf, function visit(node) {
-    if (ts.isInterfaceDeclaration(node)) {
-      if (node.typeParameters?.length) {
-        const tpl = collectGenericInterface(node, sf, resolveImportedTypeName);
-        if (tpl) templates.set(tpl.name, tpl);
-      } else {
-        const msg = collectInterface(node, sf, resolveImportedTypeName);
-        if (msg) concrete.push(msg);
-        // Queue any generic-instantiated type-args appearing as field types
-        // (e.g. `wrapped: pb<5, Wrapper<uint_32>>`) for monomorphization.
-        // The call-site queue only sees the outer concrete type, so without
-        // this the nested instantiation would never reach the registry.
-        for (const ta of collectConcreteFieldGenericTypeArgs(node, resolveImportedTypeName)) {
-          deferredTypeArgs.push(ta);
-        }
-      }
+    const introduced = nodeIntroducesTypeParams(node);
+    const pushedScope = !!(introduced && introduced.length);
+    if (pushedScope) {
+      enclosingTypeParamStack.push(new Set(introduced!.map(p => p.name.text)));
     }
 
-    if (ts.isCallExpression(node)) {
-      const cs = matchProtobufCallSite(node, sf, importBindings, {
-        allowLegacyUnboundCanonical: true,
-      });
-      if (cs) {
-        deferredTypeArgs.push(cs.firstTypeArg);
-        callSites.push(cs);
-      } else if (
-        node.typeArguments?.length &&
-        getCallableName(node.expression) &&
-        wrapperBindings.has(getCallableName(node.expression)!)
-      ) {
-        const binding = wrapperBindings.get(getCallableName(node.expression)!)!;
-        const firstTypeArg = instantiateWrapperTypePattern(binding, node.typeArguments, sf);
-        if (!firstTypeArg) {
-          ts.forEachChild(node, visit);
-          return;
+    try {
+      if (ts.isInterfaceDeclaration(node)) {
+        if (node.typeParameters?.length) {
+          const tpl = collectGenericInterface(node, sf, resolveImportedTypeName);
+          if (tpl) templates.set(tpl.name, tpl);
+        } else {
+          const msg = collectInterface(node, sf, resolveImportedTypeName);
+          if (msg) concrete.push(msg);
+          // Queue any generic-instantiated type-args appearing as field types
+          // (e.g. `wrapped: pb<5, Wrapper<uint_32>>`) for monomorphization.
+          // The call-site queue only sees the outer concrete type, so without
+          // this the nested instantiation would never reach the registry.
+          for (const ta of collectConcreteFieldGenericTypeArgs(node, resolveImportedTypeName)) {
+            deferredTypeArgs.push(ta);
+          }
         }
-        const exprStart = node.expression.getStart(sf);
-        const lc = sf.getLineAndCharacterOfPosition(exprStart);
-        deferredTypeArgs.push(firstTypeArg);
-        callSites.push({
-          fnName: binding.fnName,
-          exprStart,
-          typeArgsEnd: node.typeArguments.end + 1,
-          firstTypeArg,
-          line: lc.line + 1,
-          column: lc.character + 1,
+      }
+
+      if (ts.isCallExpression(node)) {
+        const cs = matchProtobufCallSite(node, sf, importBindings, {
+          allowLegacyUnboundCanonical: true,
         });
+        if (cs) {
+          if (!typeArgReferencesEnclosingParam(cs.firstTypeArg)) {
+            deferredTypeArgs.push(cs.firstTypeArg);
+            callSites.push(cs);
+          }
+          // else: this call sits inside a generic wrapper definition; the
+          // wrapper-binding path will materialise concrete codecs at each
+          // downstream call site instead.
+        } else if (
+          node.typeArguments?.length &&
+          getCallableName(node.expression) &&
+          wrapperBindings.has(getCallableName(node.expression)!)
+        ) {
+          const binding = wrapperBindings.get(getCallableName(node.expression)!)!;
+          const firstTypeArg = instantiateWrapperTypePattern(binding, node.typeArguments, sf);
+          if (!firstTypeArg) {
+            ts.forEachChild(node, visit);
+            return;
+          }
+          const exprStart = node.expression.getStart(sf);
+          const lc = sf.getLineAndCharacterOfPosition(exprStart);
+          deferredTypeArgs.push(firstTypeArg);
+          callSites.push({
+            fnName: binding.fnName,
+            exprStart,
+            typeArgsEnd: node.typeArguments.end + 1,
+            firstTypeArg,
+            line: lc.line + 1,
+            column: lc.character + 1,
+          });
+        }
       }
-    }
 
-    ts.forEachChild(node, visit);
+      ts.forEachChild(node, visit);
+    } finally {
+      if (pushedScope) enclosingTypeParamStack.pop();
+    }
   });
 
   // ── post-walk: monomorphize deferred type args ──────────────────────

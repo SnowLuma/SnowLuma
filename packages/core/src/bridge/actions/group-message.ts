@@ -5,13 +5,13 @@
 
 import type { Bridge } from '../bridge';
 import { protoEncode } from '../../protobuf/decode';
-import { runOidb } from '../bridge-oidb';
+import { runOidb, makeOidbEnvelope, encodeOidbEnv } from '../bridge-oidb';
 import {
   C2CRecallRequestSchema,
   GroupRecallRequestSchema,
-  OidbEssenceSchema,
   SsoReadedReportReqSchema,
 } from '../proto/oidb-action';
+import type { OidbEssence } from '../proto/proton/oidb-action';
 
 export async function recallGroupMessage(bridge: Bridge, groupId: number, sequence: number): Promise<void> {
   const request = protoEncode({
@@ -96,9 +96,6 @@ export async function markGroupMessageRead(
 export async function setGroupEssence(bridge: Bridge, groupId: number, sequence: number, random: number, enable: boolean): Promise<void> {
   const subCmd = enable ? 1 : 2;
   const cmd = enable ? 'OidbSvcTrpcTcp.0xeac_1' : 'OidbSvcTrpcTcp.0xeac_2';
-  await runOidb(bridge, {
-    cmd,
-    oidbCmd: 0xEAC, subCmd,
-    request: { schema: OidbEssenceSchema, value: { groupUin: groupId, sequence, random } },
-  });
+  const env = makeOidbEnvelope<OidbEssence>(0xEAC, subCmd, { groupUin: groupId, sequence, random });
+  await runOidb(bridge, cmd, encodeOidbEnv<OidbEssence>(env));
 }

@@ -1,7 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('../../src/bridge/bridge-oidb', () => ({
-  runOidb: vi.fn(async () => ({})),
+  runOidb: vi.fn(async () => new Uint8Array()),
+  makeOidbEnvelope: vi.fn((_oidbCmd, _subCmd, body) => ({ body })),
+  encodeOidbEnv: vi.fn(() => new Uint8Array()),
+  decodeOidbEnv: vi.fn(() => ({ body: {} })),
 }));
 
 // element-builder reaches into protoEncode with element-specific schemas
