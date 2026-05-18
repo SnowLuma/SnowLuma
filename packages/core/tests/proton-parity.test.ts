@@ -50,6 +50,7 @@ import {
   NTV2RichMediaHighwayExtSchema,
   FileUploadExtSchema,
 } from '../src/bridge/proto/highway';
+import { makeOidbBaseSchema, OidbSvcTrpcTcp0xFE5_2ResponseSchema } from '../src/bridge/proto/oidb';
 
 import type {
   SendLongMsgResp,
@@ -94,6 +95,10 @@ import type {
   NTV2RichMediaHighwayExt,
   FileUploadExt,
 } from '../src/bridge/proto/proton/highway';
+import type {
+  OidbBase,
+  OidbSvcTrpcTcp0xFE5_2Response,
+} from '../src/bridge/proto/proton/oidb';
 
 function hex(buf: Uint8Array): string {
   return Buffer.from(buf).toString('hex');
@@ -577,6 +582,55 @@ describe('proton ↔ legacy parity (longmsg subset)', () => {
     const legacy = protoEncode(data as any, FileUploadExtSchema);
     const proton = protobuf_encode<FileUploadExt>(data);
     expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  // ── oidb.ts coverage (OidbBase<T> generic envelope) ────────────────
+
+  it('encodes OidbBase<OidbSvcTrpcTcp0xFE5_2Response> identically to makeOidbBaseSchema', () => {
+    // This is the exact pattern runOidb uses for the OIDB envelope. Proton's
+    // OidbBase<T> generic interface should monomorphize to a codec that is
+    // byte-equivalent to the legacy makeOidbBaseSchema(InnerSchema) factory.
+    // The inner Body type used here is a real schema (group-list response).
+    const body: OidbSvcTrpcTcp0xFE5_2Response = {
+      groups: [
+        {
+          groupUin: 555,
+          info: {
+            groupOwner: { uid: 'u_owner' },
+            createdTime: 1234567890, memberMax: 100, memberCount: 50,
+            groupName: 'TestGroup', description: 'desc', question: 'q?',
+            announcement: 'announcement',
+          },
+          customInfo: { remark: 'remark' },
+        },
+      ],
+    };
+    const envelope = {
+      command: 0xFE5,
+      subCommand: 2,
+      errorCode: 1,        // non-zero so it isn't proto3-omitted
+      body,
+      errorMsg: 'ok',
+      reserved: 1,
+    };
+    const legacy = protoEncode(envelope as any, makeOidbBaseSchema(OidbSvcTrpcTcp0xFE5_2ResponseSchema));
+    const proton = protobuf_encode<OidbBase<OidbSvcTrpcTcp0xFE5_2Response>>(envelope);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('round-trips OidbBase<T> with non-trivial nested body', () => {
+    const body: OidbSvcTrpcTcp0xFE5_2Response = {
+      groups: [{ groupUin: 100, info: { groupName: 'G' } }],
+    };
+    const envelope: OidbBase<OidbSvcTrpcTcp0xFE5_2Response> = {
+      command: 0xFE5, subCommand: 2, errorCode: 1, body, errorMsg: 'ok', reserved: 1,
+    };
+    const encoded = protobuf_encode<OidbBase<OidbSvcTrpcTcp0xFE5_2Response>>(envelope);
+    const decoded = protobuf_decode<OidbBase<OidbSvcTrpcTcp0xFE5_2Response>>(encoded);
+    expect(decoded.command).toBe(0xFE5);
+    expect(decoded.errorCode).toBe(1);
+    expect(decoded.body?.groups?.[0]?.groupUin).toBe(100);
+    expect(decoded.body?.groups?.[0]?.info?.groupName).toBe('G');
   });
 
   // ── Documented divergence: proto3 default-value omission ────────────
