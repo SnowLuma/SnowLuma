@@ -1,0 +1,14 @@
+{
+  "name": "@snowluma/protobuf",
+  "type": "module",
+  "version": "0.0.4",
+  "description": "A lightweight, elegant, and efficient protobuf-ts solution.From NapNeko/NapCatQQ",
+  "main": "./src/NapProto.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prepack": "tsc"
+  },
+  "dependencies": {
+    "@protobuf-ts/runtime": "^2.9.4"
+  }
+}
