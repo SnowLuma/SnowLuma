@@ -254,6 +254,34 @@ describe('HookSession — unload', () => {
     expect(info.status).toBe('connecting');
     expect(info.error).toContain('命名管道仍然存在');
   });
+
+  it('forces a fresh tick before verifying so a stale snapshot does not false-flag a successful unload', async () => {
+    // Reproduces the Windows-WebUI bug: PipeWatcher's cached snapshot is
+    // up to 1500ms stale, so right after a successful native unload the
+    // pre-fix code would read isPipeLive() == true and report failure
+    // even though the DLL is gone. With the fix, tickNow() refreshes
+    // the snapshot first and verification correctly sees the pipe down.
+    const pid = 5555;
+    let pipeLive = true; // initial cached state: pipe is live
+    const tickNow = vi.fn(async () => { pipeLive = false; }); // OS poll says: gone now
+
+    const session = new HookSession(pid, {
+      injector: {
+        inject: vi.fn(() => ({ method: 'loadModuleManual' as const, handle: DUMMY_HANDLE })),
+        unload: vi.fn(),
+      },
+      makeClient: () => new FakeClient() as unknown as QqHookClient,
+      pipeWatcher: { isPipeLive: () => pipeLive, tickNow },
+    });
+    await session.load();
+    pipeLive = true; // ensure the pre-check snapshot says "live"
+
+    const info = await session.unload();
+
+    expect(tickNow).toHaveBeenCalledOnce();
+    expect(info.status).toBe('available');
+    expect(info.error).toBe('');
+  });
 });
 
 describe('HookSession — serialization', () => {

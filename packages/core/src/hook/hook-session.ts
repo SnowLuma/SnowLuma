@@ -14,8 +14,13 @@ export type HookSessionDeps = {
   };
   makeClient: (pid: number) => QqHookClient;
   /** Sync fast-path check used by load() to skip re-injection when a
-   * prior SnowLuma run left a working pipe behind. */
-  pipeWatcher: { isPipeLive: (pid: number) => boolean };
+   * prior SnowLuma run left a working pipe behind. `tickNow` forces a
+   * fresh poll — used after unload to dodge the up-to-1500ms cache
+   * staleness that would otherwise false-flag a successful unload. */
+  pipeWatcher: {
+    isPipeLive: (pid: number) => boolean;
+    tickNow?: () => Promise<void>;
+  };
   /** Sink for parsed packets. Called with the BridgeManager-shaped
    * PacketInfo for every packet received while logged in. If omitted,
    * packets are dropped (useful in unit tests that don't care). */
@@ -254,7 +259,11 @@ export class HookSession extends EventEmitter {
       this._uin = '0';
 
       // Verify the unload took: if the pipe is still up the DLL is still
-      // resident. Drop back to 'connecting' and let the watcher reconnect.
+      // resident. The cached snapshot is up to 1500ms stale and we just
+      // changed the world, so force a fresh poll first — otherwise even
+      // a successful unload reads as "pipe still live" until the next
+      // background tick runs and we'd report a spurious failure.
+      await this.pipeWatcher.tickNow?.();
       if (this.pipeWatcher.isPipeLive(this.pid)) {
         this._error = 'DLL卸载失败：命名管道仍然存在，watcher将自动重连';
         this.setStatus('connecting', this._error);
