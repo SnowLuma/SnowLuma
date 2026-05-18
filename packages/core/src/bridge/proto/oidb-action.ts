@@ -190,10 +190,14 @@ export const OidbUserInfoKeySchema = {
   key: { field: 1, type: 'uint32' as const },
 } satisfies ProtoSchema;
 
+// Field 2 USED to be `field2: uint32 = 0`, but newer QQ NT versions
+// reinterpret field 2 as `uid: string` / `openid: string` and reject
+// the request with "one of uid/openid is invaild" when a varint 0
+// shows up there. NapCat's schema (Oidb.0XFE1_2.ts) only emits `uin`
+// and `key[]`, so we match that exactly.
 export const OidbUserInfoRequestSchema = {
-  uin:    { field: 1, type: 'uint32' as const },
-  field2: { field: 2, type: 'uint32' as const },
-  keys:   { field: 3, type: 'repeated_message' as const, schema: OidbUserInfoKeySchema },
+  uin:  { field: 1, type: 'uint32' as const },
+  keys: { field: 3, type: 'repeated_message' as const, schema: OidbUserInfoKeySchema },
 } satisfies ProtoSchema;
 
 export const OidbTwoNumberSchema = {

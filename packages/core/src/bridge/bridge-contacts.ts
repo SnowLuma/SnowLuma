@@ -208,9 +208,10 @@ export async function fetchGroupMemberList(bridge: Bridge, groupId: number): Pro
 
 export async function fetchUserProfile(bridge: Bridge, uin: number): Promise<UserProfileInfo> {
   const keys = [20002, 27394, 20009, 20031, 101, 103, 102, 20020, 20003, 20026, 105, 27372, 27406, 20037];
+  // Only `uin` and `keys` — see OidbUserInfoRequestSchema for why
+  // sending field 2 makes the server reject the request.
   const body = {
     uin,
-    field2: 0,
     keys: keys.map(k => ({ key: k })),
   };
 
