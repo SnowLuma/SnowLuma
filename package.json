@@ -14,6 +14,7 @@
     "dev:web": "pnpm --filter webui dev",
     "test": "pnpm --filter @snowluma/core test",
     "test:watch": "pnpm --filter @snowluma/core test:watch",
+    "check:native-abi": "node tools/check-native-abi.mjs",
     "typecheck": "pnpm -r --if-present typecheck",
     "lint": "pnpm -r --if-present lint",
     "start": "node dist/index.mjs",

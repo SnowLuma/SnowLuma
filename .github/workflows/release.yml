@@ -51,6 +51,10 @@ jobs:
           SNOWLUMA_TARGET: ${{ matrix.target }}
         run: pnpm run build:all
 
+      - name: Check Linux native ABI compatibility
+        if: startsWith(matrix.os, 'ubuntu')
+        run: pnpm run check:native-abi -- dist/native
+
       - name: Bundle runtime dependencies
         working-directory: dist
         run: npm install --omit=dev
