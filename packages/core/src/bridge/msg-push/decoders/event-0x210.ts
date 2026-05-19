@@ -53,6 +53,15 @@ export const decodeEvent0x210: MsgPushDecoder = (ctx) => {
       // push — no OneBot-level event. See enum comment for the
       // decompiled-source breakdown of the sub_cmd dispatch.
       return [];
+    case Event0x210SubType.UnmappedClientState380:
+      // QQ-NT-era subType with no reference handler: the legacy QQ
+      // Android decompile (tsuzcx/qq_apk) only enumerates SubType0x26
+      // through SubType0x146 under msgType0x210/, so 380 / 0x17C is
+      // an NT-era addition. None of the NT clients (Lagrange.Core,
+      // LagrangeGo, lagrange-python, mania) handle it either. See the
+      // enum comment for the full investigation; acknowledge silently
+      // until someone maps the schema.
+      return [];
   }
   unknownLog.debug('Event0x210 unknown subType=%d', ctx.head.subType);
   return [];

@@ -88,4 +88,25 @@ export enum Event0x210SubType {
    * bar either.
    */
   GroupAppStatePush = 38,
+  /**
+   * Unmapped QQ-NT-internal subType — first seen as a recurring
+   * "Event0x210 unknown subType=380" debug log in production captures.
+   *
+   * The tsuzcx/qq_apk decompile of the legacy QQ Android client only
+   * enumerates SubType0x26 (38) through SubType0x146 (326) under
+   * `com.tencent.imcore.message.ext.codec.decoder.msgType0x210/` —
+   * `SubType0x17c.java` (380) literally doesn't exist in that tree, so
+   * 380 is a QQ-NT-era addition rather than a missed legacy subType.
+   *
+   * The NT-era reference clients also don't handle it: Lagrange.Core
+   * (`PushMessageService.cs`), LagrangeGo (`client/listener.go`),
+   * lagrange-python (`server_push/msg.py`), and mania (`push_msg.rs`)
+   * each enumerate explicit 0x210 subtypes and none include 380 / 0x17C.
+   *
+   * Most likely a QQ-NT-client-UI state push (similar to 38) that
+   * doesn't map to any OneBot event. Acknowledge silently to keep the
+   * unknown log clean; if a real OneBot event ends up depending on it,
+   * revisit with whichever NT-era project finally maps the schema.
+   */
+  UnmappedClientState380 = 380,
 }
