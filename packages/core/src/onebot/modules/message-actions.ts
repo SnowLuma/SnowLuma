@@ -136,19 +136,64 @@ export async function sendPrivateMessage(
   });
   if (elements.length === 0) throw new Error('message is empty');
 
-  const receipt = await ref.bridge.sendPrivateMessage(userId, elements);
-  const messageId = hashMessageIdInt32(receipt.sequence, userId, PRIVATE_MESSAGE_EVENT);
+  // C2C `{type:'file'}` segments can't ride on the elems[] pipeline —
+  // c2c files live on `RichText.notOnlineFile`, parallel to elems
+  // (see `proto/proton/message.ts:notOnlineFile`). The element-builder
+  // explicitly drops them with a warn ("file send via elems[] is
+  // group-only"), so a private message that bundled a file alongside
+  // anything else used to either ship as "[空消息]" (only-file case,
+  // 0 elements after drop) or silently lose the file (mixed case).
+  //
+  // NapCat splits the same way (`dev/NapCatQQ/.../SendMsg.ts:404-415`):
+  // FILE / VIDEO / ARK / PTT each go in their own sendMsg call,
+  // never mixed with the regular elements. We only need it for file
+  // here — video/ARK/ptt already go through commonElem so the
+  // element-builder handles them inline.
+  const fileElements = elements.filter(e => e.type === 'file' && e.fileId);
+  const nonFileElements = elements.filter(e => e.type !== 'file');
+  if (fileElements.length !== elements.filter(e => e.type === 'file').length) {
+    log.warn('[OneBot] private file segment without file_id — skipped (upload first via upload_private_file)');
+  }
 
-  logSentMessage(false, userId, elements);
+  let lastReceipt: Awaited<ReturnType<typeof ref.bridge.sendPrivateMessage>> | undefined;
+  if (nonFileElements.length > 0) {
+    lastReceipt = await ref.bridge.sendPrivateMessage(userId, nonFileElements);
+    logSentMessage(false, userId, nonFileElements);
+  }
+  if (fileElements.length > 0) {
+    // C2C file send needs the recipient's UID — resolve once and reuse.
+    const userUid = await ref.bridge.resolveUserUid(userId);
+    if (!userUid) {
+      throw new Error(`c2c file send: could not resolve uid for user ${userId}`);
+    }
+    for (const fileEl of fileElements) {
+      const fileMd5 = fileEl.md5Hex
+        ? Buffer.from(fileEl.md5Hex, 'hex')
+        : new Uint8Array(0);
+      lastReceipt = await ref.bridge.sendC2cFileMessage(userId, userUid, {
+        fileId: fileEl.fileId!,
+        // Fall back to a generic name — the QQ server resolves the
+        // file by fileUuid, not name, so a missing name only affects
+        // the chat bubble display.
+        fileName: fileEl.fileName ?? 'file',
+        fileSize: fileEl.fileSize ?? 0,
+        fileMd5,
+        fileHash: fileEl.fileHash,
+      });
+      logSentMessage(false, userId, [fileEl]);
+    }
+  }
+  if (!lastReceipt) throw new Error('message is empty');
 
+  const messageId = hashMessageIdInt32(lastReceipt.sequence, userId, PRIVATE_MESSAGE_EVENT);
   ref.cacheMessageMeta(messageId, {
     isGroup: false,
     targetId: userId,
-    sequence: receipt.sequence,
+    sequence: lastReceipt.sequence,
     eventName: PRIVATE_MESSAGE_EVENT,
-    clientSequence: receipt.clientSequence,
-    random: receipt.random,
-    timestamp: receipt.timestamp,
+    clientSequence: lastReceipt.clientSequence,
+    random: lastReceipt.random,
+    timestamp: lastReceipt.timestamp,
   });
 
   return { messageId };

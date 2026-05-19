@@ -393,13 +393,18 @@ export async function buildSendElems(elements: MessageElement[], ctx?: SendConte
 
       case 'file':
         // The group `TransElem(24)` shape works for group chats only.
-        // C2C files live on `RichText.notOnlineFile` instead of in the
-        // elems array, so `sendPrivateMessage` short-circuits before it
-        // ever lands here — see `bridge.sendPrivateMessage`.
+        // C2C files live on `RichText.notOnlineFile` (parallel to elems,
+        // see proto/proton/message.ts:notOnlineFile) and are routed
+        // out at the OneBot layer in `sendPrivateMessage` — split off
+        // from elems[] and dispatched via `bridge.sendC2cFileMessage`.
+        // If a c2c file segment still reaches us here, the caller
+        // forgot to route — log loudly and drop, otherwise the message
+        // ships as "[空消息]" (only-file case) or quietly loses the
+        // file (mixed case).
         if (ctx?.groupId !== undefined) {
           result.push(makeGroupFileElem(elem));
         } else {
-          console.warn('[ElemBuilder] file send via elems[] is group-only; use bridge.sendC2cFileMessage for c2c');
+          console.warn('[ElemBuilder] BUG: c2c {type:"file"} reached element-builder — should be split out at the OneBot layer (see modules/message-actions.ts::sendPrivateMessage)');
         }
         break;
 
