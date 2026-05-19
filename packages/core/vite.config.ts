@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { builtinModules } from 'module';
 import cp from 'vite-plugin-cp';
+import protobufVitePlugin from '@snowluma/proton/vite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -76,6 +77,14 @@ if (missingNatives.length > 0) {
 }
 
 const BaseConfigPlugin: PluginOption[] = [
+  // Proton substitutes every `protobuf_encode<T>` / `protobuf_decode<T>`
+  // call site with a monomorphized codec at build time. WITHOUT this
+  // plugin in the plugins array the runtime fallback in
+  // `@snowluma/proton/runtime.ts` throws on the first call (and the
+  // packaged Win/Linux release does exactly that). It MUST appear
+  // before `cp` so the transform runs on every source file Vite asks
+  // for, regardless of where `cp` later copies emitted assets.
+  protobufVitePlugin(),
   cp({
     targets: [
       ...runtimeDistFiles.map((file) => ({
