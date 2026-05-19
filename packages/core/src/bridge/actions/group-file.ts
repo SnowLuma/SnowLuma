@@ -28,7 +28,10 @@ import type {
 } from '../proto/proton/oidb-action';
 import type { FileUploadExt } from '../proto/proton/highway';
 import { toHexUpper } from '../../utils/hex';
+import { createLogger } from '../../utils/logger';
 import { ensureRetCodeZero, resolveSelfUid, toInt, type MediaIndexNode } from './shared';
+
+const log = createLogger('GroupFile');
 
 // ─────────────── public result types ───────────────
 
@@ -349,6 +352,33 @@ export async function uploadGroupFile(
     await uploadHighwayHttp(bridge, session, 71, loaded.bytes, hashes.md5, ext);
   }
 
+  // Stage 3: file is on the server, now publish it as a chat message.
+  // Without this, OIDB 0x6D6_0 + highway PUT only stages the bytes —
+  // the chat shows nothing. NapCat does the same (upload + sendMsg
+  // atomically inside `upload_group_file`, see
+  // `dev/napcatQQ/.../UploadGroupFile.ts:54-58`). Only suppressed when
+  // the caller opts out via `uploadFile=false` (treat that as "I only
+  // wanted the slot allocated, hold the chat post").
+  if (uploadFile) {
+    try {
+      await bridge.sendGroupMessage(groupId, [{
+        type: 'file',
+        fileId,
+        fileName,
+        fileSize: loaded.bytes.length,
+        md5Hex: bytesToHexUpper(hashes.md5),
+        sha1Hex: bytesToHexUpper(hashes.sha1),
+      }]);
+    } catch (err) {
+      // The bytes are already on the server and the fileId is valid —
+      // fail loud but don't lose the upload result the action handler
+      // committed to returning. Callers can still resolve the file by
+      // id; they'll just have to re-publish it themselves.
+      log.warn('group file uploaded (fileId=%s) but chat post failed: %s',
+        fileId, err instanceof Error ? err.message : String(err));
+    }
+  }
+
   return { fileId };
 }
 
@@ -433,6 +463,27 @@ export async function uploadPrivateFile(
 
     const session = await fetchHighwaySession(bridge);
     await uploadHighwayHttp(bridge, session, 95, loaded.bytes, hashes.md5, ext);
+  }
+
+  // Stage 3: publish the file as a c2c chat message. C2C files use
+  // `RichText.notOnlineFile` (parallel to `elems`), so we go through
+  // the dedicated `sendC2cFileMessage` instead of `sendPrivateMessage`
+  // which only knows about elems[]. NapCat does the same atomic
+  // upload+send dance — without it the file sits on the server and
+  // the recipient sees nothing.
+  if (uploadFile) {
+    try {
+      await bridge.sendC2cFileMessage(userId, targetUid, {
+        fileId,
+        fileName,
+        fileSize: loaded.bytes.length,
+        fileMd5: hashes.md5,
+        fileHash: fileHash ?? '',
+      });
+    } catch (err) {
+      log.warn('private file uploaded (fileId=%s) but chat post failed: %s',
+        fileId, err instanceof Error ? err.message : String(err));
+    }
   }
 
   return { fileId, fileHash };

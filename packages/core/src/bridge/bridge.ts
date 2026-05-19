@@ -398,6 +398,76 @@ export class Bridge implements BridgeInterface {
     };
   }
 
+  /**
+   * Send a c2c file as a chat message.
+   *
+   * Unlike images / videos / records that ride on `RichText.elems` as
+   * regular Elem entries, c2c files use `RichText.notOnlineFile`
+   * (parallel to `elems`, see `proto/proton/message.ts:75`). The
+   * receive-side decoder strips this back to a `{type:'file'}` segment
+   * in `rich-body-decoder.ts:425-433`. There's no Elem you can stuff
+   * into `buildSendElems` for this, so this helper short-circuits the
+   * normal send pipeline.
+   */
+  async sendC2cFileMessage(
+    userUin: number,
+    userUid: string,
+    info: { fileId: string; fileName: string; fileSize: number; fileMd5: Uint8Array; fileHash?: string },
+  ): Promise<SendMessageReceipt> {
+    const random = this.nextMessageRandom();
+    const clientSeq = this.nextClientSequence();
+
+    const request = protobuf_encode<SendMessageRequest>({
+      routingHead: {
+        c2c: { uin: userUin, uid: userUid },
+      },
+      contentHead: {
+        type: 1,
+        subType: 0,
+        c2cCmd: 11,
+      },
+      messageBody: {
+        richText: {
+          notOnlineFile: {
+            fileType: 0,
+            fileUuid: info.fileId,
+            fileMd5: info.fileMd5,
+            fileName: info.fileName,
+            fileSize: BigInt(info.fileSize),
+            fileHash: info.fileHash ?? '',
+          },
+        },
+      } as any,
+      clientSequence: clientSeq,
+      random,
+      syncCookie: new Uint8Array(0),
+      via: 0,
+      dataStatist: 0,
+      ctrl: {
+        msgFlag: Math.floor(Date.now() / 1000),
+      },
+      multiSendSeq: 0,
+    });
+
+    const result = await this.sendRawPacket(Bridge.SEND_MSG_CMD, request);
+    if (!result.success || !result.gotResponse || !result.responseData) {
+      throw new Error(`send c2c file message failed: ${result.errorMessage || 'no response'}`);
+    }
+
+    const response = protobuf_decode<SendMessageResponse>(result.responseData);
+    if (!response) {
+      throw new Error('failed to decode SendMessageResponse');
+    }
+    if (response.result !== undefined && response.result !== 0) {
+      throw new Error(`send c2c file message rejected: result=${response.result} err=${response.errMsg ?? ''}`);
+    }
+
+    const seq = response.privateSequence ?? 0;
+    const messageId = (random & 0x7FFFFFFF) || seq;
+    const timestamp = response.timestamp1 ?? Math.floor(Date.now() / 1000);
+    return { messageId, sequence: seq, clientSequence: clientSeq, random, timestamp };
+  }
+
   // --- Delegated: OIDB helpers ---
 
   async resolveUserUid(uin: number, groupId?: number): Promise<string> {

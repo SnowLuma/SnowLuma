@@ -43,6 +43,18 @@ export interface BridgeInterface {
   // ─── Send (messages) ───
   sendGroupMessage(groupId: number, elements: MessageElement[]): Promise<SendMessageReceipt>;
   sendPrivateMessage(userUin: number, elements: MessageElement[]): Promise<SendMessageReceipt>;
+  /**
+   * Send a c2c file as a chat message. Bypasses the regular elems[]
+   * pipeline because c2c files live on `RichText.notOnlineFile`, not
+   * inside the elems array. Group files go through `sendGroupMessage`
+   * with a `{type:'file', fileId, fileName, fileSize, md5Hex, sha1Hex}`
+   * element instead.
+   */
+  sendC2cFileMessage(
+    userUin: number,
+    userUid: string,
+    info: { fileId: string; fileName: string; fileSize: number; fileMd5: Uint8Array; fileHash?: string },
+  ): Promise<SendMessageReceipt>;
 
   // ─── Fetch (contacts / profile / system) ───
   fetchFriendList(): Promise<FriendInfo[]>;
