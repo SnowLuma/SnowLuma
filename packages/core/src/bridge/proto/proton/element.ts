@@ -392,23 +392,43 @@ export interface MsgInfo {
 }
 
 // ── GroupFileExtra (TransElem type=24) ──────────────────────────────
+//
+// Sourced from NapCat's `GroupFileExtraInfo` (component.ts:146-155)
+// cross-checked against acidify's `GroupFileExtra.Inner.Info`
+// (proto/message/extra/GroupFileExtra.kt). Field numbers had been
+// shifted by one in the previous schema (fileSha at 5, ext at 6,
+// fileMd5 at 7) which caused the server to reject group-file chat
+// posts with `result=79` — the server saw fileSha bytes where it
+// expected a uint32 placeholder (field 5) and silently dropped the
+// rest. Field 5 is a uint32 placeholder both refs label `field5`;
+// fileSha is at 6, extInfoString at 7, fileMd5 at 8.
 
 export interface GroupFileInfo {
   busId?:         pb<1, uint_32>;
   fileId?:        pb<2, string>;
   fileSize?:      pb<3, uint_64>;
   fileName?:      pb<4, string>;
-  fileSha?:       pb<5, bytes>;
-  extInfoString?: pb<6, string>;
-  fileMd5?:       pb<7, bytes>;
+  field5?:        pb<5, uint_32>;
+  fileSha?:       pb<6, bytes>;
+  extInfoString?: pb<7, string>;
+  fileMd5?:       pb<8, bytes>;
 }
 
 export interface GroupFileExtraInner {
   info?: pb<2, GroupFileInfo>;
 }
 
+// Outer wrapper carries three additional fields the server expects:
+// field1 (uint32, NapCat hardcodes to 6 — "magic op tag"), fileName
+// (string mirror of the inner info.fileName), display (optional UI
+// preview string, NapCat leaves empty but writes the slot). Without
+// these the server still recognized the message in older builds but
+// rejects it in the current rollout.
 export interface GroupFileExtra {
-  inner?: pb<7, GroupFileExtraInner>;
+  field1?:   pb<1, uint_32>;
+  fileName?: pb<2, string>;
+  display?:  pb<3, string>;
+  inner?:    pb<7, GroupFileExtraInner>;
 }
 
 // ── Preserve (for message receipt info) ─────────────────────────────

@@ -262,7 +262,16 @@ function makeGroupFileElem(element: MessageElement): ProtoElem {
   const md5 = element.md5Hex ? hexToBytes(element.md5Hex) : new Uint8Array(0);
   const sha1 = element.sha1Hex ? hexToBytes(element.sha1Hex) : new Uint8Array(0);
 
+  // Outer field1 is hardcoded to 6 in NapCat's encoder
+  // (`packet/message/element.ts:589`). It's a magic tag the server
+  // expects on send (acidify ships the same shape via their generic
+  // `field1: Int` default but their consumer writes it too). Without
+  // these outer fields the current QQ-NT server rejects the message
+  // with `result=79`. Inner field5 is the uint32 placeholder both
+  // NapCat and acidify leave at 0 — we follow suit.
   const extraBytes = protobuf_encode<GroupFileExtra>({
+    field1: 6,
+    fileName,
     inner: {
       info: {
         busId: 102,
