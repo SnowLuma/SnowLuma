@@ -242,6 +242,35 @@ describe('actions/group-file', () => {
     expect(bridge.sendC2cFileMessage).not.toHaveBeenCalled();
   });
 
+  it('uploadPrivateFile reads host from rtpMediaPlatformUploadAddress[0].inIP when populated', async () => {
+    // The 2026 QQ-NT server rollout moved the upload host out of the
+    // legacy `uploadIp` (field 60) string into the new
+    // `rtpMediaPlatformUploadAddress` (field 210, repeated IPv4 message).
+    // Mirrors acidify's `UploadPrivateFile.kt` consumer logic — read
+    // `inIP` (LAN, same DC as the OIDB endpoint) and pair with `inPort`.
+    // The int is little-endian-packed: 0x0101A8C0 → 192.168.1.1.
+    const bridge = mockBridge();
+    vi.mocked(bridge.resolveUserUid).mockResolvedValueOnce('target-uid');
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+      protobuf_encode<OidbBase<OidbPrivateFileUploadResp>>({
+        body: {
+          upload: {
+            uuid: 'pfid',
+            fileAddon: 'phash',
+            // boolFileExist defaults to false — forces highway path
+            // 192.168.1.1 little-endian packed = (1 << 24) | (1 << 16) | (168 << 8) | 192 = 16885952
+            rtpMediaPlatformUploadAddress: [
+              { outIP: 0, outPort: 0, inIP: 16885952, inPort: 8080, iPType: 1 },
+            ],
+            mediaPlatformUploadKey: new Uint8Array([1, 2, 3]),
+          } as any,
+        },
+      }),
+    );
+    await groupFile.uploadPrivateFile(bridge as any, 67890, '/path/file.bin');
+    expect(highwayClient.uploadHighwayHttp).toHaveBeenCalledOnce();
+  });
+
   it('uploadPrivateFile falls back to uploadDomain when uploadIp is empty', async () => {
     // Regression: the server has been observed in the wild returning the
     // highway host in `uploadDomain` (field 70) instead of `uploadIp`

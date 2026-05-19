@@ -83,6 +83,19 @@ function bytesToHexUpper(data: unknown): string {
   return toHexUpper(data);
 }
 
+// Reverses acidify's `Int.toIpString()`: the 32-bit IP arrives
+// little-endian-packed (byte0 = first dotted octet) and we unpack it the
+// same way. Force-unsigned the shift to keep negative ints (high bit set)
+// rendering correctly — JS `>>` is arithmetic and would turn 0xFF000000
+// into a negative number.
+function int32ToIpv4Dotted(value: number): string {
+  const b1 = value & 0xFF;
+  const b2 = (value >>> 8) & 0xFF;
+  const b3 = (value >>> 16) & 0xFF;
+  const b4 = (value >>> 24) & 0xFF;
+  return `${b1}.${b2}.${b3}.${b4}`;
+}
+
 function normalizeUploadFileName(name: string, fallback: string): string {
   const trimmed = name.trim();
   if (trimmed) return trimmed;
@@ -440,36 +453,64 @@ export async function uploadPrivateFile(
   if (!fileId) throw new Error('private file upload response missing file_id');
 
   if (!upload.boolFileExist && uploadFile) {
-    // The server normally returns the highway host in `uploadIp` (field
-    // 60). LagrangeGo / Lagrange.Core both read that field directly with
-    // no fallback. We've seen real captures where the server picks one
-    // of the parallel host fields (uploadDomain / uploadIpList[0] /
-    // uploadHttpsDomain / uploadDns) instead — likely a rollout
-    // difference. Walk them in order rather than die with "upload host
-    // is invalid" when the server gives us a perfectly usable host
-    // through a different slot. The highway client uses HTTP PUT so we
-    // can pair any of these with the regular `uploadPort`; we only fall
-    // back to `uploadHttpsPort` if we picked the HTTPS-flavored host.
+    // Host selection.
+    //
+    // Current QQ-NT server rollout has stopped populating the legacy
+    // `uploadIp` (field 60) entirely. The host now arrives as the first
+    // entry of `rtpMediaPlatformUploadAddress` (field 210, repeated
+    // IPv4 message) — same place acidify reads it from since their
+    // 2026-04 protobuf refactor. Each IPv4 has paired `inIP`/`inPort`
+    // (LAN, same DC as the OIDB endpoint) and `outIP`/`outPort` (WAN);
+    // acidify uses `inIP`/`inPort` exclusively and so do we, because
+    // that's the address the highway PUT actually needs to reach.
+    //
+    // The 32-bit IPs are little-endian-packed (byte0 = first octet)
+    // per acidify's `Int.toIpString()`. Cross-checked the byte order
+    // by inspecting their highway flow — there's no separate htonl
+    // step, so the integer is already in network-octet-first order.
+    //
+    // Older server versions still populate the legacy string fields
+    // (uploadIp / uploadDomain / uploadIpList[0] / uploadHttpsDomain /
+    // uploadDns), so we fall through to those after rtpMediaPlatform.
+    // Pair an HTTPS-flavored host with `uploadHttpsPort` if that's
+    // what we picked.
+    const rtpFirst = (Array.isArray(upload.rtpMediaPlatformUploadAddress)
+      && upload.rtpMediaPlatformUploadAddress[0])
+      ? upload.rtpMediaPlatformUploadAddress[0] : null;
+    const rtpInIP = rtpFirst && typeof rtpFirst.inIP === 'number' && rtpFirst.inIP !== 0
+      ? int32ToIpv4Dotted(rtpFirst.inIP) : '';
+    const rtpInPort = rtpFirst && typeof rtpFirst.inPort === 'number'
+      ? rtpFirst.inPort : 0;
     const ipListFirst = (Array.isArray(upload.uploadIpList) && upload.uploadIpList[0])
       ? upload.uploadIpList[0] : '';
-    const uploadHost = (typeof upload.uploadIp === 'string' && upload.uploadIp)
+    const uploadHost = (rtpInIP)
+      || (typeof upload.uploadIp === 'string' && upload.uploadIp)
       || (typeof upload.uploadDomain === 'string' && upload.uploadDomain)
       || (ipListFirst)
       || (typeof upload.uploadHttpsDomain === 'string' && upload.uploadHttpsDomain)
       || (typeof upload.uploadDns === 'string' && upload.uploadDns)
       || '';
-    const httpsHostUsed = !upload.uploadIp && !upload.uploadDomain && !ipListFirst
+    const httpsHostUsed = !rtpInIP && !upload.uploadIp && !upload.uploadDomain && !ipListFirst
       && typeof upload.uploadHttpsDomain === 'string' && !!upload.uploadHttpsDomain;
-    const uploadPort = httpsHostUsed && toInt(upload.uploadHttpsPort) > 0
-      ? toInt(upload.uploadHttpsPort)
-      : toInt(upload.uploadPort);
+    const uploadPort = rtpInIP && rtpInPort > 0
+      ? rtpInPort
+      : httpsHostUsed && toInt(upload.uploadHttpsPort) > 0
+        ? toInt(upload.uploadHttpsPort)
+        : toInt(upload.uploadPort);
     if (!uploadHost || uploadPort <= 0) {
       // Surface every host-bearing field we know about so a user
       // hitting this can show us exactly which slot the server filled
       // (or whether it returned nothing at all — which would point at
       // a request mismatch rather than a missing decoder).
+      const rtpDump = Array.isArray(upload.rtpMediaPlatformUploadAddress)
+        ? JSON.stringify(upload.rtpMediaPlatformUploadAddress.map((e) => ({
+          outIP: e.outIP, outPort: e.outPort, inIP: e.inIP, inPort: e.inPort,
+          iPType: e.iPType,
+        })))
+        : '[]';
       log.warn(
-        'private file upload host missing — ip=%s domain=%s ipList=%s httpsDomain=%s dns=%s lanip=%s port=%s httpsPort=%s',
+        'private file upload host missing — rtp=%s ip=%s domain=%s ipList=%s httpsDomain=%s dns=%s lanip=%s port=%s httpsPort=%s',
+        rtpDump,
         upload.uploadIp ?? '', upload.uploadDomain ?? '',
         JSON.stringify(upload.uploadIpList ?? []),
         upload.uploadHttpsDomain ?? '', upload.uploadDns ?? '',

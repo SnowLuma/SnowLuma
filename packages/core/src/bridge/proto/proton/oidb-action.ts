@@ -643,6 +643,21 @@ export interface OidbPrivateFileUploadReq {
   flagSupportMediaPlatform?: pb<200, int_32>;
 }
 
+// IPv4 wire message used inside ApplyUploadRespV3.rtpMediaPlatformUploadAddress
+// (field 210). Sourced from acidify's `IPv4` class — outIP/inIP are
+// little-endian-packed 32-bit IPv4 addresses (byte order: low byte = first
+// octet), decoded via the standard `(ip & 0xFF).(ip>>8 & 0xFF)....` recipe.
+// outPort/inPort are the matching port for each leg (out = WAN, in = LAN).
+// iPType is the address family hint (1 = IPv4, etc — acidify treats it
+// purely as metadata, no behavior).
+export interface IPv4 {
+  outIP?:   pb<1, int_32>;
+  outPort?: pb<2, int_32>;
+  inIP?:    pb<3, int_32>;
+  inPort?:  pb<4, int_32>;
+  iPType?:  pb<5, int_32>;
+}
+
 export interface OidbPrivateFileUploadRespBody {
   retCode?:                pb<10, int_32>;
   retMsg?:                 pb<20, string>;
@@ -651,12 +666,13 @@ export interface OidbPrivateFileUploadRespBody {
   // quota numbers don't drive any code path.
   uploadIp?:               pb<60, string>;
   // Cross-checked against LagrangeGo `OidbSvcTrpcTcp0xE37_800.proto`
-  // (fields 60-170 enumerated below) + NapCat `Oidb.0XE37_800.ts`.
-  // Real server has been observed to leave `uploadIp` empty while
-  // populating `uploadDomain` / `uploadIpList[0]` instead (likely a
-  // server-side rollout difference). Decoding all of these lets us
-  // fall through in the consumer rather than die with "upload host
-  // is invalid" when the server picks a different field.
+  // (fields 60-170 enumerated below) + NapCat `Oidb.0XE37_800.ts` +
+  // acidify (most recent NT-protocol fork, 2026-04). Real server in
+  // 2026 has been observed to leave the legacy host fields empty and
+  // put the host into the new field 210 (`rtpMediaPlatformUploadAddress`,
+  // repeated IPv4 messages) instead — the consumer walks them in that
+  // order. Decoding the legacy fields too means we keep working against
+  // older server rollouts.
   uploadDomain?:           pb<70, string>;
   uploadPort?:             pb<80, uint_32>;
   uuid?:                   pb<90, string>;
@@ -667,7 +683,18 @@ export interface OidbPrivateFileUploadRespBody {
   uploadHttpsDomain?:      pb<150, string>;
   uploadDns?:              pb<160, string>;
   uploadLanip?:            pb<170, string>;
+  // Field 200 — acidify renamed this to `fileIdCrc` in their 2026-04
+  // refactor; we keep `fileAddon` because the wire bytes are identical
+  // and our callers already read `fileAddon` as the file-hash blob (it's
+  // a hex string in practice). Worth renaming if a consumer ever needs
+  // the new semantic.
   fileAddon?:              pb<200, string>;
+  // Field 210 — the new "host carrier" the NT server actually populates
+  // in current rollouts. Each IPv4 entry has `inIP`/`inPort` (LAN) +
+  // `outIP`/`outPort` (WAN). acidify reads `inIP`+`inPort` exclusively;
+  // we follow suit because that's what the highway HTTP PUT needs to
+  // reach (same datacenter as the OIDB endpoint that returned this).
+  rtpMediaPlatformUploadAddress?: pb_repeated<210, IPv4>;
   mediaPlatformUploadKey?: pb<220, bytes>;
 }
 
