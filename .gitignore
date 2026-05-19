@@ -11,6 +11,7 @@ dist/
 
 /config/
 /data/
+logs/
 
 # macOS metadata
 .DS_Store

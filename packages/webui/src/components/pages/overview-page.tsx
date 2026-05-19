@@ -5,6 +5,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Cpu,
+  Eye,
   Loader2,
   MemoryStick,
   MonitorCog,
@@ -21,6 +22,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ProcessProbeDialog } from '@/components/process-probe-dialog';
 import { cn, formatBytes, formatUptime } from '@/lib/utils';
 import type { HookProcessInfo } from '@/types';
 import { useAppState } from '@/contexts/AppStateContext';
@@ -91,6 +93,7 @@ export function OverviewPage() {
     | { kind: 'load' | 'unload'; pid: number; name: string }
     | null
   >(null);
+  const [probeDialog, setProbeDialog] = useState<{ pid: number; name: string } | null>(null);
 
   // Lightweight tick to refresh "uptime" pretty-print every 30s
   const [, force] = useState(0);
@@ -325,6 +328,14 @@ export function OverviewPage() {
                       )}
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() => setProbeDialog({ pid: proc.pid, name: proc.name || `PID ${proc.pid}` })}
+                      >
+                        <Eye className="size-3.5" /> 探测登录
+                      </Button>
                       {showRefresh && (
                         <Button
                           size="icon"
@@ -430,6 +441,15 @@ export function OverviewPage() {
           else await load(confirm.pid);
         }}
       />
+
+      {probeDialog && (
+        <ProcessProbeDialog
+          pid={probeDialog.pid}
+          processName={probeDialog.name}
+          open={!!probeDialog}
+          onOpenChange={(open) => !open && setProbeDialog(null)}
+        />
+      )}
     </div>
   );
 }
