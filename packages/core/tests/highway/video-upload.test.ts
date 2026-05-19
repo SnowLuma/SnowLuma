@@ -90,6 +90,21 @@ describe('video-upload', () => {
     expect((uploadInfo[1] as any).fileInfo.type.type).toBe(1); // pic (thumb)
   });
 
+  it('main video carries the real `time` (duration in seconds) — regression: was 0', async () => {
+    // NTV2 server bakes the `time` field into the resulting MsgInfo
+    // bytes that ride along as `commonElem.pbElem`; the receiver
+    // reads it back via `VideoFile.fileTime` and renders it as the
+    // playable duration. NapCat ships `time: 0` only because it sits
+    // on top of QQ-NT's IPC layer which patches the value in before
+    // the wire send; we're a protocol-direct client (same position
+    // as acidify) and must populate it ourselves. Without this the
+    // receiver shows "00:00" on every video the bot sends.
+    await uploadVideoMsgInfo({} as any, true, 12345, FINGERPRINT);
+    const uploadInfo = vi.mocked(pipeline.runNtv2Upload).mock.calls[0]![0].uploadInfo;
+    expect((uploadInfo[0] as any).fileInfo.time).toBe(10); // matches FINGERPRINT.duration
+    expect((uploadInfo[1] as any).fileInfo.time).toBe(0);  // thumb stays at 0 (matches acidify)
+  });
+
   it('thumb falls back to a synthesized 1x1 PNG with real bytes', async () => {
     await uploadVideoMsgInfo({} as any, true, 12345, FINGERPRINT);
     const uploads = vi.mocked(pipeline.runNtv2Upload).mock.calls[0]![0].uploads;

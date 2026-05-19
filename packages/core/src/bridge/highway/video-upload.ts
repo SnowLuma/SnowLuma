@@ -480,14 +480,24 @@ export async function uploadVideoMsgInfo(
             fileHash: video.md5Hex,
             fileSha1: video.sha1Hex,
             fileName: 'nya.mp4',
-            // NapCat sends type.videoFormat=0 and width/height/time=0
-            // for the main video sub-file (only the thumb carries
-            // dimensions). The QQ NT server treats non-zero values
-            // here as a schema mismatch on c2c sends.
             type: { type: 2, picFormat: 0, videoFormat: 0, voiceFormat: 0 },
+            // Width/height kept at 0 — NapCat does the same and the QQ-NT
+            // server has been observed to reject non-zero dimensions
+            // here on c2c sends with a schema-mismatch error. acidify
+            // *does* fill them (`payload.videoWidth/Height`) but we
+            // leave that alone until c2c regression coverage exists.
             height: 0,
             width: 0,
-            time: 0,
+            // `time` MUST be the real duration in seconds, otherwise
+            // every receiving client renders "00:00" on the video.
+            // NapCat ships `time: 0` because it sits on top of QQ-NT's
+            // IPC layer, which the desktop client patches up before
+            // the wire message goes out. We're a protocol-direct
+            // client (same position as acidify), so we own this field.
+            // acidify writes `payload.videoDuration` here for the same
+            // reason — verified against `RichMediaUpload.kt::
+            // buildVideoUploadInfoList` (2026-04 refactor).
+            time: video.duration,
             original: 0,
           },
           subFileType: 0,
