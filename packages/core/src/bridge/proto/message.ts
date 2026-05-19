@@ -59,13 +59,20 @@ export const PttSchema = {
 
 // --- NotOnlineFile (C2C file) ---
 
+// Field numbers per `dev/Lagrange.Core/.../Component/NotOnlineFile.cs`.
+// fields 9 (subcmd), 50 (dangerEvel), 55 (expireTime) are required
+// on c2c file SEND (the receiver ignores them); the identification
+// fields (1/3/4/5/6/57) are read both directions.
 export const NotOnlineFileSchema = {
-  fileType: { field: 1, type: 'uint32' as const },
-  fileUuid: { field: 3, type: 'string' as const },
-  fileMd5:  { field: 4, type: 'bytes' as const },
-  fileName: { field: 5, type: 'string' as const },
-  fileSize: { field: 6, type: 'uint64' as const },
-  fileHash: { field: 57, type: 'string' as const },
+  fileType:   { field: 1, type: 'uint32' as const },
+  fileUuid:   { field: 3, type: 'string' as const },
+  fileMd5:    { field: 4, type: 'bytes' as const },
+  fileName:   { field: 5, type: 'string' as const },
+  fileSize:   { field: 6, type: 'uint64' as const },
+  subcmd:     { field: 9, type: 'uint32' as const },
+  dangerEvel: { field: 50, type: 'uint32' as const },
+  expireTime: { field: 55, type: 'uint32' as const },
+  fileHash:   { field: 57, type: 'string' as const },
 } satisfies ProtoSchema;
 
 // --- RichText ---
@@ -84,17 +91,17 @@ export const MessageBodySchema = {
 } satisfies ProtoSchema;
 
 // --- FileExtra (for C2C file in msg_content) ---
-
-export const FileExtraInfoSchema = {
-  fileSize: { field: 1, type: 'uint64' as const },
-  fileName: { field: 2, type: 'string' as const },
-  fileMd5:  { field: 3, type: 'bytes' as const },
-  fileUuid: { field: 4, type: 'string' as const },
-  fileHash: { field: 5, type: 'string' as const },
-} satisfies ProtoSchema;
+//
+// `FileExtra { file: NotOnlineFile }` is the wrapper QQ-NT actually
+// uses at `MessageBody.msgContent` for c2c file sends. The previous
+// `FileExtraInfoSchema` had fileSize=1, fileName=2, fileMd5=3,
+// fileUuid=4, fileHash=5 — every field at the wrong tag, so received
+// c2c-file payloads silently failed to parse. Consolidated to the
+// shared `NotOnlineFileSchema` (Lagrange.Core's `FileExtra.cs` does
+// the same — `[ProtoMember(1)] public NotOnlineFile? File`).
 
 export const FileExtraSchema = {
-  file: { field: 1, type: 'message' as const, schema: FileExtraInfoSchema },
+  file: { field: 1, type: 'message' as const, schema: NotOnlineFileSchema },
 } satisfies ProtoSchema;
 
 // --- PushMsgBody ---

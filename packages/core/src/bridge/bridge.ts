@@ -17,6 +17,7 @@ import type {
   SendMessageRequest,
   SendMessageResponse,
 } from './proto/proton/action';
+import type { FileExtra } from './proto/proton/message';
 
 // Delegated modules
 import {
@@ -401,13 +402,27 @@ export class Bridge implements BridgeInterface {
   /**
    * Send a c2c file as a chat message.
    *
-   * Unlike images / videos / records that ride on `RichText.elems` as
-   * regular Elem entries, c2c files use `RichText.notOnlineFile`
-   * (parallel to `elems`, see `proto/proton/message.ts:75`). The
-   * receive-side decoder strips this back to a `{type:'file'}` segment
-   * in `rich-body-decoder.ts:425-433`. There's no Elem you can stuff
-   * into `buildSendElems` for this, so this helper short-circuits the
-   * normal send pipeline.
+   * The wire shape isn't the same as a regular c2c message — the c2c
+   * file path uses three slots that differ from a normal text/image
+   * send (verified against `dev/Lagrange.Core/.../MessagePacker.cs:
+   * BuildPacketBase` + `FileEntity.PackMessageContent`):
+   *
+   *   1. `routingHead.trans0x211 { ccCmd: 4, uid: peer }` instead of
+   *      `routingHead.c2c { uin, uid }`. The server rejects c2c file
+   *      messages routed through the regular c2c slot.
+   *   2. `messageBody.msgContent` carries the serialised
+   *      `FileExtra { file: NotOnlineFile }` bytes. NOT
+   *      `richText.notOnlineFile` — the receiver doesn't read that
+   *      slot for file metadata.
+   *   3. `contentHead.c2cCmd` left at 0 (Lagrange's default). The
+   *      previous `c2cCmd: 11` was a stale go-cqhttp value the QQ-NT
+   *      server doesn't recognise.
+   *
+   * NotOnlineFile carries three required-on-send fields the receiver
+   * itself ignores but the server's intake validator checks:
+   *   - `subcmd: 1`     — c2c file send command code
+   *   - `dangerEvel: 0` — virus-scan severity, always 0 client-side
+   *   - `expireTime`    — 7 days from now (Lagrange convention)
    */
   async sendC2cFileMessage(
     userUin: number,
@@ -417,37 +432,60 @@ export class Bridge implements BridgeInterface {
     const random = this.nextMessageRandom();
     const clientSeq = this.nextClientSequence();
 
+    const nowSec = Math.floor(Date.now() / 1000);
+    const sevenDaysSec = 7 * 24 * 60 * 60;
+    // Serialise `FileExtra { file: NotOnlineFile }` for `msgContent`.
+    // The NotOnlineFile field tags (1/3/4/5/6/9/50/55/57) are shared
+    // between send and receive — the schema is symmetric.
+    const fileExtraBytes = protobuf_encode<FileExtra>({
+      file: {
+        fileType: 0,
+        fileUuid: info.fileId,
+        fileMd5: info.fileMd5,
+        fileName: info.fileName,
+        fileSize: BigInt(info.fileSize),
+        subcmd: 1,
+        dangerEvel: 0,
+        expireTime: nowSec + sevenDaysSec,
+        fileHash: info.fileHash ?? '',
+      },
+    });
+
     const request = protobuf_encode<SendMessageRequest>({
       routingHead: {
-        c2c: { uin: userUin, uid: userUid },
+        // c2c-file scene: route through `trans0x211` (field 15) with
+        // ccCmd=4. The regular `c2c { uin, uid }` routing slot causes
+        // the server to reject this with a routing-mismatch error.
+        trans0x211: { ccCmd: 4, uid: userUid },
       },
       contentHead: {
         type: 1,
         subType: 0,
-        c2cCmd: 11,
+        // c2cCmd intentionally omitted (defaults to 0). Was `11`,
+        // which produced an unknown-command error in the QQ-NT
+        // server's c2c file handler. `userUin` is unused on this path
+        // (routing carries the uid only) but kept in the function
+        // signature for symmetry with the OneBot caller.
       },
       messageBody: {
-        richText: {
-          notOnlineFile: {
-            fileType: 0,
-            fileUuid: info.fileId,
-            fileMd5: info.fileMd5,
-            fileName: info.fileName,
-            fileSize: BigInt(info.fileSize),
-            fileHash: info.fileHash ?? '',
-          },
-        },
-      } as any,
+        // No elems — the file metadata lives in msgContent below.
+        msgContent: fileExtraBytes,
+      },
       clientSequence: clientSeq,
       random,
       syncCookie: new Uint8Array(0),
       via: 0,
       dataStatist: 0,
       ctrl: {
-        msgFlag: Math.floor(Date.now() / 1000),
+        msgFlag: nowSec,
       },
       multiSendSeq: 0,
     });
+
+    // Silence the unused-parameter lint — `userUin` is part of our
+    // BridgeInterface contract (the OneBot layer threads it through)
+    // but the wire shape only needs the uid.
+    void userUin;
 
     const result = await this.sendRawPacket(Bridge.SEND_MSG_CMD, request);
     if (!result.success || !result.gotResponse || !result.responseData) {

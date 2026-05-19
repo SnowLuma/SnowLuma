@@ -48,7 +48,7 @@ describe('send_private_msg with {type:"file"} segment', () => {
     // Pure-file case — the elems[] path would have dropped this entirely
     // and shipped "[空消息]". The c2c file route must take over.
     const sendPrivateMessage_bridge = vi.fn();
-    const sendC2cFileMessage = vi.fn(async () => goodReceipt);
+    const sendC2cFileMessage = vi.fn(async (_uin: number, _uid: string, _info: any) => goodReceipt);
     const resolveUserUid = vi.fn(async () => 'u_peer');
     const bridge = fakeBridge({
       sendPrivateMessage: sendPrivateMessage_bridge,
@@ -78,8 +78,8 @@ describe('send_private_msg with {type:"file"} segment', () => {
   });
 
   it('mixed file + text splits across two sends (text first, file second)', async () => {
-    const sendPrivateMessage_bridge = vi.fn(async () => goodReceipt);
-    const sendC2cFileMessage = vi.fn(async () => goodReceipt);
+    const sendPrivateMessage_bridge = vi.fn(async (_uin: number, _elements: any[]) => goodReceipt);
+    const sendC2cFileMessage = vi.fn(async (_uin: number, _uid: string, _info: any) => goodReceipt);
     const resolveUserUid = vi.fn(async () => 'u_peer');
     const bridge = fakeBridge({
       sendPrivateMessage: sendPrivateMessage_bridge,
@@ -112,7 +112,7 @@ describe('send_private_msg with {type:"file"} segment', () => {
     // OneBot11 file segments are upload-by-reference — without a
     // file_id there's nothing to send. Previously these slipped
     // through to the elems[] path and shipped empty messages.
-    const sendPrivateMessage_bridge = vi.fn(async () => goodReceipt);
+    const sendPrivateMessage_bridge = vi.fn(async (_uin: number, _elements: any[]) => goodReceipt);
     const sendC2cFileMessage = vi.fn();
     const bridge = fakeBridge({
       sendPrivateMessage: sendPrivateMessage_bridge,

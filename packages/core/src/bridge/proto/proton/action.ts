@@ -15,9 +15,24 @@ export interface RoutingGroup {
   groupCode?: pb<1, uint_64>;
 }
 
+// `Trans0x211` is the c2c-file scene's routing header. The server
+// rejects c2c file messages routed through `RoutingC2C` — instead it
+// expects `trans0x211 { ccCmd: 4, uid: <peer uid> }`. Confirmed against
+// `dev/Lagrange.Core/Lagrange.Core/Internal/Packets/Message/
+// Routing/Trans0X211.cs` + `RoutingHead.cs` (Trans0X211 sits at
+// field 15) + `MessagePacker.BuildPacketBase` (`Trans0X211 =
+// !chain.HasTypeOf<FileEntity>() ? null : new Trans0X211 { CcCmd = 4,
+// Uid = chain.Uid }`).
+export interface RoutingTrans0x211 {
+  toUin?: pb<1, uint_64>;
+  ccCmd?: pb<2, uint_32>;
+  uid?:   pb<8, string>;
+}
+
 export interface RoutingHead {
-  c2c?: pb<1, RoutingC2C>;
-  grp?: pb<2, RoutingGroup>;
+  c2c?:        pb<1, RoutingC2C>;
+  grp?:        pb<2, RoutingGroup>;
+  trans0x211?: pb<15, RoutingTrans0x211>;
 }
 
 // ── Content Head (for send) ─────────────────────────────────────────
@@ -43,7 +58,12 @@ export interface SendRichText {
 // ── MessageBody (for send) ──────────────────────────────────────────
 
 export interface SendMessageBody {
-  richText?: pb<1, SendRichText>;
+  richText?:   pb<1, SendRichText>;
+  // C2C file payload — serialised `FileExtra { file: NotOnlineFile }`
+  // bytes. The server reads c2c file metadata from this slot, NOT
+  // from `richText.notOnlineFile`. Confirmed against `dev/Lagrange.Core/
+  // .../MessageBody.cs:12` (commented "Offline file is now put here").
+  msgContent?: pb<2, bytes>;
 }
 
 // ── SendMessageRequest ──────────────────────────────────────────────
