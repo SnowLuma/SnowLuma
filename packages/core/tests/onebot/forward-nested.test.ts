@@ -1,22 +1,17 @@
 // Regression coverage for nested forward (forward-inside-forward).
 //
-// Bug being pinned: when a custom forward node's `content` is itself
-// a list of `{type:'node'}` entries (a forward chain inside a forward
-// chain), the parser used to call `parseMessage(content, false)`
-// which routes each inner node through `message-parser.ts:217 case
-// 'node':`. That case JSON-stringifies `content` into the
-// `resId` field of a `MessageElement{type:'node'}` placeholder —
-// which `element-builder.buildSendElems` then silently drops at its
-// default case. End result: the outer forward goes out with an empty
-// (or text-only) body, the nested chain is lost.
+// `parseForwardNodes` detects an all-`{type:'node'}` content array,
+// recursively builds the inner `ForwardNodePayload[]`, and attaches it
+// to the outer node as `innerForward`. `uploadForwardNodes` then drives
+// the recursive long-msg upload + ARK-preview generation + msgBody
+// piggyback in one pass over the tree — modelled on NapCat's
+// `uploadForwardedNodesPacket` (`dev/NapCatQQ/.../SendMsg.ts:208`).
 //
-// Fix:`parseForwardNodes` now detects an all-node content array,
-// recursively builds the inner ForwardNodePayload[], uploads it as a
-// separate forward to obtain a `res_id`, then embeds an ARK preview
-// element (`{type:'forward', resId}`) in the outer node — which is
-// exactly the shape `element-builder.makeForwardElem` already knows
-// how to render. Matches NapCat's `uploadForwardedNodesPacket`
-// recursion (capped at 3 levels deep).
+// These tests stub `bridge.uploadForwardNodes` so we can inspect the
+// payload that the upload pipeline receives: outer nodes carry an
+// `innerForward` field holding the parsed inner chain, and the
+// upload helper is invoked exactly ONCE (the recursive walk happens
+// inside the real implementation; mocks see only the top call).
 
 import { describe, expect, it, vi } from 'vitest';
 import type { BridgeInterface } from '../../src/bridge/bridge-interface';
@@ -47,22 +42,13 @@ function makeCtx(bridge: BridgeInterface): OneBotInstanceContext {
 }
 
 describe('forward — nested {type:"node"} content', () => {
-  it('group: nested forward uploads inner chain first, outer embeds ARK preview pointing at it', async () => {
-    const uploadForwardNodes = vi.fn(async (nodes: any[], _groupId?: number, _userId?: number) => {
-      // Inner gets uploaded before outer; track the order by inspecting
-      // the elements shape. The inner chain's payload is a plain text
-      // node; the outer chain's only element is a `forward` ARK preview
-      // referencing the inner res_id we returned just before.
-      const innerNode = nodes[0];
-      const onlyElem = innerNode.elements[0];
-      if (onlyElem.type === 'text' && onlyElem.text === 'hello from inner') {
-        return 'INNER_RESID';
-      }
-      if (onlyElem.type === 'forward' && onlyElem.resId === 'INNER_RESID') {
-        return 'OUTER_RESID';
-      }
-      throw new Error(`unexpected upload payload: ${JSON.stringify(nodes)}`);
-    });
+  it('group: nested forward attaches inner chain to outer node via `innerForward`', async () => {
+    // Single upload call, but the outer payload now carries an
+    // `innerForward` field with the recursively-parsed inner chain.
+    // The real `uploadForwardNodes` (the production module) walks
+    // that tree and does the recursive long-msg uploads with NapCat
+    // piggyback — we're just testing the parse-side handoff here.
+    const uploadForwardNodes = vi.fn(async (_nodes: any[], _groupId?: number, _userId?: number) => 'OUTER_RESID');
     const sendGroupMessage = vi.fn(async () => ({
       messageId: 1, sequence: 100, clientSequence: 0, random: 1, timestamp: 1700000000,
     }));
@@ -86,35 +72,34 @@ describe('forward — nested {type:"node"} content', () => {
 
     const result = await sendGroupForwardMessage(ctx, 12345, messages as any);
 
-    // Two uploads: inner first, then outer.
-    expect(uploadForwardNodes).toHaveBeenCalledTimes(2);
+    // Exactly one upload call: the production-side recursive walker
+    // owns the inner upload, the OneBot parser just hands off the tree.
+    expect(uploadForwardNodes).toHaveBeenCalledOnce();
 
-    // Inner upload: nodes[0] is the leaf node, scoped to the outer group.
-    const [innerNodes, innerGroupId] = uploadForwardNodes.mock.calls[0]!;
-    expect(innerGroupId).toBe(12345);
-    expect((innerNodes as any[])[0]!.userUin).toBe(222);
-    expect((innerNodes as any[])[0]!.elements).toEqual([{ type: 'text', text: 'hello from inner' }]);
-
-    // Outer upload: the wrapper node carries a single `forward` ARK
-    // preview element that points at the inner res_id we minted above.
-    const [outerNodes, outerGroupId] = uploadForwardNodes.mock.calls[1]!;
+    const [outerNodes, outerGroupId] = uploadForwardNodes.mock.calls[0]!;
     expect(outerGroupId).toBe(12345);
-    expect((outerNodes as any[])[0]!.userUin).toBe(111);
-    expect((outerNodes as any[])[0]!.elements).toHaveLength(1);
-    expect((outerNodes as any[])[0]!.elements[0]).toMatchObject({
-      type: 'forward',
-      resId: 'INNER_RESID',
+    const outerNode = (outerNodes as any[])[0]!;
+    expect(outerNode.userUin).toBe(111);
+    // Outer node's `elements` is empty — the upload pipeline replaces
+    // it with the real ARK preview once it has the inner res_id.
+    expect(outerNode.elements).toEqual([]);
+    // The inner chain rides along as `innerForward`.
+    expect(Array.isArray(outerNode.innerForward)).toBe(true);
+    expect(outerNode.innerForward).toHaveLength(1);
+    expect(outerNode.innerForward[0]).toMatchObject({
+      userUin: 222,
+      nickname: 'inner',
+      elements: [{ type: 'text', text: 'hello from inner' }],
     });
 
     expect(result.forwardId).toBe('OUTER_RESID');
     expect(sendGroupMessage).toHaveBeenCalledOnce();
   });
 
-  it('private: nested forward threads userId into inner uploadForwardNodes', async () => {
+  it('private: nested forward threads userId into uploadForwardNodes', async () => {
     // Same shape but routed via sendPrivateForwardMessage. The c2c path
-    // passes `userId` instead of `groupId` so any inner image/record
-    // uploads can pick up the recipient's UID scene (otherwise the
-    // OIDB private-media upload has no target uid).
+    // passes `userId` instead of `groupId` so the upload pipeline can
+    // pick up the recipient's UID scene for any inner media element.
     const uploadForwardNodes = vi.fn(async (_nodes: any[], _groupId?: number, _userId?: number) => 'RESID');
     const sendPrivateMessage = vi.fn(async () => ({
       messageId: 1, sequence: 100, clientSequence: 0, random: 1, timestamp: 1700000000,
@@ -139,10 +124,15 @@ describe('forward — nested {type:"node"} content', () => {
 
     await sendPrivateForwardMessage(ctx, 67890, messages as any);
 
-    // Inner upload: groupId undefined, userId is the c2c recipient.
-    const innerCall = uploadForwardNodes.mock.calls[0]!;
-    expect(innerCall[1]).toBeUndefined();
-    expect(innerCall[2]).toBe(67890);
+    // Single call, c2c-scoped (groupId undefined, userId = recipient).
+    expect(uploadForwardNodes).toHaveBeenCalledOnce();
+    const call = uploadForwardNodes.mock.calls[0]!;
+    expect(call[1]).toBeUndefined();
+    expect(call[2]).toBe(67890);
+    // Inner chain attached via `innerForward`.
+    const outerNode = (call[0] as any[])[0]!;
+    expect(outerNode.innerForward).toHaveLength(1);
+    expect(outerNode.innerForward[0]!.userUin).toBe(222);
   });
 
   it('rejects nesting deeper than 3 levels', async () => {

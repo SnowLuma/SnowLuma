@@ -104,4 +104,50 @@ describe('actions/forward', () => {
     await expect(forward.fetchForwardNodes(bridge as any, 'cold-cache-miss'))
       .rejects.toThrow(/download forward message failed|down/);
   });
+
+  it('uploadForwardNodes recursively uploads nested innerForward chains (NapCat piggyback model)', async () => {
+    // Regression: nested forward needs the inner chain to be uploaded
+    // first (so we have its res_id for the outer ARK preview), AND
+    // the inner level's msgBody to be carried up to the outermost
+    // long-msg upload as an extra `actionCommand` slot keyed on a
+    // uuid. Matches `dev/NapCatQQ/.../SendMsg.uploadForwardedNodesPacket`
+    // — the receiver gets the whole tree from a single fetch instead
+    // of resolving each layer's res_id separately.
+    const responses = ['inner-res', 'outer-res'];
+    const sendRawPacket = vi.fn(async () => uploadResponseWithResId(responses.shift()!)) as any;
+    const bridge = mockBridge({ sendRawPacket });
+
+    const resId = await forward.uploadForwardNodes(bridge as any, [
+      {
+        userUin: 111,
+        nickname: 'outer',
+        elements: [],
+        innerForward: [
+          { userUin: 222, nickname: 'inner', elements: [{ type: 'text', text: 'hi' }] },
+        ],
+      },
+    ]);
+
+    // Two server roundtrips: one for the inner chain, then one for
+    // the outer (which piggybacks the inner msgBody onto its actions
+    // array). The outer res_id is what the caller gets back.
+    expect(resId).toBe('outer-res');
+    expect(sendRawPacket).toHaveBeenCalledTimes(2);
+  });
+
+  it('uploadForwardNodes leaves flat (non-nested) sends at a single roundtrip', async () => {
+    // Backwards-compat: the common case (no inner forward) must still
+    // be one SsoSendLongMsg call. Without this we'd double upload
+    // every regular forward send.
+    const sendRawPacket = vi.fn(async () => uploadResponseWithResId('flat-res')) as any;
+    const bridge = mockBridge({ sendRawPacket });
+
+    const resId = await forward.uploadForwardNodes(bridge as any, [
+      { userUin: 10001, nickname: 'a', elements: [{ type: 'text', text: 'hello' }] },
+      { userUin: 10002, nickname: 'b', elements: [{ type: 'text', text: 'world' }] },
+    ]);
+
+    expect(resId).toBe('flat-res');
+    expect(sendRawPacket).toHaveBeenCalledOnce();
+  });
 });

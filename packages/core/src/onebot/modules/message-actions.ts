@@ -635,34 +635,42 @@ async function parseForwardNodes(
     const content = (nodeData.content ?? nodeData.message ?? '') as JsonValue;
 
     let elements: MessageElement[];
+    let innerForward: ForwardNodePayload[] | undefined;
     if (isNestedNodeArray(content)) {
       // Nested forward chain — `content` is itself a list of `{type:'node'}`
-      // segments. Recursively parse them into ForwardNodePayloads, upload
-      // that inner chain as its own forward, then embed an ARK preview
-      // card pointing at the inner res_id. The receiving QQ client renders
-      // it as a tap-to-expand nested forward bubble. Matches NapCat's
-      // `SendMsg.uploadForwardedNodesPacket` recursion contract.
+      // segments. We recursively parse them into a sibling
+      // `ForwardNodePayload[]` and attach it to this node as `innerForward`.
+      // `uploadForwardNodes` then drives the recursive upload + ARK-preview
+      // generation + msgBody piggyback in one pass over the whole tree.
       //
-      // Without this, the inner `{type:'node'}` entries fell through to
-      // `parseMessage` which produced useless `MessageElement{type:'node'}`
-      // entries that `element-builder` silently drops — leaving the outer
-      // forward with an empty body that QQ refuses with "message is empty"
-      // (single-node case) or a node whose content is missing the inner
-      // forward (mixed case).
-      const innerNodes = await parseForwardNodes(ref, content, {
+      // Why hand it off instead of uploading here: NapCat (`dev/NapCatQQ/
+      // .../SendMsg.uploadForwardedNodesPacket`) carries every inner level's
+      // packetMsg up to the outermost long-msg upload as extra
+      // `actionCommand` slots, so the receiver gets the whole tree from one
+      // server fetch. That cross-layer piggyback needs the upload pipeline
+      // to own the recursion — doing it in `parseForwardNodes` would force
+      // each level to do its own independent long-msg upload, which is what
+      // the previous implementation did and what a NapCat-compatible
+      // receiver couldn't walk.
+      innerForward = await parseForwardNodes(ref, content, {
         groupId: options.groupId,
         userId: options.userId,
         depth: depth + 1,
       });
-      const innerResId = await ref.bridge.uploadForwardNodes(innerNodes, options.groupId, options.userId);
-      const isGroup = options.groupId !== undefined;
-      elements = [buildForwardPreviewElement(innerResId, innerNodes, isGroup, undefined)];
+      // Placeholder — `uploadForwardNodes` replaces these with a real
+      // forward-preview MessageElement once it has the inner res_id +
+      // uuid in hand.
+      elements = [];
     } else {
       elements = await parseMessage(content, false);
     }
-    if (elements.length === 0) throw new Error(`forward node content is empty: ${userUin}`);
+    if (!innerForward && elements.length === 0) {
+      throw new Error(`forward node content is empty: ${userUin}`);
+    }
 
-    nodes.push({ userUin, nickname, elements });
+    const node: ForwardNodePayload = { userUin, nickname, elements };
+    if (innerForward) node.innerForward = innerForward;
+    nodes.push(node);
   }
 
   if (nodes.length === 0) {

@@ -5,10 +5,11 @@
 
 import type { Bridge } from '../bridge';
 import { gunzipSync, gzipSync } from 'zlib';
+import { randomUUID } from 'crypto';
 import { protobuf_encode, protobuf_decode } from '@snowluma/proton';
 import { buildSendElems } from '../element-builder';
 import { parseMsgPush } from '../msg-push';
-import type { ForwardNodePayload } from '../events';
+import type { ForwardNodePayload, MessageElement } from '../events';
 import type { PacketInfo } from '../../protocol/types';
 import type {
   LongMsgResult,
@@ -73,12 +74,60 @@ async function buildForwardPushBody(
   };
 }
 
+// Per-layer piggyback entry. Each level of a nested forward attaches
+// its own msgBody under a uuid `actionCommand`, so when the receiver
+// fetches the outermost res_id it gets every layer in one shot
+// (modelled on NapCat's `uploadForwardedNodesPacket` — see
+// `dev/NapCatQQ/.../SendMsg.ts:208-347`). Lagrange.Core master + V2
+// both ship a single-action model and silently break when the
+// recipient is a NapCat instance trying to walk the tree.
+interface ForwardInnerAction {
+  uuid: string;
+  msgBody: PushMsgBody[];
+}
+
+interface ForwardUploadResult {
+  resId: string;
+  // The current level's msgBody + uuid — what an outer caller would
+  // piggyback to expose this layer through the tree.
+  msgBody: PushMsgBody[];
+  uuid: string;
+  // All accumulated piggyback entries from deeper levels. Outer
+  // callers concatenate these to their own actions list so the
+  // outermost upload carries the full tree.
+  innerActions: ForwardInnerAction[];
+}
+
 export async function uploadForwardNodes(
   bridge: Bridge,
   nodes: ForwardNodePayload[],
   groupId?: number,
   userId?: number,
 ): Promise<string> {
+  const { resId } = await uploadForwardNodesRecursive(bridge, nodes, groupId, userId);
+  return resId;
+}
+
+/**
+ * Recursive upload with NapCat-style piggyback. Each invocation:
+ *   1. Walks `nodes`. For any node whose `innerForward` is set,
+ *      recursively uploads that inner chain first (which itself runs
+ *      this same recursion).
+ *   2. Replaces the node's `elements` with an ARK preview pointing at
+ *      the inner res_id (and inner uuid for receiver-side walking).
+ *   3. Accumulates the inner level's `{uuid, msgBody}` plus all of
+ *      ITS accumulated `innerActions` into this level's piggyback list.
+ *   4. Encodes this level's long-msg payload as
+ *      `[MultiMsg + thisMsgBody, ...innerActions]`, uploads it,
+ *      returns `{resId, msgBody, uuid, innerActions}` so an outer
+ *      caller can keep piggybacking up the tree.
+ */
+async function uploadForwardNodesRecursive(
+  bridge: Bridge,
+  nodes: ForwardNodePayload[],
+  groupId?: number,
+  userId?: number,
+): Promise<ForwardUploadResult> {
   if (!Array.isArray(nodes) || nodes.length === 0) {
     throw new Error('forward nodes are required');
   }
@@ -86,25 +135,77 @@ export async function uploadForwardNodes(
   // For a private forward to `userId`, any image/record/video inside a node
   // needs the recipient's uid as upload scene. Resolve it once up-front,
   // and only when at least one node actually contains media (saves an RPC
-  // for text-only forwards).
+  // for text-only forwards). Also need it when a node is itself a nested
+  // forward — the inner upload uses the same scene.
   let userUid: string | undefined;
   if (groupId === undefined && userId !== undefined && userId > 0) {
-    const hasMedia = nodes.some(node => node.elements.some(
-      e => e.type === 'image' || e.type === 'record' || e.type === 'video',
-    ));
-    if (hasMedia) {
+    const needsUid = nodes.some(node => !!node.innerForward
+      || node.elements.some(e => e.type === 'image' || e.type === 'record' || e.type === 'video'));
+    if (needsUid) {
       const resolved = await bridge.resolveUserUid(userId);
       if (resolved) userUid = resolved;
     }
   }
 
-  const msgBody = await Promise.all(nodes.map(node => buildForwardPushBody(bridge, node, groupId, userUid)));
+  // Walk nodes and resolve nested forwards first (so we know their
+  // res_id / uuid before encoding the outer ARK previews). Build
+  // `processedNodes` with elements rewritten for nested layers,
+  // and collect every inner level's piggyback in `myInnerActions`.
+  const myInnerActions: ForwardInnerAction[] = [];
+  const processedNodes: ForwardNodePayload[] = [];
+  const isGroup = groupId !== undefined;
+  for (const node of nodes) {
+    if (node.innerForward && node.innerForward.length > 0) {
+      const inner = await uploadForwardNodesRecursive(bridge, node.innerForward, groupId, userId);
+      // NapCat piggybacks `{uuid: inner.uuid, packetMsg: inner.packetMsg}`
+      // + the entire `inner.innerPacketMsg` array up to its caller. We
+      // mirror that — `inner.uuid` indexes the inner level itself,
+      // and `inner.innerActions` already contains deeper layers.
+      myInnerActions.push({ uuid: inner.uuid, msgBody: inner.msgBody });
+      myInnerActions.push(...inner.innerActions);
+      // Replace the inner placeholder element with a forward preview
+      // pointing at the inner res_id. The wire-side element builder
+      // turns this into the same XML m_resid blob it already produced
+      // for top-level forwards — see `makeForwardElem` in
+      // element-builder.ts:153.
+      const previewElement: MessageElement = {
+        type: 'forward',
+        resId: inner.resId,
+        forwardSource: deriveInnerSource(node.innerForward, isGroup),
+        forwardSummary: `查看${node.innerForward.length}条转发消息`,
+        forwardPrompt: '[聊天记录]',
+        forwardNews: previewLinesFromNodes(node.innerForward),
+        forwardTSum: node.innerForward.length,
+      };
+      processedNodes.push({
+        userUin: node.userUin,
+        nickname: node.nickname,
+        elements: [previewElement],
+        time: node.time,
+        msgId: node.msgId,
+        msgSeq: node.msgSeq,
+        groupId: node.groupId,
+        senderCard: node.senderCard,
+        messageType: node.messageType,
+      });
+    } else {
+      processedNodes.push(node);
+    }
+  }
+
+  // Encode this level's msgBody.
+  const msgBody = await Promise.all(processedNodes.map(
+    node => buildForwardPushBody(bridge, node, groupId, userUid),
+  ));
+
+  // Compose the action list: own MultiMsg + piggybacked inner actions.
   const longMsgResult = protobuf_encode<LongMsgResult>({
     action: [
-      {
-        actionCommand: 'MultiMsg',
-        actionData: { msgBody },
-      },
+      { actionCommand: 'MultiMsg', actionData: { msgBody } },
+      ...myInnerActions.map(a => ({
+        actionCommand: a.uuid,
+        actionData: { msgBody: a.msgBody },
+      })),
     ],
   });
 
@@ -137,7 +238,7 @@ export async function uploadForwardNodes(
     throw new Error('upload forward message response missing res_id');
   }
 
-  forwardResCache.set(resId, nodes.map(node => ({
+  forwardResCache.set(resId, processedNodes.map(node => ({
     userUin: node.userUin,
     nickname: node.nickname,
     elements: [...node.elements],
@@ -149,7 +250,53 @@ export async function uploadForwardNodes(
     messageType: node.messageType ?? (groupId ? 'group' : 'private'),
   })));
 
-  return resId;
+  return {
+    resId,
+    msgBody,
+    uuid: randomUUID(),
+    innerActions: myInnerActions,
+  };
+}
+
+// Inner forward preview metadata — kept minimal here (the OneBot
+// `parseForwardNodes` caller can override these on the top-level
+// node by passing custom forwardSource/forwardSummary on the
+// non-nested send path; nested levels just get sensible defaults
+// since they're synthesised by us and never reach OneBot input).
+function deriveInnerSource(innerNodes: ForwardNodePayload[], isGroup: boolean): string {
+  const nicks: string[] = [];
+  const seen = new Set<string>();
+  for (const node of innerNodes) {
+    const name = (node.nickname ?? '').trim();
+    if (name && !seen.has(name)) {
+      seen.add(name);
+      nicks.push(name);
+    }
+    if (nicks.length >= 4) break;
+  }
+  if (nicks.length === 0) return isGroup ? '群聊的聊天记录' : '聊天记录';
+  return `${nicks.join('和')}的聊天记录`;
+}
+
+function previewLinesFromNodes(innerNodes: ForwardNodePayload[]): Array<{ text: string }> {
+  return innerNodes.slice(0, 4).map(node => {
+    const name = (node.nickname ?? '').trim() || String(node.userUin || 'QQ用户');
+    const previewText = previewFromElements(node.elements);
+    return { text: previewText ? `${name}: ${previewText}` : name };
+  });
+}
+
+function previewFromElements(elements: MessageElement[]): string {
+  for (const elem of elements) {
+    if (elem.type === 'text' && elem.text) return elem.text.slice(0, 30);
+    if (elem.type === 'image') return '[图片]';
+    if (elem.type === 'record') return '[语音]';
+    if (elem.type === 'video') return '[视频]';
+    if (elem.type === 'file') return '[文件]';
+    if (elem.type === 'forward') return '[聊天记录]';
+    if (elem.type === 'face') return '[表情]';
+  }
+  return '';
 }
 
 export async function fetchForwardNodes(bridge: Bridge, resId: string): Promise<ForwardNodePayload[]> {
