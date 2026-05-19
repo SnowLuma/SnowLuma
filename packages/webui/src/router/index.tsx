@@ -2,14 +2,19 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   Outlet,
 } from '@tanstack/react-router';
-import { OverviewPage } from '@/components/pages/overview-page';
-import { ConfigPage } from '@/components/pages/config-page';
-import { LogsPage } from '@/components/pages/logs-page';
-import { SettingsPage } from '@/components/pages/settings-page';
 import { AppLayout } from './app-layout';
 
+// Page components are loaded on demand so the initial paint only ships
+// the auth surface + layout shell. With `defaultPreload: 'intent'` set
+// below, the router warms the next chunk on hover/focus, so navigation
+// still feels instant after the first idle moment. Previously every
+// page (overview / config / logs / settings) lived in the single
+// ~600 kB bundle that Vite explicitly warned about — config-page edit
+// dialog alone pulls in a large form surface that most users never
+// touch on first visit.
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
 });
@@ -23,25 +28,37 @@ const appLayoutRoute = createRoute({
 const overviewRoute = createRoute({
   path: '/',
   getParentRoute: () => appLayoutRoute,
-  component: OverviewPage,
+  component: lazyRouteComponent(
+    () => import('@/components/pages/overview-page'),
+    'OverviewPage',
+  ),
 });
 
 const configRoute = createRoute({
   path: '/config',
   getParentRoute: () => appLayoutRoute,
-  component: ConfigPage,
+  component: lazyRouteComponent(
+    () => import('@/components/pages/config-page'),
+    'ConfigPage',
+  ),
 });
 
 const logsRoute = createRoute({
   path: '/logs',
   getParentRoute: () => appLayoutRoute,
-  component: LogsPage,
+  component: lazyRouteComponent(
+    () => import('@/components/pages/logs-page'),
+    'LogsPage',
+  ),
 });
 
 const settingsRoute = createRoute({
   path: '/settings',
   getParentRoute: () => appLayoutRoute,
-  component: SettingsPage,
+  component: lazyRouteComponent(
+    () => import('@/components/pages/settings-page'),
+    'SettingsPage',
+  ),
 });
 
 const routeTree = rootRoute.addChildren([
