@@ -25,6 +25,11 @@ export const decodeEvent0x210: MsgPushDecoder = (ctx) => {
     case Event0x210SubType.FriendRequestNotice: return decodeFriendRequest(ctx);
     case Event0x210SubType.FriendRecallNotice: return decodeFriendRecall(ctx);
     case Event0x210SubType.FriendPokeNotice: return decodeFriendPoke(ctx);
+    case Event0x210SubType.GroupAppStatePush:
+      // QQ-client-internal troop shortcut bar / discussion app state
+      // push — no OneBot-level event. See enum comment for the
+      // decompiled-source breakdown of the sub_cmd dispatch.
+      return [];
   }
   unknownLog.debug('Event0x210 unknown subType=%d', ctx.head.subType);
   return [];

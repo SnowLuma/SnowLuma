@@ -7,6 +7,7 @@ import { GroupChangeSchema, OperatorInfoSchema } from '../src/bridge/proto/notif
 import type { GroupMemberJoin } from '../src/bridge/events';
 import type { PacketInfo } from '../src/protocol/types';
 import { protoEncode } from '../src/protobuf/decode';
+import { subscribeLogs } from '../src/utils/logger';
 
 const SELF_UIN = '10001';
 const GROUP_ID = 123456789;
@@ -96,5 +97,67 @@ describe('parseMsgPush group member increase', () => {
     expect(event.operatorUin).toBe(operator.uin);
     expect(event.userUid).toBe(member.uid);
     expect(event.operatorUid).toBe(operator.uid);
+  });
+});
+
+describe('parseMsgPush Event0x210 subType=38 (acknowledged-but-silent)', () => {
+  // Tracked back to the stock-QQ-android decompiled decoder
+  // `com.tencent.imcore.message.ext.codec.decoder.msgType0x210.SubType0x26`
+  // — it's the QQ-client-internal "troop shortcut bar" / discussion
+  // app state push (badge counts + in-app tips), not a chat event.
+  // We acknowledge it via `Event0x210SubType.GroupAppStatePush` and
+  // drop silently — no OneBot-level event, and — critically —
+  // **no** "unknown subType=38" fallback log spam anymore.
+  function makeEvent0x210Packet(subType: number, content = new Uint8Array(0)): PacketInfo {
+    const body = protoEncode({
+      message: {
+        responseHead: { fromUin: 22222, type: 0, sigMap: 0 },
+        // 528 = Event0x210
+        contentHead: { msgType: 528, subType, timestamp: 1710000000 },
+        body: { msgContent: content },
+      },
+      status: 0,
+    } as any, PushMsgSchema);
+    return {
+      pid: 1, uin: SELF_UIN, serviceCmd: MSG_PUSH_CMD, seqId: 1,
+      retCode: 0, fromClient: false, body,
+    };
+  }
+
+  it('returns [] for subType 38 without falling through to the MsgPush.Unknown log', () => {
+    const captured: string[] = [];
+    const unsubscribe = subscribeLogs((entry) => {
+      // Only care about the spam that the prior implementation produced
+      // ("MsgPush.Unknown" with subType=38). Other modules log freely
+      // during identity setup etc., we ignore them.
+      if (entry.scope === 'MsgPush.Unknown' && /subType=38/.test(entry.message)) {
+        captured.push(entry.message);
+      }
+    });
+    try {
+      const events = parseMsgPush(makeEvent0x210Packet(38), makeIdentity());
+      expect(events).toEqual([]);
+      expect(captured).toEqual([]); // no "unknown subType=38" debug log
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('still flags genuinely-unknown subTypes via MsgPush.Unknown (regression guard)', () => {
+    // Counterpart to the silent-on-38 case: anything we *haven't*
+    // claimed in the enum should still hit the fallback so it's
+    // visible to whoever's tailing debug logs.
+    const captured: string[] = [];
+    const unsubscribe = subscribeLogs((entry) => {
+      if (entry.scope === 'MsgPush.Unknown' && /subType=999/.test(entry.message)) {
+        captured.push(entry.message);
+      }
+    });
+    try {
+      parseMsgPush(makeEvent0x210Packet(999), makeIdentity());
+      expect(captured.length).toBeGreaterThan(0);
+    } finally {
+      unsubscribe();
+    }
   });
 });
