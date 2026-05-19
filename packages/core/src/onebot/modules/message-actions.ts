@@ -215,7 +215,11 @@ export async function sendGroupForwardMessage(
   messages: JsonValue,
   meta?: ForwardPreviewMeta,
 ): Promise<{ messageId: number; forwardId: string }> {
-  const nodes = await parseForwardNodes(ref, messages);
+  // Thread `groupId` into the parser so any nested forward inside a
+  // node's content uploads its inner forward against the same group
+  // namespace — otherwise the ARK card's res_id won't be resolvable
+  // when the recipient taps to expand.
+  const nodes = await parseForwardNodes(ref, messages, { groupId });
   const forwardId = await ref.bridge.uploadForwardNodes(nodes, groupId);
   const previewElement = buildForwardPreviewElement(forwardId, nodes, true, meta);
   const receipt = await ref.bridge.sendGroupMessage(groupId, [previewElement]);
@@ -240,7 +244,7 @@ export async function sendPrivateForwardMessage(
   messages: JsonValue,
   meta?: ForwardPreviewMeta,
 ): Promise<{ messageId: number; forwardId: string }> {
-  const nodes = await parseForwardNodes(ref, messages);
+  const nodes = await parseForwardNodes(ref, messages, { userId });
   // userId is plumbed through so inner image/record/video can be uploaded
   // under the recipient's scene (otherwise the OIDB private-image upload
   // has no target uid and the element builder bails).
@@ -267,7 +271,7 @@ export async function uploadForwardMessage(
   messages: JsonValue,
   groupId?: number,
 ): Promise<{ forwardId: string }> {
-  const nodes = await parseForwardNodes(ref, messages);
+  const nodes = await parseForwardNodes(ref, messages, { groupId });
   // groupId controls the resId namespace (group vs private). Without it,
   // a resId minted here is unusable when later sent into a group.
   const forwardId = await ref.bridge.uploadForwardNodes(nodes, groupId);
@@ -535,10 +539,49 @@ function logSentMessage(isGroup: boolean, targetId: number, elements: MessageEle
   log.info(`${type} ${targetId} | 发送：${content}`);
 }
 
+// Cap forward nesting at the same depth NapCat uses
+// (`SendMsg.ts:225-228`). QQ NT itself renders only a few levels of
+// nested forward bubbles before collapsing into "查看更多" — going
+// deeper just wastes long-msg uploads and increases the odds of one
+// inner upload timing out and aborting the whole tree.
+const MAX_FORWARD_DEPTH = 3;
+
+interface ParseForwardOptions {
+  /** Destination group, when the parent forward is going to a group. */
+  groupId?: number;
+  /** Destination user, when the parent forward is going to a c2c peer. */
+  userId?: number;
+  /** Internal: current recursion depth. Callers should leave this 0. */
+  depth?: number;
+}
+
+/**
+ * Are all entries of this array `{type:'node'}` segments? Then `content`
+ * itself is a nested forward chain (vs a regular flat segment list).
+ * Mixed content (some nodes + some text/image) returns false: that's
+ * not a meaningful protocol shape, so we treat it as flat-segment and
+ * let the node entries fall through to parseMessage (which drops them
+ * with a warning).
+ */
+function isNestedNodeArray(value: JsonValue): boolean {
+  if (!Array.isArray(value) || value.length === 0) return false;
+  for (const item of value) {
+    const seg = asJsonObject(item);
+    if (!seg || String(seg.type ?? '') !== 'node') return false;
+  }
+  return true;
+}
+
 async function parseForwardNodes(
   ref: OneBotInstanceContext,
   messages: JsonValue,
+  options: ParseForwardOptions = {},
 ): Promise<ForwardNodePayload[]> {
+  const depth = options.depth ?? 0;
+  if (depth >= MAX_FORWARD_DEPTH) {
+    throw new Error(`forward nesting depth exceeds ${MAX_FORWARD_DEPTH}`);
+  }
+
   if (!Array.isArray(messages)) {
     throw new Error('forward messages must be an array');
   }
@@ -590,7 +633,33 @@ async function parseForwardNodes(
 
     const nickname = String(nodeData.nickname ?? nodeData.name ?? userUin);
     const content = (nodeData.content ?? nodeData.message ?? '') as JsonValue;
-    const elements = await parseMessage(content, false);
+
+    let elements: MessageElement[];
+    if (isNestedNodeArray(content)) {
+      // Nested forward chain — `content` is itself a list of `{type:'node'}`
+      // segments. Recursively parse them into ForwardNodePayloads, upload
+      // that inner chain as its own forward, then embed an ARK preview
+      // card pointing at the inner res_id. The receiving QQ client renders
+      // it as a tap-to-expand nested forward bubble. Matches NapCat's
+      // `SendMsg.uploadForwardedNodesPacket` recursion contract.
+      //
+      // Without this, the inner `{type:'node'}` entries fell through to
+      // `parseMessage` which produced useless `MessageElement{type:'node'}`
+      // entries that `element-builder` silently drops — leaving the outer
+      // forward with an empty body that QQ refuses with "message is empty"
+      // (single-node case) or a node whose content is missing the inner
+      // forward (mixed case).
+      const innerNodes = await parseForwardNodes(ref, content, {
+        groupId: options.groupId,
+        userId: options.userId,
+        depth: depth + 1,
+      });
+      const innerResId = await ref.bridge.uploadForwardNodes(innerNodes, options.groupId, options.userId);
+      const isGroup = options.groupId !== undefined;
+      elements = [buildForwardPreviewElement(innerResId, innerNodes, isGroup, undefined)];
+    } else {
+      elements = await parseMessage(content, false);
+    }
     if (elements.length === 0) throw new Error(`forward node content is empty: ${userUin}`);
 
     nodes.push({ userUin, nickname, elements });
