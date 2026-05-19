@@ -122,6 +122,45 @@ export interface FriendRecall {
   reserved?:        pb<5, bytes>;
 }
 
+// ── NewFriend (0x210 subType 179 + 226) ───────────────────────────
+//
+// Mutual-accept friend notice. Fires when:
+//   - bot sent a friend request and the other side accepted (179), or
+//   - the other side sent a request and bot accepted it (226).
+// Both subTypes share this wire shape; field semantics follow
+// `LagrangeDev/LagrangeGo` client/packets/pb/message/notify.proto.
+
+export interface NewFriendInfo {
+  uid?:      pb<1, string>;
+  field2?:   pb<2, uint_32>;
+  time?:     pb<3, uint_32>; // fixed32 on wire; uint_32 decoded value is the unix epoch
+  message?:  pb<4, string>;
+  nickName?: pb<5, string>;
+  field6?:   pb<6, uint_32>;
+  field7?:   pb<7, uint_32>;
+  toUid?:    pb<9, string>;
+}
+
+export interface NewFriend {
+  field1?: pb<1, uint_32>;
+  info?:   pb<2, NewFriendInfo>;
+}
+
+// ── SelfJoinInGroup (PkgType 85) ──────────────────────────────────
+//
+// Fired when the bot itself was admitted into a group — typically the
+// completion of an admin-approved join request or an accepted invite.
+// Ported from `lagrange-python/pb/status/group.py:170 PBSelfJoinInGroup`.
+
+export interface SelfJoinInGroup {
+  groupUin?:    pb<1, uint_64>;
+  field2?:      pb<2, uint_32>;
+  operatorUid?: pb<3, string>;
+  field4?:      pb<4, uint_32>;
+  field6?:      pb<6, uint_32>;
+  field7?:      pb<7, string>;
+}
+
 export interface GroupMuteState {
   targetUid?: pb<1, string>;
   duration?:  pb<2, uint_32>;

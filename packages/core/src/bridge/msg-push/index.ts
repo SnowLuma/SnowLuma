@@ -9,7 +9,7 @@ import { buildContext } from './context';
 import { MsgPushRegistry } from './registry';
 import { PkgType } from './enums';
 import {
-  decodeGroupMemberJoin, decodeGroupMemberLeave,
+  decodeGroupMemberJoin, decodeGroupMemberLeave, decodeGroupSelfJoined,
 } from './decoders/group-member-change';
 import { decodeGroupAdmin } from './decoders/group-admin';
 import {
@@ -26,6 +26,7 @@ export const MSG_PUSH_CMD = 'trpc.msg.olpush.OlPushService.MsgPush';
 const registry = new MsgPushRegistry();
 registry.register(PkgType.GroupMemberIncreaseNotice, decodeGroupMemberJoin);
 registry.register(PkgType.GroupMemberDecreaseNotice, decodeGroupMemberLeave);
+registry.register(PkgType.GroupSelfJoinedNotice, decodeGroupSelfJoined);
 registry.register(PkgType.GroupAdminChangedNotice, decodeGroupAdmin);
 registry.register(PkgType.GroupRequestJoinNotice, decodeGroupJoinRequest);
 registry.register(PkgType.GroupRequestInvitationNotice, decodeGroupInvitation);

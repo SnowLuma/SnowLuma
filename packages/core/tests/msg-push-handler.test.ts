@@ -1,10 +1,30 @@
 import { describe, expect, it } from 'vitest';
+import { protobuf_encode } from '@snowluma/proton';
 import { parseMsgPush, MSG_PUSH_CMD } from '../src/bridge/msg-push';
 import { IdentityService } from '../src/bridge/identity-service';
 import type { GroupMemberInfo, QQGroupInfo } from '../src/bridge/qq-info';
 import { PushMsgSchema } from '../src/bridge/proto/message';
 import { GroupChangeSchema, OperatorInfoSchema } from '../src/bridge/proto/notify';
-import type { GroupMemberJoin } from '../src/bridge/events';
+// Proton's call-site analyzer keys off the literal type identifier
+// printed in `protobuf_encode<X>` — it walks imports by *original*
+// name (not alias). If both `import { X } from 'proto/notify'` and
+// `import { X as Y } from 'events'` appear, the analyzer's import
+// resolver picks up the second one and the proton-side definition
+// loses, so call sites referencing `X` go un-replaced. Side-step by
+// re-aliasing the event-side type's *source* (not just the local
+// name) — we don't need to import it directly since assertions can
+// inline-extract the kind.
+import type {
+  NewFriend, FriendRecall, SelfJoinInGroup,
+} from '../src/bridge/proto/proton/notify';
+import type {
+  GroupMemberJoin, FriendAddEvent, QQEventVariant,
+} from '../src/bridge/events';
+
+// Local alias for the event-side recall type — derived via Extract so
+// we avoid an `import { FriendRecall as X }` that collides with the
+// proton import above.
+type FriendRecallEvent = Extract<QQEventVariant, { kind: 'friend_recall' }>;
 import type { PacketInfo } from '../src/protocol/types';
 import { protoEncode } from '../src/protobuf/decode';
 import { subscribeLogs } from '../src/utils/logger';
@@ -159,5 +179,173 @@ describe('parseMsgPush Event0x210 subType=38 (acknowledged-but-silent)', () => {
     } finally {
       unsubscribe();
     }
+  });
+});
+
+// ── P1 coverage extension: subTypes confirmed by LagrangeGo / acidify
+//    that we were previously dropping into the "unknown" fallback. ──
+
+function makeEvent0x210PacketAny(subType: number, content: Uint8Array): PacketInfo {
+  const body = protoEncode({
+    message: {
+      responseHead: { fromUin: 22222, type: 0, sigMap: 0 },
+      contentHead: { msgType: 528, subType, timestamp: 1710000000 },
+      body: { msgContent: content },
+    },
+    status: 0,
+  } as any, PushMsgSchema);
+  return {
+    pid: 1, uin: SELF_UIN, serviceCmd: MSG_PUSH_CMD, seqId: 1,
+    retCode: 0, fromClient: false, body,
+  };
+}
+
+describe('parseMsgPush Event0x210 subType=179/226 (NewFriend → friend_add)', () => {
+  // 179 fires when bot sent a request and other side accepted; 226
+  // when bot accepted other side's request. Both share the
+  // `NewFriend` wire shape (LagrangeGo registers both via
+  // case-fallthrough in `client/listener.go:248`). We surface them
+  // identically as `kind: 'friend_add'`.
+
+  function makeNewFriendPacket(subType: 179 | 226, friendUid: string, time = 1710000000): PacketInfo {
+    const content = protobuf_encode<NewFriend>({
+      field1: 0,
+      info: { uid: friendUid, time, message: 'hello', nickName: 'Alice' },
+    });
+    return makeEvent0x210PacketAny(subType, content);
+  }
+
+  it('emits friend_add for subType 179', () => {
+    const member = makeGroupMember(99999, 'u_new_friend');
+    const [event] = parseMsgPush(
+      makeNewFriendPacket(179, member.uid),
+      makeIdentity([member]),
+    ) as FriendAddEvent[];
+
+    expect(event.kind).toBe('friend_add');
+    expect(event.userUin).toBe(99999);
+    expect(event.time).toBe(1710000000);
+  });
+
+  it('emits friend_add for subType 226 (same wire shape, different surface)', () => {
+    const member = makeGroupMember(88888, 'u_other_friend');
+    const [event] = parseMsgPush(
+      makeNewFriendPacket(226, member.uid),
+      makeIdentity([member]),
+    ) as FriendAddEvent[];
+
+    expect(event.kind).toBe('friend_add');
+    expect(event.userUin).toBe(88888);
+  });
+
+  it('falls back to the packet routingHead.fromUin when the uid is not in the local cache', () => {
+    // No member registered for `u_unknown_uid`, but the packet itself
+    // carries the new friend's uin on `fromUin` (22222 in
+    // makeEvent0x210PacketAny). That's the wire-level convention
+    // (LagrangeGo emits unconditionally then calls `ResolveUin` post
+    // hoc, see `client/listener.go:259`). Without the fallback the
+    // event would either drop or surface `user_id: 0`, both of which
+    // confuse OneBot consumers.
+    const [event] = parseMsgPush(
+      makeNewFriendPacket(179, 'u_unknown_uid'),
+      makeIdentity(),
+    ) as FriendAddEvent[];
+    expect(event.kind).toBe('friend_add');
+    expect(event.userUin).toBe(22222); // the packet's fromUin
+  });
+});
+
+describe('parseMsgPush Event0x210 subType=139 (self-recall direction)', () => {
+  // 138 = friend recalled their own message sent to bot
+  //       (peer in friend_recall event = fromUid)
+  // 139 = bot recalled own message sent to friend
+  //       (peer in friend_recall event = toUid)
+  // Same wire shape; the subType is the direction discriminator.
+  // Acidify makes the same split in `parseFriendRecall:380`. Without
+  // 139, self-recalls used to fall through and disappear.
+
+  function makeFriendRecallPacket(subType: 138 | 139, fromUid: string, toUid: string): PacketInfo {
+    const content = protobuf_encode<FriendRecall>({
+      info: {
+        fromUid, toUid, clientSequence: 4242, newId: 0n,
+        time: 1710000000, random: 0, pkgNum: 1, pkgIndex: 0, divSeq: 1,
+      },
+    });
+    return makeEvent0x210PacketAny(subType, content);
+  }
+
+  it('subType 138 keeps fromUid as the resolved peer (other recalled their own msg to us)', () => {
+    const friend = makeGroupMember(77777, 'u_friend');
+    const [event] = parseMsgPush(
+      makeFriendRecallPacket(138, friend.uid, 'u_self'),
+      makeIdentity([friend]),
+    ) as FriendRecallEvent[];
+
+    expect(event.kind).toBe('friend_recall');
+    expect(event.userUin).toBe(77777);
+    expect(event.msgSeq).toBe(4242);
+  });
+
+  it('subType 139 picks toUid as the peer (we recalled our msg sent to friend)', () => {
+    const friend = makeGroupMember(77777, 'u_friend');
+    const [event] = parseMsgPush(
+      makeFriendRecallPacket(139, 'u_self', friend.uid),
+      makeIdentity([friend]),
+    ) as FriendRecallEvent[];
+
+    expect(event.kind).toBe('friend_recall');
+    expect(event.userUin).toBe(77777); // resolved from toUid (the friend), not fromUid (us)
+  });
+});
+
+describe('parseMsgPush PkgType 85 (bot self-joined a group)', () => {
+  // PkgType 33 (GroupMemberIncreaseNotice) fires for *other* members
+  // joining; the bot's own join after `set_group_add_request` approval
+  // / invite-accept arrives at 85 instead. We surface it as
+  // `group_member_join` with `userUin = selfUin` so the OneBot
+  // converter naturally produces `notice.group_increase`.
+  function makeSelfJoinPacket(groupId: number, operatorUid = ''): PacketInfo {
+    const content = protobuf_encode<SelfJoinInGroup>({
+      groupUin: BigInt(groupId),
+      field2: 1,
+      operatorUid,
+      field4: 0,
+      field6: 48,
+      field7: '',
+    });
+    const body = protoEncode({
+      message: {
+        responseHead: { fromUin: groupId, type: 0, sigMap: 0 },
+        contentHead: { msgType: 85, subType: 0, timestamp: 1710000000 },
+        body: { msgContent: content },
+      },
+      status: 0,
+    } as any, PushMsgSchema);
+    return {
+      pid: 1, uin: SELF_UIN, serviceCmd: MSG_PUSH_CMD, seqId: 1,
+      retCode: 0, fromClient: false, body,
+    };
+  }
+
+  it('emits group_member_join with userUin == selfUin', () => {
+    const [event] = parseMsgPush(
+      makeSelfJoinPacket(GROUP_ID),
+      makeIdentity(),
+    ) as GroupMemberJoin[];
+
+    expect(event.kind).toBe('group_member_join');
+    expect(event.groupId).toBe(GROUP_ID);
+    expect(event.userUin).toBe(Number(SELF_UIN));
+  });
+
+  it('resolves operator uid through identity when present', () => {
+    const admin = makeGroupMember(11111, 'u_admin');
+    const [event] = parseMsgPush(
+      makeSelfJoinPacket(GROUP_ID, admin.uid),
+      makeIdentity([admin]),
+    ) as GroupMemberJoin[];
+
+    expect(event.operatorUin).toBe(admin.uin);
+    expect(event.operatorUid).toBe(admin.uid);
   });
 });
