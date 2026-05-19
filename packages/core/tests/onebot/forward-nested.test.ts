@@ -48,7 +48,7 @@ function makeCtx(bridge: BridgeInterface): OneBotInstanceContext {
 
 describe('forward — nested {type:"node"} content', () => {
   it('group: nested forward uploads inner chain first, outer embeds ARK preview pointing at it', async () => {
-    const uploadForwardNodes = vi.fn(async (nodes: any[]) => {
+    const uploadForwardNodes = vi.fn(async (nodes: any[], _groupId?: number, _userId?: number) => {
       // Inner gets uploaded before outer; track the order by inspecting
       // the elements shape. The inner chain's payload is a plain text
       // node; the outer chain's only element is a `forward` ARK preview
@@ -115,7 +115,7 @@ describe('forward — nested {type:"node"} content', () => {
     // passes `userId` instead of `groupId` so any inner image/record
     // uploads can pick up the recipient's UID scene (otherwise the
     // OIDB private-media upload has no target uid).
-    const uploadForwardNodes = vi.fn(async () => 'RESID');
+    const uploadForwardNodes = vi.fn(async (_nodes: any[], _groupId?: number, _userId?: number) => 'RESID');
     const sendPrivateMessage = vi.fn(async () => ({
       messageId: 1, sequence: 100, clientSequence: 0, random: 1, timestamp: 1700000000,
     }));
@@ -149,7 +149,7 @@ describe('forward — nested {type:"node"} content', () => {
     // Build a 4-level nested chain. NapCat caps at 3 too, going further
     // wastes long-msg uploads and risks one inner upload timing out
     // and aborting the whole tree. Better to fail loud here.
-    const uploadForwardNodes = vi.fn(async () => 'X');
+    const uploadForwardNodes = vi.fn(async (_nodes: any[], _groupId?: number, _userId?: number) => 'X');
     const sendGroupMessage = vi.fn(async () => ({
       messageId: 1, sequence: 100, clientSequence: 0, random: 1, timestamp: 0,
     }));
@@ -173,7 +173,7 @@ describe('forward — nested {type:"node"} content', () => {
     // Backwards-compat: a single-level forward with plain text nodes
     // calls uploadForwardNodes exactly once and never touches the
     // recursive branch.
-    const uploadForwardNodes = vi.fn(async () => 'RES');
+    const uploadForwardNodes = vi.fn(async (_nodes: any[], _groupId?: number, _userId?: number) => 'RES');
     const sendGroupMessage = vi.fn(async () => ({
       messageId: 1, sequence: 100, clientSequence: 0, random: 1, timestamp: 0,
     }));
@@ -201,7 +201,7 @@ describe('forward — nested {type:"node"} content', () => {
     // through, node parts get parsed via `case 'node':` and then
     // dropped by element-builder. A user who wants nested forward
     // should pass a pure node list.
-    const uploadForwardNodes = vi.fn(async () => 'RES');
+    const uploadForwardNodes = vi.fn(async (_nodes: any[], _groupId?: number, _userId?: number) => 'RES');
     const sendGroupMessage = vi.fn(async () => ({
       messageId: 1, sequence: 100, clientSequence: 0, random: 1, timestamp: 0,
     }));
