@@ -646,11 +646,27 @@ export interface OidbPrivateFileUploadReq {
 export interface OidbPrivateFileUploadRespBody {
   retCode?:                pb<10, int_32>;
   retMsg?:                 pb<20, string>;
+  // 30/40/50 (totalSpace/usedSpace/uploadedSize int64) intentionally
+  // omitted — proton only needs fields we actually consume, and the
+  // quota numbers don't drive any code path.
   uploadIp?:               pb<60, string>;
+  // Cross-checked against LagrangeGo `OidbSvcTrpcTcp0xE37_800.proto`
+  // (fields 60-170 enumerated below) + NapCat `Oidb.0XE37_800.ts`.
+  // Real server has been observed to leave `uploadIp` empty while
+  // populating `uploadDomain` / `uploadIpList[0]` instead (likely a
+  // server-side rollout difference). Decoding all of these lets us
+  // fall through in the consumer rather than die with "upload host
+  // is invalid" when the server picks a different field.
+  uploadDomain?:           pb<70, string>;
   uploadPort?:             pb<80, uint_32>;
   uuid?:                   pb<90, string>;
   uploadKey?:              pb<100, bytes>;
   boolFileExist?:          pb<110, bool>;
+  uploadIpList?:           pb_repeated<130, string>;
+  uploadHttpsPort?:        pb<140, int_32>;
+  uploadHttpsDomain?:      pb<150, string>;
+  uploadDns?:              pb<160, string>;
+  uploadLanip?:            pb<170, string>;
   fileAddon?:              pb<200, string>;
   mediaPlatformUploadKey?: pb<220, bytes>;
 }

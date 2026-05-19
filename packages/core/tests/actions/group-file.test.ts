@@ -242,6 +242,51 @@ describe('actions/group-file', () => {
     expect(bridge.sendC2cFileMessage).not.toHaveBeenCalled();
   });
 
+  it('uploadPrivateFile falls back to uploadDomain when uploadIp is empty', async () => {
+    // Regression: the server has been observed in the wild returning the
+    // highway host in `uploadDomain` (field 70) instead of `uploadIp`
+    // (field 60), causing "private file upload host is invalid". The
+    // helper should walk the parallel host fields rather than dying on
+    // a single missing slot. Cross-referenced against napcat's proto
+    // (`Oidb.0XE37_800.ts` ApplyUploadRespV3) — fields 60/70/130/150/160
+    // all carry plausible host values from the same server endpoint.
+    const bridge = mockBridge();
+    vi.mocked(bridge.resolveUserUid).mockResolvedValueOnce('target-uid');
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+      protobuf_encode<OidbBase<OidbPrivateFileUploadResp>>({
+        body: {
+          upload: {
+            uuid: 'pfid',
+            fileAddon: 'phash',
+            // boolFileExist defaults to false (proto3) — forces the
+            // highway path where the host fields actually matter.
+            uploadDomain: 'upload.qpic.cn',
+            uploadPort: 8080,
+            mediaPlatformUploadKey: new Uint8Array([1, 2, 3]),
+          } as any,
+        },
+      }),
+    );
+    await groupFile.uploadPrivateFile(bridge as any, 67890, '/path/file.bin');
+    expect(highwayClient.uploadHighwayHttp).toHaveBeenCalledOnce();
+  });
+
+  it('uploadPrivateFile throws "host is invalid" only when every host field is empty', async () => {
+    // The diagnostic warn-log lists every host slot to help users
+    // report which one the server actually populated; this test just
+    // asserts that the throw still fires when none of them carry a
+    // value (boolFileExist=false + no usable host).
+    const bridge = mockBridge();
+    vi.mocked(bridge.resolveUserUid).mockResolvedValueOnce('target-uid');
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+      protobuf_encode<OidbBase<OidbPrivateFileUploadResp>>({
+        body: { upload: { uuid: 'pfid', fileAddon: 'phash', uploadPort: 8080 } as any },
+      }),
+    );
+    await expect(groupFile.uploadPrivateFile(bridge as any, 67890, '/path/file.bin'))
+      .rejects.toThrow(/upload host is invalid/);
+  });
+
   it('fetchGroupFiles paginates files + folders out of OIDB items', async () => {
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(

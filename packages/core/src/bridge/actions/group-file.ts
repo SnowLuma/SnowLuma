@@ -440,10 +440,42 @@ export async function uploadPrivateFile(
   if (!fileId) throw new Error('private file upload response missing file_id');
 
   if (!upload.boolFileExist && uploadFile) {
+    // The server normally returns the highway host in `uploadIp` (field
+    // 60). LagrangeGo / Lagrange.Core both read that field directly with
+    // no fallback. We've seen real captures where the server picks one
+    // of the parallel host fields (uploadDomain / uploadIpList[0] /
+    // uploadHttpsDomain / uploadDns) instead — likely a rollout
+    // difference. Walk them in order rather than die with "upload host
+    // is invalid" when the server gives us a perfectly usable host
+    // through a different slot. The highway client uses HTTP PUT so we
+    // can pair any of these with the regular `uploadPort`; we only fall
+    // back to `uploadHttpsPort` if we picked the HTTPS-flavored host.
+    const ipListFirst = (Array.isArray(upload.uploadIpList) && upload.uploadIpList[0])
+      ? upload.uploadIpList[0] : '';
     const uploadHost = (typeof upload.uploadIp === 'string' && upload.uploadIp)
+      || (typeof upload.uploadDomain === 'string' && upload.uploadDomain)
+      || (ipListFirst)
+      || (typeof upload.uploadHttpsDomain === 'string' && upload.uploadHttpsDomain)
+      || (typeof upload.uploadDns === 'string' && upload.uploadDns)
       || '';
-    const uploadPort = toInt(upload.uploadPort);
+    const httpsHostUsed = !upload.uploadIp && !upload.uploadDomain && !ipListFirst
+      && typeof upload.uploadHttpsDomain === 'string' && !!upload.uploadHttpsDomain;
+    const uploadPort = httpsHostUsed && toInt(upload.uploadHttpsPort) > 0
+      ? toInt(upload.uploadHttpsPort)
+      : toInt(upload.uploadPort);
     if (!uploadHost || uploadPort <= 0) {
+      // Surface every host-bearing field we know about so a user
+      // hitting this can show us exactly which slot the server filled
+      // (or whether it returned nothing at all — which would point at
+      // a request mismatch rather than a missing decoder).
+      log.warn(
+        'private file upload host missing — ip=%s domain=%s ipList=%s httpsDomain=%s dns=%s lanip=%s port=%s httpsPort=%s',
+        upload.uploadIp ?? '', upload.uploadDomain ?? '',
+        JSON.stringify(upload.uploadIpList ?? []),
+        upload.uploadHttpsDomain ?? '', upload.uploadDns ?? '',
+        upload.uploadLanip ?? '', upload.uploadPort ?? 0,
+        upload.uploadHttpsPort ?? 0,
+      );
       throw new Error('private file upload host is invalid');
     }
 
