@@ -336,6 +336,31 @@ async function segmentToElement(type: string, data: Record<string, unknown>, opt
       // Anonymous flag — ignored during send, the protocol handles anonymity
       return null;
     }
+    case 'file': {
+      // OneBot11 file segment referencing a previously-uploaded file
+      // (returned by `upload_group_file` / `upload_private_file`).
+      // We deliberately do NOT support `{file: '/path'}` here because
+      // the upload pipeline is async and lives behind the bridge —
+      // the element-builder runs synchronously over the parsed
+      // message. Callers that want upload-and-send should use the
+      // dedicated `upload_*` actions which now publish the file in
+      // chat atomically (`actions/group-file.ts`).
+      const fileId = String(data.file_id ?? data.fileId ?? '').trim();
+      if (!fileId) {
+        log.warn('[MsgParser] file segment without file_id is unsupported (upload first via upload_group_file / upload_private_file)');
+        return null;
+      }
+      const fileName = String(data.name ?? data.filename ?? data.fileName ?? '').trim();
+      const fileSize = intOr(data.size ?? data.fileSize, 0);
+      const md5Hex = String(data.md5 ?? data.md5Hex ?? '').trim();
+      const sha1Hex = String(data.sha1 ?? data.sha1Hex ?? '').trim();
+      const elem: MessageElement = { type: 'file', fileId };
+      if (fileName) elem.fileName = fileName;
+      if (fileSize > 0) elem.fileSize = fileSize;
+      if (md5Hex) elem.md5Hex = md5Hex;
+      if (sha1Hex) elem.sha1Hex = sha1Hex;
+      return elem;
+    }
     default:
       console.warn(`[MsgParser] unsupported segment type: ${type}`);
       return null;

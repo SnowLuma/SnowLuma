@@ -437,4 +437,48 @@ describe('parseMessage', () => {
       expect(result).toEqual([]);
     });
   });
+
+  describe('file segment', () => {
+    // Closes the parser-side of the "upload says ok but message is
+    // empty" bug. Before this, `{type:'file', file_id:'…'}` segments
+    // fell through to the default warn-and-drop branch — which made
+    // `send_msg([{type:'file', file_id:'<uploaded>'}])` produce either
+    // a "message is empty" error or, when mixed with text, a message
+    // with the file segment quietly missing.
+    it('parses {type:"file", file_id:"x"} into a file MessageElement', async () => {
+      const result = await parseMessage(
+        [{ type: 'file', data: { file_id: 'fid-1', name: 'a.zip', size: 123 } } as any],
+        false,
+      );
+      expect(result).toEqual([
+        { type: 'file', fileId: 'fid-1', fileName: 'a.zip', fileSize: 123 },
+      ]);
+    });
+
+    it('drops a file segment with no file_id (upload-first contract)', async () => {
+      // Path-only segments aren't supported here — callers must
+      // upload via `upload_group_file` / `upload_private_file` first
+      // to obtain a file_id. Dropping with a warning is preferable
+      // to silently kicking off an upload from inside the message
+      // parser, which can't fail loudly without changing call sites.
+      const result = await parseMessage(
+        [{ type: 'file', data: { file: '/local/path/a.bin' } } as any],
+        false,
+      );
+      expect(result).toEqual([]);
+    });
+
+    it('accepts fileId / filename / fileName / md5 / sha1 aliases', async () => {
+      const result = await parseMessage(
+        [{
+          type: 'file',
+          data: { fileId: 'fid-2', filename: 'b.zip', fileSize: 456, md5: 'AB', sha1: 'CD' },
+        } as any],
+        false,
+      );
+      expect(result).toEqual([
+        { type: 'file', fileId: 'fid-2', fileName: 'b.zip', fileSize: 456, md5Hex: 'AB', sha1Hex: 'CD' },
+      ]);
+    });
+  });
 });
