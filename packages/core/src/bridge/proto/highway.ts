@@ -334,3 +334,13 @@ export const NTV2UploadRichMediaRespSchema = {
   respHead: { field: 1, type: 'message' as const, schema: NTV2UploadRespHeadSchema },
   upload:   { field: 2, type: 'message' as const, schema: NTV2UploadRespBodySchema },
 } satisfies ProtoSchema;
+
+// --- Group Avatar Upload Extend ---
+
+export const GroupAvatarUploadExtSchema = {
+  field1: { field: 1, type: 'uint32' as const },
+  groupId: { field: 2, type: 'uint64' as const },
+  field3: { field: 3, type: 'bytes' as const },
+  field5: { field: 5, type: 'uint32' as const },
+  field6: { field: 6, type: 'uint32' as const },
+} satisfies ProtoSchema;

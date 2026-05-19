@@ -15,6 +15,10 @@ import { register as registerGroupAdmin } from './actions/group-admin';
 import { register as registerGroupFile } from './actions/group-file';
 import { register as registerRequest } from './actions/request';
 import { register as registerExtended } from './actions/extended';
+import { register as registerGroupAlbum } from './actions/group-album';
+
+import { WebHonorType } from '@/bridge/web/group-honor';
+import { ClientKeyInfo } from '@/bridge/bridge';
 
 export interface MessageSendResult {
   messageId: number;
@@ -95,7 +99,33 @@ export interface ApiActionContext {
   sendForwardMsg: (messages: JsonValue, groupId?: number) => Promise<{ forwardId: string }>;
   getForwardMsg: (resId: string) => Promise<JsonObject[]>;
   forwardSingleMsg: (messageId: number, target: { groupId?: number; userId?: number }) => Promise<{ messageId: number }>;
+  // Extended NapCat-compatible
+  setFriendRemark: (userId: number, remark: string) => Promise<void>;
+  setGroupRemark: (groupId: number, remark: string) => Promise<void>;
+  setGroupAvatar: (groupId: number, source: string) => Promise<void>;
   setMsgEmojiLike: (messageId: number, emojiId: string, set: boolean) => Promise<void>;
+  markGroupMsgAsRead: (groupId: number, sequence: number) => Promise<void>;
+  markPrivateMsgAsRead: (userId: number, sequence: number) => Promise<void>;
+  setOnlineStatus: (status: number, extStatus?: number, batteryStatus?: number) => Promise<void>;
+  setProfile: (nickname?: string, personalNote?: string) => Promise<void>;
+  fetchCustomFace: (count?: number) => Promise<string[]>;
+  getEmojiLikes: (groupId: number, sequence: number, emojiId: string, emojiType?: number, count?: number, cookie?: string) => Promise<{ users: Array<{ uin: number }>, cookie: string, isLast: boolean }>;
+  // Web
+  getGroupHonorInfo: (groupId: number, type: WebHonorType | string) => Promise<any>;
+  getGroupEssenceAll: (groupId: number) => Promise<GroupEssenceMsgRet[]>;
+  getGroupAlbumList: (groupId: number) => Promise<any>;
+  uploadImageToGroupAlbum: (groupId: number, albumId: string, albumName: string, filePath: string) => Promise<void>;
+  getGroupAlbumMediaList: (groupId: number, albumId: string, attachInfo?: string) => Promise<any>;
+  commentGroupAlbumMedia: (groupId: number, albumId: string, lloc: string, content: string) => Promise<any>;
+  deleteGroupAlbumMedia: (groupId: number, albumId: string, lloc: string) => Promise<any>;
+  likeGroupAlbumMedia: (groupId: number, albumId: string, batchId: string, lloc: string | undefined, isLike: boolean) => Promise<any>;
+  sendGroupNotice: (groupId: number, content: string, options?: any) => Promise<any>;
+  getGroupNotice: (groupId: number) => Promise<any[]>;
+  deleteGroupNotice: (groupId: number, fid: string) => Promise<boolean>;
+  getCookiesStr: (domain: string) => Promise<string>;
+  getCsrfToken: () => Promise<number>;
+  getCredentials: (domain: string) => Promise<{ cookies: string; token: number; csrf_token: number }>;
+  forceFetchClientKey: () => Promise<ClientKeyInfo>;
   // Media lookup (populated from previously dispatched message segments)
   getImageInfo: (file: string) => Promise<JsonObject | null>;
   getRecordInfo: (file: string) => Promise<JsonObject | null>;
@@ -117,6 +147,7 @@ export class ApiHandler {
     registerGroupFile(this, context);
     registerRequest(this, context);
     registerExtended(this, context);
+    registerGroupAlbum(this, context);
   }
 
   registerAction(action: string, handler: ActionHandler): void {

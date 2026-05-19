@@ -126,7 +126,14 @@ import {
   getCookiesStr as getCookiesStr_,
   getCsrfToken as getCsrfToken_,
   getCredentials as getCredentials_,
+  getGroupAlbumListWeb as getGroupAlbumListWeb_,
+  uploadImageToGroupAlbumWeb as uploadImageToGroupAlbumWeb_,
 } from './web-actions';
+import { getGroupAlbumMediaList as getGroupAlbumMediaList_,
+  commentGroupAlbumMedia as commentGroupAlbumMedia_,
+  likeGroupAlbumMedia as likeGroupAlbumMedia_,
+  deleteGroupAlbumMedia as deleteGroupAlbumMedia_,
+} from './actions/group-album';
 import type { GroupFilesResult } from './actions/group-file';
 import type { MediaIndexNode } from './actions/shared';
 import { BridgeEventBus } from './event-bus';
@@ -482,6 +489,30 @@ export class Bridge implements BridgeInterface {
 
   async getGroupEssenceAll(groupId: number): Promise<any> {
     return getGroupEssenceAll_(this, groupId);
+  }
+
+  async getGroupAlbumList(groupId: number): Promise<any> {
+    return getGroupAlbumListWeb_(this, groupId);
+  }
+
+  async uploadImageToGroupAlbum(groupId: number, albumId: string, albumName: string, filePath: string): Promise<void> {
+    return uploadImageToGroupAlbumWeb_(this, groupId, albumId, albumName, filePath);
+  }
+
+  async getGroupAlbumMediaList(groupId: number, albumId: string, attachInfo?: string): Promise<any> {
+    return getGroupAlbumMediaList_(this, groupId, albumId, attachInfo);
+  }
+
+  async commentGroupAlbumMedia(groupId: number, albumId: string, lloc: string, content: string): Promise<any> {
+    return commentGroupAlbumMedia_(this, groupId, albumId, lloc, content);
+  }
+
+  async likeGroupAlbumMedia(groupId: number, albumId: string, batchId: string, lloc: string | undefined, isLike: boolean): Promise<any> {
+    return likeGroupAlbumMedia_(this, groupId, albumId, batchId, lloc, isLike);
+  }
+
+  async deleteGroupAlbumMedia(groupId: number, albumId: string, lloc: string): Promise<any> {
+    return deleteGroupAlbumMedia_(this, groupId, albumId, lloc);
   }
 
   async sendGroupNotice(groupId: number, content: string, options?: any) {

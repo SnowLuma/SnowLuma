@@ -1278,3 +1278,262 @@ export const GroupAvatarExtraSchema = {
   field5:   { field: 5, type: 'uint32' as const }, // observed value: 3
   field6:   { field: 6, type: 'uint32' as const }, // observed value: 1
 } satisfies ProtoSchema;
+
+///////// ---  group  album
+// --- Request Schemas ---
+
+export const ExtMapEntrySchema = {
+  key:   { field: 1, type: 'string' as const },
+  value: { field: 2, type: 'string' as const },
+} satisfies ProtoSchema;
+
+export const ReqInfoSchema = {
+  groupId:    { field: 1, type: 'string' as const },
+  albumId:    { field: 2, type: 'string' as const },
+  field3:     { field: 3, type: 'int32' as const },
+  attachInfo: { field: 4, type: 'string' as const },
+  field5:     { field: 5, type: 'string' as const },
+} satisfies ProtoSchema;
+
+export const GetMediaListRequestSchema = {
+  field1:  { field: 1, type: 'int32' as const },
+  field2:  { field: 2, type: 'bytes' as const },
+  field3:  { field: 3, type: 'bytes' as const },
+  reqInfo: { field: 4, type: 'message' as const, schema: ReqInfoSchema },
+  traceId: { field: 5, type: 'string' as const },
+  extMap:  { field: 10, type: 'repeated_message' as const, schema: ExtMapEntrySchema },
+} satisfies ProtoSchema;
+
+// --- Response Schemas ---
+
+export const UrlInfoSchema = {
+  url:    { field: 1, type: 'string' as const },
+  width:  { field: 2, type: 'uint32' as const },
+  height: { field: 3, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
+export const PhotoUrlSchema = {
+  spec: { field: 1, type: 'uint32' as const },
+  url:  { field: 2, type: 'message' as const, schema: UrlInfoSchema }
+} satisfies ProtoSchema;
+
+export const ImageInfoSchema = {
+  name:       { field: 1, type: 'string' as const },
+  sloc:       { field: 2, type: 'string' as const },
+  lloc:       { field: 3, type: 'string' as const },
+  photoUrls:  { field: 4, type: 'repeated_message' as const, schema: PhotoUrlSchema },
+  defaultUrl: { field: 5, type: 'message' as const, schema: UrlInfoSchema },
+  isGif:      { field: 6, type: 'bool' as const },
+  hasRaw:     { field: 7, type: 'bool' as const },
+} satisfies ProtoSchema;
+
+export const MediaInfoSchema = {
+  type:       { field: 1, type: 'uint32' as const },
+  image:      { field: 2, type: 'message' as const, schema: ImageInfoSchema },
+  uploader:   { field: 6, type: 'string' as const },
+  batchId:    { field: 7, type: 'uint64' as const },
+  uploadTime: { field: 8, type: 'uint64' as const },
+} satisfies ProtoSchema;
+
+export const GetMediaListRspDataSchema = {
+  albumInfo: {
+    field: 1,
+    type: 'message' as const,
+    schema: {
+      albumId: { field: 1, type: 'string' as const },
+      owner:   { field: 2, type: 'string' as const },
+      name:    { field: 3, type: 'string' as const },
+    } satisfies ProtoSchema
+  },
+  mediaList:      { field: 3, type: 'repeated_message' as const, schema: MediaInfoSchema },
+  prevAttachInfo: { field: 4, type: 'string' as const },
+  nextAttachInfo: { field: 5, type: 'string' as const }, // 用于翻页拉取的 token
+} satisfies ProtoSchema;
+
+export const GetMediaListResponseSchema = {
+  field1: { field: 1, type: 'int32' as const },
+  field2: { field: 2, type: 'bytes' as const },
+  field3: { field: 3, type: 'bytes' as const },
+  data:   { field: 4, type: 'message' as const, schema: GetMediaListRspDataSchema }, // 将原本的 bytes 修正为 message 解析
+} satisfies ProtoSchema;
+
+
+// --- DoQunComment: Comment on group album media ---
+
+// --- DoQunComment: 严格对齐底层字节的字段定义 ---
+
+export const CommentContentItemSchema = {
+  type:    { field: 1, type: 'uint32' as const },
+  content: { field: 2, type: 'string' as const },
+} satisfies ProtoSchema;
+
+export const CommentUserSchema = {
+  uin: { field: 13, type: 'string' as const },
+} satisfies ProtoSchema;
+
+// 评论具体内容结构 (原 CommentReqContentSchema)
+export const CommentReqContentSchema = {
+  field2:    { field: 2, type: 'message' as const, schema: CommentUserSchema },
+  field3:    { field: 3, type: 'message' as const, schema: {
+      field1:  { field: 1, type: 'uint32' as const },
+      field2:  { field: 2, type: 'string' as const },
+      field3:  { field: 3, type: 'string' as const },
+      field4:  { field: 4, type: 'string' as const },
+      field5:  { field: 5, type: 'uint32' as const },
+      field6:  { field: 6, type: 'string' as const },
+    } satisfies ProtoSchema },
+  clientKey: { field: 7, type: 'string' as const }, // 对应你的 clientKey
+} satisfies ProtoSchema;
+
+export const CommentReqPhotoInfoSchema = {
+  field1: { field: 1, type: 'message' as const, schema: {
+      field2: { field: 2, type: 'message' as const, schema: {
+          field1:  { field: 1, type: 'uint32' as const },
+          field2:  { field: 2, type: 'string' as const },
+          lloc:    { field: 3, type: 'string' as const },
+          field4:  { field: 4, type: 'string' as const },
+          field6:  { field: 6, type: 'string' as const },
+          field7:  { field: 7, type: 'uint32' as const },
+          field8:  { field: 8, type: 'uint32' as const },
+          field9:  { field: 9, type: 'uint32' as const },
+          field14: { field: 14, type: 'uint32' as const },
+          field15: { field: 15, type: 'uint32' as const },
+          field17: { field: 17, type: 'uint32' as const },
+        } satisfies ProtoSchema },
+    } satisfies ProtoSchema },
+  albumId: { field: 3, type: 'string' as const },
+  field5:  { field: 5, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
+export const CommentReqBodySchema = {
+  field1: { field: 1, type: 'message' as const, schema: {
+      field3: { field: 3, type: 'uint32' as const },
+      field4: { field: 4, type: 'string' as const },
+    } satisfies ProtoSchema },
+  field2: { field: 2, type: 'message' as const, schema: {
+      field1: { field: 1, type: 'message' as const, schema: CommentUserSchema }
+    } satisfies ProtoSchema },
+  field5: { field: 5, type: 'message' as const, schema: CommentReqPhotoInfoSchema }, // 注意：抓包证实照片在 field 5
+} satisfies ProtoSchema;
+
+export const DoQunCommentRequestSchema = {
+  field1:  { field: 1, type: 'int32' as const },
+  field2:  { field: 2, type: 'bytes' as const },
+  field3:  { field: 3, type: 'bytes' as const },
+  body:    { field: 4, type: 'message' as const, schema: {
+      groupId: { field: 2, type: 'string' as const },
+      field3:  { field: 3, type: 'uint32' as const },
+      reqBody: { field: 4, type: 'message' as const, schema: CommentReqBodySchema },
+      field5:  { field: 5, type: 'message' as const, schema: CommentReqContentSchema }, // 注意：评论文本实际在外层的 field 5
+    } satisfies ProtoSchema },
+  traceId: { field: 5, type: 'string' as const },
+  extMap:  { field: 10, type: 'repeated_message' as const, schema: ExtMapEntrySchema },
+} satisfies ProtoSchema;
+
+export const CommentRespUserSchema = {
+  uin: { field: 13, type: 'string' as const },
+} satisfies ProtoSchema;
+
+export const CommentRespContentSchema = {
+  type:    { field: 1, type: 'uint32' as const },
+  content: { field: 2, type: 'string' as const },
+} satisfies ProtoSchema;
+
+export const CommentRespDataSchema = {
+  id:        { field: 1, type: 'string' as const },
+  user:      { field: 2, type: 'message' as const, schema: CommentRespUserSchema },
+  content:   { field: 3, type: 'repeated_message' as const, schema: CommentRespContentSchema },
+  time:      { field: 4, type: 'uint64' as const },
+  clientKey: { field: 7, type: 'string' as const },
+} satisfies ProtoSchema;
+
+export const DoQunCommentResponseSchema = {
+  field1:  { field: 1, type: 'int32' as const },
+  comment: { field: 4, type: 'message' as const, schema: {
+    data: { field: 2, type: 'message' as const, schema: CommentRespDataSchema },
+  } satisfies ProtoSchema },
+} satisfies ProtoSchema;
+
+// --- DoQunLike: Like group album media ---
+
+export const DoQunLikeReqLikeInfoSchema = {
+  id:     { field: 1, type: 'string' as const },
+  status: { field: 3, type: 'uint32' as const },
+} satisfies ProtoSchema;
+
+export const DoQunLikeReqCellCommonSchema = {
+  time:   { field: 3, type: 'uint64' as const },
+  feedId: { field: 4, type: 'string' as const },
+} satisfies ProtoSchema;
+
+export const DoQunLikeReqCellUserSchema = {
+  uin: { field: 13, type: 'string' as const }, // 修复：抓包证实 uin 是 field 13
+} satisfies ProtoSchema;
+
+export const DoQunLikeReqCellUserInfoSchema = {
+  user: { field: 1, type: 'message' as const, schema: DoQunLikeReqCellUserSchema },
+} satisfies ProtoSchema;
+
+export const DoQunLikeReqCellQunInfoSchema = {
+  qunId: { field: 1, type: 'string' as const },
+} satisfies ProtoSchema;
+
+export const DoQunLikeReqCellMediaSchema = {
+  albumId: { field: 3, type: 'string' as const },
+  batchId: { field: 5, type: 'uint64' as const },
+} satisfies ProtoSchema;
+
+export const DoQunLikeReqFeedPublishSchema = {
+  cellCommon:   { field: 1, type: 'message' as const, schema: DoQunLikeReqCellCommonSchema },
+  cellUserInfo: { field: 2, type: 'message' as const, schema: DoQunLikeReqCellUserInfoSchema },
+  cellMedia:    { field: 5, type: 'message' as const, schema: DoQunLikeReqCellMediaSchema },
+  cellQunInfo:  { field: 12, type: 'message' as const, schema: DoQunLikeReqCellQunInfoSchema },
+} satisfies ProtoSchema;
+
+export const DoQunLikeReqBodySchema = {
+  type:      { field: 2, type: 'uint32' as const },
+  like:      { field: 3, type: 'message' as const, schema: DoQunLikeReqLikeInfoSchema },
+  publish:   { field: 4, type: 'message' as const, schema: DoQunLikeReqFeedPublishSchema },
+  clientKey: { field: 5, type: 'string' as const },
+} satisfies ProtoSchema;
+
+export const DoQunLikeRequestSchema = {
+  field1: { field: 1, type: 'int32' as const },
+  field2: { field: 2, type: 'string' as const },
+  field3: { field: 3, type: 'string' as const },
+  body:   { field: 4, type: 'message' as const, schema: DoQunLikeReqBodySchema },
+  extMap: { field: 10, type: 'repeated_message' as const, schema: ExtMapEntrySchema },
+} satisfies ProtoSchema;
+
+export const DoQunLikeRespBodySchema = {
+  like: { field: 2, type: 'message' as const, schema: DoQunLikeReqLikeInfoSchema },
+} satisfies ProtoSchema;
+
+export const DoQunLikeResponseSchema = {
+  field1: { field: 1, type: 'int32' as const },
+  body:   { field: 4, type: 'message' as const, schema: DoQunLikeRespBodySchema },
+} satisfies ProtoSchema;
+
+// --- DeleteMedias: Delete group album media ---
+
+export const DeleteMediasReqBodySchema = {
+  groupId:   { field: 1, type: 'string' as const },
+  albumId:   { field: 2, type: 'string' as const },
+  lloc:      { field: 3, type: 'string' as const },
+} satisfies ProtoSchema;
+
+export const DeleteMediasRequestSchema = {
+  field1:  { field: 1, type: 'int32' as const },
+  field2:  { field: 2, type: 'string' as const },
+  field3:  { field: 3, type: 'string' as const },
+  body:    { field: 4, type: 'message' as const, schema: DeleteMediasReqBodySchema },
+  traceId: { field: 5, type: 'string' as const }, // <-- 把它挪到外层了！
+  extMap:  { field: 10, type: 'repeated_message' as const, schema: ExtMapEntrySchema },
+} satisfies ProtoSchema;
+
+export const DeleteMediasResponseSchema = {
+  field1: { field: 1, type: 'int32' as const }, // 8694
+  field2: { field: 2, type: 'int32' as const }, // 错误码 (例如: 10023)
+  field3: { field: 3, type: 'string' as const }, // 错误信息 (例如: "no right delete...")
+} satisfies ProtoSchema;
+
