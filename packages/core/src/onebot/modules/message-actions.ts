@@ -141,7 +141,7 @@ export async function sendPrivateMessage(
 
   logSentMessage(false, userId, elements);
 
-  ref.cacheMessageMeta(messageId, {
+  cachePrivateMessageMeta(ref, messageId, userId, {
     isGroup: false,
     targetId: userId,
     sequence: receipt.sequence,
@@ -152,6 +152,21 @@ export async function sendPrivateMessage(
   });
 
   return { messageId };
+}
+
+function cachePrivateMessageMeta(
+  ref: OneBotInstanceContext,
+  messageId: number,
+  userId: number,
+  meta: MessageMeta,
+): void {
+  ref.cacheMessageMeta(messageId, meta);
+  if (userId !== ref.selfId) {
+    const selfMessageId = hashMessageIdInt32(meta.sequence, ref.selfId, PRIVATE_MESSAGE_EVENT);
+    if (selfMessageId !== messageId) {
+      ref.cacheMessageMeta(selfMessageId, meta);
+    }
+  }
 }
 
 export async function sendGroupMessage(
@@ -253,7 +268,7 @@ export async function sendPrivateForwardMessage(
   const receipt = await ref.bridge.sendPrivateMessage(userId, [previewElement]);
   const messageId = hashMessageIdInt32(receipt.sequence, userId, PRIVATE_MESSAGE_EVENT);
 
-  ref.cacheMessageMeta(messageId, {
+  cachePrivateMessageMeta(ref, messageId, userId, {
     isGroup: false,
     targetId: userId,
     sequence: receipt.sequence,
@@ -323,10 +338,7 @@ export async function forwardSingleMessage(
   } else {
     receipt = await ref.bridge.sendPrivateMessage(target.userId!, elements);
     messageIdOut = hashMessageIdInt32(receipt.sequence, target.userId!, PRIVATE_MESSAGE_EVENT);
-    ref.cacheMessageMeta(messageIdOut, {
-      isGroup: false,
-      targetId: target.userId!,
-      sequence: receipt.sequence,
+    cachePrivateMessageMeta(ref, messageIdOut, target.userId!, {
       eventName: PRIVATE_MESSAGE_EVENT,
       clientSequence: receipt.clientSequence,
       random: receipt.random,
