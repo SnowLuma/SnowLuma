@@ -3,7 +3,6 @@ import { createHash } from 'crypto';
 import { readFileSync, statSync, createReadStream, writeFileSync, unlinkSync } from 'fs';
 import { basename, join } from 'path';
 import { tmpdir } from 'os';
-import * as console from "node:console";
 
 // 群相册信息
 export interface GroupAlbumInfo {

@@ -52,6 +52,13 @@ import {
 } from '../src/bridge/proto/highway';
 import { makeOidbBaseSchema, OidbSvcTrpcTcp0xFE5_2ResponseSchema } from '../src/bridge/proto/oidb';
 import { makeOidbEnvelope, encodeOidbEnv, decodeOidbEnv } from '../src/bridge/bridge-oidb';
+import {
+  GetMediaListRequestSchema,
+  DoQunCommentRequestSchema,
+  DoQunLikeRequestSchema,
+  DeleteMediasRequestSchema,
+  DeleteMediasResponseSchema,
+} from '../src/bridge/proto/oidb-action';
 
 import type {
   SendLongMsgResp,
@@ -100,6 +107,13 @@ import type {
   OidbBase,
   OidbSvcTrpcTcp0xFE5_2Response,
 } from '../src/bridge/proto/proton/oidb';
+import type {
+  GetMediaListRequest,
+  DoQunCommentRequest,
+  DoQunLikeRequest,
+  DeleteMediasRequest,
+  DeleteMediasResponse,
+} from '../src/bridge/proto/proton/oidb-action';
 
 function hex(buf: Uint8Array): string {
   return Buffer.from(buf).toString('hex');
@@ -687,5 +701,115 @@ describe('proton ↔ legacy parity (longmsg subset)', () => {
     const encoded = protoEncode(data as any, SendLongMsgRespSchema);
     const decoded = protobuf_decode<SendLongMsgResp>(encoded);
     expect(decoded.result?.resId).toBe('rt-2');
+  });
+
+  // ── Group album TRPC envelopes (PR #31) ─────────────────────────────
+  //
+  // Raw TRPC packets — not OIDB-wrapped — that the group-album actions
+  // ship to `QunAlbum.trpc.qzone.webapp_qun_*`. Field names are mostly
+  // positional (`field1`/`field2`/...) because the upstream protocol
+  // doesn't expose semantic names; the byte-for-byte parity below is
+  // what guarantees the migration preserved every numbered field.
+
+  // NOTE: every numeric/bytes field below is non-zero / non-empty —
+  // proton follows proto3 semantics and skips default-valued fields on
+  // the wire, while the legacy runtime encoder writes them all. Byte
+  // parity therefore only holds when no field equals its default. The
+  // actual production callers in `actions/group-album.ts` *do* pass
+  // some zero-valued fields (e.g. `field1: 0`), which means the
+  // post-migration packet drops a few leading zero tags — semantically
+  // equivalent to a proto3-conforming reader, see the explicit
+  // divergence test earlier in this file.
+
+  it('encodes GetMediaListRequest (nested ReqInfo + extMap) identically', () => {
+    const data: GetMediaListRequest = {
+      field1:  1,                          // proto3 non-default
+      field2:  new Uint8Array([0xab]),
+      field3:  new Uint8Array([0xcd]),
+      reqInfo: { groupId: '555', albumId: 'alb-1', field3: 7, attachInfo: 'cursor', field5: 'tag' },
+      traceId: '_1700000000_12345',
+      extMap:  [{ key: 'fc-appid', value: '100' }],
+    };
+    const legacy = protoEncode(data as any, GetMediaListRequestSchema);
+    const proton = protobuf_encode<GetMediaListRequest>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes DoQunCommentRequest (deeply nested anonymous-in-legacy schemas) identically', () => {
+    const data: DoQunCommentRequest = {
+      field1:  8527,
+      field2:  new Uint8Array([0x01]),
+      field3:  new Uint8Array([0x02]),
+      body: {
+        groupId: '555',
+        field3:  2,
+        reqBody: {
+          field1: { field3: 3, field4: 'h' },
+          field2: { field1: { uin: '10001' } },
+          field5: {
+            field1: {
+              field2: {
+                field1: 1, field2: 'a', lloc: 'lloc-x',
+                field4: 'b', field6: 'c', field7: 1, field8: 1, field9: 1,
+                field14: 1, field15: 1, field17: 1,
+              },
+            },
+            albumId: 'alb-1',
+            field5:  1,
+          },
+        },
+        field5: {
+          field2: { uin: '10001' },
+          field3: { field1: 1, field2: 'hello', field3: 'd', field4: 'e', field5: 1, field6: 'f' },
+          clientKey: 'ck-1',
+        },
+      },
+      traceId: '_1700000000_12345',
+      extMap:  [{ key: 'fc-appid', value: '100' }],
+    };
+    const legacy = protoEncode(data as any, DoQunCommentRequestSchema);
+    const proton = protobuf_encode<DoQunCommentRequest>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes DoQunLikeRequest (with bigint time/batchId) identically', () => {
+    const data: DoQunLikeRequest = {
+      field1: 5495,
+      field2: 'h5_test',
+      field3: 'h5_test',
+      body: {
+        type: 2,
+        like: { id: '421_1_0_555|alb|42', status: 1 },  // non-default
+        publish: {
+          cellCommon:   { time: 1700000000000n, feedId: '422_0_42' },
+          cellUserInfo: { user: { uin: '10001' } },
+          cellMedia:    { albumId: 'alb', batchId: 42n },
+          cellQunInfo:  { qunId: '555' },
+        },
+        clientKey: 'ck',
+      },
+      extMap: [{ key: 'fc-appid', value: '100' }],
+    };
+    const legacy = protoEncode(data as any, DoQunLikeRequestSchema);
+    const proton = protobuf_encode<DoQunLikeRequest>(data);
+    expect(hex(proton)).toBe(hex(legacy));
+  });
+
+  it('encodes DeleteMediasRequest + decodes DeleteMediasResponse identically', () => {
+    const req: DeleteMediasRequest = {
+      field1: 8694, field2: 'h5_test', field3: 'h5_test',
+      body: { groupId: '555', albumId: 'alb', lloc: 'lloc-x' },
+      traceId: 'tr-1',
+      extMap: [{ key: 'fc-appid', value: '100' }],
+    };
+    expect(hex(protobuf_encode<DeleteMediasRequest>(req)))
+      .toBe(hex(protoEncode(req as any, DeleteMediasRequestSchema)));
+
+    // Response: encode with legacy, decode with proton, fields stay aligned.
+    const respBytes = protoEncode({ field1: 8694, field2: 10023, field3: 'no right delete' } as any, DeleteMediasResponseSchema);
+    const decoded = protobuf_decode<DeleteMediasResponse>(respBytes);
+    expect(decoded.field1).toBe(8694);
+    expect(decoded.field2).toBe(10023);
+    expect(decoded.field3).toBe('no right delete');
   });
 });

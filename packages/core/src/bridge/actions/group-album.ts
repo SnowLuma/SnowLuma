@@ -1,16 +1,23 @@
-// Group album actions via TRPC protocol
+// Group album actions via TRPC protocol.
+//
+// Unlike the OIDB action family, these endpoints speak raw TRPC
+// (service command `QunAlbum.trpc.qzone.webapp_qun_*`) without an
+// `OidbBase<T>` envelope. We hit `bridge.sendRawPacket` directly with
+// proton-encoded bodies and decode the responses through proton's
+// monomorphized codecs.
 
 import type { Bridge } from '../bridge';
-import { protoEncode, protoDecode } from '@/protobuf/decode';
-import { GetMediaListRequestSchema,
-  GetMediaListResponseSchema,
-  DoQunCommentRequestSchema,
-  DoQunCommentResponseSchema,
-  DoQunLikeRequestSchema,
-  DoQunLikeResponseSchema,
-  DeleteMediasRequestSchema,
-  DeleteMediasResponseSchema
-} from '../proto/oidb-action';
+import { protobuf_encode, protobuf_decode } from '@snowluma/proton';
+import type {
+  GetMediaListRequest,
+  GetMediaListResponse,
+  DoQunCommentRequest,
+  DoQunCommentResponse,
+  DoQunLikeRequest,
+  DoQunLikeResponse,
+  DeleteMediasRequest,
+  DeleteMediasResponse,
+} from '../proto/proton/oidb-action';
 
 export interface GroupAlbumMediaResult {
   mediaList: any[];
@@ -47,7 +54,7 @@ export async function getGroupAlbumMediaList(
 ): Promise<GroupAlbumMediaResult> {
   const traceId = `_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
 
-  const body = protoEncode({
+  const body = protobuf_encode<GetMediaListRequest>({
     field1: 0,
     field2: new Uint8Array(0),
     field3: new Uint8Array(0),
@@ -60,7 +67,7 @@ export async function getGroupAlbumMediaList(
     },
     traceId: traceId,
     extMap: [{ key: 'fc-appid', value: '100' }],
-  }, GetMediaListRequestSchema);
+  });
 
   const result = await bridge.sendRawPacket(
       'QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList',
@@ -72,15 +79,15 @@ export async function getGroupAlbumMediaList(
     throw new Error(result.errorMessage || 'failed to get album media list');
   }
 
-  const resp = protoDecode(result.responseData, GetMediaListResponseSchema);
+  const resp = protobuf_decode<GetMediaListResponse>(result.responseData);
 
-  if (!resp || (resp as any).field1 !== 0) {
-    throw new Error(`fetch album media list error: retCode ${(resp as any)?.field1 || 'unknown'}`);
+  if (resp.field1 !== 0) {
+    throw new Error(`fetch album media list error: retCode ${resp.field1 ?? 'unknown'}`);
   }
 
-  const data = (resp as any).data || {};
-  const mediaList = data.mediaList || [];
-  const nextAttachInfo = data.nextAttachInfo || '';
+  const data = resp.data ?? {};
+  const mediaList = data.mediaList ?? [];
+  const nextAttachInfo = data.nextAttachInfo ?? '';
 
   return convertBigIntToString({
     mediaList,
@@ -101,7 +108,7 @@ export async function commentGroupAlbumMedia(
   const clientKey = Date.now().toString();
   const uin = bridge.identity.uin;
 
-  const body = protoEncode({
+  const body = protobuf_encode<DoQunCommentRequest>({
     field1: 8527,
     field2: new Uint8Array(0),
     field3: new Uint8Array(0),
@@ -137,7 +144,7 @@ export async function commentGroupAlbumMedia(
     },
     traceId,
     extMap: [{ key: 'fc-appid', value: '100' }],
-  }, DoQunCommentRequestSchema);
+  });
 
   const result = await bridge.sendRawPacket(
       'QunAlbum.trpc.qzone.webapp_qun_operation.FeedsWriter.DoQunComment',
@@ -149,21 +156,21 @@ export async function commentGroupAlbumMedia(
     throw new Error(result.errorMessage || 'failed to comment on album media');
   }
 
-  const resp = protoDecode(result.responseData, DoQunCommentResponseSchema);
+  const resp = protobuf_decode<DoQunCommentResponse>(result.responseData);
 
-  const resCode = (resp as any)?.field1;
-  if (!resp || (resCode !== 0 && resCode !== 8527 && !(resp as any).comment)) {
-    throw new Error(`comment album media error: retCode ${resCode || 'unknown'}`);
+  const resCode = resp.field1;
+  if (resCode !== 0 && resCode !== 8527 && !resp.comment) {
+    throw new Error(`comment album media error: retCode ${resCode ?? 'unknown'}`);
   }
 
-  const commentData = (resp as any).comment?.data || {};
+  const commentData = resp.comment?.data ?? {};
 
   return convertBigIntToString({
-    id: commentData.id || '',
-    user: { uin: commentData.user?.uin || '' },
-    content: commentData.content || [],
-    time: commentData.time || '0',
-    clientKey: commentData.clientKey || '',
+    id: commentData.id ?? '',
+    user: { uin: commentData.user?.uin ?? '' },
+    content: commentData.content ?? [],
+    time: commentData.time ?? '0',
+    clientKey: commentData.clientKey ?? '',
   });
 }
 
@@ -188,7 +195,7 @@ export async function likeGroupAlbumMedia(
     id = `421_1_0_${groupId}|${albumId}|${batchId}`;
   }
 
-  const body = protoEncode({
+  const body = protobuf_encode<DoQunLikeRequest>({
     field1: 5495,
     field2: "h5_test",
     field3: "h5_test",
@@ -214,7 +221,7 @@ export async function likeGroupAlbumMedia(
       clientKey
     },
     extMap: [{ key: 'fc-appid', value: '100' }],
-  }, DoQunLikeRequestSchema);
+  });
 
   const result = await bridge.sendRawPacket(
       'QunAlbum.trpc.qzone.webapp_qun_operation.FeedsWriter.DoQunLike',
@@ -226,14 +233,14 @@ export async function likeGroupAlbumMedia(
     throw new Error(result.errorMessage || 'failed to like album media');
   }
 
-  const resp = protoDecode(result.responseData, DoQunLikeResponseSchema);
-  const resCode = (resp as any)?.field1;
+  const resp = protobuf_decode<DoQunLikeResponse>(result.responseData);
+  const resCode = resp.field1;
 
-  if (!resp || resCode !== 5495) {
-    throw new Error(`like album media error: retCode ${resCode || 'unknown'}`);
+  if (resCode !== 5495) {
+    throw new Error(`like album media error: retCode ${resCode ?? 'unknown'}`);
   }
 
-  return (resp as any).body?.like || {};
+  return convertBigIntToString(resp.body?.like ?? {});
 }
 
 export async function deleteGroupAlbumMedia(
@@ -245,7 +252,7 @@ export async function deleteGroupAlbumMedia(
   const uin = bridge.identity.uin;
   const clientKey = `${uin}_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
 
-  const body = protoEncode({
+  const body = protobuf_encode<DeleteMediasRequest>({
     field1: 8694,
     field2: "h5_test",
     field3: "h5_test",
@@ -256,7 +263,7 @@ export async function deleteGroupAlbumMedia(
     },
     traceId: clientKey,
     extMap: [{ key: 'fc-appid', value: '100' }],
-  }, DeleteMediasRequestSchema);
+  });
 
   const result = await bridge.sendRawPacket(
       'QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.DeleteMedias',
@@ -268,13 +275,13 @@ export async function deleteGroupAlbumMedia(
     throw new Error(result.errorMessage || 'failed to delete album media');
   }
 
-  const resp = protoDecode(result.responseData, DeleteMediasResponseSchema);
-  const resCode = (resp as any)?.field1;
-  const errCode = (resp as any)?.field2;
-  const errMsg = (resp as any)?.field3;
+  const resp = protobuf_decode<DeleteMediasResponse>(result.responseData);
+  const resCode = resp.field1;
+  const errCode = resp.field2;
+  const errMsg = resp.field3;
 
-  if (!resp || resCode !== 8694 || errCode) {
-    throw new Error(`delete album media error [${errCode || 'unknown'}]: ${errMsg || 'unknown'}`);
+  if (resCode !== 8694 || errCode) {
+    throw new Error(`delete album media error [${errCode ?? 'unknown'}]: ${errMsg ?? 'unknown'}`);
   }
 
   return { success: true };

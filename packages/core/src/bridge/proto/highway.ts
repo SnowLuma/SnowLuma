@@ -335,12 +335,9 @@ export const NTV2UploadRichMediaRespSchema = {
   upload:   { field: 2, type: 'message' as const, schema: NTV2UploadRespBodySchema },
 } satisfies ProtoSchema;
 
-// --- Group Avatar Upload Extend ---
-
-export const GroupAvatarUploadExtSchema = {
-  field1: { field: 1, type: 'uint32' as const },
-  groupId: { field: 2, type: 'uint64' as const },
-  field3: { field: 3, type: 'bytes' as const },
-  field5: { field: 5, type: 'uint32' as const },
-  field6: { field: 6, type: 'uint32' as const },
-} satisfies ProtoSchema;
+// (The legacy `GroupAvatarUploadExtSchema` definition that briefly
+// lived here in PR #31 was removed: it was a residual artifact of an
+// alternative `setGroupAvatar` implementation that got dropped during
+// review — the canonical Lagrange-derived `GroupAvatarExtraSchema`
+// further up this file is the one `actions/profile.setGroupAvatar`
+// actually uses.)
