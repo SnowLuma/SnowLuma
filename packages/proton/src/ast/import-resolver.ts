@@ -19,6 +19,7 @@ export interface ParsedFileEntry {
     concrete: ProtobufMessage[];
     templates: Map<string, GenericProtobufTemplate>;
     importedTypeSources: Map<string, string>;
+    exportAllTypeSources: Map<string, string>;
     resolveImportedTypeName: ImportedTypeNameResolver;
     exportedWrappers: Map<string, WrapperBinding>;
 }
@@ -87,6 +88,16 @@ function extractValueImports(sf: ts.SourceFile): ImportClause[] {
                 });
             }
         }
+    }
+    return result;
+}
+
+function extractExportAllSpecifiers(sf: ts.SourceFile): string[] {
+    const result: string[] = [];
+    for (const stmt of sf.statements) {
+        if (!ts.isExportDeclaration(stmt) || stmt.exportClause) continue;
+        const spec = stmt.moduleSpecifier;
+        if (spec && ts.isStringLiteral(spec)) result.push(spec.text);
     }
     return result;
 }
@@ -401,6 +412,7 @@ function parseFileForDefinitions(
     const templates = new Map<string, GenericProtobufTemplate>();
     const resolveImportedTypeName = createImportedTypeNameResolver(sf);
     const importedTypeSources = new Map<string, string>();
+    const exportAllTypeSources = new Map<string, string>();
 
     // Collect imported wrapper bindings under their LOCAL names so this file's
     // forwarders can match against them. Skip work entirely if there's no cache
@@ -437,6 +449,24 @@ function parseFileForDefinitions(
         importedTypeSources.set(imp.localName, resolved);
     }
 
+    if (cache) {
+        const inProgress = parsing ?? new Set<string>();
+        inProgress.add(absolutePath);
+        for (const specifier of extractExportAllSpecifiers(sf)) {
+            const resolved = resolveModulePath(specifier, absolutePath);
+            if (!resolved || inProgress.has(resolved)) continue;
+            let entry = cache.get(resolved);
+            if (!entry) {
+                entry = parseFileForDefinitions(resolved, undefined, cache, inProgress);
+                cache.set(resolved, entry);
+            }
+            for (const msg of entry.concrete) exportAllTypeSources.set(msg.name, resolved);
+            for (const name of entry.templates.keys()) exportAllTypeSources.set(name, resolved);
+            for (const [name, source] of entry.exportAllTypeSources) exportAllTypeSources.set(name, source);
+        }
+        inProgress.delete(absolutePath);
+    }
+
     for (const stmt of sf.statements) {
         if (!ts.isInterfaceDeclaration(stmt)) continue;
         if (stmt.typeParameters?.length) {
@@ -453,6 +483,7 @@ function parseFileForDefinitions(
         concrete,
         templates,
         importedTypeSources,
+        exportAllTypeSources,
         resolveImportedTypeName,
         exportedWrappers,
     };
@@ -592,7 +623,7 @@ export function resolveImports(
             return;
         }
 
-        const importedPath = from.importedTypeSources.get(typeName);
+        const importedPath = from.importedTypeSources.get(typeName) ?? from.exportAllTypeSources.get(typeName);
         if (!importedPath) return;
 
         resolveTypeName(typeName, getEntry(importedPath));
