@@ -78,8 +78,14 @@ import {
   uploadPrivateFile as uploadPrivateFile_,
 } from './actions/group-file';
 import {
-  markPrivateMessageRead as markGroupMsgAsRead_,
-  markGroupMessageRead as markPrivateMsgAsRead_,
+  // ⚠️ pre-fix history note: these two aliases were swapped here
+  // (`markPrivateMessageRead as markGroupMsgAsRead_` /
+  //  `markGroupMessageRead as markPrivateMsgAsRead_`), meaning
+  // `bridge.markGroupMsgAsRead(groupId, …)` actually fired the c2c
+  // read-report wire shape with `groupId` in the `userId` slot, and
+  // vice versa. Realigned with their intended names.
+  markGroupMessageRead as markGroupMsgAsRead_,
+  markPrivateMessageRead as markPrivateMsgAsRead_,
   recallGroupMessage as recallGroupMessage_,
   recallPrivateMessage as recallPrivateMessage_,
   setGroupEssence as setGroupEssence_,
