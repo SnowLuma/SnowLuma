@@ -13,7 +13,7 @@ export function getLoginInfo(ref: OneBotInstanceContext): { userId: number; nick
 // turn one OneBot request into N OIDB calls, which is risky for busy clients.
 async function refreshSingleGroupMembers(bridge: BridgeInterface, groupId: number): Promise<void> {
   try {
-    await bridge.fetchGroupMemberList(groupId);
+    await bridge.apis.contacts.fetchGroupMemberList(groupId);
   } catch {
     // Use cached data.
   }
@@ -21,7 +21,7 @@ async function refreshSingleGroupMembers(bridge: BridgeInterface, groupId: numbe
 
 export async function getFriendList(bridge: BridgeInterface): Promise<JsonObject[]> {
   try {
-    const friends = await bridge.fetchFriendList();
+    const friends = await bridge.apis.contacts.fetchFriendList();
     return friends.map(f => ({
       user_id: f.uin as any,
       nickname: f.nickname as any,
@@ -42,7 +42,7 @@ export async function getGroupList(
 ): Promise<JsonObject[]> {
   try {
     if (noCache || bridge.identity.groups.length === 0) {
-      await bridge.fetchGroupList();
+      await bridge.apis.contacts.fetchGroupList();
     }
   } catch {
     // Use cached data.
@@ -62,7 +62,7 @@ export async function getGroupInfo(
 ): Promise<JsonObject | null> {
   if (noCache || !bridge.identity.findGroup(groupId)) {
     try {
-      await bridge.fetchGroupList();
+      await bridge.apis.contacts.fetchGroupList();
     } catch {
       // Use cached data.
     }
@@ -88,7 +88,7 @@ export async function getGroupMemberList(
   }
 
   try {
-    const members = await bridge.fetchGroupMemberList(groupId);
+    const members = await bridge.apis.contacts.fetchGroupMemberList(groupId);
     return members.map(m => formatGroupMember(groupId, m));
   } catch {
     return getCachedGroupMembers(bridge.identity, groupId);
@@ -146,7 +146,7 @@ export async function getStrangerInfo(
   userId: number,
 ): Promise<JsonObject | null> {
   try {
-    const p = await bridge.fetchUserProfile(userId);
+    const p = await bridge.apis.contacts.fetchUserProfile(userId);
     return {
       user_id: p.uin as any,
       nickname: p.nickname as any,
@@ -167,7 +167,7 @@ export async function getStrangerInfo(
 
 export async function getGroupSystemMessages(bridge: BridgeInterface): Promise<JsonObject[]> {
   try {
-    const reqs = await bridge.fetchGroupRequests();
+    const reqs = await bridge.apis.contacts.fetchGroupRequests();
     return reqs.map(r => ({
       group_id: r.groupId,
       group_name: r.groupName,
@@ -184,7 +184,7 @@ export async function getGroupSystemMessages(bridge: BridgeInterface): Promise<J
 
 export async function getDownloadRKeys(bridge: BridgeInterface): Promise<JsonObject[]> {
   try {
-    const rkeys = await bridge.fetchDownloadRKeys();
+    const rkeys = await bridge.apis.contacts.fetchDownloadRKeys();
     return rkeys.map(r => ({
       rkey: r.rkey,
       type: r.type,

@@ -41,13 +41,15 @@ describe('actions/friend', () => {
     expect(cmd).toBe('OidbSvcTrpcTcp.0x126b_0');
     const body = vi.mocked(oidb.makeOidbEnvelope).mock.calls[0]![2];
     expect((body as any).field1.block).toBe(true);
-    expect(bridge.fetchFriendList).toHaveBeenCalled();
+    expect(bridge.apis.contacts.fetchFriendList).toHaveBeenCalled();
   });
 
   it('deleteFriend still succeeds when the friend-list refresh throws', async () => {
-    const bridge = mockBridge({
-      fetchFriendList: vi.fn(async () => { throw new Error('cache miss'); }),
-    });
+    const bridge = mockBridge();
+    // `fetchFriendList` lives on `apis.contacts` post-#6 refactor;
+    // override the default no-op stub to make the friend-list refresh
+    // throw and verify deleteFriend swallows the error.
+    bridge.apis.contacts.fetchFriendList = vi.fn(async () => { throw new Error('cache miss'); });
     await expect(friend.deleteFriend(bridge as any, 10001))
       .resolves.toBeUndefined();
   });

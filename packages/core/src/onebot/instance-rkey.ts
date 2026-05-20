@@ -28,7 +28,7 @@ export class RKeyCache {
   private lastRefreshAttempt = 0;
 
   warmUp(bridge: BridgeInterface, uin: string): void {
-    bridge.fetchDownloadRKeys().then(
+    bridge.apis.contacts.fetchDownloadRKeys().then(
       (rkeys) => {
         this.updateCache(rkeys);
         log.info('rkeys loaded: UIN=%s count=%d', uin, rkeys.length);
@@ -117,7 +117,7 @@ export class RKeyCache {
     this.lastRefreshAttempt = now;
 
     // Schedule async refresh
-    bridge.fetchDownloadRKeys().then(
+    bridge.apis.contacts.fetchDownloadRKeys().then(
       (rkeys) => this.updateCache(rkeys),
       () => { /* ignore */ },
     );

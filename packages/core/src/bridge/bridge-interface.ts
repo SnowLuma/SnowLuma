@@ -10,13 +10,6 @@ import type {
 import type { BridgeEventBus } from './event-bus';
 import type { ForwardNodePayload } from './events';
 import type { IdentityService } from './identity-service';
-import type {
-  FriendInfo,
-  GroupMemberInfo,
-  GroupRequestInfo,
-  QQGroupInfo,
-  UserProfileInfo,
-} from './qq-info';
 import type { WebHonorType } from './web/group-honor';
 
 export interface BridgeInterface {
@@ -49,13 +42,7 @@ export interface BridgeInterface {
   //   Moved to `apis.message.{sendGroup, sendPrivate, sendC2cFile,
   //   recallGroup, recallPrivate, markGroupRead, markPrivateRead}`.
 
-  // ─── Fetch (contacts / profile / system) ───
-  fetchFriendList(): Promise<FriendInfo[]>;
-  fetchGroupList(): Promise<QQGroupInfo[]>;
-  fetchGroupMemberList(groupId: number, options?: { force?: boolean }): Promise<GroupMemberInfo[]>;
-  fetchUserProfile(uin: number): Promise<UserProfileInfo>;
-  fetchGroupRequests(filtered?: boolean): Promise<GroupRequestInfo[]>;
-  fetchDownloadRKeys(): Promise<DownloadRKeyInfo[]>;
+  // ─── Fetch (contacts / profile / system) — moved to apis.contacts ───
 
   // ─── Group admin ───
   muteGroupMember(groupId: number, userId: number, duration: number): Promise<void>;

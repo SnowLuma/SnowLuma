@@ -21,13 +21,15 @@
 // shrinks as each commit lands.
 
 import type { BridgeContext } from '../bridge-context';
+import { ContactsApi } from './contacts';
 import { MessageApi } from './message';
 
 export interface ApiHub {
   /** Send/recall/markRead operations across c2c + group + c2c-file. */
   readonly message: MessageApi;
+  /** Friend / group / member roster + user-profile + group-request-list + download-rkey. */
+  readonly contacts: ContactsApi;
   // Pending — added as later commits land:
-  //   readonly contacts:    ContactsApi;
   //   readonly groupAdmin:  GroupAdminApi;
   //   readonly groupFile:   GroupFileApi;
   //   readonly groupAlbum:  GroupAlbumApi;
@@ -51,10 +53,12 @@ export interface ApiHub {
 export function buildApiHub(ctx: BridgeContext): ApiHub {
   return {
     message: new MessageApi(ctx),
+    contacts: new ContactsApi(ctx),
   };
 }
 
 // Re-export the Api classes themselves so callers can write
 // `import type { MessageApi } from '@snowluma/core/.../apis'` for
 // signature use. Concrete instances always come from `bridge.apis.*`.
+export { ContactsApi } from './contacts';
 export { MessageApi } from './message';

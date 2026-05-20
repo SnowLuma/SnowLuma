@@ -712,7 +712,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   // OneBot dialects clients use in the wild.
   const fetchFilteredGroupRequests = async () => {
     try {
-      return await ctx.bridge.fetchGroupRequests(true);
+      return await ctx.bridge.apis.contacts.fetchGroupRequests(true);
     } catch {
       return [];
     }

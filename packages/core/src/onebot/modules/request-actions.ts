@@ -15,7 +15,7 @@ export async function handleGroupAddRequest(
   if (!groupId) throw new Error('invalid group_id in flag');
   if (!targetUid) throw new Error('invalid request target in flag');
 
-  const requests = await bridge.fetchGroupRequests();
+  const requests = await bridge.apis.contacts.fetchGroupRequests();
   const matching = requests.find((r) => {
     if (r.groupId !== groupId) return false;
     if (requestType === 'add') return r.targetUid === targetUid;

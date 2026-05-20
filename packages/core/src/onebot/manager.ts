@@ -89,7 +89,7 @@ async function warmUpBridgeState(uin: string, bridge: BridgeInterface): Promise<
   // which used to leave identity.nickname empty — see step 1b for the
   // explicit fallback.
   try {
-    const friends = await bridge.fetchFriendList();
+    const friends = await bridge.apis.contacts.fetchFriendList();
     log.info('friends loaded: UIN=%s count=%d', uin, friends.length);
 
     for (const f of friends) {
@@ -115,7 +115,7 @@ async function warmUpBridgeState(uin: string, bridge: BridgeInterface): Promise<
   // back in the friend list.
   if (!selfResolved && selfUin > 0) {
     try {
-      const profile = await bridge.fetchUserProfile(selfUin);
+      const profile = await bridge.apis.contacts.fetchUserProfile(selfUin);
       bridge.identity.setSelfProfile(profile);
       bridge.identity.nickname = profile.nickname || uin;
       log.debug('self info via profile: UIN=%s uid=%s nickname=%s',
@@ -129,7 +129,7 @@ async function warmUpBridgeState(uin: string, bridge: BridgeInterface): Promise<
   // Step 2: Fetch group list
   let groups: { groupId: number }[] = [];
   try {
-    groups = await bridge.fetchGroupList();
+    groups = await bridge.apis.contacts.fetchGroupList();
     log.info('groups loaded: UIN=%s count=%d', uin, groups.length);
   } catch (e) {
     log.warn('failed to load groups for UIN %s: %s', uin, e instanceof Error ? e.message : String(e));
@@ -141,7 +141,7 @@ async function warmUpBridgeState(uin: string, bridge: BridgeInterface): Promise<
   let failedGroupCount = 0;
   for (const g of groups) {
     try {
-      const members = await bridge.fetchGroupMemberList(g.groupId);
+      const members = await bridge.apis.contacts.fetchGroupMemberList(g.groupId);
       loadedGroupCount += 1;
       loadedMemberCount += members.length;
       if (VERBOSE_WARMUP) {

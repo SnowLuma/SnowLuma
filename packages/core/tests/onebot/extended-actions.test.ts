@@ -28,8 +28,27 @@ function fakeMeta(overrides: Partial<MessageMeta> = {}): MessageMeta {
  * pre-stubbed for the test. Same pattern as contact-actions.test.ts —
  * keeps tests honest about which surface they actually need.
  */
-function fakeBridge(overrides: Partial<BridgeInterface> = {}): BridgeInterface {
-  return new Proxy(overrides as BridgeInterface, {
+// Maps flat method names → ApiHub area they moved to under the #6
+// refactor. Auto-promotion lets tests written against the pre-refactor
+// flat surface (`fetchGroupRequests: vi.fn()`) keep working without
+// per-test restructure.
+const APIS_ROUTING: Record<string, string> = {
+  fetchFriendList: 'contacts', fetchGroupList: 'contacts',
+  fetchGroupMemberList: 'contacts', fetchUserProfile: 'contacts',
+  fetchGroupRequests: 'contacts', fetchDownloadRKeys: 'contacts',
+};
+
+function fakeBridge(overrides: Record<string, any> = {}): BridgeInterface {
+  const apisSynth: Record<string, Record<string, any>> = {};
+  for (const [k, v] of Object.entries(overrides)) {
+    const area = APIS_ROUTING[k];
+    if (area) {
+      if (!apisSynth[area]) apisSynth[area] = {};
+      apisSynth[area][k] = v;
+    }
+  }
+  const merged = { ...overrides, apis: { ...apisSynth, ...(overrides.apis ?? {}) } };
+  return new Proxy(merged as BridgeInterface, {
     get(target, prop) {
       if (prop in target) return (target as any)[prop];
       throw new Error(`fakeBridge: '${String(prop)}' was not stubbed`);

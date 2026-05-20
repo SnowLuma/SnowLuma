@@ -40,7 +40,7 @@ export async function deleteFriend(bridge: Bridge, userId: number, block = false
   // Refresh friend cache after deletion so subsequent reads don't
   // surface a ghost entry. Best-effort: a transient OIDB hiccup here
   // shouldn't make the delete itself look failed.
-  try { await bridge.fetchFriendList(); } catch { /* ignore */ }
+  try { await bridge.apis.contacts.fetchFriendList(); } catch { /* ignore */ }
 }
 
 export async function setFriendRemark(bridge: Bridge, userId: number, remark: string): Promise<void> {

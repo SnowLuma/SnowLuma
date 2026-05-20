@@ -25,8 +25,28 @@ import type { OneBotInstanceContext } from '../../src/onebot/instance-context';
  * fail loudly if they exercise a code path the fake hasn't been told
  * about. Tests just spread the methods they care about.
  */
-function fakeBridge(overrides: Partial<BridgeInterface> = {}): BridgeInterface {
-  return new Proxy(overrides as BridgeInterface, {
+// `apisAutoPromote` lets tests written before #6 (which stubbed flat
+// methods like `fetchFriendList: vi.fn()` on bridge directly) keep
+// working without restructuring — the helper rewrites flat stubs into
+// the new `apis.<area>.method` shape automatically. New code can also
+// pass `apis: { contacts: { … } }` explicitly; the two merge.
+const APIS_ROUTING: Record<string, string> = {
+  fetchFriendList: 'contacts', fetchGroupList: 'contacts',
+  fetchGroupMemberList: 'contacts', fetchUserProfile: 'contacts',
+  fetchGroupRequests: 'contacts', fetchDownloadRKeys: 'contacts',
+};
+
+function fakeBridge(overrides: Record<string, any> = {}): BridgeInterface {
+  const apisSynth: Record<string, Record<string, any>> = {};
+  for (const [k, v] of Object.entries(overrides)) {
+    const area = APIS_ROUTING[k];
+    if (area) {
+      if (!apisSynth[area]) apisSynth[area] = {};
+      apisSynth[area][k] = v;
+    }
+  }
+  const merged = { ...overrides, apis: { ...apisSynth, ...(overrides.apis ?? {}) } };
+  return new Proxy(merged as BridgeInterface, {
     get(target, prop) {
       if (prop in target) return (target as any)[prop];
       throw new Error(`fakeBridge: '${String(prop)}' was not stubbed for this test`);
@@ -99,7 +119,7 @@ describe('onebot/contact-actions / getFriendList', () => {
     });
     const out = await getFriendList(bridge);
     expect(out).toEqual([{ user_id: 22222, nickname: 'alice', remark: 'best-friend' }]);
-    expect(bridge.fetchFriendList).toHaveBeenCalledOnce();
+    expect(bridge.apis.contacts.fetchFriendList).toHaveBeenCalledOnce();
   });
 
   it('falls back to identity.friends on fetch failure', async () => {
@@ -117,7 +137,7 @@ describe('onebot/contact-actions / getGroupList', () => {
   it('triggers fetch when the in-memory roster is empty', async () => {
     const fetched = [makeGroup(100, 'Group A')];
     // `groups` starts empty; the fetch callback flips it to mimic
-    // bridge.fetchGroupList writing back through identity.rememberGroups.
+    // bridge.apis.contacts.fetchGroupList writing back through identity.rememberGroups.
     let groups: QQGroupInfo[] = [];
     const bridge = fakeBridge({
       fetchGroupList: vi.fn(async () => { groups = fetched; return fetched; }),
@@ -126,7 +146,7 @@ describe('onebot/contact-actions / getGroupList', () => {
       }),
     });
     const out = await getGroupList(bridge);
-    expect(bridge.fetchGroupList).toHaveBeenCalledOnce();
+    expect(bridge.apis.contacts.fetchGroupList).toHaveBeenCalledOnce();
     expect(out).toEqual([{
       group_id: 100, group_name: 'Group A',
       member_count: 0, max_member_count: 500,
@@ -140,7 +160,7 @@ describe('onebot/contact-actions / getGroupList', () => {
       identity: fakeIdentity({ groups: cached }),
     });
     await getGroupList(bridge);
-    expect(bridge.fetchGroupList).not.toHaveBeenCalled();
+    expect(bridge.apis.contacts.fetchGroupList).not.toHaveBeenCalled();
   });
 
   it('forces fetch when noCache=true even with a populated cache', async () => {
@@ -150,7 +170,7 @@ describe('onebot/contact-actions / getGroupList', () => {
       identity: fakeIdentity({ groups: cached }),
     });
     await getGroupList(bridge, true);
-    expect(bridge.fetchGroupList).toHaveBeenCalledOnce();
+    expect(bridge.apis.contacts.fetchGroupList).toHaveBeenCalledOnce();
   });
 
   it('serves the stale cache when the fetch path throws', async () => {
@@ -174,7 +194,7 @@ describe('onebot/contact-actions / getGroupInfo', () => {
     });
     const out = await getGroupInfo(bridge, 500);
     expect(out).toMatchObject({ group_id: 500, group_name: 'Group E' });
-    expect(bridge.fetchGroupList).not.toHaveBeenCalled();
+    expect(bridge.apis.contacts.fetchGroupList).not.toHaveBeenCalled();
   });
 
   it('triggers fetch when the group is unknown to the cache', async () => {
@@ -245,7 +265,7 @@ describe('onebot/contact-actions / getGroupMemberInfo', () => {
     });
     const out = await getGroupMemberInfo(bridge, 1000, 44);
     expect(out).toMatchObject({ user_id: 44, nickname: 'dave', card: 'D' });
-    expect(bridge.fetchGroupMemberList).not.toHaveBeenCalled();
+    expect(bridge.apis.contacts.fetchGroupMemberList).not.toHaveBeenCalled();
   });
 
   it('triggers fetch when member is unknown and re-queries the cache', async () => {

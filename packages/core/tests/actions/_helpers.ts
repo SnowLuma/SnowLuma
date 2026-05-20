@@ -41,14 +41,36 @@ export function mockMessageApi(): MockMessageApi {
   };
 }
 
+export interface MockContactsApi {
+  fetchFriendList: ReturnType<typeof vi.fn>;
+  fetchGroupList: ReturnType<typeof vi.fn>;
+  fetchGroupMemberList: ReturnType<typeof vi.fn>;
+  fetchUserProfile: ReturnType<typeof vi.fn>;
+  fetchGroupRequests: ReturnType<typeof vi.fn>;
+  fetchDownloadRKeys: ReturnType<typeof vi.fn>;
+}
+
+export function mockContactsApi(): MockContactsApi {
+  return {
+    fetchFriendList: vi.fn(async () => []),
+    fetchGroupList: vi.fn(async () => []),
+    fetchGroupMemberList: vi.fn(async () => []),
+    fetchUserProfile: vi.fn(async () => ({ uid: 'profile-uid' })),
+    fetchGroupRequests: vi.fn(async () => []),
+    fetchDownloadRKeys: vi.fn(async () => []),
+  };
+}
+
 export interface MockApiHub {
   message: MockMessageApi;
+  contacts: MockContactsApi;
   // additional Apis added commit-by-commit as #6 progresses
 }
 
 export function mockApiHub(overrides: Partial<MockApiHub> = {}): MockApiHub {
   return {
     message: overrides.message ?? mockMessageApi(),
+    contacts: overrides.contacts ?? mockContactsApi(),
   };
 }
 

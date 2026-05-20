@@ -3,8 +3,24 @@ import { handleGroupAddRequest } from '../../src/onebot/modules/request-actions'
 import type { BridgeInterface } from '../../src/bridge/bridge-interface';
 import type { GroupRequestInfo } from '../../src/bridge/qq-info';
 
-function fakeBridge(overrides: Partial<BridgeInterface> = {}): BridgeInterface {
-  return new Proxy(overrides as BridgeInterface, {
+// See `contact-actions.test.ts` for the auto-promotion rationale.
+const APIS_ROUTING: Record<string, string> = {
+  fetchFriendList: 'contacts', fetchGroupList: 'contacts',
+  fetchGroupMemberList: 'contacts', fetchUserProfile: 'contacts',
+  fetchGroupRequests: 'contacts', fetchDownloadRKeys: 'contacts',
+};
+
+function fakeBridge(overrides: Record<string, any> = {}): BridgeInterface {
+  const apisSynth: Record<string, Record<string, any>> = {};
+  for (const [k, v] of Object.entries(overrides)) {
+    const area = APIS_ROUTING[k];
+    if (area) {
+      if (!apisSynth[area]) apisSynth[area] = {};
+      apisSynth[area][k] = v;
+    }
+  }
+  const merged = { ...overrides, apis: { ...apisSynth, ...(overrides.apis ?? {}) } };
+  return new Proxy(merged as BridgeInterface, {
     get(target, prop) {
       if (prop in target) return (target as any)[prop];
       throw new Error(`fakeBridge: '${String(prop)}' was not stubbed`);

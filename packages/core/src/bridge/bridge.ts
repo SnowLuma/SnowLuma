@@ -5,7 +5,8 @@ import type { ForwardNodePayload } from './events';
 import { IdentityService } from './identity-service';
 import { MSG_PUSH_CMD, parseMsgPush } from './msg-push';
 import { IncomingPacketPipeline, type CmdParser } from './packet-pipeline';
-import type { FriendInfo, GroupMemberInfo, GroupRequestInfo, QQGroupInfo, UserProfileInfo } from './qq-info';
+// qq-info types are no longer used directly in this file — they live
+// inside the Api classes that own those fetches (apis/contacts.ts).
 import { type ApiHub, buildApiHub } from './apis';
 
 // Delegated modules
@@ -99,14 +100,8 @@ import {
   setSelfLongNick as setSelfLongNick_,
 } from './actions/profile';
 import type { MediaIndexNode } from './actions/shared';
-import {
-  fetchDownloadRKeys as fetchDownloadRKeys_,
-  fetchFriendList as fetchFriendList_,
-  fetchGroupList as fetchGroupList_,
-  fetchGroupMemberList as fetchGroupMemberList_,
-  fetchGroupRequests as fetchGroupRequests_,
-  fetchUserProfile as fetchUserProfile_,
-} from './bridge-contacts';
+// `bridge-contacts.ts` removed — its 6 functions are now methods on
+// `apis.contacts` (see `apis/contacts.ts::ContactsApi`).
 import { BridgeEventBus } from './event-bus';
 import {
   deleteGroupNoticeByFid as deleteGroupNotice_,
@@ -190,15 +185,9 @@ export class Bridge implements BridgeInterface {
   readonly apis: ApiHub;
   private readonly pipeline: IncomingPacketPipeline;
   private packetClient_: PacketSender | null = null;
-  // Throttle for fetchGroupMemberList(groupId): coalesces in-flight calls
-  // and serves a fresh result for `kMemberListTtlMs` to all callers.
-  // Without this, a busy OneBot client (e.g. MaiBot calling
-  // get_group_member_info(no_cache=true) per inbound message) would
-  // trigger one OIDB 0xfe7_3 per chat message per group; sustained rate
-  // (>1k/h) is detected by Tencent risk-control and gets the account
-  // banned for 7 days.
-  private memberListInflight_ = new Map<number, Promise<GroupMemberInfo[]>>();
-  private memberListLastFetch_ = new Map<number, { at: number; data: GroupMemberInfo[] }>();
+  // (fetchGroupMemberList throttle cache moved to ContactsApi — same
+  // 60s TTL + inflight coalesce semantics, just owned by the Api class
+  // that exposes the method.)
 
   // ── Uploaded-file metadata cache ────────────────────────────────────
   //
@@ -224,9 +213,15 @@ export class Bridge implements BridgeInterface {
 
   constructor(identity: IdentityService) {
     this.identity = identity;
+    // Build Api hub FIRST — `setFetcher` below installs callbacks
+    // that reach into `this.apis.contacts.*`, so the hub must exist
+    // by the time those callbacks could fire. The Bridge instance IS
+    // the BridgeContext (Bridge implements BridgeInterface which
+    // includes the BridgeContext surface).
+    this.apis = buildApiHub(this);
     this.identity.setFetcher({
-      fetchProfile: (uin) => this.fetchUserProfile(uin),
-      fetchGroupMemberList: (gid) => this.fetchGroupMemberList(gid),
+      fetchProfile: (uin) => this.apis.contacts.fetchUserProfile(uin),
+      fetchGroupMemberList: (gid) => this.apis.contacts.fetchGroupMemberList(gid),
     });
     this.pipeline = new IncomingPacketPipeline({
       identity: this.identity,
@@ -235,10 +230,6 @@ export class Bridge implements BridgeInterface {
         this.refreshMemberCache(groupId, refreshGroupList, forceMemberList),
     });
     this.pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
-    // Build Api hub eagerly. The Bridge instance IS the BridgeContext
-    // — `this implements BridgeContext` is enforced via the
-    // `BridgeInterface` declaration, which itself extends BridgeContext.
-    this.apis = buildApiHub(this);
   }
 
   dispose(): void {
@@ -281,10 +272,10 @@ export class Bridge implements BridgeInterface {
 
   private async refreshMemberCache(groupId: number, refreshGroupList: boolean, forceMemberList: boolean): Promise<boolean> {
     if (refreshGroupList) {
-      try { await this.fetchGroupList(); } catch { /* ignore */ }
+      try { await this.apis.contacts.fetchGroupList(); } catch { /* ignore */ }
     }
     if (!this.identity.findGroup(groupId)) return false;
-    await this.fetchGroupMemberList(groupId, { force: forceMemberList });
+    await this.apis.contacts.fetchGroupMemberList(groupId, { force: forceMemberList });
     return true;
   }
 
@@ -359,34 +350,9 @@ export class Bridge implements BridgeInterface {
     return this.identity.resolveUid(uin, groupId);
   }
 
-  // --- Delegated: Contact / info queries ---
-
-  async fetchFriendList(): Promise<FriendInfo[]> { return fetchFriendList_(this); }
-  async fetchGroupList(): Promise<QQGroupInfo[]> { return fetchGroupList_(this); }
-  async fetchGroupMemberList(groupId: number, options: { force?: boolean } = {}): Promise<GroupMemberInfo[]> {
-    const kMemberListTtlMs = 60_000;
-    const now = Date.now();
-    const last = this.memberListLastFetch_.get(groupId);
-    if (!options.force && last && now - last.at < kMemberListTtlMs) {
-      return last.data;
-    }
-    const inflight = this.memberListInflight_.get(groupId);
-    if (inflight) return inflight;
-    const task = (async () => {
-      try {
-        const data = await fetchGroupMemberList_(this, groupId);
-        this.memberListLastFetch_.set(groupId, { at: Date.now(), data });
-        return data;
-      } finally {
-        this.memberListInflight_.delete(groupId);
-      }
-    })();
-    this.memberListInflight_.set(groupId, task);
-    return task;
-  }
-  async fetchUserProfile(uin: number): Promise<UserProfileInfo> { return fetchUserProfile_(this, uin); }
-  async fetchGroupRequests(filtered = false): Promise<GroupRequestInfo[]> { return fetchGroupRequests_(this, filtered); }
-  async fetchDownloadRKeys(): Promise<DownloadRKeyInfo[]> { return fetchDownloadRKeys_(this); }
+  // fetchFriendList / fetchGroupList / fetchGroupMemberList /
+  // fetchUserProfile / fetchGroupRequests / fetchDownloadRKeys
+  // moved to apis.contacts (see apis/contacts.ts::ContactsApi).
 
   // --- Delegated: Admin / action methods ---
 
