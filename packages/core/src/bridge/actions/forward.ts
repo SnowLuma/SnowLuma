@@ -18,7 +18,7 @@ import type {
   SendLongMsgReq,
   SendLongMsgResp,
 } from '../proto/proton/longmsg';
-import type { PushMsg, PushMsgBody } from '../proto/proton/message';
+import type { FileExtra, PushMsg, PushMsgBody } from '../proto/proton/message';
 import { resolveSelfUid, toInt } from './shared';
 
 // Module-scoped cache, keyed by res_id. Survives only for the lifetime
@@ -40,15 +40,66 @@ async function buildForwardPushBody(
   // forward's recipient: group → groupId, private → recipient uid.
   // Without this the OIDB upload (0x11c4/0x11c5) has no scene and the
   // element builder throws "private image target uid is missing".
+  //
+  // `forwardFake: true` keeps `{type:'file'}` segments in the
+  // long-msg payload: group → emitted as transElem(24) in elems[],
+  // c2c → handled below via msgContent (FileExtra { file: NotOnlineFile }).
+  // The QQ-NT live-send pipeline would reject these (transElem(24) →
+  // result=79; notOnlineFile via PbSendMsg doesn't render), but the
+  // long-msg upload service stores the bytes verbatim and the
+  // receiver decodes them through the normal msg-push path.
   const sendCtx = groupId !== undefined
-    ? { bridge, groupId }
+    ? { bridge, groupId, forwardFake: true }
     : userUid
-      ? { bridge, userUid }
-      : { bridge };
+      ? { bridge, userUid, forwardFake: true }
+      : { bridge, forwardFake: true };
   const elems = await buildSendElems(node.elements, sendCtx);
   const now = Math.floor(Date.now() / 1000);
   const random = Math.floor(Math.random() * 0x7fffffff) >>> 0;
   const seq = Math.floor(Math.random() * 9000000) + 1000000;
+
+  // c2c-file in a forward node — element-builder intentionally skips
+  // it (RichText.notOnlineFile + msgContent live outside elems[]). For
+  // forward fake-send we mirror what an inbound c2c file message looks
+  // like on the wire: serialise the FileExtra blob and ride it on
+  // `body.msgContent`. The receiver's rich-body-decoder reads from
+  // `msgContent` first (see msg-push/rich-body-decoder.ts:446+), so
+  // the bubble renders with the right file name + size when the
+  // forward is expanded. Only the FIRST c2c file in a node ships —
+  // QQ NT's bubble can only carry one msgContent payload, same as
+  // a live c2c send. Group nodes ignore this branch entirely (the
+  // transElem(24) elems[] entry above covers them).
+  let msgContent: Uint8Array | undefined;
+  if (groupId === undefined) {
+    const fileEl = node.elements.find(e => e.type === 'file' && e.fileId);
+    if (fileEl) {
+      // Honour inline segment fields first; fall back to the upload
+      // metadata cache (populated by upload_private_file). Without
+      // size/md5 the receiver would render "0 B" so prefer recovering
+      // them — see same logic in modules/message-actions.ts.
+      const cached = bridge.recallUploadedFile(fileEl.fileId ?? '');
+      const fileMd5 = fileEl.md5Hex
+        ? hexToBytesLocal(fileEl.md5Hex)
+        : (cached?.fileMd5 ?? new Uint8Array(0));
+      const fileSize = fileEl.fileSize ?? cached?.fileSize ?? 0;
+      const fileName = fileEl.fileName ?? cached?.fileName ?? 'file';
+      const fileHash = fileEl.fileHash ?? cached?.fileHash ?? '';
+      const sevenDays = 7 * 24 * 60 * 60;
+      msgContent = protobuf_encode<FileExtra>({
+        file: {
+          fileType: 0,
+          fileUuid: fileEl.fileId!,
+          fileMd5,
+          fileName,
+          fileSize: BigInt(fileSize),
+          subcmd: 1,
+          dangerEvel: 0,
+          expireTime: now + sevenDays,
+          fileHash,
+        },
+      });
+    }
+  }
 
   return {
     responseHead: {
@@ -70,8 +121,22 @@ async function buildForwardPushBody(
       richText: {
         elems,
       },
+      ...(msgContent ? { msgContent } : {}),
     },
   };
+}
+
+// Local hex-decode helper — avoids importing the heavyweight `pipeline`
+// module just for one call. Mirrors `highway/pipeline.ts::hexToBytes`.
+function hexToBytesLocal(hex: string): Uint8Array {
+  const s = hex.trim();
+  if (!s) return new Uint8Array(0);
+  const len = s.length >> 1;
+  const out = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    out[i] = parseInt(s.substr(i * 2, 2), 16);
+  }
+  return out;
 }
 
 // Per-layer piggyback entry. Each level of a nested forward attaches
