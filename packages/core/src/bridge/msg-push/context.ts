@@ -1,11 +1,7 @@
-// MsgPushContext — the decoded envelope fields every decoder may need.
-// One unified shape: notice decoders pick from `content`, message decoders
-// pick from `body` / `responseHead`. Decoders ignore fields they don't need.
-
 import { protobuf_decode } from '@snowluma/proton';
-import type { ContentHead, MessageBody, PushMsg, ResponseHead } from '../proto/proton/message';
 import type { PacketInfo } from '../../protocol/types';
 import type { IdentityService } from '../identity-service';
+import type { ContentHead, MessageBody, PushMsg, ResponseHead } from '../proto/proton/message';
 
 export type PushMsgBody = MessageBody;
 export type PushMsgResponseHead = ResponseHead;

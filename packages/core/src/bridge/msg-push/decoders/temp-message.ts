@@ -1,6 +1,3 @@
-// Handles TempMessage (141). Pulls senderNick from group hint first
-// then falls back to friend roster.
-
 import type { TempMessage } from '../../events';
 import type { MsgPushDecoder } from '../registry';
 import { decodeRichBody } from '../rich-body-decoder';

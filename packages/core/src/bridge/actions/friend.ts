@@ -1,16 +1,12 @@
-// Friend-list operations: accept/reject add request, delete, set the
-// local remark label. Each one resolves a UID first because the OIDB
-// protocol uses opaque UIDs rather than QQ uin numbers.
-
 import { protobuf_encode } from '@snowluma/proton';
 import type { Bridge } from '../bridge';
-import { runOidb, makeOidbEnvelope } from '../bridge-oidb';
+import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
+import { OidbBase } from '../proto/proton/oidb';
 import type {
   OidbDeleteFriend,
   OidbFriendRequestAction,
   OidbSetFriendRemark,
 } from '../proto/proton/oidb-actions/base';
-import { OidbBase } from '../proto/proton/oidb';
 
 export async function setFriendAddRequest(bridge: Bridge, uidOrFlag: string, approve: boolean): Promise<void> {
   let targetUid = uidOrFlag;

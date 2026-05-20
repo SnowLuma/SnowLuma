@@ -1,7 +1,5 @@
-// Helpers shared between OneBot network adapters.
-
-import type { IncomingMessage } from 'http';
 import type { WebSocket } from '@snowluma/websocket';
+import type { IncomingMessage } from 'http';
 
 /** Validate a request's bearer token / `?access_token=` query against the configured token. */
 export function isAuthorized(request: IncomingMessage, token: string): boolean {

@@ -1,5 +1,3 @@
-// Group album actions via web API
-
 import type { Bridge } from '../bridge';
 import { getGroupAlbumList, uploadImageToGroupAlbum } from '../web/group-album';
 import { getCookies } from './cookies';

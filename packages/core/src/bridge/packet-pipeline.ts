@@ -1,27 +1,9 @@
-// Incoming packet pipeline — the chain that turns a single PacketInfo
-// arriving from the hook layer into a stream of QQEventVariant
-// emissions on the typed event bus. Replaces the inline orchestration
-// that previously lived on Bridge.onPacket / triggerMemberCacheRefresh /
-// rememberEventIdentity / dispatchAfterIdentityRefresh / etc.
-//
-// Stage chain per parser output:
-//   parse  →  enrich identity (sync, or async refresh)
-//          →  side-effects (remember UID/UIN + schedule roster refresh)
-//          →  log
-//          →  emit on bus
-//
-// The pipeline owns its cmd handler map and its per-group coalesce table
-// for background member-list refreshes. It does NOT own protocol calls
-// — `refreshMemberCache` is injected by Bridge because it ultimately
-// dispatches OIDB packets through Bridge.fetchGroupList /
-// Bridge.fetchGroupMemberList.
-
 import type { PacketInfo } from '../protocol/types';
+import { formatEvent } from '../utils/event-format';
+import { createLogger, type Logger } from '../utils/logger';
+import type { BridgeEventBus } from './event-bus';
 import type { QQEventVariant } from './events';
 import type { IdentityService } from './identity-service';
-import type { BridgeEventBus } from './event-bus';
-import { createLogger, type Logger } from '../utils/logger';
-import { formatEvent } from '../utils/event-format';
 
 const moduleLog = createLogger('Bridge');
 const moduleEventLog = createLogger('Event');

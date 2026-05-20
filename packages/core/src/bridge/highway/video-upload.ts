@@ -1,33 +1,23 @@
-// Video upload: stage the source video and a thumbnail (extracted via
-// ffmpeg if not supplied), run NTV2 upload + (optional) Highway PUTs for
-// both files, return the encoded MsgInfo for the outgoing commonElem.
-//
-// Shared OIDB envelope + response handling + Highway PUT loop live in
-// pipeline.ts; this file owns the ffmpeg thumb extraction, the 1 MB
-// streaming sha1 used by main-video Highway uploads, and the
-// video-specific OIDB fields (uploadInfo has TWO entries — main + thumb).
-
+import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import crypto from 'crypto';
-
+import { createLogger } from '../../utils/logger';
 import type { Bridge } from '../bridge';
 import type { MessageElement } from '../events';
-import {
-  computeHashes,
-  detectImageFormat,
-  loadBinarySource,
-  resolveLocalFilePath,
-} from './utils';
 import { getFFmpegAddon } from './ffmpeg-addon';
-import { createLogger } from '../../utils/logger';
 import {
   finalizeMediaMsgInfo,
   hexToBytes,
   runNtv2Upload,
   type MediaSubFileUpload,
 } from './pipeline';
+import {
+  computeHashes,
+  detectImageFormat,
+  loadBinarySource,
+  resolveLocalFilePath,
+} from './utils';
 
 const moduleLog = createLogger('Highway.Video');
 

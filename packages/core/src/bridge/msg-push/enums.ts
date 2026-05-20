@@ -1,7 +1,3 @@
-// MsgPush PkgType taxonomy. The top-level msgType field in PushMsg.contentHead
-// names a QQ-protocol-defined packet shape; Event0x210 / Event0x2DC are wrapper
-// PkgTypes whose payload is further dispatched by subType.
-
 export enum PkgType {
   ForwardFakePrivateMessage = 9,
   PrivateMessage = 166,

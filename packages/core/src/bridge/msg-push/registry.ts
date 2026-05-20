@@ -1,8 +1,3 @@
-// MsgPushRegistry — per-PkgType dispatch table. Each PkgType maps to a single
-// decoder; double-registration is a programming error (throws at register time).
-// Decoder errors are caught and logged with the PkgType so a single bad decoder
-// can never silently take down sibling decoders sharing the cmd.
-
 import { createLogger } from '../../utils/logger';
 import type { QQEventVariant } from '../events';
 import type { MsgPushContext } from './context';

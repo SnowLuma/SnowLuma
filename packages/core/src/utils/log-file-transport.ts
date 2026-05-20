@@ -1,21 +1,3 @@
-// File transport for the SnowLuma logger.
-//
-// Writes plain text (ANSI stripped) to:
-//   <SNOWLUMA_LOG_DIR>/snowluma-YYYY-MM-DD.log         (shared, all UINs)
-//   <SNOWLUMA_LOG_DIR>/<uin>/snowluma-YYYY-MM-DD.log   (per-account)
-//
-// Both pathways use the same daily rotation + per-file size cap. When the
-// cap is hit the in-flight file is closed and writes continue in
-//   snowluma-YYYY-MM-DD.1.log, .2.log, ...
-// at the same date. Files older than the retain window are unlinked on
-// startup and on each day rollover.
-//
-// Disabled via SNOWLUMA_LOG_FILE=0. Per-UIN sub-files are additionally
-// gated by SNOWLUMA_LOG_PER_UIN=0 (still keeps the shared file). Any I/O
-// failure during init or write degrades silently to console-only — we
-// deliberately do NOT use the logger from inside this module to avoid
-// recursion.
-
 import fs from 'node:fs';
 import path from 'node:path';
 

@@ -1,13 +1,8 @@
-// Operations targeting an existing message: recall (group / private),
-// mark-as-read (group / private), and the "essence" highlight toggle.
-// All of these take a message identifier and modify server-side state
-// without producing a downstream observable event.
-
-import type { Bridge } from '../bridge';
-import { runOidb, makeOidbEnvelope } from '../bridge-oidb';
-import type { C2CRecallRequest, GroupRecallRequest, OidbEssence, SsoReadedReportReq } from '../proto/proton/oidb-actions/base';
 import { protobuf_encode } from '@snowluma/proton';
+import type { Bridge } from '../bridge';
+import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
 import { OidbBase } from '../proto/proton/oidb';
+import type { C2CRecallRequest, GroupRecallRequest, OidbEssence, SsoReadedReportReq } from '../proto/proton/oidb-actions/base';
 
 export async function recallGroupMessage(bridge: Bridge, groupId: number, sequence: number): Promise<void> {
   const request = protobuf_encode<GroupRecallRequest>({

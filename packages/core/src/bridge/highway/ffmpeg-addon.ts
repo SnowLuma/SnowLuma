@@ -1,14 +1,7 @@
-// FFmpeg native addon wrapper — port of NapCat's FFmpegAddonAdapter.
-// No fallback: throws if the addon isn't available on this platform/arch.
-//
-// The addon is shipped under `native/ffmpeg/ffmpegAddon.<platform>.<arch>.node`
-// to match the layout used by the upstream NapCat build so the binaries
-// can be dropped in as-is.
-
+import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

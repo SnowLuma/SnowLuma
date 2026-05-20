@@ -1,16 +1,5 @@
-// Identity-aware, one-line readable rendering for log output.
-//
-// Two layers consume this:
-//   - bridge/packet-pipeline.ts → notice events (recall / join / poke / …)
-//   - onebot/instance.ts        → received-message log
-//
-// All formatters are defensive: any field lookup that throws falls
-// back to the raw numeric form, so a malformed event or stale
-// Identity cache never crashes the logger. Cache misses simply
-// degrade to the previous "just print the uin / groupId" output.
-
-import type { IdentityService } from '../bridge/identity-service';
 import type { QQEventVariant } from '../bridge/events';
+import type { IdentityService } from '../bridge/identity-service';
 import type { MessageStore } from '../onebot/message-store';
 import type { JsonObject, JsonValue } from '../onebot/types';
 

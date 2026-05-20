@@ -1,24 +1,8 @@
-// Handles GroupMemberIncreaseNotice (33) + GroupMemberDecreaseNotice (34) +
-// GroupSelfJoinedNotice (85, bot-self admittance).
-//
-// 33/34 share GroupChangeSchema; the decreaseType field distinguishes
-// kick vs voluntary leave (dt != 0 && dt != 130 means kicked).
-//
-// 85 carries a different wire shape (`SelfJoinInGroup`) — without it
-// the bot has no signal that its own `set_group_add_request` was
-// approved (33 fires only for *other* members joining). We surface
-// 85 as a regular GroupMemberJoin with `userUin = selfUin` so the
-// existing OneBot converter naturally produces
-// `notice.group_increase` with `sub_type: 'approve' | 'invite'`
-// (the converter compares operator == user to pick the sub_type;
-// for self-join the operator is the admin/inviter, so 'invite' is
-// emitted — matching go-cqhttp / NapCat semantics).
-
 import { protobuf_decode } from '@snowluma/proton';
-import type { GroupChange, SelfJoinInGroup } from '../../proto/proton/notify';
 import type { GroupMemberJoin, GroupMemberLeave } from '../../events';
-import type { MsgPushDecoder } from '../registry';
+import type { GroupChange, SelfJoinInGroup } from '../../proto/proton/notify';
 import { decodeOperatorUid, resolveUidToUin } from '../helpers';
+import type { MsgPushDecoder } from '../registry';
 
 export const decodeGroupMemberJoin: MsgPushDecoder = (ctx) => {
   const change = protobuf_decode<GroupChange>(ctx.content);

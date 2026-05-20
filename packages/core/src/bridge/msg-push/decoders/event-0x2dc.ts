@@ -1,24 +1,27 @@
-// Handles Event0x2DC wrapper (732). Internal switch on subType dispatches
-// to GroupMute (12) / GroupMsgEmojiLike (16) / GroupRecall (17) /
-// GroupGreyTip (20) / GroupEssence (21).
-
 import { protobuf_decode } from '@snowluma/proton';
+import { createLogger } from '../../../utils/logger';
 import type {
-  GroupMute, NotifyMessageBody, GroupReactNotify,
-} from '../../proto/proton/notify';
-import type {
-  GroupMuteEvent, GroupRecallEvent, GroupPokeEvent, GroupEssenceEvent,
+  GroupEssenceEvent,
   GroupMsgEmojiLikeEvent,
+  GroupMuteEvent,
+  GroupPokeEvent,
+  GroupRecallEvent,
   QQEventVariant,
 } from '../../events';
-import type { MsgPushDecoder } from '../registry';
+import type {
+  GroupMute,
+  GroupReactNotify,
+  NotifyMessageBody,
+} from '../../proto/proton/notify';
 import type { MsgPushContext } from '../context';
 import { Event0x2DCSubType } from '../enums';
 import {
-  resolveUidToUin, parseU64OrZero, buildTemplateMap, findTemplateValue,
+  buildTemplateMap, findTemplateValue,
+  parseU64OrZero,
+  resolveUidToUin,
   unwrapGroupNotifyPayload,
 } from '../helpers';
-import { createLogger } from '../../../utils/logger';
+import type { MsgPushDecoder } from '../registry';
 
 const unknownLog = createLogger('MsgPush.Unknown');
 

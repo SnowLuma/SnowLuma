@@ -1,14 +1,11 @@
-// Handles GroupRequestJoinNotice (84) + GroupRequestInvitationNotice (525)
-// + GroupInviteNotice (87). All three produce GroupInviteEvent with
-// different subType ('add' / 'invite') and flag prefixes.
-
 import { protobuf_decode } from '@snowluma/proton';
-import type {
-  GroupJoin, GroupInvitation, GroupInvite,
-} from '../../proto/proton/notify';
 import type { GroupInviteEvent } from '../../events';
-import type { MsgPushDecoder } from '../registry';
+import type {
+  GroupInvitation, GroupInvite,
+  GroupJoin,
+} from '../../proto/proton/notify';
 import { resolveUidToUin } from '../helpers';
+import type { MsgPushDecoder } from '../registry';
 
 export const decodeGroupJoinRequest: MsgPushDecoder = (ctx) => {
   const join = protobuf_decode<GroupJoin>(ctx.content);

@@ -1,30 +1,27 @@
-// Contact / info-fetching operations extracted from Bridge.
-
-import type { Bridge } from './bridge';
-import type { DownloadRKeyInfo } from './bridge';
-import type { FriendInfo, QQGroupInfo, GroupMemberInfo, UserProfileInfo, GroupRequestInfo } from './qq-info';
-import { runOidb, makeOidbEnvelope } from './bridge-oidb';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import type { Bridge, DownloadRKeyInfo } from './bridge';
+import { makeOidbEnvelope, runOidb } from './bridge-oidb';
 import type {
+  OidbBase,
+  OidbSvcTrpcTcp0x10C0Response,
   OidbSvcTrpcTcp0xFD4_1Response,
   OidbSvcTrpcTcp0xFE5_2Response,
   OidbSvcTrpcTcp0xFE7_3Response,
-  OidbSvcTrpcTcp0x10C0Response,
-  OidbBase,
 } from './proto/proton/oidb';
 import type {
+  AvatarInfo,
   OidbFriendListRequest,
   OidbGroupListRequest,
   OidbGroupMemberListRequest,
+  OidbGroupRequestList,
   OidbUserInfoRequest,
   OidbUserInfoResponse,
-  OidbGroupRequestList,
-  AvatarInfo,
 } from './proto/proton/oidb-actions/base';
 import type {
   NTV2RichMediaReq,
   NTV2RichMediaResp,
 } from './proto/proton/oidb-actions/media';
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import type { FriendInfo, GroupMemberInfo, GroupRequestInfo, QQGroupInfo, UserProfileInfo } from './qq-info';
 
 // ---------------------------------------------------------------------------
 // Helpers

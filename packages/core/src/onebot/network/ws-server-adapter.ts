@@ -1,12 +1,6 @@
-// Forward (server) WebSocket adapter — one instance per `wsServers[]` entry.
-//
-// Each adapter owns its own `WebSocketServer`, accepts inbound forward
-// connections (api / event / universal roles), and pushes events to all live
-// event-receiving sockets when `onEvent` fires.
-
 import { WebSocket, WebSocketServer } from '@snowluma/websocket';
 import type { IncomingMessage } from 'http';
-import type { WsRole, WsServerNetwork, JsonObject } from '../types';
+import { createLogger, type Logger } from '../../utils/logger';
 import {
   pickDispatchJson,
   resolveReportOptions,
@@ -14,9 +8,9 @@ import {
   type DispatchPayload,
   type EventReportOptions,
 } from '../event-filter';
-import { createLogger, type Logger } from '../../utils/logger';
+import type { JsonObject, WsRole, WsServerNetwork } from '../types';
 import { IOneBotNetworkAdapter, NetworkReloadType, type NetworkAdapterContext } from './adapter';
-import { isAuthorized, parseRequestPath, rawDataToString, safeClose, safeSend, normalizePath } from './utils';
+import { isAuthorized, normalizePath, parseRequestPath, rawDataToString, safeClose, safeSend } from './utils';
 
 const moduleLog = createLogger('OneBot.WS-Server');
 

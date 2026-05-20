@@ -1,11 +1,6 @@
-// Group admin actions: mute/kick/leave/role/profile + join-request approval.
-// Every function ultimately routes through one OIDB schema; the function
-// names match the OneBot action names (set_group_kick, set_group_ban, ...)
-// so callers can grep across the two layers.
-
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { Bridge } from '../bridge';
-import { runOidb, makeOidbEnvelope } from '../bridge-oidb';
+import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
 import { OidbBase } from '../proto/proton/oidb';
 import type {
   Oidb0x89a_0AddOption,

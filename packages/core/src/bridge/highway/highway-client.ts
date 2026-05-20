@@ -1,17 +1,14 @@
-// Highway HTTP client: session fetch and chunked binary upload.
-// Port of src/bridge/src/highway_client.cpp
-
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import net from 'net';
 import type { Bridge } from '../bridge';
-import { protobuf_encode, protobuf_decode } from '@snowluma/proton';
 import type {
   HttpConn0x6FF501Request,
   HttpConn0x6FF501Response,
+  NTV2RichMediaHighwayExt,
   ReqDataHighwayHead,
   RespDataHighwayHead,
-  NTV2RichMediaHighwayExt,
 } from '../proto/proton/highway';
-import { packHighwayFrame, unpackHighwayFrame, computeMd5 } from './utils';
+import { computeMd5, packHighwayFrame, unpackHighwayFrame } from './utils';
 
 const HIGHWAY_APP_ID = 1600001604;
 const HIGHWAY_BLOCK_SIZE = 1024 * 1024;

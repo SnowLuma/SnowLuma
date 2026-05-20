@@ -1,33 +1,5 @@
-// Resolve the request's "real" client IP for per-IP rate limiting.
-//
-// Threat model:
-//   - By default we ONLY trust the TCP socket peer. `X-Forwarded-For` and
-//     `X-Real-IP` are client-controllable, so honoring them lets any
-//     client rotate the header to escape the 5-attempts/15-min login
-//     lockout.
-//   - Operators who actually run behind a reverse proxy (nginx, Caddy,
-//     a SaaS CDN) need a way to opt back into the real client IP. The
-//     `SNOWLUMA_WEBUI_TRUST_PROXY` env var lets them say "when the
-//     immediate TCP peer is THIS, treat the headers as authoritative".
-//
-// Supported values for SNOWLUMA_WEBUI_TRUST_PROXY:
-//   - unset / empty   — default; ignore headers, use socket peer
-//   - "loopback"      — trust headers when the socket peer is 127.0.0.1
-//                       or ::1 (typical for nginx/Caddy on the same host)
-//   - "1" / "true" /  — trust headers from any peer (only safe behind a
-//     "all"             trusted SaaS CDN that strips client-set headers)
-//   - comma-separated — trust headers when the socket peer matches one
-//     IP list           of these IPs (reverse proxy on another machine)
-//
-// When trusted, we prefer X-Real-IP (a single value the reverse proxy
-// overwrites unconditionally) and fall back to the first hop of
-// X-Forwarded-For. We never parse the FULL XFF chain — if the proxy
-// chain isn't fully trusted, the leftmost value can still be spoofed
-// by the original client, and a single-tier proxy is the only setup
-// this app realistically sees.
-
-import type { Context } from 'hono';
 import { getConnInfo } from '@hono/node-server/conninfo';
+import type { Context } from 'hono';
 
 export type TrustProxyMode =
   | { kind: 'none' }
@@ -69,12 +41,6 @@ function shouldTrustHeaders(mode: TrustProxyMode, socketIp: string): boolean {
   }
 }
 
-/**
- * Pick the right "client IP" for rate-limit keying.
- *
- * Exposed as a pure function over a small dependency surface so the
- * unit tests can fabricate request shapes without spinning up a server.
- */
 export function pickClientIp(
   c: Pick<Context, 'req'>,
   mode: TrustProxyMode,

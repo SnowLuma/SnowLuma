@@ -1,21 +1,5 @@
-// One deep entry point for a single OIDB round-trip: dispatch a
-// pre-encoded envelope via Bridge.sendRawPacket, validate the envelope
-// retCode, and return the raw response bytes.
-//
-// History note. The legacy implementation used a runtime
-// `makeOidbBaseSchema(InnerSchema)` factory and ran a runtime
-// schema-walking encoder. Proton is compile-time, so the envelope is
-// the generic interface `OidbBase<T>` (proto/proton/oidb.ts). Proton's
-// wrapper-binding requires *pass-through* wrappers (the wrapper's first
-// arg must be forwarded unchanged to the inner codec — see
-// proton/src/transform/replacer.ts), so this file exposes thin
-// pass-through helpers (`encodeOidbEnv<T>` / `decodeOidbEnv<T>`) that
-// proton monomorphizes at every call site. `runOidb` itself is
-// non-generic — it just sends pre-encoded bytes and peeks at the
-// envelope retCode via the non-generic `OidbBaseMeta` view.
-
-import type { Bridge } from './bridge';
 import { protobuf_decode } from '@snowluma/proton';
+import type { Bridge } from './bridge';
 import type { OidbBase, OidbBaseMeta } from './proto/proton/oidb';
 
 /**
@@ -35,12 +19,12 @@ export function makeOidbEnvelope<T>(
   isUid: boolean = false,
 ): OidbBase<T> {
   return {
-    command:    oidbCmd,
+    command: oidbCmd,
     subCommand: subCmd,
-    errorCode:  0,
+    errorCode: 0,
     body,
-    errorMsg:   '',
-    reserved:   isUid ? 1 : 0,
+    errorMsg: '',
+    reserved: isUid ? 1 : 0,
   };
 }
 

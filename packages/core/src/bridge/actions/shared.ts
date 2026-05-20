@@ -1,7 +1,3 @@
-// Shared private helpers for the action modules. None of this is part
-// of the public Bridge API; keeping it here avoids re-importing the
-// same five-line utility from every themed file.
-
 import type { Bridge } from '../bridge';
 
 /**

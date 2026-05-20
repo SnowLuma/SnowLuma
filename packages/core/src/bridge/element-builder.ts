@@ -1,19 +1,15 @@
-// Element Builder — converts internal MessageElement[] into proto Elem objects
-// for encoding with protobuf_encode<SendMessageRequest>.
-// Port of src/bridge/src/bridge_messages.cpp build_send_elems()
-
+import { protobuf_encode } from '@snowluma/proton';
 import type { Bridge } from './bridge';
 import type { MessageElement } from './events';
-import { protobuf_encode } from '@snowluma/proton';
-import type {
-  MentionExtraSend,
-  MarkdownData,
-} from './proto/proton/action';
-import type { Elem, GroupFileExtra } from './proto/proton/element';
 import { uploadImageMsgInfo } from './highway/image-upload';
+import { hexToBytes } from './highway/pipeline';
 import { uploadPttMsgInfo } from './highway/ptt-upload';
 import { uploadVideoMsgInfo } from './highway/video-upload';
-import { hexToBytes } from './highway/pipeline';
+import type {
+  MarkdownData,
+  MentionExtraSend,
+} from './proto/proton/action';
+import type { Elem, GroupFileExtra } from './proto/proton/element';
 
 type ProtoElem = Partial<Elem>;
 
@@ -91,11 +87,11 @@ function makeMentionElem(element: MessageElement, ctx?: SendContext): ProtoElem 
 
 function makeReplyElem(element: MessageElement): ProtoElem {
   const seq = element.replySeq! & 0xFFFFFFFF;
-  
+
   const srcMsg: any = {
     origSeqs: [seq],
   };
-  
+
   // Add additional fields if available for better reply display
   if (element.replySenderUin) {
     srcMsg.senderUin = BigInt(element.replySenderUin);
@@ -103,7 +99,7 @@ function makeReplyElem(element: MessageElement): ProtoElem {
   if (element.replyTime) {
     srcMsg.time = element.replyTime;
   }
-  
+
   return { srcMsg };
 }
 

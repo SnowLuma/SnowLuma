@@ -23,9 +23,6 @@ interface LogOptions {
   meta?: Record<string, unknown>;
 }
 
-// Fixed-width slot for the UIN tag in rendered output so the [Scope]
-// column stays vertically aligned across lines with and without a UIN.
-// Width covers `[1234567890]` (12 chars); anything longer just won't pad.
 const UIN_SLOT_WIDTH = 12;
 
 const LEVEL_WEIGHT: Record<LogLevel, number> = {
@@ -205,7 +202,7 @@ export interface Logger {
    * support (shown in the `[UIN]` slot and routed to a per-UIN file);
    * other keys are preserved on the options bag for forward compat.
    */
-  child: (meta: { uin?: number; [k: string]: unknown }) => Logger;
+  child: (meta: { uin?: number;[k: string]: unknown }) => Logger;
 }
 
 function makeLogger(opts: LogOptions): Logger {

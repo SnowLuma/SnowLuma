@@ -1,8 +1,3 @@
-// Request-kind handlers (2 cases). OneBot `request` events for friend
-// adds and group invites/joins — both carry the bridge-supplied `flag`
-// that the caller later passes back to `set_friend_add_request` /
-// `set_group_add_request`.
-
 import type { QQEventVariant } from '../../bridge/events';
 import type { JsonObject } from '../types';
 import type { ConverterContext } from './index';

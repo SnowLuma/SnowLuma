@@ -1,143 +1,140 @@
-// Bridge — per-UIN session: handler registration, packet dispatch, event routing.
-// Supports packet sending via native addon.
-// Heavy OIDB / contact / action logic is split into bridge-oidb, bridge-contacts, bridge-actions.
-
-import type { PacketInfo } from '../protocol/types';
-import type { ForwardNodePayload, MessageElement } from './events';
-import type { FriendInfo, QQGroupInfo, GroupMemberInfo, UserProfileInfo, GroupRequestInfo } from './qq-info';
-import { MSG_PUSH_CMD, parseMsgPush } from './msg-push';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { PacketSender, SendPacketResult } from '../protocol/packet-sender';
-import { protobuf_encode, protobuf_decode } from '@snowluma/proton';
-import { buildSendElems } from './element-builder';
-import { IdentityService } from './identity-service';
+import type { PacketInfo } from '../protocol/types';
 import type { BridgeInterface } from './bridge-interface';
+import { buildSendElems } from './element-builder';
+import type { ForwardNodePayload, MessageElement } from './events';
+import { IdentityService } from './identity-service';
+import { MSG_PUSH_CMD, parseMsgPush } from './msg-push';
 import { IncomingPacketPipeline, type CmdParser } from './packet-pipeline';
 import type {
   SendMessageRequest,
   SendMessageResponse,
 } from './proto/proton/action';
 import type { FileExtra } from './proto/proton/message';
+import type { FriendInfo, GroupMemberInfo, GroupRequestInfo, QQGroupInfo, UserProfileInfo } from './qq-info';
 
 // Delegated modules
 import {
-  fetchFriendList as fetchFriendList_,
-  fetchGroupList as fetchGroupList_,
-  fetchGroupMemberList as fetchGroupMemberList_,
-  fetchUserProfile as fetchUserProfile_,
-  fetchGroupRequests as fetchGroupRequests_,
-  fetchDownloadRKeys as fetchDownloadRKeys_,
-} from './bridge-contacts';
-import type { WebHonorType } from './web/group-honor';
-import {
-  muteGroupMember as muteGroupMember_,
-  muteGroupAll as muteGroupAll_,
-  setGroupAddOption as setGroupAddOption_,
-  setGroupSearch as setGroupSearch_,
-  setGroupAddRequest as setGroupAddRequest_,
-  kickGroupMember as kickGroupMember_,
-  kickGroupMembers as kickGroupMembers_,
-  leaveGroup as leaveGroup_,
-  setGroupAdmin as setGroupAdmin_,
-  setGroupCard as setGroupCard_,
-  setGroupName as setGroupName_,
-  setGroupSpecialTitle as setGroupSpecialTitle_,
-  setGroupRemark as setGroupRemark_,
-  getGroupAtAllRemain as getGroupAtAllRemain_,
-} from './actions/group-admin';
-import {
-  uploadGroupFile as uploadGroupFile_,
-  uploadPrivateFile as uploadPrivateFile_,
-  sendGroupFileMessage as sendGroupFileMessage_,
-  fetchGroupFiles as fetchGroupFiles_,
-  fetchGroupFileUrl as fetchGroupFileUrl_,
-  fetchPrivateFileUrl as fetchPrivateFileUrl_,
-  fetchGroupPttUrlByNode as fetchGroupPttUrlByNode_,
-  fetchPrivatePttUrlByNode as fetchPrivatePttUrlByNode_,
-  fetchGroupVideoUrlByNode as fetchGroupVideoUrlByNode_,
-  fetchPrivateVideoUrlByNode as fetchPrivateVideoUrlByNode_,
-  deleteGroupFile as deleteGroupFile_,
-  moveGroupFile as moveGroupFile_,
-  createGroupFileFolder as createGroupFileFolder_,
-  deleteGroupFileFolder as deleteGroupFileFolder_,
-  renameGroupFileFolder as renameGroupFileFolder_,
-  fetchGroupFileCount as fetchGroupFileCount_,
-} from './actions/group-file';
-import {
-  recallGroupMessage as recallGroupMessage_,
-  recallPrivateMessage as recallPrivateMessage_,
-  markPrivateMessageRead as markGroupMsgAsRead_,
-  markGroupMessageRead as markPrivateMsgAsRead_,
-  setGroupEssence as setGroupEssence_,
-} from './actions/group-message';
-import {
-  sendPoke as sendPoke_,
-  sendLike as sendLike_,
-  setGroupReaction as setGroupReaction_,
-  getEmojiLikes as getEmojiLikes_,
-} from './actions/interaction';
-import {
-  uploadForwardNodes as uploadForwardNodes_,
-  fetchForwardNodes as fetchForwardNodes_,
-} from './actions/forward';
-import {
-  setFriendAddRequest as setFriendAddRequest_,
-  deleteFriend as deleteFriend_,
-  setFriendRemark as setFriendRemark_,
-} from './actions/friend';
-import {
-  setOnlineStatus as setOnlineStatus_,
-  setDiyOnlineStatus as setDiyOnlineStatus_,
-  setProfile as setProfile_,
-  setSelfLongNick as setSelfLongNick_,
-  setInputStatus as setInputStatus_,
-  setAvatar as setAvatar_,
-  setGroupAvatar as setGroupAvatar_,
-  fetchCustomFace as fetchCustomFace_,
-  getProfileLike as getProfileLike_,
-  getUnidirectionalFriendList as getUnidirectionalFriendList_,
-} from './actions/profile';
-import {
-  translateEn2Zh as translateEn2Zh_,
-  getMiniAppArk as getMiniAppArk_,
-  clickInlineKeyboardButton as clickInlineKeyboardButton_,
-  sendGroupSign as sendGroupSign_,
-} from './actions/misc';
-import {
-  setGroupTodo as setGroupTodo_,
-  completeGroupTodo as completeGroupTodo_,
-  cancelGroupTodo as cancelGroupTodo_,
-  getStrangerStatus as getStrangerStatus_,
-  fetchAiVoiceList as fetchAiVoiceList_,
-  fetchAiVoice as fetchAiVoice_,
   AiVoiceChatType,
+  cancelGroupTodo as cancelGroupTodo_,
+  completeGroupTodo as completeGroupTodo_,
+  fetchAiVoice as fetchAiVoice_,
+  fetchAiVoiceList as fetchAiVoiceList_,
+  getStrangerStatus as getStrangerStatus_,
+  setGroupTodo as setGroupTodo_,
   type AiVoiceCategory,
   type AiVoiceChatType as AiVoiceChatTypeT,
   type StrangerStatus,
 } from './actions/extras';
-export { AiVoiceChatType };
-export type { AiVoiceCategory, StrangerStatus };
 import {
-  getGroupHonorInfo as getGroupHonorInfo_,
-  forceFetchClientKey as forceFetchClientKey_,
-  getGroupEssence as getGroupEssence_,
-  getGroupEssenceAll as getGroupEssenceAll_,
-  sendGroupNotice as sendGroupNotice_,
-  getGroupNotice as getGroupNotice_,
-  deleteGroupNoticeByFid as deleteGroupNotice_,
-  getCookiesStr as getCookiesStr_,
-  getCsrfToken as getCsrfToken_,
-  getCredentials as getCredentials_,
-  getGroupAlbumListWeb as getGroupAlbumListWeb_,
-  uploadImageToGroupAlbumWeb as uploadImageToGroupAlbumWeb_,
-} from './web-actions';
-import { getGroupAlbumMediaList as getGroupAlbumMediaList_,
+  fetchForwardNodes as fetchForwardNodes_,
+  uploadForwardNodes as uploadForwardNodes_,
+} from './actions/forward';
+import {
+  deleteFriend as deleteFriend_,
+  setFriendAddRequest as setFriendAddRequest_,
+  setFriendRemark as setFriendRemark_,
+} from './actions/friend';
+import {
+  getGroupAtAllRemain as getGroupAtAllRemain_,
+  kickGroupMember as kickGroupMember_,
+  kickGroupMembers as kickGroupMembers_,
+  leaveGroup as leaveGroup_,
+  muteGroupAll as muteGroupAll_,
+  muteGroupMember as muteGroupMember_,
+  setGroupAddOption as setGroupAddOption_,
+  setGroupAddRequest as setGroupAddRequest_,
+  setGroupAdmin as setGroupAdmin_,
+  setGroupCard as setGroupCard_,
+  setGroupName as setGroupName_,
+  setGroupRemark as setGroupRemark_,
+  setGroupSearch as setGroupSearch_,
+  setGroupSpecialTitle as setGroupSpecialTitle_,
+} from './actions/group-admin';
+import {
   commentGroupAlbumMedia as commentGroupAlbumMedia_,
-  likeGroupAlbumMedia as likeGroupAlbumMedia_,
   deleteGroupAlbumMedia as deleteGroupAlbumMedia_,
+  getGroupAlbumMediaList as getGroupAlbumMediaList_,
+  likeGroupAlbumMedia as likeGroupAlbumMedia_,
 } from './actions/group-album';
 import type { GroupFilesResult } from './actions/group-file';
+import {
+  createGroupFileFolder as createGroupFileFolder_,
+  deleteGroupFile as deleteGroupFile_,
+  deleteGroupFileFolder as deleteGroupFileFolder_,
+  fetchGroupFileCount as fetchGroupFileCount_,
+  fetchGroupFiles as fetchGroupFiles_,
+  fetchGroupFileUrl as fetchGroupFileUrl_,
+  fetchGroupPttUrlByNode as fetchGroupPttUrlByNode_,
+  fetchGroupVideoUrlByNode as fetchGroupVideoUrlByNode_,
+  fetchPrivateFileUrl as fetchPrivateFileUrl_,
+  fetchPrivatePttUrlByNode as fetchPrivatePttUrlByNode_,
+  fetchPrivateVideoUrlByNode as fetchPrivateVideoUrlByNode_,
+  moveGroupFile as moveGroupFile_,
+  renameGroupFileFolder as renameGroupFileFolder_,
+  sendGroupFileMessage as sendGroupFileMessage_,
+  uploadGroupFile as uploadGroupFile_,
+  uploadPrivateFile as uploadPrivateFile_,
+} from './actions/group-file';
+import {
+  markPrivateMessageRead as markGroupMsgAsRead_,
+  markGroupMessageRead as markPrivateMsgAsRead_,
+  recallGroupMessage as recallGroupMessage_,
+  recallPrivateMessage as recallPrivateMessage_,
+  setGroupEssence as setGroupEssence_,
+} from './actions/group-message';
+import {
+  getEmojiLikes as getEmojiLikes_,
+  sendLike as sendLike_,
+  sendPoke as sendPoke_,
+  setGroupReaction as setGroupReaction_,
+} from './actions/interaction';
+import {
+  clickInlineKeyboardButton as clickInlineKeyboardButton_,
+  getMiniAppArk as getMiniAppArk_,
+  sendGroupSign as sendGroupSign_,
+  translateEn2Zh as translateEn2Zh_,
+} from './actions/misc';
+import {
+  fetchCustomFace as fetchCustomFace_,
+  getProfileLike as getProfileLike_,
+  getUnidirectionalFriendList as getUnidirectionalFriendList_,
+  setAvatar as setAvatar_,
+  setDiyOnlineStatus as setDiyOnlineStatus_,
+  setGroupAvatar as setGroupAvatar_,
+  setInputStatus as setInputStatus_,
+  setOnlineStatus as setOnlineStatus_,
+  setProfile as setProfile_,
+  setSelfLongNick as setSelfLongNick_,
+} from './actions/profile';
 import type { MediaIndexNode } from './actions/shared';
+import {
+  fetchDownloadRKeys as fetchDownloadRKeys_,
+  fetchFriendList as fetchFriendList_,
+  fetchGroupList as fetchGroupList_,
+  fetchGroupMemberList as fetchGroupMemberList_,
+  fetchGroupRequests as fetchGroupRequests_,
+  fetchUserProfile as fetchUserProfile_,
+} from './bridge-contacts';
 import { BridgeEventBus } from './event-bus';
+import {
+  deleteGroupNoticeByFid as deleteGroupNotice_,
+  forceFetchClientKey as forceFetchClientKey_,
+  getCookiesStr as getCookiesStr_,
+  getCredentials as getCredentials_,
+  getCsrfToken as getCsrfToken_,
+  getGroupAlbumListWeb as getGroupAlbumListWeb_,
+  getGroupEssence as getGroupEssence_,
+  getGroupEssenceAll as getGroupEssenceAll_,
+  getGroupHonorInfo as getGroupHonorInfo_,
+  getGroupNotice as getGroupNotice_,
+  sendGroupNotice as sendGroupNotice_,
+  uploadImageToGroupAlbumWeb as uploadImageToGroupAlbumWeb_,
+} from './web-actions';
+import type { WebHonorType } from './web/group-honor';
+export { AiVoiceChatType };
+export type { AiVoiceCategory, StrangerStatus };
 
 export interface SendMessageReceipt {
   messageId: number;
@@ -663,7 +660,7 @@ export class Bridge implements BridgeInterface {
   async getGroupHonorInfo(groupId: number, type: WebHonorType | string): Promise<any> {
     return getGroupHonorInfo_(this, groupId, type);
   }
-  async forceFetchClientKey(): Promise<ClientKeyInfo> { return forceFetchClientKey_(this)}
+  async forceFetchClientKey(): Promise<ClientKeyInfo> { return forceFetchClientKey_(this) }
   async getGroupEssence(groupId: number, pageStart: number = 0, pageLimit: number = 50): Promise<any> {
     return getGroupEssence_(this, groupId, pageStart, pageLimit);
   }

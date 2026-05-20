@@ -1,9 +1,7 @@
-// Grab-bag: action verbs that don't share a theme with anything else.
-// Kept together so the directory stays small; if any of these grow new
-// related siblings, lift the whole group out into its own file.
-
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { Bridge } from '../bridge';
-import { runOidb, makeOidbEnvelope } from '../bridge-oidb';
+import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
+import { OidbBase } from '../proto/proton/oidb';
 import type {
   MiniAppShareReq,
   MiniAppShareResp,
@@ -14,8 +12,6 @@ import type {
   Oidb0xeb7Req,
   Oidb0xeb7Resp,
 } from '../proto/proton/oidb-actions/base';
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import { OidbBase } from '../proto/proton/oidb';
 
 export async function translateEn2Zh(
   bridge: Bridge,

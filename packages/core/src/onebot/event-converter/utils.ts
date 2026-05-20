@@ -1,11 +1,5 @@
-// Pure helpers shared across the per-post_type converter modules.
-//
-// Nothing here touches I/O or class state; everything is a small
-// function so the per-event tests can import what they need without
-// dragging in resolver wiring.
-
-import type { JsonArray, JsonObject } from '../types';
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT } from '../message-id';
+import type { JsonArray, JsonObject } from '../types';
 import type { MessageIdResolver } from './index';
 
 export function parseSelfId(instanceUin: string): number {

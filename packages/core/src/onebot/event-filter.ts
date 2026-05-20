@@ -1,11 +1,4 @@
 import type { JsonObject, JsonValue, MessageFormat } from './types';
-
-/**
- * Per-adapter view of how an event should be reported.
- *
- * Built once from each adapter's own configuration at (re)load time so the
- * per-publish dispatch loop is just a couple of object lookups.
- */
 export interface EventReportOptions {
   /** Effective `messageFormat` for this adapter. */
   messageFormat: MessageFormat;

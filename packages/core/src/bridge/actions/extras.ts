@@ -1,11 +1,6 @@
-// Tier-2 napcat-parity actions ported as pure oidb calls. Each function
-// here corresponds to one napcat PacketApi.pkt.operation.* entry; the
-// schemas live in proto/oidb-action.ts. Nothing in this file touches
-// the NTQQ NodeIKernel — every wire trip is one runOidb round-trip.
-
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { Bridge } from '../bridge';
-import { runOidb, makeOidbEnvelope } from '../bridge-oidb';
+import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
 import { OidbBase } from '../proto/proton/oidb';
 import type {
   OidbGroupTodo,

@@ -1,9 +1,6 @@
-// SQLite-backed message store using node:sqlite (DatabaseSync).
-// Refactored to use a single unified `messages` table for all message types.
-
 import fs from 'fs';
-import path from 'path';
 import { DatabaseSync } from 'node:sqlite';
+import path from 'path';
 import type { JsonObject, MessageMeta } from './types';
 
 export class MessageStore {
@@ -82,7 +79,7 @@ export class MessageStore {
     const row = this.db.prepare(
       'SELECT data FROM messages WHERE message_hash = ? AND data IS NOT NULL',
     ).get(messageId) as { data: string } | undefined;
-    
+
     if (!row?.data) return null;
     try {
       return JSON.parse(row.data) as JsonObject;
@@ -123,7 +120,7 @@ export class MessageStore {
     if (!Number.isInteger(sessionId) || sessionId <= 0 || !isValidMessageId(messageId)) {
       return null;
     }
-    
+
     // For private messages, we cannot rely on session_id matching because:
     // - When receiving: session_id is the sender's UIN
     // - When sending reply: sessionId parameter is the recipient's UIN (who we're sending to)
@@ -141,7 +138,7 @@ export class MessageStore {
            WHERE is_group = 0 AND message_hash = ?
            LIMIT 1`
       ).get(messageId) as { sequence: number } | undefined;
-    
+
     if (!row || !Number.isInteger(row.sequence) || row.sequence <= 0) {
       return null;
     }

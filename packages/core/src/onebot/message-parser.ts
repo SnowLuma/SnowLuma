@@ -1,10 +1,6 @@
-// OneBot11 message segment parser.
-// Converts OneBot message format (string with CQ codes or JSON segment arrays)
-// into internal MessageElement arrays for sending.
-
 import type { MessageElement } from '../bridge/events';
-import type { JsonValue } from './types';
 import { createLogger } from '../utils/logger';
+import type { JsonValue } from './types';
 
 const log = createLogger('MsgParser');
 
@@ -140,12 +136,12 @@ async function segmentToElement(type: string, data: Record<string, unknown>, opt
       if (options?.resolveReplySequence) {
         const resolved = options.resolveReplySequence(id);
         if (typeof resolved === 'number' && resolved > 0) {
-          const element: MessageElement = { 
-            type: 'reply', 
+          const element: MessageElement = {
+            type: 'reply',
             replySeq: resolved,
             replyMessageId: id  // Keep the original messageId for logging
           };
-          
+
           // Try to get additional meta info for better reply display
           if (options?.resolveReplyMeta) {
             const meta = options.resolveReplyMeta(id);
@@ -155,7 +151,7 @@ async function segmentToElement(type: string, data: Record<string, unknown>, opt
               element.replyRandom = meta.random;
             }
           }
-          
+
           return element;
         }
       }

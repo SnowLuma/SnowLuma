@@ -1,14 +1,9 @@
-// Group notice (`群公告`) web actions: send / list / delete.
-// `sendGroupNotice` can attach an optional image; when present it
-// stages the bytes (HTTP URL or local file) and uploads via the
-// notice-image endpoint before posting the notice itself.
-
 import type { Bridge } from '../bridge';
 import {
-  setGroupNoticeWebAPI,
-  getGroupNoticeWebAPI,
-  uploadGroupNoticeImage,
   deleteGroupNotice,
+  getGroupNoticeWebAPI,
+  setGroupNoticeWebAPI,
+  uploadGroupNoticeImage,
 } from '../web/group-notice';
 import { getCookies } from './cookies';
 

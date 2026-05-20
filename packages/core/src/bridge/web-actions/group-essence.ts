@@ -1,7 +1,3 @@
-// `get_essence_msg_list` — group essence (highlighted) messages.
-// Two flavors: paginated (`getGroupEssence`) and the convenience
-// fetch-everything (`getGroupEssenceAll`).
-
 import type { Bridge } from '../bridge';
 import { getGroupEssenceMsg, getGroupEssenceMsgAll } from '../web/group-essence';
 import { getCookies } from './cookies';

@@ -8,9 +8,4 @@ export interface PacketInfo {
   fromClient: boolean;
   body: Uint8Array;
 }
-
-/**
- * Packet sink injected into HookSession / HookManager. The default
- * wiring forwards to BridgeManager.onPacket, but tests inject spies.
- */
 export type PacketSink = (packet: PacketInfo) => void;

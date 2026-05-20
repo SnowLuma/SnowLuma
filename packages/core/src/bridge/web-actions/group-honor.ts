@@ -1,8 +1,3 @@
-// `get_group_honor_info` — queries the per-group honor leaderboards
-// (talkative / performer / legend / emotion / strong_newbie).
-// Each honor type is a separate web call; ALL fetches all four
-// non-newbie lists and folds them into one response.
-
 import type { Bridge } from '../bridge';
 import { getHonorListWebAPI, WebHonorType } from '../web/group-honor';
 import { getCookies } from './cookies';

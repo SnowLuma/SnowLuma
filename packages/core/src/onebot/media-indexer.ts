@@ -1,23 +1,15 @@
 // Side-channel observer that watches every image / record / video
 // segment emitted by the event converter and writes a row into the
 // MediaStore so later `get_image` / `get_record` OneBot actions can
-// resolve the original `data.file` back to a URL + metadata.
-//
-// Used as the `mediaSegmentSink` callback in `ConverterContext`.
-//
-// The fan-out is uniform (always one rememberX call per segment), but
-// each mediaType maps to a slightly different MediaStore record shape;
-// keeping the three field maps in one place makes the divergence
-// visible at a glance.
 
 import type { MessageElement } from '../bridge/events';
-import type { JsonObject } from './types';
 import type { MediaStore } from './media-store';
+import type { JsonObject } from './types';
 
 export type MediaType = 'image' | 'record' | 'video';
 
 export class MediaIndexer {
-  constructor(private readonly mediaStore: MediaStore) {}
+  constructor(private readonly mediaStore: MediaStore) { }
 
   remember(
     mediaType: MediaType,

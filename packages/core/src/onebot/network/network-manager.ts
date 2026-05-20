@@ -1,13 +1,7 @@
-// OneBot network manager.
-//
-// Mirrors NapCat's `OB11NetworkManager`: holds a `Map<name, adapter>`, fans
-// events out to every active adapter in parallel, and provides primitives
-// the OneBot instance uses to register, hot-reload, and tear adapters down.
-
-import type { JsonObject, NetworkBase } from '../types';
-import { buildDispatchPayload } from '../event-filter';
-import { IOneBotNetworkAdapter } from './adapter';
 import { createLogger } from '../../utils/logger';
+import { buildDispatchPayload } from '../event-filter';
+import type { JsonObject, NetworkBase } from '../types';
+import { IOneBotNetworkAdapter } from './adapter';
 
 const log = createLogger('OneBot.Network');
 

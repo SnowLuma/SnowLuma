@@ -1,12 +1,3 @@
-// Compact one-line param summary for log output.
-//
-// OneBot action params can include large message arrays / nested
-// payloads that would blow the line width to multiple kilobytes if we
-// JSON.stringify them naively. This helper produces a flat
-// `k1=v1 k2=v2 ...` rendering with per-field truncation and a hard
-// total cap, designed to be grep-friendly without flooding the log
-// file.
-
 const MAX_FIELD = 40;
 const MAX_TOTAL = 200;
 

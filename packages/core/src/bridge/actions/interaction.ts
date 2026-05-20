@@ -1,10 +1,7 @@
-// Lightweight social-interaction actions: poke, like, emoji reaction,
-// and the related read-side "who reacted with X" query. None of these
-// edit message content — they're purely social signals.
-
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { Bridge } from '../bridge';
-import { runOidb, makeOidbEnvelope } from '../bridge-oidb';
+import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
+import { OidbBase } from '../proto/proton/oidb';
 import type {
   Oidb0x9083Req,
   Oidb0x9083Resp,
@@ -12,7 +9,6 @@ import type {
   OidbLike,
   OidbPoke,
 } from '../proto/proton/oidb-actions/base';
-import { OidbBase } from '../proto/proton/oidb';
 
 export async function sendPoke(bridge: Bridge, isGroup: boolean, peerUin: number, targetUin?: number): Promise<void> {
   const env = makeOidbEnvelope<OidbPoke>(0xED3, 1, {

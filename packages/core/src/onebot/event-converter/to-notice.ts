@@ -1,12 +1,6 @@
-// Notice-kind handlers (10 cases). These produce OneBot `notice` events
-// with no message body / no element conversion — pure field projections
-// from the bridge event into the OneBot wire shape. None of them call
-// resolvers except the two recall handlers and group_essence, which
-// need a message-id resolution.
-
 import type { QQEventVariant } from '../../bridge/events';
-import type { JsonObject } from '../types';
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT } from '../message-id';
+import type { JsonObject } from '../types';
 import type { ConverterContext } from './index';
 import { applyMessageIdResolver, isSameActor } from './utils';
 

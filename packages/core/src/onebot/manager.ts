@@ -1,8 +1,8 @@
 import type { BridgeInterface } from '../bridge/bridge-interface';
 import type { BridgeManager } from '../bridge/manager';
+import { createLogger } from '../utils/logger';
 import { loadOneBotConfig } from './config';
 import { OneBotInstance } from './instance';
-import { createLogger } from '../utils/logger';
 
 const log = createLogger('OneBot');
 const VERBOSE_WARMUP = process.env.SNOWLUMA_VERBOSE_WARMUP === '1';
@@ -18,9 +18,6 @@ export class OneBotManager {
     bridgeManager.setSessionClosedCallback((uin) => {
       this.onSessionClosed(uin);
     });
-
-    // Per-kind subscriptions to `bridge.events` happen inside
-    // `OneBotInstance` itself; no global firehose to wire here.
   }
 
   getInstance(uin: string): OneBotInstance | null {

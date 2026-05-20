@@ -1,10 +1,6 @@
-// Rich body decoder — turns the proto MessageBody (richText.elems +
-// richText.ptt/notOnlineFile + msgContent) of a MsgPush message into
-// the bridge-internal MessageElement[] sequence. Pure, no identity
-// lookups, no I/O. The single small interface `decodeRichBody` hides
-// ~400 lines of per-element-type decoding behind it.
-
 import { protobuf_decode } from '@snowluma/proton';
+import { toHexUpper } from '../../utils/hex';
+import type { MessageElement } from '../events';
 import type {
   Elem,
   GroupFileExtra,
@@ -15,8 +11,6 @@ import type {
   QSmallFaceExtra,
 } from '../proto/proton/element';
 import type { FileExtra, MessageBody, RichText } from '../proto/proton/message';
-import type { MessageElement } from '../events';
-import { toHexUpper } from '../../utils/hex';
 import { decompressData, makeImageUrl } from './helpers';
 
 type ElemDecoded = Elem;

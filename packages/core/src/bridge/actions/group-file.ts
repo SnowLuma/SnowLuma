@@ -1,15 +1,12 @@
-// Group + private file operations: upload (with highway fast-path),
-// folder management, file listing, file/media URL fetch. All upload
-// paths share the same shape (resolve target → OIDB metadata exchange
-// → highway HTTP PUT if the server says we must), but the OIDB schemas
-// and field layouts differ enough between group and private that they
-// stay as separate functions.
-
-import type { Bridge } from '../bridge';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import { runOidb, makeOidbEnvelope } from '../bridge-oidb';
+import { toHexUpper } from '../../utils/hex';
+import { createLogger } from '../../utils/logger';
+import type { Bridge } from '../bridge';
+import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
 import { fetchHighwaySession, uploadHighwayHttp } from '../highway/highway-client';
 import { computeHashes, computeMd5, FILE_UPLOAD_MAX_BYTES, loadBinarySource } from '../highway/utils';
+import type { FileUploadExt } from '../proto/proton/highway';
+import { OidbBase } from '../proto/proton/oidb';
 import type {
   OidbGroupFileCountViewReq,
   OidbGroupFileCountViewResp,
@@ -22,18 +19,14 @@ import type {
   OidbGroupSendFileReq,
 } from '../proto/proton/oidb-actions/group-file';
 import type {
+  NTV2RichMediaReq,
+  NTV2RichMediaResp,
   OidbPrivateFileDownloadReq,
   OidbPrivateFileDownloadResp,
   OidbPrivateFileUploadReq,
   OidbPrivateFileUploadResp,
-  NTV2RichMediaReq,
-  NTV2RichMediaResp,
 } from '../proto/proton/oidb-actions/media';
-import type { FileUploadExt } from '../proto/proton/highway';
-import { toHexUpper } from '../../utils/hex';
-import { createLogger } from '../../utils/logger';
 import { ensureRetCodeZero, resolveSelfUid, toInt, type MediaIndexNode } from './shared';
-import { OidbBase } from '../proto/proton/oidb';
 
 const log = createLogger('GroupFile');
 

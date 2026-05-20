@@ -1,10 +1,3 @@
-// OneBot v11 hidden API: `.handle_quick_operation`.
-//
-// When an HTTP POST event report receives a JSON body in response, that body
-// is interpreted as a "quick operation" — short-cuts to common follow-up
-// API calls (reply, recall, ban, kick, approve/reject). Spec:
-//   https://github.com/botuniverse/onebot-11/blob/master/api/hidden.md
-
 import type { ApiHandler } from '../api-handler';
 import type { JsonObject, JsonValue } from '../types';
 

@@ -1,11 +1,5 @@
-// Reverse (client) WebSocket adapter — one instance per `wsClients[]` entry.
-//
-// Connects out to a remote OneBot endpoint, manages reconnects, forwards
-// pushed events on `onEvent`, and dispatches incoming API messages to the
-// shared ApiHandler.
-
 import { WebSocket } from '@snowluma/websocket';
-import type { WsClientNetwork, WsRole, JsonObject } from '../types';
+import { createLogger, type Logger } from '../../utils/logger';
 import {
   pickDispatchJson,
   resolveReportOptions,
@@ -13,7 +7,7 @@ import {
   type DispatchPayload,
   type EventReportOptions,
 } from '../event-filter';
-import { createLogger, type Logger } from '../../utils/logger';
+import type { JsonObject, WsClientNetwork, WsRole } from '../types';
 import { IOneBotNetworkAdapter, NetworkReloadType, type NetworkAdapterContext } from './adapter';
 import { rawDataToString, safeClose, safeSend } from './utils';
 

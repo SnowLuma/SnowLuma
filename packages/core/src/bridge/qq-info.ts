@@ -1,8 +1,3 @@
-// Domain object shapes shared by IdentityService and its callers. The
-// concrete state (own UIN, friends list, group rosters, profile cache)
-// lives inside IdentityService — these interfaces just describe the
-// records that flow across remember*/refresh* and find* boundaries.
-
 export interface UserProfileInfo {
   uin: number;
   uid: string;

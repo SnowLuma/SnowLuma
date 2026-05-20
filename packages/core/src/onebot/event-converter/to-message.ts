@@ -1,11 +1,6 @@
-// Message-kind handlers: friend_message, group_message, temp_message.
-// Each takes a ConverterContext (which carries selfId + the four
-// resolver/sink callbacks) and the typed bridge event, and returns the
-// OneBot top-level event JSON.
-
 import type { QQEventVariant } from '../../bridge/events';
-import type { JsonObject } from '../types';
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT } from '../message-id';
+import type { JsonObject } from '../types';
 import type { ConverterContext } from './index';
 import { elementsToJson } from './to-segment';
 import { applyMessageIdResolver, segmentsToRawMessage } from './utils';

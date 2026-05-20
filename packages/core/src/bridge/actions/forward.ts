@@ -1,16 +1,11 @@
-// Forward-message upload / download via the long-message service.
-// Uses gzipped protobufs over `trpc.group.long_msg_interface`.
-// An in-memory cache keeps res_ids stable across rapid re-fetches
-// from the same OneBot client (avoids re-decoding the same payload).
-
-import type { Bridge } from '../bridge';
-import { gunzipSync, gzipSync } from 'zlib';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { randomUUID } from 'crypto';
-import { protobuf_encode, protobuf_decode } from '@snowluma/proton';
-import { buildSendElems } from '../element-builder';
-import { parseMsgPush } from '../msg-push';
-import type { ForwardNodePayload, MessageElement } from '../events';
+import { gunzipSync, gzipSync } from 'zlib';
 import type { PacketInfo } from '../../protocol/types';
+import type { Bridge } from '../bridge';
+import { buildSendElems } from '../element-builder';
+import type { ForwardNodePayload, MessageElement } from '../events';
+import { parseMsgPush } from '../msg-push';
 import type {
   LongMsgResult,
   RecvLongMsgReq,

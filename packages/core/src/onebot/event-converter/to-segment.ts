@@ -1,8 +1,3 @@
-// Per-element converter: 13 element types -> one OneBot message segment.
-// Used by message-events (friend/group/temp) for inline elements AND by
-// modules/message-actions.ts for forward-message rebuilding (re-exported
-// from this module via the index barrel as `elementsToOneBotSegments`).
-
 import type { MessageElement } from '../../bridge/events';
 import type { JsonArray, JsonObject } from '../types';
 import type {

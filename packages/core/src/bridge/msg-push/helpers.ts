@@ -1,10 +1,7 @@
-// MsgPush decode helpers — pure functions shared across PkgType decoders
-// and the rich-body decoder. No state, no I/O.
-
-import { inflateSync } from 'zlib';
 import { protobuf_decode } from '@snowluma/proton';
-import type { OperatorInfo } from '../proto/proton/notify';
+import { inflateSync } from 'zlib';
 import type { IdentityService } from '../identity-service';
+import type { OperatorInfo } from '../proto/proton/notify';
 
 export function makeImageUrl(origUrl: string): string {
   if (!origUrl) return '';
@@ -57,7 +54,7 @@ export function decodeOperatorUid(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('utf8');
 }
 
-export function buildTemplateMap(params: Array<{name?: string; value?: string}>): Map<string, string> {
+export function buildTemplateMap(params: Array<{ name?: string; value?: string }>): Map<string, string> {
   const map = new Map<string, string>();
   for (const p of params) {
     if (p.name !== undefined) map.set(p.name, p.value ?? '');

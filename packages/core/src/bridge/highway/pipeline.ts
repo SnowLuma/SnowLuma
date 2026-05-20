@@ -1,32 +1,15 @@
-// Shared NTV2 rich-media upload pipeline.
-//
-// Image, PTT, and video all follow the same three-step shape:
-//   1. send a NTV2UploadRichMediaReq OIDB packet describing the file(s),
-//   2. for any sub-file the server signals it wants (uKey present in the
-//      response), do a Highway HTTP PUT of the bytes,
-//   3. encode the returned msgInfo into the bytes that go inside a
-//      commonElem on the outgoing message.
-//
-// The per-format files (image-upload, ptt-upload, video-upload) used to
-// each implement steps 1 / 2 / 3 inline with subtle drift between them.
-// This module pulls the envelope, response decoding, error handling, and
-// the Highway PUT loop into one place, leaving each format file with
-// only: how to load the file, how to fill the type-specific fileInfo +
-// extBizInfo, and which command ids to use.
-
-import crypto from 'crypto';
-
-import type { Bridge } from '../bridge';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import crypto from 'crypto';
+import { createLogger } from '../../utils/logger';
+import type { Bridge } from '../bridge';
 import { makeOidbEnvelope } from '../bridge-oidb';
 import type {
   EncodableMediaMsgInfo,
   NTV2UploadRichMediaReq,
   NTV2UploadRichMediaResp,
 } from '../proto/proton/highway';
-import { buildHighwayExtend, fetchHighwaySession, uploadHighwayHttp } from './highway-client';
-import { createLogger } from '../../utils/logger';
 import { OidbBase } from '../proto/proton/oidb';
+import { buildHighwayExtend, fetchHighwaySession, uploadHighwayHttp } from './highway-client';
 
 const moduleLog = createLogger('Highway');
 

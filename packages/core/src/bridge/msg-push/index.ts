@@ -1,25 +1,22 @@
-// MsgPush entry point — assembles the PkgType registry and exposes
-// `parseMsgPush(pkt, identity)` as the single CmdParser registered against
-// `MSG_PUSH_CMD` on the IncomingPacketPipeline.
-
 import type { PacketInfo } from '../../protocol/types';
-import type { IdentityService } from '../identity-service';
 import type { QQEventVariant } from '../events';
+import type { IdentityService } from '../identity-service';
 import { buildContext } from './context';
-import { MsgPushRegistry } from './registry';
-import { PkgType } from './enums';
+import { decodeEvent0x210 } from './decoders/event-0x210';
+import { decodeEvent0x2DC } from './decoders/event-0x2dc';
+import { decodeFriendMessage } from './decoders/friend-message';
+import { decodeGroupAdmin } from './decoders/group-admin';
+import {
+  decodeGroupInvitation, decodeGroupInvite,
+  decodeGroupJoinRequest,
+} from './decoders/group-join-request';
 import {
   decodeGroupMemberJoin, decodeGroupMemberLeave, decodeGroupSelfJoined,
 } from './decoders/group-member-change';
-import { decodeGroupAdmin } from './decoders/group-admin';
-import {
-  decodeGroupJoinRequest, decodeGroupInvitation, decodeGroupInvite,
-} from './decoders/group-join-request';
-import { decodeEvent0x210 } from './decoders/event-0x210';
-import { decodeEvent0x2DC } from './decoders/event-0x2dc';
 import { decodeGroupMessage } from './decoders/group-message';
 import { decodeTempMessage } from './decoders/temp-message';
-import { decodeFriendMessage } from './decoders/friend-message';
+import { PkgType } from './enums';
+import { MsgPushRegistry } from './registry';
 
 export const MSG_PUSH_CMD = 'trpc.msg.olpush.OlPushService.MsgPush';
 

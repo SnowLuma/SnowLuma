@@ -3,24 +3,10 @@
 // The `get_image` / `get_record` actions need to map a `data.file` (or related
 // identifier) we previously emitted in a message segment back to the URL,
 // size, name, and any OIDB media-node info needed to re-resolve a stale URL.
-//
-// Earlier this lived in an in-memory `MediaCache`, which meant the lookup
-// table was lost on every restart. This implementation persists everything
-// alongside the message store so OneBot consumers can always resolve the
-// media that produced any segment ever stored, even after the bot restarts.
-//
-// Schema overview (single SQLite file per UIN, e.g. `data/<uin>/media.db`):
-//   media_entries(type, primary_key, data JSON, last_seen)  -- one row per logical media item
-//   media_keys(type, key, primary_key)                      -- secondary index for every alias
-//
-// `rememberImage` / `rememberRecord` upsert exactly one entry row plus one
-// alias row per identifier (file / fileName / fileId / url). The alias rows
-// always point to the canonical entry so URL refreshes propagate to every
-// alias automatically.
 
 import fs from 'fs';
-import path from 'path';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
+import path from 'path';
 
 import type { MessageElement } from '../bridge/events';
 

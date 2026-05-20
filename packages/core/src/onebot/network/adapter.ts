@@ -1,15 +1,6 @@
-// Base abstractions for OneBot network adapters.
-//
-// Modeled on NapCat's `IOB11NetworkAdapter` so each entry under
-// `config.networks.{httpServers,httpClients,wsServers,wsClients}` becomes
-// exactly one adapter instance, identified by `name`. The previous design
-// rolled multiple servers/clients into a single transport class; the
-// per-entry split makes hot-reload, lifecycle, and event isolation much
-// simpler to reason about.
-
 import type { ApiHandler } from '../api-handler';
-import type { JsonObject, NetworkBase } from '../types';
 import type { DispatchPayload } from '../event-filter';
+import type { JsonObject, NetworkBase } from '../types';
 
 export interface NetworkAdapterContext {
   /** Self UIN as string — written into outbound headers. */

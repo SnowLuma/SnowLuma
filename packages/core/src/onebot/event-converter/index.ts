@@ -1,12 +1,3 @@
-// Bridge event -> OneBot top-level event conversion.
-//
-// Replaces the old `EventConverter` class. The class held four
-// resolver fields (image-url / media-url / message-id / media-segment
-// sink) wired in lazily via setters; the new shape passes them as a
-// `ConverterContext` object so each case is a pure function and the
-// per-case test setup is two lines, not a class instance plus four
-// setter calls.
-
 import type { MessageElement, QQEventVariant } from '../../bridge/events';
 import type { JsonObject } from '../types';
 import {
@@ -84,26 +75,26 @@ export async function convertEvent(
   switch (event.kind) {
     // Messages.
     case 'friend_message': return convertFriendMessage(ctx, event);
-    case 'group_message':  return convertGroupMessage(ctx, event);
-    case 'temp_message':   return convertTempMessage(ctx, event);
+    case 'group_message': return convertGroupMessage(ctx, event);
+    case 'temp_message': return convertTempMessage(ctx, event);
 
     // Notices.
-    case 'group_member_join':  return convertGroupMemberJoin(ctx, event);
+    case 'group_member_join': return convertGroupMemberJoin(ctx, event);
     case 'group_member_leave': return convertGroupMemberLeave(ctx, event);
-    case 'group_mute':         return convertGroupMute(ctx, event);
-    case 'group_admin':        return convertGroupAdmin(ctx, event);
-    case 'friend_recall':      return convertFriendRecall(ctx, event);
-    case 'group_recall':       return convertGroupRecall(ctx, event);
-    case 'friend_poke':        return convertFriendPoke(ctx, event);
-    case 'group_poke':         return convertGroupPoke(ctx, event);
-    case 'group_essence':      return convertGroupEssence(ctx, event);
-    case 'group_file_upload':  return convertGroupFileUpload(ctx, event);
-    case 'friend_add':         return convertFriendAdd(ctx, event);
+    case 'group_mute': return convertGroupMute(ctx, event);
+    case 'group_admin': return convertGroupAdmin(ctx, event);
+    case 'friend_recall': return convertFriendRecall(ctx, event);
+    case 'group_recall': return convertGroupRecall(ctx, event);
+    case 'friend_poke': return convertFriendPoke(ctx, event);
+    case 'group_poke': return convertGroupPoke(ctx, event);
+    case 'group_essence': return convertGroupEssence(ctx, event);
+    case 'group_file_upload': return convertGroupFileUpload(ctx, event);
+    case 'friend_add': return convertFriendAdd(ctx, event);
     case 'group_msg_emoji_like': return convertGroupMsgEmojiLike(ctx, event);
 
     // Requests.
-    case 'friend_request':     return convertFriendRequest(ctx, event);
-    case 'group_invite':       return convertGroupInvite(ctx, event);
+    case 'friend_request': return convertFriendRequest(ctx, event);
+    case 'group_invite': return convertGroupInvite(ctx, event);
 
     default:
       return null;

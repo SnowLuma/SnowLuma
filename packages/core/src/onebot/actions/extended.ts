@@ -1,12 +1,8 @@
-import type { ApiHandler, ApiActionContext } from '../api-handler';
-import { asMessage, asNumber, asString, asBoolean } from '../api-handler';
+import type { ApiActionContext, ApiHandler } from '../api-handler';
+import { asBoolean, asMessage, asNumber, asString } from '../api-handler';
 import type { ForwardPreviewMeta } from '../modules/message-actions';
 import { RETCODE, failedResponse, okResponse } from '../types';
 
-// Bounded download for the OneBot `download_file` action. An authenticated
-// client could otherwise hand us a multi-GB URL (or chunked response with
-// no Content-Length) and OOM the bot — `await response.arrayBuffer()`
-// happily allocates the whole payload before any size check fires.
 const DOWNLOAD_FILE_MAX_BYTES = 1024 * 1024 * 1024; // 1 GiB
 const DOWNLOAD_FILE_TIMEOUT_MS = 60_000;
 

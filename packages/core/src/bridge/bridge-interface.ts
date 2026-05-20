@@ -1,30 +1,23 @@
-// BridgeInterface — the surface OneBot (and any other external consumer)
-// is allowed to see. The concrete Bridge class additionally exposes raw
-// protocol primitives (sendRawPacket, packet dispatch, PID management)
-// used by the in-tree action / contacts / highway modules; those internal
-// methods deliberately do NOT appear here so that callers depending on
-// the interface stay decoupled from the wire format.
-//
-// Every method below has a matching signature on Bridge; `Bridge
-// implements BridgeInterface` is the compile-time enforcement.
-
-import type { BridgeEventBus } from './event-bus';
-import type { IdentityService } from './identity-service';
-import type {
-  FriendInfo, QQGroupInfo, GroupMemberInfo,
-  UserProfileInfo, GroupRequestInfo,
-} from './qq-info';
-import type { MessageElement, ForwardNodePayload } from './events';
+import type { SendPacketResult } from '../protocol/packet-sender';
 import type { GroupFilesResult } from './actions/group-file';
 import type { MediaIndexNode } from './actions/shared';
-import type { WebHonorType } from './web/group-honor';
 import type {
-  SendMessageReceipt,
-  DownloadRKeyInfo,
   ClientKeyInfo,
+  DownloadRKeyInfo,
+  SendMessageReceipt,
   UploadedFileMeta,
 } from './bridge';
-import type { SendPacketResult } from '../protocol/packet-sender';
+import type { BridgeEventBus } from './event-bus';
+import type { ForwardNodePayload, MessageElement } from './events';
+import type { IdentityService } from './identity-service';
+import type {
+  FriendInfo,
+  GroupMemberInfo,
+  GroupRequestInfo,
+  QQGroupInfo,
+  UserProfileInfo,
+} from './qq-info';
+import type { WebHonorType } from './web/group-honor';
 
 export interface BridgeInterface {
   // ─── Shared state ───

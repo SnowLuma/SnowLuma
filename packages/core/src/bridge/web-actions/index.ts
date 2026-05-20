@@ -1,32 +1,20 @@
-// Barrel for the web-action themed split. `bridge.ts` imports
-// everything from this directory as if it were a single file; the
-// per-theme files keep the implementation discoverable.
-
 export {
-  forceFetchClientKey,
-  getPSkey,
-  getCookies,
-  getSKey,
-  getBknFromSKey,
-  getCookiesStr,
-  getCsrfToken,
-  getCredentials,
+  forceFetchClientKey, getBknFromSKey, getCookies, getCookiesStr, getCredentials, getCsrfToken, getPSkey, getSKey
 } from './cookies';
 
 export { getGroupHonorInfo } from './group-honor';
 
 export {
   getGroupEssence,
-  getGroupEssenceAll,
+  getGroupEssenceAll
 } from './group-essence';
 
 export {
-  sendGroupNotice,
-  getGroupNotice,
-  deleteGroupNoticeByFid,
+  deleteGroupNoticeByFid, getGroupNotice, sendGroupNotice
 } from './group-notice';
 
 export {
   getGroupAlbumListWeb,
-  uploadImageToGroupAlbumWeb,
+  uploadImageToGroupAlbumWeb
 } from './group-album';
+

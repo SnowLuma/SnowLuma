@@ -1,16 +1,11 @@
-// Outbound HTTP webhook adapter — one instance per `httpClients[]` entry.
-//
-// Forwards every event to the configured URL via HTTP POST and interprets
-// any JSON response body as a OneBot v11 quick-operation.
-
-import type { HttpClientNetwork, JsonObject } from '../types';
+import { createLogger, type Logger } from '../../utils/logger';
 import {
   pickDispatchJson,
   resolveReportOptions,
   type DispatchPayload,
   type EventReportOptions,
 } from '../event-filter';
-import { createLogger, type Logger } from '../../utils/logger';
+import type { HttpClientNetwork, JsonObject } from '../types';
 import { IOneBotNetworkAdapter, NetworkReloadType, type NetworkAdapterContext } from './adapter';
 import { executeQuickOperation } from './quick-operation';
 

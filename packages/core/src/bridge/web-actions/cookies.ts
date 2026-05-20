@@ -1,11 +1,6 @@
-// Web-cookie / credential primitives — every other web-action in this
-// directory builds on these. Each Bridge-level web call ends up doing
-// roughly: forceFetchClientKey -> ptlogin2 jump -> cookie dict ->
-// thread the cookies into a qun.qq.com REST endpoint.
-
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { Bridge } from '../bridge';
-import { runOidb, makeOidbEnvelope } from '../bridge-oidb';
+import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
 import { OidbBase } from '../proto/proton/oidb';
 import type {
   OidbClientKeyReq,
@@ -57,8 +52,8 @@ export async function getCookies(bridge: Bridge, domain: string) {
   // bot to swap its clientKey for cookie-jar entries on a given
   // qq.com subdomain.
   const requestUrl = 'https://ssl.ptlogin2.qq.com/jump?ptlang=1033&clientuin=' + bridge.identity.uin +
-      '&clientkey=' + ClientKeyData.clientKey +
-      '&u1=https%3A%2F%2F' + domain + '%2F' + bridge.identity.uin + '%2Finfocenter&keyindex=' + ClientKeyData.keyIndex;
+    '&clientkey=' + ClientKeyData.clientKey +
+    '&u1=https%3A%2F%2F' + domain + '%2F' + bridge.identity.uin + '%2Finfocenter&keyindex=' + ClientKeyData.keyIndex;
 
   const data = await RequestUtil.HttpsGetCookies(requestUrl);
 
@@ -89,10 +84,10 @@ export async function getSKey(bridge: Bridge): Promise<string> {
 
   const u1 = encodeURIComponent('https://h5.qzone.qq.com/qqnt/qzoneinpcqq/friend?refresh=0&clientuin=0&darkMode=0');
   const requestUrl = 'https://ssl.ptlogin2.qq.com/jump?ptlang=1033' +
-      '&clientuin=' + bridge.identity.uin +
-      '&clientkey=' + ClientKeyData.clientKey +
-      '&u1=' + u1 +
-      '&keyindex=' + ClientKeyData.keyIndex;
+    '&clientuin=' + bridge.identity.uin +
+    '&clientkey=' + ClientKeyData.clientKey +
+    '&u1=' + u1 +
+    '&keyindex=' + ClientKeyData.keyIndex;
 
   const cookies: { [key: string]: string } = await RequestUtil.HttpsGetCookies(requestUrl);
   const skey = cookies['skey'];

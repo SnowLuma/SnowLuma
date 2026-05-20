@@ -1,22 +1,14 @@
-// Group album actions via TRPC protocol.
-//
-// Unlike the OIDB action family, these endpoints speak raw TRPC
-// (service command `QunAlbum.trpc.qzone.webapp_qun_*`) without an
-// `OidbBase<T>` envelope. We hit `bridge.sendRawPacket` directly with
-// proton-encoded bodies and decode the responses through proton's
-// monomorphized codecs.
-
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { Bridge } from '../bridge';
-import { protobuf_encode, protobuf_decode } from '@snowluma/proton';
 import type {
-  GetMediaListRequest,
-  GetMediaListResponse,
+  DeleteMediasRequest,
+  DeleteMediasResponse,
   DoQunCommentRequest,
   DoQunCommentResponse,
   DoQunLikeRequest,
   DoQunLikeResponse,
-  DeleteMediasRequest,
-  DeleteMediasResponse,
+  GetMediaListRequest,
+  GetMediaListResponse,
 } from '../proto/proton/oidb-actions/group-album';
 
 export interface GroupAlbumMediaResult {

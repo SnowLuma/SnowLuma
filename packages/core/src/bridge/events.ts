@@ -1,6 +1,3 @@
-// Bridge event types and MessageElement.
-// Port of src/bridge/include/bridge/events.h
-
 export interface MessageElement {
   type: string;       // 'text'|'at'|'face'|'mface'|'image'|'video'|'record'|'file'|'json'|'xml'|'reply'|'poke'|'forward'
   text?: string;

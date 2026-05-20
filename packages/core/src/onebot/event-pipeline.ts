@@ -1,15 +1,7 @@
-// Per-kind bridge → OneBot event handlers.
-//
-// Replaces the legacy single-firehose `OneBotInstance.onBridgeEvent` switch.
-// Every bridge event kind gets a small async handler bound to a shared
-// `OneBotInstanceContext`; subscribers register on `ctx.bridge.events` so
-// multiple unrelated downstream concerns (meta caching, OB11 conversion,
-// dispatch) compose cleanly without one giant switch statement.
-
-import type { OneBotInstanceContext } from './instance-context';
-import { convertEvent } from './event-converter';
-import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from './message-id';
 import type { QQEventVariant } from '../bridge/events';
+import { convertEvent } from './event-converter';
+import type { OneBotInstanceContext } from './instance-context';
+import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from './message-id';
 
 /**
  * Subscribe every `OneBotInstanceContext`-aware handler onto the bridge

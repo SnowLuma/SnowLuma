@@ -1,26 +1,18 @@
-// Voice (PTT) upload: stage the audio bytes (convert to NT silk if
-// necessary), run NTV2 upload + (optional) Highway PUT, return the
-// encoded MsgInfo for the outgoing commonElem.
-//
-// Shared OIDB envelope + response handling + Highway PUT live in
-// pipeline.ts; this file owns the silk transcoding, the temp-file
-// cleanup hooks, and the PTT-specific OIDB fields.
-
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import crypto from 'crypto';
 
+import { createLogger } from '../../utils/logger';
 import type { Bridge } from '../bridge';
 import type { MessageElement } from '../events';
-import { computeHashes, loadBinarySource, resolveLocalFilePath } from './utils';
 import { defaultPttTempDir, encodeSilk } from './ffmpeg-addon';
-import { createLogger } from '../../utils/logger';
 import {
   finalizeMediaMsgInfo,
   hexToBytes,
   runNtv2Upload,
   type MediaSubFileUpload,
 } from './pipeline';
+import { computeHashes, loadBinarySource, resolveLocalFilePath } from './utils';
 
 const moduleLog = createLogger('Highway.Ptt');
 

@@ -1,6 +1,3 @@
-// Handles GroupMessage (82). Resolves senderCard / senderRole from the
-// group member roster when present.
-
 import type { GroupMessage } from '../../events';
 import type { MsgPushDecoder } from '../registry';
 import { decodeRichBody } from '../rich-body-decoder';

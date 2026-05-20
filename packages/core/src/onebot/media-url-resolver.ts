@@ -1,17 +1,3 @@
-// Resolves the URL for an image / record / video / file element on its
-// way out of the bridge into an OneBot segment.
-//
-// Two steps:
-//   1. If the bridge event arrived without a `url` (the receive path
-//      sometimes does), fetch a fresh URL from the right Bridge API
-//      based on element.type + isGroup, mutating the element in-place
-//      so any downstream cache sees the URL too.
-//   2. Apply the cached RKey (the per-UIN signed download key) the
-//      RKeyCache knows about — both to brand-new URLs from step 1 and
-//      to URLs that came in with the event already.
-//
-// Used as the `mediaUrlResolver` callback in `ConverterContext`.
-
 import type { BridgeInterface } from '../bridge/bridge-interface';
 import type { MessageElement } from '../bridge/events';
 import type { RKeyCache } from './instance-rkey';
@@ -20,7 +6,7 @@ export class MediaUrlResolver {
   constructor(
     private readonly bridge: BridgeInterface,
     private readonly rkeyCache: RKeyCache,
-  ) {}
+  ) { }
 
   async resolve(element: MessageElement, isGroup: boolean, sessionId: number): Promise<string> {
     if (!element.url) {

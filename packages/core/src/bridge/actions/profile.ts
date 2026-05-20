@@ -1,11 +1,9 @@
-// Operations that touch the bot's own profile / status, plus the
-// related queries about my profile likes and unidirectional friends.
-// All of these read/write fields on the self-uin via OIDB.
-
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { Bridge } from '../bridge';
-import { runOidb, makeOidbEnvelope } from '../bridge-oidb';
+import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
 import { fetchHighwaySession, uploadHighwayHttp } from '../highway/highway-client';
 import { computeHashes, loadBinarySource } from '../highway/utils';
+import { OidbBase } from '../proto/proton/oidb';
 import type {
   FaceroamOpReq,
   FaceroamOpResp,
@@ -23,8 +21,6 @@ import type {
   SetStatusResp,
 } from '../proto/proton/oidb-actions/base';
 import { resolveSelfUid } from './shared';
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import { OidbBase } from '../proto/proton/oidb';
 
 // ─────────────── status / profile setters ───────────────
 

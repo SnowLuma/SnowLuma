@@ -1,36 +1,27 @@
-// Handles Event0x210 wrapper (528). Internal switch on subType dispatches
-// to FriendRequest (35) / FriendRecall (138, 139) / NewFriend
-// (179, 226) / FriendPoke (290).
-
 import { protobuf_decode } from '@snowluma/proton';
-// Proto types imported unaliased — proton's import-resolver registers
-// `importedTypeSources` keyed on the *imported* name. If we also did
-// `import type { FriendRecall } from '../../events'` it would shadow
-// the proto-side mapping (last-write-wins), point the resolver at the
-// event-side file which has no `pb<>` schema, and the codec would
-// never get generated — `protobuf_decode<FriendRecall>(...)` then
-// falls through to the runtime fallback and throws (silently caught
-// by `MsgPushRegistry.decode`). The event-side colliding names are
-// re-derived from `QQEventVariant` below via `Extract` instead.
+import { createLogger } from '../../../utils/logger';
 import type {
-  FriendRequest,
+  FriendAddEvent,
+  FriendPokeEvent,
+  FriendRequestEvent,
+  QQEventVariant,
+} from '../../events';
+import type {
   FriendRecall,
+  FriendRequest,
   GeneralGrayTipInfo,
   NewFriend,
 } from '../../proto/proton/notify';
-import type {
-  FriendRequestEvent, FriendPokeEvent,
-  FriendAddEvent, QQEventVariant,
-} from '../../events';
-
-type FriendRecallEvent = Extract<QQEventVariant, { kind: 'friend_recall' }>;
-import type { MsgPushDecoder } from '../registry';
 import type { MsgPushContext } from '../context';
 import { Event0x210SubType } from '../enums';
 import {
-  resolveUidToUin, parseU64OrZero, buildTemplateMap, findTemplateValue,
+  buildTemplateMap, findTemplateValue,
+  parseU64OrZero,
+  resolveUidToUin,
 } from '../helpers';
-import { createLogger } from '../../../utils/logger';
+import type { MsgPushDecoder } from '../registry';
+
+type FriendRecallEvent = Extract<QQEventVariant, { kind: 'friend_recall' }>;
 
 const unknownLog = createLogger('MsgPush.Unknown');
 

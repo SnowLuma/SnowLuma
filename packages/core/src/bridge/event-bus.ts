@@ -1,16 +1,5 @@
-// Typed, per-kind pub/sub for bridge-level events.
-//
-// Replaces the single-callback firehose where every consumer received every
-// event variant and had to switch on `event.kind`. Now each downstream
-// concern (OneBot dispatch, member cache refresh, etc.) registers exactly
-// the kinds it cares about, much closer to NapCat's per-listener pattern.
-//
-// `emit` is fire-and-forget: subscribers can be sync or async; async
-// rejections are surfaced via `Promise.allSettled` and reported through the
-// optional `onError` hook so one buggy handler never starves the others.
-
-import type { QQEventVariant } from './events';
 import { createLogger } from '../utils/logger';
+import type { QQEventVariant } from './events';
 
 type EventKind = QQEventVariant['kind'];
 type EventOf<K extends EventKind> = Extract<QQEventVariant, { kind: K }>;

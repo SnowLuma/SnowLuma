@@ -1,6 +1,3 @@
-// Highway utilities: binary source loading, hashing, image format detection, frame packing.
-// Port of src/bridge/src/highway_utils.h/.cpp
-
 import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -193,7 +190,7 @@ export function detectImageFormat(bytes: Uint8Array): ImageFormat {
 
   // PNG
   if (bytes.length >= 24 &&
-      bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) {
+    bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) {
     width = readBE32(bytes, 16);
     height = readBE32(bytes, 20);
     return { format: 1001, width, height };
@@ -201,8 +198,8 @@ export function detectImageFormat(bytes: Uint8Array): ImageFormat {
 
   // GIF
   if (bytes.length >= 10 &&
-      bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38 &&
-      (bytes[4] === 0x37 || bytes[4] === 0x39) && bytes[5] === 0x61) {
+    bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38 &&
+    (bytes[4] === 0x37 || bytes[4] === 0x39) && bytes[5] === 0x61) {
     width = readLE16(bytes, 6);
     height = readLE16(bytes, 8);
     return { format: 2000, width, height };
@@ -217,8 +214,8 @@ export function detectImageFormat(bytes: Uint8Array): ImageFormat {
 
   // WebP
   if (bytes.length >= 30 &&
-      bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
-      bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
+    bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+    bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
     if (bytes[12] === 0x56 && bytes[13] === 0x50 && bytes[14] === 0x38 && bytes[15] === 0x20) {
       width = readLE16(bytes, 26);
       height = readLE16(bytes, 28);
@@ -251,7 +248,7 @@ export function detectImageFormat(bytes: Uint8Array): ImageFormat {
       // (DAC). The previous `(marker & 0xFC) === 0xC0` check accepted DHT
       // and friends, then misread Huffman table bytes as image dimensions.
       const isSof = marker >= 0xC0 && marker <= 0xCF
-                  && marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC;
+        && marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC;
       if (isSof && segLen >= 7 && offset + 9 <= bytes.length) {
         height = readBE16(bytes, offset + 5);
         width = readBE16(bytes, offset + 7);

@@ -1,18 +1,12 @@
-// Inbound HTTP API server — one instance per `httpServers[]` entry.
-//
-// Pure request/response: incoming POST/GET maps to `ApiHandler.handle`,
-// the response body is JSON-serialized back. `onEvent` is a deliberate
-// no-op since this transport never pushes events.
-
 import {
   createServer,
   type IncomingMessage,
   type Server,
   type ServerResponse,
 } from 'http';
-import type { HttpServerNetwork, JsonObject, JsonValue } from '../types';
-import type { DispatchPayload } from '../event-filter';
 import { createLogger, type Logger } from '../../utils/logger';
+import type { DispatchPayload } from '../event-filter';
+import type { HttpServerNetwork, JsonObject, JsonValue } from '../types';
 import { IOneBotNetworkAdapter, NetworkReloadType, type NetworkAdapterContext } from './adapter';
 import { isAuthorized, normalizePath } from './utils';
 
