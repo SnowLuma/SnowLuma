@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { protobuf_encode } from '@snowluma/proton';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '../../src/bridge/proto/proton/oidb';
 import type {
+  GroupAvatarExtra,
   Oidb0x7edResp,
   Oidb0xe17Resp,
-} from '../../src/bridge/proto/proton/oidb-action';
+  SetStatusReq,
+  SetStatusResp,
+} from '../../src/bridge/proto/proton/oidb-actions/base';
 
 // `encodeOidbEnv` / `decodeOidbEnv` are proton-bound pass-through wrappers
 // (substituted at the call site with the inlined codec). Mocking them on
@@ -71,23 +74,19 @@ describe('actions/profile', () => {
     expect(serviceCmd).toBe('trpc.qq_new_tech.status_svc.StatusService.SetStatus');
     // Decode the wire bytes back through the same schema to assert
     // every field landed in the right place.
-    const { protoDecode } = await import('../../src/protobuf/decode');
-    const { SetStatusReqSchema } = await import('../../src/bridge/proto/oidb-action');
-    const decoded = protoDecode(body as Uint8Array, SetStatusReqSchema);
+    const decoded = protobuf_decode<SetStatusReq>(body as Uint8Array);
     expect(decoded).toMatchObject({
       status: 10,
       extStatus: 2000,
-      batteryStatus: 0,
       customExt: { faceId: 1234, text: '摸鱼中', faceType: 2 },
     });
+    expect(decoded.batteryStatus ?? 0).toBe(0);
   });
 
   it('setDiyOnlineStatus surfaces server errors via the same path as setOnlineStatus', async () => {
     const bridge = mockBridge();
     // Build a response that decodes to errCode != 0.
-    const { protoEncode } = await import('../../src/protobuf/decode');
-    const { SetStatusRespSchema } = await import('../../src/bridge/proto/oidb-action');
-    const respBuf = Buffer.from(protoEncode({ errCode: 1, errMsg: 'denied' }, SetStatusRespSchema));
+    const respBuf = Buffer.from(protobuf_encode<SetStatusResp>({ errCode: 1, errMsg: 'denied' }));
     bridge.sendRawPacket.mockResolvedValueOnce({
       success: true, gotResponse: true, errorCode: 0, errorMessage: '', responseData: respBuf,
     } as any);
@@ -150,9 +149,7 @@ describe('actions/profile', () => {
     expect(cmdId).toBe(3000);
     // Decode the extra blob back through the schema and assert every
     // protocol-prescribed constant lands where it should.
-    const { protoDecode } = await import('../../src/protobuf/decode');
-    const { GroupAvatarExtraSchema } = await import('../../src/bridge/proto/oidb-action');
-    const decoded = protoDecode(extend as Uint8Array, GroupAvatarExtraSchema);
+    const decoded = protobuf_decode<GroupAvatarExtra>(extend as Uint8Array);
     expect(decoded).toEqual({
       type: 101,
       groupUin: 12345,

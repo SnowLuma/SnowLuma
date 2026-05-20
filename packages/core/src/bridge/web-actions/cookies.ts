@@ -12,7 +12,7 @@ import type {
   OidbClientKeyResp,
   OidbGetPskeyReq,
   OidbGetPskeyResp,
-} from '../proto/proton/oidb-action';
+} from '../proto/proton/oidb-actions/base';
 import { RequestUtil } from '../web/request-util';
 
 export async function forceFetchClientKey(bridge: Bridge) {

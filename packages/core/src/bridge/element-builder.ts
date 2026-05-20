@@ -1,25 +1,21 @@
 // Element Builder — converts internal MessageElement[] into proto Elem objects
-// for encoding with protoEncode(SendMessageRequestSchema).
+// for encoding with protobuf_encode<SendMessageRequest>.
 // Port of src/bridge/src/bridge_messages.cpp build_send_elems()
 
 import type { Bridge } from './bridge';
 import type { MessageElement } from './events';
-import type { ProtoDecoded } from '../protobuf/decode';
 import { protobuf_encode } from '@snowluma/proton';
-import {
-  ElemSchema,
-} from './proto/element';
 import type {
   MentionExtraSend,
   MarkdownData,
 } from './proto/proton/action';
-import type { GroupFileExtra } from './proto/proton/element';
+import type { Elem, GroupFileExtra } from './proto/proton/element';
 import { uploadImageMsgInfo } from './highway/image-upload';
 import { uploadPttMsgInfo } from './highway/ptt-upload';
 import { uploadVideoMsgInfo } from './highway/video-upload';
 import { hexToBytes } from './highway/pipeline';
 
-type ProtoElem = Partial<ProtoDecoded<typeof ElemSchema>>;
+type ProtoElem = Partial<Elem>;
 
 export interface SendContext {
   bridge: Bridge;

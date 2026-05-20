@@ -15,8 +15,6 @@ describe('actions/friend', () => {
   beforeEach(() => {
     vi.mocked(oidb.runOidb).mockClear();
     vi.mocked(oidb.makeOidbEnvelope).mockClear();
-    vi.mocked(oidb.encodeOidbEnv).mockClear();
-    vi.mocked(oidb.decodeOidbEnv).mockClear();
   });
 
   it('setFriendAddRequest: numeric input is treated as UIN and resolved', async () => {

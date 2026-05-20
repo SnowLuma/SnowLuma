@@ -386,7 +386,7 @@ export class Bridge implements BridgeInterface {
     if (!response) {
       throw new Error('failed to decode SendMessageResponse');
     }
-    if (response.result !== undefined && response.result !== 0) {
+    if (response.result != null && response.result !== 0) {
       throw new Error(`send group message rejected: result=${response.result} err=${response.errMsg ?? ''}`);
     }
 
@@ -455,7 +455,7 @@ export class Bridge implements BridgeInterface {
     if (!response) {
       throw new Error('failed to decode SendMessageResponse');
     }
-    if (response.result !== undefined && response.result !== 0) {
+    if (response.result != null && response.result !== 0) {
       throw new Error(`send private message rejected: result=${response.result} err=${response.errMsg ?? ''}`);
     }
 
@@ -569,7 +569,7 @@ export class Bridge implements BridgeInterface {
     if (!response) {
       throw new Error('failed to decode SendMessageResponse');
     }
-    if (response.result !== undefined && response.result !== 0) {
+    if (response.result != null && response.result !== 0) {
       throw new Error(`send c2c file message rejected: result=${response.result} err=${response.errMsg ?? ''}`);
     }
 

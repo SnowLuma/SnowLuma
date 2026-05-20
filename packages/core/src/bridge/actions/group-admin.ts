@@ -23,7 +23,7 @@ import type {
   OidbRenameMember,
   OidbSetAdmin,
   OidbSpecialTitle,
-} from '../proto/proton/oidb-action';
+} from '../proto/proton/oidb-actions/base';
 
 // ─────────────── mute / un-mute ───────────────
 

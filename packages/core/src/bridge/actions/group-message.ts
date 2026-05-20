@@ -4,24 +4,18 @@
 // without producing a downstream observable event.
 
 import type { Bridge } from '../bridge';
-import { protoEncode } from '../../protobuf/decode';
 import { runOidb, makeOidbEnvelope } from '../bridge-oidb';
-import {
-  C2CRecallRequestSchema,
-  GroupRecallRequestSchema,
-  SsoReadedReportReqSchema,
-} from '../proto/oidb-action';
-import type { OidbEssence } from '../proto/proton/oidb-action';
+import type { C2CRecallRequest, GroupRecallRequest, OidbEssence, SsoReadedReportReq } from '../proto/proton/oidb-actions/base';
 import { protobuf_encode } from '@snowluma/proton';
 import { OidbBase } from '../proto/proton/oidb';
 
 export async function recallGroupMessage(bridge: Bridge, groupId: number, sequence: number): Promise<void> {
-  const request = protoEncode({
+  const request = protobuf_encode<GroupRecallRequest>({
     type: 1,
     groupUin: groupId,
     info: { sequence, random: 0, field3: 0 },
     settings: { field1: 0 },
-  }, GroupRecallRequestSchema);
+  });
   const result = await bridge.sendRawPacket('trpc.msg.msg_svc.MsgService.SsoGroupRecallMsg', request);
   if (!result.success) throw new Error(result.errorMessage || 'recall group message failed');
 }
@@ -31,7 +25,7 @@ export async function recallPrivateMessage(
   msgSeq: number, random: number, timestamp: number,
 ): Promise<void> {
   const targetUid = await bridge.resolveUserUid(userUin);
-  const request = protoEncode({
+  const request = protobuf_encode<C2CRecallRequest>({
     type: 1,
     targetUid,
     info: {
@@ -44,7 +38,7 @@ export async function recallPrivateMessage(
     },
     settings: { field1: false, field2: false },
     field6: false,
-  }, C2CRecallRequestSchema);
+  });
   const result = await bridge.sendRawPacket('trpc.msg.msg_svc.MsgService.SsoC2CRecallMsg', request);
   if (!result.success) throw new Error(result.errorMessage || 'recall private message failed');
 }
@@ -57,7 +51,7 @@ export async function markPrivateMessageRead(
 ): Promise<void> {
   const uid = await bridge.resolveUserUid(userId);
 
-  const request = protoEncode({
+  const request = protobuf_encode<SsoReadedReportReq>({
     c2cList: [
       {
         uid,
@@ -65,7 +59,7 @@ export async function markPrivateMessageRead(
         lastReadSeq: BigInt(msgSeq),
       },
     ],
-  }, SsoReadedReportReqSchema);
+  });
 
   const result = await bridge.sendRawPacket('trpc.msg.msg_svc.MsgService.SsoReadedReport', request);
 
@@ -79,14 +73,14 @@ export async function markGroupMessageRead(
   groupId: number,
   msgSeq: number,
 ): Promise<void> {
-  const request = protoEncode({
+  const request = protobuf_encode<SsoReadedReportReq>({
     groupList: [
       {
         groupUin: BigInt(groupId),
         lastReadSeq: BigInt(msgSeq),
       },
     ],
-  }, SsoReadedReportReqSchema);
+  });
 
   const result = await bridge.sendRawPacket('trpc.msg.msg_svc.MsgService.SsoReadedReport', request);
 

@@ -3,9 +3,7 @@
 import type { Bridge } from './bridge';
 import type { DownloadRKeyInfo } from './bridge';
 import type { FriendInfo, QQGroupInfo, GroupMemberInfo, UserProfileInfo, GroupRequestInfo } from './qq-info';
-import { protoDecode } from '../protobuf/decode';
 import { runOidb, makeOidbEnvelope } from './bridge-oidb';
-import { AvatarInfoSchema } from './proto/oidb-action';
 import type {
   OidbSvcTrpcTcp0xFD4_1Response,
   OidbSvcTrpcTcp0xFE5_2Response,
@@ -20,9 +18,12 @@ import type {
   OidbUserInfoRequest,
   OidbUserInfoResponse,
   OidbGroupRequestList,
+  AvatarInfo,
+} from './proto/proton/oidb-actions/base';
+import type {
   NTV2RichMediaReq,
   NTV2RichMediaResp,
-} from './proto/proton/oidb-action';
+} from './proto/proton/oidb-actions/media';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 
 // ---------------------------------------------------------------------------
@@ -261,7 +262,7 @@ export async function fetchUserProfile(bridge: Bridge, uin: number): Promise<Use
 
     const avatarBytes = bytesMap.get(101);
     if (avatarBytes) {
-      const av = protoDecode(avatarBytes, AvatarInfoSchema);
+      const av = protobuf_decode<AvatarInfo>(avatarBytes);
       if (av?.url) info.avatar = av.url + '640';
     }
 

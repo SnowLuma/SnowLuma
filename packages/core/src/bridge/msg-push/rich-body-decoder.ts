@@ -4,23 +4,24 @@
 // lookups, no I/O. The single small interface `decodeRichBody` hides
 // ~400 lines of per-element-type decoding behind it.
 
-import { protoDecode } from '../../protobuf/decode';
-import type { ProtoDecoded } from '../../protobuf/decode';
-import { ElemSchema } from '../proto/element';
-import {
-  MentionExtraSchema, QFaceExtraSchema, QSmallFaceExtraSchema,
-  MsgInfoSchema, GroupFileExtraSchema, NotOnlineImageSchema,
-} from '../proto/element';
-import {
-  MessageBodySchema, RichTextSchema, FileExtraSchema,
-} from '../proto/message';
+import { protobuf_decode } from '@snowluma/proton';
+import type {
+  Elem,
+  GroupFileExtra,
+  MentionExtra,
+  MsgInfo,
+  NotOnlineImage,
+  QFaceExtra,
+  QSmallFaceExtra,
+} from '../proto/proton/element';
+import type { FileExtra, MessageBody, RichText } from '../proto/proton/message';
 import type { MessageElement } from '../events';
 import { toHexUpper } from '../../utils/hex';
 import { decompressData, makeImageUrl } from './helpers';
 
-type ElemDecoded = ProtoDecoded<typeof ElemSchema>;
-type RichTextDecoded = ProtoDecoded<typeof RichTextSchema>;
-export type PushMsgBody = ProtoDecoded<typeof MessageBodySchema>;
+type ElemDecoded = Elem;
+type RichTextDecoded = RichText;
+export type PushMsgBody = MessageBody;
 
 export function decodeRichBody(body: PushMsgBody | undefined, isGroup: boolean): MessageElement[] {
   const elements: MessageElement[] = [];
@@ -50,9 +51,9 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
     // Text (with possible @ detection)
     if (elem.text) {
       const t = elem.text;
-      let mention: ProtoDecoded<typeof MentionExtraSchema> | null = null;
+      let mention: MentionExtra | null = null;
       if (t.pbReserve && t.pbReserve.length > 0) {
-        mention = protoDecode(t.pbReserve, MentionExtraSchema);
+        mention = protobuf_decode<MentionExtra>(t.pbReserve);
       }
       const hasAttr6 = t.attr6Buf && t.attr6Buf.length > 11;
       const hasMention = mention && (mention.type === 1 || mention.type === 2);
@@ -172,7 +173,7 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
         const val = te.elemValue;
         const len = (val[1] << 8) | val[2];
         if (val.length >= 3 + len) {
-          const extra = protoDecode(val.subarray(3, 3 + len), GroupFileExtraSchema);
+          const extra = protobuf_decode<GroupFileExtra>(val.subarray(3, 3 + len));
           if (extra?.inner?.info) {
             const info = extra.inner.info;
             result.push({
@@ -243,7 +244,7 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
           if ((b & 0x80) === 0) break;
         }
         if (pos + length <= pb.length) {
-          const img = protoDecode(pb.subarray(pos, pos + length), NotOnlineImageSchema);
+          const img = protobuf_decode<NotOnlineImage>(pb.subarray(pos, pos + length));
           if (img) {
             const me: MessageElement = {
               type: 'image', fileId: img.filePath ?? '',
@@ -260,7 +261,7 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
         skipNext = true;
       } else if (ce.pbElem && (svcType === 48 || bizType === 10 || bizType === 20 || bizType === 11 || bizType === 21 || bizType === 12 || bizType === 22)) {
         // NTQQ new protocol image/record/video
-        const info = protoDecode(ce.pbElem, MsgInfoSchema);
+        const info = protobuf_decode<MsgInfo>(ce.pbElem);
         if (info?.msgInfoBody && info.msgInfoBody.length > 0) {
           const body = info.msgInfoBody[0];
           if (body.index?.info) {
@@ -368,11 +369,11 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
         }
       } else if (svcType === 33 && ce.pbElem) {
         // Small face
-        const extra = protoDecode(ce.pbElem, QSmallFaceExtraSchema);
+        const extra = protobuf_decode<QSmallFaceExtra>(ce.pbElem);
         if (extra) result.push({ type: 'face', faceId: extra.faceId ?? 0 });
       } else if (svcType === 37 && ce.pbElem) {
         // Big face
-        const extra = protoDecode(ce.pbElem, QFaceExtraSchema);
+        const extra = protobuf_decode<QFaceExtra>(ce.pbElem);
         if (extra?.qsid !== undefined) result.push({ type: 'face', faceId: extra.qsid });
         skipNext = true;
       }
@@ -443,7 +444,7 @@ function extractMsgContent(msgContent: Uint8Array, elements: MessageElement[]): 
   // "incomplete metadata". After consolidating FileExtra to wrap
   // `NotOnlineFile` (Lagrange.Core's `FileExtra { File: NotOnlineFile }`),
   // this reads the right tags.
-  const extra = protoDecode(msgContent, FileExtraSchema);
+  const extra = protobuf_decode<FileExtra>(msgContent);
   if (!extra?.file) return;
   const f = extra.file;
   if (!f.fileUuid) return;

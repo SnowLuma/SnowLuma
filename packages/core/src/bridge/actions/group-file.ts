@@ -20,13 +20,15 @@ import type {
   OidbGroupFileViewReq,
   OidbGroupFileViewResp,
   OidbGroupSendFileReq,
+} from '../proto/proton/oidb-actions/group-file';
+import type {
   OidbPrivateFileDownloadReq,
   OidbPrivateFileDownloadResp,
   OidbPrivateFileUploadReq,
   OidbPrivateFileUploadResp,
   NTV2RichMediaReq,
   NTV2RichMediaResp,
-} from '../proto/proton/oidb-action';
+} from '../proto/proton/oidb-actions/media';
 import type { FileUploadExt } from '../proto/proton/highway';
 import { toHexUpper } from '../../utils/hex';
 import { createLogger } from '../../utils/logger';
@@ -579,7 +581,7 @@ export async function uploadPrivateFile(
       // (or whether it returned nothing at all — which would point at
       // a request mismatch rather than a missing decoder).
       const rtpDump = Array.isArray(upload.rtpMediaPlatformUploadAddress)
-        ? JSON.stringify(upload.rtpMediaPlatformUploadAddress.map((e) => ({
+        ? JSON.stringify(upload.rtpMediaPlatformUploadAddress.map((e: any) => ({
           outIP: e.outIP, outPort: e.outPort, inIP: e.inIP, inPort: e.inPort,
           iPType: e.iPType,
         })))

@@ -3,9 +3,11 @@ import { protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '../../src/bridge/proto/proton/oidb';
 import type {
   OidbStrangerStatusResp,
+} from '../../src/bridge/proto/proton/oidb-actions/base';
+import type {
   OidbAiVoiceListResp,
   OidbAiVoiceResp,
-} from '../../src/bridge/proto/proton/oidb-action';
+} from '../../src/bridge/proto/proton/oidb-actions/media';
 
 // `encodeOidbEnv` / `decodeOidbEnv` are proton-bound pass-through wrappers
 // that the plugin substitutes at the call site with the inlined codec, so

@@ -3,18 +3,13 @@
 // All of these read/write fields on the self-uin via OIDB.
 
 import type { Bridge } from '../bridge';
-import { protoDecode, protoEncode } from '../../protobuf/decode';
 import { runOidb, makeOidbEnvelope } from '../bridge-oidb';
 import { fetchHighwaySession, uploadHighwayHttp } from '../highway/highway-client';
 import { computeHashes, loadBinarySource } from '../highway/utils';
-import {
-  FaceroamOpReqSchema,
-  FaceroamOpRespSchema,
-  GroupAvatarExtraSchema,
-  SetStatusReqSchema,
-  SetStatusRespSchema,
-} from '../proto/oidb-action';
 import type {
+  FaceroamOpReq,
+  FaceroamOpResp,
+  GroupAvatarExtra,
   Oidb0x112aReq,
   Oidb0x112aResp,
   Oidb0x7edReq,
@@ -24,7 +19,9 @@ import type {
   Oidb0xe17Req,
   Oidb0xe17Resp,
   OidbSetProfile,
-} from '../proto/proton/oidb-action';
+  SetStatusReq,
+  SetStatusResp,
+} from '../proto/proton/oidb-actions/base';
 import { resolveSelfUid } from './shared';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { OidbBase } from '../proto/proton/oidb';
@@ -69,7 +66,7 @@ async function dispatchSetStatus(
     customExt?: { faceId: number; text: string; faceType: number };
   },
 ): Promise<void> {
-  const request = protoEncode(value, SetStatusReqSchema);
+  const request = protobuf_encode<SetStatusReq>(value);
 
   const result = await bridge.sendRawPacket('trpc.qq_new_tech.status_svc.StatusService.SetStatus', request);
 
@@ -78,7 +75,7 @@ async function dispatchSetStatus(
   }
 
   if (result.responseData && result.responseData.length > 0) {
-    const resp = protoDecode(result.responseData, SetStatusRespSchema);
+    const resp = protobuf_decode<SetStatusResp>(result.responseData);
     if (!resp) {
       throw new Error(result.errorMessage || 'set online status failed (network/timeout)');
     }
@@ -193,13 +190,13 @@ export async function setGroupAvatar(
 
   const hashes = computeHashes(loaded.bytes);
   const session = await fetchHighwaySession(bridge);
-  const extra = protoEncode({
+  const extra = protobuf_encode<GroupAvatarExtra>({
     type: 101,
     groupUin: groupId,
     field3: { field1: 1 },
     field5: 3,
     field6: 1,
-  }, GroupAvatarExtraSchema);
+  });
   await uploadHighwayHttp(bridge, session, 3000, loaded.bytes, hashes.md5, extra);
 }
 
@@ -290,12 +287,12 @@ export async function fetchCustomFace(bridge: Bridge, count: number = 10): Promi
     field3: 1,
     field6: 1,
   };
-  const request = protoEncode(req, FaceroamOpReqSchema);
+  const request = protobuf_encode<FaceroamOpReq>(req);
   const result = await bridge.sendRawPacket('Faceroam.OpReq', request);
   if (!result.success || !result.gotResponse || !result.responseData) {
     throw new Error(result.errorMessage || 'fetch custom face failed');
   }
-  const resp = protoDecode(result.responseData, FaceroamOpRespSchema);
+  const resp = protobuf_decode<FaceroamOpResp>(result.responseData);
   if (!resp || (resp as any).retCode !== 0) {
     throw new Error(`fetch custom face error: ${(resp as any)?.message || 'unknown'}`);
   }

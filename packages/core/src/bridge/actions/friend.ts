@@ -9,7 +9,7 @@ import type {
   OidbDeleteFriend,
   OidbFriendRequestAction,
   OidbSetFriendRemark,
-} from '../proto/proton/oidb-action';
+} from '../proto/proton/oidb-actions/base';
 import { OidbBase } from '../proto/proton/oidb';
 
 export async function setFriendAddRequest(bridge: Bridge, uidOrFlag: string, approve: boolean): Promise<void> {

@@ -17,7 +17,7 @@ import type {
   DoQunLikeResponse,
   DeleteMediasRequest,
   DeleteMediasResponse,
-} from '../proto/proton/oidb-action';
+} from '../proto/proton/oidb-actions/group-album';
 
 export interface GroupAlbumMediaResult {
   mediaList: any[];

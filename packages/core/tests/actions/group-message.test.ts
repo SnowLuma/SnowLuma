@@ -15,8 +15,6 @@ describe('actions/group-message', () => {
   beforeEach(() => {
     vi.mocked(oidb.runOidb).mockClear();
     vi.mocked(oidb.makeOidbEnvelope).mockClear();
-    vi.mocked(oidb.encodeOidbEnv).mockClear();
-    vi.mocked(oidb.decodeOidbEnv).mockClear();
   });
 
   it('recallGroupMessage sends to SsoGroupRecallMsg with the group sequence', async () => {

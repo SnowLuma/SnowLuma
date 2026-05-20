@@ -5,10 +5,12 @@ import type {
   OidbGroupFileCountViewResp,
   OidbGroupFileResp,
   OidbGroupFileViewResp,
-  OidbPrivateFileUploadResp,
   OidbGroupFileFolderResp,
+} from '../../src/bridge/proto/proton/oidb-actions/group-file';
+import type {
+  OidbPrivateFileUploadResp,
   NTV2RichMediaResp,
-} from '../../src/bridge/proto/proton/oidb-action';
+} from '../../src/bridge/proto/proton/oidb-actions/media';
 
 // `encodeOidbEnv` / `decodeOidbEnv` are proton-bound pass-through wrappers
 // (substituted at the call site with the inlined codec). Mocking them on

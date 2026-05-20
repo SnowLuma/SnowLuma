@@ -11,7 +11,7 @@ import type {
   OidbGroupReaction,
   OidbLike,
   OidbPoke,
-} from '../proto/proton/oidb-action';
+} from '../proto/proton/oidb-actions/base';
 import { OidbBase } from '../proto/proton/oidb';
 
 export async function sendPoke(bridge: Bridge, isGroup: boolean, peerUin: number, targetUin?: number): Promise<void> {

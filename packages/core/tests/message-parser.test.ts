@@ -2,12 +2,12 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { describe, it, expect, vi } from 'vitest';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { parseMessage } from '../src/onebot/message-parser';
 import { buildSendElems } from '../src/bridge/element-builder';
-import { MentionExtraSendSchema } from '../src/bridge/proto/action';
-import { makeOidbBaseSchema } from '../src/bridge/proto/oidb';
-import { NTV2UploadRichMediaRespSchema } from '../src/bridge/proto/highway';
-import { protoDecode, protoEncode } from '../src/protobuf/decode';
+import type { MentionExtraSend } from '../src/bridge/proto/proton/action';
+import type { OidbBase } from '../src/bridge/proto/proton/oidb';
+import type { NTV2UploadRichMediaResp } from '../src/bridge/proto/proton/highway';
 
 describe('parseMessage', () => {
   describe('plain text', () => {
@@ -188,7 +188,7 @@ describe('parseMessage', () => {
       const protoElems = await buildSendElems(elements);
       const reserve = protoElems[0].text?.pbReserve;
       expect(reserve).toBeInstanceOf(Uint8Array);
-      const extra = protoDecode(reserve as Uint8Array, MentionExtraSendSchema);
+      const extra = protobuf_decode<MentionExtraSend>(reserve as Uint8Array);
       expect(extra).toMatchObject({
         type: 2,
         uin: 123456,
@@ -232,8 +232,7 @@ describe('parseMessage', () => {
       const videoPath = path.join(os.tmpdir(), `snowluma-video-test-${process.pid}-${Date.now()}.mp4`);
       fs.writeFileSync(videoPath, Buffer.from([0, 1, 2, 3]));
 
-      const respSchema = makeOidbBaseSchema(NTV2UploadRichMediaRespSchema);
-      const responseData = protoEncode({
+      const responseData = protobuf_encode<OidbBase<NTV2UploadRichMediaResp>>({
         command: 0x11EA,
         subCommand: 100,
         errorCode: 0,
@@ -255,7 +254,7 @@ describe('parseMessage', () => {
         },
         errorMsg: '',
         reserved: 1,
-      }, respSchema);
+      });
 
       const bridge = {
         identity: { uin: '10000' },

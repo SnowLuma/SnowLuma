@@ -8,14 +8,16 @@ import type { Bridge } from '../bridge';
 import { runOidb, makeOidbEnvelope } from '../bridge-oidb';
 import { OidbBase } from '../proto/proton/oidb';
 import type {
+  OidbGroupTodo,
+  OidbStrangerStatusReq,
+  OidbStrangerStatusResp,
+} from '../proto/proton/oidb-actions/base';
+import type {
   OidbAiVoiceListReq,
   OidbAiVoiceListResp,
   OidbAiVoiceReq,
   OidbAiVoiceResp,
-  OidbGroupTodo,
-  OidbStrangerStatusReq,
-  OidbStrangerStatusResp,
-} from '../proto/proton/oidb-action';
+} from '../proto/proton/oidb-actions/media';
 import type { MediaIndexNode } from './shared';
 
 // ─────────────── Group todo (0xF90) ───────────────

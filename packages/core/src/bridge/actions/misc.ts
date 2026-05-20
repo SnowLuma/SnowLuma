@@ -3,20 +3,17 @@
 // related siblings, lift the whole group out into its own file.
 
 import type { Bridge } from '../bridge';
-import { protoDecode, protoEncode } from '../../protobuf/decode';
 import { runOidb, makeOidbEnvelope } from '../bridge-oidb';
-import {
-  MiniAppShareReqSchema,
-  MiniAppShareRespSchema,
-} from '../proto/oidb-action';
 import type {
+  MiniAppShareReq,
+  MiniAppShareResp,
   Oidb0x112eReq,
   Oidb0x112eResp,
   Oidb0x990Req,
   Oidb0x990Resp,
   Oidb0xeb7Req,
   Oidb0xeb7Resp,
-} from '../proto/proton/oidb-action';
+} from '../proto/proton/oidb-actions/base';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { OidbBase } from '../proto/proton/oidb';
 
@@ -64,7 +61,7 @@ export async function getMiniAppArk(
     throw new Error(`unsupported type: ${type}, only support bili and weibo`);
   }
 
-  const request = protoEncode({
+  const request = protobuf_encode<MiniAppShareReq>({
     sdkVersion: 'V1_PC_MINISDK_99.99.99_1_APP_A',
     body: {
       appid,
@@ -74,7 +71,7 @@ export async function getMiniAppArk(
       jumpUrl,
       iconUrl,
     },
-  }, MiniAppShareReqSchema);
+  });
 
   const result = await bridge.sendRawPacket('LightAppSvc.mini_app_share.AdaptShareInfo', request);
 
@@ -82,7 +79,7 @@ export async function getMiniAppArk(
     throw new Error(result.errorMessage || 'get mini app ark failed');
   }
 
-  const decoded = protoDecode(result.responseData, MiniAppShareRespSchema);
+  const decoded = protobuf_decode<MiniAppShareResp>(result.responseData);
   const jsonStr = decoded?.body?.jsonStr;
 
   if (!jsonStr) {

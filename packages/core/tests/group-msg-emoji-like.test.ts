@@ -6,8 +6,8 @@
 //   - formatEvent prints something readable in the [Event] log
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { protoEncode } from '../src/protobuf/decode';
-import { GroupReactNotifySchema } from '../src/bridge/proto/notify';
+import { protobuf_encode } from '@snowluma/proton';
+import type { GroupReactNotify } from '../src/bridge/proto/proton/notify';
 import { decodeEvent0x2DC } from '../src/bridge/msg-push/decoders/event-0x2dc';
 import type { MsgPushContext } from '../src/bridge/msg-push/context';
 import { IdentityService } from '../src/bridge/identity-service';
@@ -28,7 +28,7 @@ function makeIdentity(): IdentityService {
  *  a 7-byte magic prefix followed by an encoded GroupReactNotify. */
 function buildReactContent(notify: Record<string, unknown>): Uint8Array {
   const prefix = new Uint8Array([0, 0, 0, 0, 0, 0, 0]);
-  const body = protoEncode(notify as never, GroupReactNotifySchema);
+  const body = protobuf_encode<GroupReactNotify>(notify as GroupReactNotify);
   const out = new Uint8Array(prefix.length + body.length);
   out.set(prefix, 0);
   out.set(body, prefix.length);

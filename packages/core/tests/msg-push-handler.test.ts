@@ -3,8 +3,6 @@ import { protobuf_encode } from '@snowluma/proton';
 import { parseMsgPush, MSG_PUSH_CMD } from '../src/bridge/msg-push';
 import { IdentityService } from '../src/bridge/identity-service';
 import type { GroupMemberInfo, QQGroupInfo } from '../src/bridge/qq-info';
-import { PushMsgSchema } from '../src/bridge/proto/message';
-import { GroupChangeSchema, OperatorInfoSchema } from '../src/bridge/proto/notify';
 // Proton's call-site analyzer keys off the literal type identifier
 // printed in `protobuf_encode<X>` — it walks imports by *original*
 // name (not alias). If both `import { X } from 'proto/notify'` and
@@ -15,8 +13,9 @@ import { GroupChangeSchema, OperatorInfoSchema } from '../src/bridge/proto/notif
 // name) — we don't need to import it directly since assertions can
 // inline-extract the kind.
 import type {
-  NewFriend, FriendRecall, SelfJoinInGroup,
+  GroupChange, NewFriend, FriendRecall, OperatorInfo, SelfJoinInGroup,
 } from '../src/bridge/proto/proton/notify';
+import type { PushMsg } from '../src/bridge/proto/proton/message';
 import type {
   GroupMemberJoin, FriendAddEvent, QQEventVariant,
 } from '../src/bridge/events';
@@ -26,7 +25,6 @@ import type {
 // proton import above.
 type FriendRecallEvent = Extract<QQEventVariant, { kind: 'friend_recall' }>;
 import type { PacketInfo } from '../src/protocol/types';
-import { protoEncode } from '../src/protobuf/decode';
 import { subscribeLogs } from '../src/utils/logger';
 
 const SELF_UIN = '10001';
@@ -67,21 +65,21 @@ function makeIdentity(members: GroupMemberInfo[] = []): IdentityService {
 
 function makeGroupIncreasePacket(memberUid: string, operatorUid = '', fromUin = GROUP_ID): PacketInfo {
   const operatorBytes = operatorUid
-    ? protoEncode({ operatorField: { uid: operatorUid } } as any, OperatorInfoSchema)
+    ? protobuf_encode<OperatorInfo>({ operatorField: { uid: operatorUid } })
     : new Uint8Array(0);
-  const content = protoEncode({
+  const content = protobuf_encode<GroupChange>({
     groupUin: GROUP_ID,
     memberUid,
     operatorBytes,
-  } as any, GroupChangeSchema);
-  const body = protoEncode({
+  });
+  const body = protobuf_encode<PushMsg>({
     message: {
       responseHead: { fromUin },
       contentHead: { msgType: 33, timestamp: 1710000000 },
       body: { msgContent: content },
     },
     status: 0,
-  } as any, PushMsgSchema);
+  });
 
   return {
     pid: 1,
@@ -129,7 +127,7 @@ describe('parseMsgPush Event0x210 subType=38 (acknowledged-but-silent)', () => {
   // drop silently — no OneBot-level event, and — critically —
   // **no** "unknown subType=38" fallback log spam anymore.
   function makeEvent0x210Packet(subType: number, content = new Uint8Array(0)): PacketInfo {
-    const body = protoEncode({
+    const body = protobuf_encode<PushMsg>({
       message: {
         responseHead: { fromUin: 22222, type: 0, sigMap: 0 },
         // 528 = Event0x210
@@ -137,7 +135,7 @@ describe('parseMsgPush Event0x210 subType=38 (acknowledged-but-silent)', () => {
         body: { msgContent: content },
       },
       status: 0,
-    } as any, PushMsgSchema);
+    });
     return {
       pid: 1, uin: SELF_UIN, serviceCmd: MSG_PUSH_CMD, seqId: 1,
       retCode: 0, fromClient: false, body,
@@ -186,14 +184,14 @@ describe('parseMsgPush Event0x210 subType=38 (acknowledged-but-silent)', () => {
 //    that we were previously dropping into the "unknown" fallback. ──
 
 function makeEvent0x210PacketAny(subType: number, content: Uint8Array): PacketInfo {
-  const body = protoEncode({
+  const body = protobuf_encode<PushMsg>({
     message: {
       responseHead: { fromUin: 22222, type: 0, sigMap: 0 },
       contentHead: { msgType: 528, subType, timestamp: 1710000000 },
       body: { msgContent: content },
     },
     status: 0,
-  } as any, PushMsgSchema);
+  });
   return {
     pid: 1, uin: SELF_UIN, serviceCmd: MSG_PUSH_CMD, seqId: 1,
     retCode: 0, fromClient: false, body,
@@ -313,14 +311,14 @@ describe('parseMsgPush PkgType 85 (bot self-joined a group)', () => {
       field6: 48,
       field7: '',
     });
-    const body = protoEncode({
+    const body = protobuf_encode<PushMsg>({
       message: {
         responseHead: { fromUin: groupId, type: 0, sigMap: 0 },
         contentHead: { msgType: 85, subType: 0, timestamp: 1710000000 },
         body: { msgContent: content },
       },
       status: 0,
-    } as any, PushMsgSchema);
+    });
     return {
       pid: 1, uin: SELF_UIN, serviceCmd: MSG_PUSH_CMD, seqId: 1,
       retCode: 0, fromClient: false, body,

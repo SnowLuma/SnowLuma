@@ -14,13 +14,13 @@ vi.mock('../../src/bridge/element-builder', () => ({
   buildSendElems: vi.fn(async () => []),
 }));
 
-import { protoEncode } from '../../src/protobuf/decode';
-import { SendLongMsgRespSchema } from '../../src/bridge/proto/longmsg';
+import { protobuf_encode } from '@snowluma/proton';
+import type { SendLongMsgResp } from '../../src/bridge/proto/proton/longmsg';
 import * as forward from '../../src/bridge/actions/forward';
 import { mockBridge } from './_helpers';
 
 function uploadResponseWithResId(resId: string) {
-  const encoded = protoEncode({ result: { resId } }, SendLongMsgRespSchema);
+  const encoded = protobuf_encode<SendLongMsgResp>({ result: { resId } });
   return {
     success: true,
     gotResponse: true,

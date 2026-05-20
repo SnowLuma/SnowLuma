@@ -2,17 +2,14 @@
 // One unified shape: notice decoders pick from `content`, message decoders
 // pick from `body` / `responseHead`. Decoders ignore fields they don't need.
 
-import { protoDecode } from '../../protobuf/decode';
-import type { ProtoDecoded } from '../../protobuf/decode';
-import {
-  PushMsgSchema, MessageBodySchema, ResponseHeadSchema, ContentHeadSchema,
-} from '../proto/message';
+import { protobuf_decode } from '@snowluma/proton';
+import type { ContentHead, MessageBody, PushMsg, ResponseHead } from '../proto/proton/message';
 import type { PacketInfo } from '../../protocol/types';
 import type { IdentityService } from '../identity-service';
 
-export type PushMsgBody = ProtoDecoded<typeof MessageBodySchema>;
-export type PushMsgResponseHead = ProtoDecoded<typeof ResponseHeadSchema>;
-export type PushMsgContentHead = ProtoDecoded<typeof ContentHeadSchema>;
+export type PushMsgBody = MessageBody;
+export type PushMsgResponseHead = ResponseHead;
+export type PushMsgContentHead = ContentHead;
 
 export interface MsgPushHead {
   readonly msgType: number;
@@ -36,7 +33,7 @@ export interface MsgPushContext {
 export function buildContext(pkt: PacketInfo, identity: IdentityService): MsgPushContext | null {
   if (pkt.body.length === 0) return null;
 
-  const push = protoDecode(Buffer.from(pkt.body), PushMsgSchema);
+  const push = protobuf_decode<PushMsg>(Buffer.from(pkt.body));
   if (!push?.message) return null;
 
   const msg = push.message;
