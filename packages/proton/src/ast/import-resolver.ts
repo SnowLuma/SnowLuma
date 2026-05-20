@@ -102,25 +102,99 @@ function extractExportAllSpecifiers(sf: ts.SourceFile): string[] {
   return result;
 }
 
-/** Resolve a relative module specifier to an absolute file path. Returns null if not found. */
+// Compiler options used for bare-specifier module resolution. `Bundler`
+// matches modern monorepo + vite tooling: it understands `package.json`
+// `exports`, `main`, and workspace symlinks without forcing the caller
+// to spell out file extensions. We pass these once per process — the
+// only consumer here is `ts.resolveModuleName` and it doesn't mutate
+// them.
+const BARE_SPECIFIER_COMPILER_OPTIONS: ts.CompilerOptions = {
+  moduleResolution: ts.ModuleResolutionKind.Bundler,
+  module: ts.ModuleKind.ESNext,
+  target: ts.ScriptTarget.Latest,
+  allowImportingTsExtensions: true,
+};
+
+// Per-process cache for `ts.resolveModuleName`. Hot paths (rebuild on
+// HMR) call this hundreds of times — without the cache each call
+// re-walks `node_modules` and `package.json` lookups.
+let bareModuleResolutionCache: ts.ModuleResolutionCache | null = null;
+
+function getBareModuleResolutionCache(): ts.ModuleResolutionCache {
+  if (!bareModuleResolutionCache) {
+    bareModuleResolutionCache = ts.createModuleResolutionCache(
+      process.cwd(),
+      (s) => s,
+      BARE_SPECIFIER_COMPILER_OPTIONS,
+    );
+  }
+  return bareModuleResolutionCache;
+}
+
+/**
+ * Resolve a module specifier (relative OR bare) to an absolute `.ts`
+ * source-file path. Returns `null` if the resolution lands on something
+ * proton can't consume (a `.d.ts` declaration, a `.js` build artifact,
+ * or just not-found).
+ *
+ * Two code paths:
+ *
+ *  - **Relative** (`./foo`, `../bar`): direct file-existence probe.
+ *    Same behavior as before — fast, no TS dependency. Preserved
+ *    verbatim so that the common case (cross-file imports inside a
+ *    single package) is unaffected by the new bare-specifier logic.
+ *
+ *  - **Bare** (`@scope/pkg`, `pkg-name`, `~alias`): delegate to
+ *    TypeScript's module resolution so monorepo workspaces / npm
+ *    packages / tsconfig paths / package.json `exports` all just work.
+ *    Required to support proto definitions that live in a separate
+ *    workspace package — e.g. moving `bridge/proto/proton/*.ts` into a
+ *    dedicated `@snowluma/proto-defs` package while keeping the call
+ *    sites in `@snowluma/core`.
+ *
+ *    We deliberately require the resolved file to be `.ts` (not
+ *    `.d.ts`): proton collects `pb<…>` field tags by walking interface
+ *    AST nodes, and a hand-written `.d.ts` *would* work too — but the
+ *    typical `dist/index.d.ts` strips away the `pb<>` type arguments
+ *    proton needs. Asking proto-definition packages to ship source
+ *    `.ts` (the same model `@snowluma/proton` itself uses) avoids that
+ *    footgun entirely.
+ */
 function resolveModulePath(specifier: string, importerPath: string): string | null {
-  if (!specifier.startsWith('.')) return null; // skip bare/alias specifiers
+  if (specifier.startsWith('.')) {
+    // ── Relative path branch (preserved verbatim from the pre-bare-
+    //    specifier implementation; existing callers depend on its
+    //    exact behavior, including the .ts-only filter). ──
+    const base = resolve(dirname(importerPath), specifier);
 
-  const base = resolve(dirname(importerPath), specifier);
+    // Try exact path (e.g., './types.ts')
+    if (existsSync(base) && !base.endsWith('.ts') === false) return base;
+    if (base.endsWith('.ts') && existsSync(base)) return base;
 
-  // Try exact path (e.g., './types.ts')
-  if (existsSync(base) && !base.endsWith('.ts') === false) return base;
-  if (base.endsWith('.ts') && existsSync(base)) return base;
+    // Try appending .ts
+    const withTs = base + '.ts';
+    if (existsSync(withTs)) return withTs;
 
-  // Try appending .ts
-  const withTs = base + '.ts';
-  if (existsSync(withTs)) return withTs;
+    // Try as directory with index.ts
+    const indexTs = resolve(base, 'index.ts');
+    if (existsSync(indexTs)) return indexTs;
 
-  // Try as directory with index.ts
-  const indexTs = resolve(base, 'index.ts');
-  if (existsSync(indexTs)) return indexTs;
+    return null;
+  }
 
-  return null;
+  // ── Bare specifier branch ──
+  const result = ts.resolveModuleName(
+    specifier,
+    importerPath,
+    BARE_SPECIFIER_COMPILER_OPTIONS,
+    ts.sys,
+    getBareModuleResolutionCache(),
+  );
+  const resolved = result.resolvedModule;
+  if (!resolved) return null;
+  // Only accept .ts source — see doc comment above for why.
+  if (resolved.extension !== ts.Extension.Ts) return null;
+  return resolved.resolvedFileName;
 }
 
 function hasExportModifier(node: ts.Node): boolean {
