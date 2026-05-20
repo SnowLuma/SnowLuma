@@ -1,20 +1,32 @@
-export { SNOWLUMA_ACTIONS, isSnowLumaAction } from './actions';
 export { SnowLumaApiClient } from './client/api-client';
-export { SnowLumaHttpClient, createHttpClient } from './client/http-client';
-export { SnowLumaWebSocketClient, createWebSocketClient } from './client/websocket-client';
+export { createHttpClient, SnowLumaHttpClient } from './client/http-client';
+export type {
+  SnowLumaHttpClientOptions
+} from './client/http-client';
+export { createWebSocketClient, SnowLumaWebSocketClient } from './client/websocket-client';
 export {
-  SnowLumaAbortError,
+  createSnowLumaApiError, SnowLumaAbortError,
   SnowLumaApiError,
   SnowLumaAuthError,
   SnowLumaConnectionError,
   SnowLumaError,
   SnowLumaParseError,
   SnowLumaTimeoutError,
-  SnowLumaTransportError,
-  createSnowLumaApiError,
+  SnowLumaTransportError
 } from './errors';
 export {
-  MessageChain,
+  createEventContext,
+  isGroupMessageEvent,
+  isMessageEvent,
+  isMetaEvent,
+  isNoticeEvent,
+  isPrivateMessageEvent,
+  isRequestEvent,
+  matchCommand,
+  noticeType,
+  requestType
+} from './events/index';
+export {
   at,
   atAll,
   br,
@@ -23,12 +35,10 @@ export {
   escapeCqParam,
   escapeCqText,
   face,
-  forward,
-  image,
+  forward, fromCQString, image,
   json,
   location,
-  message,
-  music,
+  message, MessageChain, music,
   node,
   normalizeMessage,
   parseSegments,
@@ -40,36 +50,15 @@ export {
   text,
   toCQString,
   video,
-  xml,
-  fromCQString,
+  xml
 } from './messages/index';
-export {
-  createEventContext,
-  isGroupMessageEvent,
-  isMessageEvent,
-  isMetaEvent,
-  isNoticeEvent,
-  isPrivateMessageEvent,
-  isRequestEvent,
-  matchCommand,
-  noticeType,
-  requestType,
-} from './events/index';
-
-export type {
-  SnowLumaKnownAction,
-} from './actions';
-
-export type {
-  SnowLumaHttpClientOptions,
-} from './client/http-client';
 
 export type {
   ReconnectOptions,
   SnowLumaWebSocketClientOptions,
   SnowLumaWebSocketEvents,
   WebSocketCloseInfo,
-  WebSocketConstructor,
+  WebSocketConstructor
 } from './client/websocket-client';
 
 export type {
@@ -82,7 +71,8 @@ export type {
   EventPredicate,
   MaybePromise,
   RequestDecisionOptions,
-  SnowLumaEventContext,
+  SnowLumaEventContext
 } from './events/index';
 
 export type * from './types/index';
+
