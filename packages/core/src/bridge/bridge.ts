@@ -38,15 +38,11 @@ import {
 // result type still lives here because the OneBot side imports it
 // through bridge.ts.
 import type { GroupFilesResult } from './apis/group-file';
-import {
-  setGroupEssence as setGroupEssence_,
-} from './actions/group-message';
-import {
-  getEmojiLikes as getEmojiLikes_,
-  sendLike as sendLike_,
-  sendPoke as sendPoke_,
-  setGroupReaction as setGroupReaction_,
-} from './actions/interaction';
+// actions/group-message.ts removed — `setGroupEssence` moved to
+//   apis/interaction.ts::InteractionApi. The recall/markRead helpers
+//   were absorbed into MessageApi back in commit 1.
+// actions/interaction.ts removed — sendPoke/sendLike/setReaction/
+//   getEmojiLikes moved to apis/interaction.ts::InteractionApi.
 import {
   clickInlineKeyboardButton as clickInlineKeyboardButton_,
   getMiniAppArk as getMiniAppArk_,
@@ -330,10 +326,8 @@ export class Bridge implements BridgeInterface {
   // apis.groupFile (apis/group-file.ts::GroupFileApi).
   async uploadForwardNodes(nodes: ForwardNodePayload[], groupId?: number, userId?: number): Promise<string> { return uploadForwardNodes_(this, nodes, groupId, userId); }
   async fetchForwardNodes(resId: string): Promise<ForwardNodePayload[]> { return fetchForwardNodes_(this, resId); }
-  async sendPoke(isGroup: boolean, peerUin: number, targetUin?: number): Promise<void> { return sendPoke_(this, isGroup, peerUin, targetUin); }
-  async sendLike(userId: number, count: number): Promise<void> { return sendLike_(this, userId, count); }
-  async setGroupEssence(groupId: number, sequence: number, random: number, enable: boolean): Promise<void> { return setGroupEssence_(this, groupId, sequence, random, enable); }
-  async setGroupReaction(groupId: number, sequence: number, code: string, isSet: boolean): Promise<void> { return setGroupReaction_(this, groupId, sequence, code, isSet); }
+  // Interaction methods (sendPoke/sendLike/setReaction/setEssence/
+  // getEmojiLikes) moved to apis.interaction.
   // recall* / markRead* moved to apis/message.ts::MessageApi.
   async setFriendRemark(userId: number, remark: string): Promise<void> { return setFriendRemark_(this, userId, remark); }
   async getGroupHonorInfo(groupId: number, type: WebHonorType | string): Promise<any> {
@@ -408,9 +402,6 @@ export class Bridge implements BridgeInterface {
   }
   async fetchCustomFace(count?: number): Promise<string[]> {
     return fetchCustomFace_(this, count);
-  }
-  async getEmojiLikes(groupId: number, sequence: number, emojiId: string, emojiType?: number, count?: number, cookie?: string) {
-    return getEmojiLikes_(this, groupId, sequence, emojiId, emojiType, count, cookie);
   }
 
   // --- Tier-2 napcat-parity extras (group todo, stranger status, AI voice) ---

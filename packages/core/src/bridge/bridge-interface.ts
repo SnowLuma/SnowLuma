@@ -44,8 +44,7 @@ export interface BridgeInterface {
   // ─── Fetch (contacts / profile / system) — moved to apis.contacts ───
 
   // ─── Group admin (moved to apis.groupAdmin) ───
-  setGroupReaction(groupId: number, sequence: number, code: string, isSet: boolean): Promise<void>;
-  setGroupEssence(groupId: number, sequence: number, random: number, enable: boolean): Promise<void>;
+  // ─── Group reaction / essence (moved to apis.interaction) ───
 
   // ─── Friend ───
   setFriendAddRequest(uidOrFlag: string, approve: boolean): Promise<void>;
@@ -71,10 +70,8 @@ export interface BridgeInterface {
 
   // ─── Message ops (moved to apis.message) ───
 
-  // ─── Interaction ───
-  sendPoke(isGroup: boolean, peerUin: number, targetUin?: number): Promise<void>;
-  sendLike(userId: number, count: number): Promise<void>;
-  getEmojiLikes(groupId: number, sequence: number, emojiId: string, emojiType?: number, count?: number, cookie?: string): Promise<{ users: Array<{ uin: number }>; cookie: string; isLast: boolean }>;
+  // ─── Interaction (moved to apis.interaction) ───
+  //   - sendPoke / sendLike / setReaction / setEssence / getEmojiLikes
 
   // ─── Web-backed ───
   getGroupHonorInfo(groupId: number, type: WebHonorType | string): Promise<any>;

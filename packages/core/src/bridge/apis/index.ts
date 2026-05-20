@@ -25,6 +25,7 @@ import { ContactsApi } from './contacts';
 import { GroupAdminApi } from './group-admin';
 import { GroupAlbumApi } from './group-album';
 import { GroupFileApi } from './group-file';
+import { InteractionApi } from './interaction';
 import { MessageApi } from './message';
 
 export interface ApiHub {
@@ -38,6 +39,8 @@ export interface ApiHub {
   readonly groupFile: GroupFileApi;
   /** Group photo album: list/upload/comment/like/delete + media listing. */
   readonly groupAlbum: GroupAlbumApi;
+  /** Interactive engagement: poke / like / reaction / essence / emoji-like-list. */
+  readonly interaction: InteractionApi;
   // Pending — added as later commits land:
   //   readonly friend:      FriendApi;
   //   readonly interaction: InteractionApi;
@@ -63,6 +66,7 @@ export function buildApiHub(ctx: BridgeContext): ApiHub {
     groupAdmin: new GroupAdminApi(ctx),
     groupFile: new GroupFileApi(ctx),
     groupAlbum: new GroupAlbumApi(ctx),
+    interaction: new InteractionApi(ctx),
   };
 }
 
@@ -73,4 +77,5 @@ export { ContactsApi } from './contacts';
 export { GroupAdminApi } from './group-admin';
 export { GroupAlbumApi } from './group-album';
 export { GroupFileApi } from './group-file';
+export { InteractionApi } from './interaction';
 export { MessageApi } from './message';

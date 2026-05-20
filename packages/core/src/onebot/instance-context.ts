@@ -137,8 +137,8 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     handleGroupRequest: (flag, _subType, approve, reason) => handleGroupAddRequest(bridge, flag, approve, reason),
 
     // Pokes — flatten isGroup into the bridge signature.
-    sendFriendPoke: (userId, targetId) => bridge.sendPoke(false, userId, targetId),
-    sendGroupPoke: (groupId, userId) => bridge.sendPoke(true, groupId, userId),
+    sendFriendPoke: (userId, targetId) => bridge.apis.interaction.sendPoke(false, userId, targetId),
+    sendGroupPoke: (groupId, userId) => bridge.apis.interaction.sendPoke(true, groupId, userId),
 
     // Essence — bake the set/unset boolean.
     setEssenceMsg: (messageId) => setEssenceMessage(bridge, messageStore, messageId, true),
@@ -176,7 +176,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
       // there is no wire path to forward this to; fail loudly instead
       // of silently no-op'ing.
       if (!meta.isGroup) throw new Error('emoji reactions are not supported on private messages');
-      await bridge.setGroupReaction(meta.targetId, meta.sequence, emojiId, set);
+      await bridge.apis.interaction.setReaction(meta.targetId, meta.sequence, emojiId, set);
     },
     markGroupMsgAsRead: (groupId, sequence) => bridge.apis.message.markGroupRead(groupId, sequence),
     markPrivateMsgAsRead: (userId, sequence) => bridge.apis.message.markPrivateRead(userId, sequence),
@@ -201,7 +201,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
 
     // Extended
     fetchCustomFace: (count) => bridge.fetchCustomFace(count),
-    getEmojiLikes: (groupId, sequence, emojiId, emojiType, count, cookie) => bridge.getEmojiLikes(groupId, sequence, emojiId, emojiType, count, cookie),
+    getEmojiLikes: (groupId, sequence, emojiId, emojiType, count, cookie) => bridge.apis.interaction.getEmojiLikes(groupId, sequence, emojiId, emojiType, count, cookie),
 
     // Media lookup.
     getImageInfo: (file) => getCachedImageInfo(mediaStore, file),

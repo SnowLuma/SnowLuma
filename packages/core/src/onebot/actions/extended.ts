@@ -88,7 +88,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const userId = asNumber(params.user_id);
     const times = asNumber(params.times) || 1;
     if (!userId) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
-    await ctx.bridge.sendLike(userId, times);
+    await ctx.bridge.apis.interaction.sendLike(userId, times);
     return okResponse();
   });
 
@@ -177,7 +177,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
       return failedResponse(RETCODE.BAD_REQUEST, 'group_id does not match message session');
     }
 
-    await ctx.bridge.setGroupReaction(meta.targetId, meta.sequence, code, isSet);
+    await ctx.bridge.apis.interaction.setReaction(meta.targetId, meta.sequence, code, isSet);
     return okResponse();
   });
 
@@ -822,7 +822,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     try {
       const meta = ctx.getMessageMeta(messageId);
       if (!meta?.isGroup || !meta?.sequence) return failedResponse(RETCODE.BAD_REQUEST, 'message not found or not a group message');
-      const result = await ctx.bridge.getEmojiLikes(meta.targetId, meta.sequence, emojiId);
+      const result = await ctx.bridge.apis.interaction.getEmojiLikes(meta.targetId, meta.sequence, emojiId);
       return okResponse({ emoji_like_list: result.users.map(u => ({ user_id: String(u.uin), nick_name: '' })) });
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -839,7 +839,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     try {
       const meta = ctx.getMessageMeta(messageId);
       if (!meta?.isGroup || !meta?.sequence) return failedResponse(RETCODE.BAD_REQUEST, 'message not found or not a group message');
-      const result = await ctx.bridge.getEmojiLikes(meta.targetId, meta.sequence, emojiId, emojiType, count, cookie);
+      const result = await ctx.bridge.apis.interaction.getEmojiLikes(meta.targetId, meta.sequence, emojiId, emojiType, count, cookie);
       return okResponse({
         result: 0,
         errMsg: '',

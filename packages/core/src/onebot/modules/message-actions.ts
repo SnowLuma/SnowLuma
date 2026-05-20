@@ -85,7 +85,7 @@ export async function setEssenceMessage(
 ): Promise<void> {
   const meta = messageStore.findMeta(messageId);
   if (!meta || !meta.isGroup) throw new Error('message not found or not a group message');
-  await bridge.setGroupEssence(meta.targetId, meta.sequence, meta.random, enable);
+  await bridge.apis.interaction.setEssence(meta.targetId, meta.sequence, meta.random, enable);
 }
 
 export async function sendPrivateMessage(
