@@ -34,8 +34,11 @@ vi.mock('../../src/bridge/bridge-oidb', () => ({
 
 // `vi.mock` factories are hoisted above the imports — declare the spy
 // inside a `vi.hoisted` block so it's available at the same moment.
+// Declare parameter types on the fn so `mock.calls[0]` infers a tuple
+// of [elements, ctx] instead of `[]`, which makes the destructuring
+// a tsc error under strict tuple checking on CI.
 const { buildSendElemsMock } = vi.hoisted(() => ({
-  buildSendElemsMock: vi.fn(async () => []),
+  buildSendElemsMock: vi.fn(async (_elements: unknown[], _ctx?: Record<string, unknown>) => []),
 }));
 vi.mock('../../src/bridge/element-builder', () => ({
   buildSendElems: buildSendElemsMock,
@@ -115,7 +118,7 @@ describe('actions/forward — file segment inside forward node', () => {
     expect(buildSendElemsMock).toHaveBeenCalled();
     const [, ctx] = buildSendElemsMock.mock.calls[0]!;
     expect(ctx).toMatchObject({ forwardFake: true });
-    expect(ctx.groupId).toBeUndefined();
+    expect(ctx?.groupId).toBeUndefined();
 
     // Spot-check that the upload body carries the file metadata. The
     // payload is gzipped + protobuf-wrapped, so we just verify the

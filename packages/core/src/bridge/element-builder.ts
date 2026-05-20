@@ -426,7 +426,7 @@ export async function buildSendElems(elements: MessageElement[], ctx?: SendConte
         //                the file segment off and writes msgContent
         //                separately (because RichText.notOnlineFile +
         //                FileExtra both live outside elems[]).
-        if (ctx?.forwardFake) {
+        if (ctx && ctx.forwardFake) {
           if (ctx.groupId !== undefined) {
             result.push(makeGroupFileElem(elem));
           }
