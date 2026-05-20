@@ -22,6 +22,7 @@
 
 import type { BridgeContext } from '../bridge-context';
 import { ContactsApi } from './contacts';
+import { FriendApi } from './friend';
 import { GroupAdminApi } from './group-admin';
 import { GroupAlbumApi } from './group-album';
 import { GroupFileApi } from './group-file';
@@ -41,8 +42,9 @@ export interface ApiHub {
   readonly groupAlbum: GroupAlbumApi;
   /** Interactive engagement: poke / like / reaction / essence / emoji-like-list. */
   readonly interaction: InteractionApi;
+  /** Friend roster mutations: handleRequest / delete / setRemark. */
+  readonly friend: FriendApi;
   // Pending — added as later commits land:
-  //   readonly friend:      FriendApi;
   //   readonly interaction: InteractionApi;
   //   readonly profile:     ProfileApi;
   //   readonly forward:     ForwardApi;
@@ -67,6 +69,7 @@ export function buildApiHub(ctx: BridgeContext): ApiHub {
     groupFile: new GroupFileApi(ctx),
     groupAlbum: new GroupAlbumApi(ctx),
     interaction: new InteractionApi(ctx),
+    friend: new FriendApi(ctx),
   };
 }
 
@@ -74,6 +77,7 @@ export function buildApiHub(ctx: BridgeContext): ApiHub {
 // `import type { MessageApi } from '@snowluma/core/.../apis'` for
 // signature use. Concrete instances always come from `bridge.apis.*`.
 export { ContactsApi } from './contacts';
+export { FriendApi } from './friend';
 export { GroupAdminApi } from './group-admin';
 export { GroupAlbumApi } from './group-album';
 export { GroupFileApi } from './group-file';

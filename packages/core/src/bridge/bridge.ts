@@ -26,11 +26,7 @@ import {
   fetchForwardNodes as fetchForwardNodes_,
   uploadForwardNodes as uploadForwardNodes_,
 } from './actions/forward';
-import {
-  deleteFriend as deleteFriend_,
-  setFriendAddRequest as setFriendAddRequest_,
-  setFriendRemark as setFriendRemark_,
-} from './actions/friend';
+// actions/friend.ts removed — moved to apis/friend.ts::FriendApi.
 // actions/group-admin.ts removed — moved to `apis/group-admin.ts::GroupAdminApi`.
 // actions/group-album.ts removed — moved to `apis/group-album.ts::GroupAlbumApi`.
 // Group file CRUD + private c2c upload + media URL resolvers moved to
@@ -318,8 +314,8 @@ export class Bridge implements BridgeInterface {
   // GroupAdmin methods (mute/kick/admin/card/name/title/leave/
   // add-option/search/add-request/remark/at-all-remain) moved to
   // apis.groupAdmin (apis/group-admin.ts::GroupAdminApi).
-  async setFriendAddRequest(uidOrFlag: string, approve: boolean): Promise<void> { return setFriendAddRequest_(this, uidOrFlag, approve); }
-  async deleteFriend(userId: number, block = false): Promise<void> { return deleteFriend_(this, userId, block); }
+  // Friend methods (handleRequest/delete/setRemark) moved to
+  // apis.friend.
   // GroupFile methods (upload/uploadPrivate/publish/list/getUrl/
   // getPrivateUrl/{Ptt,Video}Url/getPrivate{Ptt,Video}Url/delete/move/
   // createFolder/deleteFolder/renameFolder/getCount) moved to
@@ -329,7 +325,6 @@ export class Bridge implements BridgeInterface {
   // Interaction methods (sendPoke/sendLike/setReaction/setEssence/
   // getEmojiLikes) moved to apis.interaction.
   // recall* / markRead* moved to apis/message.ts::MessageApi.
-  async setFriendRemark(userId: number, remark: string): Promise<void> { return setFriendRemark_(this, userId, remark); }
   async getGroupHonorInfo(groupId: number, type: WebHonorType | string): Promise<any> {
     return getGroupHonorInfo_(this, groupId, type);
   }

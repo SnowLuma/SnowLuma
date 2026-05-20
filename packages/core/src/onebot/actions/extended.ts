@@ -540,7 +540,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (params.remark === undefined) {
       return failedResponse(RETCODE.BAD_REQUEST, 'remark is required (pass an empty string to clear)');
     }
-    await ctx.bridge.setFriendRemark(userId, asString(params.remark));
+    await ctx.bridge.apis.friend.setRemark(userId, asString(params.remark));
     return okResponse();
   });
 

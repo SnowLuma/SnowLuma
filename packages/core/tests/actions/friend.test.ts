@@ -8,34 +8,34 @@ vi.mock('../../src/bridge/bridge-oidb', () => ({
 }));
 
 import * as oidb from '../../src/bridge/bridge-oidb';
-import * as friend from '../../src/bridge/actions/friend';
+import { FriendApi } from '../../src/bridge/apis/friend';
 import { mockBridge } from './_helpers';
 
-describe('actions/friend', () => {
+describe('apis/friend', () => {
   beforeEach(() => {
     vi.mocked(oidb.runOidb).mockClear();
     vi.mocked(oidb.makeOidbEnvelope).mockClear();
   });
 
-  it('setFriendAddRequest: numeric input is treated as UIN and resolved', async () => {
+  it('handleRequest: numeric input is treated as UIN and resolved', async () => {
     const bridge = mockBridge();
-    await friend.setFriendAddRequest(bridge as any, '10001', true);
+    await new FriendApi(bridge as any).handleRequest('10001', true);
     expect(bridge.resolveUserUid).toHaveBeenCalledWith(10001);
     const body = vi.mocked(oidb.makeOidbEnvelope).mock.calls[0]![2];
     expect(body).toMatchObject({ accept: 3, targetUid: 'resolved-uid' });
   });
 
-  it('setFriendAddRequest: non-numeric flag is forwarded as-is', async () => {
+  it('handleRequest: non-numeric flag is forwarded as-is', async () => {
     const bridge = mockBridge();
-    await friend.setFriendAddRequest(bridge as any, 'flag-abc', false);
+    await new FriendApi(bridge as any).handleRequest('flag-abc', false);
     expect(bridge.resolveUserUid).not.toHaveBeenCalled();
     const body = vi.mocked(oidb.makeOidbEnvelope).mock.calls[0]![2];
     expect(body).toMatchObject({ accept: 5, targetUid: 'flag-abc' });
   });
 
-  it('deleteFriend resolves UID, calls 0x126b_0, and triggers a friend-list refresh', async () => {
+  it('delete resolves UID, calls 0x126b_0, and triggers a friend-list refresh', async () => {
     const bridge = mockBridge();
-    await friend.deleteFriend(bridge as any, 10001, true);
+    await new FriendApi(bridge as any).delete(10001, true);
     expect(bridge.resolveUserUid).toHaveBeenCalledWith(10001);
     const [, cmd] = vi.mocked(oidb.runOidb).mock.calls[0]!;
     expect(cmd).toBe('OidbSvcTrpcTcp.0x126b_0');
@@ -44,19 +44,19 @@ describe('actions/friend', () => {
     expect(bridge.apis.contacts.fetchFriendList).toHaveBeenCalled();
   });
 
-  it('deleteFriend still succeeds when the friend-list refresh throws', async () => {
+  it('delete still succeeds when the friend-list refresh throws', async () => {
     const bridge = mockBridge();
     // `fetchFriendList` lives on `apis.contacts` post-#6 refactor;
     // override the default no-op stub to make the friend-list refresh
-    // throw and verify deleteFriend swallows the error.
+    // throw and verify delete swallows the error.
     bridge.apis.contacts.fetchFriendList = vi.fn(async () => { throw new Error('cache miss'); });
-    await expect(friend.deleteFriend(bridge as any, 10001))
+    await expect(new FriendApi(bridge as any).delete(10001))
       .resolves.toBeUndefined();
   });
 
-  it('setFriendRemark resolves UID and sends 0xb6e_2', async () => {
+  it('setRemark resolves UID and sends 0xb6e_2', async () => {
     const bridge = mockBridge();
-    await friend.setFriendRemark(bridge as any, 10001, 'best-friend');
+    await new FriendApi(bridge as any).setRemark(10001, 'best-friend');
     const [, cmd] = vi.mocked(oidb.runOidb).mock.calls[0]!;
     expect(cmd).toBe('OidbSvcTrpcTcp.0xb6e_2');
     const body = vi.mocked(oidb.makeOidbEnvelope).mock.calls[0]![2];

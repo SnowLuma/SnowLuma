@@ -133,7 +133,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     getPrivateFileUrl: (userId, fileId, fileHash) => bridge.apis.groupFile.getPrivateUrl(userId, fileId, fileHash),
 
     // Requests — name translation.
-    handleFriendRequest: (flag, approve) => bridge.setFriendAddRequest(flag, approve),
+    handleFriendRequest: (flag, approve) => bridge.apis.friend.handleRequest(flag, approve),
     handleGroupRequest: (flag, _subType, approve, reason) => handleGroupAddRequest(bridge, flag, approve, reason),
 
     // Pokes — flatten isGroup into the bridge signature.
@@ -161,9 +161,9 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     sendForwardMsg: (messages, groupId) => uploadForwardMessage(ref, messages, groupId),
     getForwardMsg: (resId) => getForwardMessage(ref, resId),
     forwardSingleMsg: (messageId, target) => forwardSingleMessage(ref, messageId, target),
-    handleDeleteFriend: (userId, block) => bridge.deleteFriend(userId, !!block),
+    handleDeleteFriend: (userId, block) => bridge.apis.friend.delete(userId, !!block),
     forceFetchClientKey: () => bridge.forceFetchClientKey(),
-    setFriendRemark: (userId, remark) => bridge.setFriendRemark(userId, remark),
+    setFriendRemark: (userId, remark) => bridge.apis.friend.setRemark(userId, remark),
     setGroupRemark: (groupId, remark) => bridge.apis.groupAdmin.setRemark(groupId, remark),
     setGroupAvatar: (groupId, source) => bridge.setGroupAvatar(groupId, source),
     getGroupFileCount: (groupId) => bridge.apis.groupFile.getCount(groupId),

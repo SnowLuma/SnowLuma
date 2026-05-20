@@ -46,10 +46,8 @@ export interface BridgeInterface {
   // ─── Group admin (moved to apis.groupAdmin) ───
   // ─── Group reaction / essence (moved to apis.interaction) ───
 
-  // ─── Friend ───
-  setFriendAddRequest(uidOrFlag: string, approve: boolean): Promise<void>;
-  deleteFriend(userId: number, block?: boolean): Promise<void>;
-  setFriendRemark(userId: number, remark: string): Promise<void>;
+  // ─── Friend (moved to apis.friend) ───
+  //   - handleRequest / delete / setRemark
 
   // ─── Files (moved to apis.groupFile) ───
   //   - upload / uploadPrivate / publish
