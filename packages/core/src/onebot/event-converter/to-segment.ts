@@ -54,6 +54,8 @@ async function elementToSegment(
     const data: JsonObject = {
       url,
       file: element.fileId ?? '',
+      sub_type: element.subType ?? 0,
+      summary: element.summary ?? '',
     };
     if (mediaSegmentSink) mediaSegmentSink('image', element, data, isGroup, sessionId);
     return { type: 'image', data };
