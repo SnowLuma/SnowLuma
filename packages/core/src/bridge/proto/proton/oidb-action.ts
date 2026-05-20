@@ -1,6 +1,3 @@
-// Proton (compile-time) form of bridge/proto/oidb-action.ts.
-// One-to-one mirror; legacy `*Schema` constants stay alongside for back-compat.
-
 import type { pb, pb_repeated, int_32, uint_32, uint_64, bool, bytes } from '@snowluma/proton';
 
 // --- 0x1253_1: Mute group member ---

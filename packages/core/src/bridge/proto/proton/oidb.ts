@@ -1,18 +1,4 @@
-// Proton (compile-time) form of bridge/proto/oidb.ts.
-//
-// The legacy file exports a `makeOidbBaseSchema(body)` factory that builds the
-// OidbSvcTrpcTcpBase envelope at runtime; here that wrapper is expressed
-// once as the generic `OidbBase<T>` interface. Every existing
-// `makeOidbBaseSchema(InnerSchema)` call site becomes `OidbBase<Inner>`
-// at the type level, and the proton plugin monomorphizes the codec
-// per-instantiation at build time.
-//
-// `OidbBaseMeta` is the envelope-only view used by fire-and-check calls
-// that want to peek at the error code without decoding the body.
-
 import type { pb, pb_repeated, int_32, uint_32, uint_64, bytes } from '@snowluma/proton';
-
-// ── OidbSvcTrpcTcpBase wrapper ──────────────────────────────────────
 
 export interface OidbProperty {
   key?:   pb<1, string>;
@@ -29,11 +15,6 @@ export interface OidbBase<TBody> {
   reserved?:   pb<12, int_32>;
 }
 
-/**
- * Envelope-only view used by fire-and-check calls — proto3 wire format
- * silently skips unknown fields, so decoding any OidbBase<T> message with
- * this shape returns just the metadata and ignores the inner body.
- */
 export interface OidbBaseMeta {
   command?:    pb<1, uint_32>;
   subCommand?: pb<2, uint_32>;
@@ -42,8 +23,7 @@ export interface OidbBaseMeta {
   reserved?:   pb<12, int_32>;
 }
 
-// ── Friend list (0xFD4_1) ───────────────────────────────────────────
-
+// Oidb.0xFD4_1 Friend list
 export interface OidbFriendProperty {
   code?:  pb<1, uint_32>;
   value?: pb<2, string>;
@@ -78,8 +58,7 @@ export interface OidbSvcTrpcTcp0xFD4_1Response {
   groups?:             pb_repeated<102, OidbFriendProperty>;
 }
 
-// ── Group list (0xFE5_2) ────────────────────────────────────────────
-
+// Oidb.0xFE5_2 Group list
 export interface OidbSvcTrpcTcp0xFE5_2Member {
   uid?: pb<2, string>;
 }
@@ -109,8 +88,7 @@ export interface OidbSvcTrpcTcp0xFE5_2Response {
   groups?: pb_repeated<2, OidbSvcTrpcTcp0xFE5_2Group>;
 }
 
-// ── Group member list (0xFE7_3) ─────────────────────────────────────
-
+// Oidb.0xFE7_3 Group member list
 export interface OidbSvcTrpcTcp0xFE7_3Uin {
   uid?: pb<2, string>;
   uin?: pb<4, uint_32>;
@@ -146,8 +124,7 @@ export interface OidbSvcTrpcTcp0xFE7_3Response {
   token?:               pb<15, string>;
 }
 
-// ── Group request (0x10C0) ──────────────────────────────────────────
-
+// OIDB.0x10C0 Group Request
 export interface OidbSvcTrpcTcp0x10C0ResponseUser {
   uid?:  pb<1, string>;
   name?: pb<2, string>;
