@@ -152,6 +152,7 @@ export async function getStrangerInfo(
       nickname: p.nickname as any,
       sex: p.sex as any,
       age: p.age as any,
+      level: p.level as any,
     };
   } catch {
     const p = bridge.identity.findUserProfile(userId);
@@ -161,6 +162,7 @@ export async function getStrangerInfo(
       nickname: p.nickname as any,
       sex: p.sex as any,
       age: p.age as any,
+      level: p.level as any,
     };
   }
 }
@@ -175,7 +177,7 @@ export async function getGroupSystemMessages(bridge: BridgeInterface): Promise<J
       requester_uin: r.targetUin,
       requester_nick: r.targetName,
       message: r.comment,
-      flag: `${r.eventType}:${r.groupId}:${r.targetUid}`,
+      flag: String(r.sequence),
     } as JsonObject));
   } catch {
     return [];
