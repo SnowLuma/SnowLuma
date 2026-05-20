@@ -5,8 +5,8 @@ import type { Bridge } from '../bridge';
 import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
 import { fetchHighwaySession, uploadHighwayHttp } from '../highway/highway-client';
 import { computeHashes, computeMd5, FILE_UPLOAD_MAX_BYTES, loadBinarySource } from '../highway/utils';
-import type { FileUploadExt } from '../proto/proton/highway';
-import { OidbBase } from '../proto/proton/oidb';
+import type { FileUploadExt } from '@snowluma/proto-defs/highway';
+import { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   OidbGroupFileCountViewReq,
   OidbGroupFileCountViewResp,
@@ -17,7 +17,7 @@ import type {
   OidbGroupFileViewReq,
   OidbGroupFileViewResp,
   OidbGroupSendFileReq,
-} from '../proto/proton/oidb-actions/group-file';
+} from '@snowluma/proto-defs/oidb-actions/group-file';
 import type {
   NTV2RichMediaReq,
   NTV2RichMediaResp,
@@ -25,7 +25,7 @@ import type {
   OidbPrivateFileDownloadResp,
   OidbPrivateFileUploadReq,
   OidbPrivateFileUploadResp,
-} from '../proto/proton/oidb-actions/media';
+} from '@snowluma/proto-defs/oidb-actions/media';
 import { ensureRetCodeZero, resolveSelfUid, toInt, type MediaIndexNode } from './shared';
 
 const log = createLogger('GroupFile');

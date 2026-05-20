@@ -15,7 +15,7 @@ vi.mock('../../src/bridge/element-builder', () => ({
 }));
 
 import { protobuf_encode } from '@snowluma/proton';
-import type { SendLongMsgResp } from '../../src/bridge/proto/proton/longmsg';
+import type { SendLongMsgResp } from '@snowluma/proto-defs/longmsg';
 import * as forward from '../../src/bridge/actions/forward';
 import { mockBridge } from './_helpers';
 

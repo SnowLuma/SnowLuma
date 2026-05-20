@@ -1,6 +1,6 @@
 import { protobuf_decode } from '@snowluma/proton';
 import type { Bridge } from './bridge';
-import type { OidbBase, OidbBaseMeta } from './proto/proton/oidb';
+import type { OidbBase, OidbBaseMeta } from '@snowluma/proto-defs/oidb';
 
 /**
  * Build the OidbBase<T>-shaped TS value. Pure helper, no protobuf

@@ -11,7 +11,7 @@ import type {
   FriendRequest,
   GeneralGrayTipInfo,
   NewFriend,
-} from '../../proto/proton/notify';
+} from '@snowluma/proto-defs/notify';
 import type { MsgPushContext } from '../context';
 import { Event0x210SubType } from '../enums';
 import {

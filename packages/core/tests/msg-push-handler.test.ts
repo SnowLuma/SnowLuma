@@ -14,8 +14,8 @@ import type { GroupMemberInfo, QQGroupInfo } from '../src/bridge/qq-info';
 // inline-extract the kind.
 import type {
   GroupChange, NewFriend, FriendRecall, OperatorInfo, SelfJoinInGroup,
-} from '../src/bridge/proto/proton/notify';
-import type { PushMsg } from '../src/bridge/proto/proton/message';
+} from '@snowluma/proto-defs/notify';
+import type { PushMsg } from '@snowluma/proto-defs/message';
 import type {
   GroupMemberJoin, FriendAddEvent, QQEventVariant,
 } from '../src/bridge/events';

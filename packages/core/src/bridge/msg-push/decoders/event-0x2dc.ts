@@ -12,7 +12,7 @@ import type {
   GroupMute,
   GroupReactNotify,
   NotifyMessageBody,
-} from '../../proto/proton/notify';
+} from '@snowluma/proto-defs/notify';
 import type { MsgPushContext } from '../context';
 import { Event0x2DCSubType } from '../enums';
 import {

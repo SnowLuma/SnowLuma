@@ -1,14 +1,14 @@
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { Bridge } from '../bridge';
 import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
-import { OidbBase } from '../proto/proton/oidb';
+import { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   Oidb0x9083Req,
   Oidb0x9083Resp,
   OidbGroupReaction,
   OidbLike,
   OidbPoke,
-} from '../proto/proton/oidb-actions/base';
+} from '@snowluma/proto-defs/oidb-actions/base';
 
 export async function sendPoke(bridge: Bridge, isGroup: boolean, peerUin: number, targetUin?: number): Promise<void> {
   const env = makeOidbEnvelope<OidbPoke>(0xED3, 1, {

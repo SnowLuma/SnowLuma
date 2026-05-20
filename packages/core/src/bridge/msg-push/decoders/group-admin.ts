@@ -1,6 +1,6 @@
 import { protobuf_decode } from '@snowluma/proton';
 import type { GroupAdminEvent } from '../../events';
-import type { GroupAdmin } from '../../proto/proton/notify';
+import type { GroupAdmin } from '@snowluma/proto-defs/notify';
 import { resolveUidToUin } from '../helpers';
 import type { MsgPushDecoder } from '../registry';
 

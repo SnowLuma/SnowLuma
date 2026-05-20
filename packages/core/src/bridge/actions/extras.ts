@@ -1,18 +1,18 @@
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { Bridge } from '../bridge';
 import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
-import { OidbBase } from '../proto/proton/oidb';
+import { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   OidbGroupTodo,
   OidbStrangerStatusReq,
   OidbStrangerStatusResp,
-} from '../proto/proton/oidb-actions/base';
+} from '@snowluma/proto-defs/oidb-actions/base';
 import type {
   OidbAiVoiceListReq,
   OidbAiVoiceListResp,
   OidbAiVoiceReq,
   OidbAiVoiceResp,
-} from '../proto/proton/oidb-actions/media';
+} from '@snowluma/proto-defs/oidb-actions/media';
 import type { MediaIndexNode } from './shared';
 
 // ─────────────── Group todo (0xF90) ───────────────

@@ -7,7 +7,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { protobuf_encode } from '@snowluma/proton';
-import type { GroupReactNotify } from '../src/bridge/proto/proton/notify';
+import type { GroupReactNotify } from '@snowluma/proto-defs/notify';
 import { decodeEvent0x2DC } from '../src/bridge/msg-push/decoders/event-0x2dc';
 import type { MsgPushContext } from '../src/bridge/msg-push/context';
 import { IdentityService } from '../src/bridge/identity-service';

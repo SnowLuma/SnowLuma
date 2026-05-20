@@ -12,8 +12,8 @@ import type {
   RecvLongMsgResp,
   SendLongMsgReq,
   SendLongMsgResp,
-} from '../proto/proton/longmsg';
-import type { FileExtra, PushMsg, PushMsgBody } from '../proto/proton/message';
+} from '@snowluma/proto-defs/longmsg';
+import type { FileExtra, PushMsg, PushMsgBody } from '@snowluma/proto-defs/message';
 import { resolveSelfUid, toInt } from './shared';
 
 // Module-scoped cache, keyed by res_id. Survives only for the lifetime

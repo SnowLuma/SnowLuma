@@ -1,7 +1,7 @@
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { Bridge } from '../bridge';
 import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
-import { OidbBase } from '../proto/proton/oidb';
+import { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   Oidb0x89a_0AddOption,
   Oidb0x89a_0Search,
@@ -18,7 +18,7 @@ import type {
   OidbRenameMember,
   OidbSetAdmin,
   OidbSpecialTitle,
-} from '../proto/proton/oidb-actions/base';
+} from '@snowluma/proto-defs/oidb-actions/base';
 
 // ─────────────── mute / un-mute ───────────────
 

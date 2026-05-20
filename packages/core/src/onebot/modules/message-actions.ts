@@ -138,7 +138,7 @@ export async function sendPrivateMessage(
 
   // C2C `{type:'file'}` segments can't ride on the elems[] pipeline —
   // c2c files live on `RichText.notOnlineFile`, parallel to elems
-  // (see `proto/proton/message.ts:notOnlineFile`). The element-builder
+  // (see `@snowluma/proto-defs/message:notOnlineFile`). The element-builder
   // explicitly drops them with a warn ("file send via elems[] is
   // group-only"), so a private message that bundled a file alongside
   // anything else used to either ship as "[空消息]" (only-file case,

@@ -1,16 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { protobuf_encode } from '@snowluma/proton';
-import type { OidbBase } from '../../src/bridge/proto/proton/oidb';
+import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   OidbGroupFileCountViewResp,
   OidbGroupFileResp,
   OidbGroupFileViewResp,
   OidbGroupFileFolderResp,
-} from '../../src/bridge/proto/proton/oidb-actions/group-file';
+} from '@snowluma/proto-defs/oidb-actions/group-file';
 import type {
   OidbPrivateFileUploadResp,
   NTV2RichMediaResp,
-} from '../../src/bridge/proto/proton/oidb-actions/media';
+} from '@snowluma/proto-defs/oidb-actions/media';
 
 // `encodeOidbEnv` / `decodeOidbEnv` are proton-bound pass-through wrappers
 // (substituted at the call site with the inlined codec). Mocking them on

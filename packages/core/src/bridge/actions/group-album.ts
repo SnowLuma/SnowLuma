@@ -9,7 +9,7 @@ import type {
   DoQunLikeResponse,
   GetMediaListRequest,
   GetMediaListResponse,
-} from '../proto/proton/oidb-actions/group-album';
+} from '@snowluma/proto-defs/oidb-actions/group-album';
 
 export interface GroupAlbumMediaResult {
   mediaList: any[];

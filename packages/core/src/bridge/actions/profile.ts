@@ -3,7 +3,7 @@ import type { Bridge } from '../bridge';
 import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
 import { fetchHighwaySession, uploadHighwayHttp } from '../highway/highway-client';
 import { computeHashes, loadBinarySource } from '../highway/utils';
-import { OidbBase } from '../proto/proton/oidb';
+import { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   FaceroamOpReq,
   FaceroamOpResp,
@@ -19,7 +19,7 @@ import type {
   OidbSetProfile,
   SetStatusReq,
   SetStatusResp,
-} from '../proto/proton/oidb-actions/base';
+} from '@snowluma/proto-defs/oidb-actions/base';
 import { resolveSelfUid } from './shared';
 
 // ─────────────── status / profile setters ───────────────

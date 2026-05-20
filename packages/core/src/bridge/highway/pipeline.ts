@@ -7,8 +7,8 @@ import type {
   EncodableMediaMsgInfo,
   NTV2UploadRichMediaReq,
   NTV2UploadRichMediaResp,
-} from '../proto/proton/highway';
-import { OidbBase } from '../proto/proton/oidb';
+} from '@snowluma/proto-defs/highway';
+import { OidbBase } from '@snowluma/proto-defs/oidb';
 import { buildHighwayExtend, fetchHighwaySession, uploadHighwayHttp } from './highway-client';
 
 const moduleLog = createLogger('Highway');

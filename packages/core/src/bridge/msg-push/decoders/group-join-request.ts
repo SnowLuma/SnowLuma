@@ -3,7 +3,7 @@ import type { GroupInviteEvent } from '../../events';
 import type {
   GroupInvitation, GroupInvite,
   GroupJoin,
-} from '../../proto/proton/notify';
+} from '@snowluma/proto-defs/notify';
 import { resolveUidToUin } from '../helpers';
 import type { MsgPushDecoder } from '../registry';
 

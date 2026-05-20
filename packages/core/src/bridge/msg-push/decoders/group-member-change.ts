@@ -1,6 +1,6 @@
 import { protobuf_decode } from '@snowluma/proton';
 import type { GroupMemberJoin, GroupMemberLeave } from '../../events';
-import type { GroupChange, SelfJoinInGroup } from '../../proto/proton/notify';
+import type { GroupChange, SelfJoinInGroup } from '@snowluma/proto-defs/notify';
 import { decodeOperatorUid, resolveUidToUin } from '../helpers';
 import type { MsgPushDecoder } from '../registry';
 

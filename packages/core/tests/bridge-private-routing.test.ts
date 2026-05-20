@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { SendPacketResult } from '../src/protocol/packet-sender';
-import type { SendMessageRequest, SendMessageResponse } from '../src/bridge/proto/proton/action';
-import type { FileExtra } from '../src/bridge/proto/proton/message';
+import type { SendMessageRequest, SendMessageResponse } from '@snowluma/proto-defs/action';
+import type { FileExtra } from '@snowluma/proto-defs/message';
 
 vi.mock('../src/bridge/element-builder', () => ({
   buildSendElems: vi.fn(async () => [{ text: { str: 'stub media elem' } }]),

@@ -1,7 +1,7 @@
 import { protobuf_decode } from '@snowluma/proton';
 import { inflateSync } from 'zlib';
 import type { IdentityService } from '../identity-service';
-import type { OperatorInfo } from '../proto/proton/notify';
+import type { OperatorInfo } from '@snowluma/proto-defs/notify';
 
 export function makeImageUrl(origUrl: string): string {
   if (!origUrl) return '';

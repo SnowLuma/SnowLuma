@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { protobuf_encode } from '@snowluma/proton';
-import type { OidbBase } from '../../src/bridge/proto/proton/oidb';
-import type { Oidb0x9083Resp } from '../../src/bridge/proto/proton/oidb-actions/base';
+import type { OidbBase } from '@snowluma/proto-defs/oidb';
+import type { Oidb0x9083Resp } from '@snowluma/proto-defs/oidb-actions/base';
 
 // `encodeOidbEnv` / `decodeOidbEnv` are proton-bound pass-through wrappers
 // that the plugin substitutes at the call site for the inlined codec.

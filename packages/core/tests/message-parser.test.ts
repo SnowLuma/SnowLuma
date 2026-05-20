@@ -5,9 +5,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { parseMessage } from '../src/onebot/message-parser';
 import { buildSendElems } from '../src/bridge/element-builder';
-import type { MentionExtraSend } from '../src/bridge/proto/proton/action';
-import type { OidbBase } from '../src/bridge/proto/proton/oidb';
-import type { NTV2UploadRichMediaResp } from '../src/bridge/proto/proton/highway';
+import type { MentionExtraSend } from '@snowluma/proto-defs/action';
+import type { OidbBase } from '@snowluma/proto-defs/oidb';
+import type { NTV2UploadRichMediaResp } from '@snowluma/proto-defs/highway';
 
 describe('parseMessage', () => {
   describe('plain text', () => {

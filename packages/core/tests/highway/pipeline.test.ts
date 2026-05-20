@@ -24,8 +24,8 @@ import {
   runNtv2Upload,
   type MediaSubFileUpload,
 } from '../../src/bridge/highway/pipeline';
-import type { OidbBase } from '../../src/bridge/proto/proton/oidb';
-import type { EncodableMediaMsgInfo, NTV2UploadRichMediaReq, NTV2UploadRichMediaResp } from '../../src/bridge/proto/proton/highway';
+import type { OidbBase } from '@snowluma/proto-defs/oidb';
+import type { EncodableMediaMsgInfo, NTV2UploadRichMediaReq, NTV2UploadRichMediaResp } from '@snowluma/proto-defs/highway';
 
 interface FakeUploadResponse {
   upload?: {

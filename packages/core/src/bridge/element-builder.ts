@@ -8,8 +8,8 @@ import { uploadVideoMsgInfo } from './highway/video-upload';
 import type {
   MarkdownData,
   MentionExtraSend,
-} from './proto/proton/action';
-import type { Elem, GroupFileExtra } from './proto/proton/element';
+} from '@snowluma/proto-defs/action';
+import type { Elem, GroupFileExtra } from '@snowluma/proto-defs/element';
 
 type ProtoElem = Partial<Elem>;
 

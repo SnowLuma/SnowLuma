@@ -1,12 +1,12 @@
 import { protobuf_encode } from '@snowluma/proton';
 import type { Bridge } from '../bridge';
 import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
-import { OidbBase } from '../proto/proton/oidb';
+import { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   OidbDeleteFriend,
   OidbFriendRequestAction,
   OidbSetFriendRemark,
-} from '../proto/proton/oidb-actions/base';
+} from '@snowluma/proto-defs/oidb-actions/base';
 
 export async function setFriendAddRequest(bridge: Bridge, uidOrFlag: string, approve: boolean): Promise<void> {
   let targetUid = uidOrFlag;

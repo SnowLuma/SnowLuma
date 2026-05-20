@@ -25,8 +25,8 @@ import {
   runNtv2Upload,
   type MediaSubFileUpload,
 } from '../src/bridge/highway/pipeline';
-import type { OidbBase } from '../src/bridge/proto/proton/oidb';
-import type { NTV2UploadRichMediaResp } from '../src/bridge/proto/proton/highway';
+import type { OidbBase } from '@snowluma/proto-defs/oidb';
+import type { NTV2UploadRichMediaResp } from '@snowluma/proto-defs/highway';
 import { MsgPushRegistry } from '../src/bridge/msg-push/registry';
 import type { MsgPushContext } from '../src/bridge/msg-push/context';
 import { decodeEvent0x2DC } from '../src/bridge/msg-push/decoders/event-0x2dc';

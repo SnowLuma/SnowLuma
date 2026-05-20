@@ -1,7 +1,7 @@
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { Bridge } from '../bridge';
 import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
-import { OidbBase } from '../proto/proton/oidb';
+import { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   MiniAppShareReq,
   MiniAppShareResp,
@@ -11,7 +11,7 @@ import type {
   Oidb0x990Resp,
   Oidb0xeb7Req,
   Oidb0xeb7Resp,
-} from '../proto/proton/oidb-actions/base';
+} from '@snowluma/proto-defs/oidb-actions/base';
 
 export async function translateEn2Zh(
   bridge: Bridge,

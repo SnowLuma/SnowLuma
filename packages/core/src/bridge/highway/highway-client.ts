@@ -7,7 +7,7 @@ import type {
   NTV2RichMediaHighwayExt,
   ReqDataHighwayHead,
   RespDataHighwayHead,
-} from '../proto/proton/highway';
+} from '@snowluma/proto-defs/highway';
 import { computeMd5, packHighwayFrame, unpackHighwayFrame } from './utils';
 
 const HIGHWAY_APP_ID = 1600001604;

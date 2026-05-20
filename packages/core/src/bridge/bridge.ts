@@ -10,8 +10,8 @@ import { IncomingPacketPipeline, type CmdParser } from './packet-pipeline';
 import type {
   SendMessageRequest,
   SendMessageResponse,
-} from './proto/proton/action';
-import type { FileExtra } from './proto/proton/message';
+} from '@snowluma/proto-defs/action';
+import type { FileExtra } from '@snowluma/proto-defs/message';
 import type { FriendInfo, GroupMemberInfo, GroupRequestInfo, QQGroupInfo, UserProfileInfo } from './qq-info';
 
 // Delegated modules

@@ -1,8 +1,8 @@
 import { protobuf_encode } from '@snowluma/proton';
 import type { Bridge } from '../bridge';
 import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
-import { OidbBase } from '../proto/proton/oidb';
-import type { C2CRecallRequest, GroupRecallRequest, OidbEssence, SsoReadedReportReq } from '../proto/proton/oidb-actions/base';
+import { OidbBase } from '@snowluma/proto-defs/oidb';
+import type { C2CRecallRequest, GroupRecallRequest, OidbEssence, SsoReadedReportReq } from '@snowluma/proto-defs/oidb-actions/base';
 
 export async function recallGroupMessage(bridge: Bridge, groupId: number, sequence: number): Promise<void> {
   const request = protobuf_encode<GroupRecallRequest>({

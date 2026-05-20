@@ -7,7 +7,7 @@ import type {
   OidbSvcTrpcTcp0xFD4_1Response,
   OidbSvcTrpcTcp0xFE5_2Response,
   OidbSvcTrpcTcp0xFE7_3Response,
-} from './proto/proton/oidb';
+} from '@snowluma/proto-defs/oidb';
 import type {
   AvatarInfo,
   OidbFriendListRequest,
@@ -16,11 +16,11 @@ import type {
   OidbGroupRequestList,
   OidbUserInfoRequest,
   OidbUserInfoResponse,
-} from './proto/proton/oidb-actions/base';
+} from '@snowluma/proto-defs/oidb-actions/base';
 import type {
   NTV2RichMediaReq,
   NTV2RichMediaResp,
-} from './proto/proton/oidb-actions/media';
+} from '@snowluma/proto-defs/oidb-actions/media';
 import type { FriendInfo, GroupMemberInfo, GroupRequestInfo, QQGroupInfo, UserProfileInfo } from './qq-info';
 
 // ---------------------------------------------------------------------------

@@ -9,8 +9,8 @@ import type {
   NotOnlineImage,
   QFaceExtra,
   QSmallFaceExtra,
-} from '../proto/proton/element';
-import type { FileExtra, MessageBody, RichText } from '../proto/proton/message';
+} from '@snowluma/proto-defs/element';
+import type { FileExtra, MessageBody, RichText } from '@snowluma/proto-defs/message';
 import { decompressData, makeImageUrl } from './helpers';
 
 type ElemDecoded = Elem;

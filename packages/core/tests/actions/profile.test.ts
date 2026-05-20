@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { OidbBase } from '../../src/bridge/proto/proton/oidb';
+import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   GroupAvatarExtra,
   Oidb0x7edResp,
   Oidb0xe17Resp,
   SetStatusReq,
   SetStatusResp,
-} from '../../src/bridge/proto/proton/oidb-actions/base';
+} from '@snowluma/proto-defs/oidb-actions/base';
 
 // `encodeOidbEnv` / `decodeOidbEnv` are proton-bound pass-through wrappers
 // (substituted at the call site with the inlined codec). Mocking them on
