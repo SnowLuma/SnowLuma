@@ -751,12 +751,18 @@ export async function fetchGroupFileUrl(bridge: Bridge, groupId: number, fileId:
 }
 
 export async function fetchPrivateFileUrl(bridge: Bridge, userId: number, fileId: string, fileHash: string): Promise<string> {
-  const uid = await bridge.resolveUserUid(userId);
+  const selfUid = await resolveSelfUid(bridge);
+  void userId;
+
+  // Lagrange.Core/NapCat both build 0xE37_1200 with `receiverUid` set
+  // to the current account UID when resolving an API-level private file
+  // download URL. Using the peer UID can make NTQQ's fulllink handler
+  // wait until timeout instead of returning an OIDB error.
   const env = makeOidbEnvelope<OidbPrivateFileDownloadReq>(0xE37, 1200, {
     subCommand: 1200,
     field2: 1,
     body: {
-      receiverUid: uid,
+      receiverUid: selfUid,
       fileUuid: fileId,
       type: 2,
       fileHash,
@@ -767,7 +773,7 @@ export async function fetchPrivateFileUrl(bridge: Bridge, userId: number, fileId
     field200: 1,
     field99999: new Uint8Array([0xC0, 0x85, 0x2C, 0x01]),
   });
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xe37_1200', encodeOidbEnv<OidbPrivateFileDownloadReq>(env));
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xe37_1200', encodeOidbEnv<OidbPrivateFileDownloadReq>(env), 5000);
   const resp = decodeOidbEnv<OidbPrivateFileDownloadResp>(respBytes).body;
 
   const result = resp?.body?.result;

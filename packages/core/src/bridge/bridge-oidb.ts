@@ -84,8 +84,9 @@ export async function runOidb(
   bridge: Bridge,
   cmd: string,
   envelopeBytes: Uint8Array,
+  timeoutMs?: number,
 ): Promise<Uint8Array> {
-  const result = await bridge.sendRawPacket(cmd, envelopeBytes);
+  const result = await bridge.sendRawPacket(cmd, envelopeBytes, timeoutMs);
   if (!result.success) throw new Error(result.errorMessage || 'packet send failed');
   if (!result.gotResponse) throw new Error(result.errorMessage || 'no response');
 
