@@ -44,20 +44,7 @@ export interface BridgeInterface {
 
   // ─── Fetch (contacts / profile / system) — moved to apis.contacts ───
 
-  // ─── Group admin ───
-  muteGroupMember(groupId: number, userId: number, duration: number): Promise<void>;
-  muteGroupAll(groupId: number, enable: boolean): Promise<void>;
-  setGroupAddOption(groupId: number, addType: number): Promise<void>;
-  setGroupSearch(groupId: number): Promise<void>;
-  setGroupAddRequest(groupId: number, sequence: number, eventType: number, approve: boolean, reason?: string, filtered?: boolean): Promise<void>;
-  kickGroupMember(groupId: number, userId: number, reject: boolean, reason?: string): Promise<void>;
-  kickGroupMembers(groupId: number, userIds: number[], reject: boolean): Promise<void>;
-  leaveGroup(groupId: number): Promise<void>;
-  setGroupAdmin(groupId: number, userId: number, enable: boolean): Promise<void>;
-  setGroupCard(groupId: number, userId: number, card: string): Promise<void>;
-  setGroupName(groupId: number, name: string): Promise<void>;
-  setGroupSpecialTitle(groupId: number, userId: number, title: string): Promise<void>;
-  setGroupRemark(groupId: number, remark: string): Promise<void>;
+  // ─── Group admin (moved to apis.groupAdmin) ───
   setGroupReaction(groupId: number, sequence: number, code: string, isSet: boolean): Promise<void>;
   setGroupEssence(groupId: number, sequence: number, random: number, enable: boolean): Promise<void>;
 
@@ -135,7 +122,6 @@ export interface BridgeInterface {
   fetchCustomFace(count?: number): Promise<string[]>;
   getProfileLike(userId?: number, start?: number, limit?: number): Promise<any>;
   getUnidirectionalFriendList(): Promise<any>;
-  getGroupAtAllRemain(groupId: number): Promise<any>;
 
   // ─── Misc ───
   translateEn2Zh(words: string[]): Promise<any>;

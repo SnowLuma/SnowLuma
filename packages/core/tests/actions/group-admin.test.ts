@@ -21,7 +21,7 @@ vi.mock('../../src/bridge/bridge-oidb', async () => {
 });
 
 import * as oidb from '../../src/bridge/bridge-oidb';
-import * as admin from '../../src/bridge/actions/group-admin';
+import { GroupAdminApi } from '../../src/bridge/apis/group-admin';
 import { mockBridge } from './_helpers';
 
 describe('actions/group-admin', () => {
@@ -33,7 +33,7 @@ describe('actions/group-admin', () => {
 
   it('muteGroupMember resolves UID and dispatches 0x1253_1', async () => {
     const bridge = mockBridge();
-    await admin.muteGroupMember(bridge as any, 12345, 67890, 600);
+    await new GroupAdminApi(bridge as any).muteMember(12345, 67890, 600);
     expect(bridge.resolveUserUid).toHaveBeenCalledWith(67890, 12345);
     expect(oidb.runOidb).toHaveBeenCalledOnce();
     const [, cmd] = vi.mocked(oidb.runOidb).mock.calls[0]!;
@@ -50,13 +50,13 @@ describe('actions/group-admin', () => {
 
   it('muteGroupAll flips the muteState flag based on enable', async () => {
     const bridge = mockBridge();
-    await admin.muteGroupAll(bridge as any, 12345, true);
+    await new GroupAdminApi(bridge as any).muteAll(12345, true);
     expect(vi.mocked(oidb.makeOidbEnvelope).mock.calls[0]![2]).toMatchObject({
       groupUin: 12345,
       muteState: { state: 0xFFFFFFFF },
     });
 
-    await admin.muteGroupAll(bridge as any, 12345, false);
+    await new GroupAdminApi(bridge as any).muteAll(12345, false);
     expect(vi.mocked(oidb.makeOidbEnvelope).mock.calls[1]![2]).toMatchObject({
       muteState: { state: 0 },
     });
@@ -64,7 +64,7 @@ describe('actions/group-admin', () => {
 
   it('kickGroupMember resolves UID per-group and forwards reject + reason', async () => {
     const bridge = mockBridge();
-    await admin.kickGroupMember(bridge as any, 12345, 67890, true, 'bad behaviour');
+    await new GroupAdminApi(bridge as any).kickMember(12345, 67890, true, 'bad behaviour');
     expect(bridge.resolveUserUid).toHaveBeenCalledWith(67890, 12345);
     expect(vi.mocked(oidb.makeOidbEnvelope).mock.calls[0]![2]).toMatchObject({
       groupUin: 12345,
@@ -80,7 +80,7 @@ describe('actions/group-admin', () => {
       .mockResolvedValueOnce('uid-a')
       .mockResolvedValueOnce('uid-b');
 
-    await admin.kickGroupMembers(bridge as any, 12345, [11, 22], false);
+    await new GroupAdminApi(bridge as any).kickMembers(12345, [11, 22], false);
     expect(bridge.resolveUserUid).toHaveBeenCalledTimes(2);
     const payload: any = vi.mocked(oidb.makeOidbEnvelope).mock.calls[0]![2];
     expect(payload.targetUids).toEqual(['uid-a', 'uid-b']);
@@ -89,7 +89,7 @@ describe('actions/group-admin', () => {
 
   it('leaveGroup sends 0x1097_1 with the groupUin', async () => {
     const bridge = mockBridge();
-    await admin.leaveGroup(bridge as any, 12345);
+    await new GroupAdminApi(bridge as any).leave(12345);
     const [, cmd] = vi.mocked(oidb.runOidb).mock.calls[0]!;
     expect(cmd).toBe('OidbSvcTrpcTcp.0x1097_1');
     expect(vi.mocked(oidb.makeOidbEnvelope).mock.calls[0]![2]).toMatchObject({ groupUin: 12345 });
@@ -97,7 +97,7 @@ describe('actions/group-admin', () => {
 
   it('setGroupAdmin resolves UID and sends 0x1096_1', async () => {
     const bridge = mockBridge();
-    await admin.setGroupAdmin(bridge as any, 12345, 67890, true);
+    await new GroupAdminApi(bridge as any).setAdmin(12345, 67890, true);
     expect(vi.mocked(oidb.makeOidbEnvelope).mock.calls[0]![2]).toMatchObject({
       groupUin: 12345, uid: 'resolved-uid', isAdmin: true,
     });
@@ -105,12 +105,12 @@ describe('actions/group-admin', () => {
 
   it('setGroupCard / setGroupName / setGroupSpecialTitle / setGroupRemark / setGroupAddOption / setGroupSearch dispatch the right command', async () => {
     const bridge = mockBridge();
-    await admin.setGroupCard(bridge as any, 1, 2, 'newCard');
-    await admin.setGroupName(bridge as any, 1, 'newName');
-    await admin.setGroupSpecialTitle(bridge as any, 1, 2, 'newTitle');
-    await admin.setGroupRemark(bridge as any, 1, 'newRemark');
-    await admin.setGroupAddOption(bridge as any, 1, 2);
-    await admin.setGroupSearch(bridge as any, 1);
+    await new GroupAdminApi(bridge as any).setCard(1, 2, 'newCard');
+    await new GroupAdminApi(bridge as any).setName(1, 'newName');
+    await new GroupAdminApi(bridge as any).setSpecialTitle(1, 2, 'newTitle');
+    await new GroupAdminApi(bridge as any).setRemark(1, 'newRemark');
+    await new GroupAdminApi(bridge as any).setAddOption(1, 2);
+    await new GroupAdminApi(bridge as any).setSearch(1);
 
     const cmds = vi.mocked(oidb.runOidb).mock.calls.map(call => call[1]);
     expect(cmds).toEqual([
@@ -125,8 +125,8 @@ describe('actions/group-admin', () => {
 
   it('setGroupAddRequest picks _1 / _2 based on filtered flag', async () => {
     const bridge = mockBridge();
-    await admin.setGroupAddRequest(bridge as any, 12345, 5, 1, true, 'ok', false);
-    await admin.setGroupAddRequest(bridge as any, 12345, 5, 1, false, 'no', true);
+    await new GroupAdminApi(bridge as any).setAddRequest(12345, 5, 1, true, 'ok', false);
+    await new GroupAdminApi(bridge as any).setAddRequest(12345, 5, 1, false, 'no', true);
 
     const cmds = vi.mocked(oidb.runOidb).mock.calls.map(call => call[1]);
     expect(cmds).toEqual([
@@ -149,7 +149,7 @@ describe('actions/group-admin', () => {
         body: { canAtAll: true, groupRemain: 12, uinRemain: 5 } as any,
       }),
     );
-    const out = await admin.getGroupAtAllRemain(bridge as any, 12345);
+    const out = await new GroupAdminApi(bridge as any).getAtAllRemain(12345);
     expect(out).toEqual({
       can_at_all: true,
       remain_at_all_count_for_group: 12,
@@ -164,6 +164,6 @@ describe('actions/group-admin', () => {
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<Oidb0x8a7Resp>>({}),
     );
-    await expect(admin.getGroupAtAllRemain(bridge as any, 12345)).rejects.toThrow(/empty/);
+    await expect(new GroupAdminApi(bridge as any).getAtAllRemain(12345)).rejects.toThrow(/empty/);
   });
 });

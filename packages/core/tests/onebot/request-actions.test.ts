@@ -52,32 +52,32 @@ function fakeRequest(overrides: Partial<GroupRequestInfo> = {}): GroupRequestInf
 
 describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
   it('matches add requests by groupId and targetUid', async () => {
-    const setGroupAddRequest = vi.fn(async () => {});
+    const setAddRequest = vi.fn(async () => {});
     const bridge = fakeBridge({
       fetchGroupRequests: vi.fn(async () => [
         fakeRequest({ groupId: 999, targetUid: 'u_t', sequence: 42, eventType: 7, filtered: false }),
       ]),
-      setGroupAddRequest: setGroupAddRequest as any,
+      apis: { groupAdmin: { setAddRequest } } as any,
     });
 
     await handleGroupAddRequest(bridge, 'add:999:u_t', true, 'ok');
 
-    expect(setGroupAddRequest).toHaveBeenCalledOnce();
-    expect(setGroupAddRequest).toHaveBeenCalledWith(999, 42, 7, true, 'ok', false);
+    expect(setAddRequest).toHaveBeenCalledOnce();
+    expect(setAddRequest).toHaveBeenCalledWith(999, 42, 7, true, 'ok', false);
   });
 
   it('matches invite requests by groupId and invitorUid', async () => {
-    const setGroupAddRequest = vi.fn(async () => {});
+    const setAddRequest = vi.fn(async () => {});
     const bridge = fakeBridge({
       fetchGroupRequests: vi.fn(async () => [
         fakeRequest({ groupId: 999, invitorUid: 'u_i', sequence: 97, eventType: 8, filtered: false }),
       ]),
-      setGroupAddRequest: setGroupAddRequest as any,
+      apis: { groupAdmin: { setAddRequest } } as any,
     });
 
     await handleGroupAddRequest(bridge, 'invite:999:u_i', false, 'no');
 
-    expect(setGroupAddRequest).toHaveBeenCalledOnce();
-    expect(setGroupAddRequest).toHaveBeenCalledWith(999, 97, 8, false, 'no', false);
+    expect(setAddRequest).toHaveBeenCalledOnce();
+    expect(setAddRequest).toHaveBeenCalledWith(999, 97, 8, false, 'no', false);
   });
 });

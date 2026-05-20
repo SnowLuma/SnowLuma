@@ -112,11 +112,11 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     getStrangerInfo: (userId) => getStrangerInfo(bridge, userId),
 
     // Group admin — names translate to OneBot vocabulary.
-    setGroupKick: (groupId, userId, reject) => bridge.kickGroupMember(groupId, userId, reject),
-    setGroupKickMembers: (groupId, userIds, reject) => bridge.kickGroupMembers(groupId, userIds, reject),
-    setGroupBan: (groupId, userId, duration) => bridge.muteGroupMember(groupId, userId, duration),
-    setGroupWholeBan: (groupId, enable) => bridge.muteGroupAll(groupId, enable),
-    setGroupLeave: (groupId) => bridge.leaveGroup(groupId),
+    setGroupKick: (groupId, userId, reject) => bridge.apis.groupAdmin.kickMember(groupId, userId, reject),
+    setGroupKickMembers: (groupId, userIds, reject) => bridge.apis.groupAdmin.kickMembers(groupId, userIds, reject),
+    setGroupBan: (groupId, userId, duration) => bridge.apis.groupAdmin.muteMember(groupId, userId, duration),
+    setGroupWholeBan: (groupId, enable) => bridge.apis.groupAdmin.muteAll(groupId, enable),
+    setGroupLeave: (groupId) => bridge.apis.groupAdmin.leave(groupId),
 
     // Group file — fileId field extraction + defaults.
     uploadGroupFile: async (groupId, file, name, folderId, uploadFile) => {
@@ -164,7 +164,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     handleDeleteFriend: (userId, block) => bridge.deleteFriend(userId, !!block),
     forceFetchClientKey: () => bridge.forceFetchClientKey(),
     setFriendRemark: (userId, remark) => bridge.setFriendRemark(userId, remark),
-    setGroupRemark: (groupId, remark) => bridge.setGroupRemark(groupId, remark),
+    setGroupRemark: (groupId, remark) => bridge.apis.groupAdmin.setRemark(groupId, remark),
     setGroupAvatar: (groupId, source) => bridge.setGroupAvatar(groupId, source),
     getGroupFileCount: (groupId) => bridge.fetchGroupFileCount(groupId),
 

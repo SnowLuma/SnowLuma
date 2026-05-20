@@ -42,14 +42,14 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const groupId = asNumber(params.group_id);
     const addType = asNumber(params.add_type);
     if (!groupId || addType === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'group_id and add_type are required');
-    await ctx.bridge.setGroupAddOption(groupId, addType);
+    await ctx.bridge.apis.groupAdmin.setAddOption(groupId, addType);
     return okResponse();
   });
 
   h.registerAction('set_group_search', async (params) => {
     const groupId = asNumber(params.group_id);
     if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-    await ctx.bridge.setGroupSearch(groupId);
+    await ctx.bridge.apis.groupAdmin.setSearch(groupId);
     return okResponse();
   });
 
@@ -58,7 +58,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const userId = asNumber(params.user_id);
     const enable = asBoolean(params.enable, true);
     if (!groupId || !userId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id and user_id are required');
-    await ctx.bridge.setGroupAdmin(groupId, userId, enable);
+    await ctx.bridge.apis.groupAdmin.setAdmin(groupId, userId, enable);
     return okResponse();
   });
 
@@ -67,7 +67,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const userId = asNumber(params.user_id);
     const card = asString(params.card);
     if (!groupId || !userId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id and user_id are required');
-    await ctx.bridge.setGroupCard(groupId, userId, card);
+    await ctx.bridge.apis.groupAdmin.setCard(groupId, userId, card);
     return okResponse();
   });
 
@@ -75,7 +75,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const groupId = asNumber(params.group_id);
     const name = asString(params.group_name);
     if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-    await ctx.bridge.setGroupName(groupId, name);
+    await ctx.bridge.apis.groupAdmin.setName(groupId, name);
     return okResponse();
   });
 
@@ -91,7 +91,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const userId = asNumber(params.user_id);
     const title = asString(params.special_title);
     if (!groupId || !userId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id and user_id are required');
-    await ctx.bridge.setGroupSpecialTitle(groupId, userId, title);
+    await ctx.bridge.apis.groupAdmin.setSpecialTitle(groupId, userId, title);
     return okResponse();
   });
 

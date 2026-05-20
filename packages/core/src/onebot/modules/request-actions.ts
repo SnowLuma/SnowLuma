@@ -27,7 +27,7 @@ export async function handleGroupAddRequest(
     throw new Error('matching group request not found');
   }
 
-  await bridge.setGroupAddRequest(
+  await bridge.apis.groupAdmin.setAddRequest(
     groupId,
     matching.sequence,
     matching.eventType,

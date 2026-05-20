@@ -22,6 +22,7 @@
 
 import type { BridgeContext } from '../bridge-context';
 import { ContactsApi } from './contacts';
+import { GroupAdminApi } from './group-admin';
 import { MessageApi } from './message';
 
 export interface ApiHub {
@@ -29,8 +30,9 @@ export interface ApiHub {
   readonly message: MessageApi;
   /** Friend / group / member roster + user-profile + group-request-list + download-rkey. */
   readonly contacts: ContactsApi;
+  /** Group moderation: mute/kick/admin/card/name/title/leave + join-policy. */
+  readonly groupAdmin: GroupAdminApi;
   // Pending — added as later commits land:
-  //   readonly groupAdmin:  GroupAdminApi;
   //   readonly groupFile:   GroupFileApi;
   //   readonly groupAlbum:  GroupAlbumApi;
   //   readonly friend:      FriendApi;
@@ -54,6 +56,7 @@ export function buildApiHub(ctx: BridgeContext): ApiHub {
   return {
     message: new MessageApi(ctx),
     contacts: new ContactsApi(ctx),
+    groupAdmin: new GroupAdminApi(ctx),
   };
 }
 
@@ -61,4 +64,5 @@ export function buildApiHub(ctx: BridgeContext): ApiHub {
 // `import type { MessageApi } from '@snowluma/core/.../apis'` for
 // signature use. Concrete instances always come from `bridge.apis.*`.
 export { ContactsApi } from './contacts';
+export { GroupAdminApi } from './group-admin';
 export { MessageApi } from './message';

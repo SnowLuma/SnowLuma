@@ -550,7 +550,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (params.remark === undefined) {
       return failedResponse(RETCODE.BAD_REQUEST, 'remark is required (pass an empty string to clear)');
     }
-    await ctx.bridge.setGroupRemark(groupId, asString(params.remark));
+    await ctx.bridge.apis.groupAdmin.setRemark(groupId, asString(params.remark));
     return okResponse();
   });
 
@@ -888,7 +888,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      const data = await ctx.bridge.getGroupAtAllRemain(groupId);
+      const data = await ctx.bridge.apis.groupAdmin.getAtAllRemain(groupId);
       return okResponse(data);
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));

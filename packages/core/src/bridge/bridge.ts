@@ -31,22 +31,7 @@ import {
   setFriendAddRequest as setFriendAddRequest_,
   setFriendRemark as setFriendRemark_,
 } from './actions/friend';
-import {
-  getGroupAtAllRemain as getGroupAtAllRemain_,
-  kickGroupMember as kickGroupMember_,
-  kickGroupMembers as kickGroupMembers_,
-  leaveGroup as leaveGroup_,
-  muteGroupAll as muteGroupAll_,
-  muteGroupMember as muteGroupMember_,
-  setGroupAddOption as setGroupAddOption_,
-  setGroupAddRequest as setGroupAddRequest_,
-  setGroupAdmin as setGroupAdmin_,
-  setGroupCard as setGroupCard_,
-  setGroupName as setGroupName_,
-  setGroupRemark as setGroupRemark_,
-  setGroupSearch as setGroupSearch_,
-  setGroupSpecialTitle as setGroupSpecialTitle_,
-} from './actions/group-admin';
+// actions/group-admin.ts removed — moved to `apis/group-admin.ts::GroupAdminApi`.
 import {
   commentGroupAlbumMedia as commentGroupAlbumMedia_,
   deleteGroupAlbumMedia as deleteGroupAlbumMedia_,
@@ -354,19 +339,11 @@ export class Bridge implements BridgeInterface {
   // fetchUserProfile / fetchGroupRequests / fetchDownloadRKeys
   // moved to apis.contacts (see apis/contacts.ts::ContactsApi).
 
-  // --- Delegated: Admin / action methods ---
-
-  async muteGroupMember(groupId: number, userId: number, duration: number): Promise<void> { return muteGroupMember_(this, groupId, userId, duration); }
-  async muteGroupAll(groupId: number, enable: boolean): Promise<void> { return muteGroupAll_(this, groupId, enable); }
-  async setGroupAddOption(groupId: number, addType: number): Promise<void> { return setGroupAddOption_(this, groupId, addType); }
-  async setGroupSearch(groupId: number): Promise<void> { return setGroupSearch_(this, groupId); }
-  async kickGroupMember(groupId: number, userId: number, reject: boolean, reason = ''): Promise<void> { return kickGroupMember_(this, groupId, userId, reject, reason); }
-  async kickGroupMembers(groupId: number, userIds: number[], reject: boolean): Promise<void> { return kickGroupMembers_(this, groupId, userIds, reject); }
-  async leaveGroup(groupId: number): Promise<void> { return leaveGroup_(this, groupId); }
-  async setGroupAdmin(groupId: number, userId: number, enable: boolean): Promise<void> { return setGroupAdmin_(this, groupId, userId, enable); }
-  async setGroupCard(groupId: number, userId: number, card: string): Promise<void> { return setGroupCard_(this, groupId, userId, card); }
-  async setGroupName(groupId: number, name: string): Promise<void> { return setGroupName_(this, groupId, name); }
-  async setGroupSpecialTitle(groupId: number, userId: number, title: string): Promise<void> { return setGroupSpecialTitle_(this, groupId, userId, title); }
+  // --- Delegated: action methods ---
+  //
+  // GroupAdmin methods (mute/kick/admin/card/name/title/leave/
+  // add-option/search/add-request/remark/at-all-remain) moved to
+  // apis.groupAdmin (apis/group-admin.ts::GroupAdminApi).
   async setFriendAddRequest(uidOrFlag: string, approve: boolean): Promise<void> { return setFriendAddRequest_(this, uidOrFlag, approve); }
   async deleteFriend(userId: number, block = false): Promise<void> { return deleteFriend_(this, userId, block); }
   async uploadGroupFile(groupId: number, file: string, name = '', folderId = '/', uploadFile = true): Promise<{ fileId: string | null }> {
@@ -392,14 +369,12 @@ export class Bridge implements BridgeInterface {
   async createGroupFileFolder(groupId: number, name: string, parentId = '/'): Promise<void> { return createGroupFileFolder_(this, groupId, name, parentId); }
   async deleteGroupFileFolder(groupId: number, folderId: string): Promise<void> { return deleteGroupFileFolder_(this, groupId, folderId); }
   async renameGroupFileFolder(groupId: number, folderId: string, newFolderName: string): Promise<void> { return renameGroupFileFolder_(this, groupId, folderId, newFolderName); }
-  async setGroupAddRequest(groupId: number, sequence: number, eventType: number, approve: boolean, reason = '', filtered = false): Promise<void> { return setGroupAddRequest_(this, groupId, sequence, eventType, approve, reason, filtered); }
   async sendPoke(isGroup: boolean, peerUin: number, targetUin?: number): Promise<void> { return sendPoke_(this, isGroup, peerUin, targetUin); }
   async sendLike(userId: number, count: number): Promise<void> { return sendLike_(this, userId, count); }
   async setGroupEssence(groupId: number, sequence: number, random: number, enable: boolean): Promise<void> { return setGroupEssence_(this, groupId, sequence, random, enable); }
   async setGroupReaction(groupId: number, sequence: number, code: string, isSet: boolean): Promise<void> { return setGroupReaction_(this, groupId, sequence, code, isSet); }
   // recall* / markRead* moved to apis/message.ts::MessageApi.
   async setFriendRemark(userId: number, remark: string): Promise<void> { return setFriendRemark_(this, userId, remark); }
-  async setGroupRemark(groupId: number, remark: string): Promise<void> { return setGroupRemark_(this, groupId, remark); }
   async getGroupHonorInfo(groupId: number, type: WebHonorType | string): Promise<any> {
     return getGroupHonorInfo_(this, groupId, type);
   }
@@ -450,9 +425,6 @@ export class Bridge implements BridgeInterface {
 
   async fetchGroupFileCount(groupId: number): Promise<{ fileCount: number; maxCount: number }> { return fetchGroupFileCount_(this, groupId); }
 
-  async getGroupAtAllRemain(groupId: number) {
-    return getGroupAtAllRemain_(this, groupId);
-  }
   // extend
   async setOnlineStatus(status: number, extStatus: number = 0, batteryStatus: number = 100): Promise<void> {
     return setOnlineStatus_(this, status, extStatus, batteryStatus);
