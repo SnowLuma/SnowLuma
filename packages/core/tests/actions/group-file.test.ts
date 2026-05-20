@@ -136,12 +136,14 @@ describe('actions/group-file', () => {
       .rejects.toThrow(/code=999/);
   });
 
-  it('uploadGroupFile publishes the file as a chat message after upload (the "empty message" regression)', async () => {
+  it('uploadGroupFile publishes the file via OIDB 0x6d9_4 after upload (the "empty message" regression)', async () => {
     // Reproduces the bug report: OIDB upload + highway PUT alone only
-    // stage the bytes on QQ's side; without the trailing
-    // `sendGroupMessage` the file never appears in the chat. Asserts
-    // that `bridge.sendGroupMessage` is invoked with a single
-    // `{type:'file'}` element pointing at the uploaded fileId.
+    // stage the bytes on QQ's side; without the trailing 0x6d9_4 OIDB
+    // call the file never appears in the chat. Earlier attempts used
+    // PbSendMsg with a transElem(24) but the QQ-NT server rejects that
+    // with result=79 (transElem(24) is a receive-side decoding shape,
+    // not a send-side one). Asserts that `bridge.sendGroupFileMessage`
+    // is invoked with the uploaded fileId.
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbGroupFileResp>>({
@@ -149,15 +151,13 @@ describe('actions/group-file', () => {
       }),
     );
     await groupFile.uploadGroupFile(bridge as any, 12345, '/path/some-file.bin', 'mynote.txt');
-    expect(bridge.sendGroupMessage).toHaveBeenCalledOnce();
-    const [groupId, elements] = bridge.sendGroupMessage.mock.calls[0]!;
+    expect(bridge.sendGroupFileMessage).toHaveBeenCalledOnce();
+    const [groupId, fileId] = bridge.sendGroupFileMessage.mock.calls[0]!;
     expect(groupId).toBe(12345);
-    expect(elements).toHaveLength(1);
-    expect(elements[0]).toMatchObject({
-      type: 'file',
-      fileId: 'fid-pub',
-      fileName: 'mynote.txt',
-    });
+    expect(fileId).toBe('fid-pub');
+    // sendGroupMessage must NOT be touched — the previous wire shape
+    // (PbSendMsg w/ transElem(24)) is the bug we're guarding against.
+    expect(bridge.sendGroupMessage).not.toHaveBeenCalled();
   });
 
   it('uploadGroupFile skips the chat post when uploadFile=false', async () => {
@@ -168,12 +168,12 @@ describe('actions/group-file', () => {
       }),
     );
     await groupFile.uploadGroupFile(bridge as any, 12345, '/path/file.bin', '', '/', false);
-    expect(bridge.sendGroupMessage).not.toHaveBeenCalled();
+    expect(bridge.sendGroupFileMessage).not.toHaveBeenCalled();
   });
 
   it('uploadGroupFile returns success even when the chat post fails (file is still uploaded)', async () => {
     const bridge = mockBridge();
-    vi.mocked(bridge.sendGroupMessage).mockRejectedValueOnce(new Error('message rejected'));
+    vi.mocked(bridge.sendGroupFileMessage).mockRejectedValueOnce(new Error('message rejected'));
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbGroupFileResp>>({
         body: { upload: { fileId: 'fid-tolerant', boolFileExist: true } as any },
@@ -181,7 +181,55 @@ describe('actions/group-file', () => {
     );
     const out = await groupFile.uploadGroupFile(bridge as any, 12345, '/path/file.bin');
     expect(out).toEqual({ fileId: 'fid-tolerant' });
-    expect(bridge.sendGroupMessage).toHaveBeenCalledOnce();
+    expect(bridge.sendGroupFileMessage).toHaveBeenCalledOnce();
+  });
+
+  it('uploadGroupFile caches the upload metadata for later resend by file_id', async () => {
+    // After upload, a later `send_group_msg` carrying just the file_id
+    // needs to recover the name/size/md5 from somewhere. Production
+    // populates `bridge.rememberUploadedFile` with the full tuple.
+    const bridge = mockBridge();
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+      protobuf_encode<OidbBase<OidbGroupFileResp>>({
+        body: { upload: { fileId: 'fid-cached', boolFileExist: true } as any },
+      }),
+    );
+    await groupFile.uploadGroupFile(bridge as any, 12345, '/path/x.bin', 'x.bin');
+    expect(bridge.rememberUploadedFile).toHaveBeenCalledOnce();
+    const [meta] = bridge.rememberUploadedFile.mock.calls[0]!;
+    expect(meta).toMatchObject({
+      fileId: 'fid-cached',
+      scope: 'group',
+      groupId: 12345,
+      fileName: 'x.bin',
+    });
+  });
+
+  it('sendGroupFileMessage hits OIDB 0x6d9_4 with the right body', async () => {
+    // Direct cover of the new bridge method. The previous send-shape
+    // (PbSendMsg + transElem(24)) failed with result=79; this is the
+    // Lagrange-V2-mirrored fix.
+    const bridge = mockBridge();
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce(new Uint8Array());
+    await groupFile.sendGroupFileMessage(bridge as any, 12345, 'fid-publish');
+    expect(oidb.runOidb).toHaveBeenCalledOnce();
+    const [, cmd] = vi.mocked(oidb.runOidb).mock.calls[0]!;
+    expect(cmd).toBe('OidbSvcTrpcTcp.0x6d9_4');
+    // The envelope wraps a `{body: {groupUin, type=2, info: {busiType=102, fileId, ...}}}`.
+    expect(oidb.makeOidbEnvelope).toHaveBeenCalledWith(
+      0x6D9, 4,
+      expect.objectContaining({
+        body: expect.objectContaining({
+          groupUin: 12345,
+          type: 2,
+          info: expect.objectContaining({
+            busiType: 102,
+            fileId: 'fid-publish',
+            field5: true,
+          }),
+        }),
+      }),
+    );
   });
 
   it('uploadPrivateFile resolves both target + self UID before OIDB call', async () => {
@@ -228,6 +276,31 @@ describe('actions/group-file', () => {
     expect(userUid).toBe('target-uid');
     expect(info).toMatchObject({ fileId: 'pfid', fileName: 'doc.pdf', fileHash: 'phash' });
     expect(bridge.sendPrivateMessage).not.toHaveBeenCalled();
+  });
+
+  it('uploadPrivateFile caches the upload metadata for later resend by file_id', async () => {
+    // C2C file resend (send_private_msg with just file_id) was the
+    // "sends a 0 B file" bug: the wire packet needs fileSize/fileMd5/
+    // fileName/fileHash, but the OneBot caller only knows the file_id.
+    // Caching the upload tuple lets the OneBot send-message path
+    // recover the rest via `bridge.recallUploadedFile(fileId)`.
+    const bridge = mockBridge();
+    vi.mocked(bridge.resolveUserUid).mockResolvedValueOnce('target-uid');
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+      protobuf_encode<OidbBase<OidbPrivateFileUploadResp>>({
+        body: { upload: { uuid: 'pfid-cache', fileAddon: 'addon-hash', boolFileExist: true } as any },
+      }),
+    );
+    await groupFile.uploadPrivateFile(bridge as any, 67890, '/path/cache-me.txt', 'cache-me.txt');
+    expect(bridge.rememberUploadedFile).toHaveBeenCalledOnce();
+    const [meta] = bridge.rememberUploadedFile.mock.calls[0]!;
+    expect(meta).toMatchObject({
+      fileId: 'pfid-cache',
+      scope: 'private',
+      userId: 67890,
+      fileName: 'cache-me.txt',
+      fileHash: 'addon-hash',
+    });
   });
 
   it('uploadPrivateFile skips the chat post when uploadFile=false', async () => {

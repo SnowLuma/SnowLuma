@@ -167,18 +167,34 @@ export async function sendPrivateMessage(
       throw new Error(`c2c file send: could not resolve uid for user ${userId}`);
     }
     for (const fileEl of fileElements) {
+      // C2C file send requires fileSize/fileMd5/fileName to ride on the
+      // wire (NotOnlineFile inside msgContent). The OneBot caller
+      // usually only echoes the file_id from a previous
+      // `upload_private_file`, so look up the rest from the upload
+      // cache. Inline segment fields (md5/size/name) take precedence so
+      // a caller that already knows everything can bypass the cache.
+      const cached = ref.bridge.recallUploadedFile(fileEl.fileId!);
       const fileMd5 = fileEl.md5Hex
         ? Buffer.from(fileEl.md5Hex, 'hex')
-        : new Uint8Array(0);
+        : (cached?.fileMd5 ?? new Uint8Array(0));
+      const fileSize = fileEl.fileSize ?? cached?.fileSize ?? 0;
+      // Fall back to a generic name — the QQ server resolves the
+      // file by fileUuid, not name, so a missing name only affects
+      // the chat bubble display.
+      const fileName = fileEl.fileName ?? cached?.fileName ?? 'file';
+      const fileHash = fileEl.fileHash ?? cached?.fileHash;
+      if (fileSize === 0 && !cached) {
+        log.warn(
+          '[OneBot] c2c file_id=%s sent without fileSize and no upload cache — recipient may see 0 B',
+          fileEl.fileId,
+        );
+      }
       lastReceipt = await ref.bridge.sendC2cFileMessage(userId, userUid, {
         fileId: fileEl.fileId!,
-        // Fall back to a generic name — the QQ server resolves the
-        // file by fileUuid, not name, so a missing name only affects
-        // the chat bubble display.
-        fileName: fileEl.fileName ?? 'file',
-        fileSize: fileEl.fileSize ?? 0,
+        fileName,
+        fileSize,
         fileMd5,
-        fileHash: fileEl.fileHash,
+        fileHash,
       });
       logSentMessage(false, userId, [fileEl]);
     }
@@ -229,19 +245,60 @@ export async function sendGroupMessage(
   });
   if (elements.length === 0) throw new Error('message is empty');
 
-  const receipt = await ref.bridge.sendGroupMessage(groupId, elements);
-  const messageId = hashMessageIdInt32(receipt.sequence, groupId, GROUP_MESSAGE_EVENT);
+  // Group `{type:'file', file_id}` segments don't ride on the elems[]
+  // pipeline either. The QQ-NT server rejects PbSendMsg with a
+  // transElem(24) file payload (result=79); the correct send path is a
+  // dedicated OIDB call (`OidbSvcTrpcTcp.0x6d9_4`) that publishes a
+  // previously-uploaded file id as a chat bubble. Mirrors the c2c-file
+  // split below (private path) — both must be peeled off before the
+  // regular sendGroupMessage runs.
+  const fileElements = elements.filter(e => e.type === 'file' && e.fileId);
+  const nonFileElements = elements.filter(e => e.type !== 'file');
+  if (fileElements.length !== elements.filter(e => e.type === 'file').length) {
+    log.warn('[OneBot] group file segment without file_id — skipped (upload first via upload_group_file)');
+  }
 
-  logSentMessage(true, groupId, elements);
+  let lastReceipt: Awaited<ReturnType<typeof ref.bridge.sendGroupMessage>> | undefined;
+  if (nonFileElements.length > 0) {
+    lastReceipt = await ref.bridge.sendGroupMessage(groupId, nonFileElements);
+    logSentMessage(true, groupId, nonFileElements);
+  }
+  for (const fileEl of fileElements) {
+    // Group-file publish has no per-message sequence/random tuple to
+    // hash a messageId from — OIDB 0x6d9_4 is fire-and-forget on the
+    // wire. If this is the LAST element we still need a receipt so
+    // the OneBot caller can cache the id; synthesise one from the
+    // file_id hash + a fresh timestamp.
+    await ref.bridge.sendGroupFileMessage(groupId, fileEl.fileId!);
+    logSentMessage(true, groupId, [fileEl]);
+    if (!lastReceipt) {
+      // Use a hash of the fileId as a stable pseudo-id; this gets
+      // mixed with groupId in `hashMessageIdInt32` below.
+      let h = 0;
+      const s = fileEl.fileId ?? '';
+      for (let i = 0; i < s.length; i++) {
+        h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+      }
+      lastReceipt = {
+        messageId: 0,
+        sequence: h & 0x7FFFFFFF,
+        clientSequence: 0,
+        random: h & 0x7FFFFFFF,
+        timestamp: Math.floor(Date.now() / 1000),
+      };
+    }
+  }
+  if (!lastReceipt) throw new Error('message is empty');
 
+  const messageId = hashMessageIdInt32(lastReceipt.sequence, groupId, GROUP_MESSAGE_EVENT);
   ref.cacheMessageMeta(messageId, {
     isGroup: true,
     targetId: groupId,
-    sequence: receipt.sequence,
+    sequence: lastReceipt.sequence,
     eventName: GROUP_MESSAGE_EVENT,
-    clientSequence: receipt.clientSequence,
-    random: receipt.random,
-    timestamp: receipt.timestamp,
+    clientSequence: lastReceipt.clientSequence,
+    random: lastReceipt.random,
+    timestamp: lastReceipt.timestamp,
   });
 
   return { messageId };
@@ -574,6 +631,13 @@ function logSentMessage(isGroup: boolean, targetId: number, elements: MessageEle
         break;
       case 'poke':
         parts.push('[戳一戳]');
+        break;
+      case 'file':
+        // Avoid the misleading "[空消息]" the user previously saw when
+        // sending a file segment — the message is NOT empty, it's a
+        // file post. Show the name (or id as fallback) so the log
+        // reflects what actually went out.
+        parts.push(`[文件:${elem.fileName || elem.fileId || ''}]`);
         break;
       default:
         break;

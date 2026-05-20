@@ -22,6 +22,7 @@ import type {
   SendMessageReceipt,
   DownloadRKeyInfo,
   ClientKeyInfo,
+  UploadedFileMeta,
 } from './bridge';
 import type { SendPacketResult } from '../protocol/packet-sender';
 
@@ -89,6 +90,16 @@ export interface BridgeInterface {
   // ─── Files ───
   uploadGroupFile(groupId: number, file: string, name?: string, folderId?: string, uploadFile?: boolean): Promise<{ fileId: string | null }>;
   uploadPrivateFile(userId: number, file: string, name?: string, uploadFile?: boolean): Promise<{ fileId: string | null }>;
+  /**
+   * Publish a previously-uploaded group file as a chat message via
+   * `OidbSvcTrpcTcp.0x6d9_4`. The atomic upload+publish flow inside
+   * `uploadGroupFile` already does this, but the OneBot send-message
+   * path needs it too for {type:'file', file_id} segments.
+   */
+  sendGroupFileMessage(groupId: number, fileId: string): Promise<void>;
+  /** Cache file metadata so a later send_msg with just `file_id` can rehydrate it. */
+  rememberUploadedFile(meta: UploadedFileMeta): void;
+  recallUploadedFile(fileId: string): UploadedFileMeta | undefined;
   fetchGroupFiles(groupId: number, folderId?: string): Promise<GroupFilesResult>;
   fetchGroupFileUrl(groupId: number, fileId: string, busId?: number): Promise<string>;
   fetchPrivateFileUrl(userId: number, fileId: string, fileHash: string): Promise<string>;

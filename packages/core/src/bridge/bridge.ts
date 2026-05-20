@@ -48,6 +48,7 @@ import {
 import {
   uploadGroupFile as uploadGroupFile_,
   uploadPrivateFile as uploadPrivateFile_,
+  sendGroupFileMessage as sendGroupFileMessage_,
   fetchGroupFiles as fetchGroupFiles_,
   fetchGroupFileUrl as fetchGroupFileUrl_,
   fetchPrivateFileUrl as fetchPrivateFileUrl_,
@@ -147,6 +148,29 @@ export interface SendMessageReceipt {
   timestamp: number;
 }
 
+/**
+ * Metadata remembered after `upload_group_file` / `upload_private_file`
+ * succeeds. Lets the OneBot send-message path reconstruct the full
+ * payload when the caller only echoes the `file_id` back later. See
+ * `Bridge.rememberUploadedFile` / `recallUploadedFile`.
+ */
+export interface UploadedFileMeta {
+  fileId: string;
+  scope: 'group' | 'private';
+  /** Group id if scope='group', else `undefined`. */
+  groupId?: number;
+  /** Friend uin if scope='private', else `undefined`. */
+  userId?: number;
+  fileName: string;
+  fileSize: number;
+  fileMd5: Uint8Array;
+  fileSha1: Uint8Array;
+  /** Server-issued hash returned alongside the upload (private only). */
+  fileHash?: string;
+  /** Insert time — used to evict the oldest entry when the cache fills. */
+  rememberedAt: number;
+}
+
 export interface DownloadRKeyInfo {
   rkey: string;
   ttlSeconds: number;
@@ -185,6 +209,24 @@ export class Bridge implements BridgeInterface {
   // banned for 7 days.
   private memberListInflight_ = new Map<number, Promise<GroupMemberInfo[]>>();
   private memberListLastFetch_ = new Map<number, { at: number; data: GroupMemberInfo[] }>();
+
+  // ── Uploaded-file metadata cache ────────────────────────────────────
+  //
+  // After a file goes through `upload_group_file` / `upload_private_file`
+  // we remember the (fileName, fileSize, fileMd5, fileHash) tuple keyed
+  // by the returned file_id. The OneBot send-message paths consult this
+  // when the caller later passes `{type:'file', file_id:'xxx'}` without
+  // the rest of the metadata — c2c file send needs the size/md5/name
+  // for the wire packet (server-side rejection / "0 byte file" otherwise),
+  // and the group send path falls back to the name for the log line.
+  //
+  // Bounded at ~1024 entries with simple FIFO eviction. Files older
+  // than 7 days expire on QQ's side anyway, so this isn't load-bearing
+  // for correctness — just a UX convenience cache so the OneBot caller
+  // doesn't have to thread the metadata themselves between upload and
+  // send_msg.
+  private static readonly UPLOADED_FILE_CACHE_MAX = 1024;
+  private uploadedFileMeta_ = new Map<string, UploadedFileMeta>();
 
   // Sequence and random generators for outgoing messages
   private clientSeq_ = 100000000 + (Date.now() % 1000000000);
@@ -250,6 +292,37 @@ export class Bridge implements BridgeInterface {
     if (!this.identity.findGroup(groupId)) return false;
     await this.fetchGroupMemberList(groupId, { force: forceMemberList });
     return true;
+  }
+
+  // --- Uploaded-file metadata cache ---
+
+  /**
+   * Remember a freshly-uploaded file so a later `send_*_msg` carrying
+   * just the file_id can reconstruct the full c2c-file packet (fileName
+   * / fileSize / fileMd5 are required by the QQ NT server's c2c file
+   * intake, even if only the uuid is needed for the OIDB lookup
+   * internally — without them the file shows as 0 B in the recipient's
+   * chat or is silently rejected). Insertion is FIFO; oldest entry is
+   * evicted when the cache hits `UPLOADED_FILE_CACHE_MAX`.
+   */
+  rememberUploadedFile(meta: UploadedFileMeta): void {
+    if (!meta.fileId) return;
+    if (this.uploadedFileMeta_.size >= Bridge.UPLOADED_FILE_CACHE_MAX) {
+      // Map iteration order is insertion order — drop the oldest.
+      const oldest = this.uploadedFileMeta_.keys().next().value;
+      if (oldest !== undefined) this.uploadedFileMeta_.delete(oldest);
+    }
+    this.uploadedFileMeta_.set(meta.fileId, meta);
+  }
+
+  /**
+   * Recall metadata for a previously-uploaded file. Returns `undefined`
+   * if the file_id was never uploaded through this bridge instance, or
+   * if it's been evicted from the cache.
+   */
+  recallUploadedFile(fileId: string): UploadedFileMeta | undefined {
+    if (!fileId) return undefined;
+    return this.uploadedFileMeta_.get(fileId);
   }
 
   // --- Sequence / random generators ---
@@ -561,6 +634,9 @@ export class Bridge implements BridgeInterface {
   }
   async uploadPrivateFile(userId: number, file: string, name = '', uploadFile = true): Promise<{ fileId: string | null }> {
     return uploadPrivateFile_(this, userId, file, name, uploadFile);
+  }
+  async sendGroupFileMessage(groupId: number, fileId: string): Promise<void> {
+    return sendGroupFileMessage_(this, groupId, fileId);
   }
   async fetchGroupFiles(groupId: number, folderId = '/'): Promise<GroupFilesResult> { return fetchGroupFiles_(this, groupId, folderId); }
   async fetchGroupFileUrl(groupId: number, fileId: string, busId = 102): Promise<string> { return fetchGroupFileUrl_(this, groupId, fileId, busId); }

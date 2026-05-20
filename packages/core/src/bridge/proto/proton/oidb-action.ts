@@ -548,6 +548,41 @@ export interface OidbGroupFileResp {
   move?:     pb<6, OidbGroupFileRetResp>;
 }
 
+// --- 0x6D9_4: Group file PUBLISH-AS-CHAT-MESSAGE ---
+//
+// Posts an already-uploaded group file (via 0x6D6_0 + highway) as a
+// chat message in the group. This is a separate OIDB endpoint from
+// the file upload — NOT a `MessageSvc.PbSendMsg` with a `TransElem`
+// payload (sending the file as a transElem(24) is a RECEIVE-side
+// decoding shape, and the QQ-NT server rejects it on send with
+// `result=79`).
+//
+// Wire shape (mirrors Lagrange.Core V2's nesting):
+//   OidbBase.body (envelope field 4)
+//     → OidbGroupSendFileReq.body (field 5) ← the nested wrapper
+//         → OidbGroupSendFileBody { groupUin, type, info }
+//
+// Ports `dev/Lagrange.Core/.../Internal/Service/Message/GroupSendFileService.cs`
+// + `Internal/Packets/Service/Oidb/Request/OidbSvcTrpcTcp0x6D9_4.cs`.
+
+export interface OidbGroupSendFileInfo {
+  busiType?: pb<1, uint_32>;  // hardcoded 102
+  fileId?:   pb<2, string>;   // uuid from 0x6D6_0 upload response
+  field3?:   pb<3, uint_32>;  // random uint32 (msg id seed)
+  field4?:   pb<4, string>;   // null/empty on send
+  field5?:   pb<5, bool>;     // hardcoded true
+}
+
+export interface OidbGroupSendFileBody {
+  groupUin?: pb<1, uint_32>;
+  type?:     pb<2, uint_32>;  // hardcoded 2 (= chat post)
+  info?:     pb<3, OidbGroupSendFileInfo>;
+}
+
+export interface OidbGroupSendFileReq {
+  body?: pb<5, OidbGroupSendFileBody>;
+}
+
 // --- 0x6D7_0 / 0x6D7_1 / 0x6D7_2: Group file folder ops ---
 
 export interface OidbGroupFileCreateFolderReq {

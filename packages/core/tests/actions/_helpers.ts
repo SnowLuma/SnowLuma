@@ -26,11 +26,17 @@ export interface MockBridge {
   resolveUserUid: ReturnType<typeof vi.fn>;
   // High-level message senders. Default to no-op resolves so actions
   // that fire off a follow-up chat message after their main work
-  // (e.g. `upload_group_file` → `sendGroupMessage` to publish the
+  // (e.g. `upload_group_file` → `sendGroupFileMessage` to publish the
   // file in chat) don't crash test setups that don't care about it.
   sendGroupMessage: ReturnType<typeof vi.fn>;
   sendPrivateMessage: ReturnType<typeof vi.fn>;
   sendC2cFileMessage: ReturnType<typeof vi.fn>;
+  sendGroupFileMessage: ReturnType<typeof vi.fn>;
+  // Uploaded-file metadata cache helpers — actions like uploadGroupFile
+  // / uploadPrivateFile call these to remember the upload, so tests
+  // covering those code paths get a default-no-op shim.
+  rememberUploadedFile: ReturnType<typeof vi.fn>;
+  recallUploadedFile: ReturnType<typeof vi.fn>;
 }
 
 export function mockBridge(overrides: Partial<MockBridge> = {}): MockBridge {
@@ -59,6 +65,9 @@ export function mockBridge(overrides: Partial<MockBridge> = {}): MockBridge {
     sendGroupMessage: vi.fn(async () => ({ messageId: 1, sequence: 1, clientSequence: 0, random: 1, timestamp: 0 })),
     sendPrivateMessage: vi.fn(async () => ({ messageId: 1, sequence: 1, clientSequence: 0, random: 1, timestamp: 0 })),
     sendC2cFileMessage: vi.fn(async () => ({ messageId: 1, sequence: 1, clientSequence: 0, random: 1, timestamp: 0 })),
+    sendGroupFileMessage: vi.fn(async () => undefined),
+    rememberUploadedFile: vi.fn(),
+    recallUploadedFile: vi.fn(() => undefined),
     ...overrides,
   };
 }

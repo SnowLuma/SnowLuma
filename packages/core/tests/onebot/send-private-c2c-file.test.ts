@@ -50,10 +50,12 @@ describe('send_private_msg with {type:"file"} segment', () => {
     const sendPrivateMessage_bridge = vi.fn();
     const sendC2cFileMessage = vi.fn(async (_uin: number, _uid: string, _info: any) => goodReceipt);
     const resolveUserUid = vi.fn(async () => 'u_peer');
+    const recallUploadedFile = vi.fn(() => undefined);
     const bridge = fakeBridge({
       sendPrivateMessage: sendPrivateMessage_bridge,
       sendC2cFileMessage,
       resolveUserUid,
+      recallUploadedFile,
     } as any);
     const ctx = makeCtx(bridge);
 
@@ -77,6 +79,84 @@ describe('send_private_msg with {type:"file"} segment', () => {
     expect(info.fileMd5).toEqual(Buffer.from('00112233', 'hex'));
   });
 
+  it('file-only with just file_id hydrates fileName/size/md5 from the upload cache', async () => {
+    // Reproduces the "0 B file" bug: a caller passes only `file_id` from
+    // a previous upload_private_file, with no size/md5/name. Without
+    // the cache lookup the wire packet ships fileSize=0/md5=empty and
+    // the recipient sees a 0-byte file. With the cache we recover the
+    // real tuple.
+    const sendC2cFileMessage = vi.fn(async (_uin: number, _uid: string, _info: any) => goodReceipt);
+    const recallUploadedFile = vi.fn((id: string) => id === 'uuid-cached' ? {
+      fileId: 'uuid-cached',
+      scope: 'private' as const,
+      userId: 67890,
+      fileName: 'real-doc.pdf',
+      fileSize: 4096,
+      fileMd5: Buffer.from('aabbccddeeff', 'hex'),
+      fileSha1: new Uint8Array(20),
+      fileHash: 'srv-hash',
+      rememberedAt: 0,
+    } : undefined);
+    const bridge = fakeBridge({
+      sendPrivateMessage: vi.fn(),
+      sendC2cFileMessage,
+      resolveUserUid: vi.fn(async () => 'u_peer'),
+      recallUploadedFile,
+    } as any);
+    const ctx = makeCtx(bridge);
+
+    await sendPrivateMessage(ctx, 67890, [{
+      type: 'file', data: { file_id: 'uuid-cached' },
+    }] as any, false);
+
+    expect(sendC2cFileMessage).toHaveBeenCalledOnce();
+    const [, , info] = sendC2cFileMessage.mock.calls[0]!;
+    expect(info).toMatchObject({
+      fileId: 'uuid-cached',
+      fileName: 'real-doc.pdf',
+      fileSize: 4096,
+      fileHash: 'srv-hash',
+    });
+    expect(info.fileMd5).toEqual(Buffer.from('aabbccddeeff', 'hex'));
+  });
+
+  it('inline segment fields take precedence over the upload cache', async () => {
+    // If the caller threads the metadata inline (e.g. they tracked the
+    // upload response themselves), honour that over the cache so a
+    // refresh of an evicted file still works.
+    const sendC2cFileMessage = vi.fn(async (_uin: number, _uid: string, _info: any) => goodReceipt);
+    const recallUploadedFile = vi.fn(() => ({
+      fileId: 'uuid-x',
+      scope: 'private' as const,
+      userId: 67890,
+      fileName: 'stale-cache-name.txt',
+      fileSize: 99,
+      fileMd5: new Uint8Array(16),
+      fileSha1: new Uint8Array(20),
+      fileHash: 'stale-hash',
+      rememberedAt: 0,
+    }));
+    const bridge = fakeBridge({
+      sendPrivateMessage: vi.fn(),
+      sendC2cFileMessage,
+      resolveUserUid: vi.fn(async () => 'u_peer'),
+      recallUploadedFile,
+    } as any);
+    const ctx = makeCtx(bridge);
+
+    await sendPrivateMessage(ctx, 67890, [{
+      type: 'file', data: { file_id: 'uuid-x', name: 'inline.txt', size: 200, md5: '11223344', file_hash: 'inline-hash' },
+    }] as any, false);
+
+    const [, , info] = sendC2cFileMessage.mock.calls[0]!;
+    expect(info).toMatchObject({
+      fileName: 'inline.txt',
+      fileSize: 200,
+      fileHash: 'inline-hash',
+    });
+    expect(info.fileMd5).toEqual(Buffer.from('11223344', 'hex'));
+  });
+
   it('mixed file + text splits across two sends (text first, file second)', async () => {
     const sendPrivateMessage_bridge = vi.fn(async (_uin: number, _elements: any[]) => goodReceipt);
     const sendC2cFileMessage = vi.fn(async (_uin: number, _uid: string, _info: any) => goodReceipt);
@@ -85,6 +165,7 @@ describe('send_private_msg with {type:"file"} segment', () => {
       sendPrivateMessage: sendPrivateMessage_bridge,
       sendC2cFileMessage,
       resolveUserUid,
+      recallUploadedFile: vi.fn(() => undefined),
     } as any);
     const ctx = makeCtx(bridge);
 
@@ -118,6 +199,7 @@ describe('send_private_msg with {type:"file"} segment', () => {
       sendPrivateMessage: sendPrivateMessage_bridge,
       sendC2cFileMessage,
       resolveUserUid: vi.fn(),
+      recallUploadedFile: vi.fn(() => undefined),
     } as any);
     const ctx = makeCtx(bridge);
 
@@ -141,6 +223,7 @@ describe('send_private_msg with {type:"file"} segment', () => {
       sendPrivateMessage: vi.fn(),
       sendC2cFileMessage,
       resolveUserUid: vi.fn(async () => ''), // intentional empty
+      recallUploadedFile: vi.fn(() => undefined),
     } as any);
     const ctx = makeCtx(bridge);
 

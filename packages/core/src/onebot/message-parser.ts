@@ -354,11 +354,17 @@ async function segmentToElement(type: string, data: Record<string, unknown>, opt
       const fileSize = intOr(data.size ?? data.fileSize, 0);
       const md5Hex = String(data.md5 ?? data.md5Hex ?? '').trim();
       const sha1Hex = String(data.sha1 ?? data.sha1Hex ?? '').trim();
+      // file_hash is the c2c-file server-issued addon string — needed
+      // on the wire when re-sending a previously-uploaded c2c file.
+      // get_private_file_url callers already pass it through, so honour
+      // the same field naming here.
+      const fileHash = String(data.file_hash ?? data.fileHash ?? '').trim();
       const elem: MessageElement = { type: 'file', fileId };
       if (fileName) elem.fileName = fileName;
       if (fileSize > 0) elem.fileSize = fileSize;
       if (md5Hex) elem.md5Hex = md5Hex;
       if (sha1Hex) elem.sha1Hex = sha1Hex;
+      if (fileHash) elem.fileHash = fileHash;
       return elem;
     }
     default:

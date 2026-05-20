@@ -19,6 +19,7 @@ import type {
   OidbGroupFileResp,
   OidbGroupFileViewReq,
   OidbGroupFileViewResp,
+  OidbGroupSendFileReq,
   OidbPrivateFileDownloadReq,
   OidbPrivateFileDownloadResp,
   OidbPrivateFileUploadReq,
@@ -273,6 +274,48 @@ async function fetchNtv2DownloadUrl(
   return `https://${domain}${path}${rKeyParam}`;
 }
 
+// ─────────────── publish (group file → chat) ───────────────
+
+/**
+ * Publish a previously-uploaded group file as a chat message.
+ *
+ * Wire is OIDB `OidbSvcTrpcTcp.0x6d9_4` — NOT `MessageSvc.PbSendMsg`.
+ * Lagrange.Core V2 splits these two roles: the file UPLOAD path goes
+ * via 0x6D6_0 + highway PUT, then a SECOND OIDB hop (this one) tells
+ * the QQ server "now publish that staged blob as a chat message" so
+ * everyone in the group can see the file bubble.
+ *
+ * The old approach — wrap the file as `TransElem(elemType=24)` inside
+ * `richText.elems[]` and ship it via PbSendMsg — works for INCOMING
+ * messages (the receive decoder unpacks transElem(24) into a
+ * FileEntity) but the QQ-NT server REJECTS it on outgoing with
+ * `result=79` ("invalid element on send-side"). Mirror Lagrange's
+ * dedicated GroupSendFileService instead.
+ *
+ * The unused `field4` slot and the `field3=random` value match
+ * Lagrange's send-side defaults (`OidbSvcTrpcTcp0x6D9_4.cs` + the
+ * `Random.Shared.Next()` call in `GroupSendFileService.cs`). Field 5
+ * is the `Field5=true` flag the receiver's deserializer expects.
+ */
+export async function sendGroupFileMessage(bridge: Bridge, groupId: number, fileId: string): Promise<void> {
+  if (!fileId) throw new Error('sendGroupFileMessage requires fileId');
+  const env = makeOidbEnvelope<OidbGroupSendFileReq>(0x6D9, 4, {
+    body: {
+      groupUin: groupId,
+      type: 2,
+      info: {
+        busiType: 102,
+        fileId,
+        field3: Math.floor(Math.random() * 0x7fffffff) >>> 0,
+        field5: true,
+      },
+    },
+  });
+  // The envelope-level errorCode peek inside `runOidb` covers the
+  // happy-path validation; failures surface as a thrown OIDB error.
+  await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d9_4', encodeOidbEnv<OidbGroupSendFileReq>(env));
+}
+
 // ─────────────── file count ───────────────
 
 export async function fetchGroupFileCount(bridge: Bridge, groupId: number): Promise<{ fileCount: number; maxCount: number }> {
@@ -336,6 +379,23 @@ export async function uploadGroupFile(
   const fileId = typeof upload.fileId === 'string' && upload.fileId ? upload.fileId : null;
   if (!fileId) throw new Error('group file upload response missing file_id');
 
+  // Remember the upload so a later `send_group_msg` carrying just the
+  // file_id can route via `sendGroupFileMessage` without forcing the
+  // OneBot caller to thread fileName/size/md5 separately. For groups
+  // the wire publish (OIDB 0x6d9_4) only needs the file_id itself, so
+  // this is mainly for log-line correctness; the c2c counterpart in
+  // `uploadPrivateFile` is where the cache is actually load-bearing.
+  bridge.rememberUploadedFile({
+    fileId,
+    scope: 'group',
+    groupId,
+    fileName,
+    fileSize: loaded.bytes.length,
+    fileMd5: hashes.md5,
+    fileSha1: hashes.sha1,
+    rememberedAt: Date.now(),
+  });
+
   if (!upload.boolFileExist && uploadFile) {
     const senderUin = toInt(bridge.identity.uin);
     if (senderUin <= 0) throw new Error('invalid self uin for group file upload');
@@ -366,22 +426,20 @@ export async function uploadGroupFile(
   }
 
   // Stage 3: file is on the server, now publish it as a chat message.
+  //
   // Without this, OIDB 0x6D6_0 + highway PUT only stages the bytes —
-  // the chat shows nothing. NapCat does the same (upload + sendMsg
-  // atomically inside `upload_group_file`, see
-  // `dev/napcatQQ/.../UploadGroupFile.ts:54-58`). Only suppressed when
-  // the caller opts out via `uploadFile=false` (treat that as "I only
-  // wanted the slot allocated, hold the chat post").
+  // the chat shows nothing. The publish step goes via a dedicated OIDB
+  // call (0x6D9_4), NOT via `MessageSvc.PbSendMsg` with a transElem(24)
+  // payload — the QQ-NT server rejects that with `result=79`. Mirrors
+  // Lagrange.Core V2's `GroupSendFileService.cs`. Suppressed when the
+  // caller opts out via `uploadFile=false` (treat that as "I only
+  // wanted the slot allocated, hold the chat post"). Routes through
+  // the public bridge method (rather than the local `sendGroupFileMessage`)
+  // so tests can mock at the bridge boundary, matching the pattern
+  // `uploadPrivateFile` uses with `bridge.sendC2cFileMessage`.
   if (uploadFile) {
     try {
-      await bridge.sendGroupMessage(groupId, [{
-        type: 'file',
-        fileId,
-        fileName,
-        fileSize: loaded.bytes.length,
-        md5Hex: bytesToHexUpper(hashes.md5),
-        sha1Hex: bytesToHexUpper(hashes.sha1),
-      }]);
+      await bridge.sendGroupFileMessage(groupId, fileId);
     } catch (err) {
       // The bytes are already on the server and the fileId is valid —
       // fail loud but don't lose the upload result the action handler
@@ -451,6 +509,23 @@ export async function uploadPrivateFile(
   const fileId = typeof upload.uuid === 'string' && upload.uuid ? upload.uuid : null;
   const fileHash = typeof upload.fileAddon === 'string' && upload.fileAddon ? upload.fileAddon : null;
   if (!fileId) throw new Error('private file upload response missing file_id');
+
+  // Cache the metadata so a later `send_private_msg` carrying just
+  // `{type:'file', file_id}` can resurrect the full c2c-file packet
+  // (NotOnlineFile { fileSize, fileMd5, fileName, fileHash }). Without
+  // this the recipient sees a 0-byte file because the OneBot send path
+  // has no way to recover those fields from the file_id alone.
+  bridge.rememberUploadedFile({
+    fileId,
+    scope: 'private',
+    userId,
+    fileName,
+    fileSize: loaded.bytes.length,
+    fileMd5: hashes.md5,
+    fileSha1: hashes.sha1,
+    fileHash: fileHash ?? '',
+    rememberedAt: Date.now(),
+  });
 
   if (!upload.boolFileExist && uploadFile) {
     // Host selection.
