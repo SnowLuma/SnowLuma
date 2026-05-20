@@ -114,7 +114,7 @@ export async function getGroupFiles(
   groupId: number,
   folderId?: string,
 ): Promise<JsonObject> {
-  const result = await bridge.fetchGroupFiles(groupId, folderId ?? '/');
+  const result = await bridge.apis.groupFile.list(groupId, folderId ?? '/');
   return {
     files: result.files.map((file) => ({
       group_id: groupId as any,

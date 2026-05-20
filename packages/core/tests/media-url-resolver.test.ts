@@ -4,16 +4,25 @@ import type { MessageElement } from '../src/bridge/events';
 
 // Minimal stand-ins for the two collaborators. Each test wires whatever
 // subset of Bridge methods the element type exercises.
-
+//
+// MediaUrlResolver now reaches `bridge.apis.groupFile.{getUrl,
+// getPrivateUrl, getPttUrl, getPrivatePttUrl, getVideoUrl,
+// getPrivateVideoUrl}` per the #6 Api-on-ctx refactor. The helper here
+// builds an `apis.groupFile` stub directly so tests can keep asserting
+// "which file/url helper got called" without going through the
+// `mockBridge` shared fixture.
 function makeBridge(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
   return {
-    fetchGroupFileUrl: vi.fn(async () => 'http://group/file'),
-    fetchPrivateFileUrl: vi.fn(async () => 'http://private/file'),
-    fetchGroupPttUrlByNode: vi.fn(async () => 'http://group/ptt'),
-    fetchPrivatePttUrlByNode: vi.fn(async () => 'http://private/ptt'),
-    fetchGroupVideoUrlByNode: vi.fn(async () => 'http://group/video'),
-    fetchPrivateVideoUrlByNode: vi.fn(async () => 'http://private/video'),
-    ...overrides,
+    apis: {
+      groupFile: {
+        getUrl: overrides.getUrl ?? vi.fn(async () => 'http://group/file'),
+        getPrivateUrl: overrides.getPrivateUrl ?? vi.fn(async () => 'http://private/file'),
+        getPttUrl: overrides.getPttUrl ?? vi.fn(async () => 'http://group/ptt'),
+        getPrivatePttUrl: overrides.getPrivatePttUrl ?? vi.fn(async () => 'http://private/ptt'),
+        getVideoUrl: overrides.getVideoUrl ?? vi.fn(async () => 'http://group/video'),
+        getPrivateVideoUrl: overrides.getPrivateVideoUrl ?? vi.fn(async () => 'http://private/video'),
+      },
+    },
   };
 }
 
@@ -34,7 +43,7 @@ describe('MediaUrlResolver — file element', () => {
     const resolver = new MediaUrlResolver(bridge as any, rkey as any);
     const element: MessageElement = { type: 'file', fileId: 'fid-x' };
     const out = await resolver.resolve(element, true, 12345);
-    expect(bridge.fetchGroupFileUrl).toHaveBeenCalledWith(12345, 'fid-x');
+    expect(bridge.apis.groupFile.getUrl).toHaveBeenCalledWith(12345, 'fid-x');
     expect(element.url).toBe('http://group/file');
     expect(rkey.resolveMediaUrl).toHaveBeenCalledOnce();
     expect(out).toBe('http://group/file');
@@ -44,7 +53,7 @@ describe('MediaUrlResolver — file element', () => {
     const resolver = new MediaUrlResolver(bridge as any, rkey as any);
     const element: MessageElement = { type: 'file', fileId: 'fid-x', fileHash: 'hash-y' };
     await resolver.resolve(element, false, 67890);
-    expect(bridge.fetchPrivateFileUrl).toHaveBeenCalledWith(67890, 'fid-x', 'hash-y');
+    expect(bridge.apis.groupFile.getPrivateUrl).toHaveBeenCalledWith(67890, 'fid-x', 'hash-y');
     expect(element.url).toBe('http://private/file');
   });
 
@@ -52,7 +61,7 @@ describe('MediaUrlResolver — file element', () => {
     const resolver = new MediaUrlResolver(bridge as any, rkey as any);
     const element: MessageElement = { type: 'file', fileId: 'fid-x' };
     await resolver.resolve(element, false, 67890);
-    expect(bridge.fetchPrivateFileUrl).not.toHaveBeenCalled();
+    expect(bridge.apis.groupFile.getPrivateUrl).not.toHaveBeenCalled();
     expect(element.url).toBe('');
   });
 });
@@ -66,7 +75,7 @@ describe('MediaUrlResolver — record / video element', () => {
     const resolver = new MediaUrlResolver(bridge as any, rkey as any);
     const element: MessageElement = { type: 'record', mediaNode: MEDIA_NODE };
     await resolver.resolve(element, true, 12345);
-    expect(bridge.fetchGroupPttUrlByNode).toHaveBeenCalledWith(12345, MEDIA_NODE);
+    expect(bridge.apis.groupFile.getPttUrl).toHaveBeenCalledWith(12345, MEDIA_NODE);
     expect(element.url).toBe('http://group/ptt');
   });
 
@@ -74,7 +83,7 @@ describe('MediaUrlResolver — record / video element', () => {
     const resolver = new MediaUrlResolver(bridge as any, rkey as any);
     const element: MessageElement = { type: 'record', mediaNode: MEDIA_NODE };
     await resolver.resolve(element, false, 67890);
-    expect(bridge.fetchPrivatePttUrlByNode).toHaveBeenCalledWith(MEDIA_NODE);
+    expect(bridge.apis.groupFile.getPrivatePttUrl).toHaveBeenCalledWith(MEDIA_NODE);
     expect(element.url).toBe('http://private/ptt');
   });
 
@@ -82,7 +91,7 @@ describe('MediaUrlResolver — record / video element', () => {
     const resolver = new MediaUrlResolver(bridge as any, rkey as any);
     const element: MessageElement = { type: 'video', mediaNode: MEDIA_NODE };
     await resolver.resolve(element, true, 12345);
-    expect(bridge.fetchGroupVideoUrlByNode).toHaveBeenCalledWith(12345, MEDIA_NODE);
+    expect(bridge.apis.groupFile.getVideoUrl).toHaveBeenCalledWith(12345, MEDIA_NODE);
     expect(element.url).toBe('http://group/video');
   });
 
@@ -90,7 +99,7 @@ describe('MediaUrlResolver — record / video element', () => {
     const resolver = new MediaUrlResolver(bridge as any, rkey as any);
     const element: MessageElement = { type: 'video', mediaNode: MEDIA_NODE };
     await resolver.resolve(element, false, 67890);
-    expect(bridge.fetchPrivateVideoUrlByNode).toHaveBeenCalledWith(MEDIA_NODE);
+    expect(bridge.apis.groupFile.getPrivateVideoUrl).toHaveBeenCalledWith(MEDIA_NODE);
     expect(element.url).toBe('http://private/video');
   });
 
@@ -98,7 +107,7 @@ describe('MediaUrlResolver — record / video element', () => {
     const resolver = new MediaUrlResolver(bridge as any, rkey as any);
     const element: MessageElement = { type: 'record' };
     await resolver.resolve(element, true, 12345);
-    expect(bridge.fetchGroupPttUrlByNode).not.toHaveBeenCalled();
+    expect(bridge.apis.groupFile.getPttUrl).not.toHaveBeenCalled();
     expect(element.url).toBeUndefined();
   });
 });
@@ -110,13 +119,13 @@ describe('MediaUrlResolver — short-circuits and resilience', () => {
     const resolver = new MediaUrlResolver(bridge as any, rkey as any);
     const element: MessageElement = { type: 'file', fileId: 'fid', url: 'already-set' };
     await resolver.resolve(element, true, 12345);
-    expect(bridge.fetchGroupFileUrl).not.toHaveBeenCalled();
+    expect(bridge.apis.groupFile.getUrl).not.toHaveBeenCalled();
     expect(rkey.resolveMediaUrl).toHaveBeenCalledOnce();
   });
 
   it('bridge throws: swallowed, rkey still applied', async () => {
     const bridge = makeBridge({
-      fetchGroupFileUrl: vi.fn(async () => { throw new Error('network down'); }),
+      getUrl: vi.fn(async () => { throw new Error('network down'); }),
     });
     const rkey = makeRkey({ resolveMediaUrl: vi.fn(async () => 'rkey-fallback') });
     const resolver = new MediaUrlResolver(bridge as any, rkey as any);

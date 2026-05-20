@@ -45,7 +45,7 @@ vi.mock('../../src/bridge/highway/utils', () => ({
 
 import * as oidb from '../../src/bridge/bridge-oidb';
 import * as highwayClient from '../../src/bridge/highway/highway-client';
-import * as groupFile from '../../src/bridge/actions/group-file';
+import { GroupFileApi } from '../../src/bridge/apis/group-file';
 import { mockBridge } from './_helpers';
 
 describe('actions/group-file', () => {
@@ -57,27 +57,27 @@ describe('actions/group-file', () => {
     vi.mocked(highwayClient.uploadHighwayHttp).mockClear();
   });
 
-  it('fetchGroupFileCount returns { fileCount, maxCount } from the OIDB response', async () => {
+  it('getCount returns { fileCount, maxCount } from the OIDB response', async () => {
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbGroupFileCountViewResp>>({
         body: { count: { fileCount: 42, maxCount: 1000 } },
       }),
     );
-    const out = await groupFile.fetchGroupFileCount(bridge as any, 12345);
+    const out = await new GroupFileApi(bridge as any).getCount(12345);
     expect(out).toEqual({ fileCount: 42, maxCount: 1000 });
   });
 
-  it('fetchGroupFileCount falls back to defaults on partial response', async () => {
+  it('getCount falls back to defaults on partial response', async () => {
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbGroupFileCountViewResp>>({ body: { count: {} } }),
     );
-    const out = await groupFile.fetchGroupFileCount(bridge as any, 12345);
+    const out = await new GroupFileApi(bridge as any).getCount(12345);
     expect(out).toEqual({ fileCount: 0, maxCount: 10000 });
   });
 
-  it('uploadGroupFile skips highway when boolFileExist is true', async () => {
+  it('upload skips highway when boolFileExist is true', async () => {
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbGroupFileResp>>({
@@ -90,13 +90,16 @@ describe('actions/group-file', () => {
         } as any,
       }),
     );
-    const out = await groupFile.uploadGroupFile(bridge as any, 12345, '/path/file.bin');
+    const api = new GroupFileApi(bridge as any);
+    // Suppress the auto-publish — that path is covered separately.
+    vi.spyOn(api, 'publish').mockResolvedValue();
+    const out = await api.upload(12345, '/path/file.bin');
     expect(out).toEqual({ fileId: 'fid-xyz' });
     expect(highwayClient.fetchHighwaySession).not.toHaveBeenCalled();
     expect(highwayClient.uploadHighwayHttp).not.toHaveBeenCalled();
   });
 
-  it('uploadGroupFile runs highway PUT when boolFileExist is false', async () => {
+  it('upload runs highway PUT when boolFileExist is false', async () => {
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbGroupFileResp>>({
@@ -113,90 +116,99 @@ describe('actions/group-file', () => {
         } as any,
       }),
     );
-    await groupFile.uploadGroupFile(bridge as any, 12345, '/path/file.bin');
+    const api = new GroupFileApi(bridge as any);
+    vi.spyOn(api, 'publish').mockResolvedValue();
+    await api.upload(12345, '/path/file.bin');
     expect(highwayClient.fetchHighwaySession).toHaveBeenCalledOnce();
     expect(highwayClient.uploadHighwayHttp).toHaveBeenCalledOnce();
   });
 
-  it('uploadGroupFile throws on missing upload response', async () => {
+  it('upload throws on missing upload response', async () => {
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbGroupFileResp>>({ body: {} }),
     );
-    await expect(groupFile.uploadGroupFile(bridge as any, 12345, '/path/file.bin'))
+    await expect(new GroupFileApi(bridge as any).upload(12345, '/path/file.bin'))
       .rejects.toThrow(/response missing/);
   });
 
-  it('uploadGroupFile bubbles up OIDB retCode errors', async () => {
+  it('upload bubbles up OIDB retCode errors', async () => {
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbGroupFileResp>>({
         body: { upload: { retCode: 999, retMsg: 'quota exceeded' } as any },
       }),
     );
-    await expect(groupFile.uploadGroupFile(bridge as any, 12345, '/path/file.bin'))
+    await expect(new GroupFileApi(bridge as any).upload(12345, '/path/file.bin'))
       .rejects.toThrow(/code=999/);
   });
 
-  it('uploadGroupFile publishes the file via OIDB 0x6d9_4 after upload (the "empty message" regression)', async () => {
+  it('upload publishes the file via OIDB 0x6d9_4 after upload (the "empty message" regression)', async () => {
     // Reproduces the bug report: OIDB upload + highway PUT alone only
     // stage the bytes on QQ's side; without the trailing 0x6d9_4 OIDB
     // call the file never appears in the chat. Earlier attempts used
     // PbSendMsg with a transElem(24) but the QQ-NT server rejects that
     // with result=79 (transElem(24) is a receive-side decoding shape,
-    // not a send-side one). Asserts that `bridge.sendGroupFileMessage`
-    // is invoked with the uploaded fileId.
+    // not a send-side one). Asserts that `this.publish` is invoked
+    // with the uploaded fileId.
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbGroupFileResp>>({
         body: { upload: { fileId: 'fid-pub', boolFileExist: true } as any },
       }),
     );
-    await groupFile.uploadGroupFile(bridge as any, 12345, '/path/some-file.bin', 'mynote.txt');
-    expect(bridge.sendGroupFileMessage).toHaveBeenCalledOnce();
-    const [groupId, fileId] = bridge.sendGroupFileMessage.mock.calls[0]!;
+    const api = new GroupFileApi(bridge as any);
+    const publishSpy = vi.spyOn(api, 'publish').mockResolvedValue();
+    await api.upload(12345, '/path/some-file.bin', 'mynote.txt');
+    expect(publishSpy).toHaveBeenCalledOnce();
+    const [groupId, fileId] = publishSpy.mock.calls[0]!;
     expect(groupId).toBe(12345);
     expect(fileId).toBe('fid-pub');
-    // sendGroupMessage must NOT be touched — the previous wire shape
+    // sendGroup must NOT be touched — the previous wire shape
     // (PbSendMsg w/ transElem(24)) is the bug we're guarding against.
     expect(bridge.apis.message.sendGroup).not.toHaveBeenCalled();
   });
 
-  it('uploadGroupFile skips the chat post when uploadFile=false', async () => {
+  it('upload skips the chat post when uploadFile=false', async () => {
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbGroupFileResp>>({
         body: { upload: { fileId: 'fid-skip', boolFileExist: true } as any },
       }),
     );
-    await groupFile.uploadGroupFile(bridge as any, 12345, '/path/file.bin', '', '/', false);
-    expect(bridge.sendGroupFileMessage).not.toHaveBeenCalled();
+    const api = new GroupFileApi(bridge as any);
+    const publishSpy = vi.spyOn(api, 'publish').mockResolvedValue();
+    await api.upload(12345, '/path/file.bin', '', '/', false);
+    expect(publishSpy).not.toHaveBeenCalled();
   });
 
-  it('uploadGroupFile returns success even when the chat post fails (file is still uploaded)', async () => {
+  it('upload returns success even when the chat post fails (file is still uploaded)', async () => {
     const bridge = mockBridge();
-    vi.mocked(bridge.sendGroupFileMessage).mockRejectedValueOnce(new Error('message rejected'));
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbGroupFileResp>>({
         body: { upload: { fileId: 'fid-tolerant', boolFileExist: true } as any },
       }),
     );
-    const out = await groupFile.uploadGroupFile(bridge as any, 12345, '/path/file.bin');
+    const api = new GroupFileApi(bridge as any);
+    const publishSpy = vi.spyOn(api, 'publish').mockRejectedValueOnce(new Error('message rejected'));
+    const out = await api.upload(12345, '/path/file.bin');
     expect(out).toEqual({ fileId: 'fid-tolerant' });
-    expect(bridge.sendGroupFileMessage).toHaveBeenCalledOnce();
+    expect(publishSpy).toHaveBeenCalledOnce();
   });
 
-  it('uploadGroupFile caches the upload metadata for later resend by file_id', async () => {
+  it('upload caches the upload metadata for later resend by file_id', async () => {
     // After upload, a later `send_group_msg` carrying just the file_id
     // needs to recover the name/size/md5 from somewhere. Production
-    // populates `bridge.rememberUploadedFile` with the full tuple.
+    // populates `ctx.rememberUploadedFile` with the full tuple.
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbGroupFileResp>>({
         body: { upload: { fileId: 'fid-cached', boolFileExist: true } as any },
       }),
     );
-    await groupFile.uploadGroupFile(bridge as any, 12345, '/path/x.bin', 'x.bin');
+    const api = new GroupFileApi(bridge as any);
+    vi.spyOn(api, 'publish').mockResolvedValue();
+    await api.upload(12345, '/path/x.bin', 'x.bin');
     expect(bridge.rememberUploadedFile).toHaveBeenCalledOnce();
     const [meta] = bridge.rememberUploadedFile.mock.calls[0]!;
     expect(meta).toMatchObject({
@@ -207,13 +219,13 @@ describe('actions/group-file', () => {
     });
   });
 
-  it('sendGroupFileMessage hits OIDB 0x6d9_4 with the right body', async () => {
+  it('publish hits OIDB 0x6d9_4 with the right body', async () => {
     // Direct cover of the new bridge method. The previous send-shape
     // (PbSendMsg + transElem(24)) failed with result=79; this is the
     // Lagrange-V2-mirrored fix.
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(new Uint8Array());
-    await groupFile.sendGroupFileMessage(bridge as any, 12345, 'fid-publish');
+    await new GroupFileApi(bridge as any).publish(12345, 'fid-publish');
     expect(oidb.runOidb).toHaveBeenCalledOnce();
     const [, cmd] = vi.mocked(oidb.runOidb).mock.calls[0]!;
     expect(cmd).toBe('OidbSvcTrpcTcp.0x6d9_4');
@@ -234,7 +246,7 @@ describe('actions/group-file', () => {
     );
   });
 
-  it('uploadPrivateFile resolves both target + self UID before OIDB call', async () => {
+  it('uploadPrivate resolves both target + self UID before OIDB call', async () => {
     const bridge = mockBridge({
       identity: {
         uin: '10001',
@@ -253,17 +265,17 @@ describe('actions/group-file', () => {
         body: { upload: { uuid: 'fid', fileAddon: 'hash', boolFileExist: true } as any },
       }),
     );
-    const out = await groupFile.uploadPrivateFile(bridge as any, 67890, '/path/file');
+    const out = await new GroupFileApi(bridge as any).uploadPrivate(67890, '/path/file');
     expect(out).toEqual({ fileId: 'fid', fileHash: 'hash' });
     expect(bridge.resolveUserUid).toHaveBeenCalledTimes(2);
   });
 
-  it('uploadPrivateFile publishes the file via sendC2cFileMessage after upload', async () => {
+  it('uploadPrivate publishes the file via apis.message.sendC2cFile after upload', async () => {
     // C2C files use `RichText.notOnlineFile` (not in the elems array),
-    // so `uploadPrivateFile` calls the dedicated `sendC2cFileMessage`
-    // path on the bridge rather than `sendPrivateMessage`. Same bug
-    // class as the group case — without this the recipient sees no
-    // message even though the bytes are on the server.
+    // so `uploadPrivate` calls the dedicated `sendC2cFile` path on
+    // the bridge rather than `sendPrivate`. Same bug class as the
+    // group case — without this the recipient sees no message even
+    // though the bytes are on the server.
     const bridge = mockBridge();
     vi.mocked(bridge.resolveUserUid).mockResolvedValueOnce('target-uid');
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
@@ -271,7 +283,7 @@ describe('actions/group-file', () => {
         body: { upload: { uuid: 'pfid', fileAddon: 'phash', boolFileExist: true } as any },
       }),
     );
-    await groupFile.uploadPrivateFile(bridge as any, 67890, '/path/private-file.bin', 'doc.pdf');
+    await new GroupFileApi(bridge as any).uploadPrivate(67890, '/path/private-file.bin', 'doc.pdf');
     expect(bridge.apis.message.sendC2cFile).toHaveBeenCalledOnce();
     const [userUin, userUid, info] = bridge.apis.message.sendC2cFile.mock.calls[0]!;
     expect(userUin).toBe(67890);
@@ -280,12 +292,12 @@ describe('actions/group-file', () => {
     expect(bridge.apis.message.sendPrivate).not.toHaveBeenCalled();
   });
 
-  it('uploadPrivateFile caches the upload metadata for later resend by file_id', async () => {
+  it('uploadPrivate caches the upload metadata for later resend by file_id', async () => {
     // C2C file resend (send_private_msg with just file_id) was the
     // "sends a 0 B file" bug: the wire packet needs fileSize/fileMd5/
     // fileName/fileHash, but the OneBot caller only knows the file_id.
     // Caching the upload tuple lets the OneBot send-message path
-    // recover the rest via `bridge.recallUploadedFile(fileId)`.
+    // recover the rest via `ctx.recallUploadedFile(fileId)`.
     const bridge = mockBridge();
     vi.mocked(bridge.resolveUserUid).mockResolvedValueOnce('target-uid');
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
@@ -293,7 +305,7 @@ describe('actions/group-file', () => {
         body: { upload: { uuid: 'pfid-cache', fileAddon: 'addon-hash', boolFileExist: true } as any },
       }),
     );
-    await groupFile.uploadPrivateFile(bridge as any, 67890, '/path/cache-me.txt', 'cache-me.txt');
+    await new GroupFileApi(bridge as any).uploadPrivate(67890, '/path/cache-me.txt', 'cache-me.txt');
     expect(bridge.rememberUploadedFile).toHaveBeenCalledOnce();
     const [meta] = bridge.rememberUploadedFile.mock.calls[0]!;
     expect(meta).toMatchObject({
@@ -305,7 +317,7 @@ describe('actions/group-file', () => {
     });
   });
 
-  it('uploadPrivateFile skips the chat post when uploadFile=false', async () => {
+  it('uploadPrivate skips the chat post when uploadFile=false', async () => {
     const bridge = mockBridge();
     vi.mocked(bridge.resolveUserUid).mockResolvedValueOnce('target-uid');
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
@@ -313,11 +325,11 @@ describe('actions/group-file', () => {
         body: { upload: { uuid: 'pfid', fileAddon: 'phash', boolFileExist: true } as any },
       }),
     );
-    await groupFile.uploadPrivateFile(bridge as any, 67890, '/path/file', '', false);
+    await new GroupFileApi(bridge as any).uploadPrivate(67890, '/path/file', '', false);
     expect(bridge.apis.message.sendC2cFile).not.toHaveBeenCalled();
   });
 
-  it('uploadPrivateFile reads host from rtpMediaPlatformUploadAddress[0].inIP when populated', async () => {
+  it('uploadPrivate reads host from rtpMediaPlatformUploadAddress[0].inIP when populated', async () => {
     // The 2026 QQ-NT server rollout moved the upload host out of the
     // legacy `uploadIp` (field 60) string into the new
     // `rtpMediaPlatformUploadAddress` (field 210, repeated IPv4 message).
@@ -342,11 +354,11 @@ describe('actions/group-file', () => {
         },
       }),
     );
-    await groupFile.uploadPrivateFile(bridge as any, 67890, '/path/file.bin');
+    await new GroupFileApi(bridge as any).uploadPrivate(67890, '/path/file.bin');
     expect(highwayClient.uploadHighwayHttp).toHaveBeenCalledOnce();
   });
 
-  it('uploadPrivateFile falls back to uploadDomain when uploadIp is empty', async () => {
+  it('uploadPrivate falls back to uploadDomain when uploadIp is empty', async () => {
     // Regression: the server has been observed in the wild returning the
     // highway host in `uploadDomain` (field 70) instead of `uploadIp`
     // (field 60), causing "private file upload host is invalid". The
@@ -371,11 +383,11 @@ describe('actions/group-file', () => {
         },
       }),
     );
-    await groupFile.uploadPrivateFile(bridge as any, 67890, '/path/file.bin');
+    await new GroupFileApi(bridge as any).uploadPrivate(67890, '/path/file.bin');
     expect(highwayClient.uploadHighwayHttp).toHaveBeenCalledOnce();
   });
 
-  it('uploadPrivateFile throws "host is invalid" only when every host field is empty', async () => {
+  it('uploadPrivate throws "host is invalid" only when every host field is empty', async () => {
     // The diagnostic warn-log lists every host slot to help users
     // report which one the server actually populated; this test just
     // asserts that the throw still fires when none of them carry a
@@ -387,11 +399,11 @@ describe('actions/group-file', () => {
         body: { upload: { uuid: 'pfid', fileAddon: 'phash', uploadPort: 8080 } as any },
       }),
     );
-    await expect(groupFile.uploadPrivateFile(bridge as any, 67890, '/path/file.bin'))
+    await expect(new GroupFileApi(bridge as any).uploadPrivate(67890, '/path/file.bin'))
       .rejects.toThrow(/upload host is invalid/);
   });
 
-  it('fetchGroupFiles paginates files + folders out of OIDB items', async () => {
+  it('list paginates files + folders out of OIDB items', async () => {
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbGroupFileViewResp>>({
@@ -406,14 +418,14 @@ describe('actions/group-file', () => {
         },
       }),
     );
-    const out = await groupFile.fetchGroupFiles(bridge as any, 12345);
+    const out = await new GroupFileApi(bridge as any).list(12345);
     expect(out.files).toHaveLength(1);
     expect(out.files[0]).toMatchObject({ fileId: 'f1', fileName: 'a.txt', uploader: 1, uploaderName: 'alice' });
     expect(out.folders).toHaveLength(1);
     expect(out.folders[0]).toMatchObject({ folderId: 'd1', folderName: 'dir', creator: 2, creatorName: 'bob' });
   });
 
-  it('fetchGroupFileUrl builds the https URL from downloadDns + hex-encoded path', async () => {
+  it('getUrl builds the https URL from downloadDns + hex-encoded path', async () => {
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbGroupFileResp>>({
@@ -425,44 +437,46 @@ describe('actions/group-file', () => {
         },
       }),
     );
-    const url = await groupFile.fetchGroupFileUrl(bridge as any, 12345, 'fid-xyz');
+    const url = await new GroupFileApi(bridge as any).getUrl(12345, 'fid-xyz');
     expect(url).toBe('https://cdn.example.com/ftn_handler/0102/?fname=fid-xyz');
   });
 
-  it('fetchGroupFileUrl throws when response is missing dns or url', async () => {
+  it('getUrl throws when response is missing dns or url', async () => {
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbGroupFileResp>>({
         body: { download: {} as any },
       }),
     );
-    await expect(groupFile.fetchGroupFileUrl(bridge as any, 12345, 'fid-xyz'))
+    await expect(new GroupFileApi(bridge as any).getUrl(12345, 'fid-xyz'))
       .rejects.toThrow(/invalid/);
   });
 
-  it('deleteGroupFile / moveGroupFile dispatch the right sub-commands', async () => {
+  it('delete / move dispatch the right sub-commands', async () => {
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb)
       .mockResolvedValueOnce(protobuf_encode<OidbBase<OidbGroupFileResp>>({ body: { delete: {} as any } }))
       .mockResolvedValueOnce(protobuf_encode<OidbBase<OidbGroupFileResp>>({ body: { move: {} as any } }));
-    await groupFile.deleteGroupFile(bridge as any, 12345, 'fid');
-    await groupFile.moveGroupFile(bridge as any, 12345, 'fid', '/a', '/b');
+    const api = new GroupFileApi(bridge as any);
+    await api.delete(12345, 'fid');
+    await api.move(12345, 'fid', '/a', '/b');
     expect(vi.mocked(oidb.makeOidbEnvelope).mock.calls.map(c => c[1])).toEqual([3, 5]);
   });
 
-  it('createGroupFileFolder / deleteGroupFileFolder / renameGroupFileFolder dispatch 0x6d7 family', async () => {
+  it('createFolder / deleteFolder / renameFolder dispatch 0x6d7 family', async () => {
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb)
       .mockResolvedValueOnce(protobuf_encode<OidbBase<OidbGroupFileFolderResp>>({ body: { create: {} as any } }))
       .mockResolvedValueOnce(protobuf_encode<OidbBase<OidbGroupFileFolderResp>>({ body: { delete: {} as any } }))
       .mockResolvedValueOnce(protobuf_encode<OidbBase<OidbGroupFileFolderResp>>({ body: { rename: {} as any } }));
-    await groupFile.createGroupFileFolder(bridge as any, 1, 'folder');
-    await groupFile.deleteGroupFileFolder(bridge as any, 1, 'fid');
-    await groupFile.renameGroupFileFolder(bridge as any, 1, 'fid', 'newname');
+    const api = new GroupFileApi(bridge as any);
+    await api.createFolder(1, 'folder');
+    await api.deleteFolder(1, 'fid');
+    await api.renameFolder(1, 'fid', 'newname');
     expect(vi.mocked(oidb.makeOidbEnvelope).mock.calls.map(c => c[0])).toEqual([0x6D7, 0x6D7, 0x6D7]);
   });
 
-  it('fetch*UrlByNode builds https://domain/path?rkey from the NTV2 response', async () => {
+  it('get*Url builds https://domain/path?rkey from the NTV2 response', async () => {
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb).mockResolvedValue(
       protobuf_encode<OidbBase<NTV2RichMediaResp>>({
@@ -475,7 +489,7 @@ describe('actions/group-file', () => {
         } as any,
       }),
     );
-    const url = await groupFile.fetchGroupVideoUrlByNode(bridge as any, 12345, { fileUuid: 'uuid' });
+    const url = await new GroupFileApi(bridge as any).getVideoUrl(12345, { fileUuid: 'uuid' });
     expect(url).toBe('https://media.example.com/path/x?rkey=abc');
   });
 });

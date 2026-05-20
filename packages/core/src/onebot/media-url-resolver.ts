@@ -26,9 +26,9 @@ export class MediaUrlResolver {
   private async populateUrl(element: MessageElement, isGroup: boolean, sessionId: number): Promise<void> {
     if (element.type === 'file' && element.fileId) {
       if (isGroup) {
-        element.url = await this.bridge.fetchGroupFileUrl(sessionId, element.fileId);
+        element.url = await this.bridge.apis.groupFile.getUrl(sessionId, element.fileId);
       } else if (element.fileHash) {
-        element.url = await this.bridge.fetchPrivateFileUrl(sessionId, element.fileId, element.fileHash);
+        element.url = await this.bridge.apis.groupFile.getPrivateUrl(sessionId, element.fileId, element.fileHash);
       } else {
         element.url = '';
       }
@@ -38,12 +38,12 @@ export class MediaUrlResolver {
     if ((element.type === 'record' || element.type === 'video') && element.mediaNode) {
       if (isGroup) {
         element.url = element.type === 'record'
-          ? await this.bridge.fetchGroupPttUrlByNode(sessionId, element.mediaNode)
-          : await this.bridge.fetchGroupVideoUrlByNode(sessionId, element.mediaNode);
+          ? await this.bridge.apis.groupFile.getPttUrl(sessionId, element.mediaNode)
+          : await this.bridge.apis.groupFile.getVideoUrl(sessionId, element.mediaNode);
       } else {
         element.url = element.type === 'record'
-          ? await this.bridge.fetchPrivatePttUrlByNode(element.mediaNode)
-          : await this.bridge.fetchPrivateVideoUrlByNode(element.mediaNode);
+          ? await this.bridge.apis.groupFile.getPrivatePttUrl(element.mediaNode)
+          : await this.bridge.apis.groupFile.getPrivateVideoUrl(element.mediaNode);
       }
     }
   }

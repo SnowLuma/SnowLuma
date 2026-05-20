@@ -28,23 +28,32 @@ function fakeMeta(overrides: Partial<MessageMeta> = {}): MessageMeta {
  * pre-stubbed for the test. Same pattern as contact-actions.test.ts —
  * keeps tests honest about which surface they actually need.
  */
-// Maps flat method names → ApiHub area they moved to under the #6
-// refactor. Auto-promotion lets tests written against the pre-refactor
-// flat surface (`fetchGroupRequests: vi.fn()`) keep working without
-// per-test restructure.
-const APIS_ROUTING: Record<string, string> = {
-  fetchFriendList: 'contacts', fetchGroupList: 'contacts',
-  fetchGroupMemberList: 'contacts', fetchUserProfile: 'contacts',
-  fetchGroupRequests: 'contacts', fetchDownloadRKeys: 'contacts',
+// Maps flat method names → [area, newMethodName] on the ApiHub under
+// the #6 refactor. Auto-promotion lets tests written against the
+// pre-refactor flat surface (`fetchGroupRequests: vi.fn()`) keep
+// working without per-test restructure, even when the new method name
+// drops the redundant `Group`/`File` prefix.
+const APIS_ROUTING: Record<string, [string, string]> = {
+  fetchFriendList: ['contacts', 'fetchFriendList'],
+  fetchGroupList: ['contacts', 'fetchGroupList'],
+  fetchGroupMemberList: ['contacts', 'fetchGroupMemberList'],
+  fetchUserProfile: ['contacts', 'fetchUserProfile'],
+  fetchGroupRequests: ['contacts', 'fetchGroupRequests'],
+  fetchDownloadRKeys: ['contacts', 'fetchDownloadRKeys'],
+  // GroupFileApi: methods drop `Group`/`File`/`Folder` suffix where
+  // the area name already says it.
+  deleteGroupFileFolder: ['groupFile', 'deleteFolder'],
+  fetchGroupPttUrlByNode: ['groupFile', 'getPttUrl'],
 };
 
 function fakeBridge(overrides: Record<string, any> = {}): BridgeInterface {
   const apisSynth: Record<string, Record<string, any>> = {};
   for (const [k, v] of Object.entries(overrides)) {
-    const area = APIS_ROUTING[k];
-    if (area) {
+    const route = APIS_ROUTING[k];
+    if (route) {
+      const [area, newName] = route;
       if (!apisSynth[area]) apisSynth[area] = {};
-      apisSynth[area][k] = v;
+      apisSynth[area][newName] = v;
     }
   }
   const merged = { ...overrides, apis: { ...apisSynth, ...(overrides.apis ?? {}) } };

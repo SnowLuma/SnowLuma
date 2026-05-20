@@ -11,7 +11,7 @@
 //
 // Fix: split file segments off at the OneBot layer (same pattern as
 // the c2c-file split for private messages) and dispatch through
-// `bridge.sendGroupFileMessage`, which calls dedicated OIDB
+// `bridge.apis.groupFile.publish`, which calls dedicated OIDB
 // `OidbSvcTrpcTcp.0x6d9_4` — Lagrange.Core V2's
 // `GroupSendFileService.cs`.
 
@@ -45,7 +45,7 @@ const goodReceipt = {
 };
 
 describe('send_group_msg with {type:"file"} segment', () => {
-  it('file-only message routes through sendGroupFileMessage (not sendGroupMessage_bridge)', async () => {
+  it('file-only message routes through apis.groupFile.publish (not apis.message.sendGroup)', async () => {
     // Pure-file case — the elems[] path used to ship a transElem(24)
     // and got result=79. The dedicated OIDB-0x6d9_4 route must take
     // over for group file publishing.
@@ -53,10 +53,12 @@ describe('send_group_msg with {type:"file"} segment', () => {
     // Declare params on the fn so `mock.calls[0]` infers a tuple of
     // [groupId, fileId] instead of `[]` (which makes the destructuring
     // a tsc error under noUncheckedIndexedAccess).
-    const sendGroupFileMessage = vi.fn(async (_groupId: number, _fileId: string) => undefined);
+    const publish = vi.fn(async (_groupId: number, _fileId: string) => undefined);
     const bridge = fakeBridge({
-      apis: { message: { sendGroup: sendGroupMessage_bridge } } as any,
-      sendGroupFileMessage,
+      apis: {
+        message: { sendGroup: sendGroupMessage_bridge },
+        groupFile: { publish },
+      } as any,
       resolveUserUid: vi.fn(),
     } as any);
     const ctx = makeCtx(bridge);
@@ -65,20 +67,22 @@ describe('send_group_msg with {type:"file"} segment', () => {
       type: 'file', data: { file_id: 'gfid-abc', name: 'doc.txt', size: 123 },
     }] as any, false);
 
-    expect(sendGroupFileMessage).toHaveBeenCalledOnce();
+    expect(publish).toHaveBeenCalledOnce();
     expect(sendGroupMessage_bridge).not.toHaveBeenCalled();
 
-    const [groupId, fileId] = sendGroupFileMessage.mock.calls[0]!;
+    const [groupId, fileId] = publish.mock.calls[0]!;
     expect(groupId).toBe(12345);
     expect(fileId).toBe('gfid-abc');
   });
 
   it('mixed text + file splits across two sends (text via elems[], file via OIDB)', async () => {
     const sendGroupMessage_bridge = vi.fn(async (_gid: number, _elements: any[]) => goodReceipt);
-    const sendGroupFileMessage = vi.fn(async (_groupId: number, _fileId: string) => undefined);
+    const publish = vi.fn(async (_groupId: number, _fileId: string) => undefined);
     const bridge = fakeBridge({
-      apis: { message: { sendGroup: sendGroupMessage_bridge } } as any,
-      sendGroupFileMessage,
+      apis: {
+        message: { sendGroup: sendGroupMessage_bridge },
+        groupFile: { publish },
+      } as any,
       resolveUserUid: vi.fn(async () => 'u_peer'),
     } as any);
     const ctx = makeCtx(bridge);
@@ -89,13 +93,13 @@ describe('send_group_msg with {type:"file"} segment', () => {
     ] as any, false);
 
     expect(sendGroupMessage_bridge).toHaveBeenCalledOnce();
-    expect(sendGroupFileMessage).toHaveBeenCalledOnce();
+    expect(publish).toHaveBeenCalledOnce();
 
     const [textGid, textElements] = sendGroupMessage_bridge.mock.calls[0]!;
     expect(textGid).toBe(12345);
     expect(textElements).toEqual([{ type: 'text', text: 'here is the file:' }]);
 
-    const [fileGid, fileFileId] = sendGroupFileMessage.mock.calls[0]!;
+    const [fileGid, fileFileId] = publish.mock.calls[0]!;
     expect(fileGid).toBe(12345);
     expect(fileFileId).toBe('gfid-xyz');
   });
@@ -104,10 +108,12 @@ describe('send_group_msg with {type:"file"} segment', () => {
     // Same upload-by-reference contract as the c2c file path —
     // missing file_id means there's nothing to publish.
     const sendGroupMessage_bridge = vi.fn(async (_gid: number, _elements: any[]) => goodReceipt);
-    const sendGroupFileMessage = vi.fn();
+    const publish = vi.fn();
     const bridge = fakeBridge({
-      apis: { message: { sendGroup: sendGroupMessage_bridge } } as any,
-      sendGroupFileMessage,
+      apis: {
+        message: { sendGroup: sendGroupMessage_bridge },
+        groupFile: { publish },
+      } as any,
       resolveUserUid: vi.fn(),
     } as any);
     const ctx = makeCtx(bridge);
@@ -118,6 +124,6 @@ describe('send_group_msg with {type:"file"} segment', () => {
     ] as any, false);
 
     expect(sendGroupMessage_bridge).toHaveBeenCalledOnce();
-    expect(sendGroupFileMessage).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
   });
 });

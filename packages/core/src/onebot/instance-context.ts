@@ -120,17 +120,17 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
 
     // Group file — fileId field extraction + defaults.
     uploadGroupFile: async (groupId, file, name, folderId, uploadFile) => {
-      const result = await bridge.uploadGroupFile(groupId, file, name ?? '', folderId ?? '/', uploadFile ?? true);
+      const result = await bridge.apis.groupFile.upload(groupId, file, name ?? '', folderId ?? '/', uploadFile ?? true);
       return result.fileId;
     },
     uploadPrivateFile: async (userId, file, name, uploadFile) => {
-      const result = await bridge.uploadPrivateFile(userId, file, name ?? '', uploadFile ?? true);
+      const result = await bridge.apis.groupFile.uploadPrivate(userId, file, name ?? '', uploadFile ?? true);
       return result.fileId;
     },
-    getGroupFileUrl: (groupId, fileId, busId) => bridge.fetchGroupFileUrl(groupId, fileId, busId ?? 102),
+    getGroupFileUrl: (groupId, fileId, busId) => bridge.apis.groupFile.getUrl(groupId, fileId, busId ?? 102),
     getGroupFiles: (groupId, folderId) => getGroupFiles(bridge, groupId, folderId),
-    createGroupFileFolder: (groupId, name, parentId) => bridge.createGroupFileFolder(groupId, name, parentId ?? '/'),
-    getPrivateFileUrl: (userId, fileId, fileHash) => bridge.fetchPrivateFileUrl(userId, fileId, fileHash),
+    createGroupFileFolder: (groupId, name, parentId) => bridge.apis.groupFile.createFolder(groupId, name, parentId ?? '/'),
+    getPrivateFileUrl: (userId, fileId, fileHash) => bridge.apis.groupFile.getPrivateUrl(userId, fileId, fileHash),
 
     // Requests — name translation.
     handleFriendRequest: (flag, approve) => bridge.setFriendAddRequest(flag, approve),
@@ -166,7 +166,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     setFriendRemark: (userId, remark) => bridge.setFriendRemark(userId, remark),
     setGroupRemark: (groupId, remark) => bridge.apis.groupAdmin.setRemark(groupId, remark),
     setGroupAvatar: (groupId, source) => bridge.setGroupAvatar(groupId, source),
-    getGroupFileCount: (groupId) => bridge.fetchGroupFileCount(groupId),
+    getGroupFileCount: (groupId) => bridge.apis.groupFile.getCount(groupId),
 
     // Cross-store: looks up the meta then routes through Bridge.
     setMsgEmojiLike: async (messageId, emojiId, set) => {

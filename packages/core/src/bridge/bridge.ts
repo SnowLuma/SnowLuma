@@ -38,25 +38,11 @@ import {
   getGroupAlbumMediaList as getGroupAlbumMediaList_,
   likeGroupAlbumMedia as likeGroupAlbumMedia_,
 } from './actions/group-album';
-import type { GroupFilesResult } from './actions/group-file';
-import {
-  createGroupFileFolder as createGroupFileFolder_,
-  deleteGroupFile as deleteGroupFile_,
-  deleteGroupFileFolder as deleteGroupFileFolder_,
-  fetchGroupFileCount as fetchGroupFileCount_,
-  fetchGroupFiles as fetchGroupFiles_,
-  fetchGroupFileUrl as fetchGroupFileUrl_,
-  fetchGroupPttUrlByNode as fetchGroupPttUrlByNode_,
-  fetchGroupVideoUrlByNode as fetchGroupVideoUrlByNode_,
-  fetchPrivateFileUrl as fetchPrivateFileUrl_,
-  fetchPrivatePttUrlByNode as fetchPrivatePttUrlByNode_,
-  fetchPrivateVideoUrlByNode as fetchPrivateVideoUrlByNode_,
-  moveGroupFile as moveGroupFile_,
-  renameGroupFileFolder as renameGroupFileFolder_,
-  sendGroupFileMessage as sendGroupFileMessage_,
-  uploadGroupFile as uploadGroupFile_,
-  uploadPrivateFile as uploadPrivateFile_,
-} from './actions/group-file';
+// Group file CRUD + private c2c upload + media URL resolvers moved to
+// `apis.groupFile` (see `apis/group-file.ts::GroupFileApi`). The shared
+// result type still lives here because the OneBot side imports it
+// through bridge.ts.
+import type { GroupFilesResult } from './apis/group-file';
 import {
   setGroupEssence as setGroupEssence_,
 } from './actions/group-message';
@@ -84,7 +70,6 @@ import {
   setProfile as setProfile_,
   setSelfLongNick as setSelfLongNick_,
 } from './actions/profile';
-import type { MediaIndexNode } from './actions/shared';
 // `bridge-contacts.ts` removed — its 6 functions are now methods on
 // `apis.contacts` (see `apis/contacts.ts::ContactsApi`).
 import { BridgeEventBus } from './event-bus';
@@ -346,29 +331,12 @@ export class Bridge implements BridgeInterface {
   // apis.groupAdmin (apis/group-admin.ts::GroupAdminApi).
   async setFriendAddRequest(uidOrFlag: string, approve: boolean): Promise<void> { return setFriendAddRequest_(this, uidOrFlag, approve); }
   async deleteFriend(userId: number, block = false): Promise<void> { return deleteFriend_(this, userId, block); }
-  async uploadGroupFile(groupId: number, file: string, name = '', folderId = '/', uploadFile = true): Promise<{ fileId: string | null }> {
-    return uploadGroupFile_(this, groupId, file, name, folderId, uploadFile);
-  }
-  async uploadPrivateFile(userId: number, file: string, name = '', uploadFile = true): Promise<{ fileId: string | null }> {
-    return uploadPrivateFile_(this, userId, file, name, uploadFile);
-  }
-  async sendGroupFileMessage(groupId: number, fileId: string): Promise<void> {
-    return sendGroupFileMessage_(this, groupId, fileId);
-  }
-  async fetchGroupFiles(groupId: number, folderId = '/'): Promise<GroupFilesResult> { return fetchGroupFiles_(this, groupId, folderId); }
-  async fetchGroupFileUrl(groupId: number, fileId: string, busId = 102): Promise<string> { return fetchGroupFileUrl_(this, groupId, fileId, busId); }
-  async fetchPrivateFileUrl(userId: number, fileId: string, fileHash: string): Promise<string> { return fetchPrivateFileUrl_(this, userId, fileId, fileHash); }
-  async fetchGroupPttUrlByNode(groupId: number, node: MediaIndexNode): Promise<string> { return fetchGroupPttUrlByNode_(this, groupId, node); }
-  async fetchPrivatePttUrlByNode(node: MediaIndexNode): Promise<string> { return fetchPrivatePttUrlByNode_(this, node); }
-  async fetchGroupVideoUrlByNode(groupId: number, node: MediaIndexNode): Promise<string> { return fetchGroupVideoUrlByNode_(this, groupId, node); }
-  async fetchPrivateVideoUrlByNode(node: MediaIndexNode): Promise<string> { return fetchPrivateVideoUrlByNode_(this, node); }
+  // GroupFile methods (upload/uploadPrivate/publish/list/getUrl/
+  // getPrivateUrl/{Ptt,Video}Url/getPrivate{Ptt,Video}Url/delete/move/
+  // createFolder/deleteFolder/renameFolder/getCount) moved to
+  // apis.groupFile (apis/group-file.ts::GroupFileApi).
   async uploadForwardNodes(nodes: ForwardNodePayload[], groupId?: number, userId?: number): Promise<string> { return uploadForwardNodes_(this, nodes, groupId, userId); }
   async fetchForwardNodes(resId: string): Promise<ForwardNodePayload[]> { return fetchForwardNodes_(this, resId); }
-  async deleteGroupFile(groupId: number, fileId: string): Promise<void> { return deleteGroupFile_(this, groupId, fileId); }
-  async moveGroupFile(groupId: number, fileId: string, parentDirectory: string, targetDirectory: string): Promise<void> { return moveGroupFile_(this, groupId, fileId, parentDirectory, targetDirectory); }
-  async createGroupFileFolder(groupId: number, name: string, parentId = '/'): Promise<void> { return createGroupFileFolder_(this, groupId, name, parentId); }
-  async deleteGroupFileFolder(groupId: number, folderId: string): Promise<void> { return deleteGroupFileFolder_(this, groupId, folderId); }
-  async renameGroupFileFolder(groupId: number, folderId: string, newFolderName: string): Promise<void> { return renameGroupFileFolder_(this, groupId, folderId, newFolderName); }
   async sendPoke(isGroup: boolean, peerUin: number, targetUin?: number): Promise<void> { return sendPoke_(this, isGroup, peerUin, targetUin); }
   async sendLike(userId: number, count: number): Promise<void> { return sendLike_(this, userId, count); }
   async setGroupEssence(groupId: number, sequence: number, random: number, enable: boolean): Promise<void> { return setGroupEssence_(this, groupId, sequence, random, enable); }
@@ -422,8 +390,6 @@ export class Bridge implements BridgeInterface {
   async deleteGroupNotice(groupId: number, fid: string): Promise<boolean> {
     return deleteGroupNotice_(this, groupId, fid);
   }
-
-  async fetchGroupFileCount(groupId: number): Promise<{ fileCount: number; maxCount: number }> { return fetchGroupFileCount_(this, groupId); }
 
   // extend
   async setOnlineStatus(status: number, extStatus: number = 0, batteryStatus: number = 100): Promise<void> {

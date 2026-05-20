@@ -23,6 +23,7 @@
 import type { BridgeContext } from '../bridge-context';
 import { ContactsApi } from './contacts';
 import { GroupAdminApi } from './group-admin';
+import { GroupFileApi } from './group-file';
 import { MessageApi } from './message';
 
 export interface ApiHub {
@@ -32,8 +33,9 @@ export interface ApiHub {
   readonly contacts: ContactsApi;
   /** Group moderation: mute/kick/admin/card/name/title/leave + join-policy. */
   readonly groupAdmin: GroupAdminApi;
+  /** Group file CRUD + private (c2c) file upload + media URL resolvers. */
+  readonly groupFile: GroupFileApi;
   // Pending — added as later commits land:
-  //   readonly groupFile:   GroupFileApi;
   //   readonly groupAlbum:  GroupAlbumApi;
   //   readonly friend:      FriendApi;
   //   readonly interaction: InteractionApi;
@@ -57,6 +59,7 @@ export function buildApiHub(ctx: BridgeContext): ApiHub {
     message: new MessageApi(ctx),
     contacts: new ContactsApi(ctx),
     groupAdmin: new GroupAdminApi(ctx),
+    groupFile: new GroupFileApi(ctx),
   };
 }
 
@@ -65,4 +68,5 @@ export function buildApiHub(ctx: BridgeContext): ApiHub {
 // signature use. Concrete instances always come from `bridge.apis.*`.
 export { ContactsApi } from './contacts';
 export { GroupAdminApi } from './group-admin';
+export { GroupFileApi } from './group-file';
 export { MessageApi } from './message';

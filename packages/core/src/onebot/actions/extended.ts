@@ -1142,7 +1142,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (!groupId || !folderId) {
       return failedResponse(RETCODE.BAD_REQUEST, 'group_id and folder_id are required');
     }
-    await ctx.bridge.deleteGroupFileFolder(groupId, folderId);
+    await ctx.bridge.apis.groupFile.deleteFolder(groupId, folderId);
     return okResponse();
   });
 
@@ -1215,7 +1215,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
     try {
       const node = await ctx.bridge.fetchAiVoice(groupId, character, text, chatType);
-      const url = await ctx.bridge.fetchGroupPttUrlByNode(groupId, node);
+      const url = await ctx.bridge.apis.groupFile.getPttUrl(groupId, node);
       return okResponse(url);
     } catch (err) {
       return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));

@@ -269,7 +269,7 @@ export async function sendGroupMessage(
     // wire. If this is the LAST element we still need a receipt so
     // the OneBot caller can cache the id; synthesise one from the
     // file_id hash + a fresh timestamp.
-    await ref.bridge.sendGroupFileMessage(groupId, fileEl.fileId!);
+    await ref.bridge.apis.groupFile.publish(groupId, fileEl.fileId!);
     logSentMessage(true, groupId, [fileEl]);
     if (!lastReceipt) {
       // Use a hash of the fileId as a stable pseudo-id; this gets

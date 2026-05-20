@@ -61,9 +61,50 @@ export function mockContactsApi(): MockContactsApi {
   };
 }
 
+export interface MockGroupFileApi {
+  upload: ReturnType<typeof vi.fn>;
+  uploadPrivate: ReturnType<typeof vi.fn>;
+  publish: ReturnType<typeof vi.fn>;
+  getCount: ReturnType<typeof vi.fn>;
+  list: ReturnType<typeof vi.fn>;
+  getUrl: ReturnType<typeof vi.fn>;
+  getPrivateUrl: ReturnType<typeof vi.fn>;
+  getPttUrl: ReturnType<typeof vi.fn>;
+  getPrivatePttUrl: ReturnType<typeof vi.fn>;
+  getVideoUrl: ReturnType<typeof vi.fn>;
+  getPrivateVideoUrl: ReturnType<typeof vi.fn>;
+  delete: ReturnType<typeof vi.fn>;
+  move: ReturnType<typeof vi.fn>;
+  createFolder: ReturnType<typeof vi.fn>;
+  deleteFolder: ReturnType<typeof vi.fn>;
+  renameFolder: ReturnType<typeof vi.fn>;
+}
+
+export function mockGroupFileApi(): MockGroupFileApi {
+  return {
+    upload: vi.fn(async () => ({ fileId: 'stub-fid' })),
+    uploadPrivate: vi.fn(async () => ({ fileId: 'stub-pfid', fileHash: 'stub-hash' })),
+    publish: vi.fn(async () => undefined),
+    getCount: vi.fn(async () => ({ fileCount: 0, maxCount: 10000 })),
+    list: vi.fn(async () => ({ files: [], folders: [] })),
+    getUrl: vi.fn(async () => 'stub://url'),
+    getPrivateUrl: vi.fn(async () => 'stub://private-url'),
+    getPttUrl: vi.fn(async () => 'stub://ptt-url'),
+    getPrivatePttUrl: vi.fn(async () => 'stub://private-ptt-url'),
+    getVideoUrl: vi.fn(async () => 'stub://video-url'),
+    getPrivateVideoUrl: vi.fn(async () => 'stub://private-video-url'),
+    delete: vi.fn(async () => undefined),
+    move: vi.fn(async () => undefined),
+    createFolder: vi.fn(async () => undefined),
+    deleteFolder: vi.fn(async () => undefined),
+    renameFolder: vi.fn(async () => undefined),
+  };
+}
+
 export interface MockApiHub {
   message: MockMessageApi;
   contacts: MockContactsApi;
+  groupFile: MockGroupFileApi;
   // additional Apis added commit-by-commit as #6 progresses
 }
 
@@ -71,6 +112,7 @@ export function mockApiHub(overrides: Partial<MockApiHub> = {}): MockApiHub {
   return {
     message: overrides.message ?? mockMessageApi(),
     contacts: overrides.contacts ?? mockContactsApi(),
+    groupFile: overrides.groupFile ?? mockGroupFileApi(),
   };
 }
 
@@ -89,9 +131,8 @@ export interface MockBridge {
   fetchGroupMemberList: ReturnType<typeof vi.fn>;
   fetchUserProfile: ReturnType<typeof vi.fn>;
   resolveUserUid: ReturnType<typeof vi.fn>;
-  sendGroupFileMessage: ReturnType<typeof vi.fn>;
-  // Uploaded-file metadata cache helpers — actions like uploadGroupFile
-  // / uploadPrivateFile call these to remember the upload, so tests
+  // Uploaded-file metadata cache helpers — GroupFileApi.upload /
+  // uploadPrivate call these to remember the upload, so tests
   // covering those code paths get a default-no-op shim.
   rememberUploadedFile: ReturnType<typeof vi.fn>;
   recallUploadedFile: ReturnType<typeof vi.fn>;
@@ -121,7 +162,6 @@ export function mockBridge(overrides: Partial<MockBridge> = {}): MockBridge {
     fetchGroupMemberList: vi.fn(async () => []),
     fetchUserProfile: vi.fn(async () => ({ uid: 'profile-uid' })),
     resolveUserUid: vi.fn(async () => 'resolved-uid'),
-    sendGroupFileMessage: vi.fn(async () => undefined),
     rememberUploadedFile: vi.fn(),
     recallUploadedFile: vi.fn(() => undefined),
     ...overrides,

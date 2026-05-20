@@ -34,8 +34,8 @@ export async function getRecordInfo(
   if (!url && cached.mediaNode) {
     try {
       url = cached.isGroup
-        ? await bridge.fetchGroupPttUrlByNode(cached.sessionId, cached.mediaNode)
-        : await bridge.fetchPrivatePttUrlByNode(cached.mediaNode);
+        ? await bridge.apis.groupFile.getPttUrl(cached.sessionId, cached.mediaNode)
+        : await bridge.apis.groupFile.getPrivatePttUrl(cached.mediaNode);
       if (url) {
         mediaStore.updateRecordUrl(file, url);
       }
