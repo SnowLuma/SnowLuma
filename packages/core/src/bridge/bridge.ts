@@ -35,12 +35,7 @@ import type { GroupFilesResult } from './apis/group-file';
 //   were absorbed into MessageApi back in commit 1.
 // actions/interaction.ts removed — sendPoke/sendLike/setReaction/
 //   getEmojiLikes moved to apis/interaction.ts::InteractionApi.
-import {
-  clickInlineKeyboardButton as clickInlineKeyboardButton_,
-  getMiniAppArk as getMiniAppArk_,
-  sendGroupSign as sendGroupSign_,
-  translateEn2Zh as translateEn2Zh_,
-} from './actions/misc';
+// actions/misc.ts removed — moved to apis/misc.ts::MiscApi.
 // actions/profile.ts removed — moved to apis/profile.ts::ProfileApi.
 // `bridge-contacts.ts` removed — its 6 functions are now methods on
 // `apis.contacts` (see `apis/contacts.ts::ContactsApi`).
@@ -344,18 +339,8 @@ export class Bridge implements BridgeInterface {
   async getCookiesStr(domain: string): Promise<string> { return getCookiesStr_(this, domain); }
   async getCsrfToken(): Promise<number> { return getCsrfToken_(this); }
   async getCredentials(domain: string) { return getCredentials_(this, domain); }
-  async translateEn2Zh(words: string[]) {
-    return translateEn2Zh_(this, words);
-  }
-  async getMiniAppArk(type: string, title: string, desc: string, picUrl: string, jumpUrl: string) {
-    return getMiniAppArk_(this, type, title, desc, picUrl, jumpUrl);
-  }
-  async clickInlineKeyboardButton(groupId: number, botAppid: number, buttonId: string, callbackData: string, msgSeq: number) {
-    return clickInlineKeyboardButton_(this, groupId, botAppid, buttonId, callbackData, msgSeq);
-  }
-  async sendGroupSign(groupId: number) {
-    return sendGroupSign_(this, groupId);
-  }
+  // Misc methods (translateEn2Zh / getMiniAppArk /
+  // clickInlineKeyboardButton / sendGroupSign) moved to apis.misc.
 
   // --- Tier-2 napcat-parity extras (group todo, stranger status, AI voice) ---
 

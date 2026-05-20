@@ -29,6 +29,7 @@ import { GroupAlbumApi } from './group-album';
 import { GroupFileApi } from './group-file';
 import { InteractionApi } from './interaction';
 import { MessageApi } from './message';
+import { MiscApi } from './misc';
 import { ProfileApi } from './profile';
 
 export interface ApiHub {
@@ -50,6 +51,8 @@ export interface ApiHub {
   readonly profile: ProfileApi;
   /** Long-message (forward / 聊天记录) upload + retrieval with NapCat piggyback. */
   readonly forward: ForwardApi;
+  /** Odds & ends: translate / mini-app ARK / inline-keyboard / group sign. */
+  readonly misc: MiscApi;
   // Pending — added as later commits land:
   //   readonly interaction: InteractionApi;
   //   readonly profile:     ProfileApi;
@@ -78,6 +81,7 @@ export function buildApiHub(ctx: BridgeContext): ApiHub {
     friend: new FriendApi(ctx),
     profile: new ProfileApi(ctx),
     forward: new ForwardApi(ctx),
+    misc: new MiscApi(ctx),
   };
 }
 
@@ -92,4 +96,5 @@ export { GroupAlbumApi } from './group-album';
 export { GroupFileApi } from './group-file';
 export { InteractionApi } from './interaction';
 export { MessageApi } from './message';
+export { MiscApi } from './misc';
 export { ProfileApi } from './profile';

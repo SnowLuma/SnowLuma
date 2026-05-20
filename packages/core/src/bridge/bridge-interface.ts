@@ -87,11 +87,8 @@ export interface BridgeInterface {
   //   - setAvatar / setGroupAvatar / fetchCustomFace
   //   - getLike / getUnidirectionalFriendList
 
-  // ─── Misc ───
-  translateEn2Zh(words: string[]): Promise<any>;
-  getMiniAppArk(type: string, title: string, desc: string, picUrl: string, jumpUrl: string): Promise<any>;
-  clickInlineKeyboardButton(groupId: number, botAppid: number, buttonId: string, callbackData: string, msgSeq: number): Promise<any>;
-  sendGroupSign(groupId: number): Promise<any>;
+  // ─── Misc (moved to apis.misc) ───
+  //   - translateEn2Zh / getMiniAppArk / clickInlineKeyboardButton / sendGroupSign
 
   // ─── Tier-2 napcat parity extras ───
   setGroupTodo(groupId: number, msgSeq: bigint | number | string): Promise<void>;

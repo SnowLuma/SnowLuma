@@ -975,7 +975,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      const translated = await ctx.bridge.translateEn2Zh(words);
+      const translated = await ctx.bridge.apis.misc.translateEn2Zh(words);
       return okResponse({ words: translated });
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -999,7 +999,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      const data = await ctx.bridge.getMiniAppArk(
+      const data = await ctx.bridge.apis.misc.getMiniAppArk(
         String(type),
         String(title),
         String(desc),
@@ -1025,7 +1025,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      const data = await ctx.bridge.clickInlineKeyboardButton(
+      const data = await ctx.bridge.apis.misc.clickInlineKeyboardButton(
         groupId,
         botAppid,
         String(buttonId),
@@ -1047,7 +1047,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      await ctx.bridge.sendGroupSign(groupId);
+      await ctx.bridge.apis.misc.sendGroupSign(groupId);
       return okResponse({});
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
