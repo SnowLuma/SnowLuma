@@ -1,6 +1,3 @@
-// Proton (compile-time) form of bridge/proto/highway.ts.
-// One-to-one mirror; legacy `*Schema` constants stay alongside for back-compat.
-
 import type { pb, pb_repeated, int_32, uint_32, uint_64, bool, bytes } from '@snowluma/proton';
 import type {
   IndexNode,
@@ -11,7 +8,7 @@ import type {
   PttExtBizInfo,
 } from './element';
 
-// ── DataHighwayHead ─────────────────────────────────────────────────
+// DataHighwayHead 
 
 export interface DataHighwayHead {
   version?:    pb<1, uint_32>;
@@ -57,7 +54,7 @@ export interface RespDataHighwayHead {
   errorCode?:   pb<3, uint_32>;
 }
 
-// ── Highway extend (NTV2RichMediaHighwayExt) ────────────────────────
+// Highway extend (NTV2RichMediaHighwayExt) 
 
 export interface HighwayDomain {
   isEnable?: pb<1, bool>;
@@ -93,7 +90,7 @@ export interface NTV2RichMediaHighwayExt {
   hash?:        pb<11, HighwayHash>;
 }
 
-// ── File upload extend (group/private file highway) ─────────────────
+// File upload extend (group/private file highway) 
 
 export interface FileUploadUrl {
   unknown?: pb<1, int_32>;
@@ -153,7 +150,7 @@ export interface FileUploadExt {
   unknown200?: pb<200, int_32>;
 }
 
-// ── Encodable MsgInfo (for embedding in message element) ────────────
+// Encodable MsgInfo (for embedding in message element) 
 
 export interface EncodableMediaExtBizInfo {
   pic?:      pb<1, PicExtBizInfo>;
@@ -167,7 +164,7 @@ export interface EncodableMediaMsgInfo {
   extBizInfo?:  pb<2, EncodableMediaExtBizInfo>;
 }
 
-// ── HttpConn.0x6ff_501 (highway session) ────────────────────────────
+// HttpConn.0x6ff_501 (highway session) 
 
 export interface HttpConn {
   field1?:       pb<1, int_32>;
@@ -208,7 +205,7 @@ export interface HttpConn0x6FF501Response {
   httpConn?: pb<0x501, HttpConnResponse>;
 }
 
-// ── NTV2 Upload Request (for OIDB 0x11C4/0x11C5) ────────────────────
+// NTV2 Upload Request (for OIDB 0x11C4/0x11C5) 
 
 export interface NTV2FileType {
   type?:        pb<1, uint_32>;
@@ -234,10 +231,8 @@ export interface NTV2UploadInfo {
   subFileType?: pb<2, uint_32>;
 }
 
-// The NTV2 upload request + response carry the same ExtBizInfo shape that
-// element-side incoming-message decoding uses. See bridge/proto/highway.ts
-// for the rationale (the video fromScene/toScene drop was responsible for
-// c2c result=79 rejections on send_private_msg [{type:'video'}]).
+// NTV2 上传请求/响应扩展信息（与消息解码结构共用，参考 bridge/proto/highway.ts）
+// 必须包含 video.fromScene 和 toScene 字段，否则私聊发送视频时会被服务器返回 result=79 拒绝。
 export interface NTV2ExtBizInfo {
   pic?:      pb<1, PicExtBizInfo>;
   video?:    pb<2, VideoExtBizInfo>;
@@ -293,8 +288,7 @@ export interface NTV2UploadRichMediaReq {
   upload?:  pb<2, NTV2UploadReq>;
 }
 
-// ── NTV2 Upload Response ────────────────────────────────────────────
-
+// NTV2 Upload Response 
 export interface NTV2IPv4 {
   outIp?:   pb<1, uint_32>;
   outPort?: pb<2, uint_32>;

@@ -1,11 +1,7 @@
-// Proton (compile-time) form of bridge/proto/message.ts.
-// One-to-one mirror; legacy `*Schema` constants stay alongside for back-compat.
-
 import type { pb, pb_repeated, int_32, uint_32, uint_64, bytes } from '@snowluma/proton';
 import type { Elem } from './element';
 
-// ── ResponseHead.Grp ────────────────────────────────────────────────
-
+// ResponseHead.Grp 
 export interface ResponseGrp {
   groupUin?:   pb<1, uint_32>;
   memberName?: pb<2, string>;
@@ -16,8 +12,7 @@ export interface ResponseForward {
   friendName?: pb<6, string>;
 }
 
-// ── ResponseHead ────────────────────────────────────────────────────
-
+// ResponseHead 
 export interface ResponseHead {
   fromUin?: pb<1, uint_32>;
   fromUid?: pb<2, string>;
@@ -29,8 +24,7 @@ export interface ResponseHead {
   grp?:     pb<8, ResponseGrp>;
 }
 
-// ── ContentHead ─────────────────────────────────────────────────────
-
+// ContentHead 
 export interface ContentHead {
   msgType?:   pb<1, uint_32>;
   subType?:   pb<2, uint_32>;
@@ -42,8 +36,7 @@ export interface ContentHead {
   newId?:     pb<12, uint_64>;
 }
 
-// ── Ptt (voice) ─────────────────────────────────────────────────────
-
+// Ptt (voice) 
 export interface Ptt {
   fileType?:     pb<1, uint_32>;
   fileId?:       pb<2, uint_64>;
@@ -57,69 +50,48 @@ export interface Ptt {
   format?:       pb<29, uint_32>;
 }
 
-// ── NotOnlineFile (C2C file) ────────────────────────────────────────
-//
-// Field numbers cross-checked against `dev/Lagrange.Core/.../Component/
-// NotOnlineFile.cs`. This same shape is what gets serialised inside
-// `FileExtra` (below) and ridden as `MessageBody.msgContent` for c2c
-// file sends — fields 9/50/55 are required on send (subcmd=1,
-// dangerEvel=0, expireTime=now+7d), the receiver only reads the
-// identification slots.
-
+// C2C 离线文件结构
+// 1. 发送端必填：字段 9/50/55（subcmd=1, dangerEvel=0, expireTime=当前时间+7天）。
+// 2. 接收端只读：核心标识槽位（Uuid/Md5/Name/Size/Hash）。
 export interface NotOnlineFile {
   fileType?:   pb<1, uint_32>;
   fileUuid?:   pb<3, string>;
   fileMd5?:    pb<4, bytes>;
   fileName?:   pb<5, string>;
   fileSize?:   pb<6, uint_64>;
-  subcmd?:     pb<9, uint_32>;
-  dangerEvel?: pb<50, uint_32>;
-  expireTime?: pb<55, uint_32>;
+  subcmd?:     pb<9, uint_32>;   // 发送必填：固定为 1
+  dangerEvel?: pb<50, uint_32>;  // 发送必填：固定为 0
+  expireTime?: pb<55, uint_32>;  // 发送必填：过期时间戳（now + 7 days）
   fileHash?:   pb<57, string>;
 }
 
-// ── RichText ────────────────────────────────────────────────────────
-
+// RichText 
 export interface RichText {
   elems?:         pb_repeated<2, Elem>;
   notOnlineFile?: pb<3, NotOnlineFile>;
   ptt?:           pb<4, Ptt>;
 }
 
-// ── MessageBody ─────────────────────────────────────────────────────
-
+// MessageBody 
 export interface MessageBody {
   richText?:   pb<1, RichText>;
   msgContent?: pb<2, bytes>;
 }
 
-// ── FileExtra (for C2C file in msg_content) ─────────────────────────
-//
-// `FileExtra { file: NotOnlineFile }` is the wrapper the server expects
-// at `MessageBody.msgContent` (per `dev/Lagrange.Core/.../FileExtra.cs`).
-// Old code had a parallel `FileExtraInfo` with fileSize=1, fileName=2,
-// fileMd5=3, fileUuid=4, fileHash=5 — that schema didn't match the
-// wire shape at all (every field was at the wrong tag), which is why
-// c2c file messages we received via msgContent silently failed to
-// parse, and c2c file messages we sent through `richText.notOnlineFile`
-// (also wrong — see SendMessageBody) shipped a payload the recipient
-// couldn't render. Consolidating to a single shared `NotOnlineFile`
-// (identification fields 1/3/4/5/6/57) fixes both directions.
-
+// C2C 文件附加信息
+// 统一使用与线上数据对齐的 NotOnlineFile 结构，修复收发双向的解析问题。
 export interface FileExtra {
   file?: pb<1, NotOnlineFile>;
 }
 
-// ── PushMsgBody ─────────────────────────────────────────────────────
-
+// PushMsgBody 
 export interface PushMsgBody {
   responseHead?: pb<1, ResponseHead>;
   contentHead?:  pb<2, ContentHead>;
   body?:         pb<3, MessageBody>;
 }
 
-// ── PushMsg (top-level) ─────────────────────────────────────────────
-
+// PushMsg (top-level) 
 export interface PushMsg {
   message?: pb<1, PushMsgBody>;
   status?:  pb<3, int_32>;

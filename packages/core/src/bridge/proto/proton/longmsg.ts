@@ -1,10 +1,3 @@
-// Proton (compile-time) form of the long-message schemas.
-//
-// One-to-one mirror of `bridge/proto/longmsg.ts`. All 12 schemas are now
-// migrated — the three (`LongMsgContent` / `LongMsgAction` / `LongMsgResult`)
-// that reach into `PushMsgBody` resolve via the proton-form `message.ts`
-// migration alongside this file.
-
 import type { pb, pb_repeated, uint_32, bool, bytes } from '@snowluma/proton';
 import type { PushMsgBody } from './message';
 
@@ -61,8 +54,7 @@ export interface RecvLongMsgResp {
   settings?: pb<15, LongMsgSettings>;
 }
 
-// ── Schemas that reach into PushMsgBody (via message.ts) ────────────
-
+// Schemas that reach into PushMsgBody
 export interface LongMsgContent {
   msgBody?: pb_repeated<1, PushMsgBody>;
 }

@@ -1,13 +1,6 @@
-// Proton (compile-time) form of bridge/proto/element.ts.
-//
-// One-to-one mirror of every schema in element.ts. The legacy `*Schema`
-// constants stay in place for back-compat; both forms produce wire-equivalent
-// output (modulo the proto3 default-value omission — see README).
-
 import type { pb, pb_repeated, int_32, uint_32, uint_64, bool, bytes } from '@snowluma/proton';
 
-// ── Nested / helper schemas ─────────────────────────────────────────
-
+//  Nested / helper schemas 
 export interface CustomFacePbReserve {
   subType?: pb<1, int_32>;
   summary?: pb<9, string>;
@@ -33,8 +26,7 @@ export interface NotOnlineImagePbReserve {
   md5Str?:  pb<31, string>;
 }
 
-// ── Core element schemas ────────────────────────────────────────────
-
+//  Core element schemas 
 export interface TextElem {
   str?:       pb<1, string>;
   link?:      pb<2, string>;
@@ -238,7 +230,7 @@ export interface GeneralFlags {
   longTextResId?:   pb<7, string>;
 }
 
-// ── Elem (union of all element types) ───────────────────────────────
+//  Elem (union of all element types) 
 
 export interface Elem {
   text?:           pb<1, TextElem>;
@@ -258,7 +250,7 @@ export interface Elem {
   commonElem?:     pb<53, CommonElem>;
 }
 
-// ── Extra decode types (for CommonElem.pbElem sub-messages) ─────────
+//  Extra decode types (for CommonElem.pbElem sub-messages) 
 
 export interface MentionExtra {
   type?:   pb<3, int_32>;
@@ -284,7 +276,7 @@ export interface QSmallFaceExtra {
   preview2?: pb<3, string>;
 }
 
-// ── NTQQ MsgInfo types (CommonElem service_type 48) ─────────────────
+//  NTQQ MsgInfo types (CommonElem service_type 48) 
 
 export interface FileType {
   type?:        pb<1, uint_32>;
@@ -391,24 +383,15 @@ export interface MsgInfo {
   extBizInfo?:  pb<2, ExtBizInfo>;
 }
 
-// ── GroupFileExtra (TransElem type=24) ──────────────────────────────
-//
-// Sourced from NapCat's `GroupFileExtraInfo` (component.ts:146-155)
-// cross-checked against acidify's `GroupFileExtra.Inner.Info`
-// (proto/message/extra/GroupFileExtra.kt). Field numbers had been
-// shifted by one in the previous schema (fileSha at 5, ext at 6,
-// fileMd5 at 7) which caused the server to reject group-file chat
-// posts with `result=79` — the server saw fileSha bytes where it
-// expected a uint32 placeholder (field 5) and silently dropped the
-// rest. Field 5 is a uint32 placeholder both refs label `field5`;
-// fileSha is at 6, extInfoString at 7, fileMd5 at 8.
-
+// 群文件附加信息 (TransElem type=24)
+// 旧版 Schema 字段 5-7 错位曾导致服务器返回 result=79 并拒收消息。
+// 字段 5 为 uint32 占位符。
 export interface GroupFileInfo {
   busId?:         pb<1, uint_32>;
   fileId?:        pb<2, string>;
   fileSize?:      pb<3, uint_64>;
   fileName?:      pb<4, string>;
-  field5?:        pb<5, uint_32>;
+  field5?:        pb<5, uint_32>; // 关键：必须是 uint32 占位符，错位会导致 SHA 字节流污染此字段
   fileSha?:       pb<6, bytes>;
   extInfoString?: pb<7, string>;
   fileMd5?:       pb<8, bytes>;
@@ -418,21 +401,15 @@ export interface GroupFileExtraInner {
   info?: pb<2, GroupFileInfo>;
 }
 
-// Outer wrapper carries three additional fields the server expects:
-// field1 (uint32, NapCat hardcodes to 6 — "magic op tag"), fileName
-// (string mirror of the inner info.fileName), display (optional UI
-// preview string, NapCat leaves empty but writes the slot). Without
-// these the server still recognized the message in older builds but
-// rejects it in the current rollout.
+// 新版服务器强校验外层结构。缺少 field1 (Magic Tag)、fileName 或 display 槽位，消息将被直接拒绝。
 export interface GroupFileExtra {
-  field1?:   pb<1, uint_32>;
-  fileName?: pb<2, string>;
-  display?:  pb<3, string>;
+  field1?:   pb<1, uint_32>; // NapCat 硬编码固定为 6 (Magic Op Tag)
+  fileName?: pb<2, string>;  // 镜像同步内部的 info.fileName
+  display?:  pb<3, string>;  // UI 预览槽位，可留空但必须声明
   inner?:    pb<7, GroupFileExtraInner>;
 }
 
-// ── Preserve (for message receipt info) ─────────────────────────────
-
+// 消息回执保留信息
 export interface Preserve {
   messageId?:      pb<3, uint_64>;
   senderUid?:      pb<6, string>;

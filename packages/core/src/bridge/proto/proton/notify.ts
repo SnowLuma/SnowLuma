@@ -1,6 +1,3 @@
-// Proton (compile-time) form of bridge/proto/notify.ts.
-// One-to-one mirror; legacy `*Schema` constants stay alongside for back-compat.
-
 import type { pb, pb_repeated, int_32, uint_32, uint_64, bool, bytes } from '@snowluma/proton';
 
 export interface OperatorField1 {
@@ -122,18 +119,12 @@ export interface FriendRecall {
   reserved?:        pb<5, bytes>;
 }
 
-// ── NewFriend (0x210 subType 179 + 226) ───────────────────────────
-//
-// Mutual-accept friend notice. Fires when:
-//   - bot sent a friend request and the other side accepted (179), or
-//   - the other side sent a request and bot accepted it (226).
-// Both subTypes share this wire shape; field semantics follow
-// `LagrangeDev/LagrangeGo` client/packets/pb/message/notify.proto.
-
+// 新好友通知 (0x210 子类型 179 / 226)
+// 触发场景：双向同意好友申请（179：对方同意 Bot；226：Bot 同意对方）。
 export interface NewFriendInfo {
   uid?:      pb<1, string>;
   field2?:   pb<2, uint_32>;
-  time?:     pb<3, uint_32>; // fixed32 on wire; uint_32 decoded value is the unix epoch
+  time?:     pb<3, uint_32>; // Unix 时间戳 (Wire 层为 fixed32)
   message?:  pb<4, string>;
   nickName?: pb<5, string>;
   field6?:   pb<6, uint_32>;
@@ -146,16 +137,12 @@ export interface NewFriend {
   info?:   pb<2, NewFriendInfo>;
 }
 
-// ── SelfJoinInGroup (PkgType 85) ──────────────────────────────────
-//
-// Fired when the bot itself was admitted into a group — typically the
-// completion of an admin-approved join request or an accepted invite.
-// Ported from `lagrange-python/pb/status/group.py:170 PBSelfJoinInGroup`.
-
+// Bot 自身进群通知 (PkgType 85)
+// 触发场景：Bot 成功加入群聊（管理员通过申请 或 接受邀请进群）。
 export interface SelfJoinInGroup {
   groupUin?:    pb<1, uint_64>;
   field2?:      pb<2, uint_32>;
-  operatorUid?: pb<3, string>;
+  operatorUid?: pb<3, string>;  // 操作人 UID (如批准申请的管理员)
   field4?:      pb<4, uint_32>;
   field6?:      pb<6, uint_32>;
   field7?:      pb<7, string>;
@@ -245,8 +232,7 @@ export interface NotifyMessageBody {
   field39?:        pb<39, uint_32>;
 }
 
-// ─── Event0x2DC subType=16: GroupMsgEmojiLike ────────────────────────
-
+// Event0x2DC subType=16: GroupMsgEmojiLike 
 export interface GroupReactionDataInnerDataTarget {
   seq?: pb<1, uint_64>;
 }

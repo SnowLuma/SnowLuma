@@ -1,11 +1,7 @@
-// Proton (compile-time) form of bridge/proto/action.ts.
-// One-to-one mirror; legacy `*Schema` constants stay alongside for back-compat.
-
 import type { pb, pb_repeated, int_32, uint_32, uint_64, bytes } from '@snowluma/proton';
 import type { Elem } from './element';
 
-// ── Routing ─────────────────────────────────────────────────────────
-
+// Routing 
 export interface RoutingC2C {
   uin?: pb<1, uint_32>;
   uid?: pb<2, string>;
@@ -15,14 +11,10 @@ export interface RoutingGroup {
   groupCode?: pb<1, uint_64>;
 }
 
-// `Trans0x211` is the c2c-file scene's routing header. The server
-// rejects c2c file messages routed through `RoutingC2C` — instead it
-// expects `trans0x211 { ccCmd: 4, uid: <peer uid> }`. Confirmed against
-// `dev/Lagrange.Core/Lagrange.Core/Internal/Packets/Message/
-// Routing/Trans0X211.cs` + `RoutingHead.cs` (Trans0X211 sits at
-// field 15) + `MessagePacker.BuildPacketBase` (`Trans0X211 =
-// !chain.HasTypeOf<FileEntity>() ? null : new Trans0X211 { CcCmd = 4,
-// Uid = chain.Uid }`).
+// 服务器限制 C2C 文件消息必须使用 Trans0x211 路由头（RoutingHead 字段 15）
+// 若误用常规 RoutingC2C 会被服务器拒绝。
+// 仅在包含 FileEntity 时触发，且 CcCmd 固定为 4。
+
 export interface RoutingTrans0x211 {
   toUin?: pb<1, uint_64>;
   ccCmd?: pb<2, uint_32>;
@@ -35,39 +27,32 @@ export interface RoutingHead {
   trans0x211?: pb<15, RoutingTrans0x211>;
 }
 
-// ── Content Head (for send) ─────────────────────────────────────────
-
+// Content Head for send
 export interface SendContentHead {
   type?:    pb<1, uint_32>;
   subType?: pb<2, uint_32>;
   c2cCmd?:  pb<3, uint_32>;
 }
 
-// ── Message Control ─────────────────────────────────────────────────
-
+// Message Control
 export interface MessageControl {
   msgFlag?: pb<1, int_32>;
 }
 
-// ── RichText (for send — only elems) ────────────────────────────────
-
+// RichText (for send — only elems) 
 export interface SendRichText {
   elems?: pb_repeated<2, Elem>;
 }
 
-// ── MessageBody (for send) ──────────────────────────────────────────
-
+// MessageBody (for send) 
 export interface SendMessageBody {
   richText?:   pb<1, SendRichText>;
-  // C2C file payload — serialised `FileExtra { file: NotOnlineFile }`
-  // bytes. The server reads c2c file metadata from this slot, NOT
-  // from `richText.notOnlineFile`. Confirmed against `dev/Lagrange.Core/
-  // .../MessageBody.cs:12` (commented "Offline file is now put here").
+  // C2C 离线文件元数据（NotOnlineFile）必须序列化后塞入此字段
+  // 服务器不会读取 richText.notOnlineFile。
   msgContent?: pb<2, bytes>;
 }
 
-// ── SendMessageRequest ──────────────────────────────────────────────
-
+// SendMessageRequest
 export interface SendMessageRequest {
   routingHead?:    pb<1, RoutingHead>;
   contentHead?:    pb<2, SendContentHead>;
@@ -81,8 +66,7 @@ export interface SendMessageRequest {
   multiSendSeq?:   pb<14, uint_32>;
 }
 
-// ── SendMessageResponse ─────────────────────────────────────────────
-
+// SendMessageResponse
 export interface SendMessageResponse {
   result?:          pb<1, int_32>;
   errMsg?:          pb<2, string>;
@@ -93,12 +77,7 @@ export interface SendMessageResponse {
   privateSequence?: pb<14, uint_32>;
 }
 
-// ── MentionExtra (for building @mention text element) ───────────────
-//
-// Same wire shape as element.ts's MentionExtra (which is used for decoding
-// inbound mentions) — kept under a distinct name to mark the send-side
-// usage, matching the legacy convention.
-
+// MentionExtra (for building @mention text element)
 export interface MentionExtraSend {
   type?:   pb<3, int_32>;
   uin?:    pb<4, uint_32>;
@@ -106,8 +85,7 @@ export interface MentionExtraSend {
   uid?:    pb<9, string>;
 }
 
-// ── MarkdownData ────────────────────────────────────────────────────
-
+// MarkdownData
 export interface MarkdownData {
   content?: pb<1, string>;
 }
