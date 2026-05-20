@@ -35,7 +35,7 @@ export async function forceFetchClientKey(bridge: Bridge) {
 export async function getPSkey(bridge: Bridge, domainList: string[]) {
   const env = makeOidbEnvelope<OidbGetPskeyReq>(0x102A, 0, { domainList });
   const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x102a_0', protobuf_encode<OidbBase<OidbGetPskeyReq>>(env));
-  const resp = decodeOidbEnv<OidbGetPskeyResp>(respBytes).body;
+  const resp = protobuf_decode<OidbBase<OidbGetPskeyResp>>(respBytes).body;
 
   const domainPskeyMap = new Map<string, string>();
 

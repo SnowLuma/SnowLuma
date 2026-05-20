@@ -2,7 +2,7 @@
 // and the related read-side "who reacted with X" query. None of these
 // edit message content — they're purely social signals.
 
-import { protobuf_encode } from '@snowluma/proton';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { Bridge } from '../bridge';
 import { runOidb, makeOidbEnvelope } from '../bridge-oidb';
 import type {
