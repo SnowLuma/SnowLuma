@@ -50,7 +50,10 @@ describe('send_group_msg with {type:"file"} segment', () => {
     // and got result=79. The dedicated OIDB-0x6d9_4 route must take
     // over for group file publishing.
     const sendGroupMessage_bridge = vi.fn();
-    const sendGroupFileMessage = vi.fn(async () => undefined);
+    // Declare params on the fn so `mock.calls[0]` infers a tuple of
+    // [groupId, fileId] instead of `[]` (which makes the destructuring
+    // a tsc error under noUncheckedIndexedAccess).
+    const sendGroupFileMessage = vi.fn(async (_groupId: number, _fileId: string) => undefined);
     const bridge = fakeBridge({
       sendGroupMessage: sendGroupMessage_bridge,
       sendGroupFileMessage,
@@ -72,7 +75,7 @@ describe('send_group_msg with {type:"file"} segment', () => {
 
   it('mixed text + file splits across two sends (text via elems[], file via OIDB)', async () => {
     const sendGroupMessage_bridge = vi.fn(async (_gid: number, _elements: any[]) => goodReceipt);
-    const sendGroupFileMessage = vi.fn(async () => undefined);
+    const sendGroupFileMessage = vi.fn(async (_groupId: number, _fileId: string) => undefined);
     const bridge = fakeBridge({
       sendGroupMessage: sendGroupMessage_bridge,
       sendGroupFileMessage,
