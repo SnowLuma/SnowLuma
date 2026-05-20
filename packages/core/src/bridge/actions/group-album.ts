@@ -47,10 +47,10 @@ function convertBigIntToString(obj: any): any {
 }
 
 export async function getGroupAlbumMediaList(
-    bridge: Bridge,
-    groupId: number,
-    albumId: string,
-    attachInfo: string = ''
+  bridge: Bridge,
+  groupId: number,
+  albumId: string,
+  attachInfo: string = ''
 ): Promise<GroupAlbumMediaResult> {
   const traceId = `_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
 
@@ -70,9 +70,9 @@ export async function getGroupAlbumMediaList(
   });
 
   const result = await bridge.sendRawPacket(
-      'QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList',
-      body,
-      15000
+    'QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList',
+    body,
+    15000
   );
 
   if (!result.success || !result.gotResponse || !result.responseData) {
@@ -98,11 +98,11 @@ export async function getGroupAlbumMediaList(
 
 
 export async function commentGroupAlbumMedia(
-    bridge: Bridge,
-    groupId: number,
-    albumId: string,
-    lloc: string,
-    content: string
+  bridge: Bridge,
+  groupId: number,
+  albumId: string,
+  lloc: string,
+  content: string
 ): Promise<GroupAlbumCommentResult> {
   const traceId = `_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
   const clientKey = Date.now().toString();
@@ -147,9 +147,9 @@ export async function commentGroupAlbumMedia(
   });
 
   const result = await bridge.sendRawPacket(
-      'QunAlbum.trpc.qzone.webapp_qun_operation.FeedsWriter.DoQunComment',
-      body,
-      15000
+    'QunAlbum.trpc.qzone.webapp_qun_operation.FeedsWriter.DoQunComment',
+    body,
+    15000
   );
 
   if (!result.success || !result.gotResponse || !result.responseData) {
@@ -175,12 +175,12 @@ export async function commentGroupAlbumMedia(
 }
 
 export async function likeGroupAlbumMedia(
-    bridge: Bridge,
-    groupId: number,
-    albumId: string,
-    batchId: string,
-    lloc: string | undefined,
-    isLike: boolean
+  bridge: Bridge,
+  groupId: number,
+  albumId: string,
+  batchId: string,
+  lloc: string | undefined,
+  isLike: boolean
 ): Promise<any> {
   const uin = bridge.identity.uin;
   const clientKey = `${uin}_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
@@ -224,9 +224,9 @@ export async function likeGroupAlbumMedia(
   });
 
   const result = await bridge.sendRawPacket(
-      'QunAlbum.trpc.qzone.webapp_qun_operation.FeedsWriter.DoQunLike',
-      body,
-      15000
+    'QunAlbum.trpc.qzone.webapp_qun_operation.FeedsWriter.DoQunLike',
+    body,
+    15000
   );
 
   if (!result.success || !result.gotResponse || !result.responseData) {
@@ -244,10 +244,10 @@ export async function likeGroupAlbumMedia(
 }
 
 export async function deleteGroupAlbumMedia(
-    bridge: Bridge,
-    groupId: number,
-    albumId: string,
-    lloc: string
+  bridge: Bridge,
+  groupId: number,
+  albumId: string,
+  lloc: string
 ): Promise<any> {
   const uin = bridge.identity.uin;
   const clientKey = `${uin}_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
@@ -266,9 +266,9 @@ export async function deleteGroupAlbumMedia(
   });
 
   const result = await bridge.sendRawPacket(
-      'QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.DeleteMedias',
-      body,
-      15000
+    'QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.DeleteMedias',
+    body,
+    15000
   );
 
   if (!result.success || !result.gotResponse || !result.responseData) {

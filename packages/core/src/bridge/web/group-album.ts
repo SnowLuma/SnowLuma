@@ -147,13 +147,13 @@ async function createAlbumUploadSession(
  * 修复后的上传图片分片方法
  */
 async function uploadAlbumSlice(
-    session: string,
-    filePath: string,
-    // 移除 offset 和 chunkSize 参数，改为在内部控制
-    imgMd5: string,
-    skey: string,
-    pskey: string,
-    uin: string
+  session: string,
+  filePath: string,
+  // 移除 offset 和 chunkSize 参数，改为在内部控制
+  imgMd5: string,
+  skey: string,
+  pskey: string,
+  uin: string
 ): Promise<void> {
   const img_size = statSync(filePath).size;
   const slice_size = 16384; // 严格使用 16KB

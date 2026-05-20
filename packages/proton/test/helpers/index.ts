@@ -6,7 +6,7 @@ const fixturesDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'fixt
 
 /** Load a fixture file as a string. */
 export function loadFixture(name: string): string {
-    return readFileSync(resolve(fixturesDir, name), 'utf-8');
+  return readFileSync(resolve(fixturesDir, name), 'utf-8');
 }
 
 /**
@@ -14,8 +14,8 @@ export function loadFixture(name: string): string {
  * Cleans up the global after retrieval.
  */
 export function execAndGet<T>(code: string, globalKey: string): T {
-    new Function(code)();
-    const val = (globalThis as any)[globalKey] as T;
-    delete (globalThis as any)[globalKey];
-    return val;
+  new Function(code)();
+  const val = (globalThis as any)[globalKey] as T;
+  delete (globalThis as any)[globalKey];
+  return val;
 }

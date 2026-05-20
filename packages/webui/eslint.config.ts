@@ -25,6 +25,7 @@ export default defineConfig([
       },
     },
     rules: {
+      'indent': ['error', 2, { SwitchCase: 1 }],
       'react-refresh/only-export-components': 'off',
       'react-hooks/set-state-in-effect': 'off',
     },

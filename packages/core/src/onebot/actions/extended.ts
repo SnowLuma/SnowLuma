@@ -1004,11 +1004,11 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
     try {
       const data = await ctx.bridge.getMiniAppArk(
-          String(type),
-          String(title),
-          String(desc),
-          String(picUrl),
-          String(jumpUrl)
+        String(type),
+        String(title),
+        String(desc),
+        String(picUrl),
+        String(jumpUrl)
       );
       return okResponse(data);
     } catch (e) {
@@ -1030,11 +1030,11 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
     try {
       const data = await ctx.bridge.clickInlineKeyboardButton(
-          groupId,
-          botAppid,
-          String(buttonId),
-          String(callbackData),
-          msgSeq
+        groupId,
+        botAppid,
+        String(buttonId),
+        String(callbackData),
+        msgSeq
       );
       return okResponse(data);
     } catch (e) {

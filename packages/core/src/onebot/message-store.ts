@@ -130,17 +130,17 @@ export class MessageStore {
     // So for private messages, we only match by message_hash and is_group flag.
     const row = isGroup
       ? this.db.prepare(
-          `SELECT sequence
+        `SELECT sequence
            FROM messages
            WHERE is_group = 1 AND session_id = ? AND message_hash = ?
            LIMIT 1`
-        ).get(sessionId, messageId) as { sequence: number } | undefined
+      ).get(sessionId, messageId) as { sequence: number } | undefined
       : this.db.prepare(
-          `SELECT sequence
+        `SELECT sequence
            FROM messages
            WHERE is_group = 0 AND message_hash = ?
            LIMIT 1`
-        ).get(messageId) as { sequence: number } | undefined;
+      ).get(messageId) as { sequence: number } | undefined;
     
     if (!row || !Number.isInteger(row.sequence) || row.sequence <= 0) {
       return null;

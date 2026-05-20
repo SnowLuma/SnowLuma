@@ -30,6 +30,7 @@ export default defineConfig([
       },
     },
     rules: {
+      'indent': ['error', 2, { SwitchCase: 1 }],
       'no-unused-vars': 'off',
       'no-useless-assignment': 'off',
       'prefer-const': 'off',
@@ -45,6 +46,7 @@ export default defineConfig([
       },
     },
     rules: {
+      'indent': ['error', 2, { SwitchCase: 1 }],
       'prefer-const': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-empty-object-type': 'off',
@@ -69,6 +71,7 @@ export default defineConfig([
       },
     },
     rules: {
+      'indent': ['error', 2, { SwitchCase: 1 }],
       'prefer-const': 'off',
       'react-refresh/only-export-components': 'off',
       'react-hooks/set-state-in-effect': 'off',

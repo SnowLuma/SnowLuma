@@ -120,8 +120,8 @@ export function getBknFromSKey(skey: string): number {
 export async function getCookiesStr(bridge: Bridge, domain: string): Promise<string> {
   const cookieObject = await getCookies(bridge, domain);
   return Object.entries(cookieObject)
-      .map(([key, value]) => `${key}=${value}`)
-      .join('; ');
+    .map(([key, value]) => `${key}=${value}`)
+    .join('; ');
 }
 
 /** CSRF token == bkn(skey) — used by qzone / qun web APIs. */
@@ -137,8 +137,8 @@ export async function getCsrfToken(bridge: Bridge): Promise<number> {
 export async function getCredentials(bridge: Bridge, domain: string) {
   const cookieObject = await getCookies(bridge, domain);
   const cookiesStr = Object.entries(cookieObject)
-      .map(([key, value]) => `${key}=${value}`)
-      .join('; ');
+    .map(([key, value]) => `${key}=${value}`)
+    .join('; ');
 
   const skey = cookieObject['p_skey'] || cookieObject['skey'] || '';
   const token = skey ? getBknFromSKey(skey) : 0;

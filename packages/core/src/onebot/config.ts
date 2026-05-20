@@ -243,9 +243,9 @@ function collectByName<T extends { name: string }>(
 function pickAutoName(kind: keyof OneBotNetworks, used: Map<string, unknown>, counter: number): string {
   const prefix =
     kind === 'httpServers' ? 'http' :
-    kind === 'httpClients' ? 'httppost' :
-    kind === 'wsServers' ? 'ws' :
-    'wsclient';
+      kind === 'httpClients' ? 'httppost' :
+        kind === 'wsServers' ? 'ws' :
+          'wsclient';
   let candidate = `${prefix}-${counter}`;
   while (used.has(candidate)) {
     counter += 1;
