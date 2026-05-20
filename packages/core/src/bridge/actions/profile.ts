@@ -4,7 +4,7 @@
 
 import type { Bridge } from '../bridge';
 import { protoDecode, protoEncode } from '../../protobuf/decode';
-import { runOidb, makeOidbEnvelope, encodeOidbEnv, decodeOidbEnv } from '../bridge-oidb';
+import { runOidb, makeOidbEnvelope } from '../bridge-oidb';
 import { fetchHighwaySession, uploadHighwayHttp } from '../highway/highway-client';
 import { computeHashes, loadBinarySource } from '../highway/utils';
 import {
@@ -26,6 +26,8 @@ import type {
   OidbSetProfile,
 } from '../proto/proton/oidb-action';
 import { resolveSelfUid } from './shared';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import { OidbBase } from '../proto/proton/oidb';
 
 // ─────────────── status / profile setters ───────────────
 
@@ -113,7 +115,7 @@ export async function setProfile(
   };
 
   const env = makeOidbEnvelope<OidbSetProfile>(0x112A, 2, req);
-  await runOidb(bridge, 'OidbSvcTrpcTcp.0x112a_2', encodeOidbEnv<OidbSetProfile>(env));
+  await runOidb(bridge, 'OidbSvcTrpcTcp.0x112a_2', protobuf_encode<OidbBase<OidbSetProfile>>(env));
 }
 
 export async function setSelfLongNick(
@@ -129,9 +131,9 @@ export async function setSelfLongNick(
   };
 
   const env = makeOidbEnvelope<Oidb0x112aReq>(0x112A, 2, req);
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x112a_2', encodeOidbEnv<Oidb0x112aReq>(env));
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x112a_2', protobuf_encode<OidbBase<Oidb0x112aReq>>(env));
   // Decode just to maintain the original behaviour of "consume the response".
-  decodeOidbEnv<Oidb0x112aResp>(respBytes);
+  protobuf_decode<OidbBase<Oidb0x112aResp>>(respBytes);
 }
 
 export async function setInputStatus(
@@ -154,9 +156,9 @@ export async function setInputStatus(
   };
 
   const env = makeOidbEnvelope<Oidb0xcd4Req>(0xCD4, 1, req);
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xcd4_1', encodeOidbEnv<Oidb0xcd4Req>(env));
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xcd4_1', protobuf_encode<OidbBase<Oidb0xcd4Req>>(env));
   // Decode just to maintain the original behaviour of "consume the response".
-  decodeOidbEnv<Oidb0xcd4Resp>(respBytes);
+  protobuf_decode<OidbBase<Oidb0xcd4Resp>>(respBytes);
 }
 
 export async function setAvatar(
@@ -228,8 +230,8 @@ export async function getProfileLike(
   };
 
   const env = makeOidbEnvelope<Oidb0x7edReq>(0x7ED, 12, req);
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x7ed_12', encodeOidbEnv<Oidb0x7edReq>(env));
-  const result = decodeOidbEnv<Oidb0x7edResp>(respBytes).body;
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x7ed_12', protobuf_encode<OidbBase<Oidb0x7edReq>>(env));
+  const result = protobuf_decode<OidbBase<Oidb0x7edResp>>(respBytes).body;
 
   const data = result?.userLikeInfos?.[0];
   if (!data) {
@@ -270,8 +272,8 @@ export async function getUnidirectionalFriendList(
   };
 
   const env = makeOidbEnvelope<Oidb0xe17Req>(0xE17, 0, req);
-  const respBytes = await runOidb(bridge, 'MQUpdateSvc_com_qq_ti.web.OidbSvc.0xe17_0', encodeOidbEnv<Oidb0xe17Req>(env));
-  const result = decodeOidbEnv<Oidb0xe17Resp>(respBytes).body;
+  const respBytes = await runOidb(bridge, 'MQUpdateSvc_com_qq_ti.web.OidbSvc.0xe17_0', protobuf_encode<OidbBase<Oidb0xe17Req>>(env));
+  const result = protobuf_decode<OidbBase<Oidb0xe17Resp>>(respBytes).body;
 
   if (!result || !result.jsonBody) {
     throw new Error('get unidirectional friend list empty');

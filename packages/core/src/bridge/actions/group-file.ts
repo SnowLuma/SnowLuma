@@ -6,8 +6,8 @@
 // stay as separate functions.
 
 import type { Bridge } from '../bridge';
-import { protobuf_encode } from '@snowluma/proton';
-import { runOidb, makeOidbEnvelope, encodeOidbEnv, decodeOidbEnv } from '../bridge-oidb';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import { runOidb, makeOidbEnvelope } from '../bridge-oidb';
 import { fetchHighwaySession, uploadHighwayHttp } from '../highway/highway-client';
 import { computeHashes, computeMd5, FILE_UPLOAD_MAX_BYTES, loadBinarySource } from '../highway/utils';
 import type {
@@ -31,6 +31,7 @@ import type { FileUploadExt } from '../proto/proton/highway';
 import { toHexUpper } from '../../utils/hex';
 import { createLogger } from '../../utils/logger';
 import { ensureRetCodeZero, resolveSelfUid, toInt, type MediaIndexNode } from './shared';
+import { OidbBase } from '../proto/proton/oidb';
 
 const log = createLogger('GroupFile');
 
@@ -260,8 +261,8 @@ async function fetchNtv2DownloadUrl(
   payload: Record<string, unknown>,
 ): Promise<string> {
   const env = makeOidbEnvelope<NTV2RichMediaReq>(oidbCmd, 200, payload as any, true);
-  const respBytes = await runOidb(bridge, serviceCmd, encodeOidbEnv<NTV2RichMediaReq>(env));
-  const resp = decodeOidbEnv<NTV2RichMediaResp>(respBytes).body;
+  const respBytes = await runOidb(bridge, serviceCmd, protobuf_encode<OidbBase<NTV2RichMediaReq>>(env));
+  const resp = protobuf_decode<OidbBase<NTV2RichMediaResp>>(respBytes).body;
 
   ensureRetCodeZero('ntv2 download', resp?.respHead?.retCode, resp?.respHead?.message, undefined);
   const domain = typeof resp?.download?.info?.domain === 'string' ? resp.download.info.domain : '';
@@ -313,7 +314,7 @@ export async function sendGroupFileMessage(bridge: Bridge, groupId: number, file
   });
   // The envelope-level errorCode peek inside `runOidb` covers the
   // happy-path validation; failures surface as a thrown OIDB error.
-  await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d9_4', encodeOidbEnv<OidbGroupSendFileReq>(env));
+  await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d9_4', protobuf_encode<OidbBase<OidbGroupSendFileReq>>(env));
 }
 
 // ─────────────── file count ───────────────
@@ -323,8 +324,8 @@ export async function fetchGroupFileCount(bridge: Bridge, groupId: number): Prom
     0x6D8, 3,
     { count: { groupUin: groupId, appId: 7, busId: 0 } },
   );
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d8_3', encodeOidbEnv<OidbGroupFileCountViewReq>(env));
-  const resp = decodeOidbEnv<OidbGroupFileCountViewResp>(respBytes).body;
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d8_3', protobuf_encode<OidbBase<OidbGroupFileCountViewReq>>(env));
+  const resp = protobuf_decode<OidbBase<OidbGroupFileCountViewResp>>(respBytes).body;
   return {
     fileCount: toInt(resp?.count?.fileCount ?? 0),
     maxCount: toInt(resp?.count?.maxCount ?? 10000),
@@ -369,8 +370,8 @@ export async function uploadGroupFile(
     },
     true,
   );
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d6_0', encodeOidbEnv<OidbGroupFileReq>(env));
-  const resp = decodeOidbEnv<OidbGroupFileResp>(respBytes).body;
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d6_0', protobuf_encode<OidbBase<OidbGroupFileReq>>(env));
+  const resp = protobuf_decode<OidbBase<OidbGroupFileResp>>(respBytes).body;
 
   const upload = resp?.upload;
   if (!upload) throw new Error('group file upload response missing');
@@ -499,8 +500,8 @@ export async function uploadPrivateFile(
     clientType: 1,
     flagSupportMediaPlatform: 1,
   });
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xe37_1700', encodeOidbEnv<OidbPrivateFileUploadReq>(env));
-  const resp = decodeOidbEnv<OidbPrivateFileUploadResp>(respBytes).body;
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xe37_1700', protobuf_encode<OidbBase<OidbPrivateFileUploadReq>>(env));
+  const resp = protobuf_decode<OidbBase<OidbPrivateFileUploadResp>>(respBytes).body;
 
   const upload = resp?.upload;
   if (!upload) throw new Error('private file upload response missing');
@@ -663,8 +664,8 @@ export async function fetchGroupFiles(bridge: Bridge, groupId: number, folderId 
       },
       true,
     );
-    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d8_1', encodeOidbEnv<OidbGroupFileViewReq>(env));
-    const resp = decodeOidbEnv<OidbGroupFileViewResp>(respBytes).body;
+    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d8_1', protobuf_encode<OidbBase<OidbGroupFileViewReq>>(env));
+    const resp = protobuf_decode<OidbBase<OidbGroupFileViewResp>>(respBytes).body;
 
     const list = resp?.list;
     if (!list) break;
@@ -731,8 +732,8 @@ export async function fetchGroupFileUrl(bridge: Bridge, groupId: number, fileId:
     },
     true,
   );
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d6_2', encodeOidbEnv<OidbGroupFileReq>(env));
-  const resp = decodeOidbEnv<OidbGroupFileResp>(respBytes).body;
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d6_2', protobuf_encode<OidbBase<OidbGroupFileReq>>(env));
+  const resp = protobuf_decode<OidbBase<OidbGroupFileResp>>(respBytes).body;
 
   const download = resp?.download;
   if (!download) throw new Error('group file url response missing');
@@ -773,8 +774,8 @@ export async function fetchPrivateFileUrl(bridge: Bridge, userId: number, fileId
     field200: 1,
     field99999: new Uint8Array([0xC0, 0x85, 0x2C, 0x01]),
   });
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xe37_1200', encodeOidbEnv<OidbPrivateFileDownloadReq>(env), 5000);
-  const resp = decodeOidbEnv<OidbPrivateFileDownloadResp>(respBytes).body;
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xe37_1200', protobuf_encode<OidbBase<OidbPrivateFileDownloadReq>>(env), 5000);
+  const resp = protobuf_decode<OidbBase<OidbPrivateFileDownloadResp>>(respBytes).body;
 
   const result = resp?.body?.result;
   const server = typeof result?.server === 'string' ? result.server : '';
@@ -800,8 +801,8 @@ export async function deleteGroupFile(bridge: Bridge, groupId: number, fileId: s
     },
     true,
   );
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d6_3', encodeOidbEnv<OidbGroupFileReq>(env));
-  const resp = decodeOidbEnv<OidbGroupFileResp>(respBytes).body;
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d6_3', protobuf_encode<OidbBase<OidbGroupFileReq>>(env));
+  const resp = protobuf_decode<OidbBase<OidbGroupFileResp>>(respBytes).body;
 
   const result = resp?.delete;
   if (!result) throw new Error('group file delete response missing');
@@ -829,8 +830,8 @@ export async function moveGroupFile(
     },
     true,
   );
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d6_5', encodeOidbEnv<OidbGroupFileReq>(env));
-  const resp = decodeOidbEnv<OidbGroupFileResp>(respBytes).body;
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d6_5', protobuf_encode<OidbBase<OidbGroupFileReq>>(env));
+  const resp = protobuf_decode<OidbBase<OidbGroupFileResp>>(respBytes).body;
 
   const result = resp?.move;
   if (!result) throw new Error('group file move response missing');
@@ -851,8 +852,8 @@ export async function createGroupFileFolder(bridge: Bridge, groupId: number, nam
     },
     true,
   );
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d7_0', encodeOidbEnv<OidbGroupFileFolderReq>(env));
-  const resp = decodeOidbEnv<OidbGroupFileFolderResp>(respBytes).body;
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d7_0', protobuf_encode<OidbBase<OidbGroupFileFolderReq>>(env));
+  const resp = protobuf_decode<OidbBase<OidbGroupFileFolderResp>>(respBytes).body;
 
   const result = resp?.create;
   if (!result) throw new Error('group folder create response missing');
@@ -870,8 +871,8 @@ export async function deleteGroupFileFolder(bridge: Bridge, groupId: number, fol
     },
     true,
   );
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d7_1', encodeOidbEnv<OidbGroupFileFolderReq>(env));
-  const resp = decodeOidbEnv<OidbGroupFileFolderResp>(respBytes).body;
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d7_1', protobuf_encode<OidbBase<OidbGroupFileFolderReq>>(env));
+  const resp = protobuf_decode<OidbBase<OidbGroupFileFolderResp>>(respBytes).body;
 
   const result = resp?.delete;
   if (!result) throw new Error('group folder delete response missing');
@@ -890,8 +891,8 @@ export async function renameGroupFileFolder(bridge: Bridge, groupId: number, fol
     },
     true,
   );
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d7_2', encodeOidbEnv<OidbGroupFileFolderReq>(env));
-  const resp = decodeOidbEnv<OidbGroupFileFolderResp>(respBytes).body;
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x6d7_2', protobuf_encode<OidbBase<OidbGroupFileFolderReq>>(env));
+  const resp = protobuf_decode<OidbBase<OidbGroupFileFolderResp>>(respBytes).body;
 
   const result = resp?.rename;
   if (!result) throw new Error('group folder rename response missing');

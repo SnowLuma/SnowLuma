@@ -17,8 +17,8 @@
 import crypto from 'crypto';
 
 import type { Bridge } from '../bridge';
-import { protobuf_encode } from '@snowluma/proton';
-import { makeOidbEnvelope, encodeOidbEnv, decodeOidbEnv } from '../bridge-oidb';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import { makeOidbEnvelope } from '../bridge-oidb';
 import type {
   EncodableMediaMsgInfo,
   NTV2UploadRichMediaReq,
@@ -26,6 +26,7 @@ import type {
 } from '../proto/proton/highway';
 import { buildHighwayExtend, fetchHighwaySession, uploadHighwayHttp } from './highway-client';
 import { createLogger } from '../../utils/logger';
+import { OidbBase } from '../proto/proton/oidb';
 
 const moduleLog = createLogger('Highway');
 
@@ -160,14 +161,14 @@ export async function runNtv2Upload(params: NtV2UploadParams): Promise<any> {
   };
 
   const env = makeOidbEnvelope<NTV2UploadRichMediaReq>(oidbCmd, 100, body, true);
-  const requestBytes = encodeOidbEnv<NTV2UploadRichMediaReq>(env);
+  const requestBytes = protobuf_encode<OidbBase<NTV2UploadRichMediaReq>>(env);
 
   const result = await bridge.sendRawPacket(serviceCmd, requestBytes);
   if (!result.success || !result.gotResponse || !result.responseData) {
     throw new Error(result.errorMessage || `${label} upload request failed`);
   }
 
-  const resp = decodeOidbEnv<NTV2UploadRichMediaResp>(result.responseData);
+  const resp = protobuf_decode<OidbBase<NTV2UploadRichMediaResp>>(result.responseData);
   if (!resp) throw new Error(`failed to decode ${label} upload response`);
   if (resp.errorCode && resp.errorCode !== 0) {
     throw new Error(`OIDB error ${resp.errorCode}: ${resp.errorMsg ?? ''}`);

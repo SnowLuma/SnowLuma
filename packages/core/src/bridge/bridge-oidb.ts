@@ -45,26 +45,6 @@ export function makeOidbEnvelope<T>(
 }
 
 /**
- * Pass-through encoder for the OIDB envelope. Single type param, body
- * literally forwards its arg to `protobuf_encode<OidbBase<T>>` — proton
- * wrapper-binds this and replaces every `encodeOidbEnv<MyReq>(env)` call
- * site with `protobuf_encode_OidbBase__MyReq(env)` at build time.
- */
-export function encodeOidbEnv<T>(env: OidbBase<T>): Uint8Array {
-  return protobuf_encode<OidbBase<T>>(env);
-}
-
-/**
- * Pass-through decoder for the OIDB envelope. Mirror of `encodeOidbEnv`
- * — proton monomorphizes `OidbBase<TResp>` per call site.
- *
- * Returns the full envelope; the caller usually wants `.body`.
- */
-export function decodeOidbEnv<T>(bytes: Uint8Array): OidbBase<T> {
-  return protobuf_decode<OidbBase<T>>(bytes);
-}
-
-/**
  * Issue one OIDB request and return the raw response bytes.
  *
  * Typical usage:

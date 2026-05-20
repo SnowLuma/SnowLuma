@@ -4,13 +4,14 @@ import type { Bridge } from './bridge';
 import type { DownloadRKeyInfo } from './bridge';
 import type { FriendInfo, QQGroupInfo, GroupMemberInfo, UserProfileInfo, GroupRequestInfo } from './qq-info';
 import { protoDecode } from '../protobuf/decode';
-import { runOidb, makeOidbEnvelope, encodeOidbEnv, decodeOidbEnv } from './bridge-oidb';
+import { runOidb, makeOidbEnvelope } from './bridge-oidb';
 import { AvatarInfoSchema } from './proto/oidb-action';
 import type {
   OidbSvcTrpcTcp0xFD4_1Response,
   OidbSvcTrpcTcp0xFE5_2Response,
   OidbSvcTrpcTcp0xFE7_3Response,
   OidbSvcTrpcTcp0x10C0Response,
+  OidbBase,
 } from './proto/proton/oidb';
 import type {
   OidbFriendListRequest,
@@ -22,6 +23,7 @@ import type {
   NTV2RichMediaReq,
   NTV2RichMediaResp,
 } from './proto/proton/oidb-action';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -72,8 +74,8 @@ export async function fetchFriendList(bridge: Bridge): Promise<FriendInfo[]> {
     }
 
     const env = makeOidbEnvelope<OidbFriendListRequest>(0xFD4, 1, body);
-    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xfd4_1', encodeOidbEnv<OidbFriendListRequest>(env));
-    const resp = decodeOidbEnv<OidbSvcTrpcTcp0xFD4_1Response>(respBytes).body;
+    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xfd4_1', protobuf_encode<OidbBase<OidbFriendListRequest>>(env));
+    const resp = protobuf_decode<OidbBase<OidbSvcTrpcTcp0xFD4_1Response>>(respBytes).body;
 
     if (resp?.friends) {
       for (const raw of resp.friends) {
@@ -135,8 +137,8 @@ export async function fetchGroupList(bridge: Bridge): Promise<QQGroupInfo[]> {
   };
 
   const env = makeOidbEnvelope<OidbGroupListRequest>(0xFE5, 2, body, true);
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xfe5_2', encodeOidbEnv<OidbGroupListRequest>(env));
-  const resp = decodeOidbEnv<OidbSvcTrpcTcp0xFE5_2Response>(respBytes).body;
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xfe5_2', protobuf_encode<OidbBase<OidbGroupListRequest>>(env));
+  const resp = protobuf_decode<OidbBase<OidbSvcTrpcTcp0xFE5_2Response>>(respBytes).body;
 
   const groups: QQGroupInfo[] = [];
   if (resp?.groups) {
@@ -179,8 +181,8 @@ export async function fetchGroupMemberList(bridge: Bridge, groupId: number): Pro
     if (token) body.token = token;
 
     const env = makeOidbEnvelope<OidbGroupMemberListRequest>(0xFE7, 3, body);
-    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xfe7_3', encodeOidbEnv<OidbGroupMemberListRequest>(env));
-    const resp = decodeOidbEnv<OidbSvcTrpcTcp0xFE7_3Response>(respBytes).body;
+    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xfe7_3', protobuf_encode<OidbBase<OidbGroupMemberListRequest>>(env));
+    const resp = protobuf_decode<OidbBase<OidbSvcTrpcTcp0xFE7_3Response>>(respBytes).body;
 
     if (resp?.members) {
       for (const raw of resp.members) {
@@ -226,8 +228,8 @@ export async function fetchUserProfile(bridge: Bridge, uin: number): Promise<Use
   // and bounce the request with `[oidb] one of uid/openid is invaild`.
   // Matches Lagrange.Core's FetchStrangerByUin (Reserved = 1).
   const env = makeOidbEnvelope<OidbUserInfoRequest>(0xFE1, 2, body, true);
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xfe1_2', encodeOidbEnv<OidbUserInfoRequest>(env));
-  const resp = decodeOidbEnv<OidbUserInfoResponse>(respBytes).body;
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xfe1_2', protobuf_encode<OidbBase<OidbUserInfoRequest>>(env));
+  const resp = protobuf_decode<OidbBase<OidbUserInfoResponse>>(respBytes).body;
 
   if (!resp?.body) throw new Error('user info response body missing');
 
@@ -280,8 +282,8 @@ export async function fetchGroupRequests(bridge: Bridge, filtered = false): Prom
   const subCmd = filtered ? 2 : 1;
   const cmd = filtered ? 'OidbSvcTrpcTcp.0x10c0_2' : 'OidbSvcTrpcTcp.0x10c0_1';
   const env = makeOidbEnvelope<OidbGroupRequestList>(0x10C0, subCmd, { count: 20, field2: 0 });
-  const respBytes = await runOidb(bridge, cmd, encodeOidbEnv<OidbGroupRequestList>(env));
-  const resp = decodeOidbEnv<OidbSvcTrpcTcp0x10C0Response>(respBytes).body;
+  const respBytes = await runOidb(bridge, cmd, protobuf_encode<OidbBase<OidbGroupRequestList>>(env));
+  const resp = protobuf_decode<OidbBase<OidbSvcTrpcTcp0x10C0Response>>(respBytes).body;
 
   const requests: GroupRequestInfo[] = [];
   for (const raw of resp?.requests ?? []) {
@@ -329,8 +331,8 @@ export async function fetchDownloadRKeys(bridge: Bridge): Promise<DownloadRKeyIn
   };
 
   const env = makeOidbEnvelope<NTV2RichMediaReq>(0x9067, 202, body, true);
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x9067_202', encodeOidbEnv<NTV2RichMediaReq>(env));
-  const resp = decodeOidbEnv<NTV2RichMediaResp>(respBytes).body;
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x9067_202', protobuf_encode<OidbBase<NTV2RichMediaReq>>(env));
+  const resp = protobuf_decode<OidbBase<NTV2RichMediaResp>>(respBytes).body;
 
   if (resp?.respHead?.retCode && resp.respHead.retCode !== 0) {
     throw new Error(resp.respHead.message ?? 'fetch download rkey failed');

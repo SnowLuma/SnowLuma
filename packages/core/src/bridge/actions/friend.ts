@@ -2,13 +2,15 @@
 // local remark label. Each one resolves a UID first because the OIDB
 // protocol uses opaque UIDs rather than QQ uin numbers.
 
+import { protobuf_encode } from '@snowluma/proton';
 import type { Bridge } from '../bridge';
-import { runOidb, makeOidbEnvelope, encodeOidbEnv } from '../bridge-oidb';
+import { runOidb, makeOidbEnvelope } from '../bridge-oidb';
 import type {
   OidbDeleteFriend,
   OidbFriendRequestAction,
   OidbSetFriendRemark,
 } from '../proto/proton/oidb-action';
+import { OidbBase } from '../proto/proton/oidb';
 
 export async function setFriendAddRequest(bridge: Bridge, uidOrFlag: string, approve: boolean): Promise<void> {
   let targetUid = uidOrFlag;
@@ -16,7 +18,7 @@ export async function setFriendAddRequest(bridge: Bridge, uidOrFlag: string, app
     targetUid = await bridge.resolveUserUid(parseInt(uidOrFlag, 10));
   }
   const env = makeOidbEnvelope<OidbFriendRequestAction>(0xB5D, 44, { accept: approve ? 3 : 5, targetUid });
-  await runOidb(bridge, 'OidbSvcTrpcTcp.0xb5d_44', encodeOidbEnv<OidbFriendRequestAction>(env));
+  await runOidb(bridge, 'OidbSvcTrpcTcp.0xb5d_44', protobuf_encode<OidbBase<OidbFriendRequestAction>>(env));
 }
 
 export async function deleteFriend(bridge: Bridge, userId: number, block = false): Promise<void> {
@@ -37,7 +39,7 @@ export async function deleteFriend(bridge: Bridge, userId: number, block = false
       field4: false,
     },
   });
-  await runOidb(bridge, 'OidbSvcTrpcTcp.0x126b_0', encodeOidbEnv<OidbDeleteFriend>(env));
+  await runOidb(bridge, 'OidbSvcTrpcTcp.0x126b_0', protobuf_encode<OidbBase<OidbDeleteFriend>>(env));
 
   // Refresh friend cache after deletion so subsequent reads don't
   // surface a ghost entry. Best-effort: a transient OIDB hiccup here
@@ -48,5 +50,5 @@ export async function deleteFriend(bridge: Bridge, userId: number, block = false
 export async function setFriendRemark(bridge: Bridge, userId: number, remark: string): Promise<void> {
   const uid = await bridge.resolveUserUid(userId);
   const env = makeOidbEnvelope<OidbSetFriendRemark>(0xB6E, 2, { targetUid: uid, remark });
-  await runOidb(bridge, 'OidbSvcTrpcTcp.0xb6e_2', encodeOidbEnv<OidbSetFriendRemark>(env));
+  await runOidb(bridge, 'OidbSvcTrpcTcp.0xb6e_2', protobuf_encode<OidbBase<OidbSetFriendRemark>>(env));
 }

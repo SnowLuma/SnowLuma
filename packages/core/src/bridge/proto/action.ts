@@ -1,6 +1,3 @@
-// Proto schemas for outgoing message actions.
-// Port of src/bridge/include/bridge/proto/action.h
-
 import type { ProtoSchema } from '../../protobuf/decode';
 import { ElemSchema } from './element';
 

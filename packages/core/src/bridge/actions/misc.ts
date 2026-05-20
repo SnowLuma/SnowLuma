@@ -4,7 +4,7 @@
 
 import type { Bridge } from '../bridge';
 import { protoDecode, protoEncode } from '../../protobuf/decode';
-import { runOidb, makeOidbEnvelope, encodeOidbEnv, decodeOidbEnv } from '../bridge-oidb';
+import { runOidb, makeOidbEnvelope } from '../bridge-oidb';
 import {
   MiniAppShareReqSchema,
   MiniAppShareRespSchema,
@@ -17,6 +17,8 @@ import type {
   Oidb0xeb7Req,
   Oidb0xeb7Resp,
 } from '../proto/proton/oidb-action';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import { OidbBase } from '../proto/proton/oidb';
 
 export async function translateEn2Zh(
   bridge: Bridge,
@@ -33,8 +35,8 @@ export async function translateEn2Zh(
   };
 
   const env = makeOidbEnvelope<Oidb0x990Req>(0x990, 2, req);
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x990_2', encodeOidbEnv<Oidb0x990Req>(env));
-  const result = decodeOidbEnv<Oidb0x990Resp>(respBytes).body;
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x990_2', protobuf_encode<OidbBase<Oidb0x990Req>>(env));
+  const result = protobuf_decode<OidbBase<Oidb0x990Resp>>(respBytes).body;
 
   const resp = result?.translateResp;
   if (!resp) {
@@ -122,8 +124,8 @@ export async function clickInlineKeyboardButton(
   };
 
   const env = makeOidbEnvelope<Oidb0x112eReq>(0x112E, 1, req);
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x112e_1', encodeOidbEnv<Oidb0x112eReq>(env));
-  const result = decodeOidbEnv<Oidb0x112eResp>(respBytes).body;
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x112e_1', protobuf_encode<OidbBase<Oidb0x112eReq>>(env));
+  const result = protobuf_decode<OidbBase<Oidb0x112eResp>>(respBytes).body;
 
   if (!result) {
     throw new Error('click inline keyboard button result empty');
@@ -152,7 +154,7 @@ export async function sendGroupSign(
   };
 
   const env = makeOidbEnvelope<Oidb0xeb7Req>(0xEB7, 1, req);
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xEB7_1', encodeOidbEnv<Oidb0xeb7Req>(env));
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xEB7_1', protobuf_encode<OidbBase<Oidb0xeb7Req>>(env));
   // Decode just to maintain the original behaviour of "consume the response".
-  decodeOidbEnv<Oidb0xeb7Resp>(respBytes);
+  protobuf_decode<OidbBase<Oidb0xeb7Resp>>(respBytes);
 }

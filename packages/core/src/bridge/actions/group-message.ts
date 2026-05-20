@@ -5,13 +5,15 @@
 
 import type { Bridge } from '../bridge';
 import { protoEncode } from '../../protobuf/decode';
-import { runOidb, makeOidbEnvelope, encodeOidbEnv } from '../bridge-oidb';
+import { runOidb, makeOidbEnvelope } from '../bridge-oidb';
 import {
   C2CRecallRequestSchema,
   GroupRecallRequestSchema,
   SsoReadedReportReqSchema,
 } from '../proto/oidb-action';
 import type { OidbEssence } from '../proto/proton/oidb-action';
+import { protobuf_encode } from '@snowluma/proton';
+import { OidbBase } from '../proto/proton/oidb';
 
 export async function recallGroupMessage(bridge: Bridge, groupId: number, sequence: number): Promise<void> {
   const request = protoEncode({
@@ -97,5 +99,5 @@ export async function setGroupEssence(bridge: Bridge, groupId: number, sequence:
   const subCmd = enable ? 1 : 2;
   const cmd = enable ? 'OidbSvcTrpcTcp.0xeac_1' : 'OidbSvcTrpcTcp.0xeac_2';
   const env = makeOidbEnvelope<OidbEssence>(0xEAC, subCmd, { groupUin: groupId, sequence, random });
-  await runOidb(bridge, cmd, encodeOidbEnv<OidbEssence>(env));
+  await runOidb(bridge, cmd, protobuf_encode<OidbBase<OidbEssence>>(env));
 }

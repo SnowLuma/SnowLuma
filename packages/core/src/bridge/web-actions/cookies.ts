@@ -3,8 +3,10 @@
 // roughly: forceFetchClientKey -> ptlogin2 jump -> cookie dict ->
 // thread the cookies into a qun.qq.com REST endpoint.
 
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { Bridge } from '../bridge';
-import { runOidb, makeOidbEnvelope, encodeOidbEnv, decodeOidbEnv } from '../bridge-oidb';
+import { runOidb, makeOidbEnvelope } from '../bridge-oidb';
+import { OidbBase } from '../proto/proton/oidb';
 import type {
   OidbClientKeyReq,
   OidbClientKeyResp,
@@ -15,8 +17,8 @@ import { RequestUtil } from '../web/request-util';
 
 export async function forceFetchClientKey(bridge: Bridge) {
   const env = makeOidbEnvelope<OidbClientKeyReq>(0x102A, 1, {});
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x102a_1', encodeOidbEnv<OidbClientKeyReq>(env));
-  const resp = decodeOidbEnv<OidbClientKeyResp>(respBytes).body;
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x102a_1', protobuf_encode<OidbBase<OidbClientKeyReq>>(env));
+  const resp = protobuf_decode<OidbBase<OidbClientKeyResp>>(respBytes).body;
 
   const clientKey = resp?.clientKey || '';
   // keyIndex falls back to "19" — origin unknown but the value is what
@@ -32,7 +34,7 @@ export async function forceFetchClientKey(bridge: Bridge) {
 
 export async function getPSkey(bridge: Bridge, domainList: string[]) {
   const env = makeOidbEnvelope<OidbGetPskeyReq>(0x102A, 0, { domainList });
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x102a_0', encodeOidbEnv<OidbGetPskeyReq>(env));
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x102a_0', protobuf_encode<OidbBase<OidbGetPskeyReq>>(env));
   const resp = decodeOidbEnv<OidbGetPskeyResp>(respBytes).body;
 
   const domainPskeyMap = new Map<string, string>();
