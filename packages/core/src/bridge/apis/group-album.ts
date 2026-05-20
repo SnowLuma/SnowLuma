@@ -18,7 +18,8 @@ import type {
 import type { BridgeContext } from '../bridge-context';
 import type { Bridge } from '../bridge';
 import { getGroupAlbumList, uploadImageToGroupAlbum } from '../web/group-album';
-import { getCookies } from '../web-actions/cookies';
+// `getCookies` is part of WebApi — go through the hub so we don't
+// duplicate the cookie acquisition flow.
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
 
@@ -54,20 +55,18 @@ export class GroupAlbumApi {
 
   /** List a group's albums (HTTP-cookie-based, qzone.qq.com). */
   async list(groupId: number): Promise<any> {
-    const bridge = asBridge(this.ctx);
     const groupCode = groupId.toString();
     const uin = this.ctx.identity.uin;
-    const cookieObject = await getCookies(bridge, 'qzone.qq.com');
+    const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
     const albumData = await getGroupAlbumList(cookieObject, groupCode, uin);
     return albumData?.album || [];
   }
 
   /** Upload an image into an existing album (HTTP slice-upload). */
   async upload(groupId: number, albumId: string, albumName: string, filePath: string): Promise<void> {
-    const bridge = asBridge(this.ctx);
     const groupCode = groupId.toString();
     const uin = this.ctx.identity.uin;
-    const cookieObject = await getCookies(bridge, 'qzone.qq.com');
+    const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
     await uploadImageToGroupAlbum(cookieObject, groupCode, albumId, albumName, filePath, uin);
   }
 

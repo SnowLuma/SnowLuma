@@ -16,7 +16,7 @@ import type {
   OidbAiVoiceReq,
   OidbAiVoiceResp,
 } from '@snowluma/proto-defs/oidb-actions/media';
-import type { MediaIndexNode } from '../actions/shared';
+import type { MediaIndexNode } from './shared';
 import type { BridgeContext } from '../bridge-context';
 import type { Bridge } from '../bridge';
 import { makeOidbEnvelope, runOidb } from '../bridge-oidb';

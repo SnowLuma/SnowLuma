@@ -36,19 +36,7 @@ import type { GroupFilesResult } from './apis/group-file';
 // `bridge-contacts.ts` removed — its 6 functions are now methods on
 // `apis.contacts` (see `apis/contacts.ts::ContactsApi`).
 import { BridgeEventBus } from './event-bus';
-import {
-  deleteGroupNoticeByFid as deleteGroupNotice_,
-  forceFetchClientKey as forceFetchClientKey_,
-  getCookiesStr as getCookiesStr_,
-  getCredentials as getCredentials_,
-  getCsrfToken as getCsrfToken_,
-  getGroupEssence as getGroupEssence_,
-  getGroupEssenceAll as getGroupEssenceAll_,
-  getGroupHonorInfo as getGroupHonorInfo_,
-  getGroupNotice as getGroupNotice_,
-  sendGroupNotice as sendGroupNotice_,
-} from './web-actions';
-import type { WebHonorType } from './web/group-honor';
+// web-actions/* removed — moved to apis/web.ts::WebApi.
 export { AiVoiceChatType };
 export type { AiVoiceCategory, StrangerStatus };
 
@@ -300,41 +288,15 @@ export class Bridge implements BridgeInterface {
   // Interaction methods (sendPoke/sendLike/setReaction/setEssence/
   // getEmojiLikes) moved to apis.interaction.
   // recall* / markRead* moved to apis/message.ts::MessageApi.
-  async getGroupHonorInfo(groupId: number, type: WebHonorType | string): Promise<any> {
-    return getGroupHonorInfo_(this, groupId, type);
-  }
-  async forceFetchClientKey(): Promise<ClientKeyInfo> { return forceFetchClientKey_(this) }
-  async getGroupEssence(groupId: number, pageStart: number = 0, pageLimit: number = 50): Promise<any> {
-    return getGroupEssence_(this, groupId, pageStart, pageLimit);
-  }
-
-  async getGroupEssenceAll(groupId: number): Promise<any> {
-    return getGroupEssenceAll_(this, groupId);
-  }
-
   // GroupAlbum methods (list/upload/getMediaList/comment/like/delete)
   // moved to apis.groupAlbum (apis/group-album.ts::GroupAlbumApi).
-
-  async sendGroupNotice(groupId: number, content: string, options?: any) {
-    return sendGroupNotice_(this, groupId, content, options);
-  }
-
-  async getGroupNotice(groupId: number) {
-    return getGroupNotice_(this, groupId);
-  }
-
-  async deleteGroupNotice(groupId: number, fid: string): Promise<boolean> {
-    return deleteGroupNotice_(this, groupId, fid);
-  }
-
-  // extend
+  // Web methods (getHonorInfo / forceFetchClientKey / getEssence /
+  // getEssenceAll / sendNotice / getNotice / deleteNotice /
+  // getCookiesStr / getCsrfToken / getCredentials) moved to apis.web.
   // Profile methods (setOnlineStatus / setDiyOnlineStatus / setProfile /
   // setSelfLongNick / setInputStatus / setAvatar / setGroupAvatar /
   // fetchCustomFace / getLike / getUnidirectionalFriendList) moved to
   // apis.profile.
-  async getCookiesStr(domain: string): Promise<string> { return getCookiesStr_(this, domain); }
-  async getCsrfToken(): Promise<number> { return getCsrfToken_(this); }
-  async getCredentials(domain: string) { return getCredentials_(this, domain); }
   // Misc methods (translateEn2Zh / getMiniAppArk /
   // clickInlineKeyboardButton / sendGroupSign) moved to apis.misc.
 

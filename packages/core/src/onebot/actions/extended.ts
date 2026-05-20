@@ -146,7 +146,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      const essenceDataAll = await ctx.bridge.getGroupEssenceAll(groupId);
+      const essenceDataAll = await ctx.bridge.apis.web.getEssenceAll(groupId);
 
       const allMsgs = essenceDataAll.flatMap((res: any) => res.data?.msg_list || []);
 
@@ -307,7 +307,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
         confirm_required: params.confirm_required !== undefined ? Number(params.confirm_required) : 1,
       };
 
-      await ctx.bridge.sendGroupNotice(groupId, content, options);
+      await ctx.bridge.apis.web.sendNotice(groupId, content, options);
       return okResponse();
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -320,7 +320,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      const notices = await ctx.bridge.getGroupNotice(groupId);
+      const notices = await ctx.bridge.apis.web.getNotice(groupId);
       return okResponse(notices);
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -337,7 +337,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      const success = await ctx.bridge.deleteGroupNotice(groupId, fid);
+      const success = await ctx.bridge.apis.web.deleteNotice(groupId, fid);
       if (success) {
         return okResponse();
       } else {
@@ -483,7 +483,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      const cookies = await ctx.bridge.getCookiesStr(domain);
+      const cookies = await ctx.bridge.apis.web.getCookiesStr(domain);
       return okResponse({ cookies });
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -493,7 +493,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   h.registerAction('get_csrf_token', async () => {
 
     try {
-      const token = await ctx.bridge.getCsrfToken();
+      const token = await ctx.bridge.apis.web.getCsrfToken();
       return okResponse({ token });
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -505,7 +505,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      const creds = await ctx.bridge.getCredentials(domain);
+      const creds = await ctx.bridge.apis.web.getCredentials(domain);
       return okResponse(creds);
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -983,7 +983,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   });
 
   h.registerAction('get_clientkey', async () => {
-    const clientKeyInfo = await ctx.bridge.forceFetchClientKey();
+    const clientKeyInfo = await ctx.bridge.apis.web.forceFetchClientKey();
     if (!clientKeyInfo.clientKey) {
       return failedResponse(RETCODE.ACTION_FAILED, 'get clientkey error');
     }

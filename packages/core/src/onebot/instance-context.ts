@@ -147,7 +147,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     // Profile-like / get_group_essence — OneBot-specific defaults that the
     // action handlers don't supply.
     getProfileLike: (userId = undefined, start = 0, limit = 10) => bridge.apis.profile.getLike(userId, start, limit),
-    getGroupEssence: (groupId, pageStart = 0, pageLimit = 50) => bridge.getGroupEssence(groupId, pageStart, pageLimit),
+    getGroupEssence: (groupId, pageStart = 0, pageLimit = 50) => bridge.apis.web.getEssence(groupId, pageStart, pageLimit),
 
     // Message-store-backed history reads.
     getGroupMsgHistory: (groupId, messageId, count) => getGroupMsgHistory(messageStore, groupId, messageId, count),
@@ -162,7 +162,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     getForwardMsg: (resId) => getForwardMessage(ref, resId),
     forwardSingleMsg: (messageId, target) => forwardSingleMessage(ref, messageId, target),
     handleDeleteFriend: (userId, block) => bridge.apis.friend.delete(userId, !!block),
-    forceFetchClientKey: () => bridge.forceFetchClientKey(),
+    forceFetchClientKey: () => bridge.apis.web.forceFetchClientKey(),
     setFriendRemark: (userId, remark) => bridge.apis.friend.setRemark(userId, remark),
     setGroupRemark: (groupId, remark) => bridge.apis.groupAdmin.setRemark(groupId, remark),
     setGroupAvatar: (groupId, source) => bridge.apis.profile.setGroupAvatar(groupId, source),
@@ -184,20 +184,20 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     setProfile: (nickname?: string, personalNote?: string) => bridge.apis.profile.setProfile(nickname, personalNote),
 
     // Web-backed actions.
-    getGroupHonorInfo: (groupId: number, type: WebHonorType | string) => bridge.getGroupHonorInfo(groupId, type),
-    getGroupEssenceAll: (groupId) => bridge.getGroupEssenceAll(groupId),
+    getGroupHonorInfo: (groupId: number, type: WebHonorType | string) => bridge.apis.web.getHonorInfo(groupId, type),
+    getGroupEssenceAll: (groupId) => bridge.apis.web.getEssenceAll(groupId),
     getGroupAlbumList: (groupId) => bridge.apis.groupAlbum.list(groupId),
     uploadImageToGroupAlbum: (groupId, albumId, albumName, filePath) => bridge.apis.groupAlbum.upload(groupId, albumId, albumName, filePath),
     getGroupAlbumMediaList: (groupId, albumId, attachInfo) => bridge.apis.groupAlbum.getMediaList(groupId, albumId, attachInfo),
     commentGroupAlbumMedia: (groupId, albumId, lloc, content) => bridge.apis.groupAlbum.comment(groupId, albumId, lloc, content),
     deleteGroupAlbumMedia: (groupId, albumId, lloc) => bridge.apis.groupAlbum.delete(groupId, albumId, lloc),
     likeGroupAlbumMedia: (groupId, albumId, batchId, lloc, isLike) => bridge.apis.groupAlbum.like(groupId, albumId, batchId, lloc, isLike),
-    sendGroupNotice: (groupId, content, options) => bridge.sendGroupNotice(groupId, content, options),
-    getGroupNotice: (groupId) => bridge.getGroupNotice(groupId),
-    deleteGroupNotice: (groupId, fid) => bridge.deleteGroupNotice(groupId, fid),
-    getCookiesStr: (domain) => bridge.getCookiesStr(domain),
-    getCsrfToken: () => bridge.getCsrfToken(),
-    getCredentials: (domain) => bridge.getCredentials(domain),
+    sendGroupNotice: (groupId, content, options) => bridge.apis.web.sendNotice(groupId, content, options),
+    getGroupNotice: (groupId) => bridge.apis.web.getNotice(groupId),
+    deleteGroupNotice: (groupId, fid) => bridge.apis.web.deleteNotice(groupId, fid),
+    getCookiesStr: (domain) => bridge.apis.web.getCookiesStr(domain),
+    getCsrfToken: () => bridge.apis.web.getCsrfToken(),
+    getCredentials: (domain) => bridge.apis.web.getCredentials(domain),
 
     // Extended
     fetchCustomFace: (count) => bridge.apis.profile.fetchCustomFace(count),

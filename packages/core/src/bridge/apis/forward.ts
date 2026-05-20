@@ -26,7 +26,7 @@ import type { Bridge } from '../bridge';
 import { buildSendElems } from '../element-builder';
 import type { ForwardNodePayload, MessageElement } from '../events';
 import { parseMsgPush } from '../msg-push';
-import { resolveSelfUid, toInt } from '../actions/shared';
+import { resolveSelfUid, toInt } from './shared';
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
 

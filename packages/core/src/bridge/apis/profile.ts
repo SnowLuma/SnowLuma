@@ -25,7 +25,7 @@ import type { Bridge } from '../bridge';
 import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
 import { fetchHighwaySession, uploadHighwayHttp } from '../highway/highway-client';
 import { computeHashes, loadBinarySource } from '../highway/utils';
-import { resolveSelfUid } from '../actions/shared';
+import { resolveSelfUid } from './shared';
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
 

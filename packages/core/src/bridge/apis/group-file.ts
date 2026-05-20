@@ -38,7 +38,7 @@ import type {
   OidbPrivateFileUploadReq,
   OidbPrivateFileUploadResp,
 } from '@snowluma/proto-defs/oidb-actions/media';
-import { ensureRetCodeZero, resolveSelfUid, toInt, type MediaIndexNode } from '../actions/shared';
+import { ensureRetCodeZero, resolveSelfUid, toInt, type MediaIndexNode } from './shared';
 
 const log = createLogger('GroupFile');
 
@@ -78,8 +78,8 @@ export interface UploadFileResult {
   fileHash?: string | null;
 }
 
-// Re-export so callers don't have to dig into actions/shared.
-export type { MediaIndexNode } from '../actions/shared';
+// Re-export so callers don't have to dig into apis/shared.
+export type { MediaIndexNode } from './shared';
 
 // ─────────────── file-specific helpers ───────────────
 

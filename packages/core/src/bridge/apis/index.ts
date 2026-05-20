@@ -15,10 +15,8 @@
 //   3. Construct it inside `buildApiHub(ctx)` below.
 //   4. Move the relevant methods OFF Bridge and onto the new Api.
 //
-// This file evolves commit-by-commit as `#6 NapCat-style Api on ctx`
-// lands the 13 areas. Until all 13 are in place, ApiHub will have a
-// mix of "done" entries and "TODO" markers below — the TODO list
-// shrinks as each commit lands.
+// All 12 Api hubs are now live (#6 commits 1-12). The interface lists
+// every typed area an OneBot caller can reach via `bridge.apis.*`.
 
 import type { BridgeContext } from '../bridge-context';
 import { ContactsApi } from './contacts';
@@ -32,6 +30,7 @@ import { InteractionApi } from './interaction';
 import { MessageApi } from './message';
 import { MiscApi } from './misc';
 import { ProfileApi } from './profile';
+import { WebApi } from './web';
 
 export interface ApiHub {
   /** Send/recall/markRead operations across c2c + group + c2c-file. */
@@ -56,13 +55,8 @@ export interface ApiHub {
   readonly misc: MiscApi;
   /** Tier-2 napcat-parity: group todo / stranger status / AI voice. */
   readonly extras: ExtrasApi;
-  // Pending — added as later commits land:
-  //   readonly interaction: InteractionApi;
-  //   readonly profile:     ProfileApi;
-  //   readonly forward:     ForwardApi;
-  //   readonly misc:        MiscApi;
-  //   readonly extras:      ExtrasApi;
-  //   readonly web:         WebApi;
+  /** Cookie-backed HTTP: essence / honor / notice / client-key / csrf-token. */
+  readonly web: WebApi;
 }
 
 /**
@@ -86,6 +80,7 @@ export function buildApiHub(ctx: BridgeContext): ApiHub {
     forward: new ForwardApi(ctx),
     misc: new MiscApi(ctx),
     extras: new ExtrasApi(ctx),
+    web: new WebApi(ctx),
   };
 }
 
@@ -103,3 +98,4 @@ export { InteractionApi } from './interaction';
 export { MessageApi } from './message';
 export { MiscApi } from './misc';
 export { ProfileApi } from './profile';
+export { WebApi } from './web';
