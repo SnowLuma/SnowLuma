@@ -177,7 +177,7 @@ export async function getGroupSystemMessages(bridge: BridgeInterface): Promise<J
       requester_uin: r.targetUin,
       requester_nick: r.targetName,
       message: r.comment,
-      flag: String(r.sequence),
+      flag: `${r.eventType}:${r.groupId}:${r.targetUid}`,
     } as JsonObject));
   } catch {
     return [];
