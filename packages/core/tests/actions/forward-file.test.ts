@@ -46,7 +46,7 @@ vi.mock('../../src/bridge/element-builder', () => ({
 
 import { protobuf_encode } from '@snowluma/proton';
 import type { SendLongMsgResp } from '@snowluma/proto-defs/longmsg';
-import * as forward from '../../src/bridge/actions/forward';
+import { ForwardApi } from '../../src/bridge/apis/forward';
 import { mockBridge } from './_helpers';
 
 function uploadResponseWithResId(resId: string) {
@@ -70,7 +70,7 @@ describe('actions/forward — file segment inside forward node', () => {
       sendRawPacket: vi.fn(async () => uploadResponseWithResId('res-grp-file')) as any,
     });
 
-    await forward.uploadForwardNodes(bridge as any, [
+    await new ForwardApi(bridge as any).upload([
       {
         userUin: 10001,
         nickname: 'alice',
@@ -100,7 +100,7 @@ describe('actions/forward — file segment inside forward node', () => {
       recallUploadedFile: vi.fn(() => undefined),
     });
 
-    await forward.uploadForwardNodes(bridge as any, [
+    await new ForwardApi(bridge as any).upload([
       {
         userUin: 10001,
         nickname: 'alice',
@@ -157,7 +157,7 @@ describe('actions/forward — file segment inside forward node', () => {
       recallUploadedFile,
     });
 
-    await forward.uploadForwardNodes(bridge as any, [{
+    await new ForwardApi(bridge as any).upload([{
       userUin: 10001,
       nickname: 'alice',
       elements: [{ type: 'file', fileId: 'pfid-cached' } as any],

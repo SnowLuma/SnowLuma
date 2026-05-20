@@ -22,6 +22,7 @@
 
 import type { BridgeContext } from '../bridge-context';
 import { ContactsApi } from './contacts';
+import { ForwardApi } from './forward';
 import { FriendApi } from './friend';
 import { GroupAdminApi } from './group-admin';
 import { GroupAlbumApi } from './group-album';
@@ -47,6 +48,8 @@ export interface ApiHub {
   readonly friend: FriendApi;
   /** Personal profile: status / avatar / nickname / likes / custom-faces. */
   readonly profile: ProfileApi;
+  /** Long-message (forward / 聊天记录) upload + retrieval with NapCat piggyback. */
+  readonly forward: ForwardApi;
   // Pending — added as later commits land:
   //   readonly interaction: InteractionApi;
   //   readonly profile:     ProfileApi;
@@ -74,6 +77,7 @@ export function buildApiHub(ctx: BridgeContext): ApiHub {
     interaction: new InteractionApi(ctx),
     friend: new FriendApi(ctx),
     profile: new ProfileApi(ctx),
+    forward: new ForwardApi(ctx),
   };
 }
 
@@ -81,6 +85,7 @@ export function buildApiHub(ctx: BridgeContext): ApiHub {
 // `import type { MessageApi } from '@snowluma/core/.../apis'` for
 // signature use. Concrete instances always come from `bridge.apis.*`.
 export { ContactsApi } from './contacts';
+export { ForwardApi } from './forward';
 export { FriendApi } from './friend';
 export { GroupAdminApi } from './group-admin';
 export { GroupAlbumApi } from './group-album';

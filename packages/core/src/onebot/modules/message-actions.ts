@@ -322,7 +322,7 @@ export async function sendGroupForwardMessage(
   // namespace — otherwise the ARK card's res_id won't be resolvable
   // when the recipient taps to expand.
   const nodes = await parseForwardNodes(ref, messages, { groupId });
-  const forwardId = await ref.bridge.uploadForwardNodes(nodes, groupId);
+  const forwardId = await ref.bridge.apis.forward.upload(nodes, groupId);
   const previewElement = buildForwardPreviewElement(forwardId, nodes, true, meta);
   const receipt = await ref.bridge.apis.message.sendGroup(groupId, [previewElement]);
   const messageId = hashMessageIdInt32(receipt.sequence, groupId, GROUP_MESSAGE_EVENT);
@@ -350,7 +350,7 @@ export async function sendPrivateForwardMessage(
   // userId is plumbed through so inner image/record/video can be uploaded
   // under the recipient's scene (otherwise the OIDB private-image upload
   // has no target uid and the element builder bails).
-  const forwardId = await ref.bridge.uploadForwardNodes(nodes, undefined, userId);
+  const forwardId = await ref.bridge.apis.forward.upload(nodes, undefined, userId);
   const previewElement = buildForwardPreviewElement(forwardId, nodes, false, meta);
   const receipt = await ref.bridge.apis.message.sendPrivate(userId, [previewElement]);
   const messageId = hashMessageIdInt32(receipt.sequence, userId, PRIVATE_MESSAGE_EVENT);
@@ -376,7 +376,7 @@ export async function uploadForwardMessage(
   const nodes = await parseForwardNodes(ref, messages, { groupId });
   // groupId controls the resId namespace (group vs private). Without it,
   // a resId minted here is unusable when later sent into a group.
-  const forwardId = await ref.bridge.uploadForwardNodes(nodes, groupId);
+  const forwardId = await ref.bridge.apis.forward.upload(nodes, groupId);
   return { forwardId };
 }
 
@@ -530,7 +530,7 @@ export async function getForwardMessage(
   ref: OneBotInstanceContext,
   resId: string,
 ): Promise<JsonObject[]> {
-  const nodes = await ref.bridge.fetchForwardNodes(resId);
+  const nodes = await ref.bridge.apis.forward.fetch(resId);
   const results: JsonObject[] = [];
   for (const node of nodes) {
     const isGroup = node.messageType === 'group' || (node.groupId !== undefined && node.groupId > 0);

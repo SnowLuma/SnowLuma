@@ -1,7 +1,6 @@
 import type { PacketSender, SendPacketResult } from '../protocol/packet-sender';
 import type { PacketInfo } from '../protocol/types';
 import type { BridgeInterface } from './bridge-interface';
-import type { ForwardNodePayload } from './events';
 import { IdentityService } from './identity-service';
 import { MSG_PUSH_CMD, parseMsgPush } from './msg-push';
 import { IncomingPacketPipeline, type CmdParser } from './packet-pipeline';
@@ -22,10 +21,7 @@ import {
   type AiVoiceChatType as AiVoiceChatTypeT,
   type StrangerStatus,
 } from './actions/extras';
-import {
-  fetchForwardNodes as fetchForwardNodes_,
-  uploadForwardNodes as uploadForwardNodes_,
-} from './actions/forward';
+// actions/forward.ts removed — moved to apis/forward.ts::ForwardApi.
 // actions/friend.ts removed — moved to apis/friend.ts::FriendApi.
 // actions/group-admin.ts removed — moved to `apis/group-admin.ts::GroupAdminApi`.
 // actions/group-album.ts removed — moved to `apis/group-album.ts::GroupAlbumApi`.
@@ -309,8 +305,7 @@ export class Bridge implements BridgeInterface {
   // getPrivateUrl/{Ptt,Video}Url/getPrivate{Ptt,Video}Url/delete/move/
   // createFolder/deleteFolder/renameFolder/getCount) moved to
   // apis.groupFile (apis/group-file.ts::GroupFileApi).
-  async uploadForwardNodes(nodes: ForwardNodePayload[], groupId?: number, userId?: number): Promise<string> { return uploadForwardNodes_(this, nodes, groupId, userId); }
-  async fetchForwardNodes(resId: string): Promise<ForwardNodePayload[]> { return fetchForwardNodes_(this, resId); }
+  // Forward methods (upload / fetch) moved to apis.forward.
   // Interaction methods (sendPoke/sendLike/setReaction/setEssence/
   // getEmojiLikes) moved to apis.interaction.
   // recall* / markRead* moved to apis/message.ts::MessageApi.

@@ -7,7 +7,6 @@ import type {
   UploadedFileMeta,
 } from './bridge';
 import type { BridgeEventBus } from './event-bus';
-import type { ForwardNodePayload } from './events';
 import type { IdentityService } from './identity-service';
 import type { WebHonorType } from './web/group-honor';
 
@@ -62,9 +61,8 @@ export interface BridgeInterface {
   // ─── Group Album (moved to apis.groupAlbum) ───
   //   - list / upload / getMediaList / comment / like / delete
 
-  // ─── Forward ───
-  uploadForwardNodes(nodes: ForwardNodePayload[], groupId?: number, userId?: number): Promise<string>;
-  fetchForwardNodes(resId: string): Promise<ForwardNodePayload[]>;
+  // ─── Forward (moved to apis.forward) ───
+  //   - upload / fetch
 
   // ─── Message ops (moved to apis.message) ───
 
