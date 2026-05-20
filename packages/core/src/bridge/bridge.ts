@@ -32,12 +32,7 @@ import {
   setFriendRemark as setFriendRemark_,
 } from './actions/friend';
 // actions/group-admin.ts removed — moved to `apis/group-admin.ts::GroupAdminApi`.
-import {
-  commentGroupAlbumMedia as commentGroupAlbumMedia_,
-  deleteGroupAlbumMedia as deleteGroupAlbumMedia_,
-  getGroupAlbumMediaList as getGroupAlbumMediaList_,
-  likeGroupAlbumMedia as likeGroupAlbumMedia_,
-} from './actions/group-album';
+// actions/group-album.ts removed — moved to `apis/group-album.ts::GroupAlbumApi`.
 // Group file CRUD + private c2c upload + media URL resolvers moved to
 // `apis.groupFile` (see `apis/group-file.ts::GroupFileApi`). The shared
 // result type still lives here because the OneBot side imports it
@@ -79,13 +74,11 @@ import {
   getCookiesStr as getCookiesStr_,
   getCredentials as getCredentials_,
   getCsrfToken as getCsrfToken_,
-  getGroupAlbumListWeb as getGroupAlbumListWeb_,
   getGroupEssence as getGroupEssence_,
   getGroupEssenceAll as getGroupEssenceAll_,
   getGroupHonorInfo as getGroupHonorInfo_,
   getGroupNotice as getGroupNotice_,
   sendGroupNotice as sendGroupNotice_,
-  uploadImageToGroupAlbumWeb as uploadImageToGroupAlbumWeb_,
 } from './web-actions';
 import type { WebHonorType } from './web/group-honor';
 export { AiVoiceChatType };
@@ -355,29 +348,8 @@ export class Bridge implements BridgeInterface {
     return getGroupEssenceAll_(this, groupId);
   }
 
-  async getGroupAlbumList(groupId: number): Promise<any> {
-    return getGroupAlbumListWeb_(this, groupId);
-  }
-
-  async uploadImageToGroupAlbum(groupId: number, albumId: string, albumName: string, filePath: string): Promise<void> {
-    return uploadImageToGroupAlbumWeb_(this, groupId, albumId, albumName, filePath);
-  }
-
-  async getGroupAlbumMediaList(groupId: number, albumId: string, attachInfo?: string): Promise<any> {
-    return getGroupAlbumMediaList_(this, groupId, albumId, attachInfo);
-  }
-
-  async commentGroupAlbumMedia(groupId: number, albumId: string, lloc: string, content: string): Promise<any> {
-    return commentGroupAlbumMedia_(this, groupId, albumId, lloc, content);
-  }
-
-  async likeGroupAlbumMedia(groupId: number, albumId: string, batchId: string, lloc: string | undefined, isLike: boolean): Promise<any> {
-    return likeGroupAlbumMedia_(this, groupId, albumId, batchId, lloc, isLike);
-  }
-
-  async deleteGroupAlbumMedia(groupId: number, albumId: string, lloc: string): Promise<any> {
-    return deleteGroupAlbumMedia_(this, groupId, albumId, lloc);
-  }
+  // GroupAlbum methods (list/upload/getMediaList/comment/like/delete)
+  // moved to apis.groupAlbum (apis/group-album.ts::GroupAlbumApi).
 
   async sendGroupNotice(groupId: number, content: string, options?: any) {
     return sendGroupNotice_(this, groupId, content, options);

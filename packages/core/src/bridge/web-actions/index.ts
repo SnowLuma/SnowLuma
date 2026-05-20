@@ -13,8 +13,3 @@ export {
   deleteGroupNoticeByFid, getGroupNotice, sendGroupNotice
 } from './group-notice';
 
-export {
-  getGroupAlbumListWeb,
-  uploadImageToGroupAlbumWeb
-} from './group-album';
-
