@@ -1170,18 +1170,18 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
       return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
     }
   };
-  h.registerAction('set_group_todo', handleGroupTodo((g, s) => ctx.bridge.setGroupTodo(g, s)));
-  h.registerAction('complete_group_todo', handleGroupTodo((g, s) => ctx.bridge.completeGroupTodo(g, s)));
-  h.registerAction('cancel_group_todo', handleGroupTodo((g, s) => ctx.bridge.cancelGroupTodo(g, s)));
+  h.registerAction('set_group_todo', handleGroupTodo((g, s) => ctx.bridge.apis.extras.setGroupTodo(g, BigInt(s))));
+  h.registerAction('complete_group_todo', handleGroupTodo((g, s) => ctx.bridge.apis.extras.completeGroupTodo(g, BigInt(s))));
+  h.registerAction('cancel_group_todo', handleGroupTodo((g, s) => ctx.bridge.apis.extras.cancelGroupTodo(g, BigInt(s))));
 
   // --- User online/ext status (napcat: nc_get_user_status) ---
 
   h.registerAction('nc_get_user_status', async (params) => {
     const userId = asNumber(params.user_id);
     if (!userId) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
-    const status = await ctx.bridge.getStrangerStatus(userId);
+    const status = await ctx.bridge.apis.extras.getStrangerStatus(userId);
     if (!status) return failedResponse(RETCODE.ACTION_FAILED, 'failed to fetch user status');
-    return okResponse(status);
+    return okResponse({ ...status });
   });
 
   // --- AI voice (oidb 0x929D / 0x929B) ---
@@ -1191,7 +1191,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const chatType = asNumber(params.chat_type) || 1;
     if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
     try {
-      const list = await ctx.bridge.fetchAiVoiceList(groupId, chatType);
+      const list = await ctx.bridge.apis.extras.fetchAiVoiceList(groupId, chatType);
       return okResponse(list.map((cat) => ({
         type: cat.category,
         characters: cat.voices.map((v) => ({
@@ -1214,7 +1214,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
       return failedResponse(RETCODE.BAD_REQUEST, 'group_id, character and text are required');
     }
     try {
-      const node = await ctx.bridge.fetchAiVoice(groupId, character, text, chatType);
+      const node = await ctx.bridge.apis.extras.fetchAiVoice(groupId, character, text, chatType);
       const url = await ctx.bridge.apis.groupFile.getPttUrl(groupId, node);
       return okResponse(url);
     } catch (err) {
@@ -1234,7 +1234,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
       return failedResponse(RETCODE.BAD_REQUEST, 'group_id, character and text are required');
     }
     try {
-      await ctx.bridge.fetchAiVoice(groupId, character, text, chatType);
+      await ctx.bridge.apis.extras.fetchAiVoice(groupId, character, text, chatType);
       return okResponse({ message_id: 0 });
     } catch (err) {
       return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));

@@ -22,6 +22,7 @@
 
 import type { BridgeContext } from '../bridge-context';
 import { ContactsApi } from './contacts';
+import { ExtrasApi } from './extras';
 import { ForwardApi } from './forward';
 import { FriendApi } from './friend';
 import { GroupAdminApi } from './group-admin';
@@ -53,6 +54,8 @@ export interface ApiHub {
   readonly forward: ForwardApi;
   /** Odds & ends: translate / mini-app ARK / inline-keyboard / group sign. */
   readonly misc: MiscApi;
+  /** Tier-2 napcat-parity: group todo / stranger status / AI voice. */
+  readonly extras: ExtrasApi;
   // Pending — added as later commits land:
   //   readonly interaction: InteractionApi;
   //   readonly profile:     ProfileApi;
@@ -82,6 +85,7 @@ export function buildApiHub(ctx: BridgeContext): ApiHub {
     profile: new ProfileApi(ctx),
     forward: new ForwardApi(ctx),
     misc: new MiscApi(ctx),
+    extras: new ExtrasApi(ctx),
   };
 }
 
@@ -89,6 +93,7 @@ export function buildApiHub(ctx: BridgeContext): ApiHub {
 // `import type { MessageApi } from '@snowluma/core/.../apis'` for
 // signature use. Concrete instances always come from `bridge.apis.*`.
 export { ContactsApi } from './contacts';
+export { ExtrasApi } from './extras';
 export { ForwardApi } from './forward';
 export { FriendApi } from './friend';
 export { GroupAdminApi } from './group-admin';

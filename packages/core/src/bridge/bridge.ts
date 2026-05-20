@@ -9,18 +9,14 @@ import { IncomingPacketPipeline, type CmdParser } from './packet-pipeline';
 import { type ApiHub, buildApiHub } from './apis';
 
 // Delegated modules
+// Group-todo / stranger-status / AI-voice moved to apis/extras.ts.
+// Public types stay re-exported through this file for backwards
+// compatibility — the OneBot side imports them via `@snowluma/core`.
 import {
   AiVoiceChatType,
-  cancelGroupTodo as cancelGroupTodo_,
-  completeGroupTodo as completeGroupTodo_,
-  fetchAiVoice as fetchAiVoice_,
-  fetchAiVoiceList as fetchAiVoiceList_,
-  getStrangerStatus as getStrangerStatus_,
-  setGroupTodo as setGroupTodo_,
   type AiVoiceCategory,
-  type AiVoiceChatType as AiVoiceChatTypeT,
   type StrangerStatus,
-} from './actions/extras';
+} from './apis/extras';
 // actions/forward.ts removed — moved to apis/forward.ts::ForwardApi.
 // actions/friend.ts removed — moved to apis/friend.ts::FriendApi.
 // actions/group-admin.ts removed — moved to `apis/group-admin.ts::GroupAdminApi`.
@@ -342,25 +338,7 @@ export class Bridge implements BridgeInterface {
   // Misc methods (translateEn2Zh / getMiniAppArk /
   // clickInlineKeyboardButton / sendGroupSign) moved to apis.misc.
 
-  // --- Tier-2 napcat-parity extras (group todo, stranger status, AI voice) ---
-
-  async setGroupTodo(groupId: number, msgSeq: bigint | number | string): Promise<void> {
-    return setGroupTodo_(this, groupId, BigInt(msgSeq));
-  }
-  async completeGroupTodo(groupId: number, msgSeq: bigint | number | string): Promise<void> {
-    return completeGroupTodo_(this, groupId, BigInt(msgSeq));
-  }
-  async cancelGroupTodo(groupId: number, msgSeq: bigint | number | string): Promise<void> {
-    return cancelGroupTodo_(this, groupId, BigInt(msgSeq));
-  }
-  async getStrangerStatus(uin: number): Promise<StrangerStatus | null> {
-    return getStrangerStatus_(this, uin);
-  }
-  async fetchAiVoiceList(groupId: number, chatType: AiVoiceChatTypeT): Promise<AiVoiceCategory[]> {
-    return fetchAiVoiceList_(this, groupId, chatType);
-  }
-  async fetchAiVoice(groupId: number, voiceId: string, text: string, chatType: AiVoiceChatTypeT) {
-    return fetchAiVoice_(this, groupId, voiceId, text, chatType);
-  }
+  // --- Tier-2 napcat-parity extras (group todo / stranger status /
+  //     AI voice) moved to apis.extras. ---
 }
 

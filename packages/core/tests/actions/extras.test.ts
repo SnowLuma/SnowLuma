@@ -10,11 +10,10 @@ import type {
 } from '@snowluma/proto-defs/oidb-actions/media';
 
 // `encodeOidbEnv` / `decodeOidbEnv` are proton-bound pass-through wrappers
-// that the plugin substitutes at the call site with the inlined codec, so
-// mocking them on the module object is a no-op. The only mockable point
-// is `runOidb` (non-generic, untouched by proton) returning real bytes
-// that the production-side codec then decodes. `makeOidbEnvelope` is a
-// pure TS helper, so its mock works for introspection.
+// (substituted at the call site with the inlined codec). Mocking them on
+// the module object is a no-op — proton has already inlined the call.
+// We mock `runOidb` (non-generic) to return real proton-encoded bytes
+// that the production-side codec actually decodes.
 vi.mock('../../src/bridge/bridge-oidb', async () => {
   const actual = await vi.importActual<typeof import('../../src/bridge/bridge-oidb')>(
     '../../src/bridge/bridge-oidb',
@@ -27,22 +26,23 @@ vi.mock('../../src/bridge/bridge-oidb', async () => {
 });
 
 import * as oidb from '../../src/bridge/bridge-oidb';
-import * as extras from '../../src/bridge/actions/extras';
+import { ExtrasApi, AiVoiceChatType } from '../../src/bridge/apis/extras';
 import { mockBridge } from './_helpers';
 
-describe('actions/extras / group todo (0xF90)', () => {
+describe('apis/extras / group todo (0xF90)', () => {
   beforeEach(() => {
     vi.mocked(oidb.runOidb).mockClear();
     vi.mocked(oidb.makeOidbEnvelope).mockClear();
   });
 
   it.each([
-    ['setGroupTodo', extras.setGroupTodo, 'OidbSvcTrpcTcp.0xf90_1', 1],
-    ['completeGroupTodo', extras.completeGroupTodo, 'OidbSvcTrpcTcp.0xf90_2', 2],
-    ['cancelGroupTodo', extras.cancelGroupTodo, 'OidbSvcTrpcTcp.0xf90_3', 3],
-  ] as const)('%s dispatches the right subCmd with shared body', async (_name, fn, cmd, subCmd) => {
+    ['setGroupTodo', 'OidbSvcTrpcTcp.0xf90_1', 1] as const,
+    ['completeGroupTodo', 'OidbSvcTrpcTcp.0xf90_2', 2] as const,
+    ['cancelGroupTodo', 'OidbSvcTrpcTcp.0xf90_3', 3] as const,
+  ])('%s dispatches the right subCmd with shared body', async (method, cmd, subCmd) => {
     const bridge = mockBridge();
-    await fn(bridge as any, 12345, 9876543210n);
+    const api = new ExtrasApi(bridge as any);
+    await (api as any)[method](12345, 9876543210n);
     const [, runCmd] = vi.mocked(oidb.runOidb).mock.calls[0]!;
     expect(runCmd).toBe(cmd);
     const [oidbCmd, sub, body] = vi.mocked(oidb.makeOidbEnvelope).mock.calls[0]!;
@@ -52,7 +52,7 @@ describe('actions/extras / group todo (0xF90)', () => {
   });
 });
 
-describe('actions/extras / getStrangerStatus (0xFE1_2)', () => {
+describe('apis/extras / getStrangerStatus (0xFE1_2)', () => {
   beforeEach(() => {
     vi.mocked(oidb.runOidb).mockReset();
     vi.mocked(oidb.runOidb).mockResolvedValue(new Uint8Array());
@@ -64,7 +64,7 @@ describe('actions/extras / getStrangerStatus (0xFE1_2)', () => {
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbStrangerStatusResp>>({ body: { data: { status: { value: 5n } } } }),
     );
-    await extras.getStrangerStatus(bridge as any, 100200);
+    await new ExtrasApi(bridge as any).getStrangerStatus(100200);
     const [, runCmd] = vi.mocked(oidb.runOidb).mock.calls[0]!;
     expect(runCmd).toBe('OidbSvcTrpcTcp.0xfe1_2');
     const [oidbCmd, sub, body] = vi.mocked(oidb.makeOidbEnvelope).mock.calls[0]!;
@@ -78,7 +78,7 @@ describe('actions/extras / getStrangerStatus (0xFE1_2)', () => {
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbStrangerStatusResp>>({ body: { data: { status: { value: 7n } } } }),
     );
-    expect(await extras.getStrangerStatus(bridge as any, 1)).toEqual({ status: 70, ext_status: 0 });
+    expect(await new ExtrasApi(bridge as any).getStrangerStatus(1)).toEqual({ status: 70, ext_status: 0 });
   });
 
   it('high-band values decompose into the (0xff00 + (>>16 & 0xff)) status word', async () => {
@@ -89,14 +89,14 @@ describe('actions/extras / getStrangerStatus (0xFE1_2)', () => {
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbStrangerStatusResp>>({ body: { data: { status: { value: 0x42F100n } } } }),
     );
-    const status = await extras.getStrangerStatus(bridge as any, 1);
+    const status = await new ExtrasApi(bridge as any).getStrangerStatus(1);
     expect(status).toEqual({ status: 10, ext_status: 0xF142 });
   });
 
   it('returns null when the runner throws (transport error)', async () => {
     const bridge = mockBridge();
     vi.mocked(oidb.runOidb).mockRejectedValueOnce(new Error('boom'));
-    expect(await extras.getStrangerStatus(bridge as any, 1)).toBeNull();
+    expect(await new ExtrasApi(bridge as any).getStrangerStatus(1)).toBeNull();
   });
 
   it('returns null when the server omits the status field', async () => {
@@ -104,11 +104,11 @@ describe('actions/extras / getStrangerStatus (0xFE1_2)', () => {
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbStrangerStatusResp>>({ body: {} }),
     );
-    expect(await extras.getStrangerStatus(bridge as any, 1)).toBeNull();
+    expect(await new ExtrasApi(bridge as any).getStrangerStatus(1)).toBeNull();
   });
 });
 
-describe('actions/extras / AI voice (0x929D / 0x929B)', () => {
+describe('apis/extras / AI voice (0x929D / 0x929B)', () => {
   beforeEach(() => {
     vi.mocked(oidb.runOidb).mockReset();
     vi.mocked(oidb.runOidb).mockResolvedValue(new Uint8Array());
@@ -123,7 +123,7 @@ describe('actions/extras / AI voice (0x929D / 0x929B)', () => {
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbAiVoiceListResp>>({ body: { content: fake } } as any),
     );
-    const out = await extras.fetchAiVoiceList(bridge as any, 4242, extras.AiVoiceChatType.Sound);
+    const out = await new ExtrasApi(bridge as any).fetchAiVoiceList(4242, AiVoiceChatType.Sound);
     expect(out).toEqual(fake);
     const [, runCmd] = vi.mocked(oidb.runOidb).mock.calls[0]!;
     expect(runCmd).toBe('OidbSvcTrpcTcp.0x929d_0');
@@ -136,7 +136,7 @@ describe('actions/extras / AI voice (0x929D / 0x929B)', () => {
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<OidbAiVoiceListResp>>({ body: {} }),
     );
-    const out = await extras.fetchAiVoiceList(bridge as any, 1, 1 as any);
+    const out = await new ExtrasApi(bridge as any).fetchAiVoiceList(1, 1);
     expect(out).toEqual([]);
   });
 
@@ -149,7 +149,7 @@ describe('actions/extras / AI voice (0x929D / 0x929B)', () => {
       .mockResolvedValueOnce(protobuf_encode<OidbBase<OidbAiVoiceResp>>({ body: { statusCode: 2 } }))
       .mockResolvedValueOnce(protobuf_encode<OidbBase<OidbAiVoiceResp>>({ body: { msgInfo: { msgInfoBody: [] } } as any }))
       .mockResolvedValueOnce(protobuf_encode<OidbBase<OidbAiVoiceResp>>({ body: { msgInfo: { msgInfoBody: [{ index: node }] } } as any }));
-    const out = await extras.fetchAiVoice(bridge as any, 100, 'voice-id', 'hi', extras.AiVoiceChatType.Sound);
+    const out = await new ExtrasApi(bridge as any).fetchAiVoice(100, 'voice-id', 'hi', AiVoiceChatType.Sound);
     expect(out).toMatchObject(node);
     expect(vi.mocked(oidb.runOidb)).toHaveBeenCalledTimes(3);
     const [, runCmd] = vi.mocked(oidb.runOidb).mock.calls[0]!;
@@ -169,7 +169,7 @@ describe('actions/extras / AI voice (0x929D / 0x929B)', () => {
     vi.mocked(oidb.runOidb).mockResolvedValue(
       protobuf_encode<OidbBase<OidbAiVoiceResp>>({ body: { statusCode: 1 } }),
     );
-    await expect(extras.fetchAiVoice(bridge as any, 1, 'v', 't', 1 as any, 3)).rejects.toThrow(
+    await expect(new ExtrasApi(bridge as any).fetchAiVoice(1, 'v', 't', 1, 3)).rejects.toThrow(
       /AI voice synthesis did not complete/,
     );
     expect(vi.mocked(oidb.runOidb)).toHaveBeenCalledTimes(3);
@@ -181,7 +181,7 @@ describe('actions/extras / AI voice (0x929D / 0x929B)', () => {
     vi.mocked(oidb.runOidb)
       .mockResolvedValueOnce(protobuf_encode<OidbBase<OidbAiVoiceResp>>({ body: {} }))
       .mockResolvedValueOnce(protobuf_encode<OidbBase<OidbAiVoiceResp>>({ body: { msgInfo: { msgInfoBody: [{ index: node }] } } as any }));
-    await extras.fetchAiVoice(bridge as any, 1, 'v', 't', 1 as any);
+    await new ExtrasApi(bridge as any).fetchAiVoice(1, 'v', 't', 1);
     const first = (vi.mocked(oidb.makeOidbEnvelope).mock.calls[0]![2] as any).session.sessionId;
     const second = (vi.mocked(oidb.makeOidbEnvelope).mock.calls[1]![2] as any).session.sessionId;
     expect(first).toBe(second);

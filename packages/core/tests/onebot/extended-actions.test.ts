@@ -62,6 +62,13 @@ const APIS_ROUTING: Record<string, [string, string]> = {
   setFriendRemark: ['friend', 'setRemark'],
   deleteFriend: ['friend', 'delete'],
   setFriendAddRequest: ['friend', 'handleRequest'],
+  // ExtrasApi: group todo / stranger status / AI voice.
+  setGroupTodo: ['extras', 'setGroupTodo'],
+  completeGroupTodo: ['extras', 'completeGroupTodo'],
+  cancelGroupTodo: ['extras', 'cancelGroupTodo'],
+  getStrangerStatus: ['extras', 'getStrangerStatus'],
+  fetchAiVoiceList: ['extras', 'fetchAiVoiceList'],
+  fetchAiVoice: ['extras', 'fetchAiVoice'],
 };
 
 function fakeBridge(overrides: Record<string, any> = {}): BridgeInterface {

@@ -1,6 +1,5 @@
 import type { SendPacketResult } from '../protocol/packet-sender';
 import type { ApiHub } from './apis';
-import type { MediaIndexNode } from './actions/shared';
 import type {
   ClientKeyInfo,
   DownloadRKeyInfo,
@@ -90,11 +89,8 @@ export interface BridgeInterface {
   // ─── Misc (moved to apis.misc) ───
   //   - translateEn2Zh / getMiniAppArk / clickInlineKeyboardButton / sendGroupSign
 
-  // ─── Tier-2 napcat parity extras ───
-  setGroupTodo(groupId: number, msgSeq: bigint | number | string): Promise<void>;
-  completeGroupTodo(groupId: number, msgSeq: bigint | number | string): Promise<void>;
-  cancelGroupTodo(groupId: number, msgSeq: bigint | number | string): Promise<void>;
-  getStrangerStatus(uin: number): Promise<{ status: number; ext_status: number } | null>;
-  fetchAiVoiceList(groupId: number, chatType: number): Promise<Array<{ category: string; voices: Array<{ voiceId: string; voiceDisplayName: string; voiceExampleUrl: string }> }>>;
-  fetchAiVoice(groupId: number, voiceId: string, text: string, chatType: number): Promise<MediaIndexNode>;
+  // ─── Tier-2 napcat parity extras (moved to apis.extras) ───
+  //   - setGroupTodo / completeGroupTodo / cancelGroupTodo
+  //   - getStrangerStatus
+  //   - fetchAiVoiceList / fetchAiVoice
 }
