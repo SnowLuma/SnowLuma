@@ -146,7 +146,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
 
     // Profile-like / get_group_essence — OneBot-specific defaults that the
     // action handlers don't supply.
-    getProfileLike: (userId = undefined, start = 0, limit = 10) => bridge.getProfileLike(userId, start, limit),
+    getProfileLike: (userId = undefined, start = 0, limit = 10) => bridge.apis.profile.getLike(userId, start, limit),
     getGroupEssence: (groupId, pageStart = 0, pageLimit = 50) => bridge.getGroupEssence(groupId, pageStart, pageLimit),
 
     // Message-store-backed history reads.
@@ -165,7 +165,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     forceFetchClientKey: () => bridge.forceFetchClientKey(),
     setFriendRemark: (userId, remark) => bridge.apis.friend.setRemark(userId, remark),
     setGroupRemark: (groupId, remark) => bridge.apis.groupAdmin.setRemark(groupId, remark),
-    setGroupAvatar: (groupId, source) => bridge.setGroupAvatar(groupId, source),
+    setGroupAvatar: (groupId, source) => bridge.apis.profile.setGroupAvatar(groupId, source),
     getGroupFileCount: (groupId) => bridge.apis.groupFile.getCount(groupId),
 
     // Cross-store: looks up the meta then routes through Bridge.
@@ -180,8 +180,8 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     },
     markGroupMsgAsRead: (groupId, sequence) => bridge.apis.message.markGroupRead(groupId, sequence),
     markPrivateMsgAsRead: (userId, sequence) => bridge.apis.message.markPrivateRead(userId, sequence),
-    setOnlineStatus: (status: number, extStatus?: number, batteryStatus?: number) => bridge.setOnlineStatus(status, extStatus, batteryStatus),
-    setProfile: (nickname?: string, personalNote?: string) => bridge.setProfile(nickname, personalNote),
+    setOnlineStatus: (status: number, extStatus?: number, batteryStatus?: number) => bridge.apis.profile.setOnlineStatus(status, extStatus, batteryStatus),
+    setProfile: (nickname?: string, personalNote?: string) => bridge.apis.profile.setProfile(nickname, personalNote),
 
     // Web-backed actions.
     getGroupHonorInfo: (groupId: number, type: WebHonorType | string) => bridge.getGroupHonorInfo(groupId, type),
@@ -200,7 +200,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     getCredentials: (domain) => bridge.getCredentials(domain),
 
     // Extended
-    fetchCustomFace: (count) => bridge.fetchCustomFace(count),
+    fetchCustomFace: (count) => bridge.apis.profile.fetchCustomFace(count),
     getEmojiLikes: (groupId, sequence, emojiId, emojiType, count, cookie) => bridge.apis.interaction.getEmojiLikes(groupId, sequence, emojiId, emojiType, count, cookie),
 
     // Media lookup.

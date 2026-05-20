@@ -83,17 +83,11 @@ export interface BridgeInterface {
   getCsrfToken(): Promise<number>;
   getCredentials(domain: string): Promise<any>;
 
-  // ─── Personal profile ───
-  setOnlineStatus(status: number, extStatus?: number, batteryStatus?: number): Promise<void>;
-  setDiyOnlineStatus(faceId: number, wording: string, faceType: number): Promise<void>;
-  setProfile(nickname?: string, personalNote?: string): Promise<void>;
-  setSelfLongNick(longNick: string): Promise<any>;
-  setInputStatus(userId: number, eventType: number): Promise<any>;
-  setAvatar(source: string): Promise<void>;
-  setGroupAvatar(groupId: number, source: string): Promise<void>;
-  fetchCustomFace(count?: number): Promise<string[]>;
-  getProfileLike(userId?: number, start?: number, limit?: number): Promise<any>;
-  getUnidirectionalFriendList(): Promise<any>;
+  // ─── Personal profile (moved to apis.profile) ───
+  //   - setOnlineStatus / setDiyOnlineStatus
+  //   - setProfile / setSelfLongNick / setInputStatus
+  //   - setAvatar / setGroupAvatar / fetchCustomFace
+  //   - getLike / getUnidirectionalFriendList
 
   // ─── Misc ───
   translateEn2Zh(words: string[]): Promise<any>;

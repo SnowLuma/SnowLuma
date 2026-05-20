@@ -661,7 +661,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      await ctx.bridge.setProfile(nickname, personalNote);
+      await ctx.bridge.apis.profile.setProfile(nickname, personalNote);
       return okResponse();
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -681,7 +681,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      await ctx.bridge.setOnlineStatus(status, extStatus, batteryStatus);
+      await ctx.bridge.apis.profile.setOnlineStatus(status, extStatus, batteryStatus);
       return okResponse();
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -699,7 +699,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const wording = asString(params.wording);
     if (!faceId) return failedResponse(RETCODE.BAD_REQUEST, 'face_id is required');
     try {
-      await ctx.bridge.setDiyOnlineStatus(faceId, wording, faceType);
+      await ctx.bridge.apis.profile.setDiyOnlineStatus(faceId, wording, faceType);
       return okResponse();
     } catch (err) {
       return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
@@ -808,7 +808,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   h.registerAction('fetch_custom_face', async (params) => {
     const count = asNumber(params.count) || 10;
     try {
-      const urls = await ctx.bridge.fetchCustomFace(count);
+      const urls = await ctx.bridge.apis.profile.fetchCustomFace(count);
       return okResponse(urls);
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -898,7 +898,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   h.registerAction('get_unidirectional_friend_list', async () => {
 
     try {
-      const data = await ctx.bridge.getUnidirectionalFriendList();
+      const data = await ctx.bridge.apis.profile.getUnidirectionalFriendList();
       return okResponse(data);
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -914,7 +914,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      await ctx.bridge.setSelfLongNick(longNick);
+      await ctx.bridge.apis.profile.setSelfLongNick(longNick);
       return okResponse({});
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -935,7 +935,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      await ctx.bridge.setAvatar(file);
+      await ctx.bridge.apis.profile.setAvatar(file);
       return okResponse();
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -957,7 +957,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      await ctx.bridge.setInputStatus(userId, eventType);
+      await ctx.bridge.apis.profile.setInputStatus(userId, eventType);
       return okResponse({});
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));

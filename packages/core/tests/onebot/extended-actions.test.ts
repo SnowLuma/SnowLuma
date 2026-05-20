@@ -44,6 +44,24 @@ const APIS_ROUTING: Record<string, [string, string]> = {
   // the area name already says it.
   deleteGroupFileFolder: ['groupFile', 'deleteFolder'],
   fetchGroupPttUrlByNode: ['groupFile', 'getPttUrl'],
+  // InteractionApi: methods drop the redundant `Group` prefix.
+  sendLike: ['interaction', 'sendLike'],
+  setGroupReaction: ['interaction', 'setReaction'],
+  // ProfileApi: a few methods rename (getProfileLike → getLike).
+  setOnlineStatus: ['profile', 'setOnlineStatus'],
+  setDiyOnlineStatus: ['profile', 'setDiyOnlineStatus'],
+  setProfile: ['profile', 'setProfile'],
+  setSelfLongNick: ['profile', 'setSelfLongNick'],
+  setInputStatus: ['profile', 'setInputStatus'],
+  setAvatar: ['profile', 'setAvatar'],
+  setGroupAvatar: ['profile', 'setGroupAvatar'],
+  fetchCustomFace: ['profile', 'fetchCustomFace'],
+  getProfileLike: ['profile', 'getLike'],
+  getUnidirectionalFriendList: ['profile', 'getUnidirectionalFriendList'],
+  // FriendApi: handleRequest/delete/setRemark.
+  setFriendRemark: ['friend', 'setRemark'],
+  deleteFriend: ['friend', 'delete'],
+  setFriendAddRequest: ['friend', 'handleRequest'],
 };
 
 function fakeBridge(overrides: Record<string, any> = {}): BridgeInterface {

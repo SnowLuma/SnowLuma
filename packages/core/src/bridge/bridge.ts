@@ -45,18 +45,7 @@ import {
   sendGroupSign as sendGroupSign_,
   translateEn2Zh as translateEn2Zh_,
 } from './actions/misc';
-import {
-  fetchCustomFace as fetchCustomFace_,
-  getProfileLike as getProfileLike_,
-  getUnidirectionalFriendList as getUnidirectionalFriendList_,
-  setAvatar as setAvatar_,
-  setDiyOnlineStatus as setDiyOnlineStatus_,
-  setGroupAvatar as setGroupAvatar_,
-  setInputStatus as setInputStatus_,
-  setOnlineStatus as setOnlineStatus_,
-  setProfile as setProfile_,
-  setSelfLongNick as setSelfLongNick_,
-} from './actions/profile';
+// actions/profile.ts removed — moved to apis/profile.ts::ProfileApi.
 // `bridge-contacts.ts` removed — its 6 functions are now methods on
 // `apis.contacts` (see `apis/contacts.ts::ContactsApi`).
 import { BridgeEventBus } from './event-bus';
@@ -353,30 +342,13 @@ export class Bridge implements BridgeInterface {
   }
 
   // extend
-  async setOnlineStatus(status: number, extStatus: number = 0, batteryStatus: number = 100): Promise<void> {
-    return setOnlineStatus_(this, status, extStatus, batteryStatus);
-  }
-  async setDiyOnlineStatus(faceId: number, wording: string, faceType: number): Promise<void> {
-    return setDiyOnlineStatus_(this, faceId, wording, faceType);
-  }
-  async setProfile(nickname?: string, personalNote?: string): Promise<void> {
-    return setProfile_(this, nickname, personalNote);
-  }
+  // Profile methods (setOnlineStatus / setDiyOnlineStatus / setProfile /
+  // setSelfLongNick / setInputStatus / setAvatar / setGroupAvatar /
+  // fetchCustomFace / getLike / getUnidirectionalFriendList) moved to
+  // apis.profile.
   async getCookiesStr(domain: string): Promise<string> { return getCookiesStr_(this, domain); }
   async getCsrfToken(): Promise<number> { return getCsrfToken_(this); }
   async getCredentials(domain: string) { return getCredentials_(this, domain); }
-  async getProfileLike(userId?: number, start?: number, limit?: number) {
-    return getProfileLike_(this, userId, start, limit);
-  }
-  async getUnidirectionalFriendList() {
-    return getUnidirectionalFriendList_(this);
-  }
-  async setSelfLongNick(longNick: string) {
-    return setSelfLongNick_(this, longNick);
-  }
-  async setInputStatus(userId: number, eventType: number) {
-    return setInputStatus_(this, userId, eventType);
-  }
   async translateEn2Zh(words: string[]) {
     return translateEn2Zh_(this, words);
   }
@@ -388,15 +360,6 @@ export class Bridge implements BridgeInterface {
   }
   async sendGroupSign(groupId: number) {
     return sendGroupSign_(this, groupId);
-  }
-  async setAvatar(source: string): Promise<void> {
-    return setAvatar_(this, source);
-  }
-  async setGroupAvatar(groupId: number, source: string): Promise<void> {
-    return setGroupAvatar_(this, groupId, source);
-  }
-  async fetchCustomFace(count?: number): Promise<string[]> {
-    return fetchCustomFace_(this, count);
   }
 
   // --- Tier-2 napcat-parity extras (group todo, stranger status, AI voice) ---

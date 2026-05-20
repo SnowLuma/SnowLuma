@@ -28,6 +28,7 @@ import { GroupAlbumApi } from './group-album';
 import { GroupFileApi } from './group-file';
 import { InteractionApi } from './interaction';
 import { MessageApi } from './message';
+import { ProfileApi } from './profile';
 
 export interface ApiHub {
   /** Send/recall/markRead operations across c2c + group + c2c-file. */
@@ -44,6 +45,8 @@ export interface ApiHub {
   readonly interaction: InteractionApi;
   /** Friend roster mutations: handleRequest / delete / setRemark. */
   readonly friend: FriendApi;
+  /** Personal profile: status / avatar / nickname / likes / custom-faces. */
+  readonly profile: ProfileApi;
   // Pending — added as later commits land:
   //   readonly interaction: InteractionApi;
   //   readonly profile:     ProfileApi;
@@ -70,6 +73,7 @@ export function buildApiHub(ctx: BridgeContext): ApiHub {
     groupAlbum: new GroupAlbumApi(ctx),
     interaction: new InteractionApi(ctx),
     friend: new FriendApi(ctx),
+    profile: new ProfileApi(ctx),
   };
 }
 
@@ -83,3 +87,4 @@ export { GroupAlbumApi } from './group-album';
 export { GroupFileApi } from './group-file';
 export { InteractionApi } from './interaction';
 export { MessageApi } from './message';
+export { ProfileApi } from './profile';

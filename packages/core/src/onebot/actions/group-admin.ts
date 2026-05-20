@@ -113,7 +113,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
     if (!file) return failedResponse(RETCODE.BAD_REQUEST, 'file is required');
     try {
-      await ctx.bridge.setGroupAvatar(groupId, file);
+      await ctx.bridge.apis.profile.setGroupAvatar(groupId, file);
       return okResponse();
     } catch (err) {
       return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
