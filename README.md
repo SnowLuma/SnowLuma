@@ -68,6 +68,7 @@ WebUI 默认监听 `5099` 端口。首次启动会在控制台打印 `initial cr
 | [`@snowluma/sdk`](packages/sdk) | OneBot HTTP & WebSocket TypeScript SDK，发布到 npm。 |
 | [`@snowluma/ui`](packages/ui) | Tailwind 4 共享组件库（shadcn 风格），发布到 npm。 |
 | [`@snowluma/websocket`](packages/websocket) | OneBot WebSocket 适配器底层。 |
+| [`@snowluma/proton`](packages/proton) | 编译期 protobuf 编/解码器生成器：TS interface 标注 `pb<N, T>`，Vite 插件在构建时把 `protobuf_encode<T>` / `protobuf_decode<T>` 替换为内联 codec，零运行时反射。 |
 | [`@snowluma/runtime`](packages/runtime) | 运行时清单与发布包资源。 |
 | [`webui`](packages/webui) | Web 管理面板前端。 |
 

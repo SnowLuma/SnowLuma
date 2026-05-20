@@ -162,6 +162,10 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     getForwardMsg: (resId) => getForwardMessage(ref, resId),
     forwardSingleMsg: (messageId, target) => forwardSingleMessage(ref, messageId, target),
     handleDeleteFriend: (userId, block) => bridge.deleteFriend(userId, !!block),
+    forceFetchClientKey: () => bridge.forceFetchClientKey(),
+    setFriendRemark: (userId, remark) => bridge.setFriendRemark(userId, remark),
+    setGroupRemark: (groupId, remark) => bridge.setGroupRemark(groupId, remark),
+    setGroupAvatar: (groupId, source) => bridge.setGroupAvatar(groupId, source),
     getGroupFileCount: (groupId) => bridge.fetchGroupFileCount(groupId),
 
     // Cross-store: looks up the meta then routes through Bridge.
@@ -174,6 +178,30 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
       if (!meta.isGroup) throw new Error('emoji reactions are not supported on private messages');
       await bridge.setGroupReaction(meta.targetId, meta.sequence, emojiId, set);
     },
+    markGroupMsgAsRead: (groupId, sequence) => bridge.markGroupMsgAsRead(groupId, sequence),
+    markPrivateMsgAsRead: (userId, sequence) => bridge.markPrivateMsgAsRead(userId, sequence),
+    setOnlineStatus: (status: number, extStatus?: number, batteryStatus?: number) => bridge.setOnlineStatus(status, extStatus, batteryStatus),
+    setProfile: (nickname?: string, personalNote?: string) => bridge.setProfile(nickname, personalNote),
+
+    // Web-backed actions.
+    getGroupHonorInfo: (groupId: number, type: WebHonorType | string) => bridge.getGroupHonorInfo(groupId, type),
+    getGroupEssenceAll: (groupId) => bridge.getGroupEssenceAll(groupId),
+    getGroupAlbumList: (groupId) => bridge.getGroupAlbumList(groupId),
+    uploadImageToGroupAlbum: (groupId, albumId, albumName, filePath) => bridge.uploadImageToGroupAlbum(groupId, albumId, albumName, filePath),
+    getGroupAlbumMediaList: (groupId, albumId, attachInfo) => bridge.getGroupAlbumMediaList(groupId, albumId, attachInfo),
+    commentGroupAlbumMedia: (groupId, albumId, lloc, content) => bridge.commentGroupAlbumMedia(groupId, albumId, lloc, content),
+    deleteGroupAlbumMedia: (groupId, albumId, lloc) => bridge.deleteGroupAlbumMedia(groupId, albumId, lloc),
+    likeGroupAlbumMedia: (groupId, albumId, batchId, lloc, isLike) => bridge.likeGroupAlbumMedia(groupId, albumId, batchId, lloc, isLike),
+    sendGroupNotice: (groupId, content, options) => bridge.sendGroupNotice(groupId, content, options),
+    getGroupNotice: (groupId) => bridge.getGroupNotice(groupId),
+    deleteGroupNotice: (groupId, fid) => bridge.deleteGroupNotice(groupId, fid),
+    getCookiesStr: (domain) => bridge.getCookiesStr(domain),
+    getCsrfToken: () => bridge.getCsrfToken(),
+    getCredentials: (domain) => bridge.getCredentials(domain),
+
+    // Extended
+    fetchCustomFace: (count) => bridge.fetchCustomFace(count),
+    getEmojiLikes: (groupId, sequence, emojiId, emojiType, count, cookie) => bridge.getEmojiLikes(groupId, sequence, emojiId, emojiType, count, cookie),
 
     // Media lookup.
     getImageInfo: (file) => getCachedImageInfo(mediaStore, file),

@@ -3,15 +3,14 @@
 
 import net from 'net';
 import type { Bridge } from '../bridge';
-import { protoEncode, protoDecode } from '../../protobuf/decode';
-import {
-  HttpConn0x6FF501RequestSchema,
-  HttpConn0x6FF501ResponseSchema,
-  ReqDataHighwayHeadSchema,
-  RespDataHighwayHeadSchema,
-  NTV2RichMediaHighwayExtSchema,
-  HighwayMsgInfoBodySchema,
-} from '../proto/highway';
+import { protobuf_encode, protobuf_decode } from '@snowluma/proton';
+import type {
+  HttpConn0x6FF501Request,
+  HttpConn0x6FF501Response,
+  ReqDataHighwayHead,
+  RespDataHighwayHead,
+  NTV2RichMediaHighwayExt,
+} from '../proto/proton/highway';
 import { packHighwayFrame, unpackHighwayFrame, computeMd5 } from './utils';
 
 const HIGHWAY_APP_ID = 1600001604;
@@ -32,20 +31,20 @@ function ipv4ToString(value: number): string {
 }
 
 export async function fetchHighwaySession(bridge: Bridge): Promise<HighwaySession> {
-  const request = protoEncode({
+  const request = protobuf_encode<HttpConn0x6FF501Request>({
     httpConn: {
       field1: 0, field2: 0, field3: 16, field4: 1, field6: 3,
       serviceTypes: [1, 5, 10, 21],
       field9: 2, field10: 9, field11: 8, ver: '1.0.1',
     },
-  }, HttpConn0x6FF501RequestSchema);
+  });
 
   const result = await bridge.sendRawPacket('HttpConn.0x6ff_501', request);
   if (!result.success || !result.gotResponse || !result.responseData) {
     throw new Error(result.errorMessage || 'HttpConn request failed');
   }
 
-  const resp = protoDecode(result.responseData, HttpConn0x6FF501ResponseSchema);
+  const resp = protobuf_decode<HttpConn0x6FF501Response>(result.responseData);
   if (!resp?.httpConn) throw new Error('HttpConn response body missing');
   if (!resp.httpConn.sigSession || (resp.httpConn.sigSession as Uint8Array).length === 0) {
     throw new Error('HttpConn response missing sig_session');
@@ -78,7 +77,7 @@ function makeHighwayHead(
   uin: string, commandId: number, fileSize: number, offset: number, length: number,
   chunkMd5: Uint8Array, fileMd5: Uint8Array, sigSession: Uint8Array, extend: Uint8Array,
 ): Uint8Array {
-  return protoEncode({
+  return protobuf_encode<ReqDataHighwayHead>({
     msgBaseHead: {
       version: 1, uin, command: 'PicUp.DataUp', seq: 0, retryTimes: 0,
       appId: HIGHWAY_APP_ID, dataFlag: 16, commandId,
@@ -90,7 +89,7 @@ function makeHighwayHead(
     bytesReqExtendInfo: extend,
     timestamp: 0n,
     msgLoginSigHead: { loginSigType: 8, appId: HIGHWAY_APP_ID },
-  }, ReqDataHighwayHeadSchema);
+  });
 }
 
 export function buildHighwayExtend(
@@ -113,7 +112,7 @@ export function buildHighwayExtend(
     }
   }
 
-  return protoEncode({
+  return protobuf_encode<NTV2RichMediaHighwayExt>({
     fileUuid: selected?.index?.fileUuid ?? '',
     uKey,
     network: { ipv4s: networkIpv4s },
@@ -122,7 +121,7 @@ export function buildHighwayExtend(
     })),
     blockSize: HIGHWAY_BLOCK_SIZE,
     hash: { fileSha1: Array.isArray(sha1) ? sha1 : [sha1] },
-  }, NTV2RichMediaHighwayExtSchema);
+  });
 }
 
 // --- TCP-based HTTP highway upload ---
@@ -241,7 +240,7 @@ export async function uploadHighwayHttp(
       const frame = packHighwayFrame(head, chunk);
       const responseBody = await httpPostFrame(socket, session.host, pathStr, frame);
       const { head: respHead } = unpackHighwayFrame(responseBody);
-      const resp = protoDecode(respHead, RespDataHighwayHeadSchema);
+      const resp = protobuf_decode<RespDataHighwayHead>(respHead);
       if (resp?.errorCode && resp.errorCode !== 0) {
         throw new Error(`highway upload error_code=${resp.errorCode}`);
       }

@@ -2,10 +2,10 @@
 // to GroupMute (12) / GroupMsgEmojiLike (16) / GroupRecall (17) /
 // GroupGreyTip (20) / GroupEssence (21).
 
-import { protoDecode } from '../../../protobuf/decode';
-import {
-  GroupMuteSchema, NotifyMessageBodySchema, GroupReactNotifySchema,
-} from '../../proto/notify';
+import { protobuf_decode } from '@snowluma/proton';
+import type {
+  GroupMute, NotifyMessageBody, GroupReactNotify,
+} from '../../proto/proton/notify';
 import type {
   GroupMuteEvent, GroupRecallEvent, GroupPokeEvent, GroupEssenceEvent,
   GroupMsgEmojiLikeEvent,
@@ -35,7 +35,7 @@ export const decodeEvent0x2DC: MsgPushDecoder = (ctx) => {
 };
 
 function decodeGroupMute(ctx: MsgPushContext): QQEventVariant[] {
-  const mute = protoDecode(ctx.content, GroupMuteSchema);
+  const mute = protobuf_decode<GroupMute>(ctx.content);
   if (!mute?.data?.state) return [];
   const duration = mute.data.state.duration ?? 0;
   const ev: GroupMuteEvent = {
@@ -53,7 +53,7 @@ function decodeGroupMute(ctx: MsgPushContext): QQEventVariant[] {
 function decodeGroupRecall(ctx: MsgPushContext): QQEventVariant[] {
   const payload = unwrapGroupNotifyPayload(ctx.content);
   if (!payload) return [];
-  const notify = protoDecode(payload, NotifyMessageBodySchema);
+  const notify = protobuf_decode<NotifyMessageBody>(payload);
   if (!notify?.recall?.recallMessages || notify.recall.recallMessages.length === 0) return [];
   const recalled = notify.recall.recallMessages[0];
   const ev: GroupRecallEvent = {
@@ -72,7 +72,7 @@ function decodeGroupRecall(ctx: MsgPushContext): QQEventVariant[] {
 function decodeGroupGreyTip(ctx: MsgPushContext): QQEventVariant[] {
   const payload = unwrapGroupNotifyPayload(ctx.content);
   if (!payload) return [];
-  const notify = protoDecode(payload, NotifyMessageBodySchema);
+  const notify = protobuf_decode<NotifyMessageBody>(payload);
   if (!notify?.generalGrayTip || (notify.generalGrayTip.busiType ?? 0n) !== 12n) return [];
   const templates = buildTemplateMap(notify.generalGrayTip.msgTemplParam ?? []);
   const actor = findTemplateValue(templates, 'uin_str1');
@@ -94,7 +94,7 @@ function decodeGroupGreyTip(ctx: MsgPushContext): QQEventVariant[] {
 function decodeGroupEssence(ctx: MsgPushContext): QQEventVariant[] {
   const payload = unwrapGroupNotifyPayload(ctx.content);
   if (!payload) return [];
-  const notify = protoDecode(payload, NotifyMessageBodySchema);
+  const notify = protobuf_decode<NotifyMessageBody>(payload);
   if (!notify?.essenceMessage) return [];
   const essence = notify.essenceMessage;
   const setFlag = essence.setFlag ?? essence.setFlag2 ?? 0;
@@ -124,7 +124,7 @@ const GROUP_REACT_DISCRIMINATOR = 35;
 function decodeGroupMsgEmojiLike(ctx: MsgPushContext): QQEventVariant[] {
   if (ctx.content.length <= GROUP_REACT_PREFIX_BYTES) return [];
   const payload = ctx.content.subarray(GROUP_REACT_PREFIX_BYTES);
-  const notify = protoDecode(payload, GroupReactNotifySchema);
+  const notify = protobuf_decode<GroupReactNotify>(payload);
   if (!notify) return [];
   if ((notify.field13 ?? 0) !== GROUP_REACT_DISCRIMINATOR) {
     unknownLog.debug('Event0x2DC subType=16 unhandled field13=%d (expected %d for emoji react)',

@@ -390,14 +390,21 @@ export const MsgInfoSchema = {
 
 // --- GroupFileExtra (TransElem type=24) ---
 
+// Field numbers cross-checked against NapCat (component.ts:146) +
+// acidify (GroupFileExtra.kt:Inner.Info). Old schema had fileSha at 5
+// / extInfoString at 6 / fileMd5 at 7 which mismatched the real wire
+// shape — the server rejected the chat post with `result=79` because
+// fileSha bytes were landing where it expected a uint32 (field 5).
+// See proton/element.ts for the WHY comment.
 export const GroupFileInfoSchema = {
   busId: { field: 1, type: 'uint32' as const },
   fileId: { field: 2, type: 'string' as const },
   fileSize: { field: 3, type: 'uint64' as const },
   fileName: { field: 4, type: 'string' as const },
-  fileSha: { field: 5, type: 'bytes' as const },
-  extInfoString: { field: 6, type: 'string' as const },
-  fileMd5: { field: 7, type: 'bytes' as const },
+  field5: { field: 5, type: 'uint32' as const },
+  fileSha: { field: 6, type: 'bytes' as const },
+  extInfoString: { field: 7, type: 'string' as const },
+  fileMd5: { field: 8, type: 'bytes' as const },
 } satisfies ProtoSchema;
 
 export const GroupFileExtraInnerSchema = {
@@ -405,6 +412,9 @@ export const GroupFileExtraInnerSchema = {
 } satisfies ProtoSchema;
 
 export const GroupFileExtraSchema = {
+  field1: { field: 1, type: 'uint32' as const },
+  fileName: { field: 2, type: 'string' as const },
+  display: { field: 3, type: 'string' as const },
   inner: { field: 7, type: 'message' as const, schema: GroupFileExtraInnerSchema },
 } satisfies ProtoSchema;
 

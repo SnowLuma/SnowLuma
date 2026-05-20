@@ -353,6 +353,20 @@ function NetworkTabView({
   // widening cast at the call site rather than ladder-of-ifs per tab.
   const summarize = tab.summarize as (it: typeof list[number]) => string;
 
+  // Tally name occurrences once instead of doing `list.filter(...).map(...).includes(...)`
+  // inside `.map()` (O(n²) per render). With this lookup, the duplicate
+  // check is O(1) per row — matters once the list grows past a few entries
+  // or when typing renames a node and the tab re-renders on every keystroke.
+  const nameCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of list) {
+      const name = item.name;
+      if (!name) continue;
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    return counts;
+  }, [list]);
+
   if (list.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-muted-foreground">
@@ -369,8 +383,7 @@ function NetworkTabView({
       <p className="text-xs text-muted-foreground">{tab.description}</p>
       <div className="flex flex-col gap-2">
         {list.map((item, idx) => {
-          const others = list.filter((_, i) => i !== idx).map((n) => n.name);
-          const duplicate = !!item.name && others.includes(item.name);
+          const duplicate = !!item.name && (nameCounts.get(item.name) ?? 0) > 1;
           return (
             <NodeSummaryCard
               key={`${item.name}-${idx}`}

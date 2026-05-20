@@ -434,14 +434,24 @@ function extractRichtextExtras(
 }
 
 function extractMsgContent(msgContent: Uint8Array, elements: MessageElement[]): void {
+  // `MessageBody.msgContent` is where the QQ-NT server actually puts
+  // c2c file metadata — serialised `FileExtra { file: NotOnlineFile }`
+  // bytes. The previous schema (`FileExtraInfoSchema` with fileSize=1/
+  // fileName=2/fileMd5=3/fileUuid=4/fileHash=5) didn't match the wire
+  // shape — every field landed at the wrong tag, so the four-field
+  // truthiness check below filtered out every real c2c file push as
+  // "incomplete metadata". After consolidating FileExtra to wrap
+  // `NotOnlineFile` (Lagrange.Core's `FileExtra { File: NotOnlineFile }`),
+  // this reads the right tags.
   const extra = protoDecode(msgContent, FileExtraSchema);
   if (!extra?.file) return;
   const f = extra.file;
-  if (f.fileSize !== undefined && f.fileName && f.fileMd5 && f.fileUuid && f.fileHash) {
-    elements.push({
-      type: 'file', fileName: f.fileName, fileId: f.fileUuid,
-      fileSize: f.fileSize !== undefined ? Number(f.fileSize) : 0,
-      fileHash: f.fileHash,
-    });
-  }
+  if (!f.fileUuid) return;
+  elements.push({
+    type: 'file',
+    fileId: f.fileUuid,
+    fileName: f.fileName ?? '',
+    fileSize: f.fileSize !== undefined ? Number(f.fileSize) : 0,
+    fileHash: f.fileHash ?? '',
+  });
 }

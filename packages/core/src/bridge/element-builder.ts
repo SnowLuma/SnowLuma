@@ -5,17 +5,19 @@
 import type { Bridge } from './bridge';
 import type { MessageElement } from './events';
 import type { ProtoDecoded } from '../protobuf/decode';
-import { protoEncode } from '../protobuf/decode';
+import { protobuf_encode } from '@snowluma/proton';
 import {
   ElemSchema,
 } from './proto/element';
-import {
-  MentionExtraSendSchema,
-  MarkdownDataSchema,
-} from './proto/action';
+import type {
+  MentionExtraSend,
+  MarkdownData,
+} from './proto/proton/action';
+import type { GroupFileExtra } from './proto/proton/element';
 import { uploadImageMsgInfo } from './highway/image-upload';
 import { uploadPttMsgInfo } from './highway/ptt-upload';
 import { uploadVideoMsgInfo } from './highway/video-upload';
+import { hexToBytes } from './highway/pipeline';
 
 type ProtoElem = Partial<ProtoDecoded<typeof ElemSchema>>;
 
@@ -23,6 +25,18 @@ export interface SendContext {
   bridge: Bridge;
   groupId?: number;
   userUid?: string;
+  /**
+   * Set by the forward-message upload path. When `true`, file segments
+   * are encoded as receive-side wire shapes (group → `transElem(24)`,
+   * c2c → caller writes `body.msgContent` separately) instead of being
+   * dropped. The QQ-NT server rejects outgoing PbSendMsg with
+   * `transElem(24)` (result=79), but the long-msg upload service does
+   * NOT — it stores the gzipped protobuf verbatim, so the receiver
+   * can walk it back through the regular decoder. Mirrors NapCat's
+   * `PacketMsgFileElement.buildElement` + `buildContent` split (see
+   * `dev/napcatQQ/.../packet/message/element.ts:530-610`).
+   */
+  forwardFake?: boolean;
 }
 
 function makeTextElem(text: string): ProtoElem {
@@ -51,12 +65,12 @@ function makeMentionElem(element: MessageElement, ctx?: SendContext): ProtoElem 
   const mentionAll = element.uid === 'all' || element.targetUin === 0;
   const targetUin = element.targetUin ?? 0;
 
-  const extra = protoEncode({
+  const extra = protobuf_encode<MentionExtraSend>({
     type: mentionAll ? 1 : 2,
     uin: mentionAll ? 0 : targetUin,
     field5: 0,
     uid: mentionAll ? 'all' : (element.uid ?? ''),
-  }, MentionExtraSendSchema);
+  });
 
   // Prefer an explicit display string from the caller; otherwise look the
   // target up in the roster so QQ renders `@昵称` instead of `@QQ号`.
@@ -128,7 +142,7 @@ function makeXmlElem(element: MessageElement): ProtoElem {
 }
 
 function makeMarkdownElem(element: MessageElement): ProtoElem {
-  const data = protoEncode({ content: element.text ?? '' }, MarkdownDataSchema);
+  const data = protobuf_encode<MarkdownData>({ content: element.text ?? '' });
 
   return {
     commonElem: {
@@ -244,6 +258,62 @@ async function makePttElem(ctx: SendContext, element: MessageElement): Promise<P
   };
 }
 
+/**
+ * Receive-side group file element shape — `transElem(elemType=24,
+ * elemValue: 0x01 | BE16(len) | GroupFileExtra)`.
+ *
+ * NOT used for outgoing PbSendMsg (the QQ-NT server rejects that with
+ * result=79); the group-file send-side flow goes through dedicated
+ * OIDB 0x6d9_4 via `bridge.sendGroupFileMessage`. This shape IS used
+ * inside the long-msg upload (forward / multi-msg) — the long-msg
+ * service stores the gzipped protobuf verbatim, and the receiver
+ * decodes file entities from `transElem(24)` (see
+ * `msg-push/rich-body-decoder.ts:169-187`).
+ */
+function makeGroupFileElem(element: MessageElement): ProtoElem {
+  if (!element.fileId) throw new Error('file element missing fileId');
+  const fileSize = element.fileSize ?? 0;
+  const fileName = element.fileName ?? '';
+  const md5 = element.md5Hex ? hexToBytes(element.md5Hex) : new Uint8Array(0);
+  const sha1 = element.sha1Hex ? hexToBytes(element.sha1Hex) : new Uint8Array(0);
+
+  // Outer field1 is hardcoded to 6 in NapCat's encoder
+  // (`packet/message/element.ts:589`). Inner GroupFileExtraInfo carries
+  // busId=102 + the file_id + name + size + sha1/md5 hashes.
+  const extraBytes = protobuf_encode<GroupFileExtra>({
+    field1: 6,
+    fileName,
+    inner: {
+      info: {
+        busId: 102,
+        fileId: element.fileId,
+        fileSize: BigInt(fileSize),
+        fileName,
+        fileSha: sha1,
+        extInfoString: '',
+        fileMd5: md5,
+      },
+    },
+  });
+  if (extraBytes.length > 0xFFFF) {
+    // The 16-bit length prefix caps the payload at 64 KiB; even the
+    // densest GroupFileExtra (fileId/name/two hashes) is well under.
+    throw new Error(`group file extra too large (${extraBytes.length} > 65535)`);
+  }
+  const elemValue = new Uint8Array(3 + extraBytes.length);
+  elemValue[0] = 0x01;
+  elemValue[1] = (extraBytes.length >> 8) & 0xff;
+  elemValue[2] = extraBytes.length & 0xff;
+  elemValue.set(extraBytes, 3);
+
+  return {
+    transElem: {
+      elemType: 24,
+      elemValue,
+    } as any,
+  };
+}
+
 async function makeVideoElem(ctx: SendContext, element: MessageElement): Promise<ProtoElem> {
   const isGroup = ctx.groupId !== undefined;
   const targetIdOrUid = isGroup ? ctx.groupId! : (ctx.userUid ?? '');
@@ -328,6 +398,42 @@ export async function buildSendElems(elements: MessageElement[], ctx?: SendConte
           result.push(await makeVideoElem(ctx, elem));
         } else {
           console.warn('[ElemBuilder] video send requires SendContext');
+        }
+        break;
+
+      case 'file':
+        // Files split into two routes depending on whether this is a
+        // live send or a forward-message fake-send:
+        //
+        // 1. LIVE send (PbSendMsg / OIDB 0x6d9_4) — never carried on
+        //    elems[]. The OneBot layer splits file segments off before
+        //    calling buildSendElems:
+        //      * c2c (private): split → `bridge.sendC2cFileMessage`
+        //        (routingHead.trans0x211 + msgContent FileExtra).
+        //      * group: split → `bridge.sendGroupFileMessage`
+        //        (OIDB 0x6d9_4 publish).
+        //    The QQ-NT server REJECTS outgoing PbSendMsg with a
+        //    transElem(24) (result=79), so an element reaching here
+        //    in live-send mode is a routing bug — drop with a warn.
+        //
+        // 2. FORWARD-FAKE upload (long-msg) — `ctx.forwardFake===true`.
+        //    The long-msg service stores the gzipped protobuf verbatim
+        //    and the receiver decodes file entities from transElem(24)
+        //    + msgContent FileExtra. Mirror NapCat's split (see
+        //    `dev/napcatQQ/.../packet/message/element.ts:530-610`):
+        //      * group → emit transElem(24) via makeGroupFileElem
+        //      * c2c   → emit NOTHING here; the forward-builder pulls
+        //                the file segment off and writes msgContent
+        //                separately (because RichText.notOnlineFile +
+        //                FileExtra both live outside elems[]).
+        if (ctx && ctx.forwardFake) {
+          if (ctx.groupId !== undefined) {
+            result.push(makeGroupFileElem(elem));
+          }
+          // c2c forwardFake intentionally falls through — handled by
+          // the forward-builder at the msgContent level.
+        } else {
+          console.warn('[ElemBuilder] BUG: {type:"file"} reached element-builder — must be split out at the OneBot layer (see modules/message-actions.ts::sendPrivateMessage / ::sendGroupMessage)');
         }
         break;
 

@@ -1,6 +1,6 @@
 {
   "name": "@snowluma/core",
-  "version": "1.8.5",
+  "version": "1.9.0",
   "description": "SnowLuma core - NTQQ packet sniffer with Node.js native addon",
   "private": true,
   "type": "module",
@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@snowluma/proton": "workspace:*",
     "@snowluma/websocket": "workspace:*"
   },
   "devDependencies": {

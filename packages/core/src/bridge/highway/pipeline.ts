@@ -17,13 +17,13 @@
 import crypto from 'crypto';
 
 import type { Bridge } from '../bridge';
-import { protoDecode, protoEncode } from '../../protobuf/decode';
-import { makeOidbBaseSchema } from '../proto/oidb';
-import {
-  EncodableMediaMsgInfoSchema,
-  NTV2UploadRichMediaReqSchema,
-  NTV2UploadRichMediaRespSchema,
-} from '../proto/highway';
+import { protobuf_encode } from '@snowluma/proton';
+import { makeOidbEnvelope, encodeOidbEnv, decodeOidbEnv } from '../bridge-oidb';
+import type {
+  EncodableMediaMsgInfo,
+  NTV2UploadRichMediaReq,
+  NTV2UploadRichMediaResp,
+} from '../proto/proton/highway';
 import { buildHighwayExtend, fetchHighwaySession, uploadHighwayHttp } from './highway-client';
 import { createLogger } from '../../utils/logger';
 
@@ -159,24 +159,21 @@ export async function runNtv2Upload(params: NtV2UploadParams): Promise<any> {
     },
   };
 
-  const baseSchema = makeOidbBaseSchema(NTV2UploadRichMediaReqSchema);
-  const request = protoEncode({
-    command: oidbCmd, subCommand: 100, errorCode: 0, body, errorMsg: '', reserved: 1,
-  }, baseSchema);
+  const env = makeOidbEnvelope<NTV2UploadRichMediaReq>(oidbCmd, 100, body, true);
+  const requestBytes = encodeOidbEnv<NTV2UploadRichMediaReq>(env);
 
-  const result = await bridge.sendRawPacket(serviceCmd, request);
+  const result = await bridge.sendRawPacket(serviceCmd, requestBytes);
   if (!result.success || !result.gotResponse || !result.responseData) {
     throw new Error(result.errorMessage || `${label} upload request failed`);
   }
 
-  const respBaseSchema = makeOidbBaseSchema(NTV2UploadRichMediaRespSchema);
-  const resp: any = protoDecode(result.responseData, respBaseSchema);
+  const resp = decodeOidbEnv<NTV2UploadRichMediaResp>(result.responseData);
   if (!resp) throw new Error(`failed to decode ${label} upload response`);
   if (resp.errorCode && resp.errorCode !== 0) {
     throw new Error(`OIDB error ${resp.errorCode}: ${resp.errorMsg ?? ''}`);
   }
 
-  const uploadBody = resp.body;
+  const uploadBody: any = resp.body;
   if (!uploadBody) throw new Error(`${label} upload response body missing`);
   if (uploadBody.respHead?.retCode && uploadBody.respHead.retCode !== 0) {
     throw new Error(uploadBody.respHead.message ?? `${label} upload failed`);
@@ -262,5 +259,5 @@ export function finalizeMediaMsgInfo(
     extBizInfo.busiType = upload.msgInfo.extBizInfo.busiType;
   }
 
-  return protoEncode({ msgInfoBody, extBizInfo }, EncodableMediaMsgInfoSchema);
+  return protobuf_encode<EncodableMediaMsgInfo>({ msgInfoBody, extBizInfo });
 }

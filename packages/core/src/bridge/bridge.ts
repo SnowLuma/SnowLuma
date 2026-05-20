@@ -7,16 +7,17 @@ import type { ForwardNodePayload, QQEventVariant, MessageElement } from './event
 import type { FriendInfo, QQGroupInfo, GroupMemberInfo, UserProfileInfo, GroupRequestInfo } from './qq-info';
 import { MSG_PUSH_CMD, parseMsgPush } from './msg-push';
 import type { PacketSender, SendPacketResult } from '../protocol/packet-sender';
-import { protoEncode, protoDecode } from '../protobuf/decode';
+import { protobuf_encode, protobuf_decode } from '@snowluma/proton';
 import { buildSendElems } from './element-builder';
 import { IdentityService } from './identity-service';
 import type { BridgeInterface } from './bridge-interface';
 import { IncomingPacketPipeline, type CmdParser } from './packet-pipeline';
 import { createLogger } from '../utils/logger';
-import {
-  SendMessageRequestSchema,
-  SendMessageResponseSchema,
-} from './proto/action';
+import type {
+  SendMessageRequest,
+  SendMessageResponse,
+} from './proto/proton/action';
+import type { FileExtra } from './proto/proton/message';
 
 // Delegated modules
 import {
@@ -47,6 +48,7 @@ import {
 import {
   uploadGroupFile as uploadGroupFile_,
   uploadPrivateFile as uploadPrivateFile_,
+  sendGroupFileMessage as sendGroupFileMessage_,
   fetchGroupFiles as fetchGroupFiles_,
   fetchGroupFileUrl as fetchGroupFileUrl_,
   fetchPrivateFileUrl as fetchPrivateFileUrl_,
@@ -126,7 +128,14 @@ import {
   getCookiesStr as getCookiesStr_,
   getCsrfToken as getCsrfToken_,
   getCredentials as getCredentials_,
+  getGroupAlbumListWeb as getGroupAlbumListWeb_,
+  uploadImageToGroupAlbumWeb as uploadImageToGroupAlbumWeb_,
 } from './web-actions';
+import { getGroupAlbumMediaList as getGroupAlbumMediaList_,
+  commentGroupAlbumMedia as commentGroupAlbumMedia_,
+  likeGroupAlbumMedia as likeGroupAlbumMedia_,
+  deleteGroupAlbumMedia as deleteGroupAlbumMedia_,
+} from './actions/group-album';
 import type { GroupFilesResult } from './actions/group-file';
 import type { MediaIndexNode } from './actions/shared';
 import { BridgeEventBus } from './event-bus';
@@ -137,6 +146,29 @@ export interface SendMessageReceipt {
   clientSequence: number;
   random: number;
   timestamp: number;
+}
+
+/**
+ * Metadata remembered after `upload_group_file` / `upload_private_file`
+ * succeeds. Lets the OneBot send-message path reconstruct the full
+ * payload when the caller only echoes the `file_id` back later. See
+ * `Bridge.rememberUploadedFile` / `recallUploadedFile`.
+ */
+export interface UploadedFileMeta {
+  fileId: string;
+  scope: 'group' | 'private';
+  /** Group id if scope='group', else `undefined`. */
+  groupId?: number;
+  /** Friend uin if scope='private', else `undefined`. */
+  userId?: number;
+  fileName: string;
+  fileSize: number;
+  fileMd5: Uint8Array;
+  fileSha1: Uint8Array;
+  /** Server-issued hash returned alongside the upload (private only). */
+  fileHash?: string;
+  /** Insert time — used to evict the oldest entry when the cache fills. */
+  rememberedAt: number;
 }
 
 export interface DownloadRKeyInfo {
@@ -177,6 +209,24 @@ export class Bridge implements BridgeInterface {
   // banned for 7 days.
   private memberListInflight_ = new Map<number, Promise<GroupMemberInfo[]>>();
   private memberListLastFetch_ = new Map<number, { at: number; data: GroupMemberInfo[] }>();
+
+  // ── Uploaded-file metadata cache ────────────────────────────────────
+  //
+  // After a file goes through `upload_group_file` / `upload_private_file`
+  // we remember the (fileName, fileSize, fileMd5, fileHash) tuple keyed
+  // by the returned file_id. The OneBot send-message paths consult this
+  // when the caller later passes `{type:'file', file_id:'xxx'}` without
+  // the rest of the metadata — c2c file send needs the size/md5/name
+  // for the wire packet (server-side rejection / "0 byte file" otherwise),
+  // and the group send path falls back to the name for the log line.
+  //
+  // Bounded at ~1024 entries with simple FIFO eviction. Files older
+  // than 7 days expire on QQ's side anyway, so this isn't load-bearing
+  // for correctness — just a UX convenience cache so the OneBot caller
+  // doesn't have to thread the metadata themselves between upload and
+  // send_msg.
+  private static readonly UPLOADED_FILE_CACHE_MAX = 1024;
+  private uploadedFileMeta_ = new Map<string, UploadedFileMeta>();
 
   // Sequence and random generators for outgoing messages
   private clientSeq_ = 100000000 + (Date.now() % 1000000000);
@@ -244,6 +294,37 @@ export class Bridge implements BridgeInterface {
     return true;
   }
 
+  // --- Uploaded-file metadata cache ---
+
+  /**
+   * Remember a freshly-uploaded file so a later `send_*_msg` carrying
+   * just the file_id can reconstruct the full c2c-file packet (fileName
+   * / fileSize / fileMd5 are required by the QQ NT server's c2c file
+   * intake, even if only the uuid is needed for the OIDB lookup
+   * internally — without them the file shows as 0 B in the recipient's
+   * chat or is silently rejected). Insertion is FIFO; oldest entry is
+   * evicted when the cache hits `UPLOADED_FILE_CACHE_MAX`.
+   */
+  rememberUploadedFile(meta: UploadedFileMeta): void {
+    if (!meta.fileId) return;
+    if (this.uploadedFileMeta_.size >= Bridge.UPLOADED_FILE_CACHE_MAX) {
+      // Map iteration order is insertion order — drop the oldest.
+      const oldest = this.uploadedFileMeta_.keys().next().value;
+      if (oldest !== undefined) this.uploadedFileMeta_.delete(oldest);
+    }
+    this.uploadedFileMeta_.set(meta.fileId, meta);
+  }
+
+  /**
+   * Recall metadata for a previously-uploaded file. Returns `undefined`
+   * if the file_id was never uploaded through this bridge instance, or
+   * if it's been evicted from the cache.
+   */
+  recallUploadedFile(fileId: string): UploadedFileMeta | undefined {
+    if (!fileId) return undefined;
+    return this.uploadedFileMeta_.get(fileId);
+  }
+
   // --- Sequence / random generators ---
 
   private nextClientSequence(): number {
@@ -275,13 +356,13 @@ export class Bridge implements BridgeInterface {
     const protoElems = await buildSendElems(elements, { bridge: this, groupId });
     const random = this.nextMessageRandom();
 
-    const request = protoEncode({
+    const request = protobuf_encode<SendMessageRequest>({
       routingHead: {
         grp: { groupCode: BigInt(groupId) },
-      } as any,
+      },
       contentHead: {
         type: 1,
-      } as any,
+      },
       messageBody: {
         richText: {
           elems: protoElems,
@@ -293,7 +374,7 @@ export class Bridge implements BridgeInterface {
       via: 0,
       dataStatist: 0,
       multiSendSeq: 0,
-    }, SendMessageRequestSchema);
+    });
 
     const result = await this.sendRawPacket(Bridge.SEND_MSG_CMD, request);
 
@@ -301,7 +382,7 @@ export class Bridge implements BridgeInterface {
       throw new Error(`send group message failed: ${result.errorMessage || 'no response'}`);
     }
 
-    const response = protoDecode(result.responseData, SendMessageResponseSchema);
+    const response = protobuf_decode<SendMessageResponse>(result.responseData);
     if (!response) {
       throw new Error('failed to decode SendMessageResponse');
     }
@@ -336,18 +417,18 @@ export class Bridge implements BridgeInterface {
     const random = this.nextMessageRandom();
     const clientSeq = this.nextClientSequence();
 
-    const request = protoEncode({
+    const request = protobuf_encode<SendMessageRequest>({
       routingHead: {
         c2c: {
           uin: userUin,
           ...(userUid ? { uid: userUid } : {}),
         },
-      } as any,
+      },
       contentHead: {
         type: 1,
         subType: 0,
         c2cCmd: 11,
-      } as any,
+      },
       messageBody: {
         richText: {
           elems: protoElems,
@@ -360,9 +441,9 @@ export class Bridge implements BridgeInterface {
       dataStatist: 0,
       ctrl: {
         msgFlag: Math.floor(Date.now() / 1000),
-      } as any,
+      },
       multiSendSeq: 0,
-    }, SendMessageRequestSchema);
+    });
 
     const result = await this.sendRawPacket(Bridge.SEND_MSG_CMD, request);
 
@@ -370,7 +451,7 @@ export class Bridge implements BridgeInterface {
       throw new Error(`send private message failed: ${result.errorMessage || 'no response'}`);
     }
 
-    const response = protoDecode(result.responseData, SendMessageResponseSchema);
+    const response = protobuf_decode<SendMessageResponse>(result.responseData);
     if (!response) {
       throw new Error('failed to decode SendMessageResponse');
     }
@@ -389,6 +470,113 @@ export class Bridge implements BridgeInterface {
       random,
       timestamp,
     };
+  }
+
+  /**
+   * Send a c2c file as a chat message.
+   *
+   * The wire shape isn't the same as a regular c2c message — the c2c
+   * file path uses three slots that differ from a normal text/image
+   * send (verified against `dev/Lagrange.Core/.../MessagePacker.cs:
+   * BuildPacketBase` + `FileEntity.PackMessageContent`):
+   *
+   *   1. `routingHead.trans0x211 { ccCmd: 4, uid: peer }` instead of
+   *      `routingHead.c2c { uin, uid }`. The server rejects c2c file
+   *      messages routed through the regular c2c slot.
+   *   2. `messageBody.msgContent` carries the serialised
+   *      `FileExtra { file: NotOnlineFile }` bytes. NOT
+   *      `richText.notOnlineFile` — the receiver doesn't read that
+   *      slot for file metadata.
+   *   3. `contentHead.c2cCmd` left at 0 (Lagrange's default). The
+   *      previous `c2cCmd: 11` was a stale go-cqhttp value the QQ-NT
+   *      server doesn't recognise.
+   *
+   * NotOnlineFile carries three required-on-send fields the receiver
+   * itself ignores but the server's intake validator checks:
+   *   - `subcmd: 1`     — c2c file send command code
+   *   - `dangerEvel: 0` — virus-scan severity, always 0 client-side
+   *   - `expireTime`    — 7 days from now (Lagrange convention)
+   */
+  async sendC2cFileMessage(
+    userUin: number,
+    userUid: string,
+    info: { fileId: string; fileName: string; fileSize: number; fileMd5: Uint8Array; fileHash?: string },
+  ): Promise<SendMessageReceipt> {
+    const random = this.nextMessageRandom();
+    const clientSeq = this.nextClientSequence();
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const sevenDaysSec = 7 * 24 * 60 * 60;
+    // Serialise `FileExtra { file: NotOnlineFile }` for `msgContent`.
+    // The NotOnlineFile field tags (1/3/4/5/6/9/50/55/57) are shared
+    // between send and receive — the schema is symmetric.
+    const fileExtraBytes = protobuf_encode<FileExtra>({
+      file: {
+        fileType: 0,
+        fileUuid: info.fileId,
+        fileMd5: info.fileMd5,
+        fileName: info.fileName,
+        fileSize: BigInt(info.fileSize),
+        subcmd: 1,
+        dangerEvel: 0,
+        expireTime: nowSec + sevenDaysSec,
+        fileHash: info.fileHash ?? '',
+      },
+    });
+
+    const request = protobuf_encode<SendMessageRequest>({
+      routingHead: {
+        // c2c-file scene: route through `trans0x211` (field 15) with
+        // ccCmd=4. The regular `c2c { uin, uid }` routing slot causes
+        // the server to reject this with a routing-mismatch error.
+        trans0x211: { ccCmd: 4, uid: userUid },
+      },
+      contentHead: {
+        type: 1,
+        subType: 0,
+        // c2cCmd intentionally omitted (defaults to 0). Was `11`,
+        // which produced an unknown-command error in the QQ-NT
+        // server's c2c file handler. `userUin` is unused on this path
+        // (routing carries the uid only) but kept in the function
+        // signature for symmetry with the OneBot caller.
+      },
+      messageBody: {
+        // No elems — the file metadata lives in msgContent below.
+        msgContent: fileExtraBytes,
+      },
+      clientSequence: clientSeq,
+      random,
+      syncCookie: new Uint8Array(0),
+      via: 0,
+      dataStatist: 0,
+      ctrl: {
+        msgFlag: nowSec,
+      },
+      multiSendSeq: 0,
+    });
+
+    // Silence the unused-parameter lint — `userUin` is part of our
+    // BridgeInterface contract (the OneBot layer threads it through)
+    // but the wire shape only needs the uid.
+    void userUin;
+
+    const result = await this.sendRawPacket(Bridge.SEND_MSG_CMD, request);
+    if (!result.success || !result.gotResponse || !result.responseData) {
+      throw new Error(`send c2c file message failed: ${result.errorMessage || 'no response'}`);
+    }
+
+    const response = protobuf_decode<SendMessageResponse>(result.responseData);
+    if (!response) {
+      throw new Error('failed to decode SendMessageResponse');
+    }
+    if (response.result !== undefined && response.result !== 0) {
+      throw new Error(`send c2c file message rejected: result=${response.result} err=${response.errMsg ?? ''}`);
+    }
+
+    const seq = response.privateSequence ?? 0;
+    const messageId = (random & 0x7FFFFFFF) || seq;
+    const timestamp = response.timestamp1 ?? Math.floor(Date.now() / 1000);
+    return { messageId, sequence: seq, clientSequence: clientSeq, random, timestamp };
   }
 
   // --- Delegated: OIDB helpers ---
@@ -447,6 +635,9 @@ export class Bridge implements BridgeInterface {
   async uploadPrivateFile(userId: number, file: string, name = '', uploadFile = true): Promise<{ fileId: string | null }> {
     return uploadPrivateFile_(this, userId, file, name, uploadFile);
   }
+  async sendGroupFileMessage(groupId: number, fileId: string): Promise<void> {
+    return sendGroupFileMessage_(this, groupId, fileId);
+  }
   async fetchGroupFiles(groupId: number, folderId = '/'): Promise<GroupFilesResult> { return fetchGroupFiles_(this, groupId, folderId); }
   async fetchGroupFileUrl(groupId: number, fileId: string, busId = 102): Promise<string> { return fetchGroupFileUrl_(this, groupId, fileId, busId); }
   async fetchPrivateFileUrl(userId: number, fileId: string, fileHash: string): Promise<string> { return fetchPrivateFileUrl_(this, userId, fileId, fileHash); }
@@ -482,6 +673,30 @@ export class Bridge implements BridgeInterface {
 
   async getGroupEssenceAll(groupId: number): Promise<any> {
     return getGroupEssenceAll_(this, groupId);
+  }
+
+  async getGroupAlbumList(groupId: number): Promise<any> {
+    return getGroupAlbumListWeb_(this, groupId);
+  }
+
+  async uploadImageToGroupAlbum(groupId: number, albumId: string, albumName: string, filePath: string): Promise<void> {
+    return uploadImageToGroupAlbumWeb_(this, groupId, albumId, albumName, filePath);
+  }
+
+  async getGroupAlbumMediaList(groupId: number, albumId: string, attachInfo?: string): Promise<any> {
+    return getGroupAlbumMediaList_(this, groupId, albumId, attachInfo);
+  }
+
+  async commentGroupAlbumMedia(groupId: number, albumId: string, lloc: string, content: string): Promise<any> {
+    return commentGroupAlbumMedia_(this, groupId, albumId, lloc, content);
+  }
+
+  async likeGroupAlbumMedia(groupId: number, albumId: string, batchId: string, lloc: string | undefined, isLike: boolean): Promise<any> {
+    return likeGroupAlbumMedia_(this, groupId, albumId, batchId, lloc, isLike);
+  }
+
+  async deleteGroupAlbumMedia(groupId: number, albumId: string, lloc: string): Promise<any> {
+    return deleteGroupAlbumMedia_(this, groupId, albumId, lloc);
   }
 
   async sendGroupNotice(groupId: number, content: string, options?: any) {

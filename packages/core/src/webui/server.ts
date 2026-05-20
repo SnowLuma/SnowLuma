@@ -450,6 +450,21 @@ export async function initWebUI(
   app.post('/api/processes/:pid/unload',  processAction('unload',  (pid) => hookManager!.unloadProcess(pid)));
   app.post('/api/processes/:pid/refresh', processAction('refresh', (pid) => hookManager!.refreshProcess(pid)));
 
+  app.get('/api/processes/:pid/probe-login', async (c) => {
+    if (!hookManager) return c.json({ info: null, message: 'hook manager is not available' }, 503);
+    const pid = Number(c.req.param('pid'));
+    if (!Number.isInteger(pid) || pid <= 0 || pid > MAX_PID) {
+      return c.json({ info: null, message: 'invalid pid' }, 400);
+    }
+    try {
+      const info = await hookManager.probeProcessLoginInfo(pid);
+      return c.json({ info });
+    } catch (err) {
+      log.warn('probe-login pid=%d failed: %s', pid, err instanceof Error ? err.message : String(err));
+      return c.json({ info: null, message: '探测失败' }, 500);
+    }
+  });
+
   app.get('/api/config/:uin', (c) => {
     const uin = c.req.param('uin');
     if (!UIN_REGEX.test(uin)) return c.json({ message: 'invalid uin' }, 400);

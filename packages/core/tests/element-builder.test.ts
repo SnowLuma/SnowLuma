@@ -92,3 +92,29 @@ describe('element-builder / commonElem.businessType per scene', () => {
     });
   });
 });
+
+describe('element-builder / file element is no longer carried in elems[]', () => {
+  // Regression for the `result=79` class: previously the element-builder
+  // emitted a `transElem(elemType=24, ...)` for `{type:'file'}` segments
+  // and the QQ-NT server rejected the outgoing PbSendMsg with that wire
+  // shape. The fix moves group-file publishing onto a dedicated OIDB
+  // call (`OidbSvcTrpcTcp.0x6d9_4`), driven from the OneBot layer in
+  // `modules/message-actions.ts::sendGroupMessage` after the file
+  // segment is split off. The element-builder therefore must NOT emit
+  // any element for `{type:'file'}` anymore — if it does, the message
+  // ships with a transElem(24) payload and result=79 returns.
+  it('produces an empty elems[] for a {type:"file"} segment (must be split out at OneBot layer)', async () => {
+    const result = await buildSendElems(
+      [{
+        type: 'file',
+        fileId: 'fid-abc',
+        fileName: 'doc.txt',
+        fileSize: 123,
+        md5Hex: 'aabbccddeeff00112233445566778899',
+        sha1Hex: '0102030405060708090a0b0c0d0e0f1011121314',
+      } as any],
+      { bridge: fakeBridge, groupId: 12345 },
+    );
+    expect(result).toEqual([]);
+  });
+});

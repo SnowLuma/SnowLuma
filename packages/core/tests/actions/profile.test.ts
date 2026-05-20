@@ -1,8 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { protobuf_encode } from '@snowluma/proton';
+import type { OidbBase } from '../../src/bridge/proto/proton/oidb';
+import type {
+  Oidb0x7edResp,
+  Oidb0xe17Resp,
+} from '../../src/bridge/proto/proton/oidb-action';
 
-vi.mock('../../src/bridge/bridge-oidb', () => ({
-  runOidb: vi.fn(async () => ({})),
-}));
+// `encodeOidbEnv` / `decodeOidbEnv` are proton-bound pass-through wrappers
+// (substituted at the call site with the inlined codec). Mocking them on
+// the module object is a no-op — proton has already inlined the call.
+// We mock `runOidb` (non-generic) to return real proton-encoded bytes
+// that the production-side codec actually decodes.
+vi.mock('../../src/bridge/bridge-oidb', async () => {
+  const actual = await vi.importActual<typeof import('../../src/bridge/bridge-oidb')>(
+    '../../src/bridge/bridge-oidb',
+  );
+  return {
+    ...actual,
+    runOidb: vi.fn(async () => new Uint8Array()),
+    makeOidbEnvelope: vi.fn((_oidbCmd, _subCmd, body) => ({ body })),
+  };
+});
 
 vi.mock('../../src/bridge/highway/highway-client', () => ({
   fetchHighwaySession: vi.fn(async () => ({})),
@@ -23,7 +41,8 @@ import { mockBridge } from './_helpers';
 describe('actions/profile', () => {
   beforeEach(() => {
     vi.mocked(oidb.runOidb).mockReset();
-    vi.mocked(oidb.runOidb).mockResolvedValue({});
+    vi.mocked(oidb.runOidb).mockResolvedValue(new Uint8Array());
+    vi.mocked(oidb.makeOidbEnvelope).mockClear();
     vi.mocked(highwayClient.fetchHighwaySession).mockClear();
     vi.mocked(highwayClient.uploadHighwayHttp).mockClear();
   });
@@ -93,23 +112,23 @@ describe('actions/profile', () => {
     const bridge = mockBridge();
     await profile.setProfile(bridge as any, 'New Nick');
     expect(oidb.runOidb).toHaveBeenCalledOnce();
-    const call = vi.mocked(oidb.runOidb).mock.calls[0]![1];
-    expect((call.request.value as any).stringProfiles).toEqual([{ fieldId: 20002, value: 'New Nick' }]);
+    const body = vi.mocked(oidb.makeOidbEnvelope).mock.calls[0]![2];
+    expect((body as any).stringProfiles).toEqual([{ fieldId: 20002, value: 'New Nick' }]);
   });
 
   it('setSelfLongNick wraps the long nick in profile tag 102', async () => {
     const bridge = mockBridge();
     await profile.setSelfLongNick(bridge as any, 'hello world');
-    const call = vi.mocked(oidb.runOidb).mock.calls[0]![1];
-    expect((call.request.value as any).profile).toEqual({ tag: 102, value: 'hello world' });
+    const body = vi.mocked(oidb.makeOidbEnvelope).mock.calls[0]![2];
+    expect((body as any).profile).toEqual({ tag: 102, value: 'hello world' });
   });
 
   it('setInputStatus resolves UID first and sends 0xcd4_1', async () => {
     const bridge = mockBridge();
     await profile.setInputStatus(bridge as any, 10001, 1);
     expect(bridge.resolveUserUid).toHaveBeenCalledWith(10001);
-    const call = vi.mocked(oidb.runOidb).mock.calls[0]![1];
-    expect(call.cmd).toBe('OidbSvcTrpcTcp.0xcd4_1');
+    const [, cmd] = vi.mocked(oidb.runOidb).mock.calls[0]!;
+    expect(cmd).toBe('OidbSvcTrpcTcp.0xcd4_1');
   });
 
   it('setAvatar loads bytes and pushes through the highway upload path (cmd 90)', async () => {
@@ -155,14 +174,18 @@ describe('actions/profile', () => {
 
   it('getProfileLike (self): resolves self UID, returns formatted favorite + vote info', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
-      userLikeInfos: [{
-        uid: 'u',
-        time: 1700000000n,
-        favoriteInfo: { totalCount: 5, lastTime: 1n, newCount: 1 },
-        voteInfo: { totalCount: 7, newCount: 2, lastTime: 2n },
-      }],
-    });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+      protobuf_encode<OidbBase<Oidb0x7edResp>>({
+        body: {
+          userLikeInfos: [{
+            uid: 'u',
+            time: 1700000000n,
+            favoriteInfo: { totalCount: 5, lastTime: 1n, newCount: 1 },
+            voteInfo: { totalCount: 7, newCount: 2, lastTime: 2n },
+          }],
+        } as any,
+      }),
+    );
     const out = await profile.getProfileLike(bridge as any);
     expect(out.favoriteInfo.total_count).toBe(5);
     expect(out.voteInfo.total_count).toBe(7);
@@ -170,15 +193,19 @@ describe('actions/profile', () => {
 
   it('getProfileLike throws on empty result', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce({ userLikeInfos: [] });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+      protobuf_encode<OidbBase<Oidb0x7edResp>>({ body: { userLikeInfos: [] } as any }),
+    );
     await expect(profile.getProfileLike(bridge as any)).rejects.toThrow(/empty/);
   });
 
   it('getUnidirectionalFriendList parses the embedded JSON body', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce({
-      jsonBody: JSON.stringify({ rpt_block_list: [{ uin: 10001 }, { uin: 10002 }] }),
-    });
+    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+      protobuf_encode<OidbBase<Oidb0xe17Resp>>({
+        body: { jsonBody: JSON.stringify({ rpt_block_list: [{ uin: 10001 }, { uin: 10002 }] }) } as any,
+      }),
+    );
     const out = await profile.getUnidirectionalFriendList(bridge as any);
     expect(out).toEqual([{ uin: 10001 }, { uin: 10002 }]);
   });

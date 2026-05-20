@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: QQ 群
+    url: https://qm.qq.com/q/g3UMLpWALe
+    about: 日常使用问题、快速交流可以先来 QQ 群
+  - name: Telegram
+    url: https://t.me/napcatqq
+    about: 海外用户交流频道
+  - name: Releases
+    url: https://github.com/SnowLuma/SnowLuma/releases
+    about: 在反馈 Bug 前，请先确认已使用最新发布版本

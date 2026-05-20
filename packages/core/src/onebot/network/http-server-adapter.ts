@@ -79,11 +79,8 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
   onEvent(_event: JsonObject, _payload: DispatchPayload): void { /* no-op */ }
 
   private startServer(): void {
-    const expectedPath = normalizePath(this.config.path ?? '/');
-    const accessToken = this.config.accessToken ?? '';
-
     const server = createServer((req, res) => {
-      void this.handleRequest(expectedPath, accessToken, req, res);
+      void this.handleRequest(req, res);
     });
     this.server = server;
 
@@ -93,7 +90,7 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
         this.name,
         this.config.host ?? '0.0.0.0',
         this.config.port,
-        expectedPath,
+        normalizePath(this.config.path ?? '/'),
       );
     });
     server.on('error', (err) => {
@@ -103,7 +100,15 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
     server.listen(this.config.port, this.config.host ?? '0.0.0.0');
   }
 
-  private async handleRequest(expectedPath: string, accessToken: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    // Read `path` + `accessToken` fresh from `this.config` on every
+    // request so config hot-reloads (`reload()` overwrites `this.config`
+    // in place) take effect on the very next request without
+    // re-binding the listener. Matches the ws-server / http-post /
+    // ws-client adapters, which all read `this.config.accessToken`
+    // inline at the point of use.
+    const expectedPath = normalizePath(this.config.path ?? '/');
+    const accessToken = this.config.accessToken ?? '';
     const parsedUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
     const incomingPath = parsedUrl.pathname;
 
@@ -143,19 +148,61 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
       } else if (req.method === 'POST') {
         const bodyContent = await readRequestBody(req);
         if (bodyContent.trim()) {
-          try {
-            const parsedBody = JSON.parse(bodyContent);
-            if (typeof parsedBody === 'object' && parsedBody !== null && !Array.isArray(parsedBody)) {
-              if (parsedBody.action && !action) action = String(parsedBody.action);
-              if (parsedBody.params && typeof parsedBody.params === 'object' && !Array.isArray(parsedBody.params)) {
-                params = parsedBody.params as Record<string, unknown>;
-              } else {
-                params = parsedBody as Record<string, unknown>;
+          const contentType = req.headers['content-type'] ?? '';
+          if (contentType.includes('application/x-www-form-urlencoded')) {
+            const parsed = new URLSearchParams(bodyContent);
+            parsed.forEach((value, key) => {
+              try {
+                params[key] = JSON.parse(value);
+              } catch {
+                params[key] = value;
               }
-              echo = parsedBody.echo;
+            });
+            if (params.action && !action) {
+              action = String(params.action);
+              delete params.action;
             }
-          } catch {
-            writeJson(res, 400, { status: 'failed', retcode: 1400, data: null, wording: 'bad request: invalid json' });
+            if (params.echo !== undefined) {
+              echo = params.echo;
+              delete params.echo;
+            }
+          } else if (contentType.includes('application/json') || !contentType) {
+            try {
+              const parsedBody = JSON.parse(bodyContent);
+              if (typeof parsedBody === 'object' && parsedBody !== null && !Array.isArray(parsedBody)) {
+                if (parsedBody.action && !action) action = String(parsedBody.action);
+                if (parsedBody.params && typeof parsedBody.params === 'object' && !Array.isArray(parsedBody.params)) {
+                  params = parsedBody.params as Record<string, unknown>;
+                } else {
+                  params = parsedBody as Record<string, unknown>;
+                }
+                echo = parsedBody.echo;
+              }
+            } catch {
+              if (contentType.includes('application/json')) {
+                writeJson(res, 400, { status: 'failed', retcode: 1400, data: null, wording: 'bad request: invalid json' });
+                return;
+              }
+              // 无 content-type，JSON 失败则 fallback 到 urlencoded
+              const parsed = new URLSearchParams(bodyContent);
+              parsed.forEach((value, key) => {
+                try {
+                  params[key] = JSON.parse(value);
+                } catch {
+                  params[key] = value;
+                }
+              });
+              if (params.action && !action) {
+                action = String(params.action);
+                delete params.action;
+              }
+              if (params.echo !== undefined) {
+                echo = params.echo;
+                delete params.echo;
+              }
+            }
+          } else {
+            writeJson(res, 400, { status: 'failed', retcode: 1400, data: null, wording: `bad request: unsupported content-type: ${contentType}` });
             return;
           }
         }
@@ -182,7 +229,16 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
 }
 
 function bindingSignature(net: HttpServerNetwork): string {
-  return `${net.host ?? '0.0.0.0'}:${net.port}${normalizePath(net.path ?? '/')}#${net.accessToken ?? ''}`;
+  // `accessToken` deliberately omitted: it's read per-request from
+  // `this.config`, so a token change doesn't need to re-bind the
+  // listener. Including it here would cause a `close()` + `listen()`
+  // round trip on every token edit — a needless port-rebind that, on
+  // some hosts, races with the OS releasing the port and lands the
+  // server in a half-broken state where the old token still
+  // authenticates because the EADDRINUSE-failing new server never
+  // replaced the old one. `host`/`port`/`path` still gate a restart
+  // because Node's HTTP `Server.listen()` binds the socket on those.
+  return `${net.host ?? '0.0.0.0'}:${net.port}${normalizePath(net.path ?? '/')}`;
 }
 
 function readRequestBody(req: IncomingMessage, maxBytes = 2 * 1024 * 1024): Promise<string> {

@@ -343,11 +343,32 @@ describe('convertEvent — message elements (13 segment types)', () => {
     expect(seg.type).toBe('image');
     expect((seg.data as Record<string, unknown>).url).toBe('http://resolved');
     expect((seg.data as Record<string, unknown>).file).toBe('fid');
+    expect((seg.data as Record<string, unknown>).sub_type).toBe(0);
+    expect((seg.data as Record<string, unknown>).summary).toBe('');
   });
 
   it('image without resolver uses element.imageUrl', async () => {
     const seg = await segment({ type: 'image', fileId: 'fid', imageUrl: 'http://x' });
     expect((seg.data as Record<string, unknown>).url).toBe('http://x');
+  });
+
+  it('image: forwards optional sub_type and summary for custom emoji/stickers', async () => {
+    const seg = await segment({
+      type: 'image',
+      fileId: 'fid',
+      imageUrl: 'http://x',
+      subType: 1,
+      summary: '[动画表情]',
+    });
+    expect(seg).toEqual({
+      type: 'image',
+      data: {
+        url: 'http://x',
+        file: 'fid',
+        sub_type: 1,
+        summary: '[动画表情]',
+      },
+    });
   });
 
   it('at: targetUin -> qq string', async () => {

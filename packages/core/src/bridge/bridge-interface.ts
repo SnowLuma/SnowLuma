@@ -22,6 +22,7 @@ import type {
   SendMessageReceipt,
   DownloadRKeyInfo,
   ClientKeyInfo,
+  UploadedFileMeta,
 } from './bridge';
 import type { SendPacketResult } from '../protocol/packet-sender';
 
@@ -43,6 +44,18 @@ export interface BridgeInterface {
   // ─── Send (messages) ───
   sendGroupMessage(groupId: number, elements: MessageElement[]): Promise<SendMessageReceipt>;
   sendPrivateMessage(userUin: number, elements: MessageElement[]): Promise<SendMessageReceipt>;
+  /**
+   * Send a c2c file as a chat message. Bypasses the regular elems[]
+   * pipeline because c2c files live on `RichText.notOnlineFile`, not
+   * inside the elems array. Group files go through `sendGroupMessage`
+   * with a `{type:'file', fileId, fileName, fileSize, md5Hex, sha1Hex}`
+   * element instead.
+   */
+  sendC2cFileMessage(
+    userUin: number,
+    userUid: string,
+    info: { fileId: string; fileName: string; fileSize: number; fileMd5: Uint8Array; fileHash?: string },
+  ): Promise<SendMessageReceipt>;
 
   // ─── Fetch (contacts / profile / system) ───
   fetchFriendList(): Promise<FriendInfo[]>;
@@ -77,6 +90,16 @@ export interface BridgeInterface {
   // ─── Files ───
   uploadGroupFile(groupId: number, file: string, name?: string, folderId?: string, uploadFile?: boolean): Promise<{ fileId: string | null }>;
   uploadPrivateFile(userId: number, file: string, name?: string, uploadFile?: boolean): Promise<{ fileId: string | null }>;
+  /**
+   * Publish a previously-uploaded group file as a chat message via
+   * `OidbSvcTrpcTcp.0x6d9_4`. The atomic upload+publish flow inside
+   * `uploadGroupFile` already does this, but the OneBot send-message
+   * path needs it too for {type:'file', file_id} segments.
+   */
+  sendGroupFileMessage(groupId: number, fileId: string): Promise<void>;
+  /** Cache file metadata so a later send_msg with just `file_id` can rehydrate it. */
+  rememberUploadedFile(meta: UploadedFileMeta): void;
+  recallUploadedFile(fileId: string): UploadedFileMeta | undefined;
   fetchGroupFiles(groupId: number, folderId?: string): Promise<GroupFilesResult>;
   fetchGroupFileUrl(groupId: number, fileId: string, busId?: number): Promise<string>;
   fetchPrivateFileUrl(userId: number, fileId: string, fileHash: string): Promise<string>;
@@ -90,6 +113,14 @@ export interface BridgeInterface {
   deleteGroupFileFolder(groupId: number, folderId: string): Promise<void>;
   renameGroupFileFolder(groupId: number, folderId: string, newFolderName: string): Promise<void>;
   fetchGroupFileCount(groupId: number): Promise<{ fileCount: number; maxCount: number }>;
+
+  // ─── Group Album ───
+  getGroupAlbumList(groupId: number): Promise<any>;
+  uploadImageToGroupAlbum(groupId: number, albumId: string, albumName: string, filePath: string): Promise<void>;
+  getGroupAlbumMediaList(groupId: number, albumId: string, attachInfo?: string): Promise<any>;
+  commentGroupAlbumMedia(groupId: number, albumId: string, lloc: string, content: string): Promise<any>;
+  deleteGroupAlbumMedia(groupId: number, albumId: string, lloc: string): Promise<any>;
+  likeGroupAlbumMedia(groupId: number, albumId: string, batchId: string, lloc: string | undefined, isLike: boolean): Promise<any>;
 
   // ─── Forward ───
   uploadForwardNodes(nodes: ForwardNodePayload[], groupId?: number, userId?: number): Promise<string>;

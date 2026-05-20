@@ -83,6 +83,18 @@ export interface ForwardNodePayload {
   groupId?: number;
   senderCard?: string;
   messageType?: 'group' | 'private';
+  // When set, this node's `content` is a nested forward chain. The
+  // upload pipeline (see `actions/forward.ts::uploadForwardNodes`)
+  // recursively uploads the inner chain and replaces this node's
+  // `elements` with an ARK preview element pointing at the inner
+  // res_id. We also piggyback the inner chain's msgBody onto the
+  // outer long-msg upload as an extra `actionCommand` slot so the
+  // NapCat-compatible receiver can walk the whole tree from one
+  // server fetch without resolving each layer's res_id separately
+  // (modelled after `dev/NapCatQQ/.../SendMsg.uploadForwardedNodesPacket`).
+  // Caller never sets this on top-level OneBot input — `parseForward
+  // Nodes` synthesises it when it detects a nested-node array.
+  innerForward?: ForwardNodePayload[];
 }
 
 export interface QQEvent {

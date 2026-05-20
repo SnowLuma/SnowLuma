@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { Outlet } from '@tanstack/react-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useApi } from '@/lib/api';
 import { useHookProcessOps } from '@/hooks/use-hook-process-ops';
 import { MainLayout } from '@/components/layout/main-layout';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { Skeleton } from '@/components/ui/skeleton';
 import { AppStateProvider } from '@/contexts/AppStateContext';
 import { useSession } from '@/contexts/SessionContext';
 import type { HookProcessInfo, QQInfo, SystemInfo } from '@/types';
@@ -92,7 +93,13 @@ export function AppLayout() {
       }}
     >
       <MainLayout status={session.status} onLogout={handleLogout}>
-        <Outlet />
+        {/* Routes use `lazyRouteComponent` (router/index.tsx) for
+            code-splitting, which suspends until the chunk is fetched.
+            The chrome (sidebar / top bar) stays mounted across this
+            boundary so only the page surface flashes a skeleton. */}
+        <Suspense fallback={<PageFallback />}>
+          <Outlet />
+        </Suspense>
       </MainLayout>
 
       <ConfirmDialog
@@ -114,5 +121,21 @@ export function AppLayout() {
         onConfirm={dismissUnloadFailedAlert}
       />
     </AppStateProvider>
+  );
+}
+
+function PageFallback() {
+  // Generic page placeholder. Kept intentionally low-detail (just a
+  // header + a couple of card-shaped blocks) so it works for every
+  // route — overview's stat grid, config's tabbed editor, logs' list,
+  // and the settings page all converge on roughly this skeleton on
+  // their own loading states.
+  return (
+    <div className="flex flex-col gap-4">
+      <Skeleton className="h-9 w-48" />
+      <Skeleton className="h-10" />
+      <Skeleton className="h-32" />
+      <Skeleton className="h-32" />
+    </div>
   );
 }

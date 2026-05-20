@@ -110,10 +110,6 @@ jobs:
           SNOWLUMA_TARGET: ${{ matrix.target }}
         run: pnpm run build:all
 
-      - name: Bundle runtime dependencies
-        working-directory: dist
-        run: npm install --omit=dev
-
       # Naming convention:
       #   SnowLuma-dev-<arch>.zip|tar.gz        – zero-install (node bundled)
       #   SnowLuma-dev-<arch>-lite.zip|tar.gz   – user provides Node >= 22

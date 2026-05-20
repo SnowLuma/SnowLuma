@@ -4,42 +4,33 @@
 // the NTQQ NodeIKernel — every wire trip is one runOidb round-trip.
 
 import type { Bridge } from '../bridge';
-import { runOidb } from '../bridge-oidb';
-import {
-  OidbGroupTodoSchema,
-  OidbStrangerStatusReqSchema,
-  OidbStrangerStatusRespSchema,
-  OidbAiVoiceListReqSchema,
-  OidbAiVoiceListRespSchema,
-  OidbAiVoiceReqSchema,
-  OidbAiVoiceRespSchema,
-} from '../proto/oidb-action';
+import { runOidb, makeOidbEnvelope, encodeOidbEnv, decodeOidbEnv } from '../bridge-oidb';
+import type {
+  OidbAiVoiceListReq,
+  OidbAiVoiceListResp,
+  OidbAiVoiceReq,
+  OidbAiVoiceResp,
+  OidbGroupTodo,
+  OidbStrangerStatusReq,
+  OidbStrangerStatusResp,
+} from '../proto/proton/oidb-action';
 import type { MediaIndexNode } from './shared';
 
 // ─────────────── Group todo (0xF90) ───────────────
 
 export async function setGroupTodo(bridge: Bridge, groupId: number, msgSeq: bigint): Promise<void> {
-  await runOidb(bridge, {
-    cmd: 'OidbSvcTrpcTcp.0xf90_1',
-    oidbCmd: 0xF90, subCmd: 1,
-    request: { schema: OidbGroupTodoSchema, value: { groupUin: groupId, msgSeq } },
-  });
+  const env = makeOidbEnvelope<OidbGroupTodo>(0xF90, 1, { groupUin: groupId, msgSeq });
+  await runOidb(bridge, 'OidbSvcTrpcTcp.0xf90_1', encodeOidbEnv<OidbGroupTodo>(env));
 }
 
 export async function completeGroupTodo(bridge: Bridge, groupId: number, msgSeq: bigint): Promise<void> {
-  await runOidb(bridge, {
-    cmd: 'OidbSvcTrpcTcp.0xf90_2',
-    oidbCmd: 0xF90, subCmd: 2,
-    request: { schema: OidbGroupTodoSchema, value: { groupUin: groupId, msgSeq } },
-  });
+  const env = makeOidbEnvelope<OidbGroupTodo>(0xF90, 2, { groupUin: groupId, msgSeq });
+  await runOidb(bridge, 'OidbSvcTrpcTcp.0xf90_2', encodeOidbEnv<OidbGroupTodo>(env));
 }
 
 export async function cancelGroupTodo(bridge: Bridge, groupId: number, msgSeq: bigint): Promise<void> {
-  await runOidb(bridge, {
-    cmd: 'OidbSvcTrpcTcp.0xf90_3',
-    oidbCmd: 0xF90, subCmd: 3,
-    request: { schema: OidbGroupTodoSchema, value: { groupUin: groupId, msgSeq } },
-  });
+  const env = makeOidbEnvelope<OidbGroupTodo>(0xF90, 3, { groupUin: groupId, msgSeq });
+  await runOidb(bridge, 'OidbSvcTrpcTcp.0xf90_3', encodeOidbEnv<OidbGroupTodo>(env));
 }
 
 // ─────────────── Stranger online/ext status (0xFE1_2) ───────────────
@@ -60,18 +51,15 @@ export interface StrangerStatus {
  */
 export async function getStrangerStatus(bridge: Bridge, uin: number): Promise<StrangerStatus | null> {
   try {
-    const resp = await runOidb<{ data?: { status?: { value?: bigint | number } } }>(bridge, {
-      cmd: 'OidbSvcTrpcTcp.0xfe1_2',
-      oidbCmd: 0xFE1, subCmd: 2,
-      request: {
-        schema: OidbStrangerStatusReqSchema,
-        value: { uin, key: [{ key: 27372 }] },
-        // Same UIN-form flag fetchUserProfile sets — without it newer
-        // QQ NT rejects with `[oidb] one of uid/openid is invaild`.
-        isUid: true,
-      },
-      response: { schema: OidbStrangerStatusRespSchema },
-    });
+    const env = makeOidbEnvelope<OidbStrangerStatusReq>(
+      0xFE1, 2,
+      { uin, key: [{ key: 27372 }] } as any,
+      // Same UIN-form flag fetchUserProfile sets — without it newer
+      // QQ NT rejects with `[oidb] one of uid/openid is invaild`.
+      true,
+    );
+    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xfe1_2', encodeOidbEnv<OidbStrangerStatusReq>(env));
+    const resp = decodeOidbEnv<OidbStrangerStatusResp>(respBytes).body;
     const raw = resp?.data?.status?.value;
     if (raw === undefined || raw === null) return null;
     const extBig = typeof raw === 'bigint' ? raw : BigInt(raw);
@@ -110,13 +98,10 @@ export async function fetchAiVoiceList(
   groupId: number,
   chatType: AiVoiceChatType,
 ): Promise<AiVoiceCategory[]> {
-  const resp = await runOidb<{ content?: AiVoiceCategory[] }>(bridge, {
-    cmd: 'OidbSvcTrpcTcp.0x929d_0',
-    oidbCmd: 0x929D, subCmd: 0,
-    request: { schema: OidbAiVoiceListReqSchema, value: { groupUin: groupId, chatType } },
-    response: { schema: OidbAiVoiceListRespSchema },
-  });
-  return resp?.content ?? [];
+  const env = makeOidbEnvelope<OidbAiVoiceListReq>(0x929D, 0, { groupUin: groupId, chatType });
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x929d_0', encodeOidbEnv<OidbAiVoiceListReq>(env));
+  const resp = decodeOidbEnv<OidbAiVoiceListResp>(respBytes).body;
+  return (resp?.content as AiVoiceCategory[] | undefined) ?? [];
 }
 
 /**
@@ -139,19 +124,13 @@ export async function fetchAiVoice(
   // Random 32-bit session id — server uses this to deduplicate polls.
   const sessionId = Math.floor(Math.random() * 0xFFFFFFFF) >>> 0;
   for (let i = 0; i < maxRetries; i++) {
-    const resp = await runOidb<{
-      statusCode?: number;
-      msgInfo?: { msgInfoBody?: Array<{ index?: MediaIndexNode }> };
-    }>(bridge, {
-      cmd: 'OidbSvcTrpcTcp.0x929b_0',
-      oidbCmd: 0x929B, subCmd: 0,
-      request: {
-        schema: OidbAiVoiceReqSchema,
-        value: { groupUin: groupId, voiceId, text, chatType, session: { sessionId } },
-      },
-      response: { schema: OidbAiVoiceRespSchema },
-    });
-    const node = resp?.msgInfo?.msgInfoBody?.[0]?.index;
+    const env = makeOidbEnvelope<OidbAiVoiceReq>(
+      0x929B, 0,
+      { groupUin: groupId, voiceId, text, chatType, session: { sessionId } },
+    );
+    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x929b_0', encodeOidbEnv<OidbAiVoiceReq>(env));
+    const resp = decodeOidbEnv<OidbAiVoiceResp>(respBytes).body;
+    const node = resp?.msgInfo?.msgInfoBody?.[0]?.index as MediaIndexNode | undefined;
     if (node) return node;
   }
   throw new Error(`AI voice synthesis did not complete after ${maxRetries} polls`);

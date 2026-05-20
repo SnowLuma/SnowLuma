@@ -2,8 +2,8 @@
 // and the rich-body decoder. No state, no I/O.
 
 import { inflateSync } from 'zlib';
-import { protoDecode } from '../../protobuf/decode';
-import { OperatorInfoSchema } from '../proto/notify';
+import { protobuf_decode } from '@snowluma/proton';
+import type { OperatorInfo } from '../proto/proton/notify';
 import type { IdentityService } from '../identity-service';
 
 export function makeImageUrl(origUrl: string): string {
@@ -52,7 +52,7 @@ export function resolveUidToUin(identity: IdentityService, groupId: number, uid:
 
 export function decodeOperatorUid(bytes: Uint8Array): string {
   if (!bytes || bytes.length === 0) return '';
-  const info = protoDecode(bytes, OperatorInfoSchema);
+  const info = protobuf_decode<OperatorInfo>(bytes);
   if (info?.operatorField?.uid) return info.operatorField.uid;
   return Buffer.from(bytes).toString('utf8');
 }

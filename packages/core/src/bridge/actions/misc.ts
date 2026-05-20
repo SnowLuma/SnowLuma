@@ -4,17 +4,19 @@
 
 import type { Bridge } from '../bridge';
 import { protoDecode, protoEncode } from '../../protobuf/decode';
-import { runOidb } from '../bridge-oidb';
+import { runOidb, makeOidbEnvelope, encodeOidbEnv, decodeOidbEnv } from '../bridge-oidb';
 import {
   MiniAppShareReqSchema,
   MiniAppShareRespSchema,
-  Oidb0x112eReqSchema,
-  Oidb0x112eRespSchema,
-  Oidb0x990ReqSchema,
-  Oidb0x990RespSchema,
-  Oidb0xeb7ReqSchema,
-  Oidb0xeb7RespSchema,
 } from '../proto/oidb-action';
+import type {
+  Oidb0x112eReq,
+  Oidb0x112eResp,
+  Oidb0x990Req,
+  Oidb0x990Resp,
+  Oidb0xeb7Req,
+  Oidb0xeb7Resp,
+} from '../proto/proton/oidb-action';
 
 export async function translateEn2Zh(
   bridge: Bridge,
@@ -30,12 +32,9 @@ export async function translateEn2Zh(
     tag12: 1,
   };
 
-  const result = await runOidb<any>(bridge, {
-    cmd: 'OidbSvcTrpcTcp.0x990_2',
-    oidbCmd: 0x990, subCmd: 2,
-    request: { schema: Oidb0x990ReqSchema, value: req },
-    response: { schema: Oidb0x990RespSchema },
-  });
+  const env = makeOidbEnvelope<Oidb0x990Req>(0x990, 2, req);
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x990_2', encodeOidbEnv<Oidb0x990Req>(env));
+  const result = decodeOidbEnv<Oidb0x990Resp>(respBytes).body;
 
   const resp = result?.translateResp;
   if (!resp) {
@@ -122,12 +121,9 @@ export async function clickInlineKeyboardButton(
     unknown9: 1,
   };
 
-  const result = await runOidb<any>(bridge, {
-    cmd: 'OidbSvcTrpcTcp.0x112e_1',
-    oidbCmd: 0x112E, subCmd: 1,
-    request: { schema: Oidb0x112eReqSchema, value: req },
-    response: { schema: Oidb0x112eRespSchema },
-  });
+  const env = makeOidbEnvelope<Oidb0x112eReq>(0x112E, 1, req);
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x112e_1', encodeOidbEnv<Oidb0x112eReq>(env));
+  const result = decodeOidbEnv<Oidb0x112eResp>(respBytes).body;
 
   if (!result) {
     throw new Error('click inline keyboard button result empty');
@@ -155,10 +151,8 @@ export async function sendGroupSign(
     },
   };
 
-  await runOidb<any>(bridge, {
-    cmd: 'OidbSvcTrpcTcp.0xEB7_1',
-    oidbCmd: 0xEB7, subCmd: 1,
-    request: { schema: Oidb0xeb7ReqSchema, value: req },
-    response: { schema: Oidb0xeb7RespSchema },
-  });
+  const env = makeOidbEnvelope<Oidb0xeb7Req>(0xEB7, 1, req);
+  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xEB7_1', encodeOidbEnv<Oidb0xeb7Req>(env));
+  // Decode just to maintain the original behaviour of "consume the response".
+  decodeOidbEnv<Oidb0xeb7Resp>(respBytes);
 }
