@@ -81,7 +81,6 @@ class FileWriter {
       fs.mkdirSync(dir, { recursive: true });
     } catch (err) {
       this.disabled = true;
-      // eslint-disable-next-line no-console
       console.error(
         `[logger] failed to create log dir ${dir}: ${err instanceof Error ? err.message : String(err)}`,
       );
@@ -170,12 +169,10 @@ class FileWriter {
       }
       const stream = fs.createWriteStream(p, { flags: 'a' });
       stream.on('error', (err) => {
-        // eslint-disable-next-line no-console
         console.error(`[logger] file write error on ${p}: ${err.message}`);
       });
       return { stream, bytes, date, splitIndex, path: p };
     } catch (err) {
-      // eslint-disable-next-line no-console
       console.error(
         `[logger] failed to open log file ${p}: ${err instanceof Error ? err.message : String(err)}`,
       );

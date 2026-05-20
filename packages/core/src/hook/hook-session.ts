@@ -1,5 +1,4 @@
 import { EventEmitter } from 'events';
-import type { PacketSender } from '../protocol/packet-sender';
 import type { PacketSink } from '../protocol/types';
 import { createLogger, type Logger } from '../utils/logger';
 import { HookPacketClient } from './hook-packet-client';

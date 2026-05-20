@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { PipeWatcher } from '../src/hook/pipe-watcher';
 import type { HookProcessBaseInfo } from '../src/hook/injector';
 
-const flush = () => new Promise<void>(r => setImmediate(r));
-
 function setupWatcher(initial: { processes: HookProcessBaseInfo[]; live: Set<number> }) {
   let processes = initial.processes;
   let live = initial.live;

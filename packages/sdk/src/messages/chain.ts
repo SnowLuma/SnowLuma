@@ -7,7 +7,6 @@ import type {
   JsonObject,
   LocationSegment,
   MessageChainLike,
-  MessageSegment,
   MusicSegment,
   OutgoingMessage,
   RecordSegment,

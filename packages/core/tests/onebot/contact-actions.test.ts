@@ -236,7 +236,6 @@ describe('onebot/contact-actions / getGroupMemberList', () => {
 describe('onebot/contact-actions / getGroupMemberInfo', () => {
   it('returns the cached member when present and noCache is false', async () => {
     const member = makeMember(44, 'dave', 'D');
-    const cached = makeGroup(1000, '', [member]);
     const bridge = fakeBridge({
       fetchGroupMemberList: vi.fn(async () => []),
       identity: fakeIdentity({

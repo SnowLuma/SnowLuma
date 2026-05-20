@@ -15,7 +15,7 @@
 // envelope retCode via the non-generic `OidbBaseMeta` view.
 
 import type { Bridge } from './bridge';
-import { protobuf_encode, protobuf_decode } from '@snowluma/proton';
+import { protobuf_decode } from '@snowluma/proton';
 import type { OidbBase, OidbBaseMeta } from './proto/proton/oidb';
 
 /**

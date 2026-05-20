@@ -102,7 +102,6 @@ function createStubAddon(reason: string): NativeAddon {
       return fail();
     }
   }
-  // eslint-disable-next-line no-console
   console.warn(
     `[snowluma/websocket] WARNING: using stub addon (${reason}). WebSocket features are disabled.`,
   );

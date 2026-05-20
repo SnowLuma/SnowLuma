@@ -15,14 +15,22 @@
     "test": "pnpm --filter @snowluma/core test",
     "test:watch": "pnpm --filter @snowluma/core test:watch",
     "typecheck": "pnpm -r --if-present typecheck",
-    "lint": "pnpm -r --if-present lint",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "start": "node dist/index.mjs",
     "bump": "node tools/bump-version.mjs",
     "release": "node tools/release.mjs"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "cross-env": "^10.1.0",
-    "typescript": "catalog:"
+    "eslint": "^10.2.0",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.5.0",
+    "jiti": "^2.6.1",
+    "typescript": "catalog:",
+    "typescript-eslint": "^8.58.2"
   },
   "pnpm": {
     "peerDependencyRules": {

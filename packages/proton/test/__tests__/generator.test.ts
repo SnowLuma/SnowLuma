@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { analyzeSource } from '../../src/ast/analyzer';
 import { generateCode } from '../../src/codegen/generator';
-import { loadFixture, execAndGet } from '../helpers';
+import { loadFixture } from '../helpers';
 
 /** Analyze fixture → generate → eval → return encode/decode pair */
 function makeRoundTrip(fixtureName: string, msgName: string) {

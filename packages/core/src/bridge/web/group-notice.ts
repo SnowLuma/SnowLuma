@@ -186,7 +186,6 @@ export async function uploadGroupNoticeImage(
 
         const body = Buffer.concat(parts);
 
-        const url = 'https://web.qun.qq.com/cgi-bin/announce/upload_img';
         const options = {
             hostname: 'web.qun.qq.com',
             path: '/cgi-bin/announce/upload_img',
@@ -198,7 +197,7 @@ export async function uploadGroupNoticeImage(
             },
         };
 
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             const req = https.request(options, (res) => {
                 let data = '';
                 res.on('data', (chunk) => { data += chunk; });

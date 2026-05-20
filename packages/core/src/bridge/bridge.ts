@@ -3,7 +3,7 @@
 // Heavy OIDB / contact / action logic is split into bridge-oidb, bridge-contacts, bridge-actions.
 
 import type { PacketInfo } from '../protocol/types';
-import type { ForwardNodePayload, QQEventVariant, MessageElement } from './events';
+import type { ForwardNodePayload, MessageElement } from './events';
 import type { FriendInfo, QQGroupInfo, GroupMemberInfo, UserProfileInfo, GroupRequestInfo } from './qq-info';
 import { MSG_PUSH_CMD, parseMsgPush } from './msg-push';
 import type { PacketSender, SendPacketResult } from '../protocol/packet-sender';
@@ -12,7 +12,6 @@ import { buildSendElems } from './element-builder';
 import { IdentityService } from './identity-service';
 import type { BridgeInterface } from './bridge-interface';
 import { IncomingPacketPipeline, type CmdParser } from './packet-pipeline';
-import { createLogger } from '../utils/logger';
 import type {
   SendMessageRequest,
   SendMessageResponse,
@@ -184,8 +183,6 @@ export interface ClientKeyInfo {
   expireTime: string;
   keyIndex: string
 }
-
-const log = createLogger('Bridge');
 
 export class Bridge implements BridgeInterface {
   private static readonly SEND_MSG_CMD = 'MessageSvc.PbSendMsg';

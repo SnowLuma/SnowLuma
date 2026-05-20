@@ -3,7 +3,7 @@
 // into internal MessageElement arrays for sending.
 
 import type { MessageElement } from '../bridge/events';
-import type { JsonValue, JsonObject } from './types';
+import type { JsonValue } from './types';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('MsgParser');

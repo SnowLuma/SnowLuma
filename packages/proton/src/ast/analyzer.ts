@@ -268,8 +268,6 @@ export function selectUsedRegistry(
 ): UsedRegistryResult {
   const roots = new Set<string>();
   const resolved: ResolvedCallSiteRecord[] = [];
-  const resolveImportedTypeName = createImportedTypeNameResolver(sourceFile);
-
   for (const cs of callSites) {
     const typeSf = resolveSourceFileForTypeNode(cs.firstTypeArg, sourceFile);
     const typeName = typeNodeToMangledName(cs.firstTypeArg, typeSf, createImportedTypeNameResolver(typeSf));

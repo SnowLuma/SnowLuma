@@ -1,6 +1,6 @@
 import { RequestUtil, cookieToString, getBknFromCookie } from './request-util';
 import { createHash } from 'crypto';
-import { readFileSync, statSync, createReadStream, writeFileSync, unlinkSync } from 'fs';
+import { statSync, createReadStream, writeFileSync, unlinkSync } from 'fs';
 import { basename, join } from 'path';
 import { tmpdir } from 'os';
 
