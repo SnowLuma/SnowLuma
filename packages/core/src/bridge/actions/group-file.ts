@@ -617,7 +617,7 @@ export async function uploadPrivateFile(
   // the recipient sees nothing.
   if (uploadFile) {
     try {
-      await bridge.sendC2cFileMessage(userId, targetUid, {
+      await bridge.apis.message.sendC2cFile(userId, targetUid, {
         fileId,
         fileName,
         fileSize: loaded.bytes.length,

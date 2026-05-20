@@ -53,7 +53,7 @@ describe('forward — nested {type:"node"} content', () => {
       messageId: 1, sequence: 100, clientSequence: 0, random: 1, timestamp: 1700000000,
     }));
 
-    const bridge = fakeBridge({ uploadForwardNodes, sendGroupMessage } as any);
+    const bridge = fakeBridge({ uploadForwardNodes, apis: { message: { sendGroup: sendGroupMessage } } } as any);
     const ctx = makeCtx(bridge);
 
     const messages = [{
@@ -105,7 +105,7 @@ describe('forward — nested {type:"node"} content', () => {
       messageId: 1, sequence: 100, clientSequence: 0, random: 1, timestamp: 1700000000,
     }));
 
-    const bridge = fakeBridge({ uploadForwardNodes, sendPrivateMessage } as any);
+    const bridge = fakeBridge({ uploadForwardNodes, apis: { message: { sendPrivate: sendPrivateMessage } } } as any);
     const ctx = makeCtx(bridge);
 
     const messages = [{
@@ -143,7 +143,7 @@ describe('forward — nested {type:"node"} content', () => {
     const sendGroupMessage = vi.fn(async () => ({
       messageId: 1, sequence: 100, clientSequence: 0, random: 1, timestamp: 0,
     }));
-    const bridge = fakeBridge({ uploadForwardNodes, sendGroupMessage } as any);
+    const bridge = fakeBridge({ uploadForwardNodes, apis: { message: { sendGroup: sendGroupMessage } } } as any);
     const ctx = makeCtx(bridge);
 
     function wrap(content: any, depth: number): any {
@@ -167,7 +167,7 @@ describe('forward — nested {type:"node"} content', () => {
     const sendGroupMessage = vi.fn(async () => ({
       messageId: 1, sequence: 100, clientSequence: 0, random: 1, timestamp: 0,
     }));
-    const bridge = fakeBridge({ uploadForwardNodes, sendGroupMessage } as any);
+    const bridge = fakeBridge({ uploadForwardNodes, apis: { message: { sendGroup: sendGroupMessage } } } as any);
     const ctx = makeCtx(bridge);
 
     const messages = [
@@ -195,7 +195,7 @@ describe('forward — nested {type:"node"} content', () => {
     const sendGroupMessage = vi.fn(async () => ({
       messageId: 1, sequence: 100, clientSequence: 0, random: 1, timestamp: 0,
     }));
-    const bridge = fakeBridge({ uploadForwardNodes, sendGroupMessage } as any);
+    const bridge = fakeBridge({ uploadForwardNodes, apis: { message: { sendGroup: sendGroupMessage } } } as any);
     const ctx = makeCtx(bridge);
 
     const messages = [{

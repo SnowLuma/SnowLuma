@@ -40,7 +40,7 @@ describe('Bridge private media routing', () => {
     }
 
     const bridge = new TestBridge(IdentityService.memory('10000'));
-    await bridge.sendPrivateMessage(12345, [{ type: 'video', url: 'file:///tmp/clip.mp4' } as any]);
+    await bridge.apis.message.sendPrivate(12345, [{ type: 'video', url: 'file:///tmp/clip.mp4' } as any]);
 
     expect(bridge.capturedBody).toBeInstanceOf(Uint8Array);
     const request = protobuf_decode<SendMessageRequest>(bridge.capturedBody as Uint8Array);
@@ -77,7 +77,7 @@ describe('Bridge private media routing', () => {
     const bridge = new TestBridge(IdentityService.memory('10000'));
 
     const fileMd5 = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
-    await bridge.sendC2cFileMessage(67890, 'u_peer_xyz', {
+    await bridge.apis.message.sendC2cFile(67890, 'u_peer_xyz', {
       fileId: 'uuid-abc-123',
       fileName: 'doc.txt',
       fileSize: 1024,

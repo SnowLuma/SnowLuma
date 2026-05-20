@@ -217,7 +217,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
       return failedResponse(RETCODE.BAD_REQUEST, 'group_id does not match message session');
     }
 
-    await ctx.bridge.markGroupMsgAsRead(meta.targetId, meta.sequence);
+    await ctx.bridge.apis.message.markGroupRead(meta.targetId, meta.sequence);
     return okResponse();
   });
 
@@ -237,7 +237,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
       return failedResponse(RETCODE.BAD_REQUEST, 'user_id does not match message session');
     }
 
-    await ctx.bridge.markPrivateMsgAsRead(meta.targetId, meta.sequence);
+    await ctx.bridge.apis.message.markPrivateRead(meta.targetId, meta.sequence);
     return okResponse();
   });
 
@@ -256,9 +256,9 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
 
     if (meta.isGroup) {
-      await ctx.bridge.markGroupMsgAsRead(meta.targetId, meta.sequence);
+      await ctx.bridge.apis.message.markGroupRead(meta.targetId, meta.sequence);
     } else {
-      await ctx.bridge.markPrivateMsgAsRead(meta.targetId, meta.sequence);
+      await ctx.bridge.apis.message.markPrivateRead(meta.targetId, meta.sequence);
     }
     return okResponse();
   });

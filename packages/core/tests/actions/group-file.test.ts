@@ -159,7 +159,7 @@ describe('actions/group-file', () => {
     expect(fileId).toBe('fid-pub');
     // sendGroupMessage must NOT be touched — the previous wire shape
     // (PbSendMsg w/ transElem(24)) is the bug we're guarding against.
-    expect(bridge.sendGroupMessage).not.toHaveBeenCalled();
+    expect(bridge.apis.message.sendGroup).not.toHaveBeenCalled();
   });
 
   it('uploadGroupFile skips the chat post when uploadFile=false', async () => {
@@ -272,12 +272,12 @@ describe('actions/group-file', () => {
       }),
     );
     await groupFile.uploadPrivateFile(bridge as any, 67890, '/path/private-file.bin', 'doc.pdf');
-    expect(bridge.sendC2cFileMessage).toHaveBeenCalledOnce();
-    const [userUin, userUid, info] = bridge.sendC2cFileMessage.mock.calls[0]!;
+    expect(bridge.apis.message.sendC2cFile).toHaveBeenCalledOnce();
+    const [userUin, userUid, info] = bridge.apis.message.sendC2cFile.mock.calls[0]!;
     expect(userUin).toBe(67890);
     expect(userUid).toBe('target-uid');
     expect(info).toMatchObject({ fileId: 'pfid', fileName: 'doc.pdf', fileHash: 'phash' });
-    expect(bridge.sendPrivateMessage).not.toHaveBeenCalled();
+    expect(bridge.apis.message.sendPrivate).not.toHaveBeenCalled();
   });
 
   it('uploadPrivateFile caches the upload metadata for later resend by file_id', async () => {
@@ -314,7 +314,7 @@ describe('actions/group-file', () => {
       }),
     );
     await groupFile.uploadPrivateFile(bridge as any, 67890, '/path/file', '', false);
-    expect(bridge.sendC2cFileMessage).not.toHaveBeenCalled();
+    expect(bridge.apis.message.sendC2cFile).not.toHaveBeenCalled();
   });
 
   it('uploadPrivateFile reads host from rtpMediaPlatformUploadAddress[0].inIP when populated', async () => {

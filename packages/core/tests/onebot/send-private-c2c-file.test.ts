@@ -52,8 +52,7 @@ describe('send_private_msg with {type:"file"} segment', () => {
     const resolveUserUid = vi.fn(async () => 'u_peer');
     const recallUploadedFile = vi.fn(() => undefined);
     const bridge = fakeBridge({
-      sendPrivateMessage: sendPrivateMessage_bridge,
-      sendC2cFileMessage,
+      apis: { message: { sendPrivate: sendPrivateMessage_bridge, sendC2cFile: sendC2cFileMessage } } as any,
       resolveUserUid,
       recallUploadedFile,
     } as any);
@@ -98,8 +97,7 @@ describe('send_private_msg with {type:"file"} segment', () => {
       rememberedAt: 0,
     } : undefined);
     const bridge = fakeBridge({
-      sendPrivateMessage: vi.fn(),
-      sendC2cFileMessage,
+      apis: { message: { sendPrivate: vi.fn(), sendC2cFile: sendC2cFileMessage } } as any,
       resolveUserUid: vi.fn(async () => 'u_peer'),
       recallUploadedFile,
     } as any);
@@ -137,8 +135,7 @@ describe('send_private_msg with {type:"file"} segment', () => {
       rememberedAt: 0,
     }));
     const bridge = fakeBridge({
-      sendPrivateMessage: vi.fn(),
-      sendC2cFileMessage,
+      apis: { message: { sendPrivate: vi.fn(), sendC2cFile: sendC2cFileMessage } } as any,
       resolveUserUid: vi.fn(async () => 'u_peer'),
       recallUploadedFile,
     } as any);
@@ -162,8 +159,7 @@ describe('send_private_msg with {type:"file"} segment', () => {
     const sendC2cFileMessage = vi.fn(async (_uin: number, _uid: string, _info: any) => goodReceipt);
     const resolveUserUid = vi.fn(async () => 'u_peer');
     const bridge = fakeBridge({
-      sendPrivateMessage: sendPrivateMessage_bridge,
-      sendC2cFileMessage,
+      apis: { message: { sendPrivate: sendPrivateMessage_bridge, sendC2cFile: sendC2cFileMessage } } as any,
       resolveUserUid,
       recallUploadedFile: vi.fn(() => undefined),
     } as any);
@@ -196,8 +192,7 @@ describe('send_private_msg with {type:"file"} segment', () => {
     const sendPrivateMessage_bridge = vi.fn(async (_uin: number, _elements: any[]) => goodReceipt);
     const sendC2cFileMessage = vi.fn();
     const bridge = fakeBridge({
-      sendPrivateMessage: sendPrivateMessage_bridge,
-      sendC2cFileMessage,
+      apis: { message: { sendPrivate: sendPrivateMessage_bridge, sendC2cFile: sendC2cFileMessage } } as any,
       resolveUserUid: vi.fn(),
       recallUploadedFile: vi.fn(() => undefined),
     } as any);
@@ -220,8 +215,7 @@ describe('send_private_msg with {type:"file"} segment', () => {
     // an empty uid.
     const sendC2cFileMessage = vi.fn();
     const bridge = fakeBridge({
-      sendPrivateMessage: vi.fn(),
-      sendC2cFileMessage,
+      apis: { message: { sendPrivate: vi.fn(), sendC2cFile: sendC2cFileMessage } } as any,
       resolveUserUid: vi.fn(async () => ''), // intentional empty
       recallUploadedFile: vi.fn(() => undefined),
     } as any);

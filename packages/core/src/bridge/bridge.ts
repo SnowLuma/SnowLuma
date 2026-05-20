@@ -1,18 +1,12 @@
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { PacketSender, SendPacketResult } from '../protocol/packet-sender';
 import type { PacketInfo } from '../protocol/types';
 import type { BridgeInterface } from './bridge-interface';
-import { buildSendElems } from './element-builder';
-import type { ForwardNodePayload, MessageElement } from './events';
+import type { ForwardNodePayload } from './events';
 import { IdentityService } from './identity-service';
 import { MSG_PUSH_CMD, parseMsgPush } from './msg-push';
 import { IncomingPacketPipeline, type CmdParser } from './packet-pipeline';
-import type {
-  SendMessageRequest,
-  SendMessageResponse,
-} from '@snowluma/proto-defs/action';
-import type { FileExtra } from '@snowluma/proto-defs/message';
 import type { FriendInfo, GroupMemberInfo, GroupRequestInfo, QQGroupInfo, UserProfileInfo } from './qq-info';
+import { type ApiHub, buildApiHub } from './apis';
 
 // Delegated modules
 import {
@@ -78,16 +72,6 @@ import {
   uploadPrivateFile as uploadPrivateFile_,
 } from './actions/group-file';
 import {
-  // ⚠️ pre-fix history note: these two aliases were swapped here
-  // (`markPrivateMessageRead as markGroupMsgAsRead_` /
-  //  `markGroupMessageRead as markPrivateMsgAsRead_`), meaning
-  // `bridge.markGroupMsgAsRead(groupId, …)` actually fired the c2c
-  // read-report wire shape with `groupId` in the `userId` slot, and
-  // vice versa. Realigned with their intended names.
-  markGroupMessageRead as markGroupMsgAsRead_,
-  markPrivateMessageRead as markPrivateMsgAsRead_,
-  recallGroupMessage as recallGroupMessage_,
-  recallPrivateMessage as recallPrivateMessage_,
   setGroupEssence as setGroupEssence_,
 } from './actions/group-message';
 import {
@@ -188,8 +172,6 @@ export interface ClientKeyInfo {
 }
 
 export class Bridge implements BridgeInterface {
-  private static readonly SEND_MSG_CMD = 'MessageSvc.PbSendMsg';
-
   readonly identity: IdentityService;
   private pids_ = new Set<number>();
   /**
@@ -198,6 +180,14 @@ export class Bridge implements BridgeInterface {
    * care about and the pipeline fans out in parallel.
    */
   readonly events = new BridgeEventBus();
+  /**
+   * Typed Api hub. Each entry is a class encapsulating one logical
+   * area of the QQ protocol (sending messages, group admin, file
+   * uploads, etc.). Built eagerly in the constructor — every Bridge
+   * instance gets its own `apis.*` set with `this` (typed as
+   * `BridgeContext`) injected. See `apis/index.ts`.
+   */
+  readonly apis: ApiHub;
   private readonly pipeline: IncomingPacketPipeline;
   private packetClient_: PacketSender | null = null;
   // Throttle for fetchGroupMemberList(groupId): coalesces in-flight calls
@@ -245,6 +235,10 @@ export class Bridge implements BridgeInterface {
         this.refreshMemberCache(groupId, refreshGroupList, forceMemberList),
     });
     this.pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
+    // Build Api hub eagerly. The Bridge instance IS the BridgeContext
+    // — `this implements BridgeContext` is enforced via the
+    // `BridgeInterface` declaration, which itself extends BridgeContext.
+    this.apis = buildApiHub(this);
   }
 
   dispose(): void {
@@ -326,12 +320,18 @@ export class Bridge implements BridgeInterface {
   }
 
   // --- Sequence / random generators ---
+  //
+  // `public` (formerly `private`) because the Api classes in
+  // `apis/*.ts` need them to build `SendMessageRequest` packets. Part
+  // of the `BridgeContext` surface, so a third party that only sees
+  // `BridgeContext` can still synthesise wire packets without reaching
+  // into the concrete Bridge class.
 
-  private nextClientSequence(): number {
+  nextClientSequence(): number {
     return ++this.clientSeq_;
   }
 
-  private nextMessageRandom(): number {
+  nextMessageRandom(): number {
     this.msgRandom_ = (this.msgRandom_ + 0x9E3779B9) >>> 0;
     return this.msgRandom_ & 0x7FFFFFFF;
   }
@@ -348,236 +348,10 @@ export class Bridge implements BridgeInterface {
     return this.packetClient_.sendPacket(serviceCmd, Buffer.from(body), timeoutMs);
   }
 
-  // --- Send message (high-level) ---
-
-  async sendGroupMessage(groupId: number, elements: MessageElement[]): Promise<SendMessageReceipt> {
-    if (elements.length === 0) throw new Error('message is empty');
-
-    const protoElems = await buildSendElems(elements, { bridge: this, groupId });
-    const random = this.nextMessageRandom();
-
-    const request = protobuf_encode<SendMessageRequest>({
-      routingHead: {
-        grp: { groupCode: BigInt(groupId) },
-      },
-      contentHead: {
-        type: 1,
-      },
-      messageBody: {
-        richText: {
-          elems: protoElems,
-        },
-      } as any,
-      clientSequence: 0,
-      random,
-      syncCookie: new Uint8Array(0),
-      via: 0,
-      dataStatist: 0,
-      multiSendSeq: 0,
-    });
-
-    const result = await this.sendRawPacket(Bridge.SEND_MSG_CMD, request);
-
-    if (!result.success || !result.gotResponse || !result.responseData) {
-      throw new Error(`send group message failed: ${result.errorMessage || 'no response'}`);
-    }
-
-    const response = protobuf_decode<SendMessageResponse>(result.responseData);
-    if (!response) {
-      throw new Error('failed to decode SendMessageResponse');
-    }
-    if (response.result != null && response.result !== 0) {
-      throw new Error(`send group message rejected: result=${response.result} err=${response.errMsg ?? ''}`);
-    }
-
-    const seq = response.groupSequence ?? 0;
-    const messageId = (random & 0x7FFFFFFF) || seq;
-    const timestamp = response.timestamp1 ?? Math.floor(Date.now() / 1000);
-
-    return {
-      messageId,
-      sequence: seq,
-      clientSequence: 0,
-      random,
-      timestamp,
-    };
-  }
-
-  async sendPrivateMessage(userUin: number, elements: MessageElement[]): Promise<SendMessageReceipt> {
-    if (elements.length === 0) throw new Error('message is empty');
-
-    // Resolve UID for media upload and the final c2c routing head.
-    let userUid = '';
-    const hasMedia = elements.some(e => e.type === 'image' || e.type === 'record' || e.type === 'video');
-    if (hasMedia) {
-      userUid = await this.resolveUserUid(userUin);
-    }
-
-    const protoElems = await buildSendElems(elements, { bridge: this, userUid });
-    const random = this.nextMessageRandom();
-    const clientSeq = this.nextClientSequence();
-
-    const request = protobuf_encode<SendMessageRequest>({
-      routingHead: {
-        c2c: {
-          uin: userUin,
-          ...(userUid ? { uid: userUid } : {}),
-        },
-      },
-      contentHead: {
-        type: 1,
-        subType: 0,
-        c2cCmd: 11,
-      },
-      messageBody: {
-        richText: {
-          elems: protoElems,
-        },
-      } as any,
-      clientSequence: clientSeq,
-      random,
-      syncCookie: new Uint8Array(0),
-      via: 0,
-      dataStatist: 0,
-      ctrl: {
-        msgFlag: Math.floor(Date.now() / 1000),
-      },
-      multiSendSeq: 0,
-    });
-
-    const result = await this.sendRawPacket(Bridge.SEND_MSG_CMD, request);
-
-    if (!result.success || !result.gotResponse || !result.responseData) {
-      throw new Error(`send private message failed: ${result.errorMessage || 'no response'}`);
-    }
-
-    const response = protobuf_decode<SendMessageResponse>(result.responseData);
-    if (!response) {
-      throw new Error('failed to decode SendMessageResponse');
-    }
-    if (response.result != null && response.result !== 0) {
-      throw new Error(`send private message rejected: result=${response.result} err=${response.errMsg ?? ''}`);
-    }
-
-    const seq = response.privateSequence ?? 0;
-    const messageId = (random & 0x7FFFFFFF) || seq;
-    const timestamp = response.timestamp1 ?? Math.floor(Date.now() / 1000);
-
-    return {
-      messageId,
-      sequence: seq,
-      clientSequence: clientSeq,
-      random,
-      timestamp,
-    };
-  }
-
-  /**
-   * Send a c2c file as a chat message.
-   *
-   * The wire shape isn't the same as a regular c2c message — the c2c
-   * file path uses three slots that differ from a normal text/image
-   * send (verified against `dev/Lagrange.Core/.../MessagePacker.cs:
-   * BuildPacketBase` + `FileEntity.PackMessageContent`):
-   *
-   *   1. `routingHead.trans0x211 { ccCmd: 4, uid: peer }` instead of
-   *      `routingHead.c2c { uin, uid }`. The server rejects c2c file
-   *      messages routed through the regular c2c slot.
-   *   2. `messageBody.msgContent` carries the serialised
-   *      `FileExtra { file: NotOnlineFile }` bytes. NOT
-   *      `richText.notOnlineFile` — the receiver doesn't read that
-   *      slot for file metadata.
-   *   3. `contentHead.c2cCmd` left at 0 (Lagrange's default). The
-   *      previous `c2cCmd: 11` was a stale go-cqhttp value the QQ-NT
-   *      server doesn't recognise.
-   *
-   * NotOnlineFile carries three required-on-send fields the receiver
-   * itself ignores but the server's intake validator checks:
-   *   - `subcmd: 1`     — c2c file send command code
-   *   - `dangerEvel: 0` — virus-scan severity, always 0 client-side
-   *   - `expireTime`    — 7 days from now (Lagrange convention)
-   */
-  async sendC2cFileMessage(
-    userUin: number,
-    userUid: string,
-    info: { fileId: string; fileName: string; fileSize: number; fileMd5: Uint8Array; fileHash?: string },
-  ): Promise<SendMessageReceipt> {
-    const random = this.nextMessageRandom();
-    const clientSeq = this.nextClientSequence();
-
-    const nowSec = Math.floor(Date.now() / 1000);
-    const sevenDaysSec = 7 * 24 * 60 * 60;
-    // Serialise `FileExtra { file: NotOnlineFile }` for `msgContent`.
-    // The NotOnlineFile field tags (1/3/4/5/6/9/50/55/57) are shared
-    // between send and receive — the schema is symmetric.
-    const fileExtraBytes = protobuf_encode<FileExtra>({
-      file: {
-        fileType: 0,
-        fileUuid: info.fileId,
-        fileMd5: info.fileMd5,
-        fileName: info.fileName,
-        fileSize: BigInt(info.fileSize),
-        subcmd: 1,
-        dangerEvel: 0,
-        expireTime: nowSec + sevenDaysSec,
-        fileHash: info.fileHash ?? '',
-      },
-    });
-
-    const request = protobuf_encode<SendMessageRequest>({
-      routingHead: {
-        // c2c-file scene: route through `trans0x211` (field 15) with
-        // ccCmd=4. The regular `c2c { uin, uid }` routing slot causes
-        // the server to reject this with a routing-mismatch error.
-        trans0x211: { ccCmd: 4, uid: userUid },
-      },
-      contentHead: {
-        type: 1,
-        subType: 0,
-        // c2cCmd intentionally omitted (defaults to 0). Was `11`,
-        // which produced an unknown-command error in the QQ-NT
-        // server's c2c file handler. `userUin` is unused on this path
-        // (routing carries the uid only) but kept in the function
-        // signature for symmetry with the OneBot caller.
-      },
-      messageBody: {
-        // No elems — the file metadata lives in msgContent below.
-        msgContent: fileExtraBytes,
-      },
-      clientSequence: clientSeq,
-      random,
-      syncCookie: new Uint8Array(0),
-      via: 0,
-      dataStatist: 0,
-      ctrl: {
-        msgFlag: nowSec,
-      },
-      multiSendSeq: 0,
-    });
-
-    // Silence the unused-parameter lint — `userUin` is part of our
-    // BridgeInterface contract (the OneBot layer threads it through)
-    // but the wire shape only needs the uid.
-    void userUin;
-
-    const result = await this.sendRawPacket(Bridge.SEND_MSG_CMD, request);
-    if (!result.success || !result.gotResponse || !result.responseData) {
-      throw new Error(`send c2c file message failed: ${result.errorMessage || 'no response'}`);
-    }
-
-    const response = protobuf_decode<SendMessageResponse>(result.responseData);
-    if (!response) {
-      throw new Error('failed to decode SendMessageResponse');
-    }
-    if (response.result != null && response.result !== 0) {
-      throw new Error(`send c2c file message rejected: result=${response.result} err=${response.errMsg ?? ''}`);
-    }
-
-    const seq = response.privateSequence ?? 0;
-    const messageId = (random & 0x7FFFFFFF) || seq;
-    const timestamp = response.timestamp1 ?? Math.floor(Date.now() / 1000);
-    return { messageId, sequence: seq, clientSequence: clientSeq, random, timestamp };
-  }
+  // `Bridge.SEND_MSG_CMD` and the inline `sendGroupMessage` /
+  // `sendPrivateMessage` / `sendC2cFileMessage` implementations were
+  // moved to `apis/message.ts::MessageApi` as part of the #6
+  // Api-on-ctx refactor. Callers route through `bridge.apis.message.*`.
 
   // --- Delegated: OIDB helpers ---
 
@@ -657,10 +431,7 @@ export class Bridge implements BridgeInterface {
   async sendLike(userId: number, count: number): Promise<void> { return sendLike_(this, userId, count); }
   async setGroupEssence(groupId: number, sequence: number, random: number, enable: boolean): Promise<void> { return setGroupEssence_(this, groupId, sequence, random, enable); }
   async setGroupReaction(groupId: number, sequence: number, code: string, isSet: boolean): Promise<void> { return setGroupReaction_(this, groupId, sequence, code, isSet); }
-  async recallGroupMessage(groupId: number, sequence: number): Promise<void> { return recallGroupMessage_(this, groupId, sequence); }
-  async recallPrivateMessage(userUin: number, clientSeq: number, msgSeq: number, random: number, timestamp: number): Promise<void> { return recallPrivateMessage_(this, userUin, clientSeq, msgSeq, random, timestamp); }
-  async markGroupMsgAsRead(groupId: number, sequence: number): Promise<void> { return markGroupMsgAsRead_(this, groupId, sequence); }
-  async markPrivateMsgAsRead(userId: number, sequence: number): Promise<void> { return markPrivateMsgAsRead_(this, userId, sequence); }
+  // recall* / markRead* moved to apis/message.ts::MessageApi.
   async setFriendRemark(userId: number, remark: string): Promise<void> { return setFriendRemark_(this, userId, remark); }
   async setGroupRemark(groupId: number, remark: string): Promise<void> { return setGroupRemark_(this, groupId, remark); }
   async getGroupHonorInfo(groupId: number, type: WebHonorType | string): Promise<any> {

@@ -178,8 +178,8 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
       if (!meta.isGroup) throw new Error('emoji reactions are not supported on private messages');
       await bridge.setGroupReaction(meta.targetId, meta.sequence, emojiId, set);
     },
-    markGroupMsgAsRead: (groupId, sequence) => bridge.markGroupMsgAsRead(groupId, sequence),
-    markPrivateMsgAsRead: (userId, sequence) => bridge.markPrivateMsgAsRead(userId, sequence),
+    markGroupMsgAsRead: (groupId, sequence) => bridge.apis.message.markGroupRead(groupId, sequence),
+    markPrivateMsgAsRead: (userId, sequence) => bridge.apis.message.markPrivateRead(userId, sequence),
     setOnlineStatus: (status: number, extStatus?: number, batteryStatus?: number) => bridge.setOnlineStatus(status, extStatus, batteryStatus),
     setProfile: (nickname?: string, personalNote?: string) => bridge.setProfile(nickname, personalNote),
 

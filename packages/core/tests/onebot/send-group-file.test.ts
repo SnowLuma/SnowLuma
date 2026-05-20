@@ -55,7 +55,7 @@ describe('send_group_msg with {type:"file"} segment', () => {
     // a tsc error under noUncheckedIndexedAccess).
     const sendGroupFileMessage = vi.fn(async (_groupId: number, _fileId: string) => undefined);
     const bridge = fakeBridge({
-      sendGroupMessage: sendGroupMessage_bridge,
+      apis: { message: { sendGroup: sendGroupMessage_bridge } } as any,
       sendGroupFileMessage,
       resolveUserUid: vi.fn(),
     } as any);
@@ -77,7 +77,7 @@ describe('send_group_msg with {type:"file"} segment', () => {
     const sendGroupMessage_bridge = vi.fn(async (_gid: number, _elements: any[]) => goodReceipt);
     const sendGroupFileMessage = vi.fn(async (_groupId: number, _fileId: string) => undefined);
     const bridge = fakeBridge({
-      sendGroupMessage: sendGroupMessage_bridge,
+      apis: { message: { sendGroup: sendGroupMessage_bridge } } as any,
       sendGroupFileMessage,
       resolveUserUid: vi.fn(async () => 'u_peer'),
     } as any);
@@ -106,7 +106,7 @@ describe('send_group_msg with {type:"file"} segment', () => {
     const sendGroupMessage_bridge = vi.fn(async (_gid: number, _elements: any[]) => goodReceipt);
     const sendGroupFileMessage = vi.fn();
     const bridge = fakeBridge({
-      sendGroupMessage: sendGroupMessage_bridge,
+      apis: { message: { sendGroup: sendGroupMessage_bridge } } as any,
       sendGroupFileMessage,
       resolveUserUid: vi.fn(),
     } as any);

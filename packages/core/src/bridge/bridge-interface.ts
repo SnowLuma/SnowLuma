@@ -1,14 +1,14 @@
 import type { SendPacketResult } from '../protocol/packet-sender';
+import type { ApiHub } from './apis';
 import type { GroupFilesResult } from './actions/group-file';
 import type { MediaIndexNode } from './actions/shared';
 import type {
   ClientKeyInfo,
   DownloadRKeyInfo,
-  SendMessageReceipt,
   UploadedFileMeta,
 } from './bridge';
 import type { BridgeEventBus } from './event-bus';
-import type { ForwardNodePayload, MessageElement } from './events';
+import type { ForwardNodePayload } from './events';
 import type { IdentityService } from './identity-service';
 import type {
   FriendInfo,
@@ -24,6 +24,13 @@ export interface BridgeInterface {
   readonly identity: IdentityService;
   readonly events: BridgeEventBus;
   readonly activePid: number | null;
+  /**
+   * Typed Api hub — `apis.message.sendGroup(...)`, `apis.message.recallGroup(...)`,
+   * etc. The shape of `ApiHub` grows commit-by-commit as the #6
+   * refactor moves the remaining areas (group-admin, group-file,
+   * profile, …) off Bridge and onto their dedicated Api classes.
+   */
+  readonly apis: ApiHub;
 
   // ─── Resolution ───
   resolveUserUid(uin: number, groupId?: number): Promise<string>;
@@ -34,21 +41,13 @@ export interface BridgeInterface {
   // routes through here.
   sendRawPacket(serviceCmd: string, body: Uint8Array, timeoutMs?: number): Promise<SendPacketResult>;
 
+  // ─── Send-side protocol helpers (used by Api classes) ───
+  nextMessageRandom(): number;
+  nextClientSequence(): number;
+
   // ─── Send (messages) ───
-  sendGroupMessage(groupId: number, elements: MessageElement[]): Promise<SendMessageReceipt>;
-  sendPrivateMessage(userUin: number, elements: MessageElement[]): Promise<SendMessageReceipt>;
-  /**
-   * Send a c2c file as a chat message. Bypasses the regular elems[]
-   * pipeline because c2c files live on `RichText.notOnlineFile`, not
-   * inside the elems array. Group files go through `sendGroupMessage`
-   * with a `{type:'file', fileId, fileName, fileSize, md5Hex, sha1Hex}`
-   * element instead.
-   */
-  sendC2cFileMessage(
-    userUin: number,
-    userUid: string,
-    info: { fileId: string; fileName: string; fileSize: number; fileMd5: Uint8Array; fileHash?: string },
-  ): Promise<SendMessageReceipt>;
+  //   Moved to `apis.message.{sendGroup, sendPrivate, sendC2cFile,
+  //   recallGroup, recallPrivate, markGroupRead, markPrivateRead}`.
 
   // ─── Fetch (contacts / profile / system) ───
   fetchFriendList(): Promise<FriendInfo[]>;
@@ -119,11 +118,7 @@ export interface BridgeInterface {
   uploadForwardNodes(nodes: ForwardNodePayload[], groupId?: number, userId?: number): Promise<string>;
   fetchForwardNodes(resId: string): Promise<ForwardNodePayload[]>;
 
-  // ─── Message ops ───
-  recallGroupMessage(groupId: number, sequence: number): Promise<void>;
-  recallPrivateMessage(userUin: number, clientSeq: number, msgSeq: number, random: number, timestamp: number): Promise<void>;
-  markGroupMsgAsRead(groupId: number, sequence: number): Promise<void>;
-  markPrivateMsgAsRead(userId: number, sequence: number): Promise<void>;
+  // ─── Message ops (moved to apis.message) ───
 
   // ─── Interaction ───
   sendPoke(isGroup: boolean, peerUin: number, targetUin?: number): Promise<void>;

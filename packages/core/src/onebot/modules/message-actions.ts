@@ -65,9 +65,9 @@ export async function getFriendMsgHistory(
 
 export async function deleteMessage(bridge: BridgeInterface, meta: MessageMeta): Promise<void> {
   if (meta.isGroup) {
-    await bridge.recallGroupMessage(meta.targetId, meta.sequence);
+    await bridge.apis.message.recallGroup(meta.targetId, meta.sequence);
   } else {
-    await bridge.recallPrivateMessage(
+    await bridge.apis.message.recallPrivate(
       meta.targetId,
       meta.clientSequence,
       meta.sequence,
@@ -155,9 +155,9 @@ export async function sendPrivateMessage(
     log.warn('[OneBot] private file segment without file_id — skipped (upload first via upload_private_file)');
   }
 
-  let lastReceipt: Awaited<ReturnType<typeof ref.bridge.sendPrivateMessage>> | undefined;
+  let lastReceipt: Awaited<ReturnType<typeof ref.bridge.apis.message.sendPrivate>> | undefined;
   if (nonFileElements.length > 0) {
-    lastReceipt = await ref.bridge.sendPrivateMessage(userId, nonFileElements);
+    lastReceipt = await ref.bridge.apis.message.sendPrivate(userId, nonFileElements);
     logSentMessage(false, userId, nonFileElements);
   }
   if (fileElements.length > 0) {
@@ -189,7 +189,7 @@ export async function sendPrivateMessage(
           fileEl.fileId,
         );
       }
-      lastReceipt = await ref.bridge.sendC2cFileMessage(userId, userUid, {
+      lastReceipt = await ref.bridge.apis.message.sendC2cFile(userId, userUid, {
         fileId: fileEl.fileId!,
         fileName,
         fileSize,
@@ -258,9 +258,9 @@ export async function sendGroupMessage(
     log.warn('[OneBot] group file segment without file_id — skipped (upload first via upload_group_file)');
   }
 
-  let lastReceipt: Awaited<ReturnType<typeof ref.bridge.sendGroupMessage>> | undefined;
+  let lastReceipt: Awaited<ReturnType<typeof ref.bridge.apis.message.sendGroup>> | undefined;
   if (nonFileElements.length > 0) {
-    lastReceipt = await ref.bridge.sendGroupMessage(groupId, nonFileElements);
+    lastReceipt = await ref.bridge.apis.message.sendGroup(groupId, nonFileElements);
     logSentMessage(true, groupId, nonFileElements);
   }
   for (const fileEl of fileElements) {
@@ -324,7 +324,7 @@ export async function sendGroupForwardMessage(
   const nodes = await parseForwardNodes(ref, messages, { groupId });
   const forwardId = await ref.bridge.uploadForwardNodes(nodes, groupId);
   const previewElement = buildForwardPreviewElement(forwardId, nodes, true, meta);
-  const receipt = await ref.bridge.sendGroupMessage(groupId, [previewElement]);
+  const receipt = await ref.bridge.apis.message.sendGroup(groupId, [previewElement]);
   const messageId = hashMessageIdInt32(receipt.sequence, groupId, GROUP_MESSAGE_EVENT);
 
   ref.cacheMessageMeta(messageId, {
@@ -352,7 +352,7 @@ export async function sendPrivateForwardMessage(
   // has no target uid and the element builder bails).
   const forwardId = await ref.bridge.uploadForwardNodes(nodes, undefined, userId);
   const previewElement = buildForwardPreviewElement(forwardId, nodes, false, meta);
-  const receipt = await ref.bridge.sendPrivateMessage(userId, [previewElement]);
+  const receipt = await ref.bridge.apis.message.sendPrivate(userId, [previewElement]);
   const messageId = hashMessageIdInt32(receipt.sequence, userId, PRIVATE_MESSAGE_EVENT);
 
   ref.cacheMessageMeta(messageId, {
@@ -411,7 +411,7 @@ export async function forwardSingleMessage(
   let receipt;
   let messageIdOut: number;
   if (target.groupId) {
-    receipt = await ref.bridge.sendGroupMessage(target.groupId, elements);
+    receipt = await ref.bridge.apis.message.sendGroup(target.groupId, elements);
     messageIdOut = hashMessageIdInt32(receipt.sequence, target.groupId, GROUP_MESSAGE_EVENT);
     ref.cacheMessageMeta(messageIdOut, {
       isGroup: true,
@@ -423,7 +423,7 @@ export async function forwardSingleMessage(
       timestamp: receipt.timestamp,
     });
   } else {
-    receipt = await ref.bridge.sendPrivateMessage(target.userId!, elements);
+    receipt = await ref.bridge.apis.message.sendPrivate(target.userId!, elements);
     messageIdOut = hashMessageIdInt32(receipt.sequence, target.userId!, PRIVATE_MESSAGE_EVENT);
     ref.cacheMessageMeta(messageIdOut, {
       isGroup: false,
