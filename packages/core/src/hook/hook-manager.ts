@@ -12,9 +12,11 @@ import { HookSession, type HookSessionDeps } from './hook-session';
 import { PipeWatcher } from './pipe-watcher';
 import { QqHookClient } from './qq-hook-client';
 import type { HookProcessInfo } from './types';
+import { probeQqLoginInfo, type QqPortLoginInfo } from './qq-port-probe';
 
 export type { HookProcessInfo, HookProcessStatus } from './types';
 export type { HookProcessBaseInfo } from './injector';
+export type { QqPortLoginInfo } from './qq-port-probe';
 
 export type HookManagerDeps = {
   bridgeManager: BridgeManager;
@@ -145,6 +147,11 @@ export class HookManager {
     await this.startPromise;
     const session = this.ensureSession(pid);
     return session.refresh();
+  }
+
+  async probeProcessLoginInfo(pid: number): Promise<QqPortLoginInfo | null> {
+    this.assertValidPid(pid);
+    return probeQqLoginInfo(pid);
   }
 
   dispose(): void {
