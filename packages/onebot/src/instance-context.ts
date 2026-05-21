@@ -124,15 +124,6 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     // request handling moved to direct `ctx.bridge.apis.friend.handleRequest`.
     handleGroupRequest: (flag, _subType, approve, reason) => handleGroupAddRequest(bridge, flag, approve, reason),
 
-    // Essence — bake the set/unset boolean.
-    setEssenceMsg: (messageId) => setEssenceMessage(bridge, messageStore, messageId, true),
-    deleteEssenceMsg: (messageId) => setEssenceMessage(bridge, messageStore, messageId, false),
-
-    // Profile-like / get_group_essence — OneBot-specific defaults that the
-    // action handlers don't supply.
-    getProfileLike: (userId = undefined, start = 0, limit = 10) => bridge.apis.profile.getLike(userId, start, limit),
-    getGroupEssence: (groupId, pageStart = 0, pageLimit = 50) => bridge.apis.web.getEssence(groupId, pageStart, pageLimit),
-
     // Message-store-backed history reads.
     getGroupMsgHistory: (groupId, messageId, count) => getGroupMsgHistory(messageStore, groupId, messageId, count),
     getFriendMsgHistory: (userId, messageId, count) => getFriendMsgHistory(messageStore, userId, messageId, count),
@@ -145,41 +136,21 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     sendForwardMsg: (messages, groupId) => uploadForwardMessage(ref, messages, groupId),
     getForwardMsg: (resId) => getForwardMessage(ref, resId),
     forwardSingleMsg: (messageId, target) => forwardSingleMessage(ref, messageId, target),
-    forceFetchClientKey: () => bridge.apis.web.forceFetchClientKey(),
-    setFriendRemark: (userId, remark) => bridge.apis.friend.setRemark(userId, remark),
-    setGroupAvatar: (groupId, source) => bridge.apis.profile.setGroupAvatar(groupId, source),
 
-    // Cross-store: looks up the meta then routes through Bridge.
+    // Essence — bakes the set/unset boolean (the only "compose with
+    // messageStore meta lookup" entry remaining outside of dedicated
+    // module helpers).
+    setEssenceMsg: (messageId) => setEssenceMessage(bridge, messageStore, messageId, true),
+    deleteEssenceMsg: (messageId) => setEssenceMessage(bridge, messageStore, messageId, false),
+
+    // Emoji-like — same shape: meta lookup → bridge call. Group-only
+    // (QQ doesn't expose emoji reactions on private chats).
     setMsgEmojiLike: async (messageId, emojiId, set) => {
       const meta = messageStore.findMeta(messageId);
       if (!meta) throw new Error('message not found');
-      // QQ itself doesn't expose emoji reactions on private chats, so
-      // there is no wire path to forward this to; fail loudly instead
-      // of silently no-op'ing.
       if (!meta.isGroup) throw new Error('emoji reactions are not supported on private messages');
       await bridge.apis.interaction.setReaction(meta.targetId, meta.sequence, emojiId, set);
     },
-    setOnlineStatus: (status: number, extStatus?: number, batteryStatus?: number) => bridge.apis.profile.setOnlineStatus(status, extStatus, batteryStatus),
-    setProfile: (nickname?: string, personalNote?: string) => bridge.apis.profile.setProfile(nickname, personalNote),
-
-    // Web-backed actions.
-    getGroupHonorInfo: (groupId: number, type: WebHonorType | string) => bridge.apis.web.getHonorInfo(groupId, type),
-    getGroupEssenceAll: (groupId) => bridge.apis.web.getEssenceAll(groupId),
-    getGroupAlbumList: (groupId) => bridge.apis.groupAlbum.list(groupId),
-    uploadImageToGroupAlbum: (groupId, albumId, albumName, filePath) => bridge.apis.groupAlbum.upload(groupId, albumId, albumName, filePath),
-    getGroupAlbumMediaList: (groupId, albumId, attachInfo) => bridge.apis.groupAlbum.getMediaList(groupId, albumId, attachInfo),
-    commentGroupAlbumMedia: (groupId, albumId, lloc, content) => bridge.apis.groupAlbum.comment(groupId, albumId, lloc, content),
-    deleteGroupAlbumMedia: (groupId, albumId, lloc) => bridge.apis.groupAlbum.delete(groupId, albumId, lloc),
-    likeGroupAlbumMedia: (groupId, albumId, batchId, lloc, isLike) => bridge.apis.groupAlbum.like(groupId, albumId, batchId, lloc, isLike),
-    sendGroupNotice: (groupId, content, options) => bridge.apis.web.sendNotice(groupId, content, options),
-    getGroupNotice: (groupId) => bridge.apis.web.getNotice(groupId),
-    deleteGroupNotice: (groupId, fid) => bridge.apis.web.deleteNotice(groupId, fid),
-    getCookiesStr: (domain) => bridge.apis.web.getCookiesStr(domain),
-    getCsrfToken: () => bridge.apis.web.getCsrfToken(),
-    getCredentials: (domain) => bridge.apis.web.getCredentials(domain),
-
-    // Extended
-    fetchCustomFace: (count) => bridge.apis.profile.fetchCustomFace(count),
 
     // Media lookup.
     getImageInfo: (file) => getCachedImageInfo(mediaStore, file),

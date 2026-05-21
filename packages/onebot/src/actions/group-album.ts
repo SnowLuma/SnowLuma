@@ -1,6 +1,7 @@
 import type { ApiHandler, ApiActionContext } from '../api-handler';
 import { asNumber, asString } from '../api-handler';
 import { RETCODE, failedResponse, okResponse } from '../types';
+import type { JsonValue } from '../types';
 
 export function register(h: ApiHandler, ctx: ApiActionContext): void {
   h.registerAction('get_group_album_list', async (params) => {
@@ -8,7 +9,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
 
     try {
-      const albumList = await ctx.getGroupAlbumList(groupId);
+      const albumList = await ctx.bridge.apis.groupAlbum.list(groupId);
       return okResponse(albumList);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'failed to get group album list';
@@ -28,7 +29,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (!file) return failedResponse(RETCODE.BAD_REQUEST, 'file is required');
 
     try {
-      await ctx.uploadImageToGroupAlbum(groupId, albumId, albumName, file);
+      await ctx.bridge.apis.groupAlbum.upload(groupId, albumId, albumName, file);
       return okResponse(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'failed to upload image to group album';
@@ -45,8 +46,11 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (!albumId) return failedResponse(RETCODE.BAD_REQUEST, 'album_id is required');
 
     try {
-      const mediaList = await ctx.getGroupAlbumMediaList(groupId, albumId, attachInfo);
-      return okResponse(mediaList);
+      const mediaList = await ctx.bridge.apis.groupAlbum.getMediaList(groupId, albumId, attachInfo);
+      // GroupAlbumMediaResult is a concrete domain type; okResponse
+      // expects JsonValue. The shape is JSON-compatible — same as the
+      // old ctx wrapper returning `Promise<any>`.
+      return okResponse(mediaList as unknown as JsonValue);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'failed to get group album media list';
       return failedResponse(RETCODE.INTERNAL_ERROR, message);
@@ -65,8 +69,12 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (!content) return failedResponse(RETCODE.BAD_REQUEST, 'content is required');
 
     try {
-      const comment = await ctx.commentGroupAlbumMedia(groupId, albumId, lloc, content);
-      return okResponse(comment);
+      const comment = await ctx.bridge.apis.groupAlbum.comment(groupId, albumId, lloc, content);
+      // GroupAlbumCommentResult is a concrete domain type; okResponse
+      // expects JsonValue. The shape is JSON-compatible (no functions
+      // / classes / bigints), so cast is safe — same as the old ctx
+      // wrapper returning `Promise<any>`.
+      return okResponse(comment as unknown as JsonValue);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'failed to comment on album media';
       return failedResponse(RETCODE.INTERNAL_ERROR, message);
@@ -84,7 +92,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
 
     try {
-      const res = await ctx.likeGroupAlbumMedia(groupId, albumId, batchId, lloc, true);
+      const res = await ctx.bridge.apis.groupAlbum.like(groupId, albumId, batchId, lloc, true);
       return okResponse(res);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'failed to set like on album media';
@@ -104,7 +112,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
 
     try {
-      const res = await ctx.likeGroupAlbumMedia(groupId, albumId, batchId, lloc, false);
+      const res = await ctx.bridge.apis.groupAlbum.like(groupId, albumId, batchId, lloc, false);
       return okResponse(res);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'failed to cancel like on album media';
@@ -122,7 +130,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
 
     try {
-      const res = await ctx.deleteGroupAlbumMedia(groupId, albumId, lloc);
+      const res = await ctx.bridge.apis.groupAlbum.delete(groupId, albumId, lloc);
       return okResponse(res);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'failed to delete album media';

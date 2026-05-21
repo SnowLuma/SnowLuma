@@ -790,7 +790,10 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
 
     try {
-      const data = await ctx.getProfileLike(userId, start, count);
+      // getLike treats falsy userId as "self" (it does `isSelf = !userId`
+      // internally), so passing 0 or undefined is equivalent — matches the
+      // old `ctx.getProfileLike(userId, start, count)` wrapper exactly.
+      const data = await ctx.bridge.apis.profile.getLike(userId, start, count);
       return okResponse(data);
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));

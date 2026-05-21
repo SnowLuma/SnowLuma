@@ -80,9 +80,9 @@ export interface ApiActionContext {
   // Essence (adapter: bakes the set/unset boolean)
   setEssenceMsg: (messageId: number) => Promise<void>;
   deleteEssenceMsg: (messageId: number) => Promise<void>;
-  // Profile reads with OneBot-specific default args
-  getProfileLike: (userId?: number, start?: number, limit?: number) => Promise<any>;
-  getGroupEssence: (groupId: number, pageStart?: number, pageLimit?: number) => Promise<GroupEssenceMsgRet>;
+  // Profile reads and group essence reads: direct via
+  // `ctx.bridge.apis.profile.getLike(...)` and
+  // `ctx.bridge.apis.web.getEssence(...)`.
   // Friend deletion: direct via `ctx.bridge.apis.friend.delete(userId, block)`.
   // Module wrappers / multi-dep compositions
   getGroupMsgHistory: (groupId: number, messageId?: number, count?: number) => Promise<JsonObject[]>;
@@ -94,32 +94,18 @@ export interface ApiActionContext {
   sendForwardMsg: (messages: JsonValue, groupId?: number) => Promise<{ forwardId: string }>;
   getForwardMsg: (resId: string) => Promise<JsonObject[]>;
   forwardSingleMsg: (messageId: number, target: { groupId?: number; userId?: number }) => Promise<{ messageId: number }>;
-  // Extended NapCat-compatible
-  setFriendRemark: (userId: number, remark: string) => Promise<void>;
-  setGroupAvatar: (groupId: number, source: string) => Promise<void>;
+  // setMsgEmojiLike: stays because it threads messageStore meta lookup.
   setMsgEmojiLike: (messageId: number, emojiId: string, set: boolean) => Promise<void>;
-  // markGroupMsgAsRead / markPrivateMsgAsRead: direct via
-  // `ctx.bridge.apis.message.{markGroupRead,markPrivateRead}`.
-  setOnlineStatus: (status: number, extStatus?: number, batteryStatus?: number) => Promise<void>;
-  setProfile: (nickname?: string, personalNote?: string) => Promise<void>;
-  fetchCustomFace: (count?: number) => Promise<string[]>;
-  // getEmojiLikes: direct via `ctx.bridge.apis.interaction.getEmojiLikes(...)`.
-  // Web
-  getGroupHonorInfo: (groupId: number, type: WebHonorType | string) => Promise<any>;
-  getGroupEssenceAll: (groupId: number) => Promise<GroupEssenceMsgRet[]>;
-  getGroupAlbumList: (groupId: number) => Promise<any>;
-  uploadImageToGroupAlbum: (groupId: number, albumId: string, albumName: string, filePath: string) => Promise<void>;
-  getGroupAlbumMediaList: (groupId: number, albumId: string, attachInfo?: string) => Promise<any>;
-  commentGroupAlbumMedia: (groupId: number, albumId: string, lloc: string, content: string) => Promise<any>;
-  deleteGroupAlbumMedia: (groupId: number, albumId: string, lloc: string) => Promise<any>;
-  likeGroupAlbumMedia: (groupId: number, albumId: string, batchId: string, lloc: string | undefined, isLike: boolean) => Promise<any>;
-  sendGroupNotice: (groupId: number, content: string, options?: any) => Promise<any>;
-  getGroupNotice: (groupId: number) => Promise<any[]>;
-  deleteGroupNotice: (groupId: number, fid: string) => Promise<boolean>;
-  getCookiesStr: (domain: string) => Promise<string>;
-  getCsrfToken: () => Promise<number>;
-  getCredentials: (domain: string) => Promise<{ cookies: string; token: number; csrf_token: number }>;
-  forceFetchClientKey: () => Promise<ClientKeyInfo>;
+  // All other extended / NapCat-compatible / Web / Album actions are
+  // accessed directly through `ctx.bridge.apis.<area>.<method>()`:
+  //   * profile area:    setProfile / setOnlineStatus / fetchCustomFace /
+  //                      setGroupAvatar / getLike
+  //   * friend area:     setRemark / delete / handleRequest
+  //   * web area:        getHonorInfo / getEssence(All) / sendNotice /
+  //                      getNotice / deleteNotice / getCookiesStr /
+  //                      getCsrfToken / getCredentials / forceFetchClientKey
+  //   * groupAlbum area: list / upload / getMediaList / comment /
+  //                      delete / like
   // Media lookup (populated from previously dispatched message segments)
   getImageInfo: (file: string) => Promise<JsonObject | null>;
   getRecordInfo: (file: string) => Promise<JsonObject | null>;
