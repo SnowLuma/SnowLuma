@@ -111,7 +111,7 @@ importers:
     devDependencies:
       '@hono/node-server':
         specifier: ^1.19.14
-        version: 1.19.14(hono@4.12.14)
+        version: 1.19.14(hono@4.12.21)
       '@rollup/plugin-node-resolve':
         specifier: ^16.0.3
         version: 16.0.3(rollup@4.60.4)
@@ -122,8 +122,8 @@ importers:
         specifier: ^10.1.0
         version: 10.1.0
       hono:
-        specifier: ^4.12.14
-        version: 4.12.14
+        specifier: ^4.12.18
+        version: 4.12.21
       tsx:
         specifier: ^4.21.0
         version: 4.21.0
@@ -164,15 +164,9 @@ importers:
         specifier: workspace:*
         version: link:../websocket
     devDependencies:
-      '@hono/node-server':
-        specifier: ^1.19.14
-        version: 1.19.14(hono@4.12.14)
       '@types/node':
         specifier: ^24.12.2
         version: 24.12.2
-      hono:
-        specifier: ^4.12.14
-        version: 4.12.14
       typescript:
         specifier: 'catalog:'
         version: 6.0.2
@@ -2178,8 +2172,8 @@ packages:
   hermes-parser@0.25.1:
     resolution: {integrity: sha512-6pEjquH3rqaI6cYAXYPcz9MS4rY6R4ngRgrgfDshRptUZIc3lw0MCIJIGDj9++mfySOuPTHB4nrSW99BCvOPIA==}
 
-  hono@4.12.14:
-    resolution: {integrity: sha512-am5zfg3yu6sqn5yjKBNqhnTX7Cv+m00ox+7jbaKkrLMRJ4rAdldd1xPd/JzbBWspqaQv6RSTrgFN95EsfhC+7w==}
+  hono@4.12.21:
+    resolution: {integrity: sha512-uV63apnb0kyPtAUwoWgaGh9HyIFcv8lgmzPZSiTBQAFOFGIzka5EZ1dZocmGnn0XdX0+XTqJ6Tqv7selMuGLRQ==}
     engines: {node: '>=16.9.0'}
 
   ieee754@1.2.1:
@@ -3208,9 +3202,9 @@ snapshots:
 
   '@floating-ui/utils@0.2.11': {}
 
-  '@hono/node-server@1.19.14(hono@4.12.14)':
+  '@hono/node-server@1.19.14(hono@4.12.21)':
     dependencies:
-      hono: 4.12.14
+      hono: 4.12.21
 
   '@humanfs/core@0.19.1': {}
 
@@ -4543,7 +4537,7 @@ snapshots:
     dependencies:
       hermes-estree: 0.25.1
 
-  hono@4.12.14: {}
+  hono@4.12.21: {}
 
   ieee754@1.2.1: {}
 
