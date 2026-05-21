@@ -110,17 +110,6 @@ jobs:
           SNOWLUMA_TARGET: ${{ matrix.target }}
         run: pnpm run build:all
 
-      # Materialize `dist/node_modules/` for runtime-only externals
-      # listed in `packages/runtime/package.json::dependencies`
-      # (currently: better-sqlite3 — native binding can't be inlined
-      # by vite). Mirrors the same step in `release.yml`. Runs npm
-      # (not pnpm) deliberately so the install produces a flat
-      # `node_modules/` tree with no symlinks, which is what the
-      # bundled `index.mjs::require('better-sqlite3')` expects.
-      - name: Bundle runtime dependencies
-        working-directory: dist
-        run: npm install --omit=dev
-
       # Naming convention:
       #   SnowLuma-dev-<arch>.zip|tar.gz        – zero-install (node bundled)
       #   SnowLuma-dev-<arch>-lite.zip|tar.gz   – user provides Node >= 22

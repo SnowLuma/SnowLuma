@@ -120,10 +120,9 @@
     "@snowluma/common": "workspace:*",
     "@snowluma/proto-defs": "workspace:*",
     "@snowluma/proton": "workspace:*",
-    "better-sqlite3": "^11.7.0"
+    "@snowluma/sqlite": "workspace:*"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.12.2",
     "typescript": "catalog:",
     "vite": "catalog:",

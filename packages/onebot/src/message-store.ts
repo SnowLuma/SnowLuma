@@ -1,5 +1,5 @@
 import fs from 'fs';
-import Database from 'better-sqlite3';
+import Database, { type Database as DatabaseType, type Statement } from '@snowluma/sqlite';
 import path from 'path';
 import type { JsonObject, MessageMeta } from './types';
 
@@ -17,15 +17,15 @@ import type { JsonObject, MessageMeta } from './types';
 // deployed wrapper that proposes the same prepared-statement model.
 
 export class MessageStore {
-  private readonly db: Database.Database;
-  private readonly stmtStoreEvent: Database.Statement;
-  private readonly stmtStoreMeta: Database.Statement;
-  private readonly stmtFindEvent: Database.Statement;
-  private readonly stmtFindMeta: Database.Statement;
-  private readonly stmtResolveReplyGroup: Database.Statement;
-  private readonly stmtResolveReplyPrivate: Database.Statement;
-  private readonly stmtListEventsAnchored: Database.Statement;
-  private readonly stmtListEventsLatest: Database.Statement;
+  private readonly db: DatabaseType;
+  private readonly stmtStoreEvent: Statement;
+  private readonly stmtStoreMeta: Statement;
+  private readonly stmtFindEvent: Statement;
+  private readonly stmtFindMeta: Statement;
+  private readonly stmtResolveReplyGroup: Statement;
+  private readonly stmtResolveReplyPrivate: Statement;
+  private readonly stmtListEventsAnchored: Statement;
+  private readonly stmtListEventsLatest: Statement;
 
   constructor(dbPath: string) {
     const dir = path.dirname(dbPath);

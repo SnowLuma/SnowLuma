@@ -59,13 +59,10 @@ importers:
       '@snowluma/proton':
         specifier: workspace:*
         version: link:../proton
-      better-sqlite3:
-        specifier: ^11.7.0
-        version: 11.10.0
+      '@snowluma/sqlite':
+        specifier: workspace:*
+        version: link:../sqlite
     devDependencies:
-      '@types/better-sqlite3':
-        specifier: ^7.6.13
-        version: 7.6.13
       '@types/node':
         specifier: ^24.12.2
         version: 24.12.2
@@ -105,6 +102,9 @@ importers:
       '@snowluma/proton':
         specifier: workspace:*
         version: link:../proton
+      '@snowluma/sqlite':
+        specifier: workspace:*
+        version: link:../sqlite
       '@snowluma/websocket':
         specifier: workspace:*
         version: link:../websocket
@@ -157,19 +157,16 @@ importers:
       '@snowluma/proton':
         specifier: workspace:*
         version: link:../proton
+      '@snowluma/sqlite':
+        specifier: workspace:*
+        version: link:../sqlite
       '@snowluma/websocket':
         specifier: workspace:*
         version: link:../websocket
-      better-sqlite3:
-        specifier: ^11.7.0
-        version: 11.10.0
     devDependencies:
       '@hono/node-server':
         specifier: ^1.19.14
         version: 1.19.14(hono@4.12.14)
-      '@types/better-sqlite3':
-        specifier: ^7.6.13
-        version: 7.6.13
       '@types/node':
         specifier: ^24.12.2
         version: 24.12.2
@@ -218,11 +215,7 @@ importers:
         specifier: ^4.1.4
         version: 4.1.4(@types/node@24.12.2)(vite@8.0.8(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(sass@1.99.0)(tsx@4.21.0))
 
-  packages/runtime:
-    dependencies:
-      better-sqlite3:
-        specifier: ^11.7.0
-        version: 11.10.0
+  packages/runtime: {}
 
   packages/sdk:
     devDependencies:
@@ -235,6 +228,21 @@ importers:
       vitest:
         specifier: ^4.1.4
         version: 4.1.4(@types/node@24.12.2)(vite@8.0.8(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(sass@1.99.0)(tsx@4.21.0))
+
+  packages/sqlite:
+    devDependencies:
+      '@types/better-sqlite3':
+        specifier: ^7.6.13
+        version: 7.6.13
+      '@types/node':
+        specifier: ^24.12.2
+        version: 24.12.2
+      better-sqlite3:
+        specifier: 12.10.0
+        version: 12.10.0
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.2
 
   packages/ui:
     dependencies:
@@ -1839,8 +1847,9 @@ packages:
     engines: {node: '>=6.0.0'}
     hasBin: true
 
-  better-sqlite3@11.10.0:
-    resolution: {integrity: sha512-EwhOpyXiOEL/lKzHz9AW1msWFNzGc/z+LzeB3/jnFJpxu+th2yqvzsSWas1v9jgs9+xiXJcD5A8CJxAG2TaghQ==}
+  better-sqlite3@12.10.0:
+    resolution: {integrity: sha512-CyzaZRQKyHkB2ZInfTTl2nvT33EbDpjkLEbE8/Zck3Ll6O0qqvuGdrJ45HgtH+HykRg88ITY3AdreBGN70aBSQ==}
+    engines: {node: 20.x || 22.x || 23.x || 24.x || 25.x || 26.x}
 
   bindings@1.5.0:
     resolution: {integrity: sha512-p2q/t/mhvuOj/UeLlV6566GD/guowlr0hHxClI0W9m7MWYkL1F0hLo+0Aexs9HSPCtR1SXQ0TD3MMKrXZajbiQ==}
@@ -4192,7 +4201,7 @@ snapshots:
 
   baseline-browser-mapping@2.10.19: {}
 
-  better-sqlite3@11.10.0:
+  better-sqlite3@12.10.0:
     dependencies:
       bindings: 1.5.0
       prebuild-install: 7.1.3

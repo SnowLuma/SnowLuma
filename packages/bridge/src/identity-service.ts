@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import Database from 'better-sqlite3';
+import Database, { type Database as DatabaseType, type Statement } from '@snowluma/sqlite';
 
 import type {
   FriendInfo, GroupMemberInfo, QQGroupInfo,
@@ -109,14 +109,14 @@ export class IdentityService {
   private readonly uidByUin = new Map<number, string>();
 
   // ─── Persistence + fetcher ───
-  private readonly db: Database.Database | null;
+  private readonly db:  DatabaseType | null;
   // Prepared-statement cache. Every `.prepare(sql)` call in this
   // service re-parses the SQL — that's the SQLite anti-pattern
   // RoadMap #5 is fixing. We memoize by the SQL string itself so the
   // call sites stay readable (no need to enumerate 20+ named fields
   // upfront); the Map lookup is O(1) hash + string-eq, which is
   // negligible next to the SQL parse it replaces.
-  private readonly stmtCache_ = new Map<string, Database.Statement>();
+  private readonly stmtCache_ = new Map<string, Statement>();
   private inTransaction = false;
   private fetcher: IdentityFetcher | null = null;
   private readonly log: Logger;
@@ -143,7 +143,7 @@ export class IdentityService {
 
   /** Cached `prepare(sql)`. First call per unique SQL parses; later
    *  calls reuse the same `Statement` object. See `stmtCache_`. */
-  private pstmt(sql: string): Database.Statement {
+  private pstmt(sql: string): Statement {
     let cached = this.stmtCache_.get(sql);
     if (cached !== undefined) return cached;
     cached = this.db!.prepare(sql);
