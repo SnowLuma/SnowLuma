@@ -78,13 +78,13 @@ describe('apis/interaction', () => {
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<Oidb0x9083Resp>>({
         body: {
-          inner: { userInfo: { uin: 10001n } },
+          inner: { userInfo: [{ uin: 10001n }, { uin: 20002n }] },
           cookie: new Uint8Array([0xCA, 0xFE]),
         } as any,
       }),
     );
     const out = await new InteractionApi(bridge as any).getEmojiLikes(12345, 99, '128516');
-    expect(out.users).toEqual([{ uin: 10001 }]);
+    expect(out.users).toEqual([{ uin: 10001 }, { uin: 20002 }]);
     expect(out.cookie).toBe(Buffer.from([0xCA, 0xFE]).toString('base64'));
     expect(out.isLast).toBe(false);
   });

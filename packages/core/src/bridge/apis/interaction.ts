@@ -87,8 +87,12 @@ export class InteractionApi {
     const env = makeOidbEnvelope<Oidb0x9083Req>(0x9083, 1, req);
     const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x9083_1', protobuf_encode<OidbBase<Oidb0x9083Req>>(env));
     const resp = protobuf_decode<OidbBase<Oidb0x9083Resp>>(respBytes).body;
-    const uin = resp?.inner?.userInfo?.uin;
-    const users = uin ? [{ uin: Number(uin) }] : [];
+    // userInfo is repeated on the wire — one entry per liker. The pre-fix
+    // schema treated it as single, which made multi-user responses collapse
+    // into one and (when paired with the swapped req fields) yield [].
+    const users: Array<{ uin: number }> = (resp?.inner?.userInfo ?? [])
+      .map(u => ({ uin: Number(u?.uin ?? 0) }))
+      .filter(u => u.uin > 0);
     const respCookie = resp?.cookie ? Buffer.from(resp.cookie).toString('base64') : '';
     return { users, cookie: respCookie, isLast: !respCookie };
   }

@@ -512,11 +512,18 @@ export interface FaceroamOpResp {
   field3?:  pb<3, uint_32>;
   item?:    pb<4, FaceroamOpRespItem>;
 }
+// 0x9083_1: fetch emoji-like user list. Field numbers must mirror the
+// sibling 0x9082 reaction Req (OidbGroupReaction): field 4 = emoji_id
+// (string), field 5 = emoji_type (uint). The pre-fix definition had
+// these two swapped, which silently dropped both fields on the server
+// side (wire type mismatch → protobuf decoder discards) and made every
+// call return an empty list with no error. Cross-checked against
+// Lagrange.Core V2 `Internal/Packets/Service/SetGroupReaction.cs`.
 export interface Oidb0x9083Req {
   groupId?:   pb<2, uint_64>;
   sequence?:  pb<3, uint_32>;
-  emojiType?: pb<4, uint_32>;
-  emojiId?:   pb<5, string>;
+  emojiId?:   pb<4, string>;
+  emojiType?: pb<5, uint_32>;
   cookie?:    pb<6, bytes>;
   field7?:    pb<7, uint_32>;
   count?:     pb<8, uint_32>;
@@ -527,7 +534,11 @@ export interface Oidb0x9083RespUserInfo {
   field3?: pb<3, uint_32>;
 }
 export interface Oidb0x9083RespInner {
-  userInfo?: pb<1, Oidb0x9083RespUserInfo>;
+  // The server returns one entry per liker — must be repeated. A single
+  // field collapses N wire entries into "last writer wins", so groups
+  // with multiple likers used to come back as a single user (or empty
+  // if the wire layout shifted).
+  userInfo?: pb_repeated<1, Oidb0x9083RespUserInfo>;
   field4?:   pb<4, uint_32>;
 }
 export interface Oidb0x9083Resp {
