@@ -14,6 +14,12 @@ export default defineConfig({
   plugins: [protobufVitePlugin()],
   test: {
     include: ['tests/**/*.test.ts'],
+    // Per-RoadMap-#5 bench files live in `bench/*.bench.ts`. Use the
+    // vitest `--mode bench` (via `pnpm bench`) to pick them up; default
+    // `test` runs leave them inert.
+    benchmark: {
+      include: ['bench/**/*.bench.ts'],
+    },
     environment: 'node',
     // Suppress the logger's file transport during tests so the suite
     // doesn't litter cwd with logs/snowluma-*.log files. Tests that
