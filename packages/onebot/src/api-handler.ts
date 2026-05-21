@@ -65,14 +65,12 @@ export interface ApiActionContext {
   // accessed directly through `ctx.bridge.apis.groupAdmin.method()`
   // after the #6 OneBot-side slim-down; no per-method passthrough
   // here anymore.
-  // Group file (adapters: field extraction + Bridge name translation)
-  uploadGroupFile: (groupId: number, file: string, name?: string, folderId?: string, uploadFile?: boolean) => Promise<string | null>;
-  uploadPrivateFile: (userId: number, file: string, name?: string, uploadFile?: boolean) => Promise<string | null>;
-  getGroupFileUrl: (groupId: number, fileId: string, busId?: number) => Promise<string>;
+  // Group file passthroughs are gone — actions call
+  // `ctx.bridge.apis.groupFile.{upload,uploadPrivate,getUrl,
+  // createFolder,getPrivateUrl,getCount}` directly. `getGroupFiles`
+  // stays because it composes through the `getGroupFiles` module
+  // helper (identity-lookup enrichment of uploader names).
   getGroupFiles: (groupId: number, folderId?: string) => Promise<JsonObject>;
-  createGroupFileFolder: (groupId: number, name: string, parentId?: string) => Promise<void>;
-  getPrivateFileUrl: (userId: number, fileId: string, fileHash: string) => Promise<string>;
-  getGroupFileCount: (groupId: number) => Promise<{ fileCount: number; maxCount: number }>;
   // Requests (adapters: rename to OneBot vocabulary)
   handleFriendRequest: (flag: string, approve: boolean) => Promise<void>;
   handleGroupRequest: (flag: string, subType: string, approve: boolean, reason: string) => Promise<void>;

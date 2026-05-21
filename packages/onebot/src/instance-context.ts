@@ -114,19 +114,10 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     // Group admin — actions now call `ctx.bridge.apis.groupAdmin.X(...)`
     // directly; no per-method passthrough here anymore.
 
-    // Group file — fileId field extraction + defaults.
-    uploadGroupFile: async (groupId, file, name, folderId, uploadFile) => {
-      const result = await bridge.apis.groupFile.upload(groupId, file, name ?? '', folderId ?? '/', uploadFile ?? true);
-      return result.fileId;
-    },
-    uploadPrivateFile: async (userId, file, name, uploadFile) => {
-      const result = await bridge.apis.groupFile.uploadPrivate(userId, file, name ?? '', uploadFile ?? true);
-      return result.fileId;
-    },
-    getGroupFileUrl: (groupId, fileId, busId) => bridge.apis.groupFile.getUrl(groupId, fileId, busId ?? 102),
+    // Group file — `getGroupFiles` stays because the module helper
+    // enriches uploader/creator names from the identity cache; the
+    // rest of the area is called directly via `ctx.bridge.apis.groupFile.*`.
     getGroupFiles: (groupId, folderId) => getGroupFiles(bridge, groupId, folderId),
-    createGroupFileFolder: (groupId, name, parentId) => bridge.apis.groupFile.createFolder(groupId, name, parentId ?? '/'),
-    getPrivateFileUrl: (userId, fileId, fileHash) => bridge.apis.groupFile.getPrivateUrl(userId, fileId, fileHash),
 
     // Requests — name translation.
     handleFriendRequest: (flag, approve) => bridge.apis.friend.handleRequest(flag, approve),
@@ -161,7 +152,6 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     forceFetchClientKey: () => bridge.apis.web.forceFetchClientKey(),
     setFriendRemark: (userId, remark) => bridge.apis.friend.setRemark(userId, remark),
     setGroupAvatar: (groupId, source) => bridge.apis.profile.setGroupAvatar(groupId, source),
-    getGroupFileCount: (groupId) => bridge.apis.groupFile.getCount(groupId),
 
     // Cross-store: looks up the meta then routes through Bridge.
     setMsgEmojiLike: async (messageId, emojiId, set) => {

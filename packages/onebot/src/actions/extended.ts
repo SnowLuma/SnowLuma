@@ -573,18 +573,10 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   h.registerAction('get_group_file_system_info', async (params) => {
     const groupId = asNumber(params.group_id);
     if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-    if (ctx.getGroupFileCount) {
-      const info = await ctx.getGroupFileCount(groupId);
-      return okResponse({
-        file_count: info.fileCount,
-        limit_count: info.maxCount,
-        used_space: 0,
-        total_space: 10737418240,
-      });
-    }
+    const info = await ctx.bridge.apis.groupFile.getCount(groupId);
     return okResponse({
-      file_count: 0,
-      limit_count: 10000,
+      file_count: info.fileCount,
+      limit_count: info.maxCount,
       used_space: 0,
       total_space: 10737418240,
     });

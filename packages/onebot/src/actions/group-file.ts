@@ -11,8 +11,8 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const folderId = asString(params.folder) || asString(params.folder_id) || '/';
     const uploadFile = asBoolean(params.upload_file, true);
     if (!groupId || !file) return failedResponse(RETCODE.BAD_REQUEST, 'group_id and file are required');
-    const fileId = await ctx.uploadGroupFile(groupId, file, name, folderId, uploadFile);
-    return okResponse({ file_id: fileId });
+    const result = await ctx.bridge.apis.groupFile.upload(groupId, file, name, folderId, uploadFile);
+    return okResponse({ file_id: result.fileId });
   });
 
   h.registerAction('upload_private_file', async (params) => {
@@ -21,8 +21,8 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const name = asString(params.name);
     const uploadFile = asBoolean(params.upload_file, true);
     if (!userId || !file) return failedResponse(RETCODE.BAD_REQUEST, 'user_id and file are required');
-    const fileId = await ctx.uploadPrivateFile(userId, file, name, uploadFile);
-    return okResponse({ file_id: fileId });
+    const result = await ctx.bridge.apis.groupFile.uploadPrivate(userId, file, name, uploadFile);
+    return okResponse({ file_id: result.fileId });
   });
 
   h.registerAction('get_group_file_url', async (params) => {
@@ -32,7 +32,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (!groupId || !fileId) {
       return failedResponse(RETCODE.BAD_REQUEST, 'group_id and file_id are required');
     }
-    return okResponse({ url: await ctx.getGroupFileUrl(groupId, fileId, busId) });
+    return okResponse({ url: await ctx.bridge.apis.groupFile.getUrl(groupId, fileId, busId) });
   });
 
   h.registerAction('get_group_root_files', async (params) => {
@@ -81,7 +81,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (!groupId || !name) {
       return failedResponse(RETCODE.BAD_REQUEST, 'group_id and name are required');
     }
-    await ctx.createGroupFileFolder(groupId, name, parentId);
+    await ctx.bridge.apis.groupFile.createFolder(groupId, name, parentId);
     return okResponse();
   });
 
@@ -113,6 +113,6 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (!userId || !fileId || !fileHash) {
       return failedResponse(RETCODE.BAD_REQUEST, 'user_id, file_id and file_hash are required');
     }
-    return okResponse({ url: await ctx.getPrivateFileUrl(userId, fileId, fileHash) });
+    return okResponse({ url: await ctx.bridge.apis.groupFile.getPrivateUrl(userId, fileId, fileHash) });
   });
 }
