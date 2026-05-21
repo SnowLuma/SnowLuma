@@ -25,7 +25,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 
-vi.mock('../../src/bridge/bridge-oidb', () => ({
+vi.mock('@snowluma/bridge/bridge-oidb', () => ({
   runOidb: vi.fn(async () => new Uint8Array()),
   makeOidbEnvelope: vi.fn((_oidbCmd, _subCmd, body) => ({ body })),
   encodeOidbEnv: vi.fn(() => new Uint8Array()),
@@ -40,17 +40,17 @@ vi.mock('../../src/bridge/bridge-oidb', () => ({
 const { buildSendElemsMock } = vi.hoisted(() => ({
   buildSendElemsMock: vi.fn(async (_elements: unknown[], _ctx?: Record<string, unknown>) => []),
 }));
-vi.mock('../../src/bridge/element-builder', () => ({
+vi.mock('@snowluma/bridge/element-builder', () => ({
   buildSendElems: buildSendElemsMock,
 }));
 
-import { protoEncode } from '../../src/protobuf/decode';
-import { SendLongMsgRespSchema } from '../../src/bridge/proto/longmsg';
-import * as forward from '../../src/bridge/actions/forward';
+import { protobuf_encode } from '@snowluma/proton';
+import type { SendLongMsgResp } from '@snowluma/proto-defs/longmsg';
+import { ForwardApi } from '../../src/bridge/apis/forward';
 import { mockBridge } from './_helpers';
 
 function uploadResponseWithResId(resId: string) {
-  const encoded = protoEncode({ result: { resId } }, SendLongMsgRespSchema);
+  const encoded = protobuf_encode<SendLongMsgResp>({ result: { resId } });
   return {
     success: true,
     gotResponse: true,
@@ -70,7 +70,7 @@ describe('actions/forward — file segment inside forward node', () => {
       sendRawPacket: vi.fn(async () => uploadResponseWithResId('res-grp-file')) as any,
     });
 
-    await forward.uploadForwardNodes(bridge as any, [
+    await new ForwardApi(bridge as any).upload([
       {
         userUin: 10001,
         nickname: 'alice',
@@ -100,7 +100,7 @@ describe('actions/forward — file segment inside forward node', () => {
       recallUploadedFile: vi.fn(() => undefined),
     });
 
-    await forward.uploadForwardNodes(bridge as any, [
+    await new ForwardApi(bridge as any).upload([
       {
         userUin: 10001,
         nickname: 'alice',
@@ -157,7 +157,7 @@ describe('actions/forward — file segment inside forward node', () => {
       recallUploadedFile,
     });
 
-    await forward.uploadForwardNodes(bridge as any, [{
+    await new ForwardApi(bridge as any).upload([{
       userUin: 10001,
       nickname: 'alice',
       elements: [{ type: 'file', fileId: 'pfid-cached' } as any],

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toHex, fromHex, hexPreview } from '../src/utils/hex';
+import { toHex, fromHex, hexPreview } from '@snowluma/common/hex';
 
 describe('toHex', () => {
   it('converts empty buffer', () => {

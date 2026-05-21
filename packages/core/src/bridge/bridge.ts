@@ -1,144 +1,44 @@
-// Bridge — per-UIN session: handler registration, packet dispatch, event routing.
-// Supports packet sending via native addon.
-// Heavy OIDB / contact / action logic is split into bridge-oidb, bridge-contacts, bridge-actions.
-
-import type { PacketInfo } from '../protocol/types';
-import type { ForwardNodePayload, QQEventVariant, MessageElement } from './events';
-import type { FriendInfo, QQGroupInfo, GroupMemberInfo, UserProfileInfo, GroupRequestInfo } from './qq-info';
-import { MSG_PUSH_CMD, parseMsgPush } from './msg-push';
-import type { PacketSender, SendPacketResult } from '../protocol/packet-sender';
-import { protobuf_encode, protobuf_decode } from '@snowluma/proton';
-import { buildSendElems } from './element-builder';
-import { IdentityService } from './identity-service';
+import type { PacketSender, SendPacketResult } from '@snowluma/common/packet-sender';
+import type { PacketInfo } from '@snowluma/common/protocol-types';
 import type { BridgeInterface } from './bridge-interface';
-import { IncomingPacketPipeline, type CmdParser } from './packet-pipeline';
-import { createLogger } from '../utils/logger';
-import type {
-  SendMessageRequest,
-  SendMessageResponse,
-} from './proto/proton/action';
-import type { FileExtra } from './proto/proton/message';
+import { IdentityService } from '@snowluma/bridge/identity-service';
+import { MSG_PUSH_CMD, parseMsgPush } from '@snowluma/bridge/msg-push';
+import { IncomingPacketPipeline, type CmdParser } from '@snowluma/bridge/packet-pipeline';
+// qq-info types are no longer used directly in this file — they live
+// inside the Api classes that own those fetches (apis/contacts.ts).
+import { type ApiHub, buildApiHub } from './apis';
 
 // Delegated modules
+// Group-todo / stranger-status / AI-voice moved to apis/extras.ts.
+// Public types stay re-exported through this file for backwards
+// compatibility — the OneBot side imports them via `@snowluma/core`.
 import {
-  fetchFriendList as fetchFriendList_,
-  fetchGroupList as fetchGroupList_,
-  fetchGroupMemberList as fetchGroupMemberList_,
-  fetchUserProfile as fetchUserProfile_,
-  fetchGroupRequests as fetchGroupRequests_,
-  fetchDownloadRKeys as fetchDownloadRKeys_,
-} from './bridge-contacts';
-import type { WebHonorType } from './web/group-honor';
-import {
-  muteGroupMember as muteGroupMember_,
-  muteGroupAll as muteGroupAll_,
-  setGroupAddOption as setGroupAddOption_,
-  setGroupSearch as setGroupSearch_,
-  setGroupAddRequest as setGroupAddRequest_,
-  kickGroupMember as kickGroupMember_,
-  kickGroupMembers as kickGroupMembers_,
-  leaveGroup as leaveGroup_,
-  setGroupAdmin as setGroupAdmin_,
-  setGroupCard as setGroupCard_,
-  setGroupName as setGroupName_,
-  setGroupSpecialTitle as setGroupSpecialTitle_,
-  setGroupRemark as setGroupRemark_,
-  getGroupAtAllRemain as getGroupAtAllRemain_,
-} from './actions/group-admin';
-import {
-  uploadGroupFile as uploadGroupFile_,
-  uploadPrivateFile as uploadPrivateFile_,
-  sendGroupFileMessage as sendGroupFileMessage_,
-  fetchGroupFiles as fetchGroupFiles_,
-  fetchGroupFileUrl as fetchGroupFileUrl_,
-  fetchPrivateFileUrl as fetchPrivateFileUrl_,
-  fetchGroupPttUrlByNode as fetchGroupPttUrlByNode_,
-  fetchPrivatePttUrlByNode as fetchPrivatePttUrlByNode_,
-  fetchGroupVideoUrlByNode as fetchGroupVideoUrlByNode_,
-  fetchPrivateVideoUrlByNode as fetchPrivateVideoUrlByNode_,
-  deleteGroupFile as deleteGroupFile_,
-  moveGroupFile as moveGroupFile_,
-  createGroupFileFolder as createGroupFileFolder_,
-  deleteGroupFileFolder as deleteGroupFileFolder_,
-  renameGroupFileFolder as renameGroupFileFolder_,
-  fetchGroupFileCount as fetchGroupFileCount_,
-} from './actions/group-file';
-import {
-  recallGroupMessage as recallGroupMessage_,
-  recallPrivateMessage as recallPrivateMessage_,
-  markPrivateMessageRead as markGroupMsgAsRead_,
-  markGroupMessageRead as markPrivateMsgAsRead_,
-  setGroupEssence as setGroupEssence_,
-} from './actions/group-message';
-import {
-  sendPoke as sendPoke_,
-  sendLike as sendLike_,
-  setGroupReaction as setGroupReaction_,
-  getEmojiLikes as getEmojiLikes_,
-} from './actions/interaction';
-import {
-  uploadForwardNodes as uploadForwardNodes_,
-  fetchForwardNodes as fetchForwardNodes_,
-} from './actions/forward';
-import {
-  setFriendAddRequest as setFriendAddRequest_,
-  deleteFriend as deleteFriend_,
-  setFriendRemark as setFriendRemark_,
-} from './actions/friend';
-import {
-  setOnlineStatus as setOnlineStatus_,
-  setDiyOnlineStatus as setDiyOnlineStatus_,
-  setProfile as setProfile_,
-  setSelfLongNick as setSelfLongNick_,
-  setInputStatus as setInputStatus_,
-  setAvatar as setAvatar_,
-  setGroupAvatar as setGroupAvatar_,
-  fetchCustomFace as fetchCustomFace_,
-  getProfileLike as getProfileLike_,
-  getUnidirectionalFriendList as getUnidirectionalFriendList_,
-} from './actions/profile';
-import {
-  translateEn2Zh as translateEn2Zh_,
-  getMiniAppArk as getMiniAppArk_,
-  clickInlineKeyboardButton as clickInlineKeyboardButton_,
-  sendGroupSign as sendGroupSign_,
-} from './actions/misc';
-import {
-  setGroupTodo as setGroupTodo_,
-  completeGroupTodo as completeGroupTodo_,
-  cancelGroupTodo as cancelGroupTodo_,
-  getStrangerStatus as getStrangerStatus_,
-  fetchAiVoiceList as fetchAiVoiceList_,
-  fetchAiVoice as fetchAiVoice_,
   AiVoiceChatType,
   type AiVoiceCategory,
-  type AiVoiceChatType as AiVoiceChatTypeT,
   type StrangerStatus,
-} from './actions/extras';
+} from './apis/extras';
+// actions/forward.ts removed — moved to apis/forward.ts::ForwardApi.
+// actions/friend.ts removed — moved to apis/friend.ts::FriendApi.
+// actions/group-admin.ts removed — moved to `apis/group-admin.ts::GroupAdminApi`.
+// actions/group-album.ts removed — moved to `apis/group-album.ts::GroupAlbumApi`.
+// Group file CRUD + private c2c upload + media URL resolvers moved to
+// `apis.groupFile` (see `apis/group-file.ts::GroupFileApi`). The shared
+// result type still lives here because the OneBot side imports it
+// through bridge.ts.
+import type { GroupFilesResult } from './apis/group-file';
+// actions/group-message.ts removed — `setGroupEssence` moved to
+//   apis/interaction.ts::InteractionApi. The recall/markRead helpers
+//   were absorbed into MessageApi back in commit 1.
+// actions/interaction.ts removed — sendPoke/sendLike/setReaction/
+//   getEmojiLikes moved to apis/interaction.ts::InteractionApi.
+// actions/misc.ts removed — moved to apis/misc.ts::MiscApi.
+// actions/profile.ts removed — moved to apis/profile.ts::ProfileApi.
+// `bridge-contacts.ts` removed — its 6 functions are now methods on
+// `apis.contacts` (see `apis/contacts.ts::ContactsApi`).
+import { BridgeEventBus } from '@snowluma/bridge/event-bus';
+// web-actions/* removed — moved to apis/web.ts::WebApi.
 export { AiVoiceChatType };
 export type { AiVoiceCategory, StrangerStatus };
-import {
-  getGroupHonorInfo as getGroupHonorInfo_,
-  forceFetchClientKey as forceFetchClientKey_,
-  getGroupEssence as getGroupEssence_,
-  getGroupEssenceAll as getGroupEssenceAll_,
-  sendGroupNotice as sendGroupNotice_,
-  getGroupNotice as getGroupNotice_,
-  deleteGroupNoticeByFid as deleteGroupNotice_,
-  getCookiesStr as getCookiesStr_,
-  getCsrfToken as getCsrfToken_,
-  getCredentials as getCredentials_,
-  getGroupAlbumListWeb as getGroupAlbumListWeb_,
-  uploadImageToGroupAlbumWeb as uploadImageToGroupAlbumWeb_,
-} from './web-actions';
-import { getGroupAlbumMediaList as getGroupAlbumMediaList_,
-  commentGroupAlbumMedia as commentGroupAlbumMedia_,
-  likeGroupAlbumMedia as likeGroupAlbumMedia_,
-  deleteGroupAlbumMedia as deleteGroupAlbumMedia_,
-} from './actions/group-album';
-import type { GroupFilesResult } from './actions/group-file';
-import type { MediaIndexNode } from './actions/shared';
-import { BridgeEventBus } from './event-bus';
 
 export interface SendMessageReceipt {
   messageId: number;
@@ -185,11 +85,7 @@ export interface ClientKeyInfo {
   keyIndex: string
 }
 
-const log = createLogger('Bridge');
-
 export class Bridge implements BridgeInterface {
-  private static readonly SEND_MSG_CMD = 'MessageSvc.PbSendMsg';
-
   readonly identity: IdentityService;
   private pids_ = new Set<number>();
   /**
@@ -198,17 +94,19 @@ export class Bridge implements BridgeInterface {
    * care about and the pipeline fans out in parallel.
    */
   readonly events = new BridgeEventBus();
+  /**
+   * Typed Api hub. Each entry is a class encapsulating one logical
+   * area of the QQ protocol (sending messages, group admin, file
+   * uploads, etc.). Built eagerly in the constructor — every Bridge
+   * instance gets its own `apis.*` set with `this` (typed as
+   * `BridgeContext`) injected. See `apis/index.ts`.
+   */
+  readonly apis: ApiHub;
   private readonly pipeline: IncomingPacketPipeline;
   private packetClient_: PacketSender | null = null;
-  // Throttle for fetchGroupMemberList(groupId): coalesces in-flight calls
-  // and serves a fresh result for `kMemberListTtlMs` to all callers.
-  // Without this, a busy OneBot client (e.g. MaiBot calling
-  // get_group_member_info(no_cache=true) per inbound message) would
-  // trigger one OIDB 0xfe7_3 per chat message per group; sustained rate
-  // (>1k/h) is detected by Tencent risk-control and gets the account
-  // banned for 7 days.
-  private memberListInflight_ = new Map<number, Promise<GroupMemberInfo[]>>();
-  private memberListLastFetch_ = new Map<number, { at: number; data: GroupMemberInfo[] }>();
+  // (fetchGroupMemberList throttle cache moved to ContactsApi — same
+  // 60s TTL + inflight coalesce semantics, just owned by the Api class
+  // that exposes the method.)
 
   // ── Uploaded-file metadata cache ────────────────────────────────────
   //
@@ -234,9 +132,15 @@ export class Bridge implements BridgeInterface {
 
   constructor(identity: IdentityService) {
     this.identity = identity;
+    // Build Api hub FIRST — `setFetcher` below installs callbacks
+    // that reach into `this.apis.contacts.*`, so the hub must exist
+    // by the time those callbacks could fire. The Bridge instance IS
+    // the BridgeContext (Bridge implements BridgeInterface which
+    // includes the BridgeContext surface).
+    this.apis = buildApiHub(this);
     this.identity.setFetcher({
-      fetchProfile: (uin) => this.fetchUserProfile(uin),
-      fetchGroupMemberList: (gid) => this.fetchGroupMemberList(gid),
+      fetchProfile: (uin) => this.apis.contacts.fetchUserProfile(uin),
+      fetchGroupMemberList: (gid) => this.apis.contacts.fetchGroupMemberList(gid),
     });
     this.pipeline = new IncomingPacketPipeline({
       identity: this.identity,
@@ -287,10 +191,10 @@ export class Bridge implements BridgeInterface {
 
   private async refreshMemberCache(groupId: number, refreshGroupList: boolean, forceMemberList: boolean): Promise<boolean> {
     if (refreshGroupList) {
-      try { await this.fetchGroupList(); } catch { /* ignore */ }
+      try { await this.apis.contacts.fetchGroupList(); } catch { /* ignore */ }
     }
     if (!this.identity.findGroup(groupId)) return false;
-    await this.fetchGroupMemberList(groupId, { force: forceMemberList });
+    await this.apis.contacts.fetchGroupMemberList(groupId, { force: forceMemberList });
     return true;
   }
 
@@ -326,12 +230,18 @@ export class Bridge implements BridgeInterface {
   }
 
   // --- Sequence / random generators ---
+  //
+  // `public` (formerly `private`) because the Api classes in
+  // `apis/*.ts` need them to build `SendMessageRequest` packets. Part
+  // of the `BridgeContext` surface, so a third party that only sees
+  // `BridgeContext` can still synthesise wire packets without reaching
+  // into the concrete Bridge class.
 
-  private nextClientSequence(): number {
+  nextClientSequence(): number {
     return ++this.clientSeq_;
   }
 
-  private nextMessageRandom(): number {
+  nextMessageRandom(): number {
     this.msgRandom_ = (this.msgRandom_ + 0x9E3779B9) >>> 0;
     return this.msgRandom_ & 0x7FFFFFFF;
   }
@@ -348,236 +258,10 @@ export class Bridge implements BridgeInterface {
     return this.packetClient_.sendPacket(serviceCmd, Buffer.from(body), timeoutMs);
   }
 
-  // --- Send message (high-level) ---
-
-  async sendGroupMessage(groupId: number, elements: MessageElement[]): Promise<SendMessageReceipt> {
-    if (elements.length === 0) throw new Error('message is empty');
-
-    const protoElems = await buildSendElems(elements, { bridge: this, groupId });
-    const random = this.nextMessageRandom();
-
-    const request = protobuf_encode<SendMessageRequest>({
-      routingHead: {
-        grp: { groupCode: BigInt(groupId) },
-      },
-      contentHead: {
-        type: 1,
-      },
-      messageBody: {
-        richText: {
-          elems: protoElems,
-        },
-      } as any,
-      clientSequence: 0,
-      random,
-      syncCookie: new Uint8Array(0),
-      via: 0,
-      dataStatist: 0,
-      multiSendSeq: 0,
-    });
-
-    const result = await this.sendRawPacket(Bridge.SEND_MSG_CMD, request);
-
-    if (!result.success || !result.gotResponse || !result.responseData) {
-      throw new Error(`send group message failed: ${result.errorMessage || 'no response'}`);
-    }
-
-    const response = protobuf_decode<SendMessageResponse>(result.responseData);
-    if (!response) {
-      throw new Error('failed to decode SendMessageResponse');
-    }
-    if (response.result !== undefined && response.result !== 0) {
-      throw new Error(`send group message rejected: result=${response.result} err=${response.errMsg ?? ''}`);
-    }
-
-    const seq = response.groupSequence ?? 0;
-    const messageId = (random & 0x7FFFFFFF) || seq;
-    const timestamp = response.timestamp1 ?? Math.floor(Date.now() / 1000);
-
-    return {
-      messageId,
-      sequence: seq,
-      clientSequence: 0,
-      random,
-      timestamp,
-    };
-  }
-
-  async sendPrivateMessage(userUin: number, elements: MessageElement[]): Promise<SendMessageReceipt> {
-    if (elements.length === 0) throw new Error('message is empty');
-
-    // Resolve UID for media upload and the final c2c routing head.
-    let userUid = '';
-    const hasMedia = elements.some(e => e.type === 'image' || e.type === 'record' || e.type === 'video');
-    if (hasMedia) {
-      userUid = await this.resolveUserUid(userUin);
-    }
-
-    const protoElems = await buildSendElems(elements, { bridge: this, userUid });
-    const random = this.nextMessageRandom();
-    const clientSeq = this.nextClientSequence();
-
-    const request = protobuf_encode<SendMessageRequest>({
-      routingHead: {
-        c2c: {
-          uin: userUin,
-          ...(userUid ? { uid: userUid } : {}),
-        },
-      },
-      contentHead: {
-        type: 1,
-        subType: 0,
-        c2cCmd: 11,
-      },
-      messageBody: {
-        richText: {
-          elems: protoElems,
-        },
-      } as any,
-      clientSequence: clientSeq,
-      random,
-      syncCookie: new Uint8Array(0),
-      via: 0,
-      dataStatist: 0,
-      ctrl: {
-        msgFlag: Math.floor(Date.now() / 1000),
-      },
-      multiSendSeq: 0,
-    });
-
-    const result = await this.sendRawPacket(Bridge.SEND_MSG_CMD, request);
-
-    if (!result.success || !result.gotResponse || !result.responseData) {
-      throw new Error(`send private message failed: ${result.errorMessage || 'no response'}`);
-    }
-
-    const response = protobuf_decode<SendMessageResponse>(result.responseData);
-    if (!response) {
-      throw new Error('failed to decode SendMessageResponse');
-    }
-    if (response.result !== undefined && response.result !== 0) {
-      throw new Error(`send private message rejected: result=${response.result} err=${response.errMsg ?? ''}`);
-    }
-
-    const seq = response.privateSequence ?? 0;
-    const messageId = (random & 0x7FFFFFFF) || seq;
-    const timestamp = response.timestamp1 ?? Math.floor(Date.now() / 1000);
-
-    return {
-      messageId,
-      sequence: seq,
-      clientSequence: clientSeq,
-      random,
-      timestamp,
-    };
-  }
-
-  /**
-   * Send a c2c file as a chat message.
-   *
-   * The wire shape isn't the same as a regular c2c message — the c2c
-   * file path uses three slots that differ from a normal text/image
-   * send (verified against `dev/Lagrange.Core/.../MessagePacker.cs:
-   * BuildPacketBase` + `FileEntity.PackMessageContent`):
-   *
-   *   1. `routingHead.trans0x211 { ccCmd: 4, uid: peer }` instead of
-   *      `routingHead.c2c { uin, uid }`. The server rejects c2c file
-   *      messages routed through the regular c2c slot.
-   *   2. `messageBody.msgContent` carries the serialised
-   *      `FileExtra { file: NotOnlineFile }` bytes. NOT
-   *      `richText.notOnlineFile` — the receiver doesn't read that
-   *      slot for file metadata.
-   *   3. `contentHead.c2cCmd` left at 0 (Lagrange's default). The
-   *      previous `c2cCmd: 11` was a stale go-cqhttp value the QQ-NT
-   *      server doesn't recognise.
-   *
-   * NotOnlineFile carries three required-on-send fields the receiver
-   * itself ignores but the server's intake validator checks:
-   *   - `subcmd: 1`     — c2c file send command code
-   *   - `dangerEvel: 0` — virus-scan severity, always 0 client-side
-   *   - `expireTime`    — 7 days from now (Lagrange convention)
-   */
-  async sendC2cFileMessage(
-    userUin: number,
-    userUid: string,
-    info: { fileId: string; fileName: string; fileSize: number; fileMd5: Uint8Array; fileHash?: string },
-  ): Promise<SendMessageReceipt> {
-    const random = this.nextMessageRandom();
-    const clientSeq = this.nextClientSequence();
-
-    const nowSec = Math.floor(Date.now() / 1000);
-    const sevenDaysSec = 7 * 24 * 60 * 60;
-    // Serialise `FileExtra { file: NotOnlineFile }` for `msgContent`.
-    // The NotOnlineFile field tags (1/3/4/5/6/9/50/55/57) are shared
-    // between send and receive — the schema is symmetric.
-    const fileExtraBytes = protobuf_encode<FileExtra>({
-      file: {
-        fileType: 0,
-        fileUuid: info.fileId,
-        fileMd5: info.fileMd5,
-        fileName: info.fileName,
-        fileSize: BigInt(info.fileSize),
-        subcmd: 1,
-        dangerEvel: 0,
-        expireTime: nowSec + sevenDaysSec,
-        fileHash: info.fileHash ?? '',
-      },
-    });
-
-    const request = protobuf_encode<SendMessageRequest>({
-      routingHead: {
-        // c2c-file scene: route through `trans0x211` (field 15) with
-        // ccCmd=4. The regular `c2c { uin, uid }` routing slot causes
-        // the server to reject this with a routing-mismatch error.
-        trans0x211: { ccCmd: 4, uid: userUid },
-      },
-      contentHead: {
-        type: 1,
-        subType: 0,
-        // c2cCmd intentionally omitted (defaults to 0). Was `11`,
-        // which produced an unknown-command error in the QQ-NT
-        // server's c2c file handler. `userUin` is unused on this path
-        // (routing carries the uid only) but kept in the function
-        // signature for symmetry with the OneBot caller.
-      },
-      messageBody: {
-        // No elems — the file metadata lives in msgContent below.
-        msgContent: fileExtraBytes,
-      },
-      clientSequence: clientSeq,
-      random,
-      syncCookie: new Uint8Array(0),
-      via: 0,
-      dataStatist: 0,
-      ctrl: {
-        msgFlag: nowSec,
-      },
-      multiSendSeq: 0,
-    });
-
-    // Silence the unused-parameter lint — `userUin` is part of our
-    // BridgeInterface contract (the OneBot layer threads it through)
-    // but the wire shape only needs the uid.
-    void userUin;
-
-    const result = await this.sendRawPacket(Bridge.SEND_MSG_CMD, request);
-    if (!result.success || !result.gotResponse || !result.responseData) {
-      throw new Error(`send c2c file message failed: ${result.errorMessage || 'no response'}`);
-    }
-
-    const response = protobuf_decode<SendMessageResponse>(result.responseData);
-    if (!response) {
-      throw new Error('failed to decode SendMessageResponse');
-    }
-    if (response.result !== undefined && response.result !== 0) {
-      throw new Error(`send c2c file message rejected: result=${response.result} err=${response.errMsg ?? ''}`);
-    }
-
-    const seq = response.privateSequence ?? 0;
-    const messageId = (random & 0x7FFFFFFF) || seq;
-    const timestamp = response.timestamp1 ?? Math.floor(Date.now() / 1000);
-    return { messageId, sequence: seq, clientSequence: clientSeq, random, timestamp };
-  }
+  // `Bridge.SEND_MSG_CMD` and the inline `sendGroupMessage` /
+  // `sendPrivateMessage` / `sendC2cFileMessage` implementations were
+  // moved to `apis/message.ts::MessageApi` as part of the #6
+  // Api-on-ctx refactor. Callers route through `bridge.apis.message.*`.
 
   // --- Delegated: OIDB helpers ---
 
@@ -585,206 +269,38 @@ export class Bridge implements BridgeInterface {
     return this.identity.resolveUid(uin, groupId);
   }
 
-  // --- Delegated: Contact / info queries ---
+  // fetchFriendList / fetchGroupList / fetchGroupMemberList /
+  // fetchUserProfile / fetchGroupRequests / fetchDownloadRKeys
+  // moved to apis.contacts (see apis/contacts.ts::ContactsApi).
 
-  async fetchFriendList(): Promise<FriendInfo[]> { return fetchFriendList_(this); }
-  async fetchGroupList(): Promise<QQGroupInfo[]> { return fetchGroupList_(this); }
-  async fetchGroupMemberList(groupId: number, options: { force?: boolean } = {}): Promise<GroupMemberInfo[]> {
-    const kMemberListTtlMs = 60_000;
-    const now = Date.now();
-    const last = this.memberListLastFetch_.get(groupId);
-    if (!options.force && last && now - last.at < kMemberListTtlMs) {
-      return last.data;
-    }
-    const inflight = this.memberListInflight_.get(groupId);
-    if (inflight) return inflight;
-    const task = (async () => {
-      try {
-        const data = await fetchGroupMemberList_(this, groupId);
-        this.memberListLastFetch_.set(groupId, { at: Date.now(), data });
-        return data;
-      } finally {
-        this.memberListInflight_.delete(groupId);
-      }
-    })();
-    this.memberListInflight_.set(groupId, task);
-    return task;
-  }
-  async fetchUserProfile(uin: number): Promise<UserProfileInfo> { return fetchUserProfile_(this, uin); }
-  async fetchGroupRequests(filtered = false): Promise<GroupRequestInfo[]> { return fetchGroupRequests_(this, filtered); }
-  async fetchDownloadRKeys(): Promise<DownloadRKeyInfo[]> { return fetchDownloadRKeys_(this); }
+  // --- Delegated: action methods ---
+  //
+  // GroupAdmin methods (mute/kick/admin/card/name/title/leave/
+  // add-option/search/add-request/remark/at-all-remain) moved to
+  // apis.groupAdmin (apis/group-admin.ts::GroupAdminApi).
+  // Friend methods (handleRequest/delete/setRemark) moved to
+  // apis.friend.
+  // GroupFile methods (upload/uploadPrivate/publish/list/getUrl/
+  // getPrivateUrl/{Ptt,Video}Url/getPrivate{Ptt,Video}Url/delete/move/
+  // createFolder/deleteFolder/renameFolder/getCount) moved to
+  // apis.groupFile (apis/group-file.ts::GroupFileApi).
+  // Forward methods (upload / fetch) moved to apis.forward.
+  // Interaction methods (sendPoke/sendLike/setReaction/setEssence/
+  // getEmojiLikes) moved to apis.interaction.
+  // recall* / markRead* moved to apis/message.ts::MessageApi.
+  // GroupAlbum methods (list/upload/getMediaList/comment/like/delete)
+  // moved to apis.groupAlbum (apis/group-album.ts::GroupAlbumApi).
+  // Web methods (getHonorInfo / forceFetchClientKey / getEssence /
+  // getEssenceAll / sendNotice / getNotice / deleteNotice /
+  // getCookiesStr / getCsrfToken / getCredentials) moved to apis.web.
+  // Profile methods (setOnlineStatus / setDiyOnlineStatus / setProfile /
+  // setSelfLongNick / setInputStatus / setAvatar / setGroupAvatar /
+  // fetchCustomFace / getLike / getUnidirectionalFriendList) moved to
+  // apis.profile.
+  // Misc methods (translateEn2Zh / getMiniAppArk /
+  // clickInlineKeyboardButton / sendGroupSign) moved to apis.misc.
 
-  // --- Delegated: Admin / action methods ---
-
-  async muteGroupMember(groupId: number, userId: number, duration: number): Promise<void> { return muteGroupMember_(this, groupId, userId, duration); }
-  async muteGroupAll(groupId: number, enable: boolean): Promise<void> { return muteGroupAll_(this, groupId, enable); }
-  async setGroupAddOption(groupId: number, addType: number): Promise<void> { return setGroupAddOption_(this, groupId, addType); }
-  async setGroupSearch(groupId: number): Promise<void> { return setGroupSearch_(this, groupId); }
-  async kickGroupMember(groupId: number, userId: number, reject: boolean, reason = ''): Promise<void> { return kickGroupMember_(this, groupId, userId, reject, reason); }
-  async kickGroupMembers(groupId: number, userIds: number[], reject: boolean): Promise<void> { return kickGroupMembers_(this, groupId, userIds, reject); }
-  async leaveGroup(groupId: number): Promise<void> { return leaveGroup_(this, groupId); }
-  async setGroupAdmin(groupId: number, userId: number, enable: boolean): Promise<void> { return setGroupAdmin_(this, groupId, userId, enable); }
-  async setGroupCard(groupId: number, userId: number, card: string): Promise<void> { return setGroupCard_(this, groupId, userId, card); }
-  async setGroupName(groupId: number, name: string): Promise<void> { return setGroupName_(this, groupId, name); }
-  async setGroupSpecialTitle(groupId: number, userId: number, title: string): Promise<void> { return setGroupSpecialTitle_(this, groupId, userId, title); }
-  async setFriendAddRequest(uidOrFlag: string, approve: boolean): Promise<void> { return setFriendAddRequest_(this, uidOrFlag, approve); }
-  async deleteFriend(userId: number, block = false): Promise<void> { return deleteFriend_(this, userId, block); }
-  async uploadGroupFile(groupId: number, file: string, name = '', folderId = '/', uploadFile = true): Promise<{ fileId: string | null }> {
-    return uploadGroupFile_(this, groupId, file, name, folderId, uploadFile);
-  }
-  async uploadPrivateFile(userId: number, file: string, name = '', uploadFile = true): Promise<{ fileId: string | null }> {
-    return uploadPrivateFile_(this, userId, file, name, uploadFile);
-  }
-  async sendGroupFileMessage(groupId: number, fileId: string): Promise<void> {
-    return sendGroupFileMessage_(this, groupId, fileId);
-  }
-  async fetchGroupFiles(groupId: number, folderId = '/'): Promise<GroupFilesResult> { return fetchGroupFiles_(this, groupId, folderId); }
-  async fetchGroupFileUrl(groupId: number, fileId: string, busId = 102): Promise<string> { return fetchGroupFileUrl_(this, groupId, fileId, busId); }
-  async fetchPrivateFileUrl(userId: number, fileId: string, fileHash: string): Promise<string> { return fetchPrivateFileUrl_(this, userId, fileId, fileHash); }
-  async fetchGroupPttUrlByNode(groupId: number, node: MediaIndexNode): Promise<string> { return fetchGroupPttUrlByNode_(this, groupId, node); }
-  async fetchPrivatePttUrlByNode(node: MediaIndexNode): Promise<string> { return fetchPrivatePttUrlByNode_(this, node); }
-  async fetchGroupVideoUrlByNode(groupId: number, node: MediaIndexNode): Promise<string> { return fetchGroupVideoUrlByNode_(this, groupId, node); }
-  async fetchPrivateVideoUrlByNode(node: MediaIndexNode): Promise<string> { return fetchPrivateVideoUrlByNode_(this, node); }
-  async uploadForwardNodes(nodes: ForwardNodePayload[], groupId?: number, userId?: number): Promise<string> { return uploadForwardNodes_(this, nodes, groupId, userId); }
-  async fetchForwardNodes(resId: string): Promise<ForwardNodePayload[]> { return fetchForwardNodes_(this, resId); }
-  async deleteGroupFile(groupId: number, fileId: string): Promise<void> { return deleteGroupFile_(this, groupId, fileId); }
-  async moveGroupFile(groupId: number, fileId: string, parentDirectory: string, targetDirectory: string): Promise<void> { return moveGroupFile_(this, groupId, fileId, parentDirectory, targetDirectory); }
-  async createGroupFileFolder(groupId: number, name: string, parentId = '/'): Promise<void> { return createGroupFileFolder_(this, groupId, name, parentId); }
-  async deleteGroupFileFolder(groupId: number, folderId: string): Promise<void> { return deleteGroupFileFolder_(this, groupId, folderId); }
-  async renameGroupFileFolder(groupId: number, folderId: string, newFolderName: string): Promise<void> { return renameGroupFileFolder_(this, groupId, folderId, newFolderName); }
-  async setGroupAddRequest(groupId: number, sequence: number, eventType: number, approve: boolean, reason = '', filtered = false): Promise<void> { return setGroupAddRequest_(this, groupId, sequence, eventType, approve, reason, filtered); }
-  async sendPoke(isGroup: boolean, peerUin: number, targetUin?: number): Promise<void> { return sendPoke_(this, isGroup, peerUin, targetUin); }
-  async sendLike(userId: number, count: number): Promise<void> { return sendLike_(this, userId, count); }
-  async setGroupEssence(groupId: number, sequence: number, random: number, enable: boolean): Promise<void> { return setGroupEssence_(this, groupId, sequence, random, enable); }
-  async setGroupReaction(groupId: number, sequence: number, code: string, isSet: boolean): Promise<void> { return setGroupReaction_(this, groupId, sequence, code, isSet); }
-  async recallGroupMessage(groupId: number, sequence: number): Promise<void> { return recallGroupMessage_(this, groupId, sequence); }
-  async recallPrivateMessage(userUin: number, clientSeq: number, msgSeq: number, random: number, timestamp: number): Promise<void> { return recallPrivateMessage_(this, userUin, clientSeq, msgSeq, random, timestamp); }
-  async markGroupMsgAsRead(groupId: number, sequence: number): Promise<void> { return markGroupMsgAsRead_(this, groupId, sequence); }
-  async markPrivateMsgAsRead(userId: number, sequence: number): Promise<void> { return markPrivateMsgAsRead_(this, userId, sequence); }
-  async setFriendRemark(userId: number, remark: string): Promise<void> { return setFriendRemark_(this, userId, remark); }
-  async setGroupRemark(groupId: number, remark: string): Promise<void> { return setGroupRemark_(this, groupId, remark); }
-  async getGroupHonorInfo(groupId: number, type: WebHonorType | string): Promise<any> {
-    return getGroupHonorInfo_(this, groupId, type);
-  }
-  async forceFetchClientKey(): Promise<ClientKeyInfo> { return forceFetchClientKey_(this)}
-  async getGroupEssence(groupId: number, pageStart: number = 0, pageLimit: number = 50): Promise<any> {
-    return getGroupEssence_(this, groupId, pageStart, pageLimit);
-  }
-
-  async getGroupEssenceAll(groupId: number): Promise<any> {
-    return getGroupEssenceAll_(this, groupId);
-  }
-
-  async getGroupAlbumList(groupId: number): Promise<any> {
-    return getGroupAlbumListWeb_(this, groupId);
-  }
-
-  async uploadImageToGroupAlbum(groupId: number, albumId: string, albumName: string, filePath: string): Promise<void> {
-    return uploadImageToGroupAlbumWeb_(this, groupId, albumId, albumName, filePath);
-  }
-
-  async getGroupAlbumMediaList(groupId: number, albumId: string, attachInfo?: string): Promise<any> {
-    return getGroupAlbumMediaList_(this, groupId, albumId, attachInfo);
-  }
-
-  async commentGroupAlbumMedia(groupId: number, albumId: string, lloc: string, content: string): Promise<any> {
-    return commentGroupAlbumMedia_(this, groupId, albumId, lloc, content);
-  }
-
-  async likeGroupAlbumMedia(groupId: number, albumId: string, batchId: string, lloc: string | undefined, isLike: boolean): Promise<any> {
-    return likeGroupAlbumMedia_(this, groupId, albumId, batchId, lloc, isLike);
-  }
-
-  async deleteGroupAlbumMedia(groupId: number, albumId: string, lloc: string): Promise<any> {
-    return deleteGroupAlbumMedia_(this, groupId, albumId, lloc);
-  }
-
-  async sendGroupNotice(groupId: number, content: string, options?: any) {
-    return sendGroupNotice_(this, groupId, content, options);
-  }
-
-  async getGroupNotice(groupId: number) {
-    return getGroupNotice_(this, groupId);
-  }
-
-  async deleteGroupNotice(groupId: number, fid: string): Promise<boolean> {
-    return deleteGroupNotice_(this, groupId, fid);
-  }
-
-  async fetchGroupFileCount(groupId: number): Promise<{ fileCount: number; maxCount: number }> { return fetchGroupFileCount_(this, groupId); }
-
-  async getGroupAtAllRemain(groupId: number) {
-    return getGroupAtAllRemain_(this, groupId);
-  }
-  // extend
-  async setOnlineStatus(status: number, extStatus: number = 0, batteryStatus: number = 100): Promise<void> {
-    return setOnlineStatus_(this, status, extStatus, batteryStatus);
-  }
-  async setDiyOnlineStatus(faceId: number, wording: string, faceType: number): Promise<void> {
-    return setDiyOnlineStatus_(this, faceId, wording, faceType);
-  }
-  async setProfile(nickname?: string, personalNote?: string): Promise<void> {
-    return setProfile_(this, nickname, personalNote);
-  }
-  async getCookiesStr(domain: string): Promise<string> { return getCookiesStr_(this, domain); }
-  async getCsrfToken(): Promise<number> { return getCsrfToken_(this); }
-  async getCredentials(domain: string) { return getCredentials_(this, domain); }
-  async getProfileLike(userId?: number, start?: number, limit?: number) {
-    return getProfileLike_(this, userId, start, limit);
-  }
-  async getUnidirectionalFriendList() {
-    return getUnidirectionalFriendList_(this);
-  }
-  async setSelfLongNick(longNick: string) {
-    return setSelfLongNick_(this, longNick);
-  }
-  async setInputStatus(userId: number, eventType: number) {
-    return setInputStatus_(this, userId, eventType);
-  }
-  async translateEn2Zh(words: string[]) {
-    return translateEn2Zh_(this, words);
-  }
-  async getMiniAppArk(type: string, title: string, desc: string, picUrl: string, jumpUrl: string) {
-    return getMiniAppArk_(this, type, title, desc, picUrl, jumpUrl);
-  }
-  async clickInlineKeyboardButton(groupId: number, botAppid: number, buttonId: string, callbackData: string, msgSeq: number) {
-    return clickInlineKeyboardButton_(this, groupId, botAppid, buttonId, callbackData, msgSeq);
-  }
-  async sendGroupSign(groupId: number) {
-    return sendGroupSign_(this, groupId);
-  }
-  async setAvatar(source: string): Promise<void> {
-    return setAvatar_(this, source);
-  }
-  async setGroupAvatar(groupId: number, source: string): Promise<void> {
-    return setGroupAvatar_(this, groupId, source);
-  }
-  async fetchCustomFace(count?: number): Promise<string[]> {
-    return fetchCustomFace_(this, count);
-  }
-  async getEmojiLikes(groupId: number, sequence: number, emojiId: string, emojiType?: number, count?: number, cookie?: string) {
-    return getEmojiLikes_(this, groupId, sequence, emojiId, emojiType, count, cookie);
-  }
-
-  // --- Tier-2 napcat-parity extras (group todo, stranger status, AI voice) ---
-
-  async setGroupTodo(groupId: number, msgSeq: bigint | number | string): Promise<void> {
-    return setGroupTodo_(this, groupId, BigInt(msgSeq));
-  }
-  async completeGroupTodo(groupId: number, msgSeq: bigint | number | string): Promise<void> {
-    return completeGroupTodo_(this, groupId, BigInt(msgSeq));
-  }
-  async cancelGroupTodo(groupId: number, msgSeq: bigint | number | string): Promise<void> {
-    return cancelGroupTodo_(this, groupId, BigInt(msgSeq));
-  }
-  async getStrangerStatus(uin: number): Promise<StrangerStatus | null> {
-    return getStrangerStatus_(this, uin);
-  }
-  async fetchAiVoiceList(groupId: number, chatType: AiVoiceChatTypeT): Promise<AiVoiceCategory[]> {
-    return fetchAiVoiceList_(this, groupId, chatType);
-  }
-  async fetchAiVoice(groupId: number, voiceId: string, text: string, chatType: AiVoiceChatTypeT) {
-    return fetchAiVoice_(this, groupId, voiceId, text, chatType);
-  }
+  // --- Tier-2 napcat-parity extras (group todo / stranger status /
+  //     AI voice) moved to apis.extras. ---
 }
 

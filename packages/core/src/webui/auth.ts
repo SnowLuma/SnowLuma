@@ -1,7 +1,7 @@
+import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
-import { createLogger } from '../utils/logger';
+import { createLogger } from '@snowluma/common/logger';
 
 const log = createLogger('WebUI.Auth');
 
@@ -13,11 +13,6 @@ const SCRYPT_N = 16384; // cost
 const SCRYPT_R = 8;
 const SCRYPT_P = 1;
 
-/**
- * Fixed credentials used when SNOWLUMA_DEV_MODE=1 is set. The state is kept
- * entirely in memory and never written to `config/webui.json`, so toggling
- * dev mode on/off never disturbs the real persisted password.
- */
 const DEV_PASSWORD = 'snowluma-dev';
 
 export function isDevAuthMode(): boolean {
@@ -27,9 +22,6 @@ export function isDevAuthMode(): boolean {
 function envBootstrapPassword(): string | null {
   const raw = process.env.SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD;
   if (!raw || typeof raw !== 'string') return null;
-  // Minimum sanity: avoid accidental empty / 1-char seeds. Strength
-  // rules still don't apply because we want trusted launchers to be
-  // able to pick a high-entropy random secret (e.g. base64(16)).
   if (raw.length < 8) return null;
   return raw;
 }
@@ -111,7 +103,6 @@ function atomicWrite(state: WebuiAuthState): void {
   ensureConfigDir();
   const tmp = WEBUI_CONFIG_PATH + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { encoding: 'utf8', mode: 0o600 });
-  // chmod again in case the file already existed with looser perms
   try {
     fs.chmodSync(tmp, 0o600);
   } catch {
@@ -174,11 +165,6 @@ export class WebuiAuth {
         backupCorruptConfig();
       }
     }
-    // SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD lets a trusted launcher seed the
-    // password on first run instead of having to scrape it from logs.
-    // Effect: write webui.json with the env-provided password, hashed,
-    // and mustChangePassword=false. Only honoured when there is NO existing
-    // webui.json — once persisted, password changes happen via the UI.
     const envPassword = envBootstrapPassword();
     if (envPassword !== null) {
       const salt = randomBytes(16);
@@ -235,10 +221,6 @@ export class WebuiAuth {
     }
   }
 
-  /**
-   * Update password atomically. Throws if the new password fails strength rules.
-   * After success, mustChangePassword=false and the file is rewritten on disk.
-   */
   setPassword(newPassword: string): void {
     if (this.devMode) {
       throw new Error('开发模式 (SNOWLUMA_DEV_MODE=1) 已禁用密码修改');

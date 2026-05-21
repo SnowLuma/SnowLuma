@@ -1,4 +1,4 @@
-import type { PacketSender, SendPacketResult } from '../protocol/packet-sender';
+import type { PacketSender, SendPacketResult } from '@snowluma/common/packet-sender';
 import { QqHookClient, type QqHookSendReply } from './qq-hook-client';
 
 export class HookPacketClient implements PacketSender {

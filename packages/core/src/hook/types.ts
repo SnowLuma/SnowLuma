@@ -1,11 +1,5 @@
 import type { HookProcessBaseInfo } from './injector';
 
-/**
- * Lifecycle status of a single per-PID HookSession.
- *
- * Transitions live inside HookSession; this union only enumerates the
- * states visible to API callers (WebUI, manager.listProcesses()).
- */
 export type HookProcessStatus =
   | 'available'
   | 'loading'

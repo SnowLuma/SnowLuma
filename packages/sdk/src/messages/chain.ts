@@ -1,5 +1,3 @@
-import { segments } from './segments';
-import { segmentsToCQString } from './cq-format';
 import type {
   AnyMessageSegment,
   ContactSegment,
@@ -7,7 +5,6 @@ import type {
   JsonObject,
   LocationSegment,
   MessageChainLike,
-  MessageSegment,
   MusicSegment,
   OutgoingMessage,
   RecordSegment,
@@ -16,6 +13,8 @@ import type {
   VideoSegment,
   XmlSegment,
 } from '../types/index';
+import { segmentsToCQString } from './cq-format';
+import { segments } from './segments';
 
 export interface MessageChainSender {
   sendGroupMessage(groupId: number, message: OutgoingMessage, options?: RequestOptions & { autoEscape?: boolean }): Promise<unknown>;
@@ -24,40 +23,30 @@ export interface MessageChainSender {
 
 const SINGLE_USE_TYPES = new Set(['reply']);
 
-/**
- * Immutable fluent builder for OneBot message segments.
- *
- * The generic state tracks single-use segments such as reply(), so TypeScript
- * can reject duplicate reply segments in normal chained calls.
- */
 export class MessageChain<THasReply extends boolean = false> implements MessageChainLike {
   private readonly replyStateBrand?: THasReply;
 
   private constructor(
     private readonly items: AnyMessageSegment[] = [],
     private readonly used: ReadonlySet<string> = new Set(),
-  ) {}
+  ) { }
 
   static empty(): MessageChain<false> {
     return new MessageChain<false>();
   }
 
-  /** Number of segments currently in the chain. */
   get length(): number {
     return this.items.length;
   }
 
-  /** True when no segment has been appended. */
   get isEmpty(): boolean {
     return this.items.length === 0;
   }
 
-  /** Appends a text segment. */
   text(text = ''): MessageChain<THasReply> {
     return this.addSegment(segments.text(text));
   }
 
-  /** Appends a newline text segment. */
   br(): MessageChain<THasReply> {
     return this.text('\n');
   }
@@ -66,7 +55,6 @@ export class MessageChain<THasReply extends boolean = false> implements MessageC
     return this.addSegment(segments.face(id));
   }
 
-  /** Mentions a user or everyone in a group. */
   at(qq: number | 'all', options: { name?: string; uid?: string } = {}): MessageChain<THasReply> {
     return this.addSegment(segments.at(qq, options));
   }
@@ -75,12 +63,10 @@ export class MessageChain<THasReply extends boolean = false> implements MessageC
     return this.at('all');
   }
 
-  /** Adds a reply segment. A chain can contain at most one reply segment. */
   reply(this: MessageChain<false>, id: number | string): MessageChain<true> {
     return this.addSegment(segments.reply(id), 'reply') as MessageChain<true>;
   }
 
-  /** Appends an image segment from a URL, local path, file id, or base64 URI. */
   image(file: string, options: Omit<ImageSegment['data'], 'file'> = {}): MessageChain<THasReply> {
     return this.addSegment(segments.image(file, options));
   }
@@ -133,7 +119,6 @@ export class MessageChain<THasReply extends boolean = false> implements MessageC
     return this.addSegment(segments.raw(type, data), type);
   }
 
-  /** Appends another outgoing message while preserving single-use segment checks. */
   append(messageInput: OutgoingMessage): MessageChain<THasReply> {
     let next: MessageChain<THasReply> = this;
     const normalized = normalizeMessage(messageInput);
@@ -146,7 +131,6 @@ export class MessageChain<THasReply extends boolean = false> implements MessageC
     return next;
   }
 
-  /** Returns a fresh segment array suitable for OneBot array message format. */
   build(): AnyMessageSegment[] {
     return this.toSegments();
   }
@@ -167,7 +151,6 @@ export class MessageChain<THasReply extends boolean = false> implements MessageC
     return segmentsToCQString(this.items);
   }
 
-  /** Sends this chain to a group through a compatible SnowLuma client. */
   sendToGroup(
     client: MessageChainSender,
     groupId: number,
@@ -176,7 +159,6 @@ export class MessageChain<THasReply extends boolean = false> implements MessageC
     return client.sendGroupMessage(groupId, this, options);
   }
 
-  /** Sends this chain to a private chat through a compatible SnowLuma client. */
   sendToPrivate(
     client: MessageChainSender,
     userId: number,
@@ -213,7 +195,6 @@ export function chain(): MessageChain<false> {
   return MessageChain.empty();
 }
 
-/** Starts a message chain with a text segment. */
 export function text(value = ''): MessageChain<false> {
   return chain().text(value);
 }
@@ -238,7 +219,6 @@ export function reply(id: number | string): MessageChain<true> {
   return chain().reply(id);
 }
 
-/** Starts a message chain with an image segment. */
 export function image(file: string, options: Omit<ImageSegment['data'], 'file'> = {}): MessageChain<false> {
   return chain().image(file, options);
 }
@@ -291,7 +271,6 @@ export function raw<TType extends string, TData extends JsonObject>(type: TType,
   return chain().raw(type, data);
 }
 
-/** Normalizes a string, segment, segment array, or MessageChain into OneBot output. */
 export function normalizeMessage(input: OutgoingMessage): string | AnyMessageSegment[] {
   if (typeof input === 'string') return input;
   if (isMessageChainLike(input)) return input.toSegments();

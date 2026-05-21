@@ -1,19 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { protobuf_encode } from '@snowluma/proton';
-import type { OidbBase } from '../../src/bridge/proto/proton/oidb';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
+  GroupAvatarExtra,
   Oidb0x7edResp,
   Oidb0xe17Resp,
-} from '../../src/bridge/proto/proton/oidb-action';
+  SetStatusReq,
+  SetStatusResp,
+} from '@snowluma/proto-defs/oidb-actions/base';
 
 // `encodeOidbEnv` / `decodeOidbEnv` are proton-bound pass-through wrappers
 // (substituted at the call site with the inlined codec). Mocking them on
 // the module object is a no-op — proton has already inlined the call.
 // We mock `runOidb` (non-generic) to return real proton-encoded bytes
 // that the production-side codec actually decodes.
-vi.mock('../../src/bridge/bridge-oidb', async () => {
-  const actual = await vi.importActual<typeof import('../../src/bridge/bridge-oidb')>(
-    '../../src/bridge/bridge-oidb',
+vi.mock('@snowluma/bridge/bridge-oidb', async () => {
+  const actual = await vi.importActual<typeof import('@snowluma/bridge/bridge-oidb')>(
+    '@snowluma/bridge/bridge-oidb',
   );
   return {
     ...actual,
@@ -22,23 +25,23 @@ vi.mock('../../src/bridge/bridge-oidb', async () => {
   };
 });
 
-vi.mock('../../src/bridge/highway/highway-client', () => ({
+vi.mock('@snowluma/bridge/highway', () => ({
   fetchHighwaySession: vi.fn(async () => ({})),
   uploadHighwayHttp: vi.fn(async () => undefined),
 }));
 
-vi.mock('../../src/bridge/highway/utils', () => ({
+vi.mock('@snowluma/bridge/highway/utils', () => ({
   loadBinarySource: vi.fn(async () => ({ bytes: new Uint8Array([1, 2, 3]), fileName: 'avatar.bin' })),
   computeHashes: vi.fn(() => ({ md5: new Uint8Array(16), sha1: new Uint8Array(20) })),
   computeMd5: vi.fn(() => new Uint8Array(16)),
 }));
 
-import * as oidb from '../../src/bridge/bridge-oidb';
-import * as highwayClient from '../../src/bridge/highway/highway-client';
-import * as profile from '../../src/bridge/actions/profile';
+import * as oidb from '@snowluma/bridge/bridge-oidb';
+import * as highwayClient from '@snowluma/bridge/highway';
+import { ProfileApi } from '../../src/bridge/apis/profile';
 import { mockBridge } from './_helpers';
 
-describe('actions/profile', () => {
+describe('apis/profile', () => {
   beforeEach(() => {
     vi.mocked(oidb.runOidb).mockReset();
     vi.mocked(oidb.runOidb).mockResolvedValue(new Uint8Array());
@@ -49,14 +52,14 @@ describe('actions/profile', () => {
 
   it('setOnlineStatus sends to status_svc.SetStatus and accepts an empty response', async () => {
     const bridge = mockBridge();
-    await profile.setOnlineStatus(bridge as any, 11, 0, 100);
+    await new ProfileApi(bridge as any).setOnlineStatus( 11, 0, 100);
     const [serviceCmd] = bridge.sendRawPacket.mock.calls[0]!;
     expect(serviceCmd).toBe('trpc.qq_new_tech.status_svc.StatusService.SetStatus');
   });
 
   it('setOnlineStatus does NOT include the customExt field 4 (varint 0x22 absent in body)', async () => {
     const bridge = mockBridge();
-    await profile.setOnlineStatus(bridge as any, 11, 0, 100);
+    await new ProfileApi(bridge as any).setOnlineStatus( 11, 0, 100);
     const [, body] = bridge.sendRawPacket.mock.calls[0]!;
     // proto field 4 length-delimited tag = (4 << 3) | 2 = 0x22. The
     // body should not contain that byte; if encoder ever leaks an
@@ -66,32 +69,28 @@ describe('actions/profile', () => {
 
   it('setDiyOnlineStatus hardcodes status=10 / extStatus=2000 and packs faceId+wording+faceType into customExt', async () => {
     const bridge = mockBridge();
-    await profile.setDiyOnlineStatus(bridge as any, 1234, '摸鱼中', 2);
+    await new ProfileApi(bridge as any).setDiyOnlineStatus( 1234, '摸鱼中', 2);
     const [serviceCmd, body] = bridge.sendRawPacket.mock.calls[0]!;
     expect(serviceCmd).toBe('trpc.qq_new_tech.status_svc.StatusService.SetStatus');
     // Decode the wire bytes back through the same schema to assert
     // every field landed in the right place.
-    const { protoDecode } = await import('../../src/protobuf/decode');
-    const { SetStatusReqSchema } = await import('../../src/bridge/proto/oidb-action');
-    const decoded = protoDecode(body as Uint8Array, SetStatusReqSchema);
+    const decoded = protobuf_decode<SetStatusReq>(body as Uint8Array);
     expect(decoded).toMatchObject({
       status: 10,
       extStatus: 2000,
-      batteryStatus: 0,
       customExt: { faceId: 1234, text: '摸鱼中', faceType: 2 },
     });
+    expect(decoded.batteryStatus ?? 0).toBe(0);
   });
 
   it('setDiyOnlineStatus surfaces server errors via the same path as setOnlineStatus', async () => {
     const bridge = mockBridge();
     // Build a response that decodes to errCode != 0.
-    const { protoEncode } = await import('../../src/protobuf/decode');
-    const { SetStatusRespSchema } = await import('../../src/bridge/proto/oidb-action');
-    const respBuf = Buffer.from(protoEncode({ errCode: 1, errMsg: 'denied' }, SetStatusRespSchema));
+    const respBuf = Buffer.from(protobuf_encode<SetStatusResp>({ errCode: 1, errMsg: 'denied' }));
     bridge.sendRawPacket.mockResolvedValueOnce({
       success: true, gotResponse: true, errorCode: 0, errorMessage: '', responseData: respBuf,
     } as any);
-    await expect(profile.setDiyOnlineStatus(bridge as any, 1, 't', 1)).rejects.toThrow(/denied/);
+    await expect(new ProfileApi(bridge as any).setDiyOnlineStatus( 1, 't', 1)).rejects.toThrow(/denied/);
   });
 
   it('setDiyOnlineStatus rejects when the transport itself fails', async () => {
@@ -99,18 +98,18 @@ describe('actions/profile', () => {
     bridge.sendRawPacket.mockResolvedValueOnce({
       success: false, gotResponse: false, errorCode: -1, errorMessage: 'pipe closed', responseData: null,
     } as any);
-    await expect(profile.setDiyOnlineStatus(bridge as any, 1, 't', 1)).rejects.toThrow(/pipe closed/);
+    await expect(new ProfileApi(bridge as any).setDiyOnlineStatus( 1, 't', 1)).rejects.toThrow(/pipe closed/);
   });
 
   it('setProfile is a no-op when both arguments are undefined', async () => {
     const bridge = mockBridge();
-    await profile.setProfile(bridge as any);
+    await new ProfileApi(bridge as any).setProfile();
     expect(oidb.runOidb).not.toHaveBeenCalled();
   });
 
   it('setProfile only sends non-undefined fields', async () => {
     const bridge = mockBridge();
-    await profile.setProfile(bridge as any, 'New Nick');
+    await new ProfileApi(bridge as any).setProfile('New Nick');
     expect(oidb.runOidb).toHaveBeenCalledOnce();
     const body = vi.mocked(oidb.makeOidbEnvelope).mock.calls[0]![2];
     expect((body as any).stringProfiles).toEqual([{ fieldId: 20002, value: 'New Nick' }]);
@@ -118,14 +117,14 @@ describe('actions/profile', () => {
 
   it('setSelfLongNick wraps the long nick in profile tag 102', async () => {
     const bridge = mockBridge();
-    await profile.setSelfLongNick(bridge as any, 'hello world');
+    await new ProfileApi(bridge as any).setSelfLongNick( 'hello world');
     const body = vi.mocked(oidb.makeOidbEnvelope).mock.calls[0]![2];
     expect((body as any).profile).toEqual({ tag: 102, value: 'hello world' });
   });
 
   it('setInputStatus resolves UID first and sends 0xcd4_1', async () => {
     const bridge = mockBridge();
-    await profile.setInputStatus(bridge as any, 10001, 1);
+    await new ProfileApi(bridge as any).setInputStatus( 10001, 1);
     expect(bridge.resolveUserUid).toHaveBeenCalledWith(10001);
     const [, cmd] = vi.mocked(oidb.runOidb).mock.calls[0]!;
     expect(cmd).toBe('OidbSvcTrpcTcp.0xcd4_1');
@@ -133,7 +132,7 @@ describe('actions/profile', () => {
 
   it('setAvatar loads bytes and pushes through the highway upload path (cmd 90)', async () => {
     const bridge = mockBridge();
-    await profile.setAvatar(bridge as any, '/some/avatar.png');
+    await new ProfileApi(bridge as any).setAvatar( '/some/avatar.png');
     expect(highwayClient.fetchHighwaySession).toHaveBeenCalledOnce();
     expect(highwayClient.uploadHighwayHttp).toHaveBeenCalledOnce();
     const [, , cmdId, , , extend] = vi.mocked(highwayClient.uploadHighwayHttp).mock.calls[0]!;
@@ -143,16 +142,14 @@ describe('actions/profile', () => {
 
   it('setGroupAvatar uses cmdId 3000 and packs the Lagrange GroupAvatarExtra constants', async () => {
     const bridge = mockBridge();
-    await profile.setGroupAvatar(bridge as any, 12345, '/some/group-avatar.png');
+    await new ProfileApi(bridge as any).setGroupAvatar( 12345, '/some/group-avatar.png');
     expect(highwayClient.fetchHighwaySession).toHaveBeenCalledOnce();
     expect(highwayClient.uploadHighwayHttp).toHaveBeenCalledOnce();
     const [, , cmdId, , , extend] = vi.mocked(highwayClient.uploadHighwayHttp).mock.calls[0]!;
     expect(cmdId).toBe(3000);
     // Decode the extra blob back through the schema and assert every
     // protocol-prescribed constant lands where it should.
-    const { protoDecode } = await import('../../src/protobuf/decode');
-    const { GroupAvatarExtraSchema } = await import('../../src/bridge/proto/oidb-action');
-    const decoded = protoDecode(extend as Uint8Array, GroupAvatarExtraSchema);
+    const decoded = protobuf_decode<GroupAvatarExtra>(extend as Uint8Array);
     expect(decoded).toEqual({
       type: 101,
       groupUin: 12345,
@@ -164,11 +161,11 @@ describe('actions/profile', () => {
 
   it('setGroupAvatar rejects an empty file before hitting highway', async () => {
     const bridge = mockBridge();
-    const { loadBinarySource } = await import('../../src/bridge/highway/utils');
+    const { loadBinarySource } = await import('@snowluma/bridge/highway/utils');
     vi.mocked(loadBinarySource).mockResolvedValueOnce({
       bytes: new Uint8Array(0), fileName: 'empty.png',
     } as any);
-    await expect(profile.setGroupAvatar(bridge as any, 1, 'empty.png')).rejects.toThrow(/empty/);
+    await expect(new ProfileApi(bridge as any).setGroupAvatar( 1, 'empty.png')).rejects.toThrow(/empty/);
     expect(highwayClient.fetchHighwaySession).not.toHaveBeenCalled();
   });
 
@@ -186,7 +183,7 @@ describe('actions/profile', () => {
         } as any,
       }),
     );
-    const out = await profile.getProfileLike(bridge as any);
+    const out = await new ProfileApi(bridge as any).getLike();
     expect(out.favoriteInfo.total_count).toBe(5);
     expect(out.voteInfo.total_count).toBe(7);
   });
@@ -196,7 +193,7 @@ describe('actions/profile', () => {
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<Oidb0x7edResp>>({ body: { userLikeInfos: [] } as any }),
     );
-    await expect(profile.getProfileLike(bridge as any)).rejects.toThrow(/empty/);
+    await expect(new ProfileApi(bridge as any).getLike()).rejects.toThrow(/empty/);
   });
 
   it('getUnidirectionalFriendList parses the embedded JSON body', async () => {
@@ -206,7 +203,7 @@ describe('actions/profile', () => {
         body: { jsonBody: JSON.stringify({ rpt_block_list: [{ uin: 10001 }, { uin: 10002 }] }) } as any,
       }),
     );
-    const out = await profile.getUnidirectionalFriendList(bridge as any);
+    const out = await new ProfileApi(bridge as any).getUnidirectionalFriendList();
     expect(out).toEqual([{ uin: 10001 }, { uin: 10002 }]);
   });
 });

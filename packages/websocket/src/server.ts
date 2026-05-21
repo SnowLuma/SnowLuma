@@ -24,7 +24,7 @@ function abortUpgrade(socket: Duplex, status: number, message?: string): void {
       'Connection: close\r\n' +
       `Content-Length: ${Buffer.byteLength(body)}\r\n` +
       'Content-Type: text/plain\r\n\r\n';
-      socket.write(head + body);
+    socket.write(head + body);
   } catch { /* noop */ }
   try { socket.destroy(); } catch { /* noop */ }
 }

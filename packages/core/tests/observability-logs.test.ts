@@ -10,9 +10,10 @@
 // network I/O.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { subscribeLogs, type LogEntry } from '../src/utils/logger';
+import { protobuf_encode } from '@snowluma/proton';
+import { subscribeLogs, type LogEntry } from '@snowluma/common/logger';
 
-vi.mock('../src/bridge/highway/highway-client', () => ({
+vi.mock('@snowluma/bridge/highway', () => ({
   fetchHighwaySession: vi.fn(async () => ({ sessionId: 'fake-session' })),
   uploadHighwayHttp: vi.fn(async () => undefined),
   buildHighwayExtend: vi.fn(() => new Uint8Array([0xAA, 0xBB])),
@@ -23,23 +24,19 @@ vi.mock('../src/bridge/highway/highway-client', () => ({
 import {
   runNtv2Upload,
   type MediaSubFileUpload,
-} from '../src/bridge/highway/pipeline';
-import { protoEncode } from '../src/protobuf/decode';
-import { makeOidbBaseSchema } from '../src/bridge/proto/oidb';
-import {
-  NTV2UploadRichMediaRespSchema,
-} from '../src/bridge/proto/highway';
-import { MsgPushRegistry } from '../src/bridge/msg-push/registry';
-import type { MsgPushContext } from '../src/bridge/msg-push/context';
-import { decodeEvent0x2DC } from '../src/bridge/msg-push/decoders/event-0x2dc';
+} from '@snowluma/bridge/highway/pipeline';
+import type { OidbBase } from '@snowluma/proto-defs/oidb';
+import type { NTV2UploadRichMediaResp } from '@snowluma/proto-defs/highway';
+import { MsgPushRegistry } from '@snowluma/bridge/msg-push/registry';
+import type { MsgPushContext } from '@snowluma/bridge/msg-push/context';
+import { decodeEvent0x2DC } from '@snowluma/bridge/msg-push/decoders/event-0x2dc';
 
 function encodeOidbResponse(body: unknown): Buffer {
-  const baseSchema = makeOidbBaseSchema(NTV2UploadRichMediaRespSchema);
-  return Buffer.from(protoEncode({
+  return Buffer.from(protobuf_encode<OidbBase<NTV2UploadRichMediaResp>>({
     command: 0x11C4, subCommand: 100, errorCode: 0,
     body: body as Record<string, unknown>,
     errorMsg: '', reserved: 1,
-  }, baseSchema));
+  } as OidbBase<NTV2UploadRichMediaResp>));
 }
 
 function fakeBridge(responseData: Buffer, uin = '12345'): any {

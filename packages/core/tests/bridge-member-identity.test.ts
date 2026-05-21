@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { Bridge } from '../src/bridge/bridge';
-import { IdentityService } from '../src/bridge/identity-service';
-import type { GroupMemberInfo, QQGroupInfo } from '../src/bridge/qq-info';
-import type { GroupMemberJoin, QQEventVariant } from '../src/bridge/events';
-import type { PacketInfo } from '../src/protocol/types';
+import { IdentityService } from '@snowluma/bridge/identity-service';
+import type { GroupMemberInfo, QQGroupInfo } from '@snowluma/bridge/qq-info';
+import type { GroupMemberJoin, QQEventVariant } from '@snowluma/bridge/events';
+import type { PacketInfo } from '@snowluma/common/protocol-types';
 
 const SELF_UIN = '10001';
 const GROUP_ID = 123456789;
@@ -39,14 +39,22 @@ class RefreshingBridge extends Bridge {
 
   constructor(identity: IdentityService, private readonly refreshedMembers: GroupMemberInfo[]) {
     super(identity);
-  }
-
-  override async fetchGroupMemberList(groupId: number, options: { force?: boolean } = {}): Promise<GroupMemberInfo[]> {
-    this.memberFetches.push({ groupId, force: Boolean(options.force) });
-    for (const member of this.refreshedMembers) {
-      this.identity.updateGroupMember(groupId, member);
-    }
-    return this.refreshedMembers;
+    // `fetchGroupMemberList` moved from Bridge onto `apis.contacts`
+    // under the #6 refactor — patch the method on the constructed
+    // ContactsApi instance to intercept calls + record them for
+    // assertions. (Direct property assignment works because the
+    // method is just an own property on the Api instance, not on
+    // its prototype.)
+    this.apis.contacts.fetchGroupMemberList = async (
+      groupId: number,
+      options: { force?: boolean } = {},
+    ): Promise<GroupMemberInfo[]> => {
+      this.memberFetches.push({ groupId, force: Boolean(options.force) });
+      for (const member of this.refreshedMembers) {
+        this.identity.updateGroupMember(groupId, member);
+      }
+      return this.refreshedMembers;
+    };
   }
 }
 

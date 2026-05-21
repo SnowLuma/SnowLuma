@@ -3,7 +3,7 @@ import type { SnowLumaEvent } from '../types/index';
 import { isGroupMessageEvent, isPrivateMessageEvent, isRequestEvent } from './guards';
 import type { SnowLumaEventContext } from './types';
 
-/** Creates the helper context object used by WebSocket event handlers. */
+
 export function createEventContext<TEvent extends SnowLumaEvent>(
   event: TEvent,
   client: SnowLumaApiClient,

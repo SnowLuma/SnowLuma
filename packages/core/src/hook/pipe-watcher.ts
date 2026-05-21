@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { createLogger, type Logger } from '../utils/logger';
+import { createLogger, type Logger } from '@snowluma/common/logger';
 import type { HookProcessBaseInfo } from './injector';
 
 const DEFAULT_INTERVAL_MS = 1500;

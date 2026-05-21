@@ -1,17 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { SendPacketResult } from '../src/protocol/packet-sender';
-import { protoDecode, protoEncode } from '../src/protobuf/decode';
-import { SendMessageRequestSchema, SendMessageResponseSchema } from '../src/bridge/proto/action';
-import { FileExtraSchema } from '../src/bridge/proto/message';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import type { SendPacketResult } from '@snowluma/common/packet-sender';
+import type { SendMessageRequest, SendMessageResponse } from '@snowluma/proto-defs/action';
+import type { FileExtra } from '@snowluma/proto-defs/message';
 
-vi.mock('../src/bridge/element-builder', () => ({
+vi.mock('@snowluma/bridge/element-builder', () => ({
   buildSendElems: vi.fn(async () => [{ text: { str: 'stub media elem' } }]),
 }));
 
 describe('Bridge private media routing', () => {
   it('includes resolved uid in the final c2c send request for media messages', async () => {
     const { Bridge } = await import('../src/bridge/bridge');
-    const { IdentityService } = await import('../src/bridge/identity-service');
+    const { IdentityService } = await import('@snowluma/bridge/identity-service');
 
     class TestBridge extends Bridge {
       capturedBody: Uint8Array | null = null;
@@ -29,20 +29,21 @@ describe('Bridge private media routing', () => {
           gotResponse: true,
           errorCode: 0,
           errorMessage: '',
-          responseData: Buffer.from(protoEncode({
+          responseData: Buffer.from(protobuf_encode<SendMessageResponse>({
             result: 0,
+            errMsg: '',
             privateSequence: 88,
             timestamp1: 1710000000,
-          }, SendMessageResponseSchema)),
+          })),
         };
       }
     }
 
     const bridge = new TestBridge(IdentityService.memory('10000'));
-    await bridge.sendPrivateMessage(12345, [{ type: 'video', url: 'file:///tmp/clip.mp4' } as any]);
+    await bridge.apis.message.sendPrivate(12345, [{ type: 'video', url: 'file:///tmp/clip.mp4' } as any]);
 
     expect(bridge.capturedBody).toBeInstanceOf(Uint8Array);
-    const request = protoDecode(bridge.capturedBody as Uint8Array, SendMessageRequestSchema);
+    const request = protobuf_decode<SendMessageRequest>(bridge.capturedBody as Uint8Array);
     expect(request?.routingHead?.c2c).toMatchObject({
       uin: 12345,
       uid: 'u_peer_12345',
@@ -59,7 +60,7 @@ describe('Bridge private media routing', () => {
     // implementation wrote c2c routing + richText.notOnlineFile +
     // c2cCmd=11 — the QQ-NT server rejected every c2c file send.
     const { Bridge } = await import('../src/bridge/bridge');
-    const { IdentityService } = await import('../src/bridge/identity-service');
+    const { IdentityService } = await import('@snowluma/bridge/identity-service');
 
     class TestBridge extends Bridge {
       capturedBody: Uint8Array | null = null;
@@ -67,16 +68,16 @@ describe('Bridge private media routing', () => {
         this.capturedBody = body;
         return {
           success: true, gotResponse: true, errorCode: 0, errorMessage: '',
-          responseData: Buffer.from(protoEncode({
-            result: 0, privateSequence: 88, timestamp1: 1710000000,
-          }, SendMessageResponseSchema)),
+          responseData: Buffer.from(protobuf_encode<SendMessageResponse>({
+            result: 0, errMsg: '', privateSequence: 88, timestamp1: 1710000000,
+          })),
         };
       }
     }
     const bridge = new TestBridge(IdentityService.memory('10000'));
 
     const fileMd5 = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
-    await bridge.sendC2cFileMessage(67890, 'u_peer_xyz', {
+    await bridge.apis.message.sendC2cFile(67890, 'u_peer_xyz', {
       fileId: 'uuid-abc-123',
       fileName: 'doc.txt',
       fileSize: 1024,
@@ -84,27 +85,24 @@ describe('Bridge private media routing', () => {
       fileHash: 'hash-xyz',
     });
 
-    const request = protoDecode(bridge.capturedBody as Uint8Array, SendMessageRequestSchema);
+    const request = protobuf_decode<SendMessageRequest>(bridge.capturedBody as Uint8Array);
 
     // Routing: must be trans0x211 with ccCmd=4 + uid, no c2c slot.
     expect(request?.routingHead?.trans0x211).toMatchObject({
       ccCmd: 4,
       uid: 'u_peer_xyz',
     });
-    expect(request?.routingHead?.c2c).toBeUndefined();
+    expect(request?.routingHead?.c2c ?? undefined).toBeUndefined();
 
     // Body: msgContent carries the FileExtra; richText is absent (no
     // elems, no notOnlineFile slot — both lived on the wrong place).
     expect(request?.messageBody?.msgContent).toBeInstanceOf(Uint8Array);
-    expect(request?.messageBody?.richText).toBeUndefined();
+    expect(request?.messageBody?.richText ?? undefined).toBeUndefined();
 
     // Decode the msgContent and verify the NotOnlineFile fields land
     // at the correct tags (Lagrange's NotOnlineFile schema, not the
     // dead FileExtraInfo one).
-    const fileExtra = protoDecode(
-      request!.messageBody!.msgContent as Uint8Array,
-      FileExtraSchema,
-    );
+    const fileExtra = protobuf_decode<FileExtra>(request!.messageBody!.msgContent as Uint8Array);
     expect(fileExtra?.file).toMatchObject({
       fileUuid: 'uuid-abc-123',
       fileName: 'doc.txt',

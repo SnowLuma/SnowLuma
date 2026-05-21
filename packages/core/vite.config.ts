@@ -20,11 +20,14 @@ const rootPkg = JSON.parse(
 // vite-plugin-cp consumes globs through globby; on Windows we must use POSIX-style separators.
 const toPosix = (p: string) => p.replace(/\\/g, '/');
 
-// `@snowluma/websocket` is bundled (it's an in-tree TS workspace package), so
-// it must NOT be marked external. Only Node builtins stay external.
+// `@snowluma/websocket` and `@snowluma/sqlite` are bundled — they're
+// in-tree TS workspace wrappers that route their native `.node`
+// addons through `dist/native/`. Only Node builtins stay external;
+// the actual `better-sqlite3` JS wrapper is pulled in via the
+// `@snowluma/sqlite` re-export and bundled into `index.mjs`.
 const external: string[] = [];
 
-const nodeModules = [...builtinModules, ...builtinModules.map((m) => `node:${m}`), 'node:sqlite'].flat();
+const nodeModules = [...builtinModules, ...builtinModules.map((m) => `node:${m}`)].flat();
 
 const runtimeSrc = toPosix(runtimeDir);
 const nativeSrc = toPosix(nativeDir);
@@ -41,10 +44,22 @@ const runtimeDistFiles = ['package.json',
 ];
 
 // Native binaries shipped for the selected target:
-//   * `snowluma-*.{dll,node,so}` – NTQQ hook (Windows + Linux).
-//   * `websocket-*.node`         – RFC 6455 framing/mask addon (all platforms).
+//   * `snowluma-*.{dll,node,so}`           – NTQQ hook (Windows + Linux).
+//   * `websocket-*.node`                   – RFC 6455 framing/mask addon (all platforms).
+//   * `better-sqlite3-v<abi>-*.node`       – SQLite native binding consumed
+//                                            by @snowluma/sqlite. Two ABIs
+//                                            vendored side-by-side
+//                                            (v127 = Node 22 LTS, v137 =
+//                                            Node 24) so the runtime can
+//                                            pick whichever matches the
+//                                            host's `process.versions.modules`.
+//                                            Vendored via
+//                                            `tools/fetch-sqlite-prebuilts.mjs`
+//                                            from WiseLibs's prebuild releases.
+const SQLITE_ABIS = ['v127', 'v137'];
 const nativeFiles = [
   `websocket-${targetTriple}.node`,
+  ...SQLITE_ABIS.map((abi) => `better-sqlite3-${abi}-${targetTriple}.node`),
   ...(targetPlatform === 'win32'
     ? [`snowluma-${targetTriple}.dll`, `snowluma-${targetTriple}.node`]
     : []),
@@ -125,7 +140,27 @@ const BaseConfig = (source_map: boolean = false) => defineConfig({
       fileName: (_, entryName) => `${entryName}.mjs`
     },
     rollupOptions: {
-      external: [...nodeModules, ...external]
+      external: [...nodeModules, ...external],
+      output: {
+        // better-sqlite3's JS wrapper is pure CJS — its `require('fs')` /
+        // `require('path')` / `require('bindings')` calls get inlined into
+        // the ESM bundle as `__require("fs")` shims by rolldown. Those
+        // shims gate on `typeof require !== "undefined"`, which is true
+        // in CJS but FALSE in our `.mjs` output, so they fall through to
+        // a runtime `throw Error("Calling \`require\` ... in an environment
+        // that doesn't expose the \`require\` function.")` on first call —
+        // crashing the launcher immediately.
+        //
+        // Defining a module-scope `require` via `createRequire(import.meta.url)`
+        // at the very top of the bundle satisfies the `typeof` check, and
+        // the shim then transparently delegates every inlined CJS require
+        // to the real CJS loader. Node 18+ ships `createRequire` in the
+        // `node:module` builtin, so this is supported on every target.
+        banner: [
+          "import { createRequire as __snowlumaCreateRequire } from 'node:module';",
+          "const require = __snowlumaCreateRequire(import.meta.url);",
+        ].join('\n'),
+      },
     },
     // Emit to monorepo root dist/ so the existing release pipeline keeps working.
     outDir: distDir,

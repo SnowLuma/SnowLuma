@@ -1,8 +1,8 @@
 {
   "name": "@snowluma/runtime",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "private": true,
   "type": "module",
   "main": "index.mjs",
-  "description": "SnowLuma runtime distribution manifest: ships into dist/ (launcher.bat, package.json, native/*.dll, native/*.node). Native libraries are loaded via process.dlopen()."
+  "description": "SnowLuma runtime distribution manifest: ships into dist/ (launcher.bat, package.json, native/*.dll, native/*.node). All native bindings ship as standalone `.node` files in `dist/native/` — loaded via `process.dlopen()` / `createRequire().require()` from inside the bundle. There are intentionally NO runtime npm dependencies; production artifacts are self-contained."
 }

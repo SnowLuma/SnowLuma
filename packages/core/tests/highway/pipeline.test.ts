@@ -6,8 +6,9 @@
 // the actual decode path inside the pipeline.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 
-vi.mock('../../src/bridge/highway/highway-client', () => ({
+vi.mock('@snowluma/bridge/highway', () => ({
   fetchHighwaySession: vi.fn(async () => ({ sessionId: 'fake-session' })),
   uploadHighwayHttp: vi.fn(async () => undefined),
   buildHighwayExtend: vi.fn(() => new Uint8Array([0xAA, 0xBB])),
@@ -15,21 +16,16 @@ vi.mock('../../src/bridge/highway/highway-client', () => ({
   GROUP_IMAGE_CMD_ID: 1004,
 }));
 
-import * as highway from '../../src/bridge/highway/highway-client';
+import * as highway from '@snowluma/bridge/highway';
 import {
   finalizeMediaMsgInfo,
   hexToBytes,
   makeClientRandomId,
   runNtv2Upload,
   type MediaSubFileUpload,
-} from '../../src/bridge/highway/pipeline';
-import { protoDecode, protoEncode } from '../../src/protobuf/decode';
-import { makeOidbBaseSchema } from '../../src/bridge/proto/oidb';
-import {
-  EncodableMediaMsgInfoSchema,
-  NTV2UploadRichMediaReqSchema,
-  NTV2UploadRichMediaRespSchema,
-} from '../../src/bridge/proto/highway';
+} from '@snowluma/bridge/highway/pipeline';
+import type { OidbBase } from '@snowluma/proto-defs/oidb';
+import type { EncodableMediaMsgInfo, NTV2UploadRichMediaReq, NTV2UploadRichMediaResp } from '@snowluma/proto-defs/highway';
 
 interface FakeUploadResponse {
   upload?: {
@@ -48,8 +44,7 @@ interface FakeUploadResponse {
 }
 
 function encodeOidbResponse(body: FakeUploadResponse, opts: { errorCode?: number; errorMsg?: string } = {}): Buffer {
-  const baseSchema = makeOidbBaseSchema(NTV2UploadRichMediaRespSchema);
-  return Buffer.from(protoEncode({
+  return Buffer.from(protobuf_encode<OidbBase<NTV2UploadRichMediaResp>>({
     command: 0x11C4,
     subCommand: 100,
     errorCode: opts.errorCode ?? 0,
@@ -58,7 +53,7 @@ function encodeOidbResponse(body: FakeUploadResponse, opts: { errorCode?: number
     body: body as unknown as Record<string, unknown>,
     errorMsg: opts.errorMsg ?? '',
     reserved: 1,
-  }, baseSchema));
+  } as OidbBase<NTV2UploadRichMediaResp>));
 }
 
 type SendPacketResult = {
@@ -125,8 +120,7 @@ describe('pipeline — runNtv2Upload', () => {
 
     // The request roundtrips through the real OIDB envelope and carries
     // the requestId / businessType / scene fields we passed.
-    const baseSchema = makeOidbBaseSchema(NTV2UploadRichMediaReqSchema);
-    const decoded: any = protoDecode(requestBytes as Uint8Array, baseSchema);
+    const decoded: any = protobuf_decode<OidbBase<NTV2UploadRichMediaReq>>(requestBytes as Uint8Array);
     expect(decoded.command).toBe(0x11C4);
     expect(decoded.body.reqHead.common.requestId).toBe(1);
     expect(decoded.body.reqHead.scene.businessType).toBe(1);
@@ -141,7 +135,7 @@ describe('pipeline — runNtv2Upload', () => {
     await runNtv2Upload(baseParams({ bridge, isGroup: false, targetIdOrUid: 'recipient-uid' }));
 
     const requestBytes = bridge.sendRawPacket.mock.calls[0]![1];
-    const decoded: any = protoDecode(requestBytes as Uint8Array, makeOidbBaseSchema(NTV2UploadRichMediaReqSchema));
+    const decoded: any = protobuf_decode<OidbBase<NTV2UploadRichMediaReq>>(requestBytes as Uint8Array);
     expect(decoded.body.reqHead.scene.sceneType).toBe(1);
     expect(decoded.body.reqHead.scene.c2c.targetUid).toBe('recipient-uid');
   });
@@ -336,7 +330,7 @@ describe('pipeline — finalizeMediaMsgInfo', () => {
       msgInfo: { msgInfoBody: [], extBizInfo: {} },
     }, { bizType: 7, textSummary: '[image]' });
 
-    const decoded: any = protoDecode(out, EncodableMediaMsgInfoSchema);
+    const decoded: any = protobuf_decode<EncodableMediaMsgInfo>(out);
     expect(decoded.extBizInfo.pic.bizType).toBe(7);
     expect(decoded.extBizInfo.pic.textSummary).toBe('[image]');
   });
@@ -345,10 +339,10 @@ describe('pipeline — finalizeMediaMsgInfo', () => {
     const out = finalizeMediaMsgInfo({
       msgInfo: { msgInfoBody: [], extBizInfo: {} },
     });
-    const decoded: any = protoDecode(out, EncodableMediaMsgInfoSchema);
+    const decoded: any = protobuf_decode<EncodableMediaMsgInfo>(out);
     // An empty extBizInfo proto roundtrips to undefined; either way the
     // pic field never got materialised.
-    expect(decoded?.extBizInfo?.pic).toBeUndefined();
+    expect(decoded?.extBizInfo?.pic ?? undefined).toBeUndefined();
   });
 });
 

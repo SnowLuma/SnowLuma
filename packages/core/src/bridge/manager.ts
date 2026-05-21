@@ -1,13 +1,8 @@
-// BridgeManager — manages per-UIN Bridge sessions.
-// onPacket() is the single entry point for parsed hook packets;
-// HookManager wires it as the default packet sink for every HookSession.
-// Port of src/bridge/include/bridge/manager.h + src/bridge/src/manager.cpp
-
-import type { PacketInfo } from '../protocol/types';
+import type { PacketSender } from '@snowluma/common/packet-sender';
+import type { PacketInfo } from '@snowluma/common/protocol-types';
+import { createLogger } from '@snowluma/common/logger';
 import { Bridge } from './bridge';
-import { IdentityService } from './identity-service';
-import type { PacketSender } from '../protocol/packet-sender';
-import { createLogger } from '../utils/logger';
+import { IdentityService } from '@snowluma/bridge/identity-service';
 
 export type SessionStartedCallback = (uin: string, bridge: Bridge) => void;
 export type SessionClosedCallback = (uin: string) => void;

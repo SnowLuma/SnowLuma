@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { FileTransport } from '../src/utils/log-file-transport';
+import { FileTransport } from '@snowluma/common/log-file-transport';
 
 let tmpDir: string;
 const ENV_KEYS = [

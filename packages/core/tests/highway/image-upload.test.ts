@@ -5,13 +5,13 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../../src/bridge/highway/pipeline', () => ({
+vi.mock('@snowluma/bridge/highway/pipeline', () => ({
   runNtv2Upload: vi.fn(async () => ({ msgInfo: { msgInfoBody: [], extBizInfo: {} } })),
   finalizeMediaMsgInfo: vi.fn(() => new Uint8Array([0xCA, 0xFE])),
   hexToBytes: vi.fn((hex: string) => new Uint8Array(hex.length / 2)),
 }));
 
-vi.mock('../../src/bridge/highway/utils', () => ({
+vi.mock('@snowluma/bridge/highway/utils', () => ({
   loadBinarySource: vi.fn(async () => ({ bytes: new Uint8Array([1, 2, 3]), fileName: 'src.jpg' })),
   computeHashes: vi.fn(() => ({
     md5: new Uint8Array(16),
@@ -22,9 +22,9 @@ vi.mock('../../src/bridge/highway/utils', () => ({
   detectImageFormat: vi.fn(() => ({ format: 1000, width: 800, height: 600 })),
 }));
 
-import * as pipeline from '../../src/bridge/highway/pipeline';
-import { uploadImageMsgInfo } from '../../src/bridge/highway/image-upload';
-import { GROUP_IMAGE_CMD_ID, PRIVATE_IMAGE_CMD_ID } from '../../src/bridge/highway/highway-client';
+import * as pipeline from '@snowluma/bridge/highway/pipeline';
+import { uploadImageMsgInfo } from '@snowluma/bridge/highway/image-upload';
+import { GROUP_IMAGE_CMD_ID, PRIVATE_IMAGE_CMD_ID } from '@snowluma/bridge/highway';
 
 describe('image-upload', () => {
   beforeEach(() => {

@@ -1,19 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { protobuf_encode } from '@snowluma/proton';
-import type { OidbBase } from '../../src/bridge/proto/proton/oidb';
+import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   Oidb0x990Resp,
   Oidb0x112eResp,
-} from '../../src/bridge/proto/proton/oidb-action';
+} from '@snowluma/proto-defs/oidb-actions/base';
 
 // `encodeOidbEnv` / `decodeOidbEnv` are proton-bound pass-through wrappers
 // — the plugin substitutes them at the call site with the inlined codec,
 // so mocking them on the module object is a no-op. We mock `runOidb`
 // (non-generic, untouched by proton) to return real proton-encoded bytes
 // that the production-side codec then actually decodes.
-vi.mock('../../src/bridge/bridge-oidb', async () => {
-  const actual = await vi.importActual<typeof import('../../src/bridge/bridge-oidb')>(
-    '../../src/bridge/bridge-oidb',
+vi.mock('@snowluma/bridge/bridge-oidb', async () => {
+  const actual = await vi.importActual<typeof import('@snowluma/bridge/bridge-oidb')>(
+    '@snowluma/bridge/bridge-oidb',
   );
   return {
     ...actual,
@@ -22,11 +22,11 @@ vi.mock('../../src/bridge/bridge-oidb', async () => {
   };
 });
 
-import * as oidb from '../../src/bridge/bridge-oidb';
-import * as misc from '../../src/bridge/actions/misc';
+import * as oidb from '@snowluma/bridge/bridge-oidb';
+import { MiscApi } from '../../src/bridge/apis/misc';
 import { mockBridge } from './_helpers';
 
-describe('actions/misc', () => {
+describe('apis/misc', () => {
   beforeEach(() => {
     vi.mocked(oidb.runOidb).mockReset();
     vi.mocked(oidb.runOidb).mockResolvedValue(new Uint8Array());
@@ -40,7 +40,7 @@ describe('actions/misc', () => {
         body: { translateResp: { dstWords: ['你好', '世界'] } } as any,
       }),
     );
-    const out = await misc.translateEn2Zh(bridge as any, ['hello', 'world']);
+    const out = await new MiscApi(bridge as any).translateEn2Zh( ['hello', 'world']);
     expect(out).toEqual(['你好', '世界']);
   });
 
@@ -49,14 +49,14 @@ describe('actions/misc', () => {
     vi.mocked(oidb.runOidb).mockResolvedValueOnce(
       protobuf_encode<OidbBase<Oidb0x990Resp>>({ body: {} }),
     );
-    await expect(misc.translateEn2Zh(bridge as any, ['hello']))
+    await expect(new MiscApi(bridge as any).translateEn2Zh( ['hello']))
       .rejects.toThrow(/empty/);
   });
 
   it('getMiniAppArk rejects unsupported types', async () => {
     const bridge = mockBridge();
     await expect(
-      misc.getMiniAppArk(bridge as any, 'youtube', 't', 'd', 'p', 'u'),
+      new MiscApi(bridge as any).getMiniAppArk( 'youtube', 't', 'd', 'p', 'u'),
     ).rejects.toThrow(/unsupported type/);
   });
 
@@ -75,7 +75,7 @@ describe('actions/misc', () => {
     });
     // With null responseData, the action should throw on decode — that
     // still proves the right serviceCmd was used.
-    await expect(misc.getMiniAppArk(bridge as any, 'bili', 't', 'd', 'p', 'u')).rejects.toThrow();
+    await expect(new MiscApi(bridge as any).getMiniAppArk( 'bili', 't', 'd', 'p', 'u')).rejects.toThrow();
     expect(bridge.sendRawPacket).toHaveBeenCalledOnce();
     expect(bridge.sendRawPacket.mock.calls[0]![0])
       .toBe('LightAppSvc.mini_app_share.AdaptShareInfo');
@@ -88,13 +88,13 @@ describe('actions/misc', () => {
         body: { result: 1, errMsg: 'ok', promptText: 'hi' } as any,
       }),
     );
-    const out = await misc.clickInlineKeyboardButton(bridge as any, 1, 2, 'btn', 'data', 100);
+    const out = await new MiscApi(bridge as any).clickInlineKeyboardButton( 1, 2, 'btn', 'data', 100);
     expect(out).toMatchObject({ result: 1, errMsg: 'ok', promptText: 'hi', status: 0 });
   });
 
   it('sendGroupSign dispatches to 0xEB7_1', async () => {
     const bridge = mockBridge();
-    await misc.sendGroupSign(bridge as any, 12345);
+    await new MiscApi(bridge as any).sendGroupSign( 12345);
     const [, cmd] = vi.mocked(oidb.runOidb).mock.calls[0]!;
     expect(cmd).toBe('OidbSvcTrpcTcp.0xEB7_1');
   });

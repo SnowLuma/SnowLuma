@@ -1,7 +1,7 @@
 import fs from 'fs';
 import type { BridgeManager } from '../bridge/manager';
-import type { PacketSink } from '../protocol/types';
-import { createLogger, type Logger } from '../utils/logger';
+import type { PacketSink } from '@snowluma/common/protocol-types';
+import { createLogger, type Logger } from '@snowluma/common/logger';
 import {
   injectHookProcess,
   listHookProcesses,
@@ -198,14 +198,25 @@ export class HookManager {
       const session = this.sessions.get(pid);
       if (session) session.onPipeDown();
     });
-    // After every tick, retry sessions that are stuck in 'connecting'
-    // while the pipe is up. Mirrors the original tickWatcher's per-tick
-    // reconcileConnect pass; onPipeUp is idempotent so calling it for an
-    // already-connected session is harmless.
+    // After every tick, retry sessions that are stuck in 'connecting' OR
+    // 'disconnected' while the pipe is up. Mirrors the original
+    // tickWatcher's per-tick reconcileConnect pass; onPipeUp is idempotent
+    // so calling it for an already-connected session is harmless.
+    //
+    // The 'disconnected' branch matters on Windows: when the QQ-NT side of
+    // the named pipe stays alive but the SnowLuma-side socket dies (read
+    // EPIPE / idle-timeout / similar transient I/O fault), the watcher
+    // sees the pipe as still-live (the OS-level pipe is still listed by
+    // `listLivePipes`) so it never fires another `pipe-up`. Without
+    // retrying 'disconnected' sessions here the session is stranded
+    // forever — a real-world symptom users reported as "Windows running
+    // for a while then stops" with logs `pipe error: read EPIPE` →
+    // `session closed: UIN=…`.
     this.pipeWatcher.on('tick', () => {
       if (this.disposed) return;
       for (const session of this.sessions.values()) {
-        if (session.status === 'connecting' && this.pipeWatcher.isPipeLive(session.pid)) {
+        if ((session.status === 'connecting' || session.status === 'disconnected')
+            && this.pipeWatcher.isPipeLive(session.pid)) {
           session.onPipeUp();
         }
       }

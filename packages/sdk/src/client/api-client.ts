@@ -15,7 +15,6 @@ import type {
   JsonObject,
   JsonValue,
   OutgoingMessage,
-  PrivateForwardMessageParams,
   RequestOptions,
   SendMsgParams,
   SetGroupReactionParams,

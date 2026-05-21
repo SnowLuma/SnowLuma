@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Eye, Loader2, User, UserX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -37,7 +37,7 @@ export function ProcessProbeDialog({ pid, processName, open, onOpenChange }: Pro
   const [info, setInfo] = useState<QqPortLoginInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const probe = async () => {
+  const probe = useCallback(async () => {
     setLoading(true);
     setError(null);
     setInfo(null);
@@ -52,7 +52,7 @@ export function ProcessProbeDialog({ pid, processName, open, onOpenChange }: Pro
     } finally {
       setLoading(false);
     }
-  };
+  }, [api.processes, pid]);
 
   useEffect(() => {
     if (open) {
@@ -61,7 +61,7 @@ export function ProcessProbeDialog({ pid, processName, open, onOpenChange }: Pro
       setInfo(null);
       setError(null);
     }
-  }, [open]);
+  }, [open, probe]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

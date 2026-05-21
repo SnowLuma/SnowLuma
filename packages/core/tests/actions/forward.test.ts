@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 
-vi.mock('../../src/bridge/bridge-oidb', () => ({
+vi.mock('@snowluma/bridge/bridge-oidb', () => ({
   runOidb: vi.fn(async () => new Uint8Array()),
   makeOidbEnvelope: vi.fn((_oidbCmd, _subCmd, body) => ({ body })),
   encodeOidbEnv: vi.fn(() => new Uint8Array()),
@@ -10,17 +10,17 @@ vi.mock('../../src/bridge/bridge-oidb', () => ({
 // element-builder reaches into protoEncode with element-specific schemas
 // that we don't want to construct manually in tests; stub it to return
 // a benign placeholder.
-vi.mock('../../src/bridge/element-builder', () => ({
+vi.mock('@snowluma/bridge/element-builder', () => ({
   buildSendElems: vi.fn(async () => []),
 }));
 
-import { protoEncode } from '../../src/protobuf/decode';
-import { SendLongMsgRespSchema } from '../../src/bridge/proto/longmsg';
-import * as forward from '../../src/bridge/actions/forward';
+import { protobuf_encode } from '@snowluma/proton';
+import type { SendLongMsgResp } from '@snowluma/proto-defs/longmsg';
+import { ForwardApi } from '../../src/bridge/apis/forward';
 import { mockBridge } from './_helpers';
 
 function uploadResponseWithResId(resId: string) {
-  const encoded = protoEncode({ result: { resId } }, SendLongMsgRespSchema);
+  const encoded = protobuf_encode<SendLongMsgResp>({ result: { resId } });
   return {
     success: true,
     gotResponse: true,
@@ -33,7 +33,7 @@ function uploadResponseWithResId(resId: string) {
 describe('actions/forward', () => {
   it('uploadForwardNodes rejects empty arrays', async () => {
     const bridge = mockBridge();
-    await expect(forward.uploadForwardNodes(bridge as any, []))
+    await expect(new ForwardApi(bridge as any).upload([]))
       .rejects.toThrow(/required/);
   });
 
@@ -42,7 +42,7 @@ describe('actions/forward', () => {
       sendRawPacket: vi.fn(async () => uploadResponseWithResId('res-001')) as any,
     });
 
-    const resId = await forward.uploadForwardNodes(bridge as any, [
+    const resId = await new ForwardApi(bridge as any).upload([
       { userUin: 10001, nickname: 'alice', elements: [] },
     ]);
 
@@ -60,7 +60,7 @@ describe('actions/forward', () => {
         errorMessage: 'pipe broken', responseData: null,
       })) as any,
     });
-    await expect(forward.uploadForwardNodes(bridge as any, [
+    await expect(new ForwardApi(bridge as any).upload([
       { userUin: 10001, nickname: 'a', elements: [] },
     ])).rejects.toThrow(/pipe broken/);
   });
@@ -69,7 +69,7 @@ describe('actions/forward', () => {
     const bridge = mockBridge({
       sendRawPacket: vi.fn(async () => uploadResponseWithResId('')) as any,
     });
-    await expect(forward.uploadForwardNodes(bridge as any, [
+    await expect(new ForwardApi(bridge as any).upload([
       { userUin: 10001, nickname: 'a', elements: [] },
     ])).rejects.toThrow(/missing res_id/);
   });
@@ -83,14 +83,14 @@ describe('actions/forward', () => {
       { userUin: 10002, nickname: 'bob', elements: [] },
     ];
 
-    const resId = await forward.uploadForwardNodes(bridge as any, nodes);
+    const resId = await new ForwardApi(bridge as any).upload(nodes);
     expect(resId).toBe('res-cache');
 
-    const fetched = await forward.fetchForwardNodes(bridge as any, 'res-cache');
+    const fetched = await new ForwardApi(bridge as any).fetch('res-cache');
     // Same nicknames + uins; elements have been deep-copied so the shape
     // is preserved but the array reference is different.
     expect(fetched).toHaveLength(2);
-    expect(fetched.map(n => n.nickname)).toEqual(['alice', 'bob']);
+    expect(fetched.map((n: { nickname: string }) => n.nickname)).toEqual(['alice', 'bob']);
     expect(sendRawPacket).toHaveBeenCalledTimes(1);
   });
 
@@ -101,7 +101,7 @@ describe('actions/forward', () => {
         errorMessage: 'down', responseData: null,
       })) as any,
     });
-    await expect(forward.fetchForwardNodes(bridge as any, 'cold-cache-miss'))
+    await expect(new ForwardApi(bridge as any).fetch('cold-cache-miss'))
       .rejects.toThrow(/download forward message failed|down/);
   });
 
@@ -117,7 +117,7 @@ describe('actions/forward', () => {
     const sendRawPacket = vi.fn(async () => uploadResponseWithResId(responses.shift()!)) as any;
     const bridge = mockBridge({ sendRawPacket });
 
-    const resId = await forward.uploadForwardNodes(bridge as any, [
+    const resId = await new ForwardApi(bridge as any).upload([
       {
         userUin: 111,
         nickname: 'outer',
@@ -142,7 +142,7 @@ describe('actions/forward', () => {
     const sendRawPacket = vi.fn(async () => uploadResponseWithResId('flat-res')) as any;
     const bridge = mockBridge({ sendRawPacket });
 
-    const resId = await forward.uploadForwardNodes(bridge as any, [
+    const resId = await new ForwardApi(bridge as any).upload([
       { userUin: 10001, nickname: 'a', elements: [{ type: 'text', text: 'hello' }] },
       { userUin: 10002, nickname: 'b', elements: [{ type: 'text', text: 'world' }] },
     ]);
