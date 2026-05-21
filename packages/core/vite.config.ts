@@ -140,7 +140,27 @@ const BaseConfig = (source_map: boolean = false) => defineConfig({
       fileName: (_, entryName) => `${entryName}.mjs`
     },
     rollupOptions: {
-      external: [...nodeModules, ...external]
+      external: [...nodeModules, ...external],
+      output: {
+        // better-sqlite3's JS wrapper is pure CJS — its `require('fs')` /
+        // `require('path')` / `require('bindings')` calls get inlined into
+        // the ESM bundle as `__require("fs")` shims by rolldown. Those
+        // shims gate on `typeof require !== "undefined"`, which is true
+        // in CJS but FALSE in our `.mjs` output, so they fall through to
+        // a runtime `throw Error("Calling \`require\` ... in an environment
+        // that doesn't expose the \`require\` function.")` on first call —
+        // crashing the launcher immediately.
+        //
+        // Defining a module-scope `require` via `createRequire(import.meta.url)`
+        // at the very top of the bundle satisfies the `typeof` check, and
+        // the shim then transparently delegates every inlined CJS require
+        // to the real CJS loader. Node 18+ ships `createRequire` in the
+        // `node:module` builtin, so this is supported on every target.
+        banner: [
+          "import { createRequire as __snowlumaCreateRequire } from 'node:module';",
+          "const require = __snowlumaCreateRequire(import.meta.url);",
+        ].join('\n'),
+      },
     },
     // Emit to monorepo root dist/ so the existing release pipeline keeps working.
     outDir: distDir,
