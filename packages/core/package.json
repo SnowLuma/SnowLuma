@@ -5,6 +5,32 @@
   "private": true,
   "type": "module",
   "main": "../../dist/index.mjs",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "../../dist/index.mjs"
+    },
+    "./bridge": {
+      "types": "./src/bridge/bridge.ts",
+      "default": "./src/bridge/bridge.ts"
+    },
+    "./bridge-interface": {
+      "types": "./src/bridge/bridge-interface.ts",
+      "default": "./src/bridge/bridge-interface.ts"
+    },
+    "./bridge-context": {
+      "types": "./src/bridge/bridge-context.ts",
+      "default": "./src/bridge/bridge-context.ts"
+    },
+    "./manager": {
+      "types": "./src/bridge/manager.ts",
+      "default": "./src/bridge/manager.ts"
+    },
+    "./apis": {
+      "types": "./src/bridge/apis/index.ts",
+      "default": "./src/bridge/apis/index.ts"
+    }
+  },
   "scripts": {
     "build": "vite build",
     "build:all": "cross-env BUILD_WEBUI=true vite build",
@@ -16,6 +42,7 @@
   "dependencies": {
     "@snowluma/bridge": "workspace:*",
     "@snowluma/common": "workspace:*",
+    "@snowluma/onebot": "workspace:*",
     "@snowluma/proto-defs": "workspace:*",
     "@snowluma/proton": "workspace:*",
     "@snowluma/websocket": "workspace:*"

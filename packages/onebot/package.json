@@ -1,0 +1,103 @@
+{
+  "name": "@snowluma/onebot",
+  "version": "1.9.0",
+  "private": true,
+  "type": "module",
+  "description": "SnowLuma OneBot v11 adapter — the protocol translation layer that maps the public OneBot vocabulary (HTTP / WebSocket actions, message segments, post events) onto @snowluma/core's typed Api hub (`bridge.apis.<area>.method()`). Owns network adapters (HTTP server / HTTP client / WS server / WS client), the registered action handlers, the receive-side event→OneBot converter, message-id hashing, message store (SQLite-backed event history), media store, and the OneBot instance + manager that ties one OneBotConfig to one Bridge. Per-file subpath exports mirror the legacy `core/src/onebot/*` layout 1:1 so the previous `import { … } from '../onebot/<x>'` collapses to `import { … } from '@snowluma/onebot/<x>'`.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./manager": {
+      "types": "./src/manager.ts",
+      "default": "./src/manager.ts"
+    },
+    "./instance": {
+      "types": "./src/instance.ts",
+      "default": "./src/instance.ts"
+    },
+    "./instance-context": {
+      "types": "./src/instance-context.ts",
+      "default": "./src/instance-context.ts"
+    },
+    "./api-handler": {
+      "types": "./src/api-handler.ts",
+      "default": "./src/api-handler.ts"
+    },
+    "./config": {
+      "types": "./src/config.ts",
+      "default": "./src/config.ts"
+    },
+    "./types": {
+      "types": "./src/types.ts",
+      "default": "./src/types.ts"
+    },
+    "./message-id": {
+      "types": "./src/message-id.ts",
+      "default": "./src/message-id.ts"
+    },
+    "./message-parser": {
+      "types": "./src/message-parser.ts",
+      "default": "./src/message-parser.ts"
+    },
+    "./message-store": {
+      "types": "./src/message-store.ts",
+      "default": "./src/message-store.ts"
+    },
+    "./media-store": {
+      "types": "./src/media-store.ts",
+      "default": "./src/media-store.ts"
+    },
+    "./media-indexer": {
+      "types": "./src/media-indexer.ts",
+      "default": "./src/media-indexer.ts"
+    },
+    "./media-url-resolver": {
+      "types": "./src/media-url-resolver.ts",
+      "default": "./src/media-url-resolver.ts"
+    },
+    "./event-filter": {
+      "types": "./src/event-filter.ts",
+      "default": "./src/event-filter.ts"
+    },
+    "./event-pipeline": {
+      "types": "./src/event-pipeline.ts",
+      "default": "./src/event-pipeline.ts"
+    },
+    "./event-converter": {
+      "types": "./src/event-converter/index.ts",
+      "default": "./src/event-converter/index.ts"
+    },
+    "./event-converter/utils": {
+      "types": "./src/event-converter/utils.ts",
+      "default": "./src/event-converter/utils.ts"
+    },
+    "./instance-rkey": {
+      "types": "./src/instance-rkey.ts",
+      "default": "./src/instance-rkey.ts"
+    }
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@snowluma/bridge": "workspace:*",
+    "@snowluma/common": "workspace:*",
+    "@snowluma/core": "workspace:*",
+    "@snowluma/proto-defs": "workspace:*",
+    "@snowluma/proton": "workspace:*",
+    "@snowluma/websocket": "workspace:*"
+  },
+  "devDependencies": {
+    "@hono/node-server": "^1.19.14",
+    "@types/node": "^24.12.2",
+    "hono": "^4.12.14",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "^4.1.4"
+  }
+}

@@ -84,6 +84,9 @@ importers:
       '@snowluma/common':
         specifier: workspace:*
         version: link:../common
+      '@snowluma/onebot':
+        specifier: workspace:*
+        version: link:../onebot
       '@snowluma/proto-defs':
         specifier: workspace:*
         version: link:../proto-defs
@@ -121,6 +124,46 @@ importers:
       vite-plugin-cp:
         specifier: ^6.0.3
         version: 6.0.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@types/node@24.12.2)(vite@8.0.8(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(sass@1.99.0)(tsx@4.21.0))
+
+  packages/onebot:
+    dependencies:
+      '@snowluma/bridge':
+        specifier: workspace:*
+        version: link:../bridge
+      '@snowluma/common':
+        specifier: workspace:*
+        version: link:../common
+      '@snowluma/core':
+        specifier: workspace:*
+        version: link:../core
+      '@snowluma/proto-defs':
+        specifier: workspace:*
+        version: link:../proto-defs
+      '@snowluma/proton':
+        specifier: workspace:*
+        version: link:../proton
+      '@snowluma/websocket':
+        specifier: workspace:*
+        version: link:../websocket
+    devDependencies:
+      '@hono/node-server':
+        specifier: ^1.19.14
+        version: 1.19.14(hono@4.12.14)
+      '@types/node':
+        specifier: ^24.12.2
+        version: 24.12.2
+      hono:
+        specifier: ^4.12.14
+        version: 4.12.14
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.2
+      vite:
+        specifier: 'catalog:'
+        version: 8.0.8(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(sass@1.99.0)(tsx@4.21.0)
       vitest:
         specifier: ^4.1.4
         version: 4.1.4(@types/node@24.12.2)(vite@8.0.8(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(sass@1.99.0)(tsx@4.21.0))
