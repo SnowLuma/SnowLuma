@@ -3,10 +3,11 @@ import type { ForwardNodePayload, MessageElement } from '../../bridge/events';
 import { createLogger } from '../../utils/logger';
 import type { MessageSendResult } from '../api-handler';
 import { elementsToOneBotSegments } from '../event-converter';
+import { segmentsToRawMessage } from '../event-converter/utils';
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from '../message-id';
 import { parseMessage } from '../message-parser';
 import type { MessageStore } from '../message-store';
-import type { JsonObject, JsonValue, MessageMeta } from '../types';
+import type { JsonArray, JsonObject, JsonValue, MessageMeta } from '../types';
 import type { OneBotInstanceContext } from '../instance-context';
 
 const log = createLogger('OneBot');
@@ -86,6 +87,97 @@ export async function setEssenceMessage(
   const meta = messageStore.findMeta(messageId);
   if (!meta || !meta.isGroup) throw new Error('message not found or not a group message');
   await bridge.apis.interaction.setEssence(meta.targetId, meta.sequence, meta.random, enable);
+}
+
+/**
+ * Build + store a synthetic OneBot event for a just-sent message so
+ * `/get_msg` can find it.
+ *
+ * The QQ server doesn't always echo self-sent messages back on the
+ * receive channel — Lagrange and NapCat both work around this by
+ * writing a local copy at send time (Lagrange persists into Realm DB
+ * inside `SendMessageOperation`; NapCat caches in-memory via its msg
+ * service). Without it, callers that hit `/get_msg` with a freshly-
+ * returned `message_id` get "message not found" even though the recall
+ * path works fine (recall uses the lighter `cacheMessageMeta` already).
+ *
+ * Stored event has `post_type: 'message_sent'` so OneBot clients that
+ * inspect it through `/get_msg` can distinguish their own outbound
+ * messages from incoming ones.
+ */
+async function cacheSelfSentMessage(
+  ref: OneBotInstanceContext,
+  options: {
+    isGroup: boolean;
+    sessionId: number;       // groupId or peer userId
+    messageId: number;
+    sequence: number;
+    timestamp: number;
+    elements: MessageElement[];
+  },
+): Promise<void> {
+  const { isGroup, sessionId, messageId, sequence, timestamp, elements } = options;
+  if (!Number.isInteger(messageId) || messageId === 0) return;
+
+  // Defensive: tests mock `ref.messageStore` as `{ findEvent: ... } as any`
+  // without the full MessageStore surface. Production always has it. Bail
+  // quietly when the helper isn't there — the user-visible `cacheMessageMeta`
+  // already covers recall/delete; only `/get_msg` lookup degrades.
+  const storeEvent = (ref.messageStore as { storeEvent?: typeof ref.messageStore.storeEvent }).storeEvent;
+  if (typeof storeEvent !== 'function') return;
+
+  try {
+    // We deliberately pass no URL resolvers — for a synthetic self-sent
+    // event the file/url fields in segments are best-effort (they're
+    // already what the OneBot caller passed in). Image/video URLs would
+    // need a real resolver to render in `/get_msg`, but the existing
+    // resolver is async and bound to the receive pipeline; skipping it
+    // means /get_msg returns the segment with the original `file` path
+    // and an empty `url`, which is what Lagrange does too.
+    const segments = await elementsToOneBotSegments(elements, isGroup, sessionId) as JsonArray;
+    const raw = segmentsToRawMessage(segments);
+    const eventName = isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT;
+    const selfId = ref.selfId;
+
+    const event: JsonObject = {
+      time: timestamp,
+      self_id: selfId,
+      post_type: 'message_sent',
+      message_type: isGroup ? 'group' : 'private',
+      sub_type: isGroup ? 'normal' : 'friend',
+      message_id: messageId,
+      message_seq: sequence,
+      user_id: selfId,                                  // sender = self
+      message: segments,
+      raw_message: raw,
+      font: 0,
+      sender: {
+        user_id: selfId,
+        nickname: '',
+        sex: 'unknown',
+        age: 0,
+      },
+    };
+    if (isGroup) {
+      event.group_id = sessionId;
+    } else {
+      // c2c: target_id mirrors NapCat's `targetUin` field for self-sent
+      // events; some OneBot clients use it to disambiguate self-sent
+      // private messages (where user_id is self, not the peer).
+      event.target_id = sessionId;
+    }
+
+    // Store directly via messageStore (bypassing dispatchEvent — we
+    // don't want to broadcast this synthetic event over the WS bridge;
+    // the QQ server's own echo-back is the source of truth for that).
+    storeEvent.call(ref.messageStore, messageId, isGroup, sessionId, sequence, eventName, event);
+  } catch (err) {
+    // Never let event-cache failures sink the send call — recall + return
+    // value are what callers care about; /get_msg degrading to "not found"
+    // is the worst case here and matches the previous behaviour.
+    log.warn('[OneBot] failed to cache self-sent message %d: %s',
+      messageId, err instanceof Error ? err.message : String(err));
+  }
 }
 
 export async function sendPrivateMessage(
@@ -211,6 +303,14 @@ export async function sendPrivateMessage(
     random: lastReceipt.random,
     timestamp: lastReceipt.timestamp,
   });
+  await cacheSelfSentMessage(ref, {
+    isGroup: false,
+    sessionId: userId,
+    messageId,
+    sequence: lastReceipt.sequence,
+    timestamp: lastReceipt.timestamp,
+    elements,
+  });
 
   return { messageId };
 }
@@ -300,6 +400,14 @@ export async function sendGroupMessage(
     random: lastReceipt.random,
     timestamp: lastReceipt.timestamp,
   });
+  await cacheSelfSentMessage(ref, {
+    isGroup: true,
+    sessionId: groupId,
+    messageId,
+    sequence: lastReceipt.sequence,
+    timestamp: lastReceipt.timestamp,
+    elements,
+  });
 
   return { messageId };
 }
@@ -336,6 +444,14 @@ export async function sendGroupForwardMessage(
     random: receipt.random,
     timestamp: receipt.timestamp,
   });
+  await cacheSelfSentMessage(ref, {
+    isGroup: true,
+    sessionId: groupId,
+    messageId,
+    sequence: receipt.sequence,
+    timestamp: receipt.timestamp,
+    elements: [previewElement],
+  });
 
   return { messageId, forwardId };
 }
@@ -363,6 +479,14 @@ export async function sendPrivateForwardMessage(
     clientSequence: receipt.clientSequence,
     random: receipt.random,
     timestamp: receipt.timestamp,
+  });
+  await cacheSelfSentMessage(ref, {
+    isGroup: false,
+    sessionId: userId,
+    messageId,
+    sequence: receipt.sequence,
+    timestamp: receipt.timestamp,
+    elements: [previewElement],
   });
 
   return { messageId, forwardId };
@@ -422,6 +546,14 @@ export async function forwardSingleMessage(
       random: receipt.random,
       timestamp: receipt.timestamp,
     });
+    await cacheSelfSentMessage(ref, {
+      isGroup: true,
+      sessionId: target.groupId,
+      messageId: messageIdOut,
+      sequence: receipt.sequence,
+      timestamp: receipt.timestamp,
+      elements,
+    });
   } else {
     receipt = await ref.bridge.apis.message.sendPrivate(target.userId!, elements);
     messageIdOut = hashMessageIdInt32(receipt.sequence, target.userId!, PRIVATE_MESSAGE_EVENT);
@@ -433,6 +565,14 @@ export async function forwardSingleMessage(
       clientSequence: receipt.clientSequence,
       random: receipt.random,
       timestamp: receipt.timestamp,
+    });
+    await cacheSelfSentMessage(ref, {
+      isGroup: false,
+      sessionId: target.userId!,
+      messageId: messageIdOut,
+      sequence: receipt.sequence,
+      timestamp: receipt.timestamp,
+      elements,
     });
   }
 
