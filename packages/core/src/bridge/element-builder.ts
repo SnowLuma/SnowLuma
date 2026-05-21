@@ -256,18 +256,31 @@ async function makePttElem(ctx: SendContext, element: MessageElement): Promise<P
  *
  * NOT used for outgoing PbSendMsg (the QQ-NT server rejects that with
  * result=79); the group-file send-side flow goes through dedicated
- * OIDB 0x6d9_4 via `bridge.sendGroupFileMessage`. This shape IS used
+ * OIDB 0x6d9_4 via `bridge.apis.groupFile.publish`. This shape IS used
  * inside the long-msg upload (forward / multi-msg) — the long-msg
  * service stores the gzipped protobuf verbatim, and the receiver
  * decodes file entities from `transElem(24)` (see
  * `msg-push/rich-body-decoder.ts:169-187`).
+ *
+ * `ctx` is consulted to fill in size/name/md5/sha1 from the upload
+ * metadata cache when the caller only threaded the file_id through.
+ * Mirrors the c2c forward path in `apis/forward.ts::buildForwardPushBody`
+ * which already does this lookup — without it the receiver sees a
+ * "0 B" file with no name (OneBot11 `{type:'file', file_id}` segments
+ * typically omit the metadata since the upload action returned only
+ * the id).
  */
-function makeGroupFileElem(element: MessageElement): ProtoElem {
+function makeGroupFileElem(element: MessageElement, ctx?: SendContext): ProtoElem {
   if (!element.fileId) throw new Error('file element missing fileId');
-  const fileSize = element.fileSize ?? 0;
-  const fileName = element.fileName ?? '';
-  const md5 = element.md5Hex ? hexToBytes(element.md5Hex) : new Uint8Array(0);
-  const sha1 = element.sha1Hex ? hexToBytes(element.sha1Hex) : new Uint8Array(0);
+  const cached = ctx?.bridge.recallUploadedFile(element.fileId);
+  const fileSize = element.fileSize ?? cached?.fileSize ?? 0;
+  const fileName = element.fileName ?? cached?.fileName ?? '';
+  const md5 = element.md5Hex
+    ? hexToBytes(element.md5Hex)
+    : (cached?.fileMd5 ?? new Uint8Array(0));
+  const sha1 = element.sha1Hex
+    ? hexToBytes(element.sha1Hex)
+    : (cached?.fileSha1 ?? new Uint8Array(0));
 
   // Outer field1 is hardcoded to 6 in NapCat's encoder
   // (`packet/message/element.ts:589`). Inner GroupFileExtraInfo carries
@@ -420,7 +433,7 @@ export async function buildSendElems(elements: MessageElement[], ctx?: SendConte
         //                FileExtra both live outside elems[]).
         if (ctx && ctx.forwardFake) {
           if (ctx.groupId !== undefined) {
-            result.push(makeGroupFileElem(elem));
+            result.push(makeGroupFileElem(elem, ctx));
           }
           // c2c forwardFake intentionally falls through — handled by
           // the forward-builder at the msgContent level.
