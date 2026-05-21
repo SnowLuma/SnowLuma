@@ -10,8 +10,8 @@
 // (`fetchNtv2DownloadUrl`, the upload-ext builder) live in one file.
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import { toHexUpper } from '../../utils/hex';
-import { createLogger } from '../../utils/logger';
+import { toHexUpper } from '@snowluma/common/hex';
+import { createLogger } from '@snowluma/common/logger';
 import type { BridgeContext } from '../bridge-context';
 import type { Bridge } from '../bridge';
 import { makeOidbEnvelope, runOidb } from '../bridge-oidb';

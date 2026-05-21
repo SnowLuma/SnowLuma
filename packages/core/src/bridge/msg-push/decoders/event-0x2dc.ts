@@ -1,5 +1,5 @@
 import { protobuf_decode } from '@snowluma/proton';
-import { createLogger } from '../../../utils/logger';
+import { createLogger } from '@snowluma/common/logger';
 import type {
   GroupEssenceEvent,
   GroupMsgEmojiLikeEvent,

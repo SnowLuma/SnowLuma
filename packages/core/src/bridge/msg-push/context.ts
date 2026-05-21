@@ -1,5 +1,5 @@
 import { protobuf_decode } from '@snowluma/proton';
-import type { PacketInfo } from '../../protocol/types';
+import type { PacketInfo } from '@snowluma/common/protocol-types';
 import type { IdentityService } from '../identity-service';
 import type { ContentHead, MessageBody, PushMsg, ResponseHead } from '@snowluma/proto-defs/message';
 

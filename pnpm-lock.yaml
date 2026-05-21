@@ -48,8 +48,20 @@ importers:
         specifier: ^8.58.2
         version: 8.58.2(eslint@10.2.0(jiti@2.6.1))(typescript@6.0.2)
 
+  packages/common:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.12.2
+        version: 24.12.2
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.2
+
   packages/core:
     dependencies:
+      '@snowluma/common':
+        specifier: workspace:*
+        version: link:../common
       '@snowluma/proto-defs':
         specifier: workspace:*
         version: link:../proto-defs

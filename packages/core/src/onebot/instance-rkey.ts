@@ -1,7 +1,7 @@
 import type { MessageElement } from '../bridge/events';
 import type { DownloadRKeyInfo } from '../bridge/bridge';
 import type { BridgeInterface } from '../bridge/bridge-interface';
-import { createLogger } from '../utils/logger';
+import { createLogger } from '@snowluma/common/logger';
 
 const log = createLogger('OneBot');
 

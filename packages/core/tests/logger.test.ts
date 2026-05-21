@@ -11,8 +11,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createLogger, getLogLevel, setLogLevel, subscribeLogs, type LogEntry } from '../src/utils/logger';
-import { _resetFileTransportForTesting } from '../src/utils/log-file-transport';
+import { createLogger, getLogLevel, setLogLevel, subscribeLogs, type LogEntry } from '@snowluma/common/logger';
+import { _resetFileTransportForTesting } from '@snowluma/common/log-file-transport';
 
 let tmpDir: string;
 const ENV_KEYS = [

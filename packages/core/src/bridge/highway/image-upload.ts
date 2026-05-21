@@ -1,4 +1,4 @@
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '@snowluma/common/logger';
 import type { Bridge } from '../bridge';
 import type { MessageElement } from '../events';
 import { GROUP_IMAGE_CMD_ID, PRIVATE_IMAGE_CMD_ID } from './highway-client';

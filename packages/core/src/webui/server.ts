@@ -2,7 +2,7 @@ import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono, type Context } from 'hono';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
-import { createLogger, getLogLevel, getRecentLogs, LOG_LEVELS, setLogLevel, subscribeLogs } from '../utils/logger';
+import { createLogger, getLogLevel, getRecentLogs, LOG_LEVELS, setLogLevel, subscribeLogs } from '@snowluma/common/logger';
 import { randomBytes } from 'crypto';
 import type { OneBotManager } from '../onebot/manager';
 import { loadOneBotConfig, saveOneBotConfig } from '../onebot/config';

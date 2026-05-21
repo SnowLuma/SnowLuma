@@ -1,6 +1,6 @@
 import type { BridgeInterface } from '../../bridge/bridge-interface';
 import type { ForwardNodePayload, MessageElement } from '../../bridge/events';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '@snowluma/common/logger';
 import type { MessageSendResult } from '../api-handler';
 import { elementsToOneBotSegments } from '../event-converter';
 import { segmentsToRawMessage } from '../event-converter/utils';

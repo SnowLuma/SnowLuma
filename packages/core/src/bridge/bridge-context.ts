@@ -25,7 +25,7 @@
 import type { IdentityService } from './identity-service';
 import type { BridgeEventBus } from './event-bus';
 import type { ApiHub } from './apis';
-import type { SendPacketResult } from '../protocol/packet-sender';
+import type { SendPacketResult } from '@snowluma/common/packet-sender';
 import type { UploadedFileMeta } from './bridge';
 
 export interface BridgeContext {

@@ -11,7 +11,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { protobuf_encode } from '@snowluma/proton';
-import { subscribeLogs, type LogEntry } from '../src/utils/logger';
+import { subscribeLogs, type LogEntry } from '@snowluma/common/logger';
 
 vi.mock('../src/bridge/highway/highway-client', () => ({
   fetchHighwaySession: vi.fn(async () => ({ sessionId: 'fake-session' })),

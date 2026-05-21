@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
-import type { PacketSink } from '../protocol/types';
-import { createLogger, type Logger } from '../utils/logger';
+import type { PacketSink } from '@snowluma/common/protocol-types';
+import { createLogger, type Logger } from '@snowluma/common/logger';
 import { HookPacketClient } from './hook-packet-client';
 import type { HookInjectResult } from './injector';
 import type { QqHookClient, QqHookLoginState, QqHookPacket } from './qq-hook-client';

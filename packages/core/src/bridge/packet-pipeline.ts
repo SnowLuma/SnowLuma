@@ -1,6 +1,6 @@
-import type { PacketInfo } from '../protocol/types';
+import type { PacketInfo } from '@snowluma/common/protocol-types';
 import { formatEvent } from '../utils/event-format';
-import { createLogger, type Logger } from '../utils/logger';
+import { createLogger, type Logger } from '@snowluma/common/logger';
 import type { BridgeEventBus } from './event-bus';
 import type { QQEventVariant } from './events';
 import type { IdentityService } from './identity-service';

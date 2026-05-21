@@ -15,7 +15,7 @@ import type { GroupMsgEmojiLikeEvent, QQEventVariant } from '../src/bridge/event
 import { convertGroupMsgEmojiLike } from '../src/onebot/event-converter/to-notice';
 import { GROUP_MESSAGE_EVENT, hashMessageIdInt32 } from '../src/onebot/message-id';
 import { formatEvent } from '../src/utils/event-format';
-import { subscribeLogs, type LogEntry } from '../src/utils/logger';
+import { subscribeLogs, type LogEntry } from '@snowluma/common/logger';
 
 const SELF_UIN = '10001';
 const GROUP_ID = 123456789;

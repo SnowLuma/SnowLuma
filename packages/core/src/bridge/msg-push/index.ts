@@ -1,4 +1,4 @@
-import type { PacketInfo } from '../../protocol/types';
+import type { PacketInfo } from '@snowluma/common/protocol-types';
 import type { QQEventVariant } from '../events';
 import type { IdentityService } from '../identity-service';
 import { buildContext } from './context';

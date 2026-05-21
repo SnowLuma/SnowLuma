@@ -1,5 +1,5 @@
 import { RequestUtil, cookieToString, getBknFromCookie } from './request-util';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '@snowluma/common/logger';
 
 const log = createLogger('Bridge.Web');
 

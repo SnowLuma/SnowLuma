@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { randomBytes } from 'crypto';
-import { createLogger } from '../utils/logger';
+import { createLogger } from '@snowluma/common/logger';
 import type {
   HttpClientNetwork,
   HttpServerNetwork,

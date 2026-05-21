@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '@snowluma/common/logger';
 import type { Bridge } from '../bridge';
 import type { MessageElement } from '../events';
 import { defaultPttTempDir, encodeSilk } from './ffmpeg-addon';

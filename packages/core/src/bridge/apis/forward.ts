@@ -20,7 +20,7 @@ import type {
   SendLongMsgResp,
 } from '@snowluma/proto-defs/longmsg';
 import type { FileExtra, PushMsg, PushMsgBody } from '@snowluma/proto-defs/message';
-import type { PacketInfo } from '../../protocol/types';
+import type { PacketInfo } from '@snowluma/common/protocol-types';
 import type { BridgeContext } from '../bridge-context';
 import type { Bridge } from '../bridge';
 import { buildSendElems } from '../element-builder';

@@ -1,0 +1,47 @@
+{
+  "name": "@snowluma/common",
+  "version": "1.9.0",
+  "private": true,
+  "type": "module",
+  "description": "SnowLuma shared infrastructure — leaf-package utilities with zero business dependencies. Logger / hex codec / log file transport / log line summariser / packet sender wire-protocol types / runtime config loader. Consumed by @snowluma/bridge, @snowluma/core, and @snowluma/onebot. Per-file subpath exports keep import sites unambiguous and let the bundler tree-shake aggressively (importing `@snowluma/common/hex` doesn't pull in `node:fs` from the logger transport).",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./logger": {
+      "types": "./src/logger.ts",
+      "default": "./src/logger.ts"
+    },
+    "./hex": {
+      "types": "./src/hex.ts",
+      "default": "./src/hex.ts"
+    },
+    "./log-file-transport": {
+      "types": "./src/log-file-transport.ts",
+      "default": "./src/log-file-transport.ts"
+    },
+    "./log-summary": {
+      "types": "./src/log-summary.ts",
+      "default": "./src/log-summary.ts"
+    },
+    "./packet-sender": {
+      "types": "./src/packet-sender.ts",
+      "default": "./src/packet-sender.ts"
+    },
+    "./protocol-types": {
+      "types": "./src/protocol-types.ts",
+      "default": "./src/protocol-types.ts"
+    },
+    "./runtime": {
+      "types": "./src/runtime.ts",
+      "default": "./src/runtime.ts"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.2",
+    "typescript": "catalog:"
+  }
+}

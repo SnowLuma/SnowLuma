@@ -1,4 +1,4 @@
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '@snowluma/common/logger';
 import type { QQEventVariant } from '../events';
 import type { MsgPushContext } from './context';
 import type { PkgType } from './enums';

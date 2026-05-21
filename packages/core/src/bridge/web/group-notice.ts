@@ -1,6 +1,6 @@
 import { RequestUtil, cookieToString } from './request-util';
 import https from 'node:https';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '@snowluma/common/logger';
 
 const log = createLogger('Bridge.Web');
 

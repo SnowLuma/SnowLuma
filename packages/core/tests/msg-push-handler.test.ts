@@ -24,8 +24,8 @@ import type {
 // we avoid an `import { FriendRecall as X }` that collides with the
 // proton import above.
 type FriendRecallEvent = Extract<QQEventVariant, { kind: 'friend_recall' }>;
-import type { PacketInfo } from '../src/protocol/types';
-import { subscribeLogs } from '../src/utils/logger';
+import type { PacketInfo } from '@snowluma/common/protocol-types';
+import { subscribeLogs } from '@snowluma/common/logger';
 
 const SELF_UIN = '10001';
 const GROUP_ID = 123456789;

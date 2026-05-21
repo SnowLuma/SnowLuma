@@ -4,7 +4,7 @@ import {
   type Server,
   type ServerResponse,
 } from 'http';
-import { createLogger, type Logger } from '../../utils/logger';
+import { createLogger, type Logger } from '@snowluma/common/logger';
 import type { DispatchPayload } from '../event-filter';
 import type { HttpServerNetwork, JsonObject, JsonValue } from '../types';
 import { IOneBotNetworkAdapter, NetworkReloadType, type NetworkAdapterContext } from './adapter';

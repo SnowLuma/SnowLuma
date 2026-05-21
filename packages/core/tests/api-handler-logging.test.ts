@@ -6,8 +6,8 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ApiHandler } from '../src/onebot/api-handler';
-import { subscribeLogs, type LogEntry } from '../src/utils/logger';
-import { summarizeParams } from '../src/utils/log-summary';
+import { subscribeLogs, type LogEntry } from '@snowluma/common/logger';
+import { summarizeParams } from '@snowluma/common/log-summary';
 
 // Minimal context — we never reach the real action handlers; we
 // register our own via registerAction.

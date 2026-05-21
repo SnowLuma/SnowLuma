@@ -1,4 +1,4 @@
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '@snowluma/common/logger';
 import { buildDispatchPayload } from '../event-filter';
 import type { JsonObject, NetworkBase } from '../types';
 import { IOneBotNetworkAdapter } from './adapter';

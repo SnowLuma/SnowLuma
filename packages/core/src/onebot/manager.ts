@@ -1,6 +1,6 @@
 import type { BridgeInterface } from '../bridge/bridge-interface';
 import type { BridgeManager } from '../bridge/manager';
-import { createLogger } from '../utils/logger';
+import { createLogger } from '@snowluma/common/logger';
 import { loadOneBotConfig } from './config';
 import { OneBotInstance } from './instance';
 

@@ -6,7 +6,7 @@ import type {
   FriendInfo, GroupMemberInfo, QQGroupInfo,
   UserProfileInfo, GroupRequestInfo,
 } from './qq-info';
-import { createLogger, type Logger } from '../utils/logger';
+import { createLogger, type Logger } from '@snowluma/common/logger';
 
 const moduleLogger = createLogger('Identity');
 

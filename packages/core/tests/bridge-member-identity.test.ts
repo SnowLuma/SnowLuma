@@ -3,7 +3,7 @@ import { Bridge } from '../src/bridge/bridge';
 import { IdentityService } from '../src/bridge/identity-service';
 import type { GroupMemberInfo, QQGroupInfo } from '../src/bridge/qq-info';
 import type { GroupMemberJoin, QQEventVariant } from '../src/bridge/events';
-import type { PacketInfo } from '../src/protocol/types';
+import type { PacketInfo } from '@snowluma/common/protocol-types';
 
 const SELF_UIN = '10001';
 const GROUP_ID = 123456789;

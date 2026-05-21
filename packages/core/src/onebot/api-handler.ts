@@ -2,8 +2,8 @@ import type { JsonObject, JsonValue, MessageMeta } from './types';
 import type { ForwardPreviewMeta } from './modules/message-actions';
 import type { BridgeInterface } from '../bridge/bridge-interface';
 import { RETCODE, failedResponse } from './types';
-import { createLogger, type Logger } from '../utils/logger';
-import { summarizeParams } from '../utils/log-summary';
+import { createLogger, type Logger } from '@snowluma/common/logger';
+import { summarizeParams } from '@snowluma/common/log-summary';
 
 const moduleLog = createLogger('Bridge.Action');
 

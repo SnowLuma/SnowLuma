@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { SendPacketResult } from '../src/protocol/packet-sender';
+import type { SendPacketResult } from '@snowluma/common/packet-sender';
 import type { SendMessageRequest, SendMessageResponse } from '@snowluma/proto-defs/action';
 import type { FileExtra } from '@snowluma/proto-defs/message';
 

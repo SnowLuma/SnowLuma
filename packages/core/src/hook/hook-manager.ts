@@ -1,7 +1,7 @@
 import fs from 'fs';
 import type { BridgeManager } from '../bridge/manager';
-import type { PacketSink } from '../protocol/types';
-import { createLogger, type Logger } from '../utils/logger';
+import type { PacketSink } from '@snowluma/common/protocol-types';
+import { createLogger, type Logger } from '@snowluma/common/logger';
 import {
   injectHookProcess,
   listHookProcesses,

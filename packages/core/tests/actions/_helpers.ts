@@ -14,7 +14,7 @@
 // via `mockBridge({ apis: { message: ... } })`.
 
 import { vi } from 'vitest';
-import type { SendPacketResult } from '../../src/protocol/packet-sender';
+import type { SendPacketResult } from '@snowluma/common/packet-sender';
 
 /** Default receipt returned by sendGroup / sendPrivate / sendC2cFile mocks. */
 const STUB_RECEIPT = { messageId: 1, sequence: 1, clientSequence: 0, random: 1, timestamp: 0 };

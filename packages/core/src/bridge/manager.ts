@@ -1,6 +1,6 @@
-import type { PacketSender } from '../protocol/packet-sender';
-import type { PacketInfo } from '../protocol/types';
-import { createLogger } from '../utils/logger';
+import type { PacketSender } from '@snowluma/common/packet-sender';
+import type { PacketInfo } from '@snowluma/common/protocol-types';
+import { createLogger } from '@snowluma/common/logger';
 import { Bridge } from './bridge';
 import { IdentityService } from './identity-service';
 

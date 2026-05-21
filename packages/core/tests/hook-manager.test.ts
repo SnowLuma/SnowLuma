@@ -8,7 +8,7 @@ import { PipeWatcher } from '../src/hook/pipe-watcher';
 import type { ManualMapHandle } from '../src/hook/injector';
 import type { BridgeManager } from '../src/bridge/manager';
 import type { QqHookClient } from '../src/hook/qq-hook-client';
-import { createLogger } from '../src/utils/logger';
+import { createLogger } from '@snowluma/common/logger';
 
 const DUMMY_HANDLE: ManualMapHandle = { base: 0n, entry: 0n, exceptionTable: 0n, size: 0 };
 const flush = () => new Promise<void>(r => setImmediate(r));

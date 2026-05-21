@@ -1,6 +1,6 @@
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import crypto from 'crypto';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '@snowluma/common/logger';
 import type { Bridge } from '../bridge';
 import { makeOidbEnvelope } from '../bridge-oidb';
 import type {

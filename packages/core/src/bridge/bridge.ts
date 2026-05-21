@@ -1,5 +1,5 @@
-import type { PacketSender, SendPacketResult } from '../protocol/packet-sender';
-import type { PacketInfo } from '../protocol/types';
+import type { PacketSender, SendPacketResult } from '@snowluma/common/packet-sender';
+import type { PacketInfo } from '@snowluma/common/protocol-types';
 import type { BridgeInterface } from './bridge-interface';
 import { IdentityService } from './identity-service';
 import { MSG_PUSH_CMD, parseMsgPush } from './msg-push';

@@ -1,5 +1,5 @@
 import { protobuf_decode } from '@snowluma/proton';
-import { toHexUpper } from '../../utils/hex';
+import { toHexUpper } from '@snowluma/common/hex';
 import type { MessageElement } from '../events';
 import type {
   Elem,

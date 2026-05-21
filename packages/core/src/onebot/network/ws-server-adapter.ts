@@ -1,6 +1,6 @@
 import { WebSocket, WebSocketServer } from '@snowluma/websocket';
 import type { IncomingMessage } from 'http';
-import { createLogger, type Logger } from '../../utils/logger';
+import { createLogger, type Logger } from '@snowluma/common/logger';
 import {
   pickDispatchJson,
   resolveReportOptions,

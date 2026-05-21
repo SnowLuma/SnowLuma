@@ -1,5 +1,5 @@
 import type { BridgeInterface } from '../../bridge/bridge-interface';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '@snowluma/common/logger';
 import type { MediaStore } from '../media-store';
 import type { JsonObject } from '../types';
 

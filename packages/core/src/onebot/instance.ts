@@ -19,7 +19,7 @@ import {
   HttpPostAdapter,
   type NetworkAdapterContext,
 } from './network';
-import { createLogger, type Logger } from '../utils/logger';
+import { createLogger, type Logger } from '@snowluma/common/logger';
 import { formatGroup, formatMessageSegments, formatReply, formatUser } from '../utils/event-format';
 
 const moduleLog = createLogger('Event');

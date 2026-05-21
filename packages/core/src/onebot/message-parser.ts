@@ -1,5 +1,5 @@
 import type { MessageElement } from '../bridge/events';
-import { createLogger } from '../utils/logger';
+import { createLogger } from '@snowluma/common/logger';
 import type { JsonValue } from './types';
 
 const log = createLogger('MsgParser');
