@@ -164,15 +164,9 @@ importers:
         specifier: workspace:*
         version: link:../websocket
     devDependencies:
-      '@hono/node-server':
-        specifier: ^1.19.14
-        version: 1.19.14(hono@4.12.14)
       '@types/node':
         specifier: ^24.12.2
         version: 24.12.2
-      hono:
-        specifier: ^4.12.14
-        version: 4.12.14
       typescript:
         specifier: 'catalog:'
         version: 6.0.2

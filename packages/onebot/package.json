@@ -95,9 +95,7 @@
     "@snowluma/websocket": "workspace:*"
   },
   "devDependencies": {
-    "@hono/node-server": "^1.19.14",
     "@types/node": "^24.12.2",
-    "hono": "^4.12.14",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "^4.1.4"
