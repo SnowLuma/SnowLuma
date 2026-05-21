@@ -61,12 +61,10 @@ export interface ApiActionContext {
   getGroupMemberList: (groupId: number, noCache?: boolean) => Promise<JsonObject[]>;
   getGroupMemberInfo: (groupId: number, userId: number, noCache?: boolean) => Promise<JsonObject | null>;
   getStrangerInfo: (userId: number) => Promise<JsonObject | null>;
-  // Group admin (adapters: rename Bridge methods to OneBot vocabulary)
-  setGroupKick: (groupId: number, userId: number, rejectAdd: boolean) => Promise<void>;
-  setGroupKickMembers: (groupId: number, userIds: number[], rejectAdd: boolean) => Promise<void>;
-  setGroupBan: (groupId: number, userId: number, duration: number) => Promise<void>;
-  setGroupWholeBan: (groupId: number, enable: boolean) => Promise<void>;
-  setGroupLeave: (groupId: number) => Promise<void>;
+  // Group admin (mute/kick/admin/card/name/title/leave/etc) — all
+  // accessed directly through `ctx.bridge.apis.groupAdmin.method()`
+  // after the #6 OneBot-side slim-down; no per-method passthrough
+  // here anymore.
   // Group file (adapters: field extraction + Bridge name translation)
   uploadGroupFile: (groupId: number, file: string, name?: string, folderId?: string, uploadFile?: boolean) => Promise<string | null>;
   uploadPrivateFile: (userId: number, file: string, name?: string, uploadFile?: boolean) => Promise<string | null>;
@@ -101,7 +99,6 @@ export interface ApiActionContext {
   forwardSingleMsg: (messageId: number, target: { groupId?: number; userId?: number }) => Promise<{ messageId: number }>;
   // Extended NapCat-compatible
   setFriendRemark: (userId: number, remark: string) => Promise<void>;
-  setGroupRemark: (groupId: number, remark: string) => Promise<void>;
   setGroupAvatar: (groupId: number, source: string) => Promise<void>;
   setMsgEmojiLike: (messageId: number, emojiId: string, set: boolean) => Promise<void>;
   markGroupMsgAsRead: (groupId: number, sequence: number) => Promise<void>;

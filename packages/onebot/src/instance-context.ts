@@ -111,12 +111,8 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     getGroupMemberInfo: (groupId, userId, noCache) => getGroupMemberInfo(bridge, groupId, userId, noCache),
     getStrangerInfo: (userId) => getStrangerInfo(bridge, userId),
 
-    // Group admin — names translate to OneBot vocabulary.
-    setGroupKick: (groupId, userId, reject) => bridge.apis.groupAdmin.kickMember(groupId, userId, reject),
-    setGroupKickMembers: (groupId, userIds, reject) => bridge.apis.groupAdmin.kickMembers(groupId, userIds, reject),
-    setGroupBan: (groupId, userId, duration) => bridge.apis.groupAdmin.muteMember(groupId, userId, duration),
-    setGroupWholeBan: (groupId, enable) => bridge.apis.groupAdmin.muteAll(groupId, enable),
-    setGroupLeave: (groupId) => bridge.apis.groupAdmin.leave(groupId),
+    // Group admin — actions now call `ctx.bridge.apis.groupAdmin.X(...)`
+    // directly; no per-method passthrough here anymore.
 
     // Group file — fileId field extraction + defaults.
     uploadGroupFile: async (groupId, file, name, folderId, uploadFile) => {
@@ -164,7 +160,6 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     handleDeleteFriend: (userId, block) => bridge.apis.friend.delete(userId, !!block),
     forceFetchClientKey: () => bridge.apis.web.forceFetchClientKey(),
     setFriendRemark: (userId, remark) => bridge.apis.friend.setRemark(userId, remark),
-    setGroupRemark: (groupId, remark) => bridge.apis.groupAdmin.setRemark(groupId, remark),
     setGroupAvatar: (groupId, source) => bridge.apis.profile.setGroupAvatar(groupId, source),
     getGroupFileCount: (groupId) => bridge.apis.groupFile.getCount(groupId),
 

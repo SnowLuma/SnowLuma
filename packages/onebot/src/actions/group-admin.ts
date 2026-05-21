@@ -8,7 +8,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const userId = asNumber(params.user_id);
     const reject = asBoolean(params.reject_add_request, false);
     if (!groupId || !userId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id and user_id are required');
-    await ctx.setGroupKick(groupId, userId, reject);
+    await ctx.bridge.apis.groupAdmin.kickMember(groupId, userId, reject);
     return okResponse();
   });
 
@@ -17,7 +17,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const userIds = Array.isArray(params.user_id) ? params.user_id.map(asNumber).filter(Boolean) : [];
     const reject = asBoolean(params.reject_add_request, false);
     if (!groupId || userIds.length === 0) return failedResponse(RETCODE.BAD_REQUEST, 'group_id and user_id array are required');
-    await ctx.setGroupKickMembers(groupId, userIds, reject);
+    await ctx.bridge.apis.groupAdmin.kickMembers(groupId, userIds, reject);
     return okResponse();
   });
 
@@ -26,7 +26,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const userId = asNumber(params.user_id);
     const duration = asNumber(params.duration) || 1800;
     if (!groupId || !userId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id and user_id are required');
-    await ctx.setGroupBan(groupId, userId, duration);
+    await ctx.bridge.apis.groupAdmin.muteMember(groupId, userId, duration);
     return okResponse();
   });
 
@@ -34,7 +34,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const groupId = asNumber(params.group_id);
     const enable = asBoolean(params.enable, true);
     if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-    await ctx.setGroupWholeBan(groupId, enable);
+    await ctx.bridge.apis.groupAdmin.muteAll(groupId, enable);
     return okResponse();
   });
 
@@ -82,7 +82,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   h.registerAction('set_group_leave', async (params) => {
     const groupId = asNumber(params.group_id);
     if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-    await ctx.setGroupLeave(groupId);
+    await ctx.bridge.apis.groupAdmin.leave(groupId);
     return okResponse();
   });
 
