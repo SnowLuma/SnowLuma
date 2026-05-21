@@ -289,11 +289,23 @@ export interface C2CRecallRequest {
   settings?:  pb<5, C2CRecallSettings>;
   field6?:    pb<6, bool>;
 }
+// Field numbers are 2..7 — NOT 1..4. The 0x9082 request body is nested
+// inside the OIDB envelope's `body` (which itself uses fields 1-5,11,12),
+// so the inner offsets start at 2 to match Lagrange.Core V2's
+// `OidbSvcTrpcTcp0x9082` definition. Sending `type` at field 4 instead of
+// 5 makes the server read `EmojiType` as zero and reject with
+// "ReqBody.EmojiType: value must be greater than 0".
+//
+// Field6/Field7 are unused booleans that Lagrange serialises as `false`;
+// the server tolerates them missing, but we emit them to stay byte-
+// identical with Lagrange in case the validator gets stricter.
 export interface OidbGroupReaction {
-  groupUin?: pb<1, uint_32>;
-  sequence?: pb<2, uint_32>;
-  code?:     pb<3, string>;
-  type?:     pb<4, uint_32>;
+  groupUin?: pb<2, uint_32>;
+  sequence?: pb<3, uint_32>;
+  code?:     pb<4, string>;
+  type?:     pb<5, uint_32>;
+  field6?:   pb<6, bool>;
+  field7?:   pb<7, bool>;
 }
 export interface GroupReadedReportItem {
   groupUin?:    pb<1, uint_64>;

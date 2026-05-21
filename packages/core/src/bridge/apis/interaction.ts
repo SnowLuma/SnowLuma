@@ -45,12 +45,15 @@ export class InteractionApi {
     const bridge = asBridge(this.ctx);
     const subCmd = isSet ? 1 : 2;
     const cmd = isSet ? 'OidbSvcTrpcTcp.0x9082_1' : 'OidbSvcTrpcTcp.0x9082_2';
-    // Same heuristic NapCat uses: QQ face ids are 1–3 digits ("76"),
-    // unicode codepoints are longer ("128516"). Server requires the
-    // type field to pick the right resolution table; omitting it makes
-    // unicode reactions silently fail.
+    // Same heuristic Lagrange.Core V2 uses (`GroupAddReactionEvent.IsEmoji`):
+    // QQ face ids are 1–3 digits ("76") → type=1, unicode codepoints are
+    // longer ("128516") → type=2. Server reads the type at field 5; sending
+    // it at the wrong field number triggers
+    // "invalid ReqBody.EmojiType: value must be greater than 0".
     const type = code.length > 3 ? 2 : 1;
-    const env = makeOidbEnvelope<OidbGroupReaction>(0x9082, subCmd, { groupUin: groupId, sequence, code, type });
+    const env = makeOidbEnvelope<OidbGroupReaction>(0x9082, subCmd, {
+      groupUin: groupId, sequence, code, type, field6: false, field7: false,
+    });
     await runOidb(bridge, cmd, protobuf_encode<OidbBase<OidbGroupReaction>>(env));
   }
 
