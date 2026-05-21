@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { DatabaseSync } from 'node:sqlite';
+import Database from 'better-sqlite3';
 
 import type {
   FriendInfo, GroupMemberInfo, QQGroupInfo,
@@ -109,7 +109,14 @@ export class IdentityService {
   private readonly uidByUin = new Map<number, string>();
 
   // ─── Persistence + fetcher ───
-  private readonly db: DatabaseSync | null;
+  private readonly db: Database.Database | null;
+  // Prepared-statement cache. Every `.prepare(sql)` call in this
+  // service re-parses the SQL — that's the SQLite anti-pattern
+  // RoadMap #5 is fixing. We memoize by the SQL string itself so the
+  // call sites stay readable (no need to enumerate 20+ named fields
+  // upfront); the Map lookup is O(1) hash + string-eq, which is
+  // negligible next to the SQL parse it replaces.
+  private readonly stmtCache_ = new Map<string, Database.Statement>();
   private inTransaction = false;
   private fetcher: IdentityFetcher | null = null;
   private readonly log: Logger;
@@ -127,11 +134,21 @@ export class IdentityService {
     }
 
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-    this.db = new DatabaseSync(dbPath);
-    this.db.exec('PRAGMA journal_mode = WAL');
-    this.db.exec('PRAGMA synchronous = NORMAL');
+    this.db = new Database(dbPath);
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('synchronous = NORMAL');
     this.initSchema();
     this.loadSnapshot();
+  }
+
+  /** Cached `prepare(sql)`. First call per unique SQL parses; later
+   *  calls reuse the same `Statement` object. See `stmtCache_`. */
+  private pstmt(sql: string): Database.Statement {
+    let cached = this.stmtCache_.get(sql);
+    if (cached !== undefined) return cached;
+    cached = this.db!.prepare(sql);
+    this.stmtCache_.set(sql, cached);
+    return cached;
   }
 
   static openForUin(uin: string, dataRoot = 'data'): IdentityService {
@@ -238,7 +255,7 @@ export class IdentityService {
 
     if (!this.db) return null;
     if (groupId !== undefined) {
-      const row = this.db.prepare(
+      const row = this.pstmt(
         `SELECT uin FROM group_members
          WHERE group_id = ? AND uid = ? AND uin IS NOT NULL
          ORDER BY active DESC, updated_at DESC
@@ -248,7 +265,7 @@ export class IdentityService {
       if (uin !== null) return uin;
     }
 
-    const row = this.db.prepare(
+    const row = this.pstmt(
       'SELECT uin FROM users WHERE uid = ? AND uin IS NOT NULL LIMIT 1',
     ).get(normalized) as { uin: number | null } | undefined;
     return normalizeUin(row?.uin);
@@ -267,7 +284,7 @@ export class IdentityService {
 
     if (!this.db) return null;
     if (groupId !== undefined) {
-      const row = this.db.prepare(
+      const row = this.pstmt(
         `SELECT uid FROM group_members
          WHERE group_id = ? AND uin = ? AND uid IS NOT NULL
          ORDER BY active DESC, updated_at DESC
@@ -277,7 +294,7 @@ export class IdentityService {
       if (uid) return uid;
     }
 
-    const row = this.db.prepare(
+    const row = this.pstmt(
       'SELECT uid FROM users WHERE uin = ? AND uid IS NOT NULL LIMIT 1',
     ).get(normalized) as { uid: string | null } | undefined;
     return normalizeUid(row?.uid) || null;
@@ -289,7 +306,7 @@ export class IdentityService {
     this.friends_ = friends;
     for (const friend of friends) this.rememberUidUin(friend.uid, friend.uin);
     this.runWrite('friends', () => this.transaction(() => {
-      this.db!.prepare('UPDATE users SET is_friend = 0, updated_at = ? WHERE is_friend = 1')
+      this.pstmt('UPDATE users SET is_friend = 0, updated_at = ? WHERE is_friend = 1')
         .run(nowSeconds());
       for (const friend of friends) {
         this.upsertUser({
@@ -307,7 +324,7 @@ export class IdentityService {
   rememberGroups(groups: QQGroupInfo[]): void {
     this.setGroupsInMemory(groups);
     this.runWrite('groups', () => this.transaction(() => {
-      this.db!.prepare('UPDATE groups SET active = 0, updated_at = ? WHERE active = 1')
+      this.pstmt('UPDATE groups SET active = 0, updated_at = ? WHERE active = 1')
         .run(nowSeconds());
       for (const group of groups) {
         this.upsertGroup({
@@ -327,7 +344,7 @@ export class IdentityService {
     for (const member of members) this.rememberUidUin(member.uid, member.uin);
     this.runWrite('group members', () => this.transaction(() => {
       this.upsertGroup({ groupId, memberCount: members.length });
-      this.db!.prepare('UPDATE group_members SET active = 0, updated_at = ? WHERE group_id = ?')
+      this.pstmt('UPDATE group_members SET active = 0, updated_at = ? WHERE group_id = ?')
         .run(nowSeconds(), groupId);
       for (const member of members) {
         this.upsertGroupMember({
@@ -432,7 +449,7 @@ export class IdentityService {
       const updatedAt = nowSeconds();
       this.transaction(() => {
         for (const row of rows) {
-          this.db!.prepare('UPDATE group_members SET active = 0, updated_at = ? WHERE id = ?')
+          this.pstmt('UPDATE group_members SET active = 0, updated_at = ? WHERE id = ?')
             .run(updatedAt, row.id);
         }
       });
@@ -541,7 +558,7 @@ export class IdentityService {
   }
 
   private loadSnapshot(): void {
-    const friendRows = this.db!.prepare(
+    const friendRows = this.pstmt(
       `SELECT uid, uin, nickname, remark
        FROM users
        WHERE is_friend = 1 AND uin IS NOT NULL`,
@@ -554,7 +571,7 @@ export class IdentityService {
     }));
     for (const friend of this.friends_) this.rememberUidUin(friend.uid, friend.uin);
 
-    const groups = this.db!.prepare(
+    const groups = this.pstmt(
       `SELECT group_id, group_name, remark, member_count, member_max
        FROM groups
        WHERE active = 1`,
@@ -579,7 +596,7 @@ export class IdentityService {
   private hydrateActiveMembersForGroups(groupIds: number[]): void {
     if (!this.db || groupIds.length === 0) return;
 
-    const select = this.db.prepare(
+    const select = this.pstmt(
       `SELECT group_id, uid, uin, nickname, card, role, level, title,
               join_time, last_sent_time, shut_up_time
        FROM group_members
@@ -626,9 +643,9 @@ export class IdentityService {
 
     if (primary) {
       for (const duplicate of rows.slice(1)) {
-        this.db.prepare('DELETE FROM users WHERE id = ?').run(duplicate.id);
+        this.pstmt('DELETE FROM users WHERE id = ?').run(duplicate.id);
       }
-      this.db.prepare(
+      this.pstmt(
         `UPDATE users
          SET uid = ?, uin = ?, nickname = ?, remark = ?, is_friend = ?, source = ?, updated_at = ?
          WHERE id = ?`,
@@ -645,7 +662,7 @@ export class IdentityService {
       return;
     }
 
-    this.db.prepare(
+    this.pstmt(
       `INSERT INTO users (uid, uin, nickname, remark, is_friend, source, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).run(
@@ -662,7 +679,7 @@ export class IdentityService {
   private upsertGroup(input: GroupInput): void {
     if (!this.db || !Number.isInteger(input.groupId) || input.groupId <= 0) return;
 
-    const existing = this.db.prepare(
+    const existing = this.pstmt(
       'SELECT group_name, remark, member_count, member_max FROM groups WHERE group_id = ?',
     ).get(input.groupId) as {
       group_name: string;
@@ -671,7 +688,7 @@ export class IdentityService {
       member_max: number;
     } | undefined;
 
-    this.db.prepare(
+    this.pstmt(
       `INSERT INTO groups (group_id, group_name, remark, member_count, member_max, active, updated_at)
        VALUES (?, ?, ?, ?, ?, 1, ?)
        ON CONFLICT(group_id) DO UPDATE SET
@@ -725,9 +742,9 @@ export class IdentityService {
 
     if (primary) {
       for (const duplicate of rows.slice(1)) {
-        this.db.prepare('DELETE FROM group_members WHERE id = ?').run(duplicate.id);
+        this.pstmt('DELETE FROM group_members WHERE id = ?').run(duplicate.id);
       }
-      this.db.prepare(
+      this.pstmt(
         `UPDATE group_members
          SET uid = ?, uin = ?, nickname = ?, card = ?, role = ?, level = ?, title = ?,
              join_time = ?, last_sent_time = ?, shut_up_time = ?, active = ?, updated_at = ?
@@ -750,7 +767,7 @@ export class IdentityService {
       return;
     }
 
-    this.db.prepare(
+    this.pstmt(
       `INSERT INTO group_members
        (group_id, uid, uin, nickname, card, role, level, title,
         join_time, last_sent_time, shut_up_time, active, updated_at)
@@ -775,17 +792,17 @@ export class IdentityService {
   private findUserRows(uid: string, uin: number | null): UserRow[] {
     if (!this.db) return [];
     if (uid && uin !== null) {
-      return this.db.prepare(
+      return this.pstmt(
         'SELECT id, uid, uin, nickname, remark, is_friend, source FROM users WHERE uid = ? OR uin = ? ORDER BY id',
       ).all(uid, uin) as unknown as UserRow[];
     }
     if (uid) {
-      return this.db.prepare(
+      return this.pstmt(
         'SELECT id, uid, uin, nickname, remark, is_friend, source FROM users WHERE uid = ? ORDER BY id',
       ).all(uid) as unknown as UserRow[];
     }
     if (uin !== null) {
-      return this.db.prepare(
+      return this.pstmt(
         'SELECT id, uid, uin, nickname, remark, is_friend, source FROM users WHERE uin = ? ORDER BY id',
       ).all(uin) as unknown as UserRow[];
     }
@@ -795,7 +812,7 @@ export class IdentityService {
   private findMemberRows(groupId: number, uid: string, uin: number | null): MemberRow[] {
     if (!this.db) return [];
     if (uid && uin !== null) {
-      return this.db.prepare(
+      return this.pstmt(
         `SELECT id, group_id, uid, uin, nickname, card, role, level, title,
                 join_time, last_sent_time, shut_up_time, active
          FROM group_members
@@ -804,7 +821,7 @@ export class IdentityService {
       ).all(groupId, uid, uin) as unknown as MemberRow[];
     }
     if (uid) {
-      return this.db.prepare(
+      return this.pstmt(
         `SELECT id, group_id, uid, uin, nickname, card, role, level, title,
                 join_time, last_sent_time, shut_up_time, active
          FROM group_members
@@ -813,7 +830,7 @@ export class IdentityService {
       ).all(groupId, uid) as unknown as MemberRow[];
     }
     if (uin !== null) {
-      return this.db.prepare(
+      return this.pstmt(
         `SELECT id, group_id, uid, uin, nickname, card, role, level, title,
                 join_time, last_sent_time, shut_up_time, active
          FROM group_members

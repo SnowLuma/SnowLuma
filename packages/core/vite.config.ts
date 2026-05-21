@@ -21,10 +21,14 @@ const rootPkg = JSON.parse(
 const toPosix = (p: string) => p.replace(/\\/g, '/');
 
 // `@snowluma/websocket` is bundled (it's an in-tree TS workspace package), so
-// it must NOT be marked external. Only Node builtins stay external.
-const external: string[] = [];
+// it must NOT be marked external. `better-sqlite3` IS native — must be
+// external so its `require('./build/Release/better_sqlite3.node')`
+// stays a runtime import. Vendoring the prebuilt binding into
+// `packages/runtime/native/` is handled by the per-target packaging
+// step (see `nativeFiles` below).
+const external: string[] = ['better-sqlite3'];
 
-const nodeModules = [...builtinModules, ...builtinModules.map((m) => `node:${m}`), 'node:sqlite'].flat();
+const nodeModules = [...builtinModules, ...builtinModules.map((m) => `node:${m}`)].flat();
 
 const runtimeSrc = toPosix(runtimeDir);
 const nativeSrc = toPosix(nativeDir);

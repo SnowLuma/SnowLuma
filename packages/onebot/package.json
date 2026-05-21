@@ -91,10 +91,12 @@
     "@snowluma/core": "workspace:*",
     "@snowluma/proto-defs": "workspace:*",
     "@snowluma/proton": "workspace:*",
-    "@snowluma/websocket": "workspace:*"
+    "@snowluma/websocket": "workspace:*",
+    "better-sqlite3": "^11.7.0"
   },
   "devDependencies": {
     "@hono/node-server": "^1.19.14",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.12.2",
     "hono": "^4.12.14",
     "typescript": "catalog:",

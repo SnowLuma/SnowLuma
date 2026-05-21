@@ -1,10 +1,31 @@
 import fs from 'fs';
-import { DatabaseSync } from 'node:sqlite';
+import Database from 'better-sqlite3';
 import path from 'path';
 import type { JsonObject, MessageMeta } from './types';
 
+// Prepared statements are cached as `readonly` fields so the SQL parser
+// runs once at construction time. Previously each `db.prepare(sql)`
+// inside a hot-path method re-parsed on every call — the textbook
+// SQLite anti-pattern. RoadMap #5 bench numbers showed
+// storeMeta ≈ 17μs/op and storeEvent ≈ 23μs/op before caching;
+// caching + better-sqlite3 drops both to single-digit-μs (see the
+// commit-message numbers).
+//
+// Also: `node:sqlite` is still an experimental Node API (the
+// "ExperimentalWarning: SQLite is an experimental feature" line shows
+// up on every test run) — better-sqlite3 is the stable, sync, widely-
+// deployed wrapper that proposes the same prepared-statement model.
+
 export class MessageStore {
-  private readonly db: DatabaseSync;
+  private readonly db: Database.Database;
+  private readonly stmtStoreEvent: Database.Statement;
+  private readonly stmtStoreMeta: Database.Statement;
+  private readonly stmtFindEvent: Database.Statement;
+  private readonly stmtFindMeta: Database.Statement;
+  private readonly stmtResolveReplyGroup: Database.Statement;
+  private readonly stmtResolveReplyPrivate: Database.Statement;
+  private readonly stmtListEventsAnchored: Database.Statement;
+  private readonly stmtListEventsLatest: Database.Statement;
 
   constructor(dbPath: string) {
     const dir = path.dirname(dbPath);
@@ -12,10 +33,77 @@ export class MessageStore {
 
     // Replace .json extension with .db if present
     const finalPath = dbPath.replace(/\.json$/, '.db');
-    this.db = new DatabaseSync(finalPath);
-    this.db.exec('PRAGMA journal_mode = WAL');
-    this.db.exec('PRAGMA synchronous = NORMAL');
+    this.db = new Database(finalPath);
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('synchronous = NORMAL');
     this.initSchema();
+
+    // Prepare once. Statements survive for the lifetime of the
+    // Database instance — `close()` finalizes them automatically.
+    this.stmtStoreEvent = this.db.prepare(
+      `INSERT INTO messages
+       (message_hash, is_group, session_id, sequence, event_name, client_sequence, random, timestamp, data)
+       VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)
+       ON CONFLICT(message_hash) DO UPDATE SET
+         is_group = excluded.is_group,
+         session_id = excluded.session_id,
+         sequence = excluded.sequence,
+         event_name = excluded.event_name,
+         timestamp = excluded.timestamp,
+         data = excluded.data`,
+    );
+
+    this.stmtStoreMeta = this.db.prepare(
+      `INSERT INTO messages
+       (message_hash, is_group, session_id, sequence, event_name, client_sequence, random, timestamp)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(message_hash) DO UPDATE SET
+         is_group = excluded.is_group,
+         session_id = excluded.session_id,
+         sequence = excluded.sequence,
+         event_name = excluded.event_name,
+         client_sequence = excluded.client_sequence,
+         random = excluded.random,
+         timestamp = excluded.timestamp`,
+    );
+
+    this.stmtFindEvent = this.db.prepare(
+      'SELECT data FROM messages WHERE message_hash = ? AND data IS NOT NULL',
+    );
+
+    this.stmtFindMeta = this.db.prepare(
+      'SELECT is_group, session_id, sequence, event_name, client_sequence, random, timestamp FROM messages WHERE message_hash = ?',
+    );
+
+    this.stmtResolveReplyGroup = this.db.prepare(
+      `SELECT sequence
+         FROM messages
+         WHERE is_group = 1 AND session_id = ? AND message_hash = ?
+         LIMIT 1`,
+    );
+
+    this.stmtResolveReplyPrivate = this.db.prepare(
+      `SELECT sequence
+         FROM messages
+         WHERE is_group = 0 AND message_hash = ?
+         LIMIT 1`,
+    );
+
+    this.stmtListEventsAnchored = this.db.prepare(
+      `SELECT data
+       FROM messages
+       WHERE is_group = ? AND session_id = ? AND data IS NOT NULL AND sequence <= ?
+       ORDER BY sequence DESC
+       LIMIT ?`,
+    );
+
+    this.stmtListEventsLatest = this.db.prepare(
+      `SELECT data
+       FROM messages
+       WHERE is_group = ? AND session_id = ? AND data IS NOT NULL
+       ORDER BY sequence DESC
+       LIMIT ?`,
+    );
   }
 
   close(): void {
@@ -34,35 +122,12 @@ export class MessageStore {
     const json = JSON.stringify(event);
     const timestamp = toInt(event.time);
 
-    this.db.prepare(
-      `INSERT INTO messages
-       (message_hash, is_group, session_id, sequence, event_name, client_sequence, random, timestamp, data)
-       VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)
-       ON CONFLICT(message_hash) DO UPDATE SET
-         is_group = excluded.is_group,
-         session_id = excluded.session_id,
-         sequence = excluded.sequence,
-         event_name = excluded.event_name,
-         timestamp = excluded.timestamp,
-         data = excluded.data`
-    ).run(messageId, isGroup ? 1 : 0, sessionId, sequence, eventName, timestamp, json);
+    this.stmtStoreEvent.run(messageId, isGroup ? 1 : 0, sessionId, sequence, eventName, timestamp, json);
   }
 
   storeMeta(messageId: number, meta: MessageMeta): void {
     if (!isValidMessageId(messageId)) return;
-    this.db.prepare(
-      `INSERT INTO messages
-       (message_hash, is_group, session_id, sequence, event_name, client_sequence, random, timestamp)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(message_hash) DO UPDATE SET
-         is_group = excluded.is_group,
-         session_id = excluded.session_id,
-         sequence = excluded.sequence,
-         event_name = excluded.event_name,
-         client_sequence = excluded.client_sequence,
-         random = excluded.random,
-         timestamp = excluded.timestamp`
-    ).run(
+    this.stmtStoreMeta.run(
       messageId,
       meta.isGroup ? 1 : 0,
       meta.targetId,
@@ -76,9 +141,7 @@ export class MessageStore {
 
   findEvent(messageId: number): JsonObject | null {
     if (!isValidMessageId(messageId)) return null;
-    const row = this.db.prepare(
-      'SELECT data FROM messages WHERE message_hash = ? AND data IS NOT NULL',
-    ).get(messageId) as { data: string } | undefined;
+    const row = this.stmtFindEvent.get(messageId) as { data: string } | undefined;
 
     if (!row?.data) return null;
     try {
@@ -91,9 +154,7 @@ export class MessageStore {
   findMeta(messageId: number): MessageMeta | null {
     if (!isValidMessageId(messageId)) return null;
 
-    const row = this.db.prepare(
-      'SELECT is_group, session_id, sequence, event_name, client_sequence, random, timestamp FROM messages WHERE message_hash = ?',
-    ).get(messageId) as {
+    const row = this.stmtFindMeta.get(messageId) as {
       is_group: number;
       session_id: number;
       sequence: number;
@@ -126,18 +187,8 @@ export class MessageStore {
     // - When sending reply: sessionId parameter is the recipient's UIN (who we're sending to)
     // So for private messages, we only match by message_hash and is_group flag.
     const row = isGroup
-      ? this.db.prepare(
-        `SELECT sequence
-           FROM messages
-           WHERE is_group = 1 AND session_id = ? AND message_hash = ?
-           LIMIT 1`
-      ).get(sessionId, messageId) as { sequence: number } | undefined
-      : this.db.prepare(
-        `SELECT sequence
-           FROM messages
-           WHERE is_group = 0 AND message_hash = ?
-           LIMIT 1`
-      ).get(messageId) as { sequence: number } | undefined;
+      ? this.stmtResolveReplyGroup.get(sessionId, messageId) as { sequence: number } | undefined
+      : this.stmtResolveReplyPrivate.get(messageId) as { sequence: number } | undefined;
 
     if (!row || !Number.isInteger(row.sequence) || row.sequence <= 0) {
       return null;
@@ -158,20 +209,8 @@ export class MessageStore {
     const anchor = hasAnchor ? (anchorSequence as number) : 0;
 
     const rows = hasAnchor
-      ? this.db.prepare(
-        `SELECT data
-         FROM messages
-         WHERE is_group = ? AND session_id = ? AND data IS NOT NULL AND sequence <= ?
-         ORDER BY sequence DESC
-         LIMIT ?`
-      ).all(isGroup ? 1 : 0, sessionId, anchor, limit)
-      : this.db.prepare(
-        `SELECT data
-         FROM messages
-         WHERE is_group = ? AND session_id = ? AND data IS NOT NULL
-         ORDER BY sequence DESC
-         LIMIT ?`
-      ).all(isGroup ? 1 : 0, sessionId, limit);
+      ? this.stmtListEventsAnchored.all(isGroup ? 1 : 0, sessionId, anchor, limit)
+      : this.stmtListEventsLatest.all(isGroup ? 1 : 0, sessionId, limit);
 
     const result: JsonObject[] = [];
     for (const row of rows as Array<{ data: string }>) {
