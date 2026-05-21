@@ -29,7 +29,12 @@ export interface MsgPushContext {
 export function buildContext(pkt: PacketInfo, identity: IdentityService): MsgPushContext | null {
   if (pkt.body.length === 0) return null;
 
-  const push = protobuf_decode<PushMsg>(Buffer.from(pkt.body));
+  // `pkt.body` is already a `Uint8Array` (see `PacketInfo` in
+  // @snowluma/common/protocol-types). The legacy `Buffer.from(uint8)`
+  // wrap was a no-op copy — Buffer is a Uint8Array subclass and
+  // proton's decoder accepts the parent type directly. Dropping the
+  // wrap saves one allocation per incoming push packet.
+  const push = protobuf_decode<PushMsg>(pkt.body);
   if (!push?.message) return null;
 
   const msg = push.message;
