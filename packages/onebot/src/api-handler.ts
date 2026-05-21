@@ -71,20 +71,19 @@ export interface ApiActionContext {
   // stays because it composes through the `getGroupFiles` module
   // helper (identity-lookup enrichment of uploader names).
   getGroupFiles: (groupId: number, folderId?: string) => Promise<JsonObject>;
-  // Requests (adapters: rename to OneBot vocabulary)
-  handleFriendRequest: (flag: string, approve: boolean) => Promise<void>;
+  // Friend requests: direct via `ctx.bridge.apis.friend.handleRequest`.
+  // Group requests: stay on ctx because `handleGroupAddRequest` is a
+  // module helper that does the flag-parsing + group-request lookup
+  // dance before routing to `bridge.apis.groupAdmin.setAddRequest`.
   handleGroupRequest: (flag: string, subType: string, approve: boolean, reason: string) => Promise<void>;
-  // Pokes (adapters: flatten isGroup into bridge.sendPoke signature)
-  sendFriendPoke: (userId: number, targetId?: number) => Promise<void>;
-  sendGroupPoke: (groupId: number, userId: number) => Promise<void>;
+  // Pokes: direct via `ctx.bridge.apis.interaction.sendPoke(isGroup, …)`.
   // Essence (adapter: bakes the set/unset boolean)
   setEssenceMsg: (messageId: number) => Promise<void>;
   deleteEssenceMsg: (messageId: number) => Promise<void>;
   // Profile reads with OneBot-specific default args
   getProfileLike: (userId?: number, start?: number, limit?: number) => Promise<any>;
   getGroupEssence: (groupId: number, pageStart?: number, pageLimit?: number) => Promise<GroupEssenceMsgRet>;
-  // Friend deletion (adapter: rename + force-boolean)
-  handleDeleteFriend: (userId: number, block?: boolean) => Promise<void>;
+  // Friend deletion: direct via `ctx.bridge.apis.friend.delete(userId, block)`.
   // Module wrappers / multi-dep compositions
   getGroupMsgHistory: (groupId: number, messageId?: number, count?: number) => Promise<JsonObject[]>;
   getFriendMsgHistory: (userId: number, messageId?: number, count?: number) => Promise<JsonObject[]>;
@@ -99,12 +98,12 @@ export interface ApiActionContext {
   setFriendRemark: (userId: number, remark: string) => Promise<void>;
   setGroupAvatar: (groupId: number, source: string) => Promise<void>;
   setMsgEmojiLike: (messageId: number, emojiId: string, set: boolean) => Promise<void>;
-  markGroupMsgAsRead: (groupId: number, sequence: number) => Promise<void>;
-  markPrivateMsgAsRead: (userId: number, sequence: number) => Promise<void>;
+  // markGroupMsgAsRead / markPrivateMsgAsRead: direct via
+  // `ctx.bridge.apis.message.{markGroupRead,markPrivateRead}`.
   setOnlineStatus: (status: number, extStatus?: number, batteryStatus?: number) => Promise<void>;
   setProfile: (nickname?: string, personalNote?: string) => Promise<void>;
   fetchCustomFace: (count?: number) => Promise<string[]>;
-  getEmojiLikes: (groupId: number, sequence: number, emojiId: string, emojiType?: number, count?: number, cookie?: string) => Promise<{ users: Array<{ uin: number }>, cookie: string, isLast: boolean }>;
+  // getEmojiLikes: direct via `ctx.bridge.apis.interaction.getEmojiLikes(...)`.
   // Web
   getGroupHonorInfo: (groupId: number, type: WebHonorType | string) => Promise<any>;
   getGroupEssenceAll: (groupId: number) => Promise<GroupEssenceMsgRet[]>;

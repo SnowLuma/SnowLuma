@@ -119,13 +119,10 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     // rest of the area is called directly via `ctx.bridge.apis.groupFile.*`.
     getGroupFiles: (groupId, folderId) => getGroupFiles(bridge, groupId, folderId),
 
-    // Requests — name translation.
-    handleFriendRequest: (flag, approve) => bridge.apis.friend.handleRequest(flag, approve),
+    // Group request handling stays here because `handleGroupAddRequest`
+    // is a module helper (flag parsing + group-request lookup). Friend
+    // request handling moved to direct `ctx.bridge.apis.friend.handleRequest`.
     handleGroupRequest: (flag, _subType, approve, reason) => handleGroupAddRequest(bridge, flag, approve, reason),
-
-    // Pokes — flatten isGroup into the bridge signature.
-    sendFriendPoke: (userId, targetId) => bridge.apis.interaction.sendPoke(false, userId, targetId),
-    sendGroupPoke: (groupId, userId) => bridge.apis.interaction.sendPoke(true, groupId, userId),
 
     // Essence — bake the set/unset boolean.
     setEssenceMsg: (messageId) => setEssenceMessage(bridge, messageStore, messageId, true),
@@ -148,7 +145,6 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     sendForwardMsg: (messages, groupId) => uploadForwardMessage(ref, messages, groupId),
     getForwardMsg: (resId) => getForwardMessage(ref, resId),
     forwardSingleMsg: (messageId, target) => forwardSingleMessage(ref, messageId, target),
-    handleDeleteFriend: (userId, block) => bridge.apis.friend.delete(userId, !!block),
     forceFetchClientKey: () => bridge.apis.web.forceFetchClientKey(),
     setFriendRemark: (userId, remark) => bridge.apis.friend.setRemark(userId, remark),
     setGroupAvatar: (groupId, source) => bridge.apis.profile.setGroupAvatar(groupId, source),
@@ -163,8 +159,6 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
       if (!meta.isGroup) throw new Error('emoji reactions are not supported on private messages');
       await bridge.apis.interaction.setReaction(meta.targetId, meta.sequence, emojiId, set);
     },
-    markGroupMsgAsRead: (groupId, sequence) => bridge.apis.message.markGroupRead(groupId, sequence),
-    markPrivateMsgAsRead: (userId, sequence) => bridge.apis.message.markPrivateRead(userId, sequence),
     setOnlineStatus: (status: number, extStatus?: number, batteryStatus?: number) => bridge.apis.profile.setOnlineStatus(status, extStatus, batteryStatus),
     setProfile: (nickname?: string, personalNote?: string) => bridge.apis.profile.setProfile(nickname, personalNote),
 
@@ -186,7 +180,6 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
 
     // Extended
     fetchCustomFace: (count) => bridge.apis.profile.fetchCustomFace(count),
-    getEmojiLikes: (groupId, sequence, emojiId, emojiType, count, cookie) => bridge.apis.interaction.getEmojiLikes(groupId, sequence, emojiId, emojiType, count, cookie),
 
     // Media lookup.
     getImageInfo: (file) => getCachedImageInfo(mediaStore, file),

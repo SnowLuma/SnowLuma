@@ -96,7 +96,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const userId = asNumber(params.user_id);
     const targetId = asNumber(params.target_id) || undefined;
     if (!userId) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
-    await ctx.sendFriendPoke(userId, targetId);
+    await ctx.bridge.apis.interaction.sendPoke(false, userId, targetId);
     return okResponse();
   });
 
@@ -104,7 +104,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const groupId = asNumber(params.group_id);
     const userId = asNumber(params.user_id);
     if (!groupId || !userId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id and user_id are required');
-    await ctx.sendGroupPoke(groupId, userId);
+    await ctx.bridge.apis.interaction.sendPoke(true, groupId, userId);
     return okResponse();
   });
 
@@ -113,9 +113,9 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const userId = asNumber(params.user_id);
     if (!userId) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
     if (groupId) {
-      await ctx.sendGroupPoke(groupId, userId);
+      await ctx.bridge.apis.interaction.sendPoke(true, groupId, userId);
     } else {
-      await ctx.sendFriendPoke(userId);
+      await ctx.bridge.apis.interaction.sendPoke(false, userId);
     }
     return okResponse();
   });

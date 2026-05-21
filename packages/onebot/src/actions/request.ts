@@ -7,7 +7,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const flag = asString(params.flag);
     const approve = asBoolean(params.approve, true);
     if (!flag) return failedResponse(RETCODE.BAD_REQUEST, 'flag is required');
-    await ctx.handleFriendRequest(flag, approve);
+    await ctx.bridge.apis.friend.handleRequest(flag, approve);
     return okResponse();
   });
 
