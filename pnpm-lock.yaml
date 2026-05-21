@@ -218,7 +218,11 @@ importers:
         specifier: ^4.1.4
         version: 4.1.4(@types/node@24.12.2)(vite@8.0.8(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(sass@1.99.0)(tsx@4.21.0))
 
-  packages/runtime: {}
+  packages/runtime:
+    dependencies:
+      better-sqlite3:
+        specifier: ^11.7.0
+        version: 11.10.0
 
   packages/sdk:
     devDependencies:
