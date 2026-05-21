@@ -1,4 +1,4 @@
-import type { QQEventVariant } from '../../bridge/events';
+import type { QQEventVariant } from '@snowluma/bridge/events';
 import type { JsonObject } from '../types';
 import type { ConverterContext } from './index';
 

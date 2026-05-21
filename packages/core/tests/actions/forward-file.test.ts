@@ -25,7 +25,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 
-vi.mock('../../src/bridge/bridge-oidb', () => ({
+vi.mock('@snowluma/bridge/bridge-oidb', () => ({
   runOidb: vi.fn(async () => new Uint8Array()),
   makeOidbEnvelope: vi.fn((_oidbCmd, _subCmd, body) => ({ body })),
   encodeOidbEnv: vi.fn(() => new Uint8Array()),
@@ -40,7 +40,7 @@ vi.mock('../../src/bridge/bridge-oidb', () => ({
 const { buildSendElemsMock } = vi.hoisted(() => ({
   buildSendElemsMock: vi.fn(async (_elements: unknown[], _ctx?: Record<string, unknown>) => []),
 }));
-vi.mock('../../src/bridge/element-builder', () => ({
+vi.mock('@snowluma/bridge/element-builder', () => ({
   buildSendElems: buildSendElemsMock,
 }));
 

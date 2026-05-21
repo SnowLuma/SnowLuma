@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ApiHandler, type ApiActionContext } from '../../src/onebot/api-handler';
 import type { BridgeInterface } from '../../src/bridge/bridge-interface';
-import type { GroupRequestInfo } from '../../src/bridge/qq-info';
+import type { GroupRequestInfo } from '@snowluma/bridge/qq-info';
 import type { MessageMeta } from '../../src/onebot/types';
 
 function fakeMeta(overrides: Partial<MessageMeta> = {}): MessageMeta {

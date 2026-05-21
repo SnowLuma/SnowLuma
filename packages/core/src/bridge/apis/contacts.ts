@@ -33,7 +33,7 @@ import type {
 } from '@snowluma/proto-defs/oidb-actions/media';
 import type { BridgeContext } from '../bridge-context';
 import type { DownloadRKeyInfo } from '../bridge';
-import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
+import { makeOidbEnvelope, runOidb } from '@snowluma/bridge/bridge-oidb';
 import type { Bridge } from '../bridge';
 import type {
   FriendInfo,
@@ -41,7 +41,7 @@ import type {
   GroupRequestInfo,
   QQGroupInfo,
   UserProfileInfo,
-} from '../qq-info';
+} from '@snowluma/bridge/qq-info';
 
 // ─── Helpers (previously in bridge-contacts.ts) ───────────────────
 

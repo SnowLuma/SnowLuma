@@ -8,13 +8,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { protobuf_encode } from '@snowluma/proton';
 import type { GroupReactNotify } from '@snowluma/proto-defs/notify';
-import { decodeEvent0x2DC } from '../src/bridge/msg-push/decoders/event-0x2dc';
-import type { MsgPushContext } from '../src/bridge/msg-push/context';
-import { IdentityService } from '../src/bridge/identity-service';
-import type { GroupMsgEmojiLikeEvent, QQEventVariant } from '../src/bridge/events';
+import { decodeEvent0x2DC } from '@snowluma/bridge/msg-push/decoders/event-0x2dc';
+import type { MsgPushContext } from '@snowluma/bridge/msg-push/context';
+import { IdentityService } from '@snowluma/bridge/identity-service';
+import type { GroupMsgEmojiLikeEvent, QQEventVariant } from '@snowluma/bridge/events';
 import { convertGroupMsgEmojiLike } from '../src/onebot/event-converter/to-notice';
 import { GROUP_MESSAGE_EVENT, hashMessageIdInt32 } from '../src/onebot/message-id';
-import { formatEvent } from '../src/utils/event-format';
+import { formatEvent } from '@snowluma/bridge/format';
 import { subscribeLogs, type LogEntry } from '@snowluma/common/logger';
 
 const SELF_UIN = '10001';

@@ -22,8 +22,8 @@ import type {
   GroupRecallRequest,
   SsoReadedReportReq,
 } from '@snowluma/proto-defs/oidb-actions/base';
-import type { MessageElement } from '../events';
-import { buildSendElems } from '../element-builder';
+import type { MessageElement } from '@snowluma/bridge/events';
+import { buildSendElems } from '@snowluma/bridge/element-builder';
 import type { BridgeContext } from '../bridge-context';
 // `Bridge` is imported as a type only so we can narrow `ctx` back to
 // the concrete Bridge instance when passing it to `buildSendElems`

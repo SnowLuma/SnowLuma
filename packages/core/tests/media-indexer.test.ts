@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { MediaIndexer } from '../src/onebot/media-indexer';
-import type { MessageElement } from '../src/bridge/events';
+import type { MessageElement } from '@snowluma/bridge/events';
 
 function makeMediaStore() {
   return {

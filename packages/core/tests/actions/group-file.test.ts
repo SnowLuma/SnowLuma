@@ -17,9 +17,9 @@ import type {
 // the module object is a no-op — proton has already inlined the call.
 // We mock `runOidb` (non-generic, proton leaves it alone) to return real
 // proton-encoded bytes, which the production-side codec then decodes.
-vi.mock('../../src/bridge/bridge-oidb', async () => {
-  const actual = await vi.importActual<typeof import('../../src/bridge/bridge-oidb')>(
-    '../../src/bridge/bridge-oidb',
+vi.mock('@snowluma/bridge/bridge-oidb', async () => {
+  const actual = await vi.importActual<typeof import('@snowluma/bridge/bridge-oidb')>(
+    '@snowluma/bridge/bridge-oidb',
   );
   return {
     ...actual,
@@ -28,12 +28,12 @@ vi.mock('../../src/bridge/bridge-oidb', async () => {
   };
 });
 
-vi.mock('../../src/bridge/highway/highway-client', () => ({
+vi.mock('@snowluma/bridge/highway', () => ({
   fetchHighwaySession: vi.fn(async () => ({})),
   uploadHighwayHttp: vi.fn(async () => undefined),
 }));
 
-vi.mock('../../src/bridge/highway/utils', () => ({
+vi.mock('@snowluma/bridge/highway/utils', () => ({
   loadBinarySource: vi.fn(async (_src: string, fallback: string) => ({
     bytes: new Uint8Array([1, 2, 3]),
     fileName: `${fallback}.bin`,
@@ -43,8 +43,8 @@ vi.mock('../../src/bridge/highway/utils', () => ({
   FILE_UPLOAD_MAX_BYTES: 4 * 1024 * 1024 * 1024,
 }));
 
-import * as oidb from '../../src/bridge/bridge-oidb';
-import * as highwayClient from '../../src/bridge/highway/highway-client';
+import * as oidb from '@snowluma/bridge/bridge-oidb';
+import * as highwayClient from '@snowluma/bridge/highway';
 import { GroupFileApi } from '../../src/bridge/apis/group-file';
 import { mockBridge } from './_helpers';
 

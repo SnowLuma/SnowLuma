@@ -1,0 +1,127 @@
+{
+  "name": "@snowluma/bridge",
+  "version": "1.9.0",
+  "private": true,
+  "type": "module",
+  "description": "SnowLuma bridge — the protocol-layer between QQ wire bytes and typed events. Owns: identity service (uid↔uin cache with SQLite persistence), event bus, packet pipeline (incoming SSO packet → QQEventVariant), msg-push decoders, element-builder (MessageElement → wire elems[]), highway upload protocol (file/image/video/ptt), OIDB envelope helper, and the event/notice/request type vocabulary. Consumers (@snowluma/core, @snowluma/onebot) talk to this package through `BridgeContext` for runtime calls and the standalone classes (IdentityService, BridgeEventBus, IncomingPacketPipeline) for composition. Per-file subpath exports mirror the legacy `core/src/bridge/*` layout 1:1 so the previous `import { …} from '../bridge/<x>'` collapses to `import { … } from '@snowluma/bridge/<x>'`.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./events": {
+      "types": "./src/events.ts",
+      "default": "./src/events.ts"
+    },
+    "./event-bus": {
+      "types": "./src/event-bus.ts",
+      "default": "./src/event-bus.ts"
+    },
+    "./identity-service": {
+      "types": "./src/identity-service.ts",
+      "default": "./src/identity-service.ts"
+    },
+    "./packet-pipeline": {
+      "types": "./src/packet-pipeline.ts",
+      "default": "./src/packet-pipeline.ts"
+    },
+    "./element-builder": {
+      "types": "./src/element-builder.ts",
+      "default": "./src/element-builder.ts"
+    },
+    "./bridge-oidb": {
+      "types": "./src/bridge-oidb.ts",
+      "default": "./src/bridge-oidb.ts"
+    },
+    "./bridge-context": {
+      "types": "./src/bridge-context.ts",
+      "default": "./src/bridge-context.ts"
+    },
+    "./qq-info": {
+      "types": "./src/qq-info.ts",
+      "default": "./src/qq-info.ts"
+    },
+    "./format": {
+      "types": "./src/format.ts",
+      "default": "./src/format.ts"
+    },
+    "./msg-push": {
+      "types": "./src/msg-push/index.ts",
+      "default": "./src/msg-push/index.ts"
+    },
+    "./msg-push/registry": {
+      "types": "./src/msg-push/registry.ts",
+      "default": "./src/msg-push/registry.ts"
+    },
+    "./msg-push/context": {
+      "types": "./src/msg-push/context.ts",
+      "default": "./src/msg-push/context.ts"
+    },
+    "./msg-push/decoders/event-0x2dc": {
+      "types": "./src/msg-push/decoders/event-0x2dc.ts",
+      "default": "./src/msg-push/decoders/event-0x2dc.ts"
+    },
+    "./highway": {
+      "types": "./src/highway/highway-client.ts",
+      "default": "./src/highway/highway-client.ts"
+    },
+    "./highway/utils": {
+      "types": "./src/highway/utils.ts",
+      "default": "./src/highway/utils.ts"
+    },
+    "./highway/pipeline": {
+      "types": "./src/highway/pipeline.ts",
+      "default": "./src/highway/pipeline.ts"
+    },
+    "./highway/image-upload": {
+      "types": "./src/highway/image-upload.ts",
+      "default": "./src/highway/image-upload.ts"
+    },
+    "./highway/ptt-upload": {
+      "types": "./src/highway/ptt-upload.ts",
+      "default": "./src/highway/ptt-upload.ts"
+    },
+    "./highway/video-upload": {
+      "types": "./src/highway/video-upload.ts",
+      "default": "./src/highway/video-upload.ts"
+    },
+    "./highway/ffmpeg-addon": {
+      "types": "./src/highway/ffmpeg-addon.ts",
+      "default": "./src/highway/ffmpeg-addon.ts"
+    },
+    "./web/group-album": {
+      "types": "./src/web/group-album.ts",
+      "default": "./src/web/group-album.ts"
+    },
+    "./web/group-essence": {
+      "types": "./src/web/group-essence.ts",
+      "default": "./src/web/group-essence.ts"
+    },
+    "./web/group-honor": {
+      "types": "./src/web/group-honor.ts",
+      "default": "./src/web/group-honor.ts"
+    },
+    "./web/group-notice": {
+      "types": "./src/web/group-notice.ts",
+      "default": "./src/web/group-notice.ts"
+    },
+    "./web/request-util": {
+      "types": "./src/web/request-util.ts",
+      "default": "./src/web/request-util.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@snowluma/common": "workspace:*",
+    "@snowluma/proto-defs": "workspace:*",
+    "@snowluma/proton": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.2",
+    "typescript": "catalog:"
+  }
+}

@@ -19,7 +19,7 @@ import type {
 import type { MediaIndexNode } from './shared';
 import type { BridgeContext } from '../bridge-context';
 import type { Bridge } from '../bridge';
-import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
+import { makeOidbEnvelope, runOidb } from '@snowluma/bridge/bridge-oidb';
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BridgeEventBus } from '../src/bridge/event-bus';
+import { BridgeEventBus } from '@snowluma/bridge/event-bus';
 
 // Wrap convertEvent in a vi.fn that delegates to the real impl by
 // default, so one test can override it to return null without making
@@ -18,7 +18,7 @@ import type {
   GroupMemberJoin,
   TempMessage,
   QQEventVariant,
-} from '../src/bridge/events';
+} from '@snowluma/bridge/events';
 import type { JsonObject, MessageMeta } from '../src/onebot/types';
 
 const SELF_UIN = '10001';

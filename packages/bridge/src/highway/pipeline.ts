@@ -1,7 +1,7 @@
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import crypto from 'crypto';
 import { createLogger } from '@snowluma/common/logger';
-import type { Bridge } from '../bridge';
+import type { BridgeContext } from '../bridge-context';
 import { makeOidbEnvelope } from '../bridge-oidb';
 import type {
   EncodableMediaMsgInfo,
@@ -50,7 +50,7 @@ export interface MediaSubFileUpload {
 }
 
 export interface NtV2UploadParams {
-  bridge: Bridge;
+  bridge: BridgeContext;
   isGroup: boolean;
   /** Group uin when isGroup, otherwise the recipient's uid string. */
   targetIdOrUid: string | number;

@@ -20,7 +20,7 @@ import {
   type NetworkAdapterContext,
 } from './network';
 import { createLogger, type Logger } from '@snowluma/common/logger';
-import { formatGroup, formatMessageSegments, formatReply, formatUser } from '../utils/event-format';
+import { formatGroup, formatMessageSegments, formatReply, formatUser } from '@snowluma/bridge/format';
 
 const moduleLog = createLogger('Event');
 

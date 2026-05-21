@@ -4,7 +4,7 @@ import path from 'path';
 import { describe, it, expect, vi } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { parseMessage } from '../src/onebot/message-parser';
-import { buildSendElems } from '../src/bridge/element-builder';
+import { buildSendElems } from '@snowluma/bridge/element-builder';
 import type { MentionExtraSend } from '@snowluma/proto-defs/action';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type { NTV2UploadRichMediaResp } from '@snowluma/proto-defs/highway';

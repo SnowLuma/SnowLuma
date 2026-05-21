@@ -11,9 +11,9 @@ import type {
 // so mocking them on the module object is a no-op. We mock `runOidb`
 // (non-generic, untouched by proton) to return real proton-encoded bytes
 // that the production-side codec then actually decodes.
-vi.mock('../../src/bridge/bridge-oidb', async () => {
-  const actual = await vi.importActual<typeof import('../../src/bridge/bridge-oidb')>(
-    '../../src/bridge/bridge-oidb',
+vi.mock('@snowluma/bridge/bridge-oidb', async () => {
+  const actual = await vi.importActual<typeof import('@snowluma/bridge/bridge-oidb')>(
+    '@snowluma/bridge/bridge-oidb',
   );
   return {
     ...actual,
@@ -22,7 +22,7 @@ vi.mock('../../src/bridge/bridge-oidb', async () => {
   };
 });
 
-import * as oidb from '../../src/bridge/bridge-oidb';
+import * as oidb from '@snowluma/bridge/bridge-oidb';
 import { MiscApi } from '../../src/bridge/apis/misc';
 import { mockBridge } from './_helpers';
 

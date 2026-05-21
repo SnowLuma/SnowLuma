@@ -8,7 +8,7 @@ import fs from 'fs';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import path from 'path';
 
-import type { MessageElement } from '../bridge/events';
+import type { MessageElement } from '@snowluma/bridge/events';
 
 export interface CachedImage {
   /** Primary `data.file` value as exposed in the OneBot segment. */

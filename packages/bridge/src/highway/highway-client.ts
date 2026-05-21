@@ -1,6 +1,6 @@
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import net from 'net';
-import type { Bridge } from '../bridge';
+import type { BridgeContext } from '../bridge-context';
 import type {
   HttpConn0x6FF501Request,
   HttpConn0x6FF501Response,
@@ -27,7 +27,7 @@ function ipv4ToString(value: number): string {
   return `${value & 0xFF}.${(value >> 8) & 0xFF}.${(value >> 16) & 0xFF}.${(value >> 24) & 0xFF}`;
 }
 
-export async function fetchHighwaySession(bridge: Bridge): Promise<HighwaySession> {
+export async function fetchHighwaySession(bridge: BridgeContext): Promise<HighwaySession> {
   const request = protobuf_encode<HttpConn0x6FF501Request>({
     httpConn: {
       field1: 0, field2: 0, field3: 16, field4: 1, field6: 3,
@@ -218,7 +218,7 @@ async function httpPostFrame(
 }
 
 export async function uploadHighwayHttp(
-  bridge: Bridge, session: HighwaySession, commandId: number,
+  bridge: BridgeContext, session: HighwaySession, commandId: number,
   bytes: Uint8Array, fileMd5: Uint8Array, extend: Uint8Array,
 ): Promise<void> {
   const pathStr = `/cgi-bin/httpconn?htcmd=0x6FF0087&uin=${bridge.identity.uin}`;

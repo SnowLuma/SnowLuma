@@ -10,9 +10,9 @@ import type { Oidb0x9083Resp } from '@snowluma/proto-defs/oidb-actions/base';
 // is `runOidb` (non-generic, untouched by proton) returning real bytes
 // that the production-side codec actually decodes. `makeOidbEnvelope` is
 // a pure TS helper, so its mock works for introspection.
-vi.mock('../../src/bridge/bridge-oidb', async () => {
-  const actual = await vi.importActual<typeof import('../../src/bridge/bridge-oidb')>(
-    '../../src/bridge/bridge-oidb',
+vi.mock('@snowluma/bridge/bridge-oidb', async () => {
+  const actual = await vi.importActual<typeof import('@snowluma/bridge/bridge-oidb')>(
+    '@snowluma/bridge/bridge-oidb',
   );
   return {
     ...actual,
@@ -21,7 +21,7 @@ vi.mock('../../src/bridge/bridge-oidb', async () => {
   };
 });
 
-import * as oidb from '../../src/bridge/bridge-oidb';
+import * as oidb from '@snowluma/bridge/bridge-oidb';
 import { InteractionApi } from '../../src/bridge/apis/interaction';
 import { mockBridge } from './_helpers';
 

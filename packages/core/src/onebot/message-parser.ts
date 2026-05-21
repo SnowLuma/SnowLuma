@@ -1,4 +1,4 @@
-import type { MessageElement } from '../bridge/events';
+import type { MessageElement } from '@snowluma/bridge/events';
 import { createLogger } from '@snowluma/common/logger';
 import type { JsonValue } from './types';
 

@@ -1,5 +1,5 @@
 import type { BridgeInterface } from '../../bridge/bridge-interface';
-import type { IdentityService } from '../../bridge/identity-service';
+import type { IdentityService } from '@snowluma/bridge/identity-service';
 import type { OneBotInstanceContext } from '../instance-context';
 import type { JsonObject } from '../types';
 

@@ -1,5 +1,5 @@
 import { protobuf_encode } from '@snowluma/proton';
-import type { Bridge } from './bridge';
+import type { BridgeContext } from './bridge-context';
 import type { MessageElement } from './events';
 import { uploadImageMsgInfo } from './highway/image-upload';
 import { hexToBytes } from './highway/pipeline';
@@ -14,7 +14,7 @@ import type { Elem, GroupFileExtra } from '@snowluma/proto-defs/element';
 type ProtoElem = Partial<Elem>;
 
 export interface SendContext {
-  bridge: Bridge;
+  bridge: BridgeContext;
   groupId?: number;
   userUid?: string;
   /**

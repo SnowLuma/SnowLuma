@@ -8,7 +8,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 
-vi.mock('../../src/bridge/highway/highway-client', () => ({
+vi.mock('@snowluma/bridge/highway', () => ({
   fetchHighwaySession: vi.fn(async () => ({ sessionId: 'fake-session' })),
   uploadHighwayHttp: vi.fn(async () => undefined),
   buildHighwayExtend: vi.fn(() => new Uint8Array([0xAA, 0xBB])),
@@ -16,14 +16,14 @@ vi.mock('../../src/bridge/highway/highway-client', () => ({
   GROUP_IMAGE_CMD_ID: 1004,
 }));
 
-import * as highway from '../../src/bridge/highway/highway-client';
+import * as highway from '@snowluma/bridge/highway';
 import {
   finalizeMediaMsgInfo,
   hexToBytes,
   makeClientRandomId,
   runNtv2Upload,
   type MediaSubFileUpload,
-} from '../../src/bridge/highway/pipeline';
+} from '@snowluma/bridge/highway/pipeline';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type { EncodableMediaMsgInfo, NTV2UploadRichMediaReq, NTV2UploadRichMediaResp } from '@snowluma/proto-defs/highway';
 

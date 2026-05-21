@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { protobuf_encode } from '@snowluma/proton';
 import { subscribeLogs, type LogEntry } from '@snowluma/common/logger';
 
-vi.mock('../src/bridge/highway/highway-client', () => ({
+vi.mock('@snowluma/bridge/highway', () => ({
   fetchHighwaySession: vi.fn(async () => ({ sessionId: 'fake-session' })),
   uploadHighwayHttp: vi.fn(async () => undefined),
   buildHighwayExtend: vi.fn(() => new Uint8Array([0xAA, 0xBB])),
@@ -24,12 +24,12 @@ vi.mock('../src/bridge/highway/highway-client', () => ({
 import {
   runNtv2Upload,
   type MediaSubFileUpload,
-} from '../src/bridge/highway/pipeline';
+} from '@snowluma/bridge/highway/pipeline';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type { NTV2UploadRichMediaResp } from '@snowluma/proto-defs/highway';
-import { MsgPushRegistry } from '../src/bridge/msg-push/registry';
-import type { MsgPushContext } from '../src/bridge/msg-push/context';
-import { decodeEvent0x2DC } from '../src/bridge/msg-push/decoders/event-0x2dc';
+import { MsgPushRegistry } from '@snowluma/bridge/msg-push/registry';
+import type { MsgPushContext } from '@snowluma/bridge/msg-push/context';
+import { decodeEvent0x2DC } from '@snowluma/bridge/msg-push/decoders/event-0x2dc';
 
 function encodeOidbResponse(body: unknown): Buffer {
   return Buffer.from(protobuf_encode<OidbBase<NTV2UploadRichMediaResp>>({

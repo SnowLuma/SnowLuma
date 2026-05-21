@@ -19,6 +19,10 @@
       "types": "./src/hex.ts",
       "default": "./src/hex.ts"
     },
+    "./json": {
+      "types": "./src/json.ts",
+      "default": "./src/json.ts"
+    },
     "./log-file-transport": {
       "types": "./src/log-file-transport.ts",
       "default": "./src/log-file-transport.ts"
@@ -39,6 +43,9 @@
       "types": "./src/runtime.ts",
       "default": "./src/runtime.ts"
     }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^24.12.2",

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { Bridge } from '../src/bridge/bridge';
-import { IdentityService } from '../src/bridge/identity-service';
-import type { GroupMemberInfo, QQGroupInfo } from '../src/bridge/qq-info';
-import type { GroupMemberJoin, QQEventVariant } from '../src/bridge/events';
+import { IdentityService } from '@snowluma/bridge/identity-service';
+import type { GroupMemberInfo, QQGroupInfo } from '@snowluma/bridge/qq-info';
+import type { GroupMemberJoin, QQEventVariant } from '@snowluma/bridge/events';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 
 const SELF_UIN = '10001';

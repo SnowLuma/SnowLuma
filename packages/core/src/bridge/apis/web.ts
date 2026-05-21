@@ -14,16 +14,16 @@ import type {
 } from '@snowluma/proto-defs/oidb-actions/base';
 import type { BridgeContext } from '../bridge-context';
 import type { Bridge } from '../bridge';
-import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
-import { getGroupEssenceMsg, getGroupEssenceMsgAll } from '../web/group-essence';
-import { getHonorListWebAPI, WebHonorType } from '../web/group-honor';
+import { makeOidbEnvelope, runOidb } from '@snowluma/bridge/bridge-oidb';
+import { getGroupEssenceMsg, getGroupEssenceMsgAll } from '@snowluma/bridge/web/group-essence';
+import { getHonorListWebAPI, WebHonorType } from '@snowluma/bridge/web/group-honor';
 import {
   deleteGroupNotice as deleteGroupNoticeHttp,
   getGroupNoticeWebAPI,
   setGroupNoticeWebAPI,
   uploadGroupNoticeImage,
-} from '../web/group-notice';
-import { RequestUtil } from '../web/request-util';
+} from '@snowluma/bridge/web/group-notice';
+import { RequestUtil } from '@snowluma/bridge/web/request-util';
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
 

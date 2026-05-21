@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { loadBinarySource, resolveLocalFilePath } from '../src/bridge/highway/utils';
+import { loadBinarySource, resolveLocalFilePath } from '@snowluma/bridge/highway/utils';
 
 describe('highway source paths', () => {
   it('normalizes file URLs with an extra leading slash on POSIX', () => {

@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { createLogger } from '@snowluma/common/logger';
-import type { Bridge } from '../bridge';
+import type { BridgeContext } from '../bridge-context';
 import type { MessageElement } from '../events';
 import { defaultPttTempDir, encodeSilk } from './ffmpeg-addon';
 import {
@@ -16,7 +16,7 @@ import { computeHashes, loadBinarySource, resolveLocalFilePath } from './utils';
 
 const moduleLog = createLogger('Highway.Ptt');
 
-function loggerFor(bridge: Bridge) {
+function loggerFor(bridge: BridgeContext) {
   const raw = bridge.identity?.uin;
   const uin = typeof raw === 'string' ? Number.parseInt(raw, 10) : 0;
   return Number.isFinite(uin) && uin > 0 ? moduleLog.child({ uin }) : moduleLog;
@@ -134,7 +134,7 @@ async function loadPtt(element: MessageElement, tempDir: string): Promise<PttPay
  * a `commonElem { serviceType: 48, businessType: 22 }`.
  */
 export async function uploadPttMsgInfo(
-  bridge: Bridge,
+  bridge: BridgeContext,
   isGroup: boolean,
   targetIdOrUid: string | number,
   element: MessageElement,

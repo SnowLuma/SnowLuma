@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { BridgeInterface } from '../../src/bridge/bridge-interface';
 import type {
   FriendInfo, GroupMemberInfo, QQGroupInfo, UserProfileInfo,
-} from '../../src/bridge/qq-info';
+} from '@snowluma/bridge/qq-info';
 import {
   getFriendList,
   getGroupInfo,

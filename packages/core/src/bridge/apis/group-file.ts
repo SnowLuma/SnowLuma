@@ -14,9 +14,9 @@ import { toHexUpper } from '@snowluma/common/hex';
 import { createLogger } from '@snowluma/common/logger';
 import type { BridgeContext } from '../bridge-context';
 import type { Bridge } from '../bridge';
-import { makeOidbEnvelope, runOidb } from '../bridge-oidb';
-import { fetchHighwaySession, uploadHighwayHttp } from '../highway/highway-client';
-import { computeHashes, computeMd5, FILE_UPLOAD_MAX_BYTES, loadBinarySource } from '../highway/utils';
+import { makeOidbEnvelope, runOidb } from '@snowluma/bridge/bridge-oidb';
+import { fetchHighwaySession, uploadHighwayHttp } from '@snowluma/bridge/highway';
+import { computeHashes, computeMd5, FILE_UPLOAD_MAX_BYTES, loadBinarySource } from '@snowluma/bridge/highway/utils';
 import type { FileUploadExt } from '@snowluma/proto-defs/highway';
 import { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {

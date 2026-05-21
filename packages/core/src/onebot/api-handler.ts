@@ -17,7 +17,7 @@ import { register as registerRequest } from './actions/request';
 import { register as registerExtended } from './actions/extended';
 import { register as registerGroupAlbum } from './actions/group-album';
 
-import { WebHonorType } from '@/bridge/web/group-honor';
+import { WebHonorType } from '@snowluma/bridge/web/group-honor';
 import { ClientKeyInfo } from '@/bridge/bridge';
 
 export interface MessageSendResult {

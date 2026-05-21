@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { MediaStore } from '../src/onebot/media-store';
 import { convertEvent, type ConverterContext } from '../src/onebot/event-converter';
-import type { GroupMessage, FriendMessage, MessageElement } from '../src/bridge/events';
+import type { GroupMessage, FriendMessage, MessageElement } from '@snowluma/bridge/events';
 
 const SELF_ID = 10001;
 const PEER_UIN = 22222;

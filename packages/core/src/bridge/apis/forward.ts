@@ -23,9 +23,9 @@ import type { FileExtra, PushMsg, PushMsgBody } from '@snowluma/proto-defs/messa
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import type { BridgeContext } from '../bridge-context';
 import type { Bridge } from '../bridge';
-import { buildSendElems } from '../element-builder';
-import type { ForwardNodePayload, MessageElement } from '../events';
-import { parseMsgPush } from '../msg-push';
+import { buildSendElems } from '@snowluma/bridge/element-builder';
+import type { ForwardNodePayload, MessageElement } from '@snowluma/bridge/events';
+import { parseMsgPush } from '@snowluma/bridge/msg-push';
 import { resolveSelfUid, toInt } from './shared';
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }

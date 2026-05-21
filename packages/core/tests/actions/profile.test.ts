@@ -14,9 +14,9 @@ import type {
 // the module object is a no-op — proton has already inlined the call.
 // We mock `runOidb` (non-generic) to return real proton-encoded bytes
 // that the production-side codec actually decodes.
-vi.mock('../../src/bridge/bridge-oidb', async () => {
-  const actual = await vi.importActual<typeof import('../../src/bridge/bridge-oidb')>(
-    '../../src/bridge/bridge-oidb',
+vi.mock('@snowluma/bridge/bridge-oidb', async () => {
+  const actual = await vi.importActual<typeof import('@snowluma/bridge/bridge-oidb')>(
+    '@snowluma/bridge/bridge-oidb',
   );
   return {
     ...actual,
@@ -25,19 +25,19 @@ vi.mock('../../src/bridge/bridge-oidb', async () => {
   };
 });
 
-vi.mock('../../src/bridge/highway/highway-client', () => ({
+vi.mock('@snowluma/bridge/highway', () => ({
   fetchHighwaySession: vi.fn(async () => ({})),
   uploadHighwayHttp: vi.fn(async () => undefined),
 }));
 
-vi.mock('../../src/bridge/highway/utils', () => ({
+vi.mock('@snowluma/bridge/highway/utils', () => ({
   loadBinarySource: vi.fn(async () => ({ bytes: new Uint8Array([1, 2, 3]), fileName: 'avatar.bin' })),
   computeHashes: vi.fn(() => ({ md5: new Uint8Array(16), sha1: new Uint8Array(20) })),
   computeMd5: vi.fn(() => new Uint8Array(16)),
 }));
 
-import * as oidb from '../../src/bridge/bridge-oidb';
-import * as highwayClient from '../../src/bridge/highway/highway-client';
+import * as oidb from '@snowluma/bridge/bridge-oidb';
+import * as highwayClient from '@snowluma/bridge/highway';
 import { ProfileApi } from '../../src/bridge/apis/profile';
 import { mockBridge } from './_helpers';
 
@@ -161,7 +161,7 @@ describe('apis/profile', () => {
 
   it('setGroupAvatar rejects an empty file before hitting highway', async () => {
     const bridge = mockBridge();
-    const { loadBinarySource } = await import('../../src/bridge/highway/utils');
+    const { loadBinarySource } = await import('@snowluma/bridge/highway/utils');
     vi.mocked(loadBinarySource).mockResolvedValueOnce({
       bytes: new Uint8Array(0), fileName: 'empty.png',
     } as any);

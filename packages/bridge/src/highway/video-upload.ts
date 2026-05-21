@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { createLogger } from '@snowluma/common/logger';
-import type { Bridge } from '../bridge';
+import type { BridgeContext } from '../bridge-context';
 import type { MessageElement } from '../events';
 import { getFFmpegAddon } from './ffmpeg-addon';
 import {
@@ -21,7 +21,7 @@ import {
 
 const moduleLog = createLogger('Highway.Video');
 
-function loggerFor(bridge: Bridge) {
+function loggerFor(bridge: BridgeContext) {
   const raw = bridge.identity?.uin;
   const uin = typeof raw === 'string' ? Number.parseInt(raw, 10) : 0;
   return Number.isFinite(uin) && uin > 0 ? moduleLog.child({ uin }) : moduleLog;
@@ -421,7 +421,7 @@ async function loadVideo(element: MessageElement): Promise<VideoPayload> {
  * (with per-1MB-block sha1) and a thumb (read off `upload.subFileInfos[0]`).
  */
 export async function uploadVideoMsgInfo(
-  bridge: Bridge,
+  bridge: BridgeContext,
   isGroup: boolean,
   targetIdOrUid: string | number,
   element: MessageElement,

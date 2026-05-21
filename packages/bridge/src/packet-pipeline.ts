@@ -1,5 +1,5 @@
 import type { PacketInfo } from '@snowluma/common/protocol-types';
-import { formatEvent } from '../utils/event-format';
+import { formatEvent } from './format';
 import { createLogger, type Logger } from '@snowluma/common/logger';
 import type { BridgeEventBus } from './event-bus';
 import type { QQEventVariant } from './events';

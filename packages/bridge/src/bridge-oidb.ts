@@ -1,5 +1,5 @@
 import { protobuf_decode } from '@snowluma/proton';
-import type { Bridge } from './bridge';
+import type { BridgeContext } from './bridge-context';
 import type { OidbBase, OidbBaseMeta } from '@snowluma/proto-defs/oidb';
 
 /**
@@ -45,7 +45,7 @@ export function makeOidbEnvelope<T>(
  * packet carried no payload).
  */
 export async function runOidb(
-  bridge: Bridge,
+  bridge: BridgeContext,
   cmd: string,
   envelopeBytes: Uint8Array,
   timeoutMs?: number,

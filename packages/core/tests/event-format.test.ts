@@ -12,8 +12,8 @@ import {
   formatMessageSegments,
   formatReply,
   formatUser,
-} from '../src/utils/event-format';
-import type { QQEventVariant } from '../src/bridge/events';
+} from '@snowluma/bridge/format';
+import type { QQEventVariant } from '@snowluma/bridge/events';
 
 // ─── Test fakes (just the find* surface event-format uses) ───
 

@@ -1,9 +1,9 @@
-export type JsonPrimitive = string | number | boolean | null;
-export type JsonValue = JsonPrimitive | JsonObject | JsonArray;
-export interface JsonObject {
-  [key: string]: JsonValue;
-}
-export type JsonArray = JsonValue[];
+// Plain JSON types now live in @snowluma/common/json so @snowluma/bridge
+// (event-format / receive parsers) can talk about JSON payloads without
+// importing OneBot. Re-exported here so the legacy import shape stays
+// supported — `import { JsonValue } from '<…>/onebot/types'` keeps working.
+export type { JsonPrimitive, JsonValue, JsonObject, JsonArray } from '@snowluma/common/json';
+import type { JsonValue, JsonObject } from '@snowluma/common/json';
 
 export interface ApiResponse {
   status: 'ok' | 'failed';

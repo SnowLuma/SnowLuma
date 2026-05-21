@@ -1,5 +1,5 @@
 import { createLogger } from '@snowluma/common/logger';
-import type { Bridge } from '../bridge';
+import type { BridgeContext } from '../bridge-context';
 import type { MessageElement } from '../events';
 import { GROUP_IMAGE_CMD_ID, PRIVATE_IMAGE_CMD_ID } from './highway-client';
 import {
@@ -12,7 +12,7 @@ import { computeHashes, detectImageFormat, loadBinarySource } from './utils';
 
 const moduleLog = createLogger('Highway.Image');
 
-function loggerFor(bridge: Bridge) {
+function loggerFor(bridge: BridgeContext) {
   const raw = bridge.identity?.uin;
   const uin = typeof raw === 'string' ? Number.parseInt(raw, 10) : 0;
   return Number.isFinite(uin) && uin > 0 ? moduleLog.child({ uin }) : moduleLog;
@@ -103,7 +103,7 @@ async function loadImageFromSource(source: string, fileName: string, subType: nu
  * commonElem.
  */
 export async function uploadImageMsgInfo(
-  bridge: Bridge,
+  bridge: BridgeContext,
   isGroup: boolean,
   targetIdOrUid: string | number,
   element: MessageElement,

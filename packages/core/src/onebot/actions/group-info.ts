@@ -1,7 +1,7 @@
 import type { ApiHandler, ApiActionContext } from '../api-handler';
 import { asNumber, asBoolean, asString } from '../api-handler';
 import { RETCODE, failedResponse, okResponse } from '../types';
-import { WebHonorType } from '@/bridge/web/group-honor';
+import { WebHonorType } from '@snowluma/bridge/web/group-honor';
 
 export function register(h: ApiHandler, ctx: ApiActionContext): void {
   h.registerAction('get_group_list', async (params) => {

@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../../src/bridge/bridge-oidb', () => ({
+vi.mock('@snowluma/bridge/bridge-oidb', () => ({
   runOidb: vi.fn(async () => new Uint8Array()),
   makeOidbEnvelope: vi.fn((_oidbCmd, _subCmd, body) => ({ body })),
   encodeOidbEnv: vi.fn(() => new Uint8Array()),
   decodeOidbEnv: vi.fn(() => ({ body: {} })),
 }));
 
-import * as oidb from '../../src/bridge/bridge-oidb';
+import * as oidb from '@snowluma/bridge/bridge-oidb';
 import { FriendApi } from '../../src/bridge/apis/friend';
 import { mockBridge } from './_helpers';
 

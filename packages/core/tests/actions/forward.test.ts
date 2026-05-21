@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 
-vi.mock('../../src/bridge/bridge-oidb', () => ({
+vi.mock('@snowluma/bridge/bridge-oidb', () => ({
   runOidb: vi.fn(async () => new Uint8Array()),
   makeOidbEnvelope: vi.fn((_oidbCmd, _subCmd, body) => ({ body })),
   encodeOidbEnv: vi.fn(() => new Uint8Array()),
@@ -10,7 +10,7 @@ vi.mock('../../src/bridge/bridge-oidb', () => ({
 // element-builder reaches into protoEncode with element-specific schemas
 // that we don't want to construct manually in tests; stub it to return
 // a benign placeholder.
-vi.mock('../../src/bridge/element-builder', () => ({
+vi.mock('@snowluma/bridge/element-builder', () => ({
   buildSendElems: vi.fn(async () => []),
 }));
 

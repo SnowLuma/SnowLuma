@@ -1,7 +1,18 @@
-import type { QQEventVariant } from '../bridge/events';
-import type { IdentityService } from '../bridge/identity-service';
-import type { MessageStore } from '../onebot/message-store';
-import type { JsonObject, JsonValue } from '../onebot/types';
+import type { QQEventVariant } from './events';
+import type { IdentityService } from './identity-service';
+import type { JsonObject, JsonValue } from '@snowluma/common/json';
+
+/**
+ * Minimal shape of the OneBot-side `MessageStore` that `formatReply`
+ * needs — just `findEvent(id)`. Defined inline (instead of importing
+ * the full `MessageStore` class from @snowluma/onebot) so this
+ * package doesn't depend on the OneBot layer above it. The OneBot
+ * `MessageStore` is structurally a superset of this interface, so
+ * callers pass it through with zero adaptation.
+ */
+export interface ReplyEventLookup {
+  findEvent(messageId: number): JsonObject | null;
+}
 
 const MAX_TEXT_PREVIEW = 50;
 const MAX_REPLY_BODY_PREVIEW = 30;
@@ -110,7 +121,7 @@ function truncate(s: string, max: number): string {
  * to" questions.
  */
 export function formatReply(
-  messageStore: MessageStore,
+  messageStore: ReplyEventLookup,
   identity: IdentityService,
   replyId: number,
 ): string {

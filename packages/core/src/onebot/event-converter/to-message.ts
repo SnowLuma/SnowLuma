@@ -1,4 +1,4 @@
-import type { QQEventVariant } from '../../bridge/events';
+import type { QQEventVariant } from '@snowluma/bridge/events';
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT } from '../message-id';
 import type { JsonObject } from '../types';
 import type { ConverterContext } from './index';
