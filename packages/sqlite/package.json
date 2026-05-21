@@ -1,6 +1,6 @@
 {
   "name": "@snowluma/sqlite",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "private": true,
   "type": "module",
   "description": "SnowLuma SQLite wrapper. Exposes the `better-sqlite3` Database constructor + Statement type, but loads the native `.node` binding from `dist/native/sqlite/<platform>-<arch>/` at runtime instead of going through `bindings('better_sqlite3.node')` + `node_modules/.../build/Release/`. The vendored prebuilds under `packages/runtime/native/sqlite/` get copied into the dist tree by `vite-plugin-cp` during the @snowluma/core build, mirroring how `websocket-*.node` and `ffmpegAddon.*.node` are handled. The end result: production artifacts ship as a single self-contained dist/ directory with no `dist/node_modules/` and no install step at runtime.",
