@@ -10,6 +10,7 @@
     "build:webui": "pnpm --filter webui build",
     "build:all": "pnpm --filter @snowluma/core build:all && pnpm --filter @snowluma/sdk build && pnpm --filter webui build",
     "dev": "pnpm --filter @snowluma/core dev",
+    "dist:install": "cd dist && npm install --omit=dev",
     "dev:mode": "cd dist && cross-env SNOWLUMA_DEV_MODE=1 SNOWLUMA_DEV_WEBUI=1 node index.mjs",
     "dev:web": "pnpm --filter webui dev",
     "test": "pnpm --filter @snowluma/core test",

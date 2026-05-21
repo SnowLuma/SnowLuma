@@ -4,5 +4,8 @@
   "private": true,
   "type": "module",
   "main": "index.mjs",
-  "description": "SnowLuma runtime distribution manifest: ships into dist/ (launcher.bat, package.json, native/*.dll, native/*.node). Native libraries are loaded via process.dlopen()."
+  "description": "SnowLuma runtime distribution manifest: ships into dist/ (launcher.bat, package.json, native/*.dll, native/*.node). vite-plugin-cp copies this package.json into dist/, then the release workflow runs `npm install --omit=dev` inside dist/ to materialize the production node_modules. Dependencies listed here are the runtime-only externals that vite did NOT bundle into index.mjs (currently: better-sqlite3 — native binding, can't be inlined).",
+  "dependencies": {
+    "better-sqlite3": "^11.7.0"
+  }
 }
