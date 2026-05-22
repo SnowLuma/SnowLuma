@@ -131,6 +131,30 @@
       "types": "./src/oidb-services/extras/fetch-ai-voice.ts",
       "default": "./src/oidb-services/extras/fetch-ai-voice.ts"
     },
+    "./oidb-services/contacts/fetch-friend-list-page": {
+      "types": "./src/oidb-services/contacts/fetch-friend-list-page.ts",
+      "default": "./src/oidb-services/contacts/fetch-friend-list-page.ts"
+    },
+    "./oidb-services/contacts/fetch-group-list": {
+      "types": "./src/oidb-services/contacts/fetch-group-list.ts",
+      "default": "./src/oidb-services/contacts/fetch-group-list.ts"
+    },
+    "./oidb-services/contacts/fetch-group-member-list-page": {
+      "types": "./src/oidb-services/contacts/fetch-group-member-list-page.ts",
+      "default": "./src/oidb-services/contacts/fetch-group-member-list-page.ts"
+    },
+    "./oidb-services/contacts/fetch-user-profile": {
+      "types": "./src/oidb-services/contacts/fetch-user-profile.ts",
+      "default": "./src/oidb-services/contacts/fetch-user-profile.ts"
+    },
+    "./oidb-services/contacts/fetch-group-requests": {
+      "types": "./src/oidb-services/contacts/fetch-group-requests.ts",
+      "default": "./src/oidb-services/contacts/fetch-group-requests.ts"
+    },
+    "./oidb-services/contacts/fetch-download-rkeys": {
+      "types": "./src/oidb-services/contacts/fetch-download-rkeys.ts",
+      "default": "./src/oidb-services/contacts/fetch-download-rkeys.ts"
+    },
     "./bridge-context": {
       "types": "./src/bridge-context.ts",
       "default": "./src/bridge-context.ts"
