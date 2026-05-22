@@ -100,14 +100,20 @@ export class InteractionApi {
     // return the first one that surfaces users. Frequencies are low
     // (user-triggered "view who reacted") so the extra SSO traffic is
     // acceptable for a debug build.
+    // Round-2 candidates, after round-1 found 0x9084_1 returns a reaction
+    // summary (emoji_id list with timestamp/count for used emojis, plus
+    // a 28-emoji catalog). We need the "fetch users who reacted with
+    // emoji X" sibling — almost certainly another subcmd of 0x9084.
     const candidates: Array<readonly [number, number]> = [
-      [0x9083, 1],  // historic / baseline (we know returns 4-byte ack)
-      [0x9082, 3],  // 0x9082_1=set / _2=unset → _3 might be list
-      [0x9082, 4],
-      [0x9083, 0],
-      [0x9083, 2],
-      [0x9083, 3],
-      [0x9084, 1],
+      [0x9084, 2],  // most likely: "fetch reactor user list for specific emoji"
+      [0x9084, 3],
+      [0x9084, 4],
+      [0x9084, 5],
+      [0x9085, 1],  // adjacent cmd family, exploratory
+      [0x9085, 2],
+      [0x9086, 1],
+      [0x9087, 1],
+      [0x9084, 1],  // keep baseline at the end so we still confirm summary
     ];
 
     let winner: { users: Array<{ uin: number }>; cookie: string; isLast: boolean } | null = null;
