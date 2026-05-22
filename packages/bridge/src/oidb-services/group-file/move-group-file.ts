@@ -1,0 +1,47 @@
+// 0x6D6_5 — move a group file between folders.
+
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import type { OidbBase } from '@snowluma/proto-defs/oidb';
+import type {
+  OidbGroupFileReq, OidbGroupFileResp,
+} from '@snowluma/proto-defs/oidb-actions/group-file';
+import { invokeOidb, type OidbSender } from '../../oidb-service';
+import { ensureRetCodeZero } from '../shared';
+
+export namespace MoveGroupFile {
+  export const command = 0x6D6;
+  export const subCommand = 5;
+  export const uinForm = true;
+
+  export interface Params {
+    groupId: number; fileId: string;
+    parentDirectory: string; targetDirectory: string;
+  }
+  export type Deps = OidbSender;
+
+  export const serialize = (p: Params): OidbGroupFileReq => ({
+    move: {
+      groupUin: p.groupId,
+      appId: 7,
+      busId: 102,
+      fileId: p.fileId,
+      parentDirectory: p.parentDirectory,
+      targetDirectory: p.targetDirectory,
+    },
+  });
+
+  export const deserialize = (body: OidbGroupFileResp): void => {
+    const result = body.move;
+    if (!result) throw new Error('group file move response missing');
+    ensureRetCodeZero('group file move', result.retCode, result.retMsg, result.clientWording);
+  };
+
+  export const encode = (env: OidbBase<OidbGroupFileReq>): Uint8Array =>
+    protobuf_encode<OidbBase<OidbGroupFileReq>>(env);
+
+  export const decode = (bytes: Uint8Array): OidbBase<OidbGroupFileResp> =>
+    protobuf_decode<OidbBase<OidbGroupFileResp>>(bytes);
+
+  export const invoke = (deps: Deps, params: Params): Promise<void> =>
+    invokeOidb(deps, MoveGroupFile, params);
+}

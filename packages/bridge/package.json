@@ -211,6 +211,74 @@
       "types": "./src/oidb-services/group-admin/get-at-all-remain.ts",
       "default": "./src/oidb-services/group-admin/get-at-all-remain.ts"
     },
+    "./oidb-services/shared": {
+      "types": "./src/oidb-services/shared.ts",
+      "default": "./src/oidb-services/shared.ts"
+    },
+    "./oidb-services/group-file/publish-group-file": {
+      "types": "./src/oidb-services/group-file/publish-group-file.ts",
+      "default": "./src/oidb-services/group-file/publish-group-file.ts"
+    },
+    "./oidb-services/group-file/get-group-file-count": {
+      "types": "./src/oidb-services/group-file/get-group-file-count.ts",
+      "default": "./src/oidb-services/group-file/get-group-file-count.ts"
+    },
+    "./oidb-services/group-file/upload-group-file-request": {
+      "types": "./src/oidb-services/group-file/upload-group-file-request.ts",
+      "default": "./src/oidb-services/group-file/upload-group-file-request.ts"
+    },
+    "./oidb-services/group-file/upload-private-file-request": {
+      "types": "./src/oidb-services/group-file/upload-private-file-request.ts",
+      "default": "./src/oidb-services/group-file/upload-private-file-request.ts"
+    },
+    "./oidb-services/group-file/list-group-files-page": {
+      "types": "./src/oidb-services/group-file/list-group-files-page.ts",
+      "default": "./src/oidb-services/group-file/list-group-files-page.ts"
+    },
+    "./oidb-services/group-file/get-group-file-url": {
+      "types": "./src/oidb-services/group-file/get-group-file-url.ts",
+      "default": "./src/oidb-services/group-file/get-group-file-url.ts"
+    },
+    "./oidb-services/group-file/get-private-file-url": {
+      "types": "./src/oidb-services/group-file/get-private-file-url.ts",
+      "default": "./src/oidb-services/group-file/get-private-file-url.ts"
+    },
+    "./oidb-services/group-file/delete-group-file": {
+      "types": "./src/oidb-services/group-file/delete-group-file.ts",
+      "default": "./src/oidb-services/group-file/delete-group-file.ts"
+    },
+    "./oidb-services/group-file/move-group-file": {
+      "types": "./src/oidb-services/group-file/move-group-file.ts",
+      "default": "./src/oidb-services/group-file/move-group-file.ts"
+    },
+    "./oidb-services/group-file/create-group-folder": {
+      "types": "./src/oidb-services/group-file/create-group-folder.ts",
+      "default": "./src/oidb-services/group-file/create-group-folder.ts"
+    },
+    "./oidb-services/group-file/delete-group-folder": {
+      "types": "./src/oidb-services/group-file/delete-group-folder.ts",
+      "default": "./src/oidb-services/group-file/delete-group-folder.ts"
+    },
+    "./oidb-services/group-file/rename-group-folder": {
+      "types": "./src/oidb-services/group-file/rename-group-folder.ts",
+      "default": "./src/oidb-services/group-file/rename-group-folder.ts"
+    },
+    "./oidb-services/group-file/get-group-ptt-url": {
+      "types": "./src/oidb-services/group-file/get-group-ptt-url.ts",
+      "default": "./src/oidb-services/group-file/get-group-ptt-url.ts"
+    },
+    "./oidb-services/group-file/get-private-ptt-url": {
+      "types": "./src/oidb-services/group-file/get-private-ptt-url.ts",
+      "default": "./src/oidb-services/group-file/get-private-ptt-url.ts"
+    },
+    "./oidb-services/group-file/get-group-video-url": {
+      "types": "./src/oidb-services/group-file/get-group-video-url.ts",
+      "default": "./src/oidb-services/group-file/get-group-video-url.ts"
+    },
+    "./oidb-services/group-file/get-private-video-url": {
+      "types": "./src/oidb-services/group-file/get-private-video-url.ts",
+      "default": "./src/oidb-services/group-file/get-private-video-url.ts"
+    },
     "./bridge-context": {
       "types": "./src/bridge-context.ts",
       "default": "./src/bridge-context.ts"
