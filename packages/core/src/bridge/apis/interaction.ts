@@ -91,52 +91,58 @@ export class InteractionApi {
       count,
       field12: 1,
     };
-    // Wire-level investigation against macOS NTQQ confirmed:
-    //   - cmd 0x9083_1 is a real, server-recognized OIDB endpoint
-    //   - our request fields (groupId/sequence/emojiId/emojiType/count) are
-    //     encoded correctly per the schema
-    //   - BUT the server reply for 0x9083_1 is always exactly `18 01 20 01`
-    //     (field 3 = 1, field 4 = 1) — a 4-byte minimal ack, no user list
-    // That means 0x9083_1's semantics aren't "fetch emoji-like users". To
-    // probe the real cmd/subcmd, allow an env override so deployment can
-    // round-robin across candidates (0x9082_3, 0x9082_4, 0x9083_2, …)
-    // without rebuilding. Format: `SNOWLUMA_EMOJI_FETCH_CMD=0x9082_3`.
-    let cmdHex = 0x9083;
-    let subCmd = 1;
-    const envOverride = process.env.SNOWLUMA_EMOJI_FETCH_CMD;
-    if (envOverride) {
-      const m = /^0x([0-9a-fA-F]+)_(\d+)$/.exec(envOverride.trim());
-      if (m) {
-        cmdHex = parseInt(m[1], 16);
-        subCmd = parseInt(m[2], 10);
-      } else {
-        log.warn(`SNOWLUMA_EMOJI_FETCH_CMD malformed: ${JSON.stringify(envOverride)} (expected 0xNNNN_N); falling back to 0x9083_1`);
+    // Wire-level investigation against macOS NTQQ confirmed 0x9083_1 is
+    // a real server endpoint (routed, errorCode=0, trace string echoes
+    // "OidbSvcTrpcTcp.0x9083_1") but its reply is always a 4-byte
+    // minimal ack `18 01 20 01` — not a user list. The real fetch cmd
+    // must be a sibling. To find it, on every call we round-robin a
+    // small candidate list of (cmd, subcmd) tuples, log each result, and
+    // return the first one that surfaces users. Frequencies are low
+    // (user-triggered "view who reacted") so the extra SSO traffic is
+    // acceptable for a debug build.
+    const candidates: Array<readonly [number, number]> = [
+      [0x9083, 1],  // historic / baseline (we know returns 4-byte ack)
+      [0x9082, 3],  // 0x9082_1=set / _2=unset → _3 might be list
+      [0x9082, 4],
+      [0x9083, 0],
+      [0x9083, 2],
+      [0x9083, 3],
+      [0x9084, 1],
+    ];
+
+    let winner: { users: Array<{ uin: number }>; cookie: string; isLast: boolean } | null = null;
+    log.debug(
+      `getEmojiLikes probe START: group=${groupId} seq=${sequence} `
+      + `emojiId=${emojiId} emojiType=${emojiType} count=${count} `
+      + `cookieIn=${cookie ? 'yes' : 'no'}`,
+    );
+    for (const [cmdHex, subCmd] of candidates) {
+      const wireName = `OidbSvcTrpcTcp.0x${cmdHex.toString(16)}_${subCmd}`;
+      const env = makeOidbEnvelope<Oidb0x9083Req>(cmdHex, subCmd, req);
+      const reqBytes = protobuf_encode<OidbBase<Oidb0x9083Req>>(env);
+      let respBytes: Uint8Array;
+      try {
+        respBytes = await runOidb(bridge, wireName, reqBytes);
+      } catch (e) {
+        log.debug(`  ${wireName} threw: ${e instanceof Error ? e.message : String(e)}`);
+        continue;
+      }
+      const resp = protobuf_decode<OidbBase<Oidb0x9083Resp>>(respBytes).body;
+      const users: Array<{ uin: number }> = (resp?.inner?.userInfo ?? [])
+        .map(u => ({ uin: Number(u?.uin ?? 0) }))
+        .filter(u => u.uin > 0);
+      const respCookie = resp?.cookie ? Buffer.from(resp.cookie).toString('base64') : '';
+      log.debug(
+        `  ${wireName}: respLen=${respBytes.length} users=${users.length} `
+        + `respCookie=${respCookie || '(empty)'}`,
+      );
+      log.debug(`    req  hex: ${toHexUpper(reqBytes)}`);
+      log.debug(`    resp hex: ${toHexUpper(respBytes)}`);
+      if (!winner && users.length > 0) {
+        winner = { users, cookie: respCookie, isLast: !respCookie };
       }
     }
-    const wireName = `OidbSvcTrpcTcp.0x${cmdHex.toString(16)}_${subCmd}`;
-    const env = makeOidbEnvelope<Oidb0x9083Req>(cmdHex, subCmd, req);
-    const reqBytes = protobuf_encode<OidbBase<Oidb0x9083Req>>(env);
-    const respBytes = await runOidb(bridge, wireName, reqBytes);
-    const resp = protobuf_decode<OidbBase<Oidb0x9083Resp>>(respBytes).body;
-    // userInfo is repeated on the wire — one entry per liker. The pre-fix
-    // schema treated it as single, which made multi-user responses collapse
-    // into one and (when paired with the swapped req fields) yield [].
-    const users: Array<{ uin: number }> = (resp?.inner?.userInfo ?? [])
-      .map(u => ({ uin: Number(u?.uin ?? 0) }))
-      .filter(u => u.uin > 0);
-    const respCookie = resp?.cookie ? Buffer.from(resp.cookie).toString('base64') : '';
-    // Always dump req/resp hex (debug level) while we're probing the real
-    // cmd. Once we land on a working (cmd, subcmd) tuple, this branch can
-    // be tightened back to "only on empty users".
-    log.debug(
-      `getEmojiLikes ${users.length === 0 ? 'empty' : 'ok'} via ${wireName}: `
-      + `group=${groupId} seq=${sequence} emojiId=${emojiId} `
-      + `emojiType=${emojiType} count=${count} `
-      + `cookieIn=${cookie ? 'yes' : 'no'} respCookieOut=${respCookie || '(empty)'} `
-      + `users=${users.length}`,
-    );
-    log.debug(`  req  hex: ${toHexUpper(reqBytes)}`);
-    log.debug(`  resp hex: ${toHexUpper(respBytes)}`);
-    return { users, cookie: respCookie, isLast: !respCookie };
+    log.debug(`getEmojiLikes probe END: winner=${winner ? `users=${winner.users.length}` : 'none'}`);
+    return winner ?? { users: [], cookie: '', isLast: true };
   }
 }
