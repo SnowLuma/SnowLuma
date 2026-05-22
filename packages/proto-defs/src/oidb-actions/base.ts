@@ -521,7 +521,10 @@ export interface FaceroamOpResp {
 // Lagrange.Core V2 `Internal/Packets/Service/SetGroupReaction.cs`.
 export interface Oidb0x9083Req {
   groupId?:   pb<2, uint_64>;
-  sequence?:  pb<3, uint_32>;
+  // ulong on LagrangeV2's `SetGroupReactionRequest`. wire-compatible
+  // with uint_32 for small seq values (which is what message sequences
+  // actually are today), but match the spec to be safe — costs nothing.
+  sequence?:  pb<3, uint_64>;
   emojiId?:   pb<4, string>;
   emojiType?: pb<5, uint_32>;
   cookie?:    pb<6, bytes>;

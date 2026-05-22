@@ -6,6 +6,8 @@
 // already absorbed into `MessageApi` back in commit 1.
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import { toHexUpper } from '@snowluma/common/hex';
+import { createLogger } from '@snowluma/common/logger';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   Oidb0x9083Req,
@@ -20,6 +22,8 @@ import type { Bridge } from '../bridge';
 import { makeOidbEnvelope, runOidb } from '@snowluma/bridge/bridge-oidb';
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
+
+const log = createLogger('Interaction');
 
 export class InteractionApi {
   constructor(private readonly ctx: BridgeContext) {}
@@ -76,7 +80,10 @@ export class InteractionApi {
     const bridge = asBridge(this.ctx);
     const req: any = {
       groupId: BigInt(groupId),
-      sequence,
+      // sequence is uint_64 on the wire (matches LagrangeV2's
+      // SetGroupReactionRequest.Sequence:ulong). Caller still passes
+      // a JS number — bigint conversion lives here.
+      sequence: BigInt(sequence),
       emojiType,
       emojiId,
       cookie: cookie ? Buffer.from(cookie, 'base64') : new Uint8Array(0),
@@ -85,7 +92,8 @@ export class InteractionApi {
       field12: 1,
     };
     const env = makeOidbEnvelope<Oidb0x9083Req>(0x9083, 1, req);
-    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x9083_1', protobuf_encode<OidbBase<Oidb0x9083Req>>(env));
+    const reqBytes = protobuf_encode<OidbBase<Oidb0x9083Req>>(env);
+    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x9083_1', reqBytes);
     const resp = protobuf_decode<OidbBase<Oidb0x9083Resp>>(respBytes).body;
     // userInfo is repeated on the wire — one entry per liker. The pre-fix
     // schema treated it as single, which made multi-user responses collapse
@@ -94,6 +102,20 @@ export class InteractionApi {
       .map(u => ({ uin: Number(u?.uin ?? 0) }))
       .filter(u => u.uin > 0);
     const respCookie = resp?.cookie ? Buffer.from(resp.cookie).toString('base64') : '';
+    // Empty-list debug aid. fetch_emoji_like has been hard to validate
+    // without wire data (this is the only public 0x9083 implementation),
+    // so when nothing comes back we dump the full request/response hex
+    // and the decoded envelope. Logs at debug level — invisible unless
+    // the user opts in.
+    if (users.length === 0) {
+      log.debug(
+        `getEmojiLikes empty result: group=${groupId} seq=${sequence} `
+        + `emojiId=${emojiId} emojiType=${emojiType} count=${count} `
+        + `cookieIn=${cookie ? 'yes' : 'no'} respCookieOut=${respCookie || '(empty)'}`,
+      );
+      log.debug(`  req  hex: ${toHexUpper(reqBytes)}`);
+      log.debug(`  resp hex: ${toHexUpper(respBytes)}`);
+    }
     return { users, cookie: respCookie, isLast: !respCookie };
   }
 }
