@@ -115,6 +115,22 @@
       "types": "./src/oidb-services/web/get-pskey.ts",
       "default": "./src/oidb-services/web/get-pskey.ts"
     },
+    "./oidb-services/extras/group-todo": {
+      "types": "./src/oidb-services/extras/group-todo.ts",
+      "default": "./src/oidb-services/extras/group-todo.ts"
+    },
+    "./oidb-services/extras/get-stranger-status": {
+      "types": "./src/oidb-services/extras/get-stranger-status.ts",
+      "default": "./src/oidb-services/extras/get-stranger-status.ts"
+    },
+    "./oidb-services/extras/fetch-ai-voice-list": {
+      "types": "./src/oidb-services/extras/fetch-ai-voice-list.ts",
+      "default": "./src/oidb-services/extras/fetch-ai-voice-list.ts"
+    },
+    "./oidb-services/extras/fetch-ai-voice": {
+      "types": "./src/oidb-services/extras/fetch-ai-voice.ts",
+      "default": "./src/oidb-services/extras/fetch-ai-voice.ts"
+    },
     "./bridge-context": {
       "types": "./src/bridge-context.ts",
       "default": "./src/bridge-context.ts"
