@@ -95,6 +95,18 @@
       "types": "./src/oidb-services/friend/set-friend-remark.ts",
       "default": "./src/oidb-services/friend/set-friend-remark.ts"
     },
+    "./oidb-services/misc/translate-en-to-zh": {
+      "types": "./src/oidb-services/misc/translate-en-to-zh.ts",
+      "default": "./src/oidb-services/misc/translate-en-to-zh.ts"
+    },
+    "./oidb-services/misc/click-inline-keyboard-button": {
+      "types": "./src/oidb-services/misc/click-inline-keyboard-button.ts",
+      "default": "./src/oidb-services/misc/click-inline-keyboard-button.ts"
+    },
+    "./oidb-services/misc/send-group-sign": {
+      "types": "./src/oidb-services/misc/send-group-sign.ts",
+      "default": "./src/oidb-services/misc/send-group-sign.ts"
+    },
     "./bridge-context": {
       "types": "./src/bridge-context.ts",
       "default": "./src/bridge-context.ts"

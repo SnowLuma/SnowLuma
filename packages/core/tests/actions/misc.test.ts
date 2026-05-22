@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
@@ -6,64 +6,49 @@ import type {
   Oidb0x112eResp,
 } from '@snowluma/proto-defs/oidb-actions/base';
 
-// `encodeOidbEnv` / `decodeOidbEnv` are proton-bound pass-through wrappers
-// — the plugin substitutes them at the call site with the inlined codec,
-// so mocking them on the module object is a no-op. We mock `runOidb`
-// (non-generic, untouched by proton) to return real proton-encoded bytes
-// that the production-side codec then actually decodes.
-vi.mock('@snowluma/bridge/bridge-oidb', async () => {
-  const actual = await vi.importActual<typeof import('@snowluma/bridge/bridge-oidb')>(
-    '@snowluma/bridge/bridge-oidb',
-  );
-  return {
-    ...actual,
-    runOidb: vi.fn(async () => new Uint8Array()),
-    makeOidbEnvelope: vi.fn((_oidbCmd, _subCmd, body) => ({ body })),
-  };
-});
-
-import * as oidb from '@snowluma/bridge/bridge-oidb';
+// Post-namespace migration: MiscApi forwards 3 OIDB cmds through
+// @snowluma/bridge/oidb-services/misc namespaces. The non-OIDB
+// `getMiniAppArk` (LightAppSvc) stays inline on the facade. Tests
+// hit bridge.sendRawPacket directly.
 import { MiscApi } from '../../src/bridge/apis/misc';
 import { mockBridge } from './_helpers';
 
-describe('apis/misc', () => {
-  beforeEach(() => {
-    vi.mocked(oidb.runOidb).mockReset();
-    vi.mocked(oidb.runOidb).mockResolvedValue(new Uint8Array());
-    vi.mocked(oidb.makeOidbEnvelope).mockClear();
-  });
+function packResponse(body: Uint8Array) {
+  return {
+    success: true, gotResponse: true, errorCode: 0, errorMessage: '',
+    responseData: Buffer.from(body),
+  };
+}
 
+describe('apis/misc', () => {
   it('translateEn2Zh returns dstWords when present', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
       protobuf_encode<OidbBase<Oidb0x990Resp>>({
         body: { translateResp: { dstWords: ['你好', '世界'] } } as any,
       }),
-    );
-    const out = await new MiscApi(bridge as any).translateEn2Zh( ['hello', 'world']);
+    ));
+    const out = await new MiscApi(bridge as any).translateEn2Zh(['hello', 'world']);
     expect(out).toEqual(['你好', '世界']);
   });
 
   it('translateEn2Zh throws on empty response', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
       protobuf_encode<OidbBase<Oidb0x990Resp>>({ body: {} }),
-    );
-    await expect(new MiscApi(bridge as any).translateEn2Zh( ['hello']))
+    ));
+    await expect(new MiscApi(bridge as any).translateEn2Zh(['hello']))
       .rejects.toThrow(/empty/);
   });
 
   it('getMiniAppArk rejects unsupported types', async () => {
     const bridge = mockBridge();
     await expect(
-      new MiscApi(bridge as any).getMiniAppArk( 'youtube', 't', 'd', 'p', 'u'),
+      new MiscApi(bridge as any).getMiniAppArk('youtube', 't', 'd', 'p', 'u'),
     ).rejects.toThrow(/unsupported type/);
   });
 
   it('getMiniAppArk routes to LightAppSvc with the encoded body', async () => {
-    // sendRawPacket is what the action calls; we need a deterministic
-    // successful response with a decodable body. Easiest: stub the
-    // raw packet with the encoded response we expect to come back.
     const bridge = mockBridge({
       sendRawPacket: vi.fn(async () => ({
         success: true,
@@ -73,9 +58,7 @@ describe('apis/misc', () => {
         responseData: null,
       })) as any,
     });
-    // With null responseData, the action should throw on decode — that
-    // still proves the right serviceCmd was used.
-    await expect(new MiscApi(bridge as any).getMiniAppArk( 'bili', 't', 'd', 'p', 'u')).rejects.toThrow();
+    await expect(new MiscApi(bridge as any).getMiniAppArk('bili', 't', 'd', 'p', 'u')).rejects.toThrow();
     expect(bridge.sendRawPacket).toHaveBeenCalledOnce();
     expect(bridge.sendRawPacket.mock.calls[0]![0])
       .toBe('LightAppSvc.mini_app_share.AdaptShareInfo');
@@ -83,19 +66,22 @@ describe('apis/misc', () => {
 
   it('clickInlineKeyboardButton returns shaped result', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
       protobuf_encode<OidbBase<Oidb0x112eResp>>({
         body: { result: 1, errMsg: 'ok', promptText: 'hi' } as any,
       }),
-    );
-    const out = await new MiscApi(bridge as any).clickInlineKeyboardButton( 1, 2, 'btn', 'data', 100);
+    ));
+    const out = await new MiscApi(bridge as any).clickInlineKeyboardButton(1, 2, 'btn', 'data', 100);
     expect(out).toMatchObject({ result: 1, errMsg: 'ok', promptText: 'hi', status: 0 });
   });
 
-  it('sendGroupSign dispatches to 0xEB7_1', async () => {
+  it('sendGroupSign dispatches to 0xEB7_1 (uppercase preserved)', async () => {
     const bridge = mockBridge();
-    await new MiscApi(bridge as any).sendGroupSign( 12345);
-    const [, cmd] = vi.mocked(oidb.runOidb).mock.calls[0]!;
+    await new MiscApi(bridge as any).sendGroupSign(12345);
+    const [cmd] = bridge.sendRawPacket.mock.calls[0]!;
+    // **Important**: this cmd keeps the historic UPPERCASE EB7 wire
+    // name. Default scheme would emit lowercase; the namespace
+    // overrides `wireName` to preserve byte-equality with NTQQ wire.
     expect(cmd).toBe('OidbSvcTrpcTcp.0xEB7_1');
   });
 });
