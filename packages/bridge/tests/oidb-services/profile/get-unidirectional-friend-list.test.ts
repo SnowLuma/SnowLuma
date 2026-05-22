@@ -9,8 +9,8 @@ import { GetUnidirectionalFriendList } from '../../../src/oidb-services/profile/
 function makeDeps(responseJson?: unknown) {
   const responseData = responseJson !== undefined
     ? Buffer.from(protobuf_encode<OidbBase<Oidb0xe17Resp>>({
-        body: { jsonBody: JSON.stringify(responseJson) },
-      }))
+      body: { jsonBody: JSON.stringify(responseJson) },
+    }))
     : Buffer.alloc(0);
   const r: SendPacketResult = { success: true, gotResponse: true, errorCode: 0, errorMessage: '', responseData };
   return {

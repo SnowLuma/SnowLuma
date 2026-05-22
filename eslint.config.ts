@@ -62,6 +62,19 @@ export default defineConfig([
     },
   },
   {
+    // OIDB service layer is namespace-per-cmd by design — the
+    // structural-typing contract (namespace IS the OidbCallSpec) and
+    // the file:cmd 1:1 mapping are the whole point. Disable the
+    // module-syntax preference here only.
+    files: [
+      'packages/bridge/src/oidb-services/**/*.ts',
+      'packages/bridge/tests/oidb-services/**/*.ts',
+    ],
+    rules: {
+      '@typescript-eslint/no-namespace': 'off',
+    },
+  },
+  {
     files: ['packages/webui/src/**/*.{ts,tsx}', 'packages/ui/src/**/*.{ts,tsx}'],
     extends: [reactHooks.configs.flat.recommended, reactRefresh.configs.vite],
     languageOptions: {

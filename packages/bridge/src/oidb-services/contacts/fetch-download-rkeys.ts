@@ -17,7 +17,6 @@ export namespace FetchDownloadRkeys {
   export const subCommand = 202;
   export const uinForm = true;
 
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   export interface Params {}
 
   export type Deps = OidbSender;

@@ -18,7 +18,6 @@ export namespace FetchGroupList {
   export const subCommand = 2;
   export const uinForm = true;
 
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   export interface Params {}
 
   export type Deps = OidbSender;

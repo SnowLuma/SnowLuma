@@ -21,7 +21,6 @@ export namespace GetUnidirectionalFriendList {
    *  `OidbSvcTrpcTcp.0xNNNN_N` namespace. */
   export const wireName = (): string => 'MQUpdateSvc_com_qq_ti.web.OidbSvc.0xe17_0';
 
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   export interface Params {}
 
   export type Deps = OidbSender & Pick<BridgeContext, 'identity'>;

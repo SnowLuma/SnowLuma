@@ -20,7 +20,6 @@ export namespace ForceFetchClientKey {
   export const command = 0x102A;
   export const subCommand = 1;
 
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   export interface Params {}
 
   export type Deps = OidbSender;
