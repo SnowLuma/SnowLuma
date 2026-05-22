@@ -91,9 +91,32 @@ export class InteractionApi {
       count,
       field12: 1,
     };
-    const env = makeOidbEnvelope<Oidb0x9083Req>(0x9083, 1, req);
+    // Wire-level investigation against macOS NTQQ confirmed:
+    //   - cmd 0x9083_1 is a real, server-recognized OIDB endpoint
+    //   - our request fields (groupId/sequence/emojiId/emojiType/count) are
+    //     encoded correctly per the schema
+    //   - BUT the server reply for 0x9083_1 is always exactly `18 01 20 01`
+    //     (field 3 = 1, field 4 = 1) — a 4-byte minimal ack, no user list
+    // That means 0x9083_1's semantics aren't "fetch emoji-like users". To
+    // probe the real cmd/subcmd, allow an env override so deployment can
+    // round-robin across candidates (0x9082_3, 0x9082_4, 0x9083_2, …)
+    // without rebuilding. Format: `SNOWLUMA_EMOJI_FETCH_CMD=0x9082_3`.
+    let cmdHex = 0x9083;
+    let subCmd = 1;
+    const envOverride = process.env.SNOWLUMA_EMOJI_FETCH_CMD;
+    if (envOverride) {
+      const m = /^0x([0-9a-fA-F]+)_(\d+)$/.exec(envOverride.trim());
+      if (m) {
+        cmdHex = parseInt(m[1], 16);
+        subCmd = parseInt(m[2], 10);
+      } else {
+        log.warn(`SNOWLUMA_EMOJI_FETCH_CMD malformed: ${JSON.stringify(envOverride)} (expected 0xNNNN_N); falling back to 0x9083_1`);
+      }
+    }
+    const wireName = `OidbSvcTrpcTcp.0x${cmdHex.toString(16)}_${subCmd}`;
+    const env = makeOidbEnvelope<Oidb0x9083Req>(cmdHex, subCmd, req);
     const reqBytes = protobuf_encode<OidbBase<Oidb0x9083Req>>(env);
-    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x9083_1', reqBytes);
+    const respBytes = await runOidb(bridge, wireName, reqBytes);
     const resp = protobuf_decode<OidbBase<Oidb0x9083Resp>>(respBytes).body;
     // userInfo is repeated on the wire — one entry per liker. The pre-fix
     // schema treated it as single, which made multi-user responses collapse
@@ -102,20 +125,18 @@ export class InteractionApi {
       .map(u => ({ uin: Number(u?.uin ?? 0) }))
       .filter(u => u.uin > 0);
     const respCookie = resp?.cookie ? Buffer.from(resp.cookie).toString('base64') : '';
-    // Empty-list debug aid. fetch_emoji_like has been hard to validate
-    // without wire data (this is the only public 0x9083 implementation),
-    // so when nothing comes back we dump the full request/response hex
-    // and the decoded envelope. Logs at debug level — invisible unless
-    // the user opts in.
-    if (users.length === 0) {
-      log.debug(
-        `getEmojiLikes empty result: group=${groupId} seq=${sequence} `
-        + `emojiId=${emojiId} emojiType=${emojiType} count=${count} `
-        + `cookieIn=${cookie ? 'yes' : 'no'} respCookieOut=${respCookie || '(empty)'}`,
-      );
-      log.debug(`  req  hex: ${toHexUpper(reqBytes)}`);
-      log.debug(`  resp hex: ${toHexUpper(respBytes)}`);
-    }
+    // Always dump req/resp hex (debug level) while we're probing the real
+    // cmd. Once we land on a working (cmd, subcmd) tuple, this branch can
+    // be tightened back to "only on empty users".
+    log.debug(
+      `getEmojiLikes ${users.length === 0 ? 'empty' : 'ok'} via ${wireName}: `
+      + `group=${groupId} seq=${sequence} emojiId=${emojiId} `
+      + `emojiType=${emojiType} count=${count} `
+      + `cookieIn=${cookie ? 'yes' : 'no'} respCookieOut=${respCookie || '(empty)'} `
+      + `users=${users.length}`,
+    );
+    log.debug(`  req  hex: ${toHexUpper(reqBytes)}`);
+    log.debug(`  resp hex: ${toHexUpper(respBytes)}`);
     return { users, cookie: respCookie, isLast: !respCookie };
   }
 }
