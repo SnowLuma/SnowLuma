@@ -47,6 +47,12 @@ export interface OidbCallSpec<TReq, TResp, TParams, TResult> {
   resolveSubCommand?(params: TParams): number;
   /** Set OIDB envelope `reserved = 1` (UIN-form variant, see makeOidbEnvelope's isUid). */
   uinForm?: boolean;
+  /** Override the default `OidbSvcTrpcTcp.0xNNNN_N` wire name. A few
+   *  cmds route through different SSO names (e.g. 0xE17_0 lives at
+   *  `MQUpdateSvc_com_qq_ti.web.OidbSvc.0xe17_0`); supply a function
+   *  that takes the resolved `(cmd, subCmd)` and returns the actual
+   *  wire name. Omit for the default scheme. */
+  wireName?(command: number, subCommand: number): string;
   /** Business params → wire-shaped request body. */
   serialize(params: TParams): TReq;
   /** Wire-shaped response body → business result. */
@@ -88,7 +94,9 @@ export async function invokeOidb<TReq, TResp, TParams, TResult>(
   const reqBody = spec.serialize(params);
   const env = makeOidbEnvelope(spec.command, subCommand, reqBody, spec.uinForm ?? false);
   const reqBytes = spec.encode(env);
-  const wireName = `OidbSvcTrpcTcp.0x${spec.command.toString(16)}_${subCommand}`;
+  const wireName = spec.wireName
+    ? spec.wireName(spec.command, subCommand)
+    : `OidbSvcTrpcTcp.0x${spec.command.toString(16)}_${subCommand}`;
 
   const result = await sender.sendRawPacket(wireName, reqBytes, timeoutMs);
   if (!result.success) throw new Error(result.errorMessage || 'packet send failed');
@@ -127,7 +135,9 @@ export function buildOidbRequest<TReq, TResp, TParams, TResult>(
   const reqBody = spec.serialize(params);
   const env = makeOidbEnvelope(spec.command, subCommand, reqBody, spec.uinForm ?? false);
   const bytes = spec.encode(env);
-  const wireName = `OidbSvcTrpcTcp.0x${spec.command.toString(16)}_${subCommand}`;
+  const wireName = spec.wireName
+    ? spec.wireName(spec.command, subCommand)
+    : `OidbSvcTrpcTcp.0x${spec.command.toString(16)}_${subCommand}`;
   return { wireName, bytes };
 }
 

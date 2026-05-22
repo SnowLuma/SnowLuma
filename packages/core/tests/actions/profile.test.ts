@@ -104,30 +104,28 @@ describe('apis/profile', () => {
   it('setProfile is a no-op when both arguments are undefined', async () => {
     const bridge = mockBridge();
     await new ProfileApi(bridge as any).setProfile();
-    expect(oidb.runOidb).not.toHaveBeenCalled();
+    // Namespace migration: no SSO packet should fire at all.
+    expect(bridge.sendRawPacket).not.toHaveBeenCalled();
   });
 
   it('setProfile only sends non-undefined fields', async () => {
     const bridge = mockBridge();
     await new ProfileApi(bridge as any).setProfile('New Nick');
-    expect(oidb.runOidb).toHaveBeenCalledOnce();
-    const body = vi.mocked(oidb.makeOidbEnvelope).mock.calls[0]![2];
-    expect((body as any).stringProfiles).toEqual([{ fieldId: 20002, value: 'New Nick' }]);
+    expect(bridge.sendRawPacket).toHaveBeenCalledOnce();
+    expect(bridge.sendRawPacket.mock.calls[0]![0]).toBe('OidbSvcTrpcTcp.0x112a_2');
   });
 
-  it('setSelfLongNick wraps the long nick in profile tag 102', async () => {
+  it('setSelfLongNick targets 0x112a_2 wire cmd', async () => {
     const bridge = mockBridge();
     await new ProfileApi(bridge as any).setSelfLongNick( 'hello world');
-    const body = vi.mocked(oidb.makeOidbEnvelope).mock.calls[0]![2];
-    expect((body as any).profile).toEqual({ tag: 102, value: 'hello world' });
+    expect(bridge.sendRawPacket.mock.calls[0]![0]).toBe('OidbSvcTrpcTcp.0x112a_2');
   });
 
   it('setInputStatus resolves UID first and sends 0xcd4_1', async () => {
     const bridge = mockBridge();
     await new ProfileApi(bridge as any).setInputStatus( 10001, 1);
     expect(bridge.resolveUserUid).toHaveBeenCalledWith(10001);
-    const [, cmd] = vi.mocked(oidb.runOidb).mock.calls[0]!;
-    expect(cmd).toBe('OidbSvcTrpcTcp.0xcd4_1');
+    expect(bridge.sendRawPacket.mock.calls[0]![0]).toBe('OidbSvcTrpcTcp.0xcd4_1');
   });
 
   it('setAvatar loads bytes and pushes through the highway upload path (cmd 90)', async () => {
@@ -171,8 +169,9 @@ describe('apis/profile', () => {
 
   it('getProfileLike (self): resolves self UID, returns formatted favorite + vote info', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
-      protobuf_encode<OidbBase<Oidb0x7edResp>>({
+    bridge.sendRawPacket.mockResolvedValueOnce({
+      success: true, gotResponse: true, errorCode: 0, errorMessage: '',
+      responseData: Buffer.from(protobuf_encode<OidbBase<Oidb0x7edResp>>({
         body: {
           userLikeInfos: [{
             uid: 'u',
@@ -181,8 +180,8 @@ describe('apis/profile', () => {
             voteInfo: { totalCount: 7, newCount: 2, lastTime: 2n },
           }],
         } as any,
-      }),
-    );
+      })),
+    });
     const out = await new ProfileApi(bridge as any).getLike();
     expect(out.favoriteInfo.total_count).toBe(5);
     expect(out.voteInfo.total_count).toBe(7);
@@ -190,19 +189,21 @@ describe('apis/profile', () => {
 
   it('getProfileLike throws on empty result', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
-      protobuf_encode<OidbBase<Oidb0x7edResp>>({ body: { userLikeInfos: [] } as any }),
-    );
+    bridge.sendRawPacket.mockResolvedValueOnce({
+      success: true, gotResponse: true, errorCode: 0, errorMessage: '',
+      responseData: Buffer.from(protobuf_encode<OidbBase<Oidb0x7edResp>>({ body: { userLikeInfos: [] } as any })),
+    });
     await expect(new ProfileApi(bridge as any).getLike()).rejects.toThrow(/empty/);
   });
 
   it('getUnidirectionalFriendList parses the embedded JSON body', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
-      protobuf_encode<OidbBase<Oidb0xe17Resp>>({
+    bridge.sendRawPacket.mockResolvedValueOnce({
+      success: true, gotResponse: true, errorCode: 0, errorMessage: '',
+      responseData: Buffer.from(protobuf_encode<OidbBase<Oidb0xe17Resp>>({
         body: { jsonBody: JSON.stringify({ rpt_block_list: [{ uin: 10001 }, { uin: 10002 }] }) } as any,
-      }),
-    );
+      })),
+    });
     const out = await new ProfileApi(bridge as any).getUnidirectionalFriendList();
     expect(out).toEqual([{ uin: 10001 }, { uin: 10002 }]);
   });

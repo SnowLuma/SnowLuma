@@ -63,6 +63,26 @@
       "types": "./src/oidb-services/interaction/set-essence.ts",
       "default": "./src/oidb-services/interaction/set-essence.ts"
     },
+    "./oidb-services/profile/set-profile": {
+      "types": "./src/oidb-services/profile/set-profile.ts",
+      "default": "./src/oidb-services/profile/set-profile.ts"
+    },
+    "./oidb-services/profile/set-self-long-nick": {
+      "types": "./src/oidb-services/profile/set-self-long-nick.ts",
+      "default": "./src/oidb-services/profile/set-self-long-nick.ts"
+    },
+    "./oidb-services/profile/set-input-status": {
+      "types": "./src/oidb-services/profile/set-input-status.ts",
+      "default": "./src/oidb-services/profile/set-input-status.ts"
+    },
+    "./oidb-services/profile/get-like": {
+      "types": "./src/oidb-services/profile/get-like.ts",
+      "default": "./src/oidb-services/profile/get-like.ts"
+    },
+    "./oidb-services/profile/get-unidirectional-friend-list": {
+      "types": "./src/oidb-services/profile/get-unidirectional-friend-list.ts",
+      "default": "./src/oidb-services/profile/get-unidirectional-friend-list.ts"
+    },
     "./bridge-context": {
       "types": "./src/bridge-context.ts",
       "default": "./src/bridge-context.ts"
