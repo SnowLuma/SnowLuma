@@ -281,7 +281,7 @@ export class ContactsApi {
     const info: UserProfileInfo = {
       uin: resp.body.uin ?? uin,
       uid: resp.body.uid ?? '',
-      nickname: '', remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '',
+      nickname: '', remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0,
     };
 
     if (resp.body.properties) {
@@ -310,6 +310,7 @@ export class ContactsApi {
       const sexNum = numMap.get(20009) ?? 0;
       info.sex = sexNum === 1 ? 'male' : sexNum === 2 ? 'female' : 'unknown';
       info.age = numMap.get(20037) ?? 0;
+      info.level = numMap.get(105) ?? 0;
     }
 
     this.ctx.identity.rememberUserProfile(info);

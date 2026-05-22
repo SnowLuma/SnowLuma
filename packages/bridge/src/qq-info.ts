@@ -8,6 +8,10 @@ export interface UserProfileInfo {
   age: number;
   sign: string;
   avatar: string;
+  /** QQ 等级 — OIDB 0xFE1_2 number-property key 105.
+   *  Already requested in `fetchUserProfile` keys[]; LagrangeV2
+   *  `FetchStrangerService.cs` confirms `// Level`. */
+  level: number;
 }
 
 export interface FriendInfo {

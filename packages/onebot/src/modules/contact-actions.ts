@@ -152,6 +152,12 @@ export async function getStrangerInfo(
       nickname: p.nickname as any,
       sex: p.sex as any,
       age: p.age as any,
+      // NapCat-compatible field name (`qq_level`). Source: OIDB 0xFE1_2
+      // number-property key 105 (Level), already requested via
+      // `fetchUserProfile`'s keys[]. Pre-fix this number was decoded
+      // but never surfaced.
+      qq_level: p.level as any,
+      level: p.level as any,
     };
   } catch {
     const p = bridge.identity.findUserProfile(userId);
@@ -161,6 +167,8 @@ export async function getStrangerInfo(
       nickname: p.nickname as any,
       sex: p.sex as any,
       age: p.age as any,
+      qq_level: p.level as any,
+      level: p.level as any,
     };
   }
 }

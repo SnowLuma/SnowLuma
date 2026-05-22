@@ -188,7 +188,7 @@ describe('IdentityService', () => {
 
 describe('IdentityService.resolveUid', () => {
   function makeProfile(uin: number, uid: string): UserProfileInfo {
-    return { uin, uid, nickname: '', remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '' };
+    return { uin, uid, nickname: '', remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0 };
   }
 
   it('returns the cached uid without invoking the fetcher', async () => {

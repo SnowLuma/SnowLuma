@@ -97,7 +97,7 @@ async function warmUpBridgeState(uin: string, bridge: BridgeInterface): Promise<
         bridge.identity.setSelfProfile({
           uin: f.uin, uid: f.uid,
           nickname: f.nickname || uin,
-          remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '',
+          remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0,
         });
         bridge.identity.nickname = f.nickname || uin;
         log.debug('self info: UIN=%s uid=%s nickname=%s', uin, f.uid, f.nickname ?? '');
