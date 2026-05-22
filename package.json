@@ -23,6 +23,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@vitest/coverage-istanbul": "4.1.4",
+    "@vitest/coverage-v8": "^4.1.4",
     "cross-env": "^10.1.0",
     "eslint": "^10.2.0",
     "eslint-plugin-react-hooks": "^7.0.1",
