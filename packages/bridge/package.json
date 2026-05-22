@@ -51,6 +51,18 @@
       "types": "./src/oidb-services/reaction/get-emoji-likes.ts",
       "default": "./src/oidb-services/reaction/get-emoji-likes.ts"
     },
+    "./oidb-services/interaction/send-poke": {
+      "types": "./src/oidb-services/interaction/send-poke.ts",
+      "default": "./src/oidb-services/interaction/send-poke.ts"
+    },
+    "./oidb-services/interaction/send-like": {
+      "types": "./src/oidb-services/interaction/send-like.ts",
+      "default": "./src/oidb-services/interaction/send-like.ts"
+    },
+    "./oidb-services/interaction/set-essence": {
+      "types": "./src/oidb-services/interaction/set-essence.ts",
+      "default": "./src/oidb-services/interaction/set-essence.ts"
+    },
     "./bridge-context": {
       "types": "./src/bridge-context.ts",
       "default": "./src/bridge-context.ts"
