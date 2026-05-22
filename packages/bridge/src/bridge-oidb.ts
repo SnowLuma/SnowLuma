@@ -1,6 +1,9 @@
 import { protobuf_decode } from '@snowluma/proton';
-import type { BridgeContext } from './bridge-context';
 import type { OidbBase, OidbBaseMeta } from '@snowluma/proto-defs/oidb';
+// Sender capability is the minimal interface needed by runOidb. The
+// concrete BridgeContext (and the Bridge class extending it) is
+// structurally a superset, so callers keep passing `bridge` unchanged.
+import type { OidbSender } from './oidb-service';
 
 /**
  * Build the OidbBase<T>-shaped TS value. Pure helper, no protobuf
@@ -45,12 +48,12 @@ export function makeOidbEnvelope<T>(
  * packet carried no payload).
  */
 export async function runOidb(
-  bridge: BridgeContext,
+  sender: OidbSender,
   cmd: string,
   envelopeBytes: Uint8Array,
   timeoutMs?: number,
 ): Promise<Uint8Array> {
-  const result = await bridge.sendRawPacket(cmd, envelopeBytes, timeoutMs);
+  const result = await sender.sendRawPacket(cmd, envelopeBytes, timeoutMs);
   if (!result.success) throw new Error(result.errorMessage || 'packet send failed');
   if (!result.gotResponse) throw new Error(result.errorMessage || 'no response');
 

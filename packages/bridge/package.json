@@ -35,6 +35,22 @@
       "types": "./src/bridge-oidb.ts",
       "default": "./src/bridge-oidb.ts"
     },
+    "./oidb-service": {
+      "types": "./src/oidb-service.ts",
+      "default": "./src/oidb-service.ts"
+    },
+    "./oidb-services/reaction/set-reaction": {
+      "types": "./src/oidb-services/reaction/set-reaction.ts",
+      "default": "./src/oidb-services/reaction/set-reaction.ts"
+    },
+    "./oidb-services/reaction/fetch-reaction-summary": {
+      "types": "./src/oidb-services/reaction/fetch-reaction-summary.ts",
+      "default": "./src/oidb-services/reaction/fetch-reaction-summary.ts"
+    },
+    "./oidb-services/reaction/get-emoji-likes": {
+      "types": "./src/oidb-services/reaction/get-emoji-likes.ts",
+      "default": "./src/oidb-services/reaction/get-emoji-likes.ts"
+    },
     "./bridge-context": {
       "types": "./src/bridge-context.ts",
       "default": "./src/bridge-context.ts"
@@ -113,6 +129,7 @@
     }
   },
   "scripts": {
+    "test": "vitest run",
     "bench": "vitest bench --run",
     "typecheck": "tsc --noEmit"
   },

@@ -56,11 +56,13 @@ describe('apis/interaction', () => {
   });
 
   it('setReaction picks _1 for set and _2 for unset', async () => {
+    // setReaction now forwards through the SetReaction namespace, which
+    // calls bridge.sendRawPacket directly (bypassing runOidb).
     const bridge = mockBridge();
     const api = new InteractionApi(bridge as any);
     await api.setReaction(12345, 99, '128516', true);
     await api.setReaction(12345, 99, '128516', false);
-    const cmds = vi.mocked(oidb.runOidb).mock.calls.map(c => c[1]);
+    const cmds = bridge.sendRawPacket.mock.calls.map((c: any[]) => c[0]);
     expect(cmds).toEqual(['OidbSvcTrpcTcp.0x9082_1', 'OidbSvcTrpcTcp.0x9082_2']);
   });
 
@@ -75,14 +77,15 @@ describe('apis/interaction', () => {
 
   it('getEmojiLikes decodes user list, base64-encodes cookie, and reports isLast', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
-      protobuf_encode<OidbBase<Oidb0x9083Resp>>({
+    bridge.sendRawPacket.mockResolvedValueOnce({
+      success: true, gotResponse: true, errorCode: 0, errorMessage: '',
+      responseData: Buffer.from(protobuf_encode<OidbBase<Oidb0x9083Resp>>({
         body: {
           inner: { userInfo: [{ uin: 10001n }, { uin: 20002n }] },
           cookie: new Uint8Array([0xCA, 0xFE]),
         } as any,
-      }),
-    );
+      })),
+    });
     const out = await new InteractionApi(bridge as any).getEmojiLikes(12345, 99, '128516');
     expect(out.users).toEqual([{ uin: 10001 }, { uin: 20002 }]);
     expect(out.cookie).toBe(Buffer.from([0xCA, 0xFE]).toString('base64'));
@@ -91,9 +94,10 @@ describe('apis/interaction', () => {
 
   it('getEmojiLikes reports isLast=true when no cookie comes back', async () => {
     const bridge = mockBridge();
-    vi.mocked(oidb.runOidb).mockResolvedValueOnce(
-      protobuf_encode<OidbBase<Oidb0x9083Resp>>({ body: {} }),
-    );
+    bridge.sendRawPacket.mockResolvedValueOnce({
+      success: true, gotResponse: true, errorCode: 0, errorMessage: '',
+      responseData: Buffer.from(protobuf_encode<OidbBase<Oidb0x9083Resp>>({ body: {} })),
+    });
     const out = await new InteractionApi(bridge as any).getEmojiLikes(12345, 99, '128516');
     expect(out.users).toEqual([]);
     expect(out.isLast).toBe(true);

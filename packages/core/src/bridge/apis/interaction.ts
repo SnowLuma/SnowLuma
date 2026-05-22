@@ -5,27 +5,27 @@
 // commit 13). The recall+markRead halves of `group-message.ts` were
 // already absorbed into `MessageApi` back in commit 1.
 
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import { toHexUpper } from '@snowluma/common/hex';
-import { createLogger } from '@snowluma/common/logger';
+import { protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
-  Oidb0x9083Req,
-  Oidb0x9083Resp,
-  Oidb0x9084Req,
-  Oidb0x9084Resp,
   OidbEssence,
-  OidbGroupReaction,
   OidbLike,
   OidbPoke,
 } from '@snowluma/proto-defs/oidb-actions/base';
 import type { BridgeContext } from '../bridge-context';
 import type { Bridge } from '../bridge';
 import { makeOidbEnvelope, runOidb } from '@snowluma/bridge/bridge-oidb';
+// Vertical-slice migration: reaction-family OIDB calls now live as
+// self-contained namespaces under @snowluma/bridge/oidb-services. The
+// facade methods on this class are thin forwarders (1-line bodies) to
+// preserve `bridge.apis.interaction.X()` ergonomics for callers that
+// haven't migrated yet. The other (non-reaction) cmds still inline the
+// envelope+encode+runOidb dance — they'll move in follow-up PRs.
+import { SetReaction } from '@snowluma/bridge/oidb-services/reaction/set-reaction';
+import { FetchReactionSummary } from '@snowluma/bridge/oidb-services/reaction/fetch-reaction-summary';
+import { GetEmojiLikes } from '@snowluma/bridge/oidb-services/reaction/get-emoji-likes';
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
-
-const log = createLogger('Interaction');
 
 export class InteractionApi {
   constructor(private readonly ctx: BridgeContext) {}
@@ -47,20 +47,8 @@ export class InteractionApi {
     await runOidb(bridge, 'OidbSvcTrpcTcp.0x7e5_104', protobuf_encode<OidbBase<OidbLike>>(env));
   }
 
-  async setReaction(groupId: number, sequence: number, code: string, isSet: boolean): Promise<void> {
-    const bridge = asBridge(this.ctx);
-    const subCmd = isSet ? 1 : 2;
-    const cmd = isSet ? 'OidbSvcTrpcTcp.0x9082_1' : 'OidbSvcTrpcTcp.0x9082_2';
-    // Same heuristic Lagrange.Core V2 uses (`GroupAddReactionEvent.IsEmoji`):
-    // QQ face ids are 1–3 digits ("76") → type=1, unicode codepoints are
-    // longer ("128516") → type=2. Server reads the type at field 5; sending
-    // it at the wrong field number triggers
-    // "invalid ReqBody.EmojiType: value must be greater than 0".
-    const type = code.length > 3 ? 2 : 1;
-    const env = makeOidbEnvelope<OidbGroupReaction>(0x9082, subCmd, {
-      groupUin: groupId, sequence, code, type, field6: false, field7: false,
-    });
-    await runOidb(bridge, cmd, protobuf_encode<OidbBase<OidbGroupReaction>>(env));
+  setReaction(groupId: number, sequence: number, code: string, isSet: boolean): Promise<void> {
+    return SetReaction.invoke(this.ctx, { groupId, sequence, code, isSet });
   }
 
   async setEssence(groupId: number, sequence: number, random: number, enable: boolean): Promise<void> {
@@ -79,56 +67,14 @@ export class InteractionApi {
     count = 10,
     cookie = '',
   ): Promise<{ users: Array<{ uin: number }>; cookie: string; isLast: boolean }> {
-    const bridge = asBridge(this.ctx);
-    const req: any = {
-      groupId: BigInt(groupId),
-      // sequence is uint_64 on the wire (matches LagrangeV2's
-      // SetGroupReactionRequest.Sequence:ulong). Caller still passes
-      // a JS number — bigint conversion lives here.
-      sequence: BigInt(sequence),
-      emojiType,
-      emojiId,
-      cookie: cookie ? Buffer.from(cookie, 'base64') : new Uint8Array(0),
-      field7: 0,
-      count,
-      field12: 1,
-    };
-    // Two rounds of wire-level probing against macOS NTQQ confirmed:
-    //   - 0x9083_1 returns a 4-byte ack `18 01 20 01` (no user list)
-    //   - 0x9084_1 returns a per-emoji reaction *summary* (emoji_id +
-    //     count + last-reaction timestamp), no user IDs — see
-    //     `fetchReactionSummary` below
-    //   - 0x9082_3..5, 0x9083_0/2/3, 0x9084_2..5, 0x9085_1/2, 0x9087_1
-    //     all reject with "no privilege": the cmds exist but aren't in
-    //     the NTQQ client's capability bitmap, so the server blocks
-    //     anything not registered at login. NTQQ's own
-    //     `getMsgEmojiLikesList` uses a wrapper-internal cache, not SSO.
-    // So this OIDB path can never surface the user list. The real
-    // implementation lives in `ReactionStore` on the OneBot side, fed
-    // from `GroupMsgEmojiLikeEvent` push. This method is retained so
-    // legacy callers don't crash — they get an empty users array.
-    const env = makeOidbEnvelope<Oidb0x9083Req>(0x9083, 1, req);
-    const reqBytes = protobuf_encode<OidbBase<Oidb0x9083Req>>(env);
-    let respBytes: Uint8Array;
+    // Legacy stub: see `GetEmojiLikes` namespace comment for why this
+    // SSO path can never surface the user list. Real data lives in
+    // ReactionStore on the OneBot side.
     try {
-      respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x9083_1', reqBytes);
-    } catch (e) {
-      log.debug(`getEmojiLikes 0x9083_1 threw: ${e instanceof Error ? e.message : String(e)}`);
+      return await GetEmojiLikes.invoke(this.ctx, { groupId, sequence, emojiId, emojiType, count, cookie });
+    } catch {
       return { users: [], cookie: '', isLast: true };
     }
-    const resp = protobuf_decode<OidbBase<Oidb0x9083Resp>>(respBytes).body;
-    const users: Array<{ uin: number }> = (resp?.inner?.userInfo ?? [])
-      .map(u => ({ uin: Number(u?.uin ?? 0) }))
-      .filter(u => u.uin > 0);
-    const respCookie = resp?.cookie ? Buffer.from(resp.cookie).toString('base64') : '';
-    if (users.length === 0) {
-      log.debug(
-        `getEmojiLikes empty (expected — use ReactionStore instead): `
-        + `group=${groupId} seq=${sequence} emojiId=${emojiId} `
-        + `respLen=${respBytes.length}`,
-      );
-    }
-    return { users, cookie: respCookie, isLast: !respCookie };
   }
 
   /**
@@ -147,40 +93,10 @@ export class InteractionApi {
    * Catalog entries (available emojis with no count/timestamp) are
    * filtered out — callers want the "used" subset.
    */
-  async fetchReactionSummary(
+  fetchReactionSummary(
     groupId: number,
     sequence: number,
   ): Promise<Array<{ emojiId: string; emojiType: number; count: number; lastReactionTime: number }>> {
-    const bridge = asBridge(this.ctx);
-    const req: any = {
-      groupId: BigInt(groupId),
-      sequence: BigInt(sequence),
-      // Match the request shape the 0x9083_1 path sends so the server
-      // routes us identically. `count`/`emojiId`/`emojiType` are
-      // ignored by the summary handler but harmless.
-      emojiId: '',
-      emojiType: 0,
-      cookie: new Uint8Array(0),
-      count: 0,
-      field12: 1,
-    };
-    const env = makeOidbEnvelope<Oidb0x9084Req>(0x9084, 1, req);
-    const reqBytes = protobuf_encode<OidbBase<Oidb0x9084Req>>(env);
-    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x9084_1', reqBytes);
-    const resp = protobuf_decode<OidbBase<Oidb0x9084Resp>>(respBytes).body;
-    const out: Array<{ emojiId: string; emojiType: number; count: number; lastReactionTime: number }> = [];
-    for (const e of resp?.entries ?? []) {
-      const count = e.count ?? 0;
-      // Filter the catalog tail. "Used" entries always have count > 0
-      // and a lastReactionTime; catalog entries have neither.
-      if (count <= 0) continue;
-      out.push({
-        emojiId: e.emojiId ?? '',
-        emojiType: e.emojiType ?? 1,
-        count,
-        lastReactionTime: Number(e.lastReactionTime ?? 0n),
-      });
-    }
-    return out;
+    return FetchReactionSummary.invoke(this.ctx, { groupId, sequence });
   }
 }

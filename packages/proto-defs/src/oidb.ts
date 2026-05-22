@@ -23,6 +23,12 @@ export interface OidbBaseMeta {
   reserved?:   pb<12, int_32>;
 }
 
+/** Placeholder body for OIDB cmds whose successful response carries no
+ *  payload (only the envelope's errorCode matters). Used as the
+ *  TResp parameter in OidbCallSpec for fire-and-forget cmds — proton
+ *  needs a real message interface here, not `void` or `never`. */
+export interface OidbEmpty {}
+
 // Oidb.0xFD4_1 Friend list
 export interface OidbFriendProperty {
   code?:  pb<1, uint_32>;
