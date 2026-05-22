@@ -107,6 +107,14 @@
       "types": "./src/oidb-services/misc/send-group-sign.ts",
       "default": "./src/oidb-services/misc/send-group-sign.ts"
     },
+    "./oidb-services/web/force-fetch-client-key": {
+      "types": "./src/oidb-services/web/force-fetch-client-key.ts",
+      "default": "./src/oidb-services/web/force-fetch-client-key.ts"
+    },
+    "./oidb-services/web/get-pskey": {
+      "types": "./src/oidb-services/web/get-pskey.ts",
+      "default": "./src/oidb-services/web/get-pskey.ts"
+    },
     "./bridge-context": {
       "types": "./src/bridge-context.ts",
       "default": "./src/bridge-context.ts"

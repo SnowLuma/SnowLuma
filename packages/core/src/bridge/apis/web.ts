@@ -4,17 +4,8 @@
 // The pure HTTP transport stays in `web/*.ts` and stays unchanged —
 // only the Bridge-binding helpers move here.
 
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { OidbBase } from '@snowluma/proto-defs/oidb';
-import type {
-  OidbClientKeyReq,
-  OidbClientKeyResp,
-  OidbGetPskeyReq,
-  OidbGetPskeyResp,
-} from '@snowluma/proto-defs/oidb-actions/base';
 import type { BridgeContext } from '../bridge-context';
 import type { Bridge } from '../bridge';
-import { makeOidbEnvelope, runOidb } from '@snowluma/bridge/bridge-oidb';
 import { getGroupEssenceMsg, getGroupEssenceMsgAll } from '@snowluma/bridge/web/group-essence';
 import { getHonorListWebAPI, WebHonorType } from '@snowluma/bridge/web/group-honor';
 import {
@@ -24,49 +15,23 @@ import {
   uploadGroupNoticeImage,
 } from '@snowluma/bridge/web/group-notice';
 import { RequestUtil } from '@snowluma/bridge/web/request-util';
+// Migrated OIDB cmds — the two private helpers below are thin
+// forwarders into the namespaces.
+import { ForceFetchClientKey, type ClientKeyInfo as NamespaceClientKeyInfo } from '@snowluma/bridge/oidb-services/web/force-fetch-client-key';
+import { GetPskey } from '@snowluma/bridge/oidb-services/web/get-pskey';
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
 
-export interface ClientKeyInfo {
-  clientKey: string;
-  keyIndex: string;
-  expireTime: string;
-}
+export type ClientKeyInfo = NamespaceClientKeyInfo;
 
 // ─────────────── private helpers (cookie acquisition) ───────────────
 
-async function forceFetchClientKeyInner(bridge: Bridge): Promise<ClientKeyInfo> {
-  const env = makeOidbEnvelope<OidbClientKeyReq>(0x102A, 1, {});
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x102a_1', protobuf_encode<OidbBase<OidbClientKeyReq>>(env));
-  const resp = protobuf_decode<OidbBase<OidbClientKeyResp>>(respBytes).body;
-
-  const clientKey = resp?.clientKey || '';
-  // keyIndex falls back to "19" — origin unknown but the value is what
-  // every NapCat-derived implementation uses when the server omits it.
-  const keyIndex = String(resp?.keyIndex || '19');
-
-  return {
-    clientKey,
-    keyIndex,
-    expireTime: String(resp?.expireTime || '1800'),
-  };
+function forceFetchClientKeyInner(bridge: Bridge): Promise<ClientKeyInfo> {
+  return ForceFetchClientKey.invoke(bridge);
 }
 
-async function getPSkey(bridge: Bridge, domainList: string[]): Promise<{ domainPskeyMap: Map<string, string> }> {
-  const env = makeOidbEnvelope<OidbGetPskeyReq>(0x102A, 0, { domainList });
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x102a_0', protobuf_encode<OidbBase<OidbGetPskeyReq>>(env));
-  const resp = protobuf_decode<OidbBase<OidbGetPskeyResp>>(respBytes).body;
-
-  const domainPskeyMap = new Map<string, string>();
-  if (resp?.pskeyItems && Array.isArray(resp.pskeyItems)) {
-    for (const item of resp.pskeyItems) {
-      if (item.domain && item.pskey) {
-        domainPskeyMap.set(item.domain, item.pskey);
-      }
-    }
-  }
-
-  return { domainPskeyMap };
+function getPSkey(bridge: Bridge, domainList: string[]): Promise<{ domainPskeyMap: Map<string, string> }> {
+  return GetPskey.invoke(bridge, { domainList });
 }
 
 async function getCookies(bridge: Bridge, domain: string): Promise<Record<string, string>> {
