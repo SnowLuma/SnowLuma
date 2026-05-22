@@ -83,6 +83,18 @@
       "types": "./src/oidb-services/profile/get-unidirectional-friend-list.ts",
       "default": "./src/oidb-services/profile/get-unidirectional-friend-list.ts"
     },
+    "./oidb-services/friend/handle-friend-request": {
+      "types": "./src/oidb-services/friend/handle-friend-request.ts",
+      "default": "./src/oidb-services/friend/handle-friend-request.ts"
+    },
+    "./oidb-services/friend/delete-friend": {
+      "types": "./src/oidb-services/friend/delete-friend.ts",
+      "default": "./src/oidb-services/friend/delete-friend.ts"
+    },
+    "./oidb-services/friend/set-friend-remark": {
+      "types": "./src/oidb-services/friend/set-friend-remark.ts",
+      "default": "./src/oidb-services/friend/set-friend-remark.ts"
+    },
     "./bridge-context": {
       "types": "./src/bridge-context.ts",
       "default": "./src/bridge-context.ts"
