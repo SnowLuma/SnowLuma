@@ -155,6 +155,62 @@
       "types": "./src/oidb-services/contacts/fetch-download-rkeys.ts",
       "default": "./src/oidb-services/contacts/fetch-download-rkeys.ts"
     },
+    "./oidb-services/group-admin/mute-member": {
+      "types": "./src/oidb-services/group-admin/mute-member.ts",
+      "default": "./src/oidb-services/group-admin/mute-member.ts"
+    },
+    "./oidb-services/group-admin/mute-all": {
+      "types": "./src/oidb-services/group-admin/mute-all.ts",
+      "default": "./src/oidb-services/group-admin/mute-all.ts"
+    },
+    "./oidb-services/group-admin/set-add-option": {
+      "types": "./src/oidb-services/group-admin/set-add-option.ts",
+      "default": "./src/oidb-services/group-admin/set-add-option.ts"
+    },
+    "./oidb-services/group-admin/set-search": {
+      "types": "./src/oidb-services/group-admin/set-search.ts",
+      "default": "./src/oidb-services/group-admin/set-search.ts"
+    },
+    "./oidb-services/group-admin/set-add-request": {
+      "types": "./src/oidb-services/group-admin/set-add-request.ts",
+      "default": "./src/oidb-services/group-admin/set-add-request.ts"
+    },
+    "./oidb-services/group-admin/kick-member": {
+      "types": "./src/oidb-services/group-admin/kick-member.ts",
+      "default": "./src/oidb-services/group-admin/kick-member.ts"
+    },
+    "./oidb-services/group-admin/kick-members": {
+      "types": "./src/oidb-services/group-admin/kick-members.ts",
+      "default": "./src/oidb-services/group-admin/kick-members.ts"
+    },
+    "./oidb-services/group-admin/leave-group": {
+      "types": "./src/oidb-services/group-admin/leave-group.ts",
+      "default": "./src/oidb-services/group-admin/leave-group.ts"
+    },
+    "./oidb-services/group-admin/set-admin": {
+      "types": "./src/oidb-services/group-admin/set-admin.ts",
+      "default": "./src/oidb-services/group-admin/set-admin.ts"
+    },
+    "./oidb-services/group-admin/set-member-card": {
+      "types": "./src/oidb-services/group-admin/set-member-card.ts",
+      "default": "./src/oidb-services/group-admin/set-member-card.ts"
+    },
+    "./oidb-services/group-admin/set-group-name": {
+      "types": "./src/oidb-services/group-admin/set-group-name.ts",
+      "default": "./src/oidb-services/group-admin/set-group-name.ts"
+    },
+    "./oidb-services/group-admin/set-special-title": {
+      "types": "./src/oidb-services/group-admin/set-special-title.ts",
+      "default": "./src/oidb-services/group-admin/set-special-title.ts"
+    },
+    "./oidb-services/group-admin/set-group-remark": {
+      "types": "./src/oidb-services/group-admin/set-group-remark.ts",
+      "default": "./src/oidb-services/group-admin/set-group-remark.ts"
+    },
+    "./oidb-services/group-admin/get-at-all-remain": {
+      "types": "./src/oidb-services/group-admin/get-at-all-remain.ts",
+      "default": "./src/oidb-services/group-admin/get-at-all-remain.ts"
+    },
     "./bridge-context": {
       "types": "./src/bridge-context.ts",
       "default": "./src/bridge-context.ts"
