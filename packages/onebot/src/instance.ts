@@ -4,6 +4,7 @@ import { ApiHandler } from './api-handler';
 import type { ConverterContext } from './event-converter';
 import { MediaIndexer } from './media-indexer';
 import { MediaStore } from './media-store';
+import { ReactionStore } from './reaction-store';
 import { MediaUrlResolver } from './media-url-resolver';
 import { MessageStore } from './message-store';
 import { RKeyCache } from './instance-rkey';
@@ -32,6 +33,7 @@ export class OneBotInstance {
   private readonly converterCtx: ConverterContext;
   private readonly messageStore: MessageStore;
   private readonly mediaStore: MediaStore;
+  private readonly reactionStore: ReactionStore;
   private readonly networkManager: OneBotNetworkManager;
   private readonly rkeyCache: RKeyCache;
   private readonly ctx: OneBotInstanceContext;
@@ -56,6 +58,7 @@ export class OneBotInstance {
     this.rkeyCache = new RKeyCache();
     this.mediaStore = new MediaStore(path.join('data', this.uin, 'media.db'));
     this.messageStore = new MessageStore(path.join('data', this.uin, 'messages.json'));
+    this.reactionStore = new ReactionStore(path.join('data', this.uin, 'reactions.db'));
 
     // The converter context's four callbacks delegate to small, focused
     // modules so this constructor doesn't carry the bridge-URL fetch
@@ -83,6 +86,7 @@ export class OneBotInstance {
       bridge: this.bridge,
       messageStore: this.messageStore,
       mediaStore: this.mediaStore,
+      reactionStore: this.reactionStore,
       converterCtx: this.converterCtx,
       config,
       musicSignUrl: config.musicSignUrl,
@@ -122,6 +126,7 @@ export class OneBotInstance {
     });
     this.messageStore.close();
     this.mediaStore.close();
+    this.reactionStore.close();
   }
 
   addPid(pid: number): void {

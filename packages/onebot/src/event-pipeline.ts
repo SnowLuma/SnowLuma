@@ -39,6 +39,12 @@ export function registerEventPipeline(ctx: OneBotInstanceContext): () => void {
   for (const kind of NOTICE_KINDS) {
     disposers.push(
       ctx.bridge.events.on(kind, async (event) => {
+        // Side-effect: write emoji-reaction events to the local cache
+        // BEFORE converting / dispatching, so a fetch_emoji_like that
+        // races with the push still sees the new row.
+        if (event.kind === 'group_msg_emoji_like') {
+          cacheReaction(ctx, event);
+        }
         await convertAndDispatch(ctx, event);
       }),
     );
@@ -104,4 +110,35 @@ function cachePrivateMessageMeta(
     random,
     timestamp,
   });
+}
+
+function cacheReaction(
+  ctx: OneBotInstanceContext,
+  event: Extract<QQEventVariant, { kind: 'group_msg_emoji_like' }>,
+): void {
+  // `isAdd=true` means the operator just reacted; `isAdd=false` means
+  // the reaction was withdrawn. The decoder already normalizes both
+  // directions onto this single event kind. `emojiType` isn't on the
+  // push event payload — we default to 1 (QQ-face) which matches every
+  // observed reaction so far; the field is a known unknown and can be
+  // refined later if a wire dump shows it.
+  if (!event.groupId || !event.msgSeq || !event.emojiId || !event.operatorUin) return;
+  if (event.isAdd) {
+    ctx.reactionStore.recordAdd(
+      event.groupId,
+      event.msgSeq,
+      event.emojiId,
+      1,
+      event.operatorUin,
+      event.operatorUid,
+      event.time,
+    );
+  } else {
+    ctx.reactionStore.recordRemove(
+      event.groupId,
+      event.msgSeq,
+      event.emojiId,
+      event.operatorUin,
+    );
+  }
 }

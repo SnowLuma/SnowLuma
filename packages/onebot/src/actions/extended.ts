@@ -810,15 +810,22 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
   });
 
+  // get_emoji_likes / fetch_emoji_like both back into the same
+  // ReactionStore-backed helper. The OIDB-only path can't surface the
+  // user list (server-side capability whitelist blocks every "fetch
+  // reactor" subcmd), so the local cache fed by GroupMsgEmojiLike push
+  // events is the source of truth here. We cross-check totals against
+  // OIDB 0x9084_1 summary so callers can tell when the cache is
+  // incomplete (events missed before bot boot, etc.).
   h.registerAction('get_emoji_likes', async (params) => {
     const messageId = asNumber(params.message_id);
     const emojiId = asString(params.emoji_id) || '';
     if (!messageId || !emojiId) return failedResponse(RETCODE.BAD_REQUEST, 'message_id and emoji_id are required');
     try {
-      const meta = ctx.getMessageMeta(messageId);
-      if (!meta?.isGroup || !meta?.sequence) return failedResponse(RETCODE.BAD_REQUEST, 'message not found or not a group message');
-      const result = await ctx.bridge.apis.interaction.getEmojiLikes(meta.targetId, meta.sequence, emojiId);
-      return okResponse({ emoji_like_list: result.users.map(u => ({ user_id: String(u.uin), nick_name: '' })) });
+      const result = await ctx.fetchEmojiLikeUsers(messageId, emojiId, 1000);
+      return okResponse({
+        emoji_like_list: result.users.map(u => ({ user_id: String(u.uin), nick_name: '' })),
+      });
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
     }
@@ -827,21 +834,25 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   h.registerAction('fetch_emoji_like', async (params) => {
     const messageId = asNumber(params.message_id);
     const emojiId = asString(params.emojiId) || '';
-    const emojiType = asNumber(params.emojiType) || 1;
     const count = asNumber(params.count) || 10;
     const cookie = asString(params.cookie) || '';
     if (!messageId || !emojiId) return failedResponse(RETCODE.BAD_REQUEST, 'message_id and emojiId are required');
     try {
-      const meta = ctx.getMessageMeta(messageId);
-      if (!meta?.isGroup || !meta?.sequence) return failedResponse(RETCODE.BAD_REQUEST, 'message not found or not a group message');
-      const result = await ctx.bridge.apis.interaction.getEmojiLikes(meta.targetId, meta.sequence, emojiId, emojiType, count, cookie);
+      // Cookie-based pagination doesn't make sense over a local SQLite
+      // store; parse incoming cookie as numeric offset for compatibility
+      // with NapCat-style clients, and emit the next offset on the way
+      // back out when there are still rows past the current page.
+      const offset = cookie ? Number.parseInt(cookie, 10) || 0 : 0;
+      const result = await ctx.fetchEmojiLikeUsers(messageId, emojiId, count, offset);
+      const nextOffset = offset + result.users.length;
+      const isLastPage = nextOffset >= result.cachedCount;
       return okResponse({
         result: 0,
         errMsg: '',
         emojiLikesList: result.users.map(u => ({ tinyId: String(u.uin), nickName: '', headUrl: '' })),
-        cookie: result.cookie,
-        isLastPage: result.isLast,
-        isFirstPage: !cookie,
+        cookie: isLastPage ? '' : String(nextOffset),
+        isLastPage,
+        isFirstPage: offset === 0,
       });
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));

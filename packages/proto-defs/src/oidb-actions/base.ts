@@ -548,6 +548,46 @@ export interface Oidb0x9083Resp {
   inner?:  pb<4, Oidb0x9083RespInner>;
   cookie?: pb<5, bytes>;
 }
+
+// 0x9084_1: fetch reaction summary on a message. Returns one entry per
+// emoji used + an "available reactions" catalog tail. Schema decoded
+// from production wire dump:
+//   { 08 0A          ← top-level field 1 (uint, meaning unclear: maybe
+//                       "total reactions on msg" or a flag — empirically
+//                       constant across messages)
+//     12 0E 08 <ts:varint> 10 <cnt:varint> 18 01 22 02 "76"  ← entry 1
+//     12 07           18 01 22 03 "124"                       ← catalog
+//     ... }
+// Used entries always carry field 1 (timestamp) and field 2 (count);
+// catalog entries omit both.
+export interface Oidb0x9084Req {
+  groupId?:   pb<2, uint_64>;
+  sequence?:  pb<3, uint_64>;
+  // Server returns the full per-emoji summary regardless of these,
+  // but we send them to mirror the working 0x9083_1 request shape.
+  emojiId?:   pb<4, string>;
+  emojiType?: pb<5, uint_32>;
+  cookie?:    pb<6, bytes>;
+  count?:     pb<8, uint_32>;
+  field12?:   pb<12, uint_32>;
+}
+
+export interface Oidb0x9084RespEntry {
+  /** Unix epoch (seconds) of the last reaction. Omitted for catalog
+   *  entries that have never been reacted with on this message. */
+  lastReactionTime?: pb<1, uint_64>;
+  /** Number of reactors. Omitted for catalog entries. */
+  count?:            pb<2, uint_32>;
+  /** Emoji type. 1 for QQ-face / short id, 2 for unicode codepoint. */
+  emojiType?:        pb<3, uint_32>;
+  emojiId?:          pb<4, string>;
+}
+
+export interface Oidb0x9084Resp {
+  /** Top-level varint, observed value `10` constant; semantics unknown. */
+  field1?:  pb<1, uint_32>;
+  entries?: pb_repeated<2, Oidb0x9084RespEntry>;
+}
 export interface Oidb0x8a0Req {
   groupId?:          pb<1, uint_64>;
   targetUids?:       pb_repeated<3, string>;

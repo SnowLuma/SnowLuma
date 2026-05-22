@@ -4,6 +4,7 @@ import type { ApiActionContext } from './api-handler';
 import type { ConverterContext } from './event-converter';
 import type { MediaStore } from './media-store';
 import type { MessageStore } from './message-store';
+import type { ReactionStore } from './reaction-store';
 import type { JsonObject, MessageMeta, OneBotConfig } from './types';
 import {
   getDownloadRKeys,
@@ -60,6 +61,10 @@ export interface OneBotInstanceContext {
 
   messageStore: MessageStore;
   mediaStore: MediaStore;
+  /** Local cache of emoji-reaction events keyed by (group, msgSeq, emoji,
+   *  reactor). Fed from `GroupMsgEmojiLikeEvent` push by the event
+   *  pipeline; queried by fetch_emoji_like / get_emoji_likes. */
+  reactionStore: ReactionStore;
 
   converterCtx: ConverterContext;
 
@@ -86,7 +91,7 @@ export interface OneBotInstanceContext {
  *     happening (set_group_admin, set_online_status, set_avatar, …).
  */
 export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
-  const { bridge, messageStore, mediaStore } = ref;
+  const { bridge, messageStore, mediaStore, reactionStore } = ref;
 
   return {
     bridge,
@@ -150,6 +155,36 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
       if (!meta) throw new Error('message not found');
       if (!meta.isGroup) throw new Error('emoji reactions are not supported on private messages');
       await bridge.apis.interaction.setReaction(meta.targetId, meta.sequence, emojiId, set);
+    },
+
+    // Fetch reactor user list from local cache, cross-checked against
+    // the server's 0x9084_1 summary so callers can tell when the cache
+    // is incomplete (push events missed before bot boot, etc).
+    fetchEmojiLikeUsers: async (messageId, emojiId, count, offset = 0) => {
+      const meta = messageStore.findMeta(messageId);
+      if (!meta) throw new Error('message not found');
+      if (!meta.isGroup) throw new Error('emoji reactions are not supported on private messages');
+      const raw = reactionStore.listUsers(meta.targetId, meta.sequence, emojiId, count, offset);
+      const users = raw.map(r => ({ uin: r.operatorUin, uid: r.operatorUid, setAt: r.setAt }));
+      const cachedCount = reactionStore.countUsers(meta.targetId, meta.sequence, emojiId);
+      // Best-effort server-side count cross-check. If the summary call
+      // itself fails (network blip / server hiccup) we fall back to the
+      // cached count and report complete=true since we have no contrary
+      // evidence.
+      let serverCount = cachedCount;
+      try {
+        const summary = await bridge.apis.interaction.fetchReactionSummary(meta.targetId, meta.sequence);
+        const match = summary.find(s => s.emojiId === emojiId);
+        if (match) serverCount = match.count;
+      } catch {
+        /* keep serverCount = cachedCount */
+      }
+      return {
+        users,
+        cachedCount,
+        serverCount,
+        complete: cachedCount >= serverCount,
+      };
     },
 
     // Media lookup.

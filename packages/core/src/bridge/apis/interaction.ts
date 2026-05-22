@@ -12,6 +12,8 @@ import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   Oidb0x9083Req,
   Oidb0x9083Resp,
+  Oidb0x9084Req,
+  Oidb0x9084Resp,
   OidbEssence,
   OidbGroupReaction,
   OidbLike,
@@ -91,64 +93,94 @@ export class InteractionApi {
       count,
       field12: 1,
     };
-    // Wire-level investigation against macOS NTQQ confirmed 0x9083_1 is
-    // a real server endpoint (routed, errorCode=0, trace string echoes
-    // "OidbSvcTrpcTcp.0x9083_1") but its reply is always a 4-byte
-    // minimal ack `18 01 20 01` — not a user list. The real fetch cmd
-    // must be a sibling. To find it, on every call we round-robin a
-    // small candidate list of (cmd, subcmd) tuples, log each result, and
-    // return the first one that surfaces users. Frequencies are low
-    // (user-triggered "view who reacted") so the extra SSO traffic is
-    // acceptable for a debug build.
-    // Round-2 candidates, after round-1 found 0x9084_1 returns a reaction
-    // summary (emoji_id list with timestamp/count for used emojis, plus
-    // a 28-emoji catalog). We need the "fetch users who reacted with
-    // emoji X" sibling — almost certainly another subcmd of 0x9084.
-    const candidates: Array<readonly [number, number]> = [
-      [0x9084, 2],  // most likely: "fetch reactor user list for specific emoji"
-      [0x9084, 3],
-      [0x9084, 4],
-      [0x9084, 5],
-      [0x9085, 1],  // adjacent cmd family, exploratory
-      [0x9085, 2],
-      [0x9086, 1],
-      [0x9087, 1],
-      [0x9084, 1],  // keep baseline at the end so we still confirm summary
-    ];
-
-    let winner: { users: Array<{ uin: number }>; cookie: string; isLast: boolean } | null = null;
-    log.debug(
-      `getEmojiLikes probe START: group=${groupId} seq=${sequence} `
-      + `emojiId=${emojiId} emojiType=${emojiType} count=${count} `
-      + `cookieIn=${cookie ? 'yes' : 'no'}`,
-    );
-    for (const [cmdHex, subCmd] of candidates) {
-      const wireName = `OidbSvcTrpcTcp.0x${cmdHex.toString(16)}_${subCmd}`;
-      const env = makeOidbEnvelope<Oidb0x9083Req>(cmdHex, subCmd, req);
-      const reqBytes = protobuf_encode<OidbBase<Oidb0x9083Req>>(env);
-      let respBytes: Uint8Array;
-      try {
-        respBytes = await runOidb(bridge, wireName, reqBytes);
-      } catch (e) {
-        log.debug(`  ${wireName} threw: ${e instanceof Error ? e.message : String(e)}`);
-        continue;
-      }
-      const resp = protobuf_decode<OidbBase<Oidb0x9083Resp>>(respBytes).body;
-      const users: Array<{ uin: number }> = (resp?.inner?.userInfo ?? [])
-        .map(u => ({ uin: Number(u?.uin ?? 0) }))
-        .filter(u => u.uin > 0);
-      const respCookie = resp?.cookie ? Buffer.from(resp.cookie).toString('base64') : '';
-      log.debug(
-        `  ${wireName}: respLen=${respBytes.length} users=${users.length} `
-        + `respCookie=${respCookie || '(empty)'}`,
-      );
-      log.debug(`    req  hex: ${toHexUpper(reqBytes)}`);
-      log.debug(`    resp hex: ${toHexUpper(respBytes)}`);
-      if (!winner && users.length > 0) {
-        winner = { users, cookie: respCookie, isLast: !respCookie };
-      }
+    // Two rounds of wire-level probing against macOS NTQQ confirmed:
+    //   - 0x9083_1 returns a 4-byte ack `18 01 20 01` (no user list)
+    //   - 0x9084_1 returns a per-emoji reaction *summary* (emoji_id +
+    //     count + last-reaction timestamp), no user IDs — see
+    //     `fetchReactionSummary` below
+    //   - 0x9082_3..5, 0x9083_0/2/3, 0x9084_2..5, 0x9085_1/2, 0x9087_1
+    //     all reject with "no privilege": the cmds exist but aren't in
+    //     the NTQQ client's capability bitmap, so the server blocks
+    //     anything not registered at login. NTQQ's own
+    //     `getMsgEmojiLikesList` uses a wrapper-internal cache, not SSO.
+    // So this OIDB path can never surface the user list. The real
+    // implementation lives in `ReactionStore` on the OneBot side, fed
+    // from `GroupMsgEmojiLikeEvent` push. This method is retained so
+    // legacy callers don't crash — they get an empty users array.
+    const env = makeOidbEnvelope<Oidb0x9083Req>(0x9083, 1, req);
+    const reqBytes = protobuf_encode<OidbBase<Oidb0x9083Req>>(env);
+    let respBytes: Uint8Array;
+    try {
+      respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x9083_1', reqBytes);
+    } catch (e) {
+      log.debug(`getEmojiLikes 0x9083_1 threw: ${e instanceof Error ? e.message : String(e)}`);
+      return { users: [], cookie: '', isLast: true };
     }
-    log.debug(`getEmojiLikes probe END: winner=${winner ? `users=${winner.users.length}` : 'none'}`);
-    return winner ?? { users: [], cookie: '', isLast: true };
+    const resp = protobuf_decode<OidbBase<Oidb0x9083Resp>>(respBytes).body;
+    const users: Array<{ uin: number }> = (resp?.inner?.userInfo ?? [])
+      .map(u => ({ uin: Number(u?.uin ?? 0) }))
+      .filter(u => u.uin > 0);
+    const respCookie = resp?.cookie ? Buffer.from(resp.cookie).toString('base64') : '';
+    if (users.length === 0) {
+      log.debug(
+        `getEmojiLikes empty (expected — use ReactionStore instead): `
+        + `group=${groupId} seq=${sequence} emojiId=${emojiId} `
+        + `respLen=${respBytes.length}`,
+      );
+    }
+    return { users, cookie: respCookie, isLast: !respCookie };
+  }
+
+  /**
+   * Fetch the per-emoji *reaction summary* on a group message via
+   * OIDB 0x9084_1 (the cmd that's actually in NTQQ's capability
+   * whitelist and returns real data). Returns one entry per emoji
+   * that has been reacted with on the message: emoji_id + total
+   * reactor count + timestamp of the last reaction.
+   *
+   * This is the "server-truth" counterpart to the local ReactionStore
+   * cache: ReactionStore tracks *who* reacted (from push events), and
+   * `fetchReactionSummary` tells us *how many* the server thinks there
+   * are. Cross-checking the two lets callers detect cache gaps (push
+   * events lost before the bot booted, etc).
+   *
+   * Catalog entries (available emojis with no count/timestamp) are
+   * filtered out — callers want the "used" subset.
+   */
+  async fetchReactionSummary(
+    groupId: number,
+    sequence: number,
+  ): Promise<Array<{ emojiId: string; emojiType: number; count: number; lastReactionTime: number }>> {
+    const bridge = asBridge(this.ctx);
+    const req: any = {
+      groupId: BigInt(groupId),
+      sequence: BigInt(sequence),
+      // Match the request shape the 0x9083_1 path sends so the server
+      // routes us identically. `count`/`emojiId`/`emojiType` are
+      // ignored by the summary handler but harmless.
+      emojiId: '',
+      emojiType: 0,
+      cookie: new Uint8Array(0),
+      count: 0,
+      field12: 1,
+    };
+    const env = makeOidbEnvelope<Oidb0x9084Req>(0x9084, 1, req);
+    const reqBytes = protobuf_encode<OidbBase<Oidb0x9084Req>>(env);
+    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x9084_1', reqBytes);
+    const resp = protobuf_decode<OidbBase<Oidb0x9084Resp>>(respBytes).body;
+    const out: Array<{ emojiId: string; emojiType: number; count: number; lastReactionTime: number }> = [];
+    for (const e of resp?.entries ?? []) {
+      const count = e.count ?? 0;
+      // Filter the catalog tail. "Used" entries always have count > 0
+      // and a lastReactionTime; catalog entries have neither.
+      if (count <= 0) continue;
+      out.push({
+        emojiId: e.emojiId ?? '',
+        emojiType: e.emojiType ?? 1,
+        count,
+        lastReactionTime: Number(e.lastReactionTime ?? 0n),
+      });
+    }
+    return out;
   }
 }

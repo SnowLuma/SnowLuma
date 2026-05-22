@@ -1,0 +1,159 @@
+import fs from 'fs';
+import path from 'path';
+import Database, { type Database as DatabaseType, type Statement } from '@snowluma/sqlite';
+
+// Local cache of "who reacted with which emoji on which group message",
+// fed from `GroupMsgEmojiLikeEvent` push events. Mirrors what NTQQ's
+// internal wrapper cache stores — we maintain our own copy because
+// SnowLuma runs outside the NTQQ process and can't directly call
+// `NodeIKernelMsgService.getMsgEmojiLikesList`, and the OIDB SSO paths
+// for "fetch users who reacted with emoji X" are all blocked by the
+// server-side capability whitelist (cmds 0x9082_3..5, 0x9084_2..5,
+// etc. exist but our client isn't authorized to call them).
+//
+// Limitations vs. the wrapper cache:
+//   - Only data from the bot's lifetime is captured. Reactions placed
+//     before the bot booted are invisible until either:
+//       (a) someone reacts again on that emoji (push event fires)
+//       (b) caller cross-checks against `fetchReactionSummary` to
+//           detect a count mismatch and warn the user
+//   - Push events occasionally drop in unreliable network conditions;
+//     periodic resync via 0x9084_1 summary can repair counts.
+export class ReactionStore {
+  private readonly db: DatabaseType;
+  private readonly stmtUpsert: Statement;
+  private readonly stmtRemove: Statement;
+  private readonly stmtList: Statement;
+  private readonly stmtCount: Statement;
+  private readonly stmtCountByEmoji: Statement;
+
+  constructor(dbPath: string) {
+    const dir = path.dirname(dbPath);
+    fs.mkdirSync(dir, { recursive: true });
+    this.db = new Database(dbPath);
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('synchronous = NORMAL');
+    this.initSchema();
+
+    this.stmtUpsert = this.db.prepare(
+      `INSERT INTO reactions
+       (group_id, msg_seq, emoji_id, emoji_type, operator_uin, operator_uid, set_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(group_id, msg_seq, emoji_id, operator_uin) DO UPDATE SET
+         emoji_type = excluded.emoji_type,
+         operator_uid = excluded.operator_uid,
+         set_at = excluded.set_at`,
+    );
+
+    this.stmtRemove = this.db.prepare(
+      `DELETE FROM reactions
+       WHERE group_id = ? AND msg_seq = ? AND emoji_id = ? AND operator_uin = ?`,
+    );
+
+    this.stmtList = this.db.prepare(
+      `SELECT operator_uin, operator_uid, set_at
+       FROM reactions
+       WHERE group_id = ? AND msg_seq = ? AND emoji_id = ?
+       ORDER BY set_at ASC
+       LIMIT ? OFFSET ?`,
+    );
+
+    this.stmtCount = this.db.prepare(
+      `SELECT COUNT(*) AS n FROM reactions
+       WHERE group_id = ? AND msg_seq = ? AND emoji_id = ?`,
+    );
+
+    this.stmtCountByEmoji = this.db.prepare(
+      `SELECT emoji_id, emoji_type, COUNT(*) AS n, MAX(set_at) AS last_at
+       FROM reactions
+       WHERE group_id = ? AND msg_seq = ?
+       GROUP BY emoji_id`,
+    );
+  }
+
+  private initSchema(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS reactions (
+        group_id     INTEGER NOT NULL,
+        msg_seq      INTEGER NOT NULL,
+        emoji_id     TEXT    NOT NULL,
+        emoji_type   INTEGER NOT NULL DEFAULT 1,
+        operator_uin INTEGER NOT NULL,
+        operator_uid TEXT    NOT NULL DEFAULT '',
+        set_at       INTEGER NOT NULL,
+        PRIMARY KEY (group_id, msg_seq, emoji_id, operator_uin)
+      );
+      CREATE INDEX IF NOT EXISTS idx_reactions_msg_emoji
+        ON reactions (group_id, msg_seq, emoji_id, set_at);
+    `);
+  }
+
+  recordAdd(
+    groupId: number,
+    msgSeq: number,
+    emojiId: string,
+    emojiType: number,
+    operatorUin: number,
+    operatorUid: string,
+    setAt: number,
+  ): void {
+    if (!groupId || !msgSeq || !emojiId || !operatorUin) return;
+    this.stmtUpsert.run(groupId, msgSeq, emojiId, emojiType, operatorUin, operatorUid, setAt);
+  }
+
+  recordRemove(
+    groupId: number,
+    msgSeq: number,
+    emojiId: string,
+    operatorUin: number,
+  ): void {
+    if (!groupId || !msgSeq || !emojiId || !operatorUin) return;
+    this.stmtRemove.run(groupId, msgSeq, emojiId, operatorUin);
+  }
+
+  listUsers(
+    groupId: number,
+    msgSeq: number,
+    emojiId: string,
+    limit = 20,
+    offset = 0,
+  ): Array<{ operatorUin: number; operatorUid: string; setAt: number }> {
+    const rows = this.stmtList.all(
+      groupId,
+      msgSeq,
+      emojiId,
+      Math.max(1, Math.min(limit, 500)),
+      Math.max(0, offset),
+    ) as Array<{ operator_uin: number; operator_uid: string; set_at: number }>;
+    return rows.map(r => ({
+      operatorUin: r.operator_uin,
+      operatorUid: r.operator_uid,
+      setAt: r.set_at,
+    }));
+  }
+
+  countUsers(groupId: number, msgSeq: number, emojiId: string): number {
+    const row = this.stmtCount.get(groupId, msgSeq, emojiId) as { n: number } | undefined;
+    return row?.n ?? 0;
+  }
+
+  /** Summary of all cached reactions on a message, grouped by emoji. */
+  summarizeMessage(
+    groupId: number,
+    msgSeq: number,
+  ): Array<{ emojiId: string; emojiType: number; count: number; lastSetAt: number }> {
+    const rows = this.stmtCountByEmoji.all(groupId, msgSeq) as Array<{
+      emoji_id: string; emoji_type: number; n: number; last_at: number;
+    }>;
+    return rows.map(r => ({
+      emojiId: r.emoji_id,
+      emojiType: r.emoji_type,
+      count: r.n,
+      lastSetAt: r.last_at,
+    }));
+  }
+
+  close(): void {
+    this.db.close();
+  }
+}
