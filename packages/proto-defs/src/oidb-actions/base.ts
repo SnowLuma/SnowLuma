@@ -129,6 +129,15 @@ export interface OidbUserInfoRequest {
   uin?:  pb<1, uint_32>;
   keys?: pb_repeated<3, OidbUserInfoKey>;
 }
+// UID-form variant of OIDB 0xFE1_2 — same wire shape but field 1 is
+// the uid string. Used by the stranger lookup path (group join
+// requests / friend requests) because the push only carries a uid.
+// Matches Lagrange's `OidbSvcTrpcTcp0xFE1_2Uid`:
+//   dev/Lagrange.Core/.../OidbSvcTrpcTcp0xFE1_2.cs:9-16
+export interface OidbUserInfoByUidRequest {
+  uid?:  pb<1, string>;
+  keys?: pb_repeated<3, OidbUserInfoKey>;
+}
 export interface OidbTwoNumber {
   number1?: pb<1, uint_32>;
   number2?: pb<2, uint_32>;

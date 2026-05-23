@@ -18,6 +18,7 @@ import { FetchFriendListPage } from '@snowluma/bridge/oidb-services/contacts/fet
 import { FetchGroupList } from '@snowluma/bridge/oidb-services/contacts/fetch-group-list';
 import { FetchGroupMemberListPage } from '@snowluma/bridge/oidb-services/contacts/fetch-group-member-list-page';
 import { FetchUserProfile } from '@snowluma/bridge/oidb-services/contacts/fetch-user-profile';
+import { FetchUserProfileByUid } from '@snowluma/bridge/oidb-services/contacts/fetch-user-profile-by-uid';
 import { FetchGroupRequests } from '@snowluma/bridge/oidb-services/contacts/fetch-group-requests';
 import { FetchDownloadRkeys } from '@snowluma/bridge/oidb-services/contacts/fetch-download-rkeys';
 
@@ -151,6 +152,16 @@ export class ContactsApi {
   async fetchUserProfile(uin: number): Promise<UserProfileInfo> {
     const info = await FetchUserProfile.invoke(this.ctx, { uin });
     this.ctx.identity.rememberUserProfile(info);
+    return info;
+  }
+
+  /** Look up a user profile by UID (string form). Used for strangers
+   *  whose UIN we don't have yet — typically the requester on a
+   *  group join request push. Mirrors Lagrange's `FetchUserInfoEvent
+   *  .Create(targetUid)` path. */
+  async fetchUserProfileByUid(uid: string): Promise<UserProfileInfo> {
+    const info = await FetchUserProfileByUid.invoke(this.ctx, { uid });
+    if (info.uin > 0) this.ctx.identity.rememberUserProfile(info);
     return info;
   }
 

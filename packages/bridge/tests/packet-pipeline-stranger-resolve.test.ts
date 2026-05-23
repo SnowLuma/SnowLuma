@@ -1,0 +1,152 @@
+// Pre-dispatch stranger resolve regression — when a group join
+// request comes in, the push only carries the requester's UID. The
+// pipeline must do an async UID-form FetchUserProfile lookup BEFORE
+// emitting the event so the OneBot layer's `user_id` field is
+// populated and the consumer bot's `get_stranger_info` lookup works.
+//
+// Cross-checked against Lagrange's flow:
+//   dev/Lagrange.Core/.../MessagingLogic.cs:215-224
+//   (FetchUserInfoEvent by uid → resolved uin → posted event)
+
+import { describe, expect, it, vi } from 'vitest';
+import { IncomingPacketPipeline } from '@snowluma/bridge/packet-pipeline';
+import { BridgeEventBus } from '@snowluma/bridge/event-bus';
+import { IdentityService } from '@snowluma/bridge/identity-service';
+import type { QQEventVariant } from '@snowluma/bridge/events';
+import type { PacketInfo } from '@snowluma/common/protocol-types';
+
+function makePipeline(opts: {
+  resolveStrangerProfile?: vi.Mock;
+} = {}) {
+  const identity = IdentityService.memory('10001');
+  const events = new BridgeEventBus();
+  const resolveStrangerProfile = opts.resolveStrangerProfile ?? vi.fn(async () => null);
+  const pipeline = new IncomingPacketPipeline({
+    identity,
+    events,
+    refreshMemberCache: vi.fn(async () => false),
+    resolveStrangerProfile,
+  });
+
+  const captured: QQEventVariant[] = [];
+  events.onAny((event) => { captured.push(event as QQEventVariant); });
+
+  return { pipeline, events, captured, resolveStrangerProfile };
+}
+
+describe('IncomingPacketPipeline / stranger resolve on group_invite', () => {
+  it('calls resolveStrangerProfile(uid) when group_invite has fromUin=0 + fromUid', async () => {
+    const resolveStrangerProfile = vi.fn(async (_uid: string) => ({
+      uin: 950929451, nickname: '小明',
+    }));
+    const { pipeline, captured } = makePipeline({ resolveStrangerProfile });
+
+    // Plant a parser that emits the user's exact bug-report shape:
+    // groupId set, fromUid is a string UID, fromUin=0 (decoder fix).
+    pipeline.registerCmd('test.cmd', () => [{
+      kind: 'group_invite',
+      time: 1700000000,
+      selfUin: 10001,
+      groupId: 123456789,
+      fromUin: 0,
+      fromUid: 'u_stranger_abc',
+      subType: 'add',
+      message: '',
+      flag: 'add:123456789:u_stranger_abc',
+    } as QQEventVariant]);
+
+    pipeline.process({ serviceCmd: 'test.cmd' } as PacketInfo);
+
+    // Let the async hook flush.
+    await new Promise(r => setTimeout(r, 10));
+
+    expect(resolveStrangerProfile).toHaveBeenCalledWith('u_stranger_abc');
+    expect(captured).toHaveLength(1);
+    const event = captured[0] as Extract<QQEventVariant, { kind: 'group_invite' }>;
+    expect(event.fromUin).toBe(950929451); // ← patched in by the async resolve
+    expect(event.fromUid).toBe('u_stranger_abc');
+    expect(event.groupId).toBe(123456789);
+  });
+
+  it('still emits the event when resolveStrangerProfile returns null (fail open)', async () => {
+    const resolveStrangerProfile = vi.fn(async () => null);
+    const { pipeline, captured } = makePipeline({ resolveStrangerProfile });
+
+    pipeline.registerCmd('test.cmd', () => [{
+      kind: 'group_invite',
+      time: 1, selfUin: 10001,
+      groupId: 12345, fromUin: 0, fromUid: 'u_no_such_user',
+      subType: 'add', message: '', flag: 'add:12345:u_no_such_user',
+    } as QQEventVariant]);
+
+    pipeline.process({ serviceCmd: 'test.cmd' } as PacketInfo);
+    await new Promise(r => setTimeout(r, 10));
+
+    expect(resolveStrangerProfile).toHaveBeenCalledOnce();
+    expect(captured).toHaveLength(1);
+    const event = captured[0] as Extract<QQEventVariant, { kind: 'group_invite' }>;
+    // fromUin stays 0 — but the event still goes out so the bot can
+    // see the join request and at least respond using the uid in the
+    // flag.
+    expect(event.fromUin).toBe(0);
+    expect(event.fromUid).toBe('u_no_such_user');
+  });
+
+  it('still emits the event when resolveStrangerProfile throws', async () => {
+    const resolveStrangerProfile = vi.fn(async () => { throw new Error('network down'); });
+    const { pipeline, captured } = makePipeline({ resolveStrangerProfile });
+
+    pipeline.registerCmd('test.cmd', () => [{
+      kind: 'group_invite',
+      time: 1, selfUin: 10001,
+      groupId: 12345, fromUin: 0, fromUid: 'u_x',
+      subType: 'add', message: '', flag: 'add:12345:u_x',
+    } as QQEventVariant]);
+
+    pipeline.process({ serviceCmd: 'test.cmd' } as PacketInfo);
+    await new Promise(r => setTimeout(r, 10));
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toMatchObject({ fromUin: 0, fromUid: 'u_x' });
+  });
+
+  it('skips the stranger resolve when fromUin is already populated (cache hit)', async () => {
+    // If the decoder's `resolveUidToUin` already found the uin in
+    // the local cache (e.g. group member roster), we shouldn't waste
+    // a wire call.
+    const resolveStrangerProfile = vi.fn(async () => null);
+    const { pipeline, captured } = makePipeline({ resolveStrangerProfile });
+
+    pipeline.registerCmd('test.cmd', () => [{
+      kind: 'group_invite',
+      time: 1, selfUin: 10001,
+      groupId: 12345, fromUin: 99999, fromUid: 'u_known',
+      subType: 'invite', message: '', flag: 'invite:12345:u_known',
+    } as QQEventVariant]);
+
+    pipeline.process({ serviceCmd: 'test.cmd' } as PacketInfo);
+    await new Promise(r => setTimeout(r, 10));
+
+    expect(resolveStrangerProfile).not.toHaveBeenCalled();
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toMatchObject({ fromUin: 99999, fromUid: 'u_known' });
+  });
+
+  it('skips the stranger resolve when fromUid is empty (no uid to look up by)', async () => {
+    const resolveStrangerProfile = vi.fn(async () => null);
+    const { pipeline, captured } = makePipeline({ resolveStrangerProfile });
+
+    pipeline.registerCmd('test.cmd', () => [{
+      kind: 'group_invite',
+      time: 1, selfUin: 10001,
+      groupId: 12345, fromUin: 0, fromUid: '',
+      subType: 'add', message: '', flag: 'add:12345:',
+    } as QQEventVariant]);
+
+    pipeline.process({ serviceCmd: 'test.cmd' } as PacketInfo);
+    await new Promise(r => setTimeout(r, 10));
+
+    expect(resolveStrangerProfile).not.toHaveBeenCalled();
+    expect(captured).toHaveLength(1);
+  });
+});

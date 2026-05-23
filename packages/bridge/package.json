@@ -147,6 +147,10 @@
       "types": "./src/oidb-services/contacts/fetch-user-profile.ts",
       "default": "./src/oidb-services/contacts/fetch-user-profile.ts"
     },
+    "./oidb-services/contacts/fetch-user-profile-by-uid": {
+      "types": "./src/oidb-services/contacts/fetch-user-profile-by-uid.ts",
+      "default": "./src/oidb-services/contacts/fetch-user-profile-by-uid.ts"
+    },
     "./oidb-services/contacts/fetch-group-requests": {
       "types": "./src/oidb-services/contacts/fetch-group-requests.ts",
       "default": "./src/oidb-services/contacts/fetch-group-requests.ts"

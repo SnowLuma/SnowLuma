@@ -33,6 +33,16 @@ export interface PacketPipelineDeps {
    * and `refreshGroupList` was false).
    */
   refreshMemberCache(groupId: number, refreshGroupList: boolean, forceMemberList: boolean): Promise<boolean>;
+  /**
+   * Resolve a stranger profile by UID — used to fill in the requester's
+   * uin + nickname on group-join-request and friend-request events
+   * where the push only carries a uid. Mirrors Lagrange's
+   * `FetchUserInfoEvent.Create(targetUid)` path
+   * (`dev/Lagrange.Core/.../MessagingLogic.cs:215-224`). Returns null
+   * on lookup failure so the dispatch path can proceed with the bare
+   * uid-only event.
+   */
+  resolveStrangerProfile(uid: string): Promise<{ uin: number; nickname: string } | null>;
 }
 
 export class IncomingPacketPipeline {
@@ -74,6 +84,11 @@ export class IncomingPacketPipeline {
               this.log.warn('dispatchAfterIdentityRefresh failed: %s',
                 err instanceof Error ? (err.stack ?? err.message) : String(err));
             });
+          } else if (this.needsStrangerResolve(event)) {
+            void this.dispatchAfterStrangerResolve(event).catch((err) => {
+              this.log.warn('dispatchAfterStrangerResolve failed: %s',
+                err instanceof Error ? (err.stack ?? err.message) : String(err));
+            });
           } else {
             this.handleSideEffects(event);
             printEvent(this.eventLog, this.deps.identity, event);
@@ -96,6 +111,15 @@ export class IncomingPacketPipeline {
     return event.kind === 'group_member_join' && event.groupId > 0 && event.userUin <= 0 && Boolean(event.userUid);
   }
 
+  /** Group join requests carry only the requester's UID (no UIN). We
+   *  fire a UID-form FetchUserProfile to resolve UIN + nickname before
+   *  dispatch so the OneBot layer's `user_id` field is populated and
+   *  the consumer bot's follow-up `get_stranger_info` lookup succeeds.
+   *  Mirrors Lagrange's `dev/Lagrange.Core/.../MessagingLogic.cs:215-224`. */
+  private needsStrangerResolve(event: QQEventVariant): event is Extract<QQEventVariant, { kind: 'group_invite' }> {
+    return event.kind === 'group_invite' && event.fromUin <= 0 && Boolean(event.fromUid);
+  }
+
   private async dispatchAfterIdentityRefresh(event: Extract<QQEventVariant, { kind: 'group_member_join' }>): Promise<void> {
     let refreshed = false;
     try {
@@ -106,6 +130,27 @@ export class IncomingPacketPipeline {
     }
 
     this.handleSideEffects(event, refreshed);
+    printEvent(this.eventLog, this.deps.identity, event);
+    this.emit(event);
+  }
+
+  private async dispatchAfterStrangerResolve(event: Extract<QQEventVariant, { kind: 'group_invite' }>): Promise<void> {
+    const uid = event.fromUid;
+    try {
+      if (uid) {
+        const profile = await this.deps.resolveStrangerProfile(uid);
+        if (profile && profile.uin > 0) {
+          event.fromUin = profile.uin;
+        }
+      }
+    } catch (e) {
+      // Fail open — emit the event with the bare uid so bots can at
+      // least see the join request, even if they can't render a name.
+      this.log.warn('failed to resolve stranger profile: uid=%s err=%s',
+        uid ?? '', e instanceof Error ? e.message : String(e));
+    }
+
+    this.handleSideEffects(event);
     printEvent(this.eventLog, this.deps.identity, event);
     this.emit(event);
   }

@@ -15,7 +15,15 @@ export const decodeGroupJoinRequest: MsgPushDecoder = (ctx) => {
     time: ctx.head.timestamp,
     selfUin: ctx.selfUin,
     groupId: join.groupUin ?? 0,
-    fromUin: resolveUidToUin(ctx.identity, join.groupUin ?? 0, join.targetUid ?? '', ctx.fromUin),
+    // Strangers (not in our cache, not yet group members) won't resolve
+    // here — pass 0 instead of ctx.fromUin (which on a group-scoped push
+    // IS the group's own uin, so falling back to it produces a bogus
+    // `fromUin === groupId` collision). The packet-pipeline's pre-
+    // dispatch hook does an async UID-form FetchUserProfile lookup to
+    // fill in the uin + nickname before the event is emitted — same
+    // shape as Lagrange's flow at
+    // `dev/Lagrange.Core/.../MessagingLogic.cs:215-224`.
+    fromUin: resolveUidToUin(ctx.identity, join.groupUin ?? 0, join.targetUid ?? '', 0),
     fromUid: join.targetUid ?? '',
     subType: 'add',
     message: '',
@@ -33,7 +41,7 @@ export const decodeGroupInvitation: MsgPushDecoder = (ctx) => {
     time: ctx.head.timestamp,
     selfUin: ctx.selfUin,
     groupId: inner.groupUin ?? 0,
-    fromUin: resolveUidToUin(ctx.identity, inner.groupUin ?? 0, inner.invitorUid ?? '', ctx.fromUin),
+    fromUin: resolveUidToUin(ctx.identity, inner.groupUin ?? 0, inner.invitorUid ?? '', 0),
     fromUid: inner.invitorUid ?? '',
     subType: 'invite',
     message: '',
@@ -50,7 +58,7 @@ export const decodeGroupInvite: MsgPushDecoder = (ctx) => {
     time: ctx.head.timestamp,
     selfUin: ctx.selfUin,
     groupId: invite.groupUin ?? 0,
-    fromUin: resolveUidToUin(ctx.identity, invite.groupUin ?? 0, invite.invitorUid ?? '', ctx.fromUin),
+    fromUin: resolveUidToUin(ctx.identity, invite.groupUin ?? 0, invite.invitorUid ?? '', 0),
     fromUid: invite.invitorUid ?? '',
     subType: 'invite',
     message: '',

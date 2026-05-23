@@ -147,6 +147,15 @@ export class Bridge implements BridgeInterface {
       events: this.events,
       refreshMemberCache: (groupId, refreshGroupList, forceMemberList) =>
         this.refreshMemberCache(groupId, refreshGroupList, forceMemberList),
+      resolveStrangerProfile: async (uid) => {
+        try {
+          const p = await this.apis.contacts.fetchUserProfileByUid(uid);
+          if (p.uin <= 0) return null;
+          return { uin: p.uin, nickname: p.nickname };
+        } catch {
+          return null;
+        }
+      },
     });
     this.pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
   }
