@@ -114,9 +114,18 @@ export interface OidbSpecialTitle {
   groupUin?: pb<1, uint_32>;
   body?:     pb<2, OidbSpecialTitleBody>;
 }
+// 0x7E5_104 (FriendLike) request body. Field numbers 11/12/13 (NOT
+// 1/2/3) — the server reads `targetUid` from tag 11 and rejects with
+// "被点赞 QQ 号非法" if it lands on the wrong tag. `sourceId = 71` is
+// the fixed marker for the "profile card" 点赞 entry point.
+// Mirrors Lagrange.Core's `OidbSvcTrpcTcp0x7E5_104`:
+//   dev/Lagrange.Core/.../Service/Oidb/Request/OidbSvcTrpcTcp0x7E5_104.cs:14-18
+// and NapCat's UserApi.like (`setBuddyProfileLike` → sourceId 71):
+//   dev/NapCatQQ/packages/napcat-core/apis/user.ts:63-70
 export interface OidbLike {
-  targetUin?: pb<1, uint_32>;
-  count?:     pb<2, uint_32>;
+  targetUid?: pb<11, string>;
+  sourceId?:  pb<12, uint_32>;
+  count?:     pb<13, uint_32>;
 }
 export interface OidbGroupRequestList {
   count?:  pb<1, uint_32>;
