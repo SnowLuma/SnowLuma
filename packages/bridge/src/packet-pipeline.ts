@@ -115,9 +115,24 @@ export class IncomingPacketPipeline {
    *  fire a UID-form FetchUserProfile to resolve UIN + nickname before
    *  dispatch so the OneBot layer's `user_id` field is populated and
    *  the consumer bot's follow-up `get_stranger_info` lookup succeeds.
-   *  Mirrors Lagrange's `dev/Lagrange.Core/.../MessagingLogic.cs:215-224`. */
+   *  Mirrors Lagrange's `dev/Lagrange.Core/.../MessagingLogic.cs:215-224`.
+   *
+   *  Also catches the legacy cache-pollution case: pre-fix builds
+   *  stored `<requester_uid> → <groupUin>` in the identity DB when
+   *  the decoder's fallback was `ctx.fromUin` (= group's own uin on
+   *  a group-scoped push). After upgrade, the decoder's
+   *  `resolveUidToUin` hits that polluted mapping and returns the
+   *  groupUin instead of 0, so the `fromUin <= 0` guard alone would
+   *  silently skip the resolve and re-emit the bug. Treating
+   *  `fromUin === groupId` as bogus forces the async resolve to
+   *  overwrite the polluted entry on the next event. */
   private needsStrangerResolve(event: QQEventVariant): event is Extract<QQEventVariant, { kind: 'group_invite' }> {
-    return event.kind === 'group_invite' && event.fromUin <= 0 && Boolean(event.fromUid);
+    if (event.kind !== 'group_invite' || !event.fromUid) return false;
+    if (event.fromUin <= 0) return true;
+    // Pollution signature — a real requester's uin would never equal
+    // the group's own uin. Force a re-resolve so the cache self-heals.
+    if (event.groupId > 0 && event.fromUin === event.groupId) return true;
+    return false;
   }
 
   private async dispatchAfterIdentityRefresh(event: Extract<QQEventVariant, { kind: 'group_member_join' }>): Promise<void> {
@@ -265,14 +280,22 @@ export class IncomingPacketPipeline {
           source: 'friend_request',
         });
         break;
-      case 'group_invite':
+      case 'group_invite': {
+        // Defensive: never cache a uid→uin mapping where uin equals
+        // the group's own uin — that's the pollution signature the
+        // legacy decoder fallback produced. Pass 0 so `rememberUidUin`
+        // skips the map write (it short-circuits on uin <= 0) but the
+        // user row still gets upserted with the uid + group context.
+        const uinForCache = event.fromUin > 0 && event.fromUin !== event.groupId
+          ? event.fromUin : 0;
         this.deps.identity.rememberRequestIdentity({
           groupId: event.groupId,
           uid: event.fromUid,
-          uin: event.fromUin,
+          uin: uinForCache,
           source: 'group_request',
         });
         break;
+      }
       default:
         break;
     }

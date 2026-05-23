@@ -132,6 +132,41 @@ describe('IncomingPacketPipeline / stranger resolve on group_invite', () => {
     expect(captured[0]).toMatchObject({ fromUin: 99999, fromUid: 'u_known' });
   });
 
+  it('forces re-resolve when fromUin === groupId (legacy cache pollution)', async () => {
+    // Pre-fix builds stored `<requester_uid> → <groupUin>` because
+    // the decoder's fallback was `ctx.fromUin` (= group's own uin on
+    // a group-scoped push). After upgrade, the decoder's
+    // resolveUidToUin would re-read that polluted mapping and emit
+    // event.fromUin === groupId. The `fromUin <= 0` check alone
+    // wouldn't fire the async resolve, so the bug would persist.
+    // This guard catches that signature and forces a re-lookup, so
+    // the cache self-heals on the next event.
+    const resolveStrangerProfile = vi.fn(async () => ({
+      uin: 1957003260, nickname: 'KitaIkuyo',
+    }));
+    const { pipeline, captured } = makePipeline({ resolveStrangerProfile });
+
+    pipeline.registerCmd('test.cmd', () => [{
+      kind: 'group_invite',
+      time: 1, selfUin: 10001,
+      groupId: 950929451,
+      fromUin: 950929451, // ← POLLUTED: equals groupId
+      fromUid: 'u_kitaikuyo',
+      subType: 'add', message: '', flag: 'add:950929451:u_kitaikuyo',
+    } as QQEventVariant]);
+
+    pipeline.process({ serviceCmd: 'test.cmd' } as PacketInfo);
+    await new Promise(r => setTimeout(r, 10));
+
+    expect(resolveStrangerProfile).toHaveBeenCalledWith('u_kitaikuyo');
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toMatchObject({
+      fromUin: 1957003260, // ← corrected by the async resolve
+      fromUid: 'u_kitaikuyo',
+      groupId: 950929451,
+    });
+  });
+
   it('skips the stranger resolve when fromUid is empty (no uid to look up by)', async () => {
     const resolveStrangerProfile = vi.fn(async () => null);
     const { pipeline, captured } = makePipeline({ resolveStrangerProfile });
