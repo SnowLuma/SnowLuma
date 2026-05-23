@@ -18,7 +18,7 @@ import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 /** Subset of AiVoiceMediaIndex (defined in @snowluma/core/apis/shared)
  *  that the AI voice response payload populates. Kept inline here so
- *  the namespace stays self-contained against @snowluma/bridge — the
+ *  the namespace stays self-contained against @snowluma/protocol — the
  *  facade casts back to the richer core-side type. */
 export interface AiVoiceMediaIndex {
   info?: { fileSize?: number; fileName?: string; type?: { type?: number; voiceFormat?: number } };

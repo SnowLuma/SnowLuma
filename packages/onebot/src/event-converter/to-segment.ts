@@ -1,4 +1,4 @@
-import type { MessageElement } from '@snowluma/bridge/events';
+import type { MessageElement } from '@snowluma/protocol/events';
 import type { JsonArray, JsonObject } from '../types';
 import type {
   ImageUrlResolver,

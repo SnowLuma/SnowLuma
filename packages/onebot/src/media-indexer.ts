@@ -2,7 +2,7 @@
 // segment emitted by the event converter and writes a row into the
 // MediaStore so later `get_image` / `get_record` OneBot actions can
 
-import type { MessageElement } from '@snowluma/bridge/events';
+import type { MessageElement } from '@snowluma/protocol/events';
 import type { MediaStore } from './media-store';
 import type { JsonObject } from './types';
 

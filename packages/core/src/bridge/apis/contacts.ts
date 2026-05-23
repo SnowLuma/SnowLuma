@@ -13,14 +13,14 @@ import type {
   GroupRequestInfo,
   QQGroupInfo,
   UserProfileInfo,
-} from '@snowluma/bridge/qq-info';
-import { FetchFriendListPage } from '@snowluma/bridge/oidb-services/contacts/fetch-friend-list-page';
-import { FetchGroupList } from '@snowluma/bridge/oidb-services/contacts/fetch-group-list';
-import { FetchGroupMemberListPage } from '@snowluma/bridge/oidb-services/contacts/fetch-group-member-list-page';
-import { FetchUserProfile } from '@snowluma/bridge/oidb-services/contacts/fetch-user-profile';
-import { FetchUserProfileByUid } from '@snowluma/bridge/oidb-services/contacts/fetch-user-profile-by-uid';
-import { FetchGroupRequests } from '@snowluma/bridge/oidb-services/contacts/fetch-group-requests';
-import { FetchDownloadRkeys } from '@snowluma/bridge/oidb-services/contacts/fetch-download-rkeys';
+} from '@snowluma/protocol/qq-info';
+import { FetchFriendListPage } from '@snowluma/protocol/oidb-services/contacts/fetch-friend-list-page';
+import { FetchGroupList } from '@snowluma/protocol/oidb-services/contacts/fetch-group-list';
+import { FetchGroupMemberListPage } from '@snowluma/protocol/oidb-services/contacts/fetch-group-member-list-page';
+import { FetchUserProfile } from '@snowluma/protocol/oidb-services/contacts/fetch-user-profile';
+import { FetchUserProfileByUid } from '@snowluma/protocol/oidb-services/contacts/fetch-user-profile-by-uid';
+import { FetchGroupRequests } from '@snowluma/protocol/oidb-services/contacts/fetch-group-requests';
+import { FetchDownloadRkeys } from '@snowluma/protocol/oidb-services/contacts/fetch-download-rkeys';
 
 // ─── Helpers (previously in bridge-contacts.ts) ───────────────────
 

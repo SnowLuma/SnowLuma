@@ -24,8 +24,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 
-vi.mock('@snowluma/bridge/highway', async () => {
-  const real = await vi.importActual<typeof import('@snowluma/bridge/highway')>('@snowluma/bridge/highway');
+vi.mock('@snowluma/protocol/highway', async () => {
+  const real = await vi.importActual<typeof import('@snowluma/protocol/highway')>('@snowluma/protocol/highway');
   return {
     ...real,
     // Only the TCP/HTTP transport is mocked — we keep real
@@ -40,8 +40,8 @@ vi.mock('@snowluma/bridge/highway', async () => {
   };
 });
 
-import * as highway from '@snowluma/bridge/highway';
-import { runNtv2Upload, type MediaSubFileUpload } from '@snowluma/bridge/highway/pipeline';
+import * as highway from '@snowluma/protocol/highway';
+import { runNtv2Upload, type MediaSubFileUpload } from '@snowluma/protocol/highway/pipeline';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   NTV2UploadRichMediaReq,

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { IdentityService } from '@snowluma/bridge/identity-service';
-import type { GroupMemberInfo, QQGroupInfo, UserProfileInfo } from '@snowluma/bridge/qq-info';
+import { IdentityService } from '@snowluma/protocol/identity-service';
+import type { GroupMemberInfo, QQGroupInfo, UserProfileInfo } from '@snowluma/protocol/qq-info';
 
 const SELF_UIN = '10001';
 const GROUP_ID = 123456789;

@@ -40,9 +40,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@snowluma/bridge": "workspace:*",
     "@snowluma/common": "workspace:*",
     "@snowluma/onebot": "workspace:*",
+    "@snowluma/protocol": "workspace:*",
     "@snowluma/proto-defs": "workspace:*",
     "@snowluma/proton": "workspace:*",
     "@snowluma/sqlite": "workspace:*",

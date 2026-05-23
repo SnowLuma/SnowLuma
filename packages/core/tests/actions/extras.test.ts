@@ -14,7 +14,7 @@ import type {
 } from '@snowluma/proto-defs/oidb-actions/media';
 
 // Post-namespace migration: ExtrasApi forwards 6 OIDB cmds through
-// namespaces under @snowluma/bridge/oidb-services/extras. Tests assert
+// namespaces under @snowluma/protocol/oidb-services/extras. Tests assert
 // against bridge.sendRawPacket directly.
 import { ExtrasApi, AiVoiceChatType } from '../../src/bridge/apis/extras';
 import { mockBridge } from './_helpers';

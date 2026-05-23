@@ -7,7 +7,7 @@ import type {
 } from '@snowluma/proto-defs/oidb-actions/base';
 
 // Post-namespace migration: MiscApi forwards 3 OIDB cmds through
-// @snowluma/bridge/oidb-services/misc namespaces. The non-OIDB
+// @snowluma/protocol/oidb-services/misc namespaces. The non-OIDB
 // `getMiniAppArk` (LightAppSvc) stays inline on the facade. Tests
 // hit bridge.sendRawPacket directly.
 import { MiscApi } from '../../src/bridge/apis/misc';

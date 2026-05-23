@@ -1,4 +1,4 @@
-import type { WebHonorType } from '@snowluma/bridge/web/group-honor';
+import type { WebHonorType } from '@snowluma/protocol/web/group-honor';
 import type { Bridge } from '@snowluma/core/bridge';
 import type { ApiActionContext } from './api-handler';
 import type { ConverterContext } from './event-converter';

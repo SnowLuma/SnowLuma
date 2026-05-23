@@ -9,10 +9,10 @@
 //   (FetchUserInfoEvent by uid → resolved uin → posted event)
 
 import { describe, expect, it, vi } from 'vitest';
-import { IncomingPacketPipeline } from '@snowluma/bridge/packet-pipeline';
-import { BridgeEventBus } from '@snowluma/bridge/event-bus';
-import { IdentityService } from '@snowluma/bridge/identity-service';
-import type { QQEventVariant } from '@snowluma/bridge/events';
+import { IncomingPacketPipeline } from '@snowluma/protocol/packet-pipeline';
+import { BridgeEventBus } from '@snowluma/protocol/event-bus';
+import { IdentityService } from '@snowluma/protocol/identity-service';
+import type { QQEventVariant } from '@snowluma/protocol/events';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 
 function makePipeline(opts: {

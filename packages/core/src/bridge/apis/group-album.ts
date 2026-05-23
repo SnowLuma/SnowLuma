@@ -17,7 +17,7 @@ import type {
 } from '@snowluma/proto-defs/oidb-actions/group-album';
 import type { BridgeContext } from '../bridge-context';
 import type { Bridge } from '../bridge';
-import { getGroupAlbumList, uploadImageToGroupAlbum } from '@snowluma/bridge/web/group-album';
+import { getGroupAlbumList, uploadImageToGroupAlbum } from '@snowluma/protocol/web/group-album';
 // `getCookies` is part of WebApi — go through the hub so we don't
 // duplicate the cookie acquisition flow.
 

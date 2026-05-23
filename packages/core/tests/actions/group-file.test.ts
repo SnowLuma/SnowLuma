@@ -15,19 +15,19 @@ import type {
 } from '@snowluma/proto-defs/oidb-actions/media';
 
 // Post-namespace migration: GroupFileApi forwards single-OIDB methods
-// through namespaces under @snowluma/bridge/oidb-services/group-file.
+// through namespaces under @snowluma/protocol/oidb-services/group-file.
 // The multi-stage methods (`upload` / `uploadPrivate`) keep their
 // orchestration on the facade; we assert against bridge.sendRawPacket
 // directly. Highway calls (fetchHighwaySession / uploadHighwayHttp)
 // and the file-source loader are still module-mocked because the
 // facade owns those calls directly.
 
-vi.mock('@snowluma/bridge/highway', () => ({
+vi.mock('@snowluma/protocol/highway', () => ({
   fetchHighwaySession: vi.fn(async () => ({})),
   uploadHighwayHttp: vi.fn(async () => undefined),
 }));
 
-vi.mock('@snowluma/bridge/highway/utils', () => ({
+vi.mock('@snowluma/protocol/highway/utils', () => ({
   loadBinarySource: vi.fn(async (_src: string, fallback: string) => ({
     bytes: new Uint8Array([1, 2, 3]),
     fileName: `${fallback}.bin`,
@@ -37,7 +37,7 @@ vi.mock('@snowluma/bridge/highway/utils', () => ({
   FILE_UPLOAD_MAX_BYTES: 4 * 1024 * 1024 * 1024,
 }));
 
-import * as highwayClient from '@snowluma/bridge/highway';
+import * as highwayClient from '@snowluma/protocol/highway';
 import { GroupFileApi } from '../../src/bridge/apis/group-file';
 import { mockBridge } from './_helpers';
 

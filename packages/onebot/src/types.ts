@@ -1,4 +1,4 @@
-// Plain JSON types now live in @snowluma/common/json so @snowluma/bridge
+// Plain JSON types now live in @snowluma/common/json so @snowluma/protocol
 // (event-format / receive parsers) can talk about JSON payloads without
 // importing OneBot. Re-exported here so the legacy import shape stays
 // supported — `import { JsonValue } from '<…>/onebot/types'` keeps working.

@@ -2,7 +2,7 @@
 // download URL resolvers.
 //
 // Single-OIDB-call methods are one-line forwarders to namespaces
-// under @snowluma/bridge/oidb-services/group-file. The multi-stage
+// under @snowluma/protocol/oidb-services/group-file. The multi-stage
 // methods (`upload` / `uploadPrivate`) stay here because they
 // orchestrate three discrete legs (OIDB preflight → highway PUT →
 // follow-on OIDB publish or message send) plus the upload-cache
@@ -13,28 +13,28 @@ import { toHexUpper } from '@snowluma/common/hex';
 import { createLogger } from '@snowluma/common/logger';
 import type { BridgeContext } from '../bridge-context';
 import type { Bridge } from '../bridge';
-import { fetchHighwaySession, uploadHighwayHttp } from '@snowluma/bridge/highway';
-import { computeHashes, computeMd5, FILE_UPLOAD_MAX_BYTES, loadBinarySource } from '@snowluma/bridge/highway/utils';
+import { fetchHighwaySession, uploadHighwayHttp } from '@snowluma/protocol/highway';
+import { computeHashes, computeMd5, FILE_UPLOAD_MAX_BYTES, loadBinarySource } from '@snowluma/protocol/highway/utils';
 import type { FileUploadExt } from '@snowluma/proto-defs/highway';
 import { resolveSelfUid, toInt, type MediaIndexNode } from './shared';
 
-import { PublishGroupFile } from '@snowluma/bridge/oidb-services/group-file/publish-group-file';
-import { GetGroupFileCount } from '@snowluma/bridge/oidb-services/group-file/get-group-file-count';
-import { UploadGroupFileRequest } from '@snowluma/bridge/oidb-services/group-file/upload-group-file-request';
-import { UploadPrivateFileRequest } from '@snowluma/bridge/oidb-services/group-file/upload-private-file-request';
-import { ListGroupFilesPage } from '@snowluma/bridge/oidb-services/group-file/list-group-files-page';
-import { GetGroupFileUrl } from '@snowluma/bridge/oidb-services/group-file/get-group-file-url';
-import { GetPrivateFileUrl } from '@snowluma/bridge/oidb-services/group-file/get-private-file-url';
-import { DeleteGroupFile } from '@snowluma/bridge/oidb-services/group-file/delete-group-file';
-import { MoveGroupFile } from '@snowluma/bridge/oidb-services/group-file/move-group-file';
-import { CreateGroupFolder } from '@snowluma/bridge/oidb-services/group-file/create-group-folder';
-import { DeleteGroupFolder } from '@snowluma/bridge/oidb-services/group-file/delete-group-folder';
-import { RenameGroupFolder } from '@snowluma/bridge/oidb-services/group-file/rename-group-folder';
-import { GetGroupPttUrl } from '@snowluma/bridge/oidb-services/group-file/get-group-ptt-url';
-import { GetPrivatePttUrl } from '@snowluma/bridge/oidb-services/group-file/get-private-ptt-url';
-import { GetGroupVideoUrl } from '@snowluma/bridge/oidb-services/group-file/get-group-video-url';
-import { GetPrivateVideoUrl } from '@snowluma/bridge/oidb-services/group-file/get-private-video-url';
-import { ensureRetCodeZero } from '@snowluma/bridge/oidb-services/shared';
+import { PublishGroupFile } from '@snowluma/protocol/oidb-services/group-file/publish-group-file';
+import { GetGroupFileCount } from '@snowluma/protocol/oidb-services/group-file/get-group-file-count';
+import { UploadGroupFileRequest } from '@snowluma/protocol/oidb-services/group-file/upload-group-file-request';
+import { UploadPrivateFileRequest } from '@snowluma/protocol/oidb-services/group-file/upload-private-file-request';
+import { ListGroupFilesPage } from '@snowluma/protocol/oidb-services/group-file/list-group-files-page';
+import { GetGroupFileUrl } from '@snowluma/protocol/oidb-services/group-file/get-group-file-url';
+import { GetPrivateFileUrl } from '@snowluma/protocol/oidb-services/group-file/get-private-file-url';
+import { DeleteGroupFile } from '@snowluma/protocol/oidb-services/group-file/delete-group-file';
+import { MoveGroupFile } from '@snowluma/protocol/oidb-services/group-file/move-group-file';
+import { CreateGroupFolder } from '@snowluma/protocol/oidb-services/group-file/create-group-folder';
+import { DeleteGroupFolder } from '@snowluma/protocol/oidb-services/group-file/delete-group-folder';
+import { RenameGroupFolder } from '@snowluma/protocol/oidb-services/group-file/rename-group-folder';
+import { GetGroupPttUrl } from '@snowluma/protocol/oidb-services/group-file/get-group-ptt-url';
+import { GetPrivatePttUrl } from '@snowluma/protocol/oidb-services/group-file/get-private-ptt-url';
+import { GetGroupVideoUrl } from '@snowluma/protocol/oidb-services/group-file/get-group-video-url';
+import { GetPrivateVideoUrl } from '@snowluma/protocol/oidb-services/group-file/get-private-video-url';
+import { ensureRetCodeZero } from '@snowluma/protocol/oidb-services/shared';
 
 const log = createLogger('GroupFile');
 

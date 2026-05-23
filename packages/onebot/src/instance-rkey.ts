@@ -1,4 +1,4 @@
-import type { MessageElement } from '@snowluma/bridge/events';
+import type { MessageElement } from '@snowluma/protocol/events';
 import type { DownloadRKeyInfo } from '@snowluma/core/bridge';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import { createLogger } from '@snowluma/common/logger';

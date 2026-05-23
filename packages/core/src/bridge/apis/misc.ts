@@ -10,9 +10,9 @@ import type {
 } from '@snowluma/proto-defs/oidb-actions/base';
 import type { BridgeContext } from '../bridge-context';
 // Migrated OIDB cmds — facade methods are one-line forwarders.
-import { TranslateEnToZh } from '@snowluma/bridge/oidb-services/misc/translate-en-to-zh';
-import { ClickInlineKeyboardButton } from '@snowluma/bridge/oidb-services/misc/click-inline-keyboard-button';
-import { SendGroupSign } from '@snowluma/bridge/oidb-services/misc/send-group-sign';
+import { TranslateEnToZh } from '@snowluma/protocol/oidb-services/misc/translate-en-to-zh';
+import { ClickInlineKeyboardButton } from '@snowluma/protocol/oidb-services/misc/click-inline-keyboard-button';
+import { SendGroupSign } from '@snowluma/protocol/oidb-services/misc/send-group-sign';
 
 export class MiscApi {
   constructor(private readonly ctx: BridgeContext) {}

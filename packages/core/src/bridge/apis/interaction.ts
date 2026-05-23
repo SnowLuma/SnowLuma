@@ -1,18 +1,18 @@
 // InteractionApi — facade over interactive-engagement OIDB cmds
 // (poke / like / reaction / essence / emoji-like-list). Every method
 // is a one-line forwarder to a self-contained namespace under
-// @snowluma/bridge/oidb-services. The facade exists purely to keep
+// @snowluma/protocol/oidb-services. The facade exists purely to keep
 // the `bridge.apis.interaction.X(...)` ergonomic call style; all wire
 // work (envelope build / encode / send / decode) lives in the
 // namespace files.
 
 import type { BridgeContext } from '../bridge-context';
-import { SendPoke } from '@snowluma/bridge/oidb-services/interaction/send-poke';
-import { SendLike } from '@snowluma/bridge/oidb-services/interaction/send-like';
-import { SetEssence } from '@snowluma/bridge/oidb-services/interaction/set-essence';
-import { SetReaction } from '@snowluma/bridge/oidb-services/reaction/set-reaction';
-import { FetchReactionSummary } from '@snowluma/bridge/oidb-services/reaction/fetch-reaction-summary';
-import { GetEmojiLikes } from '@snowluma/bridge/oidb-services/reaction/get-emoji-likes';
+import { SendPoke } from '@snowluma/protocol/oidb-services/interaction/send-poke';
+import { SendLike } from '@snowluma/protocol/oidb-services/interaction/send-like';
+import { SetEssence } from '@snowluma/protocol/oidb-services/interaction/set-essence';
+import { SetReaction } from '@snowluma/protocol/oidb-services/reaction/set-reaction';
+import { FetchReactionSummary } from '@snowluma/protocol/oidb-services/reaction/fetch-reaction-summary';
+import { GetEmojiLikes } from '@snowluma/protocol/oidb-services/reaction/get-emoji-likes';
 
 export class InteractionApi {
   constructor(private readonly ctx: BridgeContext) {}

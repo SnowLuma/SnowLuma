@@ -7,7 +7,7 @@
 //      decode + decoder + handleSideEffects (identity-service SQLite
 //      writes) + event emit through BridgeEventBus.
 //
-// Run via:  pnpm -F @snowluma/bridge bench
+// Run via:  pnpm -F @snowluma/protocol bench
 //
 // Output is `tinybench` ops/sec — vitest's built-in `bench()` is just a
 // thin wrapper. Run before AND after a perf commit; the delta is what

@@ -1,5 +1,5 @@
 // Plain JSON value types — defined here (not in @snowluma/onebot/types
-// where they used to live) so @snowluma/bridge can talk about JSON-shaped
+// where they used to live) so @snowluma/protocol can talk about JSON-shaped
 // payloads without importing OneBot. The OneBot types module keeps the
 // names exported via re-export, so existing call sites that say
 // `import type { JsonValue } from '<…>/onebot/types'` continue to work

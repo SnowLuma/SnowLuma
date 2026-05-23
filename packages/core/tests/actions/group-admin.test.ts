@@ -19,7 +19,7 @@ import type {
 } from '@snowluma/proto-defs/oidb-actions/base';
 
 // Post-namespace migration: GroupAdminApi forwards through namespaces
-// under @snowluma/bridge/oidb-services/group-admin. Tests assert
+// under @snowluma/protocol/oidb-services/group-admin. Tests assert
 // against bridge.sendRawPacket directly — no module-level mocks.
 import { GroupAdminApi } from '../../src/bridge/apis/group-admin';
 import { mockBridge } from './_helpers';

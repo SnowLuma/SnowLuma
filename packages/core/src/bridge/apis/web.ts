@@ -6,19 +6,19 @@
 
 import type { BridgeContext } from '../bridge-context';
 import type { Bridge } from '../bridge';
-import { getGroupEssenceMsg, getGroupEssenceMsgAll } from '@snowluma/bridge/web/group-essence';
-import { getHonorListWebAPI, WebHonorType } from '@snowluma/bridge/web/group-honor';
+import { getGroupEssenceMsg, getGroupEssenceMsgAll } from '@snowluma/protocol/web/group-essence';
+import { getHonorListWebAPI, WebHonorType } from '@snowluma/protocol/web/group-honor';
 import {
   deleteGroupNotice as deleteGroupNoticeHttp,
   getGroupNoticeWebAPI,
   setGroupNoticeWebAPI,
   uploadGroupNoticeImage,
-} from '@snowluma/bridge/web/group-notice';
-import { RequestUtil } from '@snowluma/bridge/web/request-util';
+} from '@snowluma/protocol/web/group-notice';
+import { RequestUtil } from '@snowluma/protocol/web/request-util';
 // Migrated OIDB cmds — the two private helpers below are thin
 // forwarders into the namespaces.
-import { ForceFetchClientKey, type ClientKeyInfo as NamespaceClientKeyInfo } from '@snowluma/bridge/oidb-services/web/force-fetch-client-key';
-import { GetPskey } from '@snowluma/bridge/oidb-services/web/get-pskey';
+import { ForceFetchClientKey, type ClientKeyInfo as NamespaceClientKeyInfo } from '@snowluma/protocol/oidb-services/web/force-fetch-client-key';
+import { GetPskey } from '@snowluma/protocol/oidb-services/web/get-pskey';
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
 

@@ -29,13 +29,13 @@ import type { Elem } from '@snowluma/proto-defs/element';
 
 // Mock highway uploads only — they're irrelevant for text-only nodes
 // but the import would otherwise pull in the native ffmpeg addon.
-vi.mock('@snowluma/bridge/highway/image-upload', () => ({
+vi.mock('@snowluma/protocol/highway/image-upload', () => ({
   uploadImageMsgInfo: vi.fn(async () => new Uint8Array()),
 }));
-vi.mock('@snowluma/bridge/highway/ptt-upload', () => ({
+vi.mock('@snowluma/protocol/highway/ptt-upload', () => ({
   uploadPttMsgInfo: vi.fn(async () => new Uint8Array()),
 }));
-vi.mock('@snowluma/bridge/highway/video-upload', () => ({
+vi.mock('@snowluma/protocol/highway/video-upload', () => ({
   uploadVideoMsgInfo: vi.fn(async () => new Uint8Array()),
 }));
 

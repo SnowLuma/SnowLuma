@@ -4,14 +4,14 @@ import type { SendPacketResult } from '@snowluma/common/packet-sender';
 import type { SendMessageRequest, SendMessageResponse } from '@snowluma/proto-defs/action';
 import type { FileExtra } from '@snowluma/proto-defs/message';
 
-vi.mock('@snowluma/bridge/element-builder', () => ({
+vi.mock('@snowluma/protocol/element-builder', () => ({
   buildSendElems: vi.fn(async () => [{ text: { str: 'stub media elem' } }]),
 }));
 
 describe('Bridge private media routing', () => {
   it('includes resolved uid in the final c2c send request for media messages', async () => {
     const { Bridge } = await import('../src/bridge/bridge');
-    const { IdentityService } = await import('@snowluma/bridge/identity-service');
+    const { IdentityService } = await import('@snowluma/protocol/identity-service');
 
     class TestBridge extends Bridge {
       capturedBody: Uint8Array | null = null;
@@ -60,7 +60,7 @@ describe('Bridge private media routing', () => {
     // implementation wrote c2c routing + richText.notOnlineFile +
     // c2cCmd=11 — the QQ-NT server rejected every c2c file send.
     const { Bridge } = await import('../src/bridge/bridge');
-    const { IdentityService } = await import('@snowluma/bridge/identity-service');
+    const { IdentityService } = await import('@snowluma/protocol/identity-service');
 
     class TestBridge extends Bridge {
       capturedBody: Uint8Array | null = null;

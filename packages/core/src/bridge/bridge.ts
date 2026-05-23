@@ -1,9 +1,9 @@
 import type { PacketSender, SendPacketResult } from '@snowluma/common/packet-sender';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import type { BridgeInterface } from './bridge-interface';
-import { IdentityService } from '@snowluma/bridge/identity-service';
-import { MSG_PUSH_CMD, parseMsgPush } from '@snowluma/bridge/msg-push';
-import { IncomingPacketPipeline, type CmdParser } from '@snowluma/bridge/packet-pipeline';
+import { IdentityService } from '@snowluma/protocol/identity-service';
+import { MSG_PUSH_CMD, parseMsgPush } from '@snowluma/protocol/msg-push';
+import { IncomingPacketPipeline, type CmdParser } from '@snowluma/protocol/packet-pipeline';
 // qq-info types are no longer used directly in this file — they live
 // inside the Api classes that own those fetches (apis/contacts.ts).
 import { type ApiHub, buildApiHub } from './apis';
@@ -35,7 +35,7 @@ import type { GroupFilesResult } from './apis/group-file';
 // actions/profile.ts removed — moved to apis/profile.ts::ProfileApi.
 // `bridge-contacts.ts` removed — its 6 functions are now methods on
 // `apis.contacts` (see `apis/contacts.ts::ContactsApi`).
-import { BridgeEventBus } from '@snowluma/bridge/event-bus';
+import { BridgeEventBus } from '@snowluma/protocol/event-bus';
 // web-actions/* removed — moved to apis/web.ts::WebApi.
 export { AiVoiceChatType };
 export type { AiVoiceCategory, StrangerStatus };

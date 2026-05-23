@@ -67,8 +67,8 @@ export default defineConfig([
     // the file:cmd 1:1 mapping are the whole point. Disable the
     // module-syntax preference here only.
     files: [
-      'packages/bridge/src/oidb-services/**/*.ts',
-      'packages/bridge/tests/oidb-services/**/*.ts',
+      'packages/protocol/src/oidb-services/**/*.ts',
+      'packages/protocol/tests/oidb-services/**/*.ts',
     ],
     rules: {
       '@typescript-eslint/no-namespace': 'off',

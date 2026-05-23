@@ -1,4 +1,4 @@
-import type { MessageElement, QQEventVariant } from '@snowluma/bridge/events';
+import type { MessageElement, QQEventVariant } from '@snowluma/protocol/events';
 import type { JsonObject } from '../types';
 import {
   convertFriendMessage,

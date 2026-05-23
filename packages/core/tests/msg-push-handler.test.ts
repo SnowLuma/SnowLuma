@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { protobuf_encode } from '@snowluma/proton';
-import { parseMsgPush, MSG_PUSH_CMD } from '@snowluma/bridge/msg-push';
-import { IdentityService } from '@snowluma/bridge/identity-service';
-import type { GroupMemberInfo, QQGroupInfo } from '@snowluma/bridge/qq-info';
+import { parseMsgPush, MSG_PUSH_CMD } from '@snowluma/protocol/msg-push';
+import { IdentityService } from '@snowluma/protocol/identity-service';
+import type { GroupMemberInfo, QQGroupInfo } from '@snowluma/protocol/qq-info';
 // Proton's call-site analyzer keys off the literal type identifier
 // printed in `protobuf_encode<X>` — it walks imports by *original*
 // name (not alias). If both `import { X } from 'proto/notify'` and
@@ -18,7 +18,7 @@ import type {
 import type { PushMsg } from '@snowluma/proto-defs/message';
 import type {
   GroupMemberJoin, FriendAddEvent, QQEventVariant,
-} from '@snowluma/bridge/events';
+} from '@snowluma/protocol/events';
 
 // Local alias for the event-side recall type — derived via Extract so
 // we avoid an `import { FriendRecall as X }` that collides with the

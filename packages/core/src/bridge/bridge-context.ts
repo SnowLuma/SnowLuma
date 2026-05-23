@@ -1,6 +1,6 @@
-// Api-layer extension of @snowluma/bridge's slim BridgeContext.
+// Api-layer extension of @snowluma/protocol's slim BridgeContext.
 //
-// The slim interface in @snowluma/bridge has the protocol-layer
+// The slim interface in @snowluma/protocol has the protocol-layer
 // surface (identity / events / sendRawPacket / resolveUserUid / next*
 // sequence helpers / upload-metadata cache). This file extends it
 // with `apis: ApiHub` — the typed bag of Api classes that lives ONLY
@@ -10,10 +10,10 @@
 // The 13 Api classes (apis/<area>.ts) import `BridgeContext` from
 // here, which gives them `this.ctx.apis.message.sendGroup(...)` type-
 // safety alongside the protocol-layer fields. Highway uploaders,
-// element-builder, msg-push parsers (all in @snowluma/bridge) import
-// the slim version directly from `@snowluma/bridge/bridge-context`.
+// element-builder, msg-push parsers (all in @snowluma/protocol) import
+// the slim version directly from `@snowluma/protocol/bridge-context`.
 
-import type { BridgeContext as BaseBridgeContext } from '@snowluma/bridge/bridge-context';
+import type { BridgeContext as BaseBridgeContext } from '@snowluma/protocol/bridge-context';
 import type { ApiHub } from './apis';
 
 export interface BridgeContext extends BaseBridgeContext {
@@ -24,4 +24,4 @@ export interface BridgeContext extends BaseBridgeContext {
 // `import type { UploadedFileMeta } from '<…>/bridge-context'` (or
 // from bridge.ts via re-export) keeps working without callers having
 // to learn the new package path.
-export type { UploadedFileMeta } from '@snowluma/bridge/bridge-context';
+export type { UploadedFileMeta } from '@snowluma/protocol/bridge-context';

@@ -8,7 +8,7 @@ import fs from 'fs';
 import Database, { type Database as DatabaseType, type Statement } from '@snowluma/sqlite';
 import path from 'path';
 
-import type { MessageElement } from '@snowluma/bridge/events';
+import type { MessageElement } from '@snowluma/protocol/events';
 
 export interface CachedImage {
   /** Primary `data.file` value as exposed in the OneBot segment. */

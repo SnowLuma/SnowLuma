@@ -11,20 +11,20 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@snowluma/bridge/highway/pipeline', () => ({
+vi.mock('@snowluma/protocol/highway/pipeline', () => ({
   runNtv2Upload: vi.fn(async () => ({ msgInfo: { msgInfoBody: [], extBizInfo: {} } })),
   finalizeMediaMsgInfo: vi.fn(() => new Uint8Array([0x12, 0x34])),
   hexToBytes: vi.fn((hex: string) => new Uint8Array(hex.length / 2)),
 }));
 
-import * as pipeline from '@snowluma/bridge/highway/pipeline';
+import * as pipeline from '@snowluma/protocol/highway/pipeline';
 import {
   uploadVideoMsgInfo,
   GROUP_VIDEO_CMD_ID,
   GROUP_VIDEO_THUMB_CMD_ID,
   PRIVATE_VIDEO_CMD_ID,
   PRIVATE_VIDEO_THUMB_CMD_ID,
-} from '@snowluma/bridge/highway/video-upload';
+} from '@snowluma/protocol/highway/video-upload';
 
 const FINGERPRINT = {
   noByteFallback: true,

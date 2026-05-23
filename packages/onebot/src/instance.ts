@@ -21,7 +21,7 @@ import {
   type NetworkAdapterContext,
 } from './network';
 import { createLogger, type Logger } from '@snowluma/common/logger';
-import { formatGroup, formatMessageSegments, formatReply, formatUser } from '@snowluma/bridge/format';
+import { formatGroup, formatMessageSegments, formatReply, formatUser } from '@snowluma/protocol/format';
 
 const moduleLog = createLogger('Event');
 

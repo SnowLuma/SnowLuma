@@ -17,17 +17,17 @@
 import { describe, expect, it, vi } from 'vitest';
 import { inflateSync } from 'zlib';
 
-vi.mock('@snowluma/bridge/highway/image-upload', () => ({
+vi.mock('@snowluma/protocol/highway/image-upload', () => ({
   uploadImageMsgInfo: vi.fn(async () => new Uint8Array([7, 8, 9])),
 }));
-vi.mock('@snowluma/bridge/highway/ptt-upload', () => ({
+vi.mock('@snowluma/protocol/highway/ptt-upload', () => ({
   uploadPttMsgInfo: vi.fn(async () => new Uint8Array([4, 5, 6])),
 }));
-vi.mock('@snowluma/bridge/highway/video-upload', () => ({
+vi.mock('@snowluma/protocol/highway/video-upload', () => ({
   uploadVideoMsgInfo: vi.fn(async () => new Uint8Array([1, 2, 3])),
 }));
 
-import { buildSendElems } from '@snowluma/bridge/element-builder';
+import { buildSendElems } from '@snowluma/protocol/element-builder';
 
 const fakeBridge = {} as any;
 

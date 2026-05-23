@@ -1,5 +1,5 @@
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
-import type { MessageElement } from '@snowluma/bridge/events';
+import type { MessageElement } from '@snowluma/protocol/events';
 import type { RKeyCache } from './instance-rkey';
 
 export class MediaUrlResolver {

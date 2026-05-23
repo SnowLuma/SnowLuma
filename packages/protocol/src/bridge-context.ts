@@ -1,9 +1,9 @@
 // BridgeContext — the protocol-layer surface that anything inside
-// @snowluma/bridge (highway uploaders, OIDB envelope helper, element
+// @snowluma/protocol (highway uploaders, OIDB envelope helper, element
 // builder, msg-push parsers) accepts when it needs `bridge.identity`
 // or `bridge.sendRawPacket` plus the upload-metadata cache.
 //
-// Deliberately apis-less: @snowluma/bridge knows nothing about the
+// Deliberately apis-less: @snowluma/protocol knows nothing about the
 // `apis.<area>.method()` hub that lives in @snowluma/core, so the
 // type that bridge code accepts must NOT mention `ApiHub`. The api-
 // layer's own extended context (with `apis: ApiHub`) lives at
@@ -23,7 +23,7 @@ import type { SendPacketResult } from '@snowluma/common/packet-sender';
  * succeeds. Lets the OneBot send-message path reconstruct the full
  * payload when the caller only echoes the `file_id` back later. Lives
  * here (not on @snowluma/core's `bridge.ts`) so element-builder + the
- * forward-builder — both inside @snowluma/bridge — can read the cache
+ * forward-builder — both inside @snowluma/protocol — can read the cache
  * without circular-importing @snowluma/core.
  */
 export interface UploadedFileMeta {

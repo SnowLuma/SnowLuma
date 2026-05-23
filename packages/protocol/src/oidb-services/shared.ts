@@ -1,6 +1,6 @@
 // Tiny helpers shared between OIDB namespaces — kept here instead of
 // `@snowluma/core/bridge/apis/shared` to avoid a circular dep
-// (services live in @snowluma/bridge, facades in @snowluma/core).
+// (services live in @snowluma/protocol, facades in @snowluma/core).
 
 /** Coerce numbers, strings, and bigints to a plain integer. */
 export function toInt(value: unknown): number {

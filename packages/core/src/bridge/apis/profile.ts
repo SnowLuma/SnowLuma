@@ -12,14 +12,14 @@ import type {
 } from '@snowluma/proto-defs/oidb-actions/base';
 import type { BridgeContext } from '../bridge-context';
 import type { Bridge } from '../bridge';
-import { fetchHighwaySession, uploadHighwayHttp } from '@snowluma/bridge/highway';
-import { computeHashes, loadBinarySource } from '@snowluma/bridge/highway/utils';
+import { fetchHighwaySession, uploadHighwayHttp } from '@snowluma/protocol/highway';
+import { computeHashes, loadBinarySource } from '@snowluma/protocol/highway/utils';
 // Migrated OIDB cmds — facade methods are one-line forwarders.
-import { SetProfile } from '@snowluma/bridge/oidb-services/profile/set-profile';
-import { SetSelfLongNick } from '@snowluma/bridge/oidb-services/profile/set-self-long-nick';
-import { SetInputStatus } from '@snowluma/bridge/oidb-services/profile/set-input-status';
-import { GetLike } from '@snowluma/bridge/oidb-services/profile/get-like';
-import { GetUnidirectionalFriendList } from '@snowluma/bridge/oidb-services/profile/get-unidirectional-friend-list';
+import { SetProfile } from '@snowluma/protocol/oidb-services/profile/set-profile';
+import { SetSelfLongNick } from '@snowluma/protocol/oidb-services/profile/set-self-long-nick';
+import { SetInputStatus } from '@snowluma/protocol/oidb-services/profile/set-input-status';
+import { GetLike } from '@snowluma/protocol/oidb-services/profile/get-like';
+import { GetUnidirectionalFriendList } from '@snowluma/protocol/oidb-services/profile/get-unidirectional-friend-list';
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
 

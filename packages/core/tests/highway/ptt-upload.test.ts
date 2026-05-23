@@ -7,14 +7,14 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@snowluma/bridge/highway/pipeline', () => ({
+vi.mock('@snowluma/protocol/highway/pipeline', () => ({
   runNtv2Upload: vi.fn(async () => ({ msgInfo: { msgInfoBody: [], extBizInfo: {} } })),
   finalizeMediaMsgInfo: vi.fn(() => new Uint8Array([0xAA, 0xBB])),
   hexToBytes: vi.fn((hex: string) => new Uint8Array(hex.length / 2)),
 }));
 
-import * as pipeline from '@snowluma/bridge/highway/pipeline';
-import { uploadPttMsgInfo, GROUP_PTT_CMD_ID, PRIVATE_PTT_CMD_ID } from '@snowluma/bridge/highway/ptt-upload';
+import * as pipeline from '@snowluma/protocol/highway/pipeline';
+import { uploadPttMsgInfo, GROUP_PTT_CMD_ID, PRIVATE_PTT_CMD_ID } from '@snowluma/protocol/highway/ptt-upload';
 
 const FINGERPRINT = {
   noByteFallback: true,

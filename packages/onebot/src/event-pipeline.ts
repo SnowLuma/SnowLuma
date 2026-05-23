@@ -1,4 +1,4 @@
-import type { QQEventVariant } from '@snowluma/bridge/events';
+import type { QQEventVariant } from '@snowluma/protocol/events';
 import { convertEvent } from './event-converter';
 import type { OneBotInstanceContext } from './instance-context';
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from './message-id';
