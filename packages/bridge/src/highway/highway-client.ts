@@ -239,7 +239,20 @@ export async function uploadHighwayHttp(
       const { head: respHead } = unpackHighwayFrame(responseBody);
       const resp = protobuf_decode<RespDataHighwayHead>(respHead);
       if (resp?.errorCode && resp.errorCode !== 0) {
-        throw new Error(`highway upload error_code=${resp.errorCode}`);
+        // Surface every diagnostic the highway response carries so
+        // user reports of `error_code=921` and friends include the
+        // server-side context (segHead.retCode, chunk size, file md5)
+        // — without these we can't tell apart a malformed-payload
+        // reject, a session-ticket mismatch, or a per-account rate-
+        // limit.
+        const segRetCode = resp.msgSegHead?.retCode ?? 0;
+        const fileMd5Hex = Buffer.from(fileMd5).toString('hex');
+        throw new Error(
+          `highway upload error_code=${resp.errorCode}` +
+          ` (cmdId=${commandId} chunk=${chunkSize}/${bytes.length}` +
+          ` offset=${offset} segRetCode=${segRetCode}` +
+          ` fileMd5=${fileMd5Hex.slice(0, 16)}…)`,
+        );
       }
       offset += chunkSize;
       console.log(`[Highway] uploaded ${offset}/${bytes.length} bytes`);
