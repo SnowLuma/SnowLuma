@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter } from 'events';
-import { HookSession } from '../src/hook/hook-session';
-import type { ManualMapHandle } from '../src/hook/injector';
-import type { QqHookClient, QqHookPacket } from '../src/hook/qq-hook-client';
+import { HookSession } from '../src/hook-session';
+import type { ManualMapHandle } from '../src/injector';
+import type { QqHookClient, QqHookPacket } from '../src/qq-hook-client';
 import type { PacketSink } from '@snowluma/common/protocol-types';
 
 const DUMMY_HANDLE: ManualMapHandle = { base: 0n, entry: 0n, exceptionTable: 0n, size: 0 };

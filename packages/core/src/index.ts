@@ -2,7 +2,7 @@ import { BridgeManager } from './bridge/manager';
 import { OneBotManager } from '@snowluma/onebot/manager';
 import { loadRuntimeConfig } from '@snowluma/common/runtime';
 import { closeLogger, createLogger } from '@snowluma/common/logger';
-import { HookManager } from './hook/hook-manager';
+import { HookManager } from '@snowluma/bridge';
 
 const runtimeConfig = loadRuntimeConfig();
 const log = createLogger('App');

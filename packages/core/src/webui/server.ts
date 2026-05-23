@@ -7,7 +7,7 @@ import { randomBytes } from 'crypto';
 import type { OneBotManager } from '@snowluma/onebot/manager';
 import { loadOneBotConfig, saveOneBotConfig } from '@snowluma/onebot/config';
 import type { OneBotConfig } from '@snowluma/onebot/types';
-import type { HookManager, HookProcessInfo } from '../hook/hook-manager';
+import type { HookManager, HookProcessInfo } from '@snowluma/bridge';
 import path from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { fileURLToPath } from 'url';

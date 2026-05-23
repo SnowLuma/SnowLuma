@@ -6,11 +6,11 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter } from 'events';
-import { HookManager } from '../src/hook/hook-manager';
-import { PipeWatcher } from '../src/hook/pipe-watcher';
-import type { ManualMapHandle } from '../src/hook/injector';
-import type { BridgeManager } from '../src/bridge/manager';
-import type { QqHookClient } from '../src/hook/qq-hook-client';
+import { HookManager } from '../src/hook-manager';
+import { PipeWatcher } from '../src/pipe-watcher';
+import type { ManualMapHandle } from '../src/injector';
+import type { BridgeManagerSink } from '../src/hook-manager';
+import type { QqHookClient } from '../src/qq-hook-client';
 
 const DUMMY_HANDLE: ManualMapHandle = { base: 0n, entry: 0n, exceptionTable: 0n, size: 0 };
 const flush = () => new Promise<void>(r => setImmediate(r));
@@ -45,7 +45,7 @@ describe('HookManager — Docker reconnect-without-login leak guard', () => {
       onPacket: vi.fn(),
       onHookLogin: vi.fn(),
       onPidDisconnected: vi.fn(),
-    } as unknown as BridgeManager;
+    } as unknown as BridgeManagerSink;
 
     const manager = new HookManager({
       bridgeManager,

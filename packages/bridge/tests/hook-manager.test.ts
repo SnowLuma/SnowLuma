@@ -3,11 +3,11 @@ import { EventEmitter } from 'events';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { HookManager, shouldAutoLoadPid } from '../src/hook/hook-manager';
-import { PipeWatcher } from '../src/hook/pipe-watcher';
-import type { ManualMapHandle } from '../src/hook/injector';
-import type { BridgeManager } from '../src/bridge/manager';
-import type { QqHookClient } from '../src/hook/qq-hook-client';
+import { HookManager, shouldAutoLoadPid } from '../src/hook-manager';
+import { PipeWatcher } from '../src/pipe-watcher';
+import type { ManualMapHandle } from '../src/injector';
+import type { BridgeManagerSink } from '../src/hook-manager';
+import type { QqHookClient } from '../src/qq-hook-client';
 import { createLogger } from '@snowluma/common/logger';
 
 const DUMMY_HANDLE: ManualMapHandle = { base: 0n, entry: 0n, exceptionTable: 0n, size: 0 };
@@ -41,7 +41,7 @@ function makeManager(opts: {
     onPacket: vi.fn(),
     onHookLogin: vi.fn(),
     onPidDisconnected: vi.fn(),
-  } as unknown as BridgeManager;
+  } as unknown as BridgeManagerSink;
   const manager = new HookManager({
     bridgeManager,
     pipeWatcher,

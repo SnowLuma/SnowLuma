@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { listLiveLinuxPipePids } from '../src/hook/qq-hook-client';
+import { listLiveLinuxPipePids } from '../src/qq-hook-client';
 
 let tmpDir: string | null = null;
 

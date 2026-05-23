@@ -1,6 +1,6 @@
 import fs from 'fs';
-import type { BridgeManager } from '../bridge/manager';
-import type { PacketSink } from '@snowluma/common/protocol-types';
+import type { PacketSender } from '@snowluma/common/packet-sender';
+import type { PacketInfo, PacketSink } from '@snowluma/common/protocol-types';
 import { createLogger, type Logger } from '@snowluma/common/logger';
 import {
   injectHookProcess,
@@ -18,8 +18,21 @@ export type { HookProcessInfo, HookProcessStatus } from './types';
 export type { HookProcessBaseInfo } from './injector';
 export type { QqPortLoginInfo } from './qq-port-probe';
 
+/**
+ * Sink that the hook layer calls back into when it observes a new login,
+ * a parsed packet, or a PID disconnect. The concrete implementation lives
+ * in @snowluma/core (`BridgeManager`), which is wired in by the top-level
+ * app entry. Declaring it here keeps @snowluma/bridge free of any
+ * dependency on @snowluma/core — the hook package is self-contained.
+ */
+export interface BridgeManagerSink {
+  onHookLogin(pid: number, uin: string, packetClient: PacketSender): void;
+  onPacket(pkt: PacketInfo): void;
+  onPidDisconnected(pid: number): void;
+}
+
 export type HookManagerDeps = {
-  bridgeManager: BridgeManager;
+  bridgeManager: BridgeManagerSink;
   /** Sink for parsed packets from any live HookSession. Defaults to
    * `bridgeManager.onPacket` — every packet flows straight into the
    * per-UIN bridge dispatcher with no intermediate event emitter. */
@@ -57,7 +70,7 @@ export type HookManagerDeps = {
  * real QQ.exe or a native addon.
  */
 export class HookManager {
-  private readonly bridgeManager: BridgeManager;
+  private readonly bridgeManager: BridgeManagerSink;
   private readonly onPacket: PacketSink;
   private readonly injector: HookSessionDeps['injector'];
   private readonly makeClient: HookSessionDeps['makeClient'];

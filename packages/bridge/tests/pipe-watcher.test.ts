@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { PipeWatcher } from '../src/hook/pipe-watcher';
-import type { HookProcessBaseInfo } from '../src/hook/injector';
+import { PipeWatcher } from '../src/pipe-watcher';
+import type { HookProcessBaseInfo } from '../src/injector';
 
 function setupWatcher(initial: { processes: HookProcessBaseInfo[]; live: Set<number> }) {
   let processes = initial.processes;
