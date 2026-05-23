@@ -22,15 +22,19 @@ export namespace SetInputStatus {
 
   export type Deps = OidbSender & Pick<BridgeContext, 'resolveUserUid'>;
 
-  export const serialize = (p: Params, targetUid: string): Oidb0xcd4Req => ({
-    reqBody: {
-      uid: targetUid,
-      chatType: 0,
-      eventType: p.eventType,
-    },
-  });
+  export const serialize = async (ctx: Deps, p: Params): Promise<Oidb0xcd4Req> => {
+    const targetUid = await ctx.resolveUserUid(p.userId);
+    if (!targetUid) throw new Error('target uid not found');
+    return {
+      reqBody: {
+        uid: targetUid,
+        chatType: 0,
+        eventType: p.eventType,
+      },
+    };
+  };
 
-  export const deserialize = (_: Oidb0xcd4Resp): void => {};
+  export const deserialize = (_ctx: Deps, _: Oidb0xcd4Resp): void => {};
 
   export const encode = (env: OidbBase<Oidb0xcd4Req>): Uint8Array =>
     protobuf_encode<OidbBase<Oidb0xcd4Req>>(env);
@@ -38,12 +42,6 @@ export namespace SetInputStatus {
   export const decode = (bytes: Uint8Array): OidbBase<Oidb0xcd4Resp> =>
     protobuf_decode<OidbBase<Oidb0xcd4Resp>>(bytes);
 
-  export const invoke = async (deps: Deps, params: Params): Promise<void> => {
-    const targetUid = await deps.resolveUserUid(params.userId);
-    if (!targetUid) throw new Error('target uid not found');
-    await invokeOidb(deps, {
-      ...SetInputStatus,
-      serialize: p => serialize(p, targetUid),
-    }, params);
-  };
+  export const invoke = (deps: Deps, params: Params): Promise<void> =>
+    invokeOidb(deps, SetInputStatus, params);
 }

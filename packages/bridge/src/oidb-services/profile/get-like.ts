@@ -40,16 +40,22 @@ export namespace GetLike {
 
   export type Deps = OidbSender & Pick<BridgeContext, 'identity' | 'resolveUserUid'>;
 
-  export const serialize = (p: Params, targetUid: string): Oidb0x7edReq => ({
-    targetUid,
-    basic: 1,
-    vote: 1,
-    favorite: 1,
-    start: p.start ?? 0,
-    limit: p.limit ?? 10,
-  });
+  export const serialize = async (ctx: Deps, p: Params): Promise<Oidb0x7edReq> => {
+    const targetUid = p.userId
+      ? await ctx.resolveUserUid(p.userId)
+      : await resolveSelf(ctx);
+    if (!targetUid) throw new Error('target uid not found');
+    return {
+      targetUid,
+      basic: 1,
+      vote: 1,
+      favorite: 1,
+      start: p.start ?? 0,
+      limit: p.limit ?? 10,
+    };
+  };
 
-  export const deserialize = (body: Oidb0x7edResp): LikeInfo => {
+  export const deserialize = (_ctx: Deps, body: Oidb0x7edResp): LikeInfo => {
     const data = body.userLikeInfos?.[0];
     if (!data) throw new Error('get profile like info empty');
     return {
@@ -77,17 +83,8 @@ export namespace GetLike {
   export const decode = (bytes: Uint8Array): OidbBase<Oidb0x7edResp> =>
     protobuf_decode<OidbBase<Oidb0x7edResp>>(bytes);
 
-  export const invoke = async (deps: Deps, params: Params): Promise<LikeInfo> => {
-    const isSelf = !params.userId;
-    const targetUid = isSelf
-      ? await resolveSelf(deps)
-      : await deps.resolveUserUid(params.userId!);
-    if (!targetUid) throw new Error('target uid not found');
-    return invokeOidb(deps, {
-      ...GetLike,
-      serialize: p => serialize(p, targetUid),
-    }, params);
-  };
+  export const invoke = (deps: Deps, params: Params): Promise<LikeInfo> =>
+    invokeOidb(deps, GetLike, params);
 }
 
 async function resolveSelf(deps: Pick<BridgeContext, 'identity' | 'resolveUserUid'>): Promise<string> {

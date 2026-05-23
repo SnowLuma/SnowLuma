@@ -22,7 +22,7 @@ describe('TranslateEnToZh namespace', () => {
 
   describe('serialize', () => {
     it('hardcodes en → zh and tag10/12 = 1', () => {
-      const out = TranslateEnToZh.serialize({ words: ['hello'] });
+      const out = TranslateEnToZh.serialize({} as any, { words: ['hello'] });
       expect(out).toEqual({
         translateReq: { srcLang: 'en', dstLang: 'zh', words: ['hello'] },
         tag10: 1,
@@ -31,24 +31,24 @@ describe('TranslateEnToZh namespace', () => {
     });
 
     it('passes the words array verbatim', () => {
-      const out = TranslateEnToZh.serialize({ words: ['a', 'b', 'c'] });
+      const out = TranslateEnToZh.serialize({} as any, { words: ['a', 'b', 'c'] });
       expect(out.translateReq?.words).toEqual(['a', 'b', 'c']);
     });
   });
 
   describe('deserialize', () => {
     it('returns dstWords when translateResp is present', () => {
-      expect(TranslateEnToZh.deserialize({
+      expect(TranslateEnToZh.deserialize({} as any, {
         translateResp: { dstWords: ['你好', '世界'] },
       } as Oidb0x990Resp)).toEqual(['你好', '世界']);
     });
 
     it('returns [] when dstWords is omitted but translateResp exists', () => {
-      expect(TranslateEnToZh.deserialize({ translateResp: {} } as Oidb0x990Resp)).toEqual([]);
+      expect(TranslateEnToZh.deserialize({} as any, { translateResp: {} } as Oidb0x990Resp)).toEqual([]);
     });
 
     it('throws when translateResp is missing', () => {
-      expect(() => TranslateEnToZh.deserialize({} as Oidb0x990Resp))
+      expect(() => TranslateEnToZh.deserialize({} as any, {} as Oidb0x990Resp))
         .toThrow('translate response empty');
     });
   });

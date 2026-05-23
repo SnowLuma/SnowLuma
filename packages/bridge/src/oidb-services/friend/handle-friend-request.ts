@@ -22,14 +22,19 @@ export namespace HandleFriendRequest {
 
   export type Deps = OidbSender & Pick<BridgeContext, 'resolveUserUid'>;
 
-  export const serialize = (p: Params, targetUid: string): OidbFriendRequestAction => ({
-    // Server discriminator: 3 = accept, 5 = reject. Pre-fix values
-    // verified against current production behaviour.
-    accept: p.approve ? 3 : 5,
-    targetUid,
-  });
+  export const serialize = async (ctx: Deps, p: Params): Promise<OidbFriendRequestAction> => {
+    const targetUid = /^\d+$/.test(p.uidOrFlag)
+      ? await ctx.resolveUserUid(parseInt(p.uidOrFlag, 10))
+      : p.uidOrFlag;
+    return {
+      // Server discriminator: 3 = accept, 5 = reject. Pre-fix values
+      // verified against current production behaviour.
+      accept: p.approve ? 3 : 5,
+      targetUid,
+    };
+  };
 
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
   export const encode = (env: OidbBase<OidbFriendRequestAction>): Uint8Array =>
     protobuf_encode<OidbBase<OidbFriendRequestAction>>(env);
@@ -37,14 +42,6 @@ export namespace HandleFriendRequest {
   export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
     protobuf_decode<OidbBase<OidbEmpty>>(bytes);
 
-  export const invoke = async (deps: Deps, params: Params): Promise<void> => {
-    let targetUid = params.uidOrFlag;
-    if (/^\d+$/.test(params.uidOrFlag)) {
-      targetUid = await deps.resolveUserUid(parseInt(params.uidOrFlag, 10));
-    }
-    await invokeOidb(deps, {
-      ...HandleFriendRequest,
-      serialize: p => serialize(p, targetUid),
-    }, params);
-  };
+  export const invoke = (deps: Deps, params: Params): Promise<void> =>
+    invokeOidb(deps, HandleFriendRequest, params);
 }

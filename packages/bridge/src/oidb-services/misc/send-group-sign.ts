@@ -27,15 +27,15 @@ export namespace SendGroupSign {
 
   export type Deps = OidbSender & Pick<BridgeContext, 'identity'>;
 
-  export const serialize = (p: Params, uin: string): Oidb0xeb7Req => ({
+  export const serialize = (ctx: Deps, p: Params): Oidb0xeb7Req => ({
     signInInfo: {
-      uin,
+      uin: String(ctx.identity.uin),
       groupId: String(p.groupId),
       version: '9.0.90',
     },
   });
 
-  export const deserialize = (_: Oidb0xeb7Resp): void => {};
+  export const deserialize = (_ctx: Deps, _: Oidb0xeb7Resp): void => {};
 
   export const encode = (env: OidbBase<Oidb0xeb7Req>): Uint8Array =>
     protobuf_encode<OidbBase<Oidb0xeb7Req>>(env);
@@ -43,11 +43,6 @@ export namespace SendGroupSign {
   export const decode = (bytes: Uint8Array): OidbBase<Oidb0xeb7Resp> =>
     protobuf_decode<OidbBase<Oidb0xeb7Resp>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<void> => {
-    const uin = String(deps.identity.uin);
-    return invokeOidb(deps, {
-      ...SendGroupSign,
-      serialize: p => serialize(p, uin),
-    }, params);
-  };
+  export const invoke = (deps: Deps, params: Params): Promise<void> =>
+    invokeOidb(deps, SendGroupSign, params);
 }

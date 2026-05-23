@@ -28,16 +28,16 @@ export namespace GetAtAllRemain {
 
   export type Deps = OidbSender & Pick<BridgeContext, 'identity'>;
 
-  export const serialize = (p: Params, botUin: string): Oidb0x8a7Req => ({
+  export const serialize = (ctx: Deps, p: Params): Oidb0x8a7Req => ({
     basic1: 1,
     basic2: 2,
     basic3: 1,
-    uin: BigInt(botUin),
+    uin: BigInt(ctx.identity.uin),
     groupId: BigInt(p.groupId),
     type: 0,
   });
 
-  export const deserialize = (body: Oidb0x8a7Resp): AtAllRemain => {
+  export const deserialize = (_ctx: Deps, body: Oidb0x8a7Resp): AtAllRemain => {
     // Cast numbers to plain Number: the OIDB layer may surface uint32
     // as BigInt and the WebUI JSON serializer chokes on those.
     return {
@@ -54,8 +54,5 @@ export namespace GetAtAllRemain {
     protobuf_decode<OidbBase<Oidb0x8a7Resp>>(bytes);
 
   export const invoke = (deps: Deps, params: Params): Promise<AtAllRemain> =>
-    invokeOidb(deps, {
-      ...GetAtAllRemain,
-      serialize: p => serialize(p, deps.identity.uin),
-    }, params);
+    invokeOidb(deps, GetAtAllRemain, params);
 }

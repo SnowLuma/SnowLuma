@@ -31,12 +31,12 @@ export namespace FetchAiVoiceList {
 
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbAiVoiceListReq => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbAiVoiceListReq => ({
     groupUin: p.groupId,
     chatType: p.chatType,
   });
 
-  export const deserialize = (body: OidbAiVoiceListResp): AiVoiceCategory[] =>
+  export const deserialize = (_ctx: Deps, body: OidbAiVoiceListResp): AiVoiceCategory[] =>
     (body.content as AiVoiceCategory[] | undefined) ?? [];
 
   export const encode = (env: OidbBase<OidbAiVoiceListReq>): Uint8Array =>

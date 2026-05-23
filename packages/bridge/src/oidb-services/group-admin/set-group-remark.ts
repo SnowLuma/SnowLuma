@@ -13,12 +13,12 @@ export namespace SetGroupRemark {
   export interface Params { groupId: number; remark: string; }
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): Oidb0xf16Req => ({
+  export const serialize = (_ctx: Deps, p: Params): Oidb0xf16Req => ({
     inner: { groupId: BigInt(p.groupId), remark: p.remark },
     field12: 0,
   });
 
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
   export const encode = (env: OidbBase<Oidb0xf16Req>): Uint8Array =>
     protobuf_encode<OidbBase<Oidb0xf16Req>>(env);
   export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>

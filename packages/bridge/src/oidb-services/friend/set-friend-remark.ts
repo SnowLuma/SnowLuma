@@ -18,12 +18,12 @@ export namespace SetFriendRemark {
 
   export type Deps = OidbSender & Pick<BridgeContext, 'resolveUserUid'>;
 
-  export const serialize = (p: Params, targetUid: string): OidbSetFriendRemark => ({
-    targetUid,
+  export const serialize = async (ctx: Deps, p: Params): Promise<OidbSetFriendRemark> => ({
+    targetUid: await ctx.resolveUserUid(p.userId),
     remark: p.remark,
   });
 
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
   export const encode = (env: OidbBase<OidbSetFriendRemark>): Uint8Array =>
     protobuf_encode<OidbBase<OidbSetFriendRemark>>(env);
@@ -31,11 +31,6 @@ export namespace SetFriendRemark {
   export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
     protobuf_decode<OidbBase<OidbEmpty>>(bytes);
 
-  export const invoke = async (deps: Deps, params: Params): Promise<void> => {
-    const targetUid = await deps.resolveUserUid(params.userId);
-    await invokeOidb(deps, {
-      ...SetFriendRemark,
-      serialize: p => serialize(p, targetUid),
-    }, params);
-  };
+  export const invoke = (deps: Deps, params: Params): Promise<void> =>
+    invokeOidb(deps, SetFriendRemark, params);
 }

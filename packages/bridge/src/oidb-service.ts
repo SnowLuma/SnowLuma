@@ -17,6 +17,16 @@
 //   - tests mock only what's used (typically just `sendRawPacket`)
 //   - changes to BridgeContext don't bleed into services
 //   - the dep list IS the documentation of side-effects
+//
+// Why `ctx` threads into serialize/deserialize:
+//   - the namespace is then genuinely self-contained — "what does this
+//     cmd do on the wire + what state does it touch" lives in one file
+//   - earlier shape forced an `invoke = { ...Self, serialize: p =>
+//     localSerialize(p, await ctx.resolveUserUid(...)) }` rewrite for
+//     every cmd that needed identity/uid resolution; ctx-aware
+//     serialize collapses that to a single async serialize.
+//   - serialize is now `TReq | Promise<TReq>` so async lookups
+//     (resolveUserUid, identity reads) happen in place.
 
 import { protobuf_decode } from '@snowluma/proton';
 import type { OidbBase, OidbBaseMeta } from '@snowluma/proto-defs/oidb';
@@ -38,10 +48,14 @@ export interface OidbSender {
  * namespace whose top-level exports match these names + types IS an
  * `OidbCallSpec` — no `implements` clause needed.
  *
+ * `TCtx` is the namespace's capability surface — always at least
+ * `OidbSender` (so `invokeOidb` can dispatch through it) plus any
+ * `Pick<BridgeContext, ...>` slices the cmd actually needs.
+ *
  * One of `subCommand` (static) or `resolveSubCommand` (dynamic from
  * params) must be present. `resolveSubCommand` wins if both are given.
  */
-export interface OidbCallSpec<TReq, TResp, TParams, TResult> {
+export interface OidbCallSpec<TCtx extends OidbSender, TReq, TResp, TParams, TResult> {
   command: number;
   subCommand?: number;
   resolveSubCommand?(params: TParams): number;
@@ -53,10 +67,11 @@ export interface OidbCallSpec<TReq, TResp, TParams, TResult> {
    *  that takes the resolved `(cmd, subCmd)` and returns the actual
    *  wire name. Omit for the default scheme. */
   wireName?(command: number, subCommand: number): string;
-  /** Business params → wire-shaped request body. */
-  serialize(params: TParams): TReq;
+  /** Business params → wire-shaped request body. May be async (e.g.
+   *  when ctx.resolveUserUid hits the cache or the network). */
+  serialize(ctx: TCtx, params: TParams): TReq | Promise<TReq>;
   /** Wire-shaped response body → business result. */
-  deserialize(body: TResp): TResult;
+  deserialize(ctx: TCtx, body: TResp): TResult;
   /** Per-type protobuf encoder — concrete generic call so the Vite plugin can monomorphize. */
   encode(env: OidbBase<TReq>): Uint8Array;
   /** Per-type protobuf decoder. */
@@ -77,28 +92,31 @@ export class OidbError extends Error {
 
 /**
  * Template method for every OIDB call. Builds the envelope, encodes it,
- * sends through the supplied minimal sender capability, validates the
- * envelope's `errorCode`, decodes the body, and hands the wire-shaped
- * response to the spec's `deserialize` for transformation into the
- * business result.
+ * sends through the ctx's `sendRawPacket`, validates the envelope's
+ * `errorCode`, decodes the body, and hands the wire-shaped response to
+ * the spec's `deserialize` for transformation into the business result.
+ *
+ * `ctx` is threaded into both `serialize` and `deserialize` so the
+ * namespace can do uid resolution / identity reads in-place rather
+ * than forcing the caller to pre-bake values into the params.
  */
-export async function invokeOidb<TReq, TResp, TParams, TResult>(
-  sender: OidbSender,
-  spec: OidbCallSpec<TReq, TResp, TParams, TResult>,
+export async function invokeOidb<TCtx extends OidbSender, TReq, TResp, TParams, TResult>(
+  ctx: TCtx,
+  spec: OidbCallSpec<TCtx, TReq, TResp, TParams, TResult>,
   params: TParams,
   timeoutMs?: number,
 ): Promise<TResult> {
   const subCommand = spec.resolveSubCommand
     ? spec.resolveSubCommand(params)
     : spec.subCommand!;
-  const reqBody = spec.serialize(params);
+  const reqBody = await spec.serialize(ctx, params);
   const env = makeOidbEnvelope(spec.command, subCommand, reqBody, spec.uinForm ?? false);
   const reqBytes = spec.encode(env);
   const wireName = spec.wireName
     ? spec.wireName(spec.command, subCommand)
     : `OidbSvcTrpcTcp.0x${spec.command.toString(16)}_${subCommand}`;
 
-  const result = await sender.sendRawPacket(wireName, reqBytes, timeoutMs);
+  const result = await ctx.sendRawPacket(wireName, reqBytes, timeoutMs);
   if (!result.success) throw new Error(result.errorMessage || 'packet send failed');
   if (!result.gotResponse) throw new Error(result.errorMessage || 'no response');
 
@@ -117,22 +135,24 @@ export async function invokeOidb<TReq, TResp, TParams, TResult>(
   // always receives a defined object; specs that read fields off the
   // body must already guard with `?? []` etc.
   const respBody = spec.decode(respBytes).body ?? ({} as TResp);
-  return spec.deserialize(respBody);
+  return spec.deserialize(ctx, respBody);
 }
 
 /**
  * Build the request wire bytes for a spec without sending — useful for
  * wire dump debugging, capability probing, and unit tests of the
- * encode path.
+ * encode path. Threads `ctx` because `serialize` may want it (and
+ * because matching `invokeOidb`'s shape avoids two call patterns).
  */
-export function buildOidbRequest<TReq, TResp, TParams, TResult>(
-  spec: OidbCallSpec<TReq, TResp, TParams, TResult>,
+export async function buildOidbRequest<TCtx extends OidbSender, TReq, TResp, TParams, TResult>(
+  ctx: TCtx,
+  spec: OidbCallSpec<TCtx, TReq, TResp, TParams, TResult>,
   params: TParams,
-): { wireName: string; bytes: Uint8Array } {
+): Promise<{ wireName: string; bytes: Uint8Array }> {
   const subCommand = spec.resolveSubCommand
     ? spec.resolveSubCommand(params)
     : spec.subCommand!;
-  const reqBody = spec.serialize(params);
+  const reqBody = await spec.serialize(ctx, params);
   const env = makeOidbEnvelope(spec.command, subCommand, reqBody, spec.uinForm ?? false);
   const bytes = spec.encode(env);
   const wireName = spec.wireName
@@ -145,9 +165,10 @@ export function buildOidbRequest<TReq, TResp, TParams, TResult>(
  * Decode raw wire bytes into the business result via a spec's
  * deserialize path — symmetric debug helper for buildOidbRequest.
  */
-export function parseOidbResponse<TReq, TResp, TParams, TResult>(
-  spec: OidbCallSpec<TReq, TResp, TParams, TResult>,
+export function parseOidbResponse<TCtx extends OidbSender, TReq, TResp, TParams, TResult>(
+  ctx: TCtx,
+  spec: OidbCallSpec<TCtx, TReq, TResp, TParams, TResult>,
   bytes: Uint8Array,
 ): TResult {
-  return spec.deserialize(spec.decode(bytes).body ?? ({} as TResp));
+  return spec.deserialize(ctx, spec.decode(bytes).body ?? ({} as TResp));
 }

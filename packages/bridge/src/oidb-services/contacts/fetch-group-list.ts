@@ -24,7 +24,7 @@ export namespace FetchGroupList {
 
   const allTrue = true;
 
-  export const serialize = (_: Params): OidbGroupListRequest => ({
+  export const serialize = (_ctx: Deps, _: Params): OidbGroupListRequest => ({
     config: {
       config1: {
         groupOwner: allTrue, field2: allTrue, memberMax: allTrue, memberCount: allTrue,
@@ -44,7 +44,7 @@ export namespace FetchGroupList {
     },
   });
 
-  export const deserialize = (body: OidbSvcTrpcTcp0xFE5_2Response): OidbSvcTrpcTcp0xFE5_2Response => body;
+  export const deserialize = (_ctx: Deps, body: OidbSvcTrpcTcp0xFE5_2Response): OidbSvcTrpcTcp0xFE5_2Response => body;
 
   export const encode = (env: OidbBase<OidbGroupListRequest>): Uint8Array =>
     protobuf_encode<OidbBase<OidbGroupListRequest>>(env);

@@ -22,7 +22,7 @@ describe('FetchAiVoice namespace', () => {
 
   describe('serialize', () => {
     it('packages every field including sessionId into session sub-message', () => {
-      const out = FetchAiVoice.serialize({
+      const out = FetchAiVoice.serialize({} as any, {
         groupId: 100, voiceId: 'v', text: 'hi', chatType: 1, sessionId: 0xCAFE,
       });
       expect(out).toEqual({
@@ -35,15 +35,15 @@ describe('FetchAiVoice namespace', () => {
   describe('deserialize', () => {
     it('returns the first msgInfoBody index when present', () => {
       const node = { fileUuid: 'uuid', subType: 1 };
-      expect(FetchAiVoice.deserialize({
+      expect(FetchAiVoice.deserialize({} as any, {
         msgInfo: { msgInfoBody: [{ index: node }] },
       } as any)).toMatchObject(node);
     });
 
     it('returns null when msgInfo is empty / missing', () => {
-      expect(FetchAiVoice.deserialize({} as any)).toBeNull();
-      expect(FetchAiVoice.deserialize({ msgInfo: {} } as any)).toBeNull();
-      expect(FetchAiVoice.deserialize({ msgInfo: { msgInfoBody: [] } } as any)).toBeNull();
+      expect(FetchAiVoice.deserialize({} as any, {} as any)).toBeNull();
+      expect(FetchAiVoice.deserialize({} as any, { msgInfo: {} } as any)).toBeNull();
+      expect(FetchAiVoice.deserialize({} as any, { msgInfo: { msgInfoBody: [] } } as any)).toBeNull();
     });
   });
 

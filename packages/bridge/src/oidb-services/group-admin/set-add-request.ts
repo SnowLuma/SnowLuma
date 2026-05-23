@@ -26,7 +26,7 @@ export namespace SetAddRequest {
 
   export const resolveSubCommand = (p: Params): number => p.filtered ? 2 : 1;
 
-  export const serialize = (p: Params): OidbGroupRequestAction => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbGroupRequestAction => ({
     accept: p.approve ? 1 : 2,
     body: {
       sequence: BigInt(p.sequence),
@@ -36,7 +36,7 @@ export namespace SetAddRequest {
     },
   });
 
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
   export const encode = (env: OidbBase<OidbGroupRequestAction>): Uint8Array =>
     protobuf_encode<OidbBase<OidbGroupRequestAction>>(env);

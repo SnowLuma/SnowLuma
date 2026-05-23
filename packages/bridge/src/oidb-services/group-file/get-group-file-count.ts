@@ -22,11 +22,11 @@ export namespace GetGroupFileCount {
   export interface Params { groupId: number; }
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbGroupFileCountViewReq => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbGroupFileCountViewReq => ({
     count: { groupUin: p.groupId, appId: 7, busId: 0 },
   });
 
-  export const deserialize = (body: OidbGroupFileCountViewResp): GroupFileCount => ({
+  export const deserialize = (_ctx: Deps, body: OidbGroupFileCountViewResp): GroupFileCount => ({
     fileCount: Number(body.count?.fileCount ?? 0),
     maxCount: Number(body.count?.maxCount ?? 10000),
   });

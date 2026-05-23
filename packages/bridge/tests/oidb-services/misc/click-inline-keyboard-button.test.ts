@@ -22,7 +22,7 @@ describe('ClickInlineKeyboardButton namespace', () => {
 
   describe('serialize', () => {
     it('widens numeric ids to BigInt for uint_64 fields', () => {
-      const out = ClickInlineKeyboardButton.serialize({
+      const out = ClickInlineKeyboardButton.serialize({} as any, {
         groupId: 12345, botAppid: 67890, buttonId: 'btn', callbackData: 'data', msgSeq: 100,
       });
       expect(out.groupId).toBe(12345n);
@@ -31,7 +31,7 @@ describe('ClickInlineKeyboardButton namespace', () => {
     });
 
     it('always sends unknown7=0 / unknown9=1 magic values', () => {
-      const out = ClickInlineKeyboardButton.serialize({
+      const out = ClickInlineKeyboardButton.serialize({} as any, {
         groupId: 1, botAppid: 1, buttonId: 'x', callbackData: 'y', msgSeq: 1,
       });
       expect(out.unknown7).toBe(0);
@@ -39,7 +39,7 @@ describe('ClickInlineKeyboardButton namespace', () => {
     });
 
     it('coerces buttonId / callbackData to strings (defensive)', () => {
-      const out = ClickInlineKeyboardButton.serialize({
+      const out = ClickInlineKeyboardButton.serialize({} as any, {
         groupId: 1, botAppid: 1, buttonId: 123 as any, callbackData: null as any, msgSeq: 1,
       });
       expect(out.buttonId).toBe('123');
@@ -49,7 +49,7 @@ describe('ClickInlineKeyboardButton namespace', () => {
 
   describe('deserialize', () => {
     it('shapes the response with status/promptType/promptIcon = 0', () => {
-      expect(ClickInlineKeyboardButton.deserialize({
+      expect(ClickInlineKeyboardButton.deserialize({} as any, {
         result: 1, errMsg: 'ok', promptText: 'hi',
       } as Oidb0x112eResp)).toEqual({
         result: 1, errMsg: 'ok', status: 0, promptText: 'hi', promptType: 0, promptIcon: 0,
@@ -57,7 +57,7 @@ describe('ClickInlineKeyboardButton namespace', () => {
     });
 
     it('defaults result/errMsg/promptText when omitted', () => {
-      expect(ClickInlineKeyboardButton.deserialize({} as Oidb0x112eResp)).toEqual({
+      expect(ClickInlineKeyboardButton.deserialize({} as any, {} as Oidb0x112eResp)).toEqual({
         result: 0, errMsg: '', status: 0, promptText: '', promptType: 0, promptIcon: 0,
       });
     });

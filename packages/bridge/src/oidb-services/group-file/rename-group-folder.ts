@@ -18,7 +18,7 @@ export namespace RenameGroupFolder {
   export interface Params { groupId: number; folderId: string; newFolderName: string; }
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbGroupFileFolderReq => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbGroupFileFolderReq => ({
     rename: {
       groupUin: p.groupId,
       folderId: p.folderId,
@@ -26,7 +26,7 @@ export namespace RenameGroupFolder {
     },
   });
 
-  export const deserialize = (body: OidbGroupFileFolderResp): void => {
+  export const deserialize = (_ctx: Deps, body: OidbGroupFileFolderResp): void => {
     const result = body.rename;
     if (!result) throw new Error('group folder rename response missing');
     ensureRetCodeZero('group folder rename', result.retcode, result.retMsg, result.clientWording);

@@ -30,12 +30,12 @@ export namespace GroupTodo {
 
   export const resolveSubCommand = (p: Params): number => ACTION_TO_SUBCMD[p.action];
 
-  export const serialize = (p: Params): OidbGroupTodo => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbGroupTodo => ({
     groupUin: p.groupId,
     msgSeq: p.msgSeq,
   });
 
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
   export const encode = (env: OidbBase<OidbGroupTodo>): Uint8Array =>
     protobuf_encode<OidbBase<OidbGroupTodo>>(env);

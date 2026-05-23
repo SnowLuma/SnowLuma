@@ -14,13 +14,13 @@ export namespace SetSearch {
 
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): Oidb0x89a_0Search => ({
+  export const serialize = (_ctx: Deps, p: Params): Oidb0x89a_0Search => ({
     groupUin: BigInt(p.groupId),
     settings: new Uint8Array(0),
     field12: 0,
   });
 
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
   export const encode = (env: OidbBase<Oidb0x89a_0Search>): Uint8Array =>
     protobuf_encode<OidbBase<Oidb0x89a_0Search>>(env);

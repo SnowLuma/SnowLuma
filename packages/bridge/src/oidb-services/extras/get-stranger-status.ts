@@ -33,12 +33,12 @@ export namespace GetStrangerStatus {
 
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbStrangerStatusReq => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbStrangerStatusReq => ({
     uin: p.uin,
     key: [{ key: 27372 }],
   });
 
-  export const deserialize = (body: OidbStrangerStatusResp): StrangerStatus | null => {
+  export const deserialize = (_ctx: Deps, body: OidbStrangerStatusResp): StrangerStatus | null => {
     const raw = body.data?.status?.value;
     if (raw === undefined || raw === null) return null;
     const extBig = typeof raw === 'bigint' ? raw : BigInt(raw as any);

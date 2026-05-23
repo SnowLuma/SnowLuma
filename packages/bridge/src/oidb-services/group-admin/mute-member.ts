@@ -15,12 +15,15 @@ export namespace MuteMember {
 
   export type Deps = OidbSender & Pick<BridgeContext, 'resolveUserUid'>;
 
-  export const serialize = (p: Params, targetUid: string): OidbMuteMember => ({
+  export const serialize = async (ctx: Deps, p: Params): Promise<OidbMuteMember> => ({
     groupUin: p.groupId, type: 1,
-    body: { targetUid, duration: p.duration },
+    body: {
+      targetUid: await ctx.resolveUserUid(p.userId, p.groupId),
+      duration: p.duration,
+    },
   });
 
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
   export const encode = (env: OidbBase<OidbMuteMember>): Uint8Array =>
     protobuf_encode<OidbBase<OidbMuteMember>>(env);
@@ -28,8 +31,6 @@ export namespace MuteMember {
   export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
     protobuf_decode<OidbBase<OidbEmpty>>(bytes);
 
-  export const invoke = async (deps: Deps, params: Params): Promise<void> => {
-    const targetUid = await deps.resolveUserUid(params.userId, params.groupId);
-    await invokeOidb(deps, { ...MuteMember, serialize: p => serialize(p, targetUid) }, params);
-  };
+  export const invoke = (deps: Deps, params: Params): Promise<void> =>
+    invokeOidb(deps, MuteMember, params);
 }

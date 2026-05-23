@@ -18,7 +18,7 @@ export namespace GetGroupVideoUrl {
   export interface Params { groupId: number; node: NtMediaIndex; }
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): NTV2RichMediaReq => ({
+  export const serialize = (_ctx: Deps, p: Params): NTV2RichMediaReq => ({
     reqHead: {
       common: { requestId: 1, command: 200 },
       scene: {
@@ -35,7 +35,7 @@ export namespace GetGroupVideoUrl {
     },
   });
 
-  export const deserialize = parseNtv2DownloadUrl;
+  export const deserialize = (_ctx: Deps, body: NTV2RichMediaResp): string => parseNtv2DownloadUrl(body);
 
   export const encode = (env: OidbBase<NTV2RichMediaReq>): Uint8Array =>
     protobuf_encode<OidbBase<NTV2RichMediaReq>>(env);

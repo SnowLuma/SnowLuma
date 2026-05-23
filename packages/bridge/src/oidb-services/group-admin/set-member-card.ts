@@ -13,18 +13,20 @@ export namespace SetMemberCard {
   export interface Params { groupId: number; userId: number; card: string; }
   export type Deps = OidbSender & Pick<BridgeContext, 'resolveUserUid'>;
 
-  export const serialize = (p: Params, targetUid: string): OidbRenameMember => ({
-    groupUin: p.groupId, body: { targetUid, targetName: p.card },
+  export const serialize = async (ctx: Deps, p: Params): Promise<OidbRenameMember> => ({
+    groupUin: p.groupId,
+    body: {
+      targetUid: await ctx.resolveUserUid(p.userId, p.groupId),
+      targetName: p.card,
+    },
   });
 
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
   export const encode = (env: OidbBase<OidbRenameMember>): Uint8Array =>
     protobuf_encode<OidbBase<OidbRenameMember>>(env);
   export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
     protobuf_decode<OidbBase<OidbEmpty>>(bytes);
 
-  export const invoke = async (deps: Deps, params: Params): Promise<void> => {
-    const targetUid = await deps.resolveUserUid(params.userId, params.groupId);
-    await invokeOidb(deps, { ...SetMemberCard, serialize: p => serialize(p, targetUid) }, params);
-  };
+  export const invoke = (deps: Deps, params: Params): Promise<void> =>
+    invokeOidb(deps, SetMemberCard, params);
 }

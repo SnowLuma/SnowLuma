@@ -31,7 +31,7 @@ describe('GroupTodo namespace', () => {
   describe('serialize', () => {
     it('packages groupUin + msgSeq verbatim regardless of action', () => {
       for (const action of ['set', 'complete', 'cancel'] as const) {
-        const out = GroupTodo.serialize({ groupId: 12345, msgSeq: 9876543210n, action });
+        const out = GroupTodo.serialize({} as any, { groupId: 12345, msgSeq: 9876543210n, action });
         expect(out).toEqual({ groupUin: 12345, msgSeq: 9876543210n });
       }
     });

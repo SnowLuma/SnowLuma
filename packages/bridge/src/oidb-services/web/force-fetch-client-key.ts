@@ -24,9 +24,9 @@ export namespace ForceFetchClientKey {
 
   export type Deps = OidbSender;
 
-  export const serialize = (_: Params): OidbClientKeyReq => ({});
+  export const serialize = (_ctx: Deps, _: Params): OidbClientKeyReq => ({});
 
-  export const deserialize = (body: OidbClientKeyResp): ClientKeyInfo => ({
+  export const deserialize = (_ctx: Deps, body: OidbClientKeyResp): ClientKeyInfo => ({
     clientKey: body.clientKey || '',
     keyIndex: String(body.keyIndex || '19'),
     expireTime: String(body.expireTime || '1800'),

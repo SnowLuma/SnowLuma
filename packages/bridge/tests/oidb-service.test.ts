@@ -16,12 +16,12 @@ import {
 // Reused minimal spec — encodes a group-reaction-shaped request and
 // reads back a void result. Exercises every spec branch.
 const reactionSpec: OidbCallSpec<
-  OidbGroupReaction, OidbEmpty,
+  OidbSender, OidbGroupReaction, OidbEmpty,
   { groupId: number; sequence: number; code: string; isSet: boolean }, void
 > = {
   command: 0x9082,
   resolveSubCommand: p => p.isSet ? 1 : 2,
-  serialize: p => ({
+  serialize: (_ctx, p) => ({
     groupUin: p.groupId,
     sequence: p.sequence,
     code: p.code,
@@ -35,10 +35,10 @@ const reactionSpec: OidbCallSpec<
 };
 
 // Static-subCommand variant for the branch test.
-const staticSubSpec: OidbCallSpec<OidbGroupReaction, OidbEmpty, { groupId: number }, void> = {
+const staticSubSpec: OidbCallSpec<OidbSender, OidbGroupReaction, OidbEmpty, { groupId: number }, void> = {
   command: 0xEAC,
   subCommand: 1,
-  serialize: p => ({ groupUin: p.groupId, sequence: 0, code: '', type: 1, field6: false, field7: false }),
+  serialize: (_ctx, p) => ({ groupUin: p.groupId, sequence: 0, code: '', type: 1, field6: false, field7: false }),
   deserialize: () => {},
   encode: env => protobuf_encode<OidbBase<OidbGroupReaction>>(env),
   decode: bytes => protobuf_decode<OidbBase<OidbEmpty>>(bytes),
@@ -81,13 +81,9 @@ describe('invokeOidb', () => {
     const sender = makeSender();
     await invokeOidb(sender, reactionSpec, { groupId: 12345, sequence: 99, code: '76', isSet: true });
     const [, bytes] = sender.sendRawPacket.mock.calls[0]!;
-    // First two top-level varint fields of the envelope should be the
-    // cmd (0x9082) and the resolved subcmd (1).
     const env = protobuf_decode<OidbBase<OidbGroupReaction>>(bytes);
     expect(env.command).toBe(0x9082);
     expect(env.subCommand).toBe(1);
-    // proto3 default-false bool fields aren't serialized — they come back
-    // as null/undefined on decode, not the literal `false` we passed.
     expect(env.body).toMatchObject({
       groupUin: 12345, sequence: 99, code: '76', type: 1,
     });
@@ -95,15 +91,14 @@ describe('invokeOidb', () => {
 
   it('passes the body through deserialize for transformation', async () => {
     type Echo = { tag: number };
-    const spec: OidbCallSpec<OidbGroupReaction, OidbGroupReaction, { code: string }, Echo> = {
+    const spec: OidbCallSpec<OidbSender, OidbGroupReaction, OidbGroupReaction, { code: string }, Echo> = {
       command: 0x9082,
       subCommand: 1,
-      serialize: p => ({ code: p.code }),
-      deserialize: b => ({ tag: b.type ?? 99 }),
+      serialize: (_ctx, p) => ({ code: p.code }),
+      deserialize: (_ctx, b) => ({ tag: b.type ?? 99 }),
       encode: env => protobuf_encode<OidbBase<OidbGroupReaction>>(env),
       decode: bytes => protobuf_decode<OidbBase<OidbGroupReaction>>(bytes),
     };
-    // Server response: an OidbBase envelope whose body has type=5.
     const responseEnvelope = protobuf_encode<OidbBase<OidbGroupReaction>>({
       command: 0x9082, subCommand: 1,
       body: { type: 5 } as OidbGroupReaction,
@@ -114,21 +109,59 @@ describe('invokeOidb', () => {
   });
 
   it('substitutes an empty body when the envelope has no field 4', async () => {
-    // Envelope with only command + errorCode = 0, no body.
     const envBytes = protobuf_encode<OidbBase<OidbEmpty>>({ command: 0x9082, subCommand: 1 });
     const sender = makeSender({ responseData: Buffer.from(envBytes) });
     const deserialize = vi.fn(() => undefined);
-    const spec: OidbCallSpec<OidbGroupReaction, OidbEmpty, { code: string }, void> = {
+    const spec: OidbCallSpec<OidbSender, OidbGroupReaction, OidbEmpty, { code: string }, void> = {
       command: 0x9082, subCommand: 1,
-      serialize: p => ({ code: p.code }),
+      serialize: (_ctx, p) => ({ code: p.code }),
       deserialize,
       encode: env => protobuf_encode<OidbBase<OidbGroupReaction>>(env),
       decode: bytes => protobuf_decode<OidbBase<OidbEmpty>>(bytes),
     };
     await invokeOidb(sender, spec, { code: 'x' });
-    // deserialize must still receive a defined object (the substituted {}).
     expect(deserialize).toHaveBeenCalledOnce();
-    expect(deserialize.mock.calls[0]![0]).toEqual({});
+    // deserialize now receives (ctx, body) — body is the second arg.
+    expect(deserialize.mock.calls[0]![1]).toEqual({});
+  });
+
+  it('awaits async serialize before sending', async () => {
+    // ctx-aware serialize may need to resolve a uid first; invokeOidb
+    // must await it before encoding the envelope.
+    const sender = makeSender();
+    const spec: OidbCallSpec<OidbSender, OidbGroupReaction, OidbEmpty, { code: string }, void> = {
+      command: 0x9082, subCommand: 1,
+      serialize: async (_ctx, p) => {
+        await new Promise(r => setTimeout(r, 5));
+        return { code: p.code, sequence: 42 };
+      },
+      deserialize: () => {},
+      encode: env => protobuf_encode<OidbBase<OidbGroupReaction>>(env),
+      decode: bytes => protobuf_decode<OidbBase<OidbEmpty>>(bytes),
+    };
+    await invokeOidb(sender, spec, { code: 'async' });
+    const [, bytes] = sender.sendRawPacket.mock.calls[0]!;
+    const env = protobuf_decode<OidbBase<OidbGroupReaction>>(bytes);
+    expect(env.body?.code).toBe('async');
+    expect(env.body?.sequence).toBe(42);
+  });
+
+  it('threads ctx into serialize so namespaces can read identity / resolve uids in place', async () => {
+    const sender = makeSender();
+    // Extend the ctx with an arbitrary capability the spec uses.
+    type Ctx = OidbSender & { tag: string };
+    const ctx: Ctx = { ...sender, tag: 'from-ctx' };
+    const spec: OidbCallSpec<Ctx, OidbGroupReaction, OidbEmpty, { code: string }, void> = {
+      command: 0x9082, subCommand: 1,
+      serialize: (c, p) => ({ code: `${c.tag}/${p.code}` }),
+      deserialize: () => {},
+      encode: env => protobuf_encode<OidbBase<OidbGroupReaction>>(env),
+      decode: bytes => protobuf_decode<OidbBase<OidbEmpty>>(bytes),
+    };
+    await invokeOidb(ctx, spec, { code: 'x' });
+    const [, bytes] = sender.sendRawPacket.mock.calls[0]!;
+    const env = protobuf_decode<OidbBase<OidbGroupReaction>>(bytes);
+    expect(env.body?.code).toBe('from-ctx/x');
   });
 
   it('propagates timeoutMs to sendRawPacket', async () => {
@@ -175,16 +208,12 @@ describe('invokeOidb', () => {
   });
 
   it('skips OidbError check when response payload is empty', async () => {
-    // Server returns success=true but with zero-length payload (a
-    // legitimate "ack-only" response). invokeOidb must NOT try to
-    // decode envelope meta on empty bytes.
     const sender = makeSender({ responseData: Buffer.alloc(0) });
-    // Should not throw.
     await expect(invokeOidb(sender, staticSubSpec, { groupId: 1 })).resolves.toBeUndefined();
   });
 
   it('honours uinForm=true by flipping OIDB envelope reserved to 1', async () => {
-    const spec: OidbCallSpec<OidbGroupReaction, OidbEmpty, { groupId: number }, void> = {
+    const spec: OidbCallSpec<OidbSender, OidbGroupReaction, OidbEmpty, { groupId: number }, void> = {
       ...staticSubSpec,
       uinForm: true,
     };
@@ -200,7 +229,6 @@ describe('invokeOidb', () => {
     await invokeOidb(sender, staticSubSpec, { groupId: 1 });
     const [, bytes] = sender.sendRawPacket.mock.calls[0]!;
     const env = protobuf_decode<OidbBase<OidbGroupReaction>>(bytes);
-    // proto3 default 0 may be omitted on the wire — expect either 0 or undefined.
     expect(env.reserved ?? 0).toBe(0);
   });
 });
@@ -211,38 +239,42 @@ describe('buildOidbRequest', () => {
     await invokeOidb(sender, reactionSpec, { groupId: 12345, sequence: 99, code: '128516', isSet: true });
     const sentBytes = sender.sendRawPacket.mock.calls[0]![1];
 
-    const built = buildOidbRequest(reactionSpec, { groupId: 12345, sequence: 99, code: '128516', isSet: true });
+    const built = await buildOidbRequest(sender, reactionSpec, { groupId: 12345, sequence: 99, code: '128516', isSet: true });
     expect(built.wireName).toBe('OidbSvcTrpcTcp.0x9082_1');
     expect(Buffer.from(built.bytes).equals(Buffer.from(sentBytes))).toBe(true);
   });
 
-  it('uses static subCommand when resolveSubCommand is absent', () => {
-    const built = buildOidbRequest(staticSubSpec, { groupId: 1 });
+  it('uses static subCommand when resolveSubCommand is absent', async () => {
+    const sender = makeSender();
+    const built = await buildOidbRequest(sender, staticSubSpec, { groupId: 1 });
     expect(built.wireName).toBe('OidbSvcTrpcTcp.0xeac_1');
   });
 });
 
 describe('parseOidbResponse', () => {
   it('decodes wire bytes via spec.decode and runs spec.deserialize on the body', () => {
+    const sender = makeSender();
     const envBytes = protobuf_encode<OidbBase<OidbGroupReaction>>({
       command: 0x9082, subCommand: 1, body: { type: 7 } as OidbGroupReaction,
     });
     type Echo = { type: number };
-    const spec: OidbCallSpec<OidbGroupReaction, OidbGroupReaction, void, Echo> = {
+    const spec: OidbCallSpec<OidbSender, OidbGroupReaction, OidbGroupReaction, void, Echo> = {
       command: 0x9082, subCommand: 1,
       serialize: () => ({} as OidbGroupReaction),
-      deserialize: b => ({ type: b.type ?? 0 }),
+      deserialize: (_ctx, b) => ({ type: b.type ?? 0 }),
       encode: env => protobuf_encode<OidbBase<OidbGroupReaction>>(env),
       decode: bytes => protobuf_decode<OidbBase<OidbGroupReaction>>(bytes),
     };
-    expect(parseOidbResponse(spec, envBytes)).toEqual({ type: 7 });
+    expect(parseOidbResponse(sender, spec, envBytes)).toEqual({ type: 7 });
   });
 
   it('substitutes empty body when the envelope lacks one', () => {
+    const sender = makeSender();
     const envBytes = protobuf_encode<OidbBase<OidbEmpty>>({ command: 0x9082, subCommand: 1 });
     const deserialize = vi.fn(() => ({ ok: true }));
-    parseOidbResponse({ ...staticSubSpec, deserialize } as any, envBytes);
-    expect(deserialize).toHaveBeenCalledWith({});
+    parseOidbResponse(sender, { ...staticSubSpec, deserialize } as any, envBytes);
+    // deserialize now receives (ctx, body) — body is the second arg.
+    expect(deserialize.mock.calls[0]![1]).toEqual({});
   });
 });
 

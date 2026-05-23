@@ -16,12 +16,12 @@ export namespace MuteAll {
 
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbMuteAll => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbMuteAll => ({
     groupUin: p.groupId,
     muteState: { state: p.enable ? 0xFFFFFFFF : 0 },
   });
 
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
   export const encode = (env: OidbBase<OidbMuteAll>): Uint8Array =>
     protobuf_encode<OidbBase<OidbMuteAll>>(env);

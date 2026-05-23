@@ -22,14 +22,14 @@ describe('GetPskey namespace', () => {
 
   describe('serialize', () => {
     it('passes the domainList through verbatim', () => {
-      const out = GetPskey.serialize({ domainList: ['qun.qq.com', 'qzone.qq.com'] });
+      const out = GetPskey.serialize({} as any, { domainList: ['qun.qq.com', 'qzone.qq.com'] });
       expect(out.domainList).toEqual(['qun.qq.com', 'qzone.qq.com']);
     });
   });
 
   describe('deserialize', () => {
     it('builds a Map from server pskeyItems', () => {
-      const { domainPskeyMap } = GetPskey.deserialize({
+      const { domainPskeyMap } = GetPskey.deserialize({} as any, {
         pskeyItems: [
           { domain: 'qun.qq.com', pskey: 'pskey-qun' },
           { domain: 'qzone.qq.com', pskey: 'pskey-qzone' },
@@ -40,7 +40,7 @@ describe('GetPskey namespace', () => {
     });
 
     it('drops entries with missing domain or pskey', () => {
-      const { domainPskeyMap } = GetPskey.deserialize({
+      const { domainPskeyMap } = GetPskey.deserialize({} as any, {
         pskeyItems: [
           { domain: 'qun.qq.com', pskey: 'ok' },
           { domain: 'missing-pskey.com' },
@@ -52,7 +52,7 @@ describe('GetPskey namespace', () => {
     });
 
     it('returns empty Map when pskeyItems is absent', () => {
-      const { domainPskeyMap } = GetPskey.deserialize({});
+      const { domainPskeyMap } = GetPskey.deserialize({} as any, {});
       expect(domainPskeyMap.size).toBe(0);
     });
   });

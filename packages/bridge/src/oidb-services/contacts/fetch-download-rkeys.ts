@@ -21,7 +21,7 @@ export namespace FetchDownloadRkeys {
 
   export type Deps = OidbSender;
 
-  export const serialize = (_: Params): NTV2RichMediaReq => ({
+  export const serialize = (_ctx: Deps, _: Params): NTV2RichMediaReq => ({
     reqHead: {
       common: { requestId: 1, command: 202 },
       scene: { requestType: 2, businessType: 1, sceneType: 0 },
@@ -32,7 +32,7 @@ export namespace FetchDownloadRkeys {
     },
   });
 
-  export const deserialize = (body: NTV2RichMediaResp): NTV2RichMediaResp => {
+  export const deserialize = (_ctx: Deps, body: NTV2RichMediaResp): NTV2RichMediaResp => {
     // Propagate server-side OIDB-equivalent error via the embedded
     // respHead.retCode — bytes-level OIDB errorCode would already
     // have thrown OidbError before deserialize was called.

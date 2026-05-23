@@ -28,14 +28,14 @@ export namespace SendPoke {
 
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbPoke => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbPoke => ({
     uin: p.targetUin ?? p.peerUin,
     groupUin: p.isGroup ? p.peerUin : 0,
     friendUin: p.isGroup ? 0 : p.peerUin,
     ext: 0,
   });
 
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
   export const encode = (env: OidbBase<OidbPoke>): Uint8Array =>
     protobuf_encode<OidbBase<OidbPoke>>(env);

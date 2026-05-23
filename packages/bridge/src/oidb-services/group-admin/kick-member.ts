@@ -22,14 +22,14 @@ export namespace KickMember {
 
   export type Deps = OidbSender & Pick<BridgeContext, 'resolveUserUid'>;
 
-  export const serialize = (p: Params, targetUid: string): OidbKickMember => ({
+  export const serialize = async (ctx: Deps, p: Params): Promise<OidbKickMember> => ({
     groupUin: p.groupId,
-    targetUid,
+    targetUid: await ctx.resolveUserUid(p.userId, p.groupId),
     rejectAddRequest: p.reject,
     reason: p.reason ?? '',
   });
 
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
   export const encode = (env: OidbBase<OidbKickMember>): Uint8Array =>
     protobuf_encode<OidbBase<OidbKickMember>>(env);
@@ -37,8 +37,6 @@ export namespace KickMember {
   export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
     protobuf_decode<OidbBase<OidbEmpty>>(bytes);
 
-  export const invoke = async (deps: Deps, params: Params): Promise<void> => {
-    const targetUid = await deps.resolveUserUid(params.userId, params.groupId);
-    await invokeOidb(deps, { ...KickMember, serialize: p => serialize(p, targetUid) }, params);
-  };
+  export const invoke = (deps: Deps, params: Params): Promise<void> =>
+    invokeOidb(deps, KickMember, params);
 }

@@ -25,9 +25,9 @@ export namespace GetUnidirectionalFriendList {
 
   export type Deps = OidbSender & Pick<BridgeContext, 'identity'>;
 
-  export const serialize = (_: Params, uin: string): Oidb0xe17Req => {
+  export const serialize = (ctx: Deps, _p: Params): Oidb0xe17Req => {
     const reqObj = {
-      uint64_uin: uin,
+      uint64_uin: String(ctx.identity.uin),
       uint64_top: 0,
       uint32_req_num: 99,
       bytes_cookies: '',
@@ -35,7 +35,7 @@ export namespace GetUnidirectionalFriendList {
     return { jsonBody: JSON.stringify(reqObj) };
   };
 
-  export const deserialize = (body: Oidb0xe17Resp): unknown[] => {
+  export const deserialize = (_ctx: Deps, body: Oidb0xe17Resp): unknown[] => {
     if (!body || !body.jsonBody) throw new Error('get unidirectional friend list empty');
     const parsed = JSON.parse(body.jsonBody);
     return parsed.rpt_block_list || [];
@@ -47,11 +47,6 @@ export namespace GetUnidirectionalFriendList {
   export const decode = (bytes: Uint8Array): OidbBase<Oidb0xe17Resp> =>
     protobuf_decode<OidbBase<Oidb0xe17Resp>>(bytes);
 
-  export const invoke = (deps: Deps): Promise<unknown[]> => {
-    const uin = String(deps.identity.uin);
-    return invokeOidb(deps, {
-      ...GetUnidirectionalFriendList,
-      serialize: p => serialize(p, uin),
-    }, {});
-  };
+  export const invoke = (deps: Deps): Promise<unknown[]> =>
+    invokeOidb(deps, GetUnidirectionalFriendList, {});
 }

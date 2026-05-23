@@ -27,7 +27,7 @@ describe('SetEssence namespace', () => {
 
   describe('serialize', () => {
     it('passes groupId / sequence / random through verbatim', () => {
-      expect(SetEssence.serialize({ groupId: 12345, sequence: 99, random: 0xCAFEBABE, enable: true })).toEqual({
+      expect(SetEssence.serialize({} as any, { groupId: 12345, sequence: 99, random: 0xCAFEBABE, enable: true })).toEqual({
         groupUin: 12345, sequence: 99, random: 0xCAFEBABE,
       });
     });

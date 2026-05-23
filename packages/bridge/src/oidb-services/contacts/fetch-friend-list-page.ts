@@ -22,7 +22,7 @@ export namespace FetchFriendListPage {
 
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbFriendListRequest => {
+  export const serialize = (_ctx: Deps, p: Params): OidbFriendListRequest => {
     const body: any = {
       friendCount: 300,
       field4: 0,
@@ -41,7 +41,7 @@ export namespace FetchFriendListPage {
     return body;
   };
 
-  export const deserialize = (body: OidbSvcTrpcTcp0xFD4_1Response): OidbSvcTrpcTcp0xFD4_1Response => body;
+  export const deserialize = (_ctx: Deps, body: OidbSvcTrpcTcp0xFD4_1Response): OidbSvcTrpcTcp0xFD4_1Response => body;
 
   export const encode = (env: OidbBase<OidbFriendListRequest>): Uint8Array =>
     protobuf_encode<OidbBase<OidbFriendListRequest>>(env);

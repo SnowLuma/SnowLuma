@@ -22,19 +22,19 @@ describe('FetchFriendListPage namespace', () => {
 
   describe('serialize', () => {
     it('omits nextUin on the first page', () => {
-      const out = FetchFriendListPage.serialize({ nextUin: null }) as any;
+      const out = FetchFriendListPage.serialize({} as any, { nextUin: null }) as any;
       expect(out.nextUin).toBeUndefined();
       expect(out.friendCount).toBe(300);
       expect(out.field4).toBe(0);
     });
 
     it('includes nextUin sub-message on follow-up pages', () => {
-      const out = FetchFriendListPage.serialize({ nextUin: 10001 }) as any;
+      const out = FetchFriendListPage.serialize({} as any, { nextUin: 10001 }) as any;
       expect(out.nextUin).toEqual({ uin: 10001 });
     });
 
     it('emits the verbatim property request list (codes 100/101/102/103/20002/27394)', () => {
-      const out = FetchFriendListPage.serialize({ nextUin: null }) as any;
+      const out = FetchFriendListPage.serialize({} as any, { nextUin: null }) as any;
       expect(out.body).toEqual([
         { type: 1, number: { numbers: [103, 102, 20002, 27394] } },
         { type: 4, number: { numbers: [100, 101, 102] } },

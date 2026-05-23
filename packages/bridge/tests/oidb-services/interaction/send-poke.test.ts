@@ -19,32 +19,32 @@ describe('SendPoke namespace', () => {
 
   describe('serialize', () => {
     it('group poke: groupUin = peer, friendUin = 0, uin = targetUin', () => {
-      expect(SendPoke.serialize({ isGroup: true, peerUin: 12345, targetUin: 67890 })).toEqual({
+      expect(SendPoke.serialize({} as any, { isGroup: true, peerUin: 12345, targetUin: 67890 })).toEqual({
         uin: 67890, groupUin: 12345, friendUin: 0, ext: 0,
       });
     });
 
     it('group poke without targetUin: uin defaults to peer', () => {
-      expect(SendPoke.serialize({ isGroup: true, peerUin: 12345 })).toEqual({
+      expect(SendPoke.serialize({} as any, { isGroup: true, peerUin: 12345 })).toEqual({
         uin: 12345, groupUin: 12345, friendUin: 0, ext: 0,
       });
     });
 
     it('friend poke: friendUin = peer, groupUin = 0, uin = targetUin', () => {
-      expect(SendPoke.serialize({ isGroup: false, peerUin: 67890, targetUin: 11111 })).toEqual({
+      expect(SendPoke.serialize({} as any, { isGroup: false, peerUin: 67890, targetUin: 11111 })).toEqual({
         uin: 11111, groupUin: 0, friendUin: 67890, ext: 0,
       });
     });
 
     it('friend poke without targetUin: uin defaults to peer', () => {
-      expect(SendPoke.serialize({ isGroup: false, peerUin: 67890 })).toEqual({
+      expect(SendPoke.serialize({} as any, { isGroup: false, peerUin: 67890 })).toEqual({
         uin: 67890, groupUin: 0, friendUin: 67890, ext: 0,
       });
     });
 
     it('always sets ext = 0', () => {
-      expect(SendPoke.serialize({ isGroup: true, peerUin: 1 }).ext).toBe(0);
-      expect(SendPoke.serialize({ isGroup: false, peerUin: 1 }).ext).toBe(0);
+      expect(SendPoke.serialize({} as any, { isGroup: true, peerUin: 1 }).ext).toBe(0);
+      expect(SendPoke.serialize({} as any, { isGroup: false, peerUin: 1 }).ext).toBe(0);
     });
   });
 

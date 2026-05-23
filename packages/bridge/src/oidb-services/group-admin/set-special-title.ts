@@ -14,19 +14,21 @@ export namespace SetSpecialTitle {
   export interface Params { groupId: number; userId: number; title: string; }
   export type Deps = OidbSender & Pick<BridgeContext, 'resolveUserUid'>;
 
-  export const serialize = (p: Params, targetUid: string): OidbSpecialTitle => ({
+  export const serialize = async (ctx: Deps, p: Params): Promise<OidbSpecialTitle> => ({
     groupUin: p.groupId,
-    body: { targetUid, specialTitle: p.title, expireTime: -1 },
+    body: {
+      targetUid: await ctx.resolveUserUid(p.userId, p.groupId),
+      specialTitle: p.title,
+      expireTime: -1,
+    },
   });
 
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
   export const encode = (env: OidbBase<OidbSpecialTitle>): Uint8Array =>
     protobuf_encode<OidbBase<OidbSpecialTitle>>(env);
   export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
     protobuf_decode<OidbBase<OidbEmpty>>(bytes);
 
-  export const invoke = async (deps: Deps, params: Params): Promise<void> => {
-    const targetUid = await deps.resolveUserUid(params.userId, params.groupId);
-    await invokeOidb(deps, { ...SetSpecialTitle, serialize: p => serialize(p, targetUid) }, params);
-  };
+  export const invoke = (deps: Deps, params: Params): Promise<void> =>
+    invokeOidb(deps, SetSpecialTitle, params);
 }

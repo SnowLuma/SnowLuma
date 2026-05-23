@@ -23,7 +23,7 @@ export namespace GetPrivateFileUrl {
   export interface Params { selfUid: string; fileId: string; fileHash: string; }
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbPrivateFileDownloadReq => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbPrivateFileDownloadReq => ({
     subCommand: 1200,
     field2: 1,
     body: {
@@ -39,7 +39,7 @@ export namespace GetPrivateFileUrl {
     field99999: new Uint8Array([0xC0, 0x85, 0x2C, 0x01]),
   });
 
-  export const deserialize = (body: OidbPrivateFileDownloadResp): OidbPrivateFileDownloadRespResult => {
+  export const deserialize = (_ctx: Deps, body: OidbPrivateFileDownloadResp): OidbPrivateFileDownloadRespResult => {
     const result = body.body?.result;
     if (!result) throw new Error('private file url response invalid');
     return result;

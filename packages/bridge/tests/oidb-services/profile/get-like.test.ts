@@ -104,7 +104,7 @@ describe('GetLike namespace', () => {
 
   describe('deserialize', () => {
     it('shapes favorite + vote info with the expected key names', () => {
-      const out = GetLike.deserialize({
+      const out = GetLike.deserialize({} as any, {
         userLikeInfos: [{
           uid: 'u', time: 1700000000n,
           favoriteInfo: { totalCount: 5, lastTime: 1n, newCount: 1 },
@@ -122,12 +122,12 @@ describe('GetLike namespace', () => {
     });
 
     it('throws when there are no userLikeInfos', () => {
-      expect(() => GetLike.deserialize({})).toThrow('get profile like info empty');
-      expect(() => GetLike.deserialize({ userLikeInfos: [] })).toThrow('get profile like info empty');
+      expect(() => GetLike.deserialize({} as any, {})).toThrow('get profile like info empty');
+      expect(() => GetLike.deserialize({} as any, { userLikeInfos: [] })).toThrow('get profile like info empty');
     });
 
     it('defaults all count fields to 0 when omitted', () => {
-      const out = GetLike.deserialize({ userLikeInfos: [{ uid: 'u', time: 0n }] });
+      const out = GetLike.deserialize({} as any, { userLikeInfos: [{ uid: 'u', time: 0n }] });
       expect(out.favoriteInfo.total_count).toBe(0);
       expect(out.voteInfo.total_count).toBe(0);
     });

@@ -17,11 +17,11 @@ export namespace DeleteGroupFolder {
   export interface Params { groupId: number; folderId: string; }
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbGroupFileFolderReq => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbGroupFileFolderReq => ({
     delete: { groupUin: p.groupId, folderId: p.folderId },
   });
 
-  export const deserialize = (body: OidbGroupFileFolderResp): void => {
+  export const deserialize = (_ctx: Deps, body: OidbGroupFileFolderResp): void => {
     const result = body.delete;
     if (!result) throw new Error('group folder delete response missing');
     ensureRetCodeZero('group folder delete', result.retcode, result.retMsg, result.clientWording);

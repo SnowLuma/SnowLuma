@@ -36,7 +36,7 @@ export namespace FetchReactionSummary {
 
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): Oidb0x9084Req => ({
+  export const serialize = (_ctx: Deps, p: Params): Oidb0x9084Req => ({
     groupId: BigInt(p.groupId),
     sequence: BigInt(p.sequence),
     emojiId: '',
@@ -46,7 +46,7 @@ export namespace FetchReactionSummary {
     field12: 1,
   });
 
-  export const deserialize = (body: Oidb0x9084Resp): ReactionSummaryEntry[] => {
+  export const deserialize = (_ctx: Deps, body: Oidb0x9084Resp): ReactionSummaryEntry[] => {
     const out: ReactionSummaryEntry[] = [];
     for (const e of body.entries ?? []) {
       const count = e.count ?? 0;

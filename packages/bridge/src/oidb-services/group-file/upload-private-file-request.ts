@@ -34,7 +34,7 @@ export namespace UploadPrivateFileRequest {
 
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbPrivateFileUploadReq => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbPrivateFileUploadReq => ({
     command: 1700,
     seq: 0,
     upload: {
@@ -53,7 +53,7 @@ export namespace UploadPrivateFileRequest {
     flagSupportMediaPlatform: 1,
   });
 
-  export const deserialize = (body: OidbPrivateFileUploadResp): OidbPrivateFileUploadRespBody => {
+  export const deserialize = (_ctx: Deps, body: OidbPrivateFileUploadResp): OidbPrivateFileUploadRespBody => {
     const upload = body.upload;
     if (!upload) throw new Error('private file upload response missing');
     return upload;

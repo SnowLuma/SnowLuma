@@ -23,27 +23,27 @@ describe('GetStrangerStatus namespace', () => {
 
   describe('serialize', () => {
     it('always queries only key 27372 (status property)', () => {
-      const out = GetStrangerStatus.serialize({ uin: 100200 });
+      const out = GetStrangerStatus.serialize({} as any, { uin: 100200 });
       expect(out).toEqual({ uin: 100200, key: [{ key: 27372 }] });
     });
   });
 
   describe('deserialize', () => {
     it('low-band (≤10) values map to (value*10, 0)', () => {
-      expect(GetStrangerStatus.deserialize({ data: { status: { value: 7n } } })).toEqual({ status: 70, ext_status: 0 });
-      expect(GetStrangerStatus.deserialize({ data: { status: { value: 10n } } })).toEqual({ status: 100, ext_status: 0 });
+      expect(GetStrangerStatus.deserialize({} as any, { data: { status: { value: 7n } } })).toEqual({ status: 70, ext_status: 0 });
+      expect(GetStrangerStatus.deserialize({} as any, { data: { status: { value: 10n } } })).toEqual({ status: 100, ext_status: 0 });
     });
 
     it('high-band values decompose into (0xff00 + (>>16 & 0xff)) ext_status', () => {
       // 0x42F100 → bits 8..15 = 0xF1<<8 = 0xF100, bits 16..23 = 0x42 → 0xF142
-      expect(GetStrangerStatus.deserialize({ data: { status: { value: 0x42F100n } } }))
+      expect(GetStrangerStatus.deserialize({} as any, { data: { status: { value: 0x42F100n } } }))
         .toEqual({ status: 10, ext_status: 0xF142 });
     });
 
     it('returns null when status field is missing', () => {
-      expect(GetStrangerStatus.deserialize({})).toBeNull();
-      expect(GetStrangerStatus.deserialize({ data: {} })).toBeNull();
-      expect(GetStrangerStatus.deserialize({ data: { status: {} } })).toBeNull();
+      expect(GetStrangerStatus.deserialize({} as any, {})).toBeNull();
+      expect(GetStrangerStatus.deserialize({} as any, { data: {} })).toBeNull();
+      expect(GetStrangerStatus.deserialize({} as any, { data: { status: {} } })).toBeNull();
     });
   });
 

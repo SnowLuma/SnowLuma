@@ -21,11 +21,11 @@ export namespace GetPskey {
 
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbGetPskeyReq => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbGetPskeyReq => ({
     domainList: p.domainList,
   });
 
-  export const deserialize = (body: OidbGetPskeyResp): Result => {
+  export const deserialize = (_ctx: Deps, body: OidbGetPskeyResp): Result => {
     const domainPskeyMap = new Map<string, string>();
     if (body.pskeyItems && Array.isArray(body.pskeyItems)) {
       for (const item of body.pskeyItems) {

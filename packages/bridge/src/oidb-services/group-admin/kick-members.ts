@@ -20,15 +20,15 @@ export namespace KickMembers {
 
   export type Deps = OidbSender & Pick<BridgeContext, 'resolveUserUid'>;
 
-  export const serialize = (p: Params, targetUids: string[]): Oidb0x8a0Req => ({
+  export const serialize = async (ctx: Deps, p: Params): Promise<Oidb0x8a0Req> => ({
     groupId: BigInt(p.groupId),
-    targetUids,
+    targetUids: await Promise.all(p.userIds.map(uid => ctx.resolveUserUid(uid, p.groupId))),
     rejectAddRequest: p.reject ? 1 : 0,
     kickReason: new Uint8Array(0),
     field12: 0,
   });
 
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
   export const encode = (env: OidbBase<Oidb0x8a0Req>): Uint8Array =>
     protobuf_encode<OidbBase<Oidb0x8a0Req>>(env);
@@ -36,10 +36,6 @@ export namespace KickMembers {
   export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
     protobuf_decode<OidbBase<OidbEmpty>>(bytes);
 
-  export const invoke = async (deps: Deps, params: Params): Promise<void> => {
-    const targetUids = await Promise.all(
-      params.userIds.map(userId => deps.resolveUserUid(userId, params.groupId)),
-    );
-    await invokeOidb(deps, { ...KickMembers, serialize: p => serialize(p, targetUids) }, params);
-  };
+  export const invoke = (deps: Deps, params: Params): Promise<void> =>
+    invokeOidb(deps, KickMembers, params);
 }

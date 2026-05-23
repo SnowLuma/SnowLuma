@@ -22,12 +22,12 @@ export namespace FetchGroupRequests {
 
   export const resolveSubCommand = (p: Params): number => p.filtered ? 2 : 1;
 
-  export const serialize = (_: Params): OidbGroupRequestList => ({
+  export const serialize = (_ctx: Deps, _: Params): OidbGroupRequestList => ({
     count: 20,
     field2: 0,
   });
 
-  export const deserialize = (body: OidbSvcTrpcTcp0x10C0Response): OidbSvcTrpcTcp0x10C0Response => body;
+  export const deserialize = (_ctx: Deps, body: OidbSvcTrpcTcp0x10C0Response): OidbSvcTrpcTcp0x10C0Response => body;
 
   export const encode = (env: OidbBase<OidbGroupRequestList>): Uint8Array =>
     protobuf_encode<OidbBase<OidbGroupRequestList>>(env);

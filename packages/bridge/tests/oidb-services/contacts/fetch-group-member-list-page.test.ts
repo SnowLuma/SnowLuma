@@ -19,18 +19,18 @@ describe('FetchGroupMemberListPage namespace', () => {
 
   describe('serialize', () => {
     it('omits the token on the first page', () => {
-      const out = FetchGroupMemberListPage.serialize({ groupId: 12345, token: '' }) as any;
+      const out = FetchGroupMemberListPage.serialize({} as any, { groupId: 12345, token: '' }) as any;
       expect(out.token).toBeUndefined();
       expect(out.groupUin).toBe(12345);
     });
 
     it('threads the server-issued token into follow-up pages', () => {
-      const out = FetchGroupMemberListPage.serialize({ groupId: 12345, token: 'next-cursor' }) as any;
+      const out = FetchGroupMemberListPage.serialize({} as any, { groupId: 12345, token: 'next-cursor' }) as any;
       expect(out.token).toBe('next-cursor');
     });
 
     it('always requests the full member-field projection', () => {
-      const out = FetchGroupMemberListPage.serialize({ groupId: 1, token: '' }) as any;
+      const out = FetchGroupMemberListPage.serialize({} as any, { groupId: 1, token: '' }) as any;
       expect(out.body).toMatchObject({
         memberName: true, memberCard: true, level: true,
         joinTimestamp: true, lastMsgTimestamp: true, shutUpTimestamp: true,

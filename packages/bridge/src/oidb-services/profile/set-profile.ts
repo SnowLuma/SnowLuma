@@ -2,9 +2,9 @@
 //
 // SnowLuma's facade currently exposes only nickname (field 20002) and
 // personalNote (field 102) but the underlying wire supports arbitrary
-// (fieldId, value) tuples. The serialize step skips the call entirely
-// when both inputs are undefined so the facade keeps its no-op-on-
-// noop-input behavior — `invokeOidb` is bypassed at the call-site.
+// (fieldId, value) tuples. The `invoke` short-circuits when both
+// inputs are undefined so the facade's historic no-op-on-no-input
+// behaviour is preserved (no wasted SSO round-trip).
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
@@ -24,14 +24,14 @@ export namespace SetProfile {
   /** Needs identity to read `uin` for the request body. */
   export type Deps = OidbSender & Pick<BridgeContext, 'identity'>;
 
-  export const serialize = (p: Params, uin: bigint): OidbSetProfile => {
+  export const serialize = (ctx: Deps, p: Params): OidbSetProfile => {
     const stringProfiles: { fieldId: number; value: string }[] = [];
     if (p.nickname !== undefined) stringProfiles.push({ fieldId: 20002, value: p.nickname });
     if (p.personalNote !== undefined) stringProfiles.push({ fieldId: 102, value: p.personalNote });
-    return { uin, stringProfiles };
+    return { uin: BigInt(ctx.identity.uin), stringProfiles };
   };
 
-  export const deserialize = (_: Oidb0x112aResp): void => {};
+  export const deserialize = (_ctx: Deps, _: Oidb0x112aResp): void => {};
 
   export const encode = (env: OidbBase<OidbSetProfile>): Uint8Array =>
     protobuf_encode<OidbBase<OidbSetProfile>>(env);
@@ -45,13 +45,6 @@ export namespace SetProfile {
     if (params.nickname === undefined && params.personalNote === undefined) {
       return Promise.resolve();
     }
-    const uin = BigInt(deps.identity.uin);
-    return invokeOidb(deps, {
-      ...SetProfile,
-      // Bind uin into serialize so the OidbCallSpec contract (single-arg
-      // serialize) still holds — we can't pass uin through `params`
-      // without leaking identity to the facade signature.
-      serialize: p => serialize(p, uin),
-    }, params);
+    return invokeOidb(deps, SetProfile, params);
   };
 }

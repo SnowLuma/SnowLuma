@@ -13,18 +13,18 @@ export namespace SetAdmin {
   export interface Params { groupId: number; userId: number; enable: boolean; }
   export type Deps = OidbSender & Pick<BridgeContext, 'resolveUserUid'>;
 
-  export const serialize = (p: Params, uid: string): OidbSetAdmin => ({
-    groupUin: p.groupId, uid, isAdmin: p.enable,
+  export const serialize = async (ctx: Deps, p: Params): Promise<OidbSetAdmin> => ({
+    groupUin: p.groupId,
+    uid: await ctx.resolveUserUid(p.userId, p.groupId),
+    isAdmin: p.enable,
   });
 
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
   export const encode = (env: OidbBase<OidbSetAdmin>): Uint8Array =>
     protobuf_encode<OidbBase<OidbSetAdmin>>(env);
   export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
     protobuf_decode<OidbBase<OidbEmpty>>(bytes);
 
-  export const invoke = async (deps: Deps, params: Params): Promise<void> => {
-    const uid = await deps.resolveUserUid(params.userId, params.groupId);
-    await invokeOidb(deps, { ...SetAdmin, serialize: p => serialize(p, uid) }, params);
-  };
+  export const invoke = (deps: Deps, params: Params): Promise<void> =>
+    invokeOidb(deps, SetAdmin, params);
 }

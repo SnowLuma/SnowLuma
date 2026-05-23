@@ -30,7 +30,7 @@ export namespace ClickInlineKeyboardButton {
 
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): Oidb0x112eReq => ({
+  export const serialize = (_ctx: Deps, p: Params): Oidb0x112eReq => ({
     botAppid: BigInt(p.botAppid),
     msgSeq: BigInt(p.msgSeq),
     buttonId: String(p.buttonId),
@@ -40,7 +40,7 @@ export namespace ClickInlineKeyboardButton {
     unknown9: 1,
   });
 
-  export const deserialize = (body: Oidb0x112eResp): InlineButtonClickResult => ({
+  export const deserialize = (_ctx: Deps, body: Oidb0x112eResp): InlineButtonClickResult => ({
     result: Number(body.result || 0),
     errMsg: body.errMsg || '',
     status: 0,

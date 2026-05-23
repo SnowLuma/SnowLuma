@@ -18,7 +18,7 @@ export namespace TranslateEnToZh {
 
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): Oidb0x990Req => ({
+  export const serialize = (_ctx: Deps, p: Params): Oidb0x990Req => ({
     translateReq: {
       srcLang: 'en',
       dstLang: 'zh',
@@ -28,7 +28,7 @@ export namespace TranslateEnToZh {
     tag12: 1,
   });
 
-  export const deserialize = (body: Oidb0x990Resp): string[] => {
+  export const deserialize = (_ctx: Deps, body: Oidb0x990Resp): string[] => {
     const resp = body.translateResp;
     if (!resp) throw new Error('translate response empty');
     return resp.dstWords || [];

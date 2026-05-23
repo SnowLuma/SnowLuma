@@ -26,31 +26,31 @@ describe('SetReaction namespace', () => {
 
   describe('serialize', () => {
     it('produces type=1 for short QQ-face codes (≤3 chars)', () => {
-      const out = SetReaction.serialize({ groupId: 12345, sequence: 99, code: '76', isSet: true });
+      const out = SetReaction.serialize({} as any, { groupId: 12345, sequence: 99, code: '76', isSet: true });
       expect(out).toEqual({
         groupUin: 12345, sequence: 99, code: '76', type: 1, field6: false, field7: false,
       });
     });
 
     it('produces type=1 for exactly 3-character codes (boundary)', () => {
-      const out = SetReaction.serialize({ groupId: 1, sequence: 1, code: '999', isSet: true });
+      const out = SetReaction.serialize({} as any, { groupId: 1, sequence: 1, code: '999', isSet: true });
       expect(out.type).toBe(1);
     });
 
     it('produces type=2 for codes longer than 3 chars (unicode codepoint)', () => {
-      const out = SetReaction.serialize({ groupId: 1, sequence: 1, code: '128516', isSet: false });
+      const out = SetReaction.serialize({} as any, { groupId: 1, sequence: 1, code: '128516', isSet: false });
       expect(out.type).toBe(2);
     });
 
     it('passes through groupId/sequence/code verbatim', () => {
-      const out = SetReaction.serialize({ groupId: 999, sequence: 42, code: 'abc', isSet: true });
+      const out = SetReaction.serialize({} as any, { groupId: 999, sequence: 42, code: 'abc', isSet: true });
       expect(out.groupUin).toBe(999);
       expect(out.sequence).toBe(42);
       expect(out.code).toBe('abc');
     });
 
     it('always sets field6/field7 to false (deferred behaviour)', () => {
-      const out = SetReaction.serialize({ groupId: 1, sequence: 1, code: 'x', isSet: true });
+      const out = SetReaction.serialize({} as any, { groupId: 1, sequence: 1, code: 'x', isSet: true });
       expect(out.field6).toBe(false);
       expect(out.field7).toBe(false);
     });
@@ -58,7 +58,7 @@ describe('SetReaction namespace', () => {
 
   describe('deserialize', () => {
     it('always returns void regardless of body content', () => {
-      expect(SetReaction.deserialize({})).toBeUndefined();
+      expect(SetReaction.deserialize({} as any, {})).toBeUndefined();
     });
   });
 

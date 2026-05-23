@@ -43,12 +43,18 @@ export namespace FetchUserProfile {
 
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbUserInfoRequest => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbUserInfoRequest => ({
     uin: p.uin,
     keys: REQUESTED_KEYS.map(k => ({ key: k })),
   });
 
-  export const deserialize = (body: OidbUserInfoResponse, requestedUin: number): UserProfileInfo => {
+  /** Defaults the response uin to `requestedUin` because the server
+   *  sometimes elides its echo. `invoke` below binds `params.uin` via
+   *  the spec override so the namespace's call surface still takes
+   *  only `(ctx, body)`. */
+  export const deserializeWithFallback = (
+    body: OidbUserInfoResponse, requestedUin: number,
+  ): UserProfileInfo => {
     if (!body.body) throw new Error('user info response body missing');
 
     const info: UserProfileInfo = {
@@ -89,6 +95,12 @@ export namespace FetchUserProfile {
     return info;
   };
 
+  // Default deserialize uses uin=0 fallback — invoke() rewires it to
+  // the requested uin via the per-call spec override below. Tests
+  // that call deserialize directly should use deserializeWithFallback.
+  export const deserialize = (_ctx: Deps, body: OidbUserInfoResponse): UserProfileInfo =>
+    deserializeWithFallback(body, 0);
+
   export const encode = (env: OidbBase<OidbUserInfoRequest>): Uint8Array =>
     protobuf_encode<OidbBase<OidbUserInfoRequest>>(env);
 
@@ -98,8 +110,6 @@ export namespace FetchUserProfile {
   export const invoke = (deps: Deps, params: Params): Promise<UserProfileInfo> =>
     invokeOidb(deps, {
       ...FetchUserProfile,
-      // Bind the original `params.uin` into deserialize so the
-      // namespace can default to it when the server omits its echo.
-      deserialize: body => deserialize(body, params.uin),
+      deserialize: (_ctx, body) => deserializeWithFallback(body, params.uin),
     }, params);
 }

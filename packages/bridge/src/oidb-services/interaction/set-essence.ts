@@ -25,13 +25,13 @@ export namespace SetEssence {
 
   export const resolveSubCommand = (p: Params): number => p.enable ? 1 : 2;
 
-  export const serialize = (p: Params): OidbEssence => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbEssence => ({
     groupUin: p.groupId,
     sequence: p.sequence,
     random: p.random,
   });
 
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
   export const encode = (env: OidbBase<OidbEssence>): Uint8Array =>
     protobuf_encode<OidbBase<OidbEssence>>(env);

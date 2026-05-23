@@ -41,7 +41,7 @@ export namespace GetEmojiLikes {
 
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): Oidb0x9083Req => ({
+  export const serialize = (_ctx: Deps, p: Params): Oidb0x9083Req => ({
     groupId: BigInt(p.groupId),
     sequence: BigInt(p.sequence),
     emojiId: p.emojiId,
@@ -52,7 +52,7 @@ export namespace GetEmojiLikes {
     field12: 1,
   });
 
-  export const deserialize = (body: Oidb0x9083Resp): Result => {
+  export const deserialize = (_ctx: Deps, body: Oidb0x9083Resp): Result => {
     const users: Array<{ uin: number }> = (body.inner?.userInfo ?? [])
       .map(u => ({ uin: Number(u?.uin ?? 0) }))
       .filter(u => u.uin > 0);

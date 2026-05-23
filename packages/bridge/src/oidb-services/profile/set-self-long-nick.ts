@@ -21,12 +21,12 @@ export namespace SetSelfLongNick {
 
   export type Deps = OidbSender & Pick<BridgeContext, 'identity'>;
 
-  export const serialize = (p: Params, uin: bigint): Oidb0x112aReq => ({
-    uin,
+  export const serialize = (ctx: Deps, p: Params): Oidb0x112aReq => ({
+    uin: BigInt(ctx.identity.uin),
     profile: { tag: 102, value: String(p.longNick) },
   });
 
-  export const deserialize = (_: Oidb0x112aResp): void => {};
+  export const deserialize = (_ctx: Deps, _: Oidb0x112aResp): void => {};
 
   export const encode = (env: OidbBase<Oidb0x112aReq>): Uint8Array =>
     protobuf_encode<OidbBase<Oidb0x112aReq>>(env);
@@ -34,11 +34,6 @@ export namespace SetSelfLongNick {
   export const decode = (bytes: Uint8Array): OidbBase<Oidb0x112aResp> =>
     protobuf_decode<OidbBase<Oidb0x112aResp>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<void> => {
-    const uin = BigInt(deps.identity.uin);
-    return invokeOidb(deps, {
-      ...SetSelfLongNick,
-      serialize: p => serialize(p, uin),
-    }, params);
-  };
+  export const invoke = (deps: Deps, params: Params): Promise<void> =>
+    invokeOidb(deps, SetSelfLongNick, params);
 }

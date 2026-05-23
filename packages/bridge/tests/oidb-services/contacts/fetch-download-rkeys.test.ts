@@ -23,12 +23,12 @@ describe('FetchDownloadRkeys namespace', () => {
 
   describe('serialize', () => {
     it('requests the (private=10, group=20, fallback=2) image scopes', () => {
-      const out = FetchDownloadRkeys.serialize({});
+      const out = FetchDownloadRkeys.serialize({} as any, {});
       expect(out.downloadRkey?.types).toEqual([10, 20, 2]);
     });
 
     it('packages the fixed reqHead { common, scene, client }', () => {
-      const out = FetchDownloadRkeys.serialize({});
+      const out = FetchDownloadRkeys.serialize({} as any, {});
       expect(out.reqHead).toEqual({
         common: { requestId: 1, command: 202 },
         scene: { requestType: 2, businessType: 1, sceneType: 0 },
@@ -39,18 +39,18 @@ describe('FetchDownloadRkeys namespace', () => {
 
   describe('deserialize', () => {
     it('throws when respHead.retCode is non-zero', () => {
-      expect(() => FetchDownloadRkeys.deserialize({
+      expect(() => FetchDownloadRkeys.deserialize({} as any, {
         respHead: { retCode: 42, message: 'bad' },
       } as any)).toThrow('bad');
     });
 
     it('passes through on retCode = 0', () => {
       const body = { respHead: { retCode: 0 }, downloadRkey: { rkeys: [] } };
-      expect(FetchDownloadRkeys.deserialize(body as any)).toBe(body);
+      expect(FetchDownloadRkeys.deserialize({} as any, body as any)).toBe(body);
     });
 
     it('falls back to a generic message when none is provided', () => {
-      expect(() => FetchDownloadRkeys.deserialize({
+      expect(() => FetchDownloadRkeys.deserialize({} as any, {
         respHead: { retCode: 1 },
       } as any)).toThrow('fetch download rkey failed');
     });

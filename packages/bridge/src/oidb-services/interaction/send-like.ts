@@ -19,12 +19,12 @@ export namespace SendLike {
 
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbLike => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbLike => ({
     targetUin: p.userId,
     count: p.count,
   });
 
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
   export const encode = (env: OidbBase<OidbLike>): Uint8Array =>
     protobuf_encode<OidbBase<OidbLike>>(env);

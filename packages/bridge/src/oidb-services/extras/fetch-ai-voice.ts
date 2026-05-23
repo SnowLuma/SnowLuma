@@ -44,7 +44,7 @@ export namespace FetchAiVoice {
 
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbAiVoiceReq => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbAiVoiceReq => ({
     groupUin: p.groupId,
     voiceId: p.voiceId,
     text: p.text,
@@ -52,7 +52,7 @@ export namespace FetchAiVoice {
     session: { sessionId: p.sessionId },
   });
 
-  export const deserialize = (body: OidbAiVoiceResp): AiVoiceMediaIndex | null => {
+  export const deserialize = (_ctx: Deps, body: OidbAiVoiceResp): AiVoiceMediaIndex | null => {
     const node = body.msgInfo?.msgInfoBody?.[0]?.index as AiVoiceMediaIndex | undefined;
     return node ?? null;
   };

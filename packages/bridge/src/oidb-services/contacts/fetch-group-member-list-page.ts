@@ -24,7 +24,7 @@ export namespace FetchGroupMemberListPage {
 
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbGroupMemberListRequest => {
+  export const serialize = (_ctx: Deps, p: Params): OidbGroupMemberListRequest => {
     const body: any = {
       groupUin: p.groupId,
       field2: 5,
@@ -41,7 +41,7 @@ export namespace FetchGroupMemberListPage {
     return body;
   };
 
-  export const deserialize = (body: OidbSvcTrpcTcp0xFE7_3Response): OidbSvcTrpcTcp0xFE7_3Response => body;
+  export const deserialize = (_ctx: Deps, body: OidbSvcTrpcTcp0xFE7_3Response): OidbSvcTrpcTcp0xFE7_3Response => body;
 
   export const encode = (env: OidbBase<OidbGroupMemberListRequest>): Uint8Array =>
     protobuf_encode<OidbBase<OidbGroupMemberListRequest>>(env);

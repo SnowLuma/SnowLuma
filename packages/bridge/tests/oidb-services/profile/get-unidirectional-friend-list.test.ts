@@ -49,20 +49,20 @@ describe('GetUnidirectionalFriendList namespace', () => {
 
   describe('deserialize', () => {
     it('parses the embedded JSON body and returns rpt_block_list', () => {
-      const out = GetUnidirectionalFriendList.deserialize({
+      const out = GetUnidirectionalFriendList.deserialize({} as any, {
         jsonBody: JSON.stringify({ rpt_block_list: [{ uin: 10001 }, { uin: 10002 }] }),
       });
       expect(out).toEqual([{ uin: 10001 }, { uin: 10002 }]);
     });
 
     it('returns [] when rpt_block_list is absent', () => {
-      const out = GetUnidirectionalFriendList.deserialize({ jsonBody: JSON.stringify({}) });
+      const out = GetUnidirectionalFriendList.deserialize({} as any, { jsonBody: JSON.stringify({}) });
       expect(out).toEqual([]);
     });
 
     it('throws when jsonBody is empty / missing', () => {
-      expect(() => GetUnidirectionalFriendList.deserialize({})).toThrow('get unidirectional friend list empty');
-      expect(() => GetUnidirectionalFriendList.deserialize({ jsonBody: '' })).toThrow('get unidirectional friend list empty');
+      expect(() => GetUnidirectionalFriendList.deserialize({} as any, {})).toThrow('get unidirectional friend list empty');
+      expect(() => GetUnidirectionalFriendList.deserialize({} as any, { jsonBody: '' })).toThrow('get unidirectional friend list empty');
     });
   });
 

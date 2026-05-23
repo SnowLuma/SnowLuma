@@ -35,7 +35,7 @@ export namespace UploadGroupFileRequest {
 
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbGroupFileReq => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbGroupFileReq => ({
     file: {
       groupUin: p.groupId,
       appId: 4,
@@ -52,7 +52,7 @@ export namespace UploadGroupFileRequest {
     },
   });
 
-  export const deserialize = (body: OidbGroupFileResp): OidbGroupFileUploadResp => {
+  export const deserialize = (_ctx: Deps, body: OidbGroupFileResp): OidbGroupFileUploadResp => {
     const upload = body.upload;
     if (!upload) throw new Error('group file upload response missing');
     return upload;

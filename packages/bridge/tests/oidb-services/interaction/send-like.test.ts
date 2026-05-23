@@ -19,7 +19,7 @@ describe('SendLike namespace', () => {
 
   describe('serialize', () => {
     it('passes userId / count through verbatim', () => {
-      expect(SendLike.serialize({ userId: 10001, count: 3 })).toEqual({ targetUin: 10001, count: 3 });
+      expect(SendLike.serialize({} as any, { userId: 10001, count: 3 })).toEqual({ targetUin: 10001, count: 3 });
     });
   });
 

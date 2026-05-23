@@ -22,7 +22,7 @@ describe('GetEmojiLikes namespace', () => {
 
   describe('serialize', () => {
     it('encodes groupId/sequence as BigInt for uint_64 fields', () => {
-      const out = GetEmojiLikes.serialize({
+      const out = GetEmojiLikes.serialize({} as any, {
         groupId: 12345, sequence: 99, emojiId: '76',
       });
       expect(out.groupId).toBe(12345n);
@@ -30,44 +30,44 @@ describe('GetEmojiLikes namespace', () => {
     });
 
     it('passes emojiId through unchanged', () => {
-      const out = GetEmojiLikes.serialize({ groupId: 1, sequence: 1, emojiId: '128516' });
+      const out = GetEmojiLikes.serialize({} as any, { groupId: 1, sequence: 1, emojiId: '128516' });
       expect(out.emojiId).toBe('128516');
     });
 
     it('defaults emojiType to 1 when omitted', () => {
-      const out = GetEmojiLikes.serialize({ groupId: 1, sequence: 1, emojiId: 'x' });
+      const out = GetEmojiLikes.serialize({} as any, { groupId: 1, sequence: 1, emojiId: 'x' });
       expect(out.emojiType).toBe(1);
     });
 
     it('uses caller-supplied emojiType when present', () => {
-      const out = GetEmojiLikes.serialize({ groupId: 1, sequence: 1, emojiId: 'x', emojiType: 2 });
+      const out = GetEmojiLikes.serialize({} as any, { groupId: 1, sequence: 1, emojiId: 'x', emojiType: 2 });
       expect(out.emojiType).toBe(2);
     });
 
     it('defaults count to 10 when omitted', () => {
-      const out = GetEmojiLikes.serialize({ groupId: 1, sequence: 1, emojiId: 'x' });
+      const out = GetEmojiLikes.serialize({} as any, { groupId: 1, sequence: 1, emojiId: 'x' });
       expect(out.count).toBe(10);
     });
 
     it('uses caller-supplied count when present', () => {
-      const out = GetEmojiLikes.serialize({ groupId: 1, sequence: 1, emojiId: 'x', count: 50 });
+      const out = GetEmojiLikes.serialize({} as any, { groupId: 1, sequence: 1, emojiId: 'x', count: 50 });
       expect(out.count).toBe(50);
     });
 
     it('decodes base64 cookie into the bytes field for continuation', () => {
       const cookie = Buffer.from([0xCA, 0xFE]).toString('base64');
-      const out = GetEmojiLikes.serialize({ groupId: 1, sequence: 1, emojiId: 'x', cookie });
+      const out = GetEmojiLikes.serialize({} as any, { groupId: 1, sequence: 1, emojiId: 'x', cookie });
       expect(out.cookie).toBeInstanceOf(Uint8Array);
       expect(Buffer.from(out.cookie!).equals(Buffer.from([0xCA, 0xFE]))).toBe(true);
     });
 
     it('emits a 0-length cookie buffer for the first page (no cookie supplied)', () => {
-      const out = GetEmojiLikes.serialize({ groupId: 1, sequence: 1, emojiId: 'x' });
+      const out = GetEmojiLikes.serialize({} as any, { groupId: 1, sequence: 1, emojiId: 'x' });
       expect(out.cookie!.length).toBe(0);
     });
 
     it('sets field7=0 and field12=1 (magic values matching the historic wire shape)', () => {
-      const out = GetEmojiLikes.serialize({ groupId: 1, sequence: 1, emojiId: 'x' });
+      const out = GetEmojiLikes.serialize({} as any, { groupId: 1, sequence: 1, emojiId: 'x' });
       expect(out.field7).toBe(0);
       expect(out.field12).toBe(1);
     });
@@ -75,7 +75,7 @@ describe('GetEmojiLikes namespace', () => {
 
   describe('deserialize', () => {
     it('extracts users from inner.userInfo and base64-encodes the cookie', () => {
-      const result = GetEmojiLikes.deserialize({
+      const result = GetEmojiLikes.deserialize({} as any, {
         inner: { userInfo: [{ uin: 10001n }, { uin: 20002n }] },
         cookie: new Uint8Array([0xCA, 0xFE]),
       });
@@ -85,28 +85,28 @@ describe('GetEmojiLikes namespace', () => {
     });
 
     it('filters out users with uin=0 (placeholder / zero-value)', () => {
-      const result = GetEmojiLikes.deserialize({
+      const result = GetEmojiLikes.deserialize({} as any, {
         inner: { userInfo: [{ uin: 10001n }, { uin: 0n }, { uin: 20002n }] },
       });
       expect(result.users).toEqual([{ uin: 10001 }, { uin: 20002 }]);
     });
 
     it('returns empty users + empty cookie + isLast=true when body has nothing', () => {
-      const result = GetEmojiLikes.deserialize({});
+      const result = GetEmojiLikes.deserialize({} as any, {});
       expect(result.users).toEqual([]);
       expect(result.cookie).toBe('');
       expect(result.isLast).toBe(true);
     });
 
     it('returns isLast=true when cookie is absent (final page)', () => {
-      const result = GetEmojiLikes.deserialize({
+      const result = GetEmojiLikes.deserialize({} as any, {
         inner: { userInfo: [{ uin: 10001n }] },
       });
       expect(result.isLast).toBe(true);
     });
 
     it('handles missing userInfo entries field', () => {
-      const result = GetEmojiLikes.deserialize({ inner: {} });
+      const result = GetEmojiLikes.deserialize({} as any, { inner: {} });
       expect(result.users).toEqual([]);
     });
   });

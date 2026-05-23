@@ -21,7 +21,7 @@ export namespace PublishGroupFile {
   export interface Params { groupId: number; fileId: string; }
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbGroupSendFileReq => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbGroupSendFileReq => ({
     body: {
       groupUin: p.groupId,
       type: 2,
@@ -34,7 +34,7 @@ export namespace PublishGroupFile {
     },
   });
 
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
   export const encode = (env: OidbBase<OidbGroupSendFileReq>): Uint8Array =>
     protobuf_encode<OidbBase<OidbGroupSendFileReq>>(env);

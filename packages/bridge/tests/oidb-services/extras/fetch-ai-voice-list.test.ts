@@ -22,7 +22,7 @@ describe('FetchAiVoiceList namespace', () => {
 
   describe('serialize', () => {
     it('passes groupUin / chatType verbatim', () => {
-      expect(FetchAiVoiceList.serialize({ groupId: 4242, chatType: 1 })).toEqual({
+      expect(FetchAiVoiceList.serialize({} as any, { groupId: 4242, chatType: 1 })).toEqual({
         groupUin: 4242, chatType: 1,
       });
     });
@@ -30,7 +30,7 @@ describe('FetchAiVoiceList namespace', () => {
 
   describe('deserialize', () => {
     it('returns content array verbatim', () => {
-      const out = FetchAiVoiceList.deserialize({
+      const out = FetchAiVoiceList.deserialize({} as any, {
         content: [
           { category: 'cute', voices: [{ voiceId: 'v1', voiceDisplayName: 'V1', voiceExampleUrl: 'http://x' }] },
         ],
@@ -41,7 +41,7 @@ describe('FetchAiVoiceList namespace', () => {
     });
 
     it('returns [] when content is omitted', () => {
-      expect(FetchAiVoiceList.deserialize({})).toEqual([]);
+      expect(FetchAiVoiceList.deserialize({} as any, {})).toEqual([]);
     });
   });
 

@@ -17,7 +17,7 @@ export namespace CreateGroupFolder {
   export interface Params { groupId: number; parentId: string; folderName: string; }
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbGroupFileFolderReq => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbGroupFileFolderReq => ({
     create: {
       groupUin: p.groupId,
       rootDirectory: p.parentId,
@@ -25,7 +25,7 @@ export namespace CreateGroupFolder {
     },
   });
 
-  export const deserialize = (body: OidbGroupFileFolderResp): void => {
+  export const deserialize = (_ctx: Deps, body: OidbGroupFileFolderResp): void => {
     const result = body.create;
     if (!result) throw new Error('group folder create response missing');
     ensureRetCodeZero('group folder create', result.retcode, result.retMsg, result.clientWording);

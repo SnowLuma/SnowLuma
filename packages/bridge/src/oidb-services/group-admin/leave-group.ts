@@ -12,8 +12,8 @@ export namespace LeaveGroup {
   export interface Params { groupId: number; }
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbLeaveGroup => ({ groupUin: p.groupId });
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const serialize = (_ctx: Deps, p: Params): OidbLeaveGroup => ({ groupUin: p.groupId });
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
   export const encode = (env: OidbBase<OidbLeaveGroup>): Uint8Array =>
     protobuf_encode<OidbBase<OidbLeaveGroup>>(env);
   export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>

@@ -16,7 +16,7 @@ export namespace DeleteGroupFile {
   export interface Params { groupId: number; fileId: string; }
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbGroupFileReq => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbGroupFileReq => ({
     delete: {
       groupUin: p.groupId,
       busId: 102,
@@ -24,7 +24,7 @@ export namespace DeleteGroupFile {
     },
   });
 
-  export const deserialize = (body: OidbGroupFileResp): void => {
+  export const deserialize = (_ctx: Deps, body: OidbGroupFileResp): void => {
     const result = body.delete;
     if (!result) throw new Error('group file delete response missing');
     ensureRetCodeZero('group file delete', result.retCode, result.retMsg, result.clientWording);

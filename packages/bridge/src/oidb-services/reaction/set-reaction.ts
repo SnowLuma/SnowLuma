@@ -32,7 +32,7 @@ export namespace SetReaction {
 
   export const resolveSubCommand = (p: Params): number => p.isSet ? 1 : 2;
 
-  export const serialize = (p: Params): OidbGroupReaction => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbGroupReaction => ({
     groupUin: p.groupId,
     sequence: p.sequence,
     code: p.code,
@@ -41,7 +41,7 @@ export namespace SetReaction {
     field7: false,
   });
 
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
   export const encode = (env: OidbBase<OidbGroupReaction>): Uint8Array =>
     protobuf_encode<OidbBase<OidbGroupReaction>>(env);

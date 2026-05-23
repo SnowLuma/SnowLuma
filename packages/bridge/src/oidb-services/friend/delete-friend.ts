@@ -27,9 +27,9 @@ export namespace DeleteFriend {
 
   export type Deps = OidbSender & Pick<BridgeContext, 'resolveUserUid'>;
 
-  export const serialize = (p: Params, targetUid: string): OidbDeleteFriend => ({
+  export const serialize = async (ctx: Deps, p: Params): Promise<OidbDeleteFriend> => ({
     field1: {
-      targetUid,
+      targetUid: await ctx.resolveUserUid(p.userId),
       field2: {
         field1: 130,
         field2: 109,
@@ -40,7 +40,7 @@ export namespace DeleteFriend {
     },
   });
 
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
   export const encode = (env: OidbBase<OidbDeleteFriend>): Uint8Array =>
     protobuf_encode<OidbBase<OidbDeleteFriend>>(env);
@@ -48,11 +48,6 @@ export namespace DeleteFriend {
   export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
     protobuf_decode<OidbBase<OidbEmpty>>(bytes);
 
-  export const invoke = async (deps: Deps, params: Params): Promise<void> => {
-    const targetUid = await deps.resolveUserUid(params.userId);
-    await invokeOidb(deps, {
-      ...DeleteFriend,
-      serialize: p => serialize(p, targetUid),
-    }, params);
-  };
+  export const invoke = (deps: Deps, params: Params): Promise<void> =>
+    invokeOidb(deps, DeleteFriend, params);
 }

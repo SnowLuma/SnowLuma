@@ -24,7 +24,7 @@ export namespace ListGroupFilesPage {
 
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbGroupFileViewReq => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbGroupFileViewReq => ({
     list: {
       groupUin: p.groupId,
       appId: 7,
@@ -40,7 +40,7 @@ export namespace ListGroupFilesPage {
   /** Returns the list body directly so the facade can inspect
    *  `items`, `isEnd`, and `retCode` in one place. Returns null when
    *  the server elides the list entirely (end-of-stream sentinel). */
-  export const deserialize = (body: OidbGroupFileViewResp): OidbGroupFileListResp | null => {
+  export const deserialize = (_ctx: Deps, body: OidbGroupFileViewResp): OidbGroupFileListResp | null => {
     return body.list ?? null;
   };
 

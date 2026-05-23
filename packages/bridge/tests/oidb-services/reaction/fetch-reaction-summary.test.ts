@@ -22,13 +22,13 @@ describe('FetchReactionSummary namespace', () => {
 
   describe('serialize', () => {
     it('encodes groupId/sequence as BigInt for uint_64 fields', () => {
-      const out = FetchReactionSummary.serialize({ groupId: 1022489779, sequence: 1730183 });
+      const out = FetchReactionSummary.serialize({} as any, { groupId: 1022489779, sequence: 1730183 });
       expect(out.groupId).toBe(1022489779n);
       expect(out.sequence).toBe(1730183n);
     });
 
     it('passes empty / default values for the unused filter fields', () => {
-      const out = FetchReactionSummary.serialize({ groupId: 1, sequence: 1 });
+      const out = FetchReactionSummary.serialize({} as any, { groupId: 1, sequence: 1 });
       expect(out.emojiId).toBe('');
       expect(out.emojiType).toBe(0);
       expect(out.count).toBe(0);
@@ -36,7 +36,7 @@ describe('FetchReactionSummary namespace', () => {
     });
 
     it('emits a 0-length cookie buffer (no continuation)', () => {
-      const out = FetchReactionSummary.serialize({ groupId: 1, sequence: 1 });
+      const out = FetchReactionSummary.serialize({} as any, { groupId: 1, sequence: 1 });
       expect(out.cookie).toBeInstanceOf(Uint8Array);
       expect(out.cookie!.length).toBe(0);
     });
@@ -50,7 +50,7 @@ describe('FetchReactionSummary namespace', () => {
           { lastReactionTime: 1779456962n, count: 1, emojiType: 1, emojiId: '124' },
         ],
       };
-      expect(FetchReactionSummary.deserialize(body)).toEqual([
+      expect(FetchReactionSummary.deserialize({} as any, body)).toEqual([
         { emojiId: '76',  emojiType: 1, count: 3, lastReactionTime: 1779456439 },
         { emojiId: '124', emojiType: 1, count: 1, lastReactionTime: 1779456962 },
       ]);
@@ -64,20 +64,20 @@ describe('FetchReactionSummary namespace', () => {
           { emojiType: 1, emojiId: '66'  }, // catalog entry
         ],
       };
-      const out = FetchReactionSummary.deserialize(body);
+      const out = FetchReactionSummary.deserialize({} as any, body);
       expect(out).toHaveLength(1);
       expect(out[0]!.emojiId).toBe('76');
     });
 
     it('returns an empty array when the response has no entries', () => {
-      expect(FetchReactionSummary.deserialize({})).toEqual([]);
+      expect(FetchReactionSummary.deserialize({} as any, {})).toEqual([]);
     });
 
     it('defaults emojiId / emojiType to safe values when omitted', () => {
       const body: Oidb0x9084Resp = {
         entries: [{ count: 5, lastReactionTime: 1700000000n }],
       };
-      const [entry] = FetchReactionSummary.deserialize(body);
+      const [entry] = FetchReactionSummary.deserialize({} as any, body);
       expect(entry).toEqual({
         emojiId: '', emojiType: 1, count: 5, lastReactionTime: 1700000000,
       });
@@ -85,7 +85,7 @@ describe('FetchReactionSummary namespace', () => {
 
     it('reports lastReactionTime=0 when omitted on a used entry (degenerate but defensive)', () => {
       const body: Oidb0x9084Resp = { entries: [{ count: 2, emojiId: 'x', emojiType: 1 }] };
-      expect(FetchReactionSummary.deserialize(body)[0]!.lastReactionTime).toBe(0);
+      expect(FetchReactionSummary.deserialize({} as any, body)[0]!.lastReactionTime).toBe(0);
     });
   });
 

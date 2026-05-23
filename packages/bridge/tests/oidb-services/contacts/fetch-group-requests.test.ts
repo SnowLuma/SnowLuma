@@ -27,8 +27,8 @@ describe('FetchGroupRequests namespace', () => {
 
   describe('serialize', () => {
     it('always sends count=20 / field2=0', () => {
-      expect(FetchGroupRequests.serialize({ filtered: false })).toEqual({ count: 20, field2: 0 });
-      expect(FetchGroupRequests.serialize({ filtered: true })).toEqual({ count: 20, field2: 0 });
+      expect(FetchGroupRequests.serialize({} as any, { filtered: false })).toEqual({ count: 20, field2: 0 });
+      expect(FetchGroupRequests.serialize({} as any, { filtered: true })).toEqual({ count: 20, field2: 0 });
     });
   });
 

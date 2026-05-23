@@ -18,7 +18,7 @@ export namespace GetGroupFileUrl {
   export interface Params { groupId: number; fileId: string; busId: number; }
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbGroupFileReq => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbGroupFileReq => ({
     download: {
       groupUin: p.groupId,
       appId: 7,
@@ -27,7 +27,7 @@ export namespace GetGroupFileUrl {
     },
   });
 
-  export const deserialize = (body: OidbGroupFileResp): OidbGroupFileDownloadResp => {
+  export const deserialize = (_ctx: Deps, body: OidbGroupFileResp): OidbGroupFileDownloadResp => {
     const download = body.download;
     if (!download) throw new Error('group file url response missing');
     return download;

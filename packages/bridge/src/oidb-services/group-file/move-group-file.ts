@@ -19,7 +19,7 @@ export namespace MoveGroupFile {
   }
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbGroupFileReq => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbGroupFileReq => ({
     move: {
       groupUin: p.groupId,
       appId: 7,
@@ -30,7 +30,7 @@ export namespace MoveGroupFile {
     },
   });
 
-  export const deserialize = (body: OidbGroupFileResp): void => {
+  export const deserialize = (_ctx: Deps, body: OidbGroupFileResp): void => {
     const result = body.move;
     if (!result) throw new Error('group file move response missing');
     ensureRetCodeZero('group file move', result.retCode, result.retMsg, result.clientWording);

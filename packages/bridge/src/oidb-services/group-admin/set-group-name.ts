@@ -12,11 +12,11 @@ export namespace SetGroupName {
   export interface Params { groupId: number; name: string; }
   export type Deps = OidbSender;
 
-  export const serialize = (p: Params): OidbRenameGroup => ({
+  export const serialize = (_ctx: Deps, p: Params): OidbRenameGroup => ({
     groupUin: p.groupId, body: { targetName: p.name },
   });
 
-  export const deserialize = (_: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
   export const encode = (env: OidbBase<OidbRenameGroup>): Uint8Array =>
     protobuf_encode<OidbBase<OidbRenameGroup>>(env);
   export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
