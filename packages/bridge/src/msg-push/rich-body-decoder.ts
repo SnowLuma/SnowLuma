@@ -97,7 +97,11 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
           width: img.picWidth ?? 0,
           height: img.picHeight ?? 0,
           subType: img.pbRes?.subType ?? 0,
-          summary: img.pbRes?.summary ?? '[image]',
+          // `[图片]` / `[动画表情]` are the QQ-ecosystem default
+          // bubble texts; mobile QQ + Lagrange.Core + NapCat all
+          // expect these literal Chinese strings when the wire
+          // doesn't carry a per-image override.
+          summary: img.pbRes?.summary || (img.pbRes?.subType === 1 ? '[动画表情]' : '[图片]'),
           md5Hex: toHexUpper(img.picMd5),
         });
       }
@@ -115,7 +119,7 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
           width: img.width ?? 0,
           height: img.height ?? 0,
           subType: img.pbRes?.subType ?? 0,
-          summary: img.pbRes?.summary ?? '[image]',
+          summary: img.pbRes?.summary || (img.pbRes?.subType === 1 ? '[动画表情]' : '[图片]'),
           md5Hex: toHexUpper(img.md5),
         });
       }
@@ -311,7 +315,8 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
               if (fi.type?.picFormat) me.picFormat = fi.type.picFormat;
               if (info.extBizInfo?.pic) {
                 me.subType = info.extBizInfo.pic.bizType ?? 0;
-                me.summary = info.extBizInfo.pic.textSummary || '[image]';
+                me.summary = info.extBizInfo.pic.textSummary
+                  || (me.subType === 1 ? '[动画表情]' : '[图片]');
               }
               result.push(me);
             } else if (bizType === 12 || bizType === 22) {

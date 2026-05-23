@@ -46,7 +46,14 @@ function imageDataFromFingerprint(element: MessageElement): ImageData {
     sha1Hex: element.sha1Hex ?? '',
     fileName: element.fileName || `${element.md5Hex ?? 'image'}.jpg`,
     fileSize: element.fileSize ?? 0,
-    summary: element.summary || (element.subType === 0 ? '[image]' : '[sticker]'),
+    // QQ ecosystem convention — mobile QQ + Lagrange.Core + NapCat all
+    // surface these exact Chinese strings as the chat-list bubble
+    // preview text. English fallbacks would render `[image]` /
+    // `[sticker]` in QQ users' chat lists instead of the expected
+    // `[图片]` / `[动画表情]`. Cross-checked against:
+    //   dev/NapCatQQ/.../packet/message/element.ts:367-371
+    //   dev/Lagrange.Core/.../Message/Entity/ImageEntity.cs:186-192
+    summary: element.summary || (element.subType === 1 ? '[动画表情]' : '[图片]'),
     subType: element.subType ?? 0,
     width: element.width ?? 0,
     height: element.height ?? 0,
@@ -89,7 +96,7 @@ async function loadImageFromSource(source: string, fileName: string, subType: nu
     sha1Hex: hashes.sha1Hex,
     fileName: finalName,
     fileSize: loaded.bytes.length,
-    summary: summary || (subType === 0 ? '[image]' : '[sticker]'),
+    summary: summary || (subType === 1 ? '[动画表情]' : '[图片]'),
     subType,
     width: fmt.width,
     height: fmt.height,
