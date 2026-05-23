@@ -156,6 +156,24 @@ export class Bridge implements BridgeInterface {
           return null;
         }
       },
+      resolveGroupJoinRequest: async (groupId, uid, subType) => {
+        // OIDB 0x10C0 pending-request queue holds (targetUid,
+        // invitorUid, comment, sequence, ...). For a plain join the
+        // requester is `targetUid`; for a forwarded invite it's
+        // `invitorUid`. Mirrors NapCat's `getGroupNotifies` →
+        // `notify.postscript` pipeline.
+        try {
+          const requests = await this.apis.contacts.fetchGroupRequests();
+          const match = requests.find(r => {
+            if (r.groupId !== groupId) return false;
+            return subType === 'invite' ? r.invitorUid === uid : r.targetUid === uid;
+          });
+          if (!match) return null;
+          return { comment: match.comment, sequence: match.sequence };
+        } catch {
+          return null;
+        }
+      },
     });
     this.pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
   }

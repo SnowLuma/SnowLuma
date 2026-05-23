@@ -43,6 +43,20 @@ export interface PacketPipelineDeps {
    * uid-only event.
    */
   resolveStrangerProfile(uid: string): Promise<{ uin: number; nickname: string } | null>;
+  /**
+   * Resolve the verify message ("postscript") + server sequence number
+   * for a pending group-join / group-invite. The OIDB push only
+   * carries the requester's UID + group uin — the actual verify text
+   * the user typed ("你们好" etc.) lives on the pending-request queue
+   * fetched via OIDB 0x10C0. NapCat surfaces this as
+   * `notify.postscript` from `nodeIKernelGroupService.getGroupNotifies`;
+   * we mirror that with an `fetchGroupRequests` lookup matched on
+   * `(groupId, uid, subType)`. Returns null when no matching pending
+   * request exists (e.g. it was already handled by another client).
+   */
+  resolveGroupJoinRequest(
+    groupId: number, uid: string, subType: 'add' | 'invite',
+  ): Promise<{ comment: string; sequence: number } | null>;
 }
 
 export class IncomingPacketPipeline {
@@ -151,18 +165,35 @@ export class IncomingPacketPipeline {
 
   private async dispatchAfterStrangerResolve(event: Extract<QQEventVariant, { kind: 'group_invite' }>): Promise<void> {
     const uid = event.fromUid;
-    try {
-      if (uid) {
-        const profile = await this.deps.resolveStrangerProfile(uid);
-        if (profile && profile.uin > 0) {
-          event.fromUin = profile.uin;
-        }
+    if (uid) {
+      // Fire profile + pending-request lookups in PARALLEL — they're
+      // independent OIDB calls (0xFE1_2 stranger profile + 0x10C0
+      // pending request queue). Both `Promise.allSettled` so a flake
+      // on one path doesn't kill the other.
+      const subType = event.subType === 'invite' ? 'invite' : 'add';
+      const [profileR, requestR] = await Promise.allSettled([
+        this.deps.resolveStrangerProfile(uid),
+        this.deps.resolveGroupJoinRequest(event.groupId, uid, subType),
+      ]);
+
+      if (profileR.status === 'fulfilled' && profileR.value && profileR.value.uin > 0) {
+        event.fromUin = profileR.value.uin;
+      } else if (profileR.status === 'rejected') {
+        this.log.warn('failed to resolve stranger profile: uid=%s err=%s',
+          uid, profileR.reason instanceof Error ? profileR.reason.message : String(profileR.reason));
       }
-    } catch (e) {
-      // Fail open — emit the event with the bare uid so bots can at
-      // least see the join request, even if they can't render a name.
-      this.log.warn('failed to resolve stranger profile: uid=%s err=%s',
-        uid ?? '', e instanceof Error ? e.message : String(e));
+
+      if (requestR.status === 'fulfilled' && requestR.value) {
+        // NapCat surfaces the verify text as `comment` on the OneBot
+        // event (`postscript` server-side). Without this the bot's
+        // approval-prompt template renders an empty body line — see
+        // `dev/NapCatQQ/.../napcat-onebot/index.ts:496-498`.
+        event.message = requestR.value.comment;
+      } else if (requestR.status === 'rejected') {
+        this.log.warn('failed to resolve group join request: groupId=%d uid=%s err=%s',
+          event.groupId, uid,
+          requestR.reason instanceof Error ? requestR.reason.message : String(requestR.reason));
+      }
     }
 
     this.handleSideEffects(event);
