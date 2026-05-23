@@ -265,6 +265,14 @@ export class ForwardApi {
     // res_id / uuid before encoding the outer ARK previews). Build
     // `processedNodes` with elements rewritten for nested layers,
     // and collect every inner level's piggyback in `myInnerActions`.
+    //
+    // CRITICAL: the same uuid (`inner.uuid`) MUST be baked into the
+    // outer's preview element as `forwardUuid` AND used as the
+    // `actionCommand` for the outer's piggyback entry. That's the
+    // alignment the QQ-NT receiver uses to find the inner layer
+    // inside the outer's LongMsgResult without a second server fetch
+    // — see `dev/NapCatQQ/.../SendMsg.ts:241-246` + the `uniseq` round-
+    // trip in `dev/NapCatQQ/.../forward-msg-builder.ts:94`.
     const myInnerActions: ForwardInnerAction[] = [];
     const processedNodes: ForwardNodePayload[] = [];
     const isGroup = groupId !== undefined;
@@ -278,13 +286,13 @@ export class ForwardApi {
         myInnerActions.push({ uuid: inner.uuid, msgBody: inner.msgBody });
         myInnerActions.push(...inner.innerActions);
         // Replace the inner placeholder element with a forward preview
-        // pointing at the inner res_id. The wire-side element builder
-        // turns this into the same XML m_resid blob it already produced
-        // for top-level forwards — see `makeForwardElem` in
-        // element-builder.ts:153.
+        // pointing at the inner res_id. `forwardUuid: inner.uuid`
+        // baked into the LightApp JSON's `meta.detail.uniseq` is what
+        // closes the loop with our piggyback action above.
         const previewElement: MessageElement = {
           type: 'forward',
           resId: inner.resId,
+          forwardUuid: inner.uuid,
           forwardSource: deriveInnerSource(node.innerForward, isGroup),
           forwardSummary: `查看${node.innerForward.length}条转发消息`,
           forwardPrompt: '[聊天记录]',
@@ -367,6 +375,14 @@ export class ForwardApi {
     return {
       resId,
       msgBody,
+      // UUID generated here so the OUTER caller can use it as both
+      // (1) the `actionCommand` for its piggyback entry carrying our
+      //     msgBody, and
+      // (2) the `forwardUuid` baked into its forward-preview element
+      //     pointing at our resId.
+      // Receivers walking the outer's LongMsgResult find the inner
+      // layer by matching `uniseq` from (2) against `actionCommand`
+      // from (1) — no separate fetch needed.
       uuid: randomUUID(),
       innerActions: myInnerActions,
     };
@@ -417,10 +433,46 @@ export class ForwardApi {
 
     const inflate = gunzipSync(Buffer.from(payload));
     const longMsg = protobuf_decode<LongMsgResult>(inflate);
-    const action = longMsg?.action?.find((item) => item?.actionCommand === 'MultiMsg');
-    const msgBodyList = Array.isArray(action?.actionData?.msgBody) ? action.actionData.msgBody : [];
+    const actions = Array.isArray(longMsg?.action) ? longMsg!.action! : [];
+    const mainAction = actions.find(item => item?.actionCommand === 'MultiMsg');
+    const msgBodyList = Array.isArray(mainAction?.actionData?.msgBody) ? mainAction!.actionData!.msgBody : [];
 
-    const nodes: ForwardNodePayload[] = [];
+    // Piggyback index: any non-`MultiMsg` action carries an inner
+    // layer keyed by the uuid the sender baked into its forward
+    // preview's `uniseq`. Build a lookup so we can resolve inner
+    // forwards (via their uniseq → inner msgBody) without a second
+    // server roundtrip — matches the sender-side piggyback emitted in
+    // `uploadRecursive` above.
+    const piggybackByUuid = new Map<string, PushMsgBody[]>();
+    for (const action of actions) {
+      const cmd = action?.actionCommand;
+      if (!cmd || cmd === 'MultiMsg') continue;
+      const body = Array.isArray(action.actionData?.msgBody) ? action.actionData.msgBody : [];
+      piggybackByUuid.set(cmd, body);
+    }
+
+    const nodes = this.decodeMsgBodiesToNodes(msgBodyList);
+
+    // Walk the decoded outer nodes for inner-forward previews
+    // (`type: 'forward', forwardUuid: <uniseq>`). For each, pull the
+    // matching piggyback body, decode it into inner nodes, and seed
+    // the cache by the inner resId so a follow-up `fetch(innerResId)`
+    // hits the cache instead of the wire.
+    if (piggybackByUuid.size > 0) {
+      this.consumePiggybacks(nodes, piggybackByUuid);
+    }
+
+    if (nodes.length > 0) {
+      forwardResCache.set(resId, cloneNodes(nodes));
+    }
+    return nodes;
+  }
+
+  /** Walk a list of PushMsgBody, run each through the regular msg-push
+   *  pipeline, and shape the result into ForwardNodePayloads. Extracted
+   *  so both the outer + piggyback decode paths share one implementation. */
+  private decodeMsgBodiesToNodes(msgBodyList: PushMsgBody[]): ForwardNodePayload[] {
+    const out: ForwardNodePayload[] = [];
     for (const msgBody of msgBodyList) {
       const wrapped = protobuf_encode<PushMsg>({ message: msgBody });
       const pkt: PacketInfo = {
@@ -438,7 +490,7 @@ export class ForwardApi {
       if (!event) continue;
 
       if (event.kind === 'group_message') {
-        nodes.push({
+        out.push({
           userUin: event.senderUin,
           nickname: event.senderCard || event.senderNick,
           elements: event.elements,
@@ -450,7 +502,7 @@ export class ForwardApi {
           messageType: 'group',
         });
       } else if (event.kind === 'friend_message') {
-        nodes.push({
+        out.push({
           userUin: event.senderUin,
           nickname: event.senderNick,
           elements: event.elements,
@@ -460,7 +512,7 @@ export class ForwardApi {
           messageType: 'private',
         });
       } else {
-        nodes.push({
+        out.push({
           userUin: event.senderUin,
           nickname: event.senderNick,
           elements: event.elements,
@@ -471,20 +523,51 @@ export class ForwardApi {
         });
       }
     }
-
-    if (nodes.length > 0) {
-      forwardResCache.set(resId, nodes.map(node => ({
-        userUin: node.userUin,
-        nickname: node.nickname,
-        elements: [...node.elements],
-        time: node.time,
-        msgId: node.msgId,
-        msgSeq: node.msgSeq,
-        groupId: node.groupId,
-        senderCard: node.senderCard,
-        messageType: node.messageType,
-      })));
-    }
-    return nodes;
+    return out;
   }
+
+  /** Recursively resolve forward previews against the piggyback table.
+   *  For every `{type: 'forward', resId, forwardUuid}` element we find,
+   *  look up the uniseq in the piggyback map; if hit, decode the
+   *  inner msgBody and cache it by inner resId, then descend into that
+   *  inner layer to resolve deeper nestings carried in the SAME
+   *  piggyback set (NapCat hoists the entire tree's piggybacks onto
+   *  the outermost action list). */
+  private consumePiggybacks(
+    nodes: ForwardNodePayload[],
+    piggybackByUuid: Map<string, PushMsgBody[]>,
+  ): void {
+    const seen = new Set<string>();
+    const visit = (chain: ForwardNodePayload[]): void => {
+      for (const node of chain) {
+        for (const elem of node.elements) {
+          if (elem.type !== 'forward') continue;
+          const uuid = elem.forwardUuid;
+          const innerResId = elem.resId;
+          if (!uuid || !innerResId || seen.has(uuid)) continue;
+          const body = piggybackByUuid.get(uuid);
+          if (!body) continue;
+          seen.add(uuid);
+          const innerNodes = this.decodeMsgBodiesToNodes(body);
+          forwardResCache.set(innerResId, cloneNodes(innerNodes));
+          visit(innerNodes);
+        }
+      }
+    };
+    visit(nodes);
+  }
+}
+
+function cloneNodes(nodes: ForwardNodePayload[]): ForwardNodePayload[] {
+  return nodes.map(node => ({
+    userUin: node.userUin,
+    nickname: node.nickname,
+    elements: [...node.elements],
+    time: node.time,
+    msgId: node.msgId,
+    msgSeq: node.msgSeq,
+    groupId: node.groupId,
+    senderCard: node.senderCard,
+    messageType: node.messageType,
+  }));
 }

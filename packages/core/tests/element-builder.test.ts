@@ -15,6 +15,7 @@
 // recognise and got rejected with result=79.
 
 import { describe, expect, it, vi } from 'vitest';
+import { inflateSync } from 'zlib';
 
 vi.mock('@snowluma/bridge/highway/image-upload', () => ({
   uploadImageMsgInfo: vi.fn(async () => new Uint8Array([7, 8, 9])),
@@ -116,5 +117,92 @@ describe('element-builder / file element is no longer carried in elems[]', () =>
       { bridge: fakeBridge, groupId: 12345 },
     );
     expect(result).toEqual([]);
+  });
+});
+
+describe('element-builder / forward preview (com.tencent.multimsg LightApp)', () => {
+  // The forward preview is the bubble the recipient renders in chat
+  // before tapping to expand. It MUST be the modern LightApp /
+  // `com.tencent.multimsg` JSON (not the older `richMsg serviceID=35`
+  // XML) because nested forwards rely on `meta.detail.uniseq` to link
+  // each inner preview to the matching `actionCommand` piggyback on
+  // the outer's LongMsgResult — without uniseq the QQ-NT client has
+  // no way to walk the tree and has to re-fetch each inner resId.
+  function decodeLightApp(elem: any): unknown {
+    const data: Uint8Array = elem.lightApp.data;
+    expect(data[0]).toBe(0x01);  // deflate prefix
+    const inflated = inflateSync(Buffer.from(data.subarray(1))).toString('utf8');
+    return JSON.parse(inflated);
+  }
+
+  it('emits a lightApp.data blob with prefix=0x01 (deflated JSON, not XML/serviceID=35)', async () => {
+    const [elem] = await buildSendElems(
+      [{ type: 'forward', resId: 'res-XYZ' } as any],
+      { bridge: fakeBridge, groupId: 12345 },
+    );
+    expect(elem.lightApp).toBeDefined();
+    expect((elem as any).richMsg).toBeUndefined();
+    expect(elem.lightApp!.data![0]).toBe(0x01);
+  });
+
+  it('places resid + uniseq inside meta.detail (and uniseq matches extra.filename)', async () => {
+    const [elem] = await buildSendElems(
+      [{ type: 'forward', resId: 'res-XYZ', forwardUuid: 'fixed-uuid-1234' } as any],
+      { bridge: fakeBridge, groupId: 12345 },
+    );
+    const json = decodeLightApp(elem) as any;
+    expect(json.app).toBe('com.tencent.multimsg');
+    expect(json.meta.detail.resid).toBe('res-XYZ');
+    expect(json.meta.detail.uniseq).toBe('fixed-uuid-1234');
+    // `extra` is a JSON string holding {filename, tsum}; filename must
+    // round-trip the same uniseq so the QQ-NT client links them.
+    const extra = JSON.parse(json.extra);
+    expect(extra.filename).toBe('fixed-uuid-1234');
+  });
+
+  it('autogenerates a uniseq when the element omits forwardUuid (flat forward — cosmetic)', async () => {
+    const [elem] = await buildSendElems(
+      [{ type: 'forward', resId: 'res-flat' } as any],
+      { bridge: fakeBridge, groupId: 12345 },
+    );
+    const json = decodeLightApp(elem) as any;
+    expect(json.meta.detail.resid).toBe('res-flat');
+    // Auto-generated UUID — non-empty, non-trivial.
+    expect(json.meta.detail.uniseq).toMatch(/^[0-9a-f-]{36}$/i);
+    const extra = JSON.parse(json.extra);
+    expect(extra.filename).toBe(json.meta.detail.uniseq);
+  });
+
+  it('threads forwardSource / forwardSummary / forwardPrompt / forwardNews / forwardTSum verbatim', async () => {
+    const [elem] = await buildSendElems(
+      [{
+        type: 'forward', resId: 'r1', forwardUuid: 'u1',
+        forwardSource: 'alice和bob的聊天记录',
+        forwardSummary: '查看3条转发消息',
+        forwardPrompt: '[聊天记录]',
+        forwardNews: [{ text: 'alice: hi' }, { text: 'bob: hey' }],
+        forwardTSum: 3,
+      } as any],
+      { bridge: fakeBridge, groupId: 12345 },
+    );
+    const json = decodeLightApp(elem) as any;
+    expect(json.meta.detail.source).toBe('alice和bob的聊天记录');
+    expect(json.meta.detail.summary).toBe('查看3条转发消息');
+    expect(json.meta.detail.news).toEqual([{ text: 'alice: hi' }, { text: 'bob: hey' }]);
+    expect(json.desc).toBe('[聊天记录]');
+    expect(json.prompt).toBe('[聊天记录]');
+    expect(JSON.parse(json.extra).tsum).toBe(3);
+  });
+
+  it('drops the forward element when resId is missing (preview unrenderable, fail open)', async () => {
+    // The dispatcher's `case 'forward': if (elem.resId) ...` short-
+    // circuits when resId is empty so a malformed segment from the
+    // OneBot client doesn't blow up the whole send. Receiver sees
+    // no forward bubble — same outcome as omitting the segment.
+    const out = await buildSendElems(
+      [{ type: 'forward' } as any],
+      { bridge: fakeBridge, groupId: 12345 },
+    );
+    expect(out).toEqual([]);
   });
 });

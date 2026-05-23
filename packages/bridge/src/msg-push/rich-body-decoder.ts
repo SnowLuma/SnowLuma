@@ -213,7 +213,33 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
       const la = elem.lightApp;
       if (la.data && la.data.length > 0) {
         const content = decompressData(la.data);
-        if (content) result.push({ type: 'json', text: content });
+        if (content) {
+          // `com.tencent.multimsg` is the multi-msg / forward preview
+          // LightApp (the modern replacement for the XML serviceID=35
+          // shape). Parse out resid + uniseq so downstream callers can
+          // both render a `[聊天记录]` placeholder and walk into the
+          // forward chain via `fetch(resId)` — the uniseq is what links
+          // the inner layer to its piggybacked actions on the outer's
+          // LongMsgResult. Other LightApp messages fall through to the
+          // generic `{type: 'json'}` path.
+          try {
+            const parsed = JSON.parse(content);
+            if (parsed && parsed.app === 'com.tencent.multimsg') {
+              const detail = parsed.meta?.detail ?? {};
+              const resId = typeof detail.resid === 'string' ? detail.resid : '';
+              const uniseq = typeof detail.uniseq === 'string' ? detail.uniseq : '';
+              if (resId) {
+                result.push({
+                  type: 'forward',
+                  resId,
+                  forwardUuid: uniseq || undefined,
+                });
+                continue;
+              }
+            }
+          } catch { /* fall through to generic json element */ }
+          result.push({ type: 'json', text: content });
+        }
       }
     }
 

@@ -1,4 +1,6 @@
 import { protobuf_encode } from '@snowluma/proton';
+import { deflateSync } from 'zlib';
+import { randomUUID } from 'crypto';
 import type { BridgeContext } from './bridge-context';
 import type { MessageElement } from './events';
 import { uploadImageMsgInfo } from './highway/image-upload';
@@ -145,14 +147,6 @@ function makeMarkdownElem(element: MessageElement): ProtoElem {
   };
 }
 
-function escapeXml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-}
 
 function makeForwardElem(element: MessageElement): ProtoElem {
   const resId = (element.resId ?? '').trim();
@@ -160,10 +154,12 @@ function makeForwardElem(element: MessageElement): ProtoElem {
     throw new Error('forward resId is required');
   }
 
-  // Multi-msg preview bubble — modelled on the go-cqhttp / NapCat XML.
-  // `source` becomes the bold header (e.g. "群聊的聊天记录"), `news`
-  // entries become per-line previews ("nick: text"), `summary` is the
-  // grey footer ("查看 N 条转发消息"), `prompt` is the chat-list brief.
+  // `uniseq` MUST round-trip between the preview JSON and the outer
+  // upload's piggyback `actionCommand` for nested forwards to resolve
+  // without an extra server hit. Generate one fresh if absent (flat
+  // forwards don't piggyback anyway, so the value is cosmetic there).
+  const uniseq = (element.forwardUuid ?? '').trim() || randomUUID();
+
   const source = element.forwardSource && element.forwardSource.length > 0
     ? element.forwardSource
     : '聊天记录';
@@ -178,35 +174,48 @@ function makeForwardElem(element: MessageElement): ProtoElem {
     ? element.forwardTSum
     : Math.max(news.length, 1);
 
-  const newsTitles = news
-    .map(n => `<title size="26" color="#777777">${escapeXml(n.text ?? '')}</title>`)
-    .join('');
+  // LightApp / `com.tencent.multimsg` is the modern wire shape both
+  // QQ-NT, Lagrange.Core, and NapCat emit and decode. The older
+  // `richMsg serviceID=35 m_resid=…` XML still renders on mobile QQ
+  // but it doesn't carry `uniseq`, so nested forwards lose the link
+  // between the inner preview and the piggybacked actions on the
+  // outer's LongMsgResult — cross-checked against
+  // `dev/Lagrange.Core/.../Message/Entity/MultiMsgEntity.cs:43-115`
+  // and `dev/NapCatQQ/.../helper/forward-msg-builder.ts:52-122`.
+  const lightApp = {
+    app: 'com.tencent.multimsg',
+    config: {
+      autosize: 1,
+      forward: 1,
+      round: 1,
+      type: 'normal',
+      width: 300,
+    },
+    desc: prompt,
+    extra: JSON.stringify({ filename: uniseq, tsum: tSum }),
+    meta: {
+      detail: {
+        news: news.map(n => ({ text: n.text ?? '' })),
+        resid: resId,
+        source,
+        summary,
+        uniseq,
+      },
+    },
+    prompt,
+    ver: '0.0.0.5',
+    view: 'contact',
+  };
 
-  const resIdAttr = escapeXml(resId);
-  const xml =
-    `<?xml version="1.0" encoding="utf-8"?>` +
-    `<msg templateID="1" action="viewMultiMsg" serviceID="35"` +
-    ` brief="${escapeXml(prompt)}"` +
-    ` m_resid="${resIdAttr}" m_fileName="${resIdAttr}" actionData="${resIdAttr}"` +
-    ` tSum="${tSum}" sourceMsgId="0" flag="3" adverSign="0" multiMsgFlag="0">` +
-    `<item layout="1">` +
-    `<title size="34" color="#000000">${escapeXml(source)}</title>` +
-    newsTitles +
-    `<hr hidden="false" style="0"/>` +
-    `<summary size="26" color="#808080">${escapeXml(summary)}</summary>` +
-    `</item>` +
-    `<source name="${escapeXml(source)}" icon="" action="" appid="-1"/>` +
-    `</msg>`;
-
-  const encodedXml = new TextEncoder().encode(xml);
-  const payload = new Uint8Array(encodedXml.length + 1);
-  payload[0] = 0x00;
-  payload.set(encodedXml, 1);
+  const json = JSON.stringify(lightApp);
+  const deflated = deflateSync(Buffer.from(json, 'utf8'));
+  const payload = new Uint8Array(deflated.length + 1);
+  payload[0] = 0x01;  // 0x01 prefix = deflated JSON (vs 0x00 = uncompressed XML)
+  payload.set(deflated, 1);
 
   return {
-    richMsg: {
-      serviceId: 35,
-      template1: payload,
+    lightApp: {
+      data: payload,
     } as any,
   };
 }

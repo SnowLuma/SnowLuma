@@ -24,8 +24,8 @@ export interface MessageElement {
   flash?: boolean;
   resId?: string;
   fileHash?: string;
-  // Preview-bubble metadata for the `forward` element. Drives the XML
-  // template (brief/title/news/summary/tSum) the recipient renders before
+  // Preview-bubble metadata for the `forward` element. Drives the
+  // `com.tencent.multimsg` LightApp JSON the recipient renders before
   // they tap to expand. When unset, the element builder falls back to
   // generic defaults so old call sites keep working.
   forwardSource?: string;
@@ -33,6 +33,14 @@ export interface MessageElement {
   forwardPrompt?: string;
   forwardNews?: Array<{ text: string }>;
   forwardTSum?: number;
+  /** `uniseq` baked into the preview's LightApp JSON. For a nested
+   *  forward, the *outer* upload uses this same uuid as the
+   *  `actionCommand` for the piggyback entry carrying the inner
+   *  layer's msgBody — so receivers (Mobile QQ / QQ-NT clients) can
+   *  resolve the inner layer from the outer's single fetch instead of
+   *  hitting the server again. Defaults to a fresh UUID on send when
+   *  omitted (i.e. for non-nested forwards). */
+  forwardUuid?: string;
   // Server-side fingerprints carried from receive side so a forward can do a
   // pure md5/sha1 fast-upload without re-downloading the original bytes.
   // Set together with `noByteFallback: true` to make the upload modules throw
