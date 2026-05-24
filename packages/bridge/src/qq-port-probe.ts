@@ -1,5 +1,5 @@
-import net from 'net';
 import { exec } from 'child_process';
+import net from 'net';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);

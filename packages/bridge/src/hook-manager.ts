@@ -1,22 +1,20 @@
-import fs from 'fs';
+import { createLogger, type Logger } from '@snowluma/common/logger';
 import type { PacketSender } from '@snowluma/common/packet-sender';
 import type { PacketInfo, PacketSink } from '@snowluma/common/protocol-types';
-import { createLogger, type Logger } from '@snowluma/common/logger';
+import fs from 'fs';
+import { HookSession, type HookSessionDeps } from './hook-session';
 import {
   injectHookProcess,
   listHookProcesses,
   unloadHookProcess,
   type HookProcessBaseInfo,
 } from './injector';
-import { HookSession, type HookSessionDeps } from './hook-session';
 import { PipeWatcher } from './pipe-watcher';
 import { QqHookClient } from './qq-hook-client';
-import type { HookProcessInfo } from './types';
 import { probeQqLoginInfo, type QqPortLoginInfo } from './qq-port-probe';
+import type { HookProcessInfo } from './types';
 
-export type { HookProcessInfo, HookProcessStatus } from './types';
-export type { HookProcessBaseInfo } from './injector';
-export type { QqPortLoginInfo } from './qq-port-probe';
+
 
 /**
  * Sink that the hook layer calls back into when it observes a new login,
@@ -229,7 +227,7 @@ export class HookManager {
       if (this.disposed) return;
       for (const session of this.sessions.values()) {
         if ((session.status === 'connecting' || session.status === 'disconnected')
-            && this.pipeWatcher.isPipeLive(session.pid)) {
+          && this.pipeWatcher.isPipeLive(session.pid)) {
           session.onPipeUp();
         }
       }
@@ -311,3 +309,6 @@ export function shouldAutoLoadPid(pid: number, log: Logger): boolean {
   }
   return true;
 }
+export type { HookProcessBaseInfo } from './injector';
+export type { QqPortLoginInfo } from './qq-port-probe';
+export type { HookProcessInfo, HookProcessStatus } from './types';

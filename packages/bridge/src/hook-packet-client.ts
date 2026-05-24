@@ -2,7 +2,7 @@ import type { PacketSender, SendPacketResult } from '@snowluma/common/packet-sen
 import { QqHookClient, type QqHookSendReply } from './qq-hook-client';
 
 export class HookPacketClient implements PacketSender {
-  constructor(private readonly client: QqHookClient) {}
+  constructor(private readonly client: QqHookClient) { }
 
   async sendPacket(serviceCmd: string, body: Buffer, timeoutMs = 15000): Promise<SendPacketResult> {
     if (!this.client.isLoggedIn) {

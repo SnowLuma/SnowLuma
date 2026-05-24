@@ -1,8 +1,8 @@
+import { EventEmitter } from 'events';
+import { promises as fs } from 'fs';
 import net from 'net';
 import os from 'os';
 import path from 'path';
-import { promises as fs } from 'fs';
-import { EventEmitter } from 'events';
 
 export const PIPE_MAGIC = 0x31504851;
 export const PIPE_VERSION = 1;
@@ -235,7 +235,7 @@ function encodeFrame({
 class FrameReader {
   private buffer = Buffer.alloc(0);
 
-  constructor(private readonly onFrame: (frame: PipeFrame) => void) {}
+  constructor(private readonly onFrame: (frame: PipeFrame) => void) { }
 
   push(chunk: Buffer): void {
     this.buffer = Buffer.concat([this.buffer, chunk]);
@@ -513,7 +513,7 @@ export class QqHookClient extends EventEmitter {
     const workerCount = Math.max(1, Math.min(concurrency | 0, items.length || 1));
 
     const worker = async () => {
-      for (;;) {
+      for (; ;) {
         const index = nextIndex;
         nextIndex += 1;
         if (index >= items.length) return;
@@ -624,7 +624,7 @@ export class QqHookClient extends EventEmitter {
         else resolve();
       });
     }));
-    this.controlWriteChain = writePromise.catch(() => {});
+    this.controlWriteChain = writePromise.catch(() => { });
     return writePromise;
   }
 
