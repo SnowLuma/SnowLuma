@@ -1,43 +1,13 @@
-// @snowluma/sqlite — wraps better-sqlite3 so the native `.node` binding
-// is loaded from
-// `dist/native/better-sqlite3-v<abi>-<platform>-<arch>.node` instead
-// of `node_modules/better-sqlite3/build/Release/`. This lets the
-// production artifact ship as a single self-contained `dist/`
-// directory (no `dist/node_modules/`, no `npm install --omit=dev`
-// step) — the same pattern SnowLuma already uses for its
-// `websocket-<platform>-<arch>.node` and `snowluma-*.{dll,node,so}`
-// addons (flat dir, dash-separated triplet).
-//
-// How it works:
-//   1. better-sqlite3's `Database` constructor accepts a `nativeBinding`
-//      option (string path or already-`require()`-ed object) that
-//      overrides the default `require('bindings')('better_sqlite3.node')`
-//      lookup. We forward through every other option/argument
-//      verbatim and inject this one.
-//   2. The vendored `.node` lives at one of two locations depending
-//      on whether we're in dev (workspace TS source) or production
-//      (bundled into dist/native/):
-//        - Prod: `<dist>/native/better-sqlite3-v<abi>-<triplet>.node`
-//        - Dev:  `<repo>/packages/runtime/native/better-sqlite3-v<abi>-<triplet>.node`
-//      We probe both paths and take whichever exists.
-//   3. `<triplet>` is `<process.platform>-<process.arch>` (e.g.
-//      `darwin-arm64`, `linux-x64`, `linux-arm64`, `win32-x64`).
-//   4. `<abi>` is `process.versions.modules` (NODE_MODULE_VERSION).
-//      better-sqlite3 is NOT N-API — its binding is locked to one
-//      Node ABI per build. Vendoring `vNNN` in the filename lets us
-//      ship multiple ABIs side-by-side (e.g. v127 for Node 22 LTS
-//      shipped to CI, v137 for Node 24 used by some dev boxes).
-
-import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
-import { dirname, join, resolve } from 'node:path';
-import { existsSync } from 'node:fs';
 import BetterSqlite3 from 'better-sqlite3';
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Re-export the public types/classes consumers need. `Database` and
 // `Statement` come straight from better-sqlite3 — we only intercept
 // the constructor at call time, not the class shape.
-export type { Database, Statement, RunResult, Options } from 'better-sqlite3';
+export type { Database, Options, RunResult, Statement } from 'better-sqlite3';
 
 function triplet(): string {
   return `${process.platform}-${process.arch}`;
@@ -111,7 +81,7 @@ const Database = function Database(filename?: string | Buffer, options?: Databas
   // but its default export is a callable that *also* returns it via
   // an internal `new.target == null` branch. TS can't reconcile the
   // two without `as any`.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   return new (BetterSqlite3 as any)(filename, opts);
 } as unknown as BetterSqlite3Type;
 

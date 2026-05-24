@@ -10,25 +10,8 @@ import type {
 } from '@snowluma/proto-defs/oidb-actions/group-album';
 import { getGroupAlbumList, uploadImageToGroupAlbum } from '@snowluma/protocol/web/group-album';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { Bridge } from '../bridge';
 import type { BridgeContext } from '../bridge-context';
-// `getCookies` is part of WebApi — go through the hub so we don't
-// duplicate the cookie acquisition flow.
 
-function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
-
-export interface GroupAlbumMediaResult {
-  mediaList: any[];
-  nextAttachInfo: string;
-}
-
-export interface GroupAlbumCommentResult {
-  id: string;
-  user: { uin: string };
-  content: Array<{ type: number; content: string }>;
-  time: string;
-  clientKey: string;
-}
 
 function convertBigIntToString(obj: any): any {
   if (obj === null || obj === undefined) return obj;
@@ -276,4 +259,16 @@ export class GroupAlbumApi {
 
     return { success: true };
   }
+}
+export interface GroupAlbumMediaResult {
+  mediaList: any[];
+  nextAttachInfo: string;
+}
+
+export interface GroupAlbumCommentResult {
+  id: string;
+  user: { uin: string };
+  content: Array<{ type: number; content: string }>;
+  time: string;
+  clientKey: string;
 }
