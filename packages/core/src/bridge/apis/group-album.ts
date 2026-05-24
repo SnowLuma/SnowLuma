@@ -1,10 +1,3 @@
-// GroupAlbumApi — group photo album operations (list/upload/comment/
-// like/delete + media listing). Inlined from `actions/group-album.ts`
-// and `web-actions/group-album.ts` (both deleted alongside actions/*
-// in commit 13). The pure-HTTP helpers in `web/group-album.ts` stay
-// where they are — they're transport-layer code, not Bridge actions.
-
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type {
   DeleteMediasRequest,
   DeleteMediasResponse,
@@ -15,9 +8,10 @@ import type {
   GetMediaListRequest,
   GetMediaListResponse,
 } from '@snowluma/proto-defs/oidb-actions/group-album';
-import type { BridgeContext } from '../bridge-context';
-import type { Bridge } from '../bridge';
 import { getGroupAlbumList, uploadImageToGroupAlbum } from '@snowluma/protocol/web/group-album';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import type { Bridge } from '../bridge';
+import type { BridgeContext } from '../bridge-context';
 // `getCookies` is part of WebApi — go through the hub so we don't
 // duplicate the cookie acquisition flow.
 
@@ -51,7 +45,7 @@ function convertBigIntToString(obj: any): any {
 }
 
 export class GroupAlbumApi {
-  constructor(private readonly ctx: BridgeContext) {}
+  constructor(private readonly ctx: BridgeContext) { }
 
   /** List a group's albums (HTTP-cookie-based, qzone.qq.com). */
   async list(groupId: number): Promise<any> {

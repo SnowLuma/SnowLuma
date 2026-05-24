@@ -6,16 +6,16 @@
 // work (envelope build / encode / send / decode) lives in the
 // namespace files.
 
-import type { BridgeContext } from '../bridge-context';
-import { SendPoke } from '@snowluma/protocol/oidb-services/interaction/send-poke';
 import { SendLike } from '@snowluma/protocol/oidb-services/interaction/send-like';
+import { SendPoke } from '@snowluma/protocol/oidb-services/interaction/send-poke';
 import { SetEssence } from '@snowluma/protocol/oidb-services/interaction/set-essence';
-import { SetReaction } from '@snowluma/protocol/oidb-services/reaction/set-reaction';
 import { FetchReactionSummary } from '@snowluma/protocol/oidb-services/reaction/fetch-reaction-summary';
 import { GetEmojiLikes } from '@snowluma/protocol/oidb-services/reaction/get-emoji-likes';
+import { SetReaction } from '@snowluma/protocol/oidb-services/reaction/set-reaction';
+import type { BridgeContext } from '../bridge-context';
 
 export class InteractionApi {
-  constructor(private readonly ctx: BridgeContext) {}
+  constructor(private readonly ctx: BridgeContext) { }
 
   sendPoke(isGroup: boolean, peerUin: number, targetUin?: number): Promise<void> {
     return SendPoke.invoke(this.ctx, { isGroup, peerUin, targetUin });

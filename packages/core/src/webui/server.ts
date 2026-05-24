@@ -1,18 +1,18 @@
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
-import { Hono, type Context } from 'hono';
-import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
-import { createLogger, getLogLevel, getRecentLogs, LOG_LEVELS, setLogLevel, subscribeLogs } from '@snowluma/common/logger';
-import { randomBytes } from 'crypto';
-import type { OneBotManager } from '@snowluma/onebot/manager';
-import { loadOneBotConfig, saveOneBotConfig } from '@snowluma/onebot/config';
-import type { OneBotConfig } from '@snowluma/onebot/types';
 import type { HookManager, HookProcessInfo } from '@snowluma/bridge';
-import path from 'path';
+import { createLogger, getLogLevel, getRecentLogs, LOG_LEVELS, setLogLevel, subscribeLogs } from '@snowluma/common/logger';
+import { loadOneBotConfig, saveOneBotConfig } from '@snowluma/onebot/config';
+import type { OneBotManager } from '@snowluma/onebot/manager';
+import type { OneBotConfig } from '@snowluma/onebot/types';
+import { randomBytes } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
+import { Hono, type Context } from 'hono';
 import os from 'os';
-import { WebuiAuth, evaluatePasswordRules, isStrongPassword } from './auth';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { evaluatePasswordRules, isStrongPassword, WebuiAuth } from './auth';
+import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
 import { findAvailablePort } from './port';
 
 const log = createLogger('WebUI');
@@ -446,8 +446,8 @@ export async function initWebUI(
       }
     };
   }
-  app.post('/api/processes/:pid/load',    processAction('load',    (pid) => hookManager!.loadProcess(pid)));
-  app.post('/api/processes/:pid/unload',  processAction('unload',  (pid) => hookManager!.unloadProcess(pid)));
+  app.post('/api/processes/:pid/load', processAction('load', (pid) => hookManager!.loadProcess(pid)));
+  app.post('/api/processes/:pid/unload', processAction('unload', (pid) => hookManager!.unloadProcess(pid)));
   app.post('/api/processes/:pid/refresh', processAction('refresh', (pid) => hookManager!.refreshProcess(pid)));
 
   app.get('/api/processes/:pid/probe-login', async (c) => {

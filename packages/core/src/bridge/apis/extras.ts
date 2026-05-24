@@ -1,17 +1,12 @@
-// ExtrasApi — facade over Tier-2 napcat-parity OIDB cmds (group
-// todo CRUD / stranger status decode / AI voice list + synthesis).
-// Every method is a one-line forwarder to a self-contained namespace
-// under @snowluma/protocol/oidb-services/extras.
-
-import type { MediaIndexNode } from './shared';
-import type { BridgeContext } from '../bridge-context';
-import { GroupTodo } from '@snowluma/protocol/oidb-services/extras/group-todo';
-import { GetStrangerStatus, type StrangerStatus as NamespaceStrangerStatus } from '@snowluma/protocol/oidb-services/extras/get-stranger-status';
+import { FetchAiVoice } from '@snowluma/protocol/oidb-services/extras/fetch-ai-voice';
 import {
   FetchAiVoiceList,
   type AiVoiceCategory as NamespaceAiVoiceCategory,
 } from '@snowluma/protocol/oidb-services/extras/fetch-ai-voice-list';
-import { FetchAiVoice } from '@snowluma/protocol/oidb-services/extras/fetch-ai-voice';
+import { GetStrangerStatus, type StrangerStatus as NamespaceStrangerStatus } from '@snowluma/protocol/oidb-services/extras/get-stranger-status';
+import { GroupTodo } from '@snowluma/protocol/oidb-services/extras/group-todo';
+import type { BridgeContext } from '../bridge-context';
+import type { MediaIndexNode } from './shared';
 
 // ─────────────── public types (re-exported from bridge.ts as before) ───
 
@@ -32,7 +27,7 @@ export interface AiVoiceItem {
 }
 
 export class ExtrasApi {
-  constructor(private readonly ctx: BridgeContext) {}
+  constructor(private readonly ctx: BridgeContext) { }
 
   // ─────────────── Group todo (0xF90) ───────────────
 

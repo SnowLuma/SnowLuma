@@ -1,21 +1,16 @@
-// MiscApi — odds & ends that don't fit the other Apis: translation,
-// mini-app ARK build, inline-keyboard button click, group sign-in.
-// Inlined from `actions/misc.ts` (deleted alongside actions/* in
-// commit 13).
-
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type {
   MiniAppShareReq,
   MiniAppShareResp,
 } from '@snowluma/proto-defs/oidb-actions/base';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { BridgeContext } from '../bridge-context';
 // Migrated OIDB cmds — facade methods are one-line forwarders.
-import { TranslateEnToZh } from '@snowluma/protocol/oidb-services/misc/translate-en-to-zh';
 import { ClickInlineKeyboardButton } from '@snowluma/protocol/oidb-services/misc/click-inline-keyboard-button';
 import { SendGroupSign } from '@snowluma/protocol/oidb-services/misc/send-group-sign';
+import { TranslateEnToZh } from '@snowluma/protocol/oidb-services/misc/translate-en-to-zh';
 
 export class MiscApi {
-  constructor(private readonly ctx: BridgeContext) {}
+  constructor(private readonly ctx: BridgeContext) { }
 
   translateEn2Zh(words: string[]): Promise<string[]> {
     return TranslateEnToZh.invoke(this.ctx, { words });

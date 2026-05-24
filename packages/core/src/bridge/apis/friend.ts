@@ -1,18 +1,10 @@
-// FriendApi — facade over friend-roster OIDB cmds. Every method is a
-// one-line forwarder to a self-contained namespace under
-// @snowluma/protocol/oidb-services/friend. The `delete()` facade method
-// adds a best-effort friend-list cache invalidation after the OIDB
-// call succeeds — that side-effect stays on the facade because it
-// reaches into `ctx.apis.contacts`, which the namespace deliberately
-// can't see.
-
-import type { BridgeContext } from '../bridge-context';
-import { HandleFriendRequest } from '@snowluma/protocol/oidb-services/friend/handle-friend-request';
 import { DeleteFriend } from '@snowluma/protocol/oidb-services/friend/delete-friend';
+import { HandleFriendRequest } from '@snowluma/protocol/oidb-services/friend/handle-friend-request';
 import { SetFriendRemark } from '@snowluma/protocol/oidb-services/friend/set-friend-remark';
+import type { BridgeContext } from '../bridge-context';
 
 export class FriendApi {
-  constructor(private readonly ctx: BridgeContext) {}
+  constructor(private readonly ctx: BridgeContext) { }
 
   /**
    * Accept or reject an inbound friend request. `uidOrFlag` is either a

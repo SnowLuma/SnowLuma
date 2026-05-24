@@ -1,31 +1,21 @@
-// GroupAdminApi — facade over Tier-2 napcat-parity group admin OIDB
-// cmds (mute / kick / admin / card / name / title / leave / join-policy
-// / add-request handling / @everyone budget). Every method is a
-// one-line forwarder to a self-contained namespace under
-// @snowluma/protocol/oidb-services/group-admin.
-//
-// The Apis facade keeps `bridge.apis.groupAdmin.X()` as the ergonomic
-// call site; the per-(cmd, subcmd) namespaces own the wire shape and
-// minimal capability surface.
-
-import type { BridgeContext } from '../bridge-context';
-import { MuteMember } from '@snowluma/protocol/oidb-services/group-admin/mute-member';
-import { MuteAll } from '@snowluma/protocol/oidb-services/group-admin/mute-all';
-import { SetAddOption } from '@snowluma/protocol/oidb-services/group-admin/set-add-option';
-import { SetSearch } from '@snowluma/protocol/oidb-services/group-admin/set-search';
-import { SetAddRequest } from '@snowluma/protocol/oidb-services/group-admin/set-add-request';
+import { GetAtAllRemain } from '@snowluma/protocol/oidb-services/group-admin/get-at-all-remain';
 import { KickMember } from '@snowluma/protocol/oidb-services/group-admin/kick-member';
 import { KickMembers } from '@snowluma/protocol/oidb-services/group-admin/kick-members';
 import { LeaveGroup } from '@snowluma/protocol/oidb-services/group-admin/leave-group';
+import { MuteAll } from '@snowluma/protocol/oidb-services/group-admin/mute-all';
+import { MuteMember } from '@snowluma/protocol/oidb-services/group-admin/mute-member';
+import { SetAddOption } from '@snowluma/protocol/oidb-services/group-admin/set-add-option';
+import { SetAddRequest } from '@snowluma/protocol/oidb-services/group-admin/set-add-request';
 import { SetAdmin } from '@snowluma/protocol/oidb-services/group-admin/set-admin';
-import { SetMemberCard } from '@snowluma/protocol/oidb-services/group-admin/set-member-card';
 import { SetGroupName } from '@snowluma/protocol/oidb-services/group-admin/set-group-name';
-import { SetSpecialTitle } from '@snowluma/protocol/oidb-services/group-admin/set-special-title';
 import { SetGroupRemark } from '@snowluma/protocol/oidb-services/group-admin/set-group-remark';
-import { GetAtAllRemain } from '@snowluma/protocol/oidb-services/group-admin/get-at-all-remain';
+import { SetMemberCard } from '@snowluma/protocol/oidb-services/group-admin/set-member-card';
+import { SetSearch } from '@snowluma/protocol/oidb-services/group-admin/set-search';
+import { SetSpecialTitle } from '@snowluma/protocol/oidb-services/group-admin/set-special-title';
+import type { BridgeContext } from '../bridge-context';
 
 export class GroupAdminApi {
-  constructor(private readonly ctx: BridgeContext) {}
+  constructor(private readonly ctx: BridgeContext) { }
 
   muteMember(groupId: number, userId: number, duration: number): Promise<void> {
     return MuteMember.invoke(this.ctx, { groupId, userId, duration });

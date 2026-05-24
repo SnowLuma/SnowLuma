@@ -1,9 +1,5 @@
 import net from 'net';
 
-/**
- * Probe whether a TCP port is bindable on the given host.
- * Resolves to true when bind+listen succeed.
- */
 function isPortAvailable(port: number, host = '0.0.0.0'): Promise<boolean> {
   return new Promise((resolve) => {
     const server = net.createServer();

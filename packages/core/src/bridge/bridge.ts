@@ -1,142 +1,32 @@
 import type { PacketSender, SendPacketResult } from '@snowluma/common/packet-sender';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
-import type { BridgeInterface } from './bridge-interface';
+import { BridgeEventBus } from '@snowluma/protocol/event-bus';
 import { IdentityService } from '@snowluma/protocol/identity-service';
 import { MSG_PUSH_CMD, parseMsgPush } from '@snowluma/protocol/msg-push';
 import { IncomingPacketPipeline, type CmdParser } from '@snowluma/protocol/packet-pipeline';
-// qq-info types are no longer used directly in this file — they live
-// inside the Api classes that own those fetches (apis/contacts.ts).
-import { type ApiHub, buildApiHub } from './apis';
-
-// Delegated modules
-// Group-todo / stranger-status / AI-voice moved to apis/extras.ts.
-// Public types stay re-exported through this file for backwards
-// compatibility — the OneBot side imports them via `@snowluma/core`.
+import { buildApiHub, type ApiHub } from './apis';
 import {
   AiVoiceChatType,
   type AiVoiceCategory,
   type StrangerStatus,
 } from './apis/extras';
-// actions/forward.ts removed — moved to apis/forward.ts::ForwardApi.
-// actions/friend.ts removed — moved to apis/friend.ts::FriendApi.
-// actions/group-admin.ts removed — moved to `apis/group-admin.ts::GroupAdminApi`.
-// actions/group-album.ts removed — moved to `apis/group-album.ts::GroupAlbumApi`.
-// Group file CRUD + private c2c upload + media URL resolvers moved to
-// `apis.groupFile` (see `apis/group-file.ts::GroupFileApi`). The shared
-// result type still lives here because the OneBot side imports it
-// through bridge.ts.
-import type { GroupFilesResult } from './apis/group-file';
-// actions/group-message.ts removed — `setGroupEssence` moved to
-//   apis/interaction.ts::InteractionApi. The recall/markRead helpers
-//   were absorbed into MessageApi back in commit 1.
-// actions/interaction.ts removed — sendPoke/sendLike/setReaction/
-//   getEmojiLikes moved to apis/interaction.ts::InteractionApi.
-// actions/misc.ts removed — moved to apis/misc.ts::MiscApi.
-// actions/profile.ts removed — moved to apis/profile.ts::ProfileApi.
-// `bridge-contacts.ts` removed — its 6 functions are now methods on
-// `apis.contacts` (see `apis/contacts.ts::ContactsApi`).
-import { BridgeEventBus } from '@snowluma/protocol/event-bus';
-// web-actions/* removed — moved to apis/web.ts::WebApi.
-export { AiVoiceChatType };
-export type { AiVoiceCategory, StrangerStatus };
+import type { BridgeInterface } from './bridge-interface';
 
-export interface SendMessageReceipt {
-  messageId: number;
-  sequence: number;
-  clientSequence: number;
-  random: number;
-  timestamp: number;
-}
-
-/**
- * Metadata remembered after `upload_group_file` / `upload_private_file`
- * succeeds. Lets the OneBot send-message path reconstruct the full
- * payload when the caller only echoes the `file_id` back later. See
- * `Bridge.rememberUploadedFile` / `recallUploadedFile`.
- */
-export interface UploadedFileMeta {
-  fileId: string;
-  scope: 'group' | 'private';
-  /** Group id if scope='group', else `undefined`. */
-  groupId?: number;
-  /** Friend uin if scope='private', else `undefined`. */
-  userId?: number;
-  fileName: string;
-  fileSize: number;
-  fileMd5: Uint8Array;
-  fileSha1: Uint8Array;
-  /** Server-issued hash returned alongside the upload (private only). */
-  fileHash?: string;
-  /** Insert time — used to evict the oldest entry when the cache fills. */
-  rememberedAt: number;
-}
-
-export interface DownloadRKeyInfo {
-  rkey: string;
-  ttlSeconds: number;
-  storeId: number;
-  createTime: number;
-  type: number;
-}
-
-export interface ClientKeyInfo {
-  clientKey: string;
-  expireTime: string;
-  keyIndex: string
-}
 
 export class Bridge implements BridgeInterface {
   readonly identity: IdentityService;
   private pids_ = new Set<number>();
-  /**
-   * Per-kind event subscription. Replaces the legacy single-callback
-   * firehose: downstream consumers now register exactly the kinds they
-   * care about and the pipeline fans out in parallel.
-   */
   readonly events = new BridgeEventBus();
-  /**
-   * Typed Api hub. Each entry is a class encapsulating one logical
-   * area of the QQ protocol (sending messages, group admin, file
-   * uploads, etc.). Built eagerly in the constructor — every Bridge
-   * instance gets its own `apis.*` set with `this` (typed as
-   * `BridgeContext`) injected. See `apis/index.ts`.
-   */
   readonly apis: ApiHub;
   private readonly pipeline: IncomingPacketPipeline;
   private packetClient_: PacketSender | null = null;
-  // (fetchGroupMemberList throttle cache moved to ContactsApi — same
-  // 60s TTL + inflight coalesce semantics, just owned by the Api class
-  // that exposes the method.)
-
-  // ── Uploaded-file metadata cache ────────────────────────────────────
-  //
-  // After a file goes through `upload_group_file` / `upload_private_file`
-  // we remember the (fileName, fileSize, fileMd5, fileHash) tuple keyed
-  // by the returned file_id. The OneBot send-message paths consult this
-  // when the caller later passes `{type:'file', file_id:'xxx'}` without
-  // the rest of the metadata — c2c file send needs the size/md5/name
-  // for the wire packet (server-side rejection / "0 byte file" otherwise),
-  // and the group send path falls back to the name for the log line.
-  //
-  // Bounded at ~1024 entries with simple FIFO eviction. Files older
-  // than 7 days expire on QQ's side anyway, so this isn't load-bearing
-  // for correctness — just a UX convenience cache so the OneBot caller
-  // doesn't have to thread the metadata themselves between upload and
-  // send_msg.
   private static readonly UPLOADED_FILE_CACHE_MAX = 1024;
   private uploadedFileMeta_ = new Map<string, UploadedFileMeta>();
-
-  // Sequence and random generators for outgoing messages
   private clientSeq_ = 100000000 + (Date.now() % 1000000000);
   private msgRandom_ = (Date.now() & 0xFFFFFFFF) >>> 0;
 
   constructor(identity: IdentityService) {
     this.identity = identity;
-    // Build Api hub FIRST — `setFetcher` below installs callbacks
-    // that reach into `this.apis.contacts.*`, so the hub must exist
-    // by the time those callbacks could fire. The Bridge instance IS
-    // the BridgeContext (Bridge implements BridgeInterface which
-    // includes the BridgeContext surface).
     this.apis = buildApiHub(this);
     this.identity.setFetcher({
       fetchProfile: (uin) => this.apis.contacts.fetchUserProfile(uin),
@@ -157,11 +47,6 @@ export class Bridge implements BridgeInterface {
         }
       },
       resolveGroupJoinRequest: async (groupId, uid, subType) => {
-        // OIDB 0x10C0 pending-request queue holds (targetUid,
-        // invitorUid, comment, sequence, ...). For a plain join the
-        // requester is `targetUid`; for a forwarded invite it's
-        // `invitorUid`. Mirrors NapCat's `getGroupNotifies` →
-        // `notify.postscript` pipeline.
         try {
           const requests = await this.apis.contacts.fetchGroupRequests();
           const match = requests.find(r => {
@@ -195,8 +80,6 @@ export class Bridge implements BridgeInterface {
     return this.pipeline.handlesCmd(cmd);
   }
 
-  // --- PID management ---
-
   attachPid(pid: number): void {
     this.pids_.add(pid);
   }
@@ -209,9 +92,6 @@ export class Bridge implements BridgeInterface {
     for (const pid of this.pids_) return pid;
     return null;
   }
-
-  // --- Packet dispatch ---
-
   onPacket(pkt: PacketInfo): void {
     this.pipeline.process(pkt);
   }
@@ -224,18 +104,6 @@ export class Bridge implements BridgeInterface {
     await this.apis.contacts.fetchGroupMemberList(groupId, { force: forceMemberList });
     return true;
   }
-
-  // --- Uploaded-file metadata cache ---
-
-  /**
-   * Remember a freshly-uploaded file so a later `send_*_msg` carrying
-   * just the file_id can reconstruct the full c2c-file packet (fileName
-   * / fileSize / fileMd5 are required by the QQ NT server's c2c file
-   * intake, even if only the uuid is needed for the OIDB lookup
-   * internally — without them the file shows as 0 B in the recipient's
-   * chat or is silently rejected). Insertion is FIFO; oldest entry is
-   * evicted when the cache hits `UPLOADED_FILE_CACHE_MAX`.
-   */
   rememberUploadedFile(meta: UploadedFileMeta): void {
     if (!meta.fileId) return;
     if (this.uploadedFileMeta_.size >= Bridge.UPLOADED_FILE_CACHE_MAX) {
@@ -246,23 +114,10 @@ export class Bridge implements BridgeInterface {
     this.uploadedFileMeta_.set(meta.fileId, meta);
   }
 
-  /**
-   * Recall metadata for a previously-uploaded file. Returns `undefined`
-   * if the file_id was never uploaded through this bridge instance, or
-   * if it's been evicted from the cache.
-   */
   recallUploadedFile(fileId: string): UploadedFileMeta | undefined {
     if (!fileId) return undefined;
     return this.uploadedFileMeta_.get(fileId);
   }
-
-  // --- Sequence / random generators ---
-  //
-  // `public` (formerly `private`) because the Api classes in
-  // `apis/*.ts` need them to build `SendMessageRequest` packets. Part
-  // of the `BridgeContext` surface, so a third party that only sees
-  // `BridgeContext` can still synthesise wire packets without reaching
-  // into the concrete Bridge class.
 
   nextClientSequence(): number {
     return ++this.clientSeq_;
@@ -272,9 +127,6 @@ export class Bridge implements BridgeInterface {
     this.msgRandom_ = (this.msgRandom_ + 0x9E3779B9) >>> 0;
     return this.msgRandom_ & 0x7FFFFFFF;
   }
-
-  // --- Send packet (raw) ---
-
   async sendRawPacket(serviceCmd: string, body: Uint8Array, timeoutMs = 15000): Promise<SendPacketResult> {
     if (!this.packetClient_) {
       return {
@@ -284,50 +136,48 @@ export class Bridge implements BridgeInterface {
     }
     return this.packetClient_.sendPacket(serviceCmd, Buffer.from(body), timeoutMs);
   }
-
-  // `Bridge.SEND_MSG_CMD` and the inline `sendGroupMessage` /
-  // `sendPrivateMessage` / `sendC2cFileMessage` implementations were
-  // moved to `apis/message.ts::MessageApi` as part of the #6
-  // Api-on-ctx refactor. Callers route through `bridge.apis.message.*`.
-
-  // --- Delegated: OIDB helpers ---
-
   async resolveUserUid(uin: number, groupId?: number): Promise<string> {
     return this.identity.resolveUid(uin, groupId);
   }
-
-  // fetchFriendList / fetchGroupList / fetchGroupMemberList /
-  // fetchUserProfile / fetchGroupRequests / fetchDownloadRKeys
-  // moved to apis.contacts (see apis/contacts.ts::ContactsApi).
-
-  // --- Delegated: action methods ---
-  //
-  // GroupAdmin methods (mute/kick/admin/card/name/title/leave/
-  // add-option/search/add-request/remark/at-all-remain) moved to
-  // apis.groupAdmin (apis/group-admin.ts::GroupAdminApi).
-  // Friend methods (handleRequest/delete/setRemark) moved to
-  // apis.friend.
-  // GroupFile methods (upload/uploadPrivate/publish/list/getUrl/
-  // getPrivateUrl/{Ptt,Video}Url/getPrivate{Ptt,Video}Url/delete/move/
-  // createFolder/deleteFolder/renameFolder/getCount) moved to
-  // apis.groupFile (apis/group-file.ts::GroupFileApi).
-  // Forward methods (upload / fetch) moved to apis.forward.
-  // Interaction methods (sendPoke/sendLike/setReaction/setEssence/
-  // getEmojiLikes) moved to apis.interaction.
-  // recall* / markRead* moved to apis/message.ts::MessageApi.
-  // GroupAlbum methods (list/upload/getMediaList/comment/like/delete)
-  // moved to apis.groupAlbum (apis/group-album.ts::GroupAlbumApi).
-  // Web methods (getHonorInfo / forceFetchClientKey / getEssence /
-  // getEssenceAll / sendNotice / getNotice / deleteNotice /
-  // getCookiesStr / getCsrfToken / getCredentials) moved to apis.web.
-  // Profile methods (setOnlineStatus / setDiyOnlineStatus / setProfile /
-  // setSelfLongNick / setInputStatus / setAvatar / setGroupAvatar /
-  // fetchCustomFace / getLike / getUnidirectionalFriendList) moved to
-  // apis.profile.
-  // Misc methods (translateEn2Zh / getMiniAppArk /
-  // clickInlineKeyboardButton / sendGroupSign) moved to apis.misc.
-
-  // --- Tier-2 napcat-parity extras (group todo / stranger status /
-  //     AI voice) moved to apis.extras. ---
 }
+export interface SendMessageReceipt {
+  messageId: number;
+  sequence: number;
+  clientSequence: number;
+  random: number;
+  timestamp: number;
+}
+
+export interface UploadedFileMeta {
+  fileId: string;
+  scope: 'group' | 'private';
+  /** Group id if scope='group', else `undefined`. */
+  groupId?: number;
+  /** Friend uin if scope='private', else `undefined`. */
+  userId?: number;
+  fileName: string;
+  fileSize: number;
+  fileMd5: Uint8Array;
+  fileSha1: Uint8Array;
+  /** Server-issued hash returned alongside the upload (private only). */
+  fileHash?: string;
+  /** Insert time — used to evict the oldest entry when the cache fills. */
+  rememberedAt: number;
+}
+
+export interface DownloadRKeyInfo {
+  rkey: string;
+  ttlSeconds: number;
+  storeId: number;
+  createTime: number;
+  type: number;
+}
+
+export interface ClientKeyInfo {
+  clientKey: string;
+  expireTime: string;
+  keyIndex: string
+}
+export { AiVoiceChatType };
+export type { AiVoiceCategory, StrangerStatus };
 

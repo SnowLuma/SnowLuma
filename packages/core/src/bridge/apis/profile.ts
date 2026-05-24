@@ -1,8 +1,3 @@
-// ProfileApi — personal profile + status + avatar + likes + custom
-// faces + unidirectional friend list. Inlined from
-// `actions/profile.ts` (deleted alongside actions/* in commit 13).
-
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type {
   FaceroamOpReq,
   FaceroamOpResp,
@@ -10,21 +5,21 @@ import type {
   SetStatusReq,
   SetStatusResp,
 } from '@snowluma/proto-defs/oidb-actions/base';
-import type { BridgeContext } from '../bridge-context';
-import type { Bridge } from '../bridge';
 import { fetchHighwaySession, uploadHighwayHttp } from '@snowluma/protocol/highway';
 import { computeHashes, loadBinarySource } from '@snowluma/protocol/highway/utils';
-// Migrated OIDB cmds — facade methods are one-line forwarders.
-import { SetProfile } from '@snowluma/protocol/oidb-services/profile/set-profile';
-import { SetSelfLongNick } from '@snowluma/protocol/oidb-services/profile/set-self-long-nick';
-import { SetInputStatus } from '@snowluma/protocol/oidb-services/profile/set-input-status';
 import { GetLike } from '@snowluma/protocol/oidb-services/profile/get-like';
 import { GetUnidirectionalFriendList } from '@snowluma/protocol/oidb-services/profile/get-unidirectional-friend-list';
+import { SetInputStatus } from '@snowluma/protocol/oidb-services/profile/set-input-status';
+import { SetProfile } from '@snowluma/protocol/oidb-services/profile/set-profile';
+import { SetSelfLongNick } from '@snowluma/protocol/oidb-services/profile/set-self-long-nick';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import type { Bridge } from '../bridge';
+import type { BridgeContext } from '../bridge-context';
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
 
 export class ProfileApi {
-  constructor(private readonly ctx: BridgeContext) {}
+  constructor(private readonly ctx: BridgeContext) { }
 
   // ─────────────── status / profile setters ───────────────
 

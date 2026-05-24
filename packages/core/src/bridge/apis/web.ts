@@ -1,11 +1,5 @@
-// WebApi — cookie-backed HTTP wrappers (group essence / honor / notice /
-// client-key / pskey / csrf-token / credentials). Inlined from the
-// per-feature files in `web-actions/` (all deleted in commit 13).
-// The pure HTTP transport stays in `web/*.ts` and stays unchanged —
-// only the Bridge-binding helpers move here.
-
-import type { BridgeContext } from '../bridge-context';
-import type { Bridge } from '../bridge';
+import { ForceFetchClientKey, type ClientKeyInfo as NamespaceClientKeyInfo } from '@snowluma/protocol/oidb-services/web/force-fetch-client-key';
+import { GetPskey } from '@snowluma/protocol/oidb-services/web/get-pskey';
 import { getGroupEssenceMsg, getGroupEssenceMsgAll } from '@snowluma/protocol/web/group-essence';
 import { getHonorListWebAPI, WebHonorType } from '@snowluma/protocol/web/group-honor';
 import {
@@ -15,10 +9,8 @@ import {
   uploadGroupNoticeImage,
 } from '@snowluma/protocol/web/group-notice';
 import { RequestUtil } from '@snowluma/protocol/web/request-util';
-// Migrated OIDB cmds — the two private helpers below are thin
-// forwarders into the namespaces.
-import { ForceFetchClientKey, type ClientKeyInfo as NamespaceClientKeyInfo } from '@snowluma/protocol/oidb-services/web/force-fetch-client-key';
-import { GetPskey } from '@snowluma/protocol/oidb-services/web/get-pskey';
+import type { Bridge } from '../bridge';
+import type { BridgeContext } from '../bridge-context';
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
 
@@ -101,7 +93,7 @@ function getBknFromSKey(skey: string): number {
 }
 
 export class WebApi {
-  constructor(private readonly ctx: BridgeContext) {}
+  constructor(private readonly ctx: BridgeContext) { }
 
   // ─────────────── cookie / token primitives ───────────────
 

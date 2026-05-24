@@ -1,17 +1,4 @@
-// ForwardApi — long-message (聊天记录 / forward) upload + retrieval.
-// Inlined from `actions/forward.ts` (deleted alongside actions/* in
-// commit 13).
-//
-// The module-scoped `forwardResCache` stays at file scope (not on the
-// class instance) because forward res_ids are globally unique, and an
-// outbound upload often gets queried back through `fetch` on a
-// different Bridge instance (e.g. a different OneBot connection
-// hitting the same account). Keeping the cache shared across the
-// process matches NapCat's behaviour.
-
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import { randomUUID } from 'crypto';
-import { gunzipSync, gzipSync } from 'zlib';
+import type { PacketInfo } from '@snowluma/common/protocol-types';
 import type {
   LongMsgResult,
   RecvLongMsgReq,
@@ -20,12 +7,14 @@ import type {
   SendLongMsgResp,
 } from '@snowluma/proto-defs/longmsg';
 import type { FileExtra, PushMsg, PushMsgBody } from '@snowluma/proto-defs/message';
-import type { PacketInfo } from '@snowluma/common/protocol-types';
-import type { BridgeContext } from '../bridge-context';
-import type { Bridge } from '../bridge';
 import { buildSendElems } from '@snowluma/protocol/element-builder';
 import type { ForwardNodePayload, MessageElement } from '@snowluma/protocol/events';
 import { parseMsgPush } from '@snowluma/protocol/msg-push';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import { randomUUID } from 'crypto';
+import { gunzipSync, gzipSync } from 'zlib';
+import type { Bridge } from '../bridge';
+import type { BridgeContext } from '../bridge-context';
 import { resolveSelfUid, toInt } from './shared';
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
@@ -214,7 +203,7 @@ function previewFromElements(elements: MessageElement[]): string {
 }
 
 export class ForwardApi {
-  constructor(private readonly ctx: BridgeContext) {}
+  constructor(private readonly ctx: BridgeContext) { }
 
   async upload(nodes: ForwardNodePayload[], groupId?: number, userId?: number): Promise<string> {
     const { resId } = await this.uploadRecursive(nodes, groupId, userId);

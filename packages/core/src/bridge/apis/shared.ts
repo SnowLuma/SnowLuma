@@ -1,10 +1,5 @@
 import type { Bridge } from '../bridge';
 
-/**
- * Coerce numbers, strings, and bigints to a plain integer.
- * Returns 0 for anything we can't interpret — every action that
- * threads this through OIDB has an explicit `<=0` validation later.
- */
 export function toInt(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
   if (typeof value === 'bigint') {

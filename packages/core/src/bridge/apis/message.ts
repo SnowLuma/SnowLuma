@@ -1,17 +1,3 @@
-// MessageApi — send / recall / mark-read operations.
-//
-// Folds together the previous shapes:
-//   - `Bridge.sendGroupMessage` / `sendPrivateMessage` / `sendC2cFileMessage`
-//     (formerly inline on the Bridge class).
-//   - `actions/group-message.ts` (recallGroup / recallPrivate /
-//     markGroupRead / markPrivateRead).
-//
-// All implementations are inlined here — the previous indirection
-// through `actions/group-message.ts` exported functions was just
-// `(bridge, args) → method body`; once methods live on a typed Api
-// class the wrapper layer doesn't earn its keep.
-
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type {
   SendMessageRequest,
   SendMessageResponse,
@@ -22,8 +8,9 @@ import type {
   GroupRecallRequest,
   SsoReadedReportReq,
 } from '@snowluma/proto-defs/oidb-actions/base';
-import type { MessageElement } from '@snowluma/protocol/events';
 import { buildSendElems } from '@snowluma/protocol/element-builder';
+import type { MessageElement } from '@snowluma/protocol/events';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { BridgeContext } from '../bridge-context';
 // `Bridge` is imported as a type only so we can narrow `ctx` back to
 // the concrete Bridge instance when passing it to `buildSendElems`
@@ -38,7 +25,7 @@ import type { Bridge, SendMessageReceipt } from '../bridge';
 const SEND_MSG_CMD = 'MessageSvc.PbSendMsg';
 
 export class MessageApi {
-  constructor(private readonly ctx: BridgeContext) {}
+  constructor(private readonly ctx: BridgeContext) { }
 
   /**
    * Send a message to a QQ group.
