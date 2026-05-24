@@ -1,8 +1,8 @@
-import { BridgeManager } from './bridge/manager';
-import { OneBotManager } from '@snowluma/onebot/manager';
-import { loadRuntimeConfig } from '@snowluma/common/runtime';
+import { HookManager } from '@snowluma/bridge';
 import { closeLogger, createLogger } from '@snowluma/common/logger';
-import { HookManager } from './hook/hook-manager';
+import { loadRuntimeConfig } from '@snowluma/common/runtime';
+import { OneBotManager } from '@snowluma/onebot/manager';
+import { BridgeManager } from './bridge/manager';
 
 const runtimeConfig = loadRuntimeConfig();
 const log = createLogger('App');
@@ -12,12 +12,6 @@ async function main() {
 
   const bridgeManager = new BridgeManager();
   const oneBotManager = new OneBotManager();
-  // HookManager defaults its packet sink to bridgeManager.onPacket, so
-  // every parsed hook packet reaches the per-UIN bridge dispatcher with
-  // no intermediate layer.
-  // Env var SNOWLUMA_HOOK_AUTOLOAD wins over runtime.json so Docker /
-  // headless deployments can flip auto-injection on without touching the
-  // persisted user config volume.
   const autoLoadOnDiscovery = resolveAutoLoad(runtimeConfig.hookAutoLoad);
   const hookManager = new HookManager({ bridgeManager, autoLoadOnDiscovery });
   if (autoLoadOnDiscovery) {

@@ -1,9 +1,5 @@
-// Plain JSON types now live in @snowluma/common/json so @snowluma/bridge
-// (event-format / receive parsers) can talk about JSON payloads without
-// importing OneBot. Re-exported here so the legacy import shape stays
-// supported — `import { JsonValue } from '<…>/onebot/types'` keeps working.
-export type { JsonPrimitive, JsonValue, JsonObject, JsonArray } from '@snowluma/common/json';
-import type { JsonValue, JsonObject } from '@snowluma/common/json';
+
+import type { JsonObject, JsonValue } from '@snowluma/common/json';
 
 export interface ApiResponse {
   status: 'ok' | 'failed';
@@ -25,14 +21,6 @@ export type MessageFormat = 'array' | 'string';
 
 export type NetworkKind = 'httpServers' | 'httpClients' | 'wsServers' | 'wsClients';
 
-/**
- * Fields shared by every network adapter. `messageFormat` and
- * `reportSelfMessage` live on the adapter itself — there is no global default
- * fallback; each adapter is fully self-describing.
- *
- * The `name` is a free-form identifier scoped to the adapter's array; it is
- * used for hot-reload bookkeeping and as a label in logs / WebUI.
- */
 export interface NetworkBase {
   name: string;
   /** When `false`, the adapter is configured but inactive. Defaults to `true`. */
@@ -68,10 +56,6 @@ export interface WsClientNetwork extends NetworkBase {
   reconnectIntervalMs?: number;
 }
 
-/**
- * Network adapters grouped by type. Each adapter is identified by `name`
- * within its own array; hot-reload works on a per-(kind, name) basis.
- */
 export interface OneBotNetworks {
   httpServers: HttpServerNetwork[];
   httpClients: HttpClientNetwork[];
@@ -119,3 +103,5 @@ export function failedResponse(retcode: number, wording: string): ApiResponse {
     wording,
   };
 }
+export type { JsonArray, JsonObject, JsonPrimitive, JsonValue } from '@snowluma/common/json';
+

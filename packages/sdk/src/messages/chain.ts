@@ -24,7 +24,7 @@ export interface MessageChainSender {
 const SINGLE_USE_TYPES = new Set(['reply']);
 
 export class MessageChain<THasReply extends boolean = false> implements MessageChainLike {
-  private readonly replyStateBrand?: THasReply;
+  declare private readonly replyStateBrand?: THasReply;
 
   private constructor(
     private readonly items: AnyMessageSegment[] = [],

@@ -1,20 +1,10 @@
-import type { QQEventVariant } from '@snowluma/bridge/events';
+import type { QQEventVariant } from '@snowluma/protocol/events';
 import { convertEvent } from './event-converter';
 import type { OneBotInstanceContext } from './instance-context';
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from './message-id';
 
-/**
- * Subscribe every `OneBotInstanceContext`-aware handler onto the bridge
- * event bus. Returns a disposer that removes every subscription registered
- * here in one shot — useful for tests and for tearing down a session.
- */
 export function registerEventPipeline(ctx: OneBotInstanceContext): () => void {
   const disposers: Array<() => void> = [];
-
-  // Every kind that maps onto an OB11 message event also seeds the
-  // message-meta cache; we do that synchronously before async conversion so
-  // reply / quote lookups for that message id work even if the converter
-  // takes a beat to finish (e.g. while resolving image URLs).
   disposers.push(
     ctx.bridge.events.on('group_message', async (event) => {
       cacheGroupMessageMeta(ctx, event);
@@ -33,12 +23,12 @@ export function registerEventPipeline(ctx: OneBotInstanceContext): () => void {
       await convertAndDispatch(ctx, event);
     }),
   );
-
-  // Notice / request / non-message events: no meta caching needed, just
-  // convert and dispatch.
   for (const kind of NOTICE_KINDS) {
     disposers.push(
       ctx.bridge.events.on(kind, async (event) => {
+        if (event.kind === 'group_msg_emoji_like') {
+          cacheReaction(ctx, event);
+        }
         await convertAndDispatch(ctx, event);
       }),
     );
@@ -104,4 +94,29 @@ function cachePrivateMessageMeta(
     random,
     timestamp,
   });
+}
+
+function cacheReaction(
+  ctx: OneBotInstanceContext,
+  event: Extract<QQEventVariant, { kind: 'group_msg_emoji_like' }>,
+): void {
+  if (!event.groupId || !event.msgSeq || !event.emojiId || !event.operatorUin) return;
+  if (event.isAdd) {
+    ctx.reactionStore.recordAdd(
+      event.groupId,
+      event.msgSeq,
+      event.emojiId,
+      1,
+      event.operatorUin,
+      event.operatorUid,
+      event.time,
+    );
+  } else {
+    ctx.reactionStore.recordRemove(
+      event.groupId,
+      event.msgSeq,
+      event.emojiId,
+      event.operatorUin,
+    );
+  }
 }

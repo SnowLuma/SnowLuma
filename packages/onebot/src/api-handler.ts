@@ -1,24 +1,20 @@
-import type { JsonObject, JsonValue, MessageMeta } from './types';
-import type { ForwardPreviewMeta } from './modules/message-actions';
-import type { BridgeInterface } from '@snowluma/core/bridge-interface';
-import { RETCODE, failedResponse } from './types';
-import { createLogger, type Logger } from '@snowluma/common/logger';
 import { summarizeParams } from '@snowluma/common/log-summary';
-
-const moduleLog = createLogger('Bridge.Action');
-
+import { createLogger, type Logger } from '@snowluma/common/logger';
+import type { BridgeInterface } from '@snowluma/core/bridge-interface';
+import { register as registerExtended } from './actions/extended';
+import { register as registerFriend } from './actions/friend';
+import { register as registerGroupAdmin } from './actions/group-admin';
+import { register as registerGroupAlbum } from './actions/group-album';
+import { register as registerGroupFile } from './actions/group-file';
+import { register as registerGroupInfo } from './actions/group-info';
 import { register as registerInfo } from './actions/info';
 import { register as registerMessage } from './actions/message';
-import { register as registerFriend } from './actions/friend';
-import { register as registerGroupInfo } from './actions/group-info';
-import { register as registerGroupAdmin } from './actions/group-admin';
-import { register as registerGroupFile } from './actions/group-file';
 import { register as registerRequest } from './actions/request';
-import { register as registerExtended } from './actions/extended';
-import { register as registerGroupAlbum } from './actions/group-album';
+import type { ForwardPreviewMeta } from './modules/message-actions';
+import type { JsonObject, JsonValue, MessageMeta } from './types';
+import { RETCODE, failedResponse } from './types';
+const moduleLog = createLogger('Bridge.Action');
 
-import { WebHonorType } from '@snowluma/bridge/web/group-honor';
-import type { ClientKeyInfo } from '@snowluma/core/bridge';
 
 export interface MessageSendResult {
   messageId: number;
@@ -30,21 +26,14 @@ export interface GroupEssenceMsgRet {
   retcode: number;
   data: {
     is_end: boolean;
-    msg_list: any[];
-    [key: string]: any;
+    msg_list: JsonObject[];
+    [key: string]: JsonValue;
   };
-  [key: string]: any;
+  [key: string]: JsonValue;
 }
 
 export interface ApiActionContext {
-  /**
-   * Direct access to the BridgeInterface. Use for actions that are pure
-   * 1:1 calls to a Bridge method — no rename, no default args, no
-   * composition with messageStore / mediaStore. When translation IS
-   * needed, route through the named adapters declared below instead.
-   */
   bridge: BridgeInterface;
-
   getLoginInfo: () => { userId: number; nickname: string };
   isOnline: () => boolean;
   getMessage: (messageId: number) => JsonObject | null;
@@ -54,37 +43,16 @@ export interface ApiActionContext {
   deleteMessage: (messageId: number, meta: MessageMeta) => Promise<void>;
   canSendImage: () => boolean;
   canSendRecord: () => boolean;
-  // Info retrieval (async — triggers OIDB fetch)
   getFriendList: () => Promise<JsonObject[]>;
   getGroupList: (noCache?: boolean) => Promise<JsonObject[]>;
   getGroupInfo: (groupId: number, noCache?: boolean) => Promise<JsonObject | null>;
   getGroupMemberList: (groupId: number, noCache?: boolean) => Promise<JsonObject[]>;
   getGroupMemberInfo: (groupId: number, userId: number, noCache?: boolean) => Promise<JsonObject | null>;
   getStrangerInfo: (userId: number) => Promise<JsonObject | null>;
-  // Group admin (mute/kick/admin/card/name/title/leave/etc) — all
-  // accessed directly through `ctx.bridge.apis.groupAdmin.method()`
-  // after the #6 OneBot-side slim-down; no per-method passthrough
-  // here anymore.
-  // Group file passthroughs are gone — actions call
-  // `ctx.bridge.apis.groupFile.{upload,uploadPrivate,getUrl,
-  // createFolder,getPrivateUrl,getCount}` directly. `getGroupFiles`
-  // stays because it composes through the `getGroupFiles` module
-  // helper (identity-lookup enrichment of uploader names).
   getGroupFiles: (groupId: number, folderId?: string) => Promise<JsonObject>;
-  // Friend requests: direct via `ctx.bridge.apis.friend.handleRequest`.
-  // Group requests: stay on ctx because `handleGroupAddRequest` is a
-  // module helper that does the flag-parsing + group-request lookup
-  // dance before routing to `bridge.apis.groupAdmin.setAddRequest`.
   handleGroupRequest: (flag: string, subType: string, approve: boolean, reason: string) => Promise<void>;
-  // Pokes: direct via `ctx.bridge.apis.interaction.sendPoke(isGroup, …)`.
-  // Essence (adapter: bakes the set/unset boolean)
   setEssenceMsg: (messageId: number) => Promise<void>;
   deleteEssenceMsg: (messageId: number) => Promise<void>;
-  // Profile reads and group essence reads: direct via
-  // `ctx.bridge.apis.profile.getLike(...)` and
-  // `ctx.bridge.apis.web.getEssence(...)`.
-  // Friend deletion: direct via `ctx.bridge.apis.friend.delete(userId, block)`.
-  // Module wrappers / multi-dep compositions
   getGroupMsgHistory: (groupId: number, messageId?: number, count?: number) => Promise<JsonObject[]>;
   getFriendMsgHistory: (userId: number, messageId?: number, count?: number) => Promise<JsonObject[]>;
   handleGetGroupSystemMsg: () => Promise<JsonObject[]>;
@@ -94,19 +62,18 @@ export interface ApiActionContext {
   sendForwardMsg: (messages: JsonValue, groupId?: number) => Promise<{ forwardId: string }>;
   getForwardMsg: (resId: string) => Promise<JsonObject[]>;
   forwardSingleMsg: (messageId: number, target: { groupId?: number; userId?: number }) => Promise<{ messageId: number }>;
-  // setMsgEmojiLike: stays because it threads messageStore meta lookup.
   setMsgEmojiLike: (messageId: number, emojiId: string, set: boolean) => Promise<void>;
-  // All other extended / NapCat-compatible / Web / Album actions are
-  // accessed directly through `ctx.bridge.apis.<area>.<method>()`:
-  //   * profile area:    setProfile / setOnlineStatus / fetchCustomFace /
-  //                      setGroupAvatar / getLike
-  //   * friend area:     setRemark / delete / handleRequest
-  //   * web area:        getHonorInfo / getEssence(All) / sendNotice /
-  //                      getNotice / deleteNotice / getCookiesStr /
-  //                      getCsrfToken / getCredentials / forceFetchClientKey
-  //   * groupAlbum area: list / upload / getMediaList / comment /
-  //                      delete / like
-  // Media lookup (populated from previously dispatched message segments)
+  fetchEmojiLikeUsers: (
+    messageId: number,
+    emojiId: string,
+    count: number,
+    offset?: number,
+  ) => Promise<{
+    users: Array<{ uin: number; uid: string; setAt: number }>;
+    cachedCount: number;
+    serverCount: number;
+    complete: boolean;
+  }>;
   getImageInfo: (file: string) => Promise<JsonObject | null>;
   getRecordInfo: (file: string) => Promise<JsonObject | null>;
 }

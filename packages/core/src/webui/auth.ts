@@ -1,7 +1,7 @@
+import { createLogger } from '@snowluma/common/logger';
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { createLogger } from '@snowluma/common/logger';
 
 const log = createLogger('WebUI.Auth');
 

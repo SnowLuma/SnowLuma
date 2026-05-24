@@ -1,20 +1,7 @@
-import fs from 'fs';
 import Database, { type Database as DatabaseType, type Statement } from '@snowluma/sqlite';
+import fs from 'fs';
 import path from 'path';
 import type { JsonObject, MessageMeta } from './types';
-
-// Prepared statements are cached as `readonly` fields so the SQL parser
-// runs once at construction time. Previously each `db.prepare(sql)`
-// inside a hot-path method re-parsed on every call — the textbook
-// SQLite anti-pattern. RoadMap #5 bench numbers showed
-// storeMeta ≈ 17μs/op and storeEvent ≈ 23μs/op before caching;
-// caching + better-sqlite3 drops both to single-digit-μs (see the
-// commit-message numbers).
-//
-// Also: `node:sqlite` is still an experimental Node API (the
-// "ExperimentalWarning: SQLite is an experimental feature" line shows
-// up on every test run) — better-sqlite3 is the stable, sync, widely-
-// deployed wrapper that proposes the same prepared-statement model.
 
 export class MessageStore {
   private readonly db: DatabaseType;

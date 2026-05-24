@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MediaUrlResolver } from '../src/media-url-resolver';
-import type { MessageElement } from '@snowluma/bridge/events';
+import type { MessageElement } from '@snowluma/protocol/events';
 
 // Minimal stand-ins for the two collaborators. Each test wires whatever
 // subset of Bridge methods the element type exercises.

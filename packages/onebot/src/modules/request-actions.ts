@@ -6,7 +6,7 @@ export async function handleGroupAddRequest(
   approve: boolean,
   reason: string,
 ): Promise<void> {
-  // flag format: "add:groupId:uid" or "invite:groupId:uid" (from event-converter)
+  // flag format: "add:groupId:uid" or "invite:groupId:uid"
   const parts = flag.split(':');
   if (parts.length < 3) throw new Error('invalid group request flag');
   const requestType = parts[0];
@@ -26,7 +26,6 @@ export async function handleGroupAddRequest(
   if (!matching) {
     throw new Error('matching group request not found');
   }
-
   await bridge.apis.groupAdmin.setAddRequest(
     groupId,
     matching.sequence,

@@ -1,5 +1,5 @@
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
-import type { IdentityService } from '@snowluma/bridge/identity-service';
+import type { IdentityService } from '@snowluma/protocol/identity-service';
 import type { OneBotInstanceContext } from '../instance-context';
 import type { JsonObject } from '../types';
 
@@ -9,13 +9,11 @@ export function getLoginInfo(ref: OneBotInstanceContext): { userId: number; nick
   return { userId, nickname };
 }
 
-// Keep refreshes scoped. A broad "refresh all members in all groups" call can
-// turn one OneBot request into N OIDB calls, which is risky for busy clients.
 async function refreshSingleGroupMembers(bridge: BridgeInterface, groupId: number): Promise<void> {
   try {
     await bridge.apis.contacts.fetchGroupMemberList(groupId);
   } catch {
-    // Use cached data.
+    // 需要打log以便排查问题，但不应当让调用者感知到这个失败。
   }
 }
 
@@ -23,15 +21,15 @@ export async function getFriendList(bridge: BridgeInterface): Promise<JsonObject
   try {
     const friends = await bridge.apis.contacts.fetchFriendList();
     return friends.map(f => ({
-      user_id: f.uin as any,
-      nickname: f.nickname as any,
-      remark: f.remark as any,
+      user_id: f.uin,
+      nickname: f.nickname,
+      remark: f.remark,
     }));
   } catch {
     return bridge.identity.friends.map(f => ({
-      user_id: f.uin as any,
-      nickname: f.nickname as any,
-      remark: f.remark as any,
+      user_id: f.uin,
+      nickname: f.nickname,
+      remark: f.remark,
     }));
   }
 }
@@ -48,10 +46,10 @@ export async function getGroupList(
     // Use cached data.
   }
   return bridge.identity.groups.map(g => ({
-    group_id: g.groupId as any,
-    group_name: g.groupName as any,
-    member_count: g.memberCount as any,
-    max_member_count: g.memberMax as any,
+    group_id: g.groupId,
+    group_name: g.groupName,
+    member_count: g.memberCount,
+    max_member_count: g.memberMax,
   }));
 }
 
@@ -70,10 +68,10 @@ export async function getGroupInfo(
   const g = bridge.identity.findGroup(groupId);
   if (!g) return null;
   return {
-    group_id: g.groupId as any,
-    group_name: g.groupName as any,
-    member_count: g.memberCount as any,
-    max_member_count: g.memberMax as any,
+    group_id: g.groupId,
+    group_name: g.groupName,
+    member_count: g.memberCount,
+    max_member_count: g.memberMax,
   };
 }
 
@@ -117,27 +115,27 @@ export async function getGroupFiles(
   const result = await bridge.apis.groupFile.list(groupId, folderId ?? '/');
   return {
     files: result.files.map((file) => ({
-      group_id: groupId as any,
-      file_id: file.fileId as any,
-      file_name: file.fileName as any,
-      busid: file.busId as any,
-      file_size: file.fileSize as any,
-      upload_time: file.uploadTime as any,
-      dead_time: file.deadTime as any,
-      modify_time: file.modifyTime as any,
-      download_times: file.downloadTimes as any,
-      uploader: file.uploader as any,
-      uploader_name: file.uploaderName as any,
-    } as JsonObject)) as any,
+      group_id: groupId,
+      file_id: file.fileId,
+      file_name: file.fileName,
+      busid: file.busId,
+      file_size: file.fileSize,
+      upload_time: file.uploadTime,
+      dead_time: file.deadTime,
+      modify_time: file.modifyTime,
+      download_times: file.downloadTimes,
+      uploader: file.uploader,
+      uploader_name: file.uploaderName,
+    } as JsonObject)),
     folders: result.folders.map((folder) => ({
-      group_id: groupId as any,
-      folder_id: folder.folderId as any,
-      folder_name: folder.folderName as any,
-      create_time: folder.createTime as any,
-      creator: folder.creator as any,
-      create_name: folder.creatorName as any,
-      total_file_count: folder.totalFileCount as any,
-    } as JsonObject)) as any,
+      group_id: groupId,
+      folder_id: folder.folderId,
+      folder_name: folder.folderName,
+      create_time: folder.createTime,
+      creator: folder.creator,
+      create_name: folder.creatorName,
+      total_file_count: folder.totalFileCount,
+    } as JsonObject)),
   };
 }
 
@@ -148,19 +146,23 @@ export async function getStrangerInfo(
   try {
     const p = await bridge.apis.contacts.fetchUserProfile(userId);
     return {
-      user_id: p.uin as any,
-      nickname: p.nickname as any,
-      sex: p.sex as any,
-      age: p.age as any,
+      user_id: p.uin,
+      nickname: p.nickname,
+      sex: p.sex,
+      age: p.age,
+      qq_level: p.level,
+      level: p.level,
     };
   } catch {
     const p = bridge.identity.findUserProfile(userId);
     if (!p) return null;
     return {
-      user_id: p.uin as any,
-      nickname: p.nickname as any,
-      sex: p.sex as any,
-      age: p.age as any,
+      user_id: p.uin,
+      nickname: p.nickname,
+      sex: p.sex,
+      age: p.age,
+      qq_level: p.level,
+      level: p.level,
     };
   }
 }
@@ -176,7 +178,7 @@ export async function getGroupSystemMessages(bridge: BridgeInterface): Promise<J
       requester_nick: r.targetName,
       message: r.comment,
       flag: `${r.eventType}:${r.groupId}:${r.targetUid}`,
-    } as JsonObject));
+    }));
   } catch {
     return [];
   }
@@ -190,7 +192,7 @@ export async function getDownloadRKeys(bridge: BridgeInterface): Promise<JsonObj
       type: r.type,
       ttl: r.ttlSeconds,
       create_time: r.createTime,
-    } as JsonObject));
+    }));
   } catch {
     return [];
   }
@@ -220,16 +222,16 @@ function formatGroupMember(
   },
 ): JsonObject {
   return {
-    group_id: groupId as any,
-    user_id: member.uin as any,
-    nickname: member.nickname as any,
-    card: member.card as any,
-    sex: 'unknown' as any,
-    age: 0 as any,
-    join_time: member.joinTime as any,
-    last_sent_time: member.lastSentTime as any,
-    level: String(member.level) as any,
-    role: member.role as any,
-    title: member.title as any,
+    group_id: groupId,
+    user_id: member.uin,
+    nickname: member.nickname,
+    card: member.card,
+    sex: 'unknown',
+    age: 0,
+    join_time: member.joinTime,
+    last_sent_time: member.lastSentTime,
+    level: String(member.level),
+    role: member.role,
+    title: member.title,
   };
 }

@@ -1,4 +1,4 @@
-import type { ApiHandler, ApiActionContext } from '../api-handler';
+import type { ApiActionContext, ApiHandler } from '../api-handler';
 import { okResponse } from '../types';
 
 export function register(h: ApiHandler, ctx: ApiActionContext): void {
@@ -12,8 +12,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return okResponse({ online, good: online });
   });
 
-  // __APP_VERSION__ is injected by Vite from the monorepo root package.json;
-  // it's undefined under vitest (no define plugin), so fall back to 'dev'.
+  // 后续考虑移动到一个统一的地方构建，避免版本信息分散在各个模块中。
   const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
   h.registerAction('get_version_info', async () => {
     return okResponse({

@@ -1,7 +1,7 @@
 import type { ApiActionContext, ApiHandler } from '../api-handler';
 import { asBoolean, asMessage, asNumber, asString } from '../api-handler';
 import type { ForwardPreviewMeta } from '../modules/message-actions';
-import { RETCODE, failedResponse, okResponse } from '../types';
+import { JsonObject, RETCODE, failedResponse, okResponse } from '../types';
 
 const DOWNLOAD_FILE_MAX_BYTES = 1024 * 1024 * 1024; // 1 GiB
 const DOWNLOAD_FILE_TIMEOUT_MS = 60_000;
@@ -31,10 +31,7 @@ async function fetchDownloadFile(
     }
     return bytes;
   }
-
-  // Stream so a server that omits / understates Content-Length can't make
-  // us buffer past maxBytes — abort the read as soon as the running total
-  // crosses the cap.
+  // 流式读取，防止服务器 Content-Length 导致内存占用过大 — 一旦累计字节数超过上限就中止读取。
   const chunks: Uint8Array[] = [];
   let total = 0;
   try {
@@ -55,11 +52,7 @@ async function fetchDownloadFile(
   return Buffer.concat(chunks, total);
 }
 
-/**
- * Pull NapCat-compatible forward preview overrides off a send_*_forward_msg
- * payload. All four fields are optional — when omitted, the module layer
- * derives sensible defaults from the actual node list.
- */
+// 从 send_*_forward_msg 的参数里提取 NapCat 兼容的转发预览元信息。四个字段都是可选的——如果没有提供，模块层会根据实际消息节点列表推断出合理的默认值。
 function readForwardPreviewMeta(params: Record<string, unknown>): ForwardPreviewMeta | undefined {
   const source = asString(params.source) || undefined;
   const summary = asString(params.summary) || undefined;
@@ -82,8 +75,7 @@ function readForwardPreviewMeta(params: Record<string, unknown>): ForwardPreview
 }
 
 export function register(h: ApiHandler, ctx: ApiActionContext): void {
-  // --- Likes & Pokes ---
-
+  // 赞
   h.registerAction('send_like', async (params) => {
     const userId = asNumber(params.user_id);
     const times = asNumber(params.times) || 1;
@@ -91,7 +83,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     await ctx.bridge.apis.interaction.sendLike(userId, times);
     return okResponse();
   });
-
+  // 拍一拍
   h.registerAction('friend_poke', async (params) => {
     const userId = asNumber(params.user_id);
     const targetId = asNumber(params.target_id) || undefined;
@@ -120,8 +112,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return okResponse();
   });
 
-  // --- Essence ---
-
+  // 精华消息
   h.registerAction('set_essence_msg', async (params) => {
     const messageId = asNumber(params.message_id);
     if (!Number.isInteger(messageId) || messageId === 0) {
@@ -148,7 +139,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     try {
       const essenceDataAll = await ctx.bridge.apis.web.getEssenceAll(groupId);
 
-      const allMsgs = essenceDataAll.flatMap((res: any) => res.data?.msg_list || []);
+      const allMsgs = essenceDataAll.flatMap((res) => res.data?.msg_list || []);
 
       return okResponse(allMsgs);
     } catch (e) {
@@ -156,8 +147,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
   });
 
-  // --- Reactions ---
-
+  // 群聊表情回应
   h.registerAction('set_group_reaction', async (params) => {
     const groupId = asNumber(params.group_id);
     const messageId = asNumber(params.message_id);
@@ -181,8 +171,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return okResponse();
   });
 
-  // --- History ---
-
+  // 消息历史
   h.registerAction('get_group_msg_history', async (params) => {
     const groupId = asNumber(params.group_id);
     const messageId = asNumber(params.message_id) || 0;
@@ -201,6 +190,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return okResponse({ messages });
   });
 
+  // 标记消息已读
   h.registerAction('mark_group_msg_as_read', async (params) => {
     const messageId = asNumber(params.message_id);
     const groupId = asNumber(params.group_id);
@@ -264,8 +254,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   });
 
 
-  // --- RKey ---
-
+  // 下载密钥
   const handleGetRkey = async () => {
     if (ctx.getDownloadRKeys) {
       return okResponse(await ctx.getDownloadRKeys());
@@ -273,11 +262,9 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
   };
   h.registerAction('get_rkey', handleGetRkey);
-  // napcat exposes the same payload under `nc_get_rkey`; mirror the alias
-  // so clients that follow napcat's docs work out-of-the-box.
   h.registerAction('nc_get_rkey', handleGetRkey);
 
-  // --- OCR stubs ---
+  // OCR 兜底未实现。
 
   h.registerAction('ocr_image', async () => {
     return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
@@ -287,8 +274,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
   });
 
-  // --- Group notice stubs ---
-
+  // 群公告
   h.registerAction('_send_group_notice', async (params) => {
     const groupId = asNumber(params.group_id);
     const content = asString(params.content);
@@ -348,17 +334,12 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
   });
 
-  // --- Forward messages ---
-
+  // 转发消息。
   h.registerAction('upload_forward_msg', async (params) => {
     const messages = asMessage(params.messages ?? params.message);
     const groupId = asNumber(params.group_id);
     if (messages === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'message/messages is required');
-
-    // Group and private forwards live in different resId namespaces
-    // (see bridge/actions/forward.ts: type=3+groupUin vs type=1+selfUid).
-    // Passing groupId through is what makes the resulting resId usable
-    // when the caller later sends it into the same group.
+    // 群聊和私聊转发消息的 resId 是分开的（前者是 type=3+groupUin，后者是 type=1+selfUid），
     const result = await ctx.sendForwardMsg(messages, groupId > 0 ? groupId : undefined);
     const data: Record<string, unknown> = {
       res_id: result.forwardId,
@@ -366,11 +347,9 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
       message_id: 0,
     };
     if (groupId > 0) data.group_id = groupId;
-    return okResponse(data as any);
+    return okResponse(data as import('../types').JsonObject);
   });
 
-  // Kept for backward compat with clients that follow the historical
-  // gocqhttp/NapCat docs misspelling; same semantics as upload_forward_msg.
   h.registerAction('upload_foward_msg', async (params) => {
     const messages = asMessage(params.messages ?? params.message);
     const groupId = asNumber(params.group_id);
@@ -458,7 +437,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return okResponse({ messages });
   });
 
-  // --- Media ---
+  // 文件信息
 
   h.registerAction('get_image', async (params) => {
     const file = asString(params.file) || asString(params.file_id);
@@ -476,7 +455,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return failedResponse(RETCODE.ACTION_FAILED, 'record not found in cache');
   });
 
-  // --- Credentials ---
+  // Cookie、CSRF 令牌和账号信息
 
   h.registerAction('get_cookies', async (params) => {
     const domain = asString(params.domain) || 'qun.qq.com';
@@ -511,7 +490,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
     }
   });
-  // --- Utility ---
+  // 重启和清理缓存
 
   h.registerAction('set_restart', async () => {
     return failedResponse(RETCODE.ACTION_FAILED, 'not supported');
@@ -530,13 +509,10 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return okResponse();
   });
 
-  // --- NapCat-compatible extended APIs ---
-
+  // 以下接口在方便用户迁移和兼容现有的 OneBot/NapCat 客户端。
   h.registerAction('set_friend_remark', async (params) => {
     const userId = asNumber(params.user_id);
     if (!userId) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
-    // remark must be explicitly provided. Falling back to '' on a missing
-    // field would silently CLEAR the operator's existing remark.
     if (params.remark === undefined) {
       return failedResponse(RETCODE.BAD_REQUEST, 'remark is required (pass an empty string to clear)');
     }
@@ -598,10 +574,9 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const tempDir = pathMod.resolve('data', 'downloads');
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
-    // Sanitize file name: strip any path components, reject anything that
-    // resolves outside `tempDir`. Without this guard, `name = "../../config/onebot_x.json"`
-    // would let an authenticated OneBot client overwrite arbitrary files
-    // (config / dist / node_modules) under the working directory.
+    // 清理文件名：移除所有路径部分，并拒绝任何会解析到 tempDir 外部的路径。
+    // 如果没有这个保护，name = "../../config/onebot_x.json" 会让已认证的 OneBot 客户端覆盖工作目录下的任意文件。
+    // 例如 config、dist、node_modules 等目录中的文件。
     const resolveSafePath = (preferredName: string, fallbackBuf: Buffer): string | null => {
       const raw = preferredName || cryptoMod.createHash('md5').update(fallbackBuf).digest('hex');
       const safeName = pathMod.basename(raw);
@@ -614,9 +589,8 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
     let buf: Buffer;
     if (base64) {
-      // Every 4 base64 chars decode to at most 3 bytes. Reject before
-      // `Buffer.from` allocates anything to avoid OOM on a giant payload
-      // that wouldn't pass the post-decode check anyway.
+      // 每 4 个 base64 字符最多解码成 3 个字节。
+      // 在 Buffer.from 分配内存前先拒绝过大的载荷，避免最终也无法通过解码后检查的大载荷导致内存溢出。
       const upperBound = Math.floor((base64.length * 3) / 4);
       if (upperBound > DOWNLOAD_FILE_MAX_BYTES) {
         return failedResponse(RETCODE.BAD_REQUEST, `base64 payload too large: > ${DOWNLOAD_FILE_MAX_BYTES} bytes`);
@@ -640,8 +614,8 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
     const safe = resolveSafePath(name, buf);
     if (!safe) return failedResponse(RETCODE.BAD_REQUEST, 'invalid file name');
-    // Async write so we don't block the event loop on a GiB-class download
-    // (the prior `writeFileSync` stalled every other bot action while it ran).
+    // 使用异步写入，避免 GiB 级下载阻塞事件循环。
+    // 之前的 writeFileSync 会在运行期间卡住其他所有机器人动作。
     await fs.promises.writeFile(safe, buf);
     return okResponse({ file: safe });
   });
@@ -661,7 +635,6 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   });
 
   h.registerAction('set_online_status', async (params) => {
-    // 按 OneBot/NapCat 习惯提取参数，状态码默认为 11
     const status = asNumber(params.status);
     const extStatus = asNumber(params.ext_status) || 0;
     const batteryStatus = asNumber(params.battery_status) || 100;
@@ -680,11 +653,9 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
   });
 
-  // DIY status — same wire packet as set_online_status, only the
-  // customExt sub-message is populated and status/extStatus are forced
-  // to the QQ-defined "I have a custom status" values (10 / 2000).
-  // face_id / face_type accept either number or numeric string (napcat
-  // parity); wording is the human-readable text shown next to the icon.
+  // 自定义在线状态：与 set_online_status 使用相同的网络包。
+  // 这里只填充 customExt 子消息，并将 status/extStatus 强制设为 QQ 定义的“我有自定义状态”取值（10 / 2000）。
+  // face_id 和 face_type 可接受数字或数字字符串，以兼容 NapCat；wording 是图标旁展示的可读文本。
   h.registerAction('set_diy_online_status', async (params) => {
     const faceId = asNumber(params.face_id);
     const faceType = asNumber(params.face_type) || 1;
@@ -698,10 +669,9 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
   });
 
-  // Filtered (机器人/被忽略) group join requests. SnowLuma already
-  // implements the underlying oidb 0x10c8_2 fetch via fetchGroupRequests;
-  // these three actions just rename / project the same data for the
-  // OneBot dialects clients use in the wild.
+  // 已过滤（机器人/被忽略）的入群请求。
+  // SnowLuma 已通过 fetchGroupRequests 实现底层 oidb 0x10c8_2 拉取。
+  // 这几个动作只是为实际使用中的 OneBot 方言客户端重命名并投影相同数据。
   const fetchFilteredGroupRequests = async () => {
     try {
       return await ctx.bridge.apis.contacts.fetchGroupRequests(true);
@@ -727,10 +697,9 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     })));
   });
 
-  // napcat name for the subset of ignored notifies that are join requests
-  // (notify type==7). We map every entry that flowed through filtered
-  // 0x10c8_2 into napcat's shape — eventType already encodes the request
-  // category in our pipeline.
+  // NapCat 对“被忽略通知中属于入群请求的子集”的命名（notify type == 7）。
+  // 这里把经过过滤的 0x10c8_2 每一项映射成 NapCat 结构。
+  // eventType 已经在当前流水线中编码了请求类别。
   h.registerAction('get_group_ignore_add_request', async () => {
     const reqs = await fetchFilteredGroupRequests();
     return okResponse(reqs.map((r) => ({
@@ -746,8 +715,8 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     })));
   });
 
-  // get_group_shut_list lives behind an oidb we don't yet wrap; honour
-  // the napcat contract (empty list) so callers don't blow up.
+  // get_group_shut_list 依赖尚未封装的 oidb。
+  // 这里遵循 NapCat 约定返回空列表，避免调用方出错。
   h.registerAction('get_group_shut_list', async () => {
     return okResponse([]);
   });
@@ -778,21 +747,11 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
   });
 
-  // todo 我的建议是引入数据库api   纯协议我不知道这种api怎么实现，ntQQ在实现这个方法的时候只进行了数据库查询，完全没碰网络
-  h.registerAction('get_recent_contact', async () => {
-    return okResponse([]);
-  });
-
   h.registerAction('get_profile_like', async (params) => {
     const userId = asNumber(params.user_id);
     const start = asNumber(params.start) || 0;
     const count = asNumber(params.count) || 10;
-
-
     try {
-      // getLike treats falsy userId as "self" (it does `isSelf = !userId`
-      // internally), so passing 0 or undefined is equivalent — matches the
-      // old `ctx.getProfileLike(userId, start, count)` wrapper exactly.
       const data = await ctx.bridge.apis.profile.getLike(userId, start, count);
       return okResponse(data);
     } catch (e) {
@@ -815,10 +774,10 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     const emojiId = asString(params.emoji_id) || '';
     if (!messageId || !emojiId) return failedResponse(RETCODE.BAD_REQUEST, 'message_id and emoji_id are required');
     try {
-      const meta = ctx.getMessageMeta(messageId);
-      if (!meta?.isGroup || !meta?.sequence) return failedResponse(RETCODE.BAD_REQUEST, 'message not found or not a group message');
-      const result = await ctx.bridge.apis.interaction.getEmojiLikes(meta.targetId, meta.sequence, emojiId);
-      return okResponse({ emoji_like_list: result.users.map(u => ({ user_id: String(u.uin), nick_name: '' })) });
+      const result = await ctx.fetchEmojiLikeUsers(messageId, emojiId, 1000);
+      return okResponse({
+        emoji_like_list: result.users.map(u => ({ user_id: String(u.uin), nick_name: '' })),
+      });
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
     }
@@ -827,21 +786,21 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   h.registerAction('fetch_emoji_like', async (params) => {
     const messageId = asNumber(params.message_id);
     const emojiId = asString(params.emojiId) || '';
-    const emojiType = asNumber(params.emojiType) || 1;
     const count = asNumber(params.count) || 10;
     const cookie = asString(params.cookie) || '';
     if (!messageId || !emojiId) return failedResponse(RETCODE.BAD_REQUEST, 'message_id and emojiId are required');
     try {
-      const meta = ctx.getMessageMeta(messageId);
-      if (!meta?.isGroup || !meta?.sequence) return failedResponse(RETCODE.BAD_REQUEST, 'message not found or not a group message');
-      const result = await ctx.bridge.apis.interaction.getEmojiLikes(meta.targetId, meta.sequence, emojiId, emojiType, count, cookie);
+      const offset = cookie ? Number.parseInt(cookie, 10) || 0 : 0;
+      const result = await ctx.fetchEmojiLikeUsers(messageId, emojiId, count, offset);
+      const nextOffset = offset + result.users.length;
+      const isLastPage = nextOffset >= result.cachedCount;
       return okResponse({
         result: 0,
         errMsg: '',
         emojiLikesList: result.users.map(u => ({ tinyId: String(u.uin), nickName: '', headUrl: '' })),
-        cookie: result.cookie,
-        isLastPage: result.isLast,
-        isFirstPage: !cookie,
+        cookie: isLastPage ? '' : String(nextOffset),
+        isLastPage,
+        isFirstPage: offset === 0,
       });
     } catch (e) {
       return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -855,9 +814,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return okResponse([]);
   });
 
-  // --- Additional NapCat-compatible stubs ---
-
-  ///napcat 似乎也用不了？？，暂时不管了
+  // NapCat 似乎也用不了，暂时不处理。
   h.registerAction('get_online_clients', async () => {
     return okResponse({ clients: [] });
   });
@@ -880,8 +837,6 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (!groupId) {
       return failedResponse(RETCODE.BAD_REQUEST, 'invalid group_id');
     }
-
-
     try {
       const data = await ctx.bridge.apis.groupAdmin.getAtAllRemain(groupId);
       return okResponse(data);
@@ -906,8 +861,6 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (typeof longNick !== 'string') {
       return failedResponse(RETCODE.BAD_REQUEST, 'invalid longNick');
     }
-
-
     try {
       await ctx.bridge.apis.profile.setSelfLongNick(longNick);
       return okResponse({});
@@ -949,7 +902,6 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (eventType === undefined || isNaN(eventType)) {
       return failedResponse(RETCODE.BAD_REQUEST, 'invalid event_type');
     }
-
 
     try {
       await ctx.bridge.apis.profile.setInputStatus(userId, eventType);
@@ -1033,7 +985,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
   });
 
-  const handleGroupSign = async (params: any) => {
+  const handleGroupSign = async (params: import('../types').JsonObject) => {
     const groupId = asNumber(params.group_id);
 
     if (!groupId) {
@@ -1084,12 +1036,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
   });
 
-  // --- Raw packet escape hatch (napcat parity) ---
-  //
-  // napcat exposes both names; the dot-prefix variant is the original
-  // gocqhttp-era backdoor, the no-prefix one is the modern API. They do
-  // the same thing in SnowLuma: encode hex → Bridge.sendRawPacket → hex.
-  const handleSendPacket = async (params: import('../types').JsonObject) => {
+  const handleSendPacket = async (params: JsonObject) => {
     const cmd = asString(params.cmd);
     const dataHex = asString(params.data);
     const rsp = asBoolean(params.rsp, true);
@@ -1113,24 +1060,19 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   h.registerAction('send_packet', handleSendPacket);
   h.registerAction('.send_packet', handleSendPacket);
 
-  // --- Bot lifecycle (napcat parity) ---
-
+  // 机器人生命周期（兼容 NapCat）。
   h.registerAction('bot_exit', async () => {
-    // Defer so the OK response actually flushes before the process dies.
     setTimeout(() => process.exit(0), 50);
     return okResponse();
   });
 
-  // SnowLuma has no separate packet-backend process (napcat's packet
-  // service runs out-of-process and can fail independently). Always
-  // report healthy.
   h.registerAction('nc_get_packet_status', async () => {
     return okResponse(null);
   });
 
-  // napcat exposes `delete_group_folder`; SnowLuma's existing
-  // `delete_group_file_folder` is the same operation. Alias so clients
-  // following napcat docs work without rewriting payloads.
+  // NapCat 暴露 delete_group_folder。
+  // SnowLuma 现有的 delete_group_file_folder 是相同操作。
+  // 添加别名以便遵循 NapCat 文档的客户端无需重写载荷。
   h.registerAction('delete_group_folder', async (params) => {
     const groupId = asNumber(params.group_id);
     const folderId = asString(params.folder_id);
@@ -1141,12 +1083,10 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return okResponse();
   });
 
-  // --- Group todo (oidb 0xF90) ---
-  //
-  // The three subcommands share an identical payload (group + msgSeq);
-  // we extract once and dispatch by action name. msgSeq comes from the
-  // message metadata cache (set/complete/cancel always target a real
-  // message the bot has seen).
+  // 群待办（oidb 0xF90）。
+  // 三个子命令共享相同载荷（群号 + msgSeq）。
+  // 这里统一提取一次，并按动作名称分发。
+  // msgSeq 来自消息元数据缓存；设置、完成、取消总是指向机器人见过的真实消息。
   type GroupTodoOp = (groupId: number, msgSeq: bigint | number | string) => Promise<void>;
   const handleGroupTodo = (op: GroupTodoOp) => async (params: import('../types').JsonObject) => {
     const groupId = asNumber(params.group_id);
@@ -1169,7 +1109,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   h.registerAction('complete_group_todo', handleGroupTodo((g, s) => ctx.bridge.apis.extras.completeGroupTodo(g, BigInt(s))));
   h.registerAction('cancel_group_todo', handleGroupTodo((g, s) => ctx.bridge.apis.extras.cancelGroupTodo(g, BigInt(s))));
 
-  // --- User online/ext status (napcat: nc_get_user_status) ---
+  // 用户在线/扩展状态（NapCat：nc_get_user_status）。
 
   h.registerAction('nc_get_user_status', async (params) => {
     const userId = asNumber(params.user_id);
@@ -1179,7 +1119,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return okResponse({ ...status });
   });
 
-  // --- AI voice (oidb 0x929D / 0x929B) ---
+  // AI 语音（oidb 0x929D / 0x929B）。
 
   h.registerAction('get_ai_characters', async (params) => {
     const groupId = asNumber(params.group_id);
@@ -1217,9 +1157,9 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
   });
 
-  // napcat's send_group_ai_record is a side-effect-only call: invoking
-  // fetchAiVoice publishes the voice into the group; the returned
-  // message_id is always 0 because the oidb call doesn't echo one back.
+  // NapCat 的 send_group_ai_record 是仅产生副作用的调用。
+  // 调用 fetchAiVoice 会把语音发布到群里。
+  // 返回的 message_id 始终为 0，因为 oidb 调用不会回显消息 ID。
   h.registerAction('send_group_ai_record', async (params) => {
     const groupId = asNumber(params.group_id);
     const character = asString(params.character);
@@ -1240,7 +1180,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
   for (let i = 0; i < out.length; i++) {
-    out[i] = parseInt(hex.substr(i * 2, 2), 16);
+    out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   }
   return out;
 }
@@ -1250,9 +1190,6 @@ function bytesToHex(buf: Buffer | Uint8Array): string {
   return arr.toString('hex');
 }
 
-/**
- * Parse download_file headers parameter into a Record.
- */
 function parseDownloadHeaders(headers: unknown): Record<string, string> {
   const result: Record<string, string> = {};
   if (!headers) return result;

@@ -16,7 +16,7 @@ import type {
   MessageElement,
   QQEventVariant,
   TempMessage,
-} from '@snowluma/bridge/events';
+} from '@snowluma/protocol/events';
 
 const SELF_ID = 10001;
 const PEER_UIN = 22222;

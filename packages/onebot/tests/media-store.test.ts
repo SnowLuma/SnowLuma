@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { MediaStore } from '../src/media-store';
 import { convertEvent, type ConverterContext } from '../src/event-converter';
-import type { GroupMessage, FriendMessage, MessageElement } from '@snowluma/bridge/events';
+import type { GroupMessage, FriendMessage, MessageElement } from '@snowluma/protocol/events';
 
 const SELF_ID = 10001;
 const PEER_UIN = 22222;

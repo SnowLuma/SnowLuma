@@ -5,10 +5,10 @@
 // The OIDB response is built with real protobuf encoding so we exercise
 // the actual decode path inside the pipeline.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@snowluma/bridge/highway', () => ({
+vi.mock('@snowluma/protocol/highway', () => ({
   fetchHighwaySession: vi.fn(async () => ({ sessionId: 'fake-session' })),
   uploadHighwayHttp: vi.fn(async () => undefined),
   buildHighwayExtend: vi.fn(() => new Uint8Array([0xAA, 0xBB])),
@@ -16,16 +16,16 @@ vi.mock('@snowluma/bridge/highway', () => ({
   GROUP_IMAGE_CMD_ID: 1004,
 }));
 
-import * as highway from '@snowluma/bridge/highway';
+import type { EncodableMediaMsgInfo, NTV2UploadRichMediaReq, NTV2UploadRichMediaResp } from '@snowluma/proto-defs/highway';
+import type { OidbBase } from '@snowluma/proto-defs/oidb';
+import * as highway from '@snowluma/protocol/highway';
 import {
   finalizeMediaMsgInfo,
   hexToBytes,
   makeClientRandomId,
   runNtv2Upload,
   type MediaSubFileUpload,
-} from '@snowluma/bridge/highway/pipeline';
-import type { OidbBase } from '@snowluma/proto-defs/oidb';
-import type { EncodableMediaMsgInfo, NTV2UploadRichMediaReq, NTV2UploadRichMediaResp } from '@snowluma/proto-defs/highway';
+} from '@snowluma/protocol/highway/pipeline';
 
 interface FakeUploadResponse {
   upload?: {
@@ -151,7 +151,7 @@ describe('pipeline — runNtv2Upload', () => {
     });
     const upload = await runNtv2Upload(baseParams({ bridge }));
     expect(upload.uKey).toBe('fake-ukey');
-    expect(upload.msgInfo.msgInfoBody).toHaveLength(1);
+    expect(upload.msgInfo?.msgInfoBody).toHaveLength(1);
   });
 
   it('throws on transport failure', async () => {
@@ -315,7 +315,7 @@ describe('pipeline — finalizeMediaMsgInfo', () => {
   it('encodes msgInfoBody + extBizInfo from the server response', () => {
     const out = finalizeMediaMsgInfo({
       msgInfo: {
-        msgInfoBody: [{ index: { fileType: 1 }, fileExist: true }],
+        msgInfoBody: [{ index: { subType: 1 }, fileExist: true }],
         extBizInfo: { busiType: 1 },
       },
     });

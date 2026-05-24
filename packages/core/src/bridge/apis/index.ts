@@ -1,23 +1,3 @@
-// ApiHub — the per-instance bag of typed Api classes hanging off
-// `bridge.apis`. Mirrors NapCat's `NapCatCore.apis = { MsgApi, …}`
-// pattern but uses camelCase keys (`apis.message.sendGroup`) to match
-// the rest of the SnowLuma TypeScript style.
-//
-// Each Api class is constructed once when the parent `Bridge` is
-// constructed (eager — every account that connects gets its own
-// `apis.*` set immediately). Api classes receive a `BridgeContext`
-// reference, NOT the concrete `Bridge`, so they remain easy to mock
-// without standing up a full Bridge instance.
-//
-// Adding a new Api:
-//   1. Create `bridge/apis/<name>.ts` exporting a `class XxxApi`.
-//   2. Add a property here.
-//   3. Construct it inside `buildApiHub(ctx)` below.
-//   4. Move the relevant methods OFF Bridge and onto the new Api.
-//
-// All 12 Api hubs are now live (#6 commits 1-12). The interface lists
-// every typed area an OneBot caller can reach via `bridge.apis.*`.
-
 import type { BridgeContext } from '../bridge-context';
 import { ContactsApi } from './contacts';
 import { ExtrasApi } from './extras';
@@ -99,3 +79,4 @@ export { MessageApi } from './message';
 export { MiscApi } from './misc';
 export { ProfileApi } from './profile';
 export { WebApi } from './web';
+

@@ -1,5 +1,5 @@
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
-import type { MessageElement } from '@snowluma/bridge/events';
+import type { MessageElement } from '@snowluma/protocol/events';
 import type { RKeyCache } from './instance-rkey';
 
 export class MediaUrlResolver {
@@ -19,10 +19,6 @@ export class MediaUrlResolver {
     }
     return this.rkeyCache.resolveMediaUrl(this.bridge, element, isGroup);
   }
-
-  /** Branches by element.type + isGroup to pick the right Bridge API.
-   *  Mutates `element.url` in-place so the caller sees the same URL
-   *  the downstream rkey/media-store path will see. */
   private async populateUrl(element: MessageElement, isGroup: boolean, sessionId: number): Promise<void> {
     if (element.type === 'file' && element.fileId) {
       if (isGroup) {

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handleGroupAddRequest } from '../src/modules/request-actions';
 import type { BridgeInterface } from '../../src/bridge/bridge-interface';
-import type { GroupRequestInfo } from '@snowluma/bridge/qq-info';
+import type { GroupRequestInfo } from '@snowluma/protocol/qq-info';
 
 // See `contact-actions.test.ts` for the auto-promotion rationale.
 const APIS_ROUTING: Record<string, string> = {

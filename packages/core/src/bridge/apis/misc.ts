@@ -1,54 +1,23 @@
-// MiscApi — odds & ends that don't fit the other Apis: translation,
-// mini-app ARK build, inline-keyboard button click, group sign-in.
-// Inlined from `actions/misc.ts` (deleted alongside actions/* in
-// commit 13).
-
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { OidbBase } from '@snowluma/proto-defs/oidb';
+import type { JsonObject, JsonValue } from '@snowluma/common/json';
 import type {
   MiniAppShareReq,
   MiniAppShareResp,
-  Oidb0x112eReq,
-  Oidb0x112eResp,
-  Oidb0x990Req,
-  Oidb0x990Resp,
-  Oidb0xeb7Req,
-  Oidb0xeb7Resp,
 } from '@snowluma/proto-defs/oidb-actions/base';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { BridgeContext } from '../bridge-context';
-import type { Bridge } from '../bridge';
-import { makeOidbEnvelope, runOidb } from '@snowluma/bridge/bridge-oidb';
-
-function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
+// Migrated OIDB cmds — facade methods are one-line forwarders.
+import { ClickInlineKeyboardButton } from '@snowluma/protocol/oidb-services/misc/click-inline-keyboard-button';
+import { SendGroupSign } from '@snowluma/protocol/oidb-services/misc/send-group-sign';
+import { TranslateEnToZh } from '@snowluma/protocol/oidb-services/misc/translate-en-to-zh';
 
 export class MiscApi {
-  constructor(private readonly ctx: BridgeContext) {}
+  constructor(private readonly ctx: BridgeContext) { }
 
-  async translateEn2Zh(words: string[]): Promise<string[]> {
-    const bridge = asBridge(this.ctx);
-    const req = {
-      translateReq: {
-        srcLang: 'en',
-        dstLang: 'zh',
-        words,
-      },
-      tag10: 1,
-      tag12: 1,
-    };
-
-    const env = makeOidbEnvelope<Oidb0x990Req>(0x990, 2, req);
-    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x990_2', protobuf_encode<OidbBase<Oidb0x990Req>>(env));
-    const result = protobuf_decode<OidbBase<Oidb0x990Resp>>(respBytes).body;
-
-    const resp = result?.translateResp;
-    if (!resp) {
-      throw new Error('translate response empty');
-    }
-
-    return resp.dstWords || [];
+  translateEn2Zh(words: string[]): Promise<string[]> {
+    return TranslateEnToZh.invoke(this.ctx, { words });
   }
 
-  async getMiniAppArk(type: string, title: string, desc: string, picUrl: string, jumpUrl: string): Promise<any> {
+  async getMiniAppArk(type: string, title: string, desc: string, picUrl: string, jumpUrl: string): Promise<JsonObject> {
     let appid = '1109937557'; // default: bilibili
     let iconUrl = 'http://miniapp.gtimg.cn/public/appicon/51f90239b78a2e4994c11215f4c4ba15_200.jpg';
 
@@ -77,7 +46,7 @@ export class MiscApi {
       throw new Error('mini app share json empty');
     }
 
-    const parsed = JSON.parse(jsonStr);
+    const parsed = JSON.parse(jsonStr) as Record<string, JsonObject | string | number | boolean | null>;
 
     return {
       data: {
@@ -93,54 +62,17 @@ export class MiscApi {
     };
   }
 
-  async clickInlineKeyboardButton(
+  clickInlineKeyboardButton(
     groupId: number,
     botAppid: number,
     buttonId: string,
     callbackData: string,
     msgSeq: number,
-  ): Promise<any> {
-    const bridge = asBridge(this.ctx);
-    const req = {
-      botAppid: BigInt(botAppid),
-      msgSeq: BigInt(msgSeq),
-      buttonId: String(buttonId),
-      callbackData: String(callbackData || ''),
-      unknown7: 0,
-      groupId: BigInt(groupId),
-      unknown9: 1,
-    };
-
-    const env = makeOidbEnvelope<Oidb0x112eReq>(0x112E, 1, req);
-    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x112e_1', protobuf_encode<OidbBase<Oidb0x112eReq>>(env));
-    const result = protobuf_decode<OidbBase<Oidb0x112eResp>>(respBytes).body;
-
-    if (!result) {
-      throw new Error('click inline keyboard button result empty');
-    }
-
-    return {
-      result: Number(result.result || 0),
-      errMsg: result.errMsg || '',
-      status: 0,
-      promptText: result.promptText || '',
-      promptType: 0,
-      promptIcon: 0,
-    };
+  ): Promise<JsonValue> {
+    return ClickInlineKeyboardButton.invoke(this.ctx, { groupId, botAppid, buttonId, callbackData, msgSeq });
   }
 
-  async sendGroupSign(groupId: number): Promise<void> {
-    const bridge = asBridge(this.ctx);
-    const req = {
-      signInInfo: {
-        uin: String(this.ctx.identity.uin),
-        groupId: String(groupId),
-        version: '9.0.90',
-      },
-    };
-
-    const env = makeOidbEnvelope<Oidb0xeb7Req>(0xEB7, 1, req);
-    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xEB7_1', protobuf_encode<OidbBase<Oidb0xeb7Req>>(env));
-    protobuf_decode<OidbBase<Oidb0xeb7Resp>>(respBytes);
+  sendGroupSign(groupId: number): Promise<void> {
+    return SendGroupSign.invoke(this.ctx, { groupId });
   }
 }

@@ -1,5 +1,5 @@
-import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import { createLogger } from '@snowluma/common/logger';
+import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import type { MediaStore } from '../media-store';
 import type { JsonObject } from '../types';
 
@@ -27,9 +27,6 @@ export async function getRecordInfo(
 ): Promise<JsonObject | null> {
   const cached = mediaStore.findRecord(file);
   if (!cached) return null;
-
-  // Re-resolve via OIDB if the cached URL is missing or empty.
-  // Mirrors NapCat's getPttUrl path: GetGroupPttUrl / GetPttUrl by fileUuid.
   let url = cached.url;
   if (!url && cached.mediaNode) {
     try {
@@ -43,7 +40,6 @@ export async function getRecordInfo(
       log.warn('get_record url refetch failed: %s', err instanceof Error ? err.message : String(err));
     }
   }
-
   return {
     file: url || cached.file,
     url: url || '',

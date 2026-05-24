@@ -1,6 +1,6 @@
+import { createLogger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import type { BridgeManager } from '@snowluma/core/manager';
-import { createLogger } from '@snowluma/common/logger';
 import { loadOneBotConfig } from './config';
 import { OneBotInstance } from './instance';
 
@@ -55,15 +55,10 @@ export class OneBotManager {
     if (activePid !== null) {
       instance.addPid(activePid);
     }
-
-    // Seed nickname with the UIN so the WebUI never renders blank while
-    // warmup is in flight or if warmup never resolves a real nickname.
     if (!bridge.identity.nickname) bridge.identity.nickname = uin;
 
     this.instances.set(uin, instance);
     log.info('session started: UIN=%s', uin);
-
-    // Warm up bridge state asynchronously (mirrors C++ warm_up_bridge_state)
     warmUpBridgeState(uin, bridge).catch((err) => {
       log.warn('warmup error for UIN %s: %s', uin, err instanceof Error ? (err.stack ?? err.message) : String(err));
     });
@@ -97,7 +92,7 @@ async function warmUpBridgeState(uin: string, bridge: BridgeInterface): Promise<
         bridge.identity.setSelfProfile({
           uin: f.uin, uid: f.uid,
           nickname: f.nickname || uin,
-          remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '',
+          remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0,
         });
         bridge.identity.nickname = f.nickname || uin;
         log.debug('self info: UIN=%s uid=%s nickname=%s', uin, f.uid, f.nickname ?? '');

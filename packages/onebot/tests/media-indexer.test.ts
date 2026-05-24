@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { MediaIndexer } from '../src/media-indexer';
-import type { MessageElement } from '@snowluma/bridge/events';
+import type { MessageElement } from '@snowluma/protocol/events';
 
 function makeMediaStore() {
   return {

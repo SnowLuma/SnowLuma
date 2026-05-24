@@ -1,7 +1,7 @@
-import type { ApiHandler, ApiActionContext } from '../api-handler';
+import type { ApiActionContext, ApiHandler } from '../api-handler';
 import { asNumber, asString } from '../api-handler';
-import { RETCODE, failedResponse, okResponse } from '../types';
 import type { JsonValue } from '../types';
+import { RETCODE, failedResponse, okResponse } from '../types';
 
 export function register(h: ApiHandler, ctx: ApiActionContext): void {
   h.registerAction('get_group_album_list', async (params) => {
@@ -47,9 +47,6 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
     try {
       const mediaList = await ctx.bridge.apis.groupAlbum.getMediaList(groupId, albumId, attachInfo);
-      // GroupAlbumMediaResult is a concrete domain type; okResponse
-      // expects JsonValue. The shape is JSON-compatible — same as the
-      // old ctx wrapper returning `Promise<any>`.
       return okResponse(mediaList as unknown as JsonValue);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'failed to get group album media list';
@@ -70,10 +67,6 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
 
     try {
       const comment = await ctx.bridge.apis.groupAlbum.comment(groupId, albumId, lloc, content);
-      // GroupAlbumCommentResult is a concrete domain type; okResponse
-      // expects JsonValue. The shape is JSON-compatible (no functions
-      // / classes / bigints), so cast is safe — same as the old ctx
-      // wrapper returning `Promise<any>`.
       return okResponse(comment as unknown as JsonValue);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'failed to comment on album media';

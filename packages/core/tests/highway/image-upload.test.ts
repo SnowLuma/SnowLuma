@@ -5,13 +5,13 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@snowluma/bridge/highway/pipeline', () => ({
+vi.mock('@snowluma/protocol/highway/pipeline', () => ({
   runNtv2Upload: vi.fn(async () => ({ msgInfo: { msgInfoBody: [], extBizInfo: {} } })),
   finalizeMediaMsgInfo: vi.fn(() => new Uint8Array([0xCA, 0xFE])),
   hexToBytes: vi.fn((hex: string) => new Uint8Array(hex.length / 2)),
 }));
 
-vi.mock('@snowluma/bridge/highway/utils', () => ({
+vi.mock('@snowluma/protocol/highway/utils', () => ({
   loadBinarySource: vi.fn(async () => ({ bytes: new Uint8Array([1, 2, 3]), fileName: 'src.jpg' })),
   computeHashes: vi.fn(() => ({
     md5: new Uint8Array(16),
@@ -22,9 +22,9 @@ vi.mock('@snowluma/bridge/highway/utils', () => ({
   detectImageFormat: vi.fn(() => ({ format: 1000, width: 800, height: 600 })),
 }));
 
-import * as pipeline from '@snowluma/bridge/highway/pipeline';
-import { uploadImageMsgInfo } from '@snowluma/bridge/highway/image-upload';
-import { GROUP_IMAGE_CMD_ID, PRIVATE_IMAGE_CMD_ID } from '@snowluma/bridge/highway';
+import * as pipeline from '@snowluma/protocol/highway/pipeline';
+import { uploadImageMsgInfo } from '@snowluma/protocol/highway/image-upload';
+import { GROUP_IMAGE_CMD_ID, PRIVATE_IMAGE_CMD_ID } from '@snowluma/protocol/highway';
 
 describe('image-upload', () => {
   beforeEach(() => {
@@ -67,16 +67,18 @@ describe('image-upload', () => {
     expect(fileInfo.original).toBe(1);
   });
 
-  it('forwards subType into bizType and ${subType}-aware textSummary', async () => {
+  it('forwards subType=1 (sticker) into bizType + Chinese textSummary `[动画表情]`', async () => {
+    // QQ chat-list bubble preview text — must match the literal
+    // strings mobile QQ / Lagrange.Core / NapCat all emit.
     await uploadImageMsgInfo({} as any, true, 12345, { url: 'http://x', subType: 1 } as any);
     const args = vi.mocked(pipeline.runNtv2Upload).mock.calls[0]![0];
     expect((args.extBizInfo as any).pic.bizType).toBe(1);
-    expect((args.extBizInfo as any).pic.textSummary).toBe('[sticker]');
+    expect((args.extBizInfo as any).pic.textSummary).toBe('[动画表情]');
   });
 
   it('fingerprint path (noByteFallback): zero bytes, fastOnly error message ready', async () => {
     await uploadImageMsgInfo({} as any, true, 12345, {
-      noByteFallback: true, md5Hex: 'aa', sha1Hex: 'bb', summary: '[image]',
+      noByteFallback: true, md5Hex: 'aa', sha1Hex: 'bb', summary: '[图片]',
     } as any);
     const sub = vi.mocked(pipeline.runNtv2Upload).mock.calls[0]![0].uploads[0]!;
     expect(sub.bytes.length).toBe(0);
@@ -89,10 +91,20 @@ describe('image-upload', () => {
     } as any)).rejects.toThrow(/requires md5Hex/);
   });
 
-  it('finalize is invoked with pic defaults for image', async () => {
+  it('finalize is invoked with pic defaults for image (Chinese `[图片]`)', async () => {
     await uploadImageMsgInfo({} as any, true, 12345, { url: 'http://x', subType: 0 } as any);
     expect(pipeline.finalizeMediaMsgInfo).toHaveBeenCalledOnce();
     const [, defaultPic] = vi.mocked(pipeline.finalizeMediaMsgInfo).mock.calls[0]!;
-    expect(defaultPic).toEqual({ bizType: 0, textSummary: '[image]' });
+    expect(defaultPic).toEqual({ bizType: 0, textSummary: '[图片]' });
+  });
+
+  it('caller-supplied summary wins over the Chinese default', async () => {
+    // OneBot clients can pass `summary: '[心形图片]'` (or any custom
+    // text) — that overrides our default and goes through verbatim.
+    await uploadImageMsgInfo({} as any, true, 12345, {
+      url: 'http://x', subType: 0, summary: '[custom-bubble]',
+    } as any);
+    const [, defaultPic] = vi.mocked(pipeline.finalizeMediaMsgInfo).mock.calls[0]!;
+    expect(defaultPic).toEqual({ bizType: 0, textSummary: '[custom-bubble]' });
   });
 });

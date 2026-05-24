@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BridgeEventBus } from '@snowluma/bridge/event-bus';
-import type { FriendMessage, GroupMessage } from '@snowluma/bridge/events';
+import { BridgeEventBus } from '@snowluma/protocol/event-bus';
+import type { FriendMessage, GroupMessage } from '@snowluma/protocol/events';
 
 function makeFriendMessage(): FriendMessage {
   return {

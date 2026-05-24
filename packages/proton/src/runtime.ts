@@ -1,11 +1,5 @@
-/**
- * Runtime fallback functions.
- * If the Vite plugin is active, calls to protobuf_encode/decode are replaced
- * at compile-time with generated type-specific functions.
- * If NOT transformed, these fallbacks throw to alert the developer.
- */
-import type { MessageRegistry } from './ast/types.js';
 import { buildDependencyRegistry } from './ast/dependency-graph.js';
+import type { MessageRegistry } from './ast/types.js';
 import { generateCode } from './codegen/generator.js';
 import {
   normalizeRuntimeMapPath,
@@ -19,14 +13,14 @@ type DynamicEncode = (params: unknown) => Uint8Array;
 type DynamicDecode = (data: Uint8Array) => unknown;
 
 interface DynamicTypeFns {
-    encode?: DynamicEncode;
-    decode?: DynamicDecode;
+  encode?: DynamicEncode;
+  decode?: DynamicDecode;
 }
 
 interface StackFrame {
-    file: string;
-    line: number;
-    column: number;
+  file: string;
+  line: number;
+  column: number;
 }
 
 const DYNAMIC_MISS = Symbol('snowluma-proton-dynamic-miss');
@@ -64,7 +58,7 @@ export function protobuf_encode<T>(_params: T): Uint8Array {
 
   throw new Error(
     'protobuf_encode<T>() was not transformed by the @snowluma/proton Vite plugin. ' +
-        'Make sure protobufVitePlugin() is added to your vite.config.ts plugins array.',
+    'Make sure protobufVitePlugin() is added to your vite.config.ts plugins array.',
   );
 }
 
@@ -74,7 +68,7 @@ export function protobuf_decode<T>(_data: Uint8Array): T {
 
   throw new Error(
     'protobuf_decode<T>() was not transformed by the @snowluma/proton Vite plugin. ' +
-        'Make sure protobufVitePlugin() is added to your vite.config.ts plugins array.',
+    'Make sure protobufVitePlugin() is added to your vite.config.ts plugins array.',
   );
 }
 
@@ -111,9 +105,9 @@ function ensureTypeFunctions(typeName: string): DynamicTypeFns | null {
 
   const factory = new Function(
     `${generated}\nreturn {\n` +
-        `  encode: typeof protobuf_encode_${typeName} === 'function' ? protobuf_encode_${typeName} : undefined,\n` +
-        `  decode: typeof protobuf_decode_${typeName} === 'function' ? protobuf_decode_${typeName} : undefined,\n` +
-        `};`,
+    `  encode: typeof protobuf_encode_${typeName} === 'function' ? protobuf_encode_${typeName} : undefined,\n` +
+    `  decode: typeof protobuf_decode_${typeName} === 'function' ? protobuf_decode_${typeName} : undefined,\n` +
+    `};`,
   ) as () => DynamicTypeFns;
 
   const compiled = factory();
@@ -126,8 +120,8 @@ function resolveCallSite(fnName: RuntimeMapFnName, caller: StackFrame): RuntimeM
 
   const candidates = runtimeMapCallSites.filter(cs =>
     cs.fnName === fnName &&
-        cs.line === caller.line &&
-        pathsLikelySame(callerFile, cs.file),
+    cs.line === caller.line &&
+    pathsLikelySame(callerFile, cs.file),
   );
 
   if (candidates.length === 0) return null;

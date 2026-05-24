@@ -1,31 +1,18 @@
-// Persistent media metadata store.
-//
-// The `get_image` / `get_record` actions need to map a `data.file` (or related
-// identifier) we previously emitted in a message segment back to the URL,
-// size, name, and any OIDB media-node info needed to re-resolve a stale URL.
-
-import fs from 'fs';
+import type { MessageElement } from '@snowluma/protocol/events';
 import Database, { type Database as DatabaseType, type Statement } from '@snowluma/sqlite';
+import fs from 'fs';
 import path from 'path';
 
-import type { MessageElement } from '@snowluma/bridge/events';
-
 export interface CachedImage {
-  /** Primary `data.file` value as exposed in the OneBot segment. */
   file: string;
-  /** Last known resolved URL (may be empty if resolution failed). */
   url: string;
   fileSize: number;
   fileName: string;
   subType: number;
   summary: string;
-  /** Conversation the media originated from. */
   isGroup: boolean;
   sessionId: number;
-  /** Original imageUrl from the MessageElement, used for RKey re-appending. */
   imageUrl: string;
-  /** Fingerprints used for md5/sha1 fast-upload on forward. Optional because
-   *  legacy CustomFace / NotOnlineImage only carry md5. */
   md5Hex?: string;
   sha1Hex?: string;
   width?: number;
@@ -34,19 +21,14 @@ export interface CachedImage {
 }
 
 export interface CachedRecord {
-  /** Primary `data.file` value as exposed in the OneBot segment. */
   file: string;
-  /** Raw fileId from the MessageElement (typically the fileUuid). */
   fileId: string;
-  /** Last known resolved URL (may be empty if resolution failed). */
   url: string;
   fileSize: number;
   fileName: string;
   duration: number;
   fileHash: string;
-  /** OIDB media node used to re-fetch the URL via getPtt*UrlByNode. */
   mediaNode?: MessageElement['mediaNode'];
-  /** Conversation the media originated from (group vs private path). */
   isGroup: boolean;
   sessionId: number;
   /** Fingerprints used for md5/sha1 fast-upload on forward. */

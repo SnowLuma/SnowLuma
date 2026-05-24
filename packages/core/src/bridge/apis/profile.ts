@@ -1,36 +1,25 @@
-// ProfileApi — personal profile + status + avatar + likes + custom
-// faces + unidirectional friend list. Inlined from
-// `actions/profile.ts` (deleted alongside actions/* in commit 13).
-
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   FaceroamOpReq,
   FaceroamOpResp,
   GroupAvatarExtra,
-  Oidb0x112aReq,
-  Oidb0x112aResp,
-  Oidb0x7edReq,
-  Oidb0x7edResp,
-  Oidb0xcd4Req,
-  Oidb0xcd4Resp,
-  Oidb0xe17Req,
-  Oidb0xe17Resp,
-  OidbSetProfile,
   SetStatusReq,
   SetStatusResp,
 } from '@snowluma/proto-defs/oidb-actions/base';
-import type { BridgeContext } from '../bridge-context';
+import { fetchHighwaySession, uploadHighwayHttp } from '@snowluma/protocol/highway';
+import { computeHashes, loadBinarySource } from '@snowluma/protocol/highway/utils';
+import { GetLike, type LikeInfo } from '@snowluma/protocol/oidb-services/profile/get-like';
+import { GetUnidirectionalFriendList, type UnidirectionalFriendEntry } from '@snowluma/protocol/oidb-services/profile/get-unidirectional-friend-list';
+import { SetInputStatus } from '@snowluma/protocol/oidb-services/profile/set-input-status';
+import { SetProfile } from '@snowluma/protocol/oidb-services/profile/set-profile';
+import { SetSelfLongNick } from '@snowluma/protocol/oidb-services/profile/set-self-long-nick';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { Bridge } from '../bridge';
-import { makeOidbEnvelope, runOidb } from '@snowluma/bridge/bridge-oidb';
-import { fetchHighwaySession, uploadHighwayHttp } from '@snowluma/bridge/highway';
-import { computeHashes, loadBinarySource } from '@snowluma/bridge/highway/utils';
-import { resolveSelfUid } from './shared';
+import type { BridgeContext } from '../bridge-context';
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
 
 export class ProfileApi {
-  constructor(private readonly ctx: BridgeContext) {}
+  constructor(private readonly ctx: BridgeContext) { }
 
   // ─────────────── status / profile setters ───────────────
 
@@ -80,64 +69,16 @@ export class ProfileApi {
     }
   }
 
-  async setProfile(nickname?: string, personalNote?: string): Promise<void> {
-    const bridge = asBridge(this.ctx);
-    const uin = BigInt(this.ctx.identity.uin);
-    const stringProfiles: any[] = [];
-    const intProfiles: any[] = [];
-
-    if (nickname !== undefined) {
-      stringProfiles.push({ fieldId: 20002, value: nickname });
-    }
-
-    if (personalNote !== undefined) {
-      stringProfiles.push({ fieldId: 102, value: personalNote });
-    }
-
-    if (stringProfiles.length === 0 && intProfiles.length === 0) {
-      return;
-    }
-
-    const req = { uin, stringProfiles };
-    const env = makeOidbEnvelope<OidbSetProfile>(0x112A, 2, req);
-    await runOidb(bridge, 'OidbSvcTrpcTcp.0x112a_2', protobuf_encode<OidbBase<OidbSetProfile>>(env));
+  setProfile(nickname?: string, personalNote?: string): Promise<void> {
+    return SetProfile.invoke(this.ctx, { nickname, personalNote });
   }
 
-  async setSelfLongNick(longNick: string): Promise<void> {
-    const bridge = asBridge(this.ctx);
-    const req = {
-      uin: BigInt(this.ctx.identity.uin),
-      profile: {
-        tag: 102,
-        value: String(longNick),
-      },
-    };
-
-    const env = makeOidbEnvelope<Oidb0x112aReq>(0x112A, 2, req);
-    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x112a_2', protobuf_encode<OidbBase<Oidb0x112aReq>>(env));
-    // Decode just to maintain the original behaviour of "consume the response".
-    protobuf_decode<OidbBase<Oidb0x112aResp>>(respBytes);
+  setSelfLongNick(longNick: string): Promise<void> {
+    return SetSelfLongNick.invoke(this.ctx, { longNick });
   }
 
-  async setInputStatus(userId: number, eventType: number): Promise<void> {
-    const bridge = asBridge(this.ctx);
-    const targetUid = await this.ctx.resolveUserUid(userId);
-
-    if (!targetUid) {
-      throw new Error('target uid not found');
-    }
-
-    const req = {
-      reqBody: {
-        uid: targetUid,
-        chatType: 0,
-        eventType,
-      },
-    };
-
-    const env = makeOidbEnvelope<Oidb0xcd4Req>(0xCD4, 1, req);
-    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0xcd4_1', protobuf_encode<OidbBase<Oidb0xcd4Req>>(env));
-    protobuf_decode<OidbBase<Oidb0xcd4Resp>>(respBytes);
+  setInputStatus(userId: number, eventType: number): Promise<void> {
+    return SetInputStatus.invoke(this.ctx, { userId, eventType });
   }
 
   async setAvatar(source: string): Promise<void> {
@@ -179,74 +120,12 @@ export class ProfileApi {
 
   // ─────────────── queries on me / my contacts ───────────────
 
-  async getLike(userId?: number, start = 0, limit = 10): Promise<any> {
-    const bridge = asBridge(this.ctx);
-    const isSelf = !userId;
-    const targetUid = isSelf
-      ? await resolveSelfUid(bridge)
-      : await this.ctx.resolveUserUid(userId);
-
-    if (!targetUid) {
-      throw new Error('target uid not found');
-    }
-
-    const req = {
-      targetUid,
-      basic: 1,
-      vote: 1,
-      favorite: 1,
-      start,
-      limit,
-    };
-
-    const env = makeOidbEnvelope<Oidb0x7edReq>(0x7ED, 12, req);
-    const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x7ed_12', protobuf_encode<OidbBase<Oidb0x7edReq>>(env));
-    const result = protobuf_decode<OidbBase<Oidb0x7edResp>>(respBytes).body;
-
-    const data = result?.userLikeInfos?.[0];
-    if (!data) {
-      throw new Error('get profile like info empty');
-    }
-
-    return {
-      uid: data.uid,
-      time: Number(data.time),
-      favoriteInfo: {
-        total_count: data.favoriteInfo?.totalCount || 0,
-        last_time: Number(data.favoriteInfo?.lastTime || 0),
-        today_count: data.favoriteInfo?.newCount || 0,
-        userInfos: [],
-      },
-      voteInfo: {
-        total_count: data.voteInfo?.totalCount || 0,
-        new_count: data.voteInfo?.newCount || 0,
-        new_nearby_count: 0,
-        last_visit_time: Number(data.voteInfo?.lastTime || 0),
-        userInfos: [],
-      },
-    };
+  getLike(userId?: number, start = 0, limit = 10): Promise<LikeInfo> {
+    return GetLike.invoke(this.ctx, { userId, start, limit });
   }
 
-  async getUnidirectionalFriendList(): Promise<any> {
-    const bridge = asBridge(this.ctx);
-    const reqObj = {
-      uint64_uin: String(this.ctx.identity.uin),
-      uint64_top: 0,
-      uint32_req_num: 99,
-      bytes_cookies: '',
-    };
-
-    const req = { jsonBody: JSON.stringify(reqObj) };
-    const env = makeOidbEnvelope<Oidb0xe17Req>(0xE17, 0, req);
-    const respBytes = await runOidb(bridge, 'MQUpdateSvc_com_qq_ti.web.OidbSvc.0xe17_0', protobuf_encode<OidbBase<Oidb0xe17Req>>(env));
-    const result = protobuf_decode<OidbBase<Oidb0xe17Resp>>(respBytes).body;
-
-    if (!result || !result.jsonBody) {
-      throw new Error('get unidirectional friend list empty');
-    }
-
-    const parsed = JSON.parse(result.jsonBody);
-    return parsed.rpt_block_list || [];
+  getUnidirectionalFriendList(): Promise<UnidirectionalFriendEntry[]> {
+    return GetUnidirectionalFriendList.invoke(this.ctx);
   }
 
   async fetchCustomFace(count = 10): Promise<string[]> {
@@ -262,10 +141,10 @@ export class ProfileApi {
       throw new Error(result.errorMessage || 'fetch custom face failed');
     }
     const resp = protobuf_decode<FaceroamOpResp>(result.responseData);
-    if (!resp || (resp as any).retCode !== 0) {
-      throw new Error(`fetch custom face error: ${(resp as any)?.message || 'unknown'}`);
+    if (!resp || resp.retCode !== 0) {
+      throw new Error(`fetch custom face error: ${resp?.message || 'unknown'}`);
     }
-    const faceIds = (resp as any).item?.faceIds || [];
+    const faceIds = resp.item?.faceIds || [];
     return faceIds.slice(0, count).map((id: string) => `https://p.qpic.cn/qq_expression/${this.ctx.identity.uin}/${id}/0`);
   }
 }

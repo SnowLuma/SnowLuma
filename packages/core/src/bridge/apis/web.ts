@@ -1,72 +1,55 @@
-// WebApi — cookie-backed HTTP wrappers (group essence / honor / notice /
-// client-key / pskey / csrf-token / credentials). Inlined from the
-// per-feature files in `web-actions/` (all deleted in commit 13).
-// The pure HTTP transport stays in `web/*.ts` and stays unchanged —
-// only the Bridge-binding helpers move here.
-
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { OidbBase } from '@snowluma/proto-defs/oidb';
-import type {
-  OidbClientKeyReq,
-  OidbClientKeyResp,
-  OidbGetPskeyReq,
-  OidbGetPskeyResp,
-} from '@snowluma/proto-defs/oidb-actions/base';
-import type { BridgeContext } from '../bridge-context';
-import type { Bridge } from '../bridge';
-import { makeOidbEnvelope, runOidb } from '@snowluma/bridge/bridge-oidb';
-import { getGroupEssenceMsg, getGroupEssenceMsgAll } from '@snowluma/bridge/web/group-essence';
-import { getHonorListWebAPI, WebHonorType } from '@snowluma/bridge/web/group-honor';
+import { ForceFetchClientKey, type ClientKeyInfo as NamespaceClientKeyInfo } from '@snowluma/protocol/oidb-services/web/force-fetch-client-key';
+import { GetPskey } from '@snowluma/protocol/oidb-services/web/get-pskey';
+import { getGroupEssenceMsg, getGroupEssenceMsgAll, type GroupEssenceMsgRet } from '@snowluma/protocol/web/group-essence';
+import { getHonorListWebAPI, WebHonorType, type WebHonorItem } from '@snowluma/protocol/web/group-honor';
 import {
   deleteGroupNotice as deleteGroupNoticeHttp,
   getGroupNoticeWebAPI,
   setGroupNoticeWebAPI,
   uploadGroupNoticeImage,
-} from '@snowluma/bridge/web/group-notice';
-import { RequestUtil } from '@snowluma/bridge/web/request-util';
+  type SetNoticeRetSuccess,
+} from '@snowluma/protocol/web/group-notice';
+import { RequestUtil } from '@snowluma/protocol/web/request-util';
+import type { Bridge } from '../bridge';
+import type { BridgeContext } from '../bridge-context';
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
 
-export interface ClientKeyInfo {
-  clientKey: string;
-  keyIndex: string;
-  expireTime: string;
+export type ClientKeyInfo = NamespaceClientKeyInfo;
+
+export interface WebHonorInfo {
+  [key: string]: import('@snowluma/common/json').JsonValue;
+  group_id: number;
+  current_talkative: WebHonorItem | null;
+  talkative_list: WebHonorItem[];
+  performer_list: WebHonorItem[];
+  legend_list: WebHonorItem[];
+  emotion_list: WebHonorItem[];
+  strong_newbie_list: WebHonorItem[];
+}
+
+export interface WebNoticeInfo {
+  [key: string]: import('@snowluma/common/json').JsonValue;
+  notice_id: string;
+  sender_id: number;
+  publish_time: number;
+  message: {
+    text: string;
+    image: Array<{ id: string; height: number; width: number }>;
+    images: Array<{ id: string; height: number; width: number }>;
+  };
+  settings: import('@snowluma/common/json').JsonValue;
+  read_num: number;
 }
 
 // ─────────────── private helpers (cookie acquisition) ───────────────
 
-async function forceFetchClientKeyInner(bridge: Bridge): Promise<ClientKeyInfo> {
-  const env = makeOidbEnvelope<OidbClientKeyReq>(0x102A, 1, {});
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x102a_1', protobuf_encode<OidbBase<OidbClientKeyReq>>(env));
-  const resp = protobuf_decode<OidbBase<OidbClientKeyResp>>(respBytes).body;
-
-  const clientKey = resp?.clientKey || '';
-  // keyIndex falls back to "19" — origin unknown but the value is what
-  // every NapCat-derived implementation uses when the server omits it.
-  const keyIndex = String(resp?.keyIndex || '19');
-
-  return {
-    clientKey,
-    keyIndex,
-    expireTime: String(resp?.expireTime || '1800'),
-  };
+function forceFetchClientKeyInner(bridge: Bridge): Promise<ClientKeyInfo> {
+  return ForceFetchClientKey.invoke(bridge);
 }
 
-async function getPSkey(bridge: Bridge, domainList: string[]): Promise<{ domainPskeyMap: Map<string, string> }> {
-  const env = makeOidbEnvelope<OidbGetPskeyReq>(0x102A, 0, { domainList });
-  const respBytes = await runOidb(bridge, 'OidbSvcTrpcTcp.0x102a_0', protobuf_encode<OidbBase<OidbGetPskeyReq>>(env));
-  const resp = protobuf_decode<OidbBase<OidbGetPskeyResp>>(respBytes).body;
-
-  const domainPskeyMap = new Map<string, string>();
-  if (resp?.pskeyItems && Array.isArray(resp.pskeyItems)) {
-    for (const item of resp.pskeyItems) {
-      if (item.domain && item.pskey) {
-        domainPskeyMap.set(item.domain, item.pskey);
-      }
-    }
-  }
-
-  return { domainPskeyMap };
+function getPSkey(bridge: Bridge, domainList: string[]): Promise<{ domainPskeyMap: Map<string, string> }> {
+  return GetPskey.invoke(bridge, { domainList });
 }
 
 async function getCookies(bridge: Bridge, domain: string): Promise<Record<string, string>> {
@@ -136,7 +119,7 @@ function getBknFromSKey(skey: string): number {
 }
 
 export class WebApi {
-  constructor(private readonly ctx: BridgeContext) {}
+  constructor(private readonly ctx: BridgeContext) { }
 
   // ─────────────── cookie / token primitives ───────────────
 
@@ -187,7 +170,7 @@ export class WebApi {
   // ─────────────── group essence ───────────────
 
   /** Paginated fetch — `pageStart` is 0-indexed, `pageLimit` is server-capped at 50. */
-  async getEssence(groupId: number, pageStart = 0, pageLimit = 50): Promise<any> {
+  async getEssence(groupId: number, pageStart = 0, pageLimit = 50): Promise<GroupEssenceMsgRet> {
     const bridge = asBridge(this.ctx);
     const groupCode = groupId.toString();
     const cookieObject = await getCookies(bridge, 'qun.qq.com');
@@ -196,7 +179,7 @@ export class WebApi {
   }
 
   /** Walks every page and returns the concatenated result. */
-  async getEssenceAll(groupId: number): Promise<any> {
+  async getEssenceAll(groupId: number): Promise<GroupEssenceMsgRet[]> {
     const bridge = asBridge(this.ctx);
     const groupCode = groupId.toString();
     const cookieObject = await getCookies(bridge, 'qun.qq.com');
@@ -205,12 +188,12 @@ export class WebApi {
 
   // ─────────────── group honor ───────────────
 
-  async getHonorInfo(groupId: number, type: WebHonorType | string): Promise<any> {
+  async getHonorInfo(groupId: number, type: WebHonorType | string): Promise<WebHonorInfo> {
     const bridge = asBridge(this.ctx);
     const groupCode = groupId.toString();
     const cookieObject = await getCookies(bridge, 'qun.qq.com');
 
-    const honorInfo: any = {
+    const honorInfo: WebHonorInfo = {
       group_id: groupId,
       current_talkative: null,
       talkative_list: [],
@@ -254,7 +237,7 @@ export class WebApi {
       type?: number;
       confirm_required?: number;
     },
-  ): Promise<any> {
+  ): Promise<SetNoticeRetSuccess> {
     const bridge = asBridge(this.ctx);
     const groupCode = groupId.toString();
     const cookieObject = await getCookies(bridge, 'qun.qq.com');
@@ -304,7 +287,7 @@ export class WebApi {
     return ret;
   }
 
-  async getNotice(groupId: number): Promise<any[]> {
+  async getNotice(groupId: number): Promise<WebNoticeInfo[]> {
     const bridge = asBridge(this.ctx);
     const groupCode = groupId.toString();
     const cookieObject = await getCookies(bridge, 'qun.qq.com');
@@ -314,7 +297,7 @@ export class WebApi {
       throw new Error('获取公告失败');
     }
 
-    const retNotices: any[] = [];
+    const retNotices: WebNoticeInfo[] = [];
 
     if (ret.feeds) {
       for (const key in ret.feeds) {

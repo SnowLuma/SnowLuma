@@ -1,5 +1,5 @@
-import type { ApiHandler, ApiActionContext } from '../api-handler';
-import { asNumber, asString, asBoolean } from '../api-handler';
+import type { ApiActionContext, ApiHandler } from '../api-handler';
+import { asBoolean, asNumber, asString } from '../api-handler';
 import { RETCODE, failedResponse, okResponse } from '../types';
 
 export function register(h: ApiHandler, ctx: ApiActionContext): void {
@@ -103,10 +103,6 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return okResponse();
   });
 
-  // Highway upload with cmdId 3000 + GroupAvatarExtra (Lagrange protocol).
-  // `file` accepts everything bridge.setGroupAvatar's underlying
-  // loadBinarySource handles: local paths, file:// URLs, http(s) URLs,
-  // and base64:// data URIs — same surface as set_qq_avatar.
   h.registerAction('set_group_portrait', async (params) => {
     const groupId = asNumber(params.group_id);
     const file = asString(params.file);

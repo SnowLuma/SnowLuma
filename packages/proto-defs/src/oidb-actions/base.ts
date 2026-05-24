@@ -114,9 +114,18 @@ export interface OidbSpecialTitle {
   groupUin?: pb<1, uint_32>;
   body?:     pb<2, OidbSpecialTitleBody>;
 }
+// 0x7E5_104 (FriendLike) request body. Field numbers 11/12/13 (NOT
+// 1/2/3) — the server reads `targetUid` from tag 11 and rejects with
+// "被点赞 QQ 号非法" if it lands on the wrong tag. `sourceId = 71` is
+// the fixed marker for the "profile card" 点赞 entry point.
+// Mirrors Lagrange.Core's `OidbSvcTrpcTcp0x7E5_104`:
+//   dev/Lagrange.Core/.../Service/Oidb/Request/OidbSvcTrpcTcp0x7E5_104.cs:14-18
+// and NapCat's UserApi.like (`setBuddyProfileLike` → sourceId 71):
+//   dev/NapCatQQ/packages/napcat-core/apis/user.ts:63-70
 export interface OidbLike {
-  targetUin?: pb<1, uint_32>;
-  count?:     pb<2, uint_32>;
+  targetUid?: pb<11, string>;
+  sourceId?:  pb<12, uint_32>;
+  count?:     pb<13, uint_32>;
 }
 export interface OidbGroupRequestList {
   count?:  pb<1, uint_32>;
@@ -127,6 +136,15 @@ export interface OidbUserInfoKey {
 }
 export interface OidbUserInfoRequest {
   uin?:  pb<1, uint_32>;
+  keys?: pb_repeated<3, OidbUserInfoKey>;
+}
+// UID-form variant of OIDB 0xFE1_2 — same wire shape but field 1 is
+// the uid string. Used by the stranger lookup path (group join
+// requests / friend requests) because the push only carries a uid.
+// Matches Lagrange's `OidbSvcTrpcTcp0xFE1_2Uid`:
+//   dev/Lagrange.Core/.../OidbSvcTrpcTcp0xFE1_2.cs:9-16
+export interface OidbUserInfoByUidRequest {
+  uid?:  pb<1, string>;
   keys?: pb_repeated<3, OidbUserInfoKey>;
 }
 export interface OidbTwoNumber {
@@ -512,11 +530,21 @@ export interface FaceroamOpResp {
   field3?:  pb<3, uint_32>;
   item?:    pb<4, FaceroamOpRespItem>;
 }
+// 0x9083_1: fetch emoji-like user list. Field numbers must mirror the
+// sibling 0x9082 reaction Req (OidbGroupReaction): field 4 = emoji_id
+// (string), field 5 = emoji_type (uint). The pre-fix definition had
+// these two swapped, which silently dropped both fields on the server
+// side (wire type mismatch → protobuf decoder discards) and made every
+// call return an empty list with no error. Cross-checked against
+// Lagrange.Core V2 `Internal/Packets/Service/SetGroupReaction.cs`.
 export interface Oidb0x9083Req {
   groupId?:   pb<2, uint_64>;
-  sequence?:  pb<3, uint_32>;
-  emojiType?: pb<4, uint_32>;
-  emojiId?:   pb<5, string>;
+  // ulong on LagrangeV2's `SetGroupReactionRequest`. wire-compatible
+  // with uint_32 for small seq values (which is what message sequences
+  // actually are today), but match the spec to be safe — costs nothing.
+  sequence?:  pb<3, uint_64>;
+  emojiId?:   pb<4, string>;
+  emojiType?: pb<5, uint_32>;
   cookie?:    pb<6, bytes>;
   field7?:    pb<7, uint_32>;
   count?:     pb<8, uint_32>;
@@ -527,12 +555,56 @@ export interface Oidb0x9083RespUserInfo {
   field3?: pb<3, uint_32>;
 }
 export interface Oidb0x9083RespInner {
-  userInfo?: pb<1, Oidb0x9083RespUserInfo>;
+  // The server returns one entry per liker — must be repeated. A single
+  // field collapses N wire entries into "last writer wins", so groups
+  // with multiple likers used to come back as a single user (or empty
+  // if the wire layout shifted).
+  userInfo?: pb_repeated<1, Oidb0x9083RespUserInfo>;
   field4?:   pb<4, uint_32>;
 }
 export interface Oidb0x9083Resp {
   inner?:  pb<4, Oidb0x9083RespInner>;
   cookie?: pb<5, bytes>;
+}
+
+// 0x9084_1: fetch reaction summary on a message. Returns one entry per
+// emoji used + an "available reactions" catalog tail. Schema decoded
+// from production wire dump:
+//   { 08 0A          ← top-level field 1 (uint, meaning unclear: maybe
+//                       "total reactions on msg" or a flag — empirically
+//                       constant across messages)
+//     12 0E 08 <ts:varint> 10 <cnt:varint> 18 01 22 02 "76"  ← entry 1
+//     12 07           18 01 22 03 "124"                       ← catalog
+//     ... }
+// Used entries always carry field 1 (timestamp) and field 2 (count);
+// catalog entries omit both.
+export interface Oidb0x9084Req {
+  groupId?:   pb<2, uint_64>;
+  sequence?:  pb<3, uint_64>;
+  // Server returns the full per-emoji summary regardless of these,
+  // but we send them to mirror the working 0x9083_1 request shape.
+  emojiId?:   pb<4, string>;
+  emojiType?: pb<5, uint_32>;
+  cookie?:    pb<6, bytes>;
+  count?:     pb<8, uint_32>;
+  field12?:   pb<12, uint_32>;
+}
+
+export interface Oidb0x9084RespEntry {
+  /** Unix epoch (seconds) of the last reaction. Omitted for catalog
+   *  entries that have never been reacted with on this message. */
+  lastReactionTime?: pb<1, uint_64>;
+  /** Number of reactors. Omitted for catalog entries. */
+  count?:            pb<2, uint_32>;
+  /** Emoji type. 1 for QQ-face / short id, 2 for unicode codepoint. */
+  emojiType?:        pb<3, uint_32>;
+  emojiId?:          pb<4, string>;
+}
+
+export interface Oidb0x9084Resp {
+  /** Top-level varint, observed value `10` constant; semantics unknown. */
+  field1?:  pb<1, uint_32>;
+  entries?: pb_repeated<2, Oidb0x9084RespEntry>;
 }
 export interface Oidb0x8a0Req {
   groupId?:          pb<1, uint_64>;

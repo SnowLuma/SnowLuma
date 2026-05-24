@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { IdentityService } from '@snowluma/bridge/identity-service';
-import type { GroupMemberInfo, QQGroupInfo, UserProfileInfo } from '@snowluma/bridge/qq-info';
+import { IdentityService } from '@snowluma/protocol/identity-service';
+import type { GroupMemberInfo, QQGroupInfo, UserProfileInfo } from '@snowluma/protocol/qq-info';
 
 const SELF_UIN = '10001';
 const GROUP_ID = 123456789;
@@ -188,7 +188,7 @@ describe('IdentityService', () => {
 
 describe('IdentityService.resolveUid', () => {
   function makeProfile(uin: number, uid: string): UserProfileInfo {
-    return { uin, uid, nickname: '', remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '' };
+    return { uin, uid, nickname: '', remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0 };
   }
 
   it('returns the cached uid without invoking the fetcher', async () => {

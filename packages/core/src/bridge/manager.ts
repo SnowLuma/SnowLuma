@@ -1,8 +1,8 @@
+import { createLogger } from '@snowluma/common/logger';
 import type { PacketSender } from '@snowluma/common/packet-sender';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
-import { createLogger } from '@snowluma/common/logger';
+import { IdentityService } from '@snowluma/protocol/identity-service';
 import { Bridge } from './bridge';
-import { IdentityService } from '@snowluma/bridge/identity-service';
 
 export type SessionStartedCallback = (uin: string, bridge: Bridge) => void;
 export type SessionClosedCallback = (uin: string) => void;
