@@ -17,7 +17,19 @@ import type { BridgeContext } from '../bridge-context';
 
 // ─── Helpers (previously in bridge-contacts.ts) ───────────────────
 
-export function buildFriendProperties(raw: any): Map<number, string> {
+type FriendPropertySource = {
+  additional?: Array<{
+    type?: number;
+    layer1?: {
+      properties?: Array<{
+        code?: number;
+        value?: string;
+      }>;
+    };
+  }>;
+};
+
+export function buildFriendProperties(raw: FriendPropertySource): Map<number, string> {
   const props = new Map<number, string>();
   for (const additional of raw.additional ?? []) {
     if ((additional.type ?? 0) !== 1 || !additional.layer1) continue;

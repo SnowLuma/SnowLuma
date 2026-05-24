@@ -1,19 +1,20 @@
 import { RequestUtil, cookieToString } from './request-util';
 import https from 'node:https';
 import { createLogger } from '@snowluma/common/logger';
+import type { JsonValue } from '@snowluma/common/json';
 
 const log = createLogger('Bridge.Web');
 
 export interface SetNoticeRetSuccess {
     ec?: number;
     em?: string;
-    [key: string]: any;
+  [key: string]: JsonValue | undefined;
 }
 
 export interface UploadImageRetSuccess {
     ec?: number;
     id?: string;
-    [key: string]: any;
+  [key: string]: JsonValue | undefined;
 }
 
 export interface WebApiGroupNoticeFeed {
@@ -24,16 +25,16 @@ export interface WebApiGroupNoticeFeed {
         text: string;
         pics?: Array<{ id: string; w: number; h: number }>;
     };
-    settings: any;
+    settings: JsonValue;
     read_num: number;
-    [key: string]: any;
+    [key: string]: JsonValue;
 }
 
 export interface WebApiGroupNoticeRet {
     ec: number;
     em?: string;
     feeds?: Record<string, WebApiGroupNoticeFeed>;
-    [key: string]: any;
+    [key: string]: JsonValue | Record<string, WebApiGroupNoticeFeed> | undefined;
 }
 
 export function calculateBkn(key: string): string {

@@ -35,13 +35,13 @@ export interface SendContext {
 
 function makeTextElem(text: string): ProtoElem {
   return {
-    text: { str: text } as any,
+    text: { str: text },
   };
 }
 
 function makeFaceElem(faceId: number): ProtoElem {
   return {
-    face: { index: faceId } as any,
+    face: { index: faceId },
   };
 }
 
@@ -83,14 +83,14 @@ function makeMentionElem(element: MessageElement, ctx?: SendContext): ProtoElem 
     text: {
       str,
       pbReserve: extra,
-    } as any,
+    },
   };
 }
 
 function makeReplyElem(element: MessageElement): ProtoElem {
   const seq = element.replySeq! & 0xFFFFFFFF;
 
-  const srcMsg: any = {
+  const srcMsg: NonNullable<Elem['srcMsg']> = {
     origSeqs: [seq],
   };
 
@@ -116,7 +116,7 @@ function makeJsonElem(element: MessageElement): ProtoElem {
     richMsg: {
       serviceId: 1,
       template1: payload,
-    } as any,
+    },
   };
 }
 
@@ -131,7 +131,7 @@ function makeXmlElem(element: MessageElement): ProtoElem {
     richMsg: {
       serviceId: element.subType === 0 ? 35 : (element.subType ?? 35),
       template1: payload,
-    } as any,
+    },
   };
 }
 
@@ -143,7 +143,7 @@ function makeMarkdownElem(element: MessageElement): ProtoElem {
       serviceType: 45,
       pbElem: data,
       businessType: 1,
-    } as any,
+    },
   };
 }
 
@@ -216,7 +216,7 @@ function makeForwardElem(element: MessageElement): ProtoElem {
   return {
     lightApp: {
       data: payload,
-    } as any,
+    },
   };
 }
 
@@ -234,7 +234,7 @@ async function makeImageElem(ctx: SendContext, element: MessageElement): Promise
       serviceType: 48,
       pbElem: msgInfo,
       businessType: isGroup ? 20 : 10,
-    } as any,
+    },
   };
 }
 
@@ -255,7 +255,7 @@ async function makePttElem(ctx: SendContext, element: MessageElement): Promise<P
       serviceType: 48,
       pbElem: msgInfo,
       businessType: isGroup ? 22 : 12,
-    } as any,
+    },
   };
 }
 
@@ -324,7 +324,7 @@ function makeGroupFileElem(element: MessageElement, ctx?: SendContext): ProtoEle
     transElem: {
       elemType: 24,
       elemValue,
-    } as any,
+    },
   };
 }
 
@@ -345,7 +345,7 @@ async function makeVideoElem(ctx: SendContext, element: MessageElement): Promise
       serviceType: 48,
       pbElem: msgInfo,
       businessType: isGroup ? 21 : 11,
-    } as any,
+    },
   };
 }
 

@@ -9,7 +9,7 @@
 // differ. The response is parsed into a `domain + urlPath +
 // rKeyParam` triple → composed into `https://<domain><path><rKey>`.
 
-import type { NTV2RichMediaResp } from '@snowluma/proto-defs/oidb-actions/media';
+import type { NTV2IndexNode, NTV2RichMediaResp } from '@snowluma/proto-defs/oidb-actions/media';
 import { ensureRetCodeZero } from '../shared';
 
 export function parseNtv2DownloadUrl(body: NTV2RichMediaResp): string {
@@ -24,7 +24,7 @@ export function parseNtv2DownloadUrl(body: NTV2RichMediaResp): string {
 /** Normalize a MediaIndexNode-shaped object into the wire-fields the
  *  NTV2RichMedia `download.node` slot expects: `info{...}` /
  *  `fileUuid` / `storeId` / `uploadTime` / `ttl` / `subType`. */
-export function normalizeMediaNode(node: NtMediaIndex): Record<string, unknown> {
+export function normalizeMediaNode(node: NtMediaIndex): NTV2IndexNode {
   const fileUuid = typeof node.fileUuid === 'string' ? node.fileUuid : '';
   if (!fileUuid) throw new Error('media node fileUuid is required');
 

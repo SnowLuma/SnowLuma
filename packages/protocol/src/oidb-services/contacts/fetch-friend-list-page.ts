@@ -23,7 +23,7 @@ export namespace FetchFriendListPage {
   export type Deps = OidbSender;
 
   export const serialize = (_ctx: Deps, p: Params): OidbFriendListRequest => {
-    const body: any = {
+    const body: OidbFriendListRequest = {
       friendCount: 300,
       field4: 0,
       field6: 1,

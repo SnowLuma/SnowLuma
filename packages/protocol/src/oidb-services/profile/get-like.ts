@@ -10,15 +10,18 @@ import { invokeOidb, type OidbSender } from '../../oidb-service';
 import type { BridgeContext } from '../../bridge-context';
 
 export interface LikeInfo {
+  [key: string]: import('@snowluma/common/json').JsonValue;
   uid: string;
   time: number;
   favoriteInfo: {
+    [key: string]: import('@snowluma/common/json').JsonValue;
     total_count: number;
     last_time: number;
     today_count: number;
     userInfos: never[];
   };
   voteInfo: {
+    [key: string]: import('@snowluma/common/json').JsonValue;
     total_count: number;
     new_count: number;
     new_nearby_count: number;

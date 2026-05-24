@@ -13,6 +13,10 @@ import type { Oidb0xe17Req, Oidb0xe17Resp } from '@snowluma/proto-defs/oidb-acti
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 import type { BridgeContext } from '../../bridge-context';
 
+export interface UnidirectionalFriendEntry {
+  [key: string]: import('@snowluma/common/json').JsonValue;
+}
+
 export namespace GetUnidirectionalFriendList {
   export const command = 0xE17;
   export const subCommand = 0;
@@ -35,9 +39,9 @@ export namespace GetUnidirectionalFriendList {
     return { jsonBody: JSON.stringify(reqObj) };
   };
 
-  export const deserialize = (_ctx: Deps, body: Oidb0xe17Resp): unknown[] => {
+  export const deserialize = (_ctx: Deps, body: Oidb0xe17Resp): UnidirectionalFriendEntry[] => {
     if (!body || !body.jsonBody) throw new Error('get unidirectional friend list empty');
-    const parsed = JSON.parse(body.jsonBody);
+    const parsed = JSON.parse(body.jsonBody) as { rpt_block_list?: UnidirectionalFriendEntry[] };
     return parsed.rpt_block_list || [];
   };
 
@@ -47,6 +51,6 @@ export namespace GetUnidirectionalFriendList {
   export const decode = (bytes: Uint8Array): OidbBase<Oidb0xe17Resp> =>
     protobuf_decode<OidbBase<Oidb0xe17Resp>>(bytes);
 
-  export const invoke = (deps: Deps): Promise<unknown[]> =>
+  export const invoke = (deps: Deps): Promise<UnidirectionalFriendEntry[]> =>
     invokeOidb(deps, GetUnidirectionalFriendList, {});
 }

@@ -440,7 +440,7 @@ export class GroupFileApi {
           : toInt(upload.uploadPort);
       if (!uploadHost || uploadPort <= 0) {
         const rtpDump = Array.isArray(upload.rtpMediaPlatformUploadAddress)
-          ? JSON.stringify(upload.rtpMediaPlatformUploadAddress.map((e: any) => ({
+          ? JSON.stringify(upload.rtpMediaPlatformUploadAddress.map((e) => ({
             outIP: e.outIP, outPort: e.outPort, inIP: e.inIP, inPort: e.inPort,
             iPType: e.iPType,
           })))

@@ -26,10 +26,10 @@ export interface GroupEssenceMsgRet {
   retcode: number;
   data: {
     is_end: boolean;
-    msg_list: any[];
-    [key: string]: any;
+    msg_list: JsonObject[];
+    [key: string]: JsonValue;
   };
-  [key: string]: any;
+  [key: string]: JsonValue;
 }
 
 export interface ApiActionContext {

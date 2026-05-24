@@ -3,6 +3,7 @@ import { createHash } from 'crypto';
 import { statSync, createReadStream, writeFileSync, unlinkSync } from 'fs';
 import { basename, join } from 'path';
 import { tmpdir } from 'os';
+import type { JsonValue } from '@snowluma/common/json';
 
 // 群相册信息
 export interface GroupAlbumInfo {
@@ -10,13 +11,13 @@ export interface GroupAlbumInfo {
   name: string;
   picNum: number;
   createTime: number;
-  [key: string]: any;
+  [key: string]: JsonValue;
 }
 
 // 获取群相册列表返回
 export interface GroupAlbumListRet {
   album: GroupAlbumInfo[];
-  [key: string]: any;
+  [key: string]: JsonValue | GroupAlbumInfo[];
 }
 
 // 相册媒体信息
@@ -24,7 +25,7 @@ export interface AlbumMediaInfo {
   photoId: string;
   url: string;
   uploadTime: number;
-  [key: string]: any;
+  [key: string]: JsonValue;
 }
 
 /**
@@ -150,7 +151,7 @@ async function uploadAlbumSlice(
   session: string,
   filePath: string,
   // 移除 offset 和 chunkSize 参数，改为在内部控制
-  imgMd5: string,
+  _imgMd5: string,
   skey: string,
   pskey: string,
   uin: string

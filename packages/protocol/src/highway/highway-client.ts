@@ -4,7 +4,10 @@ import type { BridgeContext } from '../bridge-context';
 import type {
   HttpConn0x6FF501Request,
   HttpConn0x6FF501Response,
+  HighwayMsgInfoBody,
+  NTV2IPv4,
   NTV2RichMediaHighwayExt,
+  NTV2UploadRespMsgInfo,
   ReqDataHighwayHead,
   RespDataHighwayHead,
 } from '@snowluma/proto-defs/highway';
@@ -91,8 +94,8 @@ function makeHighwayHead(
 
 export function buildHighwayExtend(
   uKey: string,
-  msgInfo: any,
-  ipv4s: any[],
+  msgInfo: NTV2UploadRespMsgInfo,
+  ipv4s: NTV2IPv4[],
   sha1: Uint8Array | Uint8Array[],
   fileIndex = 0,
 ): Uint8Array {
@@ -100,7 +103,7 @@ export function buildHighwayExtend(
   if (msgInfoBody.length === 0) throw new Error('upload response missing msg_info body');
 
   const selected = msgInfoBody[fileIndex] ?? msgInfoBody[0];
-  const networkIpv4s: any[] = [];
+  const networkIpv4s: NonNullable<NonNullable<NTV2RichMediaHighwayExt['network']>['ipv4s']> = [];
   for (const ipv4 of ipv4s ?? []) {
     const ip = ipv4.outIp ?? 0;
     const port = ipv4.outPort ?? 0;
@@ -113,7 +116,7 @@ export function buildHighwayExtend(
     fileUuid: selected?.index?.fileUuid ?? '',
     uKey,
     network: { ipv4s: networkIpv4s },
-    msgInfoBody: msgInfoBody.map((b: any) => ({
+    msgInfoBody: msgInfoBody.map((b: HighwayMsgInfoBody) => ({
       index: b.index, picture: b.picture, fileExist: b.fileExist, hashSum: b.hashSum,
     })),
     blockSize: HIGHWAY_BLOCK_SIZE,

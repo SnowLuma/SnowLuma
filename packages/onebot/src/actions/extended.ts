@@ -139,7 +139,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     try {
       const essenceDataAll = await ctx.bridge.apis.web.getEssenceAll(groupId);
 
-      const allMsgs = essenceDataAll.flatMap((res: any) => res.data?.msg_list || []);
+      const allMsgs = essenceDataAll.flatMap((res) => res.data?.msg_list || []);
 
       return okResponse(allMsgs);
     } catch (e) {
@@ -347,7 +347,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
       message_id: 0,
     };
     if (groupId > 0) data.group_id = groupId;
-    return okResponse(data as any);
+    return okResponse(data as import('../types').JsonObject);
   });
 
   h.registerAction('upload_foward_msg', async (params) => {
@@ -985,7 +985,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     }
   });
 
-  const handleGroupSign = async (params: any) => {
+  const handleGroupSign = async (params: import('../types').JsonObject) => {
     const groupId = asNumber(params.group_id);
 
     if (!groupId) {

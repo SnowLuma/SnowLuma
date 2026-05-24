@@ -3,6 +3,7 @@ import type {
   MiniAppShareResp,
 } from '@snowluma/proto-defs/oidb-actions/base';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import type { JsonObject, JsonValue } from '@snowluma/common/json';
 import type { BridgeContext } from '../bridge-context';
 // Migrated OIDB cmds — facade methods are one-line forwarders.
 import { ClickInlineKeyboardButton } from '@snowluma/protocol/oidb-services/misc/click-inline-keyboard-button';
@@ -16,7 +17,7 @@ export class MiscApi {
     return TranslateEnToZh.invoke(this.ctx, { words });
   }
 
-  async getMiniAppArk(type: string, title: string, desc: string, picUrl: string, jumpUrl: string): Promise<any> {
+  async getMiniAppArk(type: string, title: string, desc: string, picUrl: string, jumpUrl: string): Promise<JsonObject> {
     let appid = '1109937557'; // default: bilibili
     let iconUrl = 'http://miniapp.gtimg.cn/public/appicon/51f90239b78a2e4994c11215f4c4ba15_200.jpg';
 
@@ -45,7 +46,7 @@ export class MiscApi {
       throw new Error('mini app share json empty');
     }
 
-    const parsed = JSON.parse(jsonStr);
+    const parsed = JSON.parse(jsonStr) as Record<string, JsonObject | string | number | boolean | null>;
 
     return {
       data: {
@@ -67,7 +68,7 @@ export class MiscApi {
     buttonId: string,
     callbackData: string,
     msgSeq: number,
-  ): Promise<any> {
+  ): Promise<JsonValue> {
     return ClickInlineKeyboardButton.invoke(this.ctx, { groupId, botAppid, buttonId, callbackData, msgSeq });
   }
 

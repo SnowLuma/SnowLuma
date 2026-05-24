@@ -73,16 +73,12 @@ function loadAddon(): unknown {
 type BetterSqlite3Type = typeof BetterSqlite3;
 type DatabaseInstance = InstanceType<BetterSqlite3Type>;
 type DatabaseOptions = ConstructorParameters<BetterSqlite3Type>[1];
+type BetterSqlite3Constructor = new (filename?: string | Buffer, options?: DatabaseOptions) => DatabaseInstance;
 
 const Database = function Database(filename?: string | Buffer, options?: DatabaseOptions): DatabaseInstance {
   const opts = { ...(options ?? {}), nativeBinding: loadAddon() } as DatabaseOptions;
-  // The `as any` shrug here is unavoidable — better-sqlite3's
-  // overload set declares `new Database(...)` returns the class type
-  // but its default export is a callable that *also* returns it via
-  // an internal `new.target == null` branch. TS can't reconcile the
-  // two without `as any`.
-
-  return new (BetterSqlite3 as any)(filename, opts);
+  // better-sqlite3 的默认导出同时支持函数调用和 new 调用；这里只需要构造器形态。
+  return new (BetterSqlite3 as unknown as BetterSqlite3Constructor)(filename, opts);
 } as unknown as BetterSqlite3Type;
 
 export default Database;

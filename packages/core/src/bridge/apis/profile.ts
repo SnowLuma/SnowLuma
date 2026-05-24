@@ -7,8 +7,8 @@ import type {
 } from '@snowluma/proto-defs/oidb-actions/base';
 import { fetchHighwaySession, uploadHighwayHttp } from '@snowluma/protocol/highway';
 import { computeHashes, loadBinarySource } from '@snowluma/protocol/highway/utils';
-import { GetLike } from '@snowluma/protocol/oidb-services/profile/get-like';
-import { GetUnidirectionalFriendList } from '@snowluma/protocol/oidb-services/profile/get-unidirectional-friend-list';
+import { GetLike, type LikeInfo } from '@snowluma/protocol/oidb-services/profile/get-like';
+import { GetUnidirectionalFriendList, type UnidirectionalFriendEntry } from '@snowluma/protocol/oidb-services/profile/get-unidirectional-friend-list';
 import { SetInputStatus } from '@snowluma/protocol/oidb-services/profile/set-input-status';
 import { SetProfile } from '@snowluma/protocol/oidb-services/profile/set-profile';
 import { SetSelfLongNick } from '@snowluma/protocol/oidb-services/profile/set-self-long-nick';
@@ -120,11 +120,11 @@ export class ProfileApi {
 
   // ─────────────── queries on me / my contacts ───────────────
 
-  getLike(userId?: number, start = 0, limit = 10): Promise<any> {
+  getLike(userId?: number, start = 0, limit = 10): Promise<LikeInfo> {
     return GetLike.invoke(this.ctx, { userId, start, limit });
   }
 
-  getUnidirectionalFriendList(): Promise<any> {
+  getUnidirectionalFriendList(): Promise<UnidirectionalFriendEntry[]> {
     return GetUnidirectionalFriendList.invoke(this.ctx);
   }
 
@@ -141,10 +141,10 @@ export class ProfileApi {
       throw new Error(result.errorMessage || 'fetch custom face failed');
     }
     const resp = protobuf_decode<FaceroamOpResp>(result.responseData);
-    if (!resp || (resp as any).retCode !== 0) {
-      throw new Error(`fetch custom face error: ${(resp as any)?.message || 'unknown'}`);
+    if (!resp || resp.retCode !== 0) {
+      throw new Error(`fetch custom face error: ${resp?.message || 'unknown'}`);
     }
-    const faceIds = (resp as any).item?.faceIds || [];
+    const faceIds = resp.item?.faceIds || [];
     return faceIds.slice(0, count).map((id: string) => `https://p.qpic.cn/qq_expression/${this.ctx.identity.uin}/${id}/0`);
   }
 }

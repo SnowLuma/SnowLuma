@@ -3,6 +3,26 @@ import { createLogger } from '@snowluma/common/logger';
 
 const log = createLogger('Bridge.Web');
 
+export interface WebHonorItem {
+  [key: string]: import('@snowluma/common/json').JsonValue;
+  user_id: number | string | null;
+  nickname: string;
+  avatar: string;
+  description: string;
+}
+
+interface RawHonorItem {
+  uin?: number | string;
+  name?: string;
+  avatar?: string;
+  desc?: string;
+}
+
+interface HonorInitialState {
+  talkativeList?: RawHonorItem[];
+  actorList?: RawHonorItem[];
+}
+
 export enum WebHonorType {
     TALKATIVE = 'talkative',
     PERFORMER = 'performer',
@@ -12,8 +32,8 @@ export enum WebHonorType {
 }
 
 
-async function fetchHonorData(cookieObject: Record<string, string>, groupCode: string, type: number) {
-  let resJson;
+async function fetchHonorData(cookieObject: Record<string, string>, groupCode: string, type: number): Promise<RawHonorItem[] | undefined> {
+  let resJson: HonorInitialState | undefined;
   try {
     const res = await RequestUtil.HttpGetText(
       `https://qun.qq.com/interactive/honorlist?${new URLSearchParams({
@@ -26,7 +46,7 @@ async function fetchHonorData(cookieObject: Record<string, string>, groupCode: s
     );
     const match = /window\.__INITIAL_STATE__=(.*?);/.exec(res);
     if (match?.[1]) {
-      resJson = JSON.parse(match[1].trim());
+      resJson = JSON.parse(match[1].trim()) as HonorInitialState;
     }
     return type === 1 ? resJson?.talkativeList : resJson?.actorList;
   } catch (e) {
@@ -34,16 +54,16 @@ async function fetchHonorData(cookieObject: Record<string, string>, groupCode: s
   }
 }
 
-export async function getHonorListWebAPI(cookieObject: Record<string, string>, groupCode: string, type: number) {
+export async function getHonorListWebAPI(cookieObject: Record<string, string>, groupCode: string, type: number): Promise<WebHonorItem[]> {
   try {
     const data = await fetchHonorData(cookieObject, groupCode, type);
     if (!data) return [];
 
-    return data.map((item: any) => ({
-      user_id: item?.uin,
-      nickname: item?.name,
-      avatar: item?.avatar,
-      description: item?.desc,
+    return data.map((item) => ({
+      user_id: item?.uin ?? null,
+      nickname: item?.name ?? '',
+      avatar: item?.avatar ?? '',
+      description: item?.desc ?? '',
     }));
   } catch (e) {
     log.warn('getHonorListWebAPI failed (group=%s type=%d): %s',

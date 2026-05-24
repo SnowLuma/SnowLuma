@@ -55,7 +55,7 @@ export class MessageApi {
         richText: {
           elems: protoElems,
         },
-      } as any,
+      },
       clientSequence: 0,
       random,
       syncCookie: new Uint8Array(0),
@@ -117,7 +117,7 @@ export class MessageApi {
         richText: {
           elems: protoElems,
         },
-      } as any,
+      },
       clientSequence: clientSeq,
       random,
       syncCookie: new Uint8Array(0),

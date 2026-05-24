@@ -151,7 +151,7 @@ describe('pipeline — runNtv2Upload', () => {
     });
     const upload = await runNtv2Upload(baseParams({ bridge }));
     expect(upload.uKey).toBe('fake-ukey');
-    expect(upload.msgInfo.msgInfoBody).toHaveLength(1);
+    expect(upload.msgInfo?.msgInfoBody).toHaveLength(1);
   });
 
   it('throws on transport failure', async () => {
@@ -315,7 +315,7 @@ describe('pipeline — finalizeMediaMsgInfo', () => {
   it('encodes msgInfoBody + extBizInfo from the server response', () => {
     const out = finalizeMediaMsgInfo({
       msgInfo: {
-        msgInfoBody: [{ index: { fileType: 1 }, fileExist: true }],
+        msgInfoBody: [{ index: { subType: 1 }, fileExist: true }],
         extBizInfo: { busiType: 1 },
       },
     });

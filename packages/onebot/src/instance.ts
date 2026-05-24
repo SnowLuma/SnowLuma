@@ -36,7 +36,6 @@ export class OneBotInstance {
   private readonly reactionStore: ReactionStore;
   private readonly networkManager: OneBotNetworkManager;
   private readonly rkeyCache: RKeyCache;
-  private readonly ctx: OneBotInstanceContext;
   private disposeEventPipeline: (() => void) | null = null;
 
   private readonly pids = new Set<number>();
@@ -85,7 +84,6 @@ export class OneBotInstance {
       cacheMessageMeta: (messageId, meta) => this.cacheMessageMeta(messageId, meta),
       dispatchEvent: (event) => this.dispatchEvent(event),
     };
-    this.ctx = ctx;
 
     this.apiHandler = new ApiHandler(buildApiContext(ctx), uinNum > 0 ? uinNum : undefined);
     this.networkManager = new OneBotNetworkManager();

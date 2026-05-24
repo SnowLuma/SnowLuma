@@ -41,7 +41,7 @@ export namespace GetStrangerStatus {
   export const deserialize = (_ctx: Deps, body: OidbStrangerStatusResp): StrangerStatus | null => {
     const raw = body.data?.status?.value;
     if (raw === undefined || raw === null) return null;
-    const extBig = typeof raw === 'bigint' ? raw : BigInt(raw as any);
+    const extBig = typeof raw === 'bigint' ? raw : BigInt(raw);
     if (extBig <= 10n) {
       return { status: Number(extBig) * 10, ext_status: 0 };
     }

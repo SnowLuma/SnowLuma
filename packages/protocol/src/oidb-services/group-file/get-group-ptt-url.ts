@@ -31,7 +31,7 @@ export namespace GetGroupPttUrl {
       client: { agentType: 2 },
     },
     download: {
-      node: normalizeMediaNode(p.node) as any,
+      node: normalizeMediaNode(p.node),
       download: { video: { busiType: 0, sceneType: 0 } },
     },
   });

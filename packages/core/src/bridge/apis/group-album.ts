@@ -6,32 +6,35 @@ import type {
   DoQunLikeRequest,
   DoQunLikeResponse,
   GetMediaListRequest,
+  MediaInfo,
   GetMediaListResponse,
 } from '@snowluma/proto-defs/oidb-actions/group-album';
 import { getGroupAlbumList, uploadImageToGroupAlbum } from '@snowluma/protocol/web/group-album';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import type { JsonObject, JsonValue } from '@snowluma/common/json';
 import type { BridgeContext } from '../bridge-context';
 
 
-function convertBigIntToString(obj: any): any {
-  if (obj === null || obj === undefined) return obj;
+function convertBigIntToString(obj: unknown): JsonValue {
+  if (obj === null || obj === undefined) return null;
   if (typeof obj === 'bigint') return obj.toString();
   if (Array.isArray(obj)) return obj.map(convertBigIntToString);
   if (typeof obj === 'object') {
-    const result: any = {};
-    for (const key in obj) {
-      result[key] = convertBigIntToString(obj[key]);
+    const result: JsonObject = {};
+    for (const [key, value] of Object.entries(obj)) {
+      result[key] = convertBigIntToString(value);
     }
     return result;
   }
-  return obj;
+  if (typeof obj === 'string' || typeof obj === 'number' || typeof obj === 'boolean') return obj;
+  return null;
 }
 
 export class GroupAlbumApi {
   constructor(private readonly ctx: BridgeContext) { }
 
-  /** List a group's albums (HTTP-cookie-based, qzone.qq.com). */
-  async list(groupId: number): Promise<any> {
+  // 列出群相册（基于 qzone.qq.com 的 HTTP Cookie）。
+  async list(groupId: number): Promise<GroupAlbumList> {
     const groupCode = groupId.toString();
     const uin = this.ctx.identity.uin;
     const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
@@ -39,7 +42,7 @@ export class GroupAlbumApi {
     return albumData?.album || [];
   }
 
-  /** Upload an image into an existing album (HTTP slice-upload). */
+  // 上传图片到现有相册（HTTP 分片上传）。
   async upload(groupId: number, albumId: string, albumName: string, filePath: string): Promise<void> {
     const groupCode = groupId.toString();
     const uin = this.ctx.identity.uin;
@@ -85,7 +88,7 @@ export class GroupAlbumApi {
     const mediaList = data.mediaList ?? [];
     const nextAttachInfo = data.nextAttachInfo ?? '';
 
-    return convertBigIntToString({ mediaList, nextAttachInfo });
+    return convertBigIntToString({ mediaList, nextAttachInfo }) as unknown as GroupAlbumMediaResult;
   }
 
   async comment(groupId: number, albumId: string, lloc: string, content: string): Promise<GroupAlbumCommentResult> {
@@ -156,10 +159,10 @@ export class GroupAlbumApi {
       content: commentData.content ?? [],
       time: commentData.time ?? '0',
       clientKey: commentData.clientKey ?? '',
-    });
+    }) as unknown as GroupAlbumCommentResult;
   }
 
-  async like(groupId: number, albumId: string, batchId: string, lloc: string | undefined, isLike: boolean): Promise<any> {
+  async like(groupId: number, albumId: string, batchId: string, lloc: string | undefined, isLike: boolean): Promise<JsonValue> {
     const uin = this.ctx.identity.uin;
     const clientKey = `${uin}_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
 
@@ -221,7 +224,7 @@ export class GroupAlbumApi {
     return convertBigIntToString(resp.body?.like ?? {});
   }
 
-  async delete(groupId: number, albumId: string, lloc: string): Promise<any> {
+  async delete(groupId: number, albumId: string, lloc: string): Promise<{ success: true }> {
     const uin = this.ctx.identity.uin;
     const clientKey = `${uin}_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
 
@@ -261,9 +264,11 @@ export class GroupAlbumApi {
   }
 }
 export interface GroupAlbumMediaResult {
-  mediaList: any[];
+  mediaList: Array<JsonValue & Partial<MediaInfo>>;
   nextAttachInfo: string;
 }
+
+export type GroupAlbumList = NonNullable<Awaited<ReturnType<typeof getGroupAlbumList>>>['album'];
 
 export interface GroupAlbumCommentResult {
   id: string;

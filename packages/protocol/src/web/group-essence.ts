@@ -1,5 +1,6 @@
 import { RequestUtil, cookieToString, getBknFromCookie } from './request-util';
 import { createLogger } from '@snowluma/common/logger';
+import type { JsonObject } from '@snowluma/common/json';
 
 const log = createLogger('Bridge.Web');
 
@@ -8,10 +9,10 @@ export interface GroupEssenceMsgRet {
     retcode: number;
     data: {
         is_end: boolean;
-        msg_list: any[]; // 具体结构视需要补充
-        [key: string]: any;
+    msg_list: JsonObject[]; // 具体结构视需要补充
+    [key: string]: JsonObject[] | boolean | string | number | null;
     };
-    [key: string]: any;
+  [key: string]: JsonObject | JsonObject[] | boolean | string | number | null;
 }
 
 

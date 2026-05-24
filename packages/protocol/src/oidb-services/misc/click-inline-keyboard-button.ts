@@ -8,6 +8,7 @@ import type { Oidb0x112eReq, Oidb0x112eResp } from '@snowluma/proto-defs/oidb-ac
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 export interface InlineButtonClickResult {
+  [key: string]: import('@snowluma/common/json').JsonValue;
   result: number;
   errMsg: string;
   status: 0;

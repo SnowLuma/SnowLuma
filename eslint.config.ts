@@ -48,7 +48,7 @@ export default defineConfig([
     rules: {
       'indent': ['error', 2, { SwitchCase: 1 }],
       'prefer-const': 'off',
-      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-empty-object-type': 'off',
       '@typescript-eslint/no-this-alias': 'off',
       '@typescript-eslint/no-unused-vars': [
@@ -59,6 +59,18 @@ export default defineConfig([
           caughtErrorsIgnorePattern: '^_',
         },
       ],
+    },
+  },
+  {
+    files: ['**/tests/**/*.{ts,tsx}', '**/*.test.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
+  {
+    files: ['**/bench/**/*.{ts,tsx}', 'packages/proton/test/**/*.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
     },
   },
   {

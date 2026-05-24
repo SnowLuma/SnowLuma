@@ -1,11 +1,12 @@
 import { ForceFetchClientKey, type ClientKeyInfo as NamespaceClientKeyInfo } from '@snowluma/protocol/oidb-services/web/force-fetch-client-key';
 import { GetPskey } from '@snowluma/protocol/oidb-services/web/get-pskey';
-import { getGroupEssenceMsg, getGroupEssenceMsgAll } from '@snowluma/protocol/web/group-essence';
-import { getHonorListWebAPI, WebHonorType } from '@snowluma/protocol/web/group-honor';
+import { getGroupEssenceMsg, getGroupEssenceMsgAll, type GroupEssenceMsgRet } from '@snowluma/protocol/web/group-essence';
+import { getHonorListWebAPI, WebHonorType, type WebHonorItem } from '@snowluma/protocol/web/group-honor';
 import {
   deleteGroupNotice as deleteGroupNoticeHttp,
   getGroupNoticeWebAPI,
   setGroupNoticeWebAPI,
+  type SetNoticeRetSuccess,
   uploadGroupNoticeImage,
 } from '@snowluma/protocol/web/group-notice';
 import { RequestUtil } from '@snowluma/protocol/web/request-util';
@@ -15,6 +16,31 @@ import type { BridgeContext } from '../bridge-context';
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
 
 export type ClientKeyInfo = NamespaceClientKeyInfo;
+
+export interface WebHonorInfo {
+  [key: string]: import('@snowluma/common/json').JsonValue;
+  group_id: number;
+  current_talkative: WebHonorItem | null;
+  talkative_list: WebHonorItem[];
+  performer_list: WebHonorItem[];
+  legend_list: WebHonorItem[];
+  emotion_list: WebHonorItem[];
+  strong_newbie_list: WebHonorItem[];
+}
+
+export interface WebNoticeInfo {
+  [key: string]: import('@snowluma/common/json').JsonValue;
+  notice_id: string;
+  sender_id: number;
+  publish_time: number;
+  message: {
+    text: string;
+    image: Array<{ id: string; height: number; width: number }>;
+    images: Array<{ id: string; height: number; width: number }>;
+  };
+  settings: import('@snowluma/common/json').JsonValue;
+  read_num: number;
+}
 
 // ─────────────── private helpers (cookie acquisition) ───────────────
 
@@ -144,7 +170,7 @@ export class WebApi {
   // ─────────────── group essence ───────────────
 
   /** Paginated fetch — `pageStart` is 0-indexed, `pageLimit` is server-capped at 50. */
-  async getEssence(groupId: number, pageStart = 0, pageLimit = 50): Promise<any> {
+  async getEssence(groupId: number, pageStart = 0, pageLimit = 50): Promise<GroupEssenceMsgRet> {
     const bridge = asBridge(this.ctx);
     const groupCode = groupId.toString();
     const cookieObject = await getCookies(bridge, 'qun.qq.com');
@@ -153,7 +179,7 @@ export class WebApi {
   }
 
   /** Walks every page and returns the concatenated result. */
-  async getEssenceAll(groupId: number): Promise<any> {
+  async getEssenceAll(groupId: number): Promise<GroupEssenceMsgRet[]> {
     const bridge = asBridge(this.ctx);
     const groupCode = groupId.toString();
     const cookieObject = await getCookies(bridge, 'qun.qq.com');
@@ -162,12 +188,12 @@ export class WebApi {
 
   // ─────────────── group honor ───────────────
 
-  async getHonorInfo(groupId: number, type: WebHonorType | string): Promise<any> {
+  async getHonorInfo(groupId: number, type: WebHonorType | string): Promise<WebHonorInfo> {
     const bridge = asBridge(this.ctx);
     const groupCode = groupId.toString();
     const cookieObject = await getCookies(bridge, 'qun.qq.com');
 
-    const honorInfo: any = {
+    const honorInfo: WebHonorInfo = {
       group_id: groupId,
       current_talkative: null,
       talkative_list: [],
@@ -211,7 +237,7 @@ export class WebApi {
       type?: number;
       confirm_required?: number;
     },
-  ): Promise<any> {
+  ): Promise<SetNoticeRetSuccess> {
     const bridge = asBridge(this.ctx);
     const groupCode = groupId.toString();
     const cookieObject = await getCookies(bridge, 'qun.qq.com');
@@ -261,7 +287,7 @@ export class WebApi {
     return ret;
   }
 
-  async getNotice(groupId: number): Promise<any[]> {
+  async getNotice(groupId: number): Promise<WebNoticeInfo[]> {
     const bridge = asBridge(this.ctx);
     const groupCode = groupId.toString();
     const cookieObject = await getCookies(bridge, 'qun.qq.com');
@@ -271,7 +297,7 @@ export class WebApi {
       throw new Error('获取公告失败');
     }
 
-    const retNotices: any[] = [];
+    const retNotices: WebNoticeInfo[] = [];
 
     if (ret.feeds) {
       for (const key in ret.feeds) {

@@ -25,7 +25,7 @@ export namespace FetchGroupMemberListPage {
   export type Deps = OidbSender;
 
   export const serialize = (_ctx: Deps, p: Params): OidbGroupMemberListRequest => {
-    const body: any = {
+    const body: OidbGroupMemberListRequest = {
       groupUin: p.groupId,
       field2: 5,
       field3: 2,

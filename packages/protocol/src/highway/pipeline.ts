@@ -5,8 +5,12 @@ import type { BridgeContext } from '../bridge-context';
 import { makeOidbEnvelope } from '../bridge-oidb';
 import type {
   EncodableMediaMsgInfo,
+  HighwayMsgInfoBody,
+  NTV2ExtBizInfo,
+  NTV2UploadInfo,
   NTV2UploadRichMediaReq,
   NTV2UploadRichMediaResp,
+  NTV2UploadRespBody,
 } from '@snowluma/proto-defs/highway';
 import { OidbBase } from '@snowluma/proto-defs/oidb';
 import { buildHighwayExtend, fetchHighwaySession, uploadHighwayHttp } from './highway-client';
@@ -64,11 +68,11 @@ export interface NtV2UploadParams {
   /** `reqHead.scene.businessType` (1=image, 3=voice, 2=video). */
   businessType: number;
   /** `upload.uploadInfo` array. Each entry is `{ fileInfo, subFileType }`. */
-  uploadInfo: unknown[];
+  uploadInfo: NTV2UploadInfo[];
   /** `upload.compatQmsgSceneType`. */
   compatQmsgSceneType: number;
   /** `upload.extBizInfo` — type-specific bytes/flags. */
-  extBizInfo: unknown;
+  extBizInfo: NTV2ExtBizInfo;
   /** Sub-file Highway PUTs to perform after the OIDB response. */
   uploads: MediaSubFileUpload[];
   /** Used in error messages. Defaults to 'media'. */
@@ -107,7 +111,7 @@ export function hexToBytes(hex: string): Uint8Array {
  * Sessions are cached across sub-file uploads — video does two PUTs but
  * only fetches the Highway session once.
  */
-export async function runNtv2Upload(params: NtV2UploadParams): Promise<any> {
+export async function runNtv2Upload(params: NtV2UploadParams): Promise<NTV2UploadRespBody> {
   const { bridge, isGroup, targetIdOrUid, oidbCmd, serviceCmd, uploads } = params;
   const label = params.label ?? 'media';
   const raw = bridge.identity?.uin;
@@ -118,7 +122,7 @@ export async function runNtv2Upload(params: NtV2UploadParams): Promise<any> {
 
   // Build the full body once. Pulling this in here means each format file
   // only specifies the seven fields that actually vary.
-  const body: any = {
+  const body: NTV2UploadRichMediaReq = {
     reqHead: {
       common: { requestId: params.requestId, command: 100 },
       scene: {
@@ -157,7 +161,7 @@ export async function runNtv2Upload(params: NtV2UploadParams): Promise<any> {
     throw new Error(`OIDB error ${resp.errorCode}: ${resp.errorMsg ?? ''}`);
   }
 
-  const uploadBody: any = resp.body;
+  const uploadBody = resp.body;
   if (!uploadBody) throw new Error(`${label} upload response body missing`);
   if (uploadBody.respHead?.retCode && uploadBody.respHead.retCode !== 0) {
     throw new Error(uploadBody.respHead.message ?? `${label} upload failed`);
@@ -186,11 +190,13 @@ export async function runNtv2Upload(params: NtV2UploadParams): Promise<any> {
       continue;
     }
 
+    if (!target) continue;
+
     const extend = buildHighwayExtend(
       uKey,
       upload.msgInfo,
       target.ipv4s ?? [],
-      sub.sha1 as any, // sha1 may be Uint8Array | Uint8Array[]; the helper accepts both
+      sub.sha1,
       sub.subFileIndex ?? 0,
     );
     log.debug('%s OIDB requires bytes, PUT %d bytes (sub=%s)', label, sub.bytes.length, String(sub.source));
@@ -218,16 +224,16 @@ export async function runNtv2Upload(params: NtV2UploadParams): Promise<any> {
  * pic alone unless the server populates it.
  */
 export function finalizeMediaMsgInfo(
-  upload: any,
+  upload: NTV2UploadRespBody,
   defaultPic?: { bizType: number; textSummary: string },
 ): Uint8Array {
   if (!upload?.msgInfo) throw new Error('upload response missing msgInfo');
 
-  const msgInfoBody = (upload.msgInfo.msgInfoBody ?? []).map((b: any) => ({
+  const msgInfoBody = (upload.msgInfo.msgInfoBody ?? []).map((b: HighwayMsgInfoBody) => ({
     index: b.index, picture: b.picture, fileExist: b.fileExist, hashSum: b.hashSum,
   }));
 
-  const extBizInfo: any = {};
+  const extBizInfo: NonNullable<EncodableMediaMsgInfo['extBizInfo']> = {};
   if (upload.msgInfo.extBizInfo?.pic) {
     extBizInfo.pic = { ...upload.msgInfo.extBizInfo.pic };
     if (defaultPic) {
