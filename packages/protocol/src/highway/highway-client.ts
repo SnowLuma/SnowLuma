@@ -1,16 +1,16 @@
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import net from 'net';
-import type { BridgeContext } from '../bridge-context';
 import type {
+  HighwayMsgInfoBody,
   HttpConn0x6FF501Request,
   HttpConn0x6FF501Response,
-  HighwayMsgInfoBody,
   NTV2IPv4,
   NTV2RichMediaHighwayExt,
   NTV2UploadRespMsgInfo,
   ReqDataHighwayHead,
   RespDataHighwayHead,
 } from '@snowluma/proto-defs/highway';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import net from 'net';
+import type { BridgeContext } from '../bridge-context';
 import { computeMd5, packHighwayFrame, unpackHighwayFrame } from './utils';
 
 const HIGHWAY_APP_ID = 1600001604;

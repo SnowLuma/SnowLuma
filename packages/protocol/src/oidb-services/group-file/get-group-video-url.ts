@@ -2,9 +2,9 @@
 // GetGroupPttUrl; `requestType=2 + businessType=2` swaps voice for
 // video. The scene's `group` block carries the group uin.
 
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type { NTV2RichMediaReq, NTV2RichMediaResp } from '@snowluma/proto-defs/oidb-actions/media';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 import {
   normalizeMediaNode, parseNtv2DownloadUrl, type NtMediaIndex,

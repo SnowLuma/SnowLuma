@@ -1,17 +1,17 @@
-import { RequestUtil, cookieToString, getBknFromCookie } from './request-util';
-import { createLogger } from '@snowluma/common/logger';
 import type { JsonObject } from '@snowluma/common/json';
+import { createLogger } from '@snowluma/common/logger';
+import { RequestUtil, cookieToString, getBknFromCookie } from './request-util';
 
 const log = createLogger('Bridge.Web');
 
 // 定义接口返回类型
 export interface GroupEssenceMsgRet {
-    retcode: number;
-    data: {
-        is_end: boolean;
+  retcode: number;
+  data: {
+    is_end: boolean;
     msg_list: JsonObject[]; // 具体结构视需要补充
     [key: string]: JsonObject[] | boolean | string | number | null;
-    };
+  };
   [key: string]: JsonObject | JsonObject[] | boolean | string | number | null;
 }
 

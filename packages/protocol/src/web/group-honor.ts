@@ -1,5 +1,5 @@
-import { RequestUtil, cookieToString } from './request-util';
 import { createLogger } from '@snowluma/common/logger';
+import { RequestUtil, cookieToString } from './request-util';
 
 const log = createLogger('Bridge.Web');
 
@@ -24,11 +24,11 @@ interface HonorInitialState {
 }
 
 export enum WebHonorType {
-    TALKATIVE = 'talkative',
-    PERFORMER = 'performer',
-    LEGEND = 'legend',
-    EMOTION = 'emotion',
-    ALL = 'all',
+  TALKATIVE = 'talkative',
+  PERFORMER = 'performer',
+  LEGEND = 'legend',
+  EMOTION = 'emotion',
+  ALL = 'all',
 }
 
 

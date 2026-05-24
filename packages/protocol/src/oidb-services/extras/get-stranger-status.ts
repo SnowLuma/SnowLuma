@@ -12,9 +12,9 @@
 // — the facade swallows the namespace-level exception and surfaces
 // `null` so callers get a clean retcode.
 
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type { OidbStrangerStatusReq, OidbStrangerStatusResp } from '@snowluma/proto-defs/oidb-actions/base';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 export interface StrangerStatus {

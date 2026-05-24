@@ -6,9 +6,9 @@
 // state that's per-Bridge (and is what stops Tencent risk-control
 // from banning the account on busy clients — see #42).
 
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase, OidbSvcTrpcTcp0xFE7_3Response } from '@snowluma/proto-defs/oidb';
 import type { OidbGroupMemberListRequest } from '@snowluma/proto-defs/oidb-actions/base';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 export namespace FetchGroupMemberListPage {

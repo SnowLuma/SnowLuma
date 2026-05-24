@@ -6,8 +6,8 @@ import {
   deleteGroupNotice as deleteGroupNoticeHttp,
   getGroupNoticeWebAPI,
   setGroupNoticeWebAPI,
-  type SetNoticeRetSuccess,
   uploadGroupNoticeImage,
+  type SetNoticeRetSuccess,
 } from '@snowluma/protocol/web/group-notice';
 import { RequestUtil } from '@snowluma/protocol/web/request-util';
 import type { Bridge } from '../bridge';

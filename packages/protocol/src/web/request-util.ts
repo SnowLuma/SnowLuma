@@ -1,5 +1,5 @@
-import https from 'node:https';
 import http from 'node:http';
+import https from 'node:https';
 
 type RequestBody = string | Buffer | Uint8Array | Record<string, unknown> | undefined;
 
@@ -53,8 +53,8 @@ export class RequestUtil {
   }
 
   static async HttpGetJson<T>(url: string, method: string = 'GET', data?: RequestBody, headers: {
-        [key: string]: string;
-    } = {}, isJsonRet: boolean = true, isArgJson: boolean = true, maxRedirects: number = 5): Promise<T> {
+    [key: string]: string;
+  } = {}, isJsonRet: boolean = true, isArgJson: boolean = true, maxRedirects: number = 5): Promise<T> {
     const option = new URL(url);
     const protocol = url.startsWith('https://') ? https : http;
     const options = {

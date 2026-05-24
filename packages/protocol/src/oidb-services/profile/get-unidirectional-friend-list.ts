@@ -7,11 +7,11 @@
 // protobuf field, so the namespace's `serialize` / `deserialize` do
 // the JSON marshalling.
 
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type { Oidb0xe17Req, Oidb0xe17Resp } from '@snowluma/proto-defs/oidb-actions/base';
-import { invokeOidb, type OidbSender } from '../../oidb-service';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { BridgeContext } from '../../bridge-context';
+import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 export interface UnidirectionalFriendEntry {
   [key: string]: import('@snowluma/common/json').JsonValue;
@@ -25,7 +25,7 @@ export namespace GetUnidirectionalFriendList {
    *  `OidbSvcTrpcTcp.0xNNNN_N` namespace. */
   export const wireName = (): string => 'MQUpdateSvc_com_qq_ti.web.OidbSvc.0xe17_0';
 
-  export interface Params {}
+  export interface Params { }
 
   export type Deps = OidbSender & Pick<BridgeContext, 'identity'>;
 

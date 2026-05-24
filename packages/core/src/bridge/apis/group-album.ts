@@ -1,3 +1,4 @@
+import type { JsonObject, JsonValue } from '@snowluma/common/json';
 import type {
   DeleteMediasRequest,
   DeleteMediasResponse,
@@ -6,12 +7,11 @@ import type {
   DoQunLikeRequest,
   DoQunLikeResponse,
   GetMediaListRequest,
-  MediaInfo,
   GetMediaListResponse,
+  MediaInfo,
 } from '@snowluma/proto-defs/oidb-actions/group-album';
 import { getGroupAlbumList, uploadImageToGroupAlbum } from '@snowluma/protocol/web/group-album';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { JsonObject, JsonValue } from '@snowluma/common/json';
 import type { BridgeContext } from '../bridge-context';
 
 

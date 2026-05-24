@@ -1,17 +1,17 @@
+import type {
+  MarkdownData,
+  MentionExtraSend,
+} from '@snowluma/proto-defs/action';
+import type { Elem, GroupFileExtra } from '@snowluma/proto-defs/element';
 import { protobuf_encode } from '@snowluma/proton';
-import { deflateSync } from 'zlib';
 import { randomUUID } from 'crypto';
+import { deflateSync } from 'zlib';
 import type { BridgeContext } from './bridge-context';
 import type { MessageElement } from './events';
 import { uploadImageMsgInfo } from './highway/image-upload';
 import { hexToBytes } from './highway/pipeline';
 import { uploadPttMsgInfo } from './highway/ptt-upload';
 import { uploadVideoMsgInfo } from './highway/video-upload';
-import type {
-  MarkdownData,
-  MentionExtraSend,
-} from '@snowluma/proto-defs/action';
-import type { Elem, GroupFileExtra } from '@snowluma/proto-defs/element';
 
 type ProtoElem = Partial<Elem>;
 

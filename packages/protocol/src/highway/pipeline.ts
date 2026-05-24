@@ -1,18 +1,18 @@
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import crypto from 'crypto';
 import { createLogger } from '@snowluma/common/logger';
-import type { BridgeContext } from '../bridge-context';
-import { makeOidbEnvelope } from '../bridge-oidb';
 import type {
   EncodableMediaMsgInfo,
   HighwayMsgInfoBody,
   NTV2ExtBizInfo,
   NTV2UploadInfo,
+  NTV2UploadRespBody,
   NTV2UploadRichMediaReq,
   NTV2UploadRichMediaResp,
-  NTV2UploadRespBody,
 } from '@snowluma/proto-defs/highway';
 import { OidbBase } from '@snowluma/proto-defs/oidb';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import crypto from 'crypto';
+import type { BridgeContext } from '../bridge-context';
+import { makeOidbEnvelope } from '../bridge-oidb';
 import { buildHighwayExtend, fetchHighwaySession, uploadHighwayHttp } from './highway-client';
 
 const moduleLog = createLogger('Highway');

@@ -1,40 +1,40 @@
-import { RequestUtil, cookieToString } from './request-util';
-import https from 'node:https';
-import { createLogger } from '@snowluma/common/logger';
 import type { JsonValue } from '@snowluma/common/json';
+import { createLogger } from '@snowluma/common/logger';
+import https from 'node:https';
+import { RequestUtil, cookieToString } from './request-util';
 
 const log = createLogger('Bridge.Web');
 
 export interface SetNoticeRetSuccess {
-    ec?: number;
-    em?: string;
+  ec?: number;
+  em?: string;
   [key: string]: JsonValue | undefined;
 }
 
 export interface UploadImageRetSuccess {
-    ec?: number;
-    id?: string;
+  ec?: number;
+  id?: string;
   [key: string]: JsonValue | undefined;
 }
 
 export interface WebApiGroupNoticeFeed {
-    fid: string;
-    u: number;
-    pubt: number;
-    msg: {
-        text: string;
-        pics?: Array<{ id: string; w: number; h: number }>;
-    };
-    settings: JsonValue;
-    read_num: number;
-    [key: string]: JsonValue;
+  fid: string;
+  u: number;
+  pubt: number;
+  msg: {
+    text: string;
+    pics?: Array<{ id: string; w: number; h: number }>;
+  };
+  settings: JsonValue;
+  read_num: number;
+  [key: string]: JsonValue;
 }
 
 export interface WebApiGroupNoticeRet {
-    ec: number;
-    em?: string;
-    feeds?: Record<string, WebApiGroupNoticeFeed>;
-    [key: string]: JsonValue | Record<string, WebApiGroupNoticeFeed> | undefined;
+  ec: number;
+  em?: string;
+  feeds?: Record<string, WebApiGroupNoticeFeed>;
+  [key: string]: JsonValue | Record<string, WebApiGroupNoticeFeed> | undefined;
 }
 
 export function calculateBkn(key: string): string {
@@ -174,7 +174,7 @@ export async function uploadGroupNoticeImage(
   imageBuffer: Buffer
 ): Promise<{ id: string; width: number; height: number } | undefined> {
   try {
-    const bkn  = calculateBkn(cookieObject['skey']);
+    const bkn = calculateBkn(cookieObject['skey']);
     const boundary = `-----------------------------${Date.now()}`;
 
     const parts: Buffer[] = [];

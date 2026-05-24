@@ -1,9 +1,9 @@
-import { RequestUtil, cookieToString, getBknFromCookie } from './request-util';
-import { createHash } from 'crypto';
-import { statSync, createReadStream, writeFileSync, unlinkSync } from 'fs';
-import { basename, join } from 'path';
-import { tmpdir } from 'os';
 import type { JsonValue } from '@snowluma/common/json';
+import { createHash } from 'crypto';
+import { createReadStream, statSync, unlinkSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { basename, join } from 'path';
+import { RequestUtil, cookieToString, getBknFromCookie } from './request-util';
 
 // 群相册信息
 export interface GroupAlbumInfo {

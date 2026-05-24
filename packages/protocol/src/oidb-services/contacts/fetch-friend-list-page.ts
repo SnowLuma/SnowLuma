@@ -5,9 +5,9 @@
 // while-loop until the server stops emitting a next cursor and
 // concatenates results into the public FriendInfo[] shape.
 
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase, OidbSvcTrpcTcp0xFD4_1Response } from '@snowluma/proto-defs/oidb';
 import type { OidbFriendListRequest } from '@snowluma/proto-defs/oidb-actions/base';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 export namespace FetchFriendListPage {

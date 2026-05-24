@@ -3,9 +3,9 @@
 // means group). Pairs with the c2c-scope variant `GetPrivatePttUrl`
 // (0x126D_200) which only differs in scene.
 
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type { NTV2RichMediaReq, NTV2RichMediaResp } from '@snowluma/proto-defs/oidb-actions/media';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 import {
   normalizeMediaNode, parseNtv2DownloadUrl, type NtMediaIndex,

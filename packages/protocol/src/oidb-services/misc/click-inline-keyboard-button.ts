@@ -2,9 +2,9 @@
 // owning the button (so the bot can react). All identity fields go on
 // the wire as uint_64 → callers pass JS numbers and we widen here.
 
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type { Oidb0x112eReq, Oidb0x112eResp } from '@snowluma/proto-defs/oidb-actions/base';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 export interface InlineButtonClickResult {
