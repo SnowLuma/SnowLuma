@@ -1,6 +1,6 @@
 {
   "name": "@snowluma/core",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "description": "SnowLuma core - NTQQ packet sniffer with Node.js native addon",
   "private": true,
   "type": "module",
