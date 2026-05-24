@@ -1,7 +1,7 @@
+import { createLogger } from '@snowluma/common/logger';
+import { randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { randomBytes } from 'crypto';
-import { createLogger } from '@snowluma/common/logger';
 import type {
   HttpClientNetwork,
   HttpServerNetwork,
@@ -54,13 +54,6 @@ function generateAccessToken(): string {
 }
 
 export interface LoadOneBotConfigOptions {
-  /**
-   * Persist the normalized config to disk when the file is missing or was
-   * in legacy format. Default `false` so accidental call sites (read-only
-   * GETs in particular) don't generate fresh access tokens, race on
-   * concurrent writes, or surprise the operator with materialized files.
-   * Pass `true` from boot / explicit POST handlers.
-   */
   persistDefaults?: boolean;
 }
 
@@ -70,9 +63,6 @@ export function loadOneBotConfig(uin: string, options: LoadOneBotConfigOptions =
   const perUinPath = path.join(CONFIG_DIR, `onebot_${uin}.json`);
   const globalRaw = tryLoadJson(DEFAULT_CONFIG_PATH);
   const perUinRaw = tryLoadJson(perUinPath);
-
-  // Detect legacy on-disk format (top-level per-type arrays). We auto-migrate
-  // these entries into `networks.*` and rewrite the file on the next save.
   const legacy = !!perUinRaw && hasLegacyTopLevel(perUinRaw);
 
   const sources: JsonObject[] = [];
@@ -162,11 +152,6 @@ function wsClientToJson(n: WsClientNetwork): JsonObject {
 }
 
 function fromJson(sources: JsonObject[], freshInstall: boolean): OneBotConfig {
-  // Legacy top-level scalars are pulled DOWN into each adapter on the first
-  // load: the on-disk schema has no globals anymore, every adapter is
-  // self-describing. We compute the legacy fallbacks here so that adapters
-  // missing `messageFormat`/`reportSelfMessage` inherit them once and the
-  // file is rewritten in normalized form.
   let legacyFormat: MessageFormat | undefined;
   let legacyReport: boolean | undefined;
   let musicSignUrl = '';
@@ -178,19 +163,11 @@ function fromJson(sources: JsonObject[], freshInstall: boolean): OneBotConfig {
   }
   const inheritedFormat: MessageFormat = legacyFormat ?? 'array';
   const inheritedReport: boolean = legacyReport ?? false;
-
-  // Pluck per-type arrays from each source: prefer `networks.<kind>` over
-  // legacy top-level arrays, but accept both. Later sources override earlier
-  // ones at the network level (last write wins per `(kind, name)` pair).
   const adapterDefaults = { messageFormat: inheritedFormat, reportSelfMessage: inheritedReport };
   const httpServers = collectByName<HttpServerNetwork>(sources, 'httpServers', (raw) => parseHttpServer(raw, adapterDefaults));
   const httpClients = collectByName<HttpClientNetwork>(sources, 'httpClients', (raw) => parseHttpClient(raw, adapterDefaults), 'httpPostEndpoints');
   const wsServers = collectByName<WsServerNetwork>(sources, 'wsServers', (raw) => parseWsServer(raw, adapterDefaults));
   const wsClients = collectByName<WsClientNetwork>(sources, 'wsClients', (raw) => parseWsClient(raw, adapterDefaults));
-
-  // Seed defaults ONLY for a brand-new install (no source files at all).
-  // If the operator deliberately emptied every adapter, respect that and
-  // do NOT silently revive default 0.0.0.0 listeners.
   if (
     freshInstall &&
     httpServers.length === 0 &&
@@ -340,8 +317,6 @@ function clean<T extends Record<string, unknown>>(obj: T): T {
 }
 
 function asRole(value: unknown, fallback: WsRole): WsRole {
-  // Accept both uppercase (canonical) and lowercase (legacy on-disk) forms.
-  // Lowercase values are auto-migrated to uppercase on the next save.
   const text = asString(value, fallback).toLowerCase();
   if (text === 'api') return 'Api';
   if (text === 'event') return 'Event';

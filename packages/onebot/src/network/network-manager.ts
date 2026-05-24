@@ -13,10 +13,11 @@ export class OneBotNetworkManager {
   register<C extends NetworkBase>(adapter: IOneBotNetworkAdapter<C>): void {
     const existing = this.adapters.get(adapter.name);
     if (existing) {
-      // Replacing an adapter under the same name — close the previous one
-      // before storing the new instance to keep ports/sockets clean.
       log.info('replacing adapter [%s]', adapter.name);
-      void Promise.resolve(existing.close()).catch(() => { /* best-effort */ });
+      Promise.resolve(existing.close()).catch(() => {
+        /* best-effort */
+        // 应该该打个日志以便排查问题，但不应当让调用者感知到这个失败。
+      });
     }
     this.adapters.set(adapter.name, adapter as AnyAdapter);
   }
@@ -68,14 +69,6 @@ export class OneBotNetworkManager {
     }
   }
 
-  /**
-   * Dispatch one canonical OneBot event to every active adapter in parallel.
-   * The dispatch payload is built once so each adapter pays only the cost
-   * of picking the right pre-serialized variant.
-   *
-   * Errors thrown inside an adapter are isolated — one bad adapter never
-   * blocks the others.
-   */
   async emitEvent(event: JsonObject): Promise<void> {
     if (!this.hasActiveAdapters()) return;
     const payload = buildDispatchPayload(event);

@@ -1,10 +1,10 @@
+import { createLogger, type Logger } from '@snowluma/common/logger';
 import {
   createServer,
   type IncomingMessage,
   type Server,
   type ServerResponse,
 } from 'http';
-import { createLogger, type Logger } from '@snowluma/common/logger';
 import type { DispatchPayload } from '../event-filter';
 import type { HttpServerNetwork, JsonObject, JsonValue } from '../types';
 import { IOneBotNetworkAdapter, NetworkReloadType, type NetworkAdapterContext } from './adapter';
@@ -23,8 +23,6 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
   }
 
   override get isActive(): boolean {
-    // HTTP server never receives events — `isActive` purely tracks the
-    // bound listener so the network manager can skip dispatch cleanly.
     return this.isEnabled;
   }
 
@@ -69,7 +67,6 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
     return NetworkReloadType.Normal;
   }
 
-  // HTTP server only acts on inbound requests; it doesn't push events.
   onEvent(_event: JsonObject, _payload: DispatchPayload): void { /* no-op */ }
 
   private startServer(): void {
@@ -95,12 +92,6 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
   }
 
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    // Read `path` + `accessToken` fresh from `this.config` on every
-    // request so config hot-reloads (`reload()` overwrites `this.config`
-    // in place) take effect on the very next request without
-    // re-binding the listener. Matches the ws-server / http-post /
-    // ws-client adapters, which all read `this.config.accessToken`
-    // inline at the point of use.
     const expectedPath = normalizePath(this.config.path ?? '/');
     const accessToken = this.config.accessToken ?? '';
     const parsedUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
@@ -223,15 +214,6 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
 }
 
 function bindingSignature(net: HttpServerNetwork): string {
-  // `accessToken` deliberately omitted: it's read per-request from
-  // `this.config`, so a token change doesn't need to re-bind the
-  // listener. Including it here would cause a `close()` + `listen()`
-  // round trip on every token edit — a needless port-rebind that, on
-  // some hosts, races with the OS releasing the port and lands the
-  // server in a half-broken state where the old token still
-  // authenticates because the EADDRINUSE-failing new server never
-  // replaced the old one. `host`/`port`/`path` still gate a restart
-  // because Node's HTTP `Server.listen()` binds the socket on those.
   return `${net.host ?? '0.0.0.0'}:${net.port}${normalizePath(net.path ?? '/')}`;
 }
 

@@ -1,7 +1,6 @@
 import type { WebSocket } from '@snowluma/websocket';
 import type { IncomingMessage } from 'http';
 
-/** Validate a request's bearer token / `?access_token=` query against the configured token. */
 export function isAuthorized(request: IncomingMessage, token: string): boolean {
   if (!token) return true;
   const auth = request.headers.authorization ?? '';
@@ -25,7 +24,6 @@ export function rawDataToString(raw: Buffer | string | ArrayBuffer | ArrayBuffer
   return '';
 }
 
-/** Best-effort send: drops payload if the socket isn't OPEN, reports send errors. */
 export function safeSend(socket: WebSocket, payload: string, onError?: (err: Error) => void): void {
   if (socket.readyState !== 1 /* WebSocket.OPEN */) return;
   socket.send(payload, (error?: Error | null) => {
@@ -33,20 +31,17 @@ export function safeSend(socket: WebSocket, payload: string, onError?: (err: Err
   });
 }
 
-/** Best-effort close, treats already-closed sockets as a no-op. */
 export function safeClose(socket: WebSocket, code = 1000, reason = 'normal'): void {
   if (socket.readyState === 3 /* CLOSED */ || socket.readyState === 2 /* CLOSING */) return;
   socket.close(code, reason);
 }
 
-/** Normalize an HTTP/WS path to a comparable form (strip trailing slash, default to "/"). */
 export function normalizePath(pathValue: string | undefined): string {
   const path = (pathValue ?? '/').trim() || '/';
   if (path === '/') return '/';
   return path.endsWith('/') ? path.slice(0, -1) : path;
 }
 
-/** Parse the `pathname` from a (potentially relative) WebSocket request URL. */
 export function parseRequestPath(urlValue: string): string {
   try {
     return new URL(urlValue, 'ws://127.0.0.1').pathname;

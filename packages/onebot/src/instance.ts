@@ -1,27 +1,27 @@
-import path from 'path';
+import { createLogger, type Logger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
+import { formatGroup, formatMessageSegments, formatReply, formatUser } from '@snowluma/protocol/format';
+import path from 'path';
 import { ApiHandler } from './api-handler';
 import type { ConverterContext } from './event-converter';
+import { registerEventPipeline } from './event-pipeline';
+import { buildApiContext, type OneBotInstanceContext } from './instance-context';
+import { RKeyCache } from './instance-rkey';
 import { MediaIndexer } from './media-indexer';
 import { MediaStore } from './media-store';
-import { ReactionStore } from './reaction-store';
 import { MediaUrlResolver } from './media-url-resolver';
-import { MessageStore } from './message-store';
-import { RKeyCache } from './instance-rkey';
-import { buildApiContext, type OneBotInstanceContext } from './instance-context';
-import { registerEventPipeline } from './event-pipeline';
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from './message-id';
-import type { JsonObject, JsonValue, MessageMeta, OneBotConfig, NetworkBase } from './types';
+import { MessageStore } from './message-store';
 import {
-  OneBotNetworkManager,
-  WsServerAdapter,
-  WsClientAdapter,
-  HttpServerAdapter,
   HttpPostAdapter,
+  HttpServerAdapter,
+  OneBotNetworkManager,
+  WsClientAdapter,
+  WsServerAdapter,
   type NetworkAdapterContext,
 } from './network';
-import { createLogger, type Logger } from '@snowluma/common/logger';
-import { formatGroup, formatMessageSegments, formatReply, formatUser } from '@snowluma/protocol/format';
+import { ReactionStore } from './reaction-store';
+import type { JsonObject, JsonValue, MessageMeta, NetworkBase, OneBotConfig } from './types';
 
 const moduleLog = createLogger('Event');
 
@@ -59,10 +59,6 @@ export class OneBotInstance {
     this.mediaStore = new MediaStore(path.join('data', this.uin, 'media.db'));
     this.messageStore = new MessageStore(path.join('data', this.uin, 'messages.json'));
     this.reactionStore = new ReactionStore(path.join('data', this.uin, 'reactions.db'));
-
-    // The converter context's four callbacks delegate to small, focused
-    // modules so this constructor doesn't carry the bridge-URL fetch
-    // branching or the mediaStore field-mapping fanout inline.
     const mediaUrlResolver = new MediaUrlResolver(this.bridge, this.rkeyCache);
     const mediaIndexer = new MediaIndexer(this.mediaStore);
     this.converterCtx = {
@@ -76,10 +72,6 @@ export class OneBotInstance {
       mediaSegmentSink: (mediaType, element, data, isGroup, sessionId) =>
         mediaIndexer.remember(mediaType, element, data, isGroup, sessionId),
     };
-
-    // Shared instance context. Only carries fields that are actually read
-    // through it — api handler and network manager stay as direct fields on
-    // the instance because nothing reads them via ctx.
     const ctx: OneBotInstanceContext = {
       uin: this.uin,
       selfId: parseInt(this.uin, 10) || 0,
@@ -104,9 +96,6 @@ export class OneBotInstance {
 
     this.startHeartbeat();
     this.rkeyCache.warmUp(this.bridge, this.uin);
-
-    // Per-kind subscription on the typed event bus. Each bridge event kind
-    // gets its own focused handler in `event-pipeline`; the firehose is gone.
     this.disposeEventPipeline = registerEventPipeline(ctx);
   }
 
@@ -152,10 +141,6 @@ export class OneBotInstance {
   private dispatchEvent(event: JsonObject): void {
     this.cacheMessageEvent(event);
     this.logReceivedMessage(event);
-    // NetworkManager builds the dispatch payload once and fans out to every
-    // active adapter in parallel via Promise.allSettled — per-adapter errors
-    // are already isolated, so the outer promise should never reject. The
-    // .catch is a belt-and-suspenders guard against future refactors.
     void this.networkManager.emitEvent(event).catch((err) => {
       this.log.warn('emitEvent failed: %s', err instanceof Error ? (err.stack ?? err.message) : String(err));
     });
@@ -218,14 +203,11 @@ export class OneBotInstance {
         await this.networkManager.closeOne(adapter.name);
       }
     }
-
-    // Reload existing adapters in place; spin up new ones the manager hasn't
-    // seen before.
     for (const [name, net] of desired) {
       const existing = this.networkManager.get(name);
       if (existing) {
         try {
-          await existing.reload(net as never);
+          await existing.reload(net);
         } catch (err) {
           this.log.warn('reload [%s] failed: %s', name, err instanceof Error ? err.message : String(err));
         }
@@ -333,9 +315,6 @@ export class OneBotInstance {
       },
     };
   }
-
-  // --- Heartbeat ---
-
   private startHeartbeat(): void {
     this.heartbeatTimer = setInterval(() => {
       this.dispatchEvent(this.makeHeartbeatEvent());

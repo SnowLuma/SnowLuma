@@ -1,5 +1,6 @@
-import type { MessageElement } from '@snowluma/protocol/events';
 import { createLogger } from '@snowluma/common/logger';
+import type { MessageElement } from '@snowluma/protocol/events';
+import { parseFromCQString } from './helper/cq';
 import type { JsonValue } from './types';
 
 const log = createLogger('MsgParser');
@@ -13,14 +14,8 @@ export interface ParseMessageOptions {
 
 // --- CQ Code parsing ---
 
-const CQ_REGEX = /\[CQ:([A-Za-z]+)(?:,([^\]]*))?\]/g;
+export const CQ_REGEX = /\[CQ:([A-Za-z]+)(?:,([^\]]*))?\]/g;
 
-/**
- * Best-effort base-10 integer coercion. Falls back to `fallback` (default 0)
- * when the input can't be parsed as a finite integer — `parseInt('abc')`
- * is `NaN`, which silently turns into `0`/`null` further down the wire
- * pipeline and produces undebuggable protocol-level failures.
- */
 function intOr(value: unknown, fallback = 0): number {
   if (value === undefined || value === null) return fallback;
   if (typeof value === 'number') return Number.isFinite(value) ? Math.trunc(value) : fallback;
@@ -28,7 +23,7 @@ function intOr(value: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function parseCQParams(raw: string): Record<string, string> {
+export function parseCQParams(raw: string): Record<string, string> {
   const params: Record<string, string> = {};
   if (!raw) return params;
   for (const pair of raw.split(',')) {
@@ -42,43 +37,6 @@ function parseCQParams(raw: string): Record<string, string> {
     }
   }
   return params;
-}
-
-function cqUnescape(text: string): string {
-  // Order matters: `&amp;` MUST be last so that, e.g., `&amp;#91;` keeps
-  // the literal `&#91;` instead of decoding twice into `[`.
-  return text
-    .replace(/&#91;/g, '[')
-    .replace(/&#93;/g, ']')
-    .replace(/&#44;/g, ',')
-    .replace(/&amp;/g, '&');
-}
-
-async function parseFromCQString(message: string, options?: ParseMessageOptions): Promise<MessageElement[]> {
-  const elements: MessageElement[] = [];
-  let lastIndex = 0;
-
-  for (const match of message.matchAll(CQ_REGEX)) {
-    // Text before this CQ code
-    if (match.index! > lastIndex) {
-      const text = cqUnescape(message.substring(lastIndex, match.index!));
-      if (text) elements.push({ type: 'text', text });
-    }
-    lastIndex = match.index! + match[0].length;
-
-    const cqType = match[1];
-    const params = parseCQParams(match[2] || '');
-    const elem = await segmentToElement(cqType, params, options);
-    if (elem) elements.push(elem);
-  }
-
-  // Trailing text
-  if (lastIndex < message.length) {
-    const text = cqUnescape(message.substring(lastIndex));
-    if (text) elements.push({ type: 'text', text });
-  }
-
-  return elements;
 }
 
 // --- JSON segment parsing ---
@@ -95,7 +53,7 @@ function isSegmentArray(val: unknown): val is MessageSegment[] {
   );
 }
 
-async function segmentToElement(type: string, data: Record<string, unknown>, options?: ParseMessageOptions): Promise<MessageElement | null> {
+export async function segmentToElement(type: string, data: Record<string, unknown>, options?: ParseMessageOptions): Promise<MessageElement | null> {
   const normalizedType = type.toLowerCase();
   switch (normalizedType) {
     case 'text': {
@@ -120,10 +78,6 @@ async function segmentToElement(type: string, data: Record<string, unknown>, opt
       if (!uid && options?.resolveMentionUid) {
         uid = (await options.resolveMentionUid(uin))?.trim() ?? '';
       }
-
-      // Leave `text` undefined when the caller didn't supply a display
-      // name. The element-builder then resolves it from the group roster
-      // (so QQ renders `@昵称` instead of `@QQ号`).
       const element: MessageElement = { type: 'at', targetUin: uin };
       if (uid) element.uid = uid;
       if (name) element.text = `@${name} `;
@@ -333,14 +287,6 @@ async function segmentToElement(type: string, data: Record<string, unknown>, opt
       return null;
     }
     case 'file': {
-      // OneBot11 file segment referencing a previously-uploaded file
-      // (returned by `upload_group_file` / `upload_private_file`).
-      // We deliberately do NOT support `{file: '/path'}` here because
-      // the upload pipeline is async and lives behind the bridge —
-      // the element-builder runs synchronously over the parsed
-      // message. Callers that want upload-and-send should use the
-      // dedicated `upload_*` actions which now publish the file in
-      // chat atomically (`actions/group-file.ts`).
       const fileId = String(data.file_id ?? data.fileId ?? '').trim();
       if (!fileId) {
         log.warn('[MsgParser] file segment without file_id is unsupported (upload first via upload_group_file / upload_private_file)');
@@ -350,10 +296,6 @@ async function segmentToElement(type: string, data: Record<string, unknown>, opt
       const fileSize = intOr(data.size ?? data.fileSize, 0);
       const md5Hex = String(data.md5 ?? data.md5Hex ?? '').trim();
       const sha1Hex = String(data.sha1 ?? data.sha1Hex ?? '').trim();
-      // file_hash is the c2c-file server-issued addon string — needed
-      // on the wire when re-sending a previously-uploaded c2c file.
-      // get_private_file_url callers already pass it through, so honour
-      // the same field naming here.
       const fileHash = String(data.file_hash ?? data.fileHash ?? '').trim();
       const elem: MessageElement = { type: 'file', fileId };
       if (fileName) elem.fileName = fileName;
@@ -381,14 +323,6 @@ function segmentPayload(seg: MessageSegment): Record<string, unknown> {
 
 // --- Public API ---
 
-/**
- * Parse an OneBot11 message value into internal MessageElement array.
- * Supports:
- *  - string (plain text or CQ code string)
- *  - array of { type, data } segments (JSON segment format)
- *
- * If autoEscape is true, the string is treated as plain text (no CQ parsing).
- */
 export async function parseMessage(message: JsonValue, autoEscape: boolean, options?: ParseMessageOptions): Promise<MessageElement[]> {
   if (typeof message === 'string') {
     if (autoEscape) {

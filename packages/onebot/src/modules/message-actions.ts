@@ -1,14 +1,14 @@
+import { createLogger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import type { ForwardNodePayload, MessageElement } from '@snowluma/protocol/events';
-import { createLogger } from '@snowluma/common/logger';
 import type { MessageSendResult } from '../api-handler';
 import { elementsToOneBotSegments } from '../event-converter';
-import { segmentsToRawMessage } from '../event-converter/utils';
+import { segmentsToRawMessage } from '../helper/cq';
+import type { OneBotInstanceContext } from '../instance-context';
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from '../message-id';
 import { parseMessage } from '../message-parser';
 import type { MessageStore } from '../message-store';
 import type { JsonArray, JsonObject, JsonValue, MessageMeta } from '../types';
-import type { OneBotInstanceContext } from '../instance-context';
 
 const log = createLogger('OneBot');
 

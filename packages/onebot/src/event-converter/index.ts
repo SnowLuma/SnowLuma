@@ -25,16 +25,10 @@ import {
 } from './to-request';
 import { elementsToJson } from './to-segment';
 
-// ─────────────── resolver callback types ───────────────
-
 export type ImageUrlResolver = (element: MessageElement, isGroup: boolean) => string;
 export type MediaUrlResolver = (element: MessageElement, isGroup: boolean, sessionId: number) => Promise<string>;
 export type MessageIdResolver = (isGroup: boolean, sessionId: number, sequence: number, eventName: string) => number;
-/**
- * Side-channel callback invoked every time an image / record / video
- * segment is produced, so callers can keep a lookup index (e.g. for
- * `get_image` / `get_record`) without re-scanning the message store.
- */
+
 export type MediaSegmentSink = (
   mediaType: 'image' | 'record' | 'video',
   element: MessageElement,
@@ -45,15 +39,7 @@ export type MediaSegmentSink = (
 
 // ─────────────── context ───────────────
 
-/**
- * Everything `convertEvent` needs that isn't on the bridge event itself.
- * Built once per OneBotInstance and passed through unchanged. Resolvers
- * are nullable because tests routinely omit them; when missing, the
- * converter falls back to the bridge event's own fields (e.g. raw
- * `element.url`, raw `event.msgSeq`).
- */
 export interface ConverterContext {
-  /** Self uin parsed once into a Number for inclusion in `self_id`. */
   selfId: number;
   imageUrlResolver: ImageUrlResolver | null;
   mediaUrlResolver: MediaUrlResolver | null;
@@ -63,11 +49,6 @@ export interface ConverterContext {
 
 // ─────────────── dispatcher ───────────────
 
-/**
- * Convert a bridge `QQEventVariant` to the OneBot wire-shape JSON.
- * Returns null for kinds we don't surface (so callers can skip them
- * without an explicit allow-list).
- */
 export async function convertEvent(
   ctx: ConverterContext,
   event: QQEventVariant,
@@ -101,15 +82,6 @@ export async function convertEvent(
   }
 }
 
-// ─────────────── side-channel re-export ───────────────
-
-/**
- * Element-array -> OneBot segment-array helper. Used by
- * `modules/message-actions.ts` for forward-message rebuilding (where
- * we already know the elements but want the OneBot segment shape).
- * The signature stays backwards-compatible: each resolver is an
- * optional positional argument.
- */
 export async function elementsToOneBotSegments(
   elements: MessageElement[],
   isGroup: boolean,

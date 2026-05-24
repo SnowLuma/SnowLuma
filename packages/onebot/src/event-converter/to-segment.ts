@@ -142,8 +142,5 @@ async function elementToSegment(
       data: { id: element.resId ?? '' },
     };
   }
-
-  // Unknown / unmapped element type — emit an empty segment to keep the
-  // outgoing message length consistent with the bridge event.
   return { type: element.type, data: {} };
 }

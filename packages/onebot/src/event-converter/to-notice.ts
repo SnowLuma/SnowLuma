@@ -183,17 +183,7 @@ export function convertFriendAdd(ctx: ConverterContext, event: FriendAdd): JsonO
   };
 }
 
-/**
- * Group message emoji reaction notice. Matches the gocqhttp / NapCat
- * extension shape (`notice_type: 'group_msg_emoji_like'`) since OneBot
- * v11 standard has no slot for reactions and that's what every
- * downstream framework keys off.
- */
 export function convertGroupMsgEmojiLike(ctx: ConverterContext, event: GroupMsgEmojiLike): JsonObject {
-  // Reconstruct the OneBot message_id we originally minted for the
-  // reacted-to message. hashMessageIdInt32 is deterministic so the ID
-  // matches whatever the client received at receive-time, even when
-  // the message has fallen out of our store.
   const messageId = applyMessageIdResolver(
     ctx.messageIdResolver, true, event.groupId, event.msgSeq, GROUP_MESSAGE_EVENT,
   );

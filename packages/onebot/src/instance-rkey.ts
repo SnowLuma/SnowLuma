@@ -1,7 +1,7 @@
-import type { MessageElement } from '@snowluma/protocol/events';
+import { createLogger } from '@snowluma/common/logger';
 import type { DownloadRKeyInfo } from '@snowluma/core/bridge';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
-import { createLogger } from '@snowluma/common/logger';
+import type { MessageElement } from '@snowluma/protocol/events';
 
 const log = createLogger('OneBot');
 
@@ -50,11 +50,6 @@ export class RKeyCache {
     const separator = url.includes('?') ? '&rkey=' : '?rkey=';
     return url + separator + encodeURIComponent(cleanRKey);
   }
-
-  /**
-   * Resolve a URL for video/record/file media elements.
-   * Appends the correct RKey type based on media kind and group/private context.
-   */
   resolveMediaUrl(bridge: BridgeInterface, element: MessageElement, isGroup: boolean): string {
     const url = element.url ?? '';
     if (!url || !urlNeedsRKey(url)) return url;
@@ -111,18 +106,13 @@ export class RKeyCache {
 
     let result = tryFind(primaryType) ?? tryFind(FALLBACK_IMAGE_RKEY_TYPE);
     if (result) return result;
-
-    // Refresh check cooldown
     if (now - this.lastRefreshAttempt < RKEY_REFRESH_COOLDOWN) return null;
     this.lastRefreshAttempt = now;
-
-    // Schedule async refresh
     bridge.apis.contacts.fetchDownloadRKeys().then(
       (rkeys) => this.updateCache(rkeys),
       () => { /* ignore */ },
     );
 
-    // Try again (won't be ready yet for this call, but future calls will benefit)
     result = tryFind(primaryType) ?? tryFind(FALLBACK_IMAGE_RKEY_TYPE);
     return result;
   }
@@ -132,8 +122,8 @@ function urlNeedsRKey(url: string): boolean {
   if (!url || url.includes('rkey=')) return false;
   if (url.includes('gchat.qpic.cn')) return false;
   return url.includes('multimedia.nt.qq.com.cn') ||
-         url.includes('.nt.qq.com.cn') ||
-         url.includes('/download');
+    url.includes('.nt.qq.com.cn') ||
+    url.includes('/download');
 }
 
 function stripRKeyPrefix(rkey: string): string {

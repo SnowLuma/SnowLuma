@@ -1,9 +1,10 @@
 import type { QQEventVariant } from '@snowluma/protocol/events';
+import { segmentsToRawMessage } from '../helper/cq';
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT } from '../message-id';
 import type { JsonObject } from '../types';
 import type { ConverterContext } from './index';
 import { elementsToJson } from './to-segment';
-import { applyMessageIdResolver, segmentsToRawMessage } from './utils';
+import { applyMessageIdResolver } from './utils';
 
 type FriendMessage = Extract<QQEventVariant, { kind: 'friend_message' }>;
 type GroupMessage = Extract<QQEventVariant, { kind: 'group_message' }>;

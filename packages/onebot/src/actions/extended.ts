@@ -635,7 +635,6 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   });
 
   h.registerAction('set_online_status', async (params) => {
-    // 按 OneBot/NapCat 习惯提取参数，状态码默认为 11
     const status = asNumber(params.status);
     const extStatus = asNumber(params.ext_status) || 0;
     const batteryStatus = asNumber(params.battery_status) || 100;
@@ -838,8 +837,6 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (!groupId) {
       return failedResponse(RETCODE.BAD_REQUEST, 'invalid group_id');
     }
-
-
     try {
       const data = await ctx.bridge.apis.groupAdmin.getAtAllRemain(groupId);
       return okResponse(data);
@@ -864,8 +861,6 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (typeof longNick !== 'string') {
       return failedResponse(RETCODE.BAD_REQUEST, 'invalid longNick');
     }
-
-
     try {
       await ctx.bridge.apis.profile.setSelfLongNick(longNick);
       return okResponse({});
@@ -907,7 +902,6 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     if (eventType === undefined || isNaN(eventType)) {
       return failedResponse(RETCODE.BAD_REQUEST, 'invalid event_type');
     }
-
 
     try {
       await ctx.bridge.apis.profile.setInputStatus(userId, eventType);
@@ -1042,9 +1036,6 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
   });
 
-  // 原始数据包逃生口（兼容 NapCat）。
-  // NapCat 暴露了两个名称：带点前缀的是 gocqhttp 时代的原始后门，不带前缀的是现代接口。
-  // 它们在 SnowLuma 中执行相同逻辑：十六进制编码 → Bridge.sendRawPacket → 十六进制编码。
   const handleSendPacket = async (params: JsonObject) => {
     const cmd = asString(params.cmd);
     const dataHex = asString(params.data);
@@ -1070,14 +1061,11 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
   h.registerAction('.send_packet', handleSendPacket);
 
   // 机器人生命周期（兼容 NapCat）。
-
   h.registerAction('bot_exit', async () => {
     setTimeout(() => process.exit(0), 50);
     return okResponse();
   });
 
-  // SnowLuma 没有独立的数据包后端进程。
-  // NapCat 的数据包服务在进程外运行，可能独立失败；这里始终报告健康。
   h.registerAction('nc_get_packet_status', async () => {
     return okResponse(null);
   });

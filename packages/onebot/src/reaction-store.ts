@@ -1,24 +1,7 @@
+import Database, { type Database as DatabaseType, type Statement } from '@snowluma/sqlite';
 import fs from 'fs';
 import path from 'path';
-import Database, { type Database as DatabaseType, type Statement } from '@snowluma/sqlite';
 
-// Local cache of "who reacted with which emoji on which group message",
-// fed from `GroupMsgEmojiLikeEvent` push events. Mirrors what NTQQ's
-// internal wrapper cache stores — we maintain our own copy because
-// SnowLuma runs outside the NTQQ process and can't directly call
-// `NodeIKernelMsgService.getMsgEmojiLikesList`, and the OIDB SSO paths
-// for "fetch users who reacted with emoji X" are all blocked by the
-// server-side capability whitelist (cmds 0x9082_3..5, 0x9084_2..5,
-// etc. exist but our client isn't authorized to call them).
-//
-// Limitations vs. the wrapper cache:
-//   - Only data from the bot's lifetime is captured. Reactions placed
-//     before the bot booted are invisible until either:
-//       (a) someone reacts again on that emoji (push event fires)
-//       (b) caller cross-checks against `fetchReactionSummary` to
-//           detect a count mismatch and warn the user
-//   - Push events occasionally drop in unreliable network conditions;
-//     periodic resync via 0x9084_1 summary can repair counts.
 export class ReactionStore {
   private readonly db: DatabaseType;
   private readonly stmtUpsert: Statement;
