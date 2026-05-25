@@ -266,7 +266,7 @@ qualified names (ns.Type), or a missing import.
 
 ```bash
 pnpm --filter @snowluma/proton build     # 打包 src/index.ts → dist/index.js
-pnpm --filter @snowluma/proton test      # 运行 vitest (95 个测试)
+pnpm --filter @snowluma/proton test      # 运行 vitest (107 个测试)
 pnpm --filter @snowluma/proton typecheck # 运行 tsc --noEmit
 
 ```
@@ -281,6 +281,8 @@ src/
     monomorphizer.ts   泛型实例化 → 具体 ProtobufMessage
     import-resolver.ts 跨文件定义 + 包装器解析
     callsite.ts        匹配 protobuf_encode/decode 调用
+    ast-helpers.ts     共享 AST 小工具 + 快速预检
+    wrapper-binding.ts 包装器绑定类型 + 类型模板实例化
     static-wrapper.ts  静态方法包装器检测 (AST)
     utils.ts           名称解析 + 虚拟 SF 追踪
     dependency-graph.ts 拓扑排序 + 可达性

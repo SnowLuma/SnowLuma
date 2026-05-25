@@ -7,48 +7,17 @@ import {
 } from './callsite.js';
 import { collectConcreteFieldGenericTypeArgs, collectGenericInterface, collectInterface } from './collector.js';
 import { buildDependencyRegistry } from './dependency-graph.js';
-import type { ImportedDefinitions, WrapperBinding } from './import-resolver.js';
+import type { ImportedDefinitions } from './import-resolver.js';
 import { monomorphizeTypeNode } from './monomorphizer.js';
 import { PRIMITIVE_TYPE_MAP, WireType, type GenericProtobufTemplate, type MessageRegistry, type ProtobufMessage } from './types.js';
 import {
   createImportedTypeNameResolver,
-  registerSyntheticTypeSourceFile,
   resolveSourceFileForTypeNode,
   typeNodeToMangledName,
 } from './utils.js';
+import { instantiateWrapperTypePattern, type WrapperBinding } from './wrapper-binding.js';
 
 export { typeNodeToMangledName } from './utils.js';
-
-function instantiateWrapperTypePattern(
-  binding: WrapperBinding,
-  callerTypeArgs: ts.NodeArray<ts.TypeNode>,
-  sf: ts.SourceFile,
-): ts.TypeNode | null {
-  if (!binding.typePattern || !binding.typeParamNames?.length) return callerTypeArgs[binding.typeArgIndex] ?? null;
-
-  let text = binding.typePattern;
-  for (let i = 0; i < binding.typeParamNames.length; i++) {
-    const arg = callerTypeArgs[i];
-    if (!arg) return null;
-    text = text.replace(new RegExp(`\\b${binding.typeParamNames[i]}\\b`, 'g'), arg.getText(sf));
-  }
-
-  // Parse the substituted type pattern into a fresh source file whose
-  // `fileName` is the binding's origin (so subsequent import resolution can
-  // find the right module) AND whose `text` contains the substituted source
-  // (so `getText()` on the resulting TypeNode returns the actual type, not
-  // garbage from an empty-text companion file).
-  const parsed = ts.createSourceFile(
-    binding.sourceFilePath ?? sf.fileName,
-    `type __T = ${text};`,
-    ts.ScriptTarget.Latest,
-    true,
-  );
-  const stmt = parsed.statements[0];
-  if (!ts.isTypeAliasDeclaration(stmt)) return null;
-  registerSyntheticTypeSourceFile(stmt.type, parsed);
-  return stmt.type;
-}
 
 /** A recorded call-site for later replacement. */
 export interface CallSiteRecord {
@@ -56,8 +25,8 @@ export interface CallSiteRecord {
   exprStart: number;         // position of identifier start
   typeArgsEnd: number;       // position after closing '>'
   firstTypeArg: ts.TypeNode; // the type argument node
-  line: number;              // 1-based line for runtime map lookup
-  column: number;            // 1-based column for runtime map lookup
+  line: number;              // 1-based source position for diagnostics
+  column: number;            // 1-based source position for diagnostics
 }
 
 export interface ResolvedCallSiteRecord extends CallSiteRecord {
