@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { getMethodName, isStaticMethod } from './ast-helpers.js';
 import { collectProtobufImportBindings, matchProtobufCallSite, type CanonicalProtobufFn, type ProtobufImportBindings } from './callsite.js';
 
 /**
@@ -125,17 +126,6 @@ export function detectClassWrappersInFile(
     if (info) out.set(stmt.name.text, info);
   }
   return out;
-}
-
-function isStaticMethod(m: ts.MethodDeclaration): boolean {
-  const mods = ts.getModifiers(m);
-  return mods?.some(mod => mod.kind === ts.SyntaxKind.StaticKeyword) ?? false;
-}
-
-function getMethodName(m: ts.MethodDeclaration): string | null {
-  if (ts.isIdentifier(m.name)) return m.name.text;
-  if (ts.isStringLiteral(m.name)) return m.name.text;
-  return null;
 }
 
 /** Walk method body, collecting every protobuf_encode/decode call whose

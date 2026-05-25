@@ -1,46 +1,42 @@
-import ts from 'typescript';
-import { readFileSync, existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
-import { collectInterface, collectGenericInterface } from './collector.js';
-import { PRIMITIVE_TYPE_MAP, type ProtobufMessage, type GenericProtobufTemplate } from './types.js';
-import { createImportedTypeNameResolver, isKeywordTypeNode, type ImportedTypeNameResolver } from './utils.js';
+import ts from 'typescript';
 import { collectProtobufImportBindings, matchProtobufCallSite, type CanonicalProtobufFn } from './callsite.js';
+import { collectGenericInterface, collectInterface } from './collector.js';
+import { PRIMITIVE_TYPE_MAP, type GenericProtobufTemplate, type ProtobufMessage } from './types.js';
+import { createImportedTypeNameResolver, isKeywordTypeNode, type ImportedTypeNameResolver } from './utils.js';
 
 export interface WrapperBinding {
-    fnName: CanonicalProtobufFn;
-    typeArgIndex: number;
-    typePattern?: string;
-    typeParamNames?: string[];
-    sourceFilePath?: string;
+  fnName: CanonicalProtobufFn;
+  typeArgIndex: number;
+  typePattern?: string;
+  typeParamNames?: string[];
+  sourceFilePath?: string;
 }
 
 export interface ParsedFileEntry {
-    filePath: string;
-    concrete: ProtobufMessage[];
-    templates: Map<string, GenericProtobufTemplate>;
-    importedTypeSources: Map<string, string>;
-    exportAllTypeSources: Map<string, string>;
-    resolveImportedTypeName: ImportedTypeNameResolver;
-    exportedWrappers: Map<string, WrapperBinding>;
+  filePath: string;
+  concrete: ProtobufMessage[];
+  templates: Map<string, GenericProtobufTemplate>;
+  importedTypeSources: Map<string, string>;
+  exportAllTypeSources: Map<string, string>;
+  resolveImportedTypeName: ImportedTypeNameResolver;
+  exportedWrappers: Map<string, WrapperBinding>;
 }
 
 export interface ImportedDefinitions {
-    concrete: ProtobufMessage[];
-    templates: Map<string, GenericProtobufTemplate>;
-    wrapperBindings: Map<string, WrapperBinding>;
+  concrete: ProtobufMessage[];
+  templates: Map<string, GenericProtobufTemplate>;
+  wrapperBindings: Map<string, WrapperBinding>;
 }
 
 interface ImportClause {
-    importedName: string;
-    localName: string;
-    specifier: string;
+  importedName: string;
+  localName: string;
+  specifier: string;
 }
 
-function getCallableName(expr: ts.Expression): string | null {
-  if (ts.isIdentifier(expr)) return expr.text;
-  if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
-  return null;
-}
+import { getCallableName } from './ast-helpers.js';
 
 /** Extract all named imports from the source file (both type and value imports). */
 function extractImports(sf: ts.SourceFile): ImportClause[] {
@@ -220,9 +216,9 @@ function matchForwardedProtobufFn(
       });
       if (
         cs &&
-                ts.isTypeReferenceNode(cs.firstTypeArg) &&
-                ts.isIdentifier(cs.firstTypeArg.typeName) &&
-                typeParamIndexes.has(cs.firstTypeArg.typeName.text)
+        ts.isTypeReferenceNode(cs.firstTypeArg) &&
+        ts.isIdentifier(cs.firstTypeArg.typeName) &&
+        typeParamIndexes.has(cs.firstTypeArg.typeName.text)
       ) {
         found = {
           fnName: cs.fnName,
@@ -316,11 +312,11 @@ function matchForwardedKnownWrapper(
       const forwardedTypeArg = wrapper ? node.typeArguments[wrapper.typeArgIndex] : undefined;
       if (
         wrapper &&
-                forwardedTypeArg &&
-                ts.isTypeReferenceNode(forwardedTypeArg) &&
-                ts.isIdentifier(forwardedTypeArg.typeName) &&
-                !forwardedTypeArg.typeArguments?.length &&
-                typeParamIndexes.has(forwardedTypeArg.typeName.text)
+        forwardedTypeArg &&
+        ts.isTypeReferenceNode(forwardedTypeArg) &&
+        ts.isIdentifier(forwardedTypeArg.typeName) &&
+        !forwardedTypeArg.typeArguments?.length &&
+        typeParamIndexes.has(forwardedTypeArg.typeName.text)
       ) {
         const chainTypeArgIndex = typeParamIndexes.get(forwardedTypeArg.typeName.text)!;
         const binding: WrapperBinding = {
@@ -582,8 +578,8 @@ function collectCallRootTypeNodes(sf: ts.SourceFile): ts.TypeNode[] {
 }
 
 interface RootTypeNode {
-    typeNode: ts.TypeNode;
-    from: ParsedFileEntry;
+  typeNode: ts.TypeNode;
+  from: ParsedFileEntry;
 }
 
 /**
@@ -724,16 +720,16 @@ export function resolveImports(
   ts.forEachChild(entrySourceFile, function visit(node) {
     if (
       ts.isCallExpression(node) &&
-            node.typeArguments?.length &&
-            getCallableName(node.expression) &&
-            (
-              wrapperBindings.has(getCallableName(node.expression)!) ||
-                (
-                  ts.isPropertyAccessExpression(node.expression) &&
-                    ts.isIdentifier(node.expression.expression) &&
-                    importedObjectWrapperMembers.get(node.expression.expression.text)?.has(node.expression.name.text)
-                )
-            )
+      node.typeArguments?.length &&
+      getCallableName(node.expression) &&
+      (
+        wrapperBindings.has(getCallableName(node.expression)!) ||
+        (
+          ts.isPropertyAccessExpression(node.expression) &&
+          ts.isIdentifier(node.expression.expression) &&
+          importedObjectWrapperMembers.get(node.expression.expression.text)?.has(node.expression.name.text)
+        )
+      )
     ) {
       const binding = wrapperBindings.get(getCallableName(node.expression)!) ?? (
         ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression)

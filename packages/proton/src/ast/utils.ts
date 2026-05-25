@@ -40,9 +40,17 @@ export function isKeywordTypeNode(node: ts.Node): boolean {
   return KEYWORD_TYPE_KINDS.has(node.kind);
 }
 
-export function createImportedTypeNameResolver(sf: ts.SourceFile): ImportedTypeNameResolver {
-  const localToImported = new Map<string, string>();
+// Imported-name resolvers are deterministic for a given SourceFile but get
+// asked for in a half-dozen places per `transform()` call (analyzer,
+// monomorphizer, replacer, subclass resolver, …). Cache by node identity
+// so the per-SF statement walk runs once instead of N times.
+const resolverCache = new WeakMap<ts.SourceFile, ImportedTypeNameResolver>();
 
+export function createImportedTypeNameResolver(sf: ts.SourceFile): ImportedTypeNameResolver {
+  const cached = resolverCache.get(sf);
+  if (cached) return cached;
+
+  const localToImported = new Map<string, string>();
   for (const stmt of sf.statements) {
     if (!ts.isImportDeclaration(stmt) || !stmt.importClause) continue;
     const bindings = stmt.importClause.namedBindings;
@@ -53,7 +61,9 @@ export function createImportedTypeNameResolver(sf: ts.SourceFile): ImportedTypeN
     }
   }
 
-  return (name: string) => localToImported.get(name) ?? name;
+  const resolver: ImportedTypeNameResolver = (name) => localToImported.get(name) ?? name;
+  resolverCache.set(sf, resolver);
+  return resolver;
 }
 
 /**

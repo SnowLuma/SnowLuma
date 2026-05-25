@@ -23,7 +23,15 @@ export interface ProtobufCallSite {
   column: number;
 }
 
+// Same shape as utils.ts' `resolverCache`: bindings are deterministic per
+// SourceFile and queried from analyzer + replacer + wrapper detector +
+// import resolver, so memoise by node identity.
+const bindingsCache = new WeakMap<ts.SourceFile, ProtobufImportBindings>();
+
 export function collectProtobufImportBindings(sf: ts.SourceFile): ProtobufImportBindings {
+  const cached = bindingsCache.get(sf);
+  if (cached) return cached;
+
   const identifierToCanonical = new Map<string, CanonicalProtobufFn>();
   const namespaceAliases = new Set<string>();
   const blockedLegacyCanonical = new Set<CanonicalProtobufFn>();
@@ -65,7 +73,9 @@ export function collectProtobufImportBindings(sf: ts.SourceFile): ProtobufImport
     }
   }
 
-  return { identifierToCanonical, namespaceAliases, blockedLegacyCanonical, hasRuntimeImport };
+  const result: ProtobufImportBindings = { identifierToCanonical, namespaceAliases, blockedLegacyCanonical, hasRuntimeImport };
+  bindingsCache.set(sf, result);
+  return result;
 }
 
 interface MatchOptions {

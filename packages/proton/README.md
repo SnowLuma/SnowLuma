@@ -1,19 +1,13 @@
 # @snowluma/proton
 
-Compile-time protobuf encoder/decoder generator for SnowLuma. TypeScript
-interfaces in, fully-inlined zero-runtime codec functions out.
+用于 SnowLuma 的编译时 protobuf 编码器/解码器生成器。输入 TypeScript 接口，输出完全内联、零运行时的编解码函数。
 
-> Vendored from [SnowLuma/protobuf-dsl](https://github.com/SnowLuma/protobuf-dsl)
-> with edge-case fixes applied. The unmodified upstream is kept under
-> `dev/protobuf-dsl/` as a reference copy.
+> 该项目衍生自（Vendored自）[SnowLuma/protobuf-dsl](https://github.com/SnowLuma/protobuf-dsl)
+> 并修复了若干边缘情况。未做修改的上游源码保留在 `dev/protobuf-dsl/` 下作为参考副本。
 
-## What it does
+## 功能特性
 
-You declare your wire schema as plain TypeScript interfaces marked up with
-`pb<N, T>`. At build time a Vite plugin walks the call sites of
-`protobuf_encode<T>` / `protobuf_decode<T>` and replaces them with
-type-specific, fully-inlined codec functions. No runtime schema lookup,
-no reflection, no `.proto` files, no `protoc`.
+你只需使用 `pb<N, T>` 标记的普通 TypeScript 接口来声明你的传输 Schema。在构建时，一个 Vite 插件会扫描 `protobuf_encode<T>` / `protobuf_decode<T>` 的调用位置，并将它们替换为特定于类型的、完全内联的编解码函数。无需运行时 Schema 查找，无需反射，无需 `.proto` 文件，也无需 `protoc`。
 
 ```ts
 import type { pb, pb_repeated, uint_32, bool } from '@snowluma/proton';
@@ -30,71 +24,71 @@ const bytes = protobuf_encode<UserProfile>({
   id: 42, username: 'alice', active: true, tags: ['admin'],
 });
 const user = protobuf_decode<UserProfile>(bytes);
+
 ```
 
-After the plugin transform, this becomes:
+经过插件转换后，上述代码会变成：
 
 ```js
-// pre-computed tag literals, inlined varint loops, no function-call overhead
+// 预计算的 Tag 字面量、内联的 varint 循环、无函数调用开销
 const bytes = protobuf_encode_UserProfile({ id: 42, ... });
 const user  = protobuf_decode_UserProfile(bytes);
+
 ```
 
-If the plugin **isn't** installed, calling `protobuf_encode` / `protobuf_decode`
-throws a loud error rather than silently producing wrong bytes.
+如果**未安装**该插件，调用 `protobuf_encode` / `protobuf_decode` 将直接抛出明显的错误，而不是静默生成错误的字节数据。
 
-## Setup in SnowLuma
+## 在 SnowLuma 中配置
 
-The package is already wired into `@snowluma/core`'s `vitest.config.ts`. To use
-it elsewhere in the monorepo:
+该包已经内置到 `@snowluma/core` 的 `vitest.config.ts` 中。若要在 Monorepo 的其他地方使用：
 
 ```ts
-// vite.config.ts (or vitest.config.ts)
+// vite.config.ts (或 vitest.config.ts)
 import { defineConfig } from 'vite';
 import protobufVitePlugin from '@snowluma/proton/vite';
 
 export default defineConfig({
   plugins: [protobufVitePlugin()],
 });
+
 ```
 
-Add the workspace dep:
+添加工作区依赖：
 
 ```json
 {
   "dependencies": { "@snowluma/proton": "workspace:*" }
 }
+
 ```
 
-## Primitive types
+## 原生类型
 
-The marker is `pb<FieldNumber, Type>` (or `pb_repeated<FieldNumber, Type>` for
-arrays). Available primitives:
+标记格式为 `pb<FieldNumber, Type>`（数组则使用 `pb_repeated<FieldNumber, Type>`）。可用的原生类型包括：
 
-| Marker      | TS type      | Wire             |
-| ----------- | ------------ | ---------------- |
-| `bool`      | `boolean`    | varint           |
-| `uint_32`   | `number`     | varint           |
-| `int_32`    | `number`     | varint           |
-| `sint_32`   | `number`     | varint (zigzag)  |
-| `uint_64`   | `bigint`     | varint           |
-| `int_64`    | `bigint`     | varint           |
-| `sint_64`   | `bigint`     | varint (zigzag)  |
-| `fixed_32`  | `number`     | 32-bit           |
-| `fixed_64`  | `bigint`     | 64-bit           |
-| `sfixed_32` | `number`     | 32-bit           |
-| `sfixed_64` | `bigint`     | 64-bit           |
-| `float`     | `number`     | 32-bit           |
-| `double`    | `number`     | 64-bit           |
-| `string`    | `string`     | length-delimited |
-| `bytes`     | `Uint8Array` | length-delimited |
+| 标记 | TS 类型 | 传输格式（Wire） |
+| --- | --- | --- |
+| `bool` | `boolean` | varint |
+| `uint_32` | `number` | varint |
+| `int_32` | `number` | varint |
+| `sint_32` | `number` | varint (zigzag) |
+| `uint_64` | `bigint` | varint |
+| `int_64` | `bigint` | varint |
+| `sint_64` | `bigint` | varint (zigzag) |
+| `fixed_32` | `number` | 32-bit |
+| `fixed_64` | `bigint` | 64-bit |
+| `sfixed_32` | `number` | 32-bit |
+| `sfixed_64` | `bigint` | 64-bit |
+| `float` | `number` | 32-bit |
+| `double` | `number` | 64-bit |
+| `string` | `string` | length-delimited |
+| `bytes` | `Uint8Array` | length-delimited |
 
-Plus message types (any other interface marked with `pb<>` fields) used as
-the second type-arg to `pb<>` / `pb_repeated<>`.
+此外，还支持消息类型（任何其他带有 `pb<>` 标记字段的接口），作为 `pb<>` / `pb_repeated<>` 的第二个类型参数。
 
-## Generic templates
+## 泛型模板
 
-You can declare reusable wrappers as generic interfaces:
+你可以将可复用的包装器声明为泛型接口：
 
 ```ts
 interface Wrapper<T> {
@@ -102,35 +96,36 @@ interface Wrapper<T> {
 }
 
 const bytes = protobuf_encode<Wrapper<uint_32>>({ value: 42 });
-//                              ^ instantiated at the call site
+//                               ^ 在调用处实例化
+
 ```
 
-Nested instantiations work too — `Wrapper<Wrapper<string>>` mono-morphizes to
-`Wrapper__string` + `Wrapper__Wrapper__string` and both end up in the registry
-at build time.
+嵌套实例化同样有效 —— `Wrapper<Wrapper<string>>` 会被单态化（mono-morphizes）为 `Wrapper__string` + `Wrapper__Wrapper__string`，并且在构建时两者都会进入注册表。
 
-Compose them in concrete interfaces:
+你可以在具体接口中组合它们：
 
 ```ts
 interface Container {
   wrapped?: pb<5, Wrapper<uint_32>>;
 }
+
 ```
 
-…or in other generic templates:
+……或者在其他泛型模板中组合：
 
 ```ts
 interface Outer<U> {
   wrapped?: pb<5, Wrapper<U>>;
 }
 const bytes = protobuf_encode<Outer<uint_32>>({ wrapped: { value: 42 } });
+
 ```
 
-Both forms are covered by regression tests.
+这两种形式均已通过回归测试。
 
-## Cross-file & wrapper-binding
+## 跨文件与包装器绑定
 
-Schemas can live in one file and call sites in another:
+Schema 和调用位置可以位于不同的文件中：
 
 ```ts
 // schema/user.ts
@@ -140,10 +135,10 @@ export interface UserProfile { id?: pb<1, uint_32>; }
 import type { UserProfile } from './schema/user';
 import { protobuf_encode } from '@snowluma/proton';
 const bytes = protobuf_encode<UserProfile>({ id: 42 });
+
 ```
 
-You can also build thin generic wrappers around `protobuf_encode` / `_decode`
-and the plugin will trace through them, including across file boundaries:
+你也可以围绕 `protobuf_encode` / `_decode` 构建轻量级的泛型包装函数，插件会对其进行追踪，即使跨越文件边界也适用：
 
 ```ts
 // schema/wrap.ts
@@ -154,17 +149,15 @@ export function encodeWrapped<T>(v: Wrapper<T>): Uint8Array {
 // usage.ts
 import { encodeWrapped } from './schema/wrap';
 const bytes = encodeWrapped<string>({ value: 'hi' });
-//             ^ plugin rewrites to protobuf_encode_Wrapper__string(...)
+//              ^ 插件会将其重写为 protobuf_encode_Wrapper__string(...)
+
 ```
 
-Chained forwarders also work (`A` forwards to `B` which is imported from
-another module, etc.).
+链式转发同样有效（例如：`A` 转发给 `B`，而 `B` 是从另一个模块导入的，依此类推）。
 
-## Static method wrappers (per-subclass overrides)
+## 静态方法包装器（每个子类的重写）
 
-Sometimes you want an abstract base class to hold the encode / decode
-pipeline once, with each subclass supplying only the request-/response-
-shaped helpers:
+有时，你可能希望抽象基类只保留一次编码/解码管道，而让每个子类仅提供对应请求/响应结构的辅助方法：
 
 ```ts
 import { protobuf_encode, protobuf_decode } from '@snowluma/proton';
@@ -192,75 +185,47 @@ class DemoTransformer extends PacketTransformer {
   static deserialize(_ctx: unknown, b: DemoResPb): DemoRes { /* … */ }
 }
 
-// Just call the inherited methods naturally:
+// 自然地调用继承的方法：
 const bytes  = DemoTransformer.encode(undefined, { /* … */ });
 const result = DemoTransformer.decode(undefined, bytes);
+
 ```
 
-`protobuf_encode<R>` / `protobuf_decode<B>` inside the abstract body can't
-be replaced statically — `R` and `B` are erased at runtime. Proton handles
-this by:
+抽象体内部的 `protobuf_encode<R>` / `protobuf_decode<B>` 无法进行静态替换 —— 因为 `R` 和 `B` 在运行时会被擦除。Proton 通过以下方式处理此问题：
 
-1. Detecting any class whose static method (a) takes type parameters, (b)
-   calls `protobuf_encode<R>` / `protobuf_decode<R>` where `R` is one of
-   those parameters, and (c) constrains `this: T extends { … }` with the
-   parameter appearing inside the constraint.
-2. Using TypeScript's TypeChecker — built lazily from your project's
-   `tsconfig.json` — to walk the `extends` chain for every subclass in the
-   file (cross-file edges and path aliases included) and resolve the
-   wrapper's type parameter against the subclass's sibling method
-   signature (`serialize`'s return type for `R`, `deserialize`'s body
-   parameter for `B`, in this example).
-3. Appending a per-subclass override after the class declaration:
+1. **检测**满足以下条件的类：其静态方法 (a) 接收类型参数，(b) 调用 `protobuf_encode<R>` / `protobuf_decode<R>` 且其中 `R` 是这些参数之一，以及 (c) 使用 `this: T extends { … }` 进行约束，且该参数出现在约束内部。
+2. **利用 TypeScript 的 TypeChecker** —— 基于项目的 `tsconfig.json` 延迟构建 —— 遍历文件中每个子类的 `extends` 链（包含跨文件边和路径别名），并将包装器的类型参数与子类的同级方法签名进行解析（在此示例中，`R` 对应 `serialize` 的返回值类型，`B` 对应 `deserialize` 的主体参数类型）。
+3. 在类声明后**追加**一个针对每个子类的重写（Override）：
+```js
+DemoTransformer.encode = function (ctx, params) {
+  return protobuf_encode_DemoReqPb(this.serialize(ctx, params));
+};
 
-   ```js
-   DemoTransformer.encode = function (ctx, params) {
-     return protobuf_encode_DemoReqPb(this.serialize(ctx, params));
-   };
-   ```
+```
 
-The original call sites stay unmodified — runtime dispatch finds the
-override naturally because static properties live on the constructor
-function. The abstract base body is left intact too; nothing ever calls
-it.
 
-Naming is structural, not configured:
 
-- The wrapper method can be named anything (`encode`, `enc`, `request`, …)
-  — proton only looks at the body and constraint shape.
-- The sibling method's name is read out of the `this: T extends { … }`
-  constraint, so `serialize`/`deserialize`, `build`/`parse`, or any other
-  pair works.
-- Multi-level inheritance (`Leaf → MidBase → AbstractBase`) is followed
-  end-to-end by the TypeChecker.
+原始的调用位置保持不变 —— 运行时调度会自然地找到重写方法，因为静态属性存在于构造函数上。抽象基类的主体也会保持原样，且永远不会被调用。
 
-If the sibling method lacks an explicit return / parameter annotation the
-checker's inferred type is used as a fallback. The override is only
-emitted when every codec call in the wrapper body resolves successfully —
-partial resolution would produce dead identifier references at runtime,
-so the all-or-nothing rule is intentional.
+这种命名方式是结构化的，而非配置出来的：
 
-## proto3 default-value semantics
+* 包装器方法可以命名为任何名称（`encode`、`enc`、`request` 等）—— Proton 只关注主体和约束的形状。
+* 同级方法的名称是从 `this: T extends { … }` 约束中读取的，因此 `serialize`/`deserialize`、`build`/`parse` 或任何其他组合都可以正常工作。
+* 多层继承（`Leaf → MidBase → AbstractBase`）会被 TypeChecker 全程追踪。
 
-**Important behavioural detail.** Proton follows the proto3 wire format spec:
-fields whose value equals the type's default (`0` / `false` / `""` /
-empty bytes) are **not emitted** on the wire. This is byte-different from
-SnowLuma's legacy `protoEncode` runtime, which always emits every field.
+如果同级方法缺少显式的返回值/参数类型注解，将使用检查器推导出的类型作为兜底。只有当包装器主体中的每个编解码器调用都成功解析时，才会输出重写代码 —— 部分解析会在运行时产生死标识符引用，因此“全有或全无（all-or-nothing）”的规则是故意为之的。
 
-Both forms are wire-compatible with any conforming proto3 reader (missing
-fields decode as the default value). When migrating legacy schemas to proton,
-do **not** treat byte-level inequality on default values as a regression — see
-[`packages/core/tests/proton-parity.test.ts`](../../packages/core/tests/proton-parity.test.ts)
-for the test that pins this divergence.
+## proto3 默认值语义
 
-If you have a wire consumer that depends on byte-level identity (e.g. for
-hashing or signing), prefer to set non-default values explicitly rather than
-relying on the encoder.
+**重要的行为细节。** Proton 遵循 proto3 传输格式规范：如果字段的值等于该类型的默认值（`0` / `false` / `""` / 空字节），则**不会**在网络传输中输出。这在字节层面上与 SnowLuma 旧版始终输出每个字段的 `protoEncode` 运行时不同。
 
-## Diagnostics
+这两种形式与任何符合规范的 proto3 读取器都是网络兼容的（缺失的字段会解码为默认值）。在将旧版 Schema 迁移到 Proton 时，**请勿**将默认值上的字节级不一致视为回归故障 —— 参见 [`packages/core/tests/proton-parity.test.ts`](https://www.google.com/search?q=../../packages/core/tests/proton-parity.test.ts) 中固定此差异的测试。
 
-Anything that doesn't resolve to a primitive or a registered message **throws
-at build time** rather than silently leaking a wrong wire type:
+如果你的网络数据消费者依赖于字节级的完全一致（例如用于哈希或签名），建议显式设置非默认值，而不是依赖编码器。
+
+## 诊断机制
+
+任何无法解析为原生类型或已注册消息的内容都会**在构建时抛出错误**，而不是静默泄露错误的传输类型：
 
 ```
 Cannot resolve protobuf field type "Partial__UserProfile" on message "Foo"
@@ -268,68 +233,69 @@ Cannot resolve protobuf field type "Partial__UserProfile" on message "Foo"
 registered message for this type. Common causes: union / intersection /
 mapped / conditional types, TypeScript utility types (Partial<T>, Pick<T>, …),
 qualified names (ns.Type), or a missing import.
-```
-
-This is the safety net for TypeScript constructs the analyzer doesn't model.
-Currently unsupported:
-
-- Union / intersection types (`A | B`, `A & B`)
-- Conditional / mapped types (`T extends X ? A : B`, `{ [K in keyof T]: ... }`)
-- TS utility types (`Partial<T>`, `Pick<T>`, `Readonly<T>`, …)
-- Qualified type names (`ns.Type`)
-- Wrapper functions reached via namespace import (`import * as ns from`)
-
-…all of these will throw with a clear message instead of producing bad bytes.
-
-## Edge cases fixed on top of upstream
-
-Each has a regression test in `test/__tests__/analyzer.test.ts`:
-
-| # | What used to break |
-| - | --------------------- |
-| 1 | `import { pb as P }` — aliased markers were ignored; fields dropped silently |
-| 2 | `interface Foo { x: pb<1, Wrapper<uint_32>> }` — typeName stuck at `"Wrapper"`, no mono of the inner instantiation |
-| 3 | `interface Outer<U> { x: pb<1, Wrapper<U>> }` — outer mono didn't re-instantiate the inner generic |
-| 4 | Wrapper-binding synthetic SourceFile had empty text → `getText()` returned garbage |
-| 5 | Cross-file forwarded wrappers (chain → imported base) not detected |
-| 6 | `matchForwardedKnownWrapper` didn't propagate `typePattern` — chain treated `<X>` as the encoded type instead of `Wrapper<X>` |
-| 7 | Synthetic-SF WeakMap was private to analyzer.ts → replacer used the wrong SF |
-
-Plus the build-time guard (above) that turns future analyzer gaps into hard
-errors instead of silent miscodes.
-
-## Scripts
 
 ```
-pnpm --filter @snowluma/proton build     # bundle src/index.ts → dist/index.js
-pnpm --filter @snowluma/proton test      # vitest run (95 tests)
-pnpm --filter @snowluma/proton typecheck # tsc --noEmit
+
+这是针对分析器无法建模的 TypeScript 结构的的安全网。目前不支持的特性包括：
+
+* 联合/交叉类型（`A | B`，`A & B`）
+* 条件/映射类型（`T extends X ? A : B`，`{ [K in keyof T]: ... }`）
+* TS 工具类型（`Partial<T>`，`Pick<T>`，`Readonly<T>` 等）
+* 限定类型名称（`ns.Type`）
+* 通过命名空间导入访问的包装函数（`import * as ns from`）
+
+……所有这些情况都将抛出清晰的错误提示，而不会产生错误的字节。
+
+## 边缘情况修复（对比上游）
+
+每个修复在 `test/__tests__/analyzer.test.ts` 中都有对应的回归测试：
+
+| # | 以前会损坏的情况 |
+| --- | --- |
+| 1 | `import { pb as P }` —— 别名标记曾被忽略；字段被静默丢弃 |
+| 2 | `interface Foo { x: pb<1, Wrapper<uint_32>> }` —— typeName 曾卡在 `"Wrapper"`，未对内部实例化进行单态化 |
+| 3 | `interface Outer<U> { x: pb<1, Wrapper<U>> }` —— 外部单态化曾未重新实例化内部泛型 |
+| 4 | 包装器绑定生成的虚拟 SourceFile 文本曾为空 → `getText()` 返回垃圾数据 |
+| 5 | 跨文件转发的包装器（链式 → 导入的基类）曾无法被检测 |
+| 6 | `matchForwardedKnownWrapper` 曾未传播 `typePattern` —— 链式调用曾将 `<X>` 视为编码类型，而不是 `Wrapper<X>` |
+| 7 | 虚拟 SF 的 WeakMap 曾对 `analyzer.ts` 私有 → 替换器使用了错误的 SF |
+
+此外，前述的构建时防线可确保未来的分析器漏洞会直接触发硬错误，而不是产生静默的编码错误。
+
+## 脚本命令
+
+```bash
+pnpm --filter @snowluma/proton build     # 打包 src/index.ts → dist/index.js
+pnpm --filter @snowluma/proton test      # 运行 vitest (95 个测试)
+pnpm --filter @snowluma/proton typecheck # 运行 tsc --noEmit
+
 ```
 
-## Layout
+## 目录结构
 
-```
+```text
 src/
-  ast/            analyzer + type-tracking pipeline
-    analyzer.ts          single-walk message + call-site collection
-    collector.ts         interface → ProtobufField/GenericFieldTemplate
-    monomorphizer.ts     generic instantiation → concrete ProtobufMessage
-    import-resolver.ts   cross-file definition + wrapper resolution
-    callsite.ts          matches protobuf_encode/decode invocations
-    static-wrapper.ts    static-method wrapper detection (AST)
-    utils.ts             name resolution + synthetic-SF tracking
-    dependency-graph.ts  topo sort + reachability
-    types.ts             shared schema types
-  codegen/        inlined wire-format emitters
-    subclass-override.ts per-subclass override codegen
-  typecheck/      TypeChecker-backed pipeline (per-subclass overrides)
-    program-cache.ts     lazy ts.Program, keyed by tsconfig
-    subclass-wrapper.ts  extends-chain walking + type-param resolution
-    file-pipeline.ts     per-file glue used by the plugin's transform()
-  transform/      Vite plugin string edits
-  index.ts        plugin entry (./vite)
-  runtime.ts      runtime stubs (.)
+  ast/                分析器 + 类型追踪管道
+    analyzer.ts        单次遍历的消息 + 调用位置收集
+    collector.ts       interface → ProtobufField/GenericFieldTemplate
+    monomorphizer.ts   泛型实例化 → 具体 ProtobufMessage
+    import-resolver.ts 跨文件定义 + 包装器解析
+    callsite.ts        匹配 protobuf_encode/decode 调用
+    static-wrapper.ts  静态方法包装器检测 (AST)
+    utils.ts           名称解析 + 虚拟 SF 追踪
+    dependency-graph.ts 拓扑排序 + 可达性
+    types.ts           共享的 Schema 类型
+  codegen/            内联传输格式发射器
+    subclass-override.ts 每个子类重写的代码生成
+  typecheck/          基于 TypeChecker 的管道（用于子类重写）
+    program-cache.ts   延迟加载的 ts.Program，以 tsconfig 为键
+    subclass-wrapper.ts extends 链遍历 + 类型参数解析
+    file-pipeline.ts   插件 transform() 使用的单文件胶水层
+  transform/          Vite 插件字符串编辑
+  index.ts            插件入口 (./vite)
+  runtime.ts          运行时桩代码 (.)
 
-protobuf.d.ts     public types (pb<>, pb_repeated<>, primitive aliases)
-test/             vitest suite (analyzer + cross-file + plugin + subclass-wrapper)
+protobuf.d.ts         公共类型 (pb<>, pb_repeated<>, 原生别名)
+test/                 vitest 测试套件 (包含分析器 + 跨文件 + 插件 + 子类包装器)
+
 ```

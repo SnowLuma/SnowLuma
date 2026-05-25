@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { getPropertyNameText, isBareTypeRef } from '../ast/ast-helpers.js';
 import type { ClassWrapperInfo, WrapperCodecCall, WrapperMethodInfo } from '../ast/static-wrapper.js';
 import { detectClassWrappers } from '../ast/static-wrapper.js';
 import {
@@ -188,18 +189,6 @@ function findTypeParamInConstraint(constraint: ts.TypeNode, typeParamName: strin
   return null;
 }
 
-function isBareTypeRef(node: ts.TypeNode, name: string): boolean {
-  if (!ts.isTypeReferenceNode(node)) return false;
-  if (!ts.isIdentifier(node.typeName)) return false;
-  return node.typeName.text === name;
-}
-
-function getPropertyNameText(name: ts.PropertyName): string | null {
-  if (ts.isIdentifier(name)) return name.text;
-  if (ts.isStringLiteral(name)) return name.text;
-  return null;
-}
-
 /** Pull a type out of a subclass member's signature at the requested
  *  position. Prefers the explicit annotation when present; falls back to
  *  the TypeChecker's inferred type otherwise. */
@@ -212,8 +201,7 @@ function extractSubclassMemberTypeNode(
 ): ts.TypeNode | null {
   for (const member of subclass.members) {
     if (!ts.isMethodDeclaration(member)) continue;
-    const mods = ts.getModifiers(member);
-    if (!mods?.some(m => m.kind === ts.SyntaxKind.StaticKeyword)) continue;
+    if (!isStaticMethod(member)) continue;
     if (!ts.isIdentifier(member.name) || member.name.text !== memberName) continue;
 
     if (position.kind === 'returnType') {

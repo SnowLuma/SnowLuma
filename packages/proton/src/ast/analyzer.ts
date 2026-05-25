@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { getCallableName } from './ast-helpers.js';
 import {
   collectProtobufImportBindings,
   matchProtobufCallSite,
@@ -17,12 +18,6 @@ import {
 } from './utils.js';
 
 export { typeNodeToMangledName } from './utils.js';
-
-function getCallableName(expr: ts.Expression): string | null {
-  if (ts.isIdentifier(expr)) return expr.text;
-  if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
-  return null;
-}
 
 function instantiateWrapperTypePattern(
   binding: WrapperBinding,
