@@ -294,6 +294,8 @@ src/
     subclass-wrapper.ts extends 链遍历 + 类型参数解析
     file-pipeline.ts   插件 transform() 使用的单文件胶水层
   transform/          Vite 插件字符串编辑
+    replacer.ts        protobuf 调用替换编辑收集
+    text-edits.ts      通用倒序文本编辑应用
   index.ts            插件入口 (./vite)
   runtime.ts          运行时桩代码 (.)
 

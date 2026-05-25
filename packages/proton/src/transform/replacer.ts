@@ -1,10 +1,30 @@
-import type { MessageRegistry } from '../ast/types.js';
-import type { CallSiteRecord } from '../ast/analyzer.js';
-import { createImportedTypeNameResolver, typeNodeToMangledName } from '../ast/utils.js';
-import { collectProtobufImportBindings, matchProtobufCallSite } from '../ast/callsite.js';
 import ts from 'typescript';
+import type { CallSiteRecord } from '../ast/analyzer.js';
+import { collectProtobufImportBindings, matchProtobufCallSite } from '../ast/callsite.js';
+import type { MessageRegistry } from '../ast/types.js';
+import { createImportedTypeNameResolver, typeNodeToMangledName } from '../ast/utils.js';
+import { applyTextEdits, type TextEdit } from './text-edits.js';
 
-interface TextEdit { start: number; end: number; replacement: string }
+export function collectReplacementEdits(
+  sf: ts.SourceFile,
+  callSites: CallSiteRecord[],
+  registry: MessageRegistry,
+): TextEdit[] {
+  const edits: TextEdit[] = [];
+  const resolveImportedTypeName = createImportedTypeNameResolver(sf);
+
+  for (const cs of callSites) {
+    const mangled = typeNodeToMangledName(cs.firstTypeArg, sf, resolveImportedTypeName);
+    if (!registry.has(mangled)) continue;
+    edits.push({
+      start: cs.exprStart,
+      end: cs.typeArgsEnd,
+      replacement: `${cs.fnName}_${mangled}`,
+    });
+  }
+
+  return edits;
+}
 
 /**
  * Apply replacements using pre-recorded call-sites from analyze().
@@ -16,26 +36,9 @@ export function applyReplacements(
   callSites: CallSiteRecord[],
   registry: MessageRegistry,
 ): { transformedCode: string; hasReplacements: boolean } {
-  const edits: TextEdit[] = [];
-  const resolveImportedTypeName = createImportedTypeNameResolver(sf);
-
-  for (const cs of callSites) {
-    const mangled = typeNodeToMangledName(cs.firstTypeArg, sf, resolveImportedTypeName);
-    if (registry.has(mangled)) {
-      edits.push({
-        start: cs.exprStart,
-        end: cs.typeArgsEnd,
-        replacement: `${cs.fnName}_${mangled}`,
-      });
-    }
-  }
-
+  const edits = collectReplacementEdits(sf, callSites, registry);
   if (!edits.length) return { transformedCode: code, hasReplacements: false };
-
-  edits.sort((a, b) => b.start - a.start);
-  let result = code;
-  for (const ed of edits) result = result.slice(0, ed.start) + ed.replacement + result.slice(ed.end);
-  return { transformedCode: result, hasReplacements: true };
+  return { transformedCode: applyTextEdits(code, edits), hasReplacements: true };
 }
 
 /**

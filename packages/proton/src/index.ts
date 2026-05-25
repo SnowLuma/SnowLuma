@@ -3,9 +3,9 @@ import { analyze, analyzeSource, selectUsedRegistry, typeNodeToMangledName } fro
 import { fileHasExtendingClass } from './ast/ast-helpers.js';
 import { resolveImports, type ParsedFileEntry } from './ast/import-resolver.js';
 import { generateCode } from './codegen/generator.js';
-import { applyReplacements, replaceCallSites } from './transform/replacer.js';
+import { applyReplacements, collectReplacementEdits, replaceCallSites } from './transform/replacer.js';
+import { applyTextEdits, type TextEdit } from './transform/text-edits.js';
 import {
-  applyOverrideInsertions,
   runSubclassWrapperPipeline,
   type SubclassWrapperPipelineResult,
 } from './typecheck/file-pipeline.js';
@@ -52,17 +52,19 @@ export default function protobufVitePlugin(_options: ProtobufVitePluginOptions =
       if (used.registry.size === 0) return null;
 
       const generatedCode = generateCode(used.registry);
-      const { transformedCode, hasReplacements } = applyReplacements(code, sourceFile, callSites, used.registry);
-      // Splice per-subclass overrides immediately after each subclass
-      // declaration so any user-side `Sub.method(...)` call later in the
-      // file sees the override on the constructor, not the inherited
-      // abstract body that would erase R/B at runtime.
-      const codeWithOverrides = applyOverrideInsertions(transformedCode, subclassWrappers.insertions);
-      const hasOverrides = codeWithOverrides !== transformedCode;
+      const replacementEdits = collectReplacementEdits(sourceFile, callSites, used.registry);
+      const overrideEdits: TextEdit[] = subclassWrappers.insertions.map(i => ({
+        start: i.position,
+        end: i.position,
+        replacement: i.code,
+      }));
+      const hasReplacements = replacementEdits.length > 0;
+      const hasOverrides = overrideEdits.length > 0;
       if (!hasReplacements && generatedCode === '' && !hasOverrides) return null;
+      const transformedCode = applyTextEdits(code, [...replacementEdits, ...overrideEdits]);
 
       return {
-        code: generatedCode + '\n' + codeWithOverrides,
+        code: generatedCode + '\n' + transformedCode,
         map: null,
       };
     },

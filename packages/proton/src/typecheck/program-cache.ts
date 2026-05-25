@@ -1,6 +1,6 @@
-import ts from 'typescript';
 import { existsSync } from 'fs';
 import { dirname, resolve } from 'path';
+import ts from 'typescript';
 
 /**
  * Lazy ts.Program cache, keyed by tsconfig path.
@@ -31,6 +31,7 @@ interface CacheEntry extends ProgramContext {
 }
 
 const programCache = new Map<string, CacheEntry>();
+const tsconfigLookupCache = new Map<string, string | null>();
 
 /** Cap upward walk; keeps the lookup loop bounded if we end up at a
  *  monorepo root with no tsconfig (rare in this repo, but possible if a
@@ -39,13 +40,25 @@ const TSCONFIG_WALK_MAX_DEPTH = 24;
 
 function findTsconfigUpwards(startDir: string): string | null {
   let dir = resolve(startDir);
+  const cached = tsconfigLookupCache.get(dir);
+  if (cached !== undefined) return cached;
+
+  const visited: string[] = [];
   for (let i = 0; i < TSCONFIG_WALK_MAX_DEPTH; i++) {
+    visited.push(dir);
     const candidate = resolve(dir, 'tsconfig.json');
-    if (existsSync(candidate)) return candidate;
+    if (existsSync(candidate)) {
+      for (const v of visited) tsconfigLookupCache.set(v, candidate);
+      return candidate;
+    }
     const parent = resolve(dir, '..');
-    if (parent === dir) return null;
+    if (parent === dir) {
+      for (const v of visited) tsconfigLookupCache.set(v, null);
+      return null;
+    }
     dir = parent;
   }
+  for (const v of visited) tsconfigLookupCache.set(v, null);
   return null;
 }
 
@@ -113,6 +126,7 @@ export function getProgramForFile(filePath: string): ProgramContext | null {
 export function invalidateProgramCache(filePath?: string): void {
   if (!filePath) {
     programCache.clear();
+    tsconfigLookupCache.clear();
     return;
   }
   const normalized = normalizePath(filePath);

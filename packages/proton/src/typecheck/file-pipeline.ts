@@ -46,20 +46,6 @@ export interface SubclassWrapperPipelineResult {
   insertions: SubclassOverrideInsertion[];
 }
 
-/** Splice each rendered override into `code` at its captured position.
- *  Insertions are sorted in reverse so earlier offsets stay valid as we
- *  apply later edits — same pattern the replacer uses for codec call-site
- *  rewriting. Returns `code` unchanged when there's nothing to insert. */
-export function applyOverrideInsertions(code: string, insertions: SubclassOverrideInsertion[]): string {
-  if (insertions.length === 0) return code;
-  const sorted = [...insertions].sort((a, b) => b.position - a.position);
-  let out = code;
-  for (const ins of sorted) {
-    out = out.slice(0, ins.position) + ins.code + out.slice(ins.position);
-  }
-  return out;
-}
-
 export function runSubclassWrapperPipeline(filePath: string): SubclassWrapperPipelineResult {
   const empty: SubclassWrapperPipelineResult = {
     resolvedWrappers: [],

@@ -55,7 +55,7 @@ export interface UsedRegistryResult {
  * Then post-processes: monomorphize → resolve wire types → topo sort.
  */
 export function analyze(code: string, filePath: string, imported?: ImportedDefinitions): AnalysisResult {
-  const sf = ts.createSourceFile(filePath, code, ts.ScriptTarget.Latest, true);
+  const sf = imported?.sourceFile ?? ts.createSourceFile(filePath, code, ts.ScriptTarget.Latest, true);
   const concrete: ProtobufMessage[] = [];
   const templates = new Map<string, GenericProtobufTemplate>();
   const mono = new Map<string, ProtobufMessage>();

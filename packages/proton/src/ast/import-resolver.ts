@@ -11,6 +11,7 @@ export type { WrapperBinding } from './wrapper-binding.js';
 
 export interface ParsedFileEntry {
   filePath: string;
+  sourceFile: ts.SourceFile;
   concrete: ProtobufMessage[];
   templates: Map<string, GenericProtobufTemplate>;
   importedTypeSources: Map<string, string>;
@@ -20,6 +21,7 @@ export interface ParsedFileEntry {
 }
 
 export interface ImportedDefinitions {
+  sourceFile: ts.SourceFile;
   concrete: ProtobufMessage[];
   templates: Map<string, GenericProtobufTemplate>;
   wrapperBindings: Map<string, WrapperBinding>;
@@ -31,8 +33,15 @@ interface ImportClause {
   specifier: string;
 }
 
+const importClausesCache = new WeakMap<ts.SourceFile, ImportClause[]>();
+const valueImportClausesCache = new WeakMap<ts.SourceFile, ImportClause[]>();
+const exportAllSpecifiersCache = new WeakMap<ts.SourceFile, string[]>();
+
 /** Extract all named imports from the source file (both type and value imports). */
 function extractImports(sf: ts.SourceFile): ImportClause[] {
+  const cached = importClausesCache.get(sf);
+  if (cached) return cached;
+
   const result: ImportClause[] = [];
   for (const stmt of sf.statements) {
     if (!ts.isImportDeclaration(stmt) || !stmt.importClause) continue;
@@ -51,6 +60,7 @@ function extractImports(sf: ts.SourceFile): ImportClause[] {
       }
     }
   }
+  importClausesCache.set(sf, result);
   return result;
 }
 
@@ -58,6 +68,9 @@ function extractImports(sf: ts.SourceFile): ImportClause[] {
  *  entries. Wrapper functions are values, so type-only imports can't introduce
  *  one and we shouldn't eagerly parse their source files just to look for wrappers. */
 function extractValueImports(sf: ts.SourceFile): ImportClause[] {
+  const cached = valueImportClausesCache.get(sf);
+  if (cached) return cached;
+
   const result: ImportClause[] = [];
   for (const stmt of sf.statements) {
     if (!ts.isImportDeclaration(stmt) || !stmt.importClause) continue;
@@ -78,16 +91,21 @@ function extractValueImports(sf: ts.SourceFile): ImportClause[] {
       }
     }
   }
+  valueImportClausesCache.set(sf, result);
   return result;
 }
 
 function extractExportAllSpecifiers(sf: ts.SourceFile): string[] {
+  const cached = exportAllSpecifiersCache.get(sf);
+  if (cached) return cached;
+
   const result: string[] = [];
   for (const stmt of sf.statements) {
     if (!ts.isExportDeclaration(stmt) || stmt.exportClause) continue;
     const spec = stmt.moduleSpecifier;
     if (spec && ts.isStringLiteral(spec)) result.push(spec.text);
   }
+  exportAllSpecifiersCache.set(sf, result);
   return result;
 }
 
@@ -523,6 +541,7 @@ function parseFileForDefinitions(
 
   return {
     filePath: absolutePath,
+    sourceFile: sf,
     concrete,
     templates,
     importedTypeSources,
@@ -685,7 +704,7 @@ export function resolveImports(
     }
   }
 
-  const entrySourceFile = ts.createSourceFile(entryPath, code, ts.ScriptTarget.Latest, true);
+  const entrySourceFile = entry.sourceFile;
   const rootTypeNodes: RootTypeNode[] = collectCallRootTypeNodes(entrySourceFile)
     .map(typeNode => ({ typeNode, from: entry }));
   const wrapperBindings = collectWrapperBindings(entry, entrySourceFile);
@@ -719,5 +738,5 @@ export function resolveImports(
     resolveTypeNode(root.typeNode, root.from);
   }
 
-  return { concrete: [...concrete.values()], templates, wrapperBindings };
+  return { sourceFile: entrySourceFile, concrete: [...concrete.values()], templates, wrapperBindings };
 }
