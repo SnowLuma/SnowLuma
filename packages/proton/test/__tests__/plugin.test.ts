@@ -1,9 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import protobufVitePlugin from '../../src/index';
+import { describe, expect, it } from 'vitest';
 import { analyze, analyzeSource, selectUsedRegistry } from '../../src/ast/analyzer';
 import { generateCode } from '../../src/codegen/generator';
 import { replaceCallSites } from '../../src/transform/replacer';
-import { loadFixture, execAndGet } from '../helpers';
+import { execAndGet, loadFixture } from '../helpers';
 
 describe('plugin integration', () => {
   it('full transform pipeline', () => {
@@ -215,93 +214,4 @@ const buf = protobuf_encode<UsedMsg>({ inner: { id: 1 } });
     expect(gen).not.toContain('protobuf_encode_UnusedMsg');
   });
 
-  it('emits runtime map asset when runtimeMap is enabled', () => {
-    const code = `
-import { protobuf_encode } from '@snowluma/proton';
-
-interface Msg { id: pb<1, uint_32>; }
-const buf = protobuf_encode<Msg>({ id: 1 });
-`;
-
-    const plugin = protobufVitePlugin({
-      runtimeMap: {
-        enabled: true,
-        fileName: 'pb.runtime-map.json',
-      },
-    });
-
-    const transformHook = plugin.transform!;
-    const transform = typeof transformHook === 'function' ? transformHook : transformHook.handler;
-    const transformResult = transform.call({} as any, code, 'entry.ts');
-    expect(transformResult).toBeTruthy();
-
-    const emitted: any[] = [];
-    const generateHook = plugin.generateBundle!;
-    const generateBundle = typeof generateHook === 'function' ? generateHook : generateHook.handler;
-    const testContext: any = {
-      emitFile(asset: any) {
-        emitted.push(asset);
-        return 'asset-id';
-      },
-    };
-
-    generateBundle.call(
-      testContext,
-      {} as any,
-      {} as any,
-      false,
-    );
-
-    expect(emitted).toHaveLength(1);
-    expect(emitted[0].type).toBe('asset');
-    expect(emitted[0].fileName).toBe('pb.runtime-map.json');
-
-    const payload = JSON.parse(emitted[0].source);
-    expect(payload.version).toBe(1);
-    expect(payload.callSites).toHaveLength(1);
-    expect(payload.callSites[0].fnName).toBe('protobuf_encode');
-    expect(payload.callSites[0].typeName).toBe('Msg');
-  });
-
-  it('emits canonical runtime map entries for imported type aliases', () => {
-    const code = `
-import { protobuf_encode, protobuf_decode } from '@snowluma/proton';
-import type { UserMsg as AliasMsg } from './types';
-
-const buf = protobuf_encode<AliasMsg>({ id: 1, name: 'a' });
-const decoded = protobuf_decode<AliasMsg>(buf);
-`;
-
-    const plugin = protobufVitePlugin({
-      runtimeMap: {
-        enabled: true,
-        fileName: 'pb.runtime-map.json',
-      },
-    });
-
-    const transformHook = plugin.transform!;
-    const transform = typeof transformHook === 'function' ? transformHook : transformHook.handler;
-    const transformResult = transform.call({} as any, code, 'test/fixtures/cross-file/aliased-consumer.ts');
-    expect(transformResult).toBeTruthy();
-
-    const emitted: any[] = [];
-    const generateHook = plugin.generateBundle!;
-    const generateBundle = typeof generateHook === 'function' ? generateHook : generateHook.handler;
-    const testContext: any = {
-      emitFile(asset: any) {
-        emitted.push(asset);
-        return 'asset-id';
-      },
-    };
-
-    generateBundle.call(testContext, {} as any, {} as any, false);
-
-    expect(emitted).toHaveLength(1);
-    const payload = JSON.parse(emitted[0].source);
-    expect(payload.messages.some((msg: { name: string }) => msg.name === 'UserMsg')).toBe(true);
-    expect(payload.messages.some((msg: { name: string }) => msg.name === 'AliasMsg')).toBe(false);
-    expect(payload.callSites).toHaveLength(2);
-    expect(payload.callSites[0].typeName).toBe('UserMsg');
-    expect(payload.callSites[1].typeName).toBe('UserMsg');
-  });
 });

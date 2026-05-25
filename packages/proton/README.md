@@ -160,6 +160,86 @@ const bytes = encodeWrapped<string>({ value: 'hi' });
 Chained forwarders also work (`A` forwards to `B` which is imported from
 another module, etc.).
 
+## Static method wrappers (per-subclass overrides)
+
+Sometimes you want an abstract base class to hold the encode / decode
+pipeline once, with each subclass supplying only the request-/response-
+shaped helpers:
+
+```ts
+import { protobuf_encode, protobuf_decode } from '@snowluma/proton';
+
+abstract class PacketTransformer {
+  static encode<R, T extends { serialize: (ctx: unknown, p: never) => R }>(
+    this: T,
+    ctx: unknown,
+    params: T['serialize'] extends (ctx: unknown, p: infer P) => R ? P : never,
+  ): Uint8Array {
+    return protobuf_encode<R>((this as any).serialize(ctx, params));
+  }
+
+  static decode<B, Res, T extends { deserialize: (ctx: unknown, body: B) => Res }>(
+    this: T,
+    ctx: unknown,
+    bytes: Uint8Array,
+  ): Res {
+    return (this as any).deserialize(ctx, protobuf_decode<B>(bytes));
+  }
+}
+
+class DemoTransformer extends PacketTransformer {
+  static serialize(_ctx: unknown, p: DemoReq): DemoReqPb { /* … */ }
+  static deserialize(_ctx: unknown, b: DemoResPb): DemoRes { /* … */ }
+}
+
+// Just call the inherited methods naturally:
+const bytes  = DemoTransformer.encode(undefined, { /* … */ });
+const result = DemoTransformer.decode(undefined, bytes);
+```
+
+`protobuf_encode<R>` / `protobuf_decode<B>` inside the abstract body can't
+be replaced statically — `R` and `B` are erased at runtime. Proton handles
+this by:
+
+1. Detecting any class whose static method (a) takes type parameters, (b)
+   calls `protobuf_encode<R>` / `protobuf_decode<R>` where `R` is one of
+   those parameters, and (c) constrains `this: T extends { … }` with the
+   parameter appearing inside the constraint.
+2. Using TypeScript's TypeChecker — built lazily from your project's
+   `tsconfig.json` — to walk the `extends` chain for every subclass in the
+   file (cross-file edges and path aliases included) and resolve the
+   wrapper's type parameter against the subclass's sibling method
+   signature (`serialize`'s return type for `R`, `deserialize`'s body
+   parameter for `B`, in this example).
+3. Appending a per-subclass override after the class declaration:
+
+   ```js
+   DemoTransformer.encode = function (ctx, params) {
+     return protobuf_encode_DemoReqPb(this.serialize(ctx, params));
+   };
+   ```
+
+The original call sites stay unmodified — runtime dispatch finds the
+override naturally because static properties live on the constructor
+function. The abstract base body is left intact too; nothing ever calls
+it.
+
+Naming is structural, not configured:
+
+- The wrapper method can be named anything (`encode`, `enc`, `request`, …)
+  — proton only looks at the body and constraint shape.
+- The sibling method's name is read out of the `this: T extends { … }`
+  constraint, so `serialize`/`deserialize`, `build`/`parse`, or any other
+  pair works.
+- Multi-level inheritance (`Leaf → MidBase → AbstractBase`) is followed
+  end-to-end by the TypeChecker.
+
+If the sibling method lacks an explicit return / parameter annotation the
+checker's inferred type is used as a fallback. The override is only
+emitted when every codec call in the wrapper body resolves successfully —
+partial resolution would produce dead identifier references at runtime,
+so the all-or-nothing rule is intentional.
+
 ## proto3 default-value semantics
 
 **Important behavioural detail.** Proton follows the proto3 wire format spec:
@@ -201,29 +281,6 @@ Currently unsupported:
 
 …all of these will throw with a clear message instead of producing bad bytes.
 
-## Optional: runtime-map fallback
-
-If a call site can't be statically resolved (e.g. dynamic loading after build),
-the plugin can emit a JSON map that the runtime can consume to generate codecs
-on the fly. Off by default.
-
-```ts
-import protobufVitePlugin from '@snowluma/proton/vite';
-
-export default defineConfig({
-  plugins: [protobufVitePlugin({
-    runtimeMap: { enabled: true, fileName: 'snowluma-proton.runtime-map.json' },
-  })],
-});
-```
-
-```ts
-import runtimeMap from './snowluma-proton.runtime-map.json';
-import { protobuf_enableRuntimeMapFallback } from '@snowluma/proton';
-
-protobuf_enableRuntimeMapFallback(runtimeMap);
-```
-
 ## Edge cases fixed on top of upstream
 
 Each has a regression test in `test/__tests__/analyzer.test.ts`:
@@ -259,15 +316,20 @@ src/
     monomorphizer.ts     generic instantiation → concrete ProtobufMessage
     import-resolver.ts   cross-file definition + wrapper resolution
     callsite.ts          matches protobuf_encode/decode invocations
+    static-wrapper.ts    static-method wrapper detection (AST)
     utils.ts             name resolution + synthetic-SF tracking
     dependency-graph.ts  topo sort + reachability
     types.ts             shared schema types
   codegen/        inlined wire-format emitters
+    subclass-override.ts per-subclass override codegen
+  typecheck/      TypeChecker-backed pipeline (per-subclass overrides)
+    program-cache.ts     lazy ts.Program, keyed by tsconfig
+    subclass-wrapper.ts  extends-chain walking + type-param resolution
+    file-pipeline.ts     per-file glue used by the plugin's transform()
   transform/      Vite plugin string edits
   index.ts        plugin entry (./vite)
-  runtime.ts      runtime stubs + map fallback (.)
-  runtime-map.ts  serialized map format
+  runtime.ts      runtime stubs (.)
 
 protobuf.d.ts     public types (pb<>, pb_repeated<>, primitive aliases)
-test/             vitest suite (analyzer + cross-file + plugin)
+test/             vitest suite (analyzer + cross-file + plugin + subclass-wrapper)
 ```

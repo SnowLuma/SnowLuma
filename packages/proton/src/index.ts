@@ -1,30 +1,15 @@
 import type { Plugin } from 'vite';
 import { analyze, analyzeSource, selectUsedRegistry, typeNodeToMangledName } from './ast/analyzer.js';
+import { resolveImports, type ParsedFileEntry } from './ast/import-resolver.js';
 import { generateCode } from './codegen/generator.js';
 import { applyReplacements, replaceCallSites } from './transform/replacer.js';
-import type { MessageRegistry } from './ast/types.js';
-import { resolveImports, type ParsedFileEntry } from './ast/import-resolver.js';
-import { createRuntimeMap, type RuntimeMapCallSite } from './runtime-map.js';
+import { runSubclassWrapperPipeline } from './typecheck/file-pipeline.js';
+import { invalidateProgramCache } from './typecheck/program-cache.js';
 
-export interface ProtobufRuntimeMapPluginOptions {
-  enabled?: boolean;
-  fileName?: string;
-}
+export type ProtobufVitePluginOptions = Record<string, never>;
 
-export interface ProtobufVitePluginOptions {
-  runtimeMap?: ProtobufRuntimeMapPluginOptions;
-}
-
-interface RuntimeMapFileEntry {
-  messages: MessageRegistry;
-  callSites: RuntimeMapCallSite[];
-}
-
-export default function protobufVitePlugin(options: ProtobufVitePluginOptions = {}): Plugin {
+export default function protobufVitePlugin(_options: ProtobufVitePluginOptions = {}): Plugin {
   const fileCache = new Map<string, ParsedFileEntry>();
-  const runtimeMapByFile = new Map<string, RuntimeMapFileEntry>();
-  const runtimeMapEnabled = options.runtimeMap?.enabled === true;
-  const runtimeMapFileName = options.runtimeMap?.fileName ?? 'snowluma-proton.runtime-map.json';
 
   return {
     name: 'vite-plugin-protobuf',
@@ -36,64 +21,45 @@ export default function protobufVitePlugin(options: ProtobufVitePluginOptions = 
 
       const imported = resolveImports(code, cleanId, fileCache);
       const { registry, callSites, sourceFile } = analyze(code, cleanId, imported);
-      if (registry.size === 0 && callSites.length === 0) return null;
+      // Subclass-wrapper pipeline lives outside the AST analyzer because it
+      // needs a TypeChecker. It returns extra root type names that must
+      // participate in `selectUsedRegistry` so the codecs they reference
+      // actually get generated, plus the per-subclass override text we
+      // append after the user code.
+      const subclassWrappers = runSubclassWrapperPipeline(cleanId);
 
-      const used = selectUsedRegistry(registry, callSites, sourceFile);
-      if (used.registry.size === 0) {
-        runtimeMapByFile.delete(cleanId);
+      if (
+        registry.size === 0 &&
+        callSites.length === 0 &&
+        subclassWrappers.resolvedWrappers.length === 0
+      ) {
         return null;
       }
 
-      if (runtimeMapEnabled) {
-        runtimeMapByFile.set(cleanId, {
-          messages: used.registry,
-          callSites: used.callSites.map(cs => ({
-            file: cleanId,
-            line: cs.line,
-            column: cs.column,
-            fnName: cs.fnName as RuntimeMapCallSite['fnName'],
-            typeName: cs.typeName,
-          })),
-        });
-      }
+      const used = selectUsedRegistry(
+        registry,
+        callSites,
+        sourceFile,
+        subclassWrappers.extraRootTypeNames,
+      );
+      if (used.registry.size === 0) return null;
 
       const generatedCode = generateCode(used.registry);
       const { transformedCode, hasReplacements } = applyReplacements(code, sourceFile, callSites, used.registry);
-      if (!hasReplacements && generatedCode === '') return null;
+      const overrideCode = subclassWrappers.overrideCode;
+      if (!hasReplacements && generatedCode === '' && overrideCode === '') return null;
 
-      return { code: generatedCode + '\n' + transformedCode, map: null };
+      return {
+        code: generatedCode + '\n' + transformedCode + (overrideCode ? '\n' + overrideCode : ''),
+        map: null,
+      };
     },
 
     handleHotUpdate({ file }) {
       if (file.endsWith('.ts')) {
         fileCache.delete(file);
-        runtimeMapByFile.delete(file);
+        invalidateProgramCache(file);
       }
-    },
-
-    generateBundle() {
-      if (!runtimeMapEnabled) return;
-
-      const mergedMessages: MessageRegistry = new Map();
-      const mergedCallSites: RuntimeMapCallSite[] = [];
-
-      for (const entry of runtimeMapByFile.values()) {
-        for (const [name, msg] of entry.messages) mergedMessages.set(name, msg);
-        mergedCallSites.push(...entry.callSites);
-      }
-
-      if (mergedMessages.size === 0 || mergedCallSites.length === 0) return;
-
-      const runtimeMap = createRuntimeMap({
-        messages: mergedMessages,
-        callSites: mergedCallSites,
-      });
-
-      this.emitFile({
-        type: 'asset',
-        fileName: runtimeMapFileName,
-        source: JSON.stringify(runtimeMap, null, 2),
-      });
     },
   };
 }
@@ -101,13 +67,10 @@ export default function protobufVitePlugin(options: ProtobufVitePluginOptions = 
 export {
   analyze,
   analyzeSource,
+  applyReplacements,
   generateCode,
   replaceCallSites,
-  applyReplacements,
-  typeNodeToMangledName,
   resolveImports,
   selectUsedRegistry,
-  createRuntimeMap,
+  typeNodeToMangledName,
 };
-
-export type { ProtobufRuntimeMap, RuntimeMapCallSite } from './runtime-map.js';

@@ -1,20 +1,20 @@
 import ts from 'typescript';
-import { WireType, PRIMITIVE_TYPE_MAP, type ProtobufMessage, type MessageRegistry, type GenericProtobufTemplate } from './types.js';
-import { collectInterface, collectGenericInterface, collectConcreteFieldGenericTypeArgs } from './collector.js';
-import { monomorphizeTypeNode } from './monomorphizer.js';
-import {
-  createImportedTypeNameResolver,
-  typeNodeToMangledName,
-  registerSyntheticTypeSourceFile,
-  resolveSourceFileForTypeNode,
-} from './utils.js';
-import type { ImportedDefinitions, WrapperBinding } from './import-resolver.js';
 import {
   collectProtobufImportBindings,
   matchProtobufCallSite,
   type CanonicalProtobufFn,
 } from './callsite.js';
+import { collectConcreteFieldGenericTypeArgs, collectGenericInterface, collectInterface } from './collector.js';
 import { buildDependencyRegistry } from './dependency-graph.js';
+import type { ImportedDefinitions, WrapperBinding } from './import-resolver.js';
+import { monomorphizeTypeNode } from './monomorphizer.js';
+import { PRIMITIVE_TYPE_MAP, WireType, type GenericProtobufTemplate, type MessageRegistry, type ProtobufMessage } from './types.js';
+import {
+  createImportedTypeNameResolver,
+  registerSyntheticTypeSourceFile,
+  resolveSourceFileForTypeNode,
+  typeNodeToMangledName,
+} from './utils.js';
 
 export { typeNodeToMangledName } from './utils.js';
 
@@ -260,11 +260,17 @@ export function analyzeSource(code: string, filePath: string, imported?: Importe
 /**
  * Build a minimal message registry by collecting only call-site root types and
  * their transitive message dependencies.
+ *
+ * `extraRootNames` lets callers seed the root set with type names that
+ * weren't discovered through `protobuf_encode/decode` call sites — used by
+ * the subclass-wrapper pipeline to drag in codecs whose only consumer is a
+ * per-subclass override generated outside this analyzer.
  */
 export function selectUsedRegistry(
   registry: MessageRegistry,
   callSites: CallSiteRecord[],
   sourceFile: ts.SourceFile,
+  extraRootNames?: Iterable<string>,
 ): UsedRegistryResult {
   const roots = new Set<string>();
   const resolved: ResolvedCallSiteRecord[] = [];
@@ -274,6 +280,12 @@ export function selectUsedRegistry(
     if (!registry.has(typeName)) continue;
     roots.add(typeName);
     resolved.push({ ...cs, typeName });
+  }
+
+  if (extraRootNames) {
+    for (const name of extraRootNames) {
+      if (registry.has(name)) roots.add(name);
+    }
   }
 
   if (roots.size === 0) {
