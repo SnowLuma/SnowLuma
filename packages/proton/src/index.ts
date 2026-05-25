@@ -1,9 +1,14 @@
 import type { Plugin } from 'vite';
 import { analyze, analyzeSource, selectUsedRegistry, typeNodeToMangledName } from './ast/analyzer.js';
+import { fileHasExtendingClass } from './ast/ast-helpers.js';
 import { resolveImports, type ParsedFileEntry } from './ast/import-resolver.js';
 import { generateCode } from './codegen/generator.js';
 import { applyReplacements, replaceCallSites } from './transform/replacer.js';
-import { applyOverrideInsertions, runSubclassWrapperPipeline } from './typecheck/file-pipeline.js';
+import {
+  applyOverrideInsertions,
+  runSubclassWrapperPipeline,
+  type SubclassWrapperPipelineResult,
+} from './typecheck/file-pipeline.js';
 import { invalidateProgramCache } from './typecheck/program-cache.js';
 
 export type ProtobufVitePluginOptions = Record<string, never>;
@@ -21,12 +26,14 @@ export default function protobufVitePlugin(_options: ProtobufVitePluginOptions =
 
       const imported = resolveImports(code, cleanId, fileCache);
       const { registry, callSites, sourceFile } = analyze(code, cleanId, imported);
-      // Subclass-wrapper pipeline lives outside the AST analyzer because it
-      // needs a TypeChecker. It returns extra root type names that must
-      // participate in `selectUsedRegistry` so the codecs they reference
-      // actually get generated, plus the per-subclass override text we
-      // append after the user code.
-      const subclassWrappers = runSubclassWrapperPipeline(cleanId);
+      // The subclass-wrapper pipeline needs a TypeChecker, which carries a
+      // 1–2 second startup cost the first time we touch a tsconfig.
+      // Almost every file in a typical project has zero extending classes,
+      // so guard the heavy work behind a cheap top-level scan and only
+      // build the Program when there's actually a candidate to resolve.
+      const subclassWrappers: SubclassWrapperPipelineResult = fileHasExtendingClass(sourceFile)
+        ? runSubclassWrapperPipeline(cleanId)
+        : { resolvedWrappers: [], extraRootTypeNames: [], insertions: [] };
 
       if (
         registry.size === 0 &&

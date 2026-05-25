@@ -1,5 +1,5 @@
 import ts from 'typescript';
-import { getPropertyNameText, isBareTypeRef } from '../ast/ast-helpers.js';
+import { getPropertyNameText, isBareTypeRef, isStaticMethod } from '../ast/ast-helpers.js';
 import type { ClassWrapperInfo, WrapperCodecCall, WrapperMethodInfo } from '../ast/static-wrapper.js';
 import { detectClassWrappers } from '../ast/static-wrapper.js';
 import {
