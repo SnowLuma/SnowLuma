@@ -24,6 +24,7 @@
     "prepare": "test -f dist/index.js || pnpm build"
   },
   "dependencies": {
+    "ts-morph": "^28.0.0",
     "typescript": "catalog:"
   },
   "peerDependencies": {

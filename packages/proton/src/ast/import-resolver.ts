@@ -12,6 +12,7 @@ export type { WrapperBinding } from './wrapper-binding.js';
 export interface ParsedFileEntry {
   filePath: string;
   sourceFile: ts.SourceFile;
+  dependencyFiles: string[];
   concrete: ProtobufMessage[];
   templates: Map<string, GenericProtobufTemplate>;
   importedTypeSources: Map<string, string>;
@@ -22,6 +23,7 @@ export interface ParsedFileEntry {
 
 export interface ImportedDefinitions {
   sourceFile: ts.SourceFile;
+  dependencyFiles: string[];
   concrete: ProtobufMessage[];
   templates: Map<string, GenericProtobufTemplate>;
   wrapperBindings: Map<string, WrapperBinding>;
@@ -474,6 +476,7 @@ function parseFileForDefinitions(
   const resolveImportedTypeName = createImportedTypeNameResolver(sf);
   const importedTypeSources = new Map<string, string>();
   const exportAllTypeSources = new Map<string, string>();
+  const dependencyFiles = new Set<string>([absolutePath]);
 
   // Collect imported wrapper bindings under their LOCAL names so this file's
   // forwarders can match against them. Skip work entirely if there's no cache
@@ -495,6 +498,8 @@ function parseFileForDefinitions(
         entry = parseFileForDefinitions(resolved, undefined, cache, inProgress);
         cache.set(resolved, entry);
       }
+      dependencyFiles.add(resolved);
+      for (const dep of entry.dependencyFiles) dependencyFiles.add(dep);
       const wrapperFn = entry.exportedWrappers.get(imp.importedName);
       if (wrapperFn) importedKnownWrappers.set(imp.localName, wrapperFn);
     }
@@ -521,6 +526,8 @@ function parseFileForDefinitions(
         entry = parseFileForDefinitions(resolved, undefined, cache, inProgress);
         cache.set(resolved, entry);
       }
+      dependencyFiles.add(resolved);
+      for (const dep of entry.dependencyFiles) dependencyFiles.add(dep);
       for (const msg of entry.concrete) exportAllTypeSources.set(msg.name, resolved);
       for (const name of entry.templates.keys()) exportAllTypeSources.set(name, resolved);
       for (const [name, source] of entry.exportAllTypeSources) exportAllTypeSources.set(name, source);
@@ -542,6 +549,7 @@ function parseFileForDefinitions(
   return {
     filePath: absolutePath,
     sourceFile: sf,
+    dependencyFiles: [...dependencyFiles],
     concrete,
     templates,
     importedTypeSources,
@@ -738,5 +746,14 @@ export function resolveImports(
     resolveTypeNode(root.typeNode, root.from);
   }
 
-  return { sourceFile: entrySourceFile, concrete: [...concrete.values()], templates, wrapperBindings };
+  const dependencyFiles = new Set<string>(entry.dependencyFiles);
+  for (const filePath of fileEntries.keys()) dependencyFiles.add(filePath);
+
+  return {
+    sourceFile: entrySourceFile,
+    dependencyFiles: [...dependencyFiles],
+    concrete: [...concrete.values()],
+    templates,
+    wrapperBindings,
+  };
 }

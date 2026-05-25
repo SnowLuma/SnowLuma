@@ -48,10 +48,26 @@ import { defineConfig } from 'vite';
 import protobufVitePlugin from '@snowluma/proton/vite';
 
 export default defineConfig({
-  plugins: [protobufVitePlugin()],
+  plugins: [
+    protobufVitePlugin({
+      root: 'src',                 // 可选：限制插件只处理该目录下的 .ts 文件
+      tsconfig: 'tsconfig.json',    // 可选：configResolved 时预加载整个 TS Program
+      cache: true,                 // 可选：默认启用，缓存写入 Vite cacheDir/proton
+    }),
+  ],
 });
 
 ```
+
+插件会在 Vite `configResolved` 阶段完成项目级初始化：解析作用目录、解析 `tsconfig`、预构建并缓存 TypeChecker 所需的 `ts.Program`。如果启用缓存（默认），Proton 会在 Vite 的 `cacheDir` 下维护两类缓存：
+
+```text
+node_modules/.vite/proton/
+  program/    TypeScript 增量 Program 缓存（tsBuildInfoFile）
+  transform/  按源码 hash + 配置 hash + 依赖 mtime 命中的 transform 结果
+```
+
+这样普通文件的 transform 可以先走作用域过滤与 hash cache；未命中时才执行 AST 分析、跨文件导入解析和必要的 TypeChecker 子类解析。
 
 添加工作区依赖：
 
@@ -266,7 +282,7 @@ qualified names (ns.Type), or a missing import.
 
 ```bash
 pnpm --filter @snowluma/proton build     # 打包 src/index.ts → dist/index.js
-pnpm --filter @snowluma/proton test      # 运行 vitest (107 个测试)
+pnpm --filter @snowluma/proton test      # 运行 vitest (109 个测试)
 pnpm --filter @snowluma/proton typecheck # 运行 tsc --noEmit
 
 ```

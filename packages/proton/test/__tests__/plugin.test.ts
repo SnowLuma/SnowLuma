@@ -1,6 +1,10 @@
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { resolve } from 'path';
 import { describe, expect, it } from 'vitest';
 import { analyze, analyzeSource, selectUsedRegistry } from '../../src/ast/analyzer';
 import { generateCode } from '../../src/codegen/generator';
+import protobufVitePlugin from '../../src/index';
 import { replaceCallSites } from '../../src/transform/replacer';
 import { execAndGet, loadFixture } from '../helpers';
 
@@ -214,4 +218,66 @@ const buf = protobuf_encode<UsedMsg>({ inner: { id: 1 } });
     expect(gen).not.toContain('protobuf_encode_UnusedMsg');
   });
 
+  it('respects the configured Vite transform scope root', () => {
+    const scope = mkdtempSync(resolve(tmpdir(), 'proton-scope-'));
+    try {
+      const plugin = protobufVitePlugin({ root: scope, cache: false });
+      const code = `interface Msg { id: pb<1, uint_32>; }\nconst buf = protobuf_encode<Msg>({ id: 1 });\n`;
+      expect(runPluginTransform(plugin, code, resolve(tmpdir(), 'outside.ts'))).toBeNull();
+      const inside = runPluginTransform(plugin, code, resolve(scope, 'inside.ts'));
+      expect(inside?.code).toContain('protobuf_encode_Msg');
+    } finally {
+      rmSync(scope, { recursive: true, force: true });
+    }
+  });
+
+  it('uses Vite cacheDir for transform hash cache and startup program cache', () => {
+    const root = mkdtempSync(resolve(tmpdir(), 'proton-cache-'));
+    try {
+      const sourcePath = resolve(root, 'entry.ts');
+      const tsconfigPath = resolve(root, 'tsconfig.json');
+      const cacheDir = resolve(root, '.vite');
+      const code = `interface Msg { id: pb<1, uint_32>; }\nconst buf = protobuf_encode<Msg>({ id: 1 });\n`;
+      writeFileSync(sourcePath, code);
+      writeFileSync(tsconfigPath, JSON.stringify({
+        compilerOptions: { noEmit: true, target: 'ES2022' },
+        files: ['entry.ts'],
+      }));
+
+      const firstPlugin = protobufVitePlugin({ root, tsconfig: tsconfigPath });
+      runConfigResolved(firstPlugin, root, cacheDir);
+      const first = runPluginTransform(firstPlugin, code, sourcePath);
+      expect(first?.code).toContain('protobuf_encode_Msg');
+
+      const transformCacheDir = resolve(cacheDir, 'proton', 'transform');
+      const programCacheDir = resolve(cacheDir, 'proton', 'program');
+      expect(existsSync(transformCacheDir)).toBe(true);
+      expect(existsSync(programCacheDir)).toBe(true);
+      expect(readdirSync(transformCacheDir).some(name => name.endsWith('.json'))).toBe(true);
+
+      const secondPlugin = protobufVitePlugin({ root, tsconfig: tsconfigPath });
+      runConfigResolved(secondPlugin, root, cacheDir);
+      const second = runPluginTransform(secondPlugin, code, sourcePath);
+      expect(second).toEqual(first);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
 });
+
+function runPluginTransform(
+  plugin: ReturnType<typeof protobufVitePlugin>,
+  code: string,
+  id: string,
+): { code: string; map: null } | null {
+  const transformHook = plugin.transform!;
+  const transformFn = typeof transformHook === 'function' ? transformHook : transformHook.handler;
+  return transformFn.call({} as never, code, id) as { code: string; map: null } | null;
+}
+
+function runConfigResolved(plugin: ReturnType<typeof protobufVitePlugin>, root: string, cacheDir: string): void {
+  const hook = plugin.configResolved!;
+  const fn = typeof hook === 'function' ? hook : hook.handler;
+  fn.call({} as never, { root, cacheDir } as never);
+}

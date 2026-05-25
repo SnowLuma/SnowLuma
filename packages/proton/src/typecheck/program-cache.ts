@@ -1,4 +1,4 @@
-import { existsSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
 import { dirname, resolve } from 'path';
 import ts from 'typescript';
 
@@ -62,7 +62,11 @@ function findTsconfigUpwards(startDir: string): string | null {
   return null;
 }
 
-function buildProgram(tsconfigPath: string): CacheEntry | null {
+export interface BuildProgramOptions {
+  cacheDir?: string;
+}
+
+function buildProgram(tsconfigPath: string, buildOptions: BuildProgramOptions = {}): CacheEntry | null {
   const configFile = ts.readConfigFile(tsconfigPath, ts.sys.readFile);
   if (configFile.error) return null;
 
@@ -81,6 +85,14 @@ function buildProgram(tsconfigPath: string): CacheEntry | null {
     noEmit: true,
     skipLibCheck: parsedConfig.options.skipLibCheck ?? true,
   };
+  if (buildOptions.cacheDir) {
+    mkdirSync(buildOptions.cacheDir, { recursive: true });
+    options.incremental = true;
+    options.tsBuildInfoFile = resolve(
+      buildOptions.cacheDir,
+      `program-${safeFileName(tsconfigPath)}.tsbuildinfo`,
+    );
+  }
 
   const program = ts.createProgram({
     rootNames: parsedConfig.fileNames,
@@ -94,6 +106,15 @@ function buildProgram(tsconfigPath: string): CacheEntry | null {
   }
 
   return { tsconfigPath, program, checker, fileSet };
+}
+
+export function prepareProgramForTsconfig(tsconfigPath: string, options: BuildProgramOptions = {}): ProgramContext | null {
+  const abs = resolve(tsconfigPath);
+  const built = buildProgram(abs, options);
+  if (!built) return null;
+  programCache.set(abs, built);
+  tsconfigLookupCache.set(dirname(abs), abs);
+  return { tsconfigPath: built.tsconfigPath, program: built.program, checker: built.checker };
 }
 
 /** Locate (or build) the program that contains `filePath`. Returns null if
@@ -139,4 +160,8 @@ export function invalidateProgramCache(filePath?: string): void {
 
 function normalizePath(p: string): string {
   return resolve(p).replace(/\\/g, '/');
+}
+
+function safeFileName(value: string): string {
+  return normalizePath(value).replace(/[^a-zA-Z0-9_.-]/g, '_');
 }
