@@ -1,7 +1,18 @@
 import ts from 'typescript';
+import { renderSubclassOverride } from '../codegen/subclass-override.js';
 import { getProgramForFile } from './program-cache.js';
 import { resolveSubclassWrappers, WrapperLookupCache, type ResolvedSubclassWrapper } from './subclass-wrapper.js';
-import { renderSubclassOverride } from '../codegen/subclass-override.js';
+
+/** One contiguous insertion to splice into the user file, addressing the
+ *  spot immediately after a subclass's closing `}`. Grouped per subclass so
+ *  multiple inherited overrides (encode + decode + …) land together. */
+export interface SubclassOverrideInsertion {
+  /** Source-file offset of the insertion point. Always == subclass.end so
+   *  any user code after the class declaration runs against the override. */
+  position: number;
+  /** Already-rendered override text. */
+  code: string;
+}
 
 /**
  * Plugin-facing entry point for the subclass-wrapper feature.
@@ -28,16 +39,32 @@ export interface SubclassWrapperPipelineResult {
    *  generated overrides to compile against. Handed to `selectUsedRegistry`
    *  as extra roots. */
   extraRootTypeNames: string[];
-  /** Rendered override source text, in declaration order. Empty string
-   *  when there's nothing to emit. */
-  overrideCode: string;
+  /** Per-subclass insertion points + rendered override text. Inserted into
+   *  the user's source immediately after the subclass declaration so any
+   *  subsequent statements (including top-level `Sub.method(...)` calls)
+   *  see the override and dispatch through it, not the inherited body. */
+  insertions: SubclassOverrideInsertion[];
+}
+
+/** Splice each rendered override into `code` at its captured position.
+ *  Insertions are sorted in reverse so earlier offsets stay valid as we
+ *  apply later edits — same pattern the replacer uses for codec call-site
+ *  rewriting. Returns `code` unchanged when there's nothing to insert. */
+export function applyOverrideInsertions(code: string, insertions: SubclassOverrideInsertion[]): string {
+  if (insertions.length === 0) return code;
+  const sorted = [...insertions].sort((a, b) => b.position - a.position);
+  let out = code;
+  for (const ins of sorted) {
+    out = out.slice(0, ins.position) + ins.code + out.slice(ins.position);
+  }
+  return out;
 }
 
 export function runSubclassWrapperPipeline(filePath: string): SubclassWrapperPipelineResult {
   const empty: SubclassWrapperPipelineResult = {
     resolvedWrappers: [],
     extraRootTypeNames: [],
-    overrideCode: '',
+    insertions: [],
   };
 
   const programCtx = getProgramForFile(filePath);
@@ -49,6 +76,11 @@ export function runSubclassWrapperPipeline(filePath: string): SubclassWrapperPip
   const cache = new WrapperLookupCache();
   const allResolved: ResolvedSubclassWrapper[] = [];
   const extraRoots = new Set<string>();
+  // Group rendered overrides per subclass so encode + decode + ... for the
+  // same class land in one contiguous block right after the class body.
+  // Otherwise the plugin would have to apply multiple identical-position
+  // edits and worry about ordering.
+  const perSubclass = new Map<ts.ClassDeclaration, string[]>();
 
   for (const stmt of sf.statements) {
     if (!ts.isClassDeclaration(stmt) || !stmt.name) continue;
@@ -56,20 +88,28 @@ export function runSubclassWrapperPipeline(filePath: string): SubclassWrapperPip
     for (const r of resolved) {
       allResolved.push(r);
       for (const c of r.resolvedCodecCalls) extraRoots.add(c.resolvedTypeName);
+
+      const rendered = renderSubclassOverride(r);
+      if (!rendered) continue;
+      const bucket = perSubclass.get(r.subclass);
+      if (bucket) bucket.push(rendered.code);
+      else perSubclass.set(r.subclass, [rendered.code]);
     }
   }
 
   if (allResolved.length === 0) return empty;
 
-  const overrideParts: string[] = [];
-  for (const r of allResolved) {
-    const rendered = renderSubclassOverride(r);
-    if (rendered) overrideParts.push(rendered.code);
+  const insertions: SubclassOverrideInsertion[] = [];
+  for (const [cls, parts] of perSubclass) {
+    insertions.push({
+      position: cls.getEnd(),
+      code: '\n' + parts.join(''),
+    });
   }
 
   return {
     resolvedWrappers: allResolved,
     extraRootTypeNames: [...extraRoots],
-    overrideCode: overrideParts.join(''),
+    insertions,
   };
 }

@@ -79,14 +79,14 @@ describe('subclass wrapper resolution (TypeChecker)', () => {
     expect(encode.resolvedCodecCalls).toHaveLength(1);
     expect(encode.resolvedCodecCalls[0]).toMatchObject({
       fnName: 'protobuf_encode',
-      resolvedTypeName: 'DemoRequestPb',
+      resolvedTypeName: 'rsq_pb',
     });
 
     const decode = resolved.find(r => r.wrapper.methodName === 'decode')!;
     expect(decode.resolvedCodecCalls).toHaveLength(1);
     expect(decode.resolvedCodecCalls[0]).toMatchObject({
       fnName: 'protobuf_decode',
-      resolvedTypeName: 'DemoResponsePb',
+      resolvedTypeName: 'rps_pb',
     });
   });
 
@@ -104,23 +104,31 @@ describe('subclass wrapper resolution (TypeChecker)', () => {
     const rendered = renderSubclassOverride(encode);
     expect(rendered).not.toBeNull();
     expect(rendered!.code).toContain('DemoTransformer.encode = function');
-    expect(rendered!.code).toContain('protobuf_encode_DemoRequestPb');
+    expect(rendered!.code).toContain('protobuf_encode_rsq_pb');
     expect(rendered!.code).not.toContain('protobuf_encode<R>');
   });
 });
 
 describe('file-pipeline (end-to-end)', () => {
+  function joinInsertionCode(insertions: { code: string }[]): string {
+    return insertions.map(i => i.code).join('');
+  }
+
   it('produces extra root names + override code for the demo subclass', () => {
     invalidateProgramCache();
     const result = runSubclassWrapperPipeline(fixturePath);
 
     expect(result.extraRootTypeNames).toEqual(
-      expect.arrayContaining(['DemoRequestPb', 'DemoResponsePb']),
+      expect.arrayContaining(['rsq_pb', 'rps_pb']),
     );
-    expect(result.overrideCode).toContain('DemoTransformer.encode = function');
-    expect(result.overrideCode).toContain('DemoTransformer.decode = function');
-    expect(result.overrideCode).toContain('protobuf_encode_DemoRequestPb');
-    expect(result.overrideCode).toContain('protobuf_decode_DemoResponsePb');
+    const allOverride = joinInsertionCode(result.insertions);
+    expect(allOverride).toContain('DemoTransformer.encode = function');
+    expect(allOverride).toContain('DemoTransformer.decode = function');
+    expect(allOverride).toContain('protobuf_encode_rsq_pb');
+    expect(allOverride).toContain('protobuf_decode_rps_pb');
+    // Per-subclass insertions land at exact source positions so the
+    // override appears right after the subclass body, not at file end.
+    expect(result.insertions.every(i => i.position > 0)).toBe(true);
   });
 
   it('returns an empty result when no class in the file extends a wrapper', () => {
@@ -130,7 +138,7 @@ describe('file-pipeline (end-to-end)', () => {
     const result = runSubclassWrapperPipeline(otherFile);
     expect(result.resolvedWrappers).toHaveLength(0);
     expect(result.extraRootTypeNames).toHaveLength(0);
-    expect(result.overrideCode).toBe('');
+    expect(result.insertions).toHaveLength(0);
   });
 });
 
@@ -143,10 +151,11 @@ describe('cross-file inheritance', () => {
     expect(result.extraRootTypeNames).toEqual(
       expect.arrayContaining(['FooRequestPb', 'FooResponsePb']),
     );
-    expect(result.overrideCode).toContain('FooTransformer.enc = function');
-    expect(result.overrideCode).toContain('FooTransformer.dec = function');
-    expect(result.overrideCode).toContain('protobuf_encode_FooRequestPb');
-    expect(result.overrideCode).toContain('protobuf_decode_FooResponsePb');
+    const allOverride = result.insertions.map(i => i.code).join('');
+    expect(allOverride).toContain('FooTransformer.enc = function');
+    expect(allOverride).toContain('FooTransformer.dec = function');
+    expect(allOverride).toContain('protobuf_encode_FooRequestPb');
+    expect(allOverride).toContain('protobuf_decode_FooResponsePb');
   });
 
   it('does not generate overrides on the abstract base file itself', () => {
@@ -155,7 +164,7 @@ describe('cross-file inheritance', () => {
     const result = runSubclassWrapperPipeline(baseFile);
     // No subclasses defined in the base file → no overrides emitted there.
     expect(result.resolvedWrappers).toHaveLength(0);
-    expect(result.overrideCode).toBe('');
+    expect(result.insertions).toHaveLength(0);
   });
 });
 
@@ -175,8 +184,8 @@ describe('plugin transform integration', () => {
 
     // Concrete codecs got generated for the types extracted from
     // serialize/deserialize annotations.
-    expect(out).toContain('protobuf_encode_DemoRequestPb');
-    expect(out).toContain('protobuf_decode_DemoResponsePb');
+    expect(out).toContain('protobuf_encode_rsq_pb');
+    expect(out).toContain('protobuf_decode_rps_pb');
 
     // Per-subclass overrides replace the inherited abstract bodies.
     expect(out).toContain('DemoTransformer.encode = function');
@@ -207,20 +216,29 @@ describe('plugin transform integration', () => {
       .replace(/^export\s+/gm, '');
   }
 
-  it('end-to-end: override actually invokes the concrete codec at runtime', () => {
+  it('end-to-end: DemoTransformer.encode(undefined, { param: 42 }) produces the expected wire bytes', () => {
     const stripped = toPlainJs(runPluginOnFixture());
-
+    // Silence the `console.log` that the fixture's deserialize() performs;
+    // we only verify the encode path in this test, but the fixture's
+    // top-level call exercises encode, not decode, so the stub is just a
+    // defensive measure against future fixture edits.
     const harness = `
+      const console = { log: () => {} };
       ${stripped}
       const bytes = DemoTransformer.encode(undefined, { param: 42 });
-      const decoded = protobuf_decode_DemoRequestPb(bytes);
-      globalThis.__r = { bytesLength: bytes.length, decoded };
+      const decoded = protobuf_decode_rsq_pb(bytes);
+      globalThis.__r = { bytes: Array.from(bytes), decoded };
     `;
     new Function(harness)();
-    const r = (globalThis as unknown as { __r: { bytesLength: number; decoded: { param: number; id: number } } }).__r;
+    const r = (globalThis as unknown as { __r: { bytes: number[]; decoded: { param: number; id: number } } }).__r;
     delete (globalThis as unknown as { __r?: unknown }).__r;
 
-    expect(r.bytesLength).toBeGreaterThan(0);
+    // serialize({ param: 42 }) → { param: 42, id: 123 }
+    // rsq_pb declares `param: pb<3, int_32>` then `id: pb<1, int_32>`; the
+    // generator emits fields in declaration order:
+    //   field 3, varint, value 42  → tag 0x18, payload 0x2A
+    //   field 1, varint, value 123 → tag 0x08, payload 0x7B
+    expect(r.bytes).toEqual([0x18, 0x2a, 0x08, 0x7b]);
     expect(r.decoded).toEqual({ param: 42, id: 123 });
   });
 
@@ -228,10 +246,11 @@ describe('plugin transform integration', () => {
     const stripped = toPlainJs(runPluginOnFixture());
 
     const harness = `
+      const console = { log: () => {} };
       ${stripped}
       // Build a response payload using the concrete encoder, then feed it
       // through the subclass's generated decode override.
-      const responseBytes = protobuf_encode_DemoResponsePb({ result: 7, id: 99 });
+      const responseBytes = protobuf_encode_rps_pb({ result: 7, id: 99 });
       globalThis.__r = DemoTransformer.decode(undefined, responseBytes);
     `;
     new Function(harness)();

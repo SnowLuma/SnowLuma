@@ -3,7 +3,7 @@ import { analyze, analyzeSource, selectUsedRegistry, typeNodeToMangledName } fro
 import { resolveImports, type ParsedFileEntry } from './ast/import-resolver.js';
 import { generateCode } from './codegen/generator.js';
 import { applyReplacements, replaceCallSites } from './transform/replacer.js';
-import { runSubclassWrapperPipeline } from './typecheck/file-pipeline.js';
+import { applyOverrideInsertions, runSubclassWrapperPipeline } from './typecheck/file-pipeline.js';
 import { invalidateProgramCache } from './typecheck/program-cache.js';
 
 export type ProtobufVitePluginOptions = Record<string, never>;
@@ -46,11 +46,16 @@ export default function protobufVitePlugin(_options: ProtobufVitePluginOptions =
 
       const generatedCode = generateCode(used.registry);
       const { transformedCode, hasReplacements } = applyReplacements(code, sourceFile, callSites, used.registry);
-      const overrideCode = subclassWrappers.overrideCode;
-      if (!hasReplacements && generatedCode === '' && overrideCode === '') return null;
+      // Splice per-subclass overrides immediately after each subclass
+      // declaration so any user-side `Sub.method(...)` call later in the
+      // file sees the override on the constructor, not the inherited
+      // abstract body that would erase R/B at runtime.
+      const codeWithOverrides = applyOverrideInsertions(transformedCode, subclassWrappers.insertions);
+      const hasOverrides = codeWithOverrides !== transformedCode;
+      if (!hasReplacements && generatedCode === '' && !hasOverrides) return null;
 
       return {
-        code: generatedCode + '\n' + transformedCode + (overrideCode ? '\n' + overrideCode : ''),
+        code: generatedCode + '\n' + codeWithOverrides,
         map: null,
       };
     },
@@ -72,5 +77,6 @@ export {
   replaceCallSites,
   resolveImports,
   selectUsedRegistry,
-  typeNodeToMangledName,
+  typeNodeToMangledName
 };
+
