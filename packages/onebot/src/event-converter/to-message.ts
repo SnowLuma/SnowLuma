@@ -86,7 +86,7 @@ export async function convertTempMessage(ctx: ConverterContext, event: TempMessa
     event.elements, false, event.senderUin,
     ctx.imageUrlResolver, ctx.mediaUrlResolver, ctx.messageIdResolver, ctx.mediaSegmentSink,
   );
-  return {
+  const result: JsonObject = {
     time: event.time,
     self_id: ctx.selfId,
     post_type: postType,
@@ -105,4 +105,8 @@ export async function convertTempMessage(ctx: ConverterContext, event: TempMessa
       age: 0,
     },
   };
+  if (event.groupId > 0) {
+    result.group_id = event.groupId;
+  }
+  return result;
 }

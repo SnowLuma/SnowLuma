@@ -13,7 +13,29 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
       return failedResponse(RETCODE.BAD_REQUEST, 'message is required');
     }
 
-    if (messageType === 'group' || params.group_id !== undefined) {
+    // ★ Explicit message_type takes precedence; group_id alone only
+    // drives routing when message_type is absent (backward compat).
+    if (messageType === 'group') {
+      const groupId = asNumber(params.group_id);
+      if (!Number.isInteger(groupId) || groupId <= 0) {
+        return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
+      }
+      const result = await ctx.sendGroupMessage(groupId, message, autoEscape);
+      return okResponse({ message_id: result.messageId });
+    }
+
+    if (messageType === 'private') {
+      const userId = asNumber(params.user_id);
+      if (!Number.isInteger(userId) || userId <= 0) {
+        return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
+      }
+      const groupId = asNumber(params.group_id);
+      const result = await ctx.sendPrivateMessage(userId, message, autoEscape, groupId);
+      return okResponse({ message_id: result.messageId });
+    }
+
+    // No message_type: infer from group_id (legacy OneBot behaviour).
+    if (params.group_id !== undefined) {
       const groupId = asNumber(params.group_id);
       if (!Number.isInteger(groupId) || groupId <= 0) {
         return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');

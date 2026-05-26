@@ -185,6 +185,7 @@ export async function sendPrivateMessage(
   userId: number,
   message: JsonValue,
   autoEscape: boolean,
+  groupId?: number,  // ★ source group for temp session fallback
 ): Promise<MessageSendResult> {
   const elements = await parseMessage(message, autoEscape, {
     resolveReplySequence: (replyMessageId) => {
@@ -249,7 +250,7 @@ export async function sendPrivateMessage(
 
   let lastReceipt: Awaited<ReturnType<typeof ref.bridge.apis.message.sendPrivate>> | undefined;
   if (nonFileElements.length > 0) {
-    lastReceipt = await ref.bridge.apis.message.sendPrivate(userId, nonFileElements);
+    lastReceipt = await ref.bridge.apis.message.sendPrivate(userId, nonFileElements, groupId);
     logSentMessage(false, userId, nonFileElements);
   }
   if (fileElements.length > 0) {

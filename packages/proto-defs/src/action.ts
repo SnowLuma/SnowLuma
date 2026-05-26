@@ -11,6 +11,12 @@ export interface RoutingGroup {
   groupCode?: pb<1, uint_64>;
 }
 
+// Temp-session (临时会话) routing — used when the target is not a friend.
+export interface RoutingGrpTmp {
+  groupUin?: pb<1, uint_64>;
+  toUin?:    pb<2, uint_64>;
+}
+
 // 服务器限制 C2C 文件消息必须使用 Trans0x211 路由头（RoutingHead 字段 15）
 // 若误用常规 RoutingC2C 会被服务器拒绝。
 // 仅在包含 FileEntity 时触发，且 CcCmd 固定为 4。
@@ -24,6 +30,7 @@ export interface RoutingTrans0x211 {
 export interface RoutingHead {
   c2c?:        pb<1, RoutingC2C>;
   grp?:        pb<2, RoutingGroup>;
+  grpTmp?:     pb<3, RoutingGrpTmp>;
   trans0x211?: pb<15, RoutingTrans0x211>;
 }
 

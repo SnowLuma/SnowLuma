@@ -87,8 +87,18 @@ export class MessageApi {
    * Resolves the recipient's UID only when the message carries media
    * — text-only messages skip the lookup. Routes through `c2c.uin`
    * (and optionally `c2c.uid` for the media case).
+   *
+   * For non-friend targets the method automatically falls back to the
+   * temp-session (临时会话) channel using the `grpTmp` routing head
+   * (proto field 3). The caller may supply a `sourceGroupId` to pin
+   * the source group; otherwise the first common group found in the
+   * identity cache is used.
    */
-  async sendPrivate(userUin: number, elements: MessageElement[]): Promise<SendMessageReceipt> {
+  async sendPrivate(
+    userUin: number,
+    elements: MessageElement[],
+    sourceGroupId?: number,
+  ): Promise<SendMessageReceipt> {
     if (elements.length === 0) throw new Error('message is empty');
 
     let userUid = '';
@@ -101,17 +111,45 @@ export class MessageApi {
     const random = this.ctx.nextMessageRandom();
     const clientSeq = this.ctx.nextClientSequence();
 
-    const request = protobuf_encode<SendMessageRequest>({
-      routingHead: {
-        c2c: {
+    const isFriend = !!this.ctx.identity.findFriend(userUin);
+
+    // Build routing head — friend C2C vs temp session (grpTmp).
+    const routingHead: SendMessageRequest['routingHead'] = {};
+
+    if (isFriend) {
+      routingHead.c2c = {
+        uin: userUin,
+        ...(userUid ? { uid: userUid } : {}),
+      };
+    } else {
+      // Find source group for temp session.
+      let groupId = sourceGroupId && sourceGroupId > 0 ? sourceGroupId : undefined;
+      if (!groupId) {
+        for (const group of this.ctx.identity.groups) {
+          if (group.members.has(userUin)) {
+            groupId = group.groupId;
+            break;
+          }
+        }
+      }
+      if (groupId) {
+        routingHead.grpTmp = { groupUin: groupId, toUin: userUin };
+      } else {
+        // No group found — fall back to friend C2C (will fail with
+        // result=16 for non-friends, but better than misrouting).
+        routingHead.c2c = {
           uin: userUin,
           ...(userUid ? { uid: userUid } : {}),
-        },
-      },
+        };
+      }
+    }
+
+    const request = protobuf_encode<SendMessageRequest>({
+      routingHead,
       contentHead: {
         type: 1,
         subType: 0,
-        c2cCmd: 11,
+        c2cCmd: isFriend ? 11 : 0,
       },
       messageBody: {
         richText: {

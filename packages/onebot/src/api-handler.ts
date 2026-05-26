@@ -38,7 +38,7 @@ export interface ApiActionContext {
   isOnline: () => boolean;
   getMessage: (messageId: number) => JsonObject | null;
   getMessageMeta: (messageId: number) => MessageMeta | null;
-  sendPrivateMessage: (userId: number, message: JsonValue, autoEscape: boolean) => Promise<MessageSendResult>;
+  sendPrivateMessage: (userId: number, message: JsonValue, autoEscape: boolean, groupId?: number) => Promise<MessageSendResult>;
   sendGroupMessage: (groupId: number, message: JsonValue, autoEscape: boolean) => Promise<MessageSendResult>;
   deleteMessage: (messageId: number, meta: MessageMeta) => Promise<void>;
   canSendImage: () => boolean;

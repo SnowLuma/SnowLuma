@@ -64,7 +64,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     getMessageMeta: (messageId) => messageStore.findMeta(messageId),
     canSendImage: () => true,
     canSendRecord: () => true,
-    sendPrivateMessage: (userId, message, autoEscape) => sendPrivateMessage(ref, userId, message, autoEscape),
+    sendPrivateMessage: (userId, message, autoEscape, groupId) => sendPrivateMessage(ref, userId, message, autoEscape, groupId),
     sendGroupMessage: (groupId, message, autoEscape) => sendGroupMessage(ref, groupId, message, autoEscape),
     deleteMessage: (_messageId, meta) => deleteMessage(bridge, meta),
     getFriendList: () => getFriendList(bridge),
