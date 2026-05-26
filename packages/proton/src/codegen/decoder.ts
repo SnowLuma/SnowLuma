@@ -1,4 +1,4 @@
-import { WireType, PRIMITIVE_TYPE_MAP, type ProtobufField, type ProtobufMessage, type MessageRegistry } from '../ast/types.js';
+import { PRIMITIVE_TYPE_MAP, WireType, isFixed64BigInt, isVarint64, type MessageRegistry, type ProtobufField, type ProtobufMessage } from '../ast/types.js';
 
 function tagValue(field: ProtobufField): number {
   const wireType = field.isMessage || field.typeName === 'string' || field.typeName === 'bytes'
@@ -24,14 +24,6 @@ function varintDec64(varName: string, ind: string): string {
     `${ind}let ${varName} = 0n, _s = 0n, _b;`,
     `${ind}do { _b = data[offset++]; ${varName} |= BigInt(_b & 0x7f) << _s; _s += 7n; } while (_b & 0x80);`,
   ].join('\n');
-}
-
-function isVarint64(typeName: string): boolean {
-  return typeName === 'uint_64' || typeName === 'int_64' || typeName === 'sint_64';
-}
-
-function isFixed64BigInt(typeName: string): boolean {
-  return typeName === 'fixed_64' || typeName === 'sfixed_64';
 }
 
 const INLINE_SKIP = [

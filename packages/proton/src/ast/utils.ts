@@ -2,7 +2,7 @@ import ts from 'typescript';
 
 export type ImportedTypeNameResolver = (name: string) => string;
 
-function identityImportedTypeName(name: string): string {
+export function identityImportedTypeName(name: string): string {
   return name;
 }
 

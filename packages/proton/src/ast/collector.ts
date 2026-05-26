@@ -1,15 +1,12 @@
 import ts from 'typescript';
 import {
-  WireType,
   PB_MARKER, PB_REPEATED_MARKER,
+  WireType,
+  type GenericFieldTemplate,
+  type GenericProtobufTemplate,
   type ProtobufField, type ProtobufMessage,
-  type GenericProtobufTemplate, type GenericFieldTemplate,
 } from './types.js';
-import { isKeywordTypeNode, typeNodeToMangledName, type ImportedTypeNameResolver } from './utils.js';
-
-function identityImportedTypeName(name: string): string {
-  return name;
-}
+import { identityImportedTypeName, isKeywordTypeNode, typeNodeToMangledName, type ImportedTypeNameResolver } from './utils.js';
 
 /**
  * Yield generic-instantiated type-arg nodes appearing as field types on a
@@ -150,12 +147,12 @@ function extractGenericField(
     isOptional: member.questionToken != null,
     isRepeated: parsed.marker === PB_REPEATED_MARKER,
   };
-    // If the field's type-arg is itself a generic instantiation (`Wrapper<U>`,
-    // where U is a type param of the enclosing template), capture the original
-    // source text so monomorphization can substitute U and re-instantiate the
-    // inner generic. Without this the field's `rawTypeName` would stay at the
-    // unsubstituted `'Wrapper__U'` form and the substituted instantiation
-    // would never reach the registry.
+  // If the field's type-arg is itself a generic instantiation (`Wrapper<U>`,
+  // where U is a type param of the enclosing template), capture the original
+  // source text so monomorphization can substitute U and re-instantiate the
+  // inner generic. Without this the field's `rawTypeName` would stay at the
+  // unsubstituted `'Wrapper__U'` form and the substituted instantiation
+  // would never reach the registry.
   const ta = parsed.typeArgNode;
   if (ts.isTypeReferenceNode(ta) && ta.typeArguments && ta.typeArguments.length > 0) {
     result.genericTypeArgText = ta.getText(sf);

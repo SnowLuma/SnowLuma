@@ -140,44 +140,14 @@ function getBareModuleResolutionCache(): ts.ModuleResolutionCache {
   return bareModuleResolutionCache;
 }
 
-/**
- * Resolve a module specifier (relative OR bare) to an absolute `.ts`
- * source-file path. Returns `null` if the resolution lands on something
- * proton can't consume (a `.d.ts` declaration, a `.js` build artifact,
- * or just not-found).
- *
- * Two code paths:
- *
- *  - **Relative** (`./foo`, `../bar`): direct file-existence probe.
- *    Same behavior as before — fast, no TS dependency. Preserved
- *    verbatim so that the common case (cross-file imports inside a
- *    single package) is unaffected by the new bare-specifier logic.
- *
- *  - **Bare** (`@scope/pkg`, `pkg-name`, `~alias`): delegate to
- *    TypeScript's module resolution so monorepo workspaces / npm
- *    packages / tsconfig paths / package.json `exports` all just work.
- *    Required to support proto definitions that live in a separate
- *    workspace package — e.g. moving `bridge/proto/proton/*.ts` into a
- *    dedicated `@snowluma/proto-defs` package while keeping the call
- *    sites in `@snowluma/core`.
- *
- *    We deliberately require the resolved file to be `.ts` (not
- *    `.d.ts`): proton collects `pb<…>` field tags by walking interface
- *    AST nodes, and a hand-written `.d.ts` *would* work too — but the
- *    typical `dist/index.d.ts` strips away the `pb<>` type arguments
- *    proton needs. Asking proto-definition packages to ship source
- *    `.ts` (the same model `@snowluma/proton` itself uses) avoids that
- *    footgun entirely.
- */
+/** Resolve a specifier (relative or bare) to an absolute `.ts` source path.
+ *  Returns `null` for non-.ts files (`.d.ts`, `.js`) or unresolved paths.
+ *  Relative specifiers use direct file probing; bare specifiers use TS bundler
+ *  resolution so workspaces, path aliases, and `package.json` exports work.
+ *  Only `.ts` source is accepted — `.d.ts` strips the `pb<>` type arguments. */
 function resolveModulePath(specifier: string, importerPath: string): string | null {
   if (specifier.startsWith('.')) {
-    // ── Relative path branch (preserved verbatim from the pre-bare-
-    //    specifier implementation; existing callers depend on its
-    //    exact behavior, including the .ts-only filter). ──
     const base = resolve(dirname(importerPath), specifier);
-
-    // Try exact path (e.g., './types.ts')
-    if (existsSync(base) && !base.endsWith('.ts') === false) return base;
     if (base.endsWith('.ts') && existsSync(base)) return base;
 
     // Try appending .ts
@@ -191,7 +161,6 @@ function resolveModulePath(specifier: string, importerPath: string): string | nu
     return null;
   }
 
-  // ── Bare specifier branch ──
   const result = ts.resolveModuleName(
     specifier,
     importerPath,

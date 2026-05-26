@@ -14,22 +14,7 @@ export interface SubclassOverrideInsertion {
   code: string;
 }
 
-/**
- * Plugin-facing entry point for the subclass-wrapper feature.
- *
- * Pulls the file's TypeChecker (lazily — returns null and short-circuits
- * if no tsconfig is reachable), walks every class declaration in the
- * file's program-side SourceFile, runs the subclass resolver against each,
- * and returns both the resolved wrappers and the extra root type names
- * that the analyzer pipeline needs to drag into the codec registry.
- *
- * The function is intentionally side-effect free: caching of the Program
- * lives in `program-cache.ts`, and the override text is materialised by
- * `renderSubclassOverride`. Each call gets a fresh `WrapperLookupCache`
- * because the underlying detect call is memoised per ClassDeclaration —
- * the cache only matters across the iterations of a single file's
- * subclasses (which is exactly what we do here).
- */
+/** Result returned by `runSubclassWrapperPipeline`. */
 export interface SubclassWrapperPipelineResult {
   /** All resolved subclass overrides reachable from this file. Empty when
    *  TypeChecker is unavailable, when no class in the file extends a
@@ -46,6 +31,9 @@ export interface SubclassWrapperPipelineResult {
   insertions: SubclassOverrideInsertion[];
 }
 
+/** Lazily retrieves the TypeChecker (returns empty result when no tsconfig is
+ *  reachable), resolves inherited wrapper overrides for every class in the file,
+ *  and returns resolved wrappers, extra codec roots, and insertion points. */
 export function runSubclassWrapperPipeline(filePath: string): SubclassWrapperPipelineResult {
   const empty: SubclassWrapperPipelineResult = {
     resolvedWrappers: [],
@@ -62,10 +50,7 @@ export function runSubclassWrapperPipeline(filePath: string): SubclassWrapperPip
   const cache = new WrapperLookupCache();
   const allResolved: ResolvedSubclassWrapper[] = [];
   const extraRoots = new Set<string>();
-  // Group rendered overrides per subclass so encode + decode + ... for the
-  // same class land in one contiguous block right after the class body.
-  // Otherwise the plugin would have to apply multiple identical-position
-  // edits and worry about ordering.
+  // Group per subclass so encode + decode + ... land in one contiguous block.
   const perSubclass = new Map<ts.ClassDeclaration, string[]>();
 
   for (const stmt of sf.statements) {

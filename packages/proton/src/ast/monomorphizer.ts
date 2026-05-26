@@ -1,25 +1,22 @@
 import ts from 'typescript';
-import { WireType, type ProtobufField, type ProtobufMessage, type GenericProtobufTemplate } from './types.js';
+import { WireType, type GenericProtobufTemplate, type ProtobufField, type ProtobufMessage } from './types.js';
 import {
-  isKeywordTypeNode,
   createImportedTypeNameResolver,
+  identityImportedTypeName,
+  isKeywordTypeNode,
   resolveSourceFileForTypeNode,
-  type ImportedTypeNameResolver,
   typeNodeToMangledName,
+  type ImportedTypeNameResolver,
 } from './utils.js';
-
-function identityImportedTypeName(name: string): string {
-  return name;
-}
 
 /** Resolved value for a single template type parameter. */
 interface ResolvedTypeArg {
-    /** Mangled-name form used when substituting into a `rawTypeName` slot
-     *  for an `isTypeParam` field. */
-    mangled: string;
-    /** Original TypeScript source text — used when re-substituting into a
-     *  field's `genericTypeArgText` so the substituted text remains parseable. */
-    text: string;
+  /** Mangled-name form used when substituting into a `rawTypeName` slot
+   *  for an `isTypeParam` field. */
+  mangled: string;
+  /** Original TypeScript source text — used when re-substituting into a
+   *  field's `genericTypeArgText` so the substituted text remains parseable. */
+  text: string;
 }
 
 /**

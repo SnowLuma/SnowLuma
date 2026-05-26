@@ -1,4 +1,4 @@
-import { WireType, type ProtobufField, type ProtobufMessage, type MessageRegistry } from '../ast/types.js';
+import { WireType, isFixed64BigInt, isVarint64, type MessageRegistry, type ProtobufField, type ProtobufMessage } from '../ast/types.js';
 
 /**
  * Pre-compute tag bytes at codegen time.
@@ -52,14 +52,6 @@ function writeVarint(expr: string, ind: string): string {
   ].join('\n');
 }
 
-function isVarint64(typeName: string): boolean {
-  return typeName === 'uint_64' || typeName === 'int_64' || typeName === 'sint_64';
-}
-
-function isFixed64BigInt(typeName: string): boolean {
-  return typeName === 'fixed_64' || typeName === 'sfixed_64';
-}
-
 function bigintVarintExpr(typeName: string, expr: string): string {
   if (typeName === 'uint_64') return `BigInt.asUintN(64, ${expr})`;
   if (typeName === 'int_64') return `BigInt.asUintN(64, ${expr})`;
@@ -67,9 +59,9 @@ function bigintVarintExpr(typeName: string, expr: string): string {
 }
 
 interface EncoderBlock {
-    declare: string[];
-    size: string[];
-    write: string[];
+  declare: string[];
+  size: string[];
+  write: string[];
 }
 
 export function generateEncoder(msg: ProtobufMessage, _registry: MessageRegistry): string {

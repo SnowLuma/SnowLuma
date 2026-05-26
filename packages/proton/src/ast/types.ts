@@ -70,3 +70,11 @@ export const PRIMITIVE_TYPE_MAP: Record<string, { wireType: WireType; defaultVal
 /** Marker identifiers recognised in type references */
 export const PB_MARKER = 'pb';
 export const PB_REPEATED_MARKER = 'pb_repeated';
+
+export function isVarint64(typeName: string): boolean {
+  return typeName === 'uint_64' || typeName === 'int_64' || typeName === 'sint_64';
+}
+
+export function isFixed64BigInt(typeName: string): boolean {
+  return typeName === 'fixed_64' || typeName === 'sfixed_64';
+}

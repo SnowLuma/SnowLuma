@@ -3,10 +3,8 @@ import { getMethodName, isStaticMethod } from './ast-helpers.js';
 import { collectProtobufImportBindings, matchProtobufCallSite, type CanonicalProtobufFn, type ProtobufImportBindings } from './callsite.js';
 
 /**
- * Static-method wrapper detection.
- *
- * A "wrapper" here is the abstract half of the pattern that motivates the
- * whole feature:
+ * Static-method wrapper detection. Detects abstract static methods that
+ * forward a type parameter into `protobuf_encode`/`protobuf_decode`, e.g.:
  *
  * ```ts
  * abstract class PacketTransformer {
@@ -16,21 +14,7 @@ import { collectProtobufImportBindings, matchProtobufCallSite, type CanonicalPro
  * }
  * ```
  *
- * The method itself can never run at the user's call site because `R` is
- * erased at runtime. Proton's job is to walk every subclass of such a base,
- * resolve `R` per subclass via TypeChecker, and emit a per-subclass override
- * with a concrete codec inlined.
- *
- * This module only handles the AST-side detection — what the method looks
- * like and which type parameter it pipes into protobuf_encode/decode. The
- * subclass resolution + codegen lives in `typecheck/subclass-wrapper.ts`
- * because both steps need a TypeChecker.
- *
- * The detector is intentionally name-agnostic: it doesn't care that the
- * method is called `encode`, that the sibling is `serialize`, or that the
- * base is `PacketTransformer`. It only looks at the structural pattern,
- * which keeps it usable for user-defined variants (decode side, RPC chains,
- * etc.) without further configuration.
+ * Subclass resolution and codegen live in `typecheck/subclass-wrapper.ts`.
  */
 
 /** A single `protobuf_encode<X>(...)` / `protobuf_decode<X>(...)` call inside

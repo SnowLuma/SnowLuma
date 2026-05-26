@@ -2,25 +2,14 @@ import ts from 'typescript';
 import type { ResolvedSubclassWrapper } from '../typecheck/subclass-wrapper.js';
 
 /**
- * Per-subclass override code generation.
- *
- * The abstract base class's static method body is copied verbatim, with
- * every `protobuf_encode<R>` / `protobuf_decode<B>` occurrence rewritten to
- * the concrete `protobuf_encode_${typeName}` / `protobuf_decode_${typeName}`
- * identifier. The result is assigned onto the subclass:
+ * Per-subclass override code generation. Copies the wrapper body verbatim,
+ * rewrites every `protobuf_encode/decode<R>` to the concrete form, and emits:
  *
  * ```ts
- * Sub.encode = function (ctx, params) { … rewritten body … };
+ * Sub.encode = function (ctx, params) { … };
  * ```
  *
- * Output language:
- *   The generated text is appended into the subclass's own (already-TS)
- *   transform result. Anything TS-only inside the body (`as never`, return-
- *   type annotations on local vars, etc.) survives intact and is dropped
- *   downstream by the same TS-to-JS step that already handles the rest of
- *   the user file. We avoid running our own transpilation step here both
- *   because it adds latency and because re-transpiling once Vite is about
- *   to do it again would generate duplicate work for every transform.
+ * Output is TS-flavoured (not transpiled) — Vite handles the TS-to-JS pass.
  */
 
 export interface SubclassOverrideRenderResult {
