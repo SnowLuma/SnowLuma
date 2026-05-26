@@ -50,24 +50,22 @@ import protobufVitePlugin from '@snowluma/proton/vite';
 export default defineConfig({
   plugins: [
     protobufVitePlugin({
-      root: 'src',                 // 可选：限制插件只处理该目录下的 .ts 文件
-      tsconfig: 'tsconfig.json',    // 可选：configResolved 时预加载整个 TS Program
-      cache: true,                 // 可选：默认启用，缓存写入 Vite cacheDir/proton
+      root: 'src',  // 可选：限制插件只处理该目录下的 .ts 文件
+      cache: true,  // 可选：默认启用，缓存写入 Vite cacheDir/proton
     }),
   ],
 });
 
 ```
 
-插件会在 Vite `configResolved` 阶段完成项目级初始化：解析作用目录、解析 `tsconfig`、预构建并缓存 TypeChecker 所需的 `ts.Program`。如果启用缓存（默认），Proton 会在 Vite 的 `cacheDir` 下维护两类缓存：
+插件在 Vite `configResolved` 阶段解析作用目录。所有类型分析都基于 AST（不依赖 `tsconfig.json` 或 TypeChecker），跨文件 `extends` 链通过 `import-resolver` 的文件缓存遍历。如果启用缓存（默认），Proton 会在 Vite 的 `cacheDir` 下维护：
 
 ```text
 node_modules/.vite/proton/
-  program/    TypeScript 增量 Program 缓存（tsBuildInfoFile）
   transform/  按源码 hash + 配置 hash + 依赖 mtime 命中的 transform 结果
 ```
 
-这样普通文件的 transform 可以先走作用域过滤与 hash cache；未命中时才执行 AST 分析、跨文件导入解析和必要的 TypeChecker 子类解析。
+这样普通文件的 transform 可以先走作用域过滤与 hash cache；未命中时才执行 AST 分析、跨文件导入解析和子类包装器解析。
 
 添加工作区依赖：
 
@@ -210,7 +208,7 @@ const result = DemoTransformer.decode(undefined, bytes);
 抽象体内部的 `protobuf_encode<R>` / `protobuf_decode<B>` 无法进行静态替换 —— 因为 `R` 和 `B` 在运行时会被擦除。Proton 通过以下方式处理此问题：
 
 1. **检测**满足以下条件的类：其静态方法 (a) 接收类型参数，(b) 调用 `protobuf_encode<R>` / `protobuf_decode<R>` 且其中 `R` 是这些参数之一，以及 (c) 使用 `this: T extends { … }` 进行约束，且该参数出现在约束内部。
-2. **利用 TypeScript 的 TypeChecker** —— 基于项目的 `tsconfig.json` 延迟构建 —— 遍历文件中每个子类的 `extends` 链（包含跨文件边和路径别名），并将包装器的类型参数与子类的同级方法签名进行解析（在此示例中，`R` 对应 `serialize` 的返回值类型，`B` 对应 `deserialize` 的主体参数类型）。
+2. **AST-only 解析**：通过文件级导入解析（与 protobuf 接口共用同一套 `import-resolver` 机制）遍历每个子类的 `extends` 链（含跨文件边和包/路径别名），并把包装器的类型参数和子类的同级方法签名进行匹配（本例中 `R` 对应 `serialize` 的返回值类型，`B` 对应 `deserialize` 的参数类型）。
 3. 在类声明后**追加**一个针对每个子类的重写（Override）：
 ```js
 DemoTransformer.encode = function (ctx, params) {
@@ -227,9 +225,9 @@ DemoTransformer.encode = function (ctx, params) {
 
 * 包装器方法可以命名为任何名称（`encode`、`enc`、`request` 等）—— Proton 只关注主体和约束的形状。
 * 同级方法的名称是从 `this: T extends { … }` 约束中读取的，因此 `serialize`/`deserialize`、`build`/`parse` 或任何其他组合都可以正常工作。
-* 多层继承（`Leaf → MidBase → AbstractBase`）会被 TypeChecker 全程追踪。
+* 多层继承（`Leaf → MidBase → AbstractBase`）通过逐级 `extends` 解析支持。
 
-如果同级方法缺少显式的返回值/参数类型注解，将使用检查器推导出的类型作为兜底。只有当包装器主体中的每个编解码器调用都成功解析时，才会输出重写代码 —— 部分解析会在运行时产生死标识符引用，因此“全有或全无（all-or-nothing）”的规则是故意为之的。
+同级方法**必须**显式声明返回值/参数类型注解：AST-only 路径不进行类型推导，缺少注解的方法会被跳过。只有当包装器主体中的每个编解码器调用都成功解析时，才会输出重写代码 —— 部分解析会在运行时产生死标识符引用，因此“全有或全无（all-or-nothing）”的规则是故意为之的。
 
 ## proto3 默认值语义
 
@@ -300,15 +298,13 @@ src/
     ast-helpers.ts     共享 AST 小工具 + 快速预检
     wrapper-binding.ts 包装器绑定类型 + 类型模板实例化
     static-wrapper.ts  静态方法包装器检测 (AST)
+    subclass-wrapper.ts AST-only extends 链遍历 + 类型参数解析
+    file-pipeline.ts   插件 transform() 使用的单文件胶水层
     utils.ts           名称解析 + 虚拟 SF 追踪
     dependency-graph.ts 拓扑排序 + 可达性
     types.ts           共享的 Schema 类型
   codegen/            内联传输格式发射器
     subclass-override.ts 每个子类重写的代码生成
-  typecheck/          基于 TypeChecker 的管道（用于子类重写）
-    program-cache.ts   延迟加载的 ts.Program，以 tsconfig 为键
-    subclass-wrapper.ts extends 链遍历 + 类型参数解析
-    file-pipeline.ts   插件 transform() 使用的单文件胶水层
   transform/          Vite 插件字符串编辑
     replacer.ts        protobuf 调用替换编辑收集
     text-edits.ts      通用倒序文本编辑应用

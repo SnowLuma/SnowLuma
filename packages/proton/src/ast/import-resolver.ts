@@ -149,6 +149,19 @@ function resolveModulePath(specifier: string, importerPath: string): string | nu
   return resolved.resolvedFileName;
 }
 
+/** Resolve `name` (imported into `sf`) to the absolute path of the `.ts`
+ *  module that declares it. Returns null for local symbols, type-only imports,
+ *  or unresolved specifiers. Used by the AST-only subclass-wrapper resolver to
+ *  walk extends edges across file boundaries. */
+export function findImportSourcePath(sf: ts.SourceFile, name: string, fromPath: string): string | null {
+  for (const imp of collectImportClauses(sf, false)) {
+    if (imp.importedName === name || imp.localName === name) {
+      return resolveModulePath(imp.specifier, fromPath);
+    }
+  }
+  return null;
+}
+
 function hasExportModifier(node: ts.Node): boolean {
   return ts.canHaveModifiers(node) && !!ts.getModifiers(node)?.some(m => m.kind === ts.SyntaxKind.ExportKeyword);
 }

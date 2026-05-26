@@ -4,19 +4,17 @@ import { dirname, isAbsolute, resolve } from 'path';
 import type { Plugin, ResolvedConfig } from 'vite';
 import { analyze, analyzeSource, selectUsedRegistry, typeNodeToMangledName } from './ast/analyzer.js';
 import { fileHasExtendingClass } from './ast/ast-helpers.js';
+import {
+  runSubclassWrapperPipeline,
+  type SubclassWrapperPipelineResult,
+} from './ast/file-pipeline.js';
 import { resolveImports, type ParsedFileEntry } from './ast/import-resolver.js';
 import { generateCode } from './codegen/generator.js';
 import { applyReplacements, collectReplacementEdits, replaceCallSites } from './transform/replacer.js';
 import { applyTextEdits, type TextEdit } from './transform/text-edits.js';
-import {
-  runSubclassWrapperPipeline,
-  type SubclassWrapperPipelineResult,
-} from './typecheck/file-pipeline.js';
-import { invalidateProgramCache, prepareProgramForTsconfig } from './typecheck/program-cache.js';
 
 export interface ProtobufVitePluginOptions {
   root?: string;
-  tsconfig?: string;
   cache?: boolean | {
     dir?: string;
   };
@@ -25,10 +23,8 @@ export interface ProtobufVitePluginOptions {
 interface ProtonPluginContext {
   viteRoot: string;
   scopeRoot: string;
-  tsconfigPath: string;
   cacheEnabled: boolean;
   transformCacheDir: string;
-  programCacheDir: string;
 }
 
 interface TransformDiskCacheEntry {
@@ -52,13 +48,7 @@ export default function protobufVitePlugin(_options: ProtobufVitePluginOptions =
     configResolved(config) {
       const nextCtx = createPluginContext(config, _options);
       ctx = nextCtx;
-      if (nextCtx.cacheEnabled) {
-        mkdirSync(nextCtx.transformCacheDir, { recursive: true });
-        mkdirSync(nextCtx.programCacheDir, { recursive: true });
-      }
-      prepareProgramForTsconfig(nextCtx.tsconfigPath, {
-        cacheDir: nextCtx.cacheEnabled ? nextCtx.programCacheDir : undefined,
-      });
+      if (nextCtx.cacheEnabled) mkdirSync(nextCtx.transformCacheDir, { recursive: true });
     },
 
     transform(code, id) {
@@ -70,8 +60,6 @@ export default function protobufVitePlugin(_options: ProtobufVitePluginOptions =
       const sourceHash = hashString(code);
       const configHash = hashString(JSON.stringify({
         scopeRoot: normalizePath(activeCtx.scopeRoot),
-        tsconfigPath: normalizePath(activeCtx.tsconfigPath),
-        tsconfigMtime: safeMtime(activeCtx.tsconfigPath),
         version: TRANSFORM_CACHE_VERSION,
       }));
       const cachePath = activeCtx.cacheEnabled
@@ -82,10 +70,10 @@ export default function protobufVitePlugin(_options: ProtobufVitePluginOptions =
 
       const imported = resolveImports(code, cleanId, fileCache);
       const { registry, callSites, sourceFile } = analyze(code, cleanId, imported);
-      // Guard the TypeChecker-based wrapper pipeline behind a cheap scan:
-      // most files have no extending classes.
+      // Guard the wrapper pipeline behind a cheap scan: most files have no
+      // extending classes.
       const subclassWrappers: SubclassWrapperPipelineResult = fileHasExtendingClass(sourceFile)
-        ? runSubclassWrapperPipeline(cleanId)
+        ? runSubclassWrapperPipeline(sourceFile, fileCache)
         : { resolvedWrappers: [], extraRootTypeNames: [], insertions: [] };
 
       if (
@@ -132,10 +120,7 @@ export default function protobufVitePlugin(_options: ProtobufVitePluginOptions =
     },
 
     handleHotUpdate({ file }) {
-      if (file.endsWith('.ts')) {
-        fileCache.delete(file);
-        invalidateProgramCache(file);
-      }
+      if (file.endsWith('.ts')) fileCache.delete(file);
     },
   };
 }
@@ -147,15 +132,12 @@ function buildContext(
   cacheEnabled: boolean,
 ): ProtonPluginContext {
   const scopeRoot = resolveOptionPath(options.root, viteRoot, viteRoot);
-  const tsconfigPath = resolveOptionPath(options.tsconfig, viteRoot, resolve(scopeRoot, 'tsconfig.json'));
   const cacheBase = resolveCacheBase(options, viteRoot, viteCacheDir);
   return {
     viteRoot,
     scopeRoot,
-    tsconfigPath,
     cacheEnabled,
     transformCacheDir: resolve(cacheBase, 'transform'),
-    programCacheDir: resolve(cacheBase, 'program'),
   };
 }
 

@@ -1,5 +1,5 @@
 import ts from 'typescript';
-import type { ResolvedSubclassWrapper } from '../typecheck/subclass-wrapper.js';
+import type { ResolvedSubclassWrapper } from '../ast/subclass-wrapper.js';
 
 /**
  * Per-subclass override code generation. Copies the wrapper body verbatim,

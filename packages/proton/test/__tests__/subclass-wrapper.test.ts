@@ -3,12 +3,12 @@ import { dirname, resolve } from 'path';
 import ts from 'typescript';
 import { fileURLToPath } from 'url';
 import { describe, expect, it } from 'vitest';
+import { runSubclassWrapperPipelineFromPath } from '../../src/ast/file-pipeline';
+import { resolveImports, type ParsedFileEntry } from '../../src/ast/import-resolver';
 import { detectClassWrappersInFile } from '../../src/ast/static-wrapper';
+import { WrapperLookupCache, resolveSubclassWrappers } from '../../src/ast/subclass-wrapper';
 import { renderSubclassOverride } from '../../src/codegen/subclass-override';
 import protobufVitePlugin from '../../src/index';
-import { runSubclassWrapperPipeline } from '../../src/typecheck/file-pipeline';
-import { getProgramForFile, invalidateProgramCache } from '../../src/typecheck/program-cache';
-import { WrapperLookupCache, resolveSubclassWrappers } from '../../src/typecheck/subclass-wrapper';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixturePath = resolve(here, 'wrapper-fixtures', 'packet-transformer.ts');
@@ -57,22 +57,23 @@ class NotAWrapper {
   });
 });
 
-describe('subclass wrapper resolution (TypeChecker)', () => {
+function buildAstContext(filePath: string): { sf: ts.SourceFile; fileCache: Map<string, ParsedFileEntry> } {
+  const code = readFileSync(filePath, 'utf-8');
+  const fileCache = new Map<string, ParsedFileEntry>();
+  const imported = resolveImports(code, filePath, fileCache);
+  return { sf: imported.sourceFile, fileCache };
+}
+
+describe('subclass wrapper resolution (AST)', () => {
   it('resolves R for DemoTransformer.encode through the serialize return type', () => {
-    invalidateProgramCache();
-    const programCtx = getProgramForFile(fixturePath);
-    if (!programCtx) {
-      throw new Error('TypeChecker program unavailable for fixture');
-    }
-    const sf = programCtx.program.getSourceFile(fixturePath)!;
-    expect(sf).toBeDefined();
+    const { sf, fileCache } = buildAstContext(fixturePath);
 
     const subclass = sf.statements.find(
       (s): s is ts.ClassDeclaration => ts.isClassDeclaration(s) && s.name?.text === 'DemoTransformer',
     )!;
 
     const cache = new WrapperLookupCache();
-    const resolved = resolveSubclassWrappers(subclass, programCtx.checker, cache);
+    const resolved = resolveSubclassWrappers(subclass, sf, fileCache, cache);
     expect(resolved).toHaveLength(2);
 
     const encode = resolved.find(r => r.wrapper.methodName === 'encode')!;
@@ -91,15 +92,13 @@ describe('subclass wrapper resolution (TypeChecker)', () => {
   });
 
   it('renders the per-subclass override as JS-flavoured TS', () => {
-    invalidateProgramCache();
-    const programCtx = getProgramForFile(fixturePath)!;
-    const sf = programCtx.program.getSourceFile(fixturePath)!;
+    const { sf, fileCache } = buildAstContext(fixturePath);
     const subclass = sf.statements.find(
       (s): s is ts.ClassDeclaration => ts.isClassDeclaration(s) && s.name?.text === 'DemoTransformer',
     )!;
 
     const cache = new WrapperLookupCache();
-    const resolved = resolveSubclassWrappers(subclass, programCtx.checker, cache);
+    const resolved = resolveSubclassWrappers(subclass, sf, fileCache, cache);
     const encode = resolved.find(r => r.wrapper.methodName === 'encode')!;
     const rendered = renderSubclassOverride(encode);
     expect(rendered).not.toBeNull();
@@ -115,8 +114,7 @@ describe('file-pipeline (end-to-end)', () => {
   }
 
   it('produces extra root names + override code for the demo subclass', () => {
-    invalidateProgramCache();
-    const result = runSubclassWrapperPipeline(fixturePath);
+    const result = runSubclassWrapperPipelineFromPath(fixturePath);
 
     expect(result.extraRootTypeNames).toEqual(
       expect.arrayContaining(['rsq_pb', 'rps_pb']),
@@ -132,10 +130,9 @@ describe('file-pipeline (end-to-end)', () => {
   });
 
   it('returns an empty result when no class in the file extends a wrapper', () => {
-    invalidateProgramCache();
     // Re-use an existing test file that has no transformer classes.
     const otherFile = resolve(here, 'plugin.test.ts');
-    const result = runSubclassWrapperPipeline(otherFile);
+    const result = runSubclassWrapperPipelineFromPath(otherFile);
     expect(result.resolvedWrappers).toHaveLength(0);
     expect(result.extraRootTypeNames).toHaveLength(0);
     expect(result.insertions).toHaveLength(0);
@@ -146,8 +143,7 @@ describe('cross-file inheritance', () => {
   const subclassFile = resolve(here, 'wrapper-fixtures', 'subclass-transformer.ts');
 
   it('walks the extends edge into a separate module and resolves wrappers', () => {
-    invalidateProgramCache();
-    const result = runSubclassWrapperPipeline(subclassFile);
+    const result = runSubclassWrapperPipelineFromPath(subclassFile);
     expect(result.extraRootTypeNames).toEqual(
       expect.arrayContaining(['FooRequestPb', 'FooResponsePb']),
     );
@@ -159,9 +155,8 @@ describe('cross-file inheritance', () => {
   });
 
   it('does not generate overrides on the abstract base file itself', () => {
-    invalidateProgramCache();
     const baseFile = resolve(here, 'wrapper-fixtures', 'base-transformer.ts');
-    const result = runSubclassWrapperPipeline(baseFile);
+    const result = runSubclassWrapperPipelineFromPath(baseFile);
     // No subclasses defined in the base file → no overrides emitted there.
     expect(result.resolvedWrappers).toHaveLength(0);
     expect(result.insertions).toHaveLength(0);
@@ -170,7 +165,6 @@ describe('cross-file inheritance', () => {
 
 describe('plugin transform integration', () => {
   function runPluginOnFixture(): string {
-    invalidateProgramCache();
     const plugin = protobufVitePlugin();
     const code = loadFixture();
     const transformHook = plugin.transform!;

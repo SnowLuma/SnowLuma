@@ -231,7 +231,7 @@ const buf = protobuf_encode<UsedMsg>({ inner: { id: 1 } });
     }
   });
 
-  it('uses Vite cacheDir for transform hash cache and startup program cache', () => {
+  it('uses Vite cacheDir for transform hash cache', () => {
     const root = mkdtempSync(resolve(tmpdir(), 'proton-cache-'));
     try {
       const sourcePath = resolve(root, 'entry.ts');
@@ -244,18 +244,16 @@ const buf = protobuf_encode<UsedMsg>({ inner: { id: 1 } });
         files: ['entry.ts'],
       }));
 
-      const firstPlugin = protobufVitePlugin({ root, tsconfig: tsconfigPath });
+      const firstPlugin = protobufVitePlugin({ root });
       runConfigResolved(firstPlugin, root, cacheDir);
       const first = runPluginTransform(firstPlugin, code, sourcePath);
       expect(first?.code).toContain('protobuf_encode_Msg');
 
       const transformCacheDir = resolve(cacheDir, 'proton', 'transform');
-      const programCacheDir = resolve(cacheDir, 'proton', 'program');
       expect(existsSync(transformCacheDir)).toBe(true);
-      expect(existsSync(programCacheDir)).toBe(true);
       expect(readdirSync(transformCacheDir).some(name => name.endsWith('.json'))).toBe(true);
 
-      const secondPlugin = protobufVitePlugin({ root, tsconfig: tsconfigPath });
+      const secondPlugin = protobufVitePlugin({ root });
       runConfigResolved(secondPlugin, root, cacheDir);
       const second = runPluginTransform(secondPlugin, code, sourcePath);
       expect(second).toEqual(first);
