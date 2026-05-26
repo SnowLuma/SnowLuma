@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import ts from 'typescript';
 import { renderSubclassOverride } from '../codegen/subclass-override.js';
+import { fileHasExtendingClass } from './ast-helpers.js';
 import { resolveImports, type ParsedFileEntry } from './import-resolver.js';
 import {
   resolveSubclassWrappers,
@@ -90,6 +91,10 @@ export function runSubclassWrapperPipelineFromPath(filePath: string): SubclassWr
   } catch {
     return EMPTY;
   }
+  // Cheap AST scan first — most files have no extending classes and we can
+  // skip the expensive `resolveImports` recursive descent entirely.
+  const probeSf = ts.createSourceFile(filePath, code, ts.ScriptTarget.Latest, true);
+  if (!fileHasExtendingClass(probeSf)) return EMPTY;
   const fileCache = new Map<string, ParsedFileEntry>();
   const imported = resolveImports(code, filePath, fileCache);
   return runSubclassWrapperPipeline(imported.sourceFile, fileCache);

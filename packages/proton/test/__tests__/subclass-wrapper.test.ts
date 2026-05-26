@@ -2,7 +2,7 @@ import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import ts from 'typescript';
 import { fileURLToPath } from 'url';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { runSubclassWrapperPipelineFromPath } from '../../src/ast/file-pipeline';
 import { resolveImports, type ParsedFileEntry } from '../../src/ast/import-resolver';
 import { detectClassWrappersInFile } from '../../src/ast/static-wrapper';
@@ -164,17 +164,24 @@ describe('cross-file inheritance', () => {
 });
 
 describe('plugin transform integration', () => {
-  function runPluginOnFixture(): string {
+  // Transform output is deterministic, so cache it once for all tests in this
+  // describe block; the alternative — transforming the fixture three times —
+  // dominates this file's wall-clock cost.
+  let transformedOutput: string;
+  let strippedJs: string;
+
+  beforeAll(() => {
     const plugin = protobufVitePlugin();
     const code = loadFixture();
     const transformHook = plugin.transform!;
     const transformFn = typeof transformHook === 'function' ? transformHook : transformHook.handler;
     const result = transformFn.call({} as never, code, fixturePath);
-    return (result as { code: string }).code;
-  }
+    transformedOutput = (result as { code: string }).code;
+    strippedJs = toPlainJs(transformedOutput);
+  });
 
   it('appends concrete codecs + per-subclass overrides to the fixture output', () => {
-    const out = runPluginOnFixture();
+    const out = transformedOutput;
 
     // Concrete codecs got generated for the types extracted from
     // serialize/deserialize annotations.
@@ -211,7 +218,7 @@ describe('plugin transform integration', () => {
   }
 
   it('end-to-end: DemoTransformer.encode(undefined, { param: 42 }) produces the expected wire bytes', () => {
-    const stripped = toPlainJs(runPluginOnFixture());
+    const stripped = strippedJs;
     // Silence the `console.log` that the fixture's deserialize() performs;
     // we only verify the encode path in this test, but the fixture's
     // top-level call exercises encode, not decode, so the stub is just a
@@ -237,7 +244,7 @@ describe('plugin transform integration', () => {
   });
 
   it('end-to-end: decode override forwards the bytes through deserialize', () => {
-    const stripped = toPlainJs(runPluginOnFixture());
+    const stripped = strippedJs;
 
     const harness = `
       const console = { log: () => {} };
