@@ -1,12 +1,14 @@
 import fs from 'fs';
+import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import path from 'path';
-import Database, { type Database as DatabaseType, type Statement } from '@snowluma/sqlite';
 
-import type {
-  FriendInfo, GroupMemberInfo, QQGroupInfo,
-  UserProfileInfo, GroupRequestInfo,
-} from './qq-info';
 import { createLogger, type Logger } from '@snowluma/common/logger';
+import type {
+  FriendInfo, GroupMemberInfo,
+  GroupRequestInfo,
+  QQGroupInfo,
+  UserProfileInfo,
+} from './qq-info';
 
 const moduleLogger = createLogger('Identity');
 
@@ -109,14 +111,14 @@ export class IdentityService {
   private readonly uidByUin = new Map<number, string>();
 
   // ─── Persistence + fetcher ───
-  private readonly db:  DatabaseType | null;
+  private readonly db: DatabaseSync | null;
   // Prepared-statement cache. Every `.prepare(sql)` call in this
   // service re-parses the SQL — that's the SQLite anti-pattern
   // RoadMap #5 is fixing. We memoize by the SQL string itself so the
   // call sites stay readable (no need to enumerate 20+ named fields
   // upfront); the Map lookup is O(1) hash + string-eq, which is
   // negligible next to the SQL parse it replaces.
-  private readonly stmtCache_ = new Map<string, Statement>();
+  private readonly stmtCache_ = new Map<string, StatementSync>();
   private inTransaction = false;
   private fetcher: IdentityFetcher | null = null;
   private readonly log: Logger;
@@ -134,16 +136,16 @@ export class IdentityService {
     }
 
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-    this.db = new Database(dbPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('synchronous = NORMAL');
+    this.db = new DatabaseSync(dbPath);
+    this.db.exec('PRAGMA journal_mode = WAL');
+    this.db.exec('PRAGMA synchronous = NORMAL');
     this.initSchema();
     this.loadSnapshot();
   }
 
   /** Cached `prepare(sql)`. First call per unique SQL parses; later
    *  calls reuse the same `Statement` object. See `stmtCache_`. */
-  private pstmt(sql: string): Statement {
+  private pstmt(sql: string): StatementSync {
     let cached = this.stmtCache_.get(sql);
     if (cached !== undefined) return cached;
     cached = this.db!.prepare(sql);

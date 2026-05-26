@@ -41,9 +41,10 @@ export interface ResolvedSubclassWrapper {
   resolvedCodecCalls: ResolvedCodecCall[];
 }
 
-/** Per-pipeline cache of wrapper detection results, memoised on the
- *  ClassDeclaration node so the same abstract base is not re-scanned for
- *  every subclass. */
+/** Wrapper detection memoised on the ClassDeclaration node. Module-level so a
+ *  base class shared by many subclasses (or many transformed files) is only
+ *  scanned once for the lifetime of the parsed entry in `fileCache`. The
+ *  WeakMap drops entries automatically when HMR invalidates the parsed file. */
 export class WrapperLookupCache {
   private readonly map = new WeakMap<ts.ClassDeclaration, ClassWrapperInfo | null>();
 
@@ -54,6 +55,14 @@ export class WrapperLookupCache {
     return info;
   }
 }
+
+export const sharedWrapperCache = new WrapperLookupCache();
+
+/** Cached `collectInheritedWrappers` results keyed by the subclass
+ *  ClassDeclaration node. The set of wrappers inherited by a class is stable
+ *  for the lifetime of its parsed entry; HMR drops the entry which drops the
+ *  WeakMap binding automatically. */
+const inheritanceCache = new WeakMap<ts.ClassDeclaration, WrapperMethodInfo[]>();
 
 /** Walk the subclass's extends chain and return every wrapper inherited by it,
  *  paired with the per-codec-call type resolution. An empty array means the
@@ -83,6 +92,9 @@ function collectInheritedWrappers(
   fileCache: Map<string, ParsedFileEntry>,
   wrapperCache: WrapperLookupCache,
 ): WrapperMethodInfo[] {
+  const cached = inheritanceCache.get(cls);
+  if (cached) return cached;
+
   const result: WrapperMethodInfo[] = [];
   // Skip `cls` itself: only override methods inherited from ancestors.
   let first = true;
@@ -92,6 +104,7 @@ function collectInheritedWrappers(
     if (!info) continue;
     for (const wrapper of info.values()) result.push(wrapper);
   }
+  inheritanceCache.set(cls, result);
   return result;
 }
 

@@ -91,7 +91,6 @@
     "@snowluma/proto-defs": "workspace:*",
     "@snowluma/proton": "workspace:*",
     "@snowluma/protocol": "workspace:*",
-    "@snowluma/sqlite": "workspace:*",
     "@snowluma/websocket": "workspace:*"
   },
   "devDependencies": {

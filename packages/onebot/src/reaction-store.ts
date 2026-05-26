@@ -1,21 +1,21 @@
-import Database, { type Database as DatabaseType, type Statement } from '@snowluma/sqlite';
 import fs from 'fs';
+import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import path from 'path';
 
 export class ReactionStore {
-  private readonly db: DatabaseType;
-  private readonly stmtUpsert: Statement;
-  private readonly stmtRemove: Statement;
-  private readonly stmtList: Statement;
-  private readonly stmtCount: Statement;
-  private readonly stmtCountByEmoji: Statement;
+  private readonly db: DatabaseSync;
+  private readonly stmtUpsert: StatementSync;
+  private readonly stmtRemove: StatementSync;
+  private readonly stmtList: StatementSync;
+  private readonly stmtCount: StatementSync;
+  private readonly stmtCountByEmoji: StatementSync;
 
   constructor(dbPath: string) {
     const dir = path.dirname(dbPath);
     fs.mkdirSync(dir, { recursive: true });
-    this.db = new Database(dbPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('synchronous = NORMAL');
+    this.db = new DatabaseSync(dbPath);
+    this.db.exec('PRAGMA journal_mode = WAL');
+    this.db.exec('PRAGMA synchronous = NORMAL');
     this.initSchema();
 
     this.stmtUpsert = this.db.prepare(

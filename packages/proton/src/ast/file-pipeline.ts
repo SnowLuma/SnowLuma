@@ -4,7 +4,7 @@ import { renderSubclassOverride } from '../codegen/subclass-override.js';
 import { resolveImports, type ParsedFileEntry } from './import-resolver.js';
 import {
   resolveSubclassWrappers,
-  WrapperLookupCache,
+  sharedWrapperCache,
   type ResolvedSubclassWrapper,
 } from './subclass-wrapper.js';
 
@@ -46,7 +46,6 @@ export function runSubclassWrapperPipeline(
   sourceFile: ts.SourceFile,
   fileCache: Map<string, ParsedFileEntry>,
 ): SubclassWrapperPipelineResult {
-  const wrapperCache = new WrapperLookupCache();
   const allResolved: ResolvedSubclassWrapper[] = [];
   const extraRoots = new Set<string>();
   // Group per subclass so encode + decode + ... land in one contiguous block.
@@ -54,7 +53,7 @@ export function runSubclassWrapperPipeline(
 
   for (const stmt of sourceFile.statements) {
     if (!ts.isClassDeclaration(stmt) || !stmt.name) continue;
-    const resolved = resolveSubclassWrappers(stmt, sourceFile, fileCache, wrapperCache);
+    const resolved = resolveSubclassWrappers(stmt, sourceFile, fileCache, sharedWrapperCache);
     for (const r of resolved) {
       allResolved.push(r);
       for (const c of r.resolvedCodecCalls) extraRoots.add(c.resolvedTypeName);
