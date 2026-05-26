@@ -1,23 +1,4 @@
 #!/usr/bin/env node
-// One-shot release driver.
-//
-//   pnpm release <version>           # full pipeline: dev → Promote → main → tag
-//   pnpm release <version> --no-wait # bump+push dev only, do main+tag manually
-//   pnpm release <version> --dry-run # print plan, change nothing
-//
-// What it does, in order:
-//   1. Sanity-check: on `dev`, clean tree, in sync with origin/dev.
-//   2. `pnpm bump <version>` (writes every package.json).
-//   3. Commit `chore(release): vX.Y.Z` — that prefix triggers the
-//      Promote workflow, which opens (or updates) the dev→main PR and
-//      auto-merges if the GitHub setting allows.
-//   4. Push to origin/dev.
-//   5. (Unless `--no-wait`) poll the Promote PR via `gh` until it
-//      merges, then `git fetch && git checkout main && git pull`,
-//      create `vX.Y.Z` tag, push it — that triggers `release.yml`.
-//   6. Switch back to `dev` so the next `git log` view is back where
-//      you were.
-
 import { execSync, spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -77,7 +58,7 @@ function which(bin) {
   } catch { return false; }
 }
 
-function ok(msg)   { console.log(`\x1b[32m✓\x1b[0m ${msg}`); }
+function ok(msg) { console.log(`\x1b[32m✓\x1b[0m ${msg}`); }
 function info(msg) { console.log(`\x1b[36mi\x1b[0m ${msg}`); }
 function warn(msg) { console.log(`\x1b[33m!\x1b[0m ${msg}`); }
 
@@ -106,7 +87,7 @@ function preflight() {
   const local = shCapture('git rev-parse dev');
   const remote = shCapture('git rev-parse origin/dev');
   if (local !== remote) {
-    const ahead  = shCapture('git rev-list --count origin/dev..dev');
+    const ahead = shCapture('git rev-list --count origin/dev..dev');
     const behind = shCapture('git rev-list --count dev..origin/dev');
     preflightFail(`dev is not in sync with origin/dev (ahead=${ahead}, behind=${behind}). Pull / push first.`);
   }
