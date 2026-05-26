@@ -368,8 +368,7 @@
   "dependencies": {
     "@snowluma/common": "workspace:*",
     "@snowluma/proto-defs": "workspace:*",
-    "@snowluma/proton": "workspace:*",
-    "@snowluma/sqlite": "workspace:*"
+    "@snowluma/proton": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.12.2",
