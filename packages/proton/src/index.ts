@@ -29,7 +29,6 @@ interface ProtonPluginContext {
   cacheEnabled: boolean;
   transformCacheDir: string;
   programCacheDir: string;
-  programPrepared: boolean;
 }
 
 interface TransformDiskCacheEntry {
@@ -57,10 +56,9 @@ export default function protobufVitePlugin(_options: ProtobufVitePluginOptions =
         mkdirSync(nextCtx.transformCacheDir, { recursive: true });
         mkdirSync(nextCtx.programCacheDir, { recursive: true });
       }
-      const prepared = prepareProgramForTsconfig(nextCtx.tsconfigPath, {
+      prepareProgramForTsconfig(nextCtx.tsconfigPath, {
         cacheDir: nextCtx.cacheEnabled ? nextCtx.programCacheDir : undefined,
       });
-      nextCtx.programPrepared = !!prepared;
     },
 
     transform(code, id) {
@@ -84,11 +82,8 @@ export default function protobufVitePlugin(_options: ProtobufVitePluginOptions =
 
       const imported = resolveImports(code, cleanId, fileCache);
       const { registry, callSites, sourceFile } = analyze(code, cleanId, imported);
-      // The subclass-wrapper pipeline needs a TypeChecker, which carries a
-      // 1–2 second startup cost the first time we touch a tsconfig.
-      // Almost every file in a typical project has zero extending classes,
-      // so guard the heavy work behind a cheap top-level scan and only
-      // build the Program when there's actually a candidate to resolve.
+      // Guard the TypeChecker-based wrapper pipeline behind a cheap scan:
+      // most files have no extending classes.
       const subclassWrappers: SubclassWrapperPipelineResult = fileHasExtendingClass(sourceFile)
         ? runSubclassWrapperPipeline(cleanId)
         : { resolvedWrappers: [], extraRootTypeNames: [], insertions: [] };
@@ -145,28 +140,15 @@ export default function protobufVitePlugin(_options: ProtobufVitePluginOptions =
   };
 }
 
-function createPluginContext(config: ResolvedConfig, options: ProtobufVitePluginOptions): ProtonPluginContext {
-  const viteRoot = resolve(config.root);
+function buildContext(
+  options: ProtobufVitePluginOptions,
+  viteRoot: string,
+  viteCacheDir: string,
+  cacheEnabled: boolean,
+): ProtonPluginContext {
   const scopeRoot = resolveOptionPath(options.root, viteRoot, viteRoot);
   const tsconfigPath = resolveOptionPath(options.tsconfig, viteRoot, resolve(scopeRoot, 'tsconfig.json'));
-  const cacheBase = resolveCacheBase(options, viteRoot, config.cacheDir);
-  return {
-    viteRoot,
-    scopeRoot,
-    tsconfigPath,
-    cacheEnabled: options.cache !== false,
-    transformCacheDir: resolve(cacheBase, 'transform'),
-    programCacheDir: resolve(cacheBase, 'program'),
-    programPrepared: false,
-  };
-}
-
-function createStandaloneContext(options: ProtobufVitePluginOptions): ProtonPluginContext {
-  const viteRoot = process.cwd();
-  const scopeRoot = resolveOptionPath(options.root, viteRoot, viteRoot);
-  const tsconfigPath = resolveOptionPath(options.tsconfig, viteRoot, resolve(scopeRoot, 'tsconfig.json'));
-  const cacheBase = resolveCacheBase(options, viteRoot, resolve(viteRoot, 'node_modules', '.vite'));
-  const cacheEnabled = options.cache === true || typeof options.cache === 'object';
+  const cacheBase = resolveCacheBase(options, viteRoot, viteCacheDir);
   return {
     viteRoot,
     scopeRoot,
@@ -174,8 +156,16 @@ function createStandaloneContext(options: ProtobufVitePluginOptions): ProtonPlug
     cacheEnabled,
     transformCacheDir: resolve(cacheBase, 'transform'),
     programCacheDir: resolve(cacheBase, 'program'),
-    programPrepared: false,
   };
+}
+
+function createPluginContext(config: ResolvedConfig, options: ProtobufVitePluginOptions): ProtonPluginContext {
+  return buildContext(options, resolve(config.root), config.cacheDir, options.cache !== false);
+}
+
+function createStandaloneContext(options: ProtobufVitePluginOptions): ProtonPluginContext {
+  const viteRoot = process.cwd();
+  return buildContext(options, viteRoot, resolve(viteRoot, 'node_modules', '.vite'), options.cache === true || typeof options.cache === 'object');
 }
 
 function resolveOptionPath(value: string | undefined, base: string, fallback: string): string {

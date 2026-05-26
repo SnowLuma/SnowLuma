@@ -39,21 +39,23 @@ const importClausesCache = new WeakMap<ts.SourceFile, ImportClause[]>();
 const valueImportClausesCache = new WeakMap<ts.SourceFile, ImportClause[]>();
 const exportAllSpecifiersCache = new WeakMap<ts.SourceFile, string[]>();
 
-/** Extract all named imports from the source file (both type and value imports). */
-function extractImports(sf: ts.SourceFile): ImportClause[] {
-  const cached = importClausesCache.get(sf);
+function collectImportClauses(sf: ts.SourceFile, valueOnly: boolean): ImportClause[] {
+  const cache = valueOnly ? valueImportClausesCache : importClausesCache;
+  const cached = cache.get(sf);
   if (cached) return cached;
 
   const result: ImportClause[] = [];
   for (const stmt of sf.statements) {
     if (!ts.isImportDeclaration(stmt) || !stmt.importClause) continue;
+    if (valueOnly && stmt.importClause.isTypeOnly) continue;
     const spec = stmt.moduleSpecifier;
     if (!ts.isStringLiteral(spec)) continue;
     const specifier = spec.text;
 
-    const clause = stmt.importClause;
-    if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
-      for (const el of clause.namedBindings.elements) {
+    const named = stmt.importClause.namedBindings;
+    if (named && ts.isNamedImports(named)) {
+      for (const el of named.elements) {
+        if (valueOnly && el.isTypeOnly) continue;
         result.push({
           importedName: (el.propertyName ?? el.name).text,
           localName: el.name.text,
@@ -62,40 +64,16 @@ function extractImports(sf: ts.SourceFile): ImportClause[] {
       }
     }
   }
-  importClausesCache.set(sf, result);
+  cache.set(sf, result);
   return result;
 }
 
-/** Like `extractImports`, but skips `import type { ... }` and `import { type X }`
- *  entries. Wrapper functions are values, so type-only imports can't introduce
- *  one and we shouldn't eagerly parse their source files just to look for wrappers. */
-function extractValueImports(sf: ts.SourceFile): ImportClause[] {
-  const cached = valueImportClausesCache.get(sf);
-  if (cached) return cached;
+/** All named imports (type + value). */
+const extractImports = (sf: ts.SourceFile): ImportClause[] => collectImportClauses(sf, false);
 
-  const result: ImportClause[] = [];
-  for (const stmt of sf.statements) {
-    if (!ts.isImportDeclaration(stmt) || !stmt.importClause) continue;
-    if (stmt.importClause.isTypeOnly) continue;
-    const spec = stmt.moduleSpecifier;
-    if (!ts.isStringLiteral(spec)) continue;
-    const specifier = spec.text;
-
-    const clause = stmt.importClause;
-    if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
-      for (const el of clause.namedBindings.elements) {
-        if (el.isTypeOnly) continue;
-        result.push({
-          importedName: (el.propertyName ?? el.name).text,
-          localName: el.name.text,
-          specifier,
-        });
-      }
-    }
-  }
-  valueImportClausesCache.set(sf, result);
-  return result;
-}
+/** Value-only named imports. Type-only imports can't introduce a wrapper function
+ *  and shouldn't trigger eager source-file parsing. */
+const extractValueImports = (sf: ts.SourceFile): ImportClause[] => collectImportClauses(sf, true);
 
 function extractExportAllSpecifiers(sf: ts.SourceFile): string[] {
   const cached = exportAllSpecifiersCache.get(sf);
@@ -111,12 +89,8 @@ function extractExportAllSpecifiers(sf: ts.SourceFile): string[] {
   return result;
 }
 
-// Compiler options used for bare-specifier module resolution. `Bundler`
-// matches modern monorepo + vite tooling: it understands `package.json`
-// `exports`, `main`, and workspace symlinks without forcing the caller
-// to spell out file extensions. We pass these once per process — the
-// only consumer here is `ts.resolveModuleName` and it doesn't mutate
-// them.
+// Bundler resolution for bare specifiers: supports package.json exports,
+// workspace symlinks, and path aliases without requiring extensions.
 const BARE_SPECIFIER_COMPILER_OPTIONS: ts.CompilerOptions = {
   moduleResolution: ts.ModuleResolutionKind.Bundler,
   module: ts.ModuleKind.ESNext,
@@ -210,10 +184,10 @@ function matchForwardedProtobufFn(
         return;
       }
 
-      if (cs && containsTypeParameter(cs.firstTypeArg, typeParamIndexes)) {
+      if (cs && findTypeParameterIndex(cs.firstTypeArg, typeParamIndexes) !== null) {
         found = {
           fnName: cs.fnName,
-          typeArgIndex: firstTypeParameterIndex(cs.firstTypeArg, typeParamIndexes) ?? 0,
+          typeArgIndex: findTypeParameterIndex(cs.firstTypeArg, typeParamIndexes) ?? 0,
           typePattern: cs.firstTypeArg.getText(sf),
           typeParamNames,
           sourceFilePath: sf.fileName,
@@ -228,21 +202,7 @@ function matchForwardedProtobufFn(
   return found;
 }
 
-function containsTypeParameter(typeNode: ts.TypeNode, typeParamIndexes: Map<string, number>): boolean {
-  let found = false;
-  function visit(node: ts.Node): void {
-    if (found) return;
-    if (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName) && typeParamIndexes.has(node.typeName.text)) {
-      found = true;
-      return;
-    }
-    ts.forEachChild(node, visit);
-  }
-  visit(typeNode);
-  return found;
-}
-
-function firstTypeParameterIndex(typeNode: ts.TypeNode, typeParamIndexes: Map<string, number>): number | null {
+function findTypeParameterIndex(typeNode: ts.TypeNode, typeParamIndexes: Map<string, number>): number | null {
   let index: number | null = null;
   function visit(node: ts.Node): void {
     if (index !== null) return;
@@ -417,13 +377,6 @@ function collectWrappers(
   return wrappers;
 }
 
-function collectExportedWrappers(
-  sf: ts.SourceFile,
-  externalKnownWrappers: Map<string, WrapperBinding> = new Map(),
-): Map<string, WrapperBinding> {
-  return collectWrappers(sf, true, externalKnownWrappers);
-}
-
 /**
  * Parse a file and extract its protobuf interfaces and generic templates.
  *
@@ -447,13 +400,8 @@ function parseFileForDefinitions(
   const exportAllTypeSources = new Map<string, string>();
   const dependencyFiles = new Set<string>([absolutePath]);
 
-  // Collect imported wrapper bindings under their LOCAL names so this file's
-  // forwarders can match against them. Skip work entirely if there's no cache
-  // (legacy callers that don't care about cross-file forwarding).
-  //
-  // Only descends into value imports (not `import type { ... }`), since
-  // type-only imports can never introduce a wrapper function. This avoids
-  // pulling unrelated type-only modules into the cache.
+  // Collect imported wrapper bindings (value imports only, not type-only)
+  // so this file's forwarders can match against them.
   const importedKnownWrappers = new Map<string, WrapperBinding>();
   if (cache) {
     const inProgress = parsing ?? new Set<string>();
@@ -475,7 +423,7 @@ function parseFileForDefinitions(
     inProgress.delete(absolutePath);
   }
 
-  const exportedWrappers = collectExportedWrappers(sf, importedKnownWrappers);
+  const exportedWrappers = collectWrappers(sf, true, importedKnownWrappers);
 
   for (const imp of extractImports(sf)) {
     const resolved = resolveModulePath(imp.specifier, absolutePath);

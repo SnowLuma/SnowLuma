@@ -9,25 +9,13 @@ import {
 } from '../ast/utils.js';
 
 /**
- * Subclass-side resolution of inherited wrapper methods.
+ * Subclass-side resolution of inherited wrapper methods. For every wrapper
+ * inherited from an abstract base, resolves the wrapper's type parameter to
+ * the concrete type used by THIS subclass, so the override generator can
+ * emit a per-subclass `Sub.method = function(...)` stub.
  *
- * Given a subclass that extends an abstract wrapper-bearing base, this
- * module figures out, for every wrapper method and every codec call inside
- * its body, what concrete type the wrapper's type-parameter resolves to on
- * THIS subclass. The answer is then handed to the override generator,
- * which produces the per-subclass `Sub.method = function(...)` stub.
- *
- * Why TypeChecker:
- *   - The base class is virtually always in a different file (and possibly
- *     a different package). Walking the extends chain by AST alone would
- *     re-implement TypeScript's symbol resolution, including module-path
- *     aliases from tsconfig — which is exactly what TypeChecker already
- *     does correctly.
- *   - Subclass-side type extraction sometimes targets methods without
- *     explicit return-type / parameter annotations; TypeChecker fills in
- *     the gap by inferring from the body.
- *   - Multi-level inheritance chains (Sub → MidBase → AbstractBase) work
- *     transparently because TypeChecker resolves each extends edge.
+ * Uses TypeChecker for cross-file extends-chain walking (with tsconfig path
+ * aliases) and to infer types from method bodies that lack explicit annotations.
  */
 
 /** Where, in the wrapper's `this: T extends { … }` constraint, the
@@ -52,9 +40,6 @@ export interface ResolvedCodecCall extends WrapperCodecCall {
 export interface ResolvedSubclassWrapper {
   /** The subclass declaration in the file being transformed. */
   subclass: ts.ClassDeclaration;
-  /** The wrapper-bearing ancestor (one of `subclass`'s direct or transitive
-   *  bases). Used so codegen can copy the abstract method body. */
-  wrapperOwner: ts.ClassDeclaration;
   wrapper: WrapperMethodInfo;
   /** Each codec call inside the wrapper body, with type parameters
    *  resolved against this specific subclass. */
@@ -67,51 +52,34 @@ export interface ResolvedSubclassWrapper {
  *  cares about, or proton couldn't resolve at least one type. */
 export function resolveSubclassWrappers(
   subclass: ts.ClassDeclaration,
-  subclassSf: ts.SourceFile,
   checker: ts.TypeChecker,
   wrapperCache: WrapperLookupCache,
 ): ResolvedSubclassWrapper[] {
   const results: ResolvedSubclassWrapper[] = [];
   const wrappers = collectInheritedWrappers(subclass, checker, wrapperCache);
 
-  for (const { wrapperOwner, wrapper } of wrappers) {
-    const resolvedCodecCalls = resolveWrapperCodecCalls(
-      subclass,
-      subclassSf,
-      wrapperOwner,
-      wrapper,
-      checker,
-    );
+  for (const wrapper of wrappers) {
+    const resolvedCodecCalls = resolveWrapperCodecCalls(subclass, wrapper, checker);
     if (resolvedCodecCalls === null) continue;
-    results.push({ subclass, wrapperOwner, wrapper, resolvedCodecCalls });
+    results.push({ subclass, wrapper, resolvedCodecCalls });
   }
 
   return results;
-}
-
-interface InheritedWrapper {
-  wrapperOwner: ts.ClassDeclaration;
-  wrapper: WrapperMethodInfo;
 }
 
 function collectInheritedWrappers(
   cls: ts.ClassDeclaration,
   checker: ts.TypeChecker,
   wrapperCache: WrapperLookupCache,
-): InheritedWrapper[] {
-  const result: InheritedWrapper[] = [];
-  // Skip `cls` itself: we only override methods inherited from ancestors,
-  // never methods declared directly on the subclass (those are not a
-  // wrapper-pattern subclass at all — they're presumably the abstract base
-  // of yet another hierarchy).
+): WrapperMethodInfo[] {
+  const result: WrapperMethodInfo[] = [];
+  // Skip `cls` itself: only override methods inherited from ancestors.
   let first = true;
   for (const ancestor of walkExtendsChain(cls, checker)) {
     if (first) { first = false; continue; }
     const info = wrapperCache.getOrDetect(ancestor);
     if (!info) continue;
-    for (const wrapper of info.methods.values()) {
-      result.push({ wrapperOwner: ancestor, wrapper });
-    }
+    for (const wrapper of info.values()) result.push(wrapper);
   }
   return result;
 }
@@ -122,25 +90,18 @@ function collectInheritedWrappers(
  *  reference undefined codec identifiers at runtime. */
 function resolveWrapperCodecCalls(
   subclass: ts.ClassDeclaration,
-  subclassSf: ts.SourceFile,
-  wrapperOwner: ts.ClassDeclaration,
   wrapper: WrapperMethodInfo,
   checker: ts.TypeChecker,
 ): ResolvedCodecCall[] | null {
   if (!wrapper.thisConstraint) return null;
 
+  const subclassSf = subclass.getSourceFile();
   const resolved: ResolvedCodecCall[] = [];
   for (const codecCall of wrapper.codecCalls) {
     const position = findTypeParamInConstraint(wrapper.thisConstraint, codecCall.typeParamName);
     if (!position) return null;
 
-    const typeNode = extractSubclassMemberTypeNode(
-      subclass,
-      subclassSf,
-      position.memberName,
-      position.position,
-      checker,
-    );
+    const typeNode = extractSubclassMemberTypeNode(subclass, position.memberName, position.position, checker);
     if (!typeNode) return null;
 
     const typeName = computeMangledName(typeNode, subclassSf);
@@ -151,9 +112,6 @@ function resolveWrapperCodecCalls(
       resolvedTypeName: typeName,
       resolvedTypeNode: typeNode,
     });
-    // Suppress unused-variable warning while wrapperOwner is reserved for
-    // future cross-file diagnostics on chain-resolution failure.
-    void wrapperOwner;
   }
   return resolved;
 }
@@ -194,7 +152,6 @@ function findTypeParamInConstraint(constraint: ts.TypeNode, typeParamName: strin
  *  the TypeChecker's inferred type otherwise. */
 function extractSubclassMemberTypeNode(
   subclass: ts.ClassDeclaration,
-  subclassSf: ts.SourceFile,
   memberName: string,
   position: ResolutionPosition,
   checker: ts.TypeChecker,
@@ -219,9 +176,6 @@ function extractSubclassMemberTypeNode(
     return typeToTypeNode(type, member, checker);
   }
 
-  // Suppress unused-variable warning while subclassSf is reserved for
-  // future diagnostics that print source positions.
-  void subclassSf;
   return null;
 }
 

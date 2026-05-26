@@ -25,10 +25,10 @@ describe('static-wrapper detection (AST)', () => {
 
     expect(wrappers.has('PacketTransformer')).toBe(true);
     const base = wrappers.get('PacketTransformer')!;
-    expect(base.methods.has('encode')).toBe(true);
-    expect(base.methods.has('decode')).toBe(true);
+    expect(base.has('encode')).toBe(true);
+    expect(base.has('decode')).toBe(true);
 
-    const encode = base.methods.get('encode')!;
+    const encode = base.get('encode')!;
     expect(encode.typeParamNames).toContain('R');
     expect(encode.typeParamNames).toContain('T');
     expect(encode.codecCalls).toHaveLength(1);
@@ -37,7 +37,7 @@ describe('static-wrapper detection (AST)', () => {
       typeParamName: 'R',
     });
 
-    const decode = base.methods.get('decode')!;
+    const decode = base.get('decode')!;
     expect(decode.codecCalls).toHaveLength(1);
     expect(decode.codecCalls[0]).toMatchObject({
       fnName: 'protobuf_decode',
@@ -72,7 +72,7 @@ describe('subclass wrapper resolution (TypeChecker)', () => {
     )!;
 
     const cache = new WrapperLookupCache();
-    const resolved = resolveSubclassWrappers(subclass, sf, programCtx.checker, cache);
+    const resolved = resolveSubclassWrappers(subclass, programCtx.checker, cache);
     expect(resolved).toHaveLength(2);
 
     const encode = resolved.find(r => r.wrapper.methodName === 'encode')!;
@@ -99,7 +99,7 @@ describe('subclass wrapper resolution (TypeChecker)', () => {
     )!;
 
     const cache = new WrapperLookupCache();
-    const resolved = resolveSubclassWrappers(subclass, sf, programCtx.checker, cache);
+    const resolved = resolveSubclassWrappers(subclass, programCtx.checker, cache);
     const encode = resolved.find(r => r.wrapper.methodName === 'encode')!;
     const rendered = renderSubclassOverride(encode);
     expect(rendered).not.toBeNull();

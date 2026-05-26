@@ -3,19 +3,10 @@ import { dirname, resolve } from 'path';
 import ts from 'typescript';
 
 /**
- * Lazy ts.Program cache, keyed by tsconfig path.
- *
- * Proton's transform hook runs per-file but the wrapper-pattern feature
- * needs project-wide type information (extends chains across files,
- * inferred types on sibling methods, tsconfig path aliases). Building a
- * fresh Program per call would be cost-prohibitive, so we create one per
- * tsconfig and reuse it; HMR drops the cache for the affected program so
- * the next transform rebuilds it.
- *
- * Failure modes are deliberately swallowed (returning null): the rest of
- * the analyzer pipeline must keep working AST-only when no tsconfig is
- * reachable (typical for the in-repo test fixtures that synthesize file
- * names with no on-disk presence).
+ * Lazy ts.Program cache keyed by tsconfig path. Built once per tsconfig and
+ * reused across transform calls; HMR drops the cache for the affected program.
+ * Returns null when no tsconfig is reachable so callers can fall back to the
+ * AST-only pipeline (used by in-repo test fixtures with synthesized file names).
  */
 
 export interface ProgramContext {

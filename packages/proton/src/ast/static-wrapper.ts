@@ -52,12 +52,8 @@ export interface WrapperMethodInfo {
   codecCalls: WrapperCodecCall[];
 }
 
-export interface ClassWrapperInfo {
-  /** The abstract class declaration carrying the wrapper methods. */
-  classDecl: ts.ClassDeclaration;
-  /** Map keyed by method name for O(1) lookup during override generation. */
-  methods: Map<string, WrapperMethodInfo>;
-}
+/** Map keyed by method name for O(1) lookup during override generation. */
+export type ClassWrapperInfo = Map<string, WrapperMethodInfo>;
 
 /** Find every static-method wrapper on a single class. Returns null if the
  *  class has no qualifying methods (the common case — only the abstract
@@ -93,11 +89,11 @@ export function detectClassWrappers(
   }
 
   if (methods.size === 0) return null;
-  return { classDecl: cls, methods };
+  return methods;
 }
 
-/** Locate every wrapper-bearing class in a single source file. Driven from
- *  the analyzer once per file; the subclass resolver consumes the result. */
+/** Locate every wrapper-bearing class in a single source file. Used by tests;
+ *  production code calls `detectClassWrappers` per-class via WrapperLookupCache. */
 export function detectClassWrappersInFile(
   sf: ts.SourceFile,
   bindings?: ProtobufImportBindings,

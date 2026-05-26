@@ -55,7 +55,7 @@ export function runSubclassWrapperPipeline(filePath: string): SubclassWrapperPip
 
   for (const stmt of sf.statements) {
     if (!ts.isClassDeclaration(stmt) || !stmt.name) continue;
-    const resolved = resolveSubclassWrappers(stmt, sf, programCtx.checker, cache);
+    const resolved = resolveSubclassWrappers(stmt, programCtx.checker, cache);
     for (const r of resolved) {
       allResolved.push(r);
       for (const c of r.resolvedCodecCalls) extraRoots.add(c.resolvedTypeName);
