@@ -1,5 +1,5 @@
 import { createLogger } from '@snowluma/common/logger';
-import type { AccountInterface } from '@snowluma/core/account-interface';
+import type { CoreCtx } from '@snowluma/core/core-ctx';
 import type { MediaStore } from '../media-store';
 import type { JsonObject } from '../types';
 
@@ -21,7 +21,7 @@ export async function getImageInfo(
 }
 
 export async function getRecordInfo(
-  bridge: AccountInterface,
+  bridge: CoreCtx,
   mediaStore: MediaStore,
   file: string,
 ): Promise<JsonObject | null> {

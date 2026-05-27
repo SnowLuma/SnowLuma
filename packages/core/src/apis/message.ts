@@ -11,7 +11,7 @@ import type {
 import { buildSendElems } from '@snowluma/protocol/element-builder';
 import type { MessageElement } from '@snowluma/protocol/events';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { AccountContext } from '../account-context';
+import type { CoreContext } from '../core-context';
 
 /**
  * Receipt returned by every typed `send*Message` call. The OneBot
@@ -30,7 +30,7 @@ export interface SendMessageReceipt {
 const SEND_MSG_CMD = 'MessageSvc.PbSendMsg';
 
 export class MessageApi {
-  constructor(private readonly ctx: AccountContext) { }
+  constructor(private readonly ctx: CoreContext) { }
 
   /**
    * Send a message to a QQ group.

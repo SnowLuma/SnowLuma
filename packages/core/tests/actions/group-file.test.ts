@@ -38,7 +38,7 @@ vi.mock('@snowluma/protocol/highway/utils', () => ({
 }));
 
 import * as highwayClient from '@snowluma/protocol/highway';
-import { GroupFileApi } from '../../src/account/apis/group-file';
+import { GroupFileApi } from '../../src/apis/group-file';
 import { mockBridge } from './_helpers';
 
 function packResponse(body: Uint8Array) {

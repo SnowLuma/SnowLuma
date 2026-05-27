@@ -1,10 +1,10 @@
 import { DeleteFriend } from '@snowluma/protocol/oidb-services/friend/delete-friend';
 import { HandleFriendRequest } from '@snowluma/protocol/oidb-services/friend/handle-friend-request';
 import { SetFriendRemark } from '@snowluma/protocol/oidb-services/friend/set-friend-remark';
-import type { AccountContext } from '../account-context';
+import type { CoreContext } from '../core-context';
 
 export class FriendApi {
-  constructor(private readonly ctx: AccountContext) { }
+  constructor(private readonly ctx: CoreContext) { }
 
   /**
    * Accept or reject an inbound friend request. `uidOrFlag` is either a

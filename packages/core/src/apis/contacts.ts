@@ -12,7 +12,7 @@ import type {
   QQGroupInfo,
   UserProfileInfo,
 } from '@snowluma/protocol/qq-info';
-import type { AccountContext } from '../account-context';
+import type { CoreContext } from '../core-context';
 
 /**
  * One row of an `OidbSvcTrpcTcp.0x9067_202` (download rkey) response.
@@ -77,7 +77,7 @@ export class ContactsApi {
   private memberListInflight = new Map<number, Promise<GroupMemberInfo[]>>();
   private memberListLastFetch = new Map<number, { at: number; data: GroupMemberInfo[] }>();
 
-  constructor(private readonly ctx: AccountContext) { }
+  constructor(private readonly ctx: CoreContext) { }
 
   async fetchFriendList(): Promise<FriendInfo[]> {
     const friends: FriendInfo[] = [];

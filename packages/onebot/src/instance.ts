@@ -1,5 +1,5 @@
 import { createLogger, type Logger } from '@snowluma/common/logger';
-import type { AccountInterface } from '@snowluma/core/account-interface';
+import type { CoreCtx } from '@snowluma/core/core-ctx';
 import { formatGroup, formatMessageSegments, formatReply, formatUser } from '@snowluma/protocol/format';
 import path from 'path';
 import { ApiHandler } from './api-handler';
@@ -28,7 +28,7 @@ const moduleLog = createLogger('Event');
 export class OneBotInstance {
   readonly uin: string;
 
-  private readonly bridge: AccountInterface;
+  private readonly bridge: CoreCtx;
   private readonly apiHandler: ApiHandler;
   private readonly converterCtx: ConverterContext;
   private readonly messageStore: MessageStore;
@@ -45,7 +45,7 @@ export class OneBotInstance {
 
   get nickname(): string { return this.bridge.identity.nickname; }
 
-  constructor(uin: string, bridge: AccountInterface, config: OneBotConfig) {
+  constructor(uin: string, bridge: CoreCtx, config: OneBotConfig) {
     this.uin = uin;
     this.bridge = bridge;
     const uinNum = Number.parseInt(uin, 10);

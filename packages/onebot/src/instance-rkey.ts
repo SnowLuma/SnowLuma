@@ -1,5 +1,5 @@
 import { createLogger } from '@snowluma/common/logger';
-import type { AccountInterface } from '@snowluma/core/account-interface';
+import type { CoreCtx } from '@snowluma/core/core-ctx';
 import type { DownloadRKeyInfo } from '@snowluma/core/apis';
 import type { MessageElement } from '@snowluma/protocol/events';
 
@@ -27,7 +27,7 @@ export class RKeyCache {
   private cache = new Map<number, CachedRKey>();
   private lastRefreshAttempt = 0;
 
-  warmUp(bridge: AccountInterface, uin: string): void {
+  warmUp(bridge: CoreCtx, uin: string): void {
     bridge.apis.contacts.fetchDownloadRKeys().then(
       (rkeys) => {
         this.updateCache(rkeys);
@@ -39,7 +39,7 @@ export class RKeyCache {
     );
   }
 
-  resolveImageUrl(bridge: AccountInterface, element: MessageElement, isGroup: boolean): string {
+  resolveImageUrl(bridge: CoreCtx, element: MessageElement, isGroup: boolean): string {
     const url = element.imageUrl ?? '';
     if (!urlNeedsRKey(url)) return url;
 
@@ -50,7 +50,7 @@ export class RKeyCache {
     const separator = url.includes('?') ? '&rkey=' : '?rkey=';
     return url + separator + encodeURIComponent(cleanRKey);
   }
-  resolveMediaUrl(bridge: AccountInterface, element: MessageElement, isGroup: boolean): string {
+  resolveMediaUrl(bridge: CoreCtx, element: MessageElement, isGroup: boolean): string {
     const url = element.url ?? '';
     if (!url || !urlNeedsRKey(url)) return url;
 
@@ -89,12 +89,12 @@ export class RKeyCache {
     }
   }
 
-  private findRKey(bridge: AccountInterface, isGroup: boolean): string | null {
+  private findRKey(bridge: CoreCtx, isGroup: boolean): string | null {
     const primaryType = isGroup ? GROUP_IMAGE_RKEY_TYPE : PRIVATE_IMAGE_RKEY_TYPE;
     return this.findRKeyForType(bridge, primaryType);
   }
 
-  private findRKeyForType(bridge: AccountInterface, primaryType: number): string | null {
+  private findRKeyForType(bridge: CoreCtx, primaryType: number): string | null {
     const now = Math.floor(Date.now() / 1000);
 
     const tryFind = (type: number): string | null => {

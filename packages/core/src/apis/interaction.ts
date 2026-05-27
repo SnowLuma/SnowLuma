@@ -12,10 +12,10 @@ import { SetEssence } from '@snowluma/protocol/oidb-services/interaction/set-ess
 import { FetchReactionSummary } from '@snowluma/protocol/oidb-services/reaction/fetch-reaction-summary';
 import { GetEmojiLikes } from '@snowluma/protocol/oidb-services/reaction/get-emoji-likes';
 import { SetReaction } from '@snowluma/protocol/oidb-services/reaction/set-reaction';
-import type { AccountContext } from '../account-context';
+import type { CoreContext } from '../core-context';
 
 export class InteractionApi {
-  constructor(private readonly ctx: AccountContext) { }
+  constructor(private readonly ctx: CoreContext) { }
 
   sendPoke(isGroup: boolean, peerUin: number, targetUin?: number): Promise<void> {
     return SendPoke.invoke(this.ctx, { isGroup, peerUin, targetUin });

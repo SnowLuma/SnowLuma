@@ -1,6 +1,6 @@
 import { summarizeParams } from '@snowluma/common/log-summary';
 import { createLogger, type Logger } from '@snowluma/common/logger';
-import type { AccountInterface } from '@snowluma/core/account-interface';
+import type { CoreCtx } from '@snowluma/core/core-ctx';
 import { register as registerExtended } from './actions/extended';
 import { register as registerFriend } from './actions/friend';
 import { register as registerGroupAdmin } from './actions/group-admin';
@@ -33,7 +33,7 @@ export interface GroupEssenceMsgRet {
 }
 
 export interface ApiActionContext {
-  bridge: AccountInterface;
+  bridge: CoreCtx;
   getLoginInfo: () => { userId: number; nickname: string };
   isOnline: () => boolean;
   getMessage: (messageId: number) => JsonObject | null;

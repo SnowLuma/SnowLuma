@@ -16,7 +16,7 @@ vi.mock('@snowluma/protocol/element-builder', () => ({
 
 import type { SendLongMsgResp } from '@snowluma/proto-defs/longmsg';
 import { protobuf_encode } from '@snowluma/proton';
-import { ForwardApi } from '../../src/account/apis/forward';
+import { ForwardApi } from '../../src/apis/forward';
 import { mockBridge } from './_helpers';
 
 function uploadResponseWithResId(resId: string) {

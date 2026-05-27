@@ -1,10 +1,11 @@
-import { HookChannel } from '@snowluma/channel';
+import { makeChannelCtx } from '@snowluma/channel';
+import { HookChannel } from '@snowluma/channel-hook';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import type { GroupMemberJoin, QQEventVariant } from '@snowluma/protocol/events';
 import { IdentityService } from '@snowluma/protocol/identity-service';
 import type { GroupMemberInfo, QQGroupInfo } from '@snowluma/protocol/qq-info';
 import { describe, expect, it } from 'vitest';
-import { Account } from '../src/account/account';
+import { Core } from '../src/core';
 
 const SELF_UIN = '10001';
 const GROUP_ID = 123456789;
@@ -36,26 +37,27 @@ function makeGroup(members: GroupMemberInfo[] = []): QQGroupInfo {
 }
 
 /**
- * `Account` wired up with a member-list interceptor. The interceptor
- * lives on `account.apis.contacts.fetchGroupMemberList`; direct
- * property assignment is enough because the ApiHub holds own-property
- * methods, not prototype ones.
+ * `Core` wired up with a member-list interceptor. The interceptor
+ * lives on `core.apis.contacts.fetchGroupMemberList`; direct property
+ * assignment is enough because the ApiHub holds own-property methods,
+ * not prototype ones. The underlying `HookChannel` is exposed so tests
+ * can drive `deliverPacket` directly.
  */
-function buildAccount(identity: IdentityService, refreshedMembers: GroupMemberInfo[]) {
-  const bridge = new HookChannel(identity.uin);
-  const account = new Account(bridge, identity);
+function buildCore(identity: IdentityService, refreshedMembers: GroupMemberInfo[]) {
+  const channel = new HookChannel(identity.uin);
+  const core = new Core(makeChannelCtx(channel), identity);
   const memberFetches: Array<{ groupId: number; force: boolean }> = [];
-  account.apis.contacts.fetchGroupMemberList = async (
+  core.apis.contacts.fetchGroupMemberList = async (
     groupId: number,
     options: { force?: boolean } = {},
   ): Promise<GroupMemberInfo[]> => {
     memberFetches.push({ groupId, force: Boolean(options.force) });
     for (const member of refreshedMembers) {
-      account.identity.updateGroupMember(groupId, member);
+      core.identity.updateGroupMember(groupId, member);
     }
     return refreshedMembers;
   };
-  return { account, bridge, memberFetches };
+  return { core, channel, memberFetches };
 }
 
 function makePacket(): PacketInfo {
@@ -85,15 +87,15 @@ async function waitForEvent(events: GroupMemberJoin[]): Promise<GroupMemberJoin>
   throw new Error('timed out waiting for group_member_join');
 }
 
-describe('Account group member identity refresh', () => {
+describe('Core group member identity refresh', () => {
   it('forces a fresh member list before dispatching an unresolved join event', async () => {
     const member = makeGroupMember(22222, 'u_new_member');
     const identity = IdentityService.memory(SELF_UIN);
     identity.rememberGroups([makeGroup()]);
-    const { account, bridge, memberFetches } = buildAccount(identity, [member]);
+    const { core, channel, memberFetches } = buildCore(identity, [member]);
     const seen: GroupMemberJoin[] = [];
 
-    account.registerCmd('test.member_join', () => [{
+    core.registerCmd('test.member_join', () => [{
       kind: 'group_member_join',
       time: 1710000000,
       selfUin: Number(SELF_UIN),
@@ -103,11 +105,11 @@ describe('Account group member identity refresh', () => {
       userUid: member.uid,
       operatorUid: member.uid,
     }]);
-    account.events.on('group_member_join', (event) => {
+    core.events.on('group_member_join', (event: GroupMemberJoin) => {
       seen.push(event);
     });
 
-    bridge.deliverPacket(makePacket());
+    channel.deliverPacket(makePacket());
     const event = await waitForEvent(seen);
 
     expect(memberFetches).toEqual([{ groupId: GROUP_ID, force: true }]);
@@ -116,8 +118,8 @@ describe('Account group member identity refresh', () => {
   });
 
   it('remembers UID mappings from realtime request events', () => {
-    const bridge = new HookChannel(SELF_UIN);
-    const account = new Account(bridge, IdentityService.memory(SELF_UIN));
+    const channel = new HookChannel(SELF_UIN);
+    const core = new Core(makeChannelCtx(channel), IdentityService.memory(SELF_UIN));
     const events: QQEventVariant[] = [
       {
         kind: 'friend_request',
@@ -141,12 +143,12 @@ describe('Account group member identity refresh', () => {
       },
     ];
 
-    account.registerCmd('test.request_identity', () => events);
-    bridge.deliverPacket(makeRequestPacket());
+    core.registerCmd('test.request_identity', () => events);
+    channel.deliverPacket(makeRequestPacket());
 
-    expect(account.identity.findUidByUin(55555)).toBe('u_friend_request');
-    expect(account.identity.findUidByUin(66666)).toBe('u_group_request');
-    expect(account.identity.findUinByUid('u_friend_request')).toBe(55555);
-    expect(account.identity.findUinByUid('u_group_request')).toBe(66666);
+    expect(core.identity.findUidByUin(55555)).toBe('u_friend_request');
+    expect(core.identity.findUidByUin(66666)).toBe('u_group_request');
+    expect(core.identity.findUinByUid('u_friend_request')).toBe(55555);
+    expect(core.identity.findUinByUid('u_group_request')).toBe(66666);
   });
 });

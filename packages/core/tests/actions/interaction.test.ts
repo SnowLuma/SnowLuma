@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 // sendRawPacket). Tests now assert against the bridge mock's
 // sendRawPacket directly — no need for module-level mocks on the
 // bridge-oidb internals.
-import { InteractionApi } from '../../src/account/apis/interaction';
+import { InteractionApi } from '../../src/apis/interaction';
 import { mockBridge } from './_helpers';
 
 describe('apis/interaction', () => {

@@ -13,10 +13,10 @@ import { SetInputStatus } from '@snowluma/protocol/oidb-services/profile/set-inp
 import { SetProfile } from '@snowluma/protocol/oidb-services/profile/set-profile';
 import { SetSelfLongNick } from '@snowluma/protocol/oidb-services/profile/set-self-long-nick';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { AccountContext } from '../account-context';
+import type { CoreContext } from '../core-context';
 
 export class ProfileApi {
-  constructor(private readonly ctx: AccountContext) { }
+  constructor(private readonly ctx: CoreContext) { }
 
   // ─────────────── status / profile setters ───────────────
 

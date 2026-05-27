@@ -1,7 +1,7 @@
-import type { AccountInterface } from '@snowluma/core/account-interface';
+import type { CoreCtx } from '@snowluma/core/core-ctx';
 
 export async function handleGroupAddRequest(
-  bridge: AccountInterface,
+  bridge: CoreCtx,
   flag: string,
   approve: boolean,
   reason: string,

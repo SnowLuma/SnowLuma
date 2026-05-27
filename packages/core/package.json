@@ -10,25 +10,25 @@
       "types": "./src/index.ts",
       "default": "../../dist/index.mjs"
     },
-    "./account": {
-      "types": "./src/account/account.ts",
-      "default": "./src/account/account.ts"
+    "./core": {
+      "types": "./src/core.ts",
+      "default": "./src/core.ts"
     },
-    "./account-context": {
-      "types": "./src/account/account-context.ts",
-      "default": "./src/account/account-context.ts"
+    "./core-context": {
+      "types": "./src/core-context.ts",
+      "default": "./src/core-context.ts"
     },
-    "./account-interface": {
-      "types": "./src/account/account-interface.ts",
-      "default": "./src/account/account-interface.ts"
+    "./core-ctx": {
+      "types": "./src/core-ctx.ts",
+      "default": "./src/core-ctx.ts"
     },
-    "./account-manager": {
-      "types": "./src/account/account-manager.ts",
-      "default": "./src/account/account-manager.ts"
+    "./hub": {
+      "types": "./src/hub.ts",
+      "default": "./src/hub.ts"
     },
     "./apis": {
-      "types": "./src/account/apis/index.ts",
-      "default": "./src/account/apis/index.ts"
+      "types": "./src/apis/index.ts",
+      "default": "./src/apis/index.ts"
     }
   },
   "scripts": {
@@ -41,6 +41,8 @@
   },
   "dependencies": {
     "@snowluma/channel": "workspace:*",
+    "@snowluma/channel-hook": "workspace:*",
+    "@snowluma/channel-socket": "workspace:*",
     "@snowluma/common": "workspace:*",
     "@snowluma/onebot": "workspace:*",
     "@snowluma/protocol": "workspace:*",

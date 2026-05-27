@@ -13,7 +13,7 @@ vi.mock('@snowluma/protocol/bridge-oidb', () => ({
   decodeOidbEnv: vi.fn(() => ({ body: {} })),
 }));
 
-import { MessageApi } from '../../src/account/apis/message';
+import { MessageApi } from '../../src/apis/message';
 import { mockBridge } from './_helpers';
 
 describe('apis/message — recall + markRead', () => {

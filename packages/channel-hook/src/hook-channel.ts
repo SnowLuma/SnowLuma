@@ -1,5 +1,5 @@
+import { Channel } from '@snowluma/channel';
 import type { PacketSender, SendPacketResult } from '@snowluma/common/packet-sender';
-import { Channel } from './channel';
 
 /**
  * `HookChannel` — concrete transport backed by the in-process NTQQ

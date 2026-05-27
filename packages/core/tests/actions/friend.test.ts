@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 // namespaces under @snowluma/protocol/oidb-services/friend. Tests assert
 // against the bridge mock's sendRawPacket directly — no need for
 // module-level bridge-oidb mocks anymore.
-import { FriendApi } from '../../src/account/apis/friend';
+import { FriendApi } from '../../src/apis/friend';
 import { mockBridge } from './_helpers';
 
 describe('apis/friend', () => {

@@ -4,7 +4,7 @@ import type { FileUploadExt } from '@snowluma/proto-defs/highway';
 import { fetchHighwaySession, uploadHighwayHttp } from '@snowluma/protocol/highway';
 import { computeHashes, computeMd5, FILE_UPLOAD_MAX_BYTES, loadBinarySource } from '@snowluma/protocol/highway/utils';
 import { protobuf_encode } from '@snowluma/proton';
-import type { AccountContext } from '../account-context';
+import type { CoreContext } from '../core-context';
 import { resolveSelfUid, toInt, type MediaIndexNode } from './shared';
 
 import { CreateGroupFolder } from '@snowluma/protocol/oidb-services/group-file/create-group-folder';
@@ -214,7 +214,7 @@ function buildPrivateFileUploadExt(
 }
 
 export class GroupFileApi {
-  constructor(private readonly ctx: AccountContext) { }
+  constructor(private readonly ctx: CoreContext) { }
 
   // ─────────────── publish (group file → chat) ───────────────
 

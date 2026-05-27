@@ -11,7 +11,7 @@ import {
   type SetNoticeRetSuccess,
 } from '@snowluma/protocol/web/group-notice';
 import { RequestUtil } from '@snowluma/protocol/web/request-util';
-import type { AccountContext } from '../account-context';
+import type { CoreContext } from '../core-context';
 
 export type ClientKeyInfo = NamespaceClientKeyInfo;
 
@@ -117,7 +117,7 @@ function getBknFromSKey(skey: string): number {
 }
 
 export class WebApi {
-  constructor(private readonly ctx: AccountContext) { }
+  constructor(private readonly ctx: CoreContext) { }
 
   // ─────────────── cookie / token primitives ───────────────
 

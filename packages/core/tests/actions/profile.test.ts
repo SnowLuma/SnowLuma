@@ -38,7 +38,7 @@ vi.mock('@snowluma/protocol/highway/utils', () => ({
 
 import * as oidb from '@snowluma/protocol/bridge-oidb';
 import * as highwayClient from '@snowluma/protocol/highway';
-import { ProfileApi } from '../../src/account/apis/profile';
+import { ProfileApi } from '../../src/apis/profile';
 import { mockBridge } from './_helpers';
 
 describe('apis/profile', () => {

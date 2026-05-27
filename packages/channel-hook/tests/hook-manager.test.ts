@@ -6,7 +6,7 @@ import path from 'path';
 import { HookManager, shouldAutoLoadPid } from '../src/hook-manager';
 import { PipeWatcher } from '../src/pipe-watcher';
 import type { ManualMapHandle } from '../src/injector';
-import type { BridgeManagerSink } from '../src/hook-manager';
+import type { HookSink } from '../src/hook-manager';
 import type { QqHookClient } from '../src/qq-hook-client';
 import { createLogger } from '@snowluma/common/logger';
 
@@ -37,13 +37,13 @@ function makeManager(opts: {
     (c as any).close = () => { (c as any).isClosed = true; };
     return c as unknown as QqHookClient;
   });
-  const bridgeManager = {
+  const sink = {
     onPacket: vi.fn(),
     onHookLogin: vi.fn(),
     onPidDisconnected: vi.fn(),
-  } as unknown as BridgeManagerSink;
+  } as unknown as HookSink;
   const manager = new HookManager({
-    bridgeManager,
+    sink,
     pipeWatcher,
     injector: { inject, unload },
     makeClient,

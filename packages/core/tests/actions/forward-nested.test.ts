@@ -39,7 +39,7 @@ vi.mock('@snowluma/protocol/highway/video-upload', () => ({
   uploadVideoMsgInfo: vi.fn(async () => new Uint8Array()),
 }));
 
-import { ForwardApi } from '../../src/account/apis/forward';
+import { ForwardApi } from '../../src/apis/forward';
 import { mockBridge } from './_helpers';
 
 function uploadResponseWithResId(resId: string) {

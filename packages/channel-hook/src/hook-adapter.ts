@@ -1,6 +1,6 @@
+import type { ChannelAdapter, ChannelAdapterHost } from '@snowluma/channel';
 import type { PacketSender } from '@snowluma/common/packet-sender';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
-import type { ChannelAdapter, ChannelAdapterHost } from './adapter';
 import { HookChannel } from './hook-channel';
 import { HookManager, type HookManagerDeps, type HookSink } from './hook-manager';
 

@@ -8,10 +8,10 @@ import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { ClickInlineKeyboardButton } from '@snowluma/protocol/oidb-services/misc/click-inline-keyboard-button';
 import { SendGroupSign } from '@snowluma/protocol/oidb-services/misc/send-group-sign';
 import { TranslateEnToZh } from '@snowluma/protocol/oidb-services/misc/translate-en-to-zh';
-import type { AccountContext } from '../account-context';
+import type { CoreContext } from '../core-context';
 
 export class MiscApi {
-  constructor(private readonly ctx: AccountContext) { }
+  constructor(private readonly ctx: CoreContext) { }
 
   translateEn2Zh(words: string[]): Promise<string[]> {
     return TranslateEnToZh.invoke(this.ctx, { words });

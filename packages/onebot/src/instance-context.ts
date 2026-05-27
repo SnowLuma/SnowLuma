@@ -1,4 +1,4 @@
-import type { AccountInterface } from '@snowluma/core/account-interface';
+import type { CoreCtx } from '@snowluma/core/core-ctx';
 import type { WebHonorType } from '@snowluma/protocol/web/group-honor';
 import type { ApiActionContext } from './api-handler';
 import type { ConverterContext } from './event-converter';
@@ -40,7 +40,7 @@ import type { JsonObject, MessageMeta, OneBotConfig } from './types';
 export interface OneBotInstanceContext {
   uin: string;
   selfId: number;
-  bridge: AccountInterface;
+  bridge: CoreCtx;
   messageStore: MessageStore;
   mediaStore: MediaStore;
   reactionStore: ReactionStore;

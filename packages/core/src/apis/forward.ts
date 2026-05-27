@@ -14,7 +14,7 @@ import { parseMsgPush } from '@snowluma/protocol/msg-push';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { randomUUID } from 'crypto';
 import { gunzipSync, gzipSync } from 'zlib';
-import type { AccountContext } from '../account-context';
+import type { CoreContext } from '../core-context';
 import { resolveSelfUid, toInt } from './shared';
 
 // Module-scoped cache, keyed by res_id. Survives only for the lifetime
@@ -201,7 +201,7 @@ function previewFromElements(elements: MessageElement[]): string {
 }
 
 export class ForwardApi {
-  constructor(private readonly ctx: AccountContext) { }
+  constructor(private readonly ctx: CoreContext) { }
 
   async upload(nodes: ForwardNodePayload[], groupId?: number, userId?: number): Promise<string> {
     const { resId } = await this.uploadRecursive(nodes, groupId, userId);

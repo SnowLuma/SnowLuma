@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest';
 // @snowluma/protocol/oidb-services/misc namespaces. The non-OIDB
 // `getMiniAppArk` (LightAppSvc) stays inline on the facade. Tests
 // hit bridge.sendRawPacket directly.
-import { MiscApi } from '../../src/account/apis/misc';
+import { MiscApi } from '../../src/apis/misc';
 import { mockBridge } from './_helpers';
 
 function packResponse(body: Uint8Array) {

@@ -1,5 +1,5 @@
+import { Channel } from '@snowluma/channel';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
-import { Channel } from './channel';
 
 /**
  * `SocketChannel` — placeholder transport for the future pure-socket

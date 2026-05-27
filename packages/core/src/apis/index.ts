@@ -1,4 +1,4 @@
-import type { AccountContext } from '../account-context';
+import type { CoreContext } from '../core-context';
 import { ContactsApi } from './contacts';
 import { ExtrasApi } from './extras';
 import { ForwardApi } from './forward';
@@ -47,7 +47,7 @@ export interface ApiHub {
  * runtime-mutated `apis.xxx` slots, neither of which is worth the
  * complexity for ~13 small classes.
  */
-export function buildApiHub(ctx: AccountContext): ApiHub {
+export function buildApiHub(ctx: CoreContext): ApiHub {
   return {
     message: new MessageApi(ctx),
     contacts: new ContactsApi(ctx),

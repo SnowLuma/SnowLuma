@@ -1,6 +1,6 @@
 import { createLogger } from '@snowluma/common/logger';
-import type { AccountInterface } from '@snowluma/core/account-interface';
-import type { AccountManager } from '@snowluma/core/account-manager';
+import type { CoreCtx } from '@snowluma/core/core-ctx';
+import type { Hub } from '@snowluma/core/hub';
 import { loadOneBotConfig } from './config';
 import { OneBotInstance } from './instance';
 
@@ -10,12 +10,12 @@ const VERBOSE_WARMUP = process.env.SNOWLUMA_VERBOSE_WARMUP === '1';
 export class OneBotManager {
   private readonly instances = new Map<string, OneBotInstance>();
 
-  bind(accountManager: AccountManager): void {
-    accountManager.setAccountStartedCallback((uin, account) => {
-      this.onSessionStarted(uin, account);
+  bind(hub: Hub): void {
+    hub.events.on('core-online', (ctx) => {
+      this.onSessionStarted(ctx.uin, ctx);
     });
 
-    accountManager.setAccountClosedCallback((uin) => {
+    hub.events.on('core-offline', ({ uin }) => {
       this.onSessionClosed(uin);
     });
   }
@@ -45,7 +45,7 @@ export class OneBotManager {
     this.instances.clear();
   }
 
-  private onSessionStarted(uin: string, bridge: AccountInterface): void {
+  private onSessionStarted(uin: string, bridge: CoreCtx): void {
     if (this.instances.has(uin)) return;
 
     const config = loadOneBotConfig(uin, { persistDefaults: true });
@@ -71,7 +71,7 @@ export class OneBotManager {
 
 }
 
-async function warmUpBridgeState(uin: string, bridge: AccountInterface): Promise<void> {
+async function warmUpBridgeState(uin: string, bridge: CoreCtx): Promise<void> {
   const selfUin = parseInt(uin, 10) || 0;
   let selfResolved = false;
 

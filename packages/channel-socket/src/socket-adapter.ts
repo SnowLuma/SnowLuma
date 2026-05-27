@@ -1,4 +1,4 @@
-import type { ChannelAdapter, ChannelAdapterHost } from './adapter';
+import type { ChannelAdapter, ChannelAdapterHost } from '@snowluma/channel';
 
 /**
  * `SocketAdapter` — placeholder for the future pure-socket runtime.

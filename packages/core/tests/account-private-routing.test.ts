@@ -1,27 +1,28 @@
-import type { ChannelInterface } from '@snowluma/channel';
+import type { ChannelCtx } from '@snowluma/channel';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
-import type { PacketInfo } from '@snowluma/common/protocol-types';
 import type { SendMessageRequest, SendMessageResponse } from '@snowluma/proto-defs/action';
 import type { FileExtra } from '@snowluma/proto-defs/message';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { describe, expect, it, vi } from 'vitest';
-import { Account } from '../src/account/account';
+import { Core } from '../src/core';
 
 vi.mock('@snowluma/protocol/element-builder', () => ({
   buildSendElems: vi.fn(async () => [{ text: { str: 'stub media elem' } }]),
 }));
 
 /**
- * Thin fake transport — implements `ChannelInterface` directly without
- * inheriting from `Bridge`, so each test gets a clean slate plus a
- * single capture slot for the outbound body. The `Account` under test
- * proxies `sendRawPacket` straight through.
+ * Build a fake `ChannelCtx` POJO that captures the outbound packet
+ * body for assertions. The `Core` under test consumes this ctx exactly
+ * the way `Hub` would in production — via `sendRawPacket` and
+ * `onPacket` only.
  */
-class FakeBridge implements ChannelInterface {
-  readonly kind = 'inject' as const;
-  readonly id = 'inject:test';
-  capturedBody: Uint8Array | null = null;
-  private response_: SendPacketResult = {
+function makeFakeCtx(uin: string): {
+  ctx: ChannelCtx;
+  getCapturedBody: () => Uint8Array | null;
+  setResponse: (resp: SendPacketResult) => void;
+} {
+  let capturedBody: Uint8Array | null = null;
+  let response: SendPacketResult = {
     success: true,
     gotResponse: true,
     errorCode: 0,
@@ -33,51 +34,40 @@ class FakeBridge implements ChannelInterface {
       timestamp1: 1710000000,
     })),
   };
-
-  constructor(public readonly uin: string) { }
-
-  setResponse(resp: SendPacketResult): void { this.response_ = resp; }
-
-  async sendRawPacket(_cmd: string, body: Uint8Array): Promise<SendPacketResult> {
-    this.capturedBody = body;
-    return this.response_;
-  }
-
-  setPacketHandler(_handler: ((pkt: PacketInfo) => void) | null): void { /* unused */ }
-  deliverPacket(_pkt: PacketInfo): void { /* unused */ }
-  dispose(): void { /* unused */ }
+  const ctx: ChannelCtx = {
+    uin,
+    kind: 'inject',
+    sendRawPacket: async (_cmd, body) => {
+      capturedBody = body;
+      return response;
+    },
+    onPacket: () => { /* unused */ },
+    dispose: () => { /* unused */ },
+  };
+  return {
+    ctx,
+    getCapturedBody: () => capturedBody,
+    setResponse: (resp) => { response = resp; },
+  };
 }
 
-describe('Account private media routing', () => {
+describe('Core private media routing', () => {
   it('includes resolved uid in the final c2c send request for media messages', async () => {
     const { IdentityService } = await import('@snowluma/protocol/identity-service');
 
-    const bridge = new FakeBridge('10000');
-    bridge.setResponse({
-      success: true,
-      gotResponse: true,
-      errorCode: 0,
-      errorMessage: '',
-      responseData: Buffer.from(protobuf_encode<SendMessageResponse>({
-        result: 0,
-        errMsg: '',
-        privateSequence: 88,
-        timestamp1: 1710000000,
-      })),
-    });
-
-    const account = new Account(bridge, IdentityService.memory('10000'));
+    const fake = makeFakeCtx('10000');
+    const core = new Core(fake.ctx, IdentityService.memory('10000'));
     // resolveUserUid lookup needs an explicit override since the
     // identity store has no mapping for the test peer.
-    account.resolveUserUid = vi.fn(async (uin: number) => {
+    core.resolveUserUid = vi.fn(async (uin: number) => {
       expect(uin).toBe(12345);
       return 'u_peer_12345';
     });
 
-    await account.apis.message.sendPrivate(12345, [{ type: 'video', url: 'file:///tmp/clip.mp4' } as any]);
+    await core.apis.message.sendPrivate(12345, [{ type: 'video', url: 'file:///tmp/clip.mp4' } as any]);
 
-    expect(bridge.capturedBody).toBeInstanceOf(Uint8Array);
-    const request = protobuf_decode<SendMessageRequest>(bridge.capturedBody as Uint8Array);
+    expect(fake.getCapturedBody()).toBeInstanceOf(Uint8Array);
+    const request = protobuf_decode<SendMessageRequest>(fake.getCapturedBody() as Uint8Array);
     expect(request?.routingHead?.c2c).toMatchObject({
       uin: 12345,
       uid: 'u_peer_12345',
@@ -95,11 +85,11 @@ describe('Account private media routing', () => {
     // c2cCmd=11 — the QQ-NT server rejected every c2c file send.
     const { IdentityService } = await import('@snowluma/protocol/identity-service');
 
-    const bridge = new FakeBridge('10000');
-    const account = new Account(bridge, IdentityService.memory('10000'));
+    const fake = makeFakeCtx('10000');
+    const core = new Core(fake.ctx, IdentityService.memory('10000'));
 
     const fileMd5 = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
-    await account.apis.message.sendC2cFile(67890, 'u_peer_xyz', {
+    await core.apis.message.sendC2cFile(67890, 'u_peer_xyz', {
       fileId: 'uuid-abc-123',
       fileName: 'doc.txt',
       fileSize: 1024,
@@ -107,7 +97,7 @@ describe('Account private media routing', () => {
       fileHash: 'hash-xyz',
     });
 
-    const request = protobuf_decode<SendMessageRequest>(bridge.capturedBody as Uint8Array);
+    const request = protobuf_decode<SendMessageRequest>(fake.getCapturedBody() as Uint8Array);
 
     // Routing: must be trans0x211 with ccCmd=4 + uid, no c2c slot.
     expect(request?.routingHead?.trans0x211).toMatchObject({

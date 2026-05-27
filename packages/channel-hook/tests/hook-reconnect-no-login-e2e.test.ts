@@ -9,7 +9,7 @@ import { EventEmitter } from 'events';
 import { HookManager } from '../src/hook-manager';
 import { PipeWatcher } from '../src/pipe-watcher';
 import type { ManualMapHandle } from '../src/injector';
-import type { BridgeManagerSink } from '../src/hook-manager';
+import type { HookSink } from '../src/hook-manager';
 import type { QqHookClient } from '../src/qq-hook-client';
 
 const DUMMY_HANDLE: ManualMapHandle = { base: 0n, entry: 0n, exceptionTable: 0n, size: 0 };
@@ -41,14 +41,14 @@ describe('HookManager — Docker reconnect-without-login leak guard', () => {
       intervalMs: 60_000, // manual ticks only
     });
 
-    const bridgeManager = {
+    const sink = {
       onPacket: vi.fn(),
       onHookLogin: vi.fn(),
       onPidDisconnected: vi.fn(),
-    } as unknown as BridgeManagerSink;
+    } as unknown as HookSink;
 
     const manager = new HookManager({
-      bridgeManager,
+      sink,
       pipeWatcher,
       injector: {
         inject: vi.fn(() => ({ method: 'loadModuleManual' as const, handle: DUMMY_HANDLE })),
@@ -82,9 +82,9 @@ describe('HookManager — Docker reconnect-without-login leak guard', () => {
 
     // The "QQ never logs in" hypothesis: BridgeManager should never have
     // been told about a login or a disconnect.
-    expect(bridgeManager.onHookLogin).not.toHaveBeenCalled();
-    expect(bridgeManager.onPidDisconnected).not.toHaveBeenCalled();
-    expect(bridgeManager.onPacket).not.toHaveBeenCalled();
+    expect(sink.onHookLogin).not.toHaveBeenCalled();
+    expect(sink.onPidDisconnected).not.toHaveBeenCalled();
+    expect(sink.onPacket).not.toHaveBeenCalled();
 
     // Hook layer should hold at most one live client.
     const alive = clients.filter(c => !c.isClosed);

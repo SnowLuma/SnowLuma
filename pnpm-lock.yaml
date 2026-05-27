@@ -73,6 +73,44 @@ importers:
         specifier: ^4.1.4
         version: 4.1.4(@types/node@24.12.2)(@vitest/coverage-istanbul@4.1.4)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(sass@1.99.0)(tsx@4.21.0))
 
+  packages/channel-hook:
+    dependencies:
+      '@snowluma/channel':
+        specifier: workspace:*
+        version: link:../channel
+      '@snowluma/common':
+        specifier: workspace:*
+        version: link:../common
+    devDependencies:
+      '@types/node':
+        specifier: ^24.12.2
+        version: 24.12.2
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.2
+      vite:
+        specifier: 'catalog:'
+        version: 8.0.8(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(sass@1.99.0)(tsx@4.21.0)
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@types/node@24.12.2)(@vitest/coverage-istanbul@4.1.4)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(sass@1.99.0)(tsx@4.21.0))
+
+  packages/channel-socket:
+    dependencies:
+      '@snowluma/channel':
+        specifier: workspace:*
+        version: link:../channel
+      '@snowluma/common':
+        specifier: workspace:*
+        version: link:../common
+    devDependencies:
+      '@types/node':
+        specifier: ^24.12.2
+        version: 24.12.2
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.2
+
   packages/common:
     devDependencies:
       '@types/node':
@@ -87,6 +125,12 @@ importers:
       '@snowluma/channel':
         specifier: workspace:*
         version: link:../channel
+      '@snowluma/channel-hook':
+        specifier: workspace:*
+        version: link:../channel-hook
+      '@snowluma/channel-socket':
+        specifier: workspace:*
+        version: link:../channel-socket
       '@snowluma/common':
         specifier: workspace:*
         version: link:../common

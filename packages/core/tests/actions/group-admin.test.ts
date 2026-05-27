@@ -21,7 +21,7 @@ import { describe, expect, it, vi } from 'vitest';
 // Post-namespace migration: GroupAdminApi forwards through namespaces
 // under @snowluma/protocol/oidb-services/group-admin. Tests assert
 // against bridge.sendRawPacket directly — no module-level mocks.
-import { GroupAdminApi } from '../../src/account/apis/group-admin';
+import { GroupAdminApi } from '../../src/apis/group-admin';
 import { mockBridge } from './_helpers';
 
 function packResponse(body: Uint8Array) {

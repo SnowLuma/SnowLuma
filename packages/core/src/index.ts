@@ -1,8 +1,9 @@
-import { ChannelManager, HookAdapter, SocketAdapter } from '@snowluma/channel';
+import { HookAdapter } from '@snowluma/channel-hook';
+import { SocketAdapter } from '@snowluma/channel-socket';
 import { closeLogger, createLogger } from '@snowluma/common/logger';
 import { loadRuntimeConfig } from '@snowluma/common/runtime';
 import { OneBotManager } from '@snowluma/onebot/manager';
-import { AccountManager } from './account/account-manager';
+import { Hub } from './hub';
 
 const runtimeConfig = loadRuntimeConfig();
 const log = createLogger('App');
@@ -10,14 +11,11 @@ const log = createLogger('App');
 async function main() {
   log.info('SnowLuma starting');
 
-  // ChannelManager is a transport-agnostic host: it learns about live
-  // accounts only through registered ChannelAdapters. Today we have
-  // two adapters — `hook` (NTQQ in-process hook, fully wired) and
-  // `socket` (future pure-socket runtime, registered as a stub so the
-  // architecture is exercised end-to-end). Both must be registered
-  // BEFORE channelManager.start().
-  const channelManager = new ChannelManager();
-  const accountManager = new AccountManager();
+  // `Hub` is the single multi-account entry point — it owns channel
+  // adapters (hook, socket), the per-uin `Core` map, and the
+  // `core-online` / `core-offline` lifecycle event bus. Adapters
+  // must be registered BEFORE hub.start().
+  const hub = new Hub();
   const oneBotManager = new OneBotManager();
 
   const autoLoadOnDiscovery = resolveAutoLoad(runtimeConfig.hookAutoLoad);
@@ -25,17 +23,16 @@ async function main() {
     log.info('hook auto-load enabled: every discovered QQ process will be injected');
   }
   const hookAdapter = new HookAdapter({ autoLoadOnDiscovery });
-  channelManager.registerAdapter(hookAdapter);
-  channelManager.registerAdapter(new SocketAdapter());
+  hub.registerAdapter(hookAdapter);
+  hub.registerAdapter(new SocketAdapter());
 
-  // Layer chain: ChannelManager (transport pool) → AccountManager
-  // (wraps each primary channel in an Account) → OneBotManager (one
-  // OneBotInstance per Account). Bind before start() so the very
-  // first login is delivered down the chain.
-  accountManager.bind(channelManager);
-  oneBotManager.bind(accountManager);
+  // OneBot subscribes to Hub's two lifecycle events (`core-online` /
+  // `core-offline`) to materialise / tear down its per-account
+  // instances. Bind before start() so the very first login is
+  // delivered to OneBot.
+  oneBotManager.bind(hub);
 
-  await channelManager.start();
+  await hub.start();
 
   if (
     (typeof __BUILD_WEBUI__ !== 'undefined' && __BUILD_WEBUI__) ||
@@ -58,8 +55,7 @@ async function main() {
   const shutdown = (signal: string) => async () => {
     log.warn(`Shutting down (${signal})...`);
     oneBotManager.dispose();
-    accountManager.dispose();
-    await channelManager.dispose();
+    await hub.dispose();
     await closeLogger();
     process.exit(0);
   };

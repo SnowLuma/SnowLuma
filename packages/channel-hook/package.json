@@ -1,0 +1,69 @@
+{
+  "name": "@snowluma/channel-hook",
+  "version": "1.9.2",
+  "private": true,
+  "type": "module",
+  "description": "SnowLuma `inject` channel implementation — in-process NTQQ hook runtime. Bundles HookManager / HookSession / pipe-watcher / injector / qq-hook-client plus the `HookChannel` and `HookAdapter` that `Hub` (in @snowluma/core) registers as the primary transport on Windows. Depends on `@snowluma/channel` for the abstract `Channel` + `ChannelAdapter` contracts.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./hook-channel": {
+      "types": "./src/hook-channel.ts",
+      "default": "./src/hook-channel.ts"
+    },
+    "./hook-adapter": {
+      "types": "./src/hook-adapter.ts",
+      "default": "./src/hook-adapter.ts"
+    },
+    "./hook-manager": {
+      "types": "./src/hook-manager.ts",
+      "default": "./src/hook-manager.ts"
+    },
+    "./hook-session": {
+      "types": "./src/hook-session.ts",
+      "default": "./src/hook-session.ts"
+    },
+    "./hook-packet-client": {
+      "types": "./src/hook-packet-client.ts",
+      "default": "./src/hook-packet-client.ts"
+    },
+    "./injector": {
+      "types": "./src/injector.ts",
+      "default": "./src/injector.ts"
+    },
+    "./pipe-watcher": {
+      "types": "./src/pipe-watcher.ts",
+      "default": "./src/pipe-watcher.ts"
+    },
+    "./qq-hook-client": {
+      "types": "./src/qq-hook-client.ts",
+      "default": "./src/qq-hook-client.ts"
+    },
+    "./qq-port-probe": {
+      "types": "./src/qq-port-probe.ts",
+      "default": "./src/qq-port-probe.ts"
+    },
+    "./types": {
+      "types": "./src/types.ts",
+      "default": "./src/types.ts"
+    }
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@snowluma/channel": "workspace:*",
+    "@snowluma/common": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.2",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "^4.1.4"
+  }
+}
