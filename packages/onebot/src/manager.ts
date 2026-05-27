@@ -51,10 +51,6 @@ export class OneBotManager {
     const config = loadOneBotConfig(uin, { persistDefaults: true });
     const instance = new OneBotInstance(uin, bridge, config);
 
-    const activePid = bridge.activePid;
-    if (activePid !== null) {
-      instance.addPid(activePid);
-    }
     if (!bridge.identity.nickname) bridge.identity.nickname = uin;
 
     this.instances.set(uin, instance);

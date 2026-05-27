@@ -14,6 +14,14 @@
       "types": "./src/bridge/bridge.ts",
       "default": "./src/bridge/bridge.ts"
     },
+    "./inject-bridge": {
+      "types": "./src/bridge/inject-bridge.ts",
+      "default": "./src/bridge/inject-bridge.ts"
+    },
+    "./protocol-bridge": {
+      "types": "./src/bridge/protocol-bridge.ts",
+      "default": "./src/bridge/protocol-bridge.ts"
+    },
     "./bridge-interface": {
       "types": "./src/bridge/bridge-interface.ts",
       "default": "./src/bridge/bridge-interface.ts"
@@ -25,6 +33,18 @@
     "./manager": {
       "types": "./src/bridge/manager.ts",
       "default": "./src/bridge/manager.ts"
+    },
+    "./adapter": {
+      "types": "./src/bridge/adapter.ts",
+      "default": "./src/bridge/adapter.ts"
+    },
+    "./inject-adapter": {
+      "types": "./src/bridge/inject-adapter.ts",
+      "default": "./src/bridge/inject-adapter.ts"
+    },
+    "./protocol-adapter": {
+      "types": "./src/bridge/protocol-adapter.ts",
+      "default": "./src/bridge/protocol-adapter.ts"
     },
     "./apis": {
       "types": "./src/bridge/apis/index.ts",

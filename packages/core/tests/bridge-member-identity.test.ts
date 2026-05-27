@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { Bridge } from '../src/bridge/bridge';
+import type { PacketInfo } from '@snowluma/common/protocol-types';
+import type { GroupMemberJoin, QQEventVariant } from '@snowluma/protocol/events';
 import { IdentityService } from '@snowluma/protocol/identity-service';
 import type { GroupMemberInfo, QQGroupInfo } from '@snowluma/protocol/qq-info';
-import type { GroupMemberJoin, QQEventVariant } from '@snowluma/protocol/events';
-import type { PacketInfo } from '@snowluma/common/protocol-types';
+import { describe, expect, it } from 'vitest';
+import { InjectBridge } from '../src/bridge/inject-bridge';
 
 const SELF_UIN = '10001';
 const GROUP_ID = 123456789;
@@ -34,11 +34,11 @@ function makeGroup(members: GroupMemberInfo[] = []): QQGroupInfo {
   };
 }
 
-class RefreshingBridge extends Bridge {
+class RefreshingBridge extends InjectBridge {
   readonly memberFetches: Array<{ groupId: number; force: boolean }> = [];
 
   constructor(identity: IdentityService, private readonly refreshedMembers: GroupMemberInfo[]) {
-    super(identity);
+    super(identity.uin, identity);
     // `fetchGroupMemberList` moved from Bridge onto `apis.contacts`
     // under the #6 refactor — patch the method on the constructed
     // ContactsApi instance to intercept calls + record them for
@@ -116,7 +116,7 @@ describe('Bridge group member identity refresh', () => {
   });
 
   it('remembers UID mappings from realtime request events', () => {
-    const bridge = new Bridge(IdentityService.memory(SELF_UIN));
+    const bridge = new InjectBridge(SELF_UIN, IdentityService.memory(SELF_UIN));
     const events: QQEventVariant[] = [
       {
         kind: 'friend_request',

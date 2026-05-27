@@ -38,7 +38,6 @@ export class OneBotInstance {
   private readonly rkeyCache: RKeyCache;
   private disposeEventPipeline: (() => void) | null = null;
 
-  private readonly pids = new Set<number>();
   private online = true;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private static readonly HEARTBEAT_INTERVAL = 30000;
@@ -114,26 +113,6 @@ export class OneBotInstance {
     this.messageStore.close();
     this.mediaStore.close();
     this.reactionStore.close();
-  }
-
-  addPid(pid: number): void {
-    this.pids.add(pid);
-  }
-
-  removePid(pid: number): void {
-    this.pids.delete(pid);
-  }
-
-  hasPid(pid: number): boolean {
-    return this.pids.has(pid);
-  }
-
-  getPids(): number[] {
-    return [...this.pids];
-  }
-
-  get empty(): boolean {
-    return this.pids.size === 0;
   }
 
   private dispatchEvent(event: JsonObject): void {

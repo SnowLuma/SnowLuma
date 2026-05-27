@@ -1,4 +1,4 @@
-import type { PacketSender, SendPacketResult } from '@snowluma/common/packet-sender';
+import type { SendPacketResult } from '@snowluma/common/packet-sender';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import { BridgeEventBus } from '@snowluma/protocol/event-bus';
 import { IdentityService } from '@snowluma/protocol/identity-service';
@@ -10,23 +10,53 @@ import {
   type AiVoiceCategory,
   type StrangerStatus,
 } from './apis/extras';
-import type { BridgeInterface } from './bridge-interface';
+import type { BridgeInterface, BridgeKind } from './bridge-interface';
 
+/**
+ * Abstract base for every concrete account bridge (`InjectBridge`,
+ * `ProtocolBridge`, …). Owns everything that is transport-agnostic:
+ *
+ *   - the per-account `IdentityService` (friend/group/uid cache + DB),
+ *   - the typed `BridgeEventBus` (per-kind subscribers),
+ *   - the `ApiHub` (typed wrappers around `sendRawPacket`),
+ *   - the `IncomingPacketPipeline` (cmd → decoder dispatch),
+ *   - the uploaded-file cache shared between `upload_*_file` and
+ *     `send_msg`,
+ *   - the monotonic `clientSequence` / `messageRandom` counters.
+ *
+ * Subclasses only have to provide:
+ *
+ *   1. `kind` / `id` — discriminators for `BridgeManager` bookkeeping
+ *      and diagnostics.
+ *   2. `sendRawPacket` — the actual wire-level transport. `InjectBridge`
+ *      forwards to a `PacketSender` (the hook named-pipe client);
+ *      `ProtocolBridge` will eventually forward to a long-lived TCP
+ *      protocol client.
+ *
+ * The base class is intentionally abstract: callers never write
+ * `new Bridge(...)`. Tests that want to exercise the common
+ * pipeline / identity logic subclass `Bridge` (supplying the two
+ * abstract members) or instantiate `InjectBridge` directly.
+ */
+export abstract class Bridge implements BridgeInterface {
+  abstract readonly kind: BridgeKind;
+  abstract readonly id: string;
 
-export class Bridge implements BridgeInterface {
+  readonly uin: string;
   readonly identity: IdentityService;
-  private pids_ = new Set<number>();
   readonly events = new BridgeEventBus();
   readonly apis: ApiHub;
+
   private readonly pipeline: IncomingPacketPipeline;
-  private packetClient_: PacketSender | null = null;
   private static readonly UPLOADED_FILE_CACHE_MAX = 1024;
-  private uploadedFileMeta_ = new Map<string, UploadedFileMeta>();
+  private readonly uploadedFileMeta_ = new Map<string, UploadedFileMeta>();
   private clientSeq_ = 100000000 + (Date.now() % 1000000000);
   private msgRandom_ = (Date.now() & 0xFFFFFFFF) >>> 0;
+  private disposed_ = false;
 
   constructor(identity: IdentityService) {
     this.identity = identity;
+    this.uin = identity.uin;
     this.apis = buildApiHub(this);
     this.identity.setFetcher({
       fetchProfile: (uin) => this.apis.contacts.fetchUserProfile(uin),
@@ -63,14 +93,30 @@ export class Bridge implements BridgeInterface {
     this.pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
   }
 
+  // ─── BridgeInterface plumbing ──────────────────────────────
+
+  onPacket(packet: PacketInfo): void {
+    this.pipeline.process(packet);
+  }
+
   dispose(): void {
+    if (this.disposed_) return;
+    this.disposed_ = true;
     this.identity.close();
     this.events.clear();
   }
 
-  setPacketClient(client: PacketSender): void {
-    this.packetClient_ = client;
-  }
+  get isDisposed(): boolean { return this.disposed_; }
+
+  // ─── Transport (abstract — implemented per-subclass) ────────────
+
+  abstract sendRawPacket(
+    serviceCmd: string,
+    body: Uint8Array,
+    timeoutMs?: number,
+  ): Promise<SendPacketResult>;
+
+  // ─── Pipeline registration (used by tests + extra cmd modules) ──────
 
   registerCmd(cmd: string, parser: CmdParser): void {
     this.pipeline.registerCmd(cmd, parser);
@@ -80,30 +126,19 @@ export class Bridge implements BridgeInterface {
     return this.pipeline.handlesCmd(cmd);
   }
 
-  attachPid(pid: number): void {
-    this.pids_.add(pid);
-  }
-  detachPid(pid: number): void {
-    this.pids_.delete(pid);
-  }
-  hasPid(pid: number): boolean { return this.pids_.has(pid); }
-  get empty(): boolean { return this.pids_.size === 0; }
-  get activePid(): number | null {
-    for (const pid of this.pids_) return pid;
-    return null;
-  }
-  onPacket(pkt: PacketInfo): void {
-    this.pipeline.process(pkt);
+  // ─── Send-side protocol helpers (shared sequence generators) ────────
+
+  nextClientSequence(): number {
+    return ++this.clientSeq_;
   }
 
-  private async refreshMemberCache(groupId: number, refreshGroupList: boolean, forceMemberList: boolean): Promise<boolean> {
-    if (refreshGroupList) {
-      try { await this.apis.contacts.fetchGroupList(); } catch { /* ignore */ }
-    }
-    if (!this.identity.findGroup(groupId)) return false;
-    await this.apis.contacts.fetchGroupMemberList(groupId, { force: forceMemberList });
-    return true;
+  nextMessageRandom(): number {
+    this.msgRandom_ = (this.msgRandom_ + 0x9E3779B9) >>> 0;
+    return this.msgRandom_ & 0x7FFFFFFF;
   }
+
+  // ─── Uploaded-file cache ──────────────────────────────────
+
   rememberUploadedFile(meta: UploadedFileMeta): void {
     if (!meta.fileId) return;
     if (this.uploadedFileMeta_.size >= Bridge.UPLOADED_FILE_CACHE_MAX) {
@@ -119,25 +154,25 @@ export class Bridge implements BridgeInterface {
     return this.uploadedFileMeta_.get(fileId);
   }
 
-  nextClientSequence(): number {
-    return ++this.clientSeq_;
-  }
+  // ─── Identity convenience ──────────────────────────────────
 
-  nextMessageRandom(): number {
-    this.msgRandom_ = (this.msgRandom_ + 0x9E3779B9) >>> 0;
-    return this.msgRandom_ & 0x7FFFFFFF;
-  }
-  async sendRawPacket(serviceCmd: string, body: Uint8Array, timeoutMs = 15000): Promise<SendPacketResult> {
-    if (!this.packetClient_) {
-      return {
-        success: false, gotResponse: false, errorCode: -1,
-        errorMessage: 'no packet sender attached', responseData: null,
-      };
-    }
-    return this.packetClient_.sendPacket(serviceCmd, Buffer.from(body), timeoutMs);
-  }
   async resolveUserUid(uin: number, groupId?: number): Promise<string> {
     return this.identity.resolveUid(uin, groupId);
+  }
+
+  // ─── Internal helpers ─────────────────────────────────────
+
+  private async refreshMemberCache(
+    groupId: number,
+    refreshGroupList: boolean,
+    forceMemberList: boolean,
+  ): Promise<boolean> {
+    if (refreshGroupList) {
+      try { await this.apis.contacts.fetchGroupList(); } catch { /* ignore */ }
+    }
+    if (!this.identity.findGroup(groupId)) return false;
+    await this.apis.contacts.fetchGroupMemberList(groupId, { force: forceMemberList });
+    return true;
   }
 }
 export interface SendMessageReceipt {

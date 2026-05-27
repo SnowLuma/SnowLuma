@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 import type { SendMessageRequest, SendMessageResponse } from '@snowluma/proto-defs/action';
 import type { FileExtra } from '@snowluma/proto-defs/message';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@snowluma/protocol/element-builder', () => ({
   buildSendElems: vi.fn(async () => [{ text: { str: 'stub media elem' } }]),
@@ -14,6 +14,8 @@ describe('Bridge private media routing', () => {
     const { IdentityService } = await import('@snowluma/protocol/identity-service');
 
     class TestBridge extends Bridge {
+      readonly kind = 'inject' as const;
+      readonly id = 'inject:test';
       capturedBody: Uint8Array | null = null;
 
       override async resolveUserUid(uin: number): Promise<string> {
@@ -63,6 +65,8 @@ describe('Bridge private media routing', () => {
     const { IdentityService } = await import('@snowluma/protocol/identity-service');
 
     class TestBridge extends Bridge {
+      readonly kind = 'inject' as const;
+      readonly id = 'inject:test';
       capturedBody: Uint8Array | null = null;
       override async sendRawPacket(_cmd: string, body: Uint8Array): Promise<SendPacketResult> {
         this.capturedBody = body;

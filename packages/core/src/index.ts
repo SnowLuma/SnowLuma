@@ -1,8 +1,9 @@
-import { HookManager } from '@snowluma/bridge';
 import { closeLogger, createLogger } from '@snowluma/common/logger';
 import { loadRuntimeConfig } from '@snowluma/common/runtime';
 import { OneBotManager } from '@snowluma/onebot/manager';
+import { InjectBridgeAdapter } from './bridge/inject-adapter';
 import { BridgeManager } from './bridge/manager';
+import { ProtocolBridgeAdapter } from './bridge/protocol-adapter';
 
 const runtimeConfig = loadRuntimeConfig();
 const log = createLogger('App');
@@ -10,15 +11,28 @@ const log = createLogger('App');
 async function main() {
   log.info('SnowLuma starting');
 
+  // BridgeManager is a transport-agnostic host: it learns about live
+  // accounts only through registered BridgeAdapters. Today we have
+  // two adapters — `inject` (NTQQ in-process hook, fully wired) and
+  // `protocol` (future pure-protocol runtime, registered as a stub
+  // so the architecture is exercised end-to-end). Both must be
+  // registered BEFORE bridgeManager.start().
   const bridgeManager = new BridgeManager();
   const oneBotManager = new OneBotManager();
+
   const autoLoadOnDiscovery = resolveAutoLoad(runtimeConfig.hookAutoLoad);
-  const hookManager = new HookManager({ bridgeManager, autoLoadOnDiscovery });
   if (autoLoadOnDiscovery) {
     log.info('hook auto-load enabled: every discovered QQ process will be injected');
   }
+  const injectAdapter = new InjectBridgeAdapter({ autoLoadOnDiscovery });
+  bridgeManager.registerAdapter(injectAdapter);
+  bridgeManager.registerAdapter(new ProtocolBridgeAdapter());
 
+  // OneBot subscribes to BridgeManager session events; bind before
+  // start() so the very first login is delivered.
   oneBotManager.bind(bridgeManager);
+
+  await bridgeManager.start();
 
   if (
     (typeof __BUILD_WEBUI__ !== 'undefined' && __BUILD_WEBUI__) ||
@@ -26,7 +40,11 @@ async function main() {
   ) {
     try {
       const { initWebUI } = await import('./webui/server');
-      await initWebUI(runtimeConfig.webuiPort || 5099, oneBotManager, hookManager);
+      // The WebUI's process management surface is hook-specific (it
+      // exposes load/unload/refresh by PID); we hand it the
+      // adapter-owned HookManager directly. Future protocol-only
+      // panels would receive their adapter through the same channel.
+      await initWebUI(runtimeConfig.webuiPort || 5099, oneBotManager, injectAdapter.hookManager);
     } catch (err) {
       log.error('Failed to start WebUI: ', err);
     }
@@ -37,7 +55,7 @@ async function main() {
   const shutdown = (signal: string) => async () => {
     log.warn(`Shutting down (${signal})...`);
     oneBotManager.dispose();
-    hookManager.dispose();
+    await bridgeManager.dispose();
     await closeLogger();
     process.exit(0);
   };
