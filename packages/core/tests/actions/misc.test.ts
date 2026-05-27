@@ -1,16 +1,16 @@
-import { describe, it, expect, vi } from 'vitest';
-import { protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
-  Oidb0x990Resp,
   Oidb0x112eResp,
+  Oidb0x990Resp,
 } from '@snowluma/proto-defs/oidb-actions/base';
+import { protobuf_encode } from '@snowluma/proton';
+import { describe, expect, it, vi } from 'vitest';
 
 // Post-namespace migration: MiscApi forwards 3 OIDB cmds through
 // @snowluma/protocol/oidb-services/misc namespaces. The non-OIDB
 // `getMiniAppArk` (LightAppSvc) stays inline on the facade. Tests
 // hit bridge.sendRawPacket directly.
-import { MiscApi } from '../../src/bridge/apis/misc';
+import { MiscApi } from '../../src/account/apis/misc';
 import { mockBridge } from './_helpers';
 
 function packResponse(body: Uint8Array) {

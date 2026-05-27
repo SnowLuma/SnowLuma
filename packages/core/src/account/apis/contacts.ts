@@ -12,8 +12,22 @@ import type {
   QQGroupInfo,
   UserProfileInfo,
 } from '@snowluma/protocol/qq-info';
-import type { DownloadRKeyInfo } from '../bridge';
-import type { BridgeContext } from '../bridge-context';
+import type { AccountContext } from '../account-context';
+
+/**
+ * One row of an `OidbSvcTrpcTcp.0x9067_202` (download rkey) response.
+ * Cached for the duration of `ttlSeconds` and consumed by the OneBot
+ * media-URL resolver / message converter when a download URL must be
+ * minted on the fly. Lives at the apis layer (not on `Bridge`) because
+ * only `apis.contacts.fetchDownloadRKeys` materialises these rows.
+ */
+export interface DownloadRKeyInfo {
+  rkey: string;
+  ttlSeconds: number;
+  storeId: number;
+  createTime: number;
+  type: number;
+}
 
 // ─── Helpers (previously in bridge-contacts.ts) ───────────────────
 
@@ -63,7 +77,7 @@ export class ContactsApi {
   private memberListInflight = new Map<number, Promise<GroupMemberInfo[]>>();
   private memberListLastFetch = new Map<number, { at: number; data: GroupMemberInfo[] }>();
 
-  constructor(private readonly ctx: BridgeContext) { }
+  constructor(private readonly ctx: AccountContext) { }
 
   async fetchFriendList(): Promise<FriendInfo[]> {
     const friends: FriendInfo[] = [];

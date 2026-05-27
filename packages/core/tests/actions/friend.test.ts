@@ -1,17 +1,17 @@
-import { describe, it, expect, vi } from 'vitest';
-import { protobuf_decode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   OidbDeleteFriend,
   OidbFriendRequestAction,
   OidbSetFriendRemark,
 } from '@snowluma/proto-defs/oidb-actions/base';
+import { protobuf_decode } from '@snowluma/proton';
+import { describe, expect, it, vi } from 'vitest';
 
 // Post-namespace migration: FriendApi is a thin facade over the
 // namespaces under @snowluma/protocol/oidb-services/friend. Tests assert
 // against the bridge mock's sendRawPacket directly — no need for
 // module-level bridge-oidb mocks anymore.
-import { FriendApi } from '../../src/bridge/apis/friend';
+import { FriendApi } from '../../src/account/apis/friend';
 import { mockBridge } from './_helpers';
 
 describe('apis/friend', () => {

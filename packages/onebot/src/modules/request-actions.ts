@@ -1,7 +1,7 @@
-import type { BridgeInterface } from '@snowluma/core/bridge-interface';
+import type { AccountInterface } from '@snowluma/core/account-interface';
 
 export async function handleGroupAddRequest(
-  bridge: BridgeInterface,
+  bridge: AccountInterface,
   flag: string,
   approve: boolean,
   reason: string,

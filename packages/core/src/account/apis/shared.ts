@@ -1,4 +1,5 @@
-import type { Bridge } from '../bridge';
+
+import type { BridgeContext } from '@snowluma/protocol/bridge-context';
 
 export function toInt(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
@@ -31,7 +32,7 @@ export function ensureRetCodeZero(operation: string, code: unknown, msg: unknown
  * `selfProfile`; forward/profile actions need this fast path before
  * warmup completes.
  */
-export async function resolveSelfUid(bridge: Bridge): Promise<string> {
+export async function resolveSelfUid(bridge: BridgeContext): Promise<string> {
   let selfUid = bridge.identity.selfUid;
   if (selfUid) return selfUid;
 

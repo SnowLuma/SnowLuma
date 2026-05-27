@@ -1,43 +1,34 @@
 import type { PacketSender, SendPacketResult } from '@snowluma/common/packet-sender';
-import { IdentityService } from '@snowluma/protocol/identity-service';
 import { Bridge } from './bridge';
 
 /**
- * `InjectBridge` — the concrete account bridge backed by the in-process
- * NTQQ hook (one or more QQ.exe processes injected with the SnowLuma
- * DLL talking over named pipes).
+ * `InjectBridge` — concrete transport backed by the in-process NTQQ
+ * hook. One UIN may be served simultaneously by several injected
+ * processes; the bridge therefore tracks an unordered set of PIDs and
+ * keeps a single live `PacketSender` (the most recently logged-in
+ * pipe) for outbound traffic.
  *
- * One UIN may be served simultaneously by several injected processes;
- * the bridge therefore tracks an unordered set of PIDs and keeps a
- * single live `PacketSender` (the most recently logged-in pipe) for
- * outbound traffic. PID bookkeeping is intentionally kept here rather
- * than on the abstract `Bridge` so the protocol-only runtime never
- * sees the concept.
+ * PID bookkeeping is scoped to this transport because the protocol-
+ * only runtime never has the concept; quarantining it here keeps the
+ * abstract `Bridge` and the `BridgeManager` free of pid awareness.
  *
- * The owning `InjectBridgeAdapter` is responsible for:
- *   - calling `attachPid(pid, sender)` on every successful hook login,
- *   - calling `detachPid(pid)` when the watcher reports a pipe drop,
- *   - calling `dispose()` when the last PID drops.
+ * The owning `InjectBridgeAdapter` is responsible for calling
+ * `attachPid(pid, sender)` on every successful hook login,
+ * `detachPid(pid)` when the watcher reports a pipe drop, and tearing
+ * the bridge down once `isEmpty` returns true.
  */
 export class InjectBridge extends Bridge {
   readonly kind = 'inject' as const;
+  readonly uin: string;
 
   private readonly pids_ = new Set<number>();
   private packetClient_: PacketSender | null = null;
 
-  /**
-   * @param uin       QQ number this bridge represents.
-   * @param identity  Optional pre-built `IdentityService`. The default
-   *                  opens the on-disk SQLite store at
-   *                  `data/<uin>/snowluma_identity.db`; tests usually
-   *                  pass `IdentityService.memory(uin)` to avoid touching
-   *                  the filesystem.
-   */
-  constructor(uin: string, identity: IdentityService = IdentityService.openForUin(uin)) {
-    super(identity);
+  constructor(uin: string) {
+    super();
+    this.uin = uin;
   }
 
-  /** Stable, unique-per-account id used by `BridgeManager`. */
   get id(): string { return `inject:${this.uin}`; }
 
   /** PIDs currently routing packets into this bridge. Read-only view
@@ -81,5 +72,11 @@ export class InjectBridge extends Bridge {
       };
     }
     return client.sendPacket(serviceCmd, Buffer.from(body), timeoutMs);
+  }
+
+  override dispose(): void {
+    super.dispose();
+    this.packetClient_ = null;
+    this.pids_.clear();
   }
 }

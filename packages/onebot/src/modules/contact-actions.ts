@@ -1,4 +1,4 @@
-import type { BridgeInterface } from '@snowluma/core/bridge-interface';
+import type { AccountInterface } from '@snowluma/core/account-interface';
 import type { IdentityService } from '@snowluma/protocol/identity-service';
 import type { OneBotInstanceContext } from '../instance-context';
 import type { JsonObject } from '../types';
@@ -9,7 +9,7 @@ export function getLoginInfo(ref: OneBotInstanceContext): { userId: number; nick
   return { userId, nickname };
 }
 
-async function refreshSingleGroupMembers(bridge: BridgeInterface, groupId: number): Promise<void> {
+async function refreshSingleGroupMembers(bridge: AccountInterface, groupId: number): Promise<void> {
   try {
     await bridge.apis.contacts.fetchGroupMemberList(groupId);
   } catch {
@@ -17,7 +17,7 @@ async function refreshSingleGroupMembers(bridge: BridgeInterface, groupId: numbe
   }
 }
 
-export async function getFriendList(bridge: BridgeInterface): Promise<JsonObject[]> {
+export async function getFriendList(bridge: AccountInterface): Promise<JsonObject[]> {
   try {
     const friends = await bridge.apis.contacts.fetchFriendList();
     return friends.map(f => ({
@@ -35,7 +35,7 @@ export async function getFriendList(bridge: BridgeInterface): Promise<JsonObject
 }
 
 export async function getGroupList(
-  bridge: BridgeInterface,
+  bridge: AccountInterface,
   noCache?: boolean,
 ): Promise<JsonObject[]> {
   try {
@@ -54,7 +54,7 @@ export async function getGroupList(
 }
 
 export async function getGroupInfo(
-  bridge: BridgeInterface,
+  bridge: AccountInterface,
   groupId: number,
   noCache?: boolean,
 ): Promise<JsonObject | null> {
@@ -76,7 +76,7 @@ export async function getGroupInfo(
 }
 
 export async function getGroupMemberList(
-  bridge: BridgeInterface,
+  bridge: AccountInterface,
   groupId: number,
   noCache?: boolean,
 ): Promise<JsonObject[]> {
@@ -94,7 +94,7 @@ export async function getGroupMemberList(
 }
 
 export async function getGroupMemberInfo(
-  bridge: BridgeInterface,
+  bridge: AccountInterface,
   groupId: number,
   userId: number,
   noCache?: boolean,
@@ -108,7 +108,7 @@ export async function getGroupMemberInfo(
 }
 
 export async function getGroupFiles(
-  bridge: BridgeInterface,
+  bridge: AccountInterface,
   groupId: number,
   folderId?: string,
 ): Promise<JsonObject> {
@@ -140,7 +140,7 @@ export async function getGroupFiles(
 }
 
 export async function getStrangerInfo(
-  bridge: BridgeInterface,
+  bridge: AccountInterface,
   userId: number,
 ): Promise<JsonObject | null> {
   try {
@@ -167,7 +167,7 @@ export async function getStrangerInfo(
   }
 }
 
-export async function getGroupSystemMessages(bridge: BridgeInterface): Promise<JsonObject[]> {
+export async function getGroupSystemMessages(bridge: AccountInterface): Promise<JsonObject[]> {
   try {
     const reqs = await bridge.apis.contacts.fetchGroupRequests();
     return reqs.map(r => ({
@@ -184,7 +184,7 @@ export async function getGroupSystemMessages(bridge: BridgeInterface): Promise<J
   }
 }
 
-export async function getDownloadRKeys(bridge: BridgeInterface): Promise<JsonObject[]> {
+export async function getDownloadRKeys(bridge: AccountInterface): Promise<JsonObject[]> {
   try {
     const rkeys = await bridge.apis.contacts.fetchDownloadRKeys();
     return rkeys.map(r => ({

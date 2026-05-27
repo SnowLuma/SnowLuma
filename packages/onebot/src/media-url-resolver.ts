@@ -1,10 +1,10 @@
-import type { BridgeInterface } from '@snowluma/core/bridge-interface';
+import type { AccountInterface } from '@snowluma/core/account-interface';
 import type { MessageElement } from '@snowluma/protocol/events';
 import type { RKeyCache } from './instance-rkey';
 
 export class MediaUrlResolver {
   constructor(
-    private readonly bridge: BridgeInterface,
+    private readonly bridge: AccountInterface,
     private readonly rkeyCache: RKeyCache,
   ) { }
 

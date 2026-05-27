@@ -42,6 +42,38 @@
     "./types": {
       "types": "./src/types.ts",
       "default": "./src/types.ts"
+    },
+    "./bridge": {
+      "types": "./src/bridge.ts",
+      "default": "./src/bridge.ts"
+    },
+    "./bridge-interface": {
+      "types": "./src/bridge-interface.ts",
+      "default": "./src/bridge-interface.ts"
+    },
+    "./inject-bridge": {
+      "types": "./src/inject-bridge.ts",
+      "default": "./src/inject-bridge.ts"
+    },
+    "./protocol-bridge": {
+      "types": "./src/protocol-bridge.ts",
+      "default": "./src/protocol-bridge.ts"
+    },
+    "./adapter": {
+      "types": "./src/adapter.ts",
+      "default": "./src/adapter.ts"
+    },
+    "./inject-adapter": {
+      "types": "./src/inject-adapter.ts",
+      "default": "./src/inject-adapter.ts"
+    },
+    "./protocol-adapter": {
+      "types": "./src/protocol-adapter.ts",
+      "default": "./src/protocol-adapter.ts"
+    },
+    "./manager": {
+      "types": "./src/manager.ts",
+      "default": "./src/manager.ts"
     }
   },
   "scripts": {

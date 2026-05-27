@@ -13,13 +13,10 @@ import { SetInputStatus } from '@snowluma/protocol/oidb-services/profile/set-inp
 import { SetProfile } from '@snowluma/protocol/oidb-services/profile/set-profile';
 import { SetSelfLongNick } from '@snowluma/protocol/oidb-services/profile/set-self-long-nick';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { Bridge } from '../bridge';
-import type { BridgeContext } from '../bridge-context';
-
-function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
+import type { AccountContext } from '../account-context';
 
 export class ProfileApi {
-  constructor(private readonly ctx: BridgeContext) { }
+  constructor(private readonly ctx: AccountContext) { }
 
   // ─────────────── status / profile setters ───────────────
 
@@ -82,7 +79,7 @@ export class ProfileApi {
   }
 
   async setAvatar(source: string): Promise<void> {
-    const bridge = asBridge(this.ctx);
+    const bridge = this.ctx;
     const loaded = await loadBinarySource(source, 'avatar');
     if (!loaded.bytes.length) throw new Error('avatar file is empty');
 
@@ -102,7 +99,7 @@ export class ProfileApi {
    * Source ref: Lagrange.Core/Internal/Context/Logic/Implementation/OperationLogic.cs#GroupSetAvatar.
    */
   async setGroupAvatar(groupId: number, source: string): Promise<void> {
-    const bridge = asBridge(this.ctx);
+    const bridge = this.ctx;
     const loaded = await loadBinarySource(source, 'group-avatar');
     if (!loaded.bytes.length) throw new Error('group avatar file is empty');
 

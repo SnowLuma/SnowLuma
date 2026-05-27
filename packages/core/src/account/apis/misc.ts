@@ -4,14 +4,14 @@ import type {
   MiniAppShareResp,
 } from '@snowluma/proto-defs/oidb-actions/base';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { BridgeContext } from '../bridge-context';
 // Migrated OIDB cmds — facade methods are one-line forwarders.
 import { ClickInlineKeyboardButton } from '@snowluma/protocol/oidb-services/misc/click-inline-keyboard-button';
 import { SendGroupSign } from '@snowluma/protocol/oidb-services/misc/send-group-sign';
 import { TranslateEnToZh } from '@snowluma/protocol/oidb-services/misc/translate-en-to-zh';
+import type { AccountContext } from '../account-context';
 
 export class MiscApi {
-  constructor(private readonly ctx: BridgeContext) { }
+  constructor(private readonly ctx: AccountContext) { }
 
   translateEn2Zh(words: string[]): Promise<string[]> {
     return TranslateEnToZh.invoke(this.ctx, { words });

@@ -1,5 +1,4 @@
-import type { Bridge } from '@snowluma/core/bridge';
-import type { BridgeInterface } from '@snowluma/core/bridge-interface';
+import type { AccountInterface } from '@snowluma/core/account-interface';
 import type { WebHonorType } from '@snowluma/protocol/web/group-honor';
 import type { ApiActionContext } from './api-handler';
 import type { ConverterContext } from './event-converter';
@@ -41,7 +40,7 @@ import type { JsonObject, MessageMeta, OneBotConfig } from './types';
 export interface OneBotInstanceContext {
   uin: string;
   selfId: number;
-  bridge: BridgeInterface;
+  bridge: AccountInterface;
   messageStore: MessageStore;
   mediaStore: MediaStore;
   reactionStore: ReactionStore;
@@ -119,5 +118,5 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
   };
 }
 
-export type { Bridge, WebHonorType };
+export type { WebHonorType };
 

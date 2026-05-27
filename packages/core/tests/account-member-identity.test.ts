@@ -1,9 +1,10 @@
+import { InjectBridge } from '@snowluma/bridge';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import type { GroupMemberJoin, QQEventVariant } from '@snowluma/protocol/events';
 import { IdentityService } from '@snowluma/protocol/identity-service';
 import type { GroupMemberInfo, QQGroupInfo } from '@snowluma/protocol/qq-info';
 import { describe, expect, it } from 'vitest';
-import { InjectBridge } from '../src/bridge/inject-bridge';
+import { Account } from '../src/account/account';
 
 const SELF_UIN = '10001';
 const GROUP_ID = 123456789;
@@ -34,28 +35,27 @@ function makeGroup(members: GroupMemberInfo[] = []): QQGroupInfo {
   };
 }
 
-class RefreshingBridge extends InjectBridge {
-  readonly memberFetches: Array<{ groupId: number; force: boolean }> = [];
-
-  constructor(identity: IdentityService, private readonly refreshedMembers: GroupMemberInfo[]) {
-    super(identity.uin, identity);
-    // `fetchGroupMemberList` moved from Bridge onto `apis.contacts`
-    // under the #6 refactor — patch the method on the constructed
-    // ContactsApi instance to intercept calls + record them for
-    // assertions. (Direct property assignment works because the
-    // method is just an own property on the Api instance, not on
-    // its prototype.)
-    this.apis.contacts.fetchGroupMemberList = async (
-      groupId: number,
-      options: { force?: boolean } = {},
-    ): Promise<GroupMemberInfo[]> => {
-      this.memberFetches.push({ groupId, force: Boolean(options.force) });
-      for (const member of this.refreshedMembers) {
-        this.identity.updateGroupMember(groupId, member);
-      }
-      return this.refreshedMembers;
-    };
-  }
+/**
+ * `Account` wired up with a member-list interceptor. The interceptor
+ * lives on `account.apis.contacts.fetchGroupMemberList`; direct
+ * property assignment is enough because the ApiHub holds own-property
+ * methods, not prototype ones.
+ */
+function buildAccount(identity: IdentityService, refreshedMembers: GroupMemberInfo[]) {
+  const bridge = new InjectBridge(identity.uin);
+  const account = new Account(bridge, identity);
+  const memberFetches: Array<{ groupId: number; force: boolean }> = [];
+  account.apis.contacts.fetchGroupMemberList = async (
+    groupId: number,
+    options: { force?: boolean } = {},
+  ): Promise<GroupMemberInfo[]> => {
+    memberFetches.push({ groupId, force: Boolean(options.force) });
+    for (const member of refreshedMembers) {
+      account.identity.updateGroupMember(groupId, member);
+    }
+    return refreshedMembers;
+  };
+  return { account, bridge, memberFetches };
 }
 
 function makePacket(): PacketInfo {
@@ -85,15 +85,15 @@ async function waitForEvent(events: GroupMemberJoin[]): Promise<GroupMemberJoin>
   throw new Error('timed out waiting for group_member_join');
 }
 
-describe('Bridge group member identity refresh', () => {
+describe('Account group member identity refresh', () => {
   it('forces a fresh member list before dispatching an unresolved join event', async () => {
     const member = makeGroupMember(22222, 'u_new_member');
     const identity = IdentityService.memory(SELF_UIN);
     identity.rememberGroups([makeGroup()]);
-    const bridge = new RefreshingBridge(identity, [member]);
+    const { account, bridge, memberFetches } = buildAccount(identity, [member]);
     const seen: GroupMemberJoin[] = [];
 
-    bridge.registerCmd('test.member_join', () => [{
+    account.registerCmd('test.member_join', () => [{
       kind: 'group_member_join',
       time: 1710000000,
       selfUin: Number(SELF_UIN),
@@ -103,20 +103,21 @@ describe('Bridge group member identity refresh', () => {
       userUid: member.uid,
       operatorUid: member.uid,
     }]);
-    bridge.events.on('group_member_join', (event) => {
+    account.events.on('group_member_join', (event) => {
       seen.push(event);
     });
 
-    bridge.onPacket(makePacket());
+    bridge.deliverPacket(makePacket());
     const event = await waitForEvent(seen);
 
-    expect(bridge.memberFetches).toEqual([{ groupId: GROUP_ID, force: true }]);
+    expect(memberFetches).toEqual([{ groupId: GROUP_ID, force: true }]);
     expect(event.userUin).toBe(member.uin);
     expect(event.operatorUin).toBe(member.uin);
   });
 
   it('remembers UID mappings from realtime request events', () => {
-    const bridge = new InjectBridge(SELF_UIN, IdentityService.memory(SELF_UIN));
+    const bridge = new InjectBridge(SELF_UIN);
+    const account = new Account(bridge, IdentityService.memory(SELF_UIN));
     const events: QQEventVariant[] = [
       {
         kind: 'friend_request',
@@ -140,12 +141,12 @@ describe('Bridge group member identity refresh', () => {
       },
     ];
 
-    bridge.registerCmd('test.request_identity', () => events);
-    bridge.onPacket(makeRequestPacket());
+    account.registerCmd('test.request_identity', () => events);
+    bridge.deliverPacket(makeRequestPacket());
 
-    expect(bridge.identity.findUidByUin(55555)).toBe('u_friend_request');
-    expect(bridge.identity.findUidByUin(66666)).toBe('u_group_request');
-    expect(bridge.identity.findUinByUid('u_friend_request')).toBe(55555);
-    expect(bridge.identity.findUinByUid('u_group_request')).toBe(66666);
+    expect(account.identity.findUidByUin(55555)).toBe('u_friend_request');
+    expect(account.identity.findUidByUin(66666)).toBe('u_group_request');
+    expect(account.identity.findUinByUid('u_friend_request')).toBe(55555);
+    expect(account.identity.findUinByUid('u_group_request')).toBe(66666);
   });
 });

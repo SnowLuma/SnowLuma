@@ -1,4 +1,4 @@
-import type { BridgeContext } from '../bridge-context';
+import type { AccountContext } from '../account-context';
 import { ContactsApi } from './contacts';
 import { ExtrasApi } from './extras';
 import { ForwardApi } from './forward';
@@ -47,7 +47,7 @@ export interface ApiHub {
  * runtime-mutated `apis.xxx` slots, neither of which is worth the
  * complexity for ~13 small classes.
  */
-export function buildApiHub(ctx: BridgeContext): ApiHub {
+export function buildApiHub(ctx: AccountContext): ApiHub {
   return {
     message: new MessageApi(ctx),
     contacts: new ContactsApi(ctx),
@@ -67,16 +67,21 @@ export function buildApiHub(ctx: BridgeContext): ApiHub {
 // Re-export the Api classes themselves so callers can write
 // `import type { MessageApi } from '@snowluma/core/.../apis'` for
 // signature use. Concrete instances always come from `bridge.apis.*`.
-export { ContactsApi } from './contacts';
-export { ExtrasApi } from './extras';
+export { ContactsApi, type DownloadRKeyInfo } from './contacts';
+export {
+  AiVoiceChatType, ExtrasApi, type AiVoiceCategory,
+  type AiVoiceItem,
+  type StrangerStatus
+} from './extras';
 export { ForwardApi } from './forward';
 export { FriendApi } from './friend';
 export { GroupAdminApi } from './group-admin';
 export { GroupAlbumApi } from './group-album';
 export { GroupFileApi } from './group-file';
 export { InteractionApi } from './interaction';
-export { MessageApi } from './message';
+export { MessageApi, type SendMessageReceipt } from './message';
 export { MiscApi } from './misc';
 export { ProfileApi } from './profile';
-export { WebApi } from './web';
+export { type MediaIndexNode } from './shared';
+export { WebApi, type ClientKeyInfo, type WebHonorInfo, type WebNoticeInfo } from './web';
 

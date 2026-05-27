@@ -10,45 +10,25 @@
       "types": "./src/index.ts",
       "default": "../../dist/index.mjs"
     },
-    "./bridge": {
-      "types": "./src/bridge/bridge.ts",
-      "default": "./src/bridge/bridge.ts"
+    "./account": {
+      "types": "./src/account/account.ts",
+      "default": "./src/account/account.ts"
     },
-    "./inject-bridge": {
-      "types": "./src/bridge/inject-bridge.ts",
-      "default": "./src/bridge/inject-bridge.ts"
+    "./account-context": {
+      "types": "./src/account/account-context.ts",
+      "default": "./src/account/account-context.ts"
     },
-    "./protocol-bridge": {
-      "types": "./src/bridge/protocol-bridge.ts",
-      "default": "./src/bridge/protocol-bridge.ts"
+    "./account-interface": {
+      "types": "./src/account/account-interface.ts",
+      "default": "./src/account/account-interface.ts"
     },
-    "./bridge-interface": {
-      "types": "./src/bridge/bridge-interface.ts",
-      "default": "./src/bridge/bridge-interface.ts"
-    },
-    "./bridge-context": {
-      "types": "./src/bridge/bridge-context.ts",
-      "default": "./src/bridge/bridge-context.ts"
-    },
-    "./manager": {
-      "types": "./src/bridge/manager.ts",
-      "default": "./src/bridge/manager.ts"
-    },
-    "./adapter": {
-      "types": "./src/bridge/adapter.ts",
-      "default": "./src/bridge/adapter.ts"
-    },
-    "./inject-adapter": {
-      "types": "./src/bridge/inject-adapter.ts",
-      "default": "./src/bridge/inject-adapter.ts"
-    },
-    "./protocol-adapter": {
-      "types": "./src/bridge/protocol-adapter.ts",
-      "default": "./src/bridge/protocol-adapter.ts"
+    "./account-manager": {
+      "types": "./src/account/account-manager.ts",
+      "default": "./src/account/account-manager.ts"
     },
     "./apis": {
-      "types": "./src/bridge/apis/index.ts",
-      "default": "./src/bridge/apis/index.ts"
+      "types": "./src/account/apis/index.ts",
+      "default": "./src/account/apis/index.ts"
     }
   },
   "scripts": {

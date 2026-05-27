@@ -1,3 +1,4 @@
+import type { BridgeContext } from '@snowluma/protocol/bridge-context';
 import { ForceFetchClientKey, type ClientKeyInfo as NamespaceClientKeyInfo } from '@snowluma/protocol/oidb-services/web/force-fetch-client-key';
 import { GetPskey } from '@snowluma/protocol/oidb-services/web/get-pskey';
 import { getGroupEssenceMsg, getGroupEssenceMsgAll, type GroupEssenceMsgRet } from '@snowluma/protocol/web/group-essence';
@@ -10,10 +11,7 @@ import {
   type SetNoticeRetSuccess,
 } from '@snowluma/protocol/web/group-notice';
 import { RequestUtil } from '@snowluma/protocol/web/request-util';
-import type { Bridge } from '../bridge';
-import type { BridgeContext } from '../bridge-context';
-
-function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
+import type { AccountContext } from '../account-context';
 
 export type ClientKeyInfo = NamespaceClientKeyInfo;
 
@@ -44,15 +42,15 @@ export interface WebNoticeInfo {
 
 // ─────────────── private helpers (cookie acquisition) ───────────────
 
-function forceFetchClientKeyInner(bridge: Bridge): Promise<ClientKeyInfo> {
+function forceFetchClientKeyInner(bridge: BridgeContext): Promise<ClientKeyInfo> {
   return ForceFetchClientKey.invoke(bridge);
 }
 
-function getPSkey(bridge: Bridge, domainList: string[]): Promise<{ domainPskeyMap: Map<string, string> }> {
+function getPSkey(bridge: BridgeContext, domainList: string[]): Promise<{ domainPskeyMap: Map<string, string> }> {
   return GetPskey.invoke(bridge, { domainList });
 }
 
-async function getCookies(bridge: Bridge, domain: string): Promise<Record<string, string>> {
+async function getCookies(bridge: BridgeContext, domain: string): Promise<Record<string, string>> {
   const ClientKeyData = await forceFetchClientKeyInner(bridge);
 
   // Build the ptlogin2 jump URL: this is the canonical way for the
@@ -82,7 +80,7 @@ async function getCookies(bridge: Bridge, domain: string): Promise<Record<string
   return data;
 }
 
-async function getSKey(bridge: Bridge): Promise<string> {
+async function getSKey(bridge: BridgeContext): Promise<string> {
   const ClientKeyData = await forceFetchClientKeyInner(bridge);
 
   if (!ClientKeyData.clientKey) {
@@ -119,23 +117,23 @@ function getBknFromSKey(skey: string): number {
 }
 
 export class WebApi {
-  constructor(private readonly ctx: BridgeContext) { }
+  constructor(private readonly ctx: AccountContext) { }
 
   // ─────────────── cookie / token primitives ───────────────
 
   async forceFetchClientKey(): Promise<ClientKeyInfo> {
-    return forceFetchClientKeyInner(asBridge(this.ctx));
+    return forceFetchClientKeyInner(this.ctx);
   }
 
   /** Fetch the cookie jar for a `qq.com` subdomain. Used by GroupAlbumApi
    *  (qzone.qq.com) and by every other web helper here. */
   async getCookies(domain: string): Promise<Record<string, string>> {
-    return getCookies(asBridge(this.ctx), domain);
+    return getCookies(this.ctx, domain);
   }
 
   /** Cookies for `domain` joined into the canonical "k=v; k=v" header form. */
   async getCookiesStr(domain: string): Promise<string> {
-    const cookieObject = await getCookies(asBridge(this.ctx), domain);
+    const cookieObject = await getCookies(this.ctx, domain);
     return Object.entries(cookieObject)
       .map(([key, value]) => `${key}=${value}`)
       .join('; ');
@@ -143,7 +141,7 @@ export class WebApi {
 
   /** CSRF token == bkn(skey) — used by qzone / qun web APIs. */
   async getCsrfToken(): Promise<number> {
-    const skey = await getSKey(asBridge(this.ctx));
+    const skey = await getSKey(this.ctx);
     if (!skey) {
       throw new Error('SKey is Empty');
     }
@@ -152,7 +150,7 @@ export class WebApi {
 
   /** Returns the OneBot `get_credentials` payload (cookie string + bkn). */
   async getCredentials(domain: string): Promise<{ cookies: string; token: number; csrf_token: number }> {
-    const cookieObject = await getCookies(asBridge(this.ctx), domain);
+    const cookieObject = await getCookies(this.ctx, domain);
     const cookiesStr = Object.entries(cookieObject)
       .map(([key, value]) => `${key}=${value}`)
       .join('; ');
@@ -171,7 +169,7 @@ export class WebApi {
 
   /** Paginated fetch — `pageStart` is 0-indexed, `pageLimit` is server-capped at 50. */
   async getEssence(groupId: number, pageStart = 0, pageLimit = 50): Promise<GroupEssenceMsgRet> {
-    const bridge = asBridge(this.ctx);
+    const bridge = this.ctx;
     const groupCode = groupId.toString();
     const cookieObject = await getCookies(bridge, 'qun.qq.com');
     const essenceData = await getGroupEssenceMsg(cookieObject, groupCode, pageStart, pageLimit);
@@ -180,7 +178,7 @@ export class WebApi {
 
   /** Walks every page and returns the concatenated result. */
   async getEssenceAll(groupId: number): Promise<GroupEssenceMsgRet[]> {
-    const bridge = asBridge(this.ctx);
+    const bridge = this.ctx;
     const groupCode = groupId.toString();
     const cookieObject = await getCookies(bridge, 'qun.qq.com');
     return await getGroupEssenceMsgAll(cookieObject, groupCode);
@@ -189,7 +187,7 @@ export class WebApi {
   // ─────────────── group honor ───────────────
 
   async getHonorInfo(groupId: number, type: WebHonorType | string): Promise<WebHonorInfo> {
-    const bridge = asBridge(this.ctx);
+    const bridge = this.ctx;
     const groupCode = groupId.toString();
     const cookieObject = await getCookies(bridge, 'qun.qq.com');
 
@@ -238,7 +236,7 @@ export class WebApi {
       confirm_required?: number;
     },
   ): Promise<SetNoticeRetSuccess> {
-    const bridge = asBridge(this.ctx);
+    const bridge = this.ctx;
     const groupCode = groupId.toString();
     const cookieObject = await getCookies(bridge, 'qun.qq.com');
 
@@ -288,7 +286,7 @@ export class WebApi {
   }
 
   async getNotice(groupId: number): Promise<WebNoticeInfo[]> {
-    const bridge = asBridge(this.ctx);
+    const bridge = this.ctx;
     const groupCode = groupId.toString();
     const cookieObject = await getCookies(bridge, 'qun.qq.com');
 
@@ -329,7 +327,7 @@ export class WebApi {
   }
 
   async deleteNotice(groupId: number, fid: string): Promise<boolean> {
-    const bridge = asBridge(this.ctx);
+    const bridge = this.ctx;
     const groupCode = groupId.toString();
     const cookieObject = await getCookies(bridge, 'qun.qq.com');
     return await deleteGroupNoticeHttp(cookieObject, groupCode, fid);

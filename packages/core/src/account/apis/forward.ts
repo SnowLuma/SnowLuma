@@ -7,17 +7,15 @@ import type {
   SendLongMsgResp,
 } from '@snowluma/proto-defs/longmsg';
 import type { FileExtra, PushMsg, PushMsgBody } from '@snowluma/proto-defs/message';
+import type { BridgeContext } from '@snowluma/protocol/bridge-context';
 import { buildSendElems } from '@snowluma/protocol/element-builder';
 import type { ForwardNodePayload, MessageElement } from '@snowluma/protocol/events';
 import { parseMsgPush } from '@snowluma/protocol/msg-push';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { randomUUID } from 'crypto';
 import { gunzipSync, gzipSync } from 'zlib';
-import type { Bridge } from '../bridge';
-import type { BridgeContext } from '../bridge-context';
+import type { AccountContext } from '../account-context';
 import { resolveSelfUid, toInt } from './shared';
-
-function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
 
 // Module-scoped cache, keyed by res_id. Survives only for the lifetime
 // of the process — that's enough because OneBot clients typically
@@ -62,7 +60,7 @@ function hexToBytesLocal(hex: string): Uint8Array {
 }
 
 async function buildForwardPushBody(
-  bridge: Bridge,
+  bridge: BridgeContext,
   node: ForwardNodePayload,
   groupId?: number,
   userUid?: string,
@@ -203,7 +201,7 @@ function previewFromElements(elements: MessageElement[]): string {
 }
 
 export class ForwardApi {
-  constructor(private readonly ctx: BridgeContext) { }
+  constructor(private readonly ctx: AccountContext) { }
 
   async upload(nodes: ForwardNodePayload[], groupId?: number, userId?: number): Promise<string> {
     const { resId } = await this.uploadRecursive(nodes, groupId, userId);
@@ -233,7 +231,7 @@ export class ForwardApi {
       throw new Error('forward nodes are required');
     }
 
-    const bridge = asBridge(this.ctx);
+    const bridge = this.ctx;
 
     // For a private forward to `userId`, any image/record/video inside a node
     // needs the recipient's uid as upload scene. Resolve it once up-front,
@@ -378,7 +376,7 @@ export class ForwardApi {
   }
 
   async fetch(resId: string): Promise<ForwardNodePayload[]> {
-    const bridge = asBridge(this.ctx);
+    const bridge = this.ctx;
     const cached = forwardResCache.get(resId);
     if (cached) {
       return cached.map(node => ({

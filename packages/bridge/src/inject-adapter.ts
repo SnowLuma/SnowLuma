@@ -1,7 +1,7 @@
-import { HookManager, type BridgeManagerSink, type HookManagerDeps } from '@snowluma/bridge';
 import type { PacketSender } from '@snowluma/common/packet-sender';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import type { BridgeAdapter, BridgeAdapterHost } from './adapter';
+import { HookManager, type BridgeManagerSink, type HookManagerDeps } from './hook-manager';
 import { InjectBridge } from './inject-bridge';
 
 /** Subset of `HookManagerDeps` the operator is allowed to forward
@@ -117,7 +117,7 @@ export class InjectBridgeAdapter implements BridgeAdapter, BridgeManagerSink {
       }
     }
 
-    bridge.onPacket(pkt);
+    bridge.deliverPacket(pkt);
   }
 
   onPidDisconnected(pid: number): void {

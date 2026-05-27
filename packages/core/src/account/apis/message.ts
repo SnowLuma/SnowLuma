@@ -11,21 +11,26 @@ import type {
 import { buildSendElems } from '@snowluma/protocol/element-builder';
 import type { MessageElement } from '@snowluma/protocol/events';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { BridgeContext } from '../bridge-context';
-// `Bridge` is imported as a type only so we can narrow `ctx` back to
-// the concrete Bridge instance when passing it to `buildSendElems`
-// (which still takes `Bridge` because the highway upload helpers it
-// transitively calls each take `Bridge` — refactoring those is a
-// separate concern that doesn't need to land alongside the Api split).
-//
-// At runtime `ctx` IS the Bridge instance that constructed this
-// MessageApi — `buildApiHub(ctx)` passes the Bridge itself.
-import type { Bridge, SendMessageReceipt } from '../bridge';
+import type { AccountContext } from '../account-context';
+
+/**
+ * Receipt returned by every typed `send*Message` call. The OneBot
+ * adapter feeds these into its `MessageStore` so later `recall_msg`
+ * actions can resolve the wire-level coordinates (sequence + random)
+ * from the `message_id` it previously emitted.
+ */
+export interface SendMessageReceipt {
+  messageId: number;
+  sequence: number;
+  clientSequence: number;
+  random: number;
+  timestamp: number;
+}
 
 const SEND_MSG_CMD = 'MessageSvc.PbSendMsg';
 
 export class MessageApi {
-  constructor(private readonly ctx: BridgeContext) { }
+  constructor(private readonly ctx: AccountContext) { }
 
   /**
    * Send a message to a QQ group.
@@ -41,7 +46,7 @@ export class MessageApi {
   async sendGroup(groupId: number, elements: MessageElement[]): Promise<SendMessageReceipt> {
     if (elements.length === 0) throw new Error('message is empty');
 
-    const protoElems = await buildSendElems(elements, { bridge: this.ctx as unknown as Bridge, groupId });
+    const protoElems = await buildSendElems(elements, { bridge: this.ctx, groupId });
     const random = this.ctx.nextMessageRandom();
 
     const request = protobuf_encode<SendMessageRequest>({
@@ -97,7 +102,7 @@ export class MessageApi {
       userUid = await this.ctx.resolveUserUid(userUin);
     }
 
-    const protoElems = await buildSendElems(elements, { bridge: this.ctx as unknown as Bridge, userUid });
+    const protoElems = await buildSendElems(elements, { bridge: this.ctx, userUid });
     const random = this.ctx.nextMessageRandom();
     const clientSeq = this.ctx.nextClientSequence();
 

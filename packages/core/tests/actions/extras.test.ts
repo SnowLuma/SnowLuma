@@ -1,5 +1,3 @@
-import { describe, it, expect } from 'vitest';
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   OidbGroupTodo,
@@ -12,11 +10,13 @@ import type {
   OidbAiVoiceReq,
   OidbAiVoiceResp,
 } from '@snowluma/proto-defs/oidb-actions/media';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import { describe, expect, it } from 'vitest';
 
 // Post-namespace migration: ExtrasApi forwards 6 OIDB cmds through
 // namespaces under @snowluma/protocol/oidb-services/extras. Tests assert
 // against bridge.sendRawPacket directly.
-import { ExtrasApi, AiVoiceChatType } from '../../src/bridge/apis/extras';
+import { AiVoiceChatType, ExtrasApi } from '../../src/account/apis/extras';
 import { mockBridge } from './_helpers';
 
 function packResponse(body: Uint8Array) {

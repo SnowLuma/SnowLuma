@@ -12,7 +12,7 @@ import type {
 } from '@snowluma/proto-defs/oidb-actions/group-album';
 import { getGroupAlbumList, uploadImageToGroupAlbum } from '@snowluma/protocol/web/group-album';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { BridgeContext } from '../bridge-context';
+import type { AccountContext } from '../account-context';
 
 
 function convertBigIntToString(obj: unknown): JsonValue {
@@ -31,7 +31,7 @@ function convertBigIntToString(obj: unknown): JsonValue {
 }
 
 export class GroupAlbumApi {
-  constructor(private readonly ctx: BridgeContext) { }
+  constructor(private readonly ctx: AccountContext) { }
 
   // 列出群相册（基于 qzone.qq.com 的 HTTP Cookie）。
   async list(groupId: number): Promise<GroupAlbumList> {

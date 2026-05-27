@@ -5,7 +5,7 @@ import {
 } from '@snowluma/protocol/oidb-services/extras/fetch-ai-voice-list';
 import { GetStrangerStatus, type StrangerStatus as NamespaceStrangerStatus } from '@snowluma/protocol/oidb-services/extras/get-stranger-status';
 import { GroupTodo } from '@snowluma/protocol/oidb-services/extras/group-todo';
-import type { BridgeContext } from '../bridge-context';
+import type { AccountContext } from '../account-context';
 import type { MediaIndexNode } from './shared';
 
 // ─────────────── public types (re-exported from bridge.ts as before) ───
@@ -27,7 +27,7 @@ export interface AiVoiceItem {
 }
 
 export class ExtrasApi {
-  constructor(private readonly ctx: BridgeContext) { }
+  constructor(private readonly ctx: AccountContext) { }
 
   // ─────────────── Group todo (0xF90) ───────────────
 

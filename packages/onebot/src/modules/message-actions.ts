@@ -1,5 +1,5 @@
 import { createLogger } from '@snowluma/common/logger';
-import type { BridgeInterface } from '@snowluma/core/bridge-interface';
+import type { AccountInterface } from '@snowluma/core/account-interface';
 import type { ForwardNodePayload, MessageElement } from '@snowluma/protocol/events';
 import type { MessageSendResult } from '../api-handler';
 import { elementsToOneBotSegments } from '../event-converter';
@@ -64,7 +64,7 @@ export async function getFriendMsgHistory(
     .map(sanitizeMessageEventForApi);
 }
 
-export async function deleteMessage(bridge: BridgeInterface, meta: MessageMeta): Promise<void> {
+export async function deleteMessage(bridge: AccountInterface, meta: MessageMeta): Promise<void> {
   if (meta.isGroup) {
     await bridge.apis.message.recallGroup(meta.targetId, meta.sequence);
   } else {
@@ -79,7 +79,7 @@ export async function deleteMessage(bridge: BridgeInterface, meta: MessageMeta):
 }
 
 export async function setEssenceMessage(
-  bridge: BridgeInterface,
+  bridge: AccountInterface,
   messageStore: MessageStore,
   messageId: number,
   enable: boolean,

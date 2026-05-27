@@ -23,7 +23,7 @@
 // Mirrors NapCat's `PacketMsgFileElement.{buildElement,buildContent}`
 // split.
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@snowluma/protocol/bridge-oidb', () => ({
   runOidb: vi.fn(async () => new Uint8Array()),
@@ -44,9 +44,9 @@ vi.mock('@snowluma/protocol/element-builder', () => ({
   buildSendElems: buildSendElemsMock,
 }));
 
-import { protobuf_encode } from '@snowluma/proton';
 import type { SendLongMsgResp } from '@snowluma/proto-defs/longmsg';
-import { ForwardApi } from '../../src/bridge/apis/forward';
+import { protobuf_encode } from '@snowluma/proton';
+import { ForwardApi } from '../../src/account/apis/forward';
 import { mockBridge } from './_helpers';
 
 function uploadResponseWithResId(resId: string) {

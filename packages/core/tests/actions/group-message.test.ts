@@ -4,7 +4,7 @@
 // after #6 commit 1 moved the recall + markRead helpers onto MessageApi
 // and #6 commit 6 absorbed setEssence into InteractionApi.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@snowluma/protocol/bridge-oidb', () => ({
   runOidb: vi.fn(async () => new Uint8Array()),
@@ -13,7 +13,7 @@ vi.mock('@snowluma/protocol/bridge-oidb', () => ({
   decodeOidbEnv: vi.fn(() => ({ body: {} })),
 }));
 
-import { MessageApi } from '../../src/bridge/apis/message';
+import { MessageApi } from '../../src/account/apis/message';
 import { mockBridge } from './_helpers';
 
 describe('apis/message — recall + markRead', () => {

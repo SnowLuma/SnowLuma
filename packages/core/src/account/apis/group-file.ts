@@ -4,8 +4,7 @@ import type { FileUploadExt } from '@snowluma/proto-defs/highway';
 import { fetchHighwaySession, uploadHighwayHttp } from '@snowluma/protocol/highway';
 import { computeHashes, computeMd5, FILE_UPLOAD_MAX_BYTES, loadBinarySource } from '@snowluma/protocol/highway/utils';
 import { protobuf_encode } from '@snowluma/proton';
-import type { Bridge } from '../bridge';
-import type { BridgeContext } from '../bridge-context';
+import type { AccountContext } from '../account-context';
 import { resolveSelfUid, toInt, type MediaIndexNode } from './shared';
 
 import { CreateGroupFolder } from '@snowluma/protocol/oidb-services/group-file/create-group-folder';
@@ -27,8 +26,6 @@ import { UploadPrivateFileRequest } from '@snowluma/protocol/oidb-services/group
 import { ensureRetCodeZero } from '@snowluma/protocol/oidb-services/shared';
 
 const log = createLogger('GroupFile');
-
-function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
 
 // ─────────────── public result types ───────────────
 
@@ -217,7 +214,7 @@ function buildPrivateFileUploadExt(
 }
 
 export class GroupFileApi {
-  constructor(private readonly ctx: BridgeContext) { }
+  constructor(private readonly ctx: AccountContext) { }
 
   // ─────────────── publish (group file → chat) ───────────────
 
@@ -241,7 +238,7 @@ export class GroupFileApi {
     folderId = '/',
     uploadFile = true,
   ): Promise<UploadFileResult> {
-    const bridge = asBridge(this.ctx);
+    const bridge = this.ctx;
     // Group/private files may legitimately be up to 4 GiB on QQ's wire,
     // so override the default 1 GiB cap with the protocol ceiling.
     const loaded = await loadBinarySource(source, 'file', FILE_UPLOAD_MAX_BYTES);
@@ -341,7 +338,7 @@ export class GroupFileApi {
     name = '',
     uploadFile = true,
   ): Promise<UploadFileResult> {
-    const bridge = asBridge(this.ctx);
+    const bridge = this.ctx;
     const loaded = await loadBinarySource(source, 'file', FILE_UPLOAD_MAX_BYTES);
     if (!loaded.bytes.length) throw new Error('private file is empty');
 
@@ -580,7 +577,7 @@ export class GroupFileApi {
   }
 
   async getPrivateUrl(userId: number, fileId: string, fileHash: string): Promise<string> {
-    const bridge = asBridge(this.ctx);
+    const bridge = this.ctx;
     const selfUid = await resolveSelfUid(bridge);
     void userId;
     const result = await GetPrivateFileUrl.invoke(this.ctx, { selfUid, fileId, fileHash });
@@ -627,7 +624,7 @@ export class GroupFileApi {
   }
 
   async getPrivatePttUrl(node: MediaIndexNode): Promise<string> {
-    const bridge = asBridge(this.ctx);
+    const bridge = this.ctx;
     const selfUid = await resolveSelfUid(bridge);
     return GetPrivatePttUrl.invoke(this.ctx, { selfUid, node });
   }
@@ -637,7 +634,7 @@ export class GroupFileApi {
   }
 
   async getPrivateVideoUrl(node: MediaIndexNode): Promise<string> {
-    const bridge = asBridge(this.ctx);
+    const bridge = this.ctx;
     const selfUid = await resolveSelfUid(bridge);
     return GetPrivateVideoUrl.invoke(this.ctx, { selfUid, node });
   }

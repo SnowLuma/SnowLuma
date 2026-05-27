@@ -1,11 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
-  Oidb0x8a0Req,
-  Oidb0x8a7Resp,
   Oidb0x89a_0AddOption,
   Oidb0x89a_0Search,
+  Oidb0x8a0Req,
+  Oidb0x8a7Resp,
   Oidb0xf16Req,
   OidbGroupRequestAction,
   OidbKickMember,
@@ -17,11 +15,13 @@ import type {
   OidbSetAdmin,
   OidbSpecialTitle,
 } from '@snowluma/proto-defs/oidb-actions/base';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import { describe, expect, it, vi } from 'vitest';
 
 // Post-namespace migration: GroupAdminApi forwards through namespaces
 // under @snowluma/protocol/oidb-services/group-admin. Tests assert
 // against bridge.sendRawPacket directly — no module-level mocks.
-import { GroupAdminApi } from '../../src/bridge/apis/group-admin';
+import { GroupAdminApi } from '../../src/account/apis/group-admin';
 import { mockBridge } from './_helpers';
 
 function packResponse(body: Uint8Array) {

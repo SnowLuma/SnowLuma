@@ -1,9 +1,8 @@
+import { BridgeManager, InjectBridgeAdapter, ProtocolBridgeAdapter } from '@snowluma/bridge';
 import { closeLogger, createLogger } from '@snowluma/common/logger';
 import { loadRuntimeConfig } from '@snowluma/common/runtime';
 import { OneBotManager } from '@snowluma/onebot/manager';
-import { InjectBridgeAdapter } from './bridge/inject-adapter';
-import { BridgeManager } from './bridge/manager';
-import { ProtocolBridgeAdapter } from './bridge/protocol-adapter';
+import { AccountManager } from './account/account-manager';
 
 const runtimeConfig = loadRuntimeConfig();
 const log = createLogger('App');
@@ -18,6 +17,7 @@ async function main() {
   // so the architecture is exercised end-to-end). Both must be
   // registered BEFORE bridgeManager.start().
   const bridgeManager = new BridgeManager();
+  const accountManager = new AccountManager();
   const oneBotManager = new OneBotManager();
 
   const autoLoadOnDiscovery = resolveAutoLoad(runtimeConfig.hookAutoLoad);
@@ -28,9 +28,12 @@ async function main() {
   bridgeManager.registerAdapter(injectAdapter);
   bridgeManager.registerAdapter(new ProtocolBridgeAdapter());
 
-  // OneBot subscribes to BridgeManager session events; bind before
-  // start() so the very first login is delivered.
-  oneBotManager.bind(bridgeManager);
+  // Layer chain: BridgeManager (transport pool) → AccountManager
+  // (wraps each primary bridge in an Account) → OneBotManager (one
+  // OneBotInstance per Account). Bind before start() so the very
+  // first login is delivered down the chain.
+  accountManager.bind(bridgeManager);
+  oneBotManager.bind(accountManager);
 
   await bridgeManager.start();
 
@@ -55,6 +58,7 @@ async function main() {
   const shutdown = (signal: string) => async () => {
     log.warn(`Shutting down (${signal})...`);
     oneBotManager.dispose();
+    accountManager.dispose();
     await bridgeManager.dispose();
     await closeLogger();
     process.exit(0);

@@ -16,12 +16,12 @@
 //   dev/Lagrange.Core/.../Message/Entity/MultiMsgEntity.cs:43-115
 //   dev/NapCatQQ/.../helper/forward-msg-builder.ts:52-122
 
-import { describe, it, expect, vi } from 'vitest';
-import { gunzipSync, inflateSync } from 'zlib';
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { SendLongMsgReq, SendLongMsgResp, LongMsgResult } from '@snowluma/proto-defs/longmsg';
-import type { PushMsgBody } from '@snowluma/proto-defs/message';
 import type { Elem } from '@snowluma/proto-defs/element';
+import type { LongMsgResult, SendLongMsgReq, SendLongMsgResp } from '@snowluma/proto-defs/longmsg';
+import type { PushMsgBody } from '@snowluma/proto-defs/message';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import { describe, expect, it, vi } from 'vitest';
+import { gunzipSync, inflateSync } from 'zlib';
 
 // Don't mock element-builder — we WANT the real forward preview
 // element to land in the encoded wire bytes so we can verify the
@@ -39,7 +39,7 @@ vi.mock('@snowluma/protocol/highway/video-upload', () => ({
   uploadVideoMsgInfo: vi.fn(async () => new Uint8Array()),
 }));
 
-import { ForwardApi } from '../../src/bridge/apis/forward';
+import { ForwardApi } from '../../src/account/apis/forward';
 import { mockBridge } from './_helpers';
 
 function uploadResponseWithResId(resId: string) {

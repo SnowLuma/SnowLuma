@@ -12,10 +12,10 @@ import { SetGroupRemark } from '@snowluma/protocol/oidb-services/group-admin/set
 import { SetMemberCard } from '@snowluma/protocol/oidb-services/group-admin/set-member-card';
 import { SetSearch } from '@snowluma/protocol/oidb-services/group-admin/set-search';
 import { SetSpecialTitle } from '@snowluma/protocol/oidb-services/group-admin/set-special-title';
-import type { BridgeContext } from '../bridge-context';
+import type { AccountContext } from '../account-context';
 
 export class GroupAdminApi {
-  constructor(private readonly ctx: BridgeContext) { }
+  constructor(private readonly ctx: AccountContext) { }
 
   muteMember(groupId: number, userId: number, duration: number): Promise<void> {
     return MuteMember.invoke(this.ctx, { groupId, userId, duration });

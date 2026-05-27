@@ -1,18 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   OidbGroupFileCountViewResp,
+  OidbGroupFileFolderResp,
   OidbGroupFileReq,
   OidbGroupFileResp,
   OidbGroupFileViewResp,
-  OidbGroupFileFolderResp,
   OidbGroupSendFileReq,
 } from '@snowluma/proto-defs/oidb-actions/group-file';
 import type {
-  OidbPrivateFileUploadResp,
   NTV2RichMediaResp,
+  OidbPrivateFileUploadResp,
 } from '@snowluma/proto-defs/oidb-actions/media';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Post-namespace migration: GroupFileApi forwards single-OIDB methods
 // through namespaces under @snowluma/protocol/oidb-services/group-file.
@@ -38,7 +38,7 @@ vi.mock('@snowluma/protocol/highway/utils', () => ({
 }));
 
 import * as highwayClient from '@snowluma/protocol/highway';
-import { GroupFileApi } from '../../src/bridge/apis/group-file';
+import { GroupFileApi } from '../../src/account/apis/group-file';
 import { mockBridge } from './_helpers';
 
 function packResponse(body: Uint8Array) {

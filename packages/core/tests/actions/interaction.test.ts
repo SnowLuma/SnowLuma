@@ -1,14 +1,14 @@
-import { describe, it, expect } from 'vitest';
-import { protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type { Oidb0x9083Resp } from '@snowluma/proto-defs/oidb-actions/base';
+import { protobuf_encode } from '@snowluma/proton';
+import { describe, expect, it } from 'vitest';
 
 // Post-namespace-migration: InteractionApi is a thin facade and
 // production code routes through the namespace path (sender →
 // sendRawPacket). Tests now assert against the bridge mock's
 // sendRawPacket directly — no need for module-level mocks on the
 // bridge-oidb internals.
-import { InteractionApi } from '../../src/bridge/apis/interaction';
+import { InteractionApi } from '../../src/account/apis/interaction';
 import { mockBridge } from './_helpers';
 
 describe('apis/interaction', () => {

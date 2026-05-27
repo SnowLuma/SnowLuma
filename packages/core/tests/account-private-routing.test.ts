@@ -1,48 +1,80 @@
+import type { BridgeInterface } from '@snowluma/bridge';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
+import type { PacketInfo } from '@snowluma/common/protocol-types';
 import type { SendMessageRequest, SendMessageResponse } from '@snowluma/proto-defs/action';
 import type { FileExtra } from '@snowluma/proto-defs/message';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { describe, expect, it, vi } from 'vitest';
+import { Account } from '../src/account/account';
 
 vi.mock('@snowluma/protocol/element-builder', () => ({
   buildSendElems: vi.fn(async () => [{ text: { str: 'stub media elem' } }]),
 }));
 
-describe('Bridge private media routing', () => {
+/**
+ * Thin fake transport — implements `BridgeInterface` directly without
+ * inheriting from `Bridge`, so each test gets a clean slate plus a
+ * single capture slot for the outbound body. The `Account` under test
+ * proxies `sendRawPacket` straight through.
+ */
+class FakeBridge implements BridgeInterface {
+  readonly kind = 'inject' as const;
+  readonly id = 'inject:test';
+  capturedBody: Uint8Array | null = null;
+  private response_: SendPacketResult = {
+    success: true,
+    gotResponse: true,
+    errorCode: 0,
+    errorMessage: '',
+    responseData: Buffer.from(protobuf_encode<SendMessageResponse>({
+      result: 0,
+      errMsg: '',
+      privateSequence: 88,
+      timestamp1: 1710000000,
+    })),
+  };
+
+  constructor(public readonly uin: string) { }
+
+  setResponse(resp: SendPacketResult): void { this.response_ = resp; }
+
+  async sendRawPacket(_cmd: string, body: Uint8Array): Promise<SendPacketResult> {
+    this.capturedBody = body;
+    return this.response_;
+  }
+
+  setPacketHandler(_handler: ((pkt: PacketInfo) => void) | null): void { /* unused */ }
+  deliverPacket(_pkt: PacketInfo): void { /* unused */ }
+  dispose(): void { /* unused */ }
+}
+
+describe('Account private media routing', () => {
   it('includes resolved uid in the final c2c send request for media messages', async () => {
-    const { Bridge } = await import('../src/bridge/bridge');
     const { IdentityService } = await import('@snowluma/protocol/identity-service');
 
-    class TestBridge extends Bridge {
-      readonly kind = 'inject' as const;
-      readonly id = 'inject:test';
-      capturedBody: Uint8Array | null = null;
+    const bridge = new FakeBridge('10000');
+    bridge.setResponse({
+      success: true,
+      gotResponse: true,
+      errorCode: 0,
+      errorMessage: '',
+      responseData: Buffer.from(protobuf_encode<SendMessageResponse>({
+        result: 0,
+        errMsg: '',
+        privateSequence: 88,
+        timestamp1: 1710000000,
+      })),
+    });
 
-      override async resolveUserUid(uin: number): Promise<string> {
-        expect(uin).toBe(12345);
-        return 'u_peer_12345';
-      }
+    const account = new Account(bridge, IdentityService.memory('10000'));
+    // resolveUserUid lookup needs an explicit override since the
+    // identity store has no mapping for the test peer.
+    account.resolveUserUid = vi.fn(async (uin: number) => {
+      expect(uin).toBe(12345);
+      return 'u_peer_12345';
+    });
 
-      override async sendRawPacket(serviceCmd: string, body: Uint8Array): Promise<SendPacketResult> {
-        expect(serviceCmd).toBe('MessageSvc.PbSendMsg');
-        this.capturedBody = body;
-        return {
-          success: true,
-          gotResponse: true,
-          errorCode: 0,
-          errorMessage: '',
-          responseData: Buffer.from(protobuf_encode<SendMessageResponse>({
-            result: 0,
-            errMsg: '',
-            privateSequence: 88,
-            timestamp1: 1710000000,
-          })),
-        };
-      }
-    }
-
-    const bridge = new TestBridge(IdentityService.memory('10000'));
-    await bridge.apis.message.sendPrivate(12345, [{ type: 'video', url: 'file:///tmp/clip.mp4' } as any]);
+    await account.apis.message.sendPrivate(12345, [{ type: 'video', url: 'file:///tmp/clip.mp4' } as any]);
 
     expect(bridge.capturedBody).toBeInstanceOf(Uint8Array);
     const request = protobuf_decode<SendMessageRequest>(bridge.capturedBody as Uint8Array);
@@ -61,27 +93,13 @@ describe('Bridge private media routing', () => {
     // BuildPacketBase` + `FileEntity.PackMessageContent`. Previous
     // implementation wrote c2c routing + richText.notOnlineFile +
     // c2cCmd=11 — the QQ-NT server rejected every c2c file send.
-    const { Bridge } = await import('../src/bridge/bridge');
     const { IdentityService } = await import('@snowluma/protocol/identity-service');
 
-    class TestBridge extends Bridge {
-      readonly kind = 'inject' as const;
-      readonly id = 'inject:test';
-      capturedBody: Uint8Array | null = null;
-      override async sendRawPacket(_cmd: string, body: Uint8Array): Promise<SendPacketResult> {
-        this.capturedBody = body;
-        return {
-          success: true, gotResponse: true, errorCode: 0, errorMessage: '',
-          responseData: Buffer.from(protobuf_encode<SendMessageResponse>({
-            result: 0, errMsg: '', privateSequence: 88, timestamp1: 1710000000,
-          })),
-        };
-      }
-    }
-    const bridge = new TestBridge(IdentityService.memory('10000'));
+    const bridge = new FakeBridge('10000');
+    const account = new Account(bridge, IdentityService.memory('10000'));
 
     const fileMd5 = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
-    await bridge.apis.message.sendC2cFile(67890, 'u_peer_xyz', {
+    await account.apis.message.sendC2cFile(67890, 'u_peer_xyz', {
       fileId: 'uuid-abc-123',
       fileName: 'doc.txt',
       fileSize: 1024,
@@ -113,10 +131,6 @@ describe('Bridge private media routing', () => {
       fileSize: 1024n,
       fileHash: 'hash-xyz',
       subcmd: 1,      // server-required intake validator field
-      // dangerEvel and fileType are 0 — proto3 omits zero values on
-      // the wire, so they're not asserted here (matches Lagrange's
-      // behaviour: it sets `DangerEvel = 0` but protobuf-net also
-      // skips serialising default ints).
     });
     expect(fileExtra?.file?.fileMd5).toEqual(fileMd5);
     // expireTime is now+7d; just sanity-check it landed (non-zero, plausible)
