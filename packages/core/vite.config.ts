@@ -23,9 +23,10 @@ const toPosix = (p: string) => p.replace(/\\/g, '/');
 // `@snowluma/websocket` is bundled — it's an
 // in-tree TS workspace wrapper that routes its native `.node`
 // addon through `dist/native/`. Only Node builtins stay external.
-const external: string[] = [];
-
-const nodeModules = [...builtinModules, ...builtinModules.map((m) => `node:${m}`)].flat();
+const isNodeBuiltin = (id: string) =>
+  id.startsWith('node:') ||
+  builtinModules.includes(id) ||
+  builtinModules.includes(id.replace(/^node:/, ''));
 
 const runtimeSrc = toPosix(runtimeDir);
 const nativeSrc = toPosix(nativeDir);
@@ -115,8 +116,9 @@ const BaseConfig = (source_map: boolean = false) => defineConfig({
     }
   },
   build: {
+    ssr: true,
     sourcemap: source_map,
-    target: 'esnext',
+    target: 'node22',
     minify: false,
     lib: {
       entry: {
@@ -126,7 +128,7 @@ const BaseConfig = (source_map: boolean = false) => defineConfig({
       fileName: (_, entryName) => `${entryName}.mjs`
     },
     rollupOptions: {
-      external: [...nodeModules, ...external],
+      external: isNodeBuiltin,
       output: {
         // better-sqlite3's JS wrapper is pure CJS — its `require('fs')` /
         // `require('path')` / `require('bindings')` calls get inlined into
@@ -142,6 +144,9 @@ const BaseConfig = (source_map: boolean = false) => defineConfig({
         // the shim then transparently delegates every inlined CJS require
         // to the real CJS loader. Node 18+ ships `createRequire` in the
         // `node:module` builtin, so this is supported on every target.
+        entryFileNames: '[name].mjs',
+        chunkFileNames: '[name].mjs',
+
         banner: [
           "import { createRequire as __snowlumaCreateRequire } from 'node:module';",
           "const require = __snowlumaCreateRequire(import.meta.url);",
@@ -152,6 +157,9 @@ const BaseConfig = (source_map: boolean = false) => defineConfig({
     outDir: distDir,
     // Required since outDir is outside the vite project root.
     emptyOutDir: true
+  },
+  ssr: {
+    noExternal: true,
   },
   define: {
     __BUILD_WEBUI__: process.env.BUILD_WEBUI === 'true',
