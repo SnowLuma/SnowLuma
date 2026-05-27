@@ -50,18 +50,6 @@ export class Core implements CoreCtx {
   private clientSeq_ = 100000000 + (Date.now() % 1000000000);
   private msgRandom_ = (Date.now() & 0xFFFFFFFF) >>> 0;
   private disposed_ = false;
-
-  /**
-   * @param channelCtx The capability POJO this core rides on top of.
-   *                   `Core` calls `channelCtx.sendRawPacket` and
-   *                   subscribes via `channelCtx.onPacket`. Built by
-   *                   `Hub` from a concrete `Channel` via `makeChannelCtx`.
-   * @param identity   Optional pre-built `IdentityService`. The default
-   *                   opens the on-disk SQLite store at
-   *                   `data/<uin>/snowluma_identity.db`; tests usually
-   *                   pass `IdentityService.memory(uin)` to avoid touching
-   *                   the filesystem.
-   */
   constructor(channelCtx: ChannelCtx, identity: IdentityService = IdentityService.openForUin(channelCtx.uin)) {
     this.channelCtx_ = channelCtx;
     this.kind = channelCtx.kind;

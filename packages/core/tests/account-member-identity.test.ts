@@ -36,13 +36,6 @@ function makeGroup(members: GroupMemberInfo[] = []): QQGroupInfo {
   };
 }
 
-/**
- * `Core` wired up with a member-list interceptor. The interceptor
- * lives on `core.apis.contacts.fetchGroupMemberList`; direct property
- * assignment is enough because the ApiHub holds own-property methods,
- * not prototype ones. The underlying `HookChannel` is exposed so tests
- * can drive `deliverPacket` directly.
- */
 function buildCore(identity: IdentityService, refreshedMembers: GroupMemberInfo[]) {
   const channel = new HookChannel(identity.uin);
   const core = new Core(makeChannelCtx(channel), identity);

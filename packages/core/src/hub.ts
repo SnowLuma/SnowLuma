@@ -11,31 +11,15 @@ import type { CoreCtx } from './core-ctx';
 
 const log = createLogger('Hub');
 
-/**
- * Top-level lifecycle events fired by `Hub`. Inbound consumers (OneBot,
- * WebUI backend, future MCP) subscribe via `hub.events.on(...)`.
- */
 export type HubEventMap = {
-  /** Fired whenever a fresh `Core` is online for a UIN. Either the
-   *  account just came up, OR the primary channel was swapped under it
-   *  (in which case `'core-offline'` for the same UIN fired first). */
-  'core-online':  CoreCtx;
-  /** Fired when an account goes offline OR right before a primary-
-   *  channel swap rebuilds its `Core`. */
+  'core-online': CoreCtx;
   'core-offline': { uin: string };
 };
 
 export type HubEventHandler<K extends keyof HubEventMap> = (payload: HubEventMap[K]) => void;
 export type HubEventDisposer = () => void;
 
-/**
- * Tiny typed event emitter scoped to `Hub`'s lifecycle events. Kept
- * inline rather than reaching for `@snowluma/protocol/event-bus`
- * (which is hard-typed to QQ event variants) or a generic dependency.
- *
- * Subscriber errors are swallowed with a warning so one bad consumer
- * never blocks the rest.
- */
+
 class HubEvents {
   private readonly listeners_ = new Map<keyof HubEventMap, Set<(p: unknown) => void>>();
 
@@ -67,39 +51,10 @@ class HubEvents {
   }
 }
 
-/**
- * `Hub` — the single multi-account entry point and **owner of all
- * channels and cores**. Replaces the v2 split between
- * `ChannelManager` (transport pool, lived in `@snowluma/channel`) and
- * `AccountManager` (account wrapper, lived in `@snowluma/core`).
- *
- * Responsibilities (folded from both predecessors):
- *
- *   1. Register one `ChannelAdapter` per transport kind (hook,
- *      socket, …). Adapters publish/withdraw `Channel`s through the
- *      `ChannelAdapterHost` interface that Hub implements per-adapter.
- *   2. Track every live channel (`channelsById_` / `channelsByUin_`)
- *      and pick a primary per UIN (`primaryByUin_`) by adapter rank
- *      (`primaryPriority`: inject > socket today).
- *   3. Build a `ChannelCtx` capability POJO from each primary channel
- *      and materialise a `Core` on top.
- *   4. Emit two top-level lifecycle events: `'core-online'` (with the
- *      `CoreCtx` projection) and `'core-offline'` (with `{ uin }`).
- *      Inbound consumers (OneBot, WebUI) only see these two events;
- *      they never touch the underlying `Channel` / `Core` classes.
- *
- * Single-owner invariant: every `Channel` and every `Core` instance
- * is referenced exactly once — from inside `Hub`. External consumers
- * hold only `CoreCtx` projections, which become stale when `Core`
- * is disposed (handlers should unsubscribe in their `'core-offline'`
- * handler).
- */
 export class Hub {
-  // ─── adapter / channel pool (was ChannelManager) ──────────────────
   private readonly adapters_ = new Map<ChannelKind, ChannelAdapter>();
   private readonly channelsById_ = new Map<string, Channel>();
-  private readonly channelsByUin_ = new Map<string, Set<string>>();
-  private readonly primaryByUin_ = new Map<string, string>();
+  private readonly channelsByUin_ = new Map<string, Channel>();
 
   // ─── core pool (was AccountManager) ──────────────────────────────
   private readonly cores_ = new Map<string, Core>();
@@ -170,7 +125,6 @@ export class Hub {
     this.cores_.clear();
     this.channelsById_.clear();
     this.channelsByUin_.clear();
-    this.primaryByUin_.clear();
     this.events.clear();
   }
 
@@ -187,11 +141,9 @@ export class Hub {
     return [...this.cores_.values()];
   }
 
-  /** Primary channel for a UIN (the one driving the current `Core`),
-   *  or `null` if the UIN is offline. */
+  /** Channel for a UIN, or `null` if the UIN is offline. */
   getChannel(uin: string): Channel | null {
-    const id = this.primaryByUin_.get(uin);
-    return id ? this.channelsById_.get(id) ?? null : null;
+    return this.channelsByUin_.get(uin) ?? null;
   }
 
   getOnlineUins(): readonly string[] {
@@ -215,37 +167,28 @@ export class Hub {
       adapterLog.warn('addChannel: id=%s already registered, ignoring', channel.id);
       return;
     }
-    this.channelsById_.set(channel.id, channel);
+    const existing = this.channelsByUin_.get(channel.uin);
+    if (existing) {
+      adapterLog.warn('addChannel: UIN=%s already has channel=%s, replacing with %s',
+        channel.uin, existing.id, channel.id);
+      this.channelsById_.delete(existing.id);
+      this.channelsById_.set(channel.id, channel);
+      this.channelsByUin_.set(channel.uin, channel);
 
-    let ids = this.channelsByUin_.get(channel.uin);
-    if (!ids) {
-      ids = new Set();
-      this.channelsByUin_.set(channel.uin, ids);
-    }
-    ids.add(channel.id);
-
-    const prevPrimaryId = this.primaryByUin_.get(channel.uin);
-    const newPrimary = this.pickPrimary(channel.uin);
-    if (!newPrimary) return;
-    this.primaryByUin_.set(channel.uin, newPrimary.id);
-
-    const isFirst = prevPrimaryId === undefined;
-    const primaryChanged = !isFirst && prevPrimaryId !== newPrimary.id;
-
-    if (isFirst) {
-      log.debug('account online: UIN=%s via %s', channel.uin, newPrimary.id);
-      this.bringCoreOnline(channel.uin, newPrimary);
-    } else if (primaryChanged) {
-      // A higher-priority transport (e.g. socket overtakes inject)
-      // came online. Tear down the old core and rebuild around the
-      // new primary so apis/identity stay consistent with the active
-      // transport. OneBot already tears down + rebuilds its instance
-      // on offline→online; we faithfully drive that.
-      log.debug('primary switched: UIN=%s %s → %s',
-        channel.uin, prevPrimaryId, newPrimary.id);
       this.bringCoreOffline(channel.uin);
-      this.bringCoreOnline(channel.uin, newPrimary);
+      this.bringCoreOnline(channel.uin, channel);
+
+      try { existing.dispose(); } catch (err) {
+        adapterLog.debug('channel.dispose() threw: %s',
+          err instanceof Error ? err.message : String(err));
+      }
+      return;
     }
+
+    this.channelsById_.set(channel.id, channel);
+    this.channelsByUin_.set(channel.uin, channel);
+    log.debug('account online: UIN=%s via %s', channel.uin, channel.id);
+    this.bringCoreOnline(channel.uin, channel);
   }
 
   private removeChannel(id: string, adapterLog: Logger): void {
@@ -253,25 +196,10 @@ export class Hub {
     if (!channel) return;
     this.channelsById_.delete(id);
 
-    const ids = this.channelsByUin_.get(channel.uin);
-    if (ids) {
-      ids.delete(id);
-      if (ids.size === 0) this.channelsByUin_.delete(channel.uin);
-    }
-
-    const wasPrimary = this.primaryByUin_.get(channel.uin) === id;
-    if (wasPrimary) this.primaryByUin_.delete(channel.uin);
-
-    const replacement = this.pickPrimary(channel.uin);
-    if (replacement) {
-      this.primaryByUin_.set(channel.uin, replacement.id);
-      if (wasPrimary) {
-        adapterLog.debug('primary failover: UIN=%s %s → %s',
-          channel.uin, id, replacement.id);
-        this.bringCoreOffline(channel.uin);
-        this.bringCoreOnline(channel.uin, replacement);
-      }
-    } else if (wasPrimary) {
+    const current = this.channelsByUin_.get(channel.uin);
+    const wasCurrent = current?.id === id;
+    if (wasCurrent) {
+      this.channelsByUin_.delete(channel.uin);
       log.debug('account offline: UIN=%s', channel.uin);
       this.bringCoreOffline(channel.uin);
     }
@@ -307,34 +235,4 @@ export class Hub {
     }
   }
 
-  private pickPrimary(uin: string): Channel | null {
-    const ids = this.channelsByUin_.get(uin);
-    if (!ids || ids.size === 0) return null;
-
-    let best: Channel | null = null;
-    let bestRank = -Infinity;
-    for (const id of ids) {
-      const channel = this.channelsById_.get(id);
-      if (!channel) continue;
-      const rank = primaryPriority(channel.kind);
-      if (rank > bestRank) {
-        best = channel;
-        bestRank = rank;
-      }
-    }
-    return best;
-  }
-}
-
-/**
- * Higher wins. Today we prefer the in-process hook over the future
- * pure-socket runtime — operators with QQ.exe running trust the hook
- * path more, and the socket runtime is unproven. Single knob to flip
- * (or surface as config) once the socket runtime is hardened.
- */
-function primaryPriority(kind: ChannelKind): number {
-  switch (kind) {
-    case 'inject': return 100;
-    case 'socket': return 50;
-  }
 }
