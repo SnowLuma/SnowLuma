@@ -1,20 +1,20 @@
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
-import { Bridge } from './bridge';
+import { Channel } from './channel';
 
 /**
- * `ProtocolBridge` — placeholder transport for the future pure-
- * protocol runtime (no QQ.exe, no hook). It already participates in
- * `BridgeManager` so the wider architecture (BridgeAdapter pool →
- * AccountManager → OneBot) is exercised end-to-end today; once a real
- * `ProtocolClient` lands the transport will gain a constructor
- * argument and `sendRawPacket` will route through it.
+ * `SocketChannel` — placeholder transport for the future pure-socket
+ * runtime (no QQ.exe, no hook). It already participates in the `Hub`
+ * (in `@snowluma/core`) so the wider architecture (ChannelAdapter pool
+ * → Hub → Core → OneBot) is exercised end-to-end today; once a real
+ * `SocketClient` lands the transport will gain a constructor argument
+ * and `sendRawPacket` will route through it.
  *
  * Until then `sendRawPacket` returns a structured "not implemented"
  * failure rather than throwing, so the surrounding code treats it as
  * a regular transport-down result.
  */
-export class ProtocolBridge extends Bridge {
-  readonly kind = 'protocol' as const;
+export class SocketChannel extends Channel {
+  readonly kind = 'socket' as const;
   readonly uin: string;
 
   constructor(uin: string) {
@@ -22,7 +22,7 @@ export class ProtocolBridge extends Bridge {
     this.uin = uin;
   }
 
-  get id(): string { return `protocol:${this.uin}`; }
+  get id(): string { return `socket:${this.uin}`; }
 
   override async sendRawPacket(
     serviceCmd: string,
@@ -34,7 +34,7 @@ export class ProtocolBridge extends Bridge {
       success: false,
       gotResponse: false,
       errorCode: -1,
-      errorMessage: 'protocol bridge transport is not yet implemented',
+      errorMessage: 'socket channel transport is not yet implemented',
       responseData: null,
     };
   }

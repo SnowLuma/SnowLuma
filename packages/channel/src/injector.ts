@@ -55,9 +55,9 @@ function defaultProcessName(): string {
 function nativeSearchDirs(): string[] {
   // Several layouts must be supported:
   //   1. Released zip (flattened dist/): __dirname=<extracted>/, native at <extracted>/native
-  //   2. Dev via tsx (packages/bridge/src/injector.ts): __dirname=<root>/packages/bridge/src
+  //   2. Dev via tsx (packages/channel/src/injector.ts): __dirname=<root>/packages/channel/src
   //      → walk up to <root>/packages and append runtime/native
-  //      Same offset works for `packages/bridge/dist/index.mjs` after build.
+  //      Same offset works for `packages/channel/dist/index.mjs` after build.
   //   3. cwd-based fallback when neither __dirname-relative path resolves.
   return [
     path.resolve(__dirname, 'native'),

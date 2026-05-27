@@ -1,23 +1,23 @@
 import type { PacketSender, SendPacketResult } from '@snowluma/common/packet-sender';
-import { Bridge } from './bridge';
+import { Channel } from './channel';
 
 /**
- * `InjectBridge` — concrete transport backed by the in-process NTQQ
+ * `HookChannel` — concrete transport backed by the in-process NTQQ
  * hook. One UIN may be served simultaneously by several injected
- * processes; the bridge therefore tracks an unordered set of PIDs and
+ * processes; the channel therefore tracks an unordered set of PIDs and
  * keeps a single live `PacketSender` (the most recently logged-in
  * pipe) for outbound traffic.
  *
- * PID bookkeeping is scoped to this transport because the protocol-
- * only runtime never has the concept; quarantining it here keeps the
- * abstract `Bridge` and the `BridgeManager` free of pid awareness.
+ * PID bookkeeping is scoped to this transport because the socket-only
+ * runtime never has the concept; quarantining it here keeps the
+ * abstract `Channel` and the `Hub` free of pid awareness.
  *
- * The owning `InjectBridgeAdapter` is responsible for calling
+ * The owning `HookAdapter` is responsible for calling
  * `attachPid(pid, sender)` on every successful hook login,
  * `detachPid(pid)` when the watcher reports a pipe drop, and tearing
- * the bridge down once `isEmpty` returns true.
+ * the channel down once `isEmpty` returns true.
  */
-export class InjectBridge extends Bridge {
+export class HookChannel extends Channel {
   readonly kind = 'inject' as const;
   readonly uin: string;
 
@@ -31,16 +31,16 @@ export class InjectBridge extends Bridge {
 
   get id(): string { return `inject:${this.uin}`; }
 
-  /** PIDs currently routing packets into this bridge. Read-only view
+  /** PIDs currently routing packets into this channel. Read-only view
    *  for diagnostics — mutate only via `attachPid` / `detachPid`. */
   get pids(): ReadonlySet<number> { return this.pids_; }
 
   /** True iff no PID is currently bound; the adapter uses this to
-   *  decide when to remove the bridge from `BridgeManager`. */
+   *  decide when to remove the channel from the `Hub`. */
   get isEmpty(): boolean { return this.pids_.size === 0; }
 
   /** Bind a freshly-logged-in PID (and its outbound `PacketSender`)
-   *  to this bridge. Idempotent — re-binding the same PID just rotates
+   *  to this channel. Idempotent — re-binding the same PID just rotates
    *  the active sender. */
   attachPid(pid: number, sender: PacketSender): void {
     this.pids_.add(pid);
@@ -67,7 +67,7 @@ export class InjectBridge extends Bridge {
         success: false,
         gotResponse: false,
         errorCode: -1,
-        errorMessage: 'inject bridge has no live packet sender',
+        errorMessage: 'hook channel has no live packet sender',
         responseData: null,
       };
     }

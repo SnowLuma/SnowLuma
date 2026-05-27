@@ -54,7 +54,7 @@ importers:
         specifier: ^8.58.2
         version: 8.58.2(eslint@10.2.0(jiti@2.6.1))(typescript@6.0.2)
 
-  packages/bridge:
+  packages/channel:
     dependencies:
       '@snowluma/common':
         specifier: workspace:*
@@ -84,9 +84,9 @@ importers:
 
   packages/core:
     dependencies:
-      '@snowluma/bridge':
+      '@snowluma/channel':
         specifier: workspace:*
-        version: link:../bridge
+        version: link:../channel
       '@snowluma/common':
         specifier: workspace:*
         version: link:../common
@@ -139,9 +139,9 @@ importers:
 
   packages/onebot:
     dependencies:
-      '@snowluma/bridge':
+      '@snowluma/channel':
         specifier: workspace:*
-        version: link:../bridge
+        version: link:../channel
       '@snowluma/common':
         specifier: workspace:*
         version: link:../common

@@ -1,4 +1,4 @@
-import type { BridgeInterface } from '@snowluma/bridge';
+import type { ChannelInterface } from '@snowluma/channel';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import type { SendMessageRequest, SendMessageResponse } from '@snowluma/proto-defs/action';
@@ -12,12 +12,12 @@ vi.mock('@snowluma/protocol/element-builder', () => ({
 }));
 
 /**
- * Thin fake transport — implements `BridgeInterface` directly without
+ * Thin fake transport — implements `ChannelInterface` directly without
  * inheriting from `Bridge`, so each test gets a clean slate plus a
  * single capture slot for the outbound body. The `Account` under test
  * proxies `sendRawPacket` straight through.
  */
-class FakeBridge implements BridgeInterface {
+class FakeBridge implements ChannelInterface {
   readonly kind = 'inject' as const;
   readonly id = 'inject:test';
   capturedBody: Uint8Array | null = null;

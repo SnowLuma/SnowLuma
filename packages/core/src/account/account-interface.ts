@@ -1,4 +1,4 @@
-import type { BridgeKind } from '@snowluma/bridge';
+import type { ChannelKind } from '@snowluma/channel';
 import type { AccountContext } from './account-context';
 
 /**
@@ -23,7 +23,7 @@ import type { AccountContext } from './account-context';
  */
 export interface AccountInterface extends AccountContext {
   /** Transport family backing this account. */
-  readonly kind: BridgeKind;
+  readonly kind: ChannelKind;
   /** Stable, unique-per-account id (mirrors the transport's id). */
   readonly id: string;
   /** QQ number this account represents. Mirrors `identity.uin`. */

@@ -18,22 +18,23 @@ import type { HookProcessInfo } from './types';
 
 /**
  * Sink that the hook layer calls back into when it observes a new login,
- * a parsed packet, or a PID disconnect. The concrete implementation lives
- * in @snowluma/core (`BridgeManager`), which is wired in by the top-level
- * app entry. Declaring it here keeps @snowluma/bridge free of any
- * dependency on @snowluma/core — the hook package is self-contained.
+ * a parsed packet, or a PID disconnect. The concrete implementation is
+ * `HookAdapter`, which sits between this hook runtime and the `Hub` in
+ * `@snowluma/core`. Declaring it here keeps `@snowluma/channel` (and
+ * future `@snowluma/channel-hook`) free of any dependency on
+ * `@snowluma/core` — the hook package is self-contained.
  */
-export interface BridgeManagerSink {
+export interface HookSink {
   onHookLogin(pid: number, uin: string, packetClient: PacketSender): void;
   onPacket(pkt: PacketInfo): void;
   onPidDisconnected(pid: number): void;
 }
 
 export type HookManagerDeps = {
-  bridgeManager: BridgeManagerSink;
+  sink: HookSink;
   /** Sink for parsed packets from any live HookSession. Defaults to
-   * `bridgeManager.onPacket` — every packet flows straight into the
-   * per-UIN bridge dispatcher with no intermediate event emitter. */
+   * `sink.onPacket` — every packet flows straight into the per-UIN
+   * channel dispatcher with no intermediate event emitter. */
   onPacket?: PacketSink;
   /** Native injector entrypoints. Defaults to the real native addon. */
   injector?: HookSessionDeps['injector'];
@@ -59,7 +60,7 @@ export type HookManagerDeps = {
  * Responsibilities:
  *   - Route user commands (load/unload/refresh) to the matching session.
  *   - Route watcher diff events to the matching session.
- *   - Forward session events ('login' / 'disconnected') to BridgeManager.
+ *   - Forward session events ('login' / 'disconnected') to the `HookSink`.
  *   - Retry stuck-in-connecting sessions on every watcher tick (so a
  *     failed connect eventually recovers without a manual refresh).
  *
@@ -68,7 +69,7 @@ export type HookManagerDeps = {
  * real QQ.exe or a native addon.
  */
 export class HookManager {
-  private readonly bridgeManager: BridgeManagerSink;
+  private readonly sink: HookSink;
   private readonly onPacket: PacketSink;
   private readonly injector: HookSessionDeps['injector'];
   private readonly makeClient: HookSessionDeps['makeClient'];
@@ -83,8 +84,8 @@ export class HookManager {
   private disposed = false;
 
   constructor(deps: HookManagerDeps) {
-    this.bridgeManager = deps.bridgeManager;
-    this.onPacket = deps.onPacket ?? ((pkt) => deps.bridgeManager.onPacket(pkt));
+    this.sink = deps.sink;
+    this.onPacket = deps.onPacket ?? ((pkt) => deps.sink.onPacket(pkt));
     this.log = deps.log ?? createLogger('Hook');
 
     this.injector = deps.injector ?? {
@@ -248,10 +249,10 @@ export class HookManager {
     session.attachProcessInfo({ name: defaultProcessName() });
 
     session.on('login', (uin: string, sender) => {
-      this.bridgeManager.onHookLogin(pid, uin, sender);
+      this.sink.onHookLogin(pid, uin, sender);
     });
     session.on('disconnected', (wasLoggedIn: boolean) => {
-      if (wasLoggedIn) this.bridgeManager.onPidDisconnected(pid);
+      if (wasLoggedIn) this.sink.onPidDisconnected(pid);
     });
     session.on('disposed', () => {
       this.sessions.delete(pid);
@@ -312,3 +313,4 @@ export function shouldAutoLoadPid(pid: number, log: Logger): boolean {
 export type { HookProcessBaseInfo } from './injector';
 export type { QqPortLoginInfo } from './qq-port-probe';
 export type { HookProcessInfo, HookProcessStatus } from './types';
+

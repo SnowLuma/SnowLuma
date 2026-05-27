@@ -1,32 +1,33 @@
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
-import type { BridgeInterface, BridgeKind } from './bridge-interface';
+import type { ChannelInterface, ChannelKind } from './channel-interface';
 
 /**
- * Abstract base for every concrete bridge transport (`InjectBridge`,
- * `ProtocolBridge`, …). Strictly transport: knows about wire-level
+ * Abstract base for every concrete channel transport (`HookChannel`,
+ * `SocketChannel`, …). Strictly transport: knows about wire-level
  * send, packet delivery to a single subscriber, and lifecycle.
  *
  * Subclasses provide:
  *
- *   1. `kind` / `id` / `uin` — discriminators used by `BridgeManager`
- *      to index live transports.
- *   2. `sendRawPacket` — the actual outbound wire path. `InjectBridge`
+ *   1. `kind` / `id` / `uin` — discriminators used by the `Hub` (in
+ *      `@snowluma/core`) to index live transports.
+ *   2. `sendRawPacket` — the actual outbound wire path. `HookChannel`
  *      forwards through a `PacketSender` (named-pipe to QQ.exe);
- *      `ProtocolBridge` will eventually drive a long-lived TCP login
+ *      `SocketChannel` will eventually drive a long-lived TCP login
  *      session.
  *
- * Inbound packets are routed via the `packetHandler_` slot: an
- * `Account` calls `setPacketHandler(...)` to subscribe, and the
- * owning `BridgeAdapter` calls `deliverPacket(pkt)` for every frame
- * the underlying runtime hands it.
+ * Inbound packets are routed via the `packetHandler_` slot: `Hub`
+ * wires `ChannelCtx.onPacket` (which calls `setPacketHandler` on
+ * this channel) so each `Core` instance subscribes exactly once, and
+ * the owning `ChannelAdapter` calls `deliverPacket(pkt)` for every
+ * frame the underlying runtime hands it.
  *
- * `Bridge` knows NOTHING about identity caches, the event bus, the
+ * `Channel` knows NOTHING about identity caches, the event bus, the
  * api hub, or the cmd-dispatch pipeline. That entire account-layer
- * machinery lives on `Account` (`@snowluma/core/account`).
+ * machinery lives on `Core` (`@snowluma/core`).
  */
-export abstract class Bridge implements BridgeInterface {
-  abstract readonly kind: BridgeKind;
+export abstract class Channel implements ChannelInterface {
+  abstract readonly kind: ChannelKind;
   abstract readonly id: string;
   abstract readonly uin: string;
 

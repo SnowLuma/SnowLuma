@@ -1,4 +1,4 @@
-import type { BridgeInterface, BridgeKind } from '@snowluma/bridge';
+import type { ChannelInterface, ChannelKind } from '@snowluma/channel';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import type { UploadedFileMeta } from '@snowluma/protocol/bridge-context';
@@ -33,14 +33,14 @@ import { buildApiHub, type ApiHub } from './apis';
  * see `AccountInterface`; never `Account` itself.
  */
 export class Account implements AccountInterface {
-  readonly kind: BridgeKind;
+  readonly kind: ChannelKind;
   readonly id: string;
   readonly uin: string;
   readonly identity: IdentityService;
   readonly events = new BridgeEventBus();
   readonly apis: ApiHub;
 
-  private readonly transport_: BridgeInterface;
+  private readonly transport_: ChannelInterface;
   private readonly pipeline_: IncomingPacketPipeline;
   private static readonly UPLOADED_FILE_CACHE_MAX = 1024;
   private readonly uploadedFileMeta_ = new Map<string, UploadedFileMeta>();
@@ -58,7 +58,7 @@ export class Account implements AccountInterface {
    *                 pass `IdentityService.memory(uin)` to avoid touching
    *                 the filesystem.
    */
-  constructor(bridge: BridgeInterface, identity: IdentityService = IdentityService.openForUin(bridge.uin)) {
+  constructor(bridge: ChannelInterface, identity: IdentityService = IdentityService.openForUin(bridge.uin)) {
     this.transport_ = bridge;
     this.kind = bridge.kind;
     this.id = bridge.id;

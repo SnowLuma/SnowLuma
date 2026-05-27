@@ -86,7 +86,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@snowluma/bridge": "workspace:*",
+    "@snowluma/channel": "workspace:*",
     "@snowluma/common": "workspace:*",
     "@snowluma/core": "workspace:*",
     "@snowluma/proto-defs": "workspace:*",

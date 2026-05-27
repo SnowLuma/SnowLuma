@@ -20,8 +20,8 @@ export type HookSessionDeps = {
     isPipeLive: (pid: number) => boolean;
     tickNow?: () => Promise<void>;
   };
-  /** Sink for parsed packets. Called with the BridgeManager-shaped
-   * PacketInfo for every packet received while logged in. If omitted,
+  /** Sink for parsed packets. Called with the canonical PacketInfo
+   * shape for every packet received while logged in. If omitted,
    * packets are dropped (useful in unit tests that don't care). */
   onPacket?: PacketSink;
   log?: Logger;
@@ -35,7 +35,7 @@ export type HookSessionDeps = {
  * promise chain so user clicks (load/unload/refresh) and watcher-driven
  * events (onPipeUp/onPipeDown) never interleave.
  *
- * Communication: emits high-level events instead of calling BridgeManager
+ * Communication: emits high-level events instead of calling the sink
  * directly, so HookManager forwards them and tests can attach spies.
  *
  * Emitted events:
@@ -406,7 +406,7 @@ export class HookSession extends EventEmitter {
     const uin = packet.uin || this._uin;
     if (!isRealUin(uin)) return;
     if (!this.onPacket) return;
-    // Re-shape the hook-client wire packet into BridgeManager's PacketInfo
+    // Re-shape the hook-client wire packet into the canonical PacketInfo
     // shape. Used to live in the deleted NtqqHandler.onHookPacket; field
     // renaming was that module's entire purpose, so it lives at the source
     // now (no need for a single-listener event-emitter in between).

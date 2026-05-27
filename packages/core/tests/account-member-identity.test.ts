@@ -1,4 +1,4 @@
-import { InjectBridge } from '@snowluma/bridge';
+import { HookChannel } from '@snowluma/channel';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import type { GroupMemberJoin, QQEventVariant } from '@snowluma/protocol/events';
 import { IdentityService } from '@snowluma/protocol/identity-service';
@@ -42,7 +42,7 @@ function makeGroup(members: GroupMemberInfo[] = []): QQGroupInfo {
  * methods, not prototype ones.
  */
 function buildAccount(identity: IdentityService, refreshedMembers: GroupMemberInfo[]) {
-  const bridge = new InjectBridge(identity.uin);
+  const bridge = new HookChannel(identity.uin);
   const account = new Account(bridge, identity);
   const memberFetches: Array<{ groupId: number; force: boolean }> = [];
   account.apis.contacts.fetchGroupMemberList = async (
@@ -116,7 +116,7 @@ describe('Account group member identity refresh', () => {
   });
 
   it('remembers UID mappings from realtime request events', () => {
-    const bridge = new InjectBridge(SELF_UIN);
+    const bridge = new HookChannel(SELF_UIN);
     const account = new Account(bridge, IdentityService.memory(SELF_UIN));
     const events: QQEventVariant[] = [
       {

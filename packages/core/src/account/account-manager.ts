@@ -1,4 +1,4 @@
-import type { BridgeInterface, BridgeManager } from '@snowluma/bridge';
+import type { ChannelInterface, ChannelManager } from '@snowluma/channel';
 import { createLogger } from '@snowluma/common/logger';
 import { Account } from './account';
 import type { AccountInterface } from './account-interface';
@@ -32,12 +32,12 @@ export class AccountManager {
   /** Subscribe to a `BridgeManager` so this AccountManager learns
    *  about primary-bridge availability and tears down accounts on
    *  the way out. Idempotent. Call before `bridgeManager.start()`. */
-  bind(bridgeManager: BridgeManager): void {
-    bridgeManager.setSessionStartedCallback((uin, bridge) => {
-      this.onBridgeAvailable(uin, bridge);
+  bind(channelManager: ChannelManager): void {
+    channelManager.setSessionStartedCallback((uin: string, channel: ChannelInterface) => {
+      this.onChannelAvailable(uin, channel);
     });
-    bridgeManager.setSessionClosedCallback((uin) => {
-      this.onBridgeUnavailable(uin);
+    channelManager.setSessionClosedCallback((uin: string) => {
+      this.onChannelUnavailable(uin);
     });
   }
 
@@ -68,11 +68,11 @@ export class AccountManager {
     this.accounts_.clear();
   }
 
-  // ─── BridgeManager session-callback handlers ───────────────────
+  // ─── ChannelManager session-callback handlers ──────────────────
 
-  private onBridgeAvailable(uin: string, bridge: BridgeInterface): void {
+  private onChannelAvailable(uin: string, channel: ChannelInterface): void {
     // Defensive: a stuck old account on the same UIN means
-    // BridgeManager fired closed→started but we missed the closed.
+    // ChannelManager fired closed→started but we missed the closed.
     // Tear it down before publishing a fresh one to avoid dangling
     // identity DB handles.
     const stale = this.accounts_.get(uin);
@@ -82,13 +82,13 @@ export class AccountManager {
       this.accounts_.delete(uin);
     }
 
-    const account = new Account(bridge);
+    const account = new Account(channel);
     this.accounts_.set(uin, account);
     log.debug('account started: UIN=%s id=%s', uin, account.id);
     this.onAccountStarted_?.(uin, account);
   }
 
-  private onBridgeUnavailable(uin: string): void {
+  private onChannelUnavailable(uin: string): void {
     const account = this.accounts_.get(uin);
     if (!account) return;
     this.accounts_.delete(uin);
