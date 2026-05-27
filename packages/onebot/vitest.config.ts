@@ -3,15 +3,22 @@
 // inside `packages/core/tests/` and ran via `@snowluma/core`'s vitest
 // invocation; they moved over wholesale in the Phase 3 split.
 import protobufVitePlugin from '@snowluma/proton/vite';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { defineConfig } from 'vitest/config';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   // `@snowluma/proton` provides the bare-specifier resolver that turns
   // `import type { OidbBase } from '@snowluma/proto-defs/oidb'` into
-  // a zero-runtime encoder/decoder at the call site. The same plugin
-  // is loaded by `@snowluma/core`'s vite config — keep it here so the
-  // OneBot tests resolve identically.
-  plugins: [protobufVitePlugin()],
+  // a zero-runtime encoder/decoder at the call site. Set `root` to the
+  // monorepo root so the plugin transforms protobuf_encode/decode call
+  // sites inside transitively-imported workspace packages (notably
+  // `@snowluma/protocol`'s element-builder + msg-push decoders) —
+  // otherwise OneBot tests that exercise those code paths blow up with
+  // "was not transformed". Mirrors `@snowluma/core`'s setup.
+  plugins: [protobufVitePlugin({ root: path.resolve(__dirname, '../..') })],
   test: {
     include: ['tests/**/*.test.ts'],
     // Per-RoadMap-#5 bench files live in `bench/*.bench.ts`. Use the
