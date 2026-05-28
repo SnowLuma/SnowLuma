@@ -107,6 +107,10 @@
       "types": "./src/oidb-services/misc/send-group-sign.ts",
       "default": "./src/oidb-services/misc/send-group-sign.ts"
     },
+    "./oidb-services/misc/request-decrypt-key": {
+      "types": "./src/oidb-services/misc/request-decrypt-key.ts",
+      "default": "./src/oidb-services/misc/request-decrypt-key.ts"
+    },
     "./oidb-services/web/force-fetch-client-key": {
       "types": "./src/oidb-services/web/force-fetch-client-key.ts",
       "default": "./src/oidb-services/web/force-fetch-client-key.ts"
