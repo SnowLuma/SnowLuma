@@ -658,3 +658,21 @@ export interface GroupAvatarExtra {
   field5?:   pb<5, uint_32>;
   field6?:   pb<6, uint_32>;
 }
+
+export interface Oidb0xcdeReqBodyInfo {
+  db_salt?: pb<1, string>;
+}
+
+export interface Oidb0xcdeReq {
+  info?: pb<2, Oidb0xcdeReqBodyInfo>;
+  sessionData?: pb<10, bytes>;
+}
+
+export interface Oidb0xcdeRespBodyInfo {
+  dbKey?: pb<1, string>;
+}
+
+export interface Oidb0xcdeResp {
+  info?: pb<2, Oidb0xcdeRespBodyInfo>;
+}
+
