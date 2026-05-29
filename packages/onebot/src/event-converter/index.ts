@@ -25,7 +25,7 @@ import {
 } from './to-request';
 import { elementsToJson } from './to-segment';
 
-export type ImageUrlResolver = (element: MessageElement, isGroup: boolean) => string;
+export type ImageUrlResolver = (element: MessageElement, isGroup: boolean) => string | Promise<string>;
 export type MediaUrlResolver = (element: MessageElement, isGroup: boolean, sessionId: number) => Promise<string>;
 export type MessageIdResolver = (isGroup: boolean, sessionId: number, sequence: number, eventName: string) => number;
 
