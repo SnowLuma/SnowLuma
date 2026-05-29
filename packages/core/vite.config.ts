@@ -23,10 +23,15 @@ const toPosix = (p: string) => p.replace(/\\/g, '/');
 // `@snowluma/websocket` is bundled — it's an
 // in-tree TS workspace wrapper that routes its native `.node`
 // addon through `dist/native/`. Only Node builtins stay external.
-const isNodeBuiltin = (id: string) =>
-  id.startsWith('node:') ||
-  builtinModules.includes(id) ||
-  builtinModules.includes(id.replace(/^node:/, ''));
+//
+// `node:sqlite` is an experimental builtin that Node 22.x lines don't
+// list in `builtinModules`, so the `nodeModules` sweep below misses it.
+// Externalise it explicitly — otherwise Vite bundles it and swaps in a
+// browser shell, crashing the hook with `DatabaseSync is not a
+// constructor` (the bug PR #68 set out to fix).
+const external: string[] = ['node:sqlite', 'sqlite'];
+
+const nodeModules = [...builtinModules, ...builtinModules.map((m) => `node:${m}`)].flat();
 
 const runtimeSrc = toPosix(runtimeDir);
 const nativeSrc = toPosix(nativeDir);
@@ -116,9 +121,8 @@ const BaseConfig = (source_map: boolean = false) => defineConfig({
     }
   },
   build: {
-    ssr: true,
     sourcemap: source_map,
-    target: 'node22',
+    target: 'esnext',
     minify: false,
     lib: {
       entry: {
@@ -128,7 +132,7 @@ const BaseConfig = (source_map: boolean = false) => defineConfig({
       fileName: (_, entryName) => `${entryName}.mjs`
     },
     rollupOptions: {
-      external: isNodeBuiltin,
+      external: [...nodeModules, ...external],
       output: {
         // better-sqlite3's JS wrapper is pure CJS — its `require('fs')` /
         // `require('path')` / `require('bindings')` calls get inlined into
@@ -144,9 +148,6 @@ const BaseConfig = (source_map: boolean = false) => defineConfig({
         // the shim then transparently delegates every inlined CJS require
         // to the real CJS loader. Node 18+ ships `createRequire` in the
         // `node:module` builtin, so this is supported on every target.
-        entryFileNames: '[name].mjs',
-        chunkFileNames: '[name].mjs',
-
         banner: [
           "import { createRequire as __snowlumaCreateRequire } from 'node:module';",
           "const require = __snowlumaCreateRequire(import.meta.url);",
@@ -157,9 +158,6 @@ const BaseConfig = (source_map: boolean = false) => defineConfig({
     outDir: distDir,
     // Required since outDir is outside the vite project root.
     emptyOutDir: true
-  },
-  ssr: {
-    noExternal: true,
   },
   define: {
     __BUILD_WEBUI__: process.env.BUILD_WEBUI === 'true',
