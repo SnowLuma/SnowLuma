@@ -6,6 +6,9 @@ import {
   Outlet,
 } from '@tanstack/react-router';
 import { AppLayout } from './app-layout';
+// Imported eagerly (not lazy): the error / not-found fallbacks must render
+// even when a route's own chunk failed to load.
+import { ErrorPage, NotFoundPage } from '@/components/pages/status-screens';
 
 // Page components are loaded on demand so the initial paint only ships
 // the auth surface + layout shell. With `defaultPreload: 'intent'` set
@@ -68,6 +71,8 @@ const routeTree = rootRoute.addChildren([
 export const appRouter = createRouter({
   routeTree,
   defaultPreload: 'intent',
+  defaultNotFoundComponent: () => <NotFoundPage />,
+  defaultErrorComponent: ({ error, reset }) => <ErrorPage error={error} reset={reset} />,
 });
 
 declare module '@tanstack/react-router' {

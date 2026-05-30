@@ -68,40 +68,47 @@ export function ConfigPage() {
     [pendingSwitchUin, qqList],
   );
 
-  // Per-kind helpers (typed at the call site so the dialog's onSubmit
-  // payload is exactly the kind's adapter shape).
-  function updateKind<K extends NetworkKind>(kind: K, next: OneBotNetworks[K]): void {
+  // A discrete node mutation (create / edit / delete / enable-toggle) is
+  // persisted the moment it happens — clicking 保存 inside the editor dialog
+  // (or flipping the enable switch) IS the save. This removes the old
+  // two-step trap where editing a token in the dialog only marked the config
+  // "dirty" until you also pressed the top-right 保存, which silently cost
+  // many users their token edits. The general-settings tab keeps its explicit
+  // top-right save (it's a continuously-edited free-form surface).
+  function commitKind<K extends NetworkKind>(kind: K, nextList: OneBotNetworks[K]): void {
     if (!config) return;
-    setConfig({ ...config, networks: { ...config.networks, [kind]: next } });
+    const next = { ...config, networks: { ...config.networks, [kind]: nextList } };
+    setConfig(next);
+    void save(next);
   }
 
   function handleCreate<K extends NetworkKind>(kind: K, item: OneBotNetworks[K][number]): void {
     if (!config) return;
     const list = config.networks[kind] as OneBotNetworks[K];
-    updateKind(kind, [...list, item] as OneBotNetworks[K]);
+    commitKind(kind, [...list, item] as OneBotNetworks[K]);
   }
 
   function handleEdit<K extends NetworkKind>(kind: K, index: number, item: OneBotNetworks[K][number]): void {
     if (!config) return;
     const list = config.networks[kind] as OneBotNetworks[K];
-    const next = list.map((it, i) => (i === index ? item : it)) as OneBotNetworks[K];
-    updateKind(kind, next);
+    commitKind(kind, list.map((it, i) => (i === index ? item : it)) as OneBotNetworks[K]);
   }
 
   function handleDelete<K extends NetworkKind>(kind: K, index: number): void {
     if (!config) return;
     const list = config.networks[kind] as OneBotNetworks[K];
-    const next = list.filter((_, i) => i !== index) as OneBotNetworks[K];
-    updateKind(kind, next);
+    commitKind(kind, list.filter((_, i) => i !== index) as OneBotNetworks[K]);
   }
 
   function handleToggleEnabled<K extends NetworkKind>(kind: K, index: number, enabled: boolean): void {
     if (!config) return;
     const list = config.networks[kind] as OneBotNetworks[K];
-    const next = list.map((it, i) =>
-      i === index ? ({ ...it, enabled: enabled ? undefined : false } as OneBotNetworks[K][number]) : it,
-    ) as OneBotNetworks[K];
-    updateKind(kind, next);
+    commitKind(
+      kind,
+      list.map((it, i) =>
+        i === index ? ({ ...it, enabled: enabled ? undefined : false } as OneBotNetworks[K][number]) : it,
+      ) as OneBotNetworks[K],
+    );
   }
 
   const openCreate = (kind: NetworkKind) => {

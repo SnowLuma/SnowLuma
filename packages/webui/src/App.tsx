@@ -21,6 +21,11 @@ function AuthBoundary() {
   const [authed, setAuthed] = useState(false);
   const [mustChange, setMustChange] = useState(false);
   const [status, setStatus] = useState('未连接');
+  // The password from *this* session's login, carried into the forced
+  // change-password gate so it doesn't have to render an old-password field
+  // (which browsers autofill, misleading users on upgrade). Stays undefined
+  // for a returning session that's already authed but still must change.
+  const [loginPassword, setLoginPassword] = useState<string | undefined>(undefined);
 
   const client = useMemo<ApiClient>(
     () =>
@@ -63,14 +68,21 @@ function AuthBoundary() {
           </div>
         ) : !authed ? (
           <LoginGate
-            onAuthed={(needsChange) => {
+            onAuthed={(needsChange, password) => {
               setAuthed(true);
               setStatus('已连接');
               setMustChange(needsChange);
+              setLoginPassword(password);
             }}
           />
         ) : mustChange ? (
-          <ForcedChangePasswordGate onSuccess={() => setMustChange(false)} />
+          <ForcedChangePasswordGate
+            knownOldPassword={loginPassword}
+            onSuccess={() => {
+              setMustChange(false);
+              setLoginPassword(undefined);
+            }}
+          />
         ) : (
           <SessionProvider value={{ status, onLogoutComplete: handleLogoutComplete }}>
             <RouterProvider router={appRouter} />
@@ -81,13 +93,13 @@ function AuthBoundary() {
   );
 }
 
-function LoginGate({ onAuthed }: { onAuthed: (mustChange: boolean) => void }) {
+function LoginGate({ onAuthed }: { onAuthed: (mustChange: boolean, password: string) => void }) {
   const api = useApi();
   const handleLogin = useCallback(
     async (password: string) => {
       const result = await api.login(password);
       if (!result.ok) return { success: false, error: result.message };
-      onAuthed(result.mustChangePassword);
+      onAuthed(result.mustChangePassword, password);
       return { success: true };
     },
     [api, onAuthed],
@@ -95,11 +107,17 @@ function LoginGate({ onAuthed }: { onAuthed: (mustChange: boolean) => void }) {
   return <LoginPage onLogin={handleLogin} />;
 }
 
-function ForcedChangePasswordGate({ onSuccess }: { onSuccess: () => void }) {
+function ForcedChangePasswordGate({
+  knownOldPassword,
+  onSuccess,
+}: {
+  knownOldPassword?: string;
+  onSuccess: () => void;
+}) {
   const api = useApi();
   return (
     <ChangePasswordPage
-      forced
+      knownOldPassword={knownOldPassword}
       checkStrength={(p) => api.checkPasswordStrength(p)}
       submit={(o, n) => api.changePassword(o, n)}
       onSuccess={onSuccess}
