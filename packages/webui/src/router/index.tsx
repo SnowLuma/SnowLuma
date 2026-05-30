@@ -37,6 +37,15 @@ const overviewRoute = createRoute({
   ),
 });
 
+const processesRoute = createRoute({
+  path: '/processes',
+  getParentRoute: () => appLayoutRoute,
+  component: lazyRouteComponent(
+    () => import('@/components/pages/processes-page'),
+    'ProcessesPage',
+  ),
+});
+
 const configRoute = createRoute({
   path: '/config',
   getParentRoute: () => appLayoutRoute,
@@ -65,7 +74,7 @@ const settingsRoute = createRoute({
 });
 
 const routeTree = rootRoute.addChildren([
-  appLayoutRoute.addChildren([overviewRoute, configRoute, logsRoute, settingsRoute]),
+  appLayoutRoute.addChildren([overviewRoute, processesRoute, configRoute, logsRoute, settingsRoute]),
 ]);
 
 export const appRouter = createRouter({
@@ -82,4 +91,4 @@ declare module '@tanstack/react-router' {
 }
 
 /** Paths registered on the layout — single source of truth for nav metadata. */
-export type AppPath = '/' | '/config' | '/logs' | '/settings';
+export type AppPath = '/' | '/processes' | '/config' | '/logs' | '/settings';

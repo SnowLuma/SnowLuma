@@ -56,7 +56,11 @@ export function ConfigPage() {
   });
 
   const [activeTab, setActiveTab] = useState<TabKey>('general');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // Default the account strip to its 56px avatar-only form on narrow screens
+  // (≤lg) so the editor pane isn't squeezed; the user can still expand it.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 1024px)').matches,
+  );
   const [confirmSave, setConfirmSave] = useState(false);
   // The edit dialog is modal and blocks every other click in the page,
   // so `selectedUin` cannot change while it's open — no defensive close
@@ -244,7 +248,7 @@ function HeaderBar({ selectedUin, dirty, saveStatus, onSave, activeTab, onCreate
           UIN {selectedUin}
         </code>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {saveStatus && (
           <span
             className={cn(
@@ -288,7 +292,7 @@ interface TabStripProps {
 
 function TabStrip({ activeTab, onChange, counts }: TabStripProps) {
   return (
-    <div className="flex flex-wrap gap-1 border-b">
+    <div className="flex gap-1 overflow-x-auto border-b [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {ALL_TABS.map((key) => {
         const label = key === 'general' ? '通用设置' : NETWORK_TABS[key].title;
         const count = key === 'general' ? null : counts[key];
@@ -299,7 +303,7 @@ function TabStrip({ activeTab, onChange, counts }: TabStripProps) {
             type="button"
             onClick={() => onChange(key)}
             className={cn(
-              'group relative inline-flex items-center gap-1.5 px-3 py-2 text-sm transition-colors cursor-pointer',
+              'group relative inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3 py-2 text-sm transition-colors cursor-pointer',
               active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
             )}
           >

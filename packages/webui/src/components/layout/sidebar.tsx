@@ -1,4 +1,4 @@
-import { LayoutDashboard, Settings, SlidersHorizontal, Terminal } from 'lucide-react';
+import { LayoutDashboard, PlugZap, Settings, SlidersHorizontal, Terminal } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Link, useRouterState } from '@tanstack/react-router';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -16,6 +16,7 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { to: '/', label: '总览', icon: LayoutDashboard, description: '主机与服务状态' },
+  { to: '/processes', label: '进程注入', icon: PlugZap, description: '加载 / 卸载 / 登录' },
   { to: '/config', label: '节点配置', icon: Settings, description: 'OneBot 协议端点' },
   { to: '/logs', label: '日志', icon: Terminal, description: '实时事件流' },
   { to: '/settings', label: '系统设置', icon: SlidersHorizontal, description: '主题与账号' },
