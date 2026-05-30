@@ -35,6 +35,43 @@ function commonElem(elem: any): { serviceType: number; businessType: number; pbE
   return elem.commonElem;
 }
 
+function inflatePrefixedPayload(data: Uint8Array): string {
+  expect(data[0]).toBe(0x01);
+  return inflateSync(Buffer.from(data.subarray(1))).toString('utf8');
+}
+
+describe('element-builder / rich card encoding', () => {
+  it('encodes json segments as deflated LightApp payloads and preserves non-ASCII text', async () => {
+    const card = JSON.stringify({
+      app: 'com.tencent.structmsg',
+      view: 'music',
+      prompt: '[音乐]起风了',
+      meta: { music: { title: '起风了', desc: '买辣椒也用券' } },
+    });
+
+    const [elem] = await buildSendElems(
+      [{ type: 'json', text: card } as any],
+      { bridge: fakeBridge, groupId: 12345 },
+    );
+
+    expect(elem.lightApp).toBeDefined();
+    expect((elem as any).richMsg).toBeUndefined();
+    expect(inflatePrefixedPayload(elem.lightApp!.data!)).toBe(card);
+  });
+
+  it('encodes xml richMsg payloads by UTF-8 bytes, not JavaScript string length', async () => {
+    const xml = '<msg serviceID="35" brief="[分享]中文卡片"></msg>';
+
+    const [elem] = await buildSendElems(
+      [{ type: 'xml', text: xml, subType: 35 } as any],
+      { bridge: fakeBridge, groupId: 12345 },
+    );
+
+    expect(elem.richMsg?.serviceId).toBe(35);
+    expect(inflatePrefixedPayload(elem.richMsg!.template1!)).toBe(xml);
+  });
+});
+
 describe('element-builder / commonElem.businessType per scene', () => {
   describe('image', () => {
     it('c2c → businessType 10', async () => {
@@ -129,10 +166,7 @@ describe('element-builder / forward preview (com.tencent.multimsg LightApp)', ()
   // the outer's LongMsgResult — without uniseq the QQ-NT client has
   // no way to walk the tree and has to re-fetch each inner resId.
   function decodeLightApp(elem: any): unknown {
-    const data: Uint8Array = elem.lightApp.data;
-    expect(data[0]).toBe(0x01);  // deflate prefix
-    const inflated = inflateSync(Buffer.from(data.subarray(1))).toString('utf8');
-    return JSON.parse(inflated);
+    return JSON.parse(inflatePrefixedPayload(elem.lightApp.data));
   }
 
   it('emits a lightApp.data blob with prefix=0x01 (deflated JSON, not XML/serviceID=35)', async () => {

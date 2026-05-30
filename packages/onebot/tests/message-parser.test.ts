@@ -413,6 +413,33 @@ describe('parseMessage', () => {
       const parsed = JSON.parse(result[0].text!);
       expect(parsed.meta.contact.type).toBe('group');
     });
+
+    it('parses signed music cards and buildSendElems preserves non-ASCII JSON', async () => {
+      const card = JSON.stringify({
+        app: 'com.tencent.structmsg',
+        view: 'music',
+        prompt: '[音乐]风中有朵雨做的云',
+        meta: { music: { title: '风中有朵雨做的云', desc: '孟庭苇' } },
+      });
+      vi.stubGlobal('fetch', vi.fn(async () => ({
+        ok: true,
+        text: async () => card,
+      })));
+
+      try {
+        const result = await parseMessage(
+          [{ type: 'music', data: { type: '163', id: '123456' } }] as any,
+          false,
+        );
+        expect(result).toEqual([{ type: 'json', text: card }]);
+
+        const protoElems = await buildSendElems(result);
+        expect(protoElems).toHaveLength(1);
+        expect(protoElems[0].lightApp?.data?.[0]).toBe(0x01);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
   });
 
   describe('single segment object', () => {
