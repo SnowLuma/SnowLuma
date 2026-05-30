@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react';
-import type { HookProcessInfo, QQInfo, SystemInfo } from '@/types';
+import type { AccountConnections, HookProcessInfo, QQInfo, SystemInfo } from '@/types';
 import type { HookProcessOps } from '@/hooks/use-hook-process-ops';
 
 /**
@@ -12,11 +12,13 @@ export interface AppStateValue {
   qqList: QQInfo[];
   processList: HookProcessInfo[];
   systemInfo: SystemInfo | null;
+  connections: AccountConnections[];
   selectedUin: string | null;
   setSelectedUin: (uin: string | null) => void;
   processOps: HookProcessOps;
   refreshProcesses: () => void;
   refreshSystem: () => void;
+  refreshConnections: () => void;
   /** Triggered from the topbar logout button. */
   onLogout: () => void;
 }

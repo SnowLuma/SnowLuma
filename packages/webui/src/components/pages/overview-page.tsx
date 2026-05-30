@@ -1,50 +1,31 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
+import { Link } from '@tanstack/react-router';
 import {
   Activity,
-  AlertCircle,
-  CheckCircle2,
+  ArrowRight,
+  Bell,
+  Cable,
   Cpu,
-  Eye,
-  Loader2,
   MemoryStick,
   MonitorCog,
+  PlugZap,
   RefreshCw,
   Server,
-  Unplug,
   Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ConfirmDialog } from '@/components/confirm-dialog';
-import { ProcessProbeDialog } from '@/components/process-probe-dialog';
 import { cn, formatBytes, formatUptime } from '@/lib/utils';
-import type { HookProcessInfo } from '@/types';
+import type { AppPath } from '@/router';
+import type { AccountConnections, AdapterStatus, AdapterStatusLevel, LogEntry } from '@/types';
+import { useApi } from '@/lib/api';
 import { useAppState } from '@/contexts/AppStateContext';
 import { useSession } from '@/contexts/SessionContext';
-
-const processStatusLabel: Record<HookProcessInfo['status'], string> = {
-  available: '可加载',
-  loading: '加载中',
-  connecting: '等待连接',
-  loaded: '等待登录',
-  online: '已在线',
-  error: '错误',
-  disconnected: '已断开',
-};
-
-function processBadgeVariant(status: HookProcessInfo['status']) {
-  if (status === 'online') return 'success' as const;
-  if (status === 'error') return 'destructive' as const;
-  if (status === 'disconnected') return 'destructive' as const;
-  if (status === 'loading' || status === 'connecting' || status === 'loaded') return 'default' as const;
-  return 'secondary' as const;
-}
 
 function qqAvatarUrl(uin: string) {
   return `/avatar/${encodeURIComponent(uin)}`;
@@ -56,44 +37,48 @@ function StatTile({
   value,
   subtext,
   accent = false,
+  to,
 }: {
   icon: React.ReactNode;
   label: string;
   value: React.ReactNode;
   subtext?: React.ReactNode;
   accent?: boolean;
+  /** When set, the whole tile becomes a link to this route. */
+  to?: AppPath;
 }) {
-  return (
-    <Card className="overflow-hidden">
-      <CardContent className="flex items-center gap-3 p-4">
-        <div
-          className={cn(
-            'flex size-10 shrink-0 items-center justify-center rounded-xl',
-            accent ? 'bg-primary text-primary-foreground' : 'bg-primary/10 text-primary'
-          )}
-        >
-          {icon}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
-          <div className="mt-0.5 truncate text-base font-semibold tabular-nums">{value}</div>
-          {subtext && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{subtext}</p>}
-        </div>
-      </CardContent>
-    </Card>
+  const body = (
+    <CardContent className="flex items-center gap-3 p-4">
+      <div
+        className={cn(
+          'flex size-10 shrink-0 items-center justify-center rounded-xl',
+          accent ? 'bg-primary text-primary-foreground' : 'bg-primary/10 text-primary'
+        )}
+      >
+        {icon}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
+        <div className="mt-0.5 truncate text-base font-semibold tabular-nums">{value}</div>
+        {subtext && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{subtext}</p>}
+      </div>
+      {to && <ArrowRight className="size-4 shrink-0 text-muted-foreground/60" />}
+    </CardContent>
   );
+
+  if (to) {
+    return (
+      <Link to={to} className="block rounded-xl outline-none">
+        <Card className="overflow-hidden transition-colors hover:border-primary/40 hover:bg-accent/30">{body}</Card>
+      </Link>
+    );
+  }
+  return <Card className="overflow-hidden">{body}</Card>;
 }
 
 export function OverviewPage() {
-  const { qqList, processList, systemInfo, processOps, refreshProcesses, refreshSystem } =
-    useAppState();
+  const { qqList, processList, systemInfo, connections, refreshSystem } = useAppState();
   const { status } = useSession();
-  const { statusOf, banner: processActionStatus, load, unload, refresh } = processOps;
-  const [confirm, setConfirm] = useState<
-    | { kind: 'load' | 'unload'; pid: number; name: string }
-    | null
-  >(null);
-  const [probeDialog, setProbeDialog] = useState<{ pid: number; name: string } | null>(null);
 
   // Lightweight tick to refresh "uptime" pretty-print every 30s
   const [, force] = useState(0);
@@ -103,11 +88,14 @@ export function OverviewPage() {
   }, []);
 
   const online = status === '已连接';
+  // Read-only injection health for the dashboard. Control lives on /processes.
+  const onlineProcs = processList.filter((p) => p.status === 'online').length;
+  const loadableProcs = processList.filter((p) => !p.injected).length;
 
   return (
     <div className="flex flex-col gap-6">
       {/* Top stats */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
         <StatTile
           icon={<Activity className="size-5" />}
           label="服务状态"
@@ -122,6 +110,13 @@ export function OverviewPage() {
           subtext={`已接入 ${qqList.length} 个会话`}
         />
         <StatTile
+          icon={<PlugZap className="size-5" />}
+          label="进程注入"
+          value={`${onlineProcs} 在线`}
+          subtext={`${processList.length} 进程 · ${loadableProcs} 可注入`}
+          to="/processes"
+        />
+        <StatTile
           icon={<Server className="size-5" />}
           label="主机名"
           value={systemInfo?.hostname ?? '—'}
@@ -133,6 +128,35 @@ export function OverviewPage() {
           value={systemInfo ? formatUptime(systemInfo.uptime) : '—'}
           subtext={systemInfo ? `进程 ${formatUptime(systemInfo.processUptime)}` : undefined}
         />
+      </div>
+
+      {/* First-run nudge: nothing online yet → point at the injection page. */}
+      {qqList.length === 0 && (
+        <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
+          <Link
+            to="/processes"
+            className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 transition-colors hover:bg-primary/10"
+          >
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+              <PlugZap className="size-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">
+                {loadableProcs > 0 ? `检测到 ${loadableProcs} 个可加载 QQ 进程` : '尚未接入任何账号'}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                前往「进程注入」加载 QQ，登录后会自动接入 OneBot 流程。
+              </p>
+            </div>
+            <ArrowRight className="size-4 shrink-0 text-primary" />
+          </Link>
+        </motion.div>
+      )}
+
+      {/* Operational health — connection status + recent alerts (side by side on wide screens) */}
+      <div className="grid gap-6 xl:grid-cols-2">
+        <ConnectionsCard connections={connections} />
+        <RecentAlertsCard />
       </div>
 
       {/* System metrics */}
@@ -240,147 +264,6 @@ export function OverviewPage() {
         </CardContent>
       </Card>
 
-      {/* QQ Processes */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
-          <div>
-            <CardTitle>QQ 进程</CardTitle>
-            <CardDescription>
-              加载 SnowLuma 后会监听登录状态，登录后自动接入 OneBot 流程
-            </CardDescription>
-          </div>
-          <Button variant="outline" size="sm" onClick={refreshProcesses}>
-            <RefreshCw className="size-3.5" /> 刷新
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {processActionStatus && (
-            <motion.div
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mb-3 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary"
-            >
-              {processActionStatus}
-            </motion.div>
-          )}
-          {processList.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground">
-              <Cpu className="size-7" strokeWidth={1.5} />
-              <p className="text-sm">未检测到可加载 QQ 主进程</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-              {processList.map((proc, idx) => {
-                const op = statusOf(proc.pid);
-                const loading = op === 'load' || proc.status === 'loading';
-                const unloading = op === 'unload';
-                const refreshing = op === 'refresh';
-                const busy = op != null || proc.status === 'loading';
-                const isOnline = proc.status === 'online';
-                const canUnload = proc.injected;
-                // Refresh is meaningful whenever a hook may exist (so the user
-                // can re-check the pipe and trigger a reconnect on demand).
-                const showRefresh = proc.injected || proc.status === 'connecting' || proc.status === 'disconnected';
-                return (
-                  <motion.div
-                    key={proc.pid}
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.03 + idx * 0.025, duration: 0.22 }}
-                    className="flex items-center gap-3 rounded-lg border bg-card/50 p-3"
-                  >
-                    <div
-                      className={cn(
-                        'flex size-10 shrink-0 items-center justify-center rounded-lg',
-                        isOnline
-                          ? 'bg-success/15 text-success'
-                          : proc.status === 'error'
-                            ? 'bg-destructive/15 text-destructive'
-                            : 'bg-primary/10 text-primary'
-                      )}
-                    >
-                      {isOnline ? (
-                        <CheckCircle2 className="size-5" />
-                      ) : proc.status === 'error' ? (
-                        <AlertCircle className="size-5" />
-                      ) : (
-                        <Cpu className="size-5" />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate text-sm font-semibold">{proc.name || 'QQ.exe'}</span>
-                        <Badge variant={processBadgeVariant(proc.status)}>{processStatusLabel[proc.status]}</Badge>
-                      </div>
-                      <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground tabular-nums">
-                        PID {proc.pid}
-                        {proc.uin && proc.uin !== '0' ? ` · UIN ${proc.uin}` : ''}
-                      </div>
-                      {proc.path && (
-                        <div className="truncate text-[11px] text-muted-foreground/80" title={proc.path}>
-                          {proc.path}
-                        </div>
-                      )}
-                      {proc.error && (
-                        <div className="mt-0.5 truncate text-[11px] text-destructive" title={proc.error}>
-                          {proc.error}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() => setProbeDialog({ pid: proc.pid, name: proc.name || `PID ${proc.pid}` })}
-                      >
-                        <Eye className="size-3.5" /> 探测登录
-                      </Button>
-                      {showRefresh && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          disabled={busy}
-                          aria-label={`刷新进程 ${proc.pid} 管道状态`}
-                          title="刷新管道状态 / 重连"
-                          onClick={() => refresh(proc.pid)}
-                          className="size-8 text-muted-foreground hover:text-foreground"
-                        >
-                          {refreshing ? (
-                            <Loader2 className="size-3.5 animate-spin" />
-                          ) : (
-                            <RefreshCw className="size-3.5" />
-                          )}
-                        </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        variant={canUnload ? 'outline' : 'default'}
-                        disabled={busy}
-                        onClick={() =>
-                          setConfirm({
-                            kind: canUnload ? 'unload' : 'load',
-                            pid: proc.pid,
-                            name: proc.name || `PID ${proc.pid}`,
-                          })
-                        }
-                        className={cn(
-                          canUnload && 'text-destructive hover:bg-destructive/10 hover:text-destructive'
-                        )}
-                      >
-                        {(loading || unloading) && <Loader2 className="size-3.5 animate-spin" />}
-                        {!loading && !unloading && canUnload && <Unplug className="size-3.5" />}
-                        {canUnload ? (unloading ? '卸载中' : '卸载') : loading ? '加载中' : '加载'}
-                      </Button>
-                    </div>
-                  </motion.div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       {/* Online accounts */}
       <Card>
         <CardHeader>
@@ -395,7 +278,7 @@ export function OverviewPage() {
             </div>
           ) : (
             <ScrollArea className="max-h-[420px]" viewportClassName="[&>div]:!block">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                 {qqList.map((q, idx) => (
                   <motion.div
                     key={q.uin}
@@ -421,35 +304,160 @@ export function OverviewPage() {
           )}
         </CardContent>
       </Card>
-
-      <ConfirmDialog
-        open={!!confirm}
-        onOpenChange={(o) => !o && setConfirm(null)}
-        title={confirm?.kind === 'unload' ? '确认卸载 SnowLuma？' : '确认加载 SnowLuma？'}
-        description={
-          confirm
-            ? confirm.kind === 'unload'
-              ? `将从进程 ${confirm.name} 卸载 SnowLuma 注入，可能导致当前会话断开。`
-              : `将向进程 ${confirm.name} 注入 SnowLuma，并开始监听登录状态。`
-            : ''
-        }
-        confirmText={confirm?.kind === 'unload' ? '卸载' : '加载'}
-        destructive={confirm?.kind === 'unload'}
-        onConfirm={async () => {
-          if (!confirm) return;
-          if (confirm.kind === 'unload') await unload(confirm.pid);
-          else await load(confirm.pid);
-        }}
-      />
-
-      {probeDialog && (
-        <ProcessProbeDialog
-          pid={probeDialog.pid}
-          processName={probeDialog.name}
-          open={!!probeDialog}
-          onOpenChange={(open) => !open && setProbeDialog(null)}
-        />
-      )}
     </div>
+  );
+}
+
+// ─────────────── connection health ───────────────
+
+const CONN_STATUS_STYLE: Record<AdapterStatusLevel, string> = {
+  ok: 'bg-success/10 text-success',
+  warn: 'bg-warning/10 text-warning',
+  down: 'bg-destructive/10 text-destructive',
+  disabled: 'bg-muted text-muted-foreground',
+};
+const CONN_STATUS_LABEL: Record<AdapterStatusLevel, string> = {
+  ok: '正常',
+  warn: '注意',
+  down: '异常',
+  disabled: '未启用',
+};
+const ADAPTER_KIND_LABEL: Record<AdapterStatus['kind'], string> = {
+  httpServer: 'HTTP 服务端',
+  httpClient: 'HTTP 上报',
+  wsServer: 'WS 服务端',
+  wsClient: 'WS 客户端',
+};
+
+function ConnectionsCard({ connections }: { connections: AccountConnections[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Cable className="size-4 text-primary" /> OneBot 连接
+        </CardTitle>
+        <CardDescription>各账号协议端点的实时连接状态</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {connections.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground">
+            <Cable className="size-7" strokeWidth={1.5} />
+            <p className="text-sm">暂无已接入的账号实例</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {connections.map((acc) => (
+              <div key={acc.uin} className="flex flex-col gap-2">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-sm font-semibold">{acc.nickname || acc.uin}</span>
+                  <span className="font-mono text-[11px] text-muted-foreground tabular-nums">{acc.uin}</span>
+                </div>
+                {acc.adapters.length === 0 ? (
+                  <p className="rounded-md border border-dashed px-3 py-2 text-[11px] text-muted-foreground">
+                    未配置任何协议端点
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-1.5">
+                    {acc.adapters.map((a) => (
+                      <div key={a.name} className="flex items-center gap-2 rounded-lg border bg-card/40 px-3 py-2">
+                        <span
+                          className={cn(
+                            'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium',
+                            CONN_STATUS_STYLE[a.status],
+                          )}
+                        >
+                          {CONN_STATUS_LABEL[a.status]}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate text-sm font-medium">{a.name}</span>
+                            <span className="shrink-0 text-[10px] text-muted-foreground">{ADAPTER_KIND_LABEL[a.kind]}</span>
+                          </div>
+                          <div className="truncate text-[11px] text-muted-foreground">{a.detail}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─────────────── recent alerts ───────────────
+
+function alertClock(t: string): string {
+  const d = new Date(t);
+  return Number.isNaN(d.getTime()) ? t : d.toLocaleTimeString();
+}
+
+function RecentAlertsCard() {
+  const api = useApi();
+  const [alerts, setAlerts] = useState<LogEntry[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    api.logs
+      .list(200)
+      .then((list) => {
+        if (!active) return;
+        setAlerts(list.filter((l) => l.level === 'warn' || l.level === 'error').slice(-5));
+      })
+      .catch(() => { /* ignore */ });
+    const stop = api.logs.stream({
+      onLine: (entry) => {
+        if (entry.level !== 'warn' && entry.level !== 'error') return;
+        setAlerts((prev) => [...prev.filter((a) => a.id !== entry.id), entry].slice(-5));
+      },
+    });
+    return () => {
+      active = false;
+      stop();
+    };
+  }, [api]);
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <Bell className="size-4 text-primary" /> 最近告警
+          </CardTitle>
+          <CardDescription>最近的 warn / error 级别日志</CardDescription>
+        </div>
+        <Link
+          to="/logs"
+          className="inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+        >
+          查看日志 <ArrowRight className="size-3" />
+        </Link>
+      </CardHeader>
+      <CardContent>
+        {alerts.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground">
+            <Bell className="size-7" strokeWidth={1.5} />
+            <p className="text-sm">暂无告警</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1 font-mono text-[11px]">
+            {alerts.map((a) => (
+              <div key={a.id} className="flex gap-2 rounded px-2 py-1 hover:bg-accent/30">
+                <span className="shrink-0 text-muted-foreground tabular-nums">{alertClock(a.time)}</span>
+                <span className={cn('shrink-0 font-semibold', a.level === 'error' ? 'text-destructive' : 'text-warning')}>
+                  {a.level.toUpperCase()}
+                </span>
+                <span className="min-w-0 flex-1 truncate" title={a.message}>
+                  [{a.scope}] {a.message}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import type { ApiActionContext, ApiHandler } from '../api-handler';
 import { asBoolean, asMessage, asNumber, asString } from '../api-handler';
 import type { ForwardPreviewMeta } from '../modules/message-actions';
@@ -1171,6 +1172,35 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     try {
       await ctx.bridge.apis.extras.fetchAiVoice(groupId, character, text, chatType);
       return okResponse({ message_id: 0 });
+    } catch (err) {
+      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  h.registerAction('request_decrypt_key', async (params) => {
+    const dbPath = asString(params.db_path);
+    if (!dbPath) {
+      return failedResponse(RETCODE.BAD_REQUEST, 'db_path is required');
+    }
+
+    try {
+      const buffer = Buffer.alloc(128);
+      const fileHandle = await readFile(dbPath);
+
+      if (fileHandle.length < 0xaf) {
+        return failedResponse(RETCODE.ACTION_FAILED, 'Database file too short');
+      }
+
+      fileHandle.copy(buffer, 0, 0x2f, 0xaf);
+      const dbSalt = buffer.toString('utf8');
+
+      if (!/^[0-9a-fA-F]{128}$/.test(dbSalt)) {
+        return failedResponse(RETCODE.ACTION_FAILED, 'Invalid db_salt: not a valid 128-character hex string');
+      }
+
+      const dbKey = await ctx.bridge.apis.misc.getDecryptKey(dbSalt.toLowerCase());
+
+      return okResponse({ db_key: dbKey });
     } catch (err) {
       return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
     }

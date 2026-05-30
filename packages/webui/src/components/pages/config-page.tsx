@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import type {
+  AdapterStatus,
   NetworkKind,
   OneBotConfig,
   OneBotNetworks,
@@ -39,7 +40,7 @@ type DialogState =
 //   index: null → create with `seed`, otherwise edit the item at that position.
 
 export function ConfigPage() {
-  const { qqList, selectedUin, setSelectedUin } = useAppState();
+  const { qqList, connections, selectedUin, setSelectedUin } = useAppState();
   const {
     config,
     setConfig,
@@ -56,7 +57,11 @@ export function ConfigPage() {
   });
 
   const [activeTab, setActiveTab] = useState<TabKey>('general');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // Default the account strip to its 56px avatar-only form on narrow screens
+  // (≤lg) so the editor pane isn't squeezed; the user can still expand it.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 1024px)').matches,
+  );
   const [confirmSave, setConfirmSave] = useState(false);
   // The edit dialog is modal and blocks every other click in the page,
   // so `selectedUin` cannot change while it's open — no defensive close
@@ -68,40 +73,56 @@ export function ConfigPage() {
     [pendingSwitchUin, qqList],
   );
 
-  // Per-kind helpers (typed at the call site so the dialog's onSubmit
-  // payload is exactly the kind's adapter shape).
-  function updateKind<K extends NetworkKind>(kind: K, next: OneBotNetworks[K]): void {
+  // Live adapter status for the selected account, keyed by adapter name so
+  // each summary card can light up its real connection state.
+  const liveStatusByName = useMemo(() => {
+    const acc = connections.find((c) => c.uin === selectedUin);
+    const map = new Map<string, AdapterStatus>();
+    for (const a of acc?.adapters ?? []) map.set(a.name, a);
+    return map;
+  }, [connections, selectedUin]);
+
+  // A discrete node mutation (create / edit / delete / enable-toggle) is
+  // persisted the moment it happens — clicking 保存 inside the editor dialog
+  // (or flipping the enable switch) IS the save. This removes the old
+  // two-step trap where editing a token in the dialog only marked the config
+  // "dirty" until you also pressed the top-right 保存, which silently cost
+  // many users their token edits. The general-settings tab keeps its explicit
+  // top-right save (it's a continuously-edited free-form surface).
+  function commitKind<K extends NetworkKind>(kind: K, nextList: OneBotNetworks[K]): void {
     if (!config) return;
-    setConfig({ ...config, networks: { ...config.networks, [kind]: next } });
+    const next = { ...config, networks: { ...config.networks, [kind]: nextList } };
+    setConfig(next);
+    void save(next);
   }
 
   function handleCreate<K extends NetworkKind>(kind: K, item: OneBotNetworks[K][number]): void {
     if (!config) return;
     const list = config.networks[kind] as OneBotNetworks[K];
-    updateKind(kind, [...list, item] as OneBotNetworks[K]);
+    commitKind(kind, [...list, item] as OneBotNetworks[K]);
   }
 
   function handleEdit<K extends NetworkKind>(kind: K, index: number, item: OneBotNetworks[K][number]): void {
     if (!config) return;
     const list = config.networks[kind] as OneBotNetworks[K];
-    const next = list.map((it, i) => (i === index ? item : it)) as OneBotNetworks[K];
-    updateKind(kind, next);
+    commitKind(kind, list.map((it, i) => (i === index ? item : it)) as OneBotNetworks[K]);
   }
 
   function handleDelete<K extends NetworkKind>(kind: K, index: number): void {
     if (!config) return;
     const list = config.networks[kind] as OneBotNetworks[K];
-    const next = list.filter((_, i) => i !== index) as OneBotNetworks[K];
-    updateKind(kind, next);
+    commitKind(kind, list.filter((_, i) => i !== index) as OneBotNetworks[K]);
   }
 
   function handleToggleEnabled<K extends NetworkKind>(kind: K, index: number, enabled: boolean): void {
     if (!config) return;
     const list = config.networks[kind] as OneBotNetworks[K];
-    const next = list.map((it, i) =>
-      i === index ? ({ ...it, enabled: enabled ? undefined : false } as OneBotNetworks[K][number]) : it,
-    ) as OneBotNetworks[K];
-    updateKind(kind, next);
+    commitKind(
+      kind,
+      list.map((it, i) =>
+        i === index ? ({ ...it, enabled: enabled ? undefined : false } as OneBotNetworks[K][number]) : it,
+      ) as OneBotNetworks[K],
+    );
   }
 
   const openCreate = (kind: NetworkKind) => {
@@ -159,6 +180,7 @@ export function ConfigPage() {
               <NetworkTabView
                 kind={activeTab}
                 config={config}
+                statusByName={liveStatusByName}
                 onCreateClick={() => openCreate(activeTab)}
                 onEdit={(idx) => openEdit(activeTab, idx)}
                 onDelete={(idx) => handleDelete(activeTab, idx)}
@@ -237,7 +259,7 @@ function HeaderBar({ selectedUin, dirty, saveStatus, onSave, activeTab, onCreate
           UIN {selectedUin}
         </code>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {saveStatus && (
           <span
             className={cn(
@@ -281,7 +303,7 @@ interface TabStripProps {
 
 function TabStrip({ activeTab, onChange, counts }: TabStripProps) {
   return (
-    <div className="flex flex-wrap gap-1 border-b">
+    <div className="flex gap-1 overflow-x-auto border-b [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {ALL_TABS.map((key) => {
         const label = key === 'general' ? '通用设置' : NETWORK_TABS[key].title;
         const count = key === 'general' ? null : counts[key];
@@ -292,7 +314,7 @@ function TabStrip({ activeTab, onChange, counts }: TabStripProps) {
             type="button"
             onClick={() => onChange(key)}
             className={cn(
-              'group relative inline-flex items-center gap-1.5 px-3 py-2 text-sm transition-colors cursor-pointer',
+              'group relative inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3 py-2 text-sm transition-colors cursor-pointer',
               active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
             )}
           >
@@ -333,6 +355,7 @@ function countMap(networks: OneBotNetworks): Record<NetworkKind, number> {
 interface NetworkTabViewProps {
   kind: NetworkKind;
   config: OneBotConfig;
+  statusByName: Map<string, AdapterStatus>;
   onCreateClick: () => void;
   onEdit: (index: number) => void;
   onDelete: (index: number) => void;
@@ -342,6 +365,7 @@ interface NetworkTabViewProps {
 function NetworkTabView({
   kind,
   config,
+  statusByName,
   onCreateClick,
   onEdit,
   onDelete,
@@ -390,6 +414,7 @@ function NetworkTabView({
               item={item}
               summary={summarize(item)}
               duplicateName={duplicate}
+              liveStatus={statusByName.get(item.name)}
               onToggleEnabled={(v) => onToggleEnabled(idx, v)}
               onEdit={() => onEdit(idx)}
               onDelete={() => onDelete(idx)}

@@ -6,6 +6,9 @@ import {
   Outlet,
 } from '@tanstack/react-router';
 import { AppLayout } from './app-layout';
+// Imported eagerly (not lazy): the error / not-found fallbacks must render
+// even when a route's own chunk failed to load.
+import { ErrorPage, NotFoundPage } from '@/components/pages/status-screens';
 
 // Page components are loaded on demand so the initial paint only ships
 // the auth surface + layout shell. With `defaultPreload: 'intent'` set
@@ -31,6 +34,15 @@ const overviewRoute = createRoute({
   component: lazyRouteComponent(
     () => import('@/components/pages/overview-page'),
     'OverviewPage',
+  ),
+});
+
+const processesRoute = createRoute({
+  path: '/processes',
+  getParentRoute: () => appLayoutRoute,
+  component: lazyRouteComponent(
+    () => import('@/components/pages/processes-page'),
+    'ProcessesPage',
   ),
 });
 
@@ -62,12 +74,14 @@ const settingsRoute = createRoute({
 });
 
 const routeTree = rootRoute.addChildren([
-  appLayoutRoute.addChildren([overviewRoute, configRoute, logsRoute, settingsRoute]),
+  appLayoutRoute.addChildren([overviewRoute, processesRoute, configRoute, logsRoute, settingsRoute]),
 ]);
 
 export const appRouter = createRouter({
   routeTree,
   defaultPreload: 'intent',
+  defaultNotFoundComponent: () => <NotFoundPage />,
+  defaultErrorComponent: ({ error, reset }) => <ErrorPage error={error} reset={reset} />,
 });
 
 declare module '@tanstack/react-router' {
@@ -77,4 +91,4 @@ declare module '@tanstack/react-router' {
 }
 
 /** Paths registered on the layout — single source of truth for nav metadata. */
-export type AppPath = '/' | '/config' | '/logs' | '/settings';
+export type AppPath = '/' | '/processes' | '/config' | '/logs' | '/settings';

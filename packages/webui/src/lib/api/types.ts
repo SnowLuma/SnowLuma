@@ -1,4 +1,5 @@
 import type {
+  AccountConnections,
   HookProcessInfo,
   LogEntry,
   LogLevel,
@@ -50,6 +51,8 @@ export interface ApiClient {
   // ---- system ----
   qqList(): Promise<QQInfo[]>;
   system(): Promise<SystemInfo>;
+  /** Live OneBot adapter health per account. */
+  connections(): Promise<AccountConnections[]>;
 
   // ---- hook processes ----
   processes: {

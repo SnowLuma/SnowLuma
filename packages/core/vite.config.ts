@@ -1,10 +1,10 @@
-import { defineConfig, PluginOption, UserConfig } from 'vite';
-import { fileURLToPath } from 'url';
-import fs from 'fs';
-import path from 'path';
-import { builtinModules } from 'module';
-import cp from 'vite-plugin-cp';
 import protobufVitePlugin from '@snowluma/proton/vite';
+import fs from 'fs';
+import { builtinModules } from 'module';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { defineConfig, PluginOption, UserConfig } from 'vite';
+import cp from 'vite-plugin-cp';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -20,12 +20,16 @@ const rootPkg = JSON.parse(
 // vite-plugin-cp consumes globs through globby; on Windows we must use POSIX-style separators.
 const toPosix = (p: string) => p.replace(/\\/g, '/');
 
-// `@snowluma/websocket` and `@snowluma/sqlite` are bundled — they're
-// in-tree TS workspace wrappers that route their native `.node`
-// addons through `dist/native/`. Only Node builtins stay external;
-// the actual `better-sqlite3` JS wrapper is pulled in via the
-// `@snowluma/sqlite` re-export and bundled into `index.mjs`.
-const external: string[] = [];
+// `@snowluma/websocket` is bundled — it's an
+// in-tree TS workspace wrapper that routes its native `.node`
+// addon through `dist/native/`. Only Node builtins stay external.
+//
+// `node:sqlite` is an experimental builtin that Node 22.x lines don't
+// list in `builtinModules`, so the `nodeModules` sweep below misses it.
+// Externalise it explicitly — otherwise Vite bundles it and swaps in a
+// browser shell, crashing the hook with `DatabaseSync is not a
+// constructor` (the bug PR #68 set out to fix).
+const external: string[] = ['node:sqlite', 'sqlite'];
 
 const nodeModules = [...builtinModules, ...builtinModules.map((m) => `node:${m}`)].flat();
 
@@ -46,20 +50,8 @@ const runtimeDistFiles = ['package.json',
 // Native binaries shipped for the selected target:
 //   * `snowluma-*.{dll,node,so}`           – NTQQ hook (Windows + Linux).
 //   * `websocket-*.node`                   – RFC 6455 framing/mask addon (all platforms).
-//   * `better-sqlite3-v<abi>-*.node`       – SQLite native binding consumed
-//                                            by @snowluma/sqlite. Two ABIs
-//                                            vendored side-by-side
-//                                            (v127 = Node 22 LTS, v137 =
-//                                            Node 24) so the runtime can
-//                                            pick whichever matches the
-//                                            host's `process.versions.modules`.
-//                                            Vendored via
-//                                            `tools/fetch-sqlite-prebuilts.mjs`
-//                                            from WiseLibs's prebuild releases.
-const SQLITE_ABIS = ['v127', 'v137'];
 const nativeFiles = [
   `websocket-${targetTriple}.node`,
-  ...SQLITE_ABIS.map((abi) => `better-sqlite3-${abi}-${targetTriple}.node`),
   ...(targetPlatform === 'win32'
     ? [`snowluma-${targetTriple}.dll`, `snowluma-${targetTriple}.node`]
     : []),

@@ -1,6 +1,6 @@
 {
   "name": "@snowluma/bridge",
-  "version": "1.9.2",
+  "version": "1.9.3",
   "private": true,
   "type": "module",
   "description": "SnowLuma bridge — QQ NT desktop client lifecycle: hook injection (via native addon), per-PID HookSession orchestration, pipe-watcher for process discovery, and the BridgeManagerSink interface that lets the hook layer call back into a UIN-keyed session router without depending on @snowluma/core. Consumed by the top-level app entry (which constructs the BridgeManager from @snowluma/core and injects it as the sink) and by the WebUI server (read-only HookProcessInfo views).",

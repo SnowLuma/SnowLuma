@@ -21,6 +21,13 @@ const levelClass: Record<LogLevel, string> = {
 
 const LEVELS: LogLevel[] = ['debug', 'info', 'success', 'warn', 'error'];
 
+/** Show a locale time when the backend sends an ISO timestamp (it does);
+ *  fall back to the raw string otherwise so we never render "Invalid Date". */
+function formatTime(t: string): string {
+  const d = new Date(t);
+  return Number.isNaN(d.getTime()) ? t : d.toLocaleTimeString();
+}
+
 export function LogsPage() {
   const api = useApi();
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -205,16 +212,19 @@ export function LogsPage() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ duration: 0.12 }}
-                    className="flex gap-2 whitespace-pre-wrap px-3 py-0.5 leading-5 hover:bg-accent/30"
+                    className="flex flex-col gap-0.5 px-3 py-1 leading-5 hover:bg-accent/30 sm:flex-row sm:gap-2 sm:py-0.5"
                   >
-                    <span className="shrink-0 text-muted-foreground tabular-nums">
-                      {new Date(log.time).toLocaleTimeString()}
-                    </span>
-                    <span className={cn('w-14 shrink-0 font-semibold', levelClass[log.level])}>
-                      {log.level.toUpperCase()}
-                    </span>
-                    <span className="w-28 shrink-0 truncate text-muted-foreground">[{log.scope}]</span>
-                    <span className="break-all">{log.message}</span>
+                    {/* Meta drops to its own line on phones so the message gets
+                        the full width instead of a ~40px column that breaks
+                        every few characters. On sm+ it's the dense single row. */}
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="shrink-0 text-muted-foreground tabular-nums">{formatTime(log.time)}</span>
+                      <span className={cn('shrink-0 font-semibold sm:w-14', levelClass[log.level])}>
+                        {log.level.toUpperCase()}
+                      </span>
+                      <span className="min-w-0 truncate text-muted-foreground sm:w-28">[{log.scope}]</span>
+                    </div>
+                    <span className="min-w-0 whitespace-pre-wrap break-all">{log.message}</span>
                   </motion.div>
                 ))
               )}

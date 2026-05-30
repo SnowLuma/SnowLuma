@@ -3,9 +3,17 @@ import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import type { BridgeManager } from '@snowluma/core/manager';
 import { loadOneBotConfig } from './config';
 import { OneBotInstance } from './instance';
+import type { AdapterStatus } from './network';
 
 const log = createLogger('OneBot');
 const VERBOSE_WARMUP = process.env.SNOWLUMA_VERBOSE_WARMUP === '1';
+
+/** Per-account OneBot connection health, surfaced to the WebUI dashboard. */
+export interface AccountConnections {
+  uin: string;
+  nickname: string;
+  adapters: AdapterStatus[];
+}
 
 export class OneBotManager {
   private readonly instances = new Map<string, OneBotInstance>();
@@ -26,6 +34,15 @@ export class OneBotManager {
 
   getInstances(): OneBotInstance[] {
     return [...this.instances.values()];
+  }
+
+  /** Live OneBot adapter status for every account, for the WebUI dashboard. */
+  getConnectionStatuses(): AccountConnections[] {
+    return this.getInstances().map((i) => ({
+      uin: i.uin,
+      nickname: i.nickname,
+      adapters: i.getConnectionStatuses(),
+    }));
   }
 
   reloadConfig(uin: string): boolean {

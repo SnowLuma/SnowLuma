@@ -45,7 +45,7 @@ async function elementToSegment(
   }
 
   if (element.type === 'image') {
-    const url = imageUrlResolver ? imageUrlResolver(element, isGroup) : (element.imageUrl ?? '');
+    const url = imageUrlResolver ? await imageUrlResolver(element, isGroup) : (element.imageUrl ?? '');
     const data: JsonObject = {
       url,
       file: element.fileId ?? '',

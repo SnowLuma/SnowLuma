@@ -139,3 +139,43 @@ interface DoubleMsg {
     expect(result.values[1]).toBeCloseTo(-0.5);
   });
 });
+
+describe('pb_optional explicit presence', () => {
+  it('serialises a zero scalar (where pb<> would omit it)', () => {
+    const { enc, dec } = makeRoundTripFromSchema(
+      `interface OptMsg { forced: pb_optional<1, uint_32>; }`,
+      'OptMsg',
+    );
+    // field 1, varint, value 0 → tag 0x08 then payload 0x00 (NOT empty).
+    expect(Array.from(enc({ forced: 0 }))).toEqual([0x08, 0x00]);
+    expect(dec(enc({ forced: 0 })).forced).toBe(0);
+  });
+
+  it('still omits the field when the value is absent (undefined)', () => {
+    const { enc } = makeRoundTripFromSchema(
+      `interface OptMsg2 { forced: pb_optional<1, uint_32>; }`,
+      'OptMsg2',
+    );
+    expect(enc({}).length).toBe(0);
+  });
+
+  it('does not change a sibling plain pb<> field (it still omits its zero)', () => {
+    const { enc, dec } = makeRoundTripFromSchema(
+      `interface MixMsg { plain: pb<1, uint_32>; forced: pb_optional<2, uint_32>; }`,
+      'MixMsg',
+    );
+    // plain=0 omitted (unchanged); only forced=0 is emitted (field 2 → tag 0x10).
+    expect(Array.from(enc({ plain: 0, forced: 0 }))).toEqual([0x10, 0x00]);
+    expect(dec(enc({ plain: 7, forced: 9 }))).toEqual({ plain: 7, forced: 9 });
+  });
+
+  it('forces a false bool onto the wire', () => {
+    const { enc, dec } = makeRoundTripFromSchema(
+      `interface BoolOpt { flag: pb_optional<1, bool>; }`,
+      'BoolOpt',
+    );
+    expect(Array.from(enc({ flag: false }))).toEqual([0x08, 0x00]);
+    expect(dec(enc({ flag: false })).flag).toBe(false);
+    expect(Array.from(enc({ flag: true }))).toEqual([0x08, 0x01]);
+  });
+});

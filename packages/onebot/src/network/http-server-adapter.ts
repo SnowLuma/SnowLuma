@@ -7,13 +7,14 @@ import {
 } from 'http';
 import type { DispatchPayload } from '../event-filter';
 import type { HttpServerNetwork, JsonObject, JsonValue } from '../types';
-import { IOneBotNetworkAdapter, NetworkReloadType, type NetworkAdapterContext } from './adapter';
+import { IOneBotNetworkAdapter, NetworkReloadType, type AdapterStatus, type NetworkAdapterContext } from './adapter';
 import { isAuthorized, normalizePath } from './utils';
 
 const moduleLog = createLogger('OneBot.HTTP');
 
 export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> {
   private server: Server | null = null;
+  private listening = false;
   private readonly log: Logger;
 
   constructor(name: string, config: HttpServerNetwork, ctx: NetworkAdapterContext) {
@@ -36,8 +37,15 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
   close(): void {
     if (!this.isEnabled && !this.server) return;
     this.isEnabled = false;
+    this.listening = false;
     this.server?.close();
     this.server = null;
+  }
+
+  override describeStatus(): AdapterStatus {
+    if (!this.isEnabled) return { name: this.name, kind: 'httpServer', status: 'disabled', detail: '未启用' };
+    if (!this.listening) return { name: this.name, kind: 'httpServer', status: 'down', detail: '未监听（端口被占用？）' };
+    return { name: this.name, kind: 'httpServer', status: 'ok', detail: '监听中' };
   }
 
   async reload(next: HttpServerNetwork): Promise<NetworkReloadType> {
@@ -76,6 +84,7 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
     this.server = server;
 
     server.on('listening', () => {
+      this.listening = true;
       this.log.success(
         '[%s] listening %s:%d%s',
         this.name,
@@ -85,6 +94,7 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
       );
     });
     server.on('error', (err) => {
+      this.listening = false;
       this.log.warn('[%s] server error: %s', this.name, err instanceof Error ? err.message : String(err));
     });
 

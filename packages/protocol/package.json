@@ -1,6 +1,6 @@
 {
   "name": "@snowluma/protocol",
-  "version": "1.9.2",
+  "version": "1.9.3",
   "private": true,
   "type": "module",
   "description": "SnowLuma protocol — the protocol-layer between QQ wire bytes and typed events. Owns: identity service (uid↔uin cache with SQLite persistence), event bus, packet pipeline (incoming SSO packet → QQEventVariant), msg-push decoders, element-builder (MessageElement → wire elems[]), highway upload protocol (file/image/video/ptt), OIDB envelope helper, and the event/notice/request type vocabulary. Consumers (@snowluma/core, @snowluma/onebot) talk to this package through `BridgeContext` for runtime calls and the standalone classes (IdentityService, BridgeEventBus, IncomingPacketPipeline) for composition. Per-file subpath exports mirror the legacy `core/src/bridge/*` layout 1:1 so the previous `import { …} from '../bridge/<x>'` collapses to `import { … } from '@snowluma/protocol/<x>'`.",
@@ -106,6 +106,10 @@
     "./oidb-services/misc/send-group-sign": {
       "types": "./src/oidb-services/misc/send-group-sign.ts",
       "default": "./src/oidb-services/misc/send-group-sign.ts"
+    },
+    "./oidb-services/misc/request-decrypt-key": {
+      "types": "./src/oidb-services/misc/request-decrypt-key.ts",
+      "default": "./src/oidb-services/misc/request-decrypt-key.ts"
     },
     "./oidb-services/web/force-fetch-client-key": {
       "types": "./src/oidb-services/web/force-fetch-client-key.ts",
@@ -368,8 +372,7 @@
   "dependencies": {
     "@snowluma/common": "workspace:*",
     "@snowluma/proto-defs": "workspace:*",
-    "@snowluma/proton": "workspace:*",
-    "@snowluma/sqlite": "workspace:*"
+    "@snowluma/proton": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.12.2",

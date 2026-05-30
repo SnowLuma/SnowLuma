@@ -1,6 +1,6 @@
 import type { MessageElement } from '@snowluma/protocol/events';
-import Database, { type Database as DatabaseType, type Statement } from '@snowluma/sqlite';
 import fs from 'fs';
+import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import path from 'path';
 
 export interface CachedImage {
@@ -62,17 +62,17 @@ const TYPE_VIDEO = 'video';
 const DEFAULT_KEEP_ENTRIES = 4096;
 
 export class MediaStore {
-  private readonly db: DatabaseType;
+  private readonly db: DatabaseSync;
   private readonly maxEntriesPerType: number;
 
   // Prepared statements (pay the parsing cost once at startup).
-  private readonly upsertEntry: Statement;
-  private readonly upsertKey: Statement;
-  private readonly findEntryByKey: Statement;
-  private readonly findEntryByPrimary: Statement;
-  private readonly evictByType: Statement;
-  private readonly purgeOrphanKeys: Statement;
-  private readonly countByType: Statement;
+  private readonly upsertEntry: StatementSync;
+  private readonly upsertKey: StatementSync;
+  private readonly findEntryByKey: StatementSync;
+  private readonly findEntryByPrimary: StatementSync;
+  private readonly evictByType: StatementSync;
+  private readonly purgeOrphanKeys: StatementSync;
+  private readonly countByType: StatementSync;
 
   constructor(dbPath: string, maxEntriesPerType = DEFAULT_KEEP_ENTRIES) {
     this.maxEntriesPerType = Math.max(64, maxEntriesPerType);
@@ -80,9 +80,9 @@ export class MediaStore {
     const dir = path.dirname(dbPath);
     fs.mkdirSync(dir, { recursive: true });
 
-    this.db = new Database(dbPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('synchronous = NORMAL');
+    this.db = new DatabaseSync(dbPath);
+    this.db.exec('PRAGMA journal_mode = WAL');
+    this.db.exec('PRAGMA synchronous = NORMAL');
     this.initSchema();
 
     this.upsertEntry = this.db.prepare(

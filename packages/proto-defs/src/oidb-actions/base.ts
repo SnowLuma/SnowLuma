@@ -1,4 +1,4 @@
-import type { pb, pb_repeated, int_32, uint_32, uint_64, bool, bytes } from '@snowluma/proton';
+import type { pb, pb_optional, pb_repeated, int_32, uint_32, uint_64, bool, bytes } from '@snowluma/proton';
 
 // Re-exported from the legacy oidb-action module while large protocol groups
 // are split into focused files.
@@ -13,7 +13,11 @@ export interface OidbMuteMember {
   body?:     pb<3, OidbMuteMemberBody>;
 }
 export interface OidbMuteAllState {
-  state?: pb<17, uint_32>;
+  // Explicit presence: the unmute request sends state=0, which proto3 would
+  // otherwise omit — leaving an empty `muteState` the server can't tell apart
+  // from the other commands sharing OIDB (0x89A, 0) (SetSearch / SetAddOption,
+  // disambiguated by body shape). pb_optional forces the 0 onto the wire.
+  state?: pb_optional<17, uint_32>;
 }
 export interface OidbMuteAll {
   groupUin?:  pb<1, uint_32>;
@@ -90,13 +94,19 @@ export interface OidbSetAdmin {
   uid?:      pb<2, string>;
   isAdmin?:  pb<3, bool>;
 }
+// 0x8FC_3 (set member card) shares its wire shape with 0x8FC_2 (special
+// title): the body wrapper sits at tag 3, and the card name at tag 8 —
+// NOT tags 2/2. Sending body@2 / targetName@2 makes the server miss both
+// and reject with `OIDB error 1007`. Cross-checked byte-for-byte against:
+//   dev/Lagrange.Core/…/Request/OidbSvcTrpcTcp0x8FC.cs (Body=3, TargetName=8)
+//   dev/napcatQQInside/…/proto/oidb/Oidb.0x8FC_2.ts    (body=3, targetName=8)
 export interface OidbRenameMemberBody {
   targetUid?:  pb<1, string>;
-  targetName?: pb<2, string>;
+  targetName?: pb<8, string>;
 }
 export interface OidbRenameMember {
   groupUin?: pb<1, uint_32>;
-  body?:     pb<2, OidbRenameMemberBody>;
+  body?:     pb<3, OidbRenameMemberBody>;
 }
 export interface OidbRenameGroupBody {
   targetName?: pb<1, string>;
@@ -112,7 +122,8 @@ export interface OidbSpecialTitleBody {
 }
 export interface OidbSpecialTitle {
   groupUin?: pb<1, uint_32>;
-  body?:     pb<2, OidbSpecialTitleBody>;
+  // Same family as 0x8FC_3 above — body wrapper is tag 3, not 2.
+  body?:     pb<3, OidbSpecialTitleBody>;
 }
 // 0x7E5_104 (FriendLike) request body. Field numbers 11/12/13 (NOT
 // 1/2/3) — the server reads `targetUid` from tag 11 and rejects with
@@ -658,3 +669,21 @@ export interface GroupAvatarExtra {
   field5?:   pb<5, uint_32>;
   field6?:   pb<6, uint_32>;
 }
+
+export interface Oidb0xcdeReqBodyInfo {
+  db_salt?: pb<1, string>;
+}
+
+export interface Oidb0xcdeReq {
+  info?: pb<2, Oidb0xcdeReqBodyInfo>;
+  sessionData?: pb<10, bytes>;
+}
+
+export interface Oidb0xcdeRespBodyInfo {
+  dbKey?: pb<1, string>;
+}
+
+export interface Oidb0xcdeResp {
+  info?: pb<2, Oidb0xcdeRespBodyInfo>;
+}
+

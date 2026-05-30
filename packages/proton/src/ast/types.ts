@@ -13,6 +13,14 @@ export interface ProtobufField {
   isMessage: boolean;
   isOptional: boolean;
   isRepeated: boolean;
+  /**
+   * Explicit presence (proto3 `optional`), set only by the `pb_optional<>`
+   * marker. When true, a scalar field serialises even at its zero/default
+   * value. Distinct from `isOptional` (which merely tracks the TS `?` and is
+   * true for almost every field) — the encoder keys off THIS flag, never
+   * `isOptional`, so existing `pb<>` fields are unaffected.
+   */
+  explicitPresence: boolean;
 }
 
 export interface ProtobufMessage {
@@ -34,6 +42,8 @@ export interface GenericFieldTemplate {
   isTypeParam: boolean;
   isOptional: boolean;
   isRepeated: boolean;
+  /** Explicit presence (proto3 `optional`); see ProtobufField.explicitPresence. */
+  explicitPresence: boolean;
   /**
    * For fields whose type-arg is itself a generic instantiation
    * (e.g. `wrapped: pb<5, Wrapper<U>>` where `U` is a template type
@@ -70,3 +80,4 @@ export const PRIMITIVE_TYPE_MAP: Record<string, { wireType: WireType; defaultVal
 /** Marker identifiers recognised in type references */
 export const PB_MARKER = 'pb';
 export const PB_REPEATED_MARKER = 'pb_repeated';
+export const PB_OPTIONAL_MARKER = 'pb_optional';

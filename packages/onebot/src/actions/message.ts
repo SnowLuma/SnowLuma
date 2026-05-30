@@ -3,6 +3,35 @@ import type { ApiHandler, ApiActionContext } from '../api-handler';
 import { asNumber, asString, asBoolean, asMessage } from '../api-handler';
 import { RETCODE, failedResponse, okResponse } from '../types';
 
+/**
+ * Re-sign image URLs in a stored message event at read time. `get_msg`
+ * returns a copy persisted when the message first arrived, and image rkeys
+ * expire — so walk the segment array and refresh each image URL through
+ * `ctx.getImageInfo`, which mints a current rkey. Best-effort and in-place;
+ * `findEvent` returns a fresh parse, so mutating the array is safe.
+ */
+async function refreshStoredImageUrls(event: JsonObject, ctx: ApiActionContext): Promise<void> {
+  const segments = event.message;
+  if (!Array.isArray(segments)) return;
+  for (const seg of segments) {
+    if (!seg || typeof seg !== 'object') continue;
+    const segment = seg as { type?: unknown; data?: Record<string, JsonValue> };
+    if (segment.type !== 'image') continue;
+    const data = segment.data;
+    if (!data || typeof data !== 'object') continue;
+    const file = typeof data.file === 'string' ? data.file
+      : typeof data.file_id === 'string' ? data.file_id
+        : '';
+    if (!file) continue;
+    try {
+      const info = await ctx.getImageInfo(file);
+      if (info && typeof info.url === 'string' && info.url) data.url = info.url;
+    } catch {
+      // Keep the stored URL when the refresh fails.
+    }
+  }
+}
+
 export function register(h: ApiHandler, ctx: ApiActionContext): void {
   h.registerAction('send_msg', async (params) => {
     const messageType = asString(params.message_type);
@@ -77,6 +106,7 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
     delete result.post_type;
     delete result.self_id;
     result.real_id = (result.message_id ?? messageId) as JsonValue;
+    await refreshStoredImageUrls(result, ctx);
     return okResponse(result);
   });
 

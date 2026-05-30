@@ -9,6 +9,7 @@ import type { BridgeContext } from '../bridge-context';
 import { ClickInlineKeyboardButton } from '@snowluma/protocol/oidb-services/misc/click-inline-keyboard-button';
 import { SendGroupSign } from '@snowluma/protocol/oidb-services/misc/send-group-sign';
 import { TranslateEnToZh } from '@snowluma/protocol/oidb-services/misc/translate-en-to-zh';
+import { RequestDbKey } from '@snowluma/protocol/oidb-services/misc/request-decrypt-key';
 
 export class MiscApi {
   constructor(private readonly ctx: BridgeContext) { }
@@ -74,5 +75,16 @@ export class MiscApi {
 
   sendGroupSign(groupId: number): Promise<void> {
     return SendGroupSign.invoke(this.ctx, { groupId });
+  }
+
+  async getDecryptKey(dbSalt: string): Promise<string> {
+    const result = await RequestDbKey.invoke(this.ctx, { db_salt: dbSalt });
+    if (!result.success) {
+      throw new Error(result.errorMsg || `Failed to get decrypt key (code: ${result.errorCode})`);
+    }
+    if (!result.dbKey) {
+      throw new Error('Decrypt key is empty');
+    }
+    return result.dbKey;
   }
 }

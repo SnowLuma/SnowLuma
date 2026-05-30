@@ -9,11 +9,27 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import type { AdapterCommon } from './defaults';
+import type { AdapterStatus } from '@/types';
+
+const LIVE_STYLE: Record<AdapterStatus['status'], string> = {
+  ok: 'bg-success/10 text-success',
+  warn: 'bg-warning/10 text-warning',
+  down: 'bg-destructive/10 text-destructive',
+  disabled: 'bg-muted text-muted-foreground',
+};
+const LIVE_LABEL: Record<AdapterStatus['status'], string> = {
+  ok: '正常',
+  warn: '注意',
+  down: '异常',
+  disabled: '未启用',
+};
 
 interface NodeSummaryCardProps<T extends AdapterCommon> {
   item: T;
   summary: string;
   duplicateName: boolean;
+  /** Live runtime status from the OneBot manager, matched by adapter name. */
+  liveStatus?: AdapterStatus;
   onToggleEnabled: (next: boolean) => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -23,6 +39,7 @@ export function NodeSummaryCard<T extends AdapterCommon>({
   item,
   summary,
   duplicateName,
+  liveStatus,
   onToggleEnabled,
   onEdit,
   onDelete,
@@ -50,6 +67,14 @@ export function NodeSummaryCard<T extends AdapterCommon>({
           )}
           {!enabled && (
             <Badge variant="secondary" className="font-normal">已停用</Badge>
+          )}
+          {liveStatus && (
+            <span
+              className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium', LIVE_STYLE[liveStatus.status])}
+              title={liveStatus.detail}
+            >
+              {LIVE_LABEL[liveStatus.status]} · {liveStatus.detail}
+            </span>
           )}
         </div>
         <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground tabular-nums">{summary}</div>

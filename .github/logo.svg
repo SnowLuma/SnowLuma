@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 120" width="100%" height="100%" style="background-color: transparent;">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@800&amp;display=swap');
+      
+      .title-font {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        font-size: 48px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        text-anchor: middle;
+      }
+      
+      .star-fx {
+        animation: floatAnimation 4s ease-in-out infinite;
+      }
+      .star-top { transform-origin: 265px 25px; fill: #cec1e6; }
+      .star-bottom { transform-origin: 45px 95px; animation-delay: 0.5s; fill: #fad6e6; }
+
+      @keyframes floatAnimation {
+        0% { transform: translateY(0px) rotate(0deg); opacity: 0.9; }
+        50% { transform: translateY(-8px) rotate(10deg); opacity: 1; }
+        100% { transform: translateY(0px) rotate(0deg); opacity: 0.9; }
+      }
+    </style>
+  </defs>
+
+  <g transform="translate(160, 75)">
+    <text class="title-font" dx="2" dy="2">
+      <tspan fill="#f9d5e7">Snow</tspan><tspan fill="#a5c9ff">Luma</tspan>
+    </text>
+    
+    <text class="title-font" dx="0" dy="0">
+      <tspan fill="#a5c9ff">Snow</tspan><tspan fill="#cec1e6">Luma</tspan>
+    </text>
+  </g>
+
+  <path class="star-fx star-top" d="M265,13 L267.8,21.1 L276,24 L267.8,26.9 L265,35 L262.2,26.9 L254,24 L262.2,21.1 Z"/>
+  <path class="star-fx star-bottom" d="M45,84 L47.1,90.2 L53.5,92.2 L47.1,94.2 L45,100 L42.9,94.2 L36.5,92.2 L42.9,90.2 Z"/>
+</svg>

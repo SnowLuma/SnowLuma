@@ -1,18 +1,18 @@
-import Database, { type Database as DatabaseType, type Statement } from '@snowluma/sqlite';
 import fs from 'fs';
+import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import path from 'path';
 import type { JsonObject, MessageMeta } from './types';
 
 export class MessageStore {
-  private readonly db: DatabaseType;
-  private readonly stmtStoreEvent: Statement;
-  private readonly stmtStoreMeta: Statement;
-  private readonly stmtFindEvent: Statement;
-  private readonly stmtFindMeta: Statement;
-  private readonly stmtResolveReplyGroup: Statement;
-  private readonly stmtResolveReplyPrivate: Statement;
-  private readonly stmtListEventsAnchored: Statement;
-  private readonly stmtListEventsLatest: Statement;
+  private readonly db: DatabaseSync;
+  private readonly stmtStoreEvent: StatementSync;
+  private readonly stmtStoreMeta: StatementSync;
+  private readonly stmtFindEvent: StatementSync;
+  private readonly stmtFindMeta: StatementSync;
+  private readonly stmtResolveReplyGroup: StatementSync;
+  private readonly stmtResolveReplyPrivate: StatementSync;
+  private readonly stmtListEventsAnchored: StatementSync;
+  private readonly stmtListEventsLatest: StatementSync;
 
   constructor(dbPath: string) {
     const dir = path.dirname(dbPath);
@@ -20,9 +20,9 @@ export class MessageStore {
 
     // Replace .json extension with .db if present
     const finalPath = dbPath.replace(/\.json$/, '.db');
-    this.db = new Database(finalPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('synchronous = NORMAL');
+    this.db = new DatabaseSync(finalPath);
+    this.db.exec('PRAGMA journal_mode = WAL');
+    this.db.exec('PRAGMA synchronous = NORMAL');
     this.initSchema();
 
     // Prepare once. Statements survive for the lifetime of the

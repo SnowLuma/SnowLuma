@@ -1,7 +1,7 @@
 import { createLogger } from '@snowluma/common/logger';
 import { buildDispatchPayload } from '../event-filter';
 import type { JsonObject, NetworkBase } from '../types';
-import { IOneBotNetworkAdapter } from './adapter';
+import { IOneBotNetworkAdapter, type AdapterStatus } from './adapter';
 
 const log = createLogger('OneBot.Network');
 
@@ -29,6 +29,11 @@ export class OneBotNetworkManager {
   }
 
   list(): AnyAdapter[] { return [...this.adapters.values()]; }
+
+  /** Live status of every registered adapter, for the WebUI dashboard. */
+  describeStatuses(): AdapterStatus[] {
+    return this.list().map((a) => a.describeStatus());
+  }
 
   hasActiveAdapters(): boolean {
     for (const a of this.adapters.values()) if (a.isActive) return true;

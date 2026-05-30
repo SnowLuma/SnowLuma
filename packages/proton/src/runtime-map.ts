@@ -25,6 +25,7 @@ function cloneField(field: ProtobufField): ProtobufField {
     isMessage: field.isMessage,
     isOptional: field.isOptional,
     isRepeated: field.isRepeated,
+    explicitPresence: field.explicitPresence ?? false,
   };
 }
 

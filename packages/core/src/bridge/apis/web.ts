@@ -1,3 +1,4 @@
+import { loadBinarySource } from '@snowluma/protocol/highway/utils';
 import { ForceFetchClientKey, type ClientKeyInfo as NamespaceClientKeyInfo } from '@snowluma/protocol/oidb-services/web/force-fetch-client-key';
 import { GetPskey } from '@snowluma/protocol/oidb-services/web/get-pskey';
 import { getGroupEssenceMsg, getGroupEssenceMsgAll, type GroupEssenceMsgRet } from '@snowluma/protocol/web/group-essence';
@@ -247,16 +248,11 @@ export class WebApi {
     let imgHeight = 300;
 
     if (options?.image) {
-      let imageBuffer: Buffer;
-
-      if (options.image.startsWith('http://') || options.image.startsWith('https://')) {
-        const response = await fetch(options.image);
-        if (!response.ok) throw new Error(`Failed to download image: ${response.status}`);
-        imageBuffer = Buffer.from(await response.arrayBuffer());
-      } else {
-        const { readFileSync } = await import('fs');
-        imageBuffer = readFileSync(options.image);
-      }
+      // Route through loadBinarySource so the group-notice image download
+      // gets the same browser-UA + Referer-retry hardening as every other
+      // media fetch — and http/file/base64 source handling for free.
+      const loaded = await loadBinarySource(options.image, 'group-notice image');
+      const imageBuffer = Buffer.from(loaded.bytes);
 
       const picInfo = await uploadGroupNoticeImage(cookieObject, imageBuffer);
       if (picInfo) {

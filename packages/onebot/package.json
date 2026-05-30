@@ -1,6 +1,6 @@
 {
   "name": "@snowluma/onebot",
-  "version": "1.9.2",
+  "version": "1.9.3",
   "private": true,
   "type": "module",
   "description": "SnowLuma OneBot v11 adapter — the protocol translation layer that maps the public OneBot vocabulary (HTTP / WebSocket actions, message segments, post events) onto @snowluma/core's typed Api hub (`bridge.apis.<area>.method()`). Owns network adapters (HTTP server / HTTP client / WS server / WS client), the registered action handlers, the receive-side event→OneBot converter, message-id hashing, message store (SQLite-backed event history), media store, and the OneBot instance + manager that ties one OneBotConfig to one Bridge. Per-file subpath exports mirror the legacy `core/src/onebot/*` layout 1:1 so the previous `import { … } from '../onebot/<x>'` collapses to `import { … } from '@snowluma/onebot/<x>'`.",
@@ -91,7 +91,6 @@
     "@snowluma/proto-defs": "workspace:*",
     "@snowluma/proton": "workspace:*",
     "@snowluma/protocol": "workspace:*",
-    "@snowluma/sqlite": "workspace:*",
     "@snowluma/websocket": "workspace:*"
   },
   "devDependencies": {

@@ -91,6 +91,14 @@ export function generateEncoder(msg: ProtobufMessage, _registry: MessageRegistry
 
 function buildSingularBlock(field: ProtobufField, index: number): EncoderBlock {
   const { name, fieldNumber, typeName, wireType, isMessage } = field;
+  // `pb_optional<>` scalar → serialise even at the zero value (proto3 explicit
+  // presence). Message fields already emit on `!= null`, so they stay on the
+  // default path; only scalars need the dedicated guard. Every `pb<>` /
+  // `pb_repeated<>` field has `explicitPresence === false` and so takes the
+  // untouched branches below — their generated code is byte-for-byte unchanged.
+  if (field.explicitPresence && !isMessage) {
+    return buildExplicitPresenceScalarBlock(field, index);
+  }
   const valueVar = `_f${index}`;
   const cacheVar = `_c${index}`;
   const tagLength = computeTagBytes(fieldNumber, isMessage || typeName === 'string' || typeName === 'bytes' ? 2 : wireType).length;
@@ -300,6 +308,221 @@ function buildSingularBlock(field: ProtobufField, index: number): EncoderBlock {
       size: [`  if (${valueVar} != null && ${valueVar} !== 0) size += ${tagLength + 8};`],
       write: [
         `  if (${valueVar} != null && ${valueVar} !== 0) {`,
+        writeTag(fieldNumber, 1, '    '),
+        `    const _val = ${valueVar};`,
+        `    buf[offset++] = _val & 0xff;`,
+        `    buf[offset++] = (_val >> 8) & 0xff;`,
+        `    buf[offset++] = (_val >> 16) & 0xff;`,
+        `    buf[offset++] = (_val >> 24) & 0xff;`,
+        `    buf[offset++] = 0;`,
+        `    buf[offset++] = 0;`,
+        `    buf[offset++] = 0;`,
+        `    buf[offset++] = 0;`,
+        `  }`,
+      ],
+    };
+  }
+
+  return { declare: [], size: [], write: [] };
+}
+
+/**
+ * Encoder block for a singular scalar field marked `pb_optional<>` (proto3
+ * explicit presence). Identical to the default scalar paths EXCEPT the guard
+ * is `!= null` instead of `!= null && !== <default>`, so the field — and a
+ * `bool`'s real value — is written even when zero/false/empty. Reached only
+ * when `field.explicitPresence === true`, so default `pb<>` fields never run
+ * this code.
+ */
+function buildExplicitPresenceScalarBlock(field: ProtobufField, index: number): EncoderBlock {
+  const { name, fieldNumber, typeName, wireType } = field;
+  const valueVar = `_f${index}`;
+  const cacheVar = `_c${index}`;
+  const isLenDelim = typeName === 'string' || typeName === 'bytes';
+  const tagLength = computeTagBytes(fieldNumber, isLenDelim ? 2 : wireType).length;
+  const declareVal = `  const ${valueVar} = obj.${name};`;
+  const present = `${valueVar} != null`;
+
+  if (typeName === 'string') {
+    return {
+      declare: [declareVal, `  let ${cacheVar};`],
+      size: [
+        `  if (${present}) {`,
+        `    ${cacheVar} = __utf8Len(${valueVar});`,
+        `    const _len = ${cacheVar};`,
+        `    size += ${tagLength};`,
+        varintSize('_len', '    '),
+        `    size += _len;`,
+        `  }`,
+      ],
+      write: [
+        `  if (${present}) {`,
+        writeTag(fieldNumber, 2, '    '),
+        `    const _len = ${cacheVar};`,
+        writeVarint('_len', '    '),
+        `    offset = __utf8Write(buf, offset, ${valueVar});`,
+        `  }`,
+      ],
+    };
+  }
+
+  if (typeName === 'bytes') {
+    return {
+      declare: [declareVal],
+      size: [
+        `  if (${present}) {`,
+        `    const _len = ${valueVar}.length;`,
+        `    size += ${tagLength};`,
+        varintSize('_len', '    '),
+        `    size += _len;`,
+        `  }`,
+      ],
+      write: [
+        `  if (${present}) {`,
+        writeTag(fieldNumber, 2, '    '),
+        `    const _len = ${valueVar}.length;`,
+        writeVarint('_len', '    '),
+        `    buf.set(${valueVar}, offset);`,
+        `    offset += _len;`,
+        `  }`,
+      ],
+    };
+  }
+
+  if (typeName === 'bool') {
+    return {
+      declare: [declareVal],
+      size: [`  if (${present}) size += ${tagLength + 1};`],
+      write: [
+        `  if (${present}) {`,
+        writeTag(fieldNumber, 0, '    '),
+        `    buf[offset++] = ${valueVar} ? 1 : 0;`,
+        `  }`,
+      ],
+    };
+  }
+
+  if (isVarint64(typeName)) {
+    const bigintExpr = bigintVarintExpr(typeName, valueVar);
+    return {
+      declare: [declareVal],
+      size: [
+        `  if (${present}) {`,
+        `    const _val = ${bigintExpr};`,
+        `    size += ${tagLength};`,
+        `    size += __varint64Size(_val);`,
+        `  }`,
+      ],
+      write: [
+        `  if (${present}) {`,
+        `    const _val = ${bigintExpr};`,
+        writeTag(fieldNumber, 0, '    '),
+        `    offset = __writeVarint64(buf, offset, _val);`,
+        `  }`,
+      ],
+    };
+  }
+
+  if (typeName === 'sint_32') {
+    return {
+      declare: [declareVal],
+      size: [
+        `  if (${present}) {`,
+        `    const _val = ((${valueVar} << 1) ^ (${valueVar} >> 31)) >>> 0;`,
+        `    size += ${tagLength};`,
+        varintSize('_val', '    '),
+        `  }`,
+      ],
+      write: [
+        `  if (${present}) {`,
+        writeTag(fieldNumber, 0, '    '),
+        writeVarint(`((${valueVar} << 1) ^ (${valueVar} >> 31)) >>> 0`, '    '),
+        `  }`,
+      ],
+    };
+  }
+
+  if (wireType === WireType.Varint) {
+    return {
+      declare: [declareVal],
+      size: [
+        `  if (${present}) {`,
+        `    const _val = ${valueVar} >>> 0;`,
+        `    size += ${tagLength};`,
+        varintSize('_val', '    '),
+        `  }`,
+      ],
+      write: [
+        `  if (${present}) {`,
+        writeTag(fieldNumber, 0, '    '),
+        writeVarint(`${valueVar} >>> 0`, '    '),
+        `  }`,
+      ],
+    };
+  }
+
+  if (typeName === 'float') {
+    return {
+      declare: [declareVal],
+      size: [`  if (${present}) size += ${tagLength + 4};`],
+      write: [
+        `  if (${present}) {`,
+        writeTag(fieldNumber, 5, '    '),
+        `    offset = __writeFloat32(buf, offset, ${valueVar});`,
+        `  }`,
+      ],
+    };
+  }
+
+  if (wireType === WireType.Bit32) {
+    return {
+      declare: [declareVal],
+      size: [`  if (${present}) size += ${tagLength + 4};`],
+      write: [
+        `  if (${present}) {`,
+        writeTag(fieldNumber, 5, '    '),
+        `    const _val = ${valueVar};`,
+        `    buf[offset++] = _val & 0xff;`,
+        `    buf[offset++] = (_val >> 8) & 0xff;`,
+        `    buf[offset++] = (_val >> 16) & 0xff;`,
+        `    buf[offset++] = (_val >> 24) & 0xff;`,
+        `  }`,
+      ],
+    };
+  }
+
+  if (typeName === 'double') {
+    return {
+      declare: [declareVal],
+      size: [`  if (${present}) size += ${tagLength + 8};`],
+      write: [
+        `  if (${present}) {`,
+        writeTag(fieldNumber, 1, '    '),
+        `    offset = __writeFloat64(buf, offset, ${valueVar});`,
+        `  }`,
+      ],
+    };
+  }
+
+  if (isFixed64BigInt(typeName)) {
+    return {
+      declare: [declareVal],
+      size: [`  if (${present}) size += ${tagLength + 8};`],
+      write: [
+        `  if (${present}) {`,
+        writeTag(fieldNumber, 1, '    '),
+        `    offset = __writeFixed64(buf, offset, ${valueVar});`,
+        `  }`,
+      ],
+    };
+  }
+
+  if (wireType === WireType.Bit64) {
+    return {
+      declare: [declareVal],
+      size: [`  if (${present}) size += ${tagLength + 8};`],
+      write: [
+        `  if (${present}) {`,
         writeTag(fieldNumber, 1, '    '),
         `    const _val = ${valueVar};`,
         `    buf[offset++] = _val & 0xff;`,

@@ -114,7 +114,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
         complete: cachedCount >= serverCount,
       };
     },
-    getImageInfo: (file) => getCachedImageInfo(mediaStore, file),
+    getImageInfo: (file) => getCachedImageInfo(mediaStore, file, ref.converterCtx.imageUrlResolver),
     getRecordInfo: (file) => getCachedRecordInfo(bridge, mediaStore, file),
   };
 }

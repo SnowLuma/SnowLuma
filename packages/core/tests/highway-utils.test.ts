@@ -99,3 +99,81 @@ describe('loadBinarySource maxBytes enforcement', () => {
     ).rejects.toThrow(/too large: 128 > 64/);
   });
 });
+
+describe('loadBinarySource HTTP header hardening', () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it('sends a browser User-Agent on the first attempt, without a Referer', async () => {
+    const calls: Array<Record<string, string>> = [];
+    globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      calls.push((init?.headers ?? {}) as Record<string, string>);
+      return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+    }) as typeof fetch;
+
+    await loadBinarySource('https://example.test/a.png', 'image');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]['User-Agent']).toMatch(/Mozilla\/5\.0/);
+    expect(calls[0]['Referer']).toBeUndefined();
+  });
+
+  it('retries with a Referer when the first fetch fails at the network level', async () => {
+    // Reproduces the reported bug: an anti-bot front-end resets the
+    // header-less request → undici `TypeError: fetch failed`. The retry
+    // carries a Referer pointing at the resource itself and succeeds.
+    const calls: Array<Record<string, string>> = [];
+    globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      calls.push((init?.headers ?? {}) as Record<string, string>);
+      if (calls.length === 1) throw new TypeError('fetch failed');
+      return new Response(new Uint8Array([9, 9]), { status: 200 });
+    }) as typeof fetch;
+
+    const loaded = await loadBinarySource('https://img.example.test/x.gif', 'image');
+    expect(Array.from(loaded.bytes)).toEqual([9, 9]);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]['Referer']).toBeUndefined();
+    expect(calls[1]['Referer']).toBe('https://img.example.test/x.gif');
+  });
+
+  it('retries with a Referer on a 403 (anti-hotlink)', async () => {
+    let n = 0;
+    globalThis.fetch = vi.fn(async () => {
+      n++;
+      if (n === 1) return new Response(new Uint8Array(0), { status: 403 });
+      return new Response(new Uint8Array([7]), { status: 200 });
+    }) as typeof fetch;
+
+    const loaded = await loadBinarySource('https://cdn.example.test/y.jpg', 'image');
+    expect(Array.from(loaded.bytes)).toEqual([7]);
+    expect(n).toBe(2);
+  });
+
+  it('does not retry a size-limit rejection (deterministic, no second download)', async () => {
+    const fetchMock = vi.fn(async () => new Response(new Uint8Array(0), {
+      status: 200,
+      headers: { 'content-length': String(10 * 1024 * 1024) },
+    }));
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await expect(
+      loadBinarySource('https://example.test/big.bin', 'image', 1024),
+    ).rejects.toThrow(/too large/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces the first error when the Referer retry also fails', async () => {
+    let n = 0;
+    globalThis.fetch = vi.fn(async () => {
+      n++;
+      throw new TypeError('fetch failed');
+    }) as typeof fetch;
+
+    await expect(
+      loadBinarySource('https://example.test/z.png', 'image'),
+    ).rejects.toThrow(/fetch failed/);
+    expect(n).toBe(2);
+  });
+});

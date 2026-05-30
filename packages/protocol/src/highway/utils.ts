@@ -22,6 +22,19 @@ const DEFAULT_MAX_BINARY_SIZE = 1024 * 1024 * 1024; // 1 GiB
 export const FILE_UPLOAD_MAX_BYTES = 4 * 1024 * 1024 * 1024; // 4 GiB
 const FETCH_TIMEOUT_MS = 60_000;
 
+/**
+ * Browser-like User-Agent for remote media downloads. Many image / CDN
+ * hosts (and anti-hotlink front-ends) reject or RST a header-less,
+ * non-browser request — which surfaces as undici `TypeError: fetch
+ * failed` rather than a clean 403. Sending a normal browser UA on every
+ * request (and retrying with a Referer when the first try is refused) is
+ * what lets NapCat fetch sources our bare `fetch(source)` couldn't.
+ * Cross-checked against
+ * `dev/napcatQQInside/packages/napcat-common/src/file.ts:101-142,359-369`.
+ */
+const DOWNLOAD_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
 export interface ImageHashes {
   md5: Uint8Array;
   sha1: Uint8Array;
@@ -65,6 +78,14 @@ export function resolveLocalFilePath(source: string): string | null {
   return filePath;
 }
 
+/**
+ * Tag a size-limit error so the HTTP retry path leaves it alone — retrying
+ * a too-large response just re-downloads the same oversized body.
+ */
+function tooLarge(message: string): Error {
+  return Object.assign(new Error(message), { noRetry: true });
+}
+
 export async function loadBinarySource(
   source: string,
   resourceName: string,
@@ -81,49 +102,79 @@ export async function loadBinarySource(
   }
 
   if (/^https?:\/\//i.test(source)) {
-    const resp = await fetch(source, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-    if (!resp.ok) throw new Error(`HTTP download failed: ${resp.status}`);
-    const declared = Number(resp.headers.get('content-length') ?? '0');
-    if (Number.isFinite(declared) && declared > maxBytes) {
-      throw new Error(`${resourceName} too large: ${declared} > ${maxBytes}`);
-    }
     const fileName = guessFileNameFromUrl(source);
-    // Stream the body incrementally so a server that omits or
-    // understates Content-Length can't make us buffer a chunked response
-    // past maxBytes — `await resp.arrayBuffer()` would happily allocate
-    // the entire payload before we get a chance to length-check it.
-    const reader = resp.body?.getReader();
-    if (!reader) {
-      const bytes = new Uint8Array(await resp.arrayBuffer());
-      if (bytes.length > maxBytes) {
-        throw new Error(`${resourceName} too large: ${bytes.length} > ${maxBytes}`);
+
+    // A single fetch attempt with the given headers. Streams the body
+    // incrementally so a server that omits or understates Content-Length
+    // can't make us buffer a chunked response past maxBytes — `await
+    // resp.arrayBuffer()` would happily allocate the entire payload before
+    // we get a chance to length-check it. Size-limit rejections are tagged
+    // `noRetry` so the outer retry doesn't re-download an oversized body.
+    const attempt = async (headers: Record<string, string>): Promise<LoadedBinary> => {
+      const resp = await fetch(source, {
+        headers,
+        redirect: 'follow',
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!resp.ok) throw new Error(`HTTP download failed: ${resp.status}`);
+      const declared = Number(resp.headers.get('content-length') ?? '0');
+      if (Number.isFinite(declared) && declared > maxBytes) {
+        throw tooLarge(`${resourceName} too large: ${declared} > ${maxBytes}`);
+      }
+      const reader = resp.body?.getReader();
+      if (!reader) {
+        const bytes = new Uint8Array(await resp.arrayBuffer());
+        if (bytes.length > maxBytes) {
+          throw tooLarge(`${resourceName} too large: ${bytes.length} > ${maxBytes}`);
+        }
+        return { bytes, fileName };
+      }
+      const chunks: Uint8Array[] = [];
+      let total = 0;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value) continue;
+          total += value.byteLength;
+          if (total > maxBytes) {
+            await reader.cancel().catch(() => { /* ignore */ });
+            throw tooLarge(`${resourceName} too large: > ${maxBytes}`);
+          }
+          chunks.push(value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      const bytes = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
       }
       return { bytes, fileName };
-    }
-    const chunks: Uint8Array[] = [];
-    let total = 0;
+    };
+
+    // First try with a browser UA only. On any non-size failure — a
+    // network-level `fetch failed` (connection reset by an anti-bot
+    // front-end) or a 403/4xx from anti-hotlink — retry once with a
+    // Referer pointing at the resource itself, the common bypass for
+    // same-origin hotlink checks. Mirrors NapCat's with/without-Referer
+    // strategy.
+    const baseHeaders: Record<string, string> = {
+      'User-Agent': DOWNLOAD_USER_AGENT,
+      Accept: '*/*',
+    };
     try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!value) continue;
-        total += value.byteLength;
-        if (total > maxBytes) {
-          await reader.cancel().catch(() => { /* ignore */ });
-          throw new Error(`${resourceName} too large: > ${maxBytes}`);
-        }
-        chunks.push(value);
+      return await attempt(baseHeaders);
+    } catch (err) {
+      if ((err as { noRetry?: boolean } | null)?.noRetry) throw err;
+      try {
+        return await attempt({ ...baseHeaders, Referer: source });
+      } catch {
+        throw err;
       }
-    } finally {
-      reader.releaseLock();
     }
-    const bytes = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-      bytes.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return { bytes, fileName };
   }
 
   const filePath = resolveLocalFilePath(source);

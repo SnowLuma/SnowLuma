@@ -25,7 +25,13 @@ export interface UseOneBotInstanceConfig {
   pendingSwitchUin: string | null;
   confirmSwitch: () => void;
   cancelSwitch: () => void;
-  save: () => Promise<void>;
+  /**
+   * Persist to the backend. Pass an explicit config to save it directly —
+   * the node dialog / enable-toggle / delete persist their freshly-computed
+   * config in the same tick, before React has flushed `setConfig`, so they
+   * can't rely on the (still-stale) closed-over `config`.
+   */
+  save: (override?: OneBotConfig) => Promise<void>;
   saveStatus: string;
 }
 
@@ -117,11 +123,12 @@ export function useOneBotInstanceConfig(
     }, CLEAR_SAVE_STATUS_MS);
   }, []);
 
-  const save = useCallback(async () => {
-    if (!selectedUin || !config) return;
+  const save = useCallback(async (override?: OneBotConfig) => {
+    const target = override ?? config;
+    if (!selectedUin || !target) return;
     setSaveStatus('保存中...');
     try {
-      const serverView = await api.config.save(selectedUin, config);
+      const serverView = await api.config.save(selectedUin, target);
       setConfigState(serverView);
       setSavedSnapshot(JSON.stringify(serverView));
       setSaveStatus('保存成功');

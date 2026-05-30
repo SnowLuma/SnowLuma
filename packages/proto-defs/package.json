@@ -1,6 +1,6 @@
 {
   "name": "@snowluma/proto-defs",
-  "version": "1.9.2",
+  "version": "1.9.3",
   "private": true,
   "type": "module",
   "description": "SnowLuma QQ/Lagrange wire-protobuf type definitions. Pure TypeScript interfaces with proton's `pb<N, T>` marker types — `@snowluma/proton`'s vite plugin compiles them into zero-runtime encoder/decoder functions at the call sites in `@snowluma/core` (and any downstream consumer). Exposed as per-file subpaths (`@snowluma/proto-defs/oidb`, `@snowluma/proto-defs/message`, …) so the import-site shape mirrors the legacy `bridge/proto/proton/*` layout and avoids name collisions across files (notably `highway.ts` and `oidb-actions/media.ts` share NTV2-prefixed names).",
