@@ -8,7 +8,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AppStateProvider } from '@/contexts/AppStateContext';
 import { useSession } from '@/contexts/SessionContext';
-import type { HookProcessInfo, QQInfo, SystemInfo } from '@/types';
+import type { AccountConnections, HookProcessInfo, QQInfo, SystemInfo } from '@/types';
 
 /**
  * The layout route. Owns the live state shared across the four pages
@@ -24,6 +24,7 @@ export function AppLayout() {
   const [qqList, setQqList] = useState<QQInfo[]>([]);
   const [processList, setProcessList] = useState<HookProcessInfo[]>([]);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
+  const [connections, setConnections] = useState<AccountConnections[]>([]);
   const [selectedUin, setSelectedUin] = useState<string | null>(null);
 
   const refreshQqList = useCallback(async () => {
@@ -50,6 +51,14 @@ export function AppLayout() {
     }
   }, [api]);
 
+  const refreshConnections = useCallback(async () => {
+    try {
+      setConnections(await api.connections());
+    } catch (e) {
+      console.error('connections', e);
+    }
+  }, [api]);
+
   const { ops: processOps, unloadFailedAlert, dismissUnloadFailedAlert } = useHookProcessOps({
     onAfterOp: refreshProcesses,
   });
@@ -59,7 +68,7 @@ export function AppLayout() {
     let cancelled = false;
     const tick = async () => {
       if (cancelled) return;
-      await Promise.all([refreshQqList(), refreshProcesses(), refreshSystem()]);
+      await Promise.all([refreshQqList(), refreshProcesses(), refreshSystem(), refreshConnections()]);
     };
     tick();
     const interval = setInterval(tick, pollInterval);
@@ -67,13 +76,14 @@ export function AppLayout() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [pollInterval, refreshQqList, refreshProcesses, refreshSystem]);
+  }, [pollInterval, refreshQqList, refreshProcesses, refreshSystem, refreshConnections]);
 
   const handleLogout = useCallback(async () => {
     await api.logout();
     setQqList([]);
     setProcessList([]);
     setSystemInfo(null);
+    setConnections([]);
     setSelectedUin(null);
     session.onLogoutComplete();
   }, [api, session]);
@@ -84,11 +94,13 @@ export function AppLayout() {
         qqList,
         processList,
         systemInfo,
+        connections,
         selectedUin,
         setSelectedUin,
         processOps,
         refreshProcesses,
         refreshSystem,
+        refreshConnections,
         onLogout: handleLogout,
       }}
     >

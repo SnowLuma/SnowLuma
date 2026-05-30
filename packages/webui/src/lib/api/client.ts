@@ -1,4 +1,4 @@
-import type { HookProcessInfo, LogEntry, LogLevel, QQInfo, SystemInfo } from '@/types';
+import type { AccountConnections, HookProcessInfo, LogEntry, LogLevel, QQInfo, SystemInfo } from '@/types';
 import type { PasswordRule } from '@/components/pages/change-password-page';
 import { normalizeOneBotConfig } from '@/lib/onebot-config';
 import {
@@ -220,6 +220,10 @@ class HttpApiClient implements ApiClient {
 
   system(): Promise<SystemInfo> {
     return this.getJson<SystemInfo>('/api/system');
+  }
+
+  connections(): Promise<AccountConnections[]> {
+    return this.getJson<{ list: AccountConnections[] }>('/api/connections').then((d) => d.list ?? []);
   }
 
   // ---------- SSE ----------

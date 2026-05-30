@@ -355,6 +355,12 @@ export async function initWebUI(
     return c.json({ list });
   });
 
+  // Live OneBot adapter health per account (listening / connected / client
+  // counts / last-delivery), powering the dashboard's connection card.
+  app.get('/api/connections', (c) => {
+    return c.json({ list: oneBotManager.getConnectionStatuses() });
+  });
+
   app.get('/api/logs', (c) => {
     const limit = Number(c.req.query('limit') ?? 300);
     return c.json({ list: getRecentLogs(limit) });

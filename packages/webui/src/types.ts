@@ -7,6 +7,21 @@ export interface QQInfo {
   nickname: string;
 }
 
+export type AdapterStatusLevel = 'ok' | 'warn' | 'down' | 'disabled';
+
+export interface AdapterStatus {
+  name: string;
+  kind: 'httpServer' | 'httpClient' | 'wsServer' | 'wsClient';
+  status: AdapterStatusLevel;
+  detail: string;
+}
+
+export interface AccountConnections {
+  uin: string;
+  nickname: string;
+  adapters: AdapterStatus[];
+}
+
 export interface HookProcessInfo {
   pid: number;
   name: string;

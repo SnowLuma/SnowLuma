@@ -6,7 +6,7 @@ import {
   type EventReportOptions,
 } from '../event-filter';
 import type { HttpClientNetwork, JsonObject } from '../types';
-import { IOneBotNetworkAdapter, NetworkReloadType, type NetworkAdapterContext } from './adapter';
+import { IOneBotNetworkAdapter, NetworkReloadType, type AdapterStatus, type NetworkAdapterContext } from './adapter';
 import { executeQuickOperation } from './quick-operation';
 
 const moduleLog = createLogger('OneBot.POST');
@@ -15,6 +15,7 @@ const DEFAULT_TIMEOUT_MS = 5000;
 export class HttpPostAdapter extends IOneBotNetworkAdapter<HttpClientNetwork> {
   private options: EventReportOptions;
   private signature_: string;
+  private lastDelivery: { at: number; ok: boolean } | null = null;
   private readonly log: Logger;
 
   constructor(name: string, config: HttpClientNetwork, ctx: NetworkAdapterContext) {
@@ -37,6 +38,15 @@ export class HttpPostAdapter extends IOneBotNetworkAdapter<HttpClientNetwork> {
 
   close(): void {
     this.isEnabled = false;
+  }
+
+  override describeStatus(): AdapterStatus {
+    if (!this.isEnabled) return { name: this.name, kind: 'httpClient', status: 'disabled', detail: '未启用' };
+    if (!this.lastDelivery) return { name: this.name, kind: 'httpClient', status: 'ok', detail: '已启用' };
+    const at = new Date(this.lastDelivery.at).toTimeString().slice(0, 8);
+    return this.lastDelivery.ok
+      ? { name: this.name, kind: 'httpClient', status: 'ok', detail: `上次推送成功 ${at}` }
+      : { name: this.name, kind: 'httpClient', status: 'warn', detail: `上次推送失败 ${at}` };
   }
 
   async reload(next: HttpClientNetwork): Promise<NetworkReloadType> {
@@ -98,6 +108,7 @@ export class HttpPostAdapter extends IOneBotNetworkAdapter<HttpClientNetwork> {
         signal: AbortSignal.timeout(timeoutMs),
       });
       if (response.ok) {
+        this.lastDelivery = { at: Date.now(), ok: true };
         const contentType = response.headers.get('content-type') ?? '';
         if (contentType.includes('application/json')) {
           const body = await response.text();
@@ -106,9 +117,11 @@ export class HttpPostAdapter extends IOneBotNetworkAdapter<HttpClientNetwork> {
           }
         }
       } else {
+        this.lastDelivery = { at: Date.now(), ok: false };
         this.log.warn('[%s] POST %s returned %d', this.name, this.config.url, response.status);
       }
     } catch (error) {
+      this.lastDelivery = { at: Date.now(), ok: false };
       if (this.isEnabled) {
         this.log.warn('[%s] POST %s failed: %s', this.name, this.config.url, error instanceof Error ? error.message : String(error));
       }

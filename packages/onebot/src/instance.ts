@@ -18,6 +18,7 @@ import {
   OneBotNetworkManager,
   WsClientAdapter,
   WsServerAdapter,
+  type AdapterStatus,
   type NetworkAdapterContext,
 } from './network';
 import { ReactionStore } from './reaction-store';
@@ -45,6 +46,11 @@ export class OneBotInstance {
   private readonly log: Logger;
 
   get nickname(): string { return this.bridge.identity.nickname; }
+
+  /** Live status of this account's OneBot network adapters. */
+  getConnectionStatuses(): AdapterStatus[] {
+    return this.networkManager.describeStatuses();
+  }
 
   constructor(uin: string, bridge: BridgeInterface, config: OneBotConfig) {
     this.uin = uin;

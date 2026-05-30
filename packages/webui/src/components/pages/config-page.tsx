@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import type {
+  AdapterStatus,
   NetworkKind,
   OneBotConfig,
   OneBotNetworks,
@@ -39,7 +40,7 @@ type DialogState =
 //   index: null → create with `seed`, otherwise edit the item at that position.
 
 export function ConfigPage() {
-  const { qqList, selectedUin, setSelectedUin } = useAppState();
+  const { qqList, connections, selectedUin, setSelectedUin } = useAppState();
   const {
     config,
     setConfig,
@@ -71,6 +72,15 @@ export function ConfigPage() {
     () => (pendingSwitchUin ? qqList.find((q) => q.uin === pendingSwitchUin) ?? null : null),
     [pendingSwitchUin, qqList],
   );
+
+  // Live adapter status for the selected account, keyed by adapter name so
+  // each summary card can light up its real connection state.
+  const liveStatusByName = useMemo(() => {
+    const acc = connections.find((c) => c.uin === selectedUin);
+    const map = new Map<string, AdapterStatus>();
+    for (const a of acc?.adapters ?? []) map.set(a.name, a);
+    return map;
+  }, [connections, selectedUin]);
 
   // A discrete node mutation (create / edit / delete / enable-toggle) is
   // persisted the moment it happens — clicking 保存 inside the editor dialog
@@ -170,6 +180,7 @@ export function ConfigPage() {
               <NetworkTabView
                 kind={activeTab}
                 config={config}
+                statusByName={liveStatusByName}
                 onCreateClick={() => openCreate(activeTab)}
                 onEdit={(idx) => openEdit(activeTab, idx)}
                 onDelete={(idx) => handleDelete(activeTab, idx)}
@@ -344,6 +355,7 @@ function countMap(networks: OneBotNetworks): Record<NetworkKind, number> {
 interface NetworkTabViewProps {
   kind: NetworkKind;
   config: OneBotConfig;
+  statusByName: Map<string, AdapterStatus>;
   onCreateClick: () => void;
   onEdit: (index: number) => void;
   onDelete: (index: number) => void;
@@ -353,6 +365,7 @@ interface NetworkTabViewProps {
 function NetworkTabView({
   kind,
   config,
+  statusByName,
   onCreateClick,
   onEdit,
   onDelete,
@@ -401,6 +414,7 @@ function NetworkTabView({
               item={item}
               summary={summarize(item)}
               duplicateName={duplicate}
+              liveStatus={statusByName.get(item.name)}
               onToggleEnabled={(v) => onToggleEnabled(idx, v)}
               onEdit={() => onEdit(idx)}
               onDelete={() => onDelete(idx)}

@@ -4,6 +4,8 @@ import { Link } from '@tanstack/react-router';
 import {
   Activity,
   ArrowRight,
+  Bell,
+  Cable,
   Cpu,
   MemoryStick,
   MonitorCog,
@@ -20,6 +22,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn, formatBytes, formatUptime } from '@/lib/utils';
 import type { AppPath } from '@/router';
+import type { AccountConnections, AdapterStatus, AdapterStatusLevel, LogEntry } from '@/types';
+import { useApi } from '@/lib/api';
 import { useAppState } from '@/contexts/AppStateContext';
 import { useSession } from '@/contexts/SessionContext';
 
@@ -73,7 +77,7 @@ function StatTile({
 }
 
 export function OverviewPage() {
-  const { qqList, processList, systemInfo, refreshSystem } = useAppState();
+  const { qqList, processList, systemInfo, connections, refreshSystem } = useAppState();
   const { status } = useSession();
 
   // Lightweight tick to refresh "uptime" pretty-print every 30s
@@ -148,6 +152,12 @@ export function OverviewPage() {
           </Link>
         </motion.div>
       )}
+
+      {/* Operational health — connection status + recent alerts (side by side on wide screens) */}
+      <div className="grid gap-6 xl:grid-cols-2">
+        <ConnectionsCard connections={connections} />
+        <RecentAlertsCard />
+      </div>
 
       {/* System metrics */}
       <Card>
@@ -295,5 +305,159 @@ export function OverviewPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// ─────────────── connection health ───────────────
+
+const CONN_STATUS_STYLE: Record<AdapterStatusLevel, string> = {
+  ok: 'bg-success/10 text-success',
+  warn: 'bg-warning/10 text-warning',
+  down: 'bg-destructive/10 text-destructive',
+  disabled: 'bg-muted text-muted-foreground',
+};
+const CONN_STATUS_LABEL: Record<AdapterStatusLevel, string> = {
+  ok: '正常',
+  warn: '注意',
+  down: '异常',
+  disabled: '未启用',
+};
+const ADAPTER_KIND_LABEL: Record<AdapterStatus['kind'], string> = {
+  httpServer: 'HTTP 服务端',
+  httpClient: 'HTTP 上报',
+  wsServer: 'WS 服务端',
+  wsClient: 'WS 客户端',
+};
+
+function ConnectionsCard({ connections }: { connections: AccountConnections[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Cable className="size-4 text-primary" /> OneBot 连接
+        </CardTitle>
+        <CardDescription>各账号协议端点的实时连接状态</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {connections.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground">
+            <Cable className="size-7" strokeWidth={1.5} />
+            <p className="text-sm">暂无已接入的账号实例</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {connections.map((acc) => (
+              <div key={acc.uin} className="flex flex-col gap-2">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-sm font-semibold">{acc.nickname || acc.uin}</span>
+                  <span className="font-mono text-[11px] text-muted-foreground tabular-nums">{acc.uin}</span>
+                </div>
+                {acc.adapters.length === 0 ? (
+                  <p className="rounded-md border border-dashed px-3 py-2 text-[11px] text-muted-foreground">
+                    未配置任何协议端点
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-1.5">
+                    {acc.adapters.map((a) => (
+                      <div key={a.name} className="flex items-center gap-2 rounded-lg border bg-card/40 px-3 py-2">
+                        <span
+                          className={cn(
+                            'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium',
+                            CONN_STATUS_STYLE[a.status],
+                          )}
+                        >
+                          {CONN_STATUS_LABEL[a.status]}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate text-sm font-medium">{a.name}</span>
+                            <span className="shrink-0 text-[10px] text-muted-foreground">{ADAPTER_KIND_LABEL[a.kind]}</span>
+                          </div>
+                          <div className="truncate text-[11px] text-muted-foreground">{a.detail}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─────────────── recent alerts ───────────────
+
+function alertClock(t: string): string {
+  const d = new Date(t);
+  return Number.isNaN(d.getTime()) ? t : d.toLocaleTimeString();
+}
+
+function RecentAlertsCard() {
+  const api = useApi();
+  const [alerts, setAlerts] = useState<LogEntry[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    api.logs
+      .list(200)
+      .then((list) => {
+        if (!active) return;
+        setAlerts(list.filter((l) => l.level === 'warn' || l.level === 'error').slice(-5));
+      })
+      .catch(() => { /* ignore */ });
+    const stop = api.logs.stream({
+      onLine: (entry) => {
+        if (entry.level !== 'warn' && entry.level !== 'error') return;
+        setAlerts((prev) => [...prev.filter((a) => a.id !== entry.id), entry].slice(-5));
+      },
+    });
+    return () => {
+      active = false;
+      stop();
+    };
+  }, [api]);
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <Bell className="size-4 text-primary" /> 最近告警
+          </CardTitle>
+          <CardDescription>最近的 warn / error 级别日志</CardDescription>
+        </div>
+        <Link
+          to="/logs"
+          className="inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+        >
+          查看日志 <ArrowRight className="size-3" />
+        </Link>
+      </CardHeader>
+      <CardContent>
+        {alerts.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground">
+            <Bell className="size-7" strokeWidth={1.5} />
+            <p className="text-sm">暂无告警</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1 font-mono text-[11px]">
+            {alerts.map((a) => (
+              <div key={a.id} className="flex gap-2 rounded px-2 py-1 hover:bg-accent/30">
+                <span className="shrink-0 text-muted-foreground tabular-nums">{alertClock(a.time)}</span>
+                <span className={cn('shrink-0 font-semibold', a.level === 'error' ? 'text-destructive' : 'text-warning')}>
+                  {a.level.toUpperCase()}
+                </span>
+                <span className="min-w-0 flex-1 truncate" title={a.message}>
+                  [{a.scope}] {a.message}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

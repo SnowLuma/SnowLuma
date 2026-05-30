@@ -9,7 +9,7 @@ import {
   type EventReportOptions,
 } from '../event-filter';
 import type { JsonObject, WsRole, WsServerNetwork } from '../types';
-import { IOneBotNetworkAdapter, NetworkReloadType, type NetworkAdapterContext } from './adapter';
+import { IOneBotNetworkAdapter, NetworkReloadType, type AdapterStatus, type NetworkAdapterContext } from './adapter';
 import { isAuthorized, normalizePath, parseRequestPath, rawDataToString, safeClose, safeSend } from './utils';
 
 const moduleLog = createLogger('OneBot.WS-Server');
@@ -22,6 +22,7 @@ interface ForwardConn {
 
 export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
   private wss: WebSocketServer | null = null;
+  private listening = false;
   private connections = new Map<WebSocket, ForwardConn>();
   private options: EventReportOptions;
   private readonly log: Logger;
@@ -57,10 +58,17 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
     }
 
     this.isEnabled = false;
+    this.listening = false;
     for (const ws of [...this.connections.keys()]) safeClose(ws);
     this.connections.clear();
     this.wss?.close();
     this.wss = null;
+  }
+
+  override describeStatus(): AdapterStatus {
+    if (!this.isEnabled) return { name: this.name, kind: 'wsServer', status: 'disabled', detail: '未启用' };
+    if (!this.listening) return { name: this.name, kind: 'wsServer', status: 'down', detail: '未监听（端口被占用？）' };
+    return { name: this.name, kind: 'wsServer', status: 'ok', detail: `${this.connections.size} 个客户端` };
   }
 
   async reload(next: WsServerNetwork): Promise<NetworkReloadType> {
@@ -111,6 +119,7 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
     this.wss = wss;
 
     wss.on('listening', () => {
+      this.listening = true;
       this.log.success(
         '[%s] listening %s:%d%s',
         this.name,
@@ -121,6 +130,7 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
     });
 
     wss.on('error', (err: Error) => {
+      this.listening = false;
       this.log.warn('[%s] server error: %s', this.name, err instanceof Error ? err.message : String(err));
     });
 

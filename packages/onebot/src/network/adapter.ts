@@ -16,6 +16,19 @@ export enum NetworkReloadType {
   Opened = 3,
 }
 
+export type AdapterStatusLevel = 'ok' | 'warn' | 'down' | 'disabled';
+
+/** Live runtime status of a single network adapter, surfaced to the WebUI
+ *  dashboard (and the per-node config cards) so the gateway's own
+ *  connection health is visible. `detail` is a short human string, e.g.
+ *  "3 个客户端" / "重连中" / "上次推送失败 14:53:01". */
+export interface AdapterStatus {
+  name: string;
+  kind: 'httpServer' | 'httpClient' | 'wsServer' | 'wsClient';
+  status: AdapterStatusLevel;
+  detail: string;
+}
+
 export abstract class IOneBotNetworkAdapter<C extends NetworkBase> {
   readonly name: string;
   protected config: C;
@@ -37,4 +50,7 @@ export abstract class IOneBotNetworkAdapter<C extends NetworkBase> {
   abstract reload(config: C): NetworkReloadType | Promise<NetworkReloadType>;
 
   abstract onEvent(event: JsonObject, payload: DispatchPayload): void | Promise<void>;
+
+  /** Report live connection health for the WebUI dashboard. */
+  abstract describeStatus(): AdapterStatus;
 }

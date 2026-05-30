@@ -8,7 +8,7 @@ import {
   type EventReportOptions,
 } from '../event-filter';
 import type { JsonObject, WsClientNetwork, WsRole } from '../types';
-import { IOneBotNetworkAdapter, NetworkReloadType, type NetworkAdapterContext } from './adapter';
+import { IOneBotNetworkAdapter, NetworkReloadType, type AdapterStatus, type NetworkAdapterContext } from './adapter';
 import { rawDataToString, safeClose, safeSend } from './utils';
 
 const moduleLog = createLogger('OneBot.WS-Client');
@@ -16,6 +16,7 @@ const DEFAULT_RECONNECT_INTERVAL_MS = 5000;
 
 export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
   private socket: WebSocket | null = null;
+  private connected = false;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private options: EventReportOptions;
   private role: WsRole;
@@ -46,11 +47,18 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
   close(): void {
     this.explicitlyClosed = true;
     this.isEnabled = false;
+    this.connected = false;
     this.cancelReconnect();
     if (this.socket) {
       safeClose(this.socket);
       this.socket = null;
     }
+  }
+
+  override describeStatus(): AdapterStatus {
+    if (!this.isEnabled) return { name: this.name, kind: 'wsClient', status: 'disabled', detail: '未启用' };
+    if (this.connected) return { name: this.name, kind: 'wsClient', status: 'ok', detail: '已连接' };
+    return { name: this.name, kind: 'wsClient', status: 'warn', detail: this.reconnectTimer ? '重连中' : '连接中' };
   }
 
   async reload(next: WsClientNetwork): Promise<NetworkReloadType> {
@@ -108,6 +116,7 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
     this.socket = socket;
 
     socket.on('open', () => {
+      this.connected = true;
       this.log.info('[%s] connected %s', this.name, this.config.url);
       this.sendBootstrapMetaEvents(socket);
     });
@@ -120,6 +129,7 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
 
     socket.on('close', () => {
       this.socket = null;
+      this.connected = false;
       if (this.explicitlyClosed || !this.isEnabled) return;
       this.scheduleReconnect();
     });
