@@ -3,6 +3,14 @@
 export type pb<_ProtoNumber extends number, Type> = Type;
 /** Marks a repeated protobuf field: `ids: pb_repeated<fieldNumber, Type>` → Type[] */
 export type pb_repeated<_ProtoNumber extends number, Type> = Type[];
+/**
+ * Marks a singular field with **explicit presence** (proto3 `optional`): it
+ * serialises whenever the value is present, INCLUDING its zero/default value
+ * — unlike `pb<>`, which omits zeros. Use when the wire peer needs the field
+ * present to disambiguate, e.g. an OIDB sub-command keyed on body shape where
+ * a zero must still appear on the wire. `name: pb_optional<fieldNumber, Type>`.
+ */
+export type pb_optional<_ProtoNumber extends number, Type> = Type;
 
 // ── Protobuf primitive types ──────────────────────────────────────────
 export type uint_32 = number;

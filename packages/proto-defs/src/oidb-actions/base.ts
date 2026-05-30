@@ -1,4 +1,4 @@
-import type { pb, pb_repeated, int_32, uint_32, uint_64, bool, bytes } from '@snowluma/proton';
+import type { pb, pb_optional, pb_repeated, int_32, uint_32, uint_64, bool, bytes } from '@snowluma/proton';
 
 // Re-exported from the legacy oidb-action module while large protocol groups
 // are split into focused files.
@@ -13,7 +13,11 @@ export interface OidbMuteMember {
   body?:     pb<3, OidbMuteMemberBody>;
 }
 export interface OidbMuteAllState {
-  state?: pb<17, uint_32>;
+  // Explicit presence: the unmute request sends state=0, which proto3 would
+  // otherwise omit — leaving an empty `muteState` the server can't tell apart
+  // from the other commands sharing OIDB (0x89A, 0) (SetSearch / SetAddOption,
+  // disambiguated by body shape). pb_optional forces the 0 onto the wire.
+  state?: pb_optional<17, uint_32>;
 }
 export interface OidbMuteAll {
   groupUin?:  pb<1, uint_32>;

@@ -1,7 +1,7 @@
 import ts from 'typescript';
 import {
   WireType,
-  PB_MARKER, PB_REPEATED_MARKER,
+  PB_MARKER, PB_REPEATED_MARKER, PB_OPTIONAL_MARKER,
   type ProtobufField, type ProtobufMessage,
   type GenericProtobufTemplate, type GenericFieldTemplate,
 } from './types.js';
@@ -85,7 +85,7 @@ function parsePbTypeRef(
   // Resolve the marker name through aliased imports so `import { pb as P }`
   // / `import { pb_repeated as PR }` still match the marker constants.
   const marker = resolveImportedTypeName(t.typeName.text);
-  if (marker !== PB_MARKER && marker !== PB_REPEATED_MARKER) return null;
+  if (marker !== PB_MARKER && marker !== PB_REPEATED_MARKER && marker !== PB_OPTIONAL_MARKER) return null;
   const ta = t.typeArguments;
   if (!ta || ta.length !== 2) return null;
   const fnNode = ta[0];
@@ -129,6 +129,7 @@ function extractField(
     isMessage: false,             // placeholder
     isOptional: member.questionToken != null,
     isRepeated: parsed.marker === PB_REPEATED_MARKER,
+    explicitPresence: parsed.marker === PB_OPTIONAL_MARKER,
   };
 }
 
@@ -149,6 +150,7 @@ function extractGenericField(
     isTypeParam: tpSet.has(raw),
     isOptional: member.questionToken != null,
     isRepeated: parsed.marker === PB_REPEATED_MARKER,
+    explicitPresence: parsed.marker === PB_OPTIONAL_MARKER,
   };
     // If the field's type-arg is itself a generic instantiation (`Wrapper<U>`,
     // where U is a type param of the enclosing template), capture the original

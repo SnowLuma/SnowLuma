@@ -26,12 +26,18 @@ describe('MuteAll namespace', () => {
     expect(env.body).toMatchObject({ groupUin: 12345, muteState: { state: 0xFFFFFFFF } });
   });
 
-  it('enable=false emits state=0', async () => {
+  it('enable=false forces state=0 ONTO the wire (so the server can disambiguate)', async () => {
     const deps = makeDeps();
     await MuteAll.invoke(deps, { groupId: 12345, enable: false });
     const [, bytes] = deps.sendRawPacket.mock.calls[0]!;
     const env = protobuf_decode<OidbBase<OidbMuteAll>>(bytes);
-    // proto3 default 0 fields are omitted on the wire.
-    expect(env.body?.muteState?.state ?? 0).toBe(0);
+    expect(env.body?.muteState?.state).toBe(0);
+    // The fix (issue #70): state=0 is a `pb_optional<>` field, so it must be
+    // PRESENT on the wire — field 17 (varint tag 0x88 0x01) + value 0x00 — not
+    // omitted. An empty `muteState` is indistinguishable from the other
+    // commands sharing OIDB (0x89A, 0), so the server rejects unmute with 1007.
+    const arr = Array.from(bytes);
+    const hasStateField = arr.some((_, i) => arr[i] === 0x88 && arr[i + 1] === 0x01 && arr[i + 2] === 0x00);
+    expect(hasStateField).toBe(true);
   });
 });

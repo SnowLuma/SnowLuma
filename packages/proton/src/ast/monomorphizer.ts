@@ -89,6 +89,7 @@ export function monomorphizeTypeNode(
         isMessage: false,
         isOptional: f.isOptional,
         isRepeated: f.isRepeated,
+        explicitPresence: f.explicitPresence,
       };
     }
     return {
@@ -99,6 +100,7 @@ export function monomorphizeTypeNode(
       isMessage: false,
       isOptional: f.isOptional,
       isRepeated: f.isRepeated,
+      explicitPresence: f.explicitPresence,
     };
   });
 
