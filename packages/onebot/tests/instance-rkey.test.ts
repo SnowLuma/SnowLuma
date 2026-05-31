@@ -3,7 +3,9 @@ import { RKeyCache } from '../src/instance-rkey';
 import type { MessageElement } from '@snowluma/protocol/events';
 
 // The screenshot URL: a raw QQ-NT multimedia download link with no rkey yet.
+// appid 1407 = group image, 1406 = private/c2c image (see instance-rkey).
 const NT_IMAGE_URL = 'https://multimedia.nt.qq.com.cn/download?appid=1407&fileid=ABC';
+const NT_PRIVATE_IMAGE_URL = 'https://multimedia.nt.qq.com.cn/download?appid=1406&fileid=XYZ';
 const GROUP_IMAGE_TYPE = 20;
 const PRIVATE_IMAGE_TYPE = 10;
 
@@ -20,8 +22,19 @@ function freshGroupRkey(value = 'GROUPKEY') {
   return [{ rkey: value, type: GROUP_IMAGE_TYPE, ttlSeconds: 3600, createTime: nowSec(), storeId: 0 }];
 }
 
+function freshBothRkeys() {
+  return [
+    { rkey: 'PRIVATEKEY', type: PRIVATE_IMAGE_TYPE, ttlSeconds: 3600, createTime: nowSec(), storeId: 0 },
+    { rkey: 'GROUPKEY', type: GROUP_IMAGE_TYPE, ttlSeconds: 3600, createTime: nowSec(), storeId: 0 },
+  ];
+}
+
 function imageEl(): MessageElement {
   return { type: 'image', imageUrl: NT_IMAGE_URL };
+}
+
+function privateImageEl(): MessageElement {
+  return { type: 'image', imageUrl: NT_PRIVATE_IMAGE_URL };
 }
 
 describe('RKeyCache.resolveImageUrl', () => {
@@ -69,16 +82,46 @@ describe('RKeyCache.resolveImageUrl', () => {
     expect(fetchDownloadRKeys).toHaveBeenCalledTimes(1);
   });
 
-  it('uses the private rkey type for c2c images', async () => {
-    const { bridge } = makeBridge(async () => [
-      { rkey: 'PRIVATEKEY', type: PRIVATE_IMAGE_TYPE, ttlSeconds: 3600, createTime: nowSec(), storeId: 0 },
-      { rkey: 'GROUPKEY', type: GROUP_IMAGE_TYPE, ttlSeconds: 3600, createTime: nowSec(), storeId: 0 },
-    ]);
+  it('uses the private rkey type for c2c images (appid 1406)', async () => {
+    const { bridge } = makeBridge(async () => freshBothRkeys());
+    const cache = new RKeyCache();
+
+    const url = await cache.resolveImageUrl(bridge as never, privateImageEl(), false);
+
+    expect(url).toBe(`${NT_PRIVATE_IMAGE_URL}&rkey=PRIVATEKEY`);
+  });
+
+  // The scene follows the image's own appid, not the carrying message — the
+  // crux of `/get_forward_msg` rkey correctness (issue #74): a c2c image
+  // forwarded into a group must still be signed with the private rkey.
+  it('signs an appid-1406 image with the private rkey even when isGroup is true', async () => {
+    const { bridge } = makeBridge(async () => freshBothRkeys());
+    const cache = new RKeyCache();
+
+    const url = await cache.resolveImageUrl(bridge as never, privateImageEl(), true);
+
+    expect(url).toBe(`${NT_PRIVATE_IMAGE_URL}&rkey=PRIVATEKEY`);
+  });
+
+  it('signs an appid-1407 image with the group rkey even when isGroup is false', async () => {
+    const { bridge } = makeBridge(async () => freshBothRkeys());
     const cache = new RKeyCache();
 
     const url = await cache.resolveImageUrl(bridge as never, imageEl(), false);
 
-    expect(url).toBe(`${NT_IMAGE_URL}&rkey=PRIVATEKEY`);
+    expect(url).toBe(`${NT_IMAGE_URL}&rkey=GROUPKEY`);
+  });
+
+  it('falls back to the isGroup scene when the URL carries no appid', async () => {
+    const noAppidUrl = 'https://multimedia.nt.qq.com.cn/download?fileid=NOAPPID';
+    const { bridge } = makeBridge(async () => freshBothRkeys());
+    const cache = new RKeyCache();
+
+    const url = await cache.resolveImageUrl(
+      bridge as never, { type: 'image', imageUrl: noAppidUrl }, true,
+    );
+
+    expect(url).toBe(`${noAppidUrl}&rkey=GROUPKEY`);
   });
 
   it('leaves non-NT URLs untouched and never fetches', async () => {
