@@ -9,6 +9,13 @@ const PORT_RANGE_START = 9210;
 const PORT_RANGE_END = 9219;
 const PROBE_TIMEOUT_MS = 1000;
 const CONNECTION_TIMEOUT_MS = 500;
+// QQ's Ptlogin quick-login ports plus its main process mean a single
+// logged-in client surfaces roughly this many processes. When no usable
+// probe port is found, a count BELOW this implies the target PID is still at
+// the login screen; AT/ABOVE it the environment is ambiguous (multiple or
+// unrelated `qq` processes), so we fall through to deep-link probing rather
+// than guess "logged out".
+const LOGGED_OUT_PROCESS_COUNT_MAX = 6;
 
 export interface QqPortLoginInfo {
   port: number;
@@ -111,7 +118,15 @@ async function probePort(port: number): Promise<QqPortLoginInfo | null> {
 }
 
 
-async function fetchPtlogin(port: number): Promise<any[]> {
+/** One entry of the Ptlogin `pt_get_uins` JSONP array. Only the fields the
+ *  probe reads are modelled; QQ sends more but they're irrelevant here. */
+interface PtloginUin {
+  uin?: string | number;
+  account?: string | number;
+  nickname?: string;
+}
+
+async function fetchPtlogin(port: number): Promise<PtloginUin[]> {
   return new Promise((resolve) => {
     const url = `https://127.0.0.1:${port}/pt_get_uins?callback=ptui_getuins_CB&pt_local_tk=0`;
 
@@ -133,7 +148,7 @@ async function fetchPtlogin(port: number): Promise<any[]> {
           try {
             // 100% 复刻 Python 切片逻辑：获取两个方括号中间的字符串，再包装成数组
             const inner = text.split('[')[1].split(']')[0];
-            const data = JSON.parse('[' + inner + ']');
+            const data = JSON.parse('[' + inner + ']') as PtloginUin[];
             resolve(data);
           } catch {
             resolve([]);
@@ -167,10 +182,8 @@ async function tryPtloginMethod(port: number): Promise<QqPortLoginInfo | 'fallba
     };
   }
 
-  if ((res1.length === 2 && res2.length === 0) || (res1.length === 0 && res2.length === 2)) {
-    return 'fallback';
-  }
-
+  // Any non-1 result — the 2+0 alternation, both-2, both-empty, etc. — is
+  // inconclusive; hand off to the deep-link / process-count fallback.
   return 'fallback';
 }
 
@@ -185,7 +198,9 @@ async function getQqProcessCount(): Promise<number> {
       return parseInt(stdout.trim(), 10) || 0;
     }
   } catch {
-    return 6;
+    // On failure report the ambiguous threshold so we never falsely
+    // conclude "logged out".
+    return LOGGED_OUT_PROCESS_COUNT_MAX;
   }
 }
 
@@ -230,7 +245,7 @@ export async function probeQqLoginInfo(pid: number): Promise<QqPortLoginInfo | n
 
   if (ports.length === 0) {
     const totalPids = await getQqProcessCount();
-    if (totalPids < 6) {
+    if (totalPids < LOGGED_OUT_PROCESS_COUNT_MAX) {
       return { port: 0, uin: '', loggedIn: false };
     }
     return null;
@@ -248,7 +263,7 @@ export async function probeQqLoginInfo(pid: number): Promise<QqPortLoginInfo | n
     }
   } else {
     const totalPids = await getQqProcessCount();
-    if (totalPids < 6) {  // 13579  5个端口全部用光
+    if (totalPids < LOGGED_OUT_PROCESS_COUNT_MAX) {
       return {
         port: ports[0] || 0,
         uin: '',
