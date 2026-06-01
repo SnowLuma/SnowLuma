@@ -202,7 +202,14 @@ function readHttpResponseBody(socket: net.Socket): Promise<Uint8Array> {
     const onClose = () => finish(() => {
       const buf = Buffer.concat(chunks);
       if (headerEnd >= 0) resolve(new Uint8Array(buf.subarray(headerEnd)));
-      else reject(new Error('connection closed before response'));
+      // QQ 的 highway 边缘节点对单连接多 POST 的 keep-alive 支持不稳定：
+      // 第一次 POST 拿到响应后服务器经常立刻 FIN 关闭，下一次写入的请求体
+      // 走到一个已被对端 close 的 socket 上，触发这里。诊断信息把已收到的
+      // 字节数和是否解析到 header 一起带出来，便于区分 “连接刚握手就被关”
+      // 和 “响应读到一半被截断” 两种情况。
+      else reject(new Error(
+        `connection closed before response (received=${buf.length}B, headerSeen=${headerEnd >= 0})`
+      ));
     });
 
     socket.on('data', onData);
@@ -225,42 +232,60 @@ export async function uploadHighwayHttp(
   bytes: Uint8Array, fileMd5: Uint8Array, extend: Uint8Array,
 ): Promise<void> {
   const pathStr = `/cgi-bin/httpconn?htcmd=0x6FF0087&uin=${bridge.identity.uin}`;
-  const socket = await tcpConnect(session.host, session.port);
 
-  try {
-    let offset = 0;
-    while (offset < bytes.length) {
-      const chunkSize = Math.min(HIGHWAY_BLOCK_SIZE, bytes.length - offset);
-      const chunk = bytes.subarray(offset, offset + chunkSize);
-      const chunkMd5 = computeMd5(chunk);
-      const head = makeHighwayHead(
-        bridge.identity.uin, commandId, bytes.length, offset, chunkSize,
-        chunkMd5, fileMd5, session.sigSession, extend,
-      );
-      const frame = packHighwayFrame(head, chunk);
-      const responseBody = await httpPostFrame(socket, session.host, pathStr, frame);
-      const { head: respHead } = unpackHighwayFrame(responseBody);
-      const resp = protobuf_decode<RespDataHighwayHead>(respHead);
-      if (resp?.errorCode && resp.errorCode !== 0) {
-        // Surface every diagnostic the highway response carries so
-        // user reports of `error_code=921` and friends include the
-        // server-side context (segHead.retCode, chunk size, file md5)
-        // — without these we can't tell apart a malformed-payload
-        // reject, a session-ticket mismatch, or a per-account rate-
-        // limit.
-        const segRetCode = resp.msgSegHead?.retCode ?? 0;
-        const fileMd5Hex = Buffer.from(fileMd5).toString('hex');
-        throw new Error(
-          `highway upload error_code=${resp.errorCode}` +
-          ` (cmdId=${commandId} chunk=${chunkSize}/${bytes.length}` +
-          ` offset=${offset} segRetCode=${segRetCode}` +
-          ` fileMd5=${fileMd5Hex.slice(0, 16)}…)`,
-        );
-      }
-      offset += chunkSize;
-      console.log(`[Highway] uploaded ${offset}/${bytes.length} bytes`);
+  // 每个 chunk 一个独立的 TCP 连接。
+  //
+  // 旧实现整个文件复用同一个 socket，依赖 `Connection: keep-alive` 跑多次
+  // POST。但 QQ highway 边缘节点（以及链路上的代理/NAT）经常在第一次响应
+  // 之后立刻 FIN 关闭连接，导致第二个 chunk 写入一个已被对端关闭的 socket，
+  // `readHttpResponseBody` 立刻收到 `close` 事件并抛 `connection closed
+  // before response`。
+  //
+  // 现象上的体现：≤1 MB 的图片/PTT 因为只发一个 chunk，不会触发；超过 1 MB
+  // 的图片或视频（HIGHWAY_BLOCK_SIZE = 1 MiB）必然失败。
+  //
+  // 改成每 chunk 一连接代价可忽略：
+  //   - 单个 1 MB chunk 的传输时间远大于 TCP 建连开销；
+  //   - QQ 服务端反正也不希望客户端长时间占用连接；
+  //   - 与 NapCat / Lagrange 在大文件上传时的连接生命周期一致。
+  let offset = 0;
+  while (offset < bytes.length) {
+    const chunkSize = Math.min(HIGHWAY_BLOCK_SIZE, bytes.length - offset);
+    const chunk = bytes.subarray(offset, offset + chunkSize);
+    const chunkMd5 = computeMd5(chunk);
+    const head = makeHighwayHead(
+      bridge.identity.uin, commandId, bytes.length, offset, chunkSize,
+      chunkMd5, fileMd5, session.sigSession, extend,
+    );
+    const frame = packHighwayFrame(head, chunk);
+
+    const socket = await tcpConnect(session.host, session.port);
+    let responseBody: Uint8Array;
+    try {
+      responseBody = await httpPostFrame(socket, session.host, pathStr, frame);
+    } finally {
+      socket.destroy();
     }
-  } finally {
-    socket.destroy();
+
+    const { head: respHead } = unpackHighwayFrame(responseBody);
+    const resp = protobuf_decode<RespDataHighwayHead>(respHead);
+    if (resp?.errorCode && resp.errorCode !== 0) {
+      // Surface every diagnostic the highway response carries so
+      // user reports of `error_code=921` and friends include the
+      // server-side context (segHead.retCode, chunk size, file md5)
+      // — without these we can't tell apart a malformed-payload
+      // reject, a session-ticket mismatch, or a per-account rate-
+      // limit.
+      const segRetCode = resp.msgSegHead?.retCode ?? 0;
+      const fileMd5Hex = Buffer.from(fileMd5).toString('hex');
+      throw new Error(
+        `highway upload error_code=${resp.errorCode}` +
+        ` (cmdId=${commandId} chunk=${chunkSize}/${bytes.length}` +
+        ` offset=${offset} segRetCode=${segRetCode}` +
+        ` fileMd5=${fileMd5Hex.slice(0, 16)}…)`,
+      );
+    }
+    offset += chunkSize;
+    console.log(`[Highway] uploaded ${offset}/${bytes.length} bytes`);
   }
 }
