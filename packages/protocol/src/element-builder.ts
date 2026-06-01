@@ -105,32 +105,31 @@ function makeReplyElem(element: MessageElement): ProtoElem {
   return { srcMsg };
 }
 
+function makeDeflatedPayload(content: string): Uint8Array {
+  const deflated = deflateSync(Buffer.from(content, 'utf8'));
+  const payload = new Uint8Array(deflated.length + 1);
+  payload[0] = 0x01;
+  payload.set(deflated, 1);
+  return payload;
+}
+
 function makeJsonElem(element: MessageElement): ProtoElem {
   const content = element.text ?? '';
-  const payload = new Uint8Array(content.length + 1);
-  payload[0] = 0x00;
-  const encoded = new TextEncoder().encode(content);
-  payload.set(encoded, 1);
 
   return {
-    richMsg: {
-      serviceId: 1,
-      template1: payload,
+    lightApp: {
+      data: makeDeflatedPayload(content),
     },
   };
 }
 
 function makeXmlElem(element: MessageElement): ProtoElem {
   const content = element.text ?? '';
-  const payload = new Uint8Array(content.length + 1);
-  payload[0] = 0x00;
-  const encoded = new TextEncoder().encode(content);
-  payload.set(encoded, 1);
 
   return {
     richMsg: {
       serviceId: element.subType === 0 ? 35 : (element.subType ?? 35),
-      template1: payload,
+      template1: makeDeflatedPayload(content),
     },
   };
 }
@@ -208,14 +207,9 @@ function makeForwardElem(element: MessageElement): ProtoElem {
   };
 
   const json = JSON.stringify(lightApp);
-  const deflated = deflateSync(Buffer.from(json, 'utf8'));
-  const payload = new Uint8Array(deflated.length + 1);
-  payload[0] = 0x01;  // 0x01 prefix = deflated JSON (vs 0x00 = uncompressed XML)
-  payload.set(deflated, 1);
-
   return {
     lightApp: {
-      data: payload,
+      data: makeDeflatedPayload(json),
     },
   };
 }

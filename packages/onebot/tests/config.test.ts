@@ -25,6 +25,7 @@ describe('makeDefaultOneBotConfig', () => {
     expect(config.networks.wsServers[0].reportSelfMessage).toBe(false);
     expect(config.networks.wsClients).toEqual([]);
     expect(config.musicSignUrl).toBe('');
+    expect(config.statusCommand).toEqual({ enabled: true, swallow: false, cooldownSeconds: 5 });
   });
 });
 
@@ -57,6 +58,26 @@ describe('loadOneBotConfig', () => {
     // Legacy keys must not appear in the persisted file.
     expect(onDisk.httpServers).toBeUndefined();
     expect(onDisk.wsServers).toBeUndefined();
+    // statusCommand is materialised with defaults on a fresh install.
+    expect(onDisk.statusCommand).toEqual({ enabled: true, swallow: false, cooldownSeconds: 5 });
+  });
+
+  it('fills statusCommand defaults and clamps a negative cooldown', () => {
+    const uin = '10042';
+    const dir = path.join(tempDir, 'config');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, `onebot_${uin}.json`),
+      JSON.stringify({
+        networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
+        statusCommand: { swallow: true, cooldownSeconds: -3 },
+      }),
+    );
+
+    const config = loadOneBotConfig(uin);
+    expect(config.statusCommand.enabled).toBe(true); // default filled (absent in file)
+    expect(config.statusCommand.swallow).toBe(true); // taken from file
+    expect(config.statusCommand.cooldownSeconds).toBe(0); // negative clamped to 0
   });
 
   it('migrates legacy per-type arrays into networks groups', () => {

@@ -12,6 +12,8 @@ import { MediaStore } from './media-store';
 import { MediaUrlResolver } from './media-url-resolver';
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from './message-id';
 import { MessageStore } from './message-store';
+import { sendGroupMessage, sendPrivateMessage } from './modules/message-actions';
+import { buildStatusText, matchesStatusCommand, statusCooldownElapsed } from './modules/status-command';
 import {
   HttpPostAdapter,
   HttpServerAdapter,
@@ -37,6 +39,11 @@ export class OneBotInstance {
   private readonly reactionStore: ReactionStore;
   private readonly networkManager: OneBotNetworkManager;
   private readonly rkeyCache: RKeyCache;
+  private readonly ctx: OneBotInstanceContext;
+  /** Process-uptime baseline for the `#sl` status reply. */
+  private readonly startedAt = Date.now();
+  /** Per-conversation last-reply timestamp for the `#sl` cooldown. */
+  private readonly statusCommandCooldown = new Map<string, number>();
   private disposeEventPipeline: (() => void) | null = null;
 
   private readonly pids = new Set<number>();
@@ -90,6 +97,7 @@ export class OneBotInstance {
       cacheMessageMeta: (messageId, meta) => this.cacheMessageMeta(messageId, meta),
       dispatchEvent: (event) => this.dispatchEvent(event),
     };
+    this.ctx = ctx;
 
     this.apiHandler = new ApiHandler(buildApiContext(ctx), uinNum > 0 ? uinNum : undefined);
     this.networkManager = new OneBotNetworkManager();
@@ -104,6 +112,9 @@ export class OneBotInstance {
   }
 
   reloadConfig(config: OneBotConfig): void {
+    // Keep the shared context's config in sync so live readers (e.g. the
+    // `#sl` handler reading `statusCommand`) pick up edits without a restart.
+    this.ctx.config = config;
     void this.applyConfigDiff(config).catch((err) => {
       this.log.warn('applyConfigDiff failed: %s', err instanceof Error ? (err.stack ?? err.message) : String(err));
     });
@@ -145,9 +156,51 @@ export class OneBotInstance {
   private dispatchEvent(event: JsonObject): void {
     this.cacheMessageEvent(event);
     this.logReceivedMessage(event);
+    // Built-in `#sl`: always cache + log first (a swallowed `#sl` is still
+    // observable locally); only forwarding to downstream adapters is gated.
+    if (this.handleStatusCommand(event)) return;
     void this.networkManager.emitEvent(event).catch((err) => {
       this.log.warn('emitEvent failed: %s', err instanceof Error ? (err.stack ?? err.message) : String(err));
     });
+  }
+
+  /**
+   * Built-in `#sl` status command. Returns `true` when the event matched AND
+   * `swallow` is configured — the caller then skips `emitEvent` so downstream
+   * adapters never see it. The reply itself is fired async and rate-limited
+   * per conversation; matching and replying are independent of swallowing.
+   */
+  private handleStatusCommand(event: JsonObject): boolean {
+    const cfg = this.ctx.config.statusCommand;
+    if (!cfg.enabled) return false;
+    const postType = event.post_type;
+    if (postType !== 'message' && postType !== 'message_sent') return false;
+    if (!matchesStatusCommand(event.message)) return false;
+
+    const isGroup = event.message_type === 'group';
+    const sessionId = isGroup ? toInt(event.group_id) : toInt(event.user_id);
+    if (sessionId === 0) return cfg.swallow;
+
+    const key = `${isGroup ? 'g' : 'p'}:${sessionId}`;
+    const now = Date.now();
+    if (statusCooldownElapsed(this.statusCommandCooldown.get(key), now, cfg.cooldownSeconds)) {
+      this.statusCommandCooldown.set(key, now);
+      void this.replyStatus(isGroup, sessionId).catch((err) => {
+        this.log.warn('status command reply failed: %s', err instanceof Error ? err.message : String(err));
+      });
+    }
+    return cfg.swallow;
+  }
+
+  private async replyStatus(isGroup: boolean, sessionId: number): Promise<void> {
+    const text = buildStatusText({
+      version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev',
+      platform: process.platform,
+      arch: process.arch,
+      uptimeMs: Date.now() - this.startedAt,
+    });
+    if (isGroup) await sendGroupMessage(this.ctx, sessionId, text, true);
+    else await sendPrivateMessage(this.ctx, sessionId, text, true);
   }
 
   private buildNetworkContext(): NetworkAdapterContext {

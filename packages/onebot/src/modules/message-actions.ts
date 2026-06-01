@@ -675,7 +675,16 @@ export async function getForwardMessage(
   for (const node of nodes) {
     const isGroup = node.messageType === 'group' || (node.groupId !== undefined && node.groupId > 0);
     const sessionId = isGroup ? (node.groupId ?? 0) : node.userUin;
-    const segments = await elementsToOneBotSegments(node.elements, isGroup, sessionId);
+    // Route forward nodes through the SAME resolver-equipped conversion the
+    // normal receive path uses (to-message.ts). Without the image/media URL
+    // resolvers the segments come back with raw, rkey-less download URLs —
+    // exactly issue #74 (`/get_forward_msg` image url 缺少 rkey). Image rkey
+    // re-signing is scene-aware via the appid in the URL (see instance-rkey).
+    const segments = await elementsToOneBotSegments(
+      node.elements, isGroup, sessionId,
+      ref.converterCtx.imageUrlResolver,
+      ref.converterCtx.mediaUrlResolver,
+    );
 
     const sender: JsonObject = {
       user_id: node.userUin,

@@ -43,7 +43,18 @@ export class RKeyCache {
     const url = element.imageUrl ?? '';
     if (!urlNeedsRKey(url)) return url;
 
-    const rkey = await this.findRKey(bridge, isGroup);
+    // The rkey scene must follow the IMAGE's own upload context, not the
+    // message currently carrying it. A c2c image forwarded into a group
+    // keeps its original c2c fileid/appid (1406); signing it with the
+    // group rkey just because the forward node looks like a group message
+    // yields `invalid rkey` on download. So derive the scene from the
+    // appid baked into the URL, and only fall back to `isGroup` when the
+    // URL carries no recognised appid (legacy gchat / unknown shapes).
+    // Mirrors NapCat's getImageUrlFromParsedUrl (appid 1406 → private,
+    // 1407 → group).
+    const primaryType = imageRKeyTypeFromUrl(url)
+      ?? (isGroup ? GROUP_IMAGE_RKEY_TYPE : PRIVATE_IMAGE_RKEY_TYPE);
+    const rkey = await this.findRKeyForType(bridge, primaryType);
     if (!rkey) return url;
 
     const cleanRKey = stripRKeyPrefix(rkey);
@@ -88,11 +99,6 @@ export class RKeyCache {
         expiresAt: baseTime + ttl,
       });
     }
-  }
-
-  private findRKey(bridge: BridgeInterface, isGroup: boolean): Promise<string | null> {
-    const primaryType = isGroup ? GROUP_IMAGE_RKEY_TYPE : PRIVATE_IMAGE_RKEY_TYPE;
-    return this.findRKeyForType(bridge, primaryType);
   }
 
   /** Pull a still-valid rkey out of the cache, or null if missing/expiring. */
@@ -151,6 +157,23 @@ export class RKeyCache {
       if (timer) clearTimeout(timer);
     }
   }
+}
+
+// QQ-NT download appids embedded in the image URL query string. The scene
+// they encode is a property of the image (where it was uploaded), so they
+// outrank the carrying message's group/private context — see resolveImageUrl.
+const APPID_PRIVATE_IMAGE = '1406';
+const APPID_GROUP_IMAGE = '1407';
+
+/** Map the `appid` baked into an NT download URL to its rkey type. Returns
+ *  null when the URL carries no recognised appid, leaving the caller to fall
+ *  back to the message's group/private context. */
+function imageRKeyTypeFromUrl(url: string): number | null {
+  const match = url.match(/[?&]appid=(\d+)/);
+  if (!match) return null;
+  if (match[1] === APPID_PRIVATE_IMAGE) return PRIVATE_IMAGE_RKEY_TYPE;
+  if (match[1] === APPID_GROUP_IMAGE) return GROUP_IMAGE_RKEY_TYPE;
+  return null;
 }
 
 function urlNeedsRKey(url: string): boolean {

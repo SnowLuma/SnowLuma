@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { motion } from 'motion/react';
-import { Check, KeyRound, Monitor, Moon, Palette, RefreshCw, ShieldCheck, Sun } from 'lucide-react';
+import { Bug, Check, ExternalLink, Github, Info, KeyRound, Monitor, Moon, Palette, RefreshCw, ShieldCheck, Star, Sun, Tag } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -29,12 +29,13 @@ const DENSITY_OPTIONS: { value: Density; label: string; description: string }[] 
   { value: 'compact', label: '紧凑', description: '更小的字号与行距，单屏放更多内容' },
 ];
 
-type SettingsTab = 'appearance' | 'data' | 'account';
+type SettingsTab = 'appearance' | 'data' | 'account' | 'about';
 
 const TABS: { key: SettingsTab; label: string; icon: typeof Sun }[] = [
   { key: 'appearance', label: '外观', icon: Palette },
   { key: 'data', label: '数据刷新', icon: RefreshCw },
   { key: 'account', label: '账号安全', icon: ShieldCheck },
+  { key: 'about', label: '关于', icon: Info },
 ];
 
 export function SettingsPage() {
@@ -47,6 +48,7 @@ export function SettingsPage() {
       {tab === 'appearance' && <AppearancePanel />}
       {tab === 'data' && <DataPanel />}
       {tab === 'account' && <AccountPanel />}
+      {tab === 'about' && <AboutPanel />}
     </div>
   );
 }
@@ -303,5 +305,78 @@ function AccountPanel() {
         onSuccess={() => setPwdSavedAt(Date.now())}
       />
     </Card>
+  );
+}
+
+// ─────────────── 关于 ───────────────
+
+const REPO_URL = 'https://github.com/SnowLuma/SnowLuma';
+
+function AboutPanel() {
+  return (
+    <Card className="overflow-hidden">
+      <CardContent className="flex flex-col items-center gap-6 px-6 py-8 text-center sm:px-8">
+        {/* brand hero */}
+        <motion.div
+          initial={{ opacity: 0, y: 10, scale: 0.96 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ type: 'spring', stiffness: 260, damping: 22 }}
+          className="flex flex-col items-center gap-3"
+        >
+          <div className="relative">
+            <div aria-hidden className="absolute inset-0 -z-10 scale-125 rounded-full bg-primary/20 blur-2xl" />
+            <img src="/logo.png" alt="SnowLuma" className="size-20 object-contain drop-shadow-sm" />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-2xl font-semibold tracking-tight">SnowLuma</span>
+            <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 font-mono text-[11px] text-primary tabular-nums">
+              v{__APP_VERSION__}
+            </span>
+          </div>
+          <p className="text-sm text-muted-foreground">Next Remote Protocol Framework · 下一代远程协议框架</p>
+        </motion.div>
+
+        <p className="max-w-md text-[13px] leading-relaxed text-muted-foreground">
+          以轻量注入驱动 QQ NT，对外提供标准 OneBot v11 接口，让机器人一次部署、长期稳定运行。
+        </p>
+
+        {/* Star CTA */}
+        <div className="flex w-full max-w-sm flex-col items-center gap-2 rounded-xl border bg-gradient-to-b from-primary/[0.07] to-transparent p-5">
+          <Star className="size-6 fill-primary/20 text-primary" />
+          <p className="text-sm font-medium">喜欢 SnowLuma？点个 Star 支持一下</p>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            开源不易，你的 ⭐ 是我们持续维护的最大动力。
+          </p>
+          <Button asChild className="mt-1 w-full">
+            <a href={REPO_URL} target="_blank" rel="noreferrer noopener">
+              <Github className="size-4" />
+              去 GitHub 点 Star
+            </a>
+          </Button>
+        </div>
+
+        {/* secondary links */}
+        <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[12px]">
+          <AboutLink href={REPO_URL} icon={Github}>仓库</AboutLink>
+          <AboutLink href={`${REPO_URL}/releases`} icon={Tag}>发行版</AboutLink>
+          <AboutLink href={`${REPO_URL}/issues`} icon={Bug}>反馈问题</AboutLink>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AboutLink({ href, icon: Icon, children }: { href: string; icon: typeof Sun; children: ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+      className="inline-flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
+    >
+      <Icon className="size-3.5" />
+      {children}
+      <ExternalLink className="size-3 opacity-50" />
+    </a>
   );
 }

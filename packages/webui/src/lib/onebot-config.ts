@@ -1,4 +1,20 @@
-import type { MessageFormat, OneBotConfig } from '@/types';
+import type { MessageFormat, OneBotConfig, StatusCommandConfig } from '@/types';
+
+const DEFAULT_STATUS_COMMAND: StatusCommandConfig = { enabled: true, swallow: false, cooldownSeconds: 5 };
+
+/** Fill the `statusCommand` block with defaults when the backend omits or
+ *  partially supplies it (older configs predate the feature). */
+function normalizeStatusCommand(raw: unknown): StatusCommandConfig {
+  const src = (raw ?? {}) as Record<string, unknown>;
+  return {
+    enabled: typeof src.enabled === 'boolean' ? src.enabled : DEFAULT_STATUS_COMMAND.enabled,
+    swallow: typeof src.swallow === 'boolean' ? src.swallow : DEFAULT_STATUS_COMMAND.swallow,
+    cooldownSeconds:
+      typeof src.cooldownSeconds === 'number' && Number.isFinite(src.cooldownSeconds) && src.cooldownSeconds >= 0
+        ? Math.trunc(src.cooldownSeconds)
+        : DEFAULT_STATUS_COMMAND.cooldownSeconds,
+  };
+}
 
 /**
  * Anti-corruption layer for the per-UIN config payload. Older backends emit
@@ -30,5 +46,6 @@ export function normalizeOneBotConfig(raw: unknown): OneBotConfig {
       wsClients: list(nets.wsClients) as unknown as OneBotConfig['networks']['wsClients'],
     },
     musicSignUrl: typeof cfg.musicSignUrl === 'string' ? cfg.musicSignUrl : undefined,
+    statusCommand: normalizeStatusCommand(cfg.statusCommand),
   };
 }

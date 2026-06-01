@@ -7,6 +7,7 @@ import { motion } from 'motion/react';
 import { Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { cn } from '@/lib/utils';
 import type { AdapterCommon } from './defaults';
 import type { AdapterStatus } from '@/types';
@@ -126,30 +127,3 @@ export function NodeSummaryCard<T extends AdapterCommon>({
   );
 }
 
-interface ToggleSwitchProps {
-  value: boolean;
-  onChange: (v: boolean) => void;
-  ariaLabel: string;
-}
-
-function ToggleSwitch({ value, onChange, ariaLabel }: ToggleSwitchProps) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={value ? 'true' : 'false'}
-      aria-label={ariaLabel}
-      onClick={() => onChange(!value)}
-      className={cn(
-        'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border transition-colors',
-        value ? 'border-primary bg-primary' : 'border-input bg-muted',
-      )}
-    >
-      <motion.span
-        className="inline-block size-4 rounded-full bg-background shadow-sm"
-        animate={{ x: value ? 22 : 4 }}
-        transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-      />
-    </button>
-  );
-}
