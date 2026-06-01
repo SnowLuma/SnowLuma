@@ -180,6 +180,7 @@ jobs:
           DOCKER_PLATFORMS: ${{ vars.DOCKER_PLATFORMS }}
           DOCKER_WORKFLOW: ${{ vars.DOCKER_WORKFLOW }}
           DOCKER_REF: ${{ vars.DOCKER_REF }}
+          GHCR_IMAGE: ${{ vars.GHCR_IMAGE }}
         with:
           github-token: ${{ secrets.SNOWLUMA_TOKEN }}
           script: |
@@ -195,6 +196,7 @@ jobs:
             const platforms = process.env.DOCKER_PLATFORMS || 'linux/amd64,linux/arm64';
             const workflowId = process.env.DOCKER_WORKFLOW || 'docker-image.yml';
             const ref = process.env.DOCKER_REF || 'main';
+            const ghcrImage = process.env.GHCR_IMAGE || '';
 
             await github.rest.actions.createWorkflowDispatch({
               owner,
@@ -208,7 +210,8 @@ jobs:
                 platforms,
                 snowluma_tag: tag,
                 snowluma_repository: sourceRepo,
+                ghcr_image: ghcrImage,
               },
             });
 
-            core.info(`Dispatched ${workflowId}@${ref} on ${target} for SnowLuma release ${sourceRepo}@${tag} (image=${image}, platforms=${platforms}).`);
+            core.info(`Dispatched ${workflowId}@${ref} on ${target} for SnowLuma release ${sourceRepo}@${tag} (image=${image}, ghcr_image=${ghcrImage}, platforms=${platforms}).`);
