@@ -63,11 +63,29 @@ export interface OneBotNetworks {
   wsClients: WsClientNetwork[];
 }
 
+/**
+ * Built-in `#sl` status command. The trigger word is hardcoded (`#sl`,
+ * exact match, case-insensitive); only these toggles are configurable.
+ */
+export interface StatusCommandConfig {
+  /** Master on/off. Default `true` — built-in, but freely disableable. */
+  enabled: boolean;
+  /**
+   * When `true`, a matched `#sl` is NOT forwarded to downstream adapters
+   * (it is still cached, logged, and replied to). Default `false` (pass-through).
+   */
+  swallow: boolean;
+  /** Per-conversation reply cooldown in seconds. `0` disables it. Default `5`. */
+  cooldownSeconds: number;
+}
+
 /** Per-UIN OneBot configuration. */
 export interface OneBotConfig {
   networks: OneBotNetworks;
   /** Music card signing service URL (optional). */
   musicSignUrl?: string;
+  /** Built-in `#sl` status command settings. Always present after normalization. */
+  statusCommand: StatusCommandConfig;
 }
 
 export interface MessageMeta {

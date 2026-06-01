@@ -9,6 +9,7 @@ import type {
   MessageFormat,
   OneBotConfig,
   OneBotNetworks,
+  StatusCommandConfig,
   WsClientNetwork,
   WsRole,
   WsServerNetwork,
@@ -19,6 +20,14 @@ const log = createLogger('OneBot.Config');
 const CONFIG_DIR = 'config';
 const DEFAULT_CONFIG_PATH = path.join(CONFIG_DIR, 'onebot.json');
 const DEFAULT_ACCESS_TOKEN_BYTES = 32;
+
+const DEFAULT_STATUS_COMMAND: StatusCommandConfig = { enabled: true, swallow: false, cooldownSeconds: 5 };
+/** Upper bound on the `#sl` reply cooldown — a year is effectively "off but sane". */
+const STATUS_COMMAND_COOLDOWN_MAX = 31_536_000;
+
+function makeDefaultStatusCommand(): StatusCommandConfig {
+  return { ...DEFAULT_STATUS_COMMAND };
+}
 
 export function makeDefaultOneBotConfig(): OneBotConfig {
   return {
@@ -46,6 +55,7 @@ export function makeDefaultOneBotConfig(): OneBotConfig {
       wsClients: [],
     },
     musicSignUrl: '',
+    statusCommand: makeDefaultStatusCommand(),
   };
 }
 
@@ -98,6 +108,11 @@ function toJsonObject(config: OneBotConfig): JsonObject {
       wsClients: nets.wsClients.map(wsClientToJson),
     },
     musicSignUrl: config.musicSignUrl ?? '',
+    statusCommand: {
+      enabled: config.statusCommand.enabled,
+      swallow: config.statusCommand.swallow,
+      cooldownSeconds: config.statusCommand.cooldownSeconds,
+    },
   };
 }
 
@@ -181,7 +196,26 @@ function fromJson(sources: JsonObject[], freshInstall: boolean): OneBotConfig {
   }
 
   const networks: OneBotNetworks = { httpServers, httpClients, wsServers, wsClients };
-  return { networks, musicSignUrl };
+  return { networks, musicSignUrl, statusCommand: parseStatusCommand(sources) };
+}
+
+/** Last-write-wins merge of `statusCommand` across config sources, with
+ *  defaults filled and the cooldown clamped to a sane non-negative range. */
+function parseStatusCommand(sources: JsonObject[]): StatusCommandConfig {
+  const out = makeDefaultStatusCommand();
+  for (const src of sources) {
+    const raw = src.statusCommand;
+    if (!isObject(raw)) continue;
+    if (typeof raw.enabled === 'boolean') out.enabled = raw.enabled;
+    if (typeof raw.swallow === 'boolean') out.swallow = raw.swallow;
+    if (raw.cooldownSeconds !== undefined) {
+      out.cooldownSeconds = Math.min(
+        STATUS_COMMAND_COOLDOWN_MAX,
+        asNumber(raw.cooldownSeconds, DEFAULT_STATUS_COMMAND.cooldownSeconds),
+      );
+    }
+  }
+  return out;
 }
 
 function collectByName<T extends { name: string }>(

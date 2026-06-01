@@ -77,9 +77,17 @@ export interface OneBotNetworks {
   wsClients: WsClientNetwork[];
 }
 
+/** Built-in `#sl` status command settings (trigger word is hardcoded). */
+export interface StatusCommandConfig {
+  enabled: boolean;
+  swallow: boolean;
+  cooldownSeconds: number;
+}
+
 export interface OneBotConfig {
   networks: OneBotNetworks;
   musicSignUrl?: string;
+  statusCommand: StatusCommandConfig;
 }
 
 export type NetworkKind = keyof OneBotNetworks;
