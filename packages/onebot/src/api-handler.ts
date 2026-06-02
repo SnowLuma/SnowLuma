@@ -1,5 +1,5 @@
-import { summarizeParams } from '@snowluma/common/log-summary';
-import { createLogger, type Logger } from '@snowluma/common/logger';
+import { renderParamsVerbose, summarizeParams } from '@snowluma/common/log-summary';
+import { createLogger, getLogLevel, nextRequestId, runWithRequestId, type Logger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import { register as registerExtended } from './actions/extended';
 import { register as registerFriend } from './actions/friend';
@@ -109,13 +109,33 @@ export class ApiHandler {
       return failedResponse(RETCODE.UNKNOWN_ACTION, 'unknown action');
     }
 
-    // Entry log goes to file always (debug); console only when level is
-    // dialed down to debug. Caller-perspective summary lets the operator
-    // grep "what did the bot get asked to do" without scraping wire logs.
-    this.log.debug('%s params=%s', action, summarizeParams(params));
+    // Correlate the whole request — entry, every outbound packet it triggers,
+    // and the exit — under one `[req#N]` tag via AsyncLocalStorage. Only pay
+    // the wrap + id allocation when trace is actually live, so the default
+    // path stays allocation-free.
+    if (getLogLevel() !== 'trace') {
+      return this.runAction(action, handler, params);
+    }
+    return runWithRequestId(nextRequestId(), () => this.runAction(action, handler, params));
+  }
 
+  private async runAction(
+    action: string,
+    handler: ActionHandler,
+    params: JsonObject,
+  ): Promise<import('./types').ApiResponse> {
+    // Terse breadcrumb to the log file (debug, always persisted): lets the
+    // operator grep "what did the bot get asked to do" in post-mortems.
+    this.log.debug('%s params=%s', action, summarizeParams(params));
+    // Full request shape, memory-only (trace). Lazy producer → the deep render
+    // only runs when trace is live.
+    this.log.trace(() => [`${action} ⇐ %s`, renderParamsVerbose(params)]);
+
+    const startedAt = Date.now();
     try {
-      return await handler(params);
+      const response = await handler(params);
+      this.log.trace(() => [`${action} ⇒ ${response.status} (${Date.now() - startedAt}ms)`]);
+      return response;
     } catch (error) {
       // Action failures are almost always param-shape problems coming
       // from the OneBot client; warn (not error) is the right level so

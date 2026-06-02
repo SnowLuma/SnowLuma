@@ -12,6 +12,7 @@ import type { LogEntry, LogLevel } from '@/types';
 import { useApi } from '@/lib/api';
 
 const levelClass: Record<LogLevel, string> = {
+  trace: 'text-muted-foreground/60',
   debug: 'text-muted-foreground',
   info: 'text-primary',
   success: 'text-success',
@@ -19,7 +20,7 @@ const levelClass: Record<LogLevel, string> = {
   error: 'text-destructive',
 };
 
-const LEVELS: LogLevel[] = ['debug', 'info', 'success', 'warn', 'error'];
+const LEVELS: LogLevel[] = ['trace', 'debug', 'info', 'success', 'warn', 'error'];
 
 /** Show a locale time when the backend sends an ISO timestamp (it does);
  *  fall back to the raw string otherwise so we never render "Invalid Date". */
@@ -98,7 +99,8 @@ export function LogsPage() {
       return (
         l.message.toLowerCase().includes(f) ||
         l.scope.toLowerCase().includes(f) ||
-        l.level.toLowerCase().includes(f)
+        l.level.toLowerCase().includes(f) ||
+        (l.req !== undefined && String(l.req).includes(f))
       );
     });
   }, [logs, filter, enabledLevels]);
@@ -223,6 +225,11 @@ export function LogsPage() {
                         {log.level.toUpperCase()}
                       </span>
                       <span className="min-w-0 truncate text-muted-foreground sm:w-28">[{log.scope}]</span>
+                      {log.req !== undefined && (
+                        <span className="shrink-0 rounded bg-primary/10 px-1 text-[10px] text-primary tabular-nums" title="请求关联号">
+                          #{log.req}
+                        </span>
+                      )}
                     </div>
                     <span className="min-w-0 whitespace-pre-wrap break-all">{log.message}</span>
                   </motion.div>

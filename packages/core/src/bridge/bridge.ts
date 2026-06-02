@@ -1,3 +1,4 @@
+import { createLogger } from '@snowluma/common/logger';
 import type { PacketSender, SendPacketResult } from '@snowluma/common/packet-sender';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import { BridgeEventBus } from '@snowluma/protocol/event-bus';
@@ -12,6 +13,7 @@ import {
 } from './apis/extras';
 import type { BridgeInterface } from './bridge-interface';
 
+const log = createLogger('Bridge');
 
 export class Bridge implements BridgeInterface {
   readonly identity: IdentityService;
@@ -129,12 +131,29 @@ export class Bridge implements BridgeInterface {
   }
   async sendRawPacket(serviceCmd: string, body: Uint8Array, timeoutMs = 15000): Promise<SendPacketResult> {
     if (!this.packetClient_) {
+      log.warn('packet %s dropped: no packet sender attached', serviceCmd);
       return {
         success: false, gotResponse: false, errorCode: -1,
         errorMessage: 'no packet sender attached', responseData: null,
       };
     }
-    return this.packetClient_.sendPacket(serviceCmd, Buffer.from(body), timeoutMs);
+    const startedAt = Date.now();
+    const result = await this.packetClient_.sendPacket(serviceCmd, Buffer.from(body), timeoutMs);
+    const elapsed = Date.now() - startedAt;
+    const respLen = result.responseData ? result.responseData.length : 0;
+    if (!result.success || result.errorCode !== 0) {
+      // QQ-side rejection or transport failure — the usual root cause when an
+      // action misbehaves. Warn (persisted) with cmd + code so a user's log
+      // shows exactly where the chain broke.
+      log.warn('packet %s failed: code=%d gotResponse=%s %s (uin=%s, %dB, %dms)',
+        serviceCmd, result.errorCode, result.gotResponse,
+        result.errorMessage ?? '', this.identity.uin, body.length, elapsed);
+    } else {
+      // Happy path — memory-only trace so the full chain shows under the
+      // request's [req#N] when debugging, without flooding disk.
+      log.trace(() => [`packet ${serviceCmd} ok (${body.length}B⇄${respLen}B, ${elapsed}ms)`]);
+    }
+    return result;
   }
   async resolveUserUid(uin: number, groupId?: number): Promise<string> {
     return this.identity.resolveUid(uin, groupId);

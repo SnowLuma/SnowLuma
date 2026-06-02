@@ -124,7 +124,7 @@ export interface SystemInfo {
   };
 }
 
-export type LogLevel = 'debug' | 'info' | 'success' | 'warn' | 'error';
+export type LogLevel = 'trace' | 'debug' | 'info' | 'success' | 'warn' | 'error';
 
 export interface LogEntry {
   id: number;
@@ -132,6 +132,8 @@ export interface LogEntry {
   level: LogLevel;
   /** QQ uin, when the source logger was derived via `.child({ uin })`. */
   uin?: number;
+  /** Request correlation id, when emitted inside a request scope. */
+  req?: number;
   scope: string;
   message: string;
   line: string;

@@ -8,11 +8,13 @@ import type {
   ReqDataHighwayHead,
   RespDataHighwayHead,
 } from '@snowluma/proto-defs/highway';
+import { createLogger } from '@snowluma/common/logger';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import net from 'net';
 import type { BridgeContext } from '../bridge-context';
 import { computeMd5, packHighwayFrame, unpackHighwayFrame } from './utils';
 
+const log = createLogger('Highway');
 const HIGHWAY_APP_ID = 1600001604;
 const HIGHWAY_BLOCK_SIZE = 1024 * 1024;
 
@@ -69,7 +71,7 @@ export async function fetchHighwaySession(bridge: BridgeContext): Promise<Highwa
     }
   }
 
-  console.log(`[Highway] session: ${session.host}:${session.port} sig=${(session.sigSession as Uint8Array).length}B`);
+  log.trace('session %s:%d sig=%dB', session.host, session.port, (session.sigSession as Uint8Array).length);
   return session;
 }
 
@@ -286,6 +288,6 @@ export async function uploadHighwayHttp(
       );
     }
     offset += chunkSize;
-    console.log(`[Highway] uploaded ${offset}/${bytes.length} bytes`);
+    log.trace('uploaded %d/%d bytes', offset, bytes.length);
   }
 }
