@@ -25,21 +25,29 @@ import { actions as groupAlbumActions } from './actions/group-album';
 
 type AnySpec = ActionSpec<Record<string, Field<unknown>>>;
 
-const ALL_SPECS: readonly AnySpec[] = [
-  ...infoActions,
-  ...messageActions,
-  ...friendActions,
-  ...groupInfoActions,
-  ...groupAdminActions,
-  ...groupFileActions,
-  ...requestActions,
-  ...extendedActions,
-  ...groupAlbumActions,
+// Source file = domain category. Each doc is tagged so the MCP / UI can group.
+const GROUPS: ReadonlyArray<{ category: string; specs: readonly AnySpec[] }> = [
+  { category: '信息', specs: infoActions },
+  { category: '消息', specs: messageActions },
+  { category: '好友', specs: friendActions },
+  { category: '群信息', specs: groupInfoActions },
+  { category: '群管理', specs: groupAdminActions },
+  { category: '群文件', specs: groupFileActions },
+  { category: '请求', specs: requestActions },
+  { category: '扩展', specs: extendedActions },
+  { category: '群相册', specs: groupAlbumActions },
 ];
 
-/** Every declarative action's doc, sorted by name. */
-export function collectActionDocs(specs: readonly AnySpec[] = ALL_SPECS): ActionDoc[] {
-  return specs.map((s) => s.describe()).sort((a, b) => a.name.localeCompare(b.name));
+/** Every declarative action's doc (with category), sorted by name. */
+export function collectActionDocs(): ActionDoc[] {
+  return GROUPS
+    .flatMap(({ category, specs }) => specs.map((s) => ({ ...s.describe(), category })))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Distinct categories with action counts. */
+export function collectCategories(): Array<{ category: string; count: number }> {
+  return GROUPS.map(({ category, specs }) => ({ category, count: specs.length }));
 }
 
 function paramRow(p: ActionDoc['params'][number]): string {
@@ -52,7 +60,8 @@ function paramRow(p: ActionDoc['params'][number]): string {
 function renderAction(doc: ActionDoc): string {
   const lines: string[] = [];
   const alias = doc.aliases.length ? `  _(别名: ${doc.aliases.map((a) => `\`${a}\``).join(', ')})_` : '';
-  lines.push(`### \`${doc.name}\`${alias}`);
+  const cat = doc.category ? ` · ${doc.category}` : '';
+  lines.push(`### \`${doc.name}\`${cat}${alias}`);
   if (doc.summary) lines.push('', doc.summary);
   if (doc.params.length) {
     lines.push('', '| 参数 | 类型 | 必填 | 默认 | 说明 |', '| --- | --- | --- | --- | --- |');

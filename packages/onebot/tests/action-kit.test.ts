@@ -164,6 +164,42 @@ describe('run raw escape hatch — original params as 3rd arg', () => {
   });
 });
 
+describe('toJsonSchema / inputSchema (for the MCP)', () => {
+  it('emits a JSON Schema fragment per coercer', () => {
+    expect(f.uint().toJsonSchema()).toEqual({ type: 'integer', minimum: 1 });
+    expect(f.messageId().toJsonSchema()).toEqual({ type: 'integer', not: { const: 0 } });
+    expect(f.int({ min: 0 }).default(1800).toJsonSchema()).toEqual({ type: 'integer', minimum: 0, default: 1800 });
+    expect(f.string({ allowEmpty: false }).toJsonSchema()).toEqual({ type: 'string', minLength: 1 });
+    expect(f.bool().toJsonSchema()).toEqual({ type: 'boolean' });
+    expect(f.enum('a', 'b').toJsonSchema()).toEqual({ enum: ['a', 'b'] });
+    expect(f.array(f.uint()).nonEmpty().toJsonSchema()).toEqual({
+      type: 'array',
+      items: { type: 'integer', minimum: 1 },
+      minItems: 1,
+    });
+    expect(f.uint().describe('群号').toJsonSchema()).toEqual({ type: 'integer', minimum: 1, description: '群号' });
+  });
+
+  it('composes an action inputSchema (object + required + defaults)', () => {
+    const spec = groupUserAction({
+      name: 'set_group_ban',
+      params: { duration: f.int({ min: 0 }).default(1800) },
+      run: () => okResponse(),
+    });
+    const { inputSchema } = spec.describe();
+    expect(inputSchema).toMatchObject({
+      type: 'object',
+      additionalProperties: true,
+      required: ['group_id', 'user_id'],
+      properties: {
+        group_id: { type: 'integer', minimum: 1 },
+        user_id: { type: 'integer', minimum: 1 },
+        duration: { type: 'integer', minimum: 0, default: 1800 },
+      },
+    });
+  });
+});
+
 describe('describe — doc metadata for self-generated docs (D4)', () => {
   const spec = groupUserAction({
     name: ['set_group_ban', 'ban'],

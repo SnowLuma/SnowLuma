@@ -39,12 +39,19 @@ type Raw = JsonValue | typeof MISSING;
 
 // ─────────────────────────── Field (param coercer) ───────────────────────────
 
+/** A JSON Schema fragment (loose). Each coercer emits one; `describe()` composes
+ *  them into an action's `inputSchema` (consumed by docs / the MCP). */
+export type JsonSchema = Record<string, unknown>;
+
 export interface FieldDoc {
   type: string;
   required: boolean;
   default?: JsonValue;
   desc?: string;
   values?: readonly (string | number)[];
+  /** JSON Schema fragment for this field's value (constraints only; presence
+   *  and default are applied at the object level by `describe()`). */
+  schema?: JsonSchema;
 }
 
 export interface Field<T> {
@@ -57,6 +64,9 @@ export interface Field<T> {
    *  numeric field is an error, not a silent fallback). */
   default(value: T): Field<T>;
   describe(text: string): Field<T>;
+  /** Complete JSON Schema for this field's value (constraints + description +
+   *  default). Object-level required-ness is handled by `describe()`. */
+  toJsonSchema(): JsonSchema;
 }
 
 /** Core coerces a PRESENT value (never MISSING). Presence policy is applied
@@ -92,6 +102,13 @@ class FieldImpl<T> implements Field<T> {
   describe(text: string): Field<T> {
     return new FieldImpl<T>(this.core, { ...this.doc, desc: text });
   }
+
+  toJsonSchema(): JsonSchema {
+    const out: JsonSchema = { ...(this.doc.schema ?? {}) };
+    if (this.doc.desc) out.description = this.doc.desc;
+    if (this.doc.default !== undefined) out.default = this.doc.default;
+    return out;
+  }
 }
 
 // ─────────────────────────── coercer vocabulary `f` ───────────────────────────
@@ -113,7 +130,22 @@ function intCore(typeName: string, opts: IntOpts): Core<number> {
   };
 }
 
+function intSchema(opts: IntOpts): JsonSchema {
+  const s: JsonSchema = { type: 'integer' };
+  if (opts.min !== undefined) s.minimum = opts.min;
+  if (opts.max !== undefined) s.maximum = opts.max;
+  if (opts.nonZero) s.not = { const: 0 };
+  return s;
+}
+
 interface StrOpts { allowEmpty?: boolean; maxLen?: number }
+
+function strSchema(opts: StrOpts): JsonSchema {
+  const s: JsonSchema = { type: 'string' };
+  if (opts.allowEmpty === false) s.minLength = 1;
+  if (opts.maxLen !== undefined) s.maxLength = opts.maxLen;
+  return s;
+}
 
 function arrayField<E>(el: Field<E>, mustBeNonEmpty: boolean): Field<E[]> & { nonEmpty(): Field<E[]> } {
   const core: Core<E[]> = (raw, field) => {
@@ -127,24 +159,28 @@ function arrayField<E>(el: Field<E>, mustBeNonEmpty: boolean): Field<E[]> & { no
     if (mustBeNonEmpty && out.length === 0) return err(field, 'must not be empty');
     return ok(out);
   };
-  const base = new FieldImpl<E[]>(core, { type: `${el.doc.type}[]`, required: true });
+  const base = new FieldImpl<E[]>(core, {
+    type: `${el.doc.type}[]`,
+    required: true,
+    schema: { type: 'array', items: el.toJsonSchema(), ...(mustBeNonEmpty ? { minItems: 1 } : {}) },
+  });
   return Object.assign(base, { nonEmpty: () => arrayField(el, true) });
 }
 
 export const f = {
   /** Positive integer (>0): group_id / user_id / message_id. */
   uint(): Field<number> {
-    return new FieldImpl<number>(intCore('a positive integer', { min: 1 }), { type: 'uint', required: true });
+    return new FieldImpl<number>(intCore('a positive integer', { min: 1 }), { type: 'uint', required: true, schema: intSchema({ min: 1 }) });
   },
   /** Integer with optional bounds; allows 0 / negatives unless bounded.
    *  e.g. a duration where 0 is meaningful: `f.int({ min: 0 })`. */
   int(opts: IntOpts = {}): Field<number> {
-    return new FieldImpl<number>(intCore('an integer', opts), { type: 'int', required: true });
+    return new FieldImpl<number>(intCore('an integer', opts), { type: 'int', required: true, schema: intSchema(opts) });
   },
   /** OneBot message id: a non-zero integer. NEGATIVES ARE VALID (ids are a
    *  signed int32 hash) — do NOT use `uint()` for message_id. */
   messageId(): Field<number> {
-    return new FieldImpl<number>(intCore('a message id', { nonZero: true }), { type: 'messageId', required: true });
+    return new FieldImpl<number>(intCore('a message id', { nonZero: true }), { type: 'messageId', required: true, schema: intSchema({ nonZero: true }) });
   },
   /** Finite number (fractions allowed). */
   number(): Field<number> {
@@ -152,7 +188,7 @@ export const f = {
       if (typeof raw === 'number' && Number.isFinite(raw)) return ok(raw);
       if (typeof raw === 'string' && raw.trim() !== '' && Number.isFinite(Number(raw))) return ok(Number(raw));
       return err(field, 'expected a number');
-    }, { type: 'number', required: true });
+    }, { type: 'number', required: true, schema: { type: 'number' } });
   },
   /** String. Numbers/booleans stringify (matches legacy `asString`). Empty
    *  allowed by default; `{ allowEmpty: false }` rejects ''. */
@@ -165,7 +201,7 @@ export const f = {
       if (opts.allowEmpty === false && s === '') return err(field, 'must not be empty');
       if (opts.maxLen !== undefined && s.length > opts.maxLen) return err(field, `must be <= ${opts.maxLen} chars`);
       return ok(s);
-    }, { type: 'string', required: true });
+    }, { type: 'string', required: true, schema: strSchema(opts) });
   },
   /** true/1/yes/on ⇒ true; false/0/no/off ⇒ false (matches legacy `asBoolean`). */
   bool(): Field<boolean> {
@@ -178,7 +214,7 @@ export const f = {
         if (t === 'false' || t === '0' || t === 'no' || t === 'off') return ok(false);
       }
       return err(field, 'expected a boolean');
-    }, { type: 'bool', required: true });
+    }, { type: 'bool', required: true, schema: { type: 'boolean' } });
   },
   /** OneBot message union: string | segment[] | object. A string that looks
    *  like a JSON array is parsed (matches legacy `asMessage`); otherwise the
@@ -197,7 +233,7 @@ export const f = {
         }
       }
       return ok(raw);
-    }, { type: 'message', required: true });
+    }, { type: 'message', required: true, schema: { description: 'OneBot message: string | segment[] | object' } });
   },
   /** Homogeneous array; `.nonEmpty()` rejects []. */
   array<E>(el: Field<E>): Field<E[]> & { nonEmpty(): Field<E[]> } {
@@ -210,11 +246,11 @@ export const f = {
         return ok(raw as V[number]);
       }
       return err(field, `expected one of: ${values.join(', ')}`);
-    }, { type: 'enum', required: true, values });
+    }, { type: 'enum', required: true, values, schema: { enum: [...values] } });
   },
   /** Escape hatch — pass the raw value (or undefined) through, validate nothing. */
   raw(): Field<JsonValue | undefined> {
-    return new FieldImpl<JsonValue | undefined>((raw) => ok(raw), { type: 'raw', required: false, default: undefined });
+    return new FieldImpl<JsonValue | undefined>((raw) => ok(raw), { type: 'raw', required: false, default: undefined, schema: {} });
   },
 };
 
@@ -291,10 +327,14 @@ export interface ParamDoc extends FieldDoc {
 export interface ActionDoc {
   name: string;
   aliases: string[];
+  /** Domain category (set by the doc collector, e.g. 群管理/消息). */
+  category?: string;
   summary?: string;
   returns?: string;
   params: ParamDoc[];
   invariants: string[];
+  /** Composed JSON Schema for the whole params object (properties + required). */
+  inputSchema: JsonSchema;
 }
 
 type Handler = (params: JsonObject) => Promise<ApiResponse>;
@@ -359,14 +399,30 @@ export function defineAction<S extends Spec>(def: ActionDef<S>): ActionSpec<S> {
     params: def.params,
     parse,
     toHandler,
-    describe: () => ({
-      name: names[0],
-      aliases: names.slice(1),
-      summary: def.summary,
-      returns: def.returns,
-      params: Object.entries(def.params).map(([name, field]) => ({ name, ...field.doc })),
-      invariants: rules.map((rule) => rule.doc),
-    }),
+    describe: () => {
+      const entries = Object.entries(def.params);
+      const properties: Record<string, JsonSchema> = {};
+      const required: string[] = [];
+      for (const [name, field] of entries) {
+        properties[name] = field.toJsonSchema();
+        if (field.doc.required) required.push(name);
+      }
+      const inputSchema: JsonSchema = {
+        type: 'object',
+        properties,
+        ...(required.length ? { required } : {}),
+        additionalProperties: true,
+      };
+      return {
+        name: names[0],
+        aliases: names.slice(1),
+        summary: def.summary,
+        returns: def.returns,
+        params: entries.map(([name, field]) => ({ name, ...field.doc })),
+        invariants: rules.map((rule) => rule.doc),
+        inputSchema,
+      };
+    },
     register: (h, ctx) => {
       const handler = toHandler(ctx);
       for (const name of names) h.registerAction(name, handler);

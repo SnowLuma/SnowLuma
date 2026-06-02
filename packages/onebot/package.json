@@ -11,6 +11,14 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./action-kit": {
+      "types": "./src/action-kit.ts",
+      "default": "./src/action-kit.ts"
+    },
+    "./action-docs": {
+      "types": "./src/action-docs.ts",
+      "default": "./src/action-docs.ts"
+    },
     "./manager": {
       "types": "./src/manager.ts",
       "default": "./src/manager.ts"

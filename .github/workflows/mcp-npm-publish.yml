@@ -1,0 +1,109 @@
+name: Publish MCP to npm
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/mcp/**'
+      # The action catalog is generated from @snowluma/onebot's specs, so an
+      # action change must republish the MCP snapshot.
+      - 'packages/onebot/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.base.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: mcp-npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build, test, and publish MCP
+    runs-on: ubuntu-latest
+    environment: SnowLuma
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.28.0
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check MCP
+        run: pnpm --filter @snowluma/mcp typecheck
+
+      - name: Test MCP (regenerates + validates the action catalog)
+        run: pnpm --filter @snowluma/mcp test
+
+      - name: Build MCP
+        run: pnpm --filter @snowluma/mcp build
+
+      - name: Check npm package version
+        id: npm
+        working-directory: packages/mcp
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_name="$(node -e "const fs = require('node:fs'); console.log(JSON.parse(fs.readFileSync('package.json', 'utf8')).name)")"
+          package_version="$(node -e "const fs = require('node:fs'); console.log(JSON.parse(fs.readFileSync('package.json', 'utf8')).version)")"
+
+          {
+            echo "package_name=${package_name}"
+            echo "package_version=${package_version}"
+          } >> "${GITHUB_OUTPUT}"
+
+          if npm view "${package_name}@${package_version}" version >/dev/null 2>&1; then
+            echo "already_published=true" >> "${GITHUB_OUTPUT}"
+            echo "::notice::${package_name}@${package_version} already exists on npm; skipping publish."
+          else
+            echo "already_published=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Validate npm token
+        if: steps.npm.outputs.already_published != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo 'Missing NPM_TOKEN in the SnowLuma environment secrets.' >&2
+            exit 1
+          fi
+
+      - name: Publish MCP to npm
+        if: steps.npm.outputs.already_published != 'true'
+        working-directory: packages/mcp
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance
+
+      - name: Summary
+        shell: bash
+        run: |
+          {
+            echo "## MCP npm publish"
+            echo
+            echo "| Key | Value |"
+            echo "| --- | --- |"
+            echo "| Package | \`${{ steps.npm.outputs.package_name }}\` |"
+            echo "| Version | \`${{ steps.npm.outputs.package_version }}\` |"
+            echo "| Already published | \`${{ steps.npm.outputs.already_published }}\` |"
+            echo "| Environment | \`SnowLuma\` |"
+          } >> "${GITHUB_STEP_SUMMARY}"
