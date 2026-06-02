@@ -54,6 +54,20 @@ export const decodeEvent0x210: MsgPushDecoder = (ctx) => {
       // until someone maps the schema.
       return [];
   }
+  if (ctx.head.subType === 61) {
+    // TEMP capture aid (#79 语音转文字): subType 61 (0x3D) is QQ-NT's ptt
+    // voice-to-text result push. Its protobuf wire shape is registered
+    // dynamically by the ptt-trans subsystem (no static sys_msg_0x210_0x3d
+    // handler), so we dump the raw body once to decode it from ground truth.
+    // Replace with a proper decoder + correlation once mapped.
+    unknownLog.info(
+      'Event0x210 ptt-trans(subType=61) fromUin=%s len=%d hex=%s',
+      String(ctx.fromUin ?? ''),
+      ctx.content?.length ?? 0,
+      ctx.content ? Buffer.from(ctx.content).toString('hex') : '',
+    );
+    return [];
+  }
   unknownLog.debug('Event0x210 unknown subType=%d', ctx.head.subType);
   return [];
 };
