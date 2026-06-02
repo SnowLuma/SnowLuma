@@ -4,6 +4,12 @@ import type { MessageElement } from '@snowluma/protocol/events';
 import type { ImageUrlResolver } from '../event-converter';
 import type { MediaStore } from '../media-store';
 import type { MessageStore } from '../message-store';
+import {
+  deliverPttTransText,
+  failPttTransWaiter,
+  pttTransKey,
+  waitPttTransText,
+} from './ptt-trans-waiter';
 import type { JsonObject } from '../types';
 
 const log = createLogger('OneBot');
@@ -44,18 +50,29 @@ export async function fetchPttText(
   // c2c: receiver is self (inbound voice); group: the group uin.
   const peerUin = isGroup ? (Number(event.group_id) || cached.sessionId) : selfId;
 
-  const text = await bridge.apis.extras.translatePttToText({
-    isGroup,
-    msgId: messageId,
-    senderUin,
-    peerUin,
-    uuid: cached.fileId || '',
-    md5Hex: cached.md5Hex ?? '',
-    duration: cached.duration ?? 0,
-    size: cached.fileSize ?? 0,
-    format: cached.voiceFormat ?? 0,
-  });
-  return { text };
+  // Register the waiter BEFORE triggering, so a fast async push can't race
+  // ahead of us. The trigger response may carry the text inline (already
+  // transcribed) — settle immediately then; otherwise the Event 0x210
+  // subType-61 push resolves the waiter via the event-pipeline subscription.
+  const key = pttTransKey(selfId, messageId);
+  const waiter = waitPttTransText(key, 20000);
+  try {
+    const syncText = await bridge.apis.extras.translatePttToText({
+      isGroup,
+      msgId: messageId,
+      senderUin,
+      peerUin,
+      uuid: cached.fileId || '',
+      md5Hex: cached.md5Hex ?? '',
+      duration: cached.duration ?? 0,
+      size: cached.fileSize ?? 0,
+      format: cached.voiceFormat ?? 0,
+    });
+    if (syncText) deliverPttTransText(key, syncText);
+  } catch (e) {
+    failPttTransWaiter(key, e instanceof Error ? e : new Error(String(e)));
+  }
+  return { text: await waiter };
 }
 
 export async function getImageInfo(

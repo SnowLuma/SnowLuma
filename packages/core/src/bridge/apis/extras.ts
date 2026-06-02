@@ -121,19 +121,14 @@ export class ExtrasApi {
   // ─────────────── Voice-to-text (pttTrans.Trans{C2C,Group}PttReq) ───────────────
 
   /**
-   * Trigger QQ's native voice-to-text on a received ptt and return the text.
-   *
-   * Sends `pttTrans.TransC2CPttReq` / `pttTrans.TransGroupPttReq` (RE'd from
-   * wrapper.node). The response carries the text inline when transcription is
-   * already done; an empty text + errCode 0 means the server is transcribing
-   * asynchronously (there is no dedicated push command), so we re-send with a
-   * short backoff until the text lands or the retry budget is spent — the same
-   * "fire then re-read" shape NapCat uses.
-   *
-   * NOTE: the wire field tags here are reverse-engineered and not yet verified
-   * against a live server; confirm with one capture before trusting failures.
+   * Send ONE `pttTrans.Trans{C2C,Group}PttReq` to trigger transcription and
+   * return the recognised text IF the response carries it inline (the
+   * already-transcribed case). For a freshly-received voice the response is an
+   * empty ack and the text is delivered later via the async Event 0x210
+   * subType-61 push — callers should treat `''` as "pending" and wait for the
+   * `ptt_trans_result` event (correlated by msgId). Live-verified end to end.
    */
-  async translatePttToText(input: PttTransInput, maxRetries = 5, retryDelayMs = 1000): Promise<string> {
+  async translatePttToText(input: PttTransInput): Promise<string> {
     const md5 = hexToBytes(input.md5Hex);
     const req: PttTransReq = input.isGroup
       ? {
@@ -153,21 +148,13 @@ export class ExtrasApi {
       };
     const cmd = input.isGroup ? 'pttTrans.TransGroupPttReq' : 'pttTrans.TransC2CPttReq';
 
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      const result = await this.ctx.sendRawPacket(cmd, protobuf_encode<PttTransReq>(req));
-      if (!result.success || !result.gotResponse || !result.responseData) {
-        throw new Error(result.errorMessage || 'ptt translate request failed');
-      }
-      const resp = protobuf_decode<PttTransResp>(result.responseData);
-      const item = input.isGroup ? resp?.groupResult : resp?.c2cResult;
-      if (item?.errCode) throw new Error(`ptt translate failed: error=${item.errCode}`);
-      const text = item?.text ?? '';
-      if (text) return text;
-      // Empty → still transcribing; back off and retry.
-      if (attempt < maxRetries - 1) {
-        await new Promise<void>((resolve) => setTimeout(resolve, retryDelayMs));
-      }
+    const result = await this.ctx.sendRawPacket(cmd, protobuf_encode<PttTransReq>(req));
+    if (!result.success || !result.gotResponse || !result.responseData) {
+      throw new Error(result.errorMessage || 'ptt translate request failed');
     }
-    throw new Error('ptt translate timed out (no text returned)');
+    const resp = protobuf_decode<PttTransResp>(result.responseData);
+    const item = input.isGroup ? resp?.groupResult : resp?.c2cResult;
+    if (item?.errCode) throw new Error(`ptt translate failed: error=${item.errCode}`);
+    return item?.text ?? ''; // '' = transcribing async; caller awaits the push
   }
 }

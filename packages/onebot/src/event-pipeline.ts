@@ -4,6 +4,7 @@ import type { QQEventVariant } from '@snowluma/protocol/events';
 import { convertEvent } from './event-converter';
 import type { OneBotInstanceContext } from './instance-context';
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from './message-id';
+import { deliverPttTransText, pttTransKey } from './modules/ptt-trans-waiter';
 
 const moduleLog = createLogger('Event');
 
@@ -39,6 +40,13 @@ export function registerEventPipeline(ctx: OneBotInstanceContext): () => void {
       }),
     );
   }
+  // Internal-only: voice-to-text result push. Not converted to a OneBot event —
+  // it just unblocks the fetch_ptt_text call waiting on this msgId.
+  disposers.push(
+    ctx.bridge.events.on('ptt_trans_result', (event) => {
+      deliverPttTransText(pttTransKey(event.selfUin, event.msgId), event.text);
+    }),
+  );
 
   return () => {
     for (const dispose of disposers) {

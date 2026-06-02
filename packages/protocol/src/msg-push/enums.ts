@@ -37,6 +37,14 @@ export enum Event0x2DCSubType {
 export enum Event0x210SubType {
   FriendRequestNotice = 35,
   /**
+   * Voice-to-text (语音转文字) async result push, fired after a
+   * `pttTrans.Trans{C2C,Group}PttReq` once the server finishes transcribing.
+   * Live-verified body: `{ f1:uint, f2:{ f1=msgId, f8=text, ... } }`. There's
+   * no static sys_msg_0x210_0x3d handler — the ptt-trans subsystem registers
+   * it dynamically; we decode it into an internal `ptt_trans_result` event.
+   */
+  PttTransResult = 61,
+  /**
    * Outgoing friend-message recall — bot recalled its own message that
    * was sent to a friend. Same `FriendRecall` wire shape as 138; the
    * difference is direction (138 = friend recalled their own message

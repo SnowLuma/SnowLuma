@@ -76,3 +76,22 @@ export interface PttTransResp {
   groupResult?: pb<2, GroupPttTransResult>;
   c2cResult?: pb<3, C2CPttTransResult>;
 }
+
+/**
+ * Async result push (Event 0x210 subType 61), sent after the request once the
+ * server finishes transcribing. **Live-verified** against a real push: the
+ * outer carries a single result item at field 2; the item echoes the request
+ * `msgId` at field 1 (the correlation key) and the recognised text at field 8.
+ */
+export interface PttTransPushItem {
+  msgId?: pb<1, uint_64>;       // echoes the request msgId — correlation key
+  text?: pb<8, string>;         // recognised text
+  senderUin?: pb<9, uint_64>;
+  receiverUin?: pb<10, uint_64>;
+  uuid?: pb<13, string>;
+}
+
+export interface PttTransPush {
+  field1?: pb<1, uint_32>;
+  item?: pb<2, PttTransPushItem>;
+}
