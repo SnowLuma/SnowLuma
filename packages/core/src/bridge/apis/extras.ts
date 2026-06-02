@@ -5,8 +5,37 @@ import {
 } from '@snowluma/protocol/oidb-services/extras/fetch-ai-voice-list';
 import { GetStrangerStatus, type StrangerStatus as NamespaceStrangerStatus } from '@snowluma/protocol/oidb-services/extras/get-stranger-status';
 import { GroupTodo } from '@snowluma/protocol/oidb-services/extras/group-todo';
+import type { PttTransReq, PttTransResp } from '@snowluma/proto-defs/ptt-trans';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { BridgeContext } from '../bridge-context';
 import type { MediaIndexNode } from './shared';
+
+/** Inputs for a voice-to-text request, gathered from the received `record`
+ *  element + its message meta. `uuid`/`md5Hex` come from the cached record;
+ *  the uins + scene from the message meta. */
+export interface PttTransInput {
+  isGroup: boolean;
+  msgId: number;
+  senderUin: number;
+  /** Receiver uin (c2c) or group uin (group). */
+  peerUin: number;
+  uuid: string;
+  md5Hex: string;
+  duration: number;
+  size: number;
+  format: number;
+  /** Group ptt numeric file id (group only; optional). */
+  fileId?: number;
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const s = (hex || '').trim();
+  if (!s) return new Uint8Array(0);
+  const len = s.length >> 1;
+  const out = new Uint8Array(len);
+  for (let i = 0; i < len; i++) out[i] = parseInt(s.substr(i * 2, 2), 16);
+  return out;
+}
 
 // ─────────────── public types (re-exported from bridge.ts as before) ───
 
@@ -87,5 +116,58 @@ export class ExtrasApi {
       if (node) return node as MediaIndexNode;
     }
     throw new Error(`AI voice synthesis did not complete after ${maxRetries} polls`);
+  }
+
+  // ─────────────── Voice-to-text (pttTrans.Trans{C2C,Group}PttReq) ───────────────
+
+  /**
+   * Trigger QQ's native voice-to-text on a received ptt and return the text.
+   *
+   * Sends `pttTrans.TransC2CPttReq` / `pttTrans.TransGroupPttReq` (RE'd from
+   * wrapper.node). The response carries the text inline when transcription is
+   * already done; an empty text + errCode 0 means the server is transcribing
+   * asynchronously (there is no dedicated push command), so we re-send with a
+   * short backoff until the text lands or the retry budget is spent — the same
+   * "fire then re-read" shape NapCat uses.
+   *
+   * NOTE: the wire field tags here are reverse-engineered and not yet verified
+   * against a live server; confirm with one capture before trusting failures.
+   */
+  async translatePttToText(input: PttTransInput, maxRetries = 5, retryDelayMs = 1000): Promise<string> {
+    const md5 = hexToBytes(input.md5Hex);
+    const req: PttTransReq = input.isGroup
+      ? {
+        type: 1,
+        groupItem: {
+          msgId: BigInt(input.msgId), senderUin: BigInt(input.senderUin), groupUin: BigInt(input.peerUin),
+          fileId: input.fileId ?? 0, md5, duration: input.duration, size: input.size,
+          format: input.format, uuid: input.uuid,
+        },
+      }
+      : {
+        type: 2,
+        c2cItem: {
+          msgId: BigInt(input.msgId), senderUin: BigInt(input.senderUin), receiverUin: BigInt(input.peerUin),
+          uuid: input.uuid, duration: input.duration, size: input.size, format: input.format, md5,
+        },
+      };
+    const cmd = input.isGroup ? 'pttTrans.TransGroupPttReq' : 'pttTrans.TransC2CPttReq';
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const result = await this.ctx.sendRawPacket(cmd, protobuf_encode<PttTransReq>(req));
+      if (!result.success || !result.gotResponse || !result.responseData) {
+        throw new Error(result.errorMessage || 'ptt translate request failed');
+      }
+      const resp = protobuf_decode<PttTransResp>(result.responseData);
+      const item = input.isGroup ? resp?.groupResult : resp?.c2cResult;
+      if (item?.errCode) throw new Error(`ptt translate failed: error=${item.errCode}`);
+      const text = item?.text ?? '';
+      if (text) return text;
+      // Empty → still transcribing; back off and retry.
+      if (attempt < maxRetries - 1) {
+        await new Promise<void>((resolve) => setTimeout(resolve, retryDelayMs));
+      }
+    }
+    throw new Error('ptt translate timed out (no text returned)');
   }
 }

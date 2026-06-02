@@ -426,6 +426,25 @@ export const actions = [
     },
   }),
 
+  defineAction({
+    // Primary name matches NapCat for drop-in migration; the rest are aliases.
+    name: ['fetch_ptt_text', 'get_ptt_text', 'get_record_text'],
+    summary: '获取语音转文字结果',
+    params: {
+      message_id: f.string().default(''),
+    },
+    // `raw` so message_id works whether the client sends a number or a string.
+    run: async (_p, ctx, raw) => {
+      const messageId = asNumber(raw.message_id);
+      if (!messageId) return failedResponse(RETCODE.BAD_REQUEST, 'message_id is required');
+      try {
+        return okResponse(await ctx.fetchPttText(messageId));
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : '获取语音转文字结果失败');
+      }
+    },
+  }),
+
   // Cookie、CSRF 令牌和账号信息
   defineAction({
     name: 'get_cookies',

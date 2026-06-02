@@ -76,6 +76,7 @@ export interface ApiActionContext {
   }>;
   getImageInfo: (file: string) => Promise<JsonObject | null>;
   getRecordInfo: (file: string) => Promise<JsonObject | null>;
+  fetchPttText: (messageId: number) => Promise<{ text: string }>;
 }
 
 type ActionHandler = (params: JsonObject) => Promise<import('./types').ApiResponse>;

@@ -35,6 +35,10 @@
       "types": "./src/notify.ts",
       "default": "./src/notify.ts"
     },
+    "./ptt-trans": {
+      "types": "./src/ptt-trans.ts",
+      "default": "./src/ptt-trans.ts"
+    },
     "./oidb": {
       "types": "./src/oidb.ts",
       "default": "./src/oidb.ts"
