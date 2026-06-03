@@ -1,4 +1,4 @@
-import { createLogger, type Logger } from '@snowluma/common/logger';
+import { createLogger } from '@snowluma/common/logger';
 import {
   pickDispatchJson,
   resolveReportOptions,
@@ -6,7 +6,7 @@ import {
   type EventReportOptions,
 } from '../event-filter';
 import type { HttpClientNetwork, JsonObject } from '../types';
-import { IOneBotNetworkAdapter, NetworkReloadType, type AdapterStatus, type NetworkAdapterContext } from './adapter';
+import { IOneBotNetworkAdapter, type AdapterStatus, type NetworkAdapterContext } from './adapter';
 import { executeQuickOperation } from './quick-operation';
 
 const moduleLog = createLogger('OneBot.POST');
@@ -14,20 +14,11 @@ const DEFAULT_TIMEOUT_MS = 5000;
 
 export class HttpPostAdapter extends IOneBotNetworkAdapter<HttpClientNetwork> {
   private options: EventReportOptions;
-  private signature_: string;
   private lastDelivery: { at: number; ok: boolean } | null = null;
-  private readonly log: Logger;
 
   constructor(name: string, config: HttpClientNetwork, ctx: NetworkAdapterContext) {
-    super(name, config, ctx);
+    super(name, config, ctx, moduleLog);
     this.options = resolveReportOptions(config);
-    this.signature_ = bindingSignature(config);
-    const uinNum = Number.parseInt(ctx.uin, 10);
-    this.log = Number.isFinite(uinNum) && uinNum > 0 ? moduleLog.child({ uin: uinNum }) : moduleLog;
-  }
-
-  override get isActive(): boolean {
-    return this.isEnabled;
   }
 
   open(): void {
@@ -49,33 +40,16 @@ export class HttpPostAdapter extends IOneBotNetworkAdapter<HttpClientNetwork> {
       : { name: this.name, kind: 'httpClient', status: 'warn', detail: `上次推送失败 ${at}` };
   }
 
-  async reload(next: HttpClientNetwork): Promise<NetworkReloadType> {
-    const wasEnabled = this.isEnabled;
-    const willEnable = next.enabled !== false && !!next.url;
+  protected override bindingSignature(config: HttpClientNetwork): string {
+    return `${config.url}#${config.accessToken ?? ''}#${config.timeoutMs ?? DEFAULT_TIMEOUT_MS}`;
+  }
 
-    this.config = structuredClone(next);
+  protected override willEnable(config: HttpClientNetwork): boolean {
+    return config.enabled !== false && !!config.url;
+  }
+
+  protected override onConfigReplaced(next: HttpClientNetwork): void {
     this.options = resolveReportOptions(next);
-    const newSig = bindingSignature(next);
-    const sigChanged = newSig !== this.signature_;
-    this.signature_ = newSig;
-
-    if (sigChanged && wasEnabled) {
-      this.close();
-      if (willEnable) {
-        this.open();
-        return NetworkReloadType.Reopened;
-      }
-      return NetworkReloadType.Closed;
-    }
-    if (!wasEnabled && willEnable) {
-      this.open();
-      return NetworkReloadType.Opened;
-    }
-    if (wasEnabled && !willEnable) {
-      this.close();
-      return NetworkReloadType.Closed;
-    }
-    return NetworkReloadType.Normal;
   }
 
   onEvent(event: JsonObject, payload: DispatchPayload): void {
@@ -137,10 +111,6 @@ export class HttpPostAdapter extends IOneBotNetworkAdapter<HttpClientNetwork> {
       this.log.warn('[%s] quick operation failed: %s', this.name, error instanceof Error ? error.message : String(error));
     }
   }
-}
-
-function bindingSignature(net: HttpClientNetwork): string {
-  return `${net.url}#${net.accessToken ?? ''}#${net.timeoutMs ?? DEFAULT_TIMEOUT_MS}`;
 }
 
 async function computeHmacSha1(secret: string, payload: string): Promise<string> {

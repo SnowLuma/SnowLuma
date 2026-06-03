@@ -1,5 +1,5 @@
 import { WebSocket } from '@snowluma/websocket';
-import { createLogger, type Logger } from '@snowluma/common/logger';
+import { createLogger } from '@snowluma/common/logger';
 import {
   pickDispatchJson,
   resolveReportOptions,
@@ -8,7 +8,7 @@ import {
   type EventReportOptions,
 } from '../event-filter';
 import type { JsonObject, WsClientNetwork, WsRole } from '../types';
-import { IOneBotNetworkAdapter, NetworkReloadType, type AdapterStatus, type NetworkAdapterContext } from './adapter';
+import { IOneBotNetworkAdapter, type AdapterStatus, type NetworkAdapterContext } from './adapter';
 import { rawDataToString, safeClose, safeSend } from './utils';
 
 const moduleLog = createLogger('OneBot.WS-Client');
@@ -21,18 +21,11 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
   private options: EventReportOptions;
   private role: WsRole;
   private explicitlyClosed = false;
-  private readonly log: Logger;
 
   constructor(name: string, config: WsClientNetwork, ctx: NetworkAdapterContext) {
-    super(name, config, ctx);
+    super(name, config, ctx, moduleLog);
     this.options = resolveReportOptions(config);
     this.role = config.role ?? 'Universal';
-    const uinNum = Number.parseInt(ctx.uin, 10);
-    this.log = Number.isFinite(uinNum) && uinNum > 0 ? moduleLog.child({ uin: uinNum }) : moduleLog;
-  }
-
-  override get isActive(): boolean {
-    return this.isEnabled;
   }
 
   open(): void {
@@ -61,33 +54,17 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
     return { name: this.name, kind: 'wsClient', status: 'warn', detail: this.reconnectTimer ? '重连中' : '连接中' };
   }
 
-  async reload(next: WsClientNetwork): Promise<NetworkReloadType> {
-    const prevSig = bindingSignature(this.config);
-    const wasEnabled = this.isEnabled;
-    const willEnable = next.enabled !== false && !!next.url;
+  protected override bindingSignature(config: WsClientNetwork): string {
+    return `${config.url}#${config.role ?? 'Universal'}#${Math.max(1000, config.reconnectIntervalMs ?? DEFAULT_RECONNECT_INTERVAL_MS)}#${config.accessToken ?? ''}`;
+  }
 
-    this.config = structuredClone(next);
+  protected override willEnable(config: WsClientNetwork): boolean {
+    return config.enabled !== false && !!config.url;
+  }
+
+  protected override onConfigReplaced(next: WsClientNetwork): void {
     this.options = resolveReportOptions(next);
     this.role = next.role ?? 'Universal';
-
-    const sigChanged = prevSig !== bindingSignature(next);
-    if (sigChanged && wasEnabled) {
-      this.close();
-      if (willEnable) {
-        this.open();
-        return NetworkReloadType.Reopened;
-      }
-      return NetworkReloadType.Closed;
-    }
-    if (!wasEnabled && willEnable) {
-      this.open();
-      return NetworkReloadType.Opened;
-    }
-    if (wasEnabled && !willEnable) {
-      this.close();
-      return NetworkReloadType.Closed;
-    }
-    return NetworkReloadType.Normal;
   }
 
   onEvent(_event: JsonObject, payload: DispatchPayload): void {
@@ -181,6 +158,3 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
   }
 }
 
-function bindingSignature(net: WsClientNetwork): string {
-  return `${net.url}#${net.role ?? 'Universal'}#${Math.max(1000, net.reconnectIntervalMs ?? DEFAULT_RECONNECT_INTERVAL_MS)}#${net.accessToken ?? ''}`;
-}
