@@ -481,14 +481,20 @@ describe('parseMessage', () => {
       ]);
     });
 
-    it('drops a file segment with no file_id (upload-first contract)', async () => {
-      // Path-only segments aren't supported here — callers must
-      // upload via `upload_group_file` / `upload_private_file` first
-      // to obtain a file_id. Dropping with a warning is preferable
-      // to silently kicking off an upload from inside the message
-      // parser, which can't fail loudly without changing call sites.
+    it('parses {type:"file", file:"/path"} (no file_id) into a file element with url', async () => {
+      // Inline file path: the parser now accepts file/url/path and stores
+      // it in `url`. The send layer (sendGroupMessage / sendPrivateMessage)
+      // handles the actual upload so the parser stays side-effect-free.
       const result = await parseMessage(
         [{ type: 'file', data: { file: '/local/path/a.bin' } } as any],
+        false,
+      );
+      expect(result).toEqual([{ type: 'file', url: '/local/path/a.bin' }]);
+    });
+
+    it('drops a file segment with neither file_id nor file/url', async () => {
+      const result = await parseMessage(
+        [{ type: 'file', data: {} } as any],
         false,
       );
       expect(result).toEqual([]);
