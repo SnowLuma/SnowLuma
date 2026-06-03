@@ -331,6 +331,9 @@ export interface ActionDoc {
   category?: string;
   summary?: string;
   returns?: string;
+  /** True only for pure data-fetch actions (no side effects). Drives the MCP's
+   *  read/write tool routing; defaults to false (treated as a write). */
+  readOnly: boolean;
   params: ParamDoc[];
   invariants: string[];
   /** Composed JSON Schema for the whole params object (properties + required). */
@@ -355,6 +358,10 @@ interface ActionDef<S extends Spec> {
   name: string | readonly [string, ...string[]];
   summary?: string;
   returns?: string;
+  /** Mark true ONLY for pure data-fetch actions with no side effects. Default
+   *  false = write. Surfaced via describe() into the catalog for the MCP's
+   *  read/write routing. Classify by what `run` actually does, not the name. */
+  readOnly?: boolean;
   params: S;
   rules?: (r: RuleBuilders<InferParams<S>>) => readonly CrossFieldRule[];
   /** `raw` is the original untouched params — an escape hatch for the
@@ -418,6 +425,7 @@ export function defineAction<S extends Spec>(def: ActionDef<S>): ActionSpec<S> {
         aliases: names.slice(1),
         summary: def.summary,
         returns: def.returns,
+        readOnly: def.readOnly ?? false,
         params: entries.map(([name, field]) => ({ name, ...field.doc })),
         invariants: rules.map((rule) => rule.doc),
         inputSchema,
@@ -442,6 +450,7 @@ interface PresetDef<S extends Spec, Extra> {
   name: string | readonly [string, ...string[]];
   summary?: string;
   returns?: string;
+  readOnly?: boolean;
   params?: S;
   rules?: (r: RuleBuilders<InferParams<S> & Extra>) => readonly CrossFieldRule[];
   run: (p: InferParams<S> & Extra, ctx: ApiActionContext, raw: JsonObject) => Promise<ApiResponse> | ApiResponse;

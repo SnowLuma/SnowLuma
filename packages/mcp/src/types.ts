@@ -21,6 +21,10 @@ export interface CatalogAction {
   category?: string;
   summary?: string;
   returns?: string;
+  /** True only for pure data-fetch actions (no side effects). Drives the
+   *  read/write tool routing: read-only → query_action, else → invoke_action.
+   *  Classified at the source spec by what the action's `run` actually does. */
+  readOnly: boolean;
   params: CatalogParam[];
   /** Cross-field invariants, e.g. "exactly one of: message_id | (group_id+user_id)". */
   invariants: string[];
