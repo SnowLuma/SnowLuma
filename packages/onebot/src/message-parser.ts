@@ -288,8 +288,9 @@ export async function segmentToElement(type: string, data: Record<string, unknow
     }
     case 'file': {
       const fileId = String(data.file_id ?? data.fileId ?? '').trim();
-      if (!fileId) {
-        log.warn('[MsgParser] file segment without file_id is unsupported (upload first via upload_group_file / upload_private_file)');
+      const source = String(data.file ?? data.url ?? data.path ?? '').trim();
+      if (!fileId && !source) {
+        log.warn('[MsgParser] file segment without file_id or file/url is unsupported');
         return null;
       }
       const fileName = String(data.name ?? data.filename ?? data.fileName ?? '').trim();
@@ -297,7 +298,7 @@ export async function segmentToElement(type: string, data: Record<string, unknow
       const md5Hex = String(data.md5 ?? data.md5Hex ?? '').trim();
       const sha1Hex = String(data.sha1 ?? data.sha1Hex ?? '').trim();
       const fileHash = String(data.file_hash ?? data.fileHash ?? '').trim();
-      const elem: MessageElement = { type: 'file', fileId };
+      const elem: MessageElement = fileId ? { type: 'file', fileId } : { type: 'file', url: source };
       if (fileName) elem.fileName = fileName;
       if (fileSize > 0) elem.fileSize = fileSize;
       if (md5Hex) elem.md5Hex = md5Hex;
