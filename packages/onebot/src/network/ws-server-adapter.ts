@@ -1,6 +1,6 @@
 import { WebSocket, WebSocketServer } from '@snowluma/websocket';
 import type { IncomingMessage } from 'http';
-import { createLogger, type Logger } from '@snowluma/common/logger';
+import { createLogger } from '@snowluma/common/logger';
 import {
   pickDispatchJson,
   resolveReportOptions,
@@ -9,7 +9,7 @@ import {
   type EventReportOptions,
 } from '../event-filter';
 import type { JsonObject, WsRole, WsServerNetwork } from '../types';
-import { IOneBotNetworkAdapter, NetworkReloadType, type AdapterStatus, type NetworkAdapterContext } from './adapter';
+import { IOneBotNetworkAdapter, type AdapterStatus, type NetworkAdapterContext } from './adapter';
 import { isAuthorized, normalizePath, parseRequestPath, rawDataToString, safeClose, safeSend } from './utils';
 
 const moduleLog = createLogger('OneBot.WS-Server');
@@ -25,17 +25,10 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
   private listening = false;
   private connections = new Map<WebSocket, ForwardConn>();
   private options: EventReportOptions;
-  private readonly log: Logger;
 
   constructor(name: string, config: WsServerNetwork, ctx: NetworkAdapterContext) {
-    super(name, config, ctx);
+    super(name, config, ctx, moduleLog);
     this.options = resolveReportOptions(config);
-    const uinNum = Number.parseInt(ctx.uin, 10);
-    this.log = Number.isFinite(uinNum) && uinNum > 0 ? moduleLog.child({ uin: uinNum }) : moduleLog;
-  }
-
-  override get isActive(): boolean {
-    return this.isEnabled;
   }
 
   open(): void {
@@ -71,33 +64,13 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
     return { name: this.name, kind: 'wsServer', status: 'ok', detail: `${this.connections.size} 个客户端` };
   }
 
-  async reload(next: WsServerNetwork): Promise<NetworkReloadType> {
-    const prevSig = bindingSignature(this.config);
-    const wasEnabled = this.isEnabled;
-    const willEnable = next.enabled !== false;
+  protected override bindingSignature(config: WsServerNetwork): string {
+    return `${config.host ?? '0.0.0.0'}:${config.port}${normalizePath(config.path)}#${config.role ?? 'auto'}#${config.accessToken ?? ''}`;
+  }
 
-    this.config = structuredClone(next);
+  protected override onConfigReplaced(next: WsServerNetwork): void {
     this.options = resolveReportOptions(next);
     for (const conn of this.connections.values()) conn.options = this.options;
-
-    const sigChanged = prevSig !== bindingSignature(next);
-    if (sigChanged && wasEnabled) {
-      this.close();
-      if (willEnable) {
-        this.open();
-        return NetworkReloadType.Reopened;
-      }
-      return NetworkReloadType.Closed;
-    }
-    if (!wasEnabled && willEnable) {
-      this.open();
-      return NetworkReloadType.Opened;
-    }
-    if (wasEnabled && !willEnable) {
-      this.close();
-      return NetworkReloadType.Closed;
-    }
-    return NetworkReloadType.Normal;
   }
 
   onEvent(_event: JsonObject, payload: DispatchPayload): void {
@@ -187,8 +160,4 @@ function classifyForwardRole(request: IncomingMessage): WsRole {
   if (path.endsWith('/api')) return 'Api';
   if (path.endsWith('/event')) return 'Event';
   return 'Universal';
-}
-
-function bindingSignature(net: WsServerNetwork): string {
-  return `${net.host ?? '0.0.0.0'}:${net.port}${normalizePath(net.path)}#${net.role ?? 'auto'}#${net.accessToken ?? ''}`;
 }

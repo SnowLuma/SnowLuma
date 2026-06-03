@@ -241,54 +241,40 @@ export async function sendPrivateMessage(
   // never mixed with the regular elements. We only need it for file
   // here — video/ARK/ptt already go through commonElem so the
   // element-builder handles them inline.
-  const fileElements = elements.filter(e => e.type === 'file' && e.fileId);
+  // Two sub-paths:
+  //  a) has url/path but no file_id → uploadPrivate() which internally calls sendC2cFile()
+  //  b) has file_id from a prior upload_private_file → sendC2cFile() only
+  const allFileElements = elements.filter(e => e.type === 'file');
   const nonFileElements = elements.filter(e => e.type !== 'file');
-  if (fileElements.length !== elements.filter(e => e.type === 'file').length) {
-    log.warn('[OneBot] private file segment without file_id — skipped (upload first via upload_private_file)');
-  }
 
   let lastReceipt: Awaited<ReturnType<typeof ref.bridge.apis.message.sendPrivate>> | undefined;
   if (nonFileElements.length > 0) {
     lastReceipt = await ref.bridge.apis.message.sendPrivate(userId, nonFileElements);
     logSentMessage(false, userId, nonFileElements);
   }
-  if (fileElements.length > 0) {
-    // C2C file send needs the recipient's UID — resolve once and reuse.
+  if (allFileElements.length > 0) {
     const userUid = await ref.bridge.resolveUserUid(userId);
-    if (!userUid) {
-      throw new Error(`c2c file send: could not resolve uid for user ${userId}`);
-    }
-    for (const fileEl of fileElements) {
-      // C2C file send requires fileSize/fileMd5/fileName to ride on the
-      // wire (NotOnlineFile inside msgContent). The OneBot caller
-      // usually only echoes the file_id from a previous
-      // `upload_private_file`, so look up the rest from the upload
-      // cache. Inline segment fields (md5/size/name) take precedence so
-      // a caller that already knows everything can bypass the cache.
-      const cached = ref.bridge.recallUploadedFile(fileEl.fileId!);
-      const fileMd5 = fileEl.md5Hex
-        ? Buffer.from(fileEl.md5Hex, 'hex')
-        : (cached?.fileMd5 ?? new Uint8Array(0));
-      const fileSize = fileEl.fileSize ?? cached?.fileSize ?? 0;
-      // Fall back to a generic name — the QQ server resolves the
-      // file by fileUuid, not name, so a missing name only affects
-      // the chat bubble display.
-      const fileName = fileEl.fileName ?? cached?.fileName ?? 'file';
-      const fileHash = fileEl.fileHash ?? cached?.fileHash;
-      if (fileSize === 0 && !cached) {
-        log.warn(
-          '[OneBot] c2c file_id=%s sent without fileSize and no upload cache — recipient may see 0 B',
-          fileEl.fileId,
-        );
+    if (!userUid) throw new Error(`c2c file send: could not resolve uid for user ${userId}`);
+    for (const fileEl of allFileElements) {
+      if (fileEl.url && !fileEl.fileId) {
+        // uploadPrivate() already calls sendC2cFile() internally — do NOT call it again.
+        const name = fileEl.fileName || fileEl.url.split('/').pop() || 'file';
+        await ref.bridge.apis.groupFile.uploadPrivate(userId, fileEl.url, name, true);
+        logSentMessage(false, userId, [fileEl]);
+        if (!lastReceipt) {
+          lastReceipt = { messageId: 0, sequence: 0, clientSequence: 0, random: 0, timestamp: Math.floor(Date.now() / 1000) };
+        }
+      } else if (fileEl.fileId) {
+        const cached = ref.bridge.recallUploadedFile(fileEl.fileId);
+        const fileMd5 = fileEl.md5Hex ? Buffer.from(fileEl.md5Hex, 'hex') : (cached?.fileMd5 ?? new Uint8Array(0));
+        const fileSize = fileEl.fileSize ?? cached?.fileSize ?? 0;
+        const fileName = fileEl.fileName ?? cached?.fileName ?? 'file';
+        const fileHash = fileEl.fileHash ?? cached?.fileHash;
+        lastReceipt = await ref.bridge.apis.message.sendC2cFile(userId, userUid, { fileId: fileEl.fileId, fileName, fileSize, fileMd5, fileHash });
+        logSentMessage(false, userId, [fileEl]);
+      } else {
+        log.warn('[OneBot] private file segment without file_id or url — skipped');
       }
-      lastReceipt = await ref.bridge.apis.message.sendC2cFile(userId, userUid, {
-        fileId: fileEl.fileId!,
-        fileName,
-        fileSize,
-        fileMd5,
-        fileHash,
-      });
-      logSentMessage(false, userId, [fileEl]);
     }
   }
   if (!lastReceipt) throw new Error('message is empty');
@@ -345,47 +331,37 @@ export async function sendGroupMessage(
   });
   if (elements.length === 0) throw new Error('message is empty');
 
-  // Group `{type:'file', file_id}` segments don't ride on the elems[]
-  // pipeline either. The QQ-NT server rejects PbSendMsg with a
-  // transElem(24) file payload (result=79); the correct send path is a
-  // dedicated OIDB call (`OidbSvcTrpcTcp.0x6d9_4`) that publishes a
-  // previously-uploaded file id as a chat bubble. Mirrors the c2c-file
-  // split below (private path) — both must be peeled off before the
-  // regular sendGroupMessage runs.
-  const fileElements = elements.filter(e => e.type === 'file' && e.fileId);
+  // Two sub-paths for group file segments:
+  //  a) has url/path but no file_id → upload() which internally calls publish()
+  //  b) has file_id from a prior upload_group_file → publish() only
+  const allFileElements = elements.filter(e => e.type === 'file');
   const nonFileElements = elements.filter(e => e.type !== 'file');
-  if (fileElements.length !== elements.filter(e => e.type === 'file').length) {
-    log.warn('[OneBot] group file segment without file_id — skipped (upload first via upload_group_file)');
-  }
 
   let lastReceipt: Awaited<ReturnType<typeof ref.bridge.apis.message.sendGroup>> | undefined;
   if (nonFileElements.length > 0) {
     lastReceipt = await ref.bridge.apis.message.sendGroup(groupId, nonFileElements);
     logSentMessage(true, groupId, nonFileElements);
   }
-  for (const fileEl of fileElements) {
-    // Group-file publish has no per-message sequence/random tuple to
-    // hash a messageId from — OIDB 0x6d9_4 is fire-and-forget on the
-    // wire. If this is the LAST element we still need a receipt so
-    // the OneBot caller can cache the id; synthesise one from the
-    // file_id hash + a fresh timestamp.
-    await ref.bridge.apis.groupFile.publish(groupId, fileEl.fileId!);
+  for (const fileEl of allFileElements) {
+    let fileId: string;
+    if (fileEl.url && !fileEl.fileId) {
+      // upload() already calls publish() internally — do NOT call publish() again.
+      const name = fileEl.fileName || fileEl.url.split('/').pop() || 'file';
+      const result = await ref.bridge.apis.groupFile.upload(groupId, fileEl.url, name, '/', true);
+      fileId = result.fileId ?? '';
+      if (!fileId) { log.warn('[OneBot] group file auto-upload returned no file_id — skipped'); continue; }
+    } else if (fileEl.fileId) {
+      fileId = fileEl.fileId;
+      await ref.bridge.apis.groupFile.publish(groupId, fileId);
+    } else {
+      log.warn('[OneBot] group file segment without file_id or url — skipped');
+      continue;
+    }
     logSentMessage(true, groupId, [fileEl]);
     if (!lastReceipt) {
-      // Use a hash of the fileId as a stable pseudo-id; this gets
-      // mixed with groupId in `hashMessageIdInt32` below.
       let h = 0;
-      const s = fileEl.fileId ?? '';
-      for (let i = 0; i < s.length; i++) {
-        h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-      }
-      lastReceipt = {
-        messageId: 0,
-        sequence: h & 0x7FFFFFFF,
-        clientSequence: 0,
-        random: h & 0x7FFFFFFF,
-        timestamp: Math.floor(Date.now() / 1000),
-      };
+      for (let i = 0; i < fileId.length; i++) h = ((h << 5) - h + fileId.charCodeAt(i)) | 0;
+      lastReceipt = { messageId: 0, sequence: h & 0x7FFFFFFF, clientSequence: 0, random: h & 0x7FFFFFFF, timestamp: Math.floor(Date.now() / 1000) };
     }
   }
   if (!lastReceipt) throw new Error('message is empty');

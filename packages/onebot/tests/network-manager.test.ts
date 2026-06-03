@@ -25,7 +25,9 @@ class FakeAdapter extends IOneBotNetworkAdapter<FakeNetworkConfig> {
     this.closes++;
     this.isEnabled = false;
   }
-  reload(next: FakeNetworkConfig): NetworkReloadType {
+  // Keeps its own reload — this is a manager test double, not a reload test;
+  // base.reload became concrete so this is now a genuine override.
+  override reload(next: FakeNetworkConfig): NetworkReloadType {
     this.reloads++;
     this.config = structuredClone(next);
     if (next.enabled === false && this.isEnabled) {
@@ -37,6 +39,9 @@ class FakeAdapter extends IOneBotNetworkAdapter<FakeNetworkConfig> {
       return NetworkReloadType.Opened;
     }
     return NetworkReloadType.Normal;
+  }
+  protected bindingSignature(config: FakeNetworkConfig): string {
+    return JSON.stringify(config);
   }
   onEvent(event: JsonObject, payload: DispatchPayload): void {
     this.events.push(event);

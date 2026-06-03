@@ -12,6 +12,7 @@ import type {
   GeneralGrayTipInfo,
   NewFriend,
 } from '@snowluma/proto-defs/notify';
+import type { PttTransPush } from '@snowluma/proto-defs/ptt-trans';
 import type { MsgPushContext } from '../context';
 import { Event0x210SubType } from '../enums';
 import {
@@ -28,6 +29,7 @@ const unknownLog = createLogger('MsgPush.Unknown');
 export const decodeEvent0x210: MsgPushDecoder = (ctx) => {
   switch (ctx.head.subType as Event0x210SubType) {
     case Event0x210SubType.FriendRequestNotice: return decodeFriendRequest(ctx);
+    case Event0x210SubType.PttTransResult: return decodePttTransResult(ctx);
     // 138 (other-recalled) and 139 (self-recalled) share the same
     // FriendRecall wire shape; the helper picks the right uid side
     // based on the subType.
@@ -57,6 +59,20 @@ export const decodeEvent0x210: MsgPushDecoder = (ctx) => {
   unknownLog.debug('Event0x210 unknown subType=%d', ctx.head.subType);
   return [];
 };
+
+// Voice-to-text async result push. Wire shape (live-verified):
+//   { f1: uint, f2: { f1 = msgId (echoes the request), f8 = text, ... } }
+// `msgId` is the correlation key a pending fetch_ptt_text waits on; we surface
+// it + the recognised text as an internal `ptt_trans_result` event.
+function decodePttTransResult(ctx: MsgPushContext): QQEventVariant[] {
+  const push = protobuf_decode<PttTransPush>(ctx.content);
+  const item = push?.item;
+  if (!item) return [];
+  const msgId = Number(item.msgId ?? 0n);
+  const text = item.text ?? '';
+  if (!msgId || !text) return [];
+  return [{ kind: 'ptt_trans_result', time: ctx.head.timestamp, selfUin: ctx.selfUin, msgId, text }];
+}
 
 function decodeFriendRequest(ctx: MsgPushContext): QQEventVariant[] {
   const request = protobuf_decode<FriendRequest>(ctx.content);

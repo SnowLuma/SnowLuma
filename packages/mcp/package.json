@@ -1,0 +1,49 @@
+{
+  "name": "@snowluma/mcp",
+  "version": "1.9.5",
+  "description": "MCP server exposing the SnowLuma OneBot action catalog (read-only docs + JSON Schemas) to LLM clients.",
+  "type": "module",
+  "bin": {
+    "snowluma-mcp": "./dist/server.js"
+  },
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "clean": "node -e \"const fs=require('node:fs');fs.rmSync('dist',{recursive:true,force:true})\"",
+    "gen": "vitest run scripts/gen-catalog.test.ts",
+    "prebuild": "pnpm run clean && pnpm run gen",
+    "build": "tsc -p tsconfig.json",
+    "prepack": "pnpm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "node dist/server.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "onebot",
+    "snowluma",
+    "qq"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@snowluma/onebot": "workspace:*",
+    "@snowluma/proton": "workspace:*",
+    "@types/node": "^24.12.2",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "^4.1.4"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -105,14 +105,13 @@ describe('send_group_msg with {type:"file"} segment', () => {
   });
 
   it('file segment without file_id is skipped (with a warn-level log)', async () => {
-    // Same upload-by-reference contract as the c2c file path —
-    // missing file_id means there's nothing to publish.
     const sendGroupMessage_bridge = vi.fn(async (_gid: number, _elements: any[]) => goodReceipt);
     const publish = vi.fn();
+    const upload = vi.fn();
     const bridge = fakeBridge({
       apis: {
         message: { sendGroup: sendGroupMessage_bridge },
-        groupFile: { publish },
+        groupFile: { publish, upload },
       } as any,
       resolveUserUid: vi.fn(),
     } as any);
@@ -120,10 +119,42 @@ describe('send_group_msg with {type:"file"} segment', () => {
 
     await sendGroupMessage(ctx, 12345, [
       { type: 'text', data: { text: 'with bad file segment' } },
-      { type: 'file', data: {} }, // no file_id
+      { type: 'file', data: {} }, // no file_id and no url
     ] as any, false);
 
     expect(sendGroupMessage_bridge).toHaveBeenCalledOnce();
+    expect(publish).not.toHaveBeenCalled();
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it('file segment with url (no file_id) auto-uploads via groupFile.upload (not publish)', async () => {
+    // Happy path for inline file sending: the bot passes a local path
+    // directly. upload() internally calls publish(), so we must NOT
+    // call publish() a second time.
+    const upload = vi.fn(async (_gid: number, _src: string, _name: string, _folder: string, _doUpload: boolean) =>
+      ({ fileId: 'auto-fid', fileHash: null }));
+    const publish = vi.fn();
+    const bridge = fakeBridge({
+      apis: {
+        message: { sendGroup: vi.fn() },
+        groupFile: { upload, publish },
+      } as any,
+      resolveUserUid: vi.fn(),
+    } as any);
+    const ctx = makeCtx(bridge);
+
+    await sendGroupMessage(ctx, 12345, [{
+      type: 'file', data: { file: '/tmp/audio.wav', name: 'audio.wav' },
+    }] as any, false);
+
+    expect(upload).toHaveBeenCalledOnce();
+    const [gid, src, name, folder, doUpload] = upload.mock.calls[0]!;
+    expect(gid).toBe(12345);
+    expect(src).toBe('/tmp/audio.wav');
+    expect(name).toBe('audio.wav');
+    expect(folder).toBe('/');
+    expect(doUpload).toBe(true);
+    // publish must NOT be called — upload() already handles it internally
     expect(publish).not.toHaveBeenCalled();
   });
 });

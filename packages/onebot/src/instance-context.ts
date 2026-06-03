@@ -18,6 +18,7 @@ import {
   getStrangerInfo,
 } from './modules/contact-actions';
 import {
+  fetchPttText as fetchPttTextAction,
   getImageInfo as getCachedImageInfo,
   getRecordInfo as getCachedRecordInfo,
 } from './modules/media-actions';
@@ -116,6 +117,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     },
     getImageInfo: (file) => getCachedImageInfo(mediaStore, file, ref.converterCtx.imageUrlResolver),
     getRecordInfo: (file) => getCachedRecordInfo(bridge, mediaStore, file),
+    fetchPttText: (messageId) => fetchPttTextAction(messageStore, mediaStore, bridge, ref.selfId, messageId),
   };
 }
 

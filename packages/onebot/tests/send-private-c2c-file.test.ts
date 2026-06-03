@@ -227,4 +227,33 @@ describe('send_private_msg with {type:"file"} segment', () => {
 
     expect(sendC2cFileMessage).not.toHaveBeenCalled();
   });
+
+  it('file segment with url (no file_id) auto-uploads via groupFile.uploadPrivate (not sendC2cFile)', async () => {
+    // uploadPrivate() internally calls sendC2cFile() — must NOT call it again.
+    const uploadPrivate = vi.fn(async (_uid: number, _src: string, _name: string, _doUpload: boolean) =>
+      ({ fileId: 'auto-fid', fileHash: null }));
+    const sendC2cFileMessage = vi.fn();
+    const bridge = fakeBridge({
+      apis: {
+        message: { sendPrivate: vi.fn(), sendC2cFile: sendC2cFileMessage },
+        groupFile: { uploadPrivate },
+      } as any,
+      resolveUserUid: vi.fn(async () => 'u_peer'),
+      recallUploadedFile: vi.fn(() => undefined),
+    } as any);
+    const ctx = makeCtx(bridge);
+
+    await sendPrivateMessage(ctx, 67890, [{
+      type: 'file', data: { file: '/tmp/audio.wav', name: 'audio.wav' },
+    }] as any, false);
+
+    expect(uploadPrivate).toHaveBeenCalledOnce();
+    const [uid, src, name, doUpload] = uploadPrivate.mock.calls[0]!;
+    expect(uid).toBe(67890);
+    expect(src).toBe('/tmp/audio.wav');
+    expect(name).toBe('audio.wav');
+    expect(doUpload).toBe(true);
+    // sendC2cFile must NOT be called — uploadPrivate() handles it internally
+    expect(sendC2cFileMessage).not.toHaveBeenCalled();
+  });
 });

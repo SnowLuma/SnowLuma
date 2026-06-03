@@ -1,6 +1,6 @@
 {
   "name": "snowluma-monorepo",
-  "version": "1.9.4",
+  "version": "1.9.5",
   "description": "SnowLuma monorepo workspace (pnpm)",
   "private": true,
   "type": "module",
@@ -8,7 +8,8 @@
     "build": "pnpm --filter @snowluma/core build",
     "build:sdk": "pnpm --filter @snowluma/sdk build",
     "build:webui": "pnpm --filter webui build",
-    "build:all": "pnpm --filter @snowluma/core build:all && pnpm --filter @snowluma/sdk build && pnpm --filter webui build",
+    "build:mcp": "pnpm --filter @snowluma/mcp build",
+    "build:all": "pnpm --filter @snowluma/core build:all && pnpm --filter @snowluma/sdk build && pnpm --filter @snowluma/mcp build && pnpm --filter webui build",
     "dev": "pnpm --filter @snowluma/core dev",
     "dev:mode": "cd dist && cross-env SNOWLUMA_DEV_MODE=1 SNOWLUMA_DEV_WEBUI=1 node index.mjs",
     "dev:web": "pnpm --filter webui dev",

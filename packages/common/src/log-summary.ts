@@ -49,3 +49,70 @@ export function summarizeParams(params: unknown): string {
   }
   return out.join(' ');
 }
+
+const VERBOSE_STRING_MAX = 200;
+const VERBOSE_TOTAL_MAX = 1500;
+// Keys whose values must never be rendered — tokens, passwords, secrets.
+const REDACT_KEY = /^(.*[-_])?(token|password|passwd|secret|access[-_]?token)([-_].*)?$/i;
+
+/**
+ * Deep, debug-grade render of a params object for the `trace` level: shows the
+ * full nested structure (message segments, nested objects) so a reproduction
+ * is legible — unlike {@link summarizeParams}, which collapses nested values.
+ *
+ * Three guards keep it safe and bounded:
+ *  - per-string cap (long values like base64 image data become `"…<N B>"`),
+ *  - total output budget (so a giant payload can't flood the buffer),
+ *  - key-based redaction (token / password / secret → `"***"`).
+ */
+export function renderParamsVerbose(params: unknown): string {
+  const seen = new WeakSet<object>();
+  let budget = VERBOSE_TOTAL_MAX;
+
+  const walk = (value: unknown, key?: string): string => {
+    if (budget <= 0) return '…';
+    if (key !== undefined && REDACT_KEY.test(key)) return '"***"';
+    if (value === null) return 'null';
+    if (value === undefined) return 'undefined';
+
+    switch (typeof value) {
+      case 'string': {
+        const truncated =
+          value.length > VERBOSE_STRING_MAX
+            ? `${value.slice(0, VERBOSE_STRING_MAX)}…<${value.length}B>`
+            : value;
+        const out = JSON.stringify(truncated);
+        budget -= out.length;
+        return out;
+      }
+      case 'number':
+      case 'boolean':
+      case 'bigint': {
+        const out = String(value);
+        budget -= out.length;
+        return out;
+      }
+      case 'object': {
+        if (seen.has(value as object)) return '"[circular]"';
+        seen.add(value as object);
+        const parts: string[] = [];
+        if (Array.isArray(value)) {
+          for (const item of value) {
+            if (budget <= 0) { parts.push('…'); break; }
+            parts.push(walk(item));
+          }
+          return `[${parts.join(',')}]`;
+        }
+        for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+          if (budget <= 0) { parts.push('…'); break; }
+          parts.push(`${k}:${walk(v, k)}`);
+        }
+        return `{${parts.join(',')}}`;
+      }
+      default:
+        return typeof value;
+    }
+  };
+
+  return walk(params);
+}
