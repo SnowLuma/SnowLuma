@@ -1,7 +1,16 @@
 {
   "name": "@snowluma/mcp",
   "version": "1.9.5",
-  "description": "MCP server exposing the SnowLuma OneBot action catalog (read-only docs + JSON Schemas) to LLM clients.",
+  "description": "MCP server exposing the SnowLuma OneBot action catalog (docs + JSON Schemas) and optional execution to LLM clients.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SnowLuma/SnowLuma.git",
+    "directory": "packages/mcp"
+  },
+  "homepage": "https://github.com/SnowLuma/SnowLuma#readme",
+  "bugs": {
+    "url": "https://github.com/SnowLuma/SnowLuma/issues"
+  },
   "type": "module",
   "bin": {
     "snowluma-mcp": "./dist/server.js"
