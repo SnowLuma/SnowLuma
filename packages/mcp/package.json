@@ -1,6 +1,6 @@
 {
   "name": "@snowluma/mcp",
-  "version": "1.9.4",
+  "version": "1.9.5",
   "description": "MCP server exposing the SnowLuma OneBot action catalog (read-only docs + JSON Schemas) to LLM clients.",
   "type": "module",
   "bin": {
