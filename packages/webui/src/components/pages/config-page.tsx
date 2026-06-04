@@ -6,9 +6,9 @@
 // through `NodeEditDialog`. All changes auto-save: network mutations
 // persist immediately; general-settings edits are debounced (500 ms).
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { MousePointerClick, Plus } from 'lucide-react';
+import { MousePointerClick, Plus, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
@@ -49,6 +49,7 @@ export function ConfigPage() {
     confirmSwitch,
     cancelSwitch,
     save,
+    saveStatus,
   } = useOneBotInstanceConfig(qqList, {
     selectedUin,
     onSelectedUinChange: setSelectedUin,
@@ -94,6 +95,15 @@ export function ConfigPage() {
       if (debounceRef.current != null) window.clearTimeout(debounceRef.current);
     };
   }, [dirty, config, save]);
+
+  /** Immediate save: clear any pending auto-save debounce and persist now. */
+  const immediateSave = useCallback(() => {
+    if (debounceRef.current != null) {
+      window.clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    void save();
+  }, [save]);
 
   function commitKind<K extends NetworkKind>(kind: K, nextList: OneBotNetworks[K]): void {
     if (!config) return;
@@ -165,6 +175,9 @@ export function ConfigPage() {
           <div className="flex flex-col gap-4">
             <HeaderBar
               selectedUin={selectedUin}
+              dirty={dirty}
+              saveStatus={saveStatus}
+              onSave={immediateSave}
               activeTab={activeTab}
               onCreate={
                 activeTab !== 'general' ? () => openCreate(activeTab as NetworkKind) : undefined
@@ -237,11 +250,14 @@ export function ConfigPage() {
 
 interface HeaderBarProps {
   selectedUin: string;
+  dirty: boolean;
+  saveStatus: string;
+  onSave: () => void;
   activeTab: TabKey;
   onCreate?: () => void;
 }
 
-function HeaderBar({ selectedUin, activeTab, onCreate }: HeaderBarProps) {
+function HeaderBar({ selectedUin, dirty, saveStatus, onSave, activeTab, onCreate }: HeaderBarProps) {
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
@@ -251,12 +267,34 @@ function HeaderBar({ selectedUin, activeTab, onCreate }: HeaderBarProps) {
         </code>
       </div>
       <div className="flex flex-wrap items-center gap-2">
+        {saveStatus && (
+          <span
+            className={cn(
+              'rounded-full border px-2.5 py-1 text-[11px] font-medium',
+              saveStatus === '保存成功' && 'border-success/30 bg-success/10 text-success',
+              saveStatus === '保存中...' && 'border-border bg-muted text-muted-foreground',
+              saveStatus !== '保存成功' &&
+                saveStatus !== '保存中...' &&
+                'border-destructive/30 bg-destructive/10 text-destructive',
+            )}
+          >
+            {saveStatus}
+          </span>
+        )}
+        {dirty && !saveStatus && (
+          <span className="rounded-full border border-warning/30 bg-warning/10 px-2.5 py-1 text-[11px] font-medium text-warning">
+            未保存
+          </span>
+        )}
         {onCreate && (
           <Button size="sm" variant="outline" onClick={onCreate}>
             <Plus className="size-3.5" />
             新建{activeTab === 'general' ? '' : NETWORK_TABS[activeTab as NetworkKind].title}
           </Button>
         )}
+        <Button onClick={onSave} size="sm">
+          <Save className="size-3.5" /> 保存
+        </Button>
       </div>
     </div>
   );
