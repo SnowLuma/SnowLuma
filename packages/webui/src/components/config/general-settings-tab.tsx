@@ -1,7 +1,7 @@
 // "通用设置" tab — fields that apply to the whole OneBotInstance rather
 // than any specific adapter: the music-sign service URL and the built-in
-// `#sl` status command. Edits here mark the config dirty and are persisted
-// via the page's explicit top-right 保存 (a continuously-edited surface).
+// `#sl` status command. Edits here mark the config dirty and are
+// auto-saved with debounce by the parent ConfigPage.
 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';

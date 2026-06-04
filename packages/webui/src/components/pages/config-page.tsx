@@ -3,13 +3,12 @@
 // Layout: collapsible left sidebar for account selection + tabbed right
 // pane (通用 / 4 network kinds). Each network tab is a list view of
 // summary cards with inline enable/disable; create + edit both go
-// through `NodeEditDialog`. The dirty-modify guard from the original
-// hook is preserved end-to-end — switching accounts or kinds doesn't
-// drop unsaved changes silently.
+// through `NodeEditDialog`. All changes auto-save: network mutations
+// persist immediately; general-settings edits are debounced (500 ms).
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { MousePointerClick, Plus, Save } from 'lucide-react';
+import { MousePointerClick, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
@@ -50,7 +49,6 @@ export function ConfigPage() {
     confirmSwitch,
     cancelSwitch,
     save,
-    saveStatus,
   } = useOneBotInstanceConfig(qqList, {
     selectedUin,
     onSelectedUinChange: setSelectedUin,
@@ -62,7 +60,6 @@ export function ConfigPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 1024px)').matches,
   );
-  const [confirmSave, setConfirmSave] = useState(false);
   // The edit dialog is modal and blocks every other click in the page,
   // so `selectedUin` cannot change while it's open — no defensive close
   // wiring needed beyond the dialog's own open/close.
@@ -82,13 +79,22 @@ export function ConfigPage() {
     return map;
   }, [connections, selectedUin]);
 
-  // A discrete node mutation (create / edit / delete / enable-toggle) is
-  // persisted the moment it happens — clicking 保存 inside the editor dialog
-  // (or flipping the enable switch) IS the save. This removes the old
-  // two-step trap where editing a token in the dialog only marked the config
-  // "dirty" until you also pressed the top-right 保存, which silently cost
-  // many users their token edits. The general-settings tab keeps its explicit
-  // top-right save (it's a continuously-edited free-form surface).
+  // Auto-save general settings with debounce. Network mutations
+  // (create / edit / delete / enable-toggle) persist immediately in commitKind.
+  const debounceRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (debounceRef.current != null) window.clearTimeout(debounceRef.current);
+    if (dirty) {
+      debounceRef.current = window.setTimeout(() => {
+        void save();
+        debounceRef.current = null;
+      }, 500);
+    }
+    return () => {
+      if (debounceRef.current != null) window.clearTimeout(debounceRef.current);
+    };
+  }, [dirty, config, save]);
+
   function commitKind<K extends NetworkKind>(kind: K, nextList: OneBotNetworks[K]): void {
     if (!config) return;
     const next = { ...config, networks: { ...config.networks, [kind]: nextList } };
@@ -159,9 +165,6 @@ export function ConfigPage() {
           <div className="flex flex-col gap-4">
             <HeaderBar
               selectedUin={selectedUin}
-              dirty={dirty}
-              saveStatus={saveStatus}
-              onSave={() => setConfirmSave(true)}
               activeTab={activeTab}
               onCreate={
                 activeTab !== 'general' ? () => openCreate(activeTab as NetworkKind) : undefined
@@ -208,15 +211,6 @@ export function ConfigPage() {
       )}
 
       <ConfirmDialog
-        open={confirmSave}
-        onOpenChange={setConfirmSave}
-        title="保存配置变更？"
-        description={`即将把当前修改保存到 UIN ${selectedUin ?? ''} 的配置文件，并尝试热重载该会话。`}
-        confirmText="保存"
-        onConfirm={save}
-      />
-
-      <ConfirmDialog
         open={pendingSwitchUin != null}
         onOpenChange={(open) => !open && cancelSwitch()}
         title="放弃未保存的修改？"
@@ -243,14 +237,11 @@ export function ConfigPage() {
 
 interface HeaderBarProps {
   selectedUin: string;
-  dirty: boolean;
-  saveStatus: string;
-  onSave: () => void;
   activeTab: TabKey;
   onCreate?: () => void;
 }
 
-function HeaderBar({ selectedUin, dirty, saveStatus, onSave, activeTab, onCreate }: HeaderBarProps) {
+function HeaderBar({ selectedUin, activeTab, onCreate }: HeaderBarProps) {
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
@@ -260,34 +251,12 @@ function HeaderBar({ selectedUin, dirty, saveStatus, onSave, activeTab, onCreate
         </code>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        {saveStatus && (
-          <span
-            className={cn(
-              'rounded-full border px-2.5 py-1 text-[11px] font-medium',
-              saveStatus === '保存成功' && 'border-success/30 bg-success/10 text-success',
-              saveStatus === '保存中...' && 'border-border bg-muted text-muted-foreground',
-              saveStatus !== '保存成功' &&
-                saveStatus !== '保存中...' &&
-                'border-destructive/30 bg-destructive/10 text-destructive',
-            )}
-          >
-            {saveStatus}
-          </span>
-        )}
-        {dirty && !saveStatus && (
-          <span className="rounded-full border border-warning/30 bg-warning/10 px-2.5 py-1 text-[11px] font-medium text-warning">
-            未保存
-          </span>
-        )}
         {onCreate && (
           <Button size="sm" variant="outline" onClick={onCreate}>
             <Plus className="size-3.5" />
             新建{activeTab === 'general' ? '' : NETWORK_TABS[activeTab as NetworkKind].title}
           </Button>
         )}
-        <Button onClick={onSave} size="sm" disabled={!dirty}>
-          <Save className="size-3.5" /> 保存
-        </Button>
       </div>
     </div>
   );
