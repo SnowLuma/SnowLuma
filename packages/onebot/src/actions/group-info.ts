@@ -8,6 +8,7 @@ export const actions = [
   defineAction({
     name: 'get_group_list',
     summary: '获取群列表',
+    readOnly: true,
     params: { no_cache: f.bool().default(false) },
     run: async (p, ctx) => {
       const noCache = p.no_cache;
@@ -21,6 +22,7 @@ export const actions = [
   groupAction({
     name: 'get_group_info',
     summary: '获取群信息',
+    readOnly: true,
     params: { no_cache: f.bool().default(false) },
     run: async (p, ctx) => {
       const groupId = p.group_id;
@@ -36,6 +38,7 @@ export const actions = [
   groupAction({
     name: 'get_group_member_list',
     summary: '获取群成员列表',
+    readOnly: true,
     params: { no_cache: f.bool().default(false) },
     run: async (p, ctx) => {
       const groupId = p.group_id;
@@ -50,6 +53,7 @@ export const actions = [
   groupUserAction({
     name: 'get_group_member_info',
     summary: '获取群成员信息',
+    readOnly: true,
     params: { no_cache: f.bool().default(false) },
     run: async (p, ctx) => {
       const groupId = p.group_id;
@@ -77,6 +81,7 @@ export const actions = [
   groupAction({
     name: 'get_group_honor_info',
     summary: '获取群荣誉信息',
+    readOnly: true,
     params: { type: f.raw() },
     run: async (p, ctx) => {
       const groupId = p.group_id;
@@ -99,6 +104,7 @@ export const actions = [
   defineAction({
     name: 'get_group_system_msg',
     summary: '获取群系统消息',
+    readOnly: true,
     params: {},
     run: async (_p, ctx) => {
       if (ctx.handleGetGroupSystemMsg) {

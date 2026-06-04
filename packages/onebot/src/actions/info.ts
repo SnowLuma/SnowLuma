@@ -8,6 +8,7 @@ const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'd
 export const actions = [
   defineAction({
     name: 'get_login_info',
+    readOnly: true,
     params: {},
     run: (_p, ctx) => {
       const login = ctx.getLoginInfo();
@@ -17,6 +18,7 @@ export const actions = [
 
   defineAction({
     name: 'get_status',
+    readOnly: true,
     params: {},
     run: (_p, ctx) => {
       const online = ctx.isOnline();
@@ -26,6 +28,7 @@ export const actions = [
 
   defineAction({
     name: 'get_version_info',
+    readOnly: true,
     params: {},
     run: () => {
       return okResponse({
@@ -38,6 +41,7 @@ export const actions = [
 
   defineAction({
     name: 'can_send_image',
+    readOnly: true,
     params: {},
     run: (_p, ctx) => {
       return okResponse({ yes: ctx.canSendImage?.() ?? false });
@@ -46,6 +50,7 @@ export const actions = [
 
   defineAction({
     name: 'can_send_record',
+    readOnly: true,
     params: {},
     run: (_p, ctx) => {
       return okResponse({ yes: ctx.canSendRecord?.() ?? false });

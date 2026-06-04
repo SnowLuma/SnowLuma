@@ -6,6 +6,7 @@ export const actions = [
   defineAction({
     name: 'get_friend_list',
     summary: '获取好友列表',
+    readOnly: true,
     params: {},
     run: async (_p, ctx) => {
       if (ctx.getFriendList) {
@@ -18,6 +19,7 @@ export const actions = [
   defineAction({
     name: 'get_stranger_info',
     summary: '获取陌生人信息',
+    readOnly: true,
     params: { user_id: f.uint().describe('QQ 号') },
     run: async (p, ctx) => {
       const userId = p.user_id;

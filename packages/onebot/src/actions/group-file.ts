@@ -43,6 +43,7 @@ export const actions = [
   groupAction({
     name: 'get_group_file_url',
     summary: '获取群文件下载链接',
+    readOnly: true,
     returns: '{ url: string }',
     // busid: legacy `asNumber(busid) || 102` mapped absent/0/invalid → 102.
     // f.int({min:0}).default(102) keeps absent → 102, but a present 0 now
@@ -57,6 +58,7 @@ export const actions = [
   groupAction({
     name: 'get_group_root_files',
     summary: '获取群根目录文件列表',
+    readOnly: true,
     run: async (p, ctx) => {
       return okResponse(await ctx.getGroupFiles(p.group_id, '/'));
     },
@@ -65,6 +67,7 @@ export const actions = [
   groupAction({
     name: 'get_group_files_by_folder',
     summary: '获取群子目录文件列表',
+    readOnly: true,
     // folder_id / folder are aliases; first non-empty wins, else '/'.
     params: { folder_id: f.string().default(''), folder: f.string().default('') },
     run: async (p, ctx) => {
@@ -136,6 +139,7 @@ export const actions = [
   defineAction({
     name: 'get_private_file_url',
     summary: '获取私聊文件下载链接',
+    readOnly: true,
     returns: '{ url: string }',
     params: {
       user_id: f.uint(),

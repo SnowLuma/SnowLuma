@@ -7,6 +7,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "_del_group_notice",
     "aliases": [],
     "summary": "删除群公告（fid 或 notice_id 二选一）",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -62,6 +63,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "_get_group_notice",
     "aliases": [],
     "summary": "获取群公告",
+    "readOnly": true,
     "params": [
       {
         "name": "group_id",
@@ -95,6 +97,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "_get_model_show",
     "aliases": [],
     "summary": "获取机型展示（占位）",
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -108,6 +111,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "_mark_all_as_read",
     "aliases": [],
     "summary": "标记全部已读",
+    "readOnly": false,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -121,6 +125,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "_send_group_notice",
     "aliases": [],
     "summary": "发送群公告",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -202,6 +207,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "_set_model_show",
     "aliases": [],
     "summary": "设置机型展示（占位）",
+    "readOnly": false,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -215,6 +221,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": ".get_word_slices",
     "aliases": [],
     "summary": "分词（未实现）",
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -228,6 +235,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "bot_exit",
     "aliases": [],
     "summary": "退出机器人",
+    "readOnly": false,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -240,6 +248,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "can_send_image",
     "aliases": [],
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -252,6 +261,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "can_send_record",
     "aliases": [],
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -264,6 +274,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "cancel_group_album_media_like",
     "aliases": [],
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -336,6 +347,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "cancel_group_todo",
     "aliases": [],
     "summary": "取消群待办",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -387,6 +399,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "check_url_safely",
     "aliases": [],
     "summary": "检查链接安全性",
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -400,6 +413,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "clean_cache",
     "aliases": [],
     "summary": "清理缓存",
+    "readOnly": false,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -413,6 +427,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "click_inline_keyboard_button",
     "aliases": [],
     "summary": "点击内联键盘按钮",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -474,6 +489,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "complete_group_todo",
     "aliases": [],
     "summary": "完成群待办",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -525,6 +541,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "create_collection",
     "aliases": [],
     "summary": "创建收藏（未实现）",
+    "readOnly": false,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -538,6 +555,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "create_group_file_folder",
     "aliases": [],
     "summary": "创建群文件夹",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -597,6 +615,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "del_group_album_media",
     "aliases": [],
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -658,6 +677,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "delete_essence_msg",
     "aliases": [],
     "summary": "移除精华消息",
+    "readOnly": false,
     "params": [
       {
         "name": "message_id",
@@ -693,6 +713,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "delete_friend",
     "aliases": [],
     "summary": "删除好友",
+    "readOnly": false,
     "params": [
       {
         "name": "user_id",
@@ -739,6 +760,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "delete_group_file",
     "aliases": [],
     "summary": "删除群文件",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -786,6 +808,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "delete_group_file_folder",
     "aliases": [],
     "summary": "删除群文件夹",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -833,6 +856,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "delete_group_folder",
     "aliases": [],
     "summary": "删除群文件夹",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -880,6 +904,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "delete_msg",
     "aliases": [],
     "summary": "撤回消息",
+    "readOnly": false,
     "params": [
       {
         "name": "message_id",
@@ -914,6 +939,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "do_group_album_comment",
     "aliases": [],
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -990,6 +1016,7 @@ export const ACTIONS: CatalogAction[] = [
     "aliases": [],
     "summary": "下载文件（url 或 base64）到 data/downloads",
     "returns": "{ file }",
+    "readOnly": false,
     "params": [
       {
         "name": "url",
@@ -1044,6 +1071,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "fetch_custom_face",
     "aliases": [],
     "summary": "获取自定义表情",
+    "readOnly": true,
     "params": [
       {
         "name": "count",
@@ -1074,6 +1102,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "fetch_emoji_like",
     "aliases": [],
     "summary": "获取表情回应用户（NapCat 分页）",
+    "readOnly": true,
     "params": [
       {
         "name": "message_id",
@@ -1154,6 +1183,7 @@ export const ACTIONS: CatalogAction[] = [
       "get_record_text"
     ],
     "summary": "获取语音转文字结果",
+    "readOnly": true,
     "params": [
       {
         "name": "message_id",
@@ -1182,6 +1212,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "forward_friend_single_msg",
     "aliases": [],
     "summary": "转发单条消息给好友",
+    "readOnly": false,
     "params": [
       {
         "name": "message_id",
@@ -1231,6 +1262,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "forward_group_single_msg",
     "aliases": [],
     "summary": "转发单条消息到群",
+    "readOnly": false,
     "params": [
       {
         "name": "message_id",
@@ -1280,6 +1312,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "friend_poke",
     "aliases": [],
     "summary": "好友拍一拍",
+    "readOnly": false,
     "params": [
       {
         "name": "user_id",
@@ -1324,6 +1357,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_ai_characters",
     "aliases": [],
     "summary": "获取 AI 语音角色",
+    "readOnly": true,
     "params": [
       {
         "name": "group_id",
@@ -1372,6 +1406,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_ai_record",
     "aliases": [],
     "summary": "生成 AI 语音",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -1448,6 +1483,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_clientkey",
     "aliases": [],
     "summary": "获取 clientkey",
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -1461,6 +1497,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_collection_list",
     "aliases": [],
     "summary": "获取收藏列表（占位）",
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -1474,6 +1511,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_cookies",
     "aliases": [],
     "summary": "获取 Cookies",
+    "readOnly": true,
     "params": [
       {
         "name": "domain",
@@ -1502,6 +1540,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_credentials",
     "aliases": [],
     "summary": "获取凭证",
+    "readOnly": true,
     "params": [
       {
         "name": "domain",
@@ -1530,6 +1569,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_csrf_token",
     "aliases": [],
     "summary": "获取 CSRF 令牌",
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -1543,6 +1583,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_emoji_likes",
     "aliases": [],
     "summary": "获取表情回应用户",
+    "readOnly": true,
     "params": [
       {
         "name": "message_id",
@@ -1592,6 +1633,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_essence_msg_list",
     "aliases": [],
     "summary": "获取精华消息列表",
+    "readOnly": true,
     "params": [
       {
         "name": "group_id",
@@ -1625,6 +1667,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_file",
     "aliases": [],
     "summary": "获取文件（未实现）",
+    "readOnly": true,
     "params": [
       {
         "name": "file_id",
@@ -1667,6 +1710,7 @@ export const ACTIONS: CatalogAction[] = [
     "aliases": [],
     "summary": "获取合并转发消息（id 或 message_id）",
     "returns": "{ messages }",
+    "readOnly": true,
     "params": [
       {
         "name": "id",
@@ -1693,6 +1737,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_friend_list",
     "aliases": [],
     "summary": "获取好友列表",
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -1706,6 +1751,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_friend_msg_history",
     "aliases": [],
     "summary": "获取好友消息历史",
+    "readOnly": true,
     "params": [
       {
         "name": "user_id",
@@ -1767,6 +1813,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_friends_with_category",
     "aliases": [],
     "summary": "获取分组好友列表",
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -1779,6 +1826,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "get_group_album_list",
     "aliases": [],
+    "readOnly": true,
     "params": [
       {
         "name": "group_id",
@@ -1811,6 +1859,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "get_group_album_media_list",
     "aliases": [],
+    "readOnly": true,
     "params": [
       {
         "name": "group_id",
@@ -1871,6 +1920,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_at_all_remain",
     "aliases": [],
     "summary": "获取群 @全体成员 剩余次数",
+    "readOnly": true,
     "params": [
       {
         "name": "group_id",
@@ -1904,6 +1954,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_detail_info",
     "aliases": [],
     "summary": "获取群详细信息",
+    "readOnly": true,
     "params": [
       {
         "name": "group_id",
@@ -1935,6 +1986,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_file_system_info",
     "aliases": [],
     "summary": "获取群文件系统信息",
+    "readOnly": true,
     "params": [
       {
         "name": "group_id",
@@ -1969,6 +2021,7 @@ export const ACTIONS: CatalogAction[] = [
     "aliases": [],
     "summary": "获取群文件下载链接",
     "returns": "{ url: string }",
+    "readOnly": true,
     "params": [
       {
         "name": "group_id",
@@ -2031,6 +2084,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_files_by_folder",
     "aliases": [],
     "summary": "获取群子目录文件列表",
+    "readOnly": true,
     "params": [
       {
         "name": "group_id",
@@ -2090,6 +2144,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_honor_info",
     "aliases": [],
     "summary": "获取群荣誉信息",
+    "readOnly": true,
     "params": [
       {
         "name": "group_id",
@@ -2130,6 +2185,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_ignore_add_request",
     "aliases": [],
     "summary": "获取被忽略的入群请求（NapCat）",
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -2143,6 +2199,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_ignored_notifies",
     "aliases": [],
     "summary": "获取被过滤的入群请求",
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -2156,6 +2213,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_info",
     "aliases": [],
     "summary": "获取群信息",
+    "readOnly": true,
     "params": [
       {
         "name": "group_id",
@@ -2202,6 +2260,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_info_ex",
     "aliases": [],
     "summary": "获取群信息（扩展）",
+    "readOnly": true,
     "params": [
       {
         "name": "group_id",
@@ -2233,6 +2292,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_list",
     "aliases": [],
     "summary": "获取群列表",
+    "readOnly": true,
     "params": [
       {
         "name": "no_cache",
@@ -2261,6 +2321,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_member_info",
     "aliases": [],
     "summary": "获取群成员信息",
+    "readOnly": true,
     "params": [
       {
         "name": "group_id",
@@ -2323,6 +2384,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_member_list",
     "aliases": [],
     "summary": "获取群成员列表",
+    "readOnly": true,
     "params": [
       {
         "name": "group_id",
@@ -2369,6 +2431,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_msg_history",
     "aliases": [],
     "summary": "获取群消息历史",
+    "readOnly": true,
     "params": [
       {
         "name": "group_id",
@@ -2432,6 +2495,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_root_files",
     "aliases": [],
     "summary": "获取群根目录文件列表",
+    "readOnly": true,
     "params": [
       {
         "name": "group_id",
@@ -2465,6 +2529,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_shut_list",
     "aliases": [],
     "summary": "获取群禁言列表（占位）",
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -2478,6 +2543,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_system_msg",
     "aliases": [],
     "summary": "获取群系统消息",
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -2491,6 +2557,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_image",
     "aliases": [],
     "summary": "获取图片信息",
+    "readOnly": true,
     "params": [
       {
         "name": "file",
@@ -2531,6 +2598,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "get_login_info",
     "aliases": [],
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -2544,6 +2612,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_mini_app_ark",
     "aliases": [],
     "summary": "获取小程序卡片 ark",
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -2557,6 +2626,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_msg",
     "aliases": [],
     "summary": "获取消息",
+    "readOnly": true,
     "params": [
       {
         "name": "message_id",
@@ -2592,6 +2662,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_online_clients",
     "aliases": [],
     "summary": "获取在线客户端（占位）",
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -2606,6 +2677,7 @@ export const ACTIONS: CatalogAction[] = [
     "aliases": [],
     "summary": "获取私聊文件下载链接",
     "returns": "{ url: string }",
+    "readOnly": true,
     "params": [
       {
         "name": "user_id",
@@ -2665,6 +2737,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_profile_like",
     "aliases": [],
     "summary": "获取资料点赞",
+    "readOnly": true,
     "params": [
       {
         "name": "user_id",
@@ -2725,6 +2798,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_record",
     "aliases": [],
     "summary": "获取语音信息",
+    "readOnly": true,
     "params": [
       {
         "name": "file",
@@ -2768,6 +2842,7 @@ export const ACTIONS: CatalogAction[] = [
       "nc_get_rkey"
     ],
     "summary": "获取下载 rkey",
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -2780,6 +2855,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "get_status",
     "aliases": [],
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -2793,6 +2869,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_stranger_info",
     "aliases": [],
     "summary": "获取陌生人信息",
+    "readOnly": true,
     "params": [
       {
         "name": "user_id",
@@ -2826,6 +2903,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_unidirectional_friend_list",
     "aliases": [],
     "summary": "获取单向好友列表",
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -2838,6 +2916,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "get_version_info",
     "aliases": [],
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -2851,6 +2930,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "group_poke",
     "aliases": [],
     "summary": "群拍一拍",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -2900,6 +2980,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "mark_group_msg_as_read",
     "aliases": [],
     "summary": "标记群消息已读",
+    "readOnly": false,
     "params": [
       {
         "name": "message_id",
@@ -2948,6 +3029,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "mark_msg_as_read",
     "aliases": [],
     "summary": "标记消息已读（群聊/私聊自动路由）",
+    "readOnly": false,
     "params": [
       {
         "name": "message_id",
@@ -2996,6 +3078,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "mark_private_msg_as_read",
     "aliases": [],
     "summary": "标记私聊消息已读",
+    "readOnly": false,
     "params": [
       {
         "name": "message_id",
@@ -3044,6 +3127,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "move_group_file",
     "aliases": [],
     "summary": "移动群文件",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -3119,6 +3203,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "nc_get_packet_status",
     "aliases": [],
     "summary": "获取 packet 状态（占位）",
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -3132,6 +3217,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "nc_get_user_status",
     "aliases": [],
     "summary": "获取用户在线/扩展状态",
+    "readOnly": true,
     "params": [
       {
         "name": "user_id",
@@ -3165,6 +3251,7 @@ export const ACTIONS: CatalogAction[] = [
       ".ocr_image"
     ],
     "summary": "OCR 图片（未实现）",
+    "readOnly": true,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -3178,6 +3265,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "rename_group_file",
     "aliases": [],
     "summary": "重命名群文件（未实现）",
+    "readOnly": false,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -3191,6 +3279,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "rename_group_file_folder",
     "aliases": [],
     "summary": "重命名群文件夹",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -3264,6 +3353,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "request_decrypt_key",
     "aliases": [],
     "summary": "请求数据库解密密钥",
+    "readOnly": false,
     "params": [
       {
         "name": "db_path",
@@ -3296,6 +3386,7 @@ export const ACTIONS: CatalogAction[] = [
     "aliases": [],
     "summary": "发送合并转发（按 message_type/群号自动路由）",
     "returns": "{ message_id, res_id, forward_id }",
+    "readOnly": false,
     "params": [
       {
         "name": "messages",
@@ -3333,6 +3424,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "send_group_ai_record",
     "aliases": [],
     "summary": "发送 AI 语音到群",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -3410,6 +3502,7 @@ export const ACTIONS: CatalogAction[] = [
     "aliases": [],
     "summary": "发送群合并转发",
     "returns": "{ message_id, res_id, forward_id }",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -3466,6 +3559,7 @@ export const ACTIONS: CatalogAction[] = [
     "aliases": [],
     "summary": "发送群消息",
     "returns": "{ message_id: number }",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -3524,6 +3618,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "send_like",
     "aliases": [],
     "summary": "点赞",
+    "readOnly": false,
     "params": [
       {
         "name": "user_id",
@@ -3571,6 +3666,7 @@ export const ACTIONS: CatalogAction[] = [
     "aliases": [],
     "summary": "发送消息（按 message_type/群号 自动路由群聊或私聊）",
     "returns": "{ message_id: number }",
+    "readOnly": false,
     "params": [
       {
         "name": "message",
@@ -3652,6 +3748,7 @@ export const ACTIONS: CatalogAction[] = [
       ".send_packet"
     ],
     "summary": "发送原始 SSO 包（cmd + hex data）",
+    "readOnly": false,
     "params": [
       {
         "name": "cmd",
@@ -3709,6 +3806,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "send_poke",
     "aliases": [],
     "summary": "拍一拍（群聊/私聊自动路由）",
+    "readOnly": false,
     "params": [
       {
         "name": "user_id",
@@ -3754,6 +3852,7 @@ export const ACTIONS: CatalogAction[] = [
     "aliases": [],
     "summary": "发送私聊合并转发",
     "returns": "{ message_id, res_id, forward_id }",
+    "readOnly": false,
     "params": [
       {
         "name": "user_id",
@@ -3808,6 +3907,7 @@ export const ACTIONS: CatalogAction[] = [
     "aliases": [],
     "summary": "发送私聊消息",
     "returns": "{ message_id: number }",
+    "readOnly": false,
     "params": [
       {
         "name": "user_id",
@@ -3864,6 +3964,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_diy_online_status",
     "aliases": [],
     "summary": "设置自定义在线状态",
+    "readOnly": false,
     "params": [
       {
         "name": "face_id",
@@ -3923,6 +4024,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_essence_msg",
     "aliases": [],
     "summary": "设置精华消息",
+    "readOnly": false,
     "params": [
       {
         "name": "message_id",
@@ -3958,6 +4060,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_friend_add_request",
     "aliases": [],
     "summary": "处理好友添加请求",
+    "readOnly": false,
     "params": [
       {
         "name": "flag",
@@ -4002,6 +4105,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_friend_remark",
     "aliases": [],
     "summary": "设置好友备注",
+    "readOnly": false,
     "params": [
       {
         "name": "user_id",
@@ -4045,6 +4149,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_group_add_option",
     "aliases": [],
     "summary": "设置加群选项",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -4093,6 +4198,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_group_add_request",
     "aliases": [],
     "summary": "处理加群请求",
+    "readOnly": false,
     "params": [
       {
         "name": "flag",
@@ -4164,6 +4270,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_group_admin",
     "aliases": [],
     "summary": "设置/取消管理员",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -4225,6 +4332,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "set_group_album_media_like",
     "aliases": [],
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -4297,6 +4405,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_group_anonymous",
     "aliases": [],
     "summary": "匿名开关（未实现，返回 ok）",
+    "readOnly": false,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -4310,6 +4419,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_group_anonymous_ban",
     "aliases": [],
     "summary": "匿名禁言（未实现，返回 ok）",
+    "readOnly": false,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -4323,6 +4433,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_group_ban",
     "aliases": [],
     "summary": "禁言群成员（duration=0 解除）",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -4387,6 +4498,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_group_card",
     "aliases": [],
     "summary": "设置群名片（空字符串清除）",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -4449,6 +4561,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_group_kick",
     "aliases": [],
     "summary": "踢出群成员",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -4511,6 +4624,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_group_kick_members",
     "aliases": [],
     "summary": "批量踢出群成员",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -4579,6 +4693,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_group_leave",
     "aliases": [],
     "summary": "退群",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -4612,6 +4727,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_group_name",
     "aliases": [],
     "summary": "设置群名",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -4658,6 +4774,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_group_portrait",
     "aliases": [],
     "summary": "设置群头像",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -4705,6 +4822,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_group_reaction",
     "aliases": [],
     "summary": "群聊表情回应",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -4780,6 +4898,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_group_remark",
     "aliases": [],
     "summary": "设置群备注",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -4823,6 +4942,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_group_search",
     "aliases": [],
     "summary": "允许群被搜索",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -4858,6 +4978,7 @@ export const ACTIONS: CatalogAction[] = [
       "send_group_sign"
     ],
     "summary": "群签到",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -4891,6 +5012,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_group_special_title",
     "aliases": [],
     "summary": "设置群头衔",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -4953,6 +5075,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_group_todo",
     "aliases": [],
     "summary": "设置群待办",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -5004,6 +5127,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_group_whole_ban",
     "aliases": [],
     "summary": "全员禁言开关",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -5050,6 +5174,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_input_status",
     "aliases": [],
     "summary": "设置输入状态",
+    "readOnly": false,
     "params": [
       {
         "name": "user_id",
@@ -5094,6 +5219,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_msg_emoji_like",
     "aliases": [],
     "summary": "设置消息表情回应",
+    "readOnly": false,
     "params": [
       {
         "name": "message_id",
@@ -5156,6 +5282,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_online_status",
     "aliases": [],
     "summary": "设置在线状态",
+    "readOnly": false,
     "params": [
       {
         "name": "status",
@@ -5221,6 +5348,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_qq_avatar",
     "aliases": [],
     "summary": "设置 QQ 头像",
+    "readOnly": false,
     "params": [
       {
         "name": "file",
@@ -5252,6 +5380,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_qq_profile",
     "aliases": [],
     "summary": "设置 QQ 资料",
+    "readOnly": false,
     "params": [
       {
         "name": "nickname",
@@ -5289,6 +5418,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_restart",
     "aliases": [],
     "summary": "重启（不支持）",
+    "readOnly": false,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -5302,6 +5432,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "set_self_longnick",
     "aliases": [],
     "summary": "设置个性签名（longNick/long_nick，严格 string）",
+    "readOnly": false,
     "params": [
       {
         "name": "longNick",
@@ -5331,6 +5462,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "trans_group_file",
     "aliases": [],
     "summary": "转存群文件（未实现）",
+    "readOnly": false,
     "params": [],
     "invariants": [],
     "inputSchema": {
@@ -5345,6 +5477,7 @@ export const ACTIONS: CatalogAction[] = [
     "aliases": [],
     "summary": "英译中",
     "returns": "{ words }",
+    "readOnly": true,
     "params": [
       {
         "name": "words",
@@ -5367,6 +5500,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "upload_forward_msg",
     "aliases": [],
     "summary": "上传转发消息",
+    "readOnly": false,
     "params": [
       {
         "name": "messages",
@@ -5417,6 +5551,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "upload_foward_msg",
     "aliases": [],
     "summary": "上传转发消息（别名拼写）",
+    "readOnly": false,
     "params": [
       {
         "name": "messages",
@@ -5468,6 +5603,7 @@ export const ACTIONS: CatalogAction[] = [
     "aliases": [],
     "summary": "上传群文件",
     "returns": "{ file_id: string }",
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -5566,6 +5702,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "upload_image_to_qun_album",
     "aliases": [],
+    "readOnly": false,
     "params": [
       {
         "name": "group_id",
@@ -5642,6 +5779,7 @@ export const ACTIONS: CatalogAction[] = [
     "aliases": [],
     "summary": "上传私聊文件",
     "returns": "{ file_id: string }",
+    "readOnly": false,
     "params": [
       {
         "name": "user_id",

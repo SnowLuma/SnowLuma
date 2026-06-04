@@ -1,4 +1,4 @@
-import { createLogger, type Logger } from '@snowluma/common/logger';
+import { createLogger } from '@snowluma/common/logger';
 import {
   createServer,
   type IncomingMessage,
@@ -7,7 +7,7 @@ import {
 } from 'http';
 import type { DispatchPayload } from '../event-filter';
 import type { HttpServerNetwork, JsonObject, JsonValue } from '../types';
-import { IOneBotNetworkAdapter, NetworkReloadType, type AdapterStatus, type NetworkAdapterContext } from './adapter';
+import { IOneBotNetworkAdapter, type AdapterStatus, type NetworkAdapterContext } from './adapter';
 import { isAuthorized, normalizePath } from './utils';
 
 const moduleLog = createLogger('OneBot.HTTP');
@@ -15,16 +15,9 @@ const moduleLog = createLogger('OneBot.HTTP');
 export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> {
   private server: Server | null = null;
   private listening = false;
-  private readonly log: Logger;
 
   constructor(name: string, config: HttpServerNetwork, ctx: NetworkAdapterContext) {
-    super(name, config, ctx);
-    const uinNum = Number.parseInt(ctx.uin, 10);
-    this.log = Number.isFinite(uinNum) && uinNum > 0 ? moduleLog.child({ uin: uinNum }) : moduleLog;
-  }
-
-  override get isActive(): boolean {
-    return this.isEnabled;
+    super(name, config, ctx, moduleLog);
   }
 
   open(): void {
@@ -48,31 +41,8 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
     return { name: this.name, kind: 'httpServer', status: 'ok', detail: '监听中' };
   }
 
-  async reload(next: HttpServerNetwork): Promise<NetworkReloadType> {
-    const prevSig = bindingSignature(this.config);
-    const wasEnabled = this.isEnabled;
-    const willEnable = next.enabled !== false;
-
-    this.config = structuredClone(next);
-
-    const sigChanged = prevSig !== bindingSignature(next);
-    if (sigChanged && wasEnabled) {
-      this.close();
-      if (willEnable) {
-        this.open();
-        return NetworkReloadType.Reopened;
-      }
-      return NetworkReloadType.Closed;
-    }
-    if (!wasEnabled && willEnable) {
-      this.open();
-      return NetworkReloadType.Opened;
-    }
-    if (wasEnabled && !willEnable) {
-      this.close();
-      return NetworkReloadType.Closed;
-    }
-    return NetworkReloadType.Normal;
+  protected override bindingSignature(config: HttpServerNetwork): string {
+    return `${config.host ?? '0.0.0.0'}:${config.port}${normalizePath(config.path ?? '/')}`;
   }
 
   onEvent(_event: JsonObject, _payload: DispatchPayload): void { /* no-op */ }
@@ -221,10 +191,6 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
       writeJson(res, 500, { status: 'failed', retcode: 1200, data: null, wording });
     }
   }
-}
-
-function bindingSignature(net: HttpServerNetwork): string {
-  return `${net.host ?? '0.0.0.0'}:${net.port}${normalizePath(net.path ?? '/')}`;
 }
 
 function readRequestBody(req: IncomingMessage, maxBytes = 2 * 1024 * 1024): Promise<string> {

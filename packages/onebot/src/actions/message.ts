@@ -85,6 +85,7 @@ export const actions = [
   defineAction({
     name: 'get_msg',
     summary: '获取消息',
+    readOnly: true,
     params: { message_id: f.messageId() },
     run: async (p, ctx) => {
       const data = ctx.getMessage(p.message_id);

@@ -6,6 +6,7 @@ import { RETCODE, failedResponse, okResponse } from '../types';
 export const actions = [
   groupAction({
     name: 'get_group_album_list',
+    readOnly: true,
     run: async (p, ctx) => {
       try {
         const albumList = await ctx.bridge.apis.groupAlbum.list(p.group_id);
@@ -37,6 +38,7 @@ export const actions = [
 
   groupAction({
     name: 'get_group_album_media_list',
+    readOnly: true,
     params: {
       album_id: f.string({ allowEmpty: false }),
       attach_info: f.string().default(''),

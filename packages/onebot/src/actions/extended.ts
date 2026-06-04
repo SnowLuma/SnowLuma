@@ -174,6 +174,7 @@ export const actions = [
   groupAction({
     name: 'get_essence_msg_list',
     summary: '获取精华消息列表',
+    readOnly: true,
     run: async (p, ctx) => {
       try {
         const essenceDataAll = await ctx.bridge.apis.web.getEssenceAll(p.group_id);
@@ -216,6 +217,7 @@ export const actions = [
   groupAction({
     name: 'get_group_msg_history',
     summary: '获取群消息历史',
+    readOnly: true,
     params: {
       // 原实现用 `asNumber(message_id) || 0`，present 0 也映射为 0。
       message_id: f.int({ min: 0 }).default(0),
@@ -230,6 +232,7 @@ export const actions = [
   defineAction({
     name: 'get_friend_msg_history',
     summary: '获取好友消息历史',
+    readOnly: true,
     params: {
       user_id: f.uint(),
       message_id: f.int({ min: 0 }).default(0),
@@ -341,6 +344,7 @@ export const actions = [
   groupAction({
     name: '_get_group_notice',
     summary: '获取群公告',
+    readOnly: true,
     run: async (p, ctx) => {
       try {
         const notices = await ctx.bridge.apis.web.getNotice(p.group_id);
@@ -397,6 +401,7 @@ export const actions = [
   defineAction({
     name: 'get_image',
     summary: '获取图片信息',
+    readOnly: true,
     params: {
       file: f.string().default(''),
       file_id: f.string().default(''),
@@ -413,6 +418,7 @@ export const actions = [
   defineAction({
     name: 'get_record',
     summary: '获取语音信息',
+    readOnly: true,
     params: {
       file: f.string().default(''),
       file_id: f.string().default(''),
@@ -430,6 +436,7 @@ export const actions = [
     // Primary name matches NapCat for drop-in migration; the rest are aliases.
     name: ['fetch_ptt_text', 'get_ptt_text', 'get_record_text'],
     summary: '获取语音转文字结果',
+    readOnly: true,
     params: {
       message_id: f.string().default(''),
     },
@@ -449,6 +456,7 @@ export const actions = [
   defineAction({
     name: 'get_cookies',
     summary: '获取 Cookies',
+    readOnly: true,
     params: { domain: f.string().default('qun.qq.com') },
     run: async (p, ctx) => {
       try {
@@ -463,6 +471,7 @@ export const actions = [
   defineAction({
     name: 'get_csrf_token',
     summary: '获取 CSRF 令牌',
+    readOnly: true,
     params: {},
     run: async (_p, ctx) => {
       try {
@@ -477,6 +486,7 @@ export const actions = [
   defineAction({
     name: 'get_credentials',
     summary: '获取凭证',
+    readOnly: true,
     params: { domain: f.string().default('qun.qq.com') },
     run: async (p, ctx) => {
       try {
@@ -560,6 +570,7 @@ export const actions = [
   groupAction({
     name: 'get_group_file_system_info',
     summary: '获取群文件系统信息',
+    readOnly: true,
     run: async (p, ctx) => {
       const info = await ctx.bridge.apis.groupFile.getCount(p.group_id);
       return okResponse({
@@ -574,6 +585,7 @@ export const actions = [
   defineAction({
     name: 'check_url_safely',
     summary: '检查链接安全性',
+    readOnly: true,
     params: {},
     run: async () => {
       return okResponse({ level: 1 });
@@ -644,6 +656,7 @@ export const actions = [
   defineAction({
     name: 'get_group_ignored_notifies',
     summary: '获取被过滤的入群请求',
+    readOnly: true,
     params: {},
     run: async (_p, ctx) => {
       const reqs = await fetchFilteredGroupRequests(ctx);
@@ -669,6 +682,7 @@ export const actions = [
   defineAction({
     name: 'get_group_ignore_add_request',
     summary: '获取被忽略的入群请求（NapCat）',
+    readOnly: true,
     params: {},
     run: async (_p, ctx) => {
       const reqs = await fetchFilteredGroupRequests(ctx);
@@ -691,6 +705,7 @@ export const actions = [
   defineAction({
     name: 'get_group_shut_list',
     summary: '获取群禁言列表（占位）',
+    readOnly: true,
     params: {},
     run: async () => {
       return okResponse([]);
@@ -734,6 +749,7 @@ export const actions = [
   defineAction({
     name: 'get_profile_like',
     summary: '获取资料点赞',
+    readOnly: true,
     params: {
       // 原实现 user_id 经 asNumber，无校验（0 也透传）。
       user_id: f.int({ min: 0 }).default(0),
@@ -753,6 +769,7 @@ export const actions = [
   defineAction({
     name: 'fetch_custom_face',
     summary: '获取自定义表情',
+    readOnly: true,
     params: { count: f.int({ min: 0 }).default(10) },
     run: async (p, ctx) => {
       try {
@@ -767,6 +784,7 @@ export const actions = [
   defineAction({
     name: 'get_emoji_likes',
     summary: '获取表情回应用户',
+    readOnly: true,
     params: {
       message_id: f.messageId(),
       emoji_id: f.string({ allowEmpty: false }),
@@ -786,6 +804,7 @@ export const actions = [
   defineAction({
     name: 'fetch_emoji_like',
     summary: '获取表情回应用户（NapCat 分页）',
+    readOnly: true,
     params: {
       message_id: f.messageId(),
       emojiId: f.string({ allowEmpty: false }),
@@ -815,6 +834,7 @@ export const actions = [
   defineAction({
     name: 'get_friends_with_category',
     summary: '获取分组好友列表',
+    readOnly: true,
     params: {},
     run: async (_p, ctx) => {
       if (ctx.getFriendList) {
@@ -828,6 +848,7 @@ export const actions = [
   defineAction({
     name: 'get_online_clients',
     summary: '获取在线客户端（占位）',
+    readOnly: true,
     params: {},
     run: async () => {
       return okResponse({ clients: [] });
@@ -837,6 +858,7 @@ export const actions = [
   defineAction({
     name: '_get_model_show',
     summary: '获取机型展示（占位）',
+    readOnly: true,
     params: {},
     run: async () => {
       return okResponse({ variants: [] });
@@ -855,6 +877,7 @@ export const actions = [
   groupAction({
     name: 'get_group_at_all_remain',
     summary: '获取群 @全体成员 剩余次数',
+    readOnly: true,
     run: async (p, ctx) => {
       try {
         const data = await ctx.bridge.apis.groupAdmin.getAtAllRemain(p.group_id);
@@ -868,6 +891,7 @@ export const actions = [
   defineAction({
     name: 'get_unidirectional_friend_list',
     summary: '获取单向好友列表',
+    readOnly: true,
     params: {},
     run: async (_p, ctx) => {
       try {
@@ -882,6 +906,7 @@ export const actions = [
   defineAction({
     name: 'get_clientkey',
     summary: '获取 clientkey',
+    readOnly: true,
     params: {},
     run: async (_p, ctx) => {
       const clientKeyInfo = await ctx.bridge.apis.web.forceFetchClientKey();
@@ -895,6 +920,7 @@ export const actions = [
   defineAction({
     name: 'get_collection_list',
     summary: '获取收藏列表（占位）',
+    readOnly: true,
     params: {},
     run: async () => {
       return okResponse([]);
@@ -913,6 +939,7 @@ export const actions = [
   defineAction({
     name: '.get_word_slices',
     summary: '分词（未实现）',
+    readOnly: true,
     params: {},
     run: async () => {
       return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
@@ -954,6 +981,7 @@ export const actions = [
   defineAction({
     name: 'get_group_info_ex',
     summary: '获取群信息（扩展）',
+    readOnly: true,
     params: { group_id: f.uint() },
     run: async (p, ctx) => {
       if (ctx.getGroupInfo) {
@@ -966,6 +994,7 @@ export const actions = [
   defineAction({
     name: 'get_group_detail_info',
     summary: '获取群详细信息',
+    readOnly: true,
     params: { group_id: f.uint() },
     run: async (p, ctx) => {
       if (ctx.getGroupInfo) {
@@ -996,6 +1025,7 @@ export const actions = [
   defineAction({
     name: 'get_file',
     summary: '获取文件（未实现）',
+    readOnly: true,
     params: {
       file_id: f.string().default(''),
       file: f.string().default(''),
@@ -1021,6 +1051,7 @@ export const actions = [
   defineAction({
     name: 'nc_get_packet_status',
     summary: '获取 packet 状态（占位）',
+    readOnly: true,
     params: {},
     run: async () => {
       return okResponse(null);
@@ -1044,6 +1075,7 @@ export const actions = [
   defineAction({
     name: 'nc_get_user_status',
     summary: '获取用户在线/扩展状态',
+    readOnly: true,
     params: { user_id: f.uint() },
     run: async (p, ctx) => {
       const status = await ctx.bridge.apis.extras.getStrangerStatus(p.user_id);
@@ -1056,6 +1088,7 @@ export const actions = [
   groupAction({
     name: 'get_ai_characters',
     summary: '获取 AI 语音角色',
+    readOnly: true,
     params: { chat_type: f.int({ min: 0 }).default(1) },
     run: async (p, ctx) => {
       try {
@@ -1149,6 +1182,7 @@ export const actions = [
   defineAction({
     name: ['get_rkey', 'nc_get_rkey'],
     summary: '获取下载 rkey',
+    readOnly: true,
     params: {},
     run: async (_p, ctx) =>
       ctx.getDownloadRKeys
@@ -1159,6 +1193,7 @@ export const actions = [
   defineAction({
     name: ['ocr_image', '.ocr_image'],
     summary: 'OCR 图片（未实现）',
+    readOnly: true,
     params: {},
     run: () => failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented'),
   }),
@@ -1238,6 +1273,7 @@ export const actions = [
   defineAction({
     name: 'get_forward_msg',
     summary: '获取合并转发消息（id 或 message_id）',
+    readOnly: true,
     returns: '{ messages }',
     params: { id: f.string().optional() },
     run: async (p, ctx, raw) => {
@@ -1314,6 +1350,7 @@ export const actions = [
   defineAction({
     name: 'translate_en2zh',
     summary: '英译中',
+    readOnly: true,
     returns: '{ words }',
     params: { words: f.raw() },
     run: async (p, ctx) => {
@@ -1348,6 +1385,7 @@ export const actions = [
   defineAction({
     name: 'get_mini_app_ark',
     summary: '获取小程序卡片 ark',
+    readOnly: true,
     params: {},
     run: async (_p, ctx, raw) => {
       const type = raw.type || 'bili';
