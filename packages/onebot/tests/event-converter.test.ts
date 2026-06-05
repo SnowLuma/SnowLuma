@@ -144,27 +144,34 @@ describe('convertEvent — notice kinds', () => {
     expect(invite!.sub_type).toBe('invite');
   });
 
-  it('group_member_leave: leave / kick / kick_me', async () => {
+  it('group_member_leave: leave / kick / kick_me / disband', async () => {
     const leave = await convertEvent(bareCtx(), {
       kind: 'group_member_leave',
       time: 1, selfUin: SELF_ID, groupId: GROUP_ID,
-      userUin: PEER_UIN, operatorUin: 0, isKick: false,
+      userUin: PEER_UIN, operatorUin: 0, leaveType: 'leave',
     } as QQEventVariant);
     expect(leave!.sub_type).toBe('leave');
 
     const kick = await convertEvent(bareCtx(), {
       kind: 'group_member_leave',
       time: 1, selfUin: SELF_ID, groupId: GROUP_ID,
-      userUin: PEER_UIN, operatorUin: 33333, isKick: true,
+      userUin: PEER_UIN, operatorUin: 33333, leaveType: 'kick',
     } as QQEventVariant);
     expect(kick!.sub_type).toBe('kick');
 
     const kickMe = await convertEvent(bareCtx(), {
       kind: 'group_member_leave',
       time: 1, selfUin: SELF_ID, groupId: GROUP_ID,
-      userUin: SELF_ID, operatorUin: 33333, isKick: true,
+      userUin: SELF_ID, operatorUin: 33333, leaveType: 'kick',
     } as QQEventVariant);
     expect(kickMe!.sub_type).toBe('kick_me');
+
+    const disband = await convertEvent(bareCtx(), {
+      kind: 'group_member_leave',
+      time: 1, selfUin: SELF_ID, groupId: GROUP_ID,
+      userUin: SELF_ID, operatorUin: 33333, leaveType: 'disband',
+    } as QQEventVariant);
+    expect(disband!.sub_type).toBe('disband');
   });
 
   it('group_mute: ban vs lift_ban driven by duration', async () => {
