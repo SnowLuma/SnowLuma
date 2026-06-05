@@ -1,4 +1,4 @@
-import type { AccountConnections, HookProcessInfo, LogEntry, LogLevel, QQInfo, SystemInfo } from '@/types';
+import type { AccountConnections, HookProcessInfo, LogEntry, LogLevel, QQInfo, SystemInfo, UpdateInfo } from '@/types';
 import type { PasswordRule } from '@/components/pages/change-password-page';
 import { normalizeOneBotConfig } from '@/lib/onebot-config';
 import {
@@ -42,6 +42,7 @@ class HttpApiClient implements ApiClient {
   readonly processes: ApiClient['processes'];
   readonly config: ApiClient['config'];
   readonly logs: ApiClient['logs'];
+  readonly update: ApiClient['update'];
 
   constructor(opts: CreateApiClientOptions = {}) {
     this.tokenStore = opts.tokenStore ?? localStorageTokenStore(DEFAULT_TOKEN_KEY);
@@ -88,6 +89,11 @@ class HttpApiClient implements ApiClient {
       getLevel: () => this.getJson<{ level: LogLevel; levels: LogLevel[] }>(`/api/logs/level`),
       setLevel: (level) =>
         this.postJson<{ level: LogLevel; levels: LogLevel[] }>(`/api/logs/level`, { level }),
+    };
+
+    this.update = {
+      check: (force) =>
+        this.getJson<UpdateInfo>(`/api/update/check${force ? '?force=true' : ''}`),
     };
   }
 

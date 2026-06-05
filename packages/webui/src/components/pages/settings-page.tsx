@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { motion } from 'motion/react';
-import { Bug, Check, ExternalLink, Github, Info, KeyRound, Monitor, Moon, Palette, RefreshCw, ShieldCheck, Star, Sun, Tag } from 'lucide-react';
+import { Bug, Check, Download, ExternalLink, Github, Info, KeyRound, Loader2, Monitor, Moon, Palette, RefreshCw, ShieldCheck, Sparkles, Star, Sun, Tag } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -312,6 +312,101 @@ function AccountPanel() {
 
 const REPO_URL = 'https://github.com/SnowLuma/SnowLuma';
 
+// Best-effort guess of the release asset matching the running platform, so
+// the user knows which file to grab on the GitHub release page. Returns null
+// for platforms with no official asset (e.g. macOS).
+function assetHint(latest: string, platform?: string, arch?: string): string | null {
+  if (!platform) return null;
+  const tag = `v${latest}`;
+  if (platform === 'win32') return `SnowLuma-${tag}-win-x64.zip`;
+  if (platform === 'linux') return `SnowLuma-${tag}-linux-${arch === 'arm64' ? 'arm64' : 'x64'}.tar.gz`;
+  return null;
+}
+
+// Advisory update status. Read-only: links to the GitHub release; SnowLuma
+// never downloads or applies anything itself.
+function UpdateStatus() {
+  const { updateInfo, refreshUpdate, systemInfo } = useAppState();
+  const [checking, setChecking] = useState(false);
+
+  const onCheck = async () => {
+    setChecking(true);
+    try {
+      await refreshUpdate(true);
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const checkButton = (
+    <Button variant="outline" size="sm" onClick={onCheck} disabled={checking}>
+      {checking ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+      重新检查
+    </Button>
+  );
+
+  if (updateInfo?.hasUpdate && updateInfo.latest) {
+    const hint = assetHint(updateInfo.latest, systemInfo?.platform, systemInfo?.arch);
+    return (
+      <div className="w-full max-w-md rounded-xl border border-primary/30 bg-primary/[0.06] p-4 text-left">
+        <div className="flex items-center gap-2">
+          <Sparkles className="size-4 text-primary" />
+          <span className="text-sm font-medium">发现新版本 v{updateInfo.latest}</span>
+          {updateInfo.publishedAt && (
+            <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">
+              {new Date(updateInfo.publishedAt).toLocaleDateString()}
+            </span>
+          )}
+        </div>
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          当前 v{updateInfo.current} → 最新 v{updateInfo.latest}
+        </p>
+        {updateInfo.notes && (
+          <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/50 p-3 text-[11px] leading-relaxed text-muted-foreground">
+            {updateInfo.notes}
+          </pre>
+        )}
+        {hint && (
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            适合你的平台：
+            <code className="rounded bg-muted px-1 py-0.5 font-mono">{hint}</code>
+            （在下载页选择）
+          </p>
+        )}
+        <div className="mt-3 flex items-center gap-2">
+          {updateInfo.htmlUrl && (
+            <Button asChild size="sm">
+              <a href={updateInfo.htmlUrl} target="_blank" rel="noreferrer noopener">
+                <Download className="size-4" />
+                前往下载
+              </a>
+            </Button>
+          )}
+          {checkButton}
+        </div>
+      </div>
+    );
+  }
+
+  let text: string;
+  if (!updateInfo) text = '正在检查更新…';
+  else if (updateInfo.error === 'disabled') text = '更新检查已关闭';
+  else if (updateInfo.error) text = '无法检查更新';
+  else text = `已是最新版本（v${updateInfo.current}）`;
+
+  const ok = !!updateInfo && !updateInfo.error;
+
+  return (
+    <div className="flex w-full max-w-md flex-wrap items-center justify-center gap-3 text-[12px] text-muted-foreground">
+      <span className="inline-flex items-center gap-1.5">
+        {ok ? <Check className="size-3.5 text-success" /> : <Info className="size-3.5" />}
+        {text}
+      </span>
+      {updateInfo?.error !== 'disabled' && checkButton}
+    </div>
+  );
+}
+
 function AboutPanel() {
   return (
     <Card className="overflow-hidden">
@@ -339,6 +434,9 @@ function AboutPanel() {
         <p className="max-w-md text-[13px] leading-relaxed text-muted-foreground">
           以轻量注入驱动 QQ NT，对外提供标准 OneBot v11 接口，让机器人一次部署、长期稳定运行。
         </p>
+
+        {/* Update status */}
+        <UpdateStatus />
 
         {/* Star CTA */}
         <div className="flex w-full max-w-sm flex-col items-center gap-2 rounded-xl border bg-gradient-to-b from-primary/[0.07] to-transparent p-5">
