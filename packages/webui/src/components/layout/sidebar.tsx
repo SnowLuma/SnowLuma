@@ -1,10 +1,11 @@
-import { LayoutDashboard, PlugZap, Settings, SlidersHorizontal, Terminal } from 'lucide-react';
+import { LayoutDashboard, PlugZap, Settings, Sparkles, SlidersHorizontal, Terminal } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Link, useRouterState } from '@tanstack/react-router';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { APP_NAME, APP_VERSION } from '@/types';
+import { useAppState } from '@/contexts/AppStateContext';
 import type { AppPath } from '@/router';
 
 export interface NavItem {
@@ -29,6 +30,7 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { updateInfo } = useAppState();
 
   return (
     <div className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
@@ -89,6 +91,31 @@ export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
       </ScrollArea>
 
       <Separator />
+      {updateInfo?.hasUpdate && (
+        <div className={cn('px-2 pt-2', collapsed && 'px-0')}>
+          <Link
+            to="/settings"
+            onClick={onItemClick}
+            title={updateInfo.latest ? `有新版本 v${updateInfo.latest} · 点击查看` : '有可用更新'}
+            aria-label="有可用更新"
+            className={cn(
+              'group relative flex items-center gap-2.5 rounded-lg border border-primary/30 bg-primary/[0.07] px-3 py-2 text-left transition-colors hover:bg-primary/10',
+              collapsed && 'mx-auto w-10 justify-center px-0',
+            )}
+          >
+            <Sparkles className="size-4 shrink-0 text-primary" />
+            {!collapsed && (
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="text-xs font-medium leading-tight text-foreground">有新版本可用</span>
+                <span className="truncate text-[10px] text-muted-foreground">v{updateInfo.latest} · 点击查看</span>
+              </span>
+            )}
+            {collapsed && (
+              <span className="absolute right-1 top-1 size-2 rounded-full border-2 border-sidebar bg-primary" />
+            )}
+          </Link>
+        </div>
+      )}
       <div className={cn('px-4 py-3 text-[10px] text-muted-foreground', collapsed && 'text-center px-2')}>
         {collapsed ? '©' : `© ${new Date().getFullYear()} SnowLuma`}
       </div>

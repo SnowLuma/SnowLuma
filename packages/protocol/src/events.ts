@@ -153,7 +153,12 @@ export interface GroupMemberLeave extends QQEvent {
   operatorUin: number;
   userUid?: string;
   operatorUid?: string;
-  isKick: boolean;
+  /**
+   * Protocol-level reason the member left, derived from
+   * GroupChange.decreaseType. `kick` is split into kick / kick_me
+   * downstream (OneBot converter) by comparing against selfId.
+   */
+  leaveType: 'leave' | 'kick' | 'disband';
 }
 
 export interface GroupMuteEvent extends QQEvent {

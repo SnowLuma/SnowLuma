@@ -6,6 +6,7 @@ import type {
   OneBotConfig,
   QQInfo,
   SystemInfo,
+  UpdateInfo,
 } from '@/types';
 import type { PasswordRule } from '@/components/pages/change-password-page';
 
@@ -67,6 +68,12 @@ export interface ApiClient {
   config: {
     get(uin: string): Promise<OneBotConfig>;
     save(uin: string, config: OneBotConfig): Promise<OneBotConfig>;
+  };
+
+  // ---- update check ----
+  update: {
+    /** Advisory check for a newer stable release. Read-only — never downloads. */
+    check(force?: boolean): Promise<UpdateInfo>;
   };
 
   // ---- logs ----

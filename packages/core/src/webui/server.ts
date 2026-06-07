@@ -14,6 +14,7 @@ import { fileURLToPath } from 'url';
 import { evaluatePasswordRules, isStrongPassword, WebuiAuth } from './auth';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
 import { findAvailablePort } from './port';
+import { getUpdateInfo } from './update-check';
 
 const log = createLogger('WebUI');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -284,6 +285,16 @@ export async function initWebUI(
 
   // ─── Read-only API ───────────────────────────────────────────────────────
   app.get('/api/status', (c) => c.json({ status: 'running' }));
+
+  // Advisory update check — compares the running build against the latest
+  // GitHub stable release and links the user to it. Read-only: SnowLuma
+  // never downloads or applies the update itself. `?force=1` bypasses the
+  // server-side cache (the "立即检查" button). Never errors out — a failed
+  // check returns `{ hasUpdate: false, error }` and the UI degrades quietly.
+  app.get('/api/update/check', async (c) => {
+    const force = c.req.query('force') === 'true' || c.req.query('force') === '1';
+    return c.json(await getUpdateInfo(force));
+  });
 
   // Host system info
   let lastCpuTimes: { idle: number; total: number }[] | null = null;

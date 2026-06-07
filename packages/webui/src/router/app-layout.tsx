@@ -8,7 +8,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AppStateProvider } from '@/contexts/AppStateContext';
 import { useSession } from '@/contexts/SessionContext';
-import type { AccountConnections, HookProcessInfo, QQInfo, SystemInfo } from '@/types';
+import type { AccountConnections, HookProcessInfo, QQInfo, SystemInfo, UpdateInfo } from '@/types';
 
 /**
  * The layout route. Owns the live state shared across the four pages
@@ -25,6 +25,7 @@ export function AppLayout() {
   const [processList, setProcessList] = useState<HookProcessInfo[]>([]);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [connections, setConnections] = useState<AccountConnections[]>([]);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [selectedUin, setSelectedUin] = useState<string | null>(null);
 
   const refreshQqList = useCallback(async () => {
@@ -59,6 +60,14 @@ export function AppLayout() {
     }
   }, [api]);
 
+  const refreshUpdate = useCallback(async (force = false) => {
+    try {
+      setUpdateInfo(await api.update.check(force));
+    } catch (e) {
+      console.error('update-check', e);
+    }
+  }, [api]);
+
   const { ops: processOps, unloadFailedAlert, dismissUnloadFailedAlert } = useHookProcessOps({
     onAfterOp: refreshProcesses,
   });
@@ -78,12 +87,22 @@ export function AppLayout() {
     };
   }, [pollInterval, refreshQqList, refreshProcesses, refreshSystem, refreshConnections]);
 
+  // Update check runs on its own slow cadence (6h), independent of the fast
+  // list-polling above — GitHub's API is rate-limited, the result rarely
+  // changes, and the server caches it anyway, so this is cheap.
+  useEffect(() => {
+    refreshUpdate();
+    const id = setInterval(() => refreshUpdate(), 6 * 60 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [refreshUpdate]);
+
   const handleLogout = useCallback(async () => {
     await api.logout();
     setQqList([]);
     setProcessList([]);
     setSystemInfo(null);
     setConnections([]);
+    setUpdateInfo(null);
     setSelectedUin(null);
     session.onLogoutComplete();
   }, [api, session]);
@@ -95,12 +114,14 @@ export function AppLayout() {
         processList,
         systemInfo,
         connections,
+        updateInfo,
         selectedUin,
         setSelectedUin,
         processOps,
         refreshProcesses,
         refreshSystem,
         refreshConnections,
+        refreshUpdate,
         onLogout: handleLogout,
       }}
     >

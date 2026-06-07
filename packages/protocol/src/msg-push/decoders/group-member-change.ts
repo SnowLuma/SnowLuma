@@ -23,6 +23,26 @@ export const decodeGroupMemberJoin: MsgPushDecoder = (ctx) => {
   return [ev];
 };
 
+// QQ's GroupChange.decreaseType (proto field 4) on a member-decrease push:
+//   3   → the bot itself was kicked
+//   129 → the group was disbanded
+//   130 → voluntary leave
+//   131 → another member was kicked
+//   0 / absent → treat as voluntary leave (defensive default)
+// The kick → kick_me distinction (was it us?) is decided downstream in the
+// OneBot converter via selfId; here we only resolve the protocol-level reason.
+function leaveTypeFromDecreaseType(dt: number): GroupMemberLeave['leaveType'] {
+  switch (dt) {
+    case 129:
+      return 'disband';
+    case 0:
+    case 130:
+      return 'leave';
+    default:
+      return 'kick';
+  }
+}
+
 export const decodeGroupMemberLeave: MsgPushDecoder = (ctx) => {
   const change = protobuf_decode<GroupChange>(ctx.content);
   if (!change) return [];
@@ -39,7 +59,7 @@ export const decodeGroupMemberLeave: MsgPushDecoder = (ctx) => {
     operatorUin: resolveUidToUin(ctx.identity, groupId, operatorUid, 0),
     userUid,
     operatorUid,
-    isKick: dt !== 0 && dt !== 130,
+    leaveType: leaveTypeFromDecreaseType(dt),
   };
   return [ev];
 };

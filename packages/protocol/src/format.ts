@@ -182,8 +182,10 @@ export function formatEvent(identity: IdentityService, event: QQEventVariant): s
         return `私聊撤回 ${formatUser(identity, undefined, event.userUin)} 撤回了消息`;
       case 'group_member_join':
         return `入群 ${formatUser(identity, event.groupId, event.userUin, event.userUid)} 加入 ${formatGroup(identity, event.groupId)}`;
-      case 'group_member_leave':
-        return `退群 ${formatUser(identity, event.groupId, event.userUin, event.userUid)} ${event.isKick ? '被踢出' : '退出'} ${formatGroup(identity, event.groupId)}`;
+      case 'group_member_leave': {
+        const leaveAction = event.leaveType === 'disband' ? '随群解散' : event.leaveType === 'kick' ? '被踢出' : '退出';
+        return `退群 ${formatUser(identity, event.groupId, event.userUin, event.userUid)} ${leaveAction} ${formatGroup(identity, event.groupId)}`;
+      }
       case 'group_mute':
         return `禁言 ${formatGroup(identity, event.groupId)} | ${formatUser(identity, event.groupId, event.userUin)} ${event.duration}秒`;
       case 'group_admin':

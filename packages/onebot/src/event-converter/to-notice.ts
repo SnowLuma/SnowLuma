@@ -32,10 +32,15 @@ export function convertGroupMemberJoin(ctx: ConverterContext, event: GroupMember
 
 export function convertGroupMemberLeave(ctx: ConverterContext, event: GroupMemberLeave): JsonObject {
   let subType: string;
-  if (event.isKick) {
-    subType = event.userUin === ctx.selfId ? 'kick_me' : 'kick';
-  } else {
-    subType = 'leave';
+  switch (event.leaveType) {
+    case 'disband':
+      subType = 'disband';
+      break;
+    case 'kick':
+      subType = event.userUin === ctx.selfId ? 'kick_me' : 'kick';
+      break;
+    default:
+      subType = 'leave';
   }
   return {
     time: event.time,

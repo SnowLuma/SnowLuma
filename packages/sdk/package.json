@@ -4,7 +4,7 @@
     "name": "MotricSeven",
     "email": "motricseven@gmail.com"
   },
-  "version": "1.9.5",
+  "version": "1.9.6",
   "description": "TypeScript SDK for SnowLuma OneBot HTTP and WebSocket transports",
   "keywords": [
     "snowluma",
