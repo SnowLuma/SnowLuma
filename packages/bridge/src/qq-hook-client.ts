@@ -465,6 +465,12 @@ export class QqHookClient extends EventEmitter {
     });
 
     const ackDeferred = createDeferred<{ requestId: number; wantReply: boolean }>();
+    // Always attach a handler so a rejection can never become "unhandled" (which
+    // crashes Node). When the pipe closes, rejectControlPending() rejects every
+    // pending deferred — but the reply is only `await`ed AFTER the ack, so if the
+    // ack fails first the reply promise is rejected with NO awaiter. The real
+    // `await` below still observes the value/rejection (a separate continuation).
+    ackDeferred.promise.catch(() => { /* observed by the await, or harmless */ });
     this.pendingAcks.set(requestId, {
       resolve: ackDeferred.resolve,
       reject: ackDeferred.reject,
@@ -474,6 +480,7 @@ export class QqHookClient extends EventEmitter {
     let replyDeferred: Deferred<QqHookSendReply> | null = null;
     if (wantReply) {
       replyDeferred = createDeferred<QqHookSendReply>();
+      replyDeferred.promise.catch(() => { /* see note above — prevents unhandled rejection */ });
       this.pendingReplies.set(requestId, replyDeferred);
     }
 
