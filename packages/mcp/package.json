@@ -1,6 +1,6 @@
 {
   "name": "@snowluma/mcp",
-  "version": "1.9.5",
+  "version": "1.9.6",
   "description": "MCP server exposing the SnowLuma OneBot action catalog (docs + JSON Schemas) and optional execution to LLM clients.",
   "repository": {
     "type": "git",
