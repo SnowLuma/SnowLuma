@@ -104,12 +104,22 @@ async function elementToSegment(
 
   if (element.type === 'file') {
     const url = mediaUrlResolver ? await mediaUrlResolver(element, isGroup, sessionId) : (element.url ?? '');
+    const fileName = element.fileName ?? '';
+    const fileSize = element.fileSize ?? 0;
+    const fileId = element.fileId ?? '';
     return {
       type: 'file',
       data: {
-        name: element.fileName ?? '',
-        size: element.fileSize ?? 0,
-        id: element.fileId ?? '',
+        // NapCat/LLOneBot-style canonical fields — most downstream
+        // OneBot adapters read these (`file`/`file_id`/`file_size`).
+        file: fileName,
+        file_id: fileId,
+        file_size: fileSize,
+        // Legacy SnowLuma field names, kept for backward compat with
+        // any consumer that already reads name/size/id.
+        name: fileName,
+        size: fileSize,
+        id: fileId,
         url,
         file_hash: element.fileHash ?? '',
       },

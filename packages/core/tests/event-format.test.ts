@@ -110,6 +110,15 @@ describe('formatMessageSegments', () => {
     expect(out).toBe('hi [图片] @12345 @全体成员 [回复:999] [表情] [视频] [语音]');
   });
 
+  it('renders file segments using data.name (the OneBot field), with data.file fallback', () => {
+    expect(formatMessageSegments([{ type: 'file', data: { name: '20260606_151113.wav' } }]))
+      .toBe('[文件:20260606_151113.wav]');
+    expect(formatMessageSegments([{ type: 'file', data: { file: 'legacy.bin' } }]))
+      .toBe('[文件:legacy.bin]');
+    expect(formatMessageSegments([{ type: 'file', data: {} }]))
+      .toBe('[文件]');
+  });
+
   it('renders unknown segment types as [type]', () => {
     expect(formatMessageSegments([{ type: 'something_new', data: {} }]))
       .toBe('[something_new]');
