@@ -438,14 +438,18 @@ describe('convertEvent — message elements (13 segment types)', () => {
     expect((seg2.data as Record<string, unknown>).resid).toBe(50);
   });
 
-  it('file: name + size + id + url + file_hash, url via mediaUrlResolver', async () => {
+  it('file: canonical file/file_id/file_size + legacy name/size/id + url + file_hash', async () => {
     const seg = await segment(
       { type: 'file', fileName: 'doc.pdf', fileSize: 7, fileId: 'fid', fileHash: 'h' },
       { mediaUrlResolver: async () => 'http://download' },
     );
     expect(seg.type).toBe('file');
     expect(seg.data).toEqual({
-      name: 'doc.pdf', size: 7, id: 'fid', url: 'http://download', file_hash: 'h',
+      // NapCat/LLOneBot-style canonical fields
+      file: 'doc.pdf', file_id: 'fid', file_size: 7,
+      // legacy SnowLuma fields
+      name: 'doc.pdf', size: 7, id: 'fid',
+      url: 'http://download', file_hash: 'h',
     });
   });
 
