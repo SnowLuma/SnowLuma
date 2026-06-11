@@ -119,6 +119,55 @@ describe('formatMessageSegments', () => {
       .toBe('[文件]');
   });
 
+  it('renders json card segments by extracting the card title from common ARK fields', () => {
+    // mini-program share: meta.detail_1.title
+    const miniApp = JSON.stringify({
+      app: 'com.tencent.miniapp_01',
+      meta: { detail_1: { title: '哔哩哔哩', desc: '某个视频标题' } },
+    });
+    expect(formatMessageSegments([{ type: 'json', data: { data: miniApp } }]))
+      .toBe('[卡片:哔哩哔哩]');
+
+    // news share: meta.news.title
+    const news = JSON.stringify({ meta: { news: { title: '新闻标题' } } });
+    expect(formatMessageSegments([{ type: 'json', data: { data: news } }]))
+      .toBe('[卡片:新闻标题]');
+
+    // QQ server-side fallback (cardId -896954183): only `prompt` is present
+    const fallback = JSON.stringify({
+      app: 'com.tencent.structmsg',
+      prompt: '当前QQ版本不支持此应用,请升级',
+    });
+    expect(formatMessageSegments([{ type: 'json', data: { data: fallback } }]))
+      .toBe('[卡片:当前QQ版本不支持此应用,请升级]');
+
+    // generic single-section meta (no recognised key, but only one section)
+    const generic = JSON.stringify({ meta: { custom_section: { title: '通用卡片' } } });
+    expect(formatMessageSegments([{ type: 'json', data: { data: generic } }]))
+      .toBe('[卡片:通用卡片]');
+
+    // long titles are truncated
+    const long = JSON.stringify({ prompt: 'a'.repeat(100) });
+    expect(formatMessageSegments([{ type: 'json', data: { data: long } }]))
+      .toBe(`[卡片:${'a'.repeat(30)}...]`);
+  });
+
+  it('falls back to [JSON] when the card payload is unparseable or empty', () => {
+    // non-string data.data
+    expect(formatMessageSegments([{ type: 'json', data: {} }])).toBe('[JSON]');
+    // invalid JSON
+    expect(formatMessageSegments([{ type: 'json', data: { data: 'not-json{' } }]))
+      .toBe('[JSON]');
+    // JSON without any recognised title field
+    expect(formatMessageSegments([{ type: 'json', data: { data: '{"foo":1}' } }]))
+      .toBe('[JSON]');
+    // empty string
+    expect(formatMessageSegments([{ type: 'json', data: { data: '' } }])).toBe('[JSON]');
+    // JSON array (not an object)
+    expect(formatMessageSegments([{ type: 'json', data: { data: '[1,2,3]' } }]))
+      .toBe('[JSON]');
+  });
+
   it('renders unknown segment types as [type]', () => {
     expect(formatMessageSegments([{ type: 'something_new', data: {} }]))
       .toBe('[something_new]');
