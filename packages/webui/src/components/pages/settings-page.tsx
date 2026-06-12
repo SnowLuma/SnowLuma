@@ -1,39 +1,41 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { motion } from 'motion/react';
-import { Bug, Check, Download, ExternalLink, Github, Info, KeyRound, Loader2, Monitor, Moon, Palette, RefreshCw, ShieldCheck, Sparkles, Star, Sun, Tag } from 'lucide-react';
+import {
+  Accessibility, Bug, Check, Clock, Download, ExternalLink, Github, Image as ImageIcon,
+  Info, KeyRound, Loader2, Monitor, Moon, Palette, RefreshCw, ShieldCheck,
+  Sparkles, Star, Sun, Tag, Upload, Trash2,
+} from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import {
   ACCENTS,
+  FONT_MONO_OPTIONS,
+  FONT_SANS_OPTIONS,
+  GRADIENT_OPTIONS,
   POLL_INTERVAL_OPTIONS,
   RADIUS_OPTIONS,
+  UI_SCALE,
   useTheme,
-  type AccentColor,
+  type AccentScope,
+  type BackgroundType,
+  type DarkIntensity,
   type Density,
+  type SidebarStyle,
   type ThemeMode,
+  type TimeFormat,
 } from '@/contexts/ThemeContext';
 import { ChangePasswordDialog } from '@/components/change-password-dialog';
 import { useAppState } from '@/contexts/AppStateContext';
 import { cn } from '@/lib/utils';
 
-const MODE_OPTIONS: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
-  { value: 'light', label: '浅色', icon: Sun },
-  { value: 'dark', label: '深色', icon: Moon },
-  { value: 'system', label: '跟随系统', icon: Monitor },
-];
-
-const DENSITY_OPTIONS: { value: Density; label: string; description: string }[] = [
-  { value: 'cozy', label: '舒适', description: '默认间距，阅读更轻松' },
-  { value: 'compact', label: '紧凑', description: '更小的字号与行距，单屏放更多内容' },
-];
-
 type SettingsTab = 'appearance' | 'data' | 'account' | 'about';
 
 const TABS: { key: SettingsTab; label: string; icon: typeof Sun }[] = [
   { key: 'appearance', label: '外观', icon: Palette },
-  { key: 'data', label: '数据刷新', icon: RefreshCw },
+  { key: 'data', label: '数据与格式', icon: RefreshCw },
   { key: 'account', label: '账号安全', icon: ShieldCheck },
   { key: 'about', label: '关于', icon: Info },
 ];
@@ -89,178 +91,454 @@ function MiniTabs({ tab, onChange }: { tab: SettingsTab; onChange: (t: SettingsT
   );
 }
 
+// ─────────────── shared little controls ───────────────
+
+interface Opt<T> { value: T; label: string; icon?: typeof Sun }
+
+function Segmented<T extends string | number>({
+  value, options, onChange,
+}: { value: T; options: Opt<T>[]; onChange: (v: T) => void }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {options.map((opt) => {
+        const active = value === opt.value;
+        const Icon = opt.icon;
+        return (
+          <button
+            key={String(opt.value)}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            className={cn(
+              'flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors cursor-pointer',
+              active ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-background hover:bg-accent/40',
+            )}
+          >
+            {Icon && <Icon className="size-4" />}
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div>
+        <Label>{label}</Label>
+        {hint && <p className="mt-0.5 text-[11px] text-muted-foreground">{hint}</p>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function ToggleRow({ label, hint, value, onChange }: { label: string; hint?: string; value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">{label}</p>
+        {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+      </div>
+      <ToggleSwitch value={value} onChange={onChange} ariaLabel={label} />
+    </div>
+  );
+}
+
 // ─────────────── 外观 ───────────────
 
+const MODE_OPTIONS: Opt<ThemeMode>[] = [
+  { value: 'light', label: '浅色', icon: Sun },
+  { value: 'dark', label: '深色', icon: Moon },
+  { value: 'system', label: '跟随系统', icon: Monitor },
+];
+
+const DARK_INTENSITY_OPTIONS: Opt<DarkIntensity>[] = [
+  { value: 'soft', label: '柔和' },
+  { value: 'black', label: '纯黑 (OLED)' },
+];
+
+const SCOPE_OPTIONS: Opt<AccentScope>[] = [
+  { value: 'global', label: '全局' },
+  { value: 'sidebar', label: '仅侧栏' },
+];
+
+const SIDEBAR_STYLE_OPTIONS: Opt<SidebarStyle>[] = [
+  { value: 'follow', label: '跟随背景' },
+  { value: 'panel', label: '浅色面板' },
+  { value: 'accent', label: '强调色' },
+];
+
+const BG_TYPE_OPTIONS: Opt<BackgroundType>[] = [
+  { value: 'none', label: '无' },
+  { value: 'solid', label: '纯色' },
+  { value: 'gradient', label: '渐变' },
+  { value: 'image', label: '图片' },
+];
+
+const DENSITY_OPTIONS: Opt<Density>[] = [
+  { value: 'cozy', label: '舒适' },
+  { value: 'compact', label: '紧凑' },
+];
+
 function AppearancePanel() {
-  const { mode, setMode, accent, setAccent, radius, setRadius, density, setDensity } = useTheme();
+  const { appearance, setAppearance, uploadBackground, removeBackground } = useTheme();
+  const a = appearance;
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* 主题 */}
+      <Card>
+        <CardHeader>
+          <CardTitle>主题</CardTitle>
+          <CardDescription>明暗模式与深色风格。所有改动立即生效并保存到服务器，跨设备同步。</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-6">
+          <Field label="显示模式">
+            <Segmented value={a.mode} options={MODE_OPTIONS} onChange={(mode) => setAppearance({ mode })} />
+          </Field>
+          <Separator />
+          <Field label="深色强度" hint="“纯黑”将深色背景压到接近纯黑，适合 OLED 屏幕（仅深色模式下可见）。">
+            <Segmented value={a.darkIntensity} options={DARK_INTENSITY_OPTIONS} onChange={(darkIntensity) => setAppearance({ darkIntensity })} />
+          </Field>
+        </CardContent>
+      </Card>
+
+      {/* 强调色 */}
+      <Card>
+        <CardHeader>
+          <CardTitle>强调色</CardTitle>
+          <CardDescription>按钮、链接与高亮使用的主色调。</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-6">
+          <Field label="预设色">
+            <div className="flex flex-wrap items-center gap-2">
+              {ACCENTS.map((spec) => {
+                const active = a.accentMode === 'preset' && a.accentPreset === spec.id;
+                return (
+                  <button
+                    key={spec.id}
+                    type="button"
+                    onClick={() => setAppearance({ accentMode: 'preset', accentPreset: spec.id })}
+                    title={spec.label}
+                    aria-label={spec.label}
+                    className={cn(
+                      'relative flex size-9 items-center justify-center rounded-full border transition-transform cursor-pointer hover:scale-105',
+                      active ? 'border-foreground/30 ring-2 ring-primary' : 'border-border',
+                    )}
+                    style={{ backgroundColor: spec.swatch }}
+                  >
+                    {active && <Check className="size-4 text-white drop-shadow-sm" strokeWidth={3} />}
+                  </button>
+                );
+              })}
+              {/* custom colour */}
+              <label
+                title="自定义颜色"
+                className={cn(
+                  'relative flex size-9 cursor-pointer items-center justify-center overflow-hidden rounded-full border transition-transform hover:scale-105',
+                  a.accentMode === 'custom' ? 'border-foreground/30 ring-2 ring-primary' : 'border-border',
+                )}
+                style={{ background: a.accentMode === 'custom' ? a.accentCustom : 'conic-gradient(from 0deg, #f43f5e, #f59e0b, #10b981, #0ea5e9, #8b5cf6, #f43f5e)' }}
+              >
+                <input
+                  type="color"
+                  value={a.accentCustom}
+                  onChange={(e) => setAppearance({ accentMode: 'custom', accentCustom: e.target.value })}
+                  className="absolute inset-0 cursor-pointer opacity-0"
+                  aria-label="自定义强调色"
+                />
+                {a.accentMode === 'custom' && <Check className="size-4 text-white drop-shadow-sm" strokeWidth={3} />}
+              </label>
+            </div>
+          </Field>
+          <Separator />
+          <Field label="应用范围" hint="“仅侧栏”时，按钮等全局元素保持默认蓝，强调色只染侧栏选中项。">
+            <Segmented value={a.accentScope} options={SCOPE_OPTIONS} onChange={(accentScope) => setAppearance({ accentScope })} />
+          </Field>
+          <Separator />
+          <Field label="侧栏样式">
+            <Segmented value={a.sidebarStyle} options={SIDEBAR_STYLE_OPTIONS} onChange={(sidebarStyle) => setAppearance({ sidebarStyle })} />
+          </Field>
+        </CardContent>
+      </Card>
+
+      {/* 背景 */}
+      <BackgroundCard appearance={a} setAppearance={setAppearance} uploadBackground={uploadBackground} removeBackground={removeBackground} />
+
+      {/* 排版与界面 */}
+      <Card>
+        <CardHeader>
+          <CardTitle>排版与界面</CardTitle>
+          <CardDescription>字体、圆角、缩放与密度。</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-6">
+          <div className="grid gap-6 sm:grid-cols-2">
+            <Field label="界面字体">
+              <Segmented value={a.fontSans} options={FONT_SANS_OPTIONS.map((f) => ({ value: f.id, label: f.label }))} onChange={(fontSans) => setAppearance({ fontSans })} />
+            </Field>
+            <Field label="等宽字体" hint="用于日志与代码。">
+              <Segmented value={a.fontMono} options={FONT_MONO_OPTIONS.map((f) => ({ value: f.id, label: f.label }))} onChange={(fontMono) => setAppearance({ fontMono })} />
+            </Field>
+          </div>
+          <Separator />
+          <Field label="圆角">
+            <Segmented
+              value={a.radius}
+              options={RADIUS_OPTIONS.map((r) => ({ value: r.value, label: `${r.label}（${r.value}rem）` }))}
+              onChange={(radius) => setAppearance({ radius })}
+            />
+          </Field>
+          <Separator />
+          <Field label={`界面缩放（${Math.round(a.uiScale * 100)}%）`} hint="整体放大或缩小界面，适合高分屏或视力需要。">
+            <div className="flex items-center gap-3">
+              <span className="text-[11px] text-muted-foreground tabular-nums">{Math.round(UI_SCALE.min * 100)}%</span>
+              <input
+                type="range"
+                min={UI_SCALE.min}
+                max={UI_SCALE.max}
+                step={UI_SCALE.step}
+                value={a.uiScale}
+                onChange={(e) => setAppearance({ uiScale: Number(e.target.value) })}
+                className="h-2 flex-1 cursor-pointer accent-primary"
+                aria-label="界面缩放"
+              />
+              <span className="text-[11px] text-muted-foreground tabular-nums">{Math.round(UI_SCALE.max * 100)}%</span>
+            </div>
+          </Field>
+          <Separator />
+          <Field label="显示密度">
+            <Segmented value={a.density} options={DENSITY_OPTIONS} onChange={(density) => setAppearance({ density })} />
+          </Field>
+        </CardContent>
+      </Card>
+
+      {/* 无障碍与侧栏 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Accessibility className="size-4 text-primary" /> 无障碍与侧栏</CardTitle>
+          <CardDescription>动效、对比度与侧栏默认状态。</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <ToggleRow
+            label="减少动效"
+            hint="关闭页面切换、弹簧等装饰性动画，对低端设备与晕动敏感者更友好。"
+            value={a.reduceMotion}
+            onChange={(reduceMotion) => setAppearance({ reduceMotion })}
+          />
+          <Separator />
+          <ToggleRow
+            label="高对比模式"
+            hint="加强边框与次要文字的对比度。"
+            value={a.highContrast}
+            onChange={(highContrast) => setAppearance({ highContrast })}
+          />
+          <Separator />
+          <ToggleRow
+            label="侧栏默认折叠"
+            hint="新会话首次进入时侧栏默认收起（手动展开/收起后以手动选择为准）。"
+            value={a.sidebarDefaultCollapsed}
+            onChange={(sidebarDefaultCollapsed) => setAppearance({ sidebarDefaultCollapsed })}
+          />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function BackgroundCard({
+  appearance: a, setAppearance, uploadBackground, removeBackground,
+}: {
+  appearance: ReturnType<typeof useTheme>['appearance'];
+  setAppearance: ReturnType<typeof useTheme>['setAppearance'];
+  uploadBackground: ReturnType<typeof useTheme>['uploadBackground'];
+  removeBackground: ReturnType<typeof useTheme>['removeBackground'];
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (fileRef.current) fileRef.current.value = '';
+    if (!file) return;
+    setUploading(true);
+    setErr(null);
+    try {
+      await uploadBackground(file);
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : '上传失败');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const onRemove = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await removeBackground();
+    } catch {
+      setErr('删除失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>外观</CardTitle>
-        <CardDescription>调整界面的明暗模式、强调色、圆角与密度。所有改动会立即应用并保存到本地。</CardDescription>
+        <CardTitle className="flex items-center gap-2"><ImageIcon className="size-4 text-primary" /> 背景</CardTitle>
+        <CardDescription>纯色、渐变或自定义壁纸，会显示在卡片之间与登录页。</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
-        {/* Mode */}
-        <div className="flex flex-col gap-2">
-          <Label>显示模式</Label>
-          <div className="flex flex-wrap gap-2">
-            {MODE_OPTIONS.map((opt) => {
-              const Icon = opt.icon;
-              const active = mode === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setMode(opt.value)}
-                  className={cn(
-                    'flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors cursor-pointer',
-                    active
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-border bg-background hover:bg-accent/40',
-                  )}
-                >
-                  <Icon className="size-4" />
-                  {opt.label}
-                </button>
-              );
-            })}
+        <Field label="背景类型">
+          <Segmented value={a.background.type} options={BG_TYPE_OPTIONS} onChange={(type) => setAppearance({ background: { type } })} />
+        </Field>
+
+        {a.background.type === 'solid' && (
+          <Field label="背景颜色">
+            <div className="flex items-center gap-3">
+              <label className="relative size-10 cursor-pointer overflow-hidden rounded-lg border" style={{ backgroundColor: a.background.color }}>
+                <input
+                  type="color"
+                  value={a.background.color}
+                  onChange={(e) => setAppearance({ background: { color: e.target.value } })}
+                  className="absolute inset-0 cursor-pointer opacity-0"
+                  aria-label="背景颜色"
+                />
+              </label>
+              <span className="font-mono text-sm text-muted-foreground">{a.background.color}</span>
+            </div>
+          </Field>
+        )}
+
+        {a.background.type === 'gradient' && (
+          <Field label="渐变预设">
+            <div className="flex flex-wrap gap-2">
+              {GRADIENT_OPTIONS.map((g) => {
+                const active = a.background.gradient === g.id;
+                return (
+                  <button
+                    key={g.id}
+                    type="button"
+                    onClick={() => setAppearance({ background: { gradient: g.id } })}
+                    title={g.label}
+                    aria-label={g.label}
+                    className={cn(
+                      'h-12 w-20 rounded-lg border transition-transform cursor-pointer hover:scale-105',
+                      active ? 'border-foreground/30 ring-2 ring-primary' : 'border-border',
+                    )}
+                    style={{ backgroundImage: g.css }}
+                  />
+                );
+              })}
+            </div>
+          </Field>
+        )}
+
+        {a.background.type === 'image' && (
+          <div className="flex flex-col gap-5">
+            <Field label="壁纸" hint="支持 PNG / JPEG / WebP，最大 5MB。">
+              <div className="flex flex-wrap items-center gap-3">
+                <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={onFile} className="hidden" />
+                <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
+                  {uploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+                  {a.background.hasImage ? '更换图片' : '上传图片'}
+                </Button>
+                {a.background.hasImage && (
+                  <Button variant="ghost" size="sm" onClick={onRemove} disabled={busy} className="text-destructive hover:text-destructive">
+                    <Trash2 className="size-4" /> 移除
+                  </Button>
+                )}
+              </div>
+            </Field>
+
+            {a.background.hasImage && (
+              <>
+                <div className="overflow-hidden rounded-lg border">
+                  <img
+                    src={`/ui-asset/background?v=${a.background.imageVersion}`}
+                    alt="背景预览"
+                    className="h-32 w-full object-cover"
+                  />
+                </div>
+                <Field label={`遮罩强度（${Math.round(a.background.imageOpacity * 100)}%）`} hint="越高越能盖住壁纸、提升前景可读性。">
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={a.background.imageOpacity}
+                    onChange={(e) => setAppearance({ background: { imageOpacity: Number(e.target.value) } })}
+                    className="h-2 w-full cursor-pointer accent-primary"
+                    aria-label="遮罩强度"
+                  />
+                </Field>
+                <Field label={`模糊（${a.background.imageBlur}px）`}>
+                  <input
+                    type="range"
+                    min={0}
+                    max={40}
+                    step={1}
+                    value={a.background.imageBlur}
+                    onChange={(e) => setAppearance({ background: { imageBlur: Number(e.target.value) } })}
+                    className="h-2 w-full cursor-pointer accent-primary"
+                    aria-label="背景模糊"
+                  />
+                </Field>
+              </>
+            )}
           </div>
-        </div>
+        )}
 
-        <Separator />
-
-        {/* Accent color */}
-        <div className="flex flex-col gap-2">
-          <Label>强调色</Label>
-          <div className="flex flex-wrap gap-2">
-            {ACCENTS.map((spec) => {
-              const active = accent === spec.id;
-              return (
-                <button
-                  key={spec.id}
-                  type="button"
-                  onClick={() => setAccent(spec.id as AccentColor)}
-                  title={spec.label}
-                  aria-label={spec.label}
-                  className={cn(
-                    'group relative flex h-9 w-9 items-center justify-center rounded-full border transition-transform cursor-pointer hover:scale-105',
-                    active ? 'border-foreground/30 ring-2 ring-primary' : 'border-border',
-                  )}
-                  style={{ backgroundColor: spec.swatch }}
-                >
-                  {active && (
-                    <motion.span
-                      initial={{ scale: 0.4, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      className="text-white drop-shadow-sm"
-                    >
-                      <Check className="size-4" strokeWidth={3} />
-                    </motion.span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          <p className="text-[11px] text-muted-foreground">当前：{ACCENTS.find((a) => a.id === accent)?.label}</p>
-        </div>
-
-        <Separator />
-
-        {/* Radius */}
-        <div className="flex flex-col gap-2">
-          <Label>圆角</Label>
-          <div className="flex flex-wrap gap-2">
-            {RADIUS_OPTIONS.map((opt) => {
-              const active = Math.abs(radius - opt.value) < 1e-6;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setRadius(opt.value)}
-                  className={cn(
-                    'rounded-md border px-3 py-2 text-sm transition-colors cursor-pointer',
-                    active
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-border bg-background hover:bg-accent/40',
-                  )}
-                  style={{ borderRadius: `${opt.value}rem` }}
-                >
-                  {opt.label}（{opt.value}rem）
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <Separator />
-
-        {/* Density */}
-        <div className="flex flex-col gap-2">
-          <Label>显示密度</Label>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {DENSITY_OPTIONS.map((opt) => {
-              const active = density === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setDensity(opt.value)}
-                  className={cn(
-                    'flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors cursor-pointer',
-                    active ? 'border-primary bg-primary/10' : 'border-border bg-background hover:bg-accent/40',
-                  )}
-                >
-                  <span className="text-sm font-medium">{opt.label}</span>
-                  <span className="text-[11px] text-muted-foreground">{opt.description}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        {err && <p className="text-[11px] text-destructive">{err}</p>}
       </CardContent>
     </Card>
   );
 }
 
-// ─────────────── 数据刷新 ───────────────
+// ─────────────── 数据与格式 ───────────────
+
+const TIME_FORMAT_OPTIONS: Opt<TimeFormat>[] = [
+  { value: '24h', label: '24 小时制' },
+  { value: '12h', label: '12 小时制 (AM/PM)' },
+];
 
 function DataPanel() {
-  const { pollInterval, setPollInterval } = useTheme();
+  const { appearance, setAppearance } = useTheme();
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>数据刷新</CardTitle>
-        <CardDescription>控制总览页轮询刷新 QQ 列表、进程列表与系统状态的间隔。</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="flex flex-col gap-2">
-          <Label>轮询间隔</Label>
-          <div className="flex flex-wrap gap-2">
-            {POLL_INTERVAL_OPTIONS.map((opt) => {
-              const active = pollInterval === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setPollInterval(opt.value)}
-                  className={cn(
-                    'rounded-md border px-3 py-2 text-sm transition-colors cursor-pointer',
-                    active
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-border bg-background hover:bg-accent/40',
-                  )}
-                >
-                  {opt.label}
-                </button>
-              );
-            })}
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            当前生效值：{pollInterval === 0 ? '已暂停轮询' : `${pollInterval} 毫秒`}
-          </p>
-        </div>
-      </CardContent>
-    </Card>
+    <div className="flex flex-col gap-5">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><RefreshCw className="size-4 text-primary" /> 数据刷新</CardTitle>
+          <CardDescription>总览页轮询刷新 QQ 列表、进程列表与系统状态的间隔。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Field label="轮询间隔" hint={appearance.pollInterval === 0 ? '已暂停轮询' : `当前 ${appearance.pollInterval} 毫秒`}>
+            <Segmented
+              value={appearance.pollInterval}
+              options={POLL_INTERVAL_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+              onChange={(pollInterval) => setAppearance({ pollInterval })}
+            />
+          </Field>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Clock className="size-4 text-primary" /> 时间格式</CardTitle>
+          <CardDescription>日志与告警等时间戳的显示方式。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Field label="时制">
+            <Segmented value={appearance.timeFormat} options={TIME_FORMAT_OPTIONS} onChange={(timeFormat) => setAppearance({ timeFormat })} />
+          </Field>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 

@@ -6,6 +6,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sidebar } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/top-bar';
 import { useMediaQuery } from '@/hooks/use-media-query';
+import { useTheme } from '@/contexts/ThemeContext';
 import { cn } from '@/lib/utils';
 
 interface MainLayoutProps {
@@ -16,9 +17,16 @@ interface MainLayoutProps {
 
 export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
   const isMobile = !useMediaQuery('(min-width: 768px)');
+  const { appearance } = useTheme();
   const [collapsed, setCollapsed] = useState(() => {
-    return localStorage.getItem('snowluma_sidebar_collapsed') === '1';
+    // An explicit per-browser toggle wins; otherwise fall back to the
+    // operator's `sidebarDefaultCollapsed` appearance preference.
+    const explicit = localStorage.getItem('snowluma_sidebar_collapsed');
+    if (explicit === '1') return true;
+    if (explicit === '0') return false;
+    return appearance.sidebarDefaultCollapsed;
   });
+  const customBg = appearance.background.type !== 'none';
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
@@ -27,7 +35,7 @@ export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
   }, [collapsed]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
+    <div className={cn('flex h-screen w-screen overflow-hidden text-foreground', customBg ? 'bg-transparent' : 'bg-background')}>
       {/* Desktop sidebar */}
       {!isMobile && (
         <motion.aside

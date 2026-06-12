@@ -153,12 +153,65 @@
     background-color: color-mix(in oklab, var(--primary) 28%, transparent);
     color: var(--foreground);
   }
-  /* Density: compact tightens the global rhythm a touch. */
+  /* Density: compact tightens the global rhythm a touch. Use rem (not px) so
+     it still tracks the UI-scale root font-size. */
   html[data-density="compact"] body {
-    font-size: 13.5px;
+    font-size: 0.84rem;
     line-height: 1.45;
   }
   html[data-density="compact"] {
     --tw-leading: 1.4;
   }
+}
+
+/* ──────────────────────────────────────────────
+   Customization layers (driven by ThemeContext via
+   data-* attributes + CSS vars on <html>)
+   ────────────────────────────────────────────── */
+
+/* Dark intensity: "black" pushes the dark palette toward true black for
+   OLED screens. Only meaningful in dark mode. */
+.dark[data-dark-intensity="black"] {
+  --background: oklch(0% 0 0);
+  --foreground: oklch(97% 0.01 240);
+  --card: oklch(13% 0.008 250);
+  --card-foreground: oklch(96% 0.01 240);
+  --popover: oklch(13% 0.008 250);
+  --popover-foreground: oklch(96% 0.01 240);
+  --secondary: oklch(17% 0.012 250);
+  --muted: oklch(15% 0.01 250);
+  --muted-foreground: oklch(66% 0.02 240);
+  --border: oklch(22% 0.012 250);
+  --input: oklch(19% 0.012 250);
+  --sidebar: oklch(5% 0.006 250);
+  --sidebar-border: oklch(20% 0.012 250);
+}
+
+/* Sidebar style: how distinct the sidebar surface is from the main canvas. */
+html[data-sidebar-style="panel"] {
+  --sidebar: color-mix(in oklab, var(--card) 90%, var(--primary) 4%);
+}
+html[data-sidebar-style="accent"] {
+  --sidebar: color-mix(in oklab, var(--background) 76%, var(--primary) 24%);
+  --sidebar-foreground: color-mix(in oklab, var(--foreground) 85%, var(--primary));
+  --sidebar-border: color-mix(in oklab, var(--border) 60%, var(--primary) 40%);
+}
+
+/* High contrast: strengthen borders + dim-text contrast for legibility. */
+html[data-contrast="high"] {
+  --border: color-mix(in oklab, var(--foreground) 55%, var(--border));
+  --input: color-mix(in oklab, var(--foreground) 45%, var(--input));
+  --muted-foreground: color-mix(in oklab, var(--foreground) 78%, var(--muted-foreground));
+  --sidebar-border: color-mix(in oklab, var(--foreground) 55%, var(--sidebar-border));
+}
+
+/* Reduce motion: a CSS fallback for non-Framer transitions/animations.
+   Framer Motion itself is handled by <MotionConfig reducedMotion>. */
+html[data-reduce-motion="1"] *,
+html[data-reduce-motion="1"] *::before,
+html[data-reduce-motion="1"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
 }

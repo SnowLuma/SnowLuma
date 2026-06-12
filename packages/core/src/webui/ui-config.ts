@@ -303,16 +303,20 @@ export function normalizeAppearance(value: unknown, imageState: ServerImageState
   };
 }
 
+export function normalizeLayout(value: unknown): UiLayout {
+  const layout = isObject(value) ? value : {};
+  return {
+    overviewBlocks: normalizeLayoutItems(layout.overviewBlocks, DEFAULT_OVERVIEW_BLOCKS),
+    navItems: normalizeLayoutItems(layout.navItems, DEFAULT_NAV_ITEMS),
+  };
+}
+
 export function normalizeUiConfig(value: unknown, imageState: ServerImageState = DEFAULT_IMAGE_STATE): UiConfig {
   const v = isObject(value) ? value : {};
-  const layout = isObject(v.layout) ? v.layout : {};
   return {
     version: UI_CONFIG_VERSION,
     appearance: normalizeAppearance(v.appearance, imageState),
-    layout: {
-      overviewBlocks: normalizeLayoutItems(layout.overviewBlocks, DEFAULT_OVERVIEW_BLOCKS),
-      navItems: normalizeLayoutItems(layout.navItems, DEFAULT_NAV_ITEMS),
-    },
+    layout: normalizeLayout(v.layout),
   };
 }
 
@@ -379,9 +383,19 @@ export function loadUiConfig(): UiConfig {
  */
 export function saveUiConfig(incoming: unknown): UiConfig {
   const current = loadUiConfig();
-  // On save, the current on-disk state is the truth for the server-managed
-  // image fields — a client payload cannot forge `hasImage` etc.
-  const next = normalizeUiConfig(incoming, current.appearance.background);
+  const v = isObject(incoming) ? incoming : {};
+  // Section-level merge: a payload may carry just `appearance` (the theme
+  // editor) or just `layout` (the layout editor) without clobbering the
+  // other. A missing/non-object section keeps the current on-disk value.
+  // The current on-disk state is the truth for the server-managed image
+  // fields — a client payload cannot forge `hasImage` etc.
+  const next: UiConfig = {
+    version: UI_CONFIG_VERSION,
+    appearance: isObject(v.appearance)
+      ? normalizeAppearance(v.appearance, current.appearance.background)
+      : current.appearance,
+    layout: isObject(v.layout) ? normalizeLayout(v.layout) : current.layout,
+  };
   atomicWrite(next);
   cached = next;
   return next;

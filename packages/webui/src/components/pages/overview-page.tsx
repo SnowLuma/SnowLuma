@@ -26,6 +26,7 @@ import type { AccountConnections, AdapterStatus, AdapterStatusLevel, LogEntry } 
 import { useApi } from '@/lib/api';
 import { useAppState } from '@/contexts/AppStateContext';
 import { useSession } from '@/contexts/SessionContext';
+import { useTheme } from '@/contexts/ThemeContext';
 
 function qqAvatarUrl(uin: string) {
   return `/avatar/${encodeURIComponent(uin)}`;
@@ -390,13 +391,9 @@ function ConnectionsCard({ connections }: { connections: AccountConnections[] })
 
 // ─────────────── recent alerts ───────────────
 
-function alertClock(t: string): string {
-  const d = new Date(t);
-  return Number.isNaN(d.getTime()) ? t : d.toLocaleTimeString();
-}
-
 function RecentAlertsCard() {
   const api = useApi();
+  const { formatClock } = useTheme();
   const [alerts, setAlerts] = useState<LogEntry[]>([]);
 
   useEffect(() => {
@@ -446,7 +443,7 @@ function RecentAlertsCard() {
           <div className="flex flex-col gap-1 font-mono text-[11px]">
             {alerts.map((a) => (
               <div key={a.id} className="flex gap-2 rounded px-2 py-1 hover:bg-accent/30">
-                <span className="shrink-0 text-muted-foreground tabular-nums">{alertClock(a.time)}</span>
+                <span className="shrink-0 text-muted-foreground tabular-nums">{formatClock(a.time)}</span>
                 <span className={cn('shrink-0 font-semibold', a.level === 'error' ? 'text-destructive' : 'text-warning')}>
                   {a.level.toUpperCase()}
                 </span>

@@ -10,6 +10,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import type { LogEntry, LogLevel } from '@/types';
 import { useApi } from '@/lib/api';
+import { useTheme } from '@/contexts/ThemeContext';
 
 const levelClass: Record<LogLevel, string> = {
   trace: 'text-muted-foreground/60',
@@ -22,15 +23,9 @@ const levelClass: Record<LogLevel, string> = {
 
 const LEVELS: LogLevel[] = ['trace', 'debug', 'info', 'success', 'warn', 'error'];
 
-/** Show a locale time when the backend sends an ISO timestamp (it does);
- *  fall back to the raw string otherwise so we never render "Invalid Date". */
-function formatTime(t: string): string {
-  const d = new Date(t);
-  return Number.isNaN(d.getTime()) ? t : d.toLocaleTimeString();
-}
-
 export function LogsPage() {
   const api = useApi();
+  const { formatClock } = useTheme();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [streamStatus, setStreamStatus] = useState('连接中');
   const [paused, setPaused] = useState(false);
@@ -220,7 +215,7 @@ export function LogsPage() {
                         the full width instead of a ~40px column that breaks
                         every few characters. On sm+ it's the dense single row. */}
                     <div className="flex shrink-0 items-center gap-2">
-                      <span className="shrink-0 text-muted-foreground tabular-nums">{formatTime(log.time)}</span>
+                      <span className="shrink-0 text-muted-foreground tabular-nums">{formatClock(log.time)}</span>
                       <span className={cn('shrink-0 font-semibold sm:w-14', levelClass[log.level])}>
                         {log.level.toUpperCase()}
                       </span>
