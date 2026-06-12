@@ -82,8 +82,9 @@ export interface ApiClient {
   ui: {
     /** Full config (appearance + layout). Bearer-gated. */
     get(): Promise<UiConfig>;
-    /** Persist the full config; returns the normalized server view. */
-    save(config: UiConfig): Promise<UiConfig>;
+    /** Persist config. Section-level merge: a payload with only `appearance`
+     *  or only `layout` keeps the other section. Returns the normalized view. */
+    save(config: Partial<UiConfig>): Promise<UiConfig>;
     /** Cosmetic appearance subset, usable pre-auth (login page theming). */
     getPublic(): Promise<UiAppearance>;
     /** Upload a background image (PNG/JPEG/WebP, ≤5MB). Returns updated config. */

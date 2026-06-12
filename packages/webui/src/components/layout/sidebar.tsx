@@ -6,6 +6,7 @@ import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { APP_NAME, APP_VERSION } from '@/types';
 import { useAppState } from '@/contexts/AppStateContext';
+import { reconcileLayoutItems, useLayout } from '@/contexts/LayoutContext';
 import type { AppPath } from '@/router';
 
 export interface NavItem {
@@ -23,6 +24,12 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/settings', label: '系统设置', icon: SlidersHorizontal, description: '主题与账号' },
 ];
 
+// Anti-self-lock: these nav items can be reordered but never hidden.
+//   '/'        — hosts the 「编辑布局」 entry point; hiding it would strand the
+//                user with no way back to un-hide anything.
+//   '/settings'— account + appearance.
+export const PINNED_NAV: AppPath[] = ['/', '/settings'];
+
 interface SidebarProps {
   collapsed?: boolean;
   onItemClick?: () => void;
@@ -31,6 +38,14 @@ interface SidebarProps {
 export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { updateInfo } = useAppState();
+  const { navItems } = useLayout();
+
+  // Render nav in the operator's configured order, hidden items removed,
+  // pinned items forced on, and forward-compatible with future routes.
+  const orderedNav = reconcileLayoutItems(navItems, NAV_ITEMS.map((i) => i.to), PINNED_NAV)
+    .filter((i) => i.visible)
+    .map((i) => NAV_ITEMS.find((n) => n.to === i.id))
+    .filter((n): n is NavItem => !!n);
 
   return (
     <div className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
@@ -53,7 +68,7 @@ export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
       {/* Nav */}
       <ScrollArea className="flex-1 min-h-0" viewportClassName="[&>div]:!block">
         <nav className={cn('flex flex-col gap-1 p-2', collapsed && 'items-center')}>
-          {NAV_ITEMS.map(({ to, label, icon: Icon, description }) => {
+          {orderedNav.map(({ to, label, icon: Icon, description }) => {
             const isActive = pathname === to;
             return (
               <Link

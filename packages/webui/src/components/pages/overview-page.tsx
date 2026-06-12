@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { motion } from 'motion/react';
 import { Link } from '@tanstack/react-router';
 import {
@@ -9,6 +9,7 @@ import {
   Cpu,
   MemoryStick,
   MonitorCog,
+  Pencil,
   PlugZap,
   RefreshCw,
   Server,
@@ -27,10 +28,120 @@ import { useApi } from '@/lib/api';
 import { useAppState } from '@/contexts/AppStateContext';
 import { useSession } from '@/contexts/SessionContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { reconcileLayoutItems, useLayout } from '@/contexts/LayoutContext';
+import { NAV_ITEMS, PINNED_NAV } from '@/components/layout/sidebar';
+import { LayoutEditor } from '@/components/pages/overview-layout-editor';
 
 function qqAvatarUrl(uin: string) {
   return `/avatar/${encodeURIComponent(uin)}`;
 }
+
+// ─────────────── overview block registry ───────────────
+
+const BLOCK_META: { id: string; label: string }[] = [
+  { id: 'stats', label: '概览指标' },
+  { id: 'connections', label: 'OneBot 连接' },
+  { id: 'alerts', label: '最近告警' },
+  { id: 'host', label: '主机资源' },
+  { id: 'sessions', label: '在线会话' },
+];
+const BLOCK_IDS = BLOCK_META.map((b) => b.id);
+const blockLabelFor = (id: string) => BLOCK_META.find((b) => b.id === id)?.label ?? id;
+const navLabelFor = (id: string) => NAV_ITEMS.find((n) => n.to === id)?.label ?? id;
+
+function renderBlock(id: string): ReactNode {
+  switch (id) {
+    case 'stats': return <StatsBlock />;
+    case 'connections': return <ConnectionsBlock />;
+    case 'alerts': return <RecentAlertsCard />;
+    case 'host': return <HostBlock />;
+    case 'sessions': return <SessionsBlock />;
+    default: return null;
+  }
+}
+
+export function OverviewPage() {
+  const { qqList, processList } = useAppState();
+  const { overviewBlocks, navItems, setOverviewBlocks, setNavItems, resetLayout } = useLayout();
+  const [editing, setEditing] = useState(false);
+
+  const blocks = useMemo(() => reconcileLayoutItems(overviewBlocks, BLOCK_IDS), [overviewBlocks]);
+  const nav = useMemo(
+    () => reconcileLayoutItems(navItems, NAV_ITEMS.map((i) => i.to), PINNED_NAV),
+    [navItems],
+  );
+
+  if (editing) {
+    return (
+      <LayoutEditor
+        blocks={blocks}
+        blockLabelFor={blockLabelFor}
+        navItems={nav}
+        navLabelFor={navLabelFor}
+        navPinned={PINNED_NAV}
+        onBlocks={setOverviewBlocks}
+        onNav={setNavItems}
+        onReset={resetLayout}
+        onDone={() => setEditing(false)}
+      />
+    );
+  }
+
+  const loadableProcs = processList.filter((p) => !p.injected).length;
+  const visibleBlocks = blocks.filter((b) => b.visible);
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex items-center justify-end">
+        <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+          <Pencil className="size-3.5" /> 编辑布局
+        </Button>
+      </div>
+
+      {/* First-run nudge: nothing online yet → point at the injection page.
+          Always shown (not a reorderable block) so it can't be hidden away. */}
+      {qqList.length === 0 && (
+        <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
+          <Link
+            to="/processes"
+            className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 transition-colors hover:bg-primary/10"
+          >
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+              <PlugZap className="size-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">
+                {loadableProcs > 0 ? `检测到 ${loadableProcs} 个可加载 QQ 进程` : '尚未接入任何账号'}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                前往「进程注入」加载 QQ，登录后会自动接入 OneBot 流程。
+              </p>
+            </div>
+            <ArrowRight className="size-4 shrink-0 text-primary" />
+          </Link>
+        </motion.div>
+      )}
+
+      {visibleBlocks.length === 0 ? (
+        <EmptyLayout onReset={resetLayout} />
+      ) : (
+        visibleBlocks.map((b) => <div key={b.id}>{renderBlock(b.id)}</div>)
+      )}
+    </div>
+  );
+}
+
+function EmptyLayout({ onReset }: { onReset: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed py-16 text-muted-foreground">
+      <MonitorCog className="size-8" strokeWidth={1.5} />
+      <p className="text-sm">所有总览卡片都已隐藏</p>
+      <Button variant="outline" size="sm" onClick={onReset}>恢复默认布局</Button>
+    </div>
+  );
+}
+
+// ─────────────── stat tiles ───────────────
 
 function StatTile({
   icon,
@@ -77,8 +188,8 @@ function StatTile({
   return <Card className="overflow-hidden">{body}</Card>;
 }
 
-export function OverviewPage() {
-  const { qqList, processList, systemInfo, connections, refreshSystem } = useAppState();
+function StatsBlock() {
+  const { qqList, processList, systemInfo } = useAppState();
   const { status } = useSession();
 
   // Lightweight tick to refresh "uptime" pretty-print every 30s
@@ -89,223 +200,202 @@ export function OverviewPage() {
   }, []);
 
   const online = status === '已连接';
-  // Read-only injection health for the dashboard. Control lives on /processes.
   const onlineProcs = processList.filter((p) => p.status === 'online').length;
   const loadableProcs = processList.filter((p) => !p.injected).length;
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* Top stats */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
-        <StatTile
-          icon={<Activity className="size-5" />}
-          label="服务状态"
-          value={online ? '运行中' : status}
-          subtext={online ? '已连接到后端' : '请检查后端进程'}
-          accent={online}
-        />
-        <StatTile
-          icon={<Users className="size-5" />}
-          label="在线账号"
-          value={qqList.length}
-          subtext={`已接入 ${qqList.length} 个会话`}
-        />
-        <StatTile
-          icon={<PlugZap className="size-5" />}
-          label="进程注入"
-          value={`${onlineProcs} 在线`}
-          subtext={`${processList.length} 进程 · ${loadableProcs} 可注入`}
-          to="/processes"
-        />
-        <StatTile
-          icon={<Server className="size-5" />}
-          label="主机名"
-          value={systemInfo?.hostname ?? '—'}
-          subtext={systemInfo ? `${systemInfo.platform} · ${systemInfo.arch}` : '加载中'}
-        />
-        <StatTile
-          icon={<MonitorCog className="size-5" />}
-          label="系统运行"
-          value={systemInfo ? formatUptime(systemInfo.uptime) : '—'}
-          subtext={systemInfo ? `进程 ${formatUptime(systemInfo.processUptime)}` : undefined}
-        />
-      </div>
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
+      <StatTile
+        icon={<Activity className="size-5" />}
+        label="服务状态"
+        value={online ? '运行中' : status}
+        subtext={online ? '已连接到后端' : '请检查后端进程'}
+        accent={online}
+      />
+      <StatTile
+        icon={<Users className="size-5" />}
+        label="在线账号"
+        value={qqList.length}
+        subtext={`已接入 ${qqList.length} 个会话`}
+      />
+      <StatTile
+        icon={<PlugZap className="size-5" />}
+        label="进程注入"
+        value={`${onlineProcs} 在线`}
+        subtext={`${processList.length} 进程 · ${loadableProcs} 可注入`}
+        to="/processes"
+      />
+      <StatTile
+        icon={<Server className="size-5" />}
+        label="主机名"
+        value={systemInfo?.hostname ?? '—'}
+        subtext={systemInfo ? `${systemInfo.platform} · ${systemInfo.arch}` : '加载中'}
+      />
+      <StatTile
+        icon={<MonitorCog className="size-5" />}
+        label="系统运行"
+        value={systemInfo ? formatUptime(systemInfo.uptime) : '—'}
+        subtext={systemInfo ? `进程 ${formatUptime(systemInfo.processUptime)}` : undefined}
+      />
+    </div>
+  );
+}
 
-      {/* First-run nudge: nothing online yet → point at the injection page. */}
-      {qqList.length === 0 && (
-        <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
-          <Link
-            to="/processes"
-            className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 transition-colors hover:bg-primary/10"
-          >
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
-              <PlugZap className="size-5" />
+// ─────────────── host resources ───────────────
+
+function HostBlock() {
+  const { systemInfo, refreshSystem } = useAppState();
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+        <div>
+          <CardTitle>主机资源</CardTitle>
+          <CardDescription>
+            {systemInfo
+              ? `${systemInfo.cpu.model.trim()} · ${systemInfo.cpu.cores} 核 · Node ${systemInfo.nodeVersion}`
+              : '正在采集主机信息…'}
+          </CardDescription>
+        </div>
+        <Button variant="outline" size="sm" onClick={refreshSystem}>
+          <RefreshCw className="size-3.5" /> 刷新
+        </Button>
+      </CardHeader>
+      <CardContent className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {/* CPU */}
+        <div className="rounded-lg border bg-card/40 p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Cpu className="size-4 text-primary" />
+              <span className="text-sm font-semibold">CPU 使用率</span>
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium">
-                {loadableProcs > 0 ? `检测到 ${loadableProcs} 个可加载 QQ 进程` : '尚未接入任何账号'}
-              </p>
-              <p className="text-[11px] text-muted-foreground">
-                前往「进程注入」加载 QQ，登录后会自动接入 OneBot 流程。
-              </p>
-            </div>
-            <ArrowRight className="size-4 shrink-0 text-primary" />
-          </Link>
-        </motion.div>
-      )}
-
-      {/* Operational health — connection status + recent alerts (side by side on wide screens) */}
-      <div className="grid gap-6 xl:grid-cols-2">
-        <ConnectionsCard connections={connections} />
-        <RecentAlertsCard />
-      </div>
-
-      {/* System metrics */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
-          <div>
-            <CardTitle>主机资源</CardTitle>
-            <CardDescription>
-              {systemInfo
-                ? `${systemInfo.cpu.model.trim()} · ${systemInfo.cpu.cores} 核 · Node ${systemInfo.nodeVersion}`
-                : '正在采集主机信息…'}
-            </CardDescription>
+            <span className="text-sm font-semibold tabular-nums text-primary">
+              {systemInfo ? `${systemInfo.cpu.average.toFixed(1)}%` : '—'}
+            </span>
           </div>
-          <Button variant="outline" size="sm" onClick={refreshSystem}>
-            <RefreshCw className="size-3.5" /> 刷新
-          </Button>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          {/* CPU */}
-          <div className="rounded-lg border bg-card/40 p-4">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Cpu className="size-4 text-primary" />
-                <span className="text-sm font-semibold">CPU 使用率</span>
-              </div>
-              <span className="text-sm font-semibold tabular-nums text-primary">
-                {systemInfo ? `${systemInfo.cpu.average.toFixed(1)}%` : '—'}
-              </span>
-            </div>
-            <Progress value={systemInfo?.cpu.average ?? 0} />
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              负载: {systemInfo ? systemInfo.cpu.loadAvg.map((v) => v.toFixed(2)).join(' / ') : '—'}
-            </p>
-            {systemInfo && systemInfo.cpu.perCore.length > 0 && (
-              <div className="mt-3 grid grid-cols-8 gap-1">
-                {systemInfo.cpu.perCore.map((p, i) => (
+          <Progress value={systemInfo?.cpu.average ?? 0} />
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            负载: {systemInfo ? systemInfo.cpu.loadAvg.map((v) => v.toFixed(2)).join(' / ') : '—'}
+          </p>
+          {systemInfo && systemInfo.cpu.perCore.length > 0 && (
+            <div className="mt-3 grid grid-cols-8 gap-1">
+              {systemInfo.cpu.perCore.map((p, i) => (
+                <div
+                  key={i}
+                  title={`Core ${i}: ${p.toFixed(1)}%`}
+                  className="h-6 rounded-sm bg-muted overflow-hidden flex items-end"
+                >
                   <div
-                    key={i}
-                    title={`Core ${i}: ${p.toFixed(1)}%`}
-                    className="h-6 rounded-sm bg-muted overflow-hidden flex items-end"
-                  >
-                    <div
-                      className="w-full bg-primary/70 transition-[height] duration-500"
-                      style={{ height: `${Math.max(4, p)}%` }}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Memory */}
-          <div className="rounded-lg border bg-card/40 p-4">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <MemoryStick className="size-4 text-primary" />
-                <span className="text-sm font-semibold">内存使用</span>
-              </div>
-              <span className="text-sm font-semibold tabular-nums text-primary">
-                {systemInfo ? `${systemInfo.memory.usagePercent.toFixed(1)}%` : '—'}
-              </span>
-            </div>
-            <Progress value={systemInfo?.memory.usagePercent ?? 0} />
-            <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground tabular-nums">
-              <span>已用 {systemInfo ? formatBytes(systemInfo.memory.used) : '—'}</span>
-              <span>共 {systemInfo ? formatBytes(systemInfo.memory.total) : '—'}</span>
-            </div>
-          </div>
-
-          {/* Runtime */}
-          <div className="rounded-lg border bg-card/40 p-4">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Server className="size-4 text-primary" />
-                <span className="text-sm font-semibold">运行进程</span>
-              </div>
-              <span className="text-sm font-semibold tabular-nums text-primary">
-                {systemInfo ? `PID ${systemInfo.runtime.pid}` : '—'}
-              </span>
-            </div>
-            {!systemInfo ? (
-              <div className="space-y-2">
-                <Skeleton className="h-4 w-3/4" />
-                <Skeleton className="h-4 w-1/2" />
-              </div>
-            ) : (
-              <div className="space-y-1.5 text-xs">
-                <div className="flex items-center justify-between rounded-md bg-background/60 px-2 py-1.5">
-                  <span className="text-muted-foreground">RSS</span>
-                  <span className="font-medium tabular-nums">{formatBytes(systemInfo.runtime.rss)}</span>
+                    className="w-full bg-primary/70 transition-[height] duration-500"
+                    style={{ height: `${Math.max(4, p)}%` }}
+                  />
                 </div>
-                <div className="flex items-center justify-between rounded-md bg-background/60 px-2 py-1.5">
-                  <span className="text-muted-foreground">堆内存</span>
-                  <span className="font-medium tabular-nums">
-                    {formatBytes(systemInfo.runtime.heapUsed)} / {formatBytes(systemInfo.runtime.heapTotal)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between rounded-md bg-background/60 px-2 py-1.5">
-                  <span className="text-muted-foreground">外部内存</span>
-                  <span className="font-medium tabular-nums">{formatBytes(systemInfo.runtime.external)}</span>
-                </div>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+              ))}
+            </div>
+          )}
+        </div>
 
-      {/* Online accounts */}
-      <Card>
-        <CardHeader>
-          <CardTitle>在线会话</CardTitle>
-          <CardDescription>当前已接入并完成登录的 QQ 账号</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {qqList.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground">
-              <Users className="size-7" strokeWidth={1.5} />
-              <p className="text-sm">暂无在线会话</p>
+        {/* Memory */}
+        <div className="rounded-lg border bg-card/40 p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <MemoryStick className="size-4 text-primary" />
+              <span className="text-sm font-semibold">内存使用</span>
+            </div>
+            <span className="text-sm font-semibold tabular-nums text-primary">
+              {systemInfo ? `${systemInfo.memory.usagePercent.toFixed(1)}%` : '—'}
+            </span>
+          </div>
+          <Progress value={systemInfo?.memory.usagePercent ?? 0} />
+          <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground tabular-nums">
+            <span>已用 {systemInfo ? formatBytes(systemInfo.memory.used) : '—'}</span>
+            <span>共 {systemInfo ? formatBytes(systemInfo.memory.total) : '—'}</span>
+          </div>
+        </div>
+
+        {/* Runtime */}
+        <div className="rounded-lg border bg-card/40 p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Server className="size-4 text-primary" />
+              <span className="text-sm font-semibold">运行进程</span>
+            </div>
+            <span className="text-sm font-semibold tabular-nums text-primary">
+              {systemInfo ? `PID ${systemInfo.runtime.pid}` : '—'}
+            </span>
+          </div>
+          {!systemInfo ? (
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-4 w-1/2" />
             </div>
           ) : (
-            <ScrollArea className="max-h-[420px]" viewportClassName="[&>div]:!block">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                {qqList.map((q, idx) => (
-                  <motion.div
-                    key={q.uin}
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.03 + idx * 0.04, duration: 0.22 }}
-                    whileHover={{ y: -2 }}
-                    className="flex items-center gap-3 rounded-lg border bg-card/40 p-3"
-                  >
-                    <Avatar size={40}>
-                      <AvatarImage src={qqAvatarUrl(q.uin)} alt={q.nickname || q.uin} />
-                      <AvatarFallback>{(q.nickname || q.uin).slice(0, 2)}</AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-semibold">{q.nickname}</div>
-                      <div className="truncate font-mono text-[11px] text-muted-foreground tabular-nums">{q.uin}</div>
-                    </div>
-                    <span className="size-2 shrink-0 animate-pulse rounded-full bg-success shadow-[0_0_8px_color-mix(in_oklab,var(--success)_60%,transparent)]" />
-                  </motion.div>
-                ))}
+            <div className="space-y-1.5 text-xs">
+              <div className="flex items-center justify-between rounded-md bg-background/60 px-2 py-1.5">
+                <span className="text-muted-foreground">RSS</span>
+                <span className="font-medium tabular-nums">{formatBytes(systemInfo.runtime.rss)}</span>
               </div>
-            </ScrollArea>
+              <div className="flex items-center justify-between rounded-md bg-background/60 px-2 py-1.5">
+                <span className="text-muted-foreground">堆内存</span>
+                <span className="font-medium tabular-nums">
+                  {formatBytes(systemInfo.runtime.heapUsed)} / {formatBytes(systemInfo.runtime.heapTotal)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-md bg-background/60 px-2 py-1.5">
+                <span className="text-muted-foreground">外部内存</span>
+                <span className="font-medium tabular-nums">{formatBytes(systemInfo.runtime.external)}</span>
+              </div>
+            </div>
           )}
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─────────────── online sessions ───────────────
+
+function SessionsBlock() {
+  const { qqList } = useAppState();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>在线会话</CardTitle>
+        <CardDescription>当前已接入并完成登录的 QQ 账号</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {qqList.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground">
+            <Users className="size-7" strokeWidth={1.5} />
+            <p className="text-sm">暂无在线会话</p>
+          </div>
+        ) : (
+          <ScrollArea className="max-h-[420px]" viewportClassName="[&>div]:!block">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              {qqList.map((q, idx) => (
+                <motion.div
+                  key={q.uin}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.03 + idx * 0.04, duration: 0.22 }}
+                  whileHover={{ y: -2 }}
+                  className="flex items-center gap-3 rounded-lg border bg-card/40 p-3"
+                >
+                  <Avatar size={40}>
+                    <AvatarImage src={qqAvatarUrl(q.uin)} alt={q.nickname || q.uin} />
+                    <AvatarFallback>{(q.nickname || q.uin).slice(0, 2)}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold">{q.nickname}</div>
+                    <div className="truncate font-mono text-[11px] text-muted-foreground tabular-nums">{q.uin}</div>
+                  </div>
+                  <span className="size-2 shrink-0 animate-pulse rounded-full bg-success shadow-[0_0_8px_color-mix(in_oklab,var(--success)_60%,transparent)]" />
+                </motion.div>
+              ))}
+            </div>
+          </ScrollArea>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -329,6 +419,11 @@ const ADAPTER_KIND_LABEL: Record<AdapterStatus['kind'], string> = {
   wsServer: 'WS 服务端',
   wsClient: 'WS 客户端',
 };
+
+function ConnectionsBlock() {
+  const { connections } = useAppState();
+  return <ConnectionsCard connections={connections} />;
+}
 
 function ConnectionsCard({ connections }: { connections: AccountConnections[] }) {
   return (
@@ -359,22 +454,22 @@ function ConnectionsCard({ connections }: { connections: AccountConnections[] })
                   </p>
                 ) : (
                   <div className="flex flex-col gap-1.5">
-                    {acc.adapters.map((a) => (
-                      <div key={a.name} className="flex items-center gap-2 rounded-lg border bg-card/40 px-3 py-2">
+                    {acc.adapters.map((adp) => (
+                      <div key={adp.name} className="flex items-center gap-2 rounded-lg border bg-card/40 px-3 py-2">
                         <span
                           className={cn(
                             'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium',
-                            CONN_STATUS_STYLE[a.status],
+                            CONN_STATUS_STYLE[adp.status],
                           )}
                         >
-                          {CONN_STATUS_LABEL[a.status]}
+                          {CONN_STATUS_LABEL[adp.status]}
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
-                            <span className="truncate text-sm font-medium">{a.name}</span>
-                            <span className="shrink-0 text-[10px] text-muted-foreground">{ADAPTER_KIND_LABEL[a.kind]}</span>
+                            <span className="truncate text-sm font-medium">{adp.name}</span>
+                            <span className="shrink-0 text-[10px] text-muted-foreground">{ADAPTER_KIND_LABEL[adp.kind]}</span>
                           </div>
-                          <div className="truncate text-[11px] text-muted-foreground">{a.detail}</div>
+                          <div className="truncate text-[11px] text-muted-foreground">{adp.detail}</div>
                         </div>
                       </div>
                     ))}

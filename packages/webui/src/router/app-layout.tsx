@@ -7,6 +7,7 @@ import { MainLayout } from '@/components/layout/main-layout';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AppStateProvider } from '@/contexts/AppStateContext';
+import { LayoutProvider } from '@/contexts/LayoutContext';
 import { useSession } from '@/contexts/SessionContext';
 import type { AccountConnections, HookProcessInfo, QQInfo, SystemInfo, UpdateInfo } from '@/types';
 
@@ -125,15 +126,17 @@ export function AppLayout() {
         onLogout: handleLogout,
       }}
     >
-      <MainLayout status={session.status} onLogout={handleLogout}>
-        {/* Routes use `lazyRouteComponent` (router/index.tsx) for
-            code-splitting, which suspends until the chunk is fetched.
-            The chrome (sidebar / top bar) stays mounted across this
-            boundary so only the page surface flashes a skeleton. */}
-        <Suspense fallback={<PageFallback />}>
-          <Outlet />
-        </Suspense>
-      </MainLayout>
+      <LayoutProvider>
+        <MainLayout status={session.status} onLogout={handleLogout}>
+          {/* Routes use `lazyRouteComponent` (router/index.tsx) for
+              code-splitting, which suspends until the chunk is fetched.
+              The chrome (sidebar / top bar) stays mounted across this
+              boundary so only the page surface flashes a skeleton. */}
+          <Suspense fallback={<PageFallback />}>
+            <Outlet />
+          </Suspense>
+        </MainLayout>
+      </LayoutProvider>
 
       <ConfirmDialog
         open={!!unloadFailedAlert}
