@@ -6,6 +6,8 @@ import type {
   OneBotConfig,
   QQInfo,
   SystemInfo,
+  UiAppearance,
+  UiConfig,
   UpdateInfo,
 } from '@/types';
 import type { PasswordRule } from '@/components/pages/change-password-page';
@@ -74,6 +76,20 @@ export interface ApiClient {
   update: {
     /** Advisory check for a newer stable release. Read-only — never downloads. */
     check(force?: boolean): Promise<UpdateInfo>;
+  };
+
+  // ---- WebUI customization (config/ui.json) ----
+  ui: {
+    /** Full config (appearance + layout). Bearer-gated. */
+    get(): Promise<UiConfig>;
+    /** Persist the full config; returns the normalized server view. */
+    save(config: UiConfig): Promise<UiConfig>;
+    /** Cosmetic appearance subset, usable pre-auth (login page theming). */
+    getPublic(): Promise<UiAppearance>;
+    /** Upload a background image (PNG/JPEG/WebP, ≤5MB). Returns updated config. */
+    uploadBackground(file: File): Promise<UiConfig>;
+    /** Remove the background image. Returns updated config. */
+    deleteBackground(): Promise<UiConfig>;
   };
 
   // ---- logs ----

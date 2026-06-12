@@ -158,3 +158,66 @@ export interface LogEntry {
   message: string;
   line: string;
 }
+
+// ─── WebUI customization config (config/ui.json) ───────────────────────────
+// Mirror of the server schema in core/src/webui/ui-config.ts. The contract is
+// the JSON shape served by `/api/ui`; this is the client-side view of it.
+
+export type ThemeMode = 'light' | 'dark' | 'system';
+export type AccentMode = 'preset' | 'custom';
+export type AccentScope = 'sidebar' | 'global';
+export type DarkIntensity = 'soft' | 'black';
+export type SidebarStyle = 'follow' | 'panel' | 'accent';
+export type BackgroundType = 'none' | 'solid' | 'gradient' | 'image';
+export type Density = 'cozy' | 'compact';
+export type TimeFormat = '12h' | '24h';
+
+export interface UiBackground {
+  type: BackgroundType;
+  color: string;
+  gradient: string;
+  imageOpacity: number;
+  imageBlur: number;
+  /** Server-managed: true when an image is on disk. Read-only to the client. */
+  hasImage: boolean;
+  imageMime: string;
+  /** Server-managed cache-bust counter, bumped on each upload. */
+  imageVersion: number;
+}
+
+export interface UiAppearance {
+  mode: ThemeMode;
+  accentMode: AccentMode;
+  accentPreset: string;
+  accentCustom: string;
+  accentScope: AccentScope;
+  darkIntensity: DarkIntensity;
+  sidebarStyle: SidebarStyle;
+  background: UiBackground;
+  fontSans: string;
+  fontMono: string;
+  uiScale: number;
+  radius: number;
+  density: Density;
+  reduceMotion: boolean;
+  highContrast: boolean;
+  sidebarDefaultCollapsed: boolean;
+  timeFormat: TimeFormat;
+  pollInterval: number;
+}
+
+export interface UiLayoutItem {
+  id: string;
+  visible: boolean;
+}
+
+export interface UiLayout {
+  overviewBlocks: UiLayoutItem[];
+  navItems: UiLayoutItem[];
+}
+
+export interface UiConfig {
+  version: number;
+  appearance: UiAppearance;
+  layout: UiLayout;
+}
