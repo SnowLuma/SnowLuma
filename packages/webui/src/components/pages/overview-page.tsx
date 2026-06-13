@@ -46,6 +46,7 @@ function renderWidget(block: UiLayoutItem): ReactNode {
 export function OverviewPage() {
   const { qqList, processList } = useAppState();
   const { overviewBlocks, setOverviewBlocks, resetLayout, editing: editingCtx, setEditing } = useLayout();
+  const off = useTheme().appearance.disableMotion;
   const isWide = useMediaQuery('(min-width: 768px)');
   // Free-grid editing is desktop-only (no room to drag/resize on a phone).
   const editing = isWide && editingCtx;
@@ -100,7 +101,7 @@ export function OverviewPage() {
 
       {/* First-run nudge — always shown (not a grid widget) so it can't be hidden. */}
       {qqList.length === 0 && (
-        <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
+        <motion.div initial={off ? false : { opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
           <Link
             to="/processes"
             className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 transition-colors hover:bg-primary/10"
@@ -367,6 +368,7 @@ function HostBlock() {
 
 function SessionsBlock({ config }: { config: SessionsConfig }) {
   const { qqList } = useAppState();
+  const off = useTheme().appearance.disableMotion;
   const list = useMemo(() => {
     const f = config.filter.trim().toLowerCase();
     let arr = f
@@ -398,10 +400,10 @@ function SessionsBlock({ config }: { config: SessionsConfig }) {
               {list.map((q, idx) => (
                 <motion.div
                   key={q.uin}
-                  initial={{ opacity: 0, y: 6 }}
+                  initial={off ? false : { opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.03 + idx * 0.04, duration: 0.22 }}
-                  whileHover={{ y: -2 }}
+                  transition={off ? { duration: 0 } : { delay: 0.03 + idx * 0.04, duration: 0.22 }}
+                  whileHover={off ? undefined : { y: -2 }}
                   className="flex items-center gap-3 rounded-lg border bg-card/40 p-3"
                 >
                   <Avatar size={40}>

@@ -216,6 +216,17 @@ html[data-reduce-motion="1"] *::after {
   scroll-behavior: auto !important;
 }
 
+/* 关闭全部动效: harder than reduce — remove CSS animations outright (e.g. the
+   pulsing status dots) rather than just collapsing their duration. Framer
+   entrance fades are gated in components on `disableMotion`. */
+html[data-no-motion="1"] *:not(.animate-spin),
+html[data-no-motion="1"] *::before,
+html[data-no-motion="1"] *::after {
+  /* Exclude .animate-spin: loading spinners encode "busy", not decoration —
+     freezing them reads as a hang. Everything else (e.g. pulse dots) stops. */
+  animation: none !important;
+}
+
 /* ──────────────────────────────────────────────
    Native scrollbars — themed to match. Radix ScrollArea hides its own
    native bar and renders a custom thumb, so this only styles plain overflow
@@ -237,6 +248,19 @@ html {
   background-color: color-mix(in oklab, var(--foreground) 38%, transparent);
 }
 ::-webkit-scrollbar-corner { background: transparent; }
+
+/* ──────────────────────────────────────────────
+   Login background — wavy SVG line field (see <LoginWaves>). Themed to the
+   accent so it reads as a subtle decorative backdrop behind the login card.
+   ────────────────────────────────────────────── */
+.login-waves {
+  color: color-mix(in oklab, var(--primary) 26%, transparent);
+}
+.login-waves path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1px;
+}
 
 /* ──────────────────────────────────────────────
    Custom range slider (via the <Slider> component, class `.slider`).

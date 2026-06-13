@@ -1,16 +1,35 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowRight, Eye, EyeOff, KeyRound } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, KeyRound, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { LoginWaves } from '@/components/login-waves';
 import { useTheme } from '@/contexts/ThemeContext';
 import { cn } from '@/lib/utils';
 import { APP_NAME, APP_VERSION } from '@/types';
 
 interface LoginPageProps {
   onLogin: (password: string) => Promise<{ success: boolean; error?: string }>;
+}
+
+// Device-local preference for the (heavy) animated login background. Kept out
+// of the server-synced appearance on purpose: it's a "this device feels laggy"
+// choice, and it must work pre-auth (where settings can't persist to the
+// server). Independent of the system 减弱动效 / 关闭全部动效 settings.
+const LOGIN_FX_KEY = 'snowluma_login_fx';
+function readLoginFx(): boolean {
+  try {
+    const v = localStorage.getItem(LOGIN_FX_KEY);
+    if (v === '0') return false;
+    if (v === '1') return true;
+  } catch { /* ignore */ }
+  // No explicit choice yet → on by default, unless the OS asks for reduced
+  // motion (an accessibility default; still fully overridable via the toggle).
+  try { return !window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return true; }
 }
 
 export function LoginPage({ onLogin }: LoginPageProps) {
@@ -27,6 +46,13 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [shake, setShake] = useState(0);
+  const [fxOn, setFxOn] = useState(readLoginFx);
+  const [helpOpen, setHelpOpen] = useState(false);
+
+  const toggleFx = (v: boolean) => {
+    setFxOn(v);
+    try { localStorage.setItem(LOGIN_FX_KEY, v ? '1' : '0'); } catch { /* ignore */ }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,7 +68,10 @@ export function LoginPage({ onLogin }: LoginPageProps) {
 
   return (
     <div className={cn('relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-8', customBg ? 'bg-transparent' : 'bg-background')}>
-      {/* Sky gradient backdrop */}
+      {/* Animated wavy-line background (device-local toggle) */}
+      {fxOn && <LoginWaves />}
+
+      {/* Sky gradient backdrop — also softens the waves so the card stands out */}
       <div
         className="pointer-events-none absolute inset-0"
         style={{
@@ -50,20 +79,8 @@ export function LoginPage({ onLogin }: LoginPageProps) {
             'radial-gradient(80% 60% at 50% 0%, color-mix(in oklab, var(--primary) 18%, transparent) 0%, transparent 70%)',
         }}
       />
-      <motion.div
-        aria-hidden
-        className="pointer-events-none absolute -left-24 top-24 size-72 rounded-full bg-primary/15 blur-3xl"
-        animate={{ scale: [1, 1.08, 1] }}
-        transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
-      />
-      <motion.div
-        aria-hidden
-        className="pointer-events-none absolute -right-16 bottom-10 size-80 rounded-full bg-primary/10 blur-3xl"
-        animate={{ scale: [1, 1.12, 1] }}
-        transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut', delay: 0.6 }}
-      />
 
-      <div className="absolute right-4 top-4">
+      <div className="absolute right-4 top-4 z-20">
         <ThemeToggle />
       </div>
 
@@ -73,7 +90,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
         className="relative z-10 w-full max-w-md"
       >
-        <Card className="border-primary/15 shadow-xl">
+        <Card className="border-primary/15 shadow-xl backdrop-blur-sm supports-[backdrop-filter]:bg-card/95">
           <CardContent className="p-7 sm:p-9">
             <div className="flex items-center gap-3">
               <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20">
@@ -139,7 +156,42 @@ export function LoginPage({ onLogin }: LoginPageProps) {
             </p>
           </CardContent>
         </Card>
+
+        {/* Perf escape hatch for the animated background */}
+        <div className="mt-4 text-center">
+          <button
+            type="button"
+            onClick={() => setHelpOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-muted-foreground transition-colors hover:text-foreground cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+          >
+            <Sparkles className="size-3.5" />
+            我觉得这个界面很卡怎么办？
+          </button>
+        </div>
       </motion.div>
+
+      <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>界面有点卡顿？</DialogTitle>
+            <DialogDescription>
+              登录页背景是一个跟随鼠标的动态线条效果，在部分设备上可能比较吃性能。可以在这里关掉它——该开关仅作用于本设备的登录页，与系统的动效设置相互独立。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/20 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">登录页动态背景</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">{fxOn ? '已开启 · 关闭后背景为静态' : '已关闭 · 背景为静态'}</p>
+            </div>
+            <ToggleSwitch value={fxOn} onChange={toggleFx} ariaLabel="登录页动态背景" />
+          </div>
+
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            登录后，你还可以在「系统设置 → 无障碍」里进一步「减弱动效」或「关闭全部动效」。
+          </p>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

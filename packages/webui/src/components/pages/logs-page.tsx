@@ -78,7 +78,7 @@ function ToolButton({ label, onClick, children, active, danger, disabled }: Tool
 
 export function LogsPage() {
   const api = useApi();
-  const { formatClock } = useTheme();
+  const { formatClock, appearance } = useTheme();
   const { pages, setPages } = useLayout();
   const prefs = pages.logs;
 
@@ -434,9 +434,9 @@ export function LogsPage() {
                     return (
                       <motion.div
                         key={log.id}
-                        initial={{ opacity: 0 }}
+                        initial={appearance.disableMotion ? false : { opacity: 0 }}
                         animate={{ opacity: 1 }}
-                        transition={{ duration: 0.12 }}
+                        transition={appearance.disableMotion ? { duration: 0 } : { duration: 0.12 }}
                         className="flex flex-col gap-0.5 px-3 py-1.5 transition-colors hover:bg-accent/40 sm:flex-row sm:items-start sm:gap-3 sm:py-1"
                         style={hl ? { boxShadow: `inset 3px 0 0 ${hl}`, backgroundColor: `color-mix(in oklab, ${hl} 8%, transparent)` } : undefined}
                       >

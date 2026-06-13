@@ -86,7 +86,10 @@ export interface UiAppearance {
   /** Corner radius in rem, 0…2. */
   radius: number;
   density: Density;
+  /** Soften animations (transforms off, shorter durations). */
   reduceMotion: boolean;
+  /** Hard-disable all UI animations (stronger than reduceMotion). */
+  disableMotion: boolean;
   highContrast: boolean;
   sidebarDefaultCollapsed: boolean;
   timeFormat: TimeFormat;
@@ -193,6 +196,7 @@ const DEFAULT_APPEARANCE: UiAppearance = {
   radius: 0.75,
   density: 'cozy',
   reduceMotion: false,
+  disableMotion: false,
   highContrast: false,
   sidebarDefaultCollapsed: false,
   timeFormat: '24h',
@@ -400,6 +404,7 @@ export function normalizeAppearance(value: unknown, imageState: ServerImageState
     radius: clampNum(v.radius, 0, 2, DEFAULT_APPEARANCE.radius),
     density: oneOf<Density>(v.density, ['cozy', 'compact'], DEFAULT_APPEARANCE.density),
     reduceMotion: boolOr(v.reduceMotion, DEFAULT_APPEARANCE.reduceMotion),
+    disableMotion: boolOr(v.disableMotion, DEFAULT_APPEARANCE.disableMotion),
     highContrast: boolOr(v.highContrast, DEFAULT_APPEARANCE.highContrast),
     sidebarDefaultCollapsed: boolOr(v.sidebarDefaultCollapsed, DEFAULT_APPEARANCE.sidebarDefaultCollapsed),
     timeFormat: oneOf<TimeFormat>(v.timeFormat, ['12h', '24h'], DEFAULT_APPEARANCE.timeFormat),

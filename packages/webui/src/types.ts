@@ -202,6 +202,7 @@ export interface UiAppearance {
   radius: number;
   density: Density;
   reduceMotion: boolean;
+  disableMotion: boolean;
   highContrast: boolean;
   sidebarDefaultCollapsed: boolean;
   timeFormat: TimeFormat;

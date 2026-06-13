@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { cn } from '@/lib/utils';
+import { useTheme } from '@/contexts/ThemeContext';
 import type { AdapterCommon } from './defaults';
 import type { AdapterStatus } from '@/types';
 
@@ -47,12 +48,13 @@ export function NodeSummaryCard<T extends AdapterCommon>({
 }: NodeSummaryCardProps<T>) {
   const enabled = item.enabled !== false;
   const blankName = !item.name?.trim();
+  const off = useTheme().appearance.disableMotion;
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 4 }}
+      initial={off ? false : { opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.18 }}
+      transition={off ? { duration: 0 } : { duration: 0.18 }}
       className={cn(
         'flex flex-col gap-2 rounded-xl border bg-card/40 p-3.5 transition-all hover:bg-accent/20 sm:flex-row sm:items-center sm:gap-3',
         !enabled && 'opacity-60',

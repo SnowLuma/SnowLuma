@@ -31,7 +31,7 @@ export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
   // Framer's reducedMotion only suppresses transforms, so the always-present
   // width + page-transition animations need an explicit opt-out to make the
   // “减少动效” setting actually felt.
-  const reduce = appearance.reduceMotion;
+  const reduce = appearance.reduceMotion || appearance.disableMotion;
   const { editing } = useLayout();
   // Force the sidebar open while editing layout so its drag-to-reorder list
   // has room (it returns to the user's collapsed pref on 完成).

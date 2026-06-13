@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import type { HookProcessInfo } from '@/types';
 import { useAppState } from '@/contexts/AppStateContext';
 import { useLayout } from '@/contexts/LayoutContext';
+import { useTheme } from '@/contexts/ThemeContext';
 
 const SORT_OPTIONS: { id: string; label: string }[] = [
   { id: 'pid', label: 'PID' },
@@ -50,6 +51,7 @@ export function ProcessesPage() {
   const { processList, processOps, refreshProcesses } = useAppState();
   const { statusOf, banner: processActionStatus, load, unload, refresh } = processOps;
   const { pages, setPages } = useLayout();
+  const off = useTheme().appearance.disableMotion;
   const [confirm, setConfirm] = useState<{ kind: 'load' | 'unload'; pid: number; name: string } | null>(null);
   const [probeDialog, setProbeDialog] = useState<{ pid: number; name: string } | null>(null);
 
@@ -101,7 +103,7 @@ export function ProcessesPage() {
         <CardContent>
           {processActionStatus && (
             <motion.div
-              initial={{ opacity: 0, y: -4 }}
+              initial={off ? false : { opacity: 0, y: -4 }}
               animate={{ opacity: 1, y: 0 }}
               className="mb-3 flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/[0.06] px-3 py-2 text-xs text-primary"
             >
@@ -131,9 +133,9 @@ export function ProcessesPage() {
                 return (
                   <motion.div
                     key={proc.pid}
-                    initial={{ opacity: 0, y: 6 }}
+                    initial={off ? false : { opacity: 0, y: 6 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.03 + idx * 0.025, duration: 0.22 }}
+                    transition={off ? { duration: 0 } : { delay: 0.03 + idx * 0.025, duration: 0.22 }}
                     className="flex flex-col gap-3 rounded-xl border bg-card/50 p-3.5 transition-colors hover:bg-accent/20 sm:flex-row sm:items-center"
                   >
                     {/* icon + info stay horizontal; on phones the actions drop to

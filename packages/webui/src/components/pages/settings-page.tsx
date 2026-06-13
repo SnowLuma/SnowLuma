@@ -380,8 +380,11 @@ function AppearancePanel() {
       </Group>
 
       <Group title="无障碍与侧栏" icon={Accessibility} description="动效、对比度与侧栏默认状态。">
-        <SettingRow label="减少动效" hint="关闭页面切换、弹簧等装饰性动画，对低端设备与晕动敏感者更友好。" layout="inline">
-          <ToggleSwitch value={a.reduceMotion} onChange={(reduceMotion) => setAppearance({ reduceMotion })} ariaLabel="减少动效" />
+        <SettingRow label="减弱动效" hint="弱化页面切换、弹簧等装饰性动画（保留轻微淡入），对低端设备与晕动敏感者更友好。" layout="inline">
+          <ToggleSwitch value={a.reduceMotion} onChange={(reduceMotion) => setAppearance({ reduceMotion })} ariaLabel="减弱动效" />
+        </SettingRow>
+        <SettingRow label="关闭全部动效" hint="比“减弱动效”更彻底：移除所有界面动画，包括入场淡入与状态点闪烁。" layout="inline">
+          <ToggleSwitch value={a.disableMotion} onChange={(disableMotion) => setAppearance({ disableMotion })} ariaLabel="关闭全部动效" />
         </SettingRow>
         <SettingRow label="高对比模式" hint="加强边框与次要文字的对比度。" layout="inline">
           <ToggleSwitch value={a.highContrast} onChange={(highContrast) => setAppearance({ highContrast })} ariaLabel="高对比模式" />

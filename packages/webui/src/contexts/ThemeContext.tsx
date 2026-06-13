@@ -106,6 +106,7 @@ export const DEFAULT_APPEARANCE: UiAppearance = {
   radius: 0.75,
   density: 'cozy',
   reduceMotion: false,
+  disableMotion: false,
   highContrast: false,
   sidebarDefaultCollapsed: false,
   timeFormat: '24h',
@@ -304,7 +305,11 @@ function applyAppearance(a: UiAppearance, resolved: 'light' | 'dark'): void {
   root.setAttribute('data-palette', a.palette);
   root.setAttribute('data-sidebar-style', a.sidebarStyle);
   root.setAttribute('data-contrast', a.highContrast ? 'high' : 'normal');
-  root.setAttribute('data-reduce-motion', a.reduceMotion ? '1' : '0');
+  // 减弱动效 OR 关闭全部动效 both engage the reduce-motion CSS/Framer layer;
+  // 关闭全部动效 additionally sets data-no-motion (kills CSS animations outright
+  // and gates Framer entrance fades that reduce-motion leaves on).
+  root.setAttribute('data-reduce-motion', (a.reduceMotion || a.disableMotion) ? '1' : '0');
+  root.setAttribute('data-no-motion', a.disableMotion ? '1' : '0');
 
   // Mode-independent vars go inline on :root.
   root.style.setProperty('--radius', `${a.radius}rem`);
@@ -679,7 +684,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   return (
     <ThemeContext.Provider value={value}>
-      <MotionConfig reducedMotion={appearance.reduceMotion ? 'always' : 'user'}>
+      <MotionConfig reducedMotion={(appearance.reduceMotion || appearance.disableMotion) ? 'always' : 'user'}>
         {children}
       </MotionConfig>
     </ThemeContext.Provider>
