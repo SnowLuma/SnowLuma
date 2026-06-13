@@ -227,6 +227,13 @@ html[data-no-motion="1"] *::after {
   animation: none !important;
 }
 
+/* Hide the browser-native password reveal / clear controls (Edge & IE render
+   an extra eye / × on inputs) so only our own show-password toggle shows. */
+input::-ms-reveal,
+input::-ms-clear {
+  display: none;
+}
+
 /* ──────────────────────────────────────────────
    Native scrollbars — themed to match. Radix ScrollArea hides its own
    native bar and renders a custom thumb, so this only styles plain overflow
