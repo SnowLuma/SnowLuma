@@ -758,44 +758,43 @@ function assetHint(latest: string, platform?: string, arch?: string): string | n
   return null;
 }
 
-// Advisory update status. Read-only: links to the GitHub release; SnowLuma
-// never downloads or applies anything itself.
-function UpdateStatus() {
+// Advisory software update, shown as a grouped list. Read-only: links to the
+// GitHub release; SnowLuma never downloads or applies anything itself.
+function UpdateGroup() {
   const { updateInfo, refreshUpdate, systemInfo } = useAppState();
   const [checking, setChecking] = useState(false);
 
   const onCheck = async () => {
     setChecking(true);
-    try {
-      await refreshUpdate(true);
-    } finally {
-      setChecking(false);
-    }
+    try { await refreshUpdate(true); } finally { setChecking(false); }
   };
 
-  const checkButton = (
-    <Button variant="outline" size="sm" onClick={onCheck} disabled={checking}>
-      {checking ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-      重新检查
-    </Button>
-  );
+  const disabledCheck = updateInfo?.error === 'disabled';
 
+  let status: ReactNode;
+  if (!updateInfo) status = <span className="text-muted-foreground">正在检查…</span>;
+  else if (disabledCheck) status = <span className="text-muted-foreground">检查已关闭</span>;
+  else if (updateInfo.error) status = <span className="text-muted-foreground">无法检查</span>;
+  else if (updateInfo.hasUpdate && updateInfo.latest) status = <span className="font-medium text-primary">发现新版本</span>;
+  else status = <span className="inline-flex items-center gap-1.5 text-success"><Check className="size-3.5" /> 已是最新</span>;
+
+  // Rich detail block, only when an update is available (narrows `latest`).
+  let detail: ReactNode = null;
   if (updateInfo?.hasUpdate && updateInfo.latest) {
-    const hint = assetHint(updateInfo.latest, systemInfo?.platform, systemInfo?.arch);
-    return (
-      <div className="w-full max-w-md rounded-xl border border-primary/30 bg-primary/[0.06] p-4 text-left">
+    const latest = updateInfo.latest;
+    const hint = assetHint(latest, systemInfo?.platform, systemInfo?.arch);
+    detail = (
+      <div className="bg-primary/[0.05] px-5 py-4 text-left">
         <div className="flex items-center gap-2">
           <Sparkles className="size-4 text-primary" />
-          <span className="text-sm font-medium">发现新版本 v{updateInfo.latest}</span>
+          <span className="text-sm font-medium">v{latest}</span>
           {updateInfo.publishedAt && (
             <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">
               {new Date(updateInfo.publishedAt).toLocaleDateString()}
             </span>
           )}
         </div>
-        <p className="mt-1 text-[11px] text-muted-foreground">
-          当前 v{updateInfo.current} → 最新 v{updateInfo.latest}
-        </p>
+        <p className="mt-1 text-[11px] text-muted-foreground">当前 v{updateInfo.current} → 最新 v{latest}</p>
         {updateInfo.notes && (
           <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/50 p-3 text-[11px] leading-relaxed text-muted-foreground">
             {updateInfo.notes}
@@ -803,99 +802,97 @@ function UpdateStatus() {
         )}
         {hint && (
           <p className="mt-3 text-[11px] text-muted-foreground">
-            适合你的平台：
-            <code className="rounded bg-muted px-1 py-0.5 font-mono">{hint}</code>
-            （在下载页选择）
+            适合你的平台：<code className="rounded bg-muted px-1 py-0.5 font-mono">{hint}</code>（在下载页选择）
           </p>
         )}
-        <div className="mt-3 flex items-center gap-2">
-          {updateInfo.htmlUrl && (
-            <Button asChild size="sm">
-              <a href={updateInfo.htmlUrl} target="_blank" rel="noreferrer noopener">
-                <Download className="size-4" />
-                前往下载
-              </a>
-            </Button>
-          )}
-          {checkButton}
-        </div>
+        {updateInfo.htmlUrl && (
+          <Button asChild size="sm" className="mt-3">
+            <a href={updateInfo.htmlUrl} target="_blank" rel="noreferrer noopener">
+              <Download className="size-4" /> 前往下载
+            </a>
+          </Button>
+        )}
       </div>
     );
   }
 
-  let text: string;
-  if (!updateInfo) text = '正在检查更新…';
-  else if (updateInfo.error === 'disabled') text = '更新检查已关闭';
-  else if (updateInfo.error) text = '无法检查更新';
-  else text = `已是最新版本（v${updateInfo.current}）`;
-
-  const ok = !!updateInfo && !updateInfo.error;
-
   return (
-    <div className="flex w-full max-w-md flex-wrap items-center justify-center gap-3 text-[12px] text-muted-foreground">
-      <span className="inline-flex items-center gap-1.5">
-        {ok ? <Check className="size-3.5 text-success" /> : <Info className="size-3.5" />}
-        {text}
-      </span>
-      {updateInfo?.error !== 'disabled' && checkButton}
-    </div>
+    <Group title="软件更新" icon={Sparkles} description="仅提示新版本，从不自动下载或安装。">
+      <SettingRow label="当前版本" layout="inline">
+        <code className="rounded-md border bg-muted/40 px-2 py-0.5 font-mono text-xs tabular-nums">v{__APP_VERSION__}</code>
+      </SettingRow>
+      <SettingRow label="检查更新">
+        <div className="flex items-center gap-2.5 text-[12px]">
+          {status}
+          {!disabledCheck && (
+            <Button variant="outline" size="sm" onClick={onCheck} disabled={checking}>
+              {checking ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              重新检查
+            </Button>
+          )}
+        </div>
+      </SettingRow>
+      {detail}
+    </Group>
   );
 }
 
 function AboutPanel() {
   return (
-    <Card className="overflow-hidden">
-      <CardContent className="flex flex-col items-center gap-6 px-6 py-8 text-center sm:px-8">
-        {/* brand hero */}
-        <motion.div
-          initial={{ opacity: 0, y: 10, scale: 0.96 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 260, damping: 22 }}
-          className="flex flex-col items-center gap-3"
-        >
-          <div className="relative">
-            <div aria-hidden className="absolute inset-0 -z-10 scale-125 rounded-full bg-primary/20 blur-2xl" />
-            <img src="/logo.png" alt="SnowLuma" className="size-20 object-contain drop-shadow-sm" />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-2xl font-semibold tracking-tight">SnowLuma</span>
-            <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 font-mono text-[11px] text-primary tabular-nums">
-              v{__APP_VERSION__}
-            </span>
-          </div>
-          <p className="text-sm text-muted-foreground">Next Remote Protocol Framework · 下一代远程协议框架</p>
-        </motion.div>
-
-        <p className="max-w-md text-[13px] leading-relaxed text-muted-foreground">
-          以轻量注入驱动 QQ NT，对外提供标准 OneBot v11 接口，让机器人一次部署、长期稳定运行。
-        </p>
-
-        {/* Update status */}
-        <UpdateStatus />
-
-        {/* Star CTA */}
-        <div className="flex w-full max-w-sm flex-col items-center gap-2 rounded-xl border bg-gradient-to-b from-primary/[0.07] to-transparent p-5">
-          <Star className="size-6 fill-primary/20 text-primary" />
-          <p className="text-sm font-medium">喜欢 SnowLuma？点个 Star 支持一下</p>
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
-            开源不易，你的 ⭐ 是我们持续维护的最大动力。
+    <div className="flex flex-col gap-5">
+      {/* brand hero */}
+      <Card className="overflow-hidden">
+        <CardContent className="flex flex-col items-center gap-3 px-6 py-9 text-center">
+          <motion.div
+            initial={{ opacity: 0, y: 10, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ type: 'spring', stiffness: 260, damping: 22 }}
+            className="flex flex-col items-center gap-3"
+          >
+            <div className="relative">
+              <div aria-hidden className="absolute inset-0 -z-10 scale-125 rounded-full bg-primary/20 blur-2xl" />
+              <img src="/logo.png" alt="SnowLuma" className="size-20 object-contain drop-shadow-sm" />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-2xl font-semibold tracking-tight">SnowLuma</span>
+              <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 font-mono text-[11px] text-primary tabular-nums">
+                v{__APP_VERSION__}
+              </span>
+            </div>
+            <p className="text-sm text-muted-foreground">Next Remote Protocol Framework · 下一代远程协议框架</p>
+          </motion.div>
+          <p className="max-w-md text-[13px] leading-relaxed text-muted-foreground">
+            以轻量注入驱动 QQ NT，对外提供标准 OneBot v11 接口，让机器人一次部署、长期稳定运行。
           </p>
-          <Button asChild className="mt-1 w-full">
+        </CardContent>
+      </Card>
+
+      {/* software update */}
+      <UpdateGroup />
+
+      {/* support + links */}
+      <Card className="overflow-hidden">
+        <CardContent className="flex flex-col items-center gap-4 px-6 py-7 text-center">
+          <Star className="size-7 fill-primary/15 text-primary" />
+          <div className="flex flex-col items-center gap-1">
+            <p className="text-sm font-medium">喜欢 SnowLuma？给个 Star 支持一下</p>
+            <p className="max-w-xs text-[11px] leading-relaxed text-muted-foreground">
+              开源不易，你的 ⭐ 是我们持续维护的最大动力。
+            </p>
+          </div>
+          <Button asChild className="w-full max-w-xs">
             <a href={REPO_URL} target="_blank" rel="noreferrer noopener">
-              <Github className="size-4" />
-              去 GitHub 点 Star
+              <Github className="size-4" /> 去 GitHub 点 Star
             </a>
           </Button>
-        </div>
-
-        {/* secondary links */}
-        <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[12px]">
-          <AboutLink href={REPO_URL} icon={Github}>仓库</AboutLink>
-          <AboutLink href={`${REPO_URL}/releases`} icon={Tag}>发行版</AboutLink>
-          <AboutLink href={`${REPO_URL}/issues`} icon={Bug}>反馈问题</AboutLink>
-        </div>
-      </CardContent>
-    </Card>
+          <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 pt-1 text-[12px]">
+            <AboutLink href={REPO_URL} icon={Github}>仓库</AboutLink>
+            <AboutLink href={`${REPO_URL}/releases`} icon={Tag}>发行版</AboutLink>
+            <AboutLink href={`${REPO_URL}/issues`} icon={Bug}>反馈问题</AboutLink>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
