@@ -79,6 +79,10 @@ interface LayoutContextValue {
   setPages: (patch: Partial<UiPages>) => void;
   /** True once the authed config load has resolved (gates the default-route redirect). */
   ready: boolean;
+  /** Shared "编辑布局" mode — the dashboard grid AND the sidebar read this so both
+   *  show in-place edit affordances from a single toggle. */
+  editing: boolean;
+  setEditing: (v: boolean) => void;
 }
 
 const LayoutContext = createContext<LayoutContextValue | null>(null);
@@ -88,6 +92,7 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   const [layout, setLayout] = useState<UiLayout>(DEFAULT_LAYOUT);
   const [pages, setPagesState] = useState<UiPages>(DEFAULT_PAGES);
   const [ready, setReady] = useState(false);
+  const [editing, setEditing] = useState(false);
   const layoutRef = useRef(layout);
   const pagesRef = useRef(pages);
   // Set once the user edits, so the initial GET (which may resolve AFTER the
@@ -186,7 +191,9 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
     pages,
     setPages,
     ready,
-  }), [layout, setOverviewBlocks, setNavItems, resetLayout, pages, setPages, ready]);
+    editing,
+    setEditing,
+  }), [layout, setOverviewBlocks, setNavItems, resetLayout, pages, setPages, ready, editing]);
 
   return <LayoutContext.Provider value={value}>{children}</LayoutContext.Provider>;
 }

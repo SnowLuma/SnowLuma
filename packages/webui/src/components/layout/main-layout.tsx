@@ -7,6 +7,7 @@ import { Sidebar } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/top-bar';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useLayout } from '@/contexts/LayoutContext';
 import { cn } from '@/lib/utils';
 
 interface MainLayoutProps {
@@ -27,6 +28,10 @@ export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
     return appearance.sidebarDefaultCollapsed;
   });
   const customBg = appearance.background.type !== 'none';
+  const { editing } = useLayout();
+  // Force the sidebar open while editing layout so its drag-to-reorder list
+  // has room (it returns to the user's collapsed pref on 完成).
+  const effectiveCollapsed = collapsed && !editing;
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
@@ -40,11 +45,11 @@ export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
       {!isMobile && (
         <motion.aside
           initial={false}
-          animate={{ width: collapsed ? 64 : 248 }}
+          animate={{ width: effectiveCollapsed ? 64 : 248 }}
           transition={{ type: 'spring', stiffness: 280, damping: 32 }}
           className="relative h-full shrink-0 border-r overflow-hidden"
         >
-          <Sidebar collapsed={collapsed} />
+          <Sidebar collapsed={effectiveCollapsed} />
         </motion.aside>
       )}
 
@@ -66,11 +71,12 @@ export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar
           status={status}
-          collapsed={collapsed}
+          collapsed={effectiveCollapsed}
           onToggleCollapse={() => setCollapsed((v) => !v)}
           onOpenMobile={() => setMobileOpen(true)}
           onLogout={onLogout}
           isMobile={isMobile}
+          editing={editing}
         />
 
         <main className={cn('flex min-h-0 flex-1 flex-col')}>

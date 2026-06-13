@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { motion } from 'motion/react';
 import { Link } from '@tanstack/react-router';
 import {
-  Activity, ArrowRight, Bell, Cable, Cpu, MemoryStick, MonitorCog, Pencil, PlugZap,
-  RefreshCw, Server, Users,
+  Activity, ArrowRight, Bell, Cable, Check, Cpu, MemoryStick, MonitorCog, Pencil, PlugZap,
+  RefreshCw, RotateCcw, Server, Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,21 +18,19 @@ import { useApi } from '@/lib/api';
 import { useAppState } from '@/contexts/AppStateContext';
 import { useSession } from '@/contexts/SessionContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { reconcileLayoutItems, useLayout } from '@/contexts/LayoutContext';
+import { useLayout } from '@/contexts/LayoutContext';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import {
-  GRID_COLS, parseAlertsConfig, parseSessionsConfig, widgetLabel,
+  CONFIGURABLE_WIDGETS, GRID_COLS, parseAlertsConfig, parseSessionsConfig, widgetLabel,
   type AlertsConfig, type SessionsConfig,
 } from '@/lib/dashboard-layout';
-import { NAV_ITEMS, PINNED_NAV } from '@/components/layout/sidebar';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DashboardGrid, type GridCoord } from '@/components/pages/dashboard-grid';
-import { LayoutEditor } from '@/components/pages/overview-layout-editor';
+import { AlertsConfigForm, SessionsConfigForm } from '@/components/pages/widget-config-forms';
 
 function qqAvatarUrl(uin: string) {
   return `/avatar/${encodeURIComponent(uin)}`;
 }
-
-const navLabelFor = (id: string) => NAV_ITEMS.find((n) => n.to === id)?.label ?? id;
 
 function renderWidget(block: UiLayoutItem): ReactNode {
   if (block.id.startsWith('stat:')) return <StatTileWidget id={block.id} />;
@@ -47,16 +45,15 @@ function renderWidget(block: UiLayoutItem): ReactNode {
 
 export function OverviewPage() {
   const { qqList, processList } = useAppState();
-  const { overviewBlocks, navItems, setOverviewBlocks, setNavItems, resetLayout } = useLayout();
+  const { overviewBlocks, setOverviewBlocks, resetLayout, editing: editingCtx, setEditing } = useLayout();
   const isWide = useMediaQuery('(min-width: 768px)');
-  const [editingOn, setEditingOn] = useState(false);
-  const editing = isWide && editingOn;
+  // Free-grid editing is desktop-only (no room to drag/resize on a phone).
+  const editing = isWide && editingCtx;
+  const [configId, setConfigId] = useState<string | null>(null);
 
   const visibleBlocks = useMemo(() => overviewBlocks.filter((b) => b.visible), [overviewBlocks]);
-  const nav = useMemo(
-    () => reconcileLayoutItems(navItems, NAV_ITEMS.map((i) => i.to), PINNED_NAV),
-    [navItems],
-  );
+  // In edit mode show ALL blocks (hidden ones as re-enableable ghosts); else visible-only.
+  const gridBlocks = editing ? overviewBlocks : visibleBlocks;
 
   const onGridChange = (coords: GridCoord[]) => {
     const cmap = new Map(coords.map((c) => [c.id, c]));
@@ -75,31 +72,30 @@ export function OverviewPage() {
     setOverviewBlocks(overviewBlocks.map((b) => (b.id === id ? { ...b, config: { ...b.config, ...config } } : b)));
 
   const loadableProcs = processList.filter((p) => !p.injected).length;
+  const configBlock = configId ? overviewBlocks.find((b) => b.id === configId) : null;
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Toolbar: edit toggle is desktop-only (free grid needs room to drag). */}
-      {isWide && !editing && (
-        <div className="flex items-center justify-end">
-          <Button variant="outline" size="sm" onClick={() => setEditingOn(true)}>
-            <Pencil className="size-3.5" /> 编辑布局
+      {/* Toolbar: edit toggle is desktop-only. In edit mode the cards carry
+          their own floating drag/hide/settings overlays, and the sidebar nav
+          becomes drag-sortable — no separate editor panel. */}
+      {isWide && (
+        <div className="flex items-center justify-end gap-2">
+          {editing && (
+            <Button variant="ghost" size="sm" onClick={resetLayout} className="text-muted-foreground">
+              <RotateCcw className="size-3.5" /> 恢复默认
+            </Button>
+          )}
+          <Button variant={editing ? 'default' : 'outline'} size="sm" onClick={() => setEditing(!editingCtx)}>
+            {editing ? <><Check className="size-3.5" /> 完成</> : <><Pencil className="size-3.5" /> 编辑布局</>}
           </Button>
         </div>
       )}
 
       {editing && (
-        <LayoutEditor
-          blocks={overviewBlocks}
-          blockLabelFor={widgetLabel}
-          navItems={nav}
-          navLabelFor={navLabelFor}
-          navPinned={PINNED_NAV}
-          onToggleBlock={toggleBlock}
-          onBlockConfig={setBlockConfig}
-          onNav={setNavItems}
-          onReset={resetLayout}
-          onDone={() => setEditingOn(false)}
-        />
+        <p className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] text-muted-foreground">
+          拖动卡片顶部的「拖动」手柄移动位置、拖右下角缩放；眼睛图标显隐、齿轮改设置。左侧导航也可在编辑态拖动排序。
+        </p>
       )}
 
       {/* First-run nudge — always shown (not a grid widget) so it can't be hidden. */}
@@ -125,17 +121,31 @@ export function OverviewPage() {
         </motion.div>
       )}
 
-      {visibleBlocks.length === 0 ? (
+      {visibleBlocks.length === 0 && !editing ? (
         <EmptyLayout onReset={resetLayout} />
       ) : (
         <DashboardGrid
-          blocks={visibleBlocks}
+          blocks={gridBlocks}
           editing={editing}
           cols={isWide ? GRID_COLS : 1}
           onChange={onGridChange}
           renderWidget={renderWidget}
+          labelFor={widgetLabel}
+          configurableIds={CONFIGURABLE_WIDGETS}
+          onToggleVisible={toggleBlock}
+          onConfigOpen={setConfigId}
         />
       )}
+
+      <Dialog open={!!configId} onOpenChange={(o) => { if (!o) setConfigId(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{configBlock ? `${widgetLabel(configBlock.id)} · 设置` : '设置'}</DialogTitle>
+          </DialogHeader>
+          {configBlock?.id === 'alerts' && <AlertsConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('alerts', c)} />}
+          {configBlock?.id === 'sessions' && <SessionsConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('sessions', c)} />}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -163,19 +173,19 @@ function StatTile({
   to?: AppPath;
 }) {
   const body = (
-    <CardContent className="flex h-full items-center gap-3 p-4">
+    <CardContent className="flex h-full items-center gap-2.5 overflow-hidden px-4 py-3">
       <div
         className={cn(
-          'flex size-10 shrink-0 items-center justify-center rounded-xl',
+          'flex size-9 shrink-0 items-center justify-center rounded-xl',
           accent ? 'bg-primary text-primary-foreground' : 'bg-primary/10 text-primary',
         )}
       >
         {icon}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
-        <div className="mt-0.5 truncate text-base font-semibold tabular-nums">{value}</div>
-        {subtext && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{subtext}</p>}
+        <p className="truncate text-[11px] font-medium uppercase leading-tight tracking-wider text-muted-foreground">{label}</p>
+        <div className="mt-1 truncate text-[15px] font-semibold leading-tight tabular-nums">{value}</div>
+        {subtext && <p className="mt-1 truncate text-[11px] leading-tight text-muted-foreground">{subtext}</p>}
       </div>
       {to && <ArrowRight className="size-4 shrink-0 text-muted-foreground/60" />}
     </CardContent>

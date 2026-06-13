@@ -238,12 +238,21 @@ html[data-reduce-motion="1"] *::after {
   background: color-mix(in oklab, var(--primary) 8%, transparent);
   border-radius: var(--radius);
 }
-/* Resize handle — only meaningful while editing (grid is interactive). */
-.grid-stack-item > .ui-resizable-handle {
-  filter: none;
-}
+/* Resize handle — only present while editing (grid is interactive). Make the
+   bottom-right grip obvious so it's clearly draggable. */
 .grid-stack-item > .ui-resizable-se {
-  /* Make the bottom-right resize grip visible against either theme. */
-  border-right: 2px solid color-mix(in oklab, var(--primary) 70%, transparent);
-  border-bottom: 2px solid color-mix(in oklab, var(--primary) 70%, transparent);
+  width: 18px;
+  height: 18px;
+  right: 5px;
+  bottom: 5px;
+  background-image: none;
+  transform: none;
+  border-right: 3px solid var(--primary);
+  border-bottom: 3px solid var(--primary);
+  border-bottom-right-radius: 5px;
+  opacity: 0.65;
+  z-index: 30;
+}
+.grid-stack-item:hover > .ui-resizable-se {
+  opacity: 1;
 }
