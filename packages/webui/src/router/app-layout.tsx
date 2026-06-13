@@ -19,8 +19,12 @@ import type { AccountConnections, HookProcessInfo, QQInfo, SystemInfo, UpdateInf
  */
 export function AppLayout() {
   const api = useApi();
-  const { pollInterval } = useTheme();
+  const { pollInterval, reloadAppearance } = useTheme();
   const session = useSession();
+
+  // Now that we're authed, re-fetch appearance from /api/ui so the
+  // authed-only `customCss` (stripped from the pre-auth public subset) loads.
+  useEffect(() => { void reloadAppearance(); }, [reloadAppearance]);
 
   const [qqList, setQqList] = useState<QQInfo[]>([]);
   const [processList, setProcessList] = useState<HookProcessInfo[]>([]);

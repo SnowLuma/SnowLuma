@@ -204,6 +204,8 @@ export interface UiAppearance {
   sidebarDefaultCollapsed: boolean;
   timeFormat: TimeFormat;
   pollInterval: number;
+  /** Operator custom CSS (applied post-auth only; stripped from /api/ui/public). */
+  customCss: string;
 }
 
 export interface UiLayoutItem {

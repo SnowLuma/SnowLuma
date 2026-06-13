@@ -551,6 +551,12 @@ export async function initWebUI(
   app.get('/api/ui/public', (c) => c.json({ appearance: publicAppearance() }));
 
   app.post('/api/ui', async (c) => {
+    // Reject oversized bodies before buffering — the normalizer caps individual
+    // fields (customCss 50KB, per-widget config 4KB) but not the whole payload.
+    const declaredLen = Number(c.req.header('content-length'));
+    if (Number.isFinite(declaredLen) && declaredLen > 256 * 1024) {
+      return c.json({ success: false, message: '配置过大' }, 413);
+    }
     let body: unknown;
     try {
       body = await c.req.json();

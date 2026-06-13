@@ -109,6 +109,7 @@ export const DEFAULT_APPEARANCE: UiAppearance = {
   sidebarDefaultCollapsed: false,
   timeFormat: '24h',
   pollInterval: 3000,
+  customCss: '',
 };
 
 const LS_CACHE = 'snowluma_ui_appearance';
@@ -223,6 +224,27 @@ function applyAppearance(a: UiAppearance, resolved: 'light' | 'dark'): void {
     document.head.appendChild(el);
   }
   el.textContent = accentVarsCss(a);
+
+  // Custom CSS — appended AFTER the accent block so it is the last style in
+  // <head> and can override anything. Skipped under ?safe-mode=1 (escape
+  // hatch) so a broken rule can't lock the operator out of fixing it.
+  const cssId = 'snowluma-custom-css';
+  let cssEl = document.getElementById(cssId) as HTMLStyleElement | null;
+  // Apply custom CSS ONLY when authed — the cache (snowluma_ui_appearance)
+  // may hold customCss from a prior session, and applyAppearance runs at boot
+  // before auth; without this gate that cached CSS would hit the login page
+  // (bypassing the server-side strip) and could lock the operator out.
+  const css = (isSafeMode() || !authToken()) ? '' : (a.customCss || '');
+  if (css) {
+    if (!cssEl) {
+      cssEl = document.createElement('style');
+      cssEl.id = cssId;
+      document.head.appendChild(cssEl);
+    }
+    if (cssEl.textContent !== css) cssEl.textContent = css;
+  } else if (cssEl) {
+    cssEl.textContent = '';
+  }
 }
 
 /** Manage the fixed full-viewport background layer behind the app. */
@@ -285,13 +307,40 @@ function authToken(): string | null {
 }
 
 async function fetchAppearance(): Promise<UiAppearance | null> {
+  const token = authToken();
   try {
+    // Authed: fetch the full config so we get `customCss` (which the public
+    // subset strips). Pre-auth (login page): the cosmetic public subset only.
+    if (token) {
+      const res = await fetch('/api/ui', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = (await res.json()) as { config?: { appearance?: UiAppearance } };
+        if (data.config?.appearance) return data.config.appearance;
+      }
+      // 401/expired → fall through to the public subset.
+    }
     const res = await fetch('/api/ui/public');
     if (!res.ok) return null;
     const data = (await res.json()) as { appearance?: UiAppearance };
     return data.appearance ?? null;
   } catch {
     return null;
+  }
+}
+
+/** `?safe-mode=1` disables custom CSS so a broken rule can't lock the operator
+ *  out. Sticky for the session (sessionStorage) so it survives in-app
+ *  navigation — and so editing the CSS to fix it doesn't re-inject the broken
+ *  rule mid-fix. Clears when the tab/session closes. */
+function isSafeMode(): boolean {
+  try {
+    if (new URLSearchParams(window.location.search).get('safe-mode') === '1') {
+      sessionStorage.setItem('snowluma_safe_mode', '1');
+      return true;
+    }
+    return sessionStorage.getItem('snowluma_safe_mode') === '1';
+  } catch {
+    return false;
   }
 }
 
@@ -370,6 +419,9 @@ interface ThemeContextValue {
   removeBackground: () => Promise<void>;
   /** Format a timestamp per the configured 12h/24h preference. */
   formatClock: (input: string | number | Date) => string;
+  /** Re-fetch appearance from the server (e.g. after login, so the authed
+   *  `customCss` loads). */
+  reloadAppearance: () => Promise<void>;
   // ── back-compat conveniences ──
   mode: ThemeMode;
   setMode: (m: ThemeMode) => void;
@@ -494,6 +546,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     });
   }, [appearance.timeFormat]);
 
+  const reloadAppearance = useCallback(async () => {
+    // Post-auth, the only field the pre-auth public subset lacked is
+    // `customCss`. Merge JUST that (via setAppearance, which preserves every
+    // other field — incl. a pre-auth localStorage migration — and write-through
+    // persists). A full overwrite here would clobber that migration with the
+    // server's not-yet-persisted default.
+    const server = await fetchAppearance();
+    if (server && server.customCss !== appearanceRef.current.customCss) {
+      setAppearance({ customCss: server.customCss });
+    }
+  }, [setAppearance]);
+
   const value = useMemo<ThemeContextValue>(() => ({
     appearance,
     ready,
@@ -502,10 +566,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     uploadBackground,
     removeBackground,
     formatClock,
+    reloadAppearance,
     mode: appearance.mode,
     setMode: (m: ThemeMode) => setAppearance({ mode: m }),
     pollInterval: appearance.pollInterval,
-  }), [appearance, ready, resolved, setAppearance, uploadBackground, removeBackground, formatClock]);
+  }), [appearance, ready, resolved, setAppearance, uploadBackground, removeBackground, formatClock, reloadAppearance]);
 
   return (
     <ThemeContext.Provider value={value}>

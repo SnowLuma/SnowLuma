@@ -87,6 +87,13 @@ export interface UiAppearance {
   timeFormat: TimeFormat;
   /** Dashboard poll interval (ms); 0 = paused. */
   pollInterval: number;
+  /**
+   * Operator custom CSS, applied AFTER auth only (never on the login page —
+   * `publicAppearance` strips it). Capped at 50 KB. The client injects it as
+   * the last <style> and skips it under `?safe-mode=1` so a broken rule can't
+   * lock the operator out.
+   */
+  customCss: string;
 }
 
 export interface UiLayoutItem {
@@ -157,6 +164,7 @@ const DEFAULT_APPEARANCE: UiAppearance = {
   sidebarDefaultCollapsed: false,
   timeFormat: '24h',
   pollInterval: 3000,
+  customCss: '',
 };
 
 const DEFAULT_OVERVIEW_BLOCKS: UiLayoutItem[] = [
@@ -342,6 +350,7 @@ export function normalizeAppearance(value: unknown, imageState: ServerImageState
     sidebarDefaultCollapsed: boolOr(v.sidebarDefaultCollapsed, DEFAULT_APPEARANCE.sidebarDefaultCollapsed),
     timeFormat: oneOf<TimeFormat>(v.timeFormat, ['12h', '24h'], DEFAULT_APPEARANCE.timeFormat),
     pollInterval: clampNum(v.pollInterval, 0, 60_000, DEFAULT_APPEARANCE.pollInterval),
+    customCss: typeof v.customCss === 'string' ? v.customCss.slice(0, 50_000) : DEFAULT_APPEARANCE.customCss,
   };
 }
 
@@ -443,9 +452,11 @@ export function saveUiConfig(incoming: unknown): UiConfig {
   return next;
 }
 
-/** The appearance-only subset served unauthenticated to the login page. */
+/** The appearance subset served unauthenticated to the login page. Strips
+ *  `customCss` so a broken/hostile rule can never reach the pre-auth page
+ *  (and so the operator can always log in to fix it). */
 export function publicAppearance(): UiAppearance {
-  return loadUiConfig().appearance;
+  return { ...loadUiConfig().appearance, customCss: '' };
 }
 
 // ─── Background image lifecycle ─────────────────────────────────────────────

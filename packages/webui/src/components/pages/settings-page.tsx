@@ -1,8 +1,8 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { motion } from 'motion/react';
 import {
-  Accessibility, Bug, Check, Clock, Download, ExternalLink, Github, Image as ImageIcon,
-  Info, KeyRound, Loader2, Monitor, Moon, Palette, RefreshCw, ShieldCheck,
+  Accessibility, Bug, Check, Clock, Code2, Download, ExternalLink, Github, Image as ImageIcon,
+  Info, KeyRound, Loader2, Monitor, Moon, Palette, RefreshCw, RotateCcw, ShieldCheck,
   Sparkles, Star, Sun, Tag, Upload, Trash2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -12,6 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import {
   ACCENTS,
+  DEFAULT_APPEARANCE,
   FONT_MONO_OPTIONS,
   FONT_SANS_OPTIONS,
   GRADIENT_OPTIONS,
@@ -27,15 +28,19 @@ import {
   type ThemeMode,
   type TimeFormat,
 } from '@/contexts/ThemeContext';
+import { DEFAULT_LAYOUT } from '@/contexts/LayoutContext';
 import { ChangePasswordDialog } from '@/components/change-password-dialog';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { useApi } from '@/lib/api';
 import { useAppState } from '@/contexts/AppStateContext';
 import { cn } from '@/lib/utils';
 
-type SettingsTab = 'appearance' | 'data' | 'account' | 'about';
+type SettingsTab = 'appearance' | 'data' | 'advanced' | 'account' | 'about';
 
 const TABS: { key: SettingsTab; label: string; icon: typeof Sun }[] = [
   { key: 'appearance', label: '外观', icon: Palette },
   { key: 'data', label: '数据与格式', icon: RefreshCw },
+  { key: 'advanced', label: '高级', icon: Code2 },
   { key: 'account', label: '账号安全', icon: ShieldCheck },
   { key: 'about', label: '关于', icon: Info },
 ];
@@ -49,8 +54,138 @@ export function SettingsPage() {
 
       {tab === 'appearance' && <AppearancePanel />}
       {tab === 'data' && <DataPanel />}
+      {tab === 'advanced' && <AdvancedPanel />}
       {tab === 'account' && <AccountPanel />}
       {tab === 'about' && <AboutPanel />}
+    </div>
+  );
+}
+
+// ─────────────── 高级（自定义 CSS + 备份/重置） ───────────────
+
+function AdvancedPanel() {
+  const { appearance, setAppearance } = useTheme();
+  const api = useApi();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const onExport = async () => {
+    setMsg(null);
+    try {
+      const config = await api.ui.get();
+      const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'snowluma-ui-config.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setMsg({ kind: 'err', text: '导出失败' });
+    }
+  };
+
+  const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (fileRef.current) fileRef.current.value = '';
+    if (!file) return;
+    if (file.size > 256 * 1024) {
+      setMsg({ kind: 'err', text: '导入失败：文件过大（上限 256KB）' });
+      return;
+    }
+    setMsg(null);
+    setBusy(true);
+    try {
+      const parsed = JSON.parse(await file.text()) as unknown;
+      if (typeof parsed !== 'object' || parsed === null) throw new Error('shape');
+      await api.ui.save(parsed as Parameters<typeof api.ui.save>[0]);
+      // The server normalized it; reload so appearance + layout both re-read.
+      window.location.reload();
+    } catch {
+      setBusy(false);
+      setMsg({ kind: 'err', text: '导入失败：不是有效的配置 JSON' });
+    }
+  };
+
+  const doReset = async () => {
+    setBusy(true);
+    try {
+      await api.ui.save({ appearance: DEFAULT_APPEARANCE, layout: DEFAULT_LAYOUT });
+      window.location.reload();
+    } catch {
+      setBusy(false);
+      setMsg({ kind: 'err', text: '重置失败' });
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-5">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Code2 className="size-4 text-primary" /> 自定义 CSS</CardTitle>
+          <CardDescription>
+            高级用户可注入自定义样式，登录后全局生效（登录页不受影响）。
+            若改坏了界面，在地址后加 <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">?safe-mode=1</code> 可临时禁用自定义 CSS 进来修复。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <textarea
+            value={appearance.customCss}
+            onChange={(e) => setAppearance({ customCss: e.target.value })}
+            maxLength={50000}
+            spellCheck={false}
+            placeholder={'/* 例如：放大侧栏字号 */\n.text-sidebar-foreground { font-size: 1.05em; }'}
+            className="h-64 w-full resize-y rounded-lg border bg-card/40 p-3 font-mono text-[12px] leading-relaxed outline-none focus:border-primary"
+          />
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] text-muted-foreground">{appearance.customCss.length} / 50000 字符</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setAppearance({ customCss: '' })}
+              disabled={!appearance.customCss}
+              className="text-destructive hover:text-destructive"
+            >
+              <Trash2 className="size-4" /> 清空
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>备份与重置</CardTitle>
+          <CardDescription>导出 / 导入全部界面配置（外观 + 布局 + 自定义 CSS）。背景图片需另行重新上传。</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <input ref={fileRef} type="file" accept="application/json,.json" onChange={onImportFile} className="hidden" />
+            <Button variant="outline" size="sm" onClick={onExport} disabled={busy}>
+              <Download className="size-4" /> 导出
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={busy}>
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />} 导入
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmReset(true)} disabled={busy} className="text-destructive hover:text-destructive">
+              <RotateCcw className="size-4" /> 重置全部
+            </Button>
+          </div>
+          {msg && (
+            <span className={cn('text-[11px]', msg.kind === 'ok' ? 'text-success' : 'text-destructive')}>{msg.text}</span>
+          )}
+        </CardContent>
+      </Card>
+
+      <ConfirmDialog
+        open={confirmReset}
+        onOpenChange={setConfirmReset}
+        title="重置全部界面配置"
+        description="将外观、仪表盘布局、导航与自定义 CSS 全部恢复为默认。此操作不可撤销。"
+        confirmText="重置"
+        onConfirm={doReset}
+      />
     </div>
   );
 }

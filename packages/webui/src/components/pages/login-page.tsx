@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { ArrowRight, Eye, EyeOff, KeyRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,12 @@ interface LoginPageProps {
 export function LoginPage({ onLogin }: LoginPageProps) {
   const { appearance } = useTheme();
   const customBg = appearance.background.type !== 'none';
+
+  // The login page must never carry operator custom CSS. applyAppearance gates
+  // it on a token, but an in-session logout / 401 expiry won't re-run it, so
+  // clear any lingering custom-CSS <style> whenever the login page shows.
+  useEffect(() => { document.getElementById('snowluma-custom-css')?.remove(); }, []);
+
   const [password, setPassword] = useState('');
   const [showPwd, setShowPwd] = useState(false);
   const [error, setError] = useState('');
