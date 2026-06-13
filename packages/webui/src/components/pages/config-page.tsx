@@ -22,6 +22,7 @@ import type {
 } from '@/types';
 import { useOneBotInstanceConfig } from '@/hooks/use-onebot-instance-config';
 import { useAppState } from '@/contexts/AppStateContext';
+import { useLayout } from '@/contexts/LayoutContext';
 import { AccountSidebar } from '@/components/config/account-sidebar';
 import { GeneralSettingsTab } from '@/components/config/general-settings-tab';
 import { NodeSummaryCard } from '@/components/config/node-summary-card';
@@ -55,7 +56,16 @@ export function ConfigPage() {
     onSelectedUinChange: setSelectedUin,
   });
 
-  const [activeTab, setActiveTab] = useState<TabKey>('general');
+  const { pages, setPages } = useLayout();
+  const [activeTab, setActiveTabState] = useState<TabKey>(() => {
+    const t = pages.configTab;
+    return t === 'general' || (!!t && t in NETWORK_TABS) ? (t as TabKey) : 'general';
+  });
+  // Persist the last-used tab as the default for next time.
+  const setActiveTab = useCallback((t: TabKey) => {
+    setActiveTabState(t);
+    setPages({ configTab: t });
+  }, [setPages]);
   // Default the account strip to its 56px avatar-only form on narrow screens
   // (≤lg) so the editor pane isn't squeezed; the user can still expand it.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(

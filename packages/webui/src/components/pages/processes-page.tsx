@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { AlertCircle, CheckCircle2, Cpu, Eye, Loader2, RefreshCw, Unplug } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,17 @@ import { ProcessProbeDialog } from '@/components/process-probe-dialog';
 import { cn } from '@/lib/utils';
 import type { HookProcessInfo } from '@/types';
 import { useAppState } from '@/contexts/AppStateContext';
+import { useLayout } from '@/contexts/LayoutContext';
+
+const SORT_OPTIONS: { id: string; label: string }[] = [
+  { id: 'pid', label: 'PID' },
+  { id: 'name', label: '名称' },
+  { id: 'status', label: '状态' },
+];
+// Online-first, then by how actionable the state is.
+const STATUS_ORDER: Record<HookProcessInfo['status'], number> = {
+  online: 0, loaded: 1, connecting: 2, loading: 3, available: 4, disconnected: 5, error: 6,
+};
 
 const processStatusLabel: Record<HookProcessInfo['status'], string> = {
   available: '可加载',
@@ -38,8 +49,18 @@ function processBadgeVariant(status: HookProcessInfo['status']) {
 export function ProcessesPage() {
   const { processList, processOps, refreshProcesses } = useAppState();
   const { statusOf, banner: processActionStatus, load, unload, refresh } = processOps;
+  const { pages, setPages } = useLayout();
   const [confirm, setConfirm] = useState<{ kind: 'load' | 'unload'; pid: number; name: string } | null>(null);
   const [probeDialog, setProbeDialog] = useState<{ pid: number; name: string } | null>(null);
+
+  const sortKey = pages.processesSort;
+  const sorted = useMemo(() => {
+    const arr = [...processList];
+    if (sortKey === 'name') arr.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    else if (sortKey === 'status') arr.sort((a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) || a.pid - b.pid);
+    else arr.sort((a, b) => a.pid - b.pid);
+    return arr;
+  }, [processList, sortKey]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -49,9 +70,29 @@ export function ProcessesPage() {
             <CardTitle>进程注入</CardTitle>
             <CardDescription>加载 SnowLuma 后会监听登录状态，登录后自动接入 OneBot 流程</CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={refreshProcesses}>
-            <RefreshCw className="size-3.5" /> 刷新
-          </Button>
+          <div className="flex items-center gap-2">
+            {processList.length > 1 && (
+              <div className="hidden items-center gap-1 sm:flex">
+                <span className="text-[11px] text-muted-foreground">排序</span>
+                {SORT_OPTIONS.map((o) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    onClick={() => setPages({ processesSort: o.id })}
+                    className={cn(
+                      'rounded-md border px-2 py-1 text-[11px] transition-colors cursor-pointer',
+                      sortKey === o.id ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-accent/40',
+                    )}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <Button variant="outline" size="sm" onClick={refreshProcesses}>
+              <RefreshCw className="size-3.5" /> 刷新
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {processActionStatus && (
@@ -71,7 +112,7 @@ export function ProcessesPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
-              {processList.map((proc, idx) => {
+              {sorted.map((proc, idx) => {
                 const op = statusOf(proc.pid);
                 const loading = op === 'load' || proc.status === 'loading';
                 const unloading = op === 'unload';

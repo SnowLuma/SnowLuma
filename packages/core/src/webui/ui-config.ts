@@ -124,10 +124,37 @@ export interface UiLayout {
   navItems: UiLayoutItem[];
 }
 
+export interface UiHighlightRule {
+  keyword: string;
+  color: string;
+}
+
+export interface UiLogsPrefs {
+  /** Log levels shown by default (client display filter). */
+  visibleLevels: string[];
+  /** Ring-buffer cap for the live view (100…5000). */
+  maxLines: number;
+  autoScroll: boolean;
+  wrap: boolean;
+  /** Keyword → colour row highlights. */
+  highlightRules: UiHighlightRule[];
+}
+
+export interface UiPages {
+  /** Route the operator lands on after login (a nav path; '/' if unset). */
+  defaultRoute: string;
+  logs: UiLogsPrefs;
+  /** Default sort key for the processes page. */
+  processesSort: string;
+  /** Default tab id for the node-config page ('' = first). */
+  configTab: string;
+}
+
 export interface UiConfig {
   version: typeof UI_CONFIG_VERSION;
   appearance: UiAppearance;
   layout: UiLayout;
+  pages: UiPages;
 }
 
 // ─── Defaults ────────────────────────────────────────────────────────────
@@ -183,6 +210,21 @@ const DEFAULT_NAV_ITEMS: UiLayoutItem[] = [
   { id: '/settings', visible: true },
 ];
 
+const LOG_LEVELS = ['trace', 'debug', 'info', 'success', 'warn', 'error'];
+
+const DEFAULT_PAGES: UiPages = {
+  defaultRoute: '/',
+  logs: {
+    visibleLevels: [...LOG_LEVELS],
+    maxLines: 1000,
+    autoScroll: true,
+    wrap: true,
+    highlightRules: [],
+  },
+  processesSort: 'pid',
+  configTab: '',
+};
+
 export function defaultUiConfig(): UiConfig {
   return {
     version: UI_CONFIG_VERSION,
@@ -191,7 +233,12 @@ export function defaultUiConfig(): UiConfig {
       overviewBlocks: DEFAULT_OVERVIEW_BLOCKS.map((b) => ({ ...b })),
       navItems: DEFAULT_NAV_ITEMS.map((b) => ({ ...b })),
     },
+    pages: defaultPages(),
   };
+}
+
+function defaultPages(): UiPages {
+  return { ...DEFAULT_PAGES, logs: { ...DEFAULT_PAGES.logs, visibleLevels: [...LOG_LEVELS], highlightRules: [] } };
 }
 
 // ─── Normalization helpers ─────────────────────────────────────────────────
@@ -362,12 +409,47 @@ export function normalizeLayout(value: unknown): UiLayout {
   };
 }
 
+function normalizeHighlightRules(value: unknown): UiHighlightRule[] {
+  if (!Array.isArray(value)) return [];
+  const out: UiHighlightRule[] = [];
+  for (const raw of value) {
+    if (!isObject(raw) || typeof raw.keyword !== 'string') continue;
+    const keyword = raw.keyword.trim().slice(0, 50);
+    if (!keyword) continue; // drop empty / whitespace-only (would match every row)
+    const color = typeof raw.color === 'string' ? raw.color.slice(0, 32) : '';
+    out.push({ keyword, color });
+    if (out.length >= 20) break; // cap the rule count
+  }
+  return out;
+}
+
+export function normalizePages(value: unknown): UiPages {
+  const v = isObject(value) ? value : {};
+  const logs = isObject(v.logs) ? v.logs : {};
+  const levels = Array.isArray(logs.visibleLevels)
+    ? LOG_LEVELS.filter((l) => (logs.visibleLevels as unknown[]).includes(l))
+    : DEFAULT_PAGES.logs.visibleLevels;
+  return {
+    defaultRoute: idOr(v.defaultRoute, DEFAULT_PAGES.defaultRoute),
+    logs: {
+      visibleLevels: levels.length > 0 ? levels : [...LOG_LEVELS],
+      maxLines: clampInt(logs.maxLines, 100, 5000, DEFAULT_PAGES.logs.maxLines),
+      autoScroll: boolOr(logs.autoScroll, DEFAULT_PAGES.logs.autoScroll),
+      wrap: boolOr(logs.wrap, DEFAULT_PAGES.logs.wrap),
+      highlightRules: normalizeHighlightRules(logs.highlightRules),
+    },
+    processesSort: idOr(v.processesSort, DEFAULT_PAGES.processesSort),
+    configTab: typeof v.configTab === 'string' ? v.configTab.slice(0, 64) : DEFAULT_PAGES.configTab,
+  };
+}
+
 export function normalizeUiConfig(value: unknown, imageState: ServerImageState = DEFAULT_IMAGE_STATE): UiConfig {
   const v = isObject(value) ? value : {};
   return {
     version: UI_CONFIG_VERSION,
     appearance: normalizeAppearance(v.appearance, imageState),
     layout: normalizeLayout(v.layout),
+    pages: normalizePages(v.pages),
   };
 }
 
@@ -446,6 +528,7 @@ export function saveUiConfig(incoming: unknown): UiConfig {
       ? normalizeAppearance(v.appearance, current.appearance.background)
       : current.appearance,
     layout: isObject(v.layout) ? normalizeLayout(v.layout) : current.layout,
+    pages: isObject(v.pages) ? normalizePages(v.pages) : (current.pages ?? defaultPages()),
   };
   atomicWrite(next);
   cached = next;

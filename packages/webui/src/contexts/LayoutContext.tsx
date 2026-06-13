@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useApi } from '@/lib/api';
 import { defaultOverviewGrid, migrateOverviewBlocks } from '@/lib/dashboard-layout';
-import type { UiLayout, UiLayoutItem } from '@/types';
+import type { UiLayout, UiLayoutItem, UiPages } from '@/types';
 
 // Client-side layout customization (the "C" half). The server stores the
 // layout in config/ui.json; this context loads it (authed `GET /api/ui`),
@@ -26,6 +26,19 @@ export const DEFAULT_LAYOUT: UiLayout = {
   overviewBlocks: defaultOverviewGrid(),
   navItems: DEFAULT_NAV_ITEMS.map((i) => ({ ...i })),
 };
+
+const ALL_LEVELS = ['trace', 'debug', 'info', 'success', 'warn', 'error'];
+
+export function defaultPages(): UiPages {
+  return {
+    defaultRoute: '/',
+    logs: { visibleLevels: [...ALL_LEVELS], maxLines: 1000, autoScroll: true, wrap: true, highlightRules: [] },
+    processesSort: 'pid',
+    configTab: '',
+  };
+}
+
+export const DEFAULT_PAGES: UiPages = defaultPages();
 
 /**
  * Order + visibility for a known catalogue: keep stored items that still exist
@@ -58,8 +71,14 @@ interface LayoutContextValue {
   setOverviewBlocks: (items: UiLayoutItem[]) => void;
   /** Persist a new nav order/visibility. */
   setNavItems: (items: UiLayoutItem[]) => void;
-  /** Reset both to defaults. */
+  /** Reset layout (blocks + nav) to defaults. */
   resetLayout: () => void;
+  /** Per-page preferences (default route, logs/processes/config prefs). */
+  pages: UiPages;
+  /** Merge a partial pages-prefs update (debounced-persisted). */
+  setPages: (patch: Partial<UiPages>) => void;
+  /** True once the authed config load has resolved (gates the default-route redirect). */
+  ready: boolean;
 }
 
 const LayoutContext = createContext<LayoutContextValue | null>(null);
@@ -67,13 +86,18 @@ const LayoutContext = createContext<LayoutContextValue | null>(null);
 export function LayoutProvider({ children }: { children: ReactNode }) {
   const api = useApi();
   const [layout, setLayout] = useState<UiLayout>(DEFAULT_LAYOUT);
+  const [pages, setPagesState] = useState<UiPages>(DEFAULT_PAGES);
+  const [ready, setReady] = useState(false);
   const layoutRef = useRef(layout);
+  const pagesRef = useRef(pages);
   // Set once the user edits, so the initial GET (which may resolve AFTER the
   // first edit) never clobbers their change.
   const dirtyRef = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pagesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { layoutRef.current = layout; }, [layout]);
+  useEffect(() => { pagesRef.current = pages; }, [pages]);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,25 +108,34 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
         // overview + editor are interactive immediately, before this resolves).
         // Overview blocks are migrated to the current grid catalogue (legacy
         // `stats`→tiles, default coords for new/coordless widgets).
-        if (!cancelled && !dirtyRef.current && config?.layout) {
-          setLayout({
-            overviewBlocks: migrateOverviewBlocks(config.layout.overviewBlocks),
-            navItems: config.layout.navItems,
-          });
+        if (!cancelled && !dirtyRef.current && config) {
+          if (config.layout) {
+            setLayout({
+              overviewBlocks: migrateOverviewBlocks(config.layout.overviewBlocks),
+              navItems: config.layout.navItems,
+            });
+          }
+          if (config.pages) setPagesState(config.pages);
         }
       } catch {
-        /* keep defaults — layout is non-critical */
+        /* keep defaults — layout/pages are non-critical */
+      } finally {
+        if (!cancelled) setReady(true);
       }
     })();
     return () => { cancelled = true; };
   }, [api]);
 
-  // On unmount (e.g. logout), flush a pending debounced save so a last-moment
+  // On unmount (e.g. logout), flush pending debounced saves so a last-moment
   // edit isn't lost; best-effort (a cleared token just 401s harmlessly).
   useEffect(() => () => {
     if (saveTimer.current) {
       clearTimeout(saveTimer.current);
       void api.ui.save({ layout: layoutRef.current }).catch(() => { /* best-effort */ });
+    }
+    if (pagesTimer.current) {
+      clearTimeout(pagesTimer.current);
+      void api.ui.save({ pages: pagesRef.current }).catch(() => { /* best-effort */ });
     }
   }, [api]);
 
@@ -132,13 +165,28 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
     });
   }, [persist]);
 
+  const setPages = useCallback((patch: Partial<UiPages>) => {
+    dirtyRef.current = true;
+    const next = { ...pagesRef.current, ...patch };
+    pagesRef.current = next;
+    setPagesState(next);
+    if (pagesTimer.current) clearTimeout(pagesTimer.current);
+    pagesTimer.current = setTimeout(() => {
+      pagesTimer.current = null;
+      void api.ui.save({ pages: next }).catch(() => { /* best-effort */ });
+    }, 300);
+  }, [api]);
+
   const value = useMemo<LayoutContextValue>(() => ({
     overviewBlocks: layout.overviewBlocks,
     navItems: layout.navItems,
     setOverviewBlocks,
     setNavItems,
     resetLayout,
-  }), [layout, setOverviewBlocks, setNavItems, resetLayout]);
+    pages,
+    setPages,
+    ready,
+  }), [layout, setOverviewBlocks, setNavItems, resetLayout, pages, setPages, ready]);
 
   return <LayoutContext.Provider value={value}>{children}</LayoutContext.Provider>;
 }

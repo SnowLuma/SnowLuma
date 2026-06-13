@@ -225,8 +225,29 @@ export interface UiLayout {
   navItems: UiLayoutItem[];
 }
 
+export interface UiHighlightRule {
+  keyword: string;
+  color: string;
+}
+
+export interface UiLogsPrefs {
+  visibleLevels: string[];
+  maxLines: number;
+  autoScroll: boolean;
+  wrap: boolean;
+  highlightRules: UiHighlightRule[];
+}
+
+export interface UiPages {
+  defaultRoute: string;
+  logs: UiLogsPrefs;
+  processesSort: string;
+  configTab: string;
+}
+
 export interface UiConfig {
   version: number;
   appearance: UiAppearance;
   layout: UiLayout;
+  pages: UiPages;
 }

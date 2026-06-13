@@ -28,7 +28,8 @@ import {
   type ThemeMode,
   type TimeFormat,
 } from '@/contexts/ThemeContext';
-import { DEFAULT_LAYOUT } from '@/contexts/LayoutContext';
+import { DEFAULT_LAYOUT, DEFAULT_PAGES, useLayout } from '@/contexts/LayoutContext';
+import { NAV_ITEMS } from '@/components/layout/sidebar';
 import { ChangePasswordDialog } from '@/components/change-password-dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useApi } from '@/lib/api';
@@ -112,7 +113,7 @@ function AdvancedPanel() {
   const doReset = async () => {
     setBusy(true);
     try {
-      await api.ui.save({ appearance: DEFAULT_APPEARANCE, layout: DEFAULT_LAYOUT });
+      await api.ui.save({ appearance: DEFAULT_APPEARANCE, layout: DEFAULT_LAYOUT, pages: DEFAULT_PAGES });
       window.location.reload();
     } catch {
       setBusy(false);
@@ -644,6 +645,7 @@ const TIME_FORMAT_OPTIONS: Opt<TimeFormat>[] = [
 
 function DataPanel() {
   const { appearance, setAppearance } = useTheme();
+  const { pages, setPages } = useLayout();
   return (
     <div className="flex flex-col gap-5">
       <Card>
@@ -657,6 +659,22 @@ function DataPanel() {
               value={appearance.pollInterval}
               options={POLL_INTERVAL_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
               onChange={(pollInterval) => setAppearance({ pollInterval })}
+            />
+          </Field>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>登录后落地页</CardTitle>
+          <CardDescription>登录后默认打开的页面。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Field label="默认页面">
+            <Segmented
+              value={pages.defaultRoute}
+              options={NAV_ITEMS.map((n) => ({ value: n.to as string, label: n.label }))}
+              onChange={(defaultRoute) => setPages({ defaultRoute })}
             />
           </Field>
         </CardContent>
