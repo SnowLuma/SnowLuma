@@ -173,7 +173,7 @@ function StatTile({
   to?: AppPath;
 }) {
   const body = (
-    <CardContent className="flex h-full items-center gap-2.5 overflow-hidden px-4 py-3">
+    <CardContent className="flex h-full items-center gap-2.5 overflow-hidden px-4 py-2">
       <div
         className={cn(
           'flex size-9 shrink-0 items-center justify-center rounded-xl',
@@ -184,8 +184,8 @@ function StatTile({
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-[11px] font-medium uppercase leading-tight tracking-wider text-muted-foreground">{label}</p>
-        <div className="mt-1 truncate text-[15px] font-semibold leading-tight tabular-nums">{value}</div>
-        {subtext && <p className="mt-1 truncate text-[11px] leading-tight text-muted-foreground">{subtext}</p>}
+        <div className="mt-0.5 truncate text-[15px] font-semibold leading-tight tabular-nums">{value}</div>
+        {subtext && <p className="mt-0.5 truncate text-[11px] leading-tight text-muted-foreground">{subtext}</p>}
       </div>
       {to && <ArrowRight className="size-4 shrink-0 text-muted-foreground/60" />}
     </CardContent>

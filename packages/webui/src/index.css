@@ -217,6 +217,91 @@ html[data-reduce-motion="1"] *::after {
 }
 
 /* ──────────────────────────────────────────────
+   Native scrollbars — themed to match. Radix ScrollArea hides its own
+   native bar and renders a custom thumb, so this only styles plain overflow
+   containers (textareas, <pre>, the settings rail, grid widget bodies…).
+   ────────────────────────────────────────────── */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--foreground) 22%, transparent) transparent;
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklab, var(--foreground) 22%, transparent);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklab, var(--foreground) 38%, transparent);
+}
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* ──────────────────────────────────────────────
+   Custom range slider (via the <Slider> component, class `.slider`).
+   The component sets `--slider-pct` for the WebKit filled track; Firefox
+   uses native ::-moz-range-progress.
+   ────────────────────────────────────────────── */
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  /* Match the track height so WebKit can't top-align a short track inside a
+     taller input; the 1rem thumb overflows symmetrically as the grab target. */
+  height: 0.375rem;
+  background: transparent;
+  cursor: pointer;
+}
+.slider::-webkit-slider-runnable-track {
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: linear-gradient(to right,
+    var(--primary) var(--slider-pct, 0%),
+    var(--muted) var(--slider-pct, 0%));
+}
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -0.3125rem; /* center the 1rem thumb on the 0.375rem track */
+  height: 1rem;
+  width: 1rem;
+  border-radius: 9999px;
+  background: var(--background);
+  border: 2px solid var(--primary);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.18);
+  transition: transform 0.12s ease;
+}
+.slider:active::-webkit-slider-thumb { transform: scale(1.12); }
+.slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 40%, transparent);
+}
+.slider::-moz-range-track {
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: var(--muted);
+}
+.slider::-moz-range-progress {
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: var(--primary);
+}
+.slider::-moz-range-thumb {
+  height: 1rem;
+  width: 1rem;
+  border: 2px solid var(--primary);
+  border-radius: 9999px;
+  background: var(--background);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.18);
+}
+.slider:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 40%, transparent);
+}
+/* The global reduce-motion rule can't match pseudo-elements, so kill the
+   thumb's active-scale transition explicitly. */
+html[data-reduce-motion="1"] .slider::-webkit-slider-thumb { transition: none !important; }
+
+/* ──────────────────────────────────────────────
    gridstack dashboard — mesh the library's item shell with our cards.
    The widget content (a Card) owns its own bg/border/rounding, so the
    gridstack content box is just a transparent, full-bleed container.

@@ -28,6 +28,10 @@ export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
     return appearance.sidebarDefaultCollapsed;
   });
   const customBg = appearance.background.type !== 'none';
+  // Framer's reducedMotion only suppresses transforms, so the always-present
+  // width + page-transition animations need an explicit opt-out to make the
+  // “减少动效” setting actually felt.
+  const reduce = appearance.reduceMotion;
   const { editing } = useLayout();
   // Force the sidebar open while editing layout so its drag-to-reorder list
   // has room (it returns to the user's collapsed pref on 完成).
@@ -46,7 +50,7 @@ export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
         <motion.aside
           initial={false}
           animate={{ width: effectiveCollapsed ? 64 : 248 }}
-          transition={{ type: 'spring', stiffness: 280, damping: 32 }}
+          transition={reduce ? { duration: 0 } : { type: 'spring', stiffness: 280, damping: 32 }}
           className="relative h-full shrink-0 border-r overflow-hidden"
         >
           <Sidebar collapsed={effectiveCollapsed} />
@@ -85,10 +89,10 @@ export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
               <AnimatePresence mode="wait">
                 <motion.div
                   key={pathname}
-                  initial={{ opacity: 0, y: 10 }}
+                  initial={reduce ? false : { opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                  exit={reduce ? { opacity: 0 } : { opacity: 0, y: -8 }}
+                  transition={reduce ? { duration: 0 } : { duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
                 >
                   {children}
                 </motion.div>

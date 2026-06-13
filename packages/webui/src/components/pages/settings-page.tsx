@@ -8,6 +8,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
+import { Slider } from '@/components/ui/slider';
 import {
   ACCENTS,
   DEFAULT_APPEARANCE,
@@ -361,14 +362,13 @@ function AppearancePanel() {
         <SettingRow label={`界面缩放（${Math.round(a.uiScale * 100)}%）`} hint="整体放大或缩小界面，适合高分屏或视力需要。" layout="stack">
           <div className="flex items-center gap-3">
             <span className="text-[11px] text-muted-foreground tabular-nums">{Math.round(UI_SCALE.min * 100)}%</span>
-            <input
-              type="range"
+            <Slider
               min={UI_SCALE.min}
               max={UI_SCALE.max}
               step={UI_SCALE.step}
               value={a.uiScale}
               onChange={(e) => setAppearance({ uiScale: Number(e.target.value) })}
-              className="h-2 flex-1 cursor-pointer accent-primary"
+              className="flex-1"
               aria-label="界面缩放"
             />
             <span className="text-[11px] text-muted-foreground tabular-nums">{Math.round(UI_SCALE.max * 100)}%</span>
@@ -506,26 +506,22 @@ function BackgroundCard({
           {a.background.hasImage && (
             <>
               <SettingRow label={`遮罩强度（${Math.round(a.background.imageOpacity * 100)}%）`} hint="越高越能盖住壁纸、提升前景可读性。" layout="stack">
-                <input
-                  type="range"
+                <Slider
                   min={0}
                   max={1}
                   step={0.05}
                   value={a.background.imageOpacity}
                   onChange={(e) => setAppearance({ background: { imageOpacity: Number(e.target.value) } })}
-                  className="h-2 w-full cursor-pointer accent-primary"
                   aria-label="遮罩强度"
                 />
               </SettingRow>
               <SettingRow label={`模糊（${a.background.imageBlur}px）`} layout="stack">
-                <input
-                  type="range"
+                <Slider
                   min={0}
                   max={40}
                   step={1}
                   value={a.background.imageBlur}
                   onChange={(e) => setAppearance({ background: { imageBlur: Number(e.target.value) } })}
-                  className="h-2 w-full cursor-pointer accent-primary"
                   aria-label="背景模糊"
                 />
               </SettingRow>
