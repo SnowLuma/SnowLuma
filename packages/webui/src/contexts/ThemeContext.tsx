@@ -1,11 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { MotionConfig } from 'motion/react';
-import type { ThemeMode, UiAppearance, UiBackground } from '@/types';
+import type { Palette, ThemeMode, UiAppearance, UiBackground } from '@/types';
 
 // Re-export the appearance value types so consumers (settings page etc.) can
 // import them straight from the context module.
 export type {
-  AccentMode, AccentScope, BackgroundType, DarkIntensity, Density, SidebarStyle, ThemeMode, TimeFormat, UiAppearance,
+  AccentMode, AccentScope, BackgroundType, DarkIntensity, Density, Palette, SidebarStyle, ThemeMode, TimeFormat, UiAppearance,
 } from '@/types';
 
 /** A partial appearance update; `background` may itself be a partial patch. */
@@ -97,6 +97,7 @@ export const DEFAULT_APPEARANCE: UiAppearance = {
   accentCustom: '#38bdf8',
   accentScope: 'global',
   darkIntensity: 'soft',
+  palette: 'default',
   sidebarStyle: 'follow',
   background: { type: 'none', color: '#0ea5e9', gradient: 'none', imageOpacity: 0.15, imageBlur: 0, hasImage: false, imageMime: '', imageVersion: 0 },
   fontSans: 'default',
@@ -187,6 +188,102 @@ function accentVarsCss(a: UiAppearance): string {
   return `:root{${light}}\n.dark{${dark}}`;
 }
 
+// ─── Catppuccin palettes (full surface/base token sets) ────────────────────
+// Official flavor hexes mapped onto our token names. Accent (--primary/--ring)
+// is intentionally left to the accent system so the two compose. Latte is the
+// light flavor; the other three are dark. Applied via the injected theme
+// stylesheet over the base :root/.dark (see applyAppearance), so darkIntensity
+// is forced off for these (their darkness is part of the palette).
+type PaletteVars = Record<string, string>;
+
+const CATPPUCCIN: Record<Exclude<Palette, 'default'>, PaletteVars> = {
+  'catppuccin-latte': {
+    '--background': '#eff1f5', '--foreground': '#4c4f69',
+    '--card': '#ffffff', '--card-foreground': '#4c4f69',
+    '--popover': '#ffffff', '--popover-foreground': '#4c4f69',
+    '--secondary': '#e6e9ef', '--secondary-foreground': '#4c4f69',
+    '--muted': '#e6e9ef', '--muted-foreground': '#6c6f85',
+    '--accent': '#dce0e8', '--accent-foreground': '#4c4f69',
+    '--destructive': '#d20f39', '--destructive-foreground': '#ffffff',
+    '--success': '#40a02b', '--warning': '#df8e1d',
+    '--border': '#ccd0da', '--input': '#ccd0da',
+    '--sidebar': '#e6e9ef', '--sidebar-foreground': '#4c4f69',
+    '--sidebar-accent': '#dce0e8', '--sidebar-accent-foreground': '#4c4f69', '--sidebar-border': '#ccd0da',
+  },
+  'catppuccin-frappe': {
+    '--background': '#303446', '--foreground': '#c6d0f5',
+    '--card': '#414559', '--card-foreground': '#c6d0f5',
+    '--popover': '#414559', '--popover-foreground': '#c6d0f5',
+    '--secondary': '#414559', '--secondary-foreground': '#c6d0f5',
+    '--muted': '#414559', '--muted-foreground': '#a5adce',
+    '--accent': '#51576d', '--accent-foreground': '#c6d0f5',
+    '--destructive': '#e78284', '--destructive-foreground': '#232634',
+    '--success': '#a6d189', '--warning': '#e5c890',
+    '--border': '#51576d', '--input': '#51576d',
+    '--sidebar': '#292c3c', '--sidebar-foreground': '#c6d0f5',
+    '--sidebar-accent': '#414559', '--sidebar-accent-foreground': '#c6d0f5', '--sidebar-border': '#414559',
+  },
+  'catppuccin-macchiato': {
+    '--background': '#24273a', '--foreground': '#cad3f5',
+    '--card': '#363a4f', '--card-foreground': '#cad3f5',
+    '--popover': '#363a4f', '--popover-foreground': '#cad3f5',
+    '--secondary': '#363a4f', '--secondary-foreground': '#cad3f5',
+    '--muted': '#363a4f', '--muted-foreground': '#a5adcb',
+    '--accent': '#494d64', '--accent-foreground': '#cad3f5',
+    '--destructive': '#ed8796', '--destructive-foreground': '#181926',
+    '--success': '#a6da95', '--warning': '#eed49f',
+    '--border': '#494d64', '--input': '#494d64',
+    '--sidebar': '#1e2030', '--sidebar-foreground': '#cad3f5',
+    '--sidebar-accent': '#363a4f', '--sidebar-accent-foreground': '#cad3f5', '--sidebar-border': '#363a4f',
+  },
+  'catppuccin-mocha': {
+    '--background': '#1e1e2e', '--foreground': '#cdd6f4',
+    '--card': '#313244', '--card-foreground': '#cdd6f4',
+    '--popover': '#313244', '--popover-foreground': '#cdd6f4',
+    '--secondary': '#313244', '--secondary-foreground': '#cdd6f4',
+    '--muted': '#313244', '--muted-foreground': '#a6adc8',
+    '--accent': '#45475a', '--accent-foreground': '#cdd6f4',
+    '--destructive': '#f38ba8', '--destructive-foreground': '#11111b',
+    '--success': '#a6e3a1', '--warning': '#f9e2af',
+    '--border': '#45475a', '--input': '#45475a',
+    '--sidebar': '#181825', '--sidebar-foreground': '#cdd6f4',
+    '--sidebar-accent': '#313244', '--sidebar-accent-foreground': '#cdd6f4', '--sidebar-border': '#313244',
+  },
+};
+
+/** A Catppuccin flavor is light (Latte) or dark (the rest). */
+export function paletteResolved(p: Palette): 'light' | 'dark' | null {
+  if (p === 'catppuccin-latte') return 'light';
+  if (p.startsWith('catppuccin-')) return 'dark';
+  return null;
+}
+
+export interface PaletteSpec {
+  id: Palette;
+  label: string;
+  /** Picker preview: surface tile + three signature accent dots. */
+  preview: { bg: string; surface: string; dots: [string, string, string] };
+}
+
+export const PALETTE_OPTIONS: PaletteSpec[] = [
+  { id: 'default', label: '默认', preview: { bg: '#f1f5f9', surface: '#ffffff', dots: ['#0ea5e9', '#10b981', '#f43f5e'] } },
+  { id: 'catppuccin-latte', label: 'Latte', preview: { bg: '#eff1f5', surface: '#ffffff', dots: ['#8839ef', '#40a02b', '#d20f39'] } },
+  { id: 'catppuccin-frappe', label: 'Frappé', preview: { bg: '#303446', surface: '#414559', dots: ['#ca9ee6', '#a6d189', '#e78284'] } },
+  { id: 'catppuccin-macchiato', label: 'Macchiato', preview: { bg: '#24273a', surface: '#363a4f', dots: ['#c6a0f6', '#a6da95', '#ed8796'] } },
+  { id: 'catppuccin-mocha', label: 'Mocha', preview: { bg: '#1e1e2e', surface: '#313244', dots: ['#cba6f7', '#a6e3a1', '#f38ba8'] } },
+];
+
+function paletteVarsCss(a: UiAppearance): string {
+  if (a.palette === 'default') return '';
+  const vars = CATPPUCCIN[a.palette];
+  if (!vars) return '';
+  const body = Object.entries(vars).map(([k, v]) => `${k}:${v};`).join('');
+  // Latte is light → :root; the dark flavors → .dark (resolved is forced to
+  // match in the provider, so the selector always matches the active scheme).
+  const selector = a.palette === 'catppuccin-latte' ? ':root' : '.dark';
+  return `${selector}{${body}}`;
+}
+
 function fontStack(options: FontSpec[], id: string): string {
   return (options.find((f) => f.id === id) ?? options[0]).stack;
 }
@@ -200,7 +297,11 @@ function applyAppearance(a: UiAppearance, resolved: 'light' | 'dark'): void {
   root.style.colorScheme = resolved;
 
   root.setAttribute('data-density', a.density);
-  root.setAttribute('data-dark-intensity', a.darkIntensity);
+  // A Catppuccin flavor owns its own darkness, so the OLED "black" override
+  // must not fight it — force a neutral intensity (it has no CSS rule) so the
+  // injected palette wins over base .dark.
+  root.setAttribute('data-dark-intensity', a.palette === 'default' ? a.darkIntensity : 'soft');
+  root.setAttribute('data-palette', a.palette);
   root.setAttribute('data-sidebar-style', a.sidebarStyle);
   root.setAttribute('data-contrast', a.highContrast ? 'high' : 'normal');
   root.setAttribute('data-reduce-motion', a.reduceMotion ? '1' : '0');
@@ -223,7 +324,9 @@ function applyAppearance(a: UiAppearance, resolved: 'light' | 'dark'): void {
     el.id = styleId;
     document.head.appendChild(el);
   }
-  el.textContent = accentVarsCss(a);
+  // Palette (base/surface tokens) first, then accent (--primary/--ring) — a
+  // disjoint var set, layered after so it composes with any flavor.
+  el.textContent = `${paletteVarsCss(a)}\n${accentVarsCss(a)}`;
 
   // Custom CSS — appended AFTER the accent block so it is the last style in
   // <head> and can override anything. Skipped under ?safe-mode=1 (escape
@@ -446,7 +549,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // the mutators themselves so consecutive calls in one tick still compose.
   const appearanceRef = useRef(appearance);
 
-  const resolved: 'light' | 'dark' = appearance.mode === 'system' ? systemTheme : appearance.mode;
+  // A Catppuccin flavor fixes light/dark; otherwise honor mode (+ system).
+  const resolved: 'light' | 'dark' =
+    paletteResolved(appearance.palette) ?? (appearance.mode === 'system' ? systemTheme : appearance.mode);
 
   // Track the OS theme for `mode: 'system'`.
   useEffect(() => {

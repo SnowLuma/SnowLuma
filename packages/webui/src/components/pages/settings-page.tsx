@@ -14,6 +14,8 @@ import {
   FONT_MONO_OPTIONS,
   FONT_SANS_OPTIONS,
   GRADIENT_OPTIONS,
+  PALETTE_OPTIONS,
+  paletteResolved,
   POLL_INTERVAL_OPTIONS,
   RADIUS_OPTIONS,
   UI_SCALE,
@@ -118,11 +120,16 @@ const RowLabelContext = createContext<string | undefined>(undefined);
 // iOS/macOS segmented control: a recessed track with a raised pill on the
 // selected segment. Single-select → exposed as a radiogroup. Wraps gracefully.
 function Segmented<T extends string | number>({
-  value, options, onChange,
-}: { value: T; options: Opt<T>[]; onChange: (v: T) => void }) {
+  value, options, onChange, disabled,
+}: { value: T; options: Opt<T>[]; onChange: (v: T) => void; disabled?: boolean }) {
   const labelledBy = useContext(RowLabelContext);
   return (
-    <div role="radiogroup" aria-labelledby={labelledBy} className="inline-flex flex-wrap items-center gap-1 rounded-lg bg-muted/60 p-1">
+    <div
+      role="radiogroup"
+      aria-labelledby={labelledBy}
+      aria-disabled={disabled || undefined}
+      className={cn('inline-flex flex-wrap items-center gap-1 rounded-lg bg-muted/60 p-1', disabled && 'opacity-50')}
+    >
       {options.map((opt) => {
         const active = value === opt.value;
         const Icon = opt.icon;
@@ -132,9 +139,10 @@ function Segmented<T extends string | number>({
             type="button"
             role="radio"
             aria-checked={active}
+            disabled={disabled}
             onClick={() => onChange(opt.value)}
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-all cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40',
+              'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-all cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:cursor-not-allowed',
               active ? 'bg-card font-semibold text-foreground shadow-sm ring-1 ring-border' : 'font-medium text-muted-foreground hover:text-foreground',
             )}
           >
@@ -240,15 +248,52 @@ const DENSITY_OPTIONS: Opt<Density>[] = [
 function AppearancePanel() {
   const { appearance, setAppearance, uploadBackground, removeBackground } = useTheme();
   const a = appearance;
+  // A Catppuccin flavor fixes its own light/dark + darkness, so the mode and
+  // intensity controls are inert while one is active.
+  const paletteFixed = paletteResolved(a.palette) !== null;
 
   return (
     <div className="flex flex-col gap-5">
-      <Group title="主题" icon={Sun} description="明暗模式与深色风格。所有改动立即生效并保存到服务器，跨设备同步。">
-        <SettingRow label="显示模式">
-          <Segmented value={a.mode} options={MODE_OPTIONS} onChange={(mode) => setAppearance({ mode })} />
+      <Group title="主题" icon={Sun} description="配色方案、明暗模式与深色风格。所有改动立即生效并保存到服务器，跨设备同步。">
+        <SettingRow label="配色方案" hint="“默认”跟随下方明暗模式；Catppuccin 为整套配色，会自行决定明暗。" layout="stack">
+          <div className="flex flex-wrap gap-2.5" role="radiogroup" aria-label="配色方案">
+            {PALETTE_OPTIONS.map((p) => {
+              const active = a.palette === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  aria-label={p.label}
+                  onClick={() => setAppearance({ palette: p.id })}
+                  className={cn(
+                    'flex w-[5.5rem] flex-col items-center gap-1.5 rounded-xl border p-1.5 transition-all cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40',
+                    active ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-foreground/30',
+                  )}
+                >
+                  <span className="flex h-11 w-full items-center justify-center rounded-lg" style={{ backgroundColor: p.preview.bg }}>
+                    <span className="flex gap-1 rounded-md px-1.5 py-1 shadow-sm" style={{ backgroundColor: p.preview.surface }}>
+                      {p.preview.dots.map((d, i) => (
+                        <span key={i} className="size-1.5 rounded-full" style={{ backgroundColor: d }} />
+                      ))}
+                    </span>
+                  </span>
+                  <span className="text-[11px] font-medium">{p.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </SettingRow>
-        <SettingRow label="深色强度" hint="“纯黑”将深色背景压到接近纯黑，适合 OLED 屏幕（仅深色模式下可见）。" layout="stack">
-          <Segmented value={a.darkIntensity} options={DARK_INTENSITY_OPTIONS} onChange={(darkIntensity) => setAppearance({ darkIntensity })} />
+        <SettingRow label="显示模式" hint={paletteFixed ? '当前由 Catppuccin 配色决定明暗。' : undefined}>
+          <Segmented value={a.mode} options={MODE_OPTIONS} onChange={(mode) => setAppearance({ mode })} disabled={paletteFixed} />
+        </SettingRow>
+        <SettingRow
+          label="深色强度"
+          hint={paletteFixed ? 'Catppuccin 配色自带明暗，无需调节。' : '“纯黑”将深色背景压到接近纯黑，适合 OLED 屏幕（仅深色模式下可见）。'}
+          layout="stack"
+        >
+          <Segmented value={a.darkIntensity} options={DARK_INTENSITY_OPTIONS} onChange={(darkIntensity) => setAppearance({ darkIntensity })} disabled={paletteFixed} />
         </SettingRow>
       </Group>
 

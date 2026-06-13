@@ -171,6 +171,7 @@ export type SidebarStyle = 'follow' | 'panel' | 'accent';
 export type BackgroundType = 'none' | 'solid' | 'gradient' | 'image';
 export type Density = 'cozy' | 'compact';
 export type TimeFormat = '12h' | '24h';
+export type Palette = 'default' | 'catppuccin-latte' | 'catppuccin-frappe' | 'catppuccin-macchiato' | 'catppuccin-mocha';
 
 export interface UiBackground {
   type: BackgroundType;
@@ -192,6 +193,7 @@ export interface UiAppearance {
   accentCustom: string;
   accentScope: AccentScope;
   darkIntensity: DarkIntensity;
+  palette: Palette;
   sidebarStyle: SidebarStyle;
   background: UiBackground;
   fontSans: string;

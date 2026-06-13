@@ -43,6 +43,9 @@ export type SidebarStyle = 'follow' | 'panel' | 'accent';
 export type BackgroundType = 'none' | 'solid' | 'gradient' | 'image';
 export type Density = 'cozy' | 'compact';
 export type TimeFormat = '12h' | '24h';
+/** Full color scheme. 'default' keeps the sky theme (driven by `mode`); the
+ *  Catppuccin flavors are complete palettes that also fix light/dark. */
+export type Palette = 'default' | 'catppuccin-latte' | 'catppuccin-frappe' | 'catppuccin-macchiato' | 'catppuccin-mocha';
 
 export interface UiBackground {
   type: BackgroundType;
@@ -70,6 +73,8 @@ export interface UiAppearance {
   accentCustom: string;
   accentScope: AccentScope;
   darkIntensity: DarkIntensity;
+  /** Full color scheme; 'default' = the built-in sky theme. */
+  palette: Palette;
   sidebarStyle: SidebarStyle;
   background: UiBackground;
   /** Sans font preset id (frontend catalogue). */
@@ -179,6 +184,7 @@ const DEFAULT_APPEARANCE: UiAppearance = {
   accentCustom: '#38bdf8',
   accentScope: 'global',
   darkIntensity: 'soft',
+  palette: 'default',
   sidebarStyle: 'follow',
   background: DEFAULT_BACKGROUND,
   fontSans: 'default',
@@ -385,6 +391,7 @@ export function normalizeAppearance(value: unknown, imageState: ServerImageState
     accentCustom: hexOr(v.accentCustom, DEFAULT_APPEARANCE.accentCustom),
     accentScope: oneOf<AccentScope>(v.accentScope, ['sidebar', 'global'], DEFAULT_APPEARANCE.accentScope),
     darkIntensity: oneOf<DarkIntensity>(v.darkIntensity, ['soft', 'black'], DEFAULT_APPEARANCE.darkIntensity),
+    palette: oneOf<Palette>(v.palette, ['default', 'catppuccin-latte', 'catppuccin-frappe', 'catppuccin-macchiato', 'catppuccin-mocha'], DEFAULT_APPEARANCE.palette),
     sidebarStyle: oneOf<SidebarStyle>(v.sidebarStyle, ['follow', 'panel', 'accent'], DEFAULT_APPEARANCE.sidebarStyle),
     background: normalizeBackground(v.background, imageState),
     fontSans: idOr(v.fontSans, DEFAULT_APPEARANCE.fontSans),
