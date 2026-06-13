@@ -13,14 +13,17 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn, formatBytes, formatUptime } from '@/lib/utils';
 import type { AppPath } from '@/router';
-import type { AdapterStatus, AdapterStatusLevel, LogEntry } from '@/types';
+import type { AdapterStatus, AdapterStatusLevel, LogEntry, LogLevel, UiLayoutItem } from '@/types';
 import { useApi } from '@/lib/api';
 import { useAppState } from '@/contexts/AppStateContext';
 import { useSession } from '@/contexts/SessionContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { reconcileLayoutItems, useLayout } from '@/contexts/LayoutContext';
 import { useMediaQuery } from '@/hooks/use-media-query';
-import { GRID_COLS, widgetLabel } from '@/lib/dashboard-layout';
+import {
+  GRID_COLS, parseAlertsConfig, parseSessionsConfig, widgetLabel,
+  type AlertsConfig, type SessionsConfig,
+} from '@/lib/dashboard-layout';
 import { NAV_ITEMS, PINNED_NAV } from '@/components/layout/sidebar';
 import { DashboardGrid, type GridCoord } from '@/components/pages/dashboard-grid';
 import { LayoutEditor } from '@/components/pages/overview-layout-editor';
@@ -31,13 +34,13 @@ function qqAvatarUrl(uin: string) {
 
 const navLabelFor = (id: string) => NAV_ITEMS.find((n) => n.to === id)?.label ?? id;
 
-function renderWidget(id: string): ReactNode {
-  if (id.startsWith('stat:')) return <StatTileWidget id={id} />;
-  switch (id) {
+function renderWidget(block: UiLayoutItem): ReactNode {
+  if (block.id.startsWith('stat:')) return <StatTileWidget id={block.id} />;
+  switch (block.id) {
     case 'connections': return <ConnectionsBlock />;
-    case 'alerts': return <RecentAlertsCard />;
+    case 'alerts': return <RecentAlertsCard config={parseAlertsConfig(block.config)} />;
     case 'host': return <HostBlock />;
-    case 'sessions': return <SessionsBlock />;
+    case 'sessions': return <SessionsBlock config={parseSessionsConfig(block.config)} />;
     default: return null;
   }
 }
@@ -68,6 +71,9 @@ export function OverviewPage() {
   const toggleBlock = (id: string) =>
     setOverviewBlocks(overviewBlocks.map((b) => (b.id === id ? { ...b, visible: !b.visible } : b)));
 
+  const setBlockConfig = (id: string, config: Record<string, unknown>) =>
+    setOverviewBlocks(overviewBlocks.map((b) => (b.id === id ? { ...b, config: { ...b.config, ...config } } : b)));
+
   const loadableProcs = processList.filter((p) => !p.injected).length;
 
   return (
@@ -89,6 +95,7 @@ export function OverviewPage() {
           navLabelFor={navLabelFor}
           navPinned={PINNED_NAV}
           onToggleBlock={toggleBlock}
+          onBlockConfig={setBlockConfig}
           onNav={setNavItems}
           onReset={resetLayout}
           onDone={() => setEditingOn(false)}
@@ -348,24 +355,37 @@ function HostBlock() {
 
 // ─────────────── online sessions ───────────────
 
-function SessionsBlock() {
+function SessionsBlock({ config }: { config: SessionsConfig }) {
   const { qqList } = useAppState();
+  const list = useMemo(() => {
+    const f = config.filter.trim().toLowerCase();
+    let arr = f
+      ? qqList.filter((q) => (q.nickname ?? '').toLowerCase().includes(f) || q.uin.includes(f))
+      : qqList;
+    if (config.sort === 'uin') arr = [...arr].sort((a, b) => a.uin.localeCompare(b.uin, undefined, { numeric: true }));
+    else if (config.sort === 'nickname') arr = [...arr].sort((a, b) => (a.nickname ?? '').localeCompare(b.nickname ?? ''));
+    // 'recent' keeps the server/insertion order.
+    return arr;
+  }, [qqList, config.sort, config.filter]);
+
   return (
     <Card className="flex h-full flex-col">
       <CardHeader>
         <CardTitle>在线会话</CardTitle>
-        <CardDescription>当前已接入并完成登录的 QQ 账号</CardDescription>
+        <CardDescription>
+          当前已接入并完成登录的 QQ 账号{config.filter.trim() ? `（筛选：${config.filter.trim()}）` : ''}
+        </CardDescription>
       </CardHeader>
       <CardContent className="min-h-0 flex-1">
-        {qqList.length === 0 ? (
+        {list.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground">
             <Users className="size-7" strokeWidth={1.5} />
-            <p className="text-sm">暂无在线会话</p>
+            <p className="text-sm">{qqList.length === 0 ? '暂无在线会话' : '无匹配的会话'}</p>
           </div>
         ) : (
           <ScrollArea className="h-full" viewportClassName="[&>div]:!block">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-              {qqList.map((q, idx) => (
+              {list.map((q, idx) => (
                 <motion.div
                   key={q.uin}
                   initial={{ opacity: 0, y: 6 }}
@@ -463,28 +483,40 @@ function ConnectionsBlock() {
 
 // ─────────────── recent alerts ───────────────
 
-function RecentAlertsCard() {
+const ALERT_LEVEL_CLASS: Record<LogLevel, string> = {
+  trace: 'text-muted-foreground/60',
+  debug: 'text-muted-foreground',
+  info: 'text-primary',
+  success: 'text-success',
+  warn: 'text-warning',
+  error: 'text-destructive',
+};
+
+function RecentAlertsCard({ config }: { config: AlertsConfig }) {
   const api = useApi();
   const { formatClock } = useTheme();
   const [alerts, setAlerts] = useState<LogEntry[]>([]);
+  const { count } = config;
+  const levelsKey = config.levels.join(',');
 
   useEffect(() => {
+    const levels = new Set(levelsKey.split(',') as LogLevel[]);
     let active = true;
     api.logs
-      .list(200)
+      .list(Math.max(200, count * 4))
       .then((list) => {
         if (!active) return;
-        setAlerts(list.filter((l) => l.level === 'warn' || l.level === 'error').slice(-5));
+        setAlerts(list.filter((l) => levels.has(l.level)).slice(-count));
       })
       .catch(() => { /* ignore */ });
     const stop = api.logs.stream({
       onLine: (entry) => {
-        if (entry.level !== 'warn' && entry.level !== 'error') return;
-        setAlerts((prev) => [...prev.filter((a) => a.id !== entry.id), entry].slice(-5));
+        if (!levels.has(entry.level)) return;
+        setAlerts((prev) => [...prev.filter((a) => a.id !== entry.id), entry].slice(-count));
       },
     });
     return () => { active = false; stop(); };
-  }, [api]);
+  }, [api, count, levelsKey]);
 
   return (
     <Card className="flex h-full flex-col">
@@ -493,7 +525,7 @@ function RecentAlertsCard() {
           <CardTitle className="flex items-center gap-2">
             <Bell className="size-4 text-primary" /> 最近告警
           </CardTitle>
-          <CardDescription>最近的 warn / error 级别日志</CardDescription>
+          <CardDescription>最近 {count} 条 · {config.levels.map((l) => l.toUpperCase()).join(' / ')}</CardDescription>
         </div>
         <Link to="/logs" className="inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
           查看日志 <ArrowRight className="size-3" />
@@ -510,7 +542,7 @@ function RecentAlertsCard() {
             {alerts.map((a) => (
               <div key={a.id} className="flex gap-2 rounded px-2 py-1 hover:bg-accent/30">
                 <span className="shrink-0 text-muted-foreground tabular-nums">{formatClock(a.time)}</span>
-                <span className={cn('shrink-0 font-semibold', a.level === 'error' ? 'text-destructive' : 'text-warning')}>
+                <span className={cn('shrink-0 font-semibold', ALERT_LEVEL_CLASS[a.level])}>
                   {a.level.toUpperCase()}
                 </span>
                 <span className="min-w-0 flex-1 truncate" title={a.message}>[{a.scope}] {a.message}</span>

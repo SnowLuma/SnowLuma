@@ -16,7 +16,7 @@ interface DashboardGridProps {
   cols: number;
   /** Fired (debounced upstream) after a drag/resize settles. */
   onChange: (coords: GridCoord[]) => void;
-  renderWidget: (id: string) => ReactNode;
+  renderWidget: (block: UiLayoutItem) => ReactNode;
 }
 
 /**
@@ -98,7 +98,7 @@ export function DashboardGrid({ blocks, editing, cols, onChange, renderWidget }:
         contentEls[b.id]
           ? createPortal(
             <div className={cn('h-full w-full overflow-auto', editing && 'pointer-events-none select-none')}>
-              {renderWidget(b.id)}
+              {renderWidget(b)}
             </div>,
             contentEls[b.id],
           )

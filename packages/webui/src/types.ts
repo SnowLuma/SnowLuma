@@ -214,6 +214,8 @@ export interface UiLayoutItem {
   y?: number;
   w?: number;
   h?: number;
+  /** Per-widget settings; interpreted client-side by widget type. */
+  config?: Record<string, unknown>;
 }
 
 export interface UiLayout {

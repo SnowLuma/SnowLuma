@@ -1,4 +1,4 @@
-import type { UiLayoutItem } from '@/types';
+import type { LogLevel, UiLayoutItem } from '@/types';
 
 // The overview dashboard is a free 12-column gridstack grid. This module is
 // the pure (React-free) catalogue + migration so it can be shared by the
@@ -96,4 +96,37 @@ export function migrateOverviewBlocks(stored: UiLayoutItem[] | undefined): UiLay
 export function minSizeOf(id: string): { minW: number; minH: number } {
   const spec = WIDGET_BY_ID.get(id);
   return { minW: spec?.minW ?? 1, minH: spec?.minH ?? 1 };
+}
+
+// ─── Per-widget config (interpreted client-side from the opaque block.config) ───
+
+export const ALL_LOG_LEVELS: LogLevel[] = ['trace', 'debug', 'info', 'success', 'warn', 'error'];
+
+export interface AlertsConfig { count: number; levels: LogLevel[] }
+export interface SessionsConfig { sort: 'recent' | 'uin' | 'nickname'; filter: string }
+
+export const DEFAULT_ALERTS_CONFIG: AlertsConfig = { count: 5, levels: ['warn', 'error'] };
+export const DEFAULT_SESSIONS_CONFIG: SessionsConfig = { sort: 'recent', filter: '' };
+
+/** Widgets that expose a config form (gear) in the layout editor. */
+export const CONFIGURABLE_WIDGETS = new Set(['alerts', 'sessions']);
+
+export function parseAlertsConfig(config: Record<string, unknown> | undefined): AlertsConfig {
+  const c = config ?? {};
+  const count = typeof c.count === 'number' && Number.isFinite(c.count)
+    ? Math.min(50, Math.max(1, Math.trunc(c.count)))
+    : DEFAULT_ALERTS_CONFIG.count;
+  const levels = Array.isArray(c.levels)
+    ? ALL_LOG_LEVELS.filter((l) => (c.levels as unknown[]).includes(l))
+    : DEFAULT_ALERTS_CONFIG.levels;
+  return { count, levels: levels.length > 0 ? levels : DEFAULT_ALERTS_CONFIG.levels };
+}
+
+export function parseSessionsConfig(config: Record<string, unknown> | undefined): SessionsConfig {
+  const c = config ?? {};
+  const sort = c.sort === 'uin' || c.sort === 'nickname' || c.sort === 'recent'
+    ? c.sort
+    : DEFAULT_SESSIONS_CONFIG.sort;
+  const filter = typeof c.filter === 'string' ? c.filter.slice(0, 100) : '';
+  return { sort, filter };
 }

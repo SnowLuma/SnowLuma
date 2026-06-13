@@ -102,6 +102,12 @@ export interface UiLayoutItem {
   y?: number;
   w?: number;
   h?: number;
+  /**
+   * Per-widget settings (overview blocks only) — an opaque object the client
+   * interprets by widget type (e.g. alerts: count + levels). The server only
+   * checks it's a plain object within a size bound; it never reads the keys.
+   */
+  config?: Record<string, unknown>;
 }
 
 export interface UiLayout {
@@ -244,6 +250,13 @@ function normalizeLayoutItems(value: unknown, fallback: UiLayoutItem[]): UiLayou
       item.y = clampInt(raw.y, 0, 1000, 0);
       item.w = clampInt(raw.w, 1, 12, 1);
       item.h = clampInt(raw.h, 1, 100, 1);
+    }
+    // Opaque per-widget config: keep only a plain object within a size bound;
+    // the server never interprets the keys (the client does, per widget type).
+    if (isObject(raw.config)) {
+      try {
+        if (JSON.stringify(raw.config).length <= 4096) item.config = raw.config;
+      } catch { /* unserializable (cycles) → drop */ }
     }
     out.push(item);
   }
