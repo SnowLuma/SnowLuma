@@ -209,6 +209,11 @@ export interface UiAppearance {
 export interface UiLayoutItem {
   id: string;
   visible: boolean;
+  /** Grid position/size — overview blocks only; nav items omit them. */
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
 }
 
 export interface UiLayout {

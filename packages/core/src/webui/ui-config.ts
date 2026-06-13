@@ -92,6 +92,16 @@ export interface UiAppearance {
 export interface UiLayoutItem {
   id: string;
   visible: boolean;
+  /**
+   * Grid position/size (overview blocks only; nav items omit them). The
+   * client owns the widget catalogue, per-widget min sizes, and the
+   * `stats`→tiles migration — the server just preserves + clamps these to
+   * sane integer bounds so a corrupt file can't store absurd coords.
+   */
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
 }
 
 export interface UiLayout {
@@ -188,6 +198,15 @@ function clampNum(value: unknown, min: number, max: number, fallback: number): n
   return Math.min(max, Math.max(min, n));
 }
 
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  return Math.trunc(clampNum(value, min, max, fallback));
+}
+
+function isFiniteNum(value: unknown): boolean {
+  if (typeof value === 'number') return Number.isFinite(value);
+  return typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value));
+}
+
 function boolOr(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
@@ -216,7 +235,17 @@ function normalizeLayoutItems(value: unknown, fallback: UiLayoutItem[]): UiLayou
     const id = idOr(raw.id, '');
     if (!id || seen.has(id)) continue;
     seen.add(id);
-    out.push({ id, visible: boolOr(raw.visible, true) });
+    const item: UiLayoutItem = { id, visible: boolOr(raw.visible, true) };
+    // Grid coords are optional (overview blocks carry them; nav items don't).
+    // Preserve + clamp when any are present; missing ones get safe defaults
+    // and the client re-applies per-widget min sizes on load.
+    if (isFiniteNum(raw.x) || isFiniteNum(raw.y) || isFiniteNum(raw.w) || isFiniteNum(raw.h)) {
+      item.x = clampInt(raw.x, 0, 50, 0);
+      item.y = clampInt(raw.y, 0, 1000, 0);
+      item.w = clampInt(raw.w, 1, 12, 1);
+      item.h = clampInt(raw.h, 1, 100, 1);
+    }
+    out.push(item);
   }
   // An array that parsed to nothing usable is indistinguishable from corrupt;
   // fall back so the frontend always has a baseline to reconcile against.

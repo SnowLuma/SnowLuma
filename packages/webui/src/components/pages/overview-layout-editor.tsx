@@ -6,29 +6,54 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { cn } from '@/lib/utils';
 import type { UiLayoutItem } from '@/types';
 
-// In-place layout editor for the overview page: two drag-to-reorder lists
-// (overview cards + sidebar nav) with per-item show/hide. Uses motion's
-// `Reorder` (zero new deps). Pinned items can be reordered but not hidden.
-// Edits apply live through the LayoutContext setters (debounced-persisted), so
-// "完成" just leaves edit mode.
+// Edit panel for the overview's "编辑布局" mode. Overview-card POSITION/SIZE is
+// edited in place on the gridstack grid below; this panel only toggles which
+// cards are shown, and (re)orders the sidebar nav (a 1-D list, so it keeps the
+// motion Reorder drag from phase 3). Pinned nav items can't be hidden.
 
-interface ReorderListProps {
-  items: UiLayoutItem[];
-  labelFor: (id: string) => string;
-  pinned?: readonly string[];
-  onChange: (items: UiLayoutItem[]) => void;
+// ── widget visibility (no drag — grid owns position) ──
+
+function VisibilityList({
+  items, labelFor, onToggle,
+}: { items: UiLayoutItem[]; labelFor: (id: string) => string; onToggle: (id: string) => void }) {
+  return (
+    <div className="flex flex-col gap-2">
+      {items.map((item) => (
+        <div
+          key={item.id}
+          className={cn(
+            'flex items-center gap-3 rounded-lg border bg-card/50 px-3 py-2.5',
+            !item.visible && 'opacity-50',
+          )}
+        >
+          <span className="flex-1 truncate text-sm font-medium">{labelFor(item.id)}</span>
+          <button
+            type="button"
+            onClick={() => onToggle(item.id)}
+            title={item.visible ? '隐藏' : '显示'}
+            aria-label={item.visible ? '隐藏' : '显示'}
+            className="inline-flex size-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
+          >
+            {item.visible ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
+          </button>
+        </div>
+      ))}
+    </div>
+  );
 }
 
-function ReorderList({ items, labelFor, pinned = [], onChange }: ReorderListProps) {
+// ── nav reorder + visibility (1-D list, motion drag) ──
+
+function NavReorderList({
+  items, labelFor, pinned, onChange,
+}: { items: UiLayoutItem[]; labelFor: (id: string) => string; pinned: readonly string[]; onChange: (items: UiLayoutItem[]) => void }) {
   const ids = useMemo(() => items.map((i) => i.id), [items]);
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
 
-  const reorder = (newIds: string[]) => {
+  const reorder = (newIds: string[]) =>
     onChange(newIds.map((id) => byId.get(id)).filter((x): x is UiLayoutItem => !!x));
-  };
-  const toggle = (id: string) => {
+  const toggle = (id: string) =>
     onChange(items.map((i) => (i.id === id ? { ...i, visible: !i.visible } : i)));
-  };
 
   return (
     <Reorder.Group axis="y" values={ids} onReorder={reorder} className="flex flex-col gap-2">
@@ -76,23 +101,23 @@ export interface LayoutEditorProps {
   navItems: UiLayoutItem[];
   navLabelFor: (id: string) => string;
   navPinned: readonly string[];
-  onBlocks: (items: UiLayoutItem[]) => void;
+  onToggleBlock: (id: string) => void;
   onNav: (items: UiLayoutItem[]) => void;
   onReset: () => void;
   onDone: () => void;
 }
 
 export function LayoutEditor({
-  blocks, blockLabelFor, navItems, navLabelFor, navPinned, onBlocks, onNav, onReset, onDone,
+  blocks, blockLabelFor, navItems, navLabelFor, navPinned, onToggleBlock, onNav, onReset, onDone,
 }: LayoutEditorProps) {
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex items-center justify-between gap-3">
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
         <div>
-          <h2 className="text-lg font-semibold">编辑布局</h2>
-          <p className="text-[11px] text-muted-foreground">拖动排序，点眼睛图标显示/隐藏。改动会自动保存。</p>
+          <CardTitle className="text-base">编辑布局</CardTitle>
+          <CardDescription>在下方网格直接拖动卡片、拖角缩放；这里控制卡片显隐与导航。改动自动保存。</CardDescription>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <Button variant="ghost" size="sm" onClick={onReset} className="text-muted-foreground">
             <RotateCcw className="size-4" /> 恢复默认
           </Button>
@@ -100,27 +125,17 @@ export function LayoutEditor({
             <Check className="size-4" /> 完成
           </Button>
         </div>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">总览卡片</CardTitle>
-          <CardDescription>调整总览页各卡片的顺序与显隐。</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ReorderList items={blocks} labelFor={blockLabelFor} onChange={onBlocks} />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">导航栏</CardTitle>
-          <CardDescription>调整左侧导航的顺序与显隐（「系统设置」固定保留）。</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ReorderList items={navItems} labelFor={navLabelFor} pinned={navPinned} onChange={onNav} />
-        </CardContent>
-      </Card>
-    </div>
+      </CardHeader>
+      <CardContent className="grid gap-6 md:grid-cols-2">
+        <div className="flex flex-col gap-2">
+          <p className="text-xs font-medium text-muted-foreground">总览卡片（显隐）</p>
+          <VisibilityList items={blocks} labelFor={blockLabelFor} onToggle={onToggleBlock} />
+        </div>
+        <div className="flex flex-col gap-2">
+          <p className="text-xs font-medium text-muted-foreground">导航栏（拖动排序）</p>
+          <NavReorderList items={navItems} labelFor={navLabelFor} pinned={navPinned} onChange={onNav} />
+        </div>
+      </CardContent>
+    </Card>
   );
 }

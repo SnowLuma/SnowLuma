@@ -215,3 +215,35 @@ html[data-reduce-motion="1"] *::after {
   transition-duration: 0.01ms !important;
   scroll-behavior: auto !important;
 }
+
+/* ──────────────────────────────────────────────
+   gridstack dashboard — mesh the library's item shell with our cards.
+   The widget content (a Card) owns its own bg/border/rounding, so the
+   gridstack content box is just a transparent, full-bleed container.
+   ────────────────────────────────────────────── */
+.grid-stack {
+  /* Negative inset cancels gridstack's per-item margin at the edges so the
+     grid lines up with surrounding page padding. */
+  background: transparent;
+}
+.grid-stack-item-content {
+  inset: 0;
+  overflow: visible;
+  background: transparent;
+  display: block;
+}
+/* The drag placeholder (drop target preview). */
+.grid-stack > .grid-stack-placeholder > .placeholder-content {
+  border: 2px dashed var(--primary);
+  background: color-mix(in oklab, var(--primary) 8%, transparent);
+  border-radius: var(--radius);
+}
+/* Resize handle — only meaningful while editing (grid is interactive). */
+.grid-stack-item > .ui-resizable-handle {
+  filter: none;
+}
+.grid-stack-item > .ui-resizable-se {
+  /* Make the bottom-right resize grip visible against either theme. */
+  border-right: 2px solid color-mix(in oklab, var(--primary) 70%, transparent);
+  border-bottom: 2px solid color-mix(in oklab, var(--primary) 70%, transparent);
+}

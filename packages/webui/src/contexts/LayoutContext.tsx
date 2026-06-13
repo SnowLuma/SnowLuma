@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useApi } from '@/lib/api';
+import { defaultOverviewGrid, migrateOverviewBlocks } from '@/lib/dashboard-layout';
 import type { UiLayout, UiLayoutItem } from '@/types';
 
 // Client-side layout customization (the "C" half). The server stores the
@@ -11,14 +12,6 @@ import type { UiLayout, UiLayoutItem } from '@/types';
 // (`reconcileLayoutItems`), so the context stays a dumb store and adding a new
 // block / nav item later doesn't need a context change — it just appears.
 
-const DEFAULT_OVERVIEW_BLOCKS: UiLayoutItem[] = [
-  { id: 'stats', visible: true },
-  { id: 'connections', visible: true },
-  { id: 'alerts', visible: true },
-  { id: 'host', visible: true },
-  { id: 'sessions', visible: true },
-];
-
 const DEFAULT_NAV_ITEMS: UiLayoutItem[] = [
   { id: '/', visible: true },
   { id: '/processes', visible: true },
@@ -28,7 +21,9 @@ const DEFAULT_NAV_ITEMS: UiLayoutItem[] = [
 ];
 
 export const DEFAULT_LAYOUT: UiLayout = {
-  overviewBlocks: DEFAULT_OVERVIEW_BLOCKS.map((i) => ({ ...i })),
+  // Overview blocks are the positioned grid widgets (the catalogue owns the
+  // default placement + the legacy `stats`→tiles migration).
+  overviewBlocks: defaultOverviewGrid(),
   navItems: DEFAULT_NAV_ITEMS.map((i) => ({ ...i })),
 };
 
@@ -87,7 +82,14 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
         const config = await api.ui.get();
         // Seed from the server only if the user hasn't already edited (the
         // overview + editor are interactive immediately, before this resolves).
-        if (!cancelled && !dirtyRef.current && config?.layout) setLayout(config.layout);
+        // Overview blocks are migrated to the current grid catalogue (legacy
+        // `stats`→tiles, default coords for new/coordless widgets).
+        if (!cancelled && !dirtyRef.current && config?.layout) {
+          setLayout({
+            overviewBlocks: migrateOverviewBlocks(config.layout.overviewBlocks),
+            navItems: config.layout.navItems,
+          });
+        }
       } catch {
         /* keep defaults — layout is non-critical */
       }
@@ -125,7 +127,7 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
 
   const resetLayout = useCallback(() => {
     persist({
-      overviewBlocks: DEFAULT_OVERVIEW_BLOCKS.map((i) => ({ ...i })),
+      overviewBlocks: defaultOverviewGrid(),
       navItems: DEFAULT_NAV_ITEMS.map((i) => ({ ...i })),
     });
   }, [persist]);

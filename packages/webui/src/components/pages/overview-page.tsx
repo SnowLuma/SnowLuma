@@ -2,18 +2,8 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { motion } from 'motion/react';
 import { Link } from '@tanstack/react-router';
 import {
-  Activity,
-  ArrowRight,
-  Bell,
-  Cable,
-  Cpu,
-  MemoryStick,
-  MonitorCog,
-  Pencil,
-  PlugZap,
-  RefreshCw,
-  Server,
-  Users,
+  Activity, ArrowRight, Bell, Cable, Cpu, MemoryStick, MonitorCog, Pencil, PlugZap,
+  RefreshCw, Server, Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,35 +13,27 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn, formatBytes, formatUptime } from '@/lib/utils';
 import type { AppPath } from '@/router';
-import type { AccountConnections, AdapterStatus, AdapterStatusLevel, LogEntry } from '@/types';
+import type { AdapterStatus, AdapterStatusLevel, LogEntry } from '@/types';
 import { useApi } from '@/lib/api';
 import { useAppState } from '@/contexts/AppStateContext';
 import { useSession } from '@/contexts/SessionContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { reconcileLayoutItems, useLayout } from '@/contexts/LayoutContext';
+import { useMediaQuery } from '@/hooks/use-media-query';
+import { GRID_COLS, widgetLabel } from '@/lib/dashboard-layout';
 import { NAV_ITEMS, PINNED_NAV } from '@/components/layout/sidebar';
+import { DashboardGrid, type GridCoord } from '@/components/pages/dashboard-grid';
 import { LayoutEditor } from '@/components/pages/overview-layout-editor';
 
 function qqAvatarUrl(uin: string) {
   return `/avatar/${encodeURIComponent(uin)}`;
 }
 
-// ─────────────── overview block registry ───────────────
-
-const BLOCK_META: { id: string; label: string }[] = [
-  { id: 'stats', label: '概览指标' },
-  { id: 'connections', label: 'OneBot 连接' },
-  { id: 'alerts', label: '最近告警' },
-  { id: 'host', label: '主机资源' },
-  { id: 'sessions', label: '在线会话' },
-];
-const BLOCK_IDS = BLOCK_META.map((b) => b.id);
-const blockLabelFor = (id: string) => BLOCK_META.find((b) => b.id === id)?.label ?? id;
 const navLabelFor = (id: string) => NAV_ITEMS.find((n) => n.to === id)?.label ?? id;
 
-function renderBlock(id: string): ReactNode {
+function renderWidget(id: string): ReactNode {
+  if (id.startsWith('stat:')) return <StatTileWidget id={id} />;
   switch (id) {
-    case 'stats': return <StatsBlock />;
     case 'connections': return <ConnectionsBlock />;
     case 'alerts': return <RecentAlertsCard />;
     case 'host': return <HostBlock />;
@@ -63,43 +45,57 @@ function renderBlock(id: string): ReactNode {
 export function OverviewPage() {
   const { qqList, processList } = useAppState();
   const { overviewBlocks, navItems, setOverviewBlocks, setNavItems, resetLayout } = useLayout();
-  const [editing, setEditing] = useState(false);
+  const isWide = useMediaQuery('(min-width: 768px)');
+  const [editingOn, setEditingOn] = useState(false);
+  const editing = isWide && editingOn;
 
-  const blocks = useMemo(() => reconcileLayoutItems(overviewBlocks, BLOCK_IDS), [overviewBlocks]);
+  const visibleBlocks = useMemo(() => overviewBlocks.filter((b) => b.visible), [overviewBlocks]);
   const nav = useMemo(
     () => reconcileLayoutItems(navItems, NAV_ITEMS.map((i) => i.to), PINNED_NAV),
     [navItems],
   );
 
-  if (editing) {
-    return (
-      <LayoutEditor
-        blocks={blocks}
-        blockLabelFor={blockLabelFor}
-        navItems={nav}
-        navLabelFor={navLabelFor}
-        navPinned={PINNED_NAV}
-        onBlocks={setOverviewBlocks}
-        onNav={setNavItems}
-        onReset={resetLayout}
-        onDone={() => setEditing(false)}
-      />
+  const onGridChange = (coords: GridCoord[]) => {
+    const cmap = new Map(coords.map((c) => [c.id, c]));
+    setOverviewBlocks(
+      overviewBlocks.map((b) => {
+        const c = cmap.get(b.id);
+        return c ? { ...b, x: c.x, y: c.y, w: c.w, h: c.h } : b;
+      }),
     );
-  }
+  };
+
+  const toggleBlock = (id: string) =>
+    setOverviewBlocks(overviewBlocks.map((b) => (b.id === id ? { ...b, visible: !b.visible } : b)));
 
   const loadableProcs = processList.filter((p) => !p.injected).length;
-  const visibleBlocks = blocks.filter((b) => b.visible);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-end">
-        <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
-          <Pencil className="size-3.5" /> 编辑布局
-        </Button>
-      </div>
+    <div className="flex flex-col gap-5">
+      {/* Toolbar: edit toggle is desktop-only (free grid needs room to drag). */}
+      {isWide && !editing && (
+        <div className="flex items-center justify-end">
+          <Button variant="outline" size="sm" onClick={() => setEditingOn(true)}>
+            <Pencil className="size-3.5" /> 编辑布局
+          </Button>
+        </div>
+      )}
 
-      {/* First-run nudge: nothing online yet → point at the injection page.
-          Always shown (not a reorderable block) so it can't be hidden away. */}
+      {editing && (
+        <LayoutEditor
+          blocks={overviewBlocks}
+          blockLabelFor={widgetLabel}
+          navItems={nav}
+          navLabelFor={navLabelFor}
+          navPinned={PINNED_NAV}
+          onToggleBlock={toggleBlock}
+          onNav={setNavItems}
+          onReset={resetLayout}
+          onDone={() => setEditingOn(false)}
+        />
+      )}
+
+      {/* First-run nudge — always shown (not a grid widget) so it can't be hidden. */}
       {qqList.length === 0 && (
         <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
           <Link
@@ -125,7 +121,13 @@ export function OverviewPage() {
       {visibleBlocks.length === 0 ? (
         <EmptyLayout onReset={resetLayout} />
       ) : (
-        visibleBlocks.map((b) => <div key={b.id}>{renderBlock(b.id)}</div>)
+        <DashboardGrid
+          blocks={visibleBlocks}
+          editing={editing}
+          cols={isWide ? GRID_COLS : 1}
+          onChange={onGridChange}
+          renderWidget={renderWidget}
+        />
       )}
     </div>
   );
@@ -141,30 +143,24 @@ function EmptyLayout({ onReset }: { onReset: () => void }) {
   );
 }
 
-// ─────────────── stat tiles ───────────────
+// ─────────────── stat tiles (one widget each) ───────────────
 
 function StatTile({
-  icon,
-  label,
-  value,
-  subtext,
-  accent = false,
-  to,
+  icon, label, value, subtext, accent = false, to,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
-  value: React.ReactNode;
-  subtext?: React.ReactNode;
+  value: ReactNode;
+  subtext?: ReactNode;
   accent?: boolean;
-  /** When set, the whole tile becomes a link to this route. */
   to?: AppPath;
 }) {
   const body = (
-    <CardContent className="flex items-center gap-3 p-4">
+    <CardContent className="flex h-full items-center gap-3 p-4">
       <div
         className={cn(
           'flex size-10 shrink-0 items-center justify-center rounded-xl',
-          accent ? 'bg-primary text-primary-foreground' : 'bg-primary/10 text-primary'
+          accent ? 'bg-primary text-primary-foreground' : 'bg-primary/10 text-primary',
         )}
       >
         {icon}
@@ -177,68 +173,75 @@ function StatTile({
       {to && <ArrowRight className="size-4 shrink-0 text-muted-foreground/60" />}
     </CardContent>
   );
-
   if (to) {
     return (
-      <Link to={to} className="block rounded-xl outline-none">
-        <Card className="overflow-hidden transition-colors hover:border-primary/40 hover:bg-accent/30">{body}</Card>
+      <Link to={to} className="block h-full rounded-xl outline-none">
+        <Card className="h-full overflow-hidden transition-colors hover:border-primary/40 hover:bg-accent/30">{body}</Card>
       </Link>
     );
   }
-  return <Card className="overflow-hidden">{body}</Card>;
+  return <Card className="h-full overflow-hidden">{body}</Card>;
 }
 
-function StatsBlock() {
+function StatTileWidget({ id }: { id: string }) {
   const { qqList, processList, systemInfo } = useAppState();
   const { status } = useSession();
-
-  // Lightweight tick to refresh "uptime" pretty-print every 30s
-  const [, force] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => force((v) => v + 1), 30_000);
-    return () => clearInterval(t);
-  }, []);
-
   const online = status === '已连接';
-  const onlineProcs = processList.filter((p) => p.status === 'online').length;
-  const loadableProcs = processList.filter((p) => !p.injected).length;
 
-  return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
-      <StatTile
-        icon={<Activity className="size-5" />}
-        label="服务状态"
-        value={online ? '运行中' : status}
-        subtext={online ? '已连接到后端' : '请检查后端进程'}
-        accent={online}
-      />
-      <StatTile
-        icon={<Users className="size-5" />}
-        label="在线账号"
-        value={qqList.length}
-        subtext={`已接入 ${qqList.length} 个会话`}
-      />
-      <StatTile
-        icon={<PlugZap className="size-5" />}
-        label="进程注入"
-        value={`${onlineProcs} 在线`}
-        subtext={`${processList.length} 进程 · ${loadableProcs} 可注入`}
-        to="/processes"
-      />
-      <StatTile
-        icon={<Server className="size-5" />}
-        label="主机名"
-        value={systemInfo?.hostname ?? '—'}
-        subtext={systemInfo ? `${systemInfo.platform} · ${systemInfo.arch}` : '加载中'}
-      />
-      <StatTile
-        icon={<MonitorCog className="size-5" />}
-        label="系统运行"
-        value={systemInfo ? formatUptime(systemInfo.uptime) : '—'}
-        subtext={systemInfo ? `进程 ${formatUptime(systemInfo.processUptime)}` : undefined}
-      />
-    </div>
-  );
+  switch (id) {
+    case 'stat:status':
+      return (
+        <StatTile
+          icon={<Activity className="size-5" />}
+          label="服务状态"
+          value={online ? '运行中' : status}
+          subtext={online ? '已连接到后端' : '请检查后端进程'}
+          accent={online}
+        />
+      );
+    case 'stat:accounts':
+      return (
+        <StatTile
+          icon={<Users className="size-5" />}
+          label="在线账号"
+          value={qqList.length}
+          subtext={`已接入 ${qqList.length} 个会话`}
+        />
+      );
+    case 'stat:processes': {
+      const onlineProcs = processList.filter((p) => p.status === 'online').length;
+      const loadableProcs = processList.filter((p) => !p.injected).length;
+      return (
+        <StatTile
+          icon={<PlugZap className="size-5" />}
+          label="进程注入"
+          value={`${onlineProcs} 在线`}
+          subtext={`${processList.length} 进程 · ${loadableProcs} 可注入`}
+          to="/processes"
+        />
+      );
+    }
+    case 'stat:host':
+      return (
+        <StatTile
+          icon={<Server className="size-5" />}
+          label="主机名"
+          value={systemInfo?.hostname ?? '—'}
+          subtext={systemInfo ? `${systemInfo.platform} · ${systemInfo.arch}` : '加载中'}
+        />
+      );
+    case 'stat:uptime':
+      return (
+        <StatTile
+          icon={<MonitorCog className="size-5" />}
+          label="系统运行"
+          value={systemInfo ? formatUptime(systemInfo.uptime) : '—'}
+          subtext={systemInfo ? `进程 ${formatUptime(systemInfo.processUptime)}` : undefined}
+        />
+      );
+    default:
+      return null;
+  }
 }
 
 // ─────────────── host resources ───────────────
@@ -246,7 +249,7 @@ function StatsBlock() {
 function HostBlock() {
   const { systemInfo, refreshSystem } = useAppState();
   return (
-    <Card>
+    <Card className="flex h-full flex-col">
       <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
         <div>
           <CardTitle>主机资源</CardTitle>
@@ -260,7 +263,7 @@ function HostBlock() {
           <RefreshCw className="size-3.5" /> 刷新
         </Button>
       </CardHeader>
-      <CardContent className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <CardContent className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-3">
         {/* CPU */}
         <div className="rounded-lg border bg-card/40 p-4">
           <div className="mb-2 flex items-center justify-between">
@@ -279,21 +282,13 @@ function HostBlock() {
           {systemInfo && systemInfo.cpu.perCore.length > 0 && (
             <div className="mt-3 grid grid-cols-8 gap-1">
               {systemInfo.cpu.perCore.map((p, i) => (
-                <div
-                  key={i}
-                  title={`Core ${i}: ${p.toFixed(1)}%`}
-                  className="h-6 rounded-sm bg-muted overflow-hidden flex items-end"
-                >
-                  <div
-                    className="w-full bg-primary/70 transition-[height] duration-500"
-                    style={{ height: `${Math.max(4, p)}%` }}
-                  />
+                <div key={i} title={`Core ${i}: ${p.toFixed(1)}%`} className="h-6 rounded-sm bg-muted overflow-hidden flex items-end">
+                  <div className="w-full bg-primary/70 transition-[height] duration-500" style={{ height: `${Math.max(4, p)}%` }} />
                 </div>
               ))}
             </div>
           )}
         </div>
-
         {/* Memory */}
         <div className="rounded-lg border bg-card/40 p-4">
           <div className="mb-2 flex items-center justify-between">
@@ -311,7 +306,6 @@ function HostBlock() {
             <span>共 {systemInfo ? formatBytes(systemInfo.memory.total) : '—'}</span>
           </div>
         </div>
-
         {/* Runtime */}
         <div className="rounded-lg border bg-card/40 p-4">
           <div className="mb-2 flex items-center justify-between">
@@ -357,19 +351,19 @@ function HostBlock() {
 function SessionsBlock() {
   const { qqList } = useAppState();
   return (
-    <Card>
+    <Card className="flex h-full flex-col">
       <CardHeader>
         <CardTitle>在线会话</CardTitle>
         <CardDescription>当前已接入并完成登录的 QQ 账号</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="min-h-0 flex-1">
         {qqList.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground">
             <Users className="size-7" strokeWidth={1.5} />
             <p className="text-sm">暂无在线会话</p>
           </div>
         ) : (
-          <ScrollArea className="max-h-[420px]" viewportClassName="[&>div]:!block">
+          <ScrollArea className="h-full" viewportClassName="[&>div]:!block">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {qqList.map((q, idx) => (
                 <motion.div
@@ -408,33 +402,23 @@ const CONN_STATUS_STYLE: Record<AdapterStatusLevel, string> = {
   disabled: 'bg-muted text-muted-foreground',
 };
 const CONN_STATUS_LABEL: Record<AdapterStatusLevel, string> = {
-  ok: '正常',
-  warn: '注意',
-  down: '异常',
-  disabled: '未启用',
+  ok: '正常', warn: '注意', down: '异常', disabled: '未启用',
 };
 const ADAPTER_KIND_LABEL: Record<AdapterStatus['kind'], string> = {
-  httpServer: 'HTTP 服务端',
-  httpClient: 'HTTP 上报',
-  wsServer: 'WS 服务端',
-  wsClient: 'WS 客户端',
+  httpServer: 'HTTP 服务端', httpClient: 'HTTP 上报', wsServer: 'WS 服务端', wsClient: 'WS 客户端',
 };
 
 function ConnectionsBlock() {
   const { connections } = useAppState();
-  return <ConnectionsCard connections={connections} />;
-}
-
-function ConnectionsCard({ connections }: { connections: AccountConnections[] }) {
   return (
-    <Card>
+    <Card className="flex h-full flex-col">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Cable className="size-4 text-primary" /> OneBot 连接
         </CardTitle>
         <CardDescription>各账号协议端点的实时连接状态</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="min-h-0 flex-1 overflow-auto">
         {connections.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground">
             <Cable className="size-7" strokeWidth={1.5} />
@@ -449,19 +433,12 @@ function ConnectionsCard({ connections }: { connections: AccountConnections[] })
                   <span className="font-mono text-[11px] text-muted-foreground tabular-nums">{acc.uin}</span>
                 </div>
                 {acc.adapters.length === 0 ? (
-                  <p className="rounded-md border border-dashed px-3 py-2 text-[11px] text-muted-foreground">
-                    未配置任何协议端点
-                  </p>
+                  <p className="rounded-md border border-dashed px-3 py-2 text-[11px] text-muted-foreground">未配置任何协议端点</p>
                 ) : (
                   <div className="flex flex-col gap-1.5">
                     {acc.adapters.map((adp) => (
                       <div key={adp.name} className="flex items-center gap-2 rounded-lg border bg-card/40 px-3 py-2">
-                        <span
-                          className={cn(
-                            'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium',
-                            CONN_STATUS_STYLE[adp.status],
-                          )}
-                        >
+                        <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium', CONN_STATUS_STYLE[adp.status])}>
                           {CONN_STATUS_LABEL[adp.status]}
                         </span>
                         <div className="min-w-0 flex-1">
@@ -506,14 +483,11 @@ function RecentAlertsCard() {
         setAlerts((prev) => [...prev.filter((a) => a.id !== entry.id), entry].slice(-5));
       },
     });
-    return () => {
-      active = false;
-      stop();
-    };
+    return () => { active = false; stop(); };
   }, [api]);
 
   return (
-    <Card>
+    <Card className="flex h-full flex-col">
       <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
         <div>
           <CardTitle className="flex items-center gap-2">
@@ -521,14 +495,11 @@ function RecentAlertsCard() {
           </CardTitle>
           <CardDescription>最近的 warn / error 级别日志</CardDescription>
         </div>
-        <Link
-          to="/logs"
-          className="inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-        >
+        <Link to="/logs" className="inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
           查看日志 <ArrowRight className="size-3" />
         </Link>
       </CardHeader>
-      <CardContent>
+      <CardContent className="min-h-0 flex-1 overflow-auto">
         {alerts.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground">
             <Bell className="size-7" strokeWidth={1.5} />
@@ -542,9 +513,7 @@ function RecentAlertsCard() {
                 <span className={cn('shrink-0 font-semibold', a.level === 'error' ? 'text-destructive' : 'text-warning')}>
                   {a.level.toUpperCase()}
                 </span>
-                <span className="min-w-0 flex-1 truncate" title={a.message}>
-                  [{a.scope}] {a.message}
-                </span>
+                <span className="min-w-0 flex-1 truncate" title={a.message}>[{a.scope}] {a.message}</span>
               </div>
             ))}
           </div>
