@@ -65,28 +65,32 @@ export function ProcessesPage() {
   return (
     <div className="flex flex-col gap-6">
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
-          <div>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+          <div className="min-w-0">
             <CardTitle>进程注入</CardTitle>
             <CardDescription>加载 SnowLuma 后会监听登录状态，登录后自动接入 OneBot 流程</CardDescription>
           </div>
           <div className="flex items-center gap-2">
             {processList.length > 1 && (
-              <div className="hidden items-center gap-1 sm:flex">
-                <span className="text-[11px] text-muted-foreground">排序</span>
-                {SORT_OPTIONS.map((o) => (
-                  <button
-                    key={o.id}
-                    type="button"
-                    onClick={() => setPages({ processesSort: o.id })}
-                    className={cn(
-                      'rounded-md border px-2 py-1 text-[11px] transition-colors cursor-pointer',
-                      sortKey === o.id ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-accent/40',
-                    )}
-                  >
-                    {o.label}
-                  </button>
-                ))}
+              <div className="hidden items-center gap-1 rounded-lg bg-muted/60 p-1 sm:flex" role="radiogroup" aria-label="排序方式">
+                {SORT_OPTIONS.map((o) => {
+                  const active = sortKey === o.id;
+                  return (
+                    <button
+                      key={o.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => setPages({ processesSort: o.id })}
+                      className={cn(
+                        'rounded-md px-2.5 py-1 text-[11px] font-medium transition-all cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40',
+                        active ? 'bg-card font-semibold text-foreground shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      {o.label}
+                    </button>
+                  );
+                })}
               </div>
             )}
             <Button variant="outline" size="sm" onClick={refreshProcesses}>
@@ -99,14 +103,15 @@ export function ProcessesPage() {
             <motion.div
               initial={{ opacity: 0, y: -4 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mb-3 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary"
+              className="mb-3 flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/[0.06] px-3 py-2 text-xs text-primary"
             >
+              <Loader2 className="size-3.5 shrink-0 animate-spin" />
               {processActionStatus}
             </motion.div>
           )}
           {processList.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-16 text-muted-foreground">
-              <Cpu className="size-7" strokeWidth={1.5} />
+            <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-16 text-muted-foreground">
+              <Cpu className="size-8 opacity-40" strokeWidth={1.5} />
               <p className="text-sm">未检测到可加载 QQ 主进程</p>
               <p className="text-[11px] text-muted-foreground/80">请确认 QQ 已启动后点击右上角刷新</p>
             </div>
@@ -129,7 +134,7 @@ export function ProcessesPage() {
                     initial={{ opacity: 0, y: 6 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.03 + idx * 0.025, duration: 0.22 }}
-                    className="flex flex-col gap-3 rounded-lg border bg-card/50 p-3 sm:flex-row sm:items-center"
+                    className="flex flex-col gap-3 rounded-xl border bg-card/50 p-3.5 transition-colors hover:bg-accent/20 sm:flex-row sm:items-center"
                   >
                     {/* icon + info stay horizontal; on phones the actions drop to
                         a second row so name / PID / path get the full width
@@ -137,7 +142,7 @@ export function ProcessesPage() {
                     <div className="flex min-w-0 flex-1 items-center gap-3">
                       <div
                         className={cn(
-                          'flex size-10 shrink-0 items-center justify-center rounded-lg',
+                          'flex size-10 shrink-0 items-center justify-center rounded-xl',
                           isOnline
                             ? 'bg-success/15 text-success'
                             : proc.status === 'error'

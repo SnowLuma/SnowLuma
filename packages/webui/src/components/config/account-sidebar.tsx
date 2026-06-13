@@ -35,7 +35,7 @@ export function AccountSidebar({
     <motion.aside
       animate={{ width: collapsed ? 56 : 248 }}
       transition={{ type: 'spring', stiffness: 300, damping: 32 }}
-      className="shrink-0 rounded-lg border bg-card/40"
+      className="shrink-0 rounded-xl border bg-card/40"
     >
       <div className={cn('flex items-center', collapsed ? 'justify-center px-1.5 py-2' : 'justify-between px-3 py-2')}>
         {!collapsed && <span className="text-xs font-medium text-muted-foreground">在线连接</span>}
