@@ -212,6 +212,42 @@ describe('extended-actions / bot_exit', () => {
   });
 });
 
+// ─── History: message_id is a signed int32 hash and is frequently NEGATIVE ───
+// Regression: get_{group,friend}_msg_history declared message_id with a
+// `{min:0}` validator, so a real (negative) anchor message_id was rejected at
+// param-validation time (retcode 1400) before the handler ran — see the
+// `message_id=-497311472 ⇒ failed (0ms)` report.
+
+describe('extended-actions / history accepts negative message_id', () => {
+  it('get_group_msg_history forwards a negative anchor to the handler', async () => {
+    const getGroupMsgHistory = vi.fn(async () => [{ message_id: -1, message_type: 'group' }]);
+    const ctx = fakeCtx(fakeBridge(), { getGroupMsgHistory } as any);
+    const res = await makeHandler(ctx).handle('get_group_msg_history', {
+      group_id: 100, message_id: -497311472, count: 100,
+    });
+    expect(res).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(getGroupMsgHistory).toHaveBeenCalledWith(100, -497311472, 100);
+  });
+
+  it('get_friend_msg_history forwards a negative anchor to the handler', async () => {
+    const getFriendMsgHistory = vi.fn(async () => [{ message_id: -1, message_type: 'private' }]);
+    const ctx = fakeCtx(fakeBridge(), { getFriendMsgHistory } as any);
+    const res = await makeHandler(ctx).handle('get_friend_msg_history', {
+      user_id: 12345, message_id: -670862300, count: 100,
+    });
+    expect(res).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(getFriendMsgHistory).toHaveBeenCalledWith(12345, -670862300, 100);
+  });
+
+  it('still defaults an absent message_id to 0 (fetch-latest semantics)', async () => {
+    const getGroupMsgHistory = vi.fn(async () => []);
+    const ctx = fakeCtx(fakeBridge(), { getGroupMsgHistory } as any);
+    const res = await makeHandler(ctx).handle('get_group_msg_history', { group_id: 100 });
+    expect(res).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(getGroupMsgHistory).toHaveBeenCalledWith(100, 0, 20);
+  });
+});
+
 // ─── Tier 1: nc_get_packet_status / nc_get_rkey ───
 
 describe('extended-actions / nc_get_packet_status', () => {
