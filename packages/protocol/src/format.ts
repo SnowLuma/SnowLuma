@@ -89,7 +89,13 @@ export function formatMessageSegments(message: JsonValue): string {
 function renderSegment(type: string, data: Record<string, unknown>): string {
   switch (type) {
     case 'text': return truncate(String(data.text ?? ''), MAX_TEXT_PREVIEW);
-    case 'image': return '[图片]';
+    // Market faces (商城表情) are surfaced as `image` segments carrying an
+    // `emoji_id` marker (+ `summary` = face name). Keep the sticker readable in
+    // previews instead of collapsing it to a generic "[图片]".
+    case 'image':
+      return data.emoji_id
+        ? (data.summary ? `[${String(data.summary)}]` : '[表情]')
+        : '[图片]';
     case 'face': return '[表情]';
     case 'mface': return data.text ? `[${String(data.text)}]` : '[表情]';
     case 'at': return data.qq === 'all' ? '@全体成员' : `@${data.qq ?? ''}`;

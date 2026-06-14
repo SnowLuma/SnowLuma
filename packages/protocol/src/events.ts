@@ -21,6 +21,15 @@ export interface MessageElement {
   width?: number;
   height?: number;
   summary?: string;
+  // Market face (商城表情). Decoded from the wire `marketFace` element; the
+  // OneBot layer surfaces it as an `image` segment carrying these as markers,
+  // and the send path rebuilds the wire `marketFace` from them.
+  //   emojiId        = hex(MarketFace.faceId)  → also builds the gxh gif URL
+  //   emojiPackageId = MarketFace.tabId
+  //   emojiKey       = MarketFace.key
+  emojiId?: string;
+  emojiPackageId?: number;
+  emojiKey?: string;
   flash?: boolean;
   resId?: string;
   fileHash?: string;

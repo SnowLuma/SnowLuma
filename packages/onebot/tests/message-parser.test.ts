@@ -6,6 +6,7 @@ import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { parseMessage } from '../src/message-parser';
 import { buildSendElems } from '@snowluma/protocol/element-builder';
 import type { MentionExtraSend } from '@snowluma/proto-defs/action';
+import type { MarketFacePbReserve } from '@snowluma/proto-defs/element';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type { NTV2UploadRichMediaResp } from '@snowluma/proto-defs/highway';
 
@@ -310,6 +311,72 @@ describe('parseMessage', () => {
       );
       expect(result).toHaveLength(1);
       expect(result[0].type).toBe('text');
+    });
+  });
+
+  describe('market face (mface)', () => {
+    const EMOJI_ID = '235a82d9c0acd2e2db6e0b94e1a1c4f3';
+
+    it('parses an mface segment into a market-face element', async () => {
+      const result = await parseMessage(
+        [{ type: 'mface', data: { emoji_id: EMOJI_ID, emoji_package_id: 12, key: 'abc', summary: '可爱' } }] as any,
+        false,
+      );
+      expect(result).toEqual([{
+        type: 'mface', text: '可爱', emojiId: EMOJI_ID, emojiPackageId: 12, emojiKey: 'abc',
+      }]);
+    });
+
+    it('round-trips an image-with-emoji_id back into a market face (not a re-uploaded picture)', async () => {
+      const result = await parseMessage(
+        [{
+          type: 'image',
+          data: {
+            file: `23-${EMOJI_ID}.gif`,
+            url: `https://gxh.vip.qq.com/club/item/parcel/item/23/${EMOJI_ID}/raw300.gif`,
+            emoji_id: EMOJI_ID, emoji_package_id: 12, key: 'abc', summary: '可爱',
+          },
+        }] as any,
+        false,
+      );
+      expect(result).toEqual([{
+        type: 'mface', text: '可爱', emojiId: EMOJI_ID, emojiPackageId: 12, emojiKey: 'abc',
+      }]);
+    });
+
+    it('leaves a plain image (no emoji_id) as an image element', async () => {
+      const result = await parseMessage(
+        [{ type: 'image', data: { file: 'https://example.com/a.png' } }] as any,
+        false,
+      );
+      expect(result[0]!.type).toBe('image');
+      expect((result[0] as any).emojiId).toBeUndefined();
+    });
+
+    it('drops an mface segment without emoji_id', async () => {
+      const result = await parseMessage(
+        [{ type: 'mface', data: { emoji_package_id: 12, summary: 'x' } }] as any,
+        false,
+      );
+      expect(result).toEqual([]);
+    });
+
+    it('builds the wire marketFace element (faceId = hex(emoji_id), NapCat constants)', async () => {
+      const elements = await parseMessage(
+        [{ type: 'mface', data: { emoji_id: EMOJI_ID, emoji_package_id: 12, key: 'abc', summary: '可爱' } }] as any,
+        false,
+      );
+      const protoElems = await buildSendElems(elements);
+      expect(protoElems).toHaveLength(1);
+      const mf = protoElems[0]!.marketFace;
+      expect(mf).toBeDefined();
+      expect(Buffer.from(mf!.faceId as Uint8Array).toString('hex')).toBe(EMOJI_ID);
+      expect(mf).toMatchObject({
+        faceName: '可爱', itemType: 6, faceInfo: 1, tabId: 12, subType: 3,
+        key: 'abc', imageWidth: 300, imageHeight: 300,
+      });
+      const reserve = protobuf_decode<MarketFacePbReserve>(mf!.pbReserve as Uint8Array);
+      expect(reserve).toMatchObject({ field8: 1 });
     });
   });
 

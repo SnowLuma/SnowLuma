@@ -2,7 +2,7 @@ import type {
   MarkdownData,
   MentionExtraSend,
 } from '@snowluma/proto-defs/action';
-import type { Elem, GroupFileExtra } from '@snowluma/proto-defs/element';
+import type { Elem, GroupFileExtra, MarketFacePbReserve } from '@snowluma/proto-defs/element';
 import { protobuf_encode } from '@snowluma/proton';
 import { randomUUID } from 'crypto';
 import { deflateSync } from 'zlib';
@@ -146,6 +146,34 @@ function makeMarkdownElem(element: MessageElement): ProtoElem {
   };
 }
 
+
+/**
+ * Build a market-face (商城表情) wire element from the markers carried on the
+ * receive-side `image` segment (`emoji_id`/`emoji_package_id`/`key`/summary).
+ *
+ * The constants (`itemType=6`, `faceInfo=1`, `subType=3`, 300×300,
+ * `pbReserve.field8=1`) mirror NapCat's `PacketMsgMarkFaceElement.buildElement`
+ * (`dev/NapCatQQ/.../packet/message/element.ts:318-335`) — the QQ-NT server
+ * pairs them with the faceId/tabId/key to relay the sticker. `faceId` is the
+ * raw GUID bytes, recovered from the hex `emojiId`.
+ */
+function makeMarketFaceElem(element: MessageElement): ProtoElem {
+  const emojiId = (element.emojiId ?? '').trim();
+  return {
+    marketFace: {
+      faceName: element.text ?? '',
+      itemType: 6,
+      faceInfo: 1,
+      faceId: hexToBytes(emojiId),
+      tabId: element.emojiPackageId ?? 0,
+      subType: 3,
+      key: element.emojiKey ?? '',
+      imageWidth: 300,
+      imageHeight: 300,
+      pbReserve: protobuf_encode<MarketFacePbReserve>({ field8: 1 }),
+    },
+  };
+}
 
 function makeForwardElem(element: MessageElement): ProtoElem {
   const resId = (element.resId ?? '').trim();
@@ -345,7 +373,7 @@ async function makeVideoElem(ctx: SendContext, element: MessageElement): Promise
 
 /**
  * Build proto Elem objects from an array of MessageElements.
- * Supports: text, face, at, reply, json, xml, markdown, image, record, video, forward.
+ * Supports: text, face, mface, at, reply, json, xml, markdown, image, record, video, forward.
  * Image, record and video elements trigger NTV2 highway upload via the SendContext.
  */
 export async function buildSendElems(elements: MessageElement[], ctx?: SendContext): Promise<ProtoElem[]> {
@@ -359,6 +387,10 @@ export async function buildSendElems(elements: MessageElement[], ctx?: SendConte
 
       case 'face':
         if (elem.faceId !== undefined) result.push(makeFaceElem(elem.faceId));
+        break;
+
+      case 'mface':
+        if (elem.emojiId) result.push(makeMarketFaceElem(elem));
         break;
 
       case 'at':

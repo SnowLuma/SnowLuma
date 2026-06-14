@@ -23,6 +23,20 @@ function intOr(value: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/** Build a market-face (`mface`) element from an OneBot segment's data.
+ *  Shared by the dedicated `mface` segment and the `image`-with-`emoji_id`
+ *  round-trip path. `emojiId` is the hex GUID the wire builder converts back
+ *  to `MarketFace.faceId`. */
+function marketFaceElement(emojiId: string, data: Record<string, unknown>): MessageElement {
+  return {
+    type: 'mface',
+    text: String(data.summary ?? data.name ?? ''),
+    emojiId,
+    emojiPackageId: intOr(data.emoji_package_id ?? data.tab_id, 0),
+    emojiKey: String(data.key ?? ''),
+  };
+}
+
 export function parseCQParams(raw: string): Record<string, string> {
   const params: Record<string, string> = {};
   if (!raw) return params;
@@ -114,6 +128,11 @@ export async function segmentToElement(type: string, data: Record<string, unknow
       return id > 0 ? { type: 'reply', replySeq: id } : null;
     }
     case 'image': {
+      // A market face that was surfaced as an `image` (see to-segment) can be
+      // echoed straight back: when `emoji_id` is present we rebuild the market
+      // face instead of re-uploading the gif as a plain picture.
+      const imgEmojiId = String(data.emoji_id ?? '').trim();
+      if (imgEmojiId) return marketFaceElement(imgEmojiId, data);
       return {
         type: 'image',
         url: String(data.file ?? data.url ?? data.path ?? data.media ?? ''),
@@ -121,6 +140,16 @@ export async function segmentToElement(type: string, data: Record<string, unknow
         subType: intOr(data.subType, 0),
         summary: data.summary ? String(data.summary) : undefined,
       };
+    }
+    case 'mface': {
+      // Market face (商城表情). emoji_id is the hex GUID; without it we can't
+      // construct the wire element, so drop the segment.
+      const emojiId = String(data.emoji_id ?? '').trim();
+      if (!emojiId) {
+        log.warn('[MsgParser] mface segment without emoji_id is unsupported');
+        return null;
+      }
+      return marketFaceElement(emojiId, data);
     }
     case 'record': {
       const source = String(data.file ?? data.url ?? data.path ?? data.media ?? '');

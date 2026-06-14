@@ -10,7 +10,10 @@
 
 import { describe, expect, it } from 'vitest';
 import { deflateSync } from 'zlib';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { decodeRichBody } from '../../src/msg-push/rich-body-decoder';
+import { buildSendElems } from '../../src/element-builder';
+import type { MessageElement } from '../../src/events';
 import type { MessageBody } from '@snowluma/proto-defs/message';
 
 function lightAppBytes(json: unknown): Uint8Array {
@@ -119,5 +122,44 @@ describe('decodeRichBody / forward LightApp', () => {
     const out = decodeRichBody(body, true);
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({ type: 'forward', resId: 'legacy-res' });
+  });
+});
+
+// Market face (商城表情): decode the wire `marketFace` element into the
+// `emoji_id`/`emoji_package_id`/`key` markers, and round-trip an mface element
+// back through the real proton codegen (faceId hex bytes + pbReserve) so a
+// sticker SnowLuma re-sends decodes identically on the receiver.
+describe('decodeRichBody / market face', () => {
+  const EMOJI_ID = '235a82d9c0acd2e2db6e0b94e1a1c4f3';
+
+  it('decodes a wire marketFace into an mface element (emojiId = lowercase hex of faceId)', () => {
+    const body: MessageBody = {
+      richText: {
+        elems: [
+          {
+            marketFace: {
+              faceName: '可爱',
+              faceId: Buffer.from(EMOJI_ID, 'hex'),
+              tabId: 12,
+              key: 'abc',
+            },
+          } as any,
+        ],
+      },
+    };
+    const out = decodeRichBody(body, true);
+    expect(out).toEqual([{
+      type: 'mface', text: '可爱', emojiId: EMOJI_ID, emojiPackageId: 12, emojiKey: 'abc',
+    }]);
+  });
+
+  it('round-trips an mface element → wire → element through real proton codegen', async () => {
+    const el: MessageElement = {
+      type: 'mface', text: '可爱', emojiId: EMOJI_ID, emojiPackageId: 12, emojiKey: 'abc',
+    };
+    const elems = await buildSendElems([el]);
+    const wire = protobuf_encode<MessageBody>({ richText: { elems: elems as any } });
+    const decoded = protobuf_decode<MessageBody>(wire);
+    expect(decodeRichBody(decoded, true)).toEqual([el]);
   });
 });
