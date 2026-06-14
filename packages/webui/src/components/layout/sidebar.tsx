@@ -170,6 +170,7 @@ export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
         <div className={cn('px-2 pt-2', collapsed && 'px-0')}>
           <Link
             to="/settings"
+            search={{ tab: 'about' }}
             onClick={onItemClick}
             title={updateInfo.latest ? `有新版本 v${updateInfo.latest} · 点击查看` : '有可用更新'}
             aria-label="有可用更新"

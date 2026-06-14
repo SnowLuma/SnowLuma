@@ -36,8 +36,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useApi } from '@/lib/api';
 import { useAppState } from '@/contexts/AppStateContext';
 import { cn } from '@/lib/utils';
-
-type SettingsTab = 'appearance' | 'data' | 'advanced' | 'account' | 'about';
+import { settingsRoute, type SettingsTab } from '@/router';
 
 const TABS: { key: SettingsTab; label: string; icon: typeof Sun }[] = [
   { key: 'appearance', label: '外观', icon: Palette },
@@ -48,7 +47,13 @@ const TABS: { key: SettingsTab; label: string; icon: typeof Sun }[] = [
 ];
 
 export function SettingsPage() {
-  const [tab, setTab] = useState<SettingsTab>('appearance');
+  // Active tab lives in the URL (`?tab=`) so it's deep-linkable — e.g. the
+  // sidebar update banner jumps straight to 关于. Default tab omits the param.
+  const { tab: urlTab } = settingsRoute.useSearch();
+  const navigate = settingsRoute.useNavigate();
+  const tab: SettingsTab = urlTab ?? 'appearance';
+  const setTab = (t: SettingsTab) =>
+    void navigate({ to: '/settings', search: t === 'appearance' ? {} : { tab: t }, replace: true });
   const active = TABS.find((t) => t.key === tab);
 
   return (
