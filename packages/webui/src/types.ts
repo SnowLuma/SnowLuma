@@ -171,7 +171,12 @@ export type SidebarStyle = 'follow' | 'panel' | 'accent';
 export type BackgroundType = 'none' | 'solid' | 'gradient' | 'image';
 export type Density = 'cozy' | 'compact';
 export type TimeFormat = '12h' | '24h';
-export type Palette = 'default' | 'catppuccin-latte' | 'catppuccin-frappe' | 'catppuccin-macchiato' | 'catppuccin-mocha';
+export type Palette =
+  | 'default'
+  | 'catppuccin-latte' | 'catppuccin-frappe' | 'catppuccin-macchiato' | 'catppuccin-mocha'
+  | 'rose-pine' | 'rose-pine-moon' | 'rose-pine-dawn'
+  | 'nord'
+  | 'everforest-dark' | 'everforest-light';
 
 export interface UiBackground {
   type: BackgroundType;

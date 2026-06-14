@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import { MotionConfig } from 'motion/react';
 import type { Palette, ThemeMode, UiAppearance, UiBackground } from '@/types';
 
@@ -162,7 +163,29 @@ function lightenHex(hex: string, ratio: number): string {
 
 // ─── Apply appearance → DOM ────────────────────────────────────────────────
 
+// Selected-state surface tints derived from the accent, so the sidebar's
+// active item (--sidebar-accent) and the settings rail's active row (--accent)
+// follow the chosen accent — not just primary/ring. Default palette only; the
+// Catppuccin/Rosé Pine/… palettes own their own --accent/--sidebar-accent.
+function accentSurfaces(hex: string, global: boolean, mode: 'light' | 'dark'): string {
+  const bgMix = mode === 'light' ? 16 : 26; // accent over the canvas → --accent
+  const sbMix = mode === 'light' ? 18 : 28; // accent over the sidebar → --sidebar-accent
+  const fgMix = 72; // accent-forward text legible on those tints
+  const sidebar =
+    `--sidebar-accent:color-mix(in oklab, ${hex} ${sbMix}%, var(--sidebar));` +
+    `--sidebar-accent-foreground:color-mix(in oklab, ${hex} ${fgMix}%, var(--foreground));`;
+  if (!global) return sidebar;
+  return (
+    `--accent:color-mix(in oklab, ${hex} ${bgMix}%, var(--background));` +
+    `--accent-foreground:color-mix(in oklab, ${hex} ${fgMix}%, var(--foreground));` +
+    sidebar
+  );
+}
+
 function accentVarsCss(a: UiAppearance): string {
+  const global = a.accentScope === 'global';
+  // Only the default palette gets accent-tinted surfaces (others own theirs).
+  const surf = a.palette === 'default';
   if (a.accentMode === 'custom') {
     const hex = safeHex(a.accentCustom, '#38bdf8');
     const lightFg = readableForeground(hex);
@@ -170,93 +193,85 @@ function accentVarsCss(a: UiAppearance): string {
     // the foreground from the *lightened* colour (a light accent needs dark text).
     const darkHex = lightenHex(hex, 0.18);
     const darkFg = readableForeground(darkHex);
-    const lightBlock = a.accentScope === 'global'
+    const lightCore = global
       ? `--primary:${hex};--primary-foreground:${lightFg};--ring:${hex};--sidebar-primary:${hex};--sidebar-primary-foreground:${lightFg};--sidebar-ring:${hex};`
       : `--sidebar-primary:${hex};--sidebar-primary-foreground:${lightFg};--sidebar-ring:${hex};`;
-    const darkBlock = a.accentScope === 'global'
+    const darkCore = global
       ? `--primary:${darkHex};--primary-foreground:${darkFg};--ring:${darkHex};--sidebar-primary:${darkHex};--sidebar-primary-foreground:${darkFg};--sidebar-ring:${darkHex};`
       : `--sidebar-primary:${darkHex};--sidebar-primary-foreground:${darkFg};--sidebar-ring:${darkHex};`;
+    const lightBlock = lightCore + (surf ? accentSurfaces(hex, global, 'light') : '');
+    const darkBlock = darkCore + (surf ? accentSurfaces(darkHex, global, 'dark') : '');
     return `:root{${lightBlock}}\n.dark{${darkBlock}}`;
   }
   const spec = ACCENTS.find((x) => x.id === a.accentPreset) ?? ACCENTS[0];
-  const light = a.accentScope === 'global'
+  const lightCore = global
     ? `--primary:${spec.light.primary};--ring:${spec.light.ring};--sidebar-primary:${spec.light.primary};--sidebar-ring:${spec.light.ring};`
     : `--sidebar-primary:${spec.light.primary};--sidebar-ring:${spec.light.ring};`;
-  const dark = a.accentScope === 'global'
+  const darkCore = global
     ? `--primary:${spec.dark.primary};--ring:${spec.dark.ring};--sidebar-primary:${spec.dark.primary};--sidebar-ring:${spec.dark.ring};`
     : `--sidebar-primary:${spec.dark.primary};--sidebar-ring:${spec.dark.ring};`;
   // Presets keep the base token's primary-foreground (designed for these hues).
+  const light = lightCore + (surf ? accentSurfaces(spec.light.primary, global, 'light') : '');
+  const dark = darkCore + (surf ? accentSurfaces(spec.dark.primary, global, 'dark') : '');
   return `:root{${light}}\n.dark{${dark}}`;
 }
 
-// ─── Catppuccin palettes (full surface/base token sets) ────────────────────
-// Official flavor hexes mapped onto our token names. Accent (--primary/--ring)
-// is intentionally left to the accent system so the two compose. Latte is the
-// light flavor; the other three are dark. Applied via the injected theme
-// stylesheet over the base :root/.dark (see applyAppearance), so darkIntensity
-// is forced off for these (their darkness is part of the palette).
+// ─── Full color-scheme palettes (surface/base token sets) ──────────────────
+// Soft, complete palettes (Catppuccin, Rosé Pine, Nord, Everforest) mapped onto
+// our token names. Accent (--primary/--ring) is intentionally left to the accent
+// system so the two compose. Applied via the injected theme stylesheet over the
+// base :root/.dark (see applyAppearance); darkIntensity is forced off for these
+// (their darkness is part of the palette).
 type PaletteVars = Record<string, string>;
 
-const CATPPUCCIN: Record<Exclude<Palette, 'default'>, PaletteVars> = {
-  'catppuccin-latte': {
-    '--background': '#eff1f5', '--foreground': '#4c4f69',
-    '--card': '#ffffff', '--card-foreground': '#4c4f69',
-    '--popover': '#ffffff', '--popover-foreground': '#4c4f69',
-    '--secondary': '#e6e9ef', '--secondary-foreground': '#4c4f69',
-    '--muted': '#e6e9ef', '--muted-foreground': '#6c6f85',
-    '--accent': '#dce0e8', '--accent-foreground': '#4c4f69',
-    '--destructive': '#d20f39', '--destructive-foreground': '#ffffff',
-    '--success': '#40a02b', '--warning': '#df8e1d',
-    '--border': '#ccd0da', '--input': '#ccd0da',
-    '--sidebar': '#e6e9ef', '--sidebar-foreground': '#4c4f69',
-    '--sidebar-accent': '#dce0e8', '--sidebar-accent-foreground': '#4c4f69', '--sidebar-border': '#ccd0da',
-  },
-  'catppuccin-frappe': {
-    '--background': '#303446', '--foreground': '#c6d0f5',
-    '--card': '#414559', '--card-foreground': '#c6d0f5',
-    '--popover': '#414559', '--popover-foreground': '#c6d0f5',
-    '--secondary': '#414559', '--secondary-foreground': '#c6d0f5',
-    '--muted': '#414559', '--muted-foreground': '#a5adce',
-    '--accent': '#51576d', '--accent-foreground': '#c6d0f5',
-    '--destructive': '#e78284', '--destructive-foreground': '#232634',
-    '--success': '#a6d189', '--warning': '#e5c890',
-    '--border': '#51576d', '--input': '#51576d',
-    '--sidebar': '#292c3c', '--sidebar-foreground': '#c6d0f5',
-    '--sidebar-accent': '#414559', '--sidebar-accent-foreground': '#c6d0f5', '--sidebar-border': '#414559',
-  },
-  'catppuccin-macchiato': {
-    '--background': '#24273a', '--foreground': '#cad3f5',
-    '--card': '#363a4f', '--card-foreground': '#cad3f5',
-    '--popover': '#363a4f', '--popover-foreground': '#cad3f5',
-    '--secondary': '#363a4f', '--secondary-foreground': '#cad3f5',
-    '--muted': '#363a4f', '--muted-foreground': '#a5adcb',
-    '--accent': '#494d64', '--accent-foreground': '#cad3f5',
-    '--destructive': '#ed8796', '--destructive-foreground': '#181926',
-    '--success': '#a6da95', '--warning': '#eed49f',
-    '--border': '#494d64', '--input': '#494d64',
-    '--sidebar': '#1e2030', '--sidebar-foreground': '#cad3f5',
-    '--sidebar-accent': '#363a4f', '--sidebar-accent-foreground': '#cad3f5', '--sidebar-border': '#363a4f',
-  },
-  'catppuccin-mocha': {
-    '--background': '#1e1e2e', '--foreground': '#cdd6f4',
-    '--card': '#313244', '--card-foreground': '#cdd6f4',
-    '--popover': '#313244', '--popover-foreground': '#cdd6f4',
-    '--secondary': '#313244', '--secondary-foreground': '#cdd6f4',
-    '--muted': '#313244', '--muted-foreground': '#a6adc8',
-    '--accent': '#45475a', '--accent-foreground': '#cdd6f4',
-    '--destructive': '#f38ba8', '--destructive-foreground': '#11111b',
-    '--success': '#a6e3a1', '--warning': '#f9e2af',
-    '--border': '#45475a', '--input': '#45475a',
-    '--sidebar': '#181825', '--sidebar-foreground': '#cdd6f4',
-    '--sidebar-accent': '#313244', '--sidebar-accent-foreground': '#cdd6f4', '--sidebar-border': '#313244',
-  },
+interface PaletteInput {
+  bg: string; fg: string; card: string;
+  muted: string; mutedFg: string; accent: string; border: string;
+  sidebar: string; sidebarAccent: string;
+  destructive: string; destructiveFg: string; success: string; warning: string;
+}
+
+// Expand a palette's semantic colors into the full token set (all *-foreground
+// surfaces share the palette text; popover=card, input/sidebar-border=border).
+function pal(c: PaletteInput): PaletteVars {
+  return {
+    '--background': c.bg, '--foreground': c.fg,
+    '--card': c.card, '--card-foreground': c.fg,
+    '--popover': c.card, '--popover-foreground': c.fg,
+    '--secondary': c.muted, '--secondary-foreground': c.fg,
+    '--muted': c.muted, '--muted-foreground': c.mutedFg,
+    '--accent': c.accent, '--accent-foreground': c.fg,
+    '--destructive': c.destructive, '--destructive-foreground': c.destructiveFg,
+    '--success': c.success, '--warning': c.warning,
+    '--border': c.border, '--input': c.border,
+    '--sidebar': c.sidebar, '--sidebar-foreground': c.fg,
+    '--sidebar-accent': c.sidebarAccent, '--sidebar-accent-foreground': c.fg, '--sidebar-border': c.border,
+  };
+}
+
+/** Light-flavored palettes; every other non-default palette is dark. */
+const LIGHT_PALETTES = new Set<Palette>(['catppuccin-latte', 'rose-pine-dawn', 'everforest-light']);
+
+const PALETTES: Record<Exclude<Palette, 'default'>, PaletteVars> = {
+  'catppuccin-latte': pal({ bg: '#eff1f5', fg: '#4c4f69', card: '#ffffff', muted: '#e6e9ef', mutedFg: '#6c6f85', accent: '#dce0e8', border: '#ccd0da', sidebar: '#e6e9ef', sidebarAccent: '#dce0e8', destructive: '#d20f39', destructiveFg: '#ffffff', success: '#40a02b', warning: '#df8e1d' }),
+  'catppuccin-frappe': pal({ bg: '#303446', fg: '#c6d0f5', card: '#414559', muted: '#414559', mutedFg: '#a5adce', accent: '#51576d', border: '#51576d', sidebar: '#292c3c', sidebarAccent: '#414559', destructive: '#e78284', destructiveFg: '#232634', success: '#a6d189', warning: '#e5c890' }),
+  'catppuccin-macchiato': pal({ bg: '#24273a', fg: '#cad3f5', card: '#363a4f', muted: '#363a4f', mutedFg: '#a5adcb', accent: '#494d64', border: '#494d64', sidebar: '#1e2030', sidebarAccent: '#363a4f', destructive: '#ed8796', destructiveFg: '#181926', success: '#a6da95', warning: '#eed49f' }),
+  'catppuccin-mocha': pal({ bg: '#1e1e2e', fg: '#cdd6f4', card: '#313244', muted: '#313244', mutedFg: '#a6adc8', accent: '#45475a', border: '#45475a', sidebar: '#181825', sidebarAccent: '#313244', destructive: '#f38ba8', destructiveFg: '#11111b', success: '#a6e3a1', warning: '#f9e2af' }),
+  // Rosé Pine — soft rosy/iris dark, plus the lighter Moon and the light Dawn.
+  'rose-pine': pal({ bg: '#191724', fg: '#e0def4', card: '#1f1d2e', muted: '#26233a', mutedFg: '#908caa', accent: '#403d52', border: '#403d52', sidebar: '#1f1d2e', sidebarAccent: '#26233a', destructive: '#eb6f92', destructiveFg: '#191724', success: '#9ccfd8', warning: '#f6c177' }),
+  'rose-pine-moon': pal({ bg: '#232136', fg: '#e0def4', card: '#2a273f', muted: '#393552', mutedFg: '#908caa', accent: '#44415a', border: '#44415a', sidebar: '#2a273f', sidebarAccent: '#393552', destructive: '#eb6f92', destructiveFg: '#232136', success: '#9ccfd8', warning: '#f6c177' }),
+  'rose-pine-dawn': pal({ bg: '#faf4ed', fg: '#575279', card: '#fffaf3', muted: '#f2e9e1', mutedFg: '#797593', accent: '#dfdad9', border: '#dfdad9', sidebar: '#f2e9e1', sidebarAccent: '#dfdad9', destructive: '#b4637a', destructiveFg: '#faf4ed', success: '#286983', warning: '#ea9d34' }),
+  // Nord — cool arctic dark.
+  'nord': pal({ bg: '#2e3440', fg: '#e5e9f0', card: '#3b4252', muted: '#3b4252', mutedFg: '#9aa1b2', accent: '#434c5e', border: '#434c5e', sidebar: '#2b303b', sidebarAccent: '#434c5e', destructive: '#bf616a', destructiveFg: '#eceff4', success: '#a3be8c', warning: '#ebcb8b' }),
+  // Everforest — soft warm green, dark + light.
+  'everforest-dark': pal({ bg: '#2d353b', fg: '#d3c6aa', card: '#343f44', muted: '#343f44', mutedFg: '#9da9a0', accent: '#3d484d', border: '#475258', sidebar: '#232a2e', sidebarAccent: '#3d484d', destructive: '#e67e80', destructiveFg: '#2d353b', success: '#a7c080', warning: '#dbbc7f' }),
+  'everforest-light': pal({ bg: '#efebd4', fg: '#5c6a72', card: '#fdf6e3', muted: '#e6e2cc', mutedFg: '#829181', accent: '#e0dcc7', border: '#e0dcc7', sidebar: '#f4f0d9', sidebarAccent: '#e6e2cc', destructive: '#f85552', destructiveFg: '#fdf6e3', success: '#8da101', warning: '#dfa000' }),
 };
 
-/** A Catppuccin flavor is light (Latte) or dark (the rest). */
+/** A palette fixes light/dark; 'default' defers to mode. */
 export function paletteResolved(p: Palette): 'light' | 'dark' | null {
-  if (p === 'catppuccin-latte') return 'light';
-  if (p.startsWith('catppuccin-')) return 'dark';
-  return null;
+  if (p === 'default') return null;
+  return LIGHT_PALETTES.has(p) ? 'light' : 'dark';
 }
 
 export interface PaletteSpec {
@@ -272,16 +287,22 @@ export const PALETTE_OPTIONS: PaletteSpec[] = [
   { id: 'catppuccin-frappe', label: 'Frappé', preview: { bg: '#303446', surface: '#414559', dots: ['#ca9ee6', '#a6d189', '#e78284'] } },
   { id: 'catppuccin-macchiato', label: 'Macchiato', preview: { bg: '#24273a', surface: '#363a4f', dots: ['#c6a0f6', '#a6da95', '#ed8796'] } },
   { id: 'catppuccin-mocha', label: 'Mocha', preview: { bg: '#1e1e2e', surface: '#313244', dots: ['#cba6f7', '#a6e3a1', '#f38ba8'] } },
+  { id: 'rose-pine', label: 'Rosé Pine', preview: { bg: '#191724', surface: '#1f1d2e', dots: ['#c4a7e7', '#9ccfd8', '#eb6f92'] } },
+  { id: 'rose-pine-moon', label: 'Rosé Pine Moon', preview: { bg: '#232136', surface: '#2a273f', dots: ['#c4a7e7', '#9ccfd8', '#eb6f92'] } },
+  { id: 'rose-pine-dawn', label: 'Rosé Pine Dawn', preview: { bg: '#faf4ed', surface: '#fffaf3', dots: ['#907aa9', '#286983', '#b4637a'] } },
+  { id: 'nord', label: 'Nord', preview: { bg: '#2e3440', surface: '#3b4252', dots: ['#81a1c1', '#a3be8c', '#bf616a'] } },
+  { id: 'everforest-dark', label: 'Everforest 暗', preview: { bg: '#2d353b', surface: '#343f44', dots: ['#a7c080', '#7fbbb3', '#e67e80'] } },
+  { id: 'everforest-light', label: 'Everforest 亮', preview: { bg: '#efebd4', surface: '#fdf6e3', dots: ['#8da101', '#3a94c5', '#f85552'] } },
 ];
 
 function paletteVarsCss(a: UiAppearance): string {
   if (a.palette === 'default') return '';
-  const vars = CATPPUCCIN[a.palette];
+  const vars = PALETTES[a.palette];
   if (!vars) return '';
   const body = Object.entries(vars).map(([k, v]) => `${k}:${v};`).join('');
-  // Latte is light → :root; the dark flavors → .dark (resolved is forced to
-  // match in the provider, so the selector always matches the active scheme).
-  const selector = a.palette === 'catppuccin-latte' ? ':root' : '.dark';
+  // Light palette → :root; dark → .dark (resolved is forced to match in the
+  // provider, so the selector always matches the active scheme).
+  const selector = LIGHT_PALETTES.has(a.palette) ? ':root' : '.dark';
   return `${selector}{${body}}`;
 }
 
@@ -495,6 +516,27 @@ function isPristine(a: UiAppearance): boolean {
     && a.background.type === 'none';
 }
 
+// ─── Light/dark reveal (View Transitions API) ──────────────────────────────
+// Where the user last clicked, so the theme reveal emanates from there.
+let lastPointer: { x: number; y: number } | null = null;
+
+/** Run `apply` (a synchronous state commit) inside a circular light/dark
+ *  reveal centered on the last click. flushSync forces the DOM to update inside
+ *  the transition callback so the "after" snapshot is captured. Falls back to
+ *  an instant apply where View Transitions aren't supported (e.g. Firefox). */
+function runThemeReveal(apply: () => void): void {
+  const doc = document as Document & { startViewTransition?: (cb: () => void) => unknown };
+  if (typeof doc.startViewTransition !== 'function') { apply(); return; }
+  const root = document.documentElement;
+  const x = lastPointer?.x ?? window.innerWidth / 2;
+  const y = lastPointer?.y ?? window.innerHeight / 2;
+  const r = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+  root.style.setProperty('--vt-x', `${x}px`);
+  root.style.setProperty('--vt-y', `${y}px`);
+  root.style.setProperty('--vt-r', `${r}px`);
+  doc.startViewTransition(() => flushSync(apply));
+}
+
 function readCache(): UiAppearance {
   try {
     const raw = localStorage.getItem(LS_CACHE);
@@ -606,7 +648,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // at the app root and normally never unmounts).
   useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
 
-  const setAppearance = useCallback((patch: AppearancePatch) => {
+  // Track the last click so the light/dark reveal can emanate from it.
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => { lastPointer = { x: e.clientX, y: e.clientY }; };
+    window.addEventListener('pointerdown', onDown, { capture: true });
+    return () => window.removeEventListener('pointerdown', onDown, { capture: true });
+  }, []);
+
+  const commit = useCallback((patch: AppearancePatch) => {
     const prev = appearanceRef.current;
     const next: UiAppearance = {
       ...prev,
@@ -619,6 +668,21 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => void persistAppearance(next), 400);
   }, []);
+
+  const setAppearance = useCallback((patch: AppearancePatch) => {
+    const prev = appearanceRef.current;
+    // Animate a circular light/dark reveal only for brightness/scheme changes
+    // (mode, palette, dark intensity) — and never when motion is reduced/off.
+    const schemeChange =
+      (patch.mode !== undefined && patch.mode !== prev.mode) ||
+      (patch.palette !== undefined && patch.palette !== prev.palette) ||
+      (patch.darkIntensity !== undefined && patch.darkIntensity !== prev.darkIntensity);
+    if (schemeChange && !prev.reduceMotion && !prev.disableMotion) {
+      runThemeReveal(() => commit(patch));
+    } else {
+      commit(patch);
+    }
+  }, [commit]);
 
   const uploadBackground = useMemo(() => async (file: File) => {
     const token = authToken();

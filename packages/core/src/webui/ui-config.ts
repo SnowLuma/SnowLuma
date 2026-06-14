@@ -45,7 +45,12 @@ export type Density = 'cozy' | 'compact';
 export type TimeFormat = '12h' | '24h';
 /** Full color scheme. 'default' keeps the sky theme (driven by `mode`); the
  *  Catppuccin flavors are complete palettes that also fix light/dark. */
-export type Palette = 'default' | 'catppuccin-latte' | 'catppuccin-frappe' | 'catppuccin-macchiato' | 'catppuccin-mocha';
+export type Palette =
+  | 'default'
+  | 'catppuccin-latte' | 'catppuccin-frappe' | 'catppuccin-macchiato' | 'catppuccin-mocha'
+  | 'rose-pine' | 'rose-pine-moon' | 'rose-pine-dawn'
+  | 'nord'
+  | 'everforest-dark' | 'everforest-light';
 
 export interface UiBackground {
   type: BackgroundType;
@@ -395,7 +400,7 @@ export function normalizeAppearance(value: unknown, imageState: ServerImageState
     accentCustom: hexOr(v.accentCustom, DEFAULT_APPEARANCE.accentCustom),
     accentScope: oneOf<AccentScope>(v.accentScope, ['sidebar', 'global'], DEFAULT_APPEARANCE.accentScope),
     darkIntensity: oneOf<DarkIntensity>(v.darkIntensity, ['soft', 'black'], DEFAULT_APPEARANCE.darkIntensity),
-    palette: oneOf<Palette>(v.palette, ['default', 'catppuccin-latte', 'catppuccin-frappe', 'catppuccin-macchiato', 'catppuccin-mocha'], DEFAULT_APPEARANCE.palette),
+    palette: oneOf<Palette>(v.palette, ['default', 'catppuccin-latte', 'catppuccin-frappe', 'catppuccin-macchiato', 'catppuccin-mocha', 'rose-pine', 'rose-pine-moon', 'rose-pine-dawn', 'nord', 'everforest-dark', 'everforest-light'], DEFAULT_APPEARANCE.palette),
     sidebarStyle: oneOf<SidebarStyle>(v.sidebarStyle, ['follow', 'panel', 'accent'], DEFAULT_APPEARANCE.sidebarStyle),
     background: normalizeBackground(v.background, imageState),
     fontSans: idOr(v.fontSans, DEFAULT_APPEARANCE.fontSans),

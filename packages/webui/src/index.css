@@ -183,6 +183,11 @@
   --muted-foreground: oklch(66% 0.02 240);
   --border: oklch(22% 0.012 250);
   --input: oklch(19% 0.012 250);
+}
+/* OLED's near-black sidebar applies only when the sidebar follows the canvas;
+   scoping it to "follow" lets the panel/accent styles below win in OLED too
+   (otherwise this higher-specificity block would override them). */
+.dark[data-dark-intensity="black"][data-sidebar-style="follow"] {
   --sidebar: oklch(5% 0.006 250);
   --sidebar-border: oklch(20% 0.012 250);
 }
@@ -232,6 +237,26 @@ html[data-no-motion="1"] *::after {
 input::-ms-reveal,
 input::-ms-clear {
   display: none;
+}
+
+/* ──────────────────────────────────────────────
+   Light/dark reveal — a circular wipe from the click point, via the View
+   Transitions API (Chromium/Edge/Safari; Firefox falls back to an instant
+   swap). Gated in JS on the motion settings, so this only runs when allowed.
+   ────────────────────────────────────────────── */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) { z-index: 0; }
+::view-transition-new(root) {
+  z-index: 1;
+  animation: snowluma-theme-reveal 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes snowluma-theme-reveal {
+  from { clip-path: circle(0 at var(--vt-x, 50%) var(--vt-y, 50%)); }
+  to { clip-path: circle(var(--vt-r, 150%) at var(--vt-x, 50%) var(--vt-y, 50%)); }
 }
 
 /* ──────────────────────────────────────────────

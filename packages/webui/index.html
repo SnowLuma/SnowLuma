@@ -24,10 +24,11 @@
           var root = document.documentElement;
           var mode = a.mode;
           var pal = a.palette;
-          // A Catppuccin flavor fixes light/dark; Latte = light, the rest dark.
-          var isCpn = typeof pal === 'string' && pal.indexOf('catppuccin-') === 0;
-          var resolved = pal === 'catppuccin-latte' ? 'light'
-            : isCpn ? 'dark'
+          // A non-default palette fixes light/dark; these flavors are light, the rest dark.
+          var LIGHT_PAL = { 'catppuccin-latte': 1, 'rose-pine-dawn': 1, 'everforest-light': 1 };
+          var isPal = typeof pal === 'string' && pal.length > 0 && pal !== 'default';
+          var resolved = isPal
+            ? (LIGHT_PAL[pal] ? 'light' : 'dark')
             : (mode === 'light' || mode === 'dark'
                 ? mode
                 : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
@@ -35,10 +36,10 @@
           root.classList.add(resolved);
           root.setAttribute('data-theme', resolved);
           root.style.colorScheme = resolved;
-          if (isCpn) root.setAttribute('data-palette', pal);
+          if (isPal) root.setAttribute('data-palette', pal);
           if (a.density === 'compact' || a.density === 'cozy') root.setAttribute('data-density', a.density);
-          // Catppuccin forces soft so the OLED "black" rule can't fight the palette.
-          var intensity = isCpn ? 'soft' : a.darkIntensity;
+          // A palette forces soft so the OLED "black" rule can't fight it.
+          var intensity = isPal ? 'soft' : a.darkIntensity;
           if (intensity === 'black' || intensity === 'soft') root.setAttribute('data-dark-intensity', intensity);
           if (a.sidebarStyle === 'follow' || a.sidebarStyle === 'panel' || a.sidebarStyle === 'accent') root.setAttribute('data-sidebar-style', a.sidebarStyle);
           root.setAttribute('data-contrast', a.highContrast ? 'high' : 'normal');
