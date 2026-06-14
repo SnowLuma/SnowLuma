@@ -2,7 +2,7 @@ import { createLogger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import type { ForwardNodePayload, MessageElement } from '@snowluma/protocol/events';
 import type { MessageSendResult } from '../api-handler';
-import { elementsToOneBotSegments } from '../event-converter';
+import { convertEvent, elementsToOneBotSegments, type ConverterContext } from '../event-converter';
 import { segmentsToRawMessage } from '../helper/cq';
 import type { OneBotInstanceContext } from '../instance-context';
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from '../message-id';
@@ -62,6 +62,81 @@ export async function getFriendMsgHistory(
       return Number.isFinite(uid) && Math.trunc(uid) === userId;
     })
     .map(sanitizeMessageEventForApi);
+}
+
+// Deps the server-backed history fetch needs from the instance context.
+interface GroupHistoryRef {
+  bridge: BridgeInterface;
+  messageStore: MessageStore;
+  converterCtx: ConverterContext;
+  selfId: number;
+}
+
+/**
+ * Group history, fetched from the server (`SsoGetGroupMsg`) instead of only the
+ * local observed-message store — so it can return messages SnowLuma never saw
+ * live, and (because each fetched message is persisted) reply / get_msg on old
+ * messages start working too. Resolves the anchor sequence from the requested
+ * message_id (or the latest observed message), then asks the bridge for the
+ * `count` messages ending there. Falls back to the local store if the server
+ * fetch is unavailable or empty.
+ */
+export async function getGroupHistory(
+  ref: GroupHistoryRef,
+  groupId: number,
+  messageId: number | undefined,
+  count: number | undefined,
+): Promise<JsonObject[]> {
+  if (!Number.isInteger(groupId) || groupId <= 0) return [];
+  const want = normalizeHistoryCount(count);
+
+  let anchorSeq = 0;
+  if (Number.isInteger(messageId) && messageId !== 0) {
+    const meta = ref.messageStore.findMeta(messageId as number);
+    if (!meta || !meta.isGroup || meta.targetId !== groupId || meta.sequence <= 0) {
+      // Anchor we don't know — best effort from the local store.
+      return getGroupMsgHistory(ref.messageStore, groupId, messageId, count);
+    }
+    anchorSeq = meta.sequence;
+  } else {
+    const latest = ref.messageStore.listSessionEvents(true, groupId, 1);
+    anchorSeq = latest.length ? toHistInt(latest[latest.length - 1].message_seq) : 0;
+  }
+
+  if (anchorSeq > 0) {
+    try {
+      const events = await ref.bridge.apis.message.getGroupHistory(groupId, anchorSeq, want, ref.selfId);
+      const out: JsonObject[] = [];
+      for (const ev of events) {
+        const json = await convertEvent(ref.converterCtx, ev);
+        if (!json || json.message_type !== 'group') continue;
+        persistGroupHistoryEvent(ref.messageStore, json); // full event → reply/get_msg + future listing
+        out.push(sanitizeMessageEventForApi(json));       // sanitized for the API (matches the local path)
+      }
+      if (out.length > 0) return out;
+    } catch (err) {
+      log.warn('group history server fetch failed (%s); using local store', err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  return getGroupMsgHistory(ref.messageStore, groupId, messageId, count);
+}
+
+function persistGroupHistoryEvent(store: MessageStore, event: JsonObject): void {
+  const messageId = toHistInt(event.message_id);
+  const sessionId = toHistInt(event.group_id);
+  const sequence = toHistInt(event.message_seq);
+  if (messageId === 0 || sessionId === 0) return;
+  store.storeEvent(messageId, true, sessionId, sequence, GROUP_MESSAGE_EVENT, event);
+}
+
+function toHistInt(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
+  if (typeof value === 'string' && value.trim()) {
+    const n = Number(value);
+    if (Number.isFinite(n)) return Math.trunc(n);
+  }
+  return 0;
 }
 
 export async function deleteMessage(bridge: BridgeInterface, meta: MessageMeta): Promise<void> {

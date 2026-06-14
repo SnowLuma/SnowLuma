@@ -25,6 +25,7 @@ export type * from './element.js';
 // NOTE: `highway.ts` intentionally NOT re-exported here — see note above.
 export type * from './longmsg.js';
 export type * from './message.js';
+export type * from './get-group-msg.js';
 export type * from './notify.js';
 export type * from './oidb.js';
 export type * from './oidb-action.js';

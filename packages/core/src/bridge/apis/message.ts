@@ -9,7 +9,8 @@ import type {
   SsoReadedReportReq,
 } from '@snowluma/proto-defs/oidb-actions/base';
 import { buildSendElems } from '@snowluma/protocol/element-builder';
-import type { MessageElement } from '@snowluma/protocol/events';
+import type { MessageElement, QQEventVariant } from '@snowluma/protocol/events';
+import { fetchGroupMessageRange } from '@snowluma/protocol/msg-push';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { BridgeContext } from '../bridge-context';
 // `Bridge` is imported as a type only so we can narrow `ctx` back to
@@ -23,6 +24,31 @@ import type { BridgeContext } from '../bridge-context';
 import type { Bridge, SendMessageReceipt } from '../bridge';
 
 const SEND_MSG_CMD = 'MessageSvc.PbSendMsg';
+
+type GroupMessage = Extract<QQEventVariant, { kind: 'group_message' }>;
+
+// ── Group-history fetch guards (the server frequency-limits / kicks abusive
+//    pulls, so keep each request small, bound the loop, and space the sends). ──
+const HISTORY_MAX_COUNT = 200;      // hard cap on messages returned per call
+const HISTORY_CHUNK_SEQ = 30;       // sequence span per server request (small packet)
+const HISTORY_MAX_REQUESTS = 12;    // bound the walk-back loop
+const HISTORY_MIN_GAP_MS = 300;     // minimum spacing between SsoGetGroupMsg sends
+
+// Serialized throttle gate: chains so concurrent callers queue, and enforces
+// at least HISTORY_MIN_GAP_MS between actual sends (the first send isn't
+// penalized). Process-wide — shared across all groups AND accounts in this
+// process — so no client can make us flood the server regardless of fan-out.
+let historyLastSendAt = 0;
+let historyGate: Promise<void> = Promise.resolve();
+function throttleHistory(): Promise<void> {
+  const run = historyGate.then(async () => {
+    const wait = historyLastSendAt + HISTORY_MIN_GAP_MS - Date.now();
+    if (wait > 0) await new Promise<void>((resolve) => setTimeout(resolve, wait));
+    historyLastSendAt = Date.now();
+  });
+  historyGate = run.catch(() => undefined);
+  return run;
+}
 
 export class MessageApi {
   constructor(private readonly ctx: BridgeContext) { }
@@ -327,6 +353,47 @@ export class MessageApi {
     if (!result.success) {
       throw new Error(result.errorMessage || 'mark private message read failed');
     }
+  }
+
+  /**
+   * Fetch real group history from the server (`SsoGetGroupMsg`), ending at and
+   * including `endSeq`, walking backward in small windows until `count`
+   * messages are gathered or the floor is reached. Rate-limited + capped so a
+   * hammering client can't make us flood the server (and get the account
+   * kicked). Returns decoded `group_message` events oldest→newest.
+   */
+  async getGroupHistory(groupUin: number, endSeq: number, count: number, selfUin = 0): Promise<GroupMessage[]> {
+    if (!(groupUin > 0) || !(endSeq > 0)) return [];
+    const want = Math.min(Math.max(1, Math.trunc(count) || 0), HISTORY_MAX_COUNT);
+
+    const collected = new Map<number, GroupMessage>(); // dedup by sequence
+    let curEnd = endSeq;
+    for (let i = 0; i < HISTORY_MAX_REQUESTS && collected.size < want && curEnd >= 1; i++) {
+      const start = Math.max(1, curEnd - HISTORY_CHUNK_SEQ + 1);
+      await throttleHistory();
+      let batch: GroupMessage[];
+      try {
+        batch = await fetchGroupMessageRange(this.ctx, this.ctx.identity, selfUin, groupUin, start, curEnd);
+      } catch {
+        break; // network/decode error — return whatever we have so far
+      }
+      if (batch.length > 0) {
+        let minSeq = curEnd;
+        for (const ev of batch) {
+          collected.set(ev.msgSeq, ev);
+          if (ev.msgSeq < minSeq) minSeq = ev.msgSeq;
+        }
+        // Continue strictly below the OLDEST sequence the server actually
+        // returned — covers the case where the server caps a window short.
+        curEnd = minSeq - 1;
+      } else {
+        // Empty window (a gap of recalled/absent seqs) — skip past it.
+        curEnd = start - 1;
+      }
+    }
+
+    const all = [...collected.values()].sort((a, b) => a.msgSeq - b.msgSeq);
+    return all.slice(-want); // newest `want`, oldest→newest
   }
 }
 
