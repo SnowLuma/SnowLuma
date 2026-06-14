@@ -6,8 +6,11 @@ import type { LogLevel, UiLayoutItem } from '@/types';
 // (render + min sizes), and the layout editor (labels) without import cycles.
 
 export const GRID_COLS = 12;
-/** px per grid row. Tiles are 1 row; cards a few rows. */
-export const GRID_CELL_HEIGHT = 80;
+/** px per grid row. Tiles are 1 row; cards a few rows. Sized so a 1-row stat
+ *  tile's icon + 3 text lines (label + text-lg value + subtext) clear the
+ *  py-3.5 padding with breathing room: item content ≈ cellHeight − 2·margin −
+ *  card border ≈ 90px > the ~86px the content needs. */
+export const GRID_CELL_HEIGHT = 108;
 export const GRID_MARGIN = 8;
 
 export interface GridWidgetSpec {

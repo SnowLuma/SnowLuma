@@ -94,7 +94,7 @@ export function OverviewPage() {
       )}
 
       {editing && (
-        <p className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] text-muted-foreground">
+        <p className="rounded-xl border border-primary/20 bg-primary/5 px-3.5 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
           拖动卡片顶部的「拖动」手柄移动位置、拖右下角缩放；眼睛图标显隐、齿轮改设置。左侧导航也可在编辑态拖动排序。
         </p>
       )}
@@ -106,7 +106,7 @@ export function OverviewPage() {
             to="/processes"
             className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 transition-colors hover:bg-primary/10"
           >
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
               <PlugZap className="size-5" />
             </div>
             <div className="min-w-0 flex-1">
@@ -154,7 +154,7 @@ export function OverviewPage() {
 function EmptyLayout({ onReset }: { onReset: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed py-16 text-muted-foreground">
-      <MonitorCog className="size-8" strokeWidth={1.5} />
+      <MonitorCog className="size-8 opacity-40" strokeWidth={1.5} />
       <p className="text-sm">所有总览卡片都已隐藏</p>
       <Button variant="outline" size="sm" onClick={onReset}>恢复默认布局</Button>
     </div>
@@ -174,10 +174,10 @@ function StatTile({
   to?: AppPath;
 }) {
   const body = (
-    <CardContent className="flex h-full items-center gap-2.5 overflow-hidden px-4 py-2">
+    <CardContent className="flex h-full items-center gap-3 overflow-hidden px-4 py-3.5">
       <div
         className={cn(
-          'flex size-9 shrink-0 items-center justify-center rounded-xl',
+          'flex size-10 shrink-0 items-center justify-center rounded-xl',
           accent ? 'bg-primary text-primary-foreground' : 'bg-primary/10 text-primary',
         )}
       >
@@ -185,8 +185,8 @@ function StatTile({
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-[11px] font-medium uppercase leading-tight tracking-wider text-muted-foreground">{label}</p>
-        <div className="mt-0.5 truncate text-[15px] font-semibold leading-tight tabular-nums">{value}</div>
-        {subtext && <p className="mt-0.5 truncate text-[11px] leading-tight text-muted-foreground">{subtext}</p>}
+        <div className="mt-1 truncate text-lg font-semibold leading-tight tabular-nums">{value}</div>
+        {subtext && <p className="mt-1 truncate text-[11px] leading-tight text-muted-foreground">{subtext}</p>}
       </div>
       {to && <ArrowRight className="size-4 shrink-0 text-muted-foreground/60" />}
     </CardContent>
@@ -283,7 +283,7 @@ function HostBlock() {
       </CardHeader>
       <CardContent className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-3">
         {/* CPU */}
-        <div className="rounded-lg border bg-card/40 p-4">
+        <div className="rounded-xl border bg-card/40 p-4">
           <div className="mb-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Cpu className="size-4 text-primary" />
@@ -308,7 +308,7 @@ function HostBlock() {
           )}
         </div>
         {/* Memory */}
-        <div className="rounded-lg border bg-card/40 p-4">
+        <div className="rounded-xl border bg-card/40 p-4">
           <div className="mb-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <MemoryStick className="size-4 text-primary" />
@@ -325,7 +325,7 @@ function HostBlock() {
           </div>
         </div>
         {/* Runtime */}
-        <div className="rounded-lg border bg-card/40 p-4">
+        <div className="rounded-xl border bg-card/40 p-4">
           <div className="mb-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Server className="size-4 text-primary" />
@@ -390,8 +390,8 @@ function SessionsBlock({ config }: { config: SessionsConfig }) {
       </CardHeader>
       <CardContent className="min-h-0 flex-1">
         {list.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground">
-            <Users className="size-7" strokeWidth={1.5} />
+          <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-10 text-muted-foreground">
+            <Users className="size-8 opacity-40" strokeWidth={1.5} />
             <p className="text-sm">{qqList.length === 0 ? '暂无在线会话' : '无匹配的会话'}</p>
           </div>
         ) : (
@@ -404,7 +404,7 @@ function SessionsBlock({ config }: { config: SessionsConfig }) {
                   animate={{ opacity: 1, y: 0 }}
                   transition={off ? { duration: 0 } : { delay: 0.03 + idx * 0.04, duration: 0.22 }}
                   whileHover={off ? undefined : { y: -2 }}
-                  className="flex items-center gap-3 rounded-lg border bg-card/40 p-3"
+                  className="flex items-center gap-3 rounded-xl border bg-card/40 p-3"
                 >
                   <Avatar size={40}>
                     <AvatarImage src={qqAvatarUrl(q.uin)} alt={q.nickname || q.uin} />
@@ -452,8 +452,8 @@ function ConnectionsBlock() {
       </CardHeader>
       <CardContent className="min-h-0 flex-1 overflow-auto">
         {connections.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground">
-            <Cable className="size-7" strokeWidth={1.5} />
+          <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-10 text-muted-foreground">
+            <Cable className="size-8 opacity-40" strokeWidth={1.5} />
             <p className="text-sm">暂无已接入的账号实例</p>
           </div>
         ) : (
@@ -469,7 +469,7 @@ function ConnectionsBlock() {
                 ) : (
                   <div className="flex flex-col gap-1.5">
                     {acc.adapters.map((adp) => (
-                      <div key={adp.name} className="flex items-center gap-2 rounded-lg border bg-card/40 px-3 py-2">
+                      <div key={adp.name} className="flex items-center gap-2 rounded-xl border bg-card/40 px-3 py-2">
                         <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium', CONN_STATUS_STYLE[adp.status])}>
                           {CONN_STATUS_LABEL[adp.status]}
                         </span>
@@ -545,8 +545,8 @@ function RecentAlertsCard({ config }: { config: AlertsConfig }) {
       </CardHeader>
       <CardContent className="min-h-0 flex-1 overflow-auto">
         {alerts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground">
-            <Bell className="size-7" strokeWidth={1.5} />
+          <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-10 text-muted-foreground">
+            <Bell className="size-8 opacity-40" strokeWidth={1.5} />
             <p className="text-sm">暂无告警</p>
           </div>
         ) : (
