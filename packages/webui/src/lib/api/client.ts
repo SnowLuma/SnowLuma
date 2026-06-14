@@ -1,4 +1,4 @@
-import type { AccountConnections, HookProcessInfo, LogEntry, LogLevel, QQInfo, SystemInfo, UpdateInfo } from '@/types';
+import type { AccountConnections, HookProcessInfo, LogEntry, LogLevel, QQInfo, SystemInfo, UiAppearance, UiConfig, UpdateInfo } from '@/types';
 import type { PasswordRule } from '@/components/pages/change-password-page';
 import { normalizeOneBotConfig } from '@/lib/onebot-config';
 import {
@@ -43,6 +43,7 @@ class HttpApiClient implements ApiClient {
   readonly config: ApiClient['config'];
   readonly logs: ApiClient['logs'];
   readonly update: ApiClient['update'];
+  readonly ui: ApiClient['ui'];
 
   constructor(opts: CreateApiClientOptions = {}) {
     this.tokenStore = opts.tokenStore ?? localStorageTokenStore(DEFAULT_TOKEN_KEY);
@@ -94,6 +95,46 @@ class HttpApiClient implements ApiClient {
     this.update = {
       check: (force) =>
         this.getJson<UpdateInfo>(`/api/update/check${force ? '?force=true' : ''}`),
+    };
+
+    this.ui = {
+      get: () => this.getJson<{ config: UiConfig }>('/api/ui').then((d) => d.config),
+      save: async (config) => {
+        const data = await this.postJson<{ config: UiConfig }>('/api/ui', config);
+        return data.config;
+      },
+      getPublic: async () => {
+        // Pre-auth path: a plain fetch with no bearer. Used by the login page
+        // to theme itself before the operator has signed in.
+        const res = await fetch('/api/ui/public');
+        if (!res.ok) throw new ApiError(res.status, '无法获取外观配置');
+        const data = await readJson<{ appearance: UiAppearance }>(res);
+        return data.appearance;
+      },
+      uploadBackground: async (file) => {
+        // FormData must set its own multipart boundary, so this bypasses
+        // request() (which would force application/json) and attaches the
+        // bearer header directly — mirroring login()'s deliberate bypass.
+        const form = new FormData();
+        form.append('file', file);
+        const headers: Record<string, string> = {};
+        if (this.currentToken) headers['Authorization'] = `Bearer ${this.currentToken}`;
+        const res = await fetch('/api/ui/background', { method: 'POST', headers, body: form });
+        if (res.status === 401) {
+          this.setToken(null);
+          this.onUnauthorized?.();
+        }
+        if (!res.ok) {
+          const payload = await readJson<ErrorPayload>(res);
+          throw new ApiError(res.status, extractErrorMessage(payload, '上传失败'), payload.code);
+        }
+        const data = await readJson<{ config: UiConfig }>(res);
+        return data.config;
+      },
+      deleteBackground: async () => {
+        const data = await this.fetchJson<{ config: UiConfig }>('/api/ui/background', { method: 'DELETE' });
+        return data.config;
+      },
     };
   }
 

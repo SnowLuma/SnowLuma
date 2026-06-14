@@ -113,26 +113,37 @@ describe('IncomingPacketPipeline / stranger resolve on group_invite', () => {
     expect(captured[0]).toMatchObject({ fromUin: 0, fromUid: 'u_x' });
   });
 
-  it('skips the stranger resolve when fromUin is already populated (cache hit)', async () => {
-    // If the decoder's `resolveUidToUin` already found the uin in
-    // the local cache (e.g. group member roster), we shouldn't waste
-    // a wire call.
+  it('still fetches + applies the comment when fromUin is already cached (issue #98)', async () => {
+    // THE bug: the comment fetch used to piggy-back on the uin-resolve
+    // gate, so a requester whose uin was already in cache (group member
+    // roster, prior @-mention, re-application…) silently lost their
+    // verify text — the OneBot `comment` came out empty. The comment
+    // and the uin resolve are now decoupled: the comment is fetched
+    // unconditionally; only the (wasteful) profile lookup is skipped on
+    // a cache hit.
     const resolveStrangerProfile = vi.fn(async () => null);
-    const { pipeline, captured } = makePipeline({ resolveStrangerProfile });
+    const resolveGroupJoinRequest = vi.fn(async () => ({ comment: '求通过', sequence: 42 }));
+    const { pipeline, captured } = makePipeline({ resolveStrangerProfile, resolveGroupJoinRequest });
 
     pipeline.registerCmd('test.cmd', () => [{
       kind: 'group_invite',
       time: 1, selfUin: 10001,
       groupId: 12345, fromUin: 99999, fromUid: 'u_known',
-      subType: 'invite', message: '', flag: 'invite:12345:u_known',
+      subType: 'add', message: '', flag: 'add:12345:u_known',
     } as QQEventVariant]);
 
     pipeline.process({ serviceCmd: 'test.cmd' } as PacketInfo);
     await new Promise(r => setTimeout(r, 10));
 
+    // Profile lookup is skipped — the uin is already known, no wasted call…
     expect(resolveStrangerProfile).not.toHaveBeenCalled();
+    // …but the comment IS still fetched from the pending-request queue
+    // and applied to the emitted event.
+    expect(resolveGroupJoinRequest).toHaveBeenCalledWith(12345, 'u_known', 'add');
     expect(captured).toHaveLength(1);
-    expect(captured[0]).toMatchObject({ fromUin: 99999, fromUid: 'u_known' });
+    const ev = captured[0] as Extract<QQEventVariant, { kind: 'group_invite' }>;
+    expect(ev.fromUin).toBe(99999);
+    expect(ev.message).toBe('求通过');
   });
 
   it('populates event.message from the pending-request queue (NapCat parity)', async () => {
@@ -260,9 +271,10 @@ describe('IncomingPacketPipeline / stranger resolve on group_invite', () => {
     });
   });
 
-  it('skips the stranger resolve when fromUid is empty (no uid to look up by)', async () => {
+  it('skips both lookups when fromUid is empty (no uid to look up by)', async () => {
     const resolveStrangerProfile = vi.fn(async () => null);
-    const { pipeline, captured } = makePipeline({ resolveStrangerProfile });
+    const resolveGroupJoinRequest = vi.fn(async () => null);
+    const { pipeline, captured } = makePipeline({ resolveStrangerProfile, resolveGroupJoinRequest });
 
     pipeline.registerCmd('test.cmd', () => [{
       kind: 'group_invite',
@@ -274,7 +286,9 @@ describe('IncomingPacketPipeline / stranger resolve on group_invite', () => {
     pipeline.process({ serviceCmd: 'test.cmd' } as PacketInfo);
     await new Promise(r => setTimeout(r, 10));
 
+    // No uid → nothing to query by → neither lookup runs, event still emits.
     expect(resolveStrangerProfile).not.toHaveBeenCalled();
+    expect(resolveGroupJoinRequest).not.toHaveBeenCalled();
     expect(captured).toHaveLength(1);
   });
 });

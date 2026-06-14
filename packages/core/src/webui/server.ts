@@ -14,6 +14,16 @@ import { fileURLToPath } from 'url';
 import { evaluatePasswordRules, isStrongPassword, WebuiAuth } from './auth';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
 import { findAvailablePort } from './port';
+import {
+  clearBackgroundImage,
+  loadUiConfig,
+  MAX_BACKGROUND_BYTES,
+  publicAppearance,
+  readBackgroundImage,
+  saveUiConfig,
+  sniffImageMime,
+  writeBackgroundImage,
+} from './ui-config';
 import { getUpdateInfo } from './update-check';
 
 const log = createLogger('WebUI');
@@ -140,7 +150,10 @@ export async function initWebUI(
   // ─── Auth middleware ─────────────────────────────────────────────────────
   app.use('/api/*', async (c, next) => {
     const reqPath = c.req.path;
-    if (reqPath === '/api/login') return next();
+    // `/api/ui/public` serves the cosmetic appearance subset to the
+    // pre-auth login page, so it must skip the bearer check. It exposes
+    // nothing sensitive (no layout, no secrets) — see ui-config.ts.
+    if (reqPath === '/api/login' || reqPath === '/api/ui/public') return next();
 
     const authHeader = c.req.header('Authorization');
     const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
@@ -279,6 +292,25 @@ export async function initWebUI(
       headers: {
         'Content-Type': cached.contentType,
         'Cache-Control': `public, max-age=${AVATAR_BROWSER_CACHE_SECONDS}, immutable`,
+      },
+    });
+  });
+
+  // ─── Background image (unauth, like /avatar) ─────────────────────────────
+  // The login page needs to render the operator's background before auth, so
+  // this route is intentionally public. It only serves a file the operator
+  // themselves uploaded. Cache-busting is via the `?v=` version the client
+  // appends; the bytes for a given version are immutable.
+  app.get('/ui-asset/background', (c) => {
+    const asset = readBackgroundImage();
+    if (!asset) return c.text('no background', 404);
+    return new Response(new Uint8Array(asset.bytes), {
+      headers: {
+        'Content-Type': asset.mime,
+        'Cache-Control': 'public, max-age=31536000, immutable',
+        // Defence-in-depth: never let an uploaded blob be interpreted as
+        // anything but the sniffed image type.
+        'X-Content-Type-Options': 'nosniff',
       },
     });
   });
@@ -511,6 +543,84 @@ export async function initWebUI(
     }
   });
 
+  // ─── WebUI customization config (config/ui.json) ─────────────────────────
+  // Appearance (A) + layout (C). The full config is bearer-gated; only the
+  // cosmetic appearance subset is exposed unauthenticated for the login page.
+  app.get('/api/ui', (c) => c.json({ config: loadUiConfig() }));
+
+  app.get('/api/ui/public', (c) => c.json({ appearance: publicAppearance() }));
+
+  app.post('/api/ui', async (c) => {
+    // Reject oversized bodies before buffering — the normalizer caps individual
+    // fields (customCss 50KB, per-widget config 4KB) but not the whole payload.
+    const declaredLen = Number(c.req.header('content-length'));
+    if (Number.isFinite(declaredLen) && declaredLen > 256 * 1024) {
+      return c.json({ success: false, message: '配置过大' }, 413);
+    }
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    try {
+      const config = saveUiConfig(body);
+      return c.json({ success: true, config });
+    } catch (err) {
+      log.warn('save ui.json failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '保存失败，请检查服务器日志' }, 400);
+    }
+  });
+
+  app.post('/api/ui/background', async (c) => {
+    // Early reject by Content-Length BEFORE parseBody() buffers the whole
+    // multipart body into memory — otherwise a multi-GB upload is fully
+    // materialized before the post-parse size check fires. The slack covers
+    // the multipart envelope (boundary + part headers); the exact decoded
+    // size is still enforced below. A chunked request with no Content-Length
+    // skips this coarse guard, but the endpoint is bearer-gated to the single
+    // admin, so that residual is acceptable.
+    const declaredLen = Number(c.req.header('content-length'));
+    if (Number.isFinite(declaredLen) && declaredLen > MAX_BACKGROUND_BYTES + 1024 * 1024) {
+      return c.json({ success: false, message: '图片过大（上限 5MB）' }, 413);
+    }
+    let file: unknown;
+    try {
+      const form = await c.req.parseBody();
+      file = form['file'];
+    } catch {
+      return c.json({ success: false, message: '上传解析失败' }, 400);
+    }
+    if (!(file instanceof File)) {
+      return c.json({ success: false, message: '缺少图片文件' }, 400);
+    }
+    if (file.size > MAX_BACKGROUND_BYTES) {
+      return c.json({ success: false, message: '图片过大（上限 5MB）' }, 413);
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const mime = sniffImageMime(bytes);
+    if (!mime) {
+      return c.json({ success: false, message: '仅支持 PNG / JPEG / WebP 图片' }, 415);
+    }
+    try {
+      const config = writeBackgroundImage(bytes, mime);
+      return c.json({ success: true, config });
+    } catch (err) {
+      log.warn('write background image failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '保存图片失败，请检查服务器日志' }, 500);
+    }
+  });
+
+  app.delete('/api/ui/background', (c) => {
+    try {
+      const config = clearBackgroundImage();
+      return c.json({ success: true, config });
+    } catch (err) {
+      log.warn('clear background image failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '删除图片失败' }, 500);
+    }
+  });
+
   // ─── Static frontend ─────────────────────────────────────────────────────
   // Build path is relative to the bundled / dev __dirname. SPA fallback to
   // index.html so client-side routes (if any) keep working.
@@ -520,7 +630,11 @@ export async function initWebUI(
   const indexHtmlPath = path.join(staticRoot, 'index.html');
   app.get('*', (c) => {
     // SPA fallback: only for navigations that didn't hit a static asset.
-    if (c.req.path.startsWith('/api/') || c.req.path.startsWith('/avatar/')) {
+    if (
+      c.req.path.startsWith('/api/') ||
+      c.req.path.startsWith('/avatar/') ||
+      c.req.path.startsWith('/ui-asset/')
+    ) {
       return c.text('not found', 404);
     }
     if (existsSync(indexHtmlPath)) {

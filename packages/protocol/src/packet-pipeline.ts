@@ -98,9 +98,9 @@ export class IncomingPacketPipeline {
               this.log.warn('dispatchAfterIdentityRefresh failed: %s',
                 err instanceof Error ? (err.stack ?? err.message) : String(err));
             });
-          } else if (this.needsStrangerResolve(event)) {
-            void this.dispatchAfterStrangerResolve(event).catch((err) => {
-              this.log.warn('dispatchAfterStrangerResolve failed: %s',
+          } else if (this.needsGroupInviteEnrich(event)) {
+            void this.dispatchGroupInvite(event).catch((err) => {
+              this.log.warn('dispatchGroupInvite failed: %s',
                 err instanceof Error ? (err.stack ?? err.message) : String(err));
             });
           } else {
@@ -125,28 +125,25 @@ export class IncomingPacketPipeline {
     return event.kind === 'group_member_join' && event.groupId > 0 && event.userUin <= 0 && Boolean(event.userUid);
   }
 
-  /** Group join requests carry only the requester's UID (no UIN). We
-   *  fire a UID-form FetchUserProfile to resolve UIN + nickname before
-   *  dispatch so the OneBot layer's `user_id` field is populated and
-   *  the consumer bot's follow-up `get_stranger_info` lookup succeeds.
-   *  Mirrors Lagrange's `dev/Lagrange.Core/.../MessagingLogic.cs:215-224`.
+  /** Every group_invite that carries a requester UID gets async
+   *  enrichment before dispatch. Two INDEPENDENT things are filled in:
    *
-   *  Also catches the legacy cache-pollution case: pre-fix builds
-   *  stored `<requester_uid> → <groupUin>` in the identity DB when
-   *  the decoder's fallback was `ctx.fromUin` (= group's own uin on
-   *  a group-scoped push). After upgrade, the decoder's
-   *  `resolveUidToUin` hits that polluted mapping and returns the
-   *  groupUin instead of 0, so the `fromUin <= 0` guard alone would
-   *  silently skip the resolve and re-emit the bug. Treating
-   *  `fromUin === groupId` as bogus forces the async resolve to
-   *  overwrite the polluted entry on the next event. */
-  private needsStrangerResolve(event: QQEventVariant): event is Extract<QQEventVariant, { kind: 'group_invite' }> {
-    if (event.kind !== 'group_invite' || !event.fromUid) return false;
-    if (event.fromUin <= 0) return true;
-    // Pollution signature — a real requester's uin would never equal
-    // the group's own uin. Force a re-resolve so the cache self-heals.
-    if (event.groupId > 0 && event.fromUin === event.groupId) return true;
-    return false;
+   *   1. The verify COMMENT — the text the requester typed ("你们好" etc.).
+   *      It is NEVER in the push; it lives on the OIDB pending-request
+   *      queue, so we ALWAYS fetch it (mirrors Lagrange's unconditional
+   *      `FetchGroupRequests`; NapCat reads the equivalent
+   *      `notify.postscript`). See issue #98.
+   *   2. The requester's UIN + nickname — only when not already resolved
+   *      (the push carries a bare UID). Mirrors Lagrange's
+   *      `dev/Lagrange.Core/.../MessagingLogic.cs:215-224`.
+   *
+   *  These USED to be coupled — the comment fetch piggy-backed on the
+   *  uin-resolve condition, so a requester whose uin was already cached
+   *  silently lost their comment (bug #98). They're now decoupled inside
+   *  `dispatchGroupInvite`; this guard just routes every uid-bearing
+   *  group_invite onto the async path. */
+  private needsGroupInviteEnrich(event: QQEventVariant): event is Extract<QQEventVariant, { kind: 'group_invite' }> {
+    return event.kind === 'group_invite' && !!event.fromUid;
   }
 
   private async dispatchAfterIdentityRefresh(event: Extract<QQEventVariant, { kind: 'group_member_join' }>): Promise<void> {
@@ -163,31 +160,36 @@ export class IncomingPacketPipeline {
     this.emit(event);
   }
 
-  private async dispatchAfterStrangerResolve(event: Extract<QQEventVariant, { kind: 'group_invite' }>): Promise<void> {
+  private async dispatchGroupInvite(event: Extract<QQEventVariant, { kind: 'group_invite' }>): Promise<void> {
     const uid = event.fromUid;
     if (uid) {
-      // Fire profile + pending-request lookups in PARALLEL — they're
-      // independent OIDB calls (0xFE1_2 stranger profile + 0x10C0
-      // pending request queue). Both `Promise.allSettled` so a flake
-      // on one path doesn't kill the other.
       const subType = event.subType === 'invite' ? 'invite' : 'add';
+      // ALWAYS fetch the verify comment (it's never in the push). Resolve
+      // the UID→UIN profile only when the requester isn't already known —
+      // `fromUin === groupId` is the legacy cache-pollution signature
+      // (decoder fell back to the group's own uin) and must force a
+      // re-resolve so the cache self-heals. The two are independent OIDB
+      // calls (0xFE1_2 profile + 0x10C0 request queue); `Promise.allSettled`
+      // so a flake on one path can't kill the other.
+      const needsProfile = event.fromUin <= 0 || (event.groupId > 0 && event.fromUin === event.groupId);
       const [profileR, requestR] = await Promise.allSettled([
-        this.deps.resolveStrangerProfile(uid),
+        needsProfile ? this.deps.resolveStrangerProfile(uid) : Promise.resolve(null),
         this.deps.resolveGroupJoinRequest(event.groupId, uid, subType),
       ]);
 
-      if (profileR.status === 'fulfilled' && profileR.value && profileR.value.uin > 0) {
-        event.fromUin = profileR.value.uin;
-      } else if (profileR.status === 'rejected') {
-        this.log.warn('failed to resolve stranger profile: uid=%s err=%s',
-          uid, profileR.reason instanceof Error ? profileR.reason.message : String(profileR.reason));
+      if (needsProfile) {
+        if (profileR.status === 'fulfilled' && profileR.value && profileR.value.uin > 0) {
+          event.fromUin = profileR.value.uin;
+        } else if (profileR.status === 'rejected') {
+          this.log.warn('failed to resolve stranger profile: uid=%s err=%s',
+            uid, profileR.reason instanceof Error ? profileR.reason.message : String(profileR.reason));
+        }
       }
 
       if (requestR.status === 'fulfilled' && requestR.value) {
-        // NapCat surfaces the verify text as `comment` on the OneBot
-        // event (`postscript` server-side). Without this the bot's
-        // approval-prompt template renders an empty body line — see
-        // `dev/NapCatQQ/.../napcat-onebot/index.ts:496-498`.
+        // The verify text the requester typed; NapCat surfaces it as
+        // `notify.postscript`. Without this the OneBot `comment` field is
+        // empty — bug #98.
         event.message = requestR.value.comment;
       } else if (requestR.status === 'rejected') {
         this.log.warn('failed to resolve group join request: groupId=%d uid=%s err=%s',

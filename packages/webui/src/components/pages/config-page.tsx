@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { MousePointerClick, Plus, Save } from 'lucide-react';
+import { Check, Loader2, MousePointerClick, Plus, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
@@ -22,6 +22,7 @@ import type {
 } from '@/types';
 import { useOneBotInstanceConfig } from '@/hooks/use-onebot-instance-config';
 import { useAppState } from '@/contexts/AppStateContext';
+import { useLayout } from '@/contexts/LayoutContext';
 import { AccountSidebar } from '@/components/config/account-sidebar';
 import { GeneralSettingsTab } from '@/components/config/general-settings-tab';
 import { NodeSummaryCard } from '@/components/config/node-summary-card';
@@ -55,7 +56,16 @@ export function ConfigPage() {
     onSelectedUinChange: setSelectedUin,
   });
 
-  const [activeTab, setActiveTab] = useState<TabKey>('general');
+  const { pages, setPages } = useLayout();
+  const [activeTab, setActiveTabState] = useState<TabKey>(() => {
+    const t = pages.configTab;
+    return t === 'general' || (!!t && t in NETWORK_TABS) ? (t as TabKey) : 'general';
+  });
+  // Persist the last-used tab as the default for next time.
+  const setActiveTab = useCallback((t: TabKey) => {
+    setActiveTabState(t);
+    setPages({ configTab: t });
+  }, [setPages]);
   // Default the account strip to its 56px avatar-only form on narrow screens
   // (≤lg) so the editor pane isn't squeezed; the user can still expand it.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
@@ -266,24 +276,18 @@ function HeaderBar({ selectedUin, dirty, saveStatus, onSave, activeTab, onCreate
           UIN {selectedUin}
         </code>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {saveStatus && (
-          <span
-            className={cn(
-              'rounded-full border px-2.5 py-1 text-[11px] font-medium',
-              saveStatus === '保存成功' && 'border-success/30 bg-success/10 text-success',
-              saveStatus === '保存中...' && 'border-border bg-muted text-muted-foreground',
-              saveStatus !== '保存成功' &&
-                saveStatus !== '保存中...' &&
-                'border-destructive/30 bg-destructive/10 text-destructive',
+      <div className="flex flex-wrap items-center gap-3">
+        {(saveStatus || dirty) && (
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium">
+            {saveStatus === '保存中...' ? (
+              <><Loader2 className="size-3.5 animate-spin text-muted-foreground" /><span className="text-muted-foreground">保存中</span></>
+            ) : saveStatus === '保存成功' ? (
+              <><Check className="size-3.5 text-success" /><span className="text-success">已保存</span></>
+            ) : saveStatus ? (
+              <><span className="size-1.5 rounded-full bg-destructive" /><span className="text-destructive">{saveStatus}</span></>
+            ) : (
+              <><span className="size-1.5 rounded-full bg-warning" /><span className="text-warning">未保存</span></>
             )}
-          >
-            {saveStatus}
-          </span>
-        )}
-        {dirty && !saveStatus && (
-          <span className="rounded-full border border-warning/30 bg-warning/10 px-2.5 py-1 text-[11px] font-medium text-warning">
-            未保存
           </span>
         )}
         {onCreate && (
@@ -400,7 +404,7 @@ function NetworkTabView({
 
   if (list.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-muted-foreground">
+      <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed py-16 text-muted-foreground">
         <p className="text-sm">暂无 {tab.title} 节点</p>
         <Button variant="outline" size="sm" onClick={onCreateClick}>
           <Plus className="size-3.5" /> 创建第一个
@@ -437,8 +441,8 @@ function NetworkTabView({
 
 function EmptyState() {
   return (
-    <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-lg border border-dashed text-muted-foreground">
-      <MousePointerClick className="size-7" strokeWidth={1.5} />
+    <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-xl border border-dashed text-muted-foreground">
+      <MousePointerClick className="size-8 opacity-40" strokeWidth={1.5} />
       <p className="text-sm">请在左栏选择会话以配置通信节点</p>
     </div>
   );

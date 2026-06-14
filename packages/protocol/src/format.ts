@@ -16,6 +16,7 @@ export interface ReplyEventLookup {
 
 const MAX_TEXT_PREVIEW = 50;
 const MAX_REPLY_BODY_PREVIEW = 30;
+const MAX_CARD_TITLE_PREVIEW = 30;
 
 /** "[群名(12345)]" if known, else "12345" (or "0" if missing). */
 export function formatGroup(identity: IdentityService, groupId: number): string {
@@ -102,7 +103,18 @@ function renderSegment(type: string, data: Record<string, unknown>): string {
       const fileName = data.name ?? data.file;
       return fileName ? `[文件:${truncate(String(fileName), 20)}]` : '[文件]';
     }
-    case 'json': return '[JSON]';
+    case 'json': {
+      // OneBot json segments carry Tencent's ARK / mini-program / share card
+      // payload as a JSON string under data.data. For the log preview we try
+      // to surface a human-readable title — "[卡片:某某分享]" instead of just
+      // "[JSON]". The full payload stays intact in the OneBot segment for any
+      // downstream consumer that wants to parse it.
+      // For QQ's server-side fallback (e.g. cardId -896954183 "当前QQ版本不支持
+      // 此应用,请升级"), the `prompt` field carries that message — surfaces it
+      // so the operator sees the actual reason instead of "[JSON]".
+      const title = extractCardTitle(data.data);
+      return title ? `[卡片:${truncate(title, MAX_CARD_TITLE_PREVIEW)}]` : '[JSON]';
+    }
     case 'xml': return '[XML]';
     case 'markdown': return '[Markdown]';
     case 'forward': return '[聊天记录]';
@@ -113,6 +125,64 @@ function renderSegment(type: string, data: Record<string, unknown>): string {
 
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}...` : s;
+}
+
+/**
+ * Best-effort extraction of an ARK / mini-program / share card's title for the
+ * log preview. The OneBot json segment's `data.data` is the raw JSON string
+ * Tencent embeds in the lightApp element; its shape varies by card type, but
+ * the common locations for a human-readable headline are:
+ *
+ *   - meta.detail_1.title    — mini-program shares
+ *   - meta.detail.title      — news / image shares
+ *   - meta.news.title        — news shares (alt schema)
+ *   - meta.{music,video,mannounce}.title — domain-specific shares
+ *   - meta.<single-key>.title — generic single-section ARK
+ *   - prompt                 — QQ's server-side fallback cards (e.g. cardId
+ *                              -896954183 "当前QQ版本不支持此应用,请升级")
+ *   - desc                   — some richer cards
+ *
+ * Returns null on parse failure / no recognised field — caller falls back to
+ * "[JSON]". Pure best-effort: this is a log-preview hint, not a contract.
+ */
+function extractCardTitle(raw: unknown): string | null {
+  if (typeof raw !== 'string' || raw.length === 0) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const root = parsed as Record<string, unknown>;
+
+  const meta = root.meta;
+  if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+    const m = meta as Record<string, unknown>;
+    const sections = ['detail_1', 'detail', 'news', 'mannounce', 'music', 'video'];
+    for (const key of sections) {
+      const t = readTitle(m[key]);
+      if (t) return t;
+    }
+    // Fallback: meta has exactly one section — use its title.
+    const keys = Object.keys(m);
+    if (keys.length === 1) {
+      const t = readTitle(m[keys[0]]);
+      if (t) return t;
+    }
+  }
+
+  if (typeof root.prompt === 'string' && root.prompt.trim()) return root.prompt.trim();
+  if (typeof root.desc === 'string' && root.desc.trim()) return root.desc.trim();
+  return null;
+}
+
+function readTitle(node: unknown): string | null {
+  if (!node || typeof node !== 'object' || Array.isArray(node)) return null;
+  const t = (node as Record<string, unknown>).title;
+  if (typeof t !== 'string') return null;
+  const trimmed = t.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 /**

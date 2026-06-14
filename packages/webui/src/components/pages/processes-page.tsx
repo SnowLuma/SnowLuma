@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { AlertCircle, CheckCircle2, Cpu, Eye, Loader2, RefreshCw, Unplug } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,18 @@ import { ProcessProbeDialog } from '@/components/process-probe-dialog';
 import { cn } from '@/lib/utils';
 import type { HookProcessInfo } from '@/types';
 import { useAppState } from '@/contexts/AppStateContext';
+import { useLayout } from '@/contexts/LayoutContext';
+import { useTheme } from '@/contexts/ThemeContext';
+
+const SORT_OPTIONS: { id: string; label: string }[] = [
+  { id: 'pid', label: 'PID' },
+  { id: 'name', label: '名称' },
+  { id: 'status', label: '状态' },
+];
+// Online-first, then by how actionable the state is.
+const STATUS_ORDER: Record<HookProcessInfo['status'], number> = {
+  online: 0, loaded: 1, connecting: 2, loading: 3, available: 4, disconnected: 5, error: 6,
+};
 
 const processStatusLabel: Record<HookProcessInfo['status'], string> = {
   available: '可加载',
@@ -38,40 +50,76 @@ function processBadgeVariant(status: HookProcessInfo['status']) {
 export function ProcessesPage() {
   const { processList, processOps, refreshProcesses } = useAppState();
   const { statusOf, banner: processActionStatus, load, unload, refresh } = processOps;
+  const { pages, setPages } = useLayout();
+  const off = useTheme().appearance.disableMotion;
   const [confirm, setConfirm] = useState<{ kind: 'load' | 'unload'; pid: number; name: string } | null>(null);
   const [probeDialog, setProbeDialog] = useState<{ pid: number; name: string } | null>(null);
+
+  const sortKey = pages.processesSort;
+  const sorted = useMemo(() => {
+    const arr = [...processList];
+    if (sortKey === 'name') arr.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    else if (sortKey === 'status') arr.sort((a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) || a.pid - b.pid);
+    else arr.sort((a, b) => a.pid - b.pid);
+    return arr;
+  }, [processList, sortKey]);
 
   return (
     <div className="flex flex-col gap-6">
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
-          <div>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+          <div className="min-w-0">
             <CardTitle>进程注入</CardTitle>
             <CardDescription>加载 SnowLuma 后会监听登录状态，登录后自动接入 OneBot 流程</CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={refreshProcesses}>
-            <RefreshCw className="size-3.5" /> 刷新
-          </Button>
+          <div className="flex items-center gap-2">
+            {processList.length > 1 && (
+              <div className="hidden items-center gap-1 rounded-lg bg-muted/60 p-1 sm:flex" role="radiogroup" aria-label="排序方式">
+                {SORT_OPTIONS.map((o) => {
+                  const active = sortKey === o.id;
+                  return (
+                    <button
+                      key={o.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => setPages({ processesSort: o.id })}
+                      className={cn(
+                        'rounded-md px-2.5 py-1 text-[11px] font-medium transition-all cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40',
+                        active ? 'bg-card font-semibold text-foreground shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      {o.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <Button variant="outline" size="sm" onClick={refreshProcesses}>
+              <RefreshCw className="size-3.5" /> 刷新
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {processActionStatus && (
             <motion.div
-              initial={{ opacity: 0, y: -4 }}
+              initial={off ? false : { opacity: 0, y: -4 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mb-3 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary"
+              className="mb-3 flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/[0.06] px-3 py-2 text-xs text-primary"
             >
+              <Loader2 className="size-3.5 shrink-0 animate-spin" />
               {processActionStatus}
             </motion.div>
           )}
           {processList.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-16 text-muted-foreground">
-              <Cpu className="size-7" strokeWidth={1.5} />
+            <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-16 text-muted-foreground">
+              <Cpu className="size-8 opacity-40" strokeWidth={1.5} />
               <p className="text-sm">未检测到可加载 QQ 主进程</p>
               <p className="text-[11px] text-muted-foreground/80">请确认 QQ 已启动后点击右上角刷新</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
-              {processList.map((proc, idx) => {
+              {sorted.map((proc, idx) => {
                 const op = statusOf(proc.pid);
                 const loading = op === 'load' || proc.status === 'loading';
                 const unloading = op === 'unload';
@@ -85,10 +133,10 @@ export function ProcessesPage() {
                 return (
                   <motion.div
                     key={proc.pid}
-                    initial={{ opacity: 0, y: 6 }}
+                    initial={off ? false : { opacity: 0, y: 6 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.03 + idx * 0.025, duration: 0.22 }}
-                    className="flex flex-col gap-3 rounded-lg border bg-card/50 p-3 sm:flex-row sm:items-center"
+                    transition={off ? { duration: 0 } : { delay: 0.03 + idx * 0.025, duration: 0.22 }}
+                    className="flex flex-col gap-3 rounded-xl border bg-card/50 p-3.5 transition-colors hover:bg-accent/20 sm:flex-row sm:items-center"
                   >
                     {/* icon + info stay horizontal; on phones the actions drop to
                         a second row so name / PID / path get the full width
@@ -96,7 +144,7 @@ export function ProcessesPage() {
                     <div className="flex min-w-0 flex-1 items-center gap-3">
                       <div
                         className={cn(
-                          'flex size-10 shrink-0 items-center justify-center rounded-lg',
+                          'flex size-10 shrink-0 items-center justify-center rounded-xl',
                           isOnline
                             ? 'bg-success/15 text-success'
                             : proc.status === 'error'

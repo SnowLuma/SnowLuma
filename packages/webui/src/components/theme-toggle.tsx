@@ -1,6 +1,6 @@
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { motion } from 'motion/react';
-import { useTheme, type ThemeMode } from '@/contexts/ThemeContext';
+import { paletteResolved, useTheme, type ThemeMode } from '@/contexts/ThemeContext';
 import { cn } from '@/lib/utils';
 
 const OPTIONS: { mode: ThemeMode; icon: typeof Sun; label: string }[] = [
@@ -10,7 +10,11 @@ const OPTIONS: { mode: ThemeMode; icon: typeof Sun; label: string }[] = [
 ];
 
 export function ThemeToggle({ className }: { className?: string }) {
-  const { mode, setMode } = useTheme();
+  const { appearance, mode, setMode } = useTheme();
+  // A Catppuccin flavor fixes light/dark, so this quick toggle would be inert
+  // (and its pill would desync from the forced scheme) — hide it. Light/dark is
+  // then changed by switching the palette back to “默认” in settings.
+  if (paletteResolved(appearance.palette)) return null;
   return (
     <div
       className={cn(

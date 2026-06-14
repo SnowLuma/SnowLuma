@@ -4,7 +4,7 @@
     "name": "MotricSeven",
     "email": "motricseven@gmail.com"
   },
-  "version": "1.9.9",
+  "version": "1.9.10",
   "description": "Shared SnowLuma UI primitives — Tailwind 4 theme tokens + shadcn-style atomic components",
   "keywords": [
     "snowluma",

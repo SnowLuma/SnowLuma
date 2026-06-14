@@ -158,3 +158,104 @@ export interface LogEntry {
   message: string;
   line: string;
 }
+
+// ─── WebUI customization config (config/ui.json) ───────────────────────────
+// Mirror of the server schema in core/src/webui/ui-config.ts. The contract is
+// the JSON shape served by `/api/ui`; this is the client-side view of it.
+
+export type ThemeMode = 'light' | 'dark' | 'system';
+export type AccentMode = 'preset' | 'custom';
+export type AccentScope = 'sidebar' | 'global';
+export type DarkIntensity = 'soft' | 'black';
+export type SidebarStyle = 'follow' | 'panel' | 'accent';
+export type BackgroundType = 'none' | 'solid' | 'gradient' | 'image';
+export type Density = 'cozy' | 'compact';
+export type TimeFormat = '12h' | '24h';
+export type Palette =
+  | 'default'
+  | 'catppuccin-latte' | 'catppuccin-frappe' | 'catppuccin-macchiato' | 'catppuccin-mocha'
+  | 'rose-pine' | 'rose-pine-moon' | 'rose-pine-dawn'
+  | 'nord'
+  | 'everforest-dark' | 'everforest-light';
+
+export interface UiBackground {
+  type: BackgroundType;
+  color: string;
+  gradient: string;
+  imageOpacity: number;
+  imageBlur: number;
+  /** Server-managed: true when an image is on disk. Read-only to the client. */
+  hasImage: boolean;
+  imageMime: string;
+  /** Server-managed cache-bust counter, bumped on each upload. */
+  imageVersion: number;
+}
+
+export interface UiAppearance {
+  mode: ThemeMode;
+  accentMode: AccentMode;
+  accentPreset: string;
+  accentCustom: string;
+  accentScope: AccentScope;
+  darkIntensity: DarkIntensity;
+  palette: Palette;
+  sidebarStyle: SidebarStyle;
+  background: UiBackground;
+  fontSans: string;
+  fontMono: string;
+  uiScale: number;
+  radius: number;
+  density: Density;
+  reduceMotion: boolean;
+  disableMotion: boolean;
+  highContrast: boolean;
+  sidebarDefaultCollapsed: boolean;
+  timeFormat: TimeFormat;
+  pollInterval: number;
+  /** Operator custom CSS (applied post-auth only; stripped from /api/ui/public). */
+  customCss: string;
+}
+
+export interface UiLayoutItem {
+  id: string;
+  visible: boolean;
+  /** Grid position/size — overview blocks only; nav items omit them. */
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  /** Per-widget settings; interpreted client-side by widget type. */
+  config?: Record<string, unknown>;
+}
+
+export interface UiLayout {
+  overviewBlocks: UiLayoutItem[];
+  navItems: UiLayoutItem[];
+}
+
+export interface UiHighlightRule {
+  keyword: string;
+  color: string;
+}
+
+export interface UiLogsPrefs {
+  visibleLevels: string[];
+  maxLines: number;
+  autoScroll: boolean;
+  wrap: boolean;
+  highlightRules: UiHighlightRule[];
+}
+
+export interface UiPages {
+  defaultRoute: string;
+  logs: UiLogsPrefs;
+  processesSort: string;
+  configTab: string;
+}
+
+export interface UiConfig {
+  version: number;
+  appearance: UiAppearance;
+  layout: UiLayout;
+  pages: UiPages;
+}
