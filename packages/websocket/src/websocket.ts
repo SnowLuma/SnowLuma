@@ -82,10 +82,8 @@ class Utf8Validator {
         }
       } else {
         if (b < this.minNext || b > 0xBF) return false;
-        if (this.state === 2 && this.codepoint === 0xD && (b & 0x20)) {
-          return false;
-        }
-        if (this.codepoint === 0xD && this.state === 2 && b >= 0xA0) {
+        // Reject UTF-16 surrogates (U+D800-U+DFFF): 0xED 0xA0-0xBF ...
+        if (this.state === 2 && this.codepoint === 0xD && b >= 0xA0) {
           return false;
         }
         this.codepoint = (this.codepoint << 6) | (b & 0x3F);
