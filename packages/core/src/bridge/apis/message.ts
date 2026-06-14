@@ -10,7 +10,7 @@ import type {
 } from '@snowluma/proto-defs/oidb-actions/base';
 import { buildSendElems } from '@snowluma/protocol/element-builder';
 import type { MessageElement, QQEventVariant } from '@snowluma/protocol/events';
-import { fetchGroupMessageRange } from '@snowluma/protocol/msg-push';
+import { fetchC2cMessageRange, fetchGroupMessageRange } from '@snowluma/protocol/msg-push';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { BridgeContext } from '../bridge-context';
 // `Bridge` is imported as a type only so we can narrow `ctx` back to
@@ -26,6 +26,7 @@ import type { Bridge, SendMessageReceipt } from '../bridge';
 const SEND_MSG_CMD = 'MessageSvc.PbSendMsg';
 
 type GroupMessage = Extract<QQEventVariant, { kind: 'group_message' }>;
+type FriendMessage = Extract<QQEventVariant, { kind: 'friend_message' }>;
 
 // ── Group-history fetch guards (the server frequency-limits / kicks abusive
 //    pulls, so keep each request small, bound the loop, and space the sends). ──
@@ -48,6 +49,47 @@ function throttleHistory(): Promise<void> {
   });
   historyGate = run.catch(() => undefined);
   return run;
+}
+
+/**
+ * Shared walk-back loop for group + c2c history: pull HISTORY_CHUNK_SEQ-wide
+ * windows ending at `endSeq`, throttled, walking strictly backward (handling a
+ * server-side short cap via the oldest sequence actually returned), dedup by
+ * sequence, until `count` (capped) is gathered or the floor is reached. Returns
+ * the newest `want` items oldest→newest.
+ */
+async function walkBackHistory<T extends { msgSeq: number }>(
+  endSeq: number,
+  count: number,
+  fetchWindow: (startSeq: number, endSeq: number) => Promise<T[]>,
+): Promise<T[]> {
+  if (!(endSeq > 0)) return [];
+  const want = Math.min(Math.max(1, Math.trunc(count) || 0), HISTORY_MAX_COUNT);
+
+  const collected = new Map<number, T>(); // dedup by sequence
+  let curEnd = endSeq;
+  for (let i = 0; i < HISTORY_MAX_REQUESTS && collected.size < want && curEnd >= 1; i++) {
+    const start = Math.max(1, curEnd - HISTORY_CHUNK_SEQ + 1);
+    await throttleHistory();
+    let batch: T[];
+    try {
+      batch = await fetchWindow(start, curEnd);
+    } catch {
+      break; // network/decode error — return whatever we have so far
+    }
+    if (batch.length > 0) {
+      let minSeq = curEnd;
+      for (const ev of batch) {
+        collected.set(ev.msgSeq, ev);
+        if (ev.msgSeq < minSeq) minSeq = ev.msgSeq;
+      }
+      curEnd = minSeq - 1; // strictly below the oldest returned (covers short caps)
+    } else {
+      curEnd = start - 1; // empty window (recalled/absent seqs) — skip past it
+    }
+  }
+  const all = [...collected.values()].sort((a, b) => a.msgSeq - b.msgSeq);
+  return all.slice(-want); // newest `want`, oldest→newest
 }
 
 export class MessageApi {
@@ -363,37 +405,22 @@ export class MessageApi {
    * kicked). Returns decoded `group_message` events oldest→newest.
    */
   async getGroupHistory(groupUin: number, endSeq: number, count: number, selfUin = 0): Promise<GroupMessage[]> {
-    if (!(groupUin > 0) || !(endSeq > 0)) return [];
-    const want = Math.min(Math.max(1, Math.trunc(count) || 0), HISTORY_MAX_COUNT);
+    if (!(groupUin > 0)) return [];
+    return walkBackHistory(endSeq, count, (start, end) =>
+      fetchGroupMessageRange(this.ctx, this.ctx.identity, selfUin, groupUin, start, end));
+  }
 
-    const collected = new Map<number, GroupMessage>(); // dedup by sequence
-    let curEnd = endSeq;
-    for (let i = 0; i < HISTORY_MAX_REQUESTS && collected.size < want && curEnd >= 1; i++) {
-      const start = Math.max(1, curEnd - HISTORY_CHUNK_SEQ + 1);
-      await throttleHistory();
-      let batch: GroupMessage[];
-      try {
-        batch = await fetchGroupMessageRange(this.ctx, this.ctx.identity, selfUin, groupUin, start, curEnd);
-      } catch {
-        break; // network/decode error — return whatever we have so far
-      }
-      if (batch.length > 0) {
-        let minSeq = curEnd;
-        for (const ev of batch) {
-          collected.set(ev.msgSeq, ev);
-          if (ev.msgSeq < minSeq) minSeq = ev.msgSeq;
-        }
-        // Continue strictly below the OLDEST sequence the server actually
-        // returned — covers the case where the server caps a window short.
-        curEnd = minSeq - 1;
-      } else {
-        // Empty window (a gap of recalled/absent seqs) — skip past it.
-        curEnd = start - 1;
-      }
-    }
-
-    const all = [...collected.values()].sort((a, b) => a.msgSeq - b.msgSeq);
-    return all.slice(-want); // newest `want`, oldest→newest
+  /**
+   * Fetch real private (c2c) history from the server (`SsoGetC2cMsg`), ending
+   * at and including `endSeq`. Same rate-limit + data-volume guards as the
+   * group variant (they share the throttle gate). `friendUid` is the
+   * conversation peer's UID. Returns decoded `friend_message` events
+   * oldest→newest.
+   */
+  async getC2cHistory(friendUid: string, endSeq: number, count: number, selfUin = 0): Promise<FriendMessage[]> {
+    if (!friendUid) return [];
+    return walkBackHistory(endSeq, count, (start, end) =>
+      fetchC2cMessageRange(this.ctx, this.ctx.identity, selfUin, friendUid, start, end));
   }
 }
 

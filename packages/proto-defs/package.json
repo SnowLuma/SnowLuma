@@ -35,6 +35,10 @@
       "types": "./src/get-group-msg.ts",
       "default": "./src/get-group-msg.ts"
     },
+    "./get-c2c-msg": {
+      "types": "./src/get-c2c-msg.ts",
+      "default": "./src/get-c2c-msg.ts"
+    },
     "./notify": {
       "types": "./src/notify.ts",
       "default": "./src/notify.ts"

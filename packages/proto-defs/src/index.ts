@@ -26,6 +26,7 @@ export type * from './element.js';
 export type * from './longmsg.js';
 export type * from './message.js';
 export type * from './get-group-msg.js';
+export type * from './get-c2c-msg.js';
 export type * from './notify.js';
 export type * from './oidb.js';
 export type * from './oidb-action.js';
