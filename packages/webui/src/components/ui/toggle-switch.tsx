@@ -20,13 +20,15 @@ export function ToggleSwitch({ value, onChange, ariaLabel, disabled }: ToggleSwi
       disabled={disabled}
       onClick={() => onChange(!value)}
       className={cn(
-        'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors',
+        'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors',
         disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
-        value ? 'border-primary bg-primary' : 'border-input bg-muted',
+        // Off-track is a neutral foreground tint so it stays visible on any
+        // surface — including OLED pure-black (where bg-muted vanished).
+        value ? 'bg-primary' : 'bg-foreground/20',
       )}
     >
       <motion.span
-        className="inline-block size-4 rounded-full bg-background shadow-sm"
+        className="inline-block size-4 rounded-full bg-white shadow-sm ring-1 ring-black/10"
         animate={{ x: value ? 22 : 4 }}
         transition={{ type: 'spring', stiffness: 500, damping: 30 }}
       />

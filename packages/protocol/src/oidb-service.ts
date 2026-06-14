@@ -128,6 +128,9 @@ export async function invokeOidb<TCtx extends OidbSender, TReq, TResp, TParams, 
         subCommand
       );
     }
+    // success=false without an OIDB error code = the packet send itself failed;
+    // surface it instead of silently resolving with an undecoded response.
+    throw new Error(result.errorMessage || 'packet send failed');
   }
 
   const respBytes = result.responseData ?? new Uint8Array(0);

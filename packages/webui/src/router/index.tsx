@@ -64,9 +64,21 @@ const logsRoute = createRoute({
   ),
 });
 
-const settingsRoute = createRoute({
+/** Settings sub-tabs — also the contract for the `?tab=` deep link. */
+export const SETTINGS_TABS = ['appearance', 'data', 'advanced', 'account', 'about'] as const;
+export type SettingsTab = (typeof SETTINGS_TABS)[number];
+
+export const settingsRoute = createRoute({
   path: '/settings',
   getParentRoute: () => appLayoutRoute,
+  // `?tab=` deep-links a settings sub-tab (e.g. the sidebar update banner jumps
+  // straight to 关于). Unknown/missing → omitted (the page falls back to 外观).
+  validateSearch: (search: Record<string, unknown>): { tab?: SettingsTab } => {
+    const t = search.tab;
+    return typeof t === 'string' && (SETTINGS_TABS as readonly string[]).includes(t)
+      ? { tab: t as SettingsTab }
+      : {};
+  },
   component: lazyRouteComponent(
     () => import('@/components/pages/settings-page'),
     'SettingsPage',

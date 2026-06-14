@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { cn } from '@/lib/utils';
+import { useTheme } from '@/contexts/ThemeContext';
 import type { AdapterCommon } from './defaults';
 import type { AdapterStatus } from '@/types';
 
@@ -47,14 +48,15 @@ export function NodeSummaryCard<T extends AdapterCommon>({
 }: NodeSummaryCardProps<T>) {
   const enabled = item.enabled !== false;
   const blankName = !item.name?.trim();
+  const off = useTheme().appearance.disableMotion;
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 4 }}
+      initial={off ? false : { opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.18 }}
+      transition={off ? { duration: 0 } : { duration: 0.18 }}
       className={cn(
-        'flex flex-col gap-2 rounded-lg border bg-card/40 p-3 transition-opacity sm:flex-row sm:items-center sm:gap-3',
+        'flex flex-col gap-2 rounded-xl border bg-card/40 p-3.5 transition-all hover:bg-accent/20 sm:flex-row sm:items-center sm:gap-3',
         !enabled && 'opacity-60',
       )}
     >
@@ -79,22 +81,12 @@ export function NodeSummaryCard<T extends AdapterCommon>({
           )}
         </div>
         <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground tabular-nums">{summary}</div>
-        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          <Badge variant="outline" className="font-normal">
-            {item.messageFormat === 'string' ? 'CQ 码' : '数组'}
-          </Badge>
-          <Badge variant="outline" className="font-normal">
-            {item.reportSelfMessage ? '上报自身' : '不上报自身'}
-          </Badge>
-          {item.accessToken ? (
-            <Badge variant="outline" className="font-normal">
-              已设 Token
-            </Badge>
-          ) : (
-            <Badge variant="outline" className="font-normal text-muted-foreground">
-              无 Token
-            </Badge>
-          )}
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
+          <span>{item.messageFormat === 'string' ? 'CQ 码' : '数组'}</span>
+          <span aria-hidden className="text-border">·</span>
+          <span>{item.reportSelfMessage ? '上报自身' : '不上报自身'}</span>
+          <span aria-hidden className="text-border">·</span>
+          <span className={cn(!item.accessToken && 'text-muted-foreground/60')}>{item.accessToken ? '已设 Token' : '无 Token'}</span>
         </div>
       </div>
 

@@ -105,6 +105,14 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
     });
 
     socket.on('close', () => {
+      // Ignore close events from a socket that is no longer the current
+      // connection. A hot reload (signature change) calls close() then open()
+      // back-to-back; the old socket's `'close'` event fires AFTER the new
+      // one is already assigned to `this.socket`, and without this guard it
+      // would null out `this.socket`, drop `connected`, and schedule an
+      // unwanted reconnect — observable as a reconnect storm against a
+      // single-connection backend that kicks duplicates. See issue #97.
+      if (this.socket !== socket) return;
       this.socket = null;
       this.connected = false;
       if (this.explicitlyClosed || !this.isEnabled) return;

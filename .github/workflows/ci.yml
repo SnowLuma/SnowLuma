@@ -1,0 +1,43 @@
+# Run the full workspace test suite on every pull request.
+#
+# The repo previously had no PR test gate, so broken tests could land on `dev`
+# unnoticed — and did (protocol's oidb-service rejection path, plus an external
+# contributor PR). This gates every PR on the whole suite.
+#
+# `pnpm -r --no-bail --if-present test` runs each package's `test` script
+# (skipping packages without one); --no-bail means one failing package still
+# reports the rest, and the run as a whole still fails if any package fails.
+name: CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+# Cancel an in-flight run when the PR gets new commits.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.28.0
+          run_install: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run all package tests
+        run: pnpm -r --no-bail --if-present test

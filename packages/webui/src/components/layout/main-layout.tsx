@@ -6,6 +6,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sidebar } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/top-bar';
 import { useMediaQuery } from '@/hooks/use-media-query';
+import { useTheme } from '@/contexts/ThemeContext';
+import { useLayout } from '@/contexts/LayoutContext';
 import { cn } from '@/lib/utils';
 
 interface MainLayoutProps {
@@ -16,9 +18,24 @@ interface MainLayoutProps {
 
 export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
   const isMobile = !useMediaQuery('(min-width: 768px)');
+  const { appearance } = useTheme();
   const [collapsed, setCollapsed] = useState(() => {
-    return localStorage.getItem('snowluma_sidebar_collapsed') === '1';
+    // An explicit per-browser toggle wins; otherwise fall back to the
+    // operator's `sidebarDefaultCollapsed` appearance preference.
+    const explicit = localStorage.getItem('snowluma_sidebar_collapsed');
+    if (explicit === '1') return true;
+    if (explicit === '0') return false;
+    return appearance.sidebarDefaultCollapsed;
   });
+  const customBg = appearance.background.type !== 'none';
+  // Framer's reducedMotion only suppresses transforms, so the always-present
+  // width + page-transition animations need an explicit opt-out to make the
+  // “减少动效” setting actually felt.
+  const reduce = appearance.reduceMotion || appearance.disableMotion;
+  const { editing } = useLayout();
+  // Force the sidebar open while editing layout so its drag-to-reorder list
+  // has room (it returns to the user's collapsed pref on 完成).
+  const effectiveCollapsed = collapsed && !editing;
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
@@ -27,16 +44,16 @@ export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
   }, [collapsed]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
+    <div className={cn('flex h-screen w-screen overflow-hidden text-foreground', customBg ? 'bg-transparent' : 'bg-background')}>
       {/* Desktop sidebar */}
       {!isMobile && (
         <motion.aside
           initial={false}
-          animate={{ width: collapsed ? 64 : 248 }}
-          transition={{ type: 'spring', stiffness: 280, damping: 32 }}
+          animate={{ width: effectiveCollapsed ? 64 : 248 }}
+          transition={reduce ? { duration: 0 } : { type: 'spring', stiffness: 280, damping: 32 }}
           className="relative h-full shrink-0 border-r overflow-hidden"
         >
-          <Sidebar collapsed={collapsed} />
+          <Sidebar collapsed={effectiveCollapsed} />
         </motion.aside>
       )}
 
@@ -58,11 +75,12 @@ export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar
           status={status}
-          collapsed={collapsed}
+          collapsed={effectiveCollapsed}
           onToggleCollapse={() => setCollapsed((v) => !v)}
           onOpenMobile={() => setMobileOpen(true)}
           onLogout={onLogout}
           isMobile={isMobile}
+          editing={editing}
         />
 
         <main className={cn('flex min-h-0 flex-1 flex-col')}>
@@ -71,10 +89,10 @@ export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
               <AnimatePresence mode="wait">
                 <motion.div
                   key={pathname}
-                  initial={{ opacity: 0, y: 10 }}
+                  initial={reduce ? false : { opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                  exit={reduce ? { opacity: 0 } : { opacity: 0, y: -8 }}
+                  transition={reduce ? { duration: 0 } : { duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
                 >
                   {children}
                 </motion.div>

@@ -104,12 +104,22 @@ async function elementToSegment(
 
   if (element.type === 'file') {
     const url = mediaUrlResolver ? await mediaUrlResolver(element, isGroup, sessionId) : (element.url ?? '');
+    const fileName = element.fileName ?? '';
+    const fileSize = element.fileSize ?? 0;
+    const fileId = element.fileId ?? '';
     return {
       type: 'file',
       data: {
-        name: element.fileName ?? '',
-        size: element.fileSize ?? 0,
-        id: element.fileId ?? '',
+        // NapCat/LLOneBot-style canonical fields — most downstream
+        // OneBot adapters read these (`file`/`file_id`/`file_size`).
+        file: fileName,
+        file_id: fileId,
+        file_size: fileSize,
+        // Legacy SnowLuma field names, kept for backward compat with
+        // any consumer that already reads name/size/id.
+        name: fileName,
+        size: fileSize,
+        id: fileId,
         url,
         file_hash: element.fileHash ?? '',
       },
@@ -117,12 +127,27 @@ async function elementToSegment(
   }
 
   if (element.type === 'mface') {
+    // Unify market faces (商城表情) to an `image` segment so OneBot clients
+    // that don't special-case `mface` still render the sticker, while the
+    // `emoji_id`/`emoji_package_id`/`key` markers let aware clients (and our
+    // own send path) reproduce it as a real market face. Mirrors NapCat's
+    // marketFaceElement → image conversion. The gxh URL is a self-contained
+    // external link (no rkey), so we set it directly and skip mediaSegmentSink.
+    const emojiId = element.emojiId ?? '';
+    const dir = emojiId.slice(0, 2);
+    const url = emojiId
+      ? `https://gxh.vip.qq.com/club/item/parcel/item/${dir}/${emojiId}/raw300.gif`
+      : '';
     return {
-      type: 'mface',
+      type: 'image',
       data: {
-        name: element.text ?? '',
-        tab_id: element.faceId ?? 0,
-        sub_type: element.subType ?? 0,
+        file: emojiId ? `${dir}-${emojiId}.gif` : '',
+        url,
+        summary: element.text ?? '',
+        sub_type: 0,
+        emoji_id: emojiId,
+        emoji_package_id: element.emojiPackageId ?? 0,
+        key: element.emojiKey ?? '',
       },
     };
   }

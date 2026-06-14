@@ -15,6 +15,8 @@ interface TopBarProps {
   onOpenMobile: () => void;
   onLogout: () => void;
   isMobile: boolean;
+  /** Layout edit mode force-expands the sidebar, so collapsing is disabled. */
+  editing?: boolean;
 }
 
 export function TopBar({
@@ -24,6 +26,7 @@ export function TopBar({
   onOpenMobile,
   onLogout,
   isMobile,
+  editing = false,
 }: TopBarProps) {
   const [confirmLogout, setConfirmLogout] = useState(false);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -43,8 +46,9 @@ export function TopBar({
           variant="ghost"
           size="icon-sm"
           onClick={onToggleCollapse}
+          disabled={editing}
           aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
-          title={collapsed ? '展开侧边栏' : '收起侧边栏'}
+          title={editing ? '编辑布局时侧栏保持展开' : collapsed ? '展开侧边栏' : '收起侧边栏'}
         >
           {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
         </Button>

@@ -1,5 +1,5 @@
 import { protobuf_decode } from '@snowluma/proton';
-import { toHexUpper } from '@snowluma/common/hex';
+import { toHex, toHexUpper } from '@snowluma/common/hex';
 import type { MessageElement } from '../events';
 import type {
   Elem,
@@ -74,13 +74,19 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
       result.push({ type: 'face', faceId: elem.face.index ?? 0 });
     }
 
-    // MarketFace
+    // MarketFace (商城表情). Keep the wire identity (`emojiId`/`tabId`/`key`)
+    // on the element; the OneBot layer unifies it to an `image` segment with
+    // these as markers (NapCat-compatible), and the send path rebuilds the
+    // wire `marketFace` from them. `emojiId` is the lowercase hex of the
+    // `faceId` GUID bytes — it also forms the gxh gif URL on the segment side.
     if (elem.marketFace) {
+      const mf = elem.marketFace;
       result.push({
         type: 'mface',
-        text: elem.marketFace.faceName ?? '',
-        faceId: elem.marketFace.tabId ?? 0,
-        subType: elem.marketFace.subType ?? 0,
+        text: mf.faceName ?? '',
+        emojiId: mf.faceId && mf.faceId.length > 0 ? toHex(mf.faceId) : '',
+        emojiPackageId: mf.tabId ?? 0,
+        emojiKey: mf.key ?? '',
       });
     }
 

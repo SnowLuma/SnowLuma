@@ -144,27 +144,34 @@ describe('convertEvent — notice kinds', () => {
     expect(invite!.sub_type).toBe('invite');
   });
 
-  it('group_member_leave: leave / kick / kick_me', async () => {
+  it('group_member_leave: leave / kick / kick_me / disband', async () => {
     const leave = await convertEvent(bareCtx(), {
       kind: 'group_member_leave',
       time: 1, selfUin: SELF_ID, groupId: GROUP_ID,
-      userUin: PEER_UIN, operatorUin: 0, isKick: false,
+      userUin: PEER_UIN, operatorUin: 0, leaveType: 'leave',
     } as QQEventVariant);
     expect(leave!.sub_type).toBe('leave');
 
     const kick = await convertEvent(bareCtx(), {
       kind: 'group_member_leave',
       time: 1, selfUin: SELF_ID, groupId: GROUP_ID,
-      userUin: PEER_UIN, operatorUin: 33333, isKick: true,
+      userUin: PEER_UIN, operatorUin: 33333, leaveType: 'kick',
     } as QQEventVariant);
     expect(kick!.sub_type).toBe('kick');
 
     const kickMe = await convertEvent(bareCtx(), {
       kind: 'group_member_leave',
       time: 1, selfUin: SELF_ID, groupId: GROUP_ID,
-      userUin: SELF_ID, operatorUin: 33333, isKick: true,
+      userUin: SELF_ID, operatorUin: 33333, leaveType: 'kick',
     } as QQEventVariant);
     expect(kickMe!.sub_type).toBe('kick_me');
+
+    const disband = await convertEvent(bareCtx(), {
+      kind: 'group_member_leave',
+      time: 1, selfUin: SELF_ID, groupId: GROUP_ID,
+      userUin: SELF_ID, operatorUin: 33333, leaveType: 'disband',
+    } as QQEventVariant);
+    expect(disband!.sub_type).toBe('disband');
   });
 
   it('group_mute: ban vs lift_ban driven by duration', async () => {
@@ -431,20 +438,38 @@ describe('convertEvent — message elements (13 segment types)', () => {
     expect((seg2.data as Record<string, unknown>).resid).toBe(50);
   });
 
-  it('file: name + size + id + url + file_hash, url via mediaUrlResolver', async () => {
+  it('file: canonical file/file_id/file_size + legacy name/size/id + url + file_hash', async () => {
     const seg = await segment(
       { type: 'file', fileName: 'doc.pdf', fileSize: 7, fileId: 'fid', fileHash: 'h' },
       { mediaUrlResolver: async () => 'http://download' },
     );
     expect(seg.type).toBe('file');
     expect(seg.data).toEqual({
-      name: 'doc.pdf', size: 7, id: 'fid', url: 'http://download', file_hash: 'h',
+      // NapCat/LLOneBot-style canonical fields
+      file: 'doc.pdf', file_id: 'fid', file_size: 7,
+      // legacy SnowLuma fields
+      name: 'doc.pdf', size: 7, id: 'fid',
+      url: 'http://download', file_hash: 'h',
     });
   });
 
-  it('mface: text + tab_id + sub_type', async () => {
-    const seg = await segment({ type: 'mface', text: 'sticker', faceId: 7, subType: 2 });
-    expect(seg).toEqual({ type: 'mface', data: { name: 'sticker', tab_id: 7, sub_type: 2 } });
+  it('mface: unified to an image segment carrying market-face markers', async () => {
+    const emojiId = '235a82d9c0acd2e2db6e0b94e1a1c4f3';
+    const seg = await segment({
+      type: 'mface', text: '可爱', emojiId, emojiPackageId: 12, emojiKey: 'abc',
+    });
+    expect(seg).toEqual({
+      type: 'image',
+      data: {
+        file: `23-${emojiId}.gif`,
+        url: `https://gxh.vip.qq.com/club/item/parcel/item/23/${emojiId}/raw300.gif`,
+        summary: '可爱',
+        sub_type: 0,
+        emoji_id: emojiId,
+        emoji_package_id: 12,
+        key: 'abc',
+      },
+    });
   });
 
   it('poke: subType forwarded as data.type', async () => {

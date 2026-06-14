@@ -10,6 +10,45 @@
     <meta name="googlebot" content="noindex, nofollow, noarchive, nosnippet" />
     <meta name="bingbot" content="noindex, nofollow, noarchive, nosnippet" />
     <title>SnowLuma 控制台</title>
+    <!-- Pre-paint theme bootstrap: applies the cached appearance to <html>
+         before the bundle mounts, so dark/OLED/density/scale don't flash from
+         the default light theme. Mirrors a subset of ThemeContext.applyAppearance;
+         defensive (never breaks page load). The bundle re-applies authoritatively. -->
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem('snowluma_ui_appearance');
+          if (!raw) return;
+          var a = JSON.parse(raw);
+          if (!a || typeof a !== 'object') return;
+          var root = document.documentElement;
+          var mode = a.mode;
+          var pal = a.palette;
+          // A non-default palette fixes light/dark; these flavors are light, the rest dark.
+          var LIGHT_PAL = { 'catppuccin-latte': 1, 'rose-pine-dawn': 1, 'everforest-light': 1 };
+          var isPal = typeof pal === 'string' && pal.length > 0 && pal !== 'default';
+          var resolved = isPal
+            ? (LIGHT_PAL[pal] ? 'light' : 'dark')
+            : (mode === 'light' || mode === 'dark'
+                ? mode
+                : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+          root.classList.remove('light', 'dark');
+          root.classList.add(resolved);
+          root.setAttribute('data-theme', resolved);
+          root.style.colorScheme = resolved;
+          if (isPal) root.setAttribute('data-palette', pal);
+          if (a.density === 'compact' || a.density === 'cozy') root.setAttribute('data-density', a.density);
+          // A palette forces soft so the OLED "black" rule can't fight it.
+          var intensity = isPal ? 'soft' : a.darkIntensity;
+          if (intensity === 'black' || intensity === 'soft') root.setAttribute('data-dark-intensity', intensity);
+          if (a.sidebarStyle === 'follow' || a.sidebarStyle === 'panel' || a.sidebarStyle === 'accent') root.setAttribute('data-sidebar-style', a.sidebarStyle);
+          root.setAttribute('data-contrast', a.highContrast ? 'high' : 'normal');
+          root.setAttribute('data-reduce-motion', a.reduceMotion ? '1' : '0');
+          if (typeof a.radius === 'number' && a.radius >= 0 && a.radius <= 2) root.style.setProperty('--radius', a.radius + 'rem');
+          if (typeof a.uiScale === 'number' && a.uiScale >= 0.5 && a.uiScale <= 2) root.style.fontSize = 16 * a.uiScale + 'px';
+        } catch (e) { /* ignore — fall back to default theme */ }
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />

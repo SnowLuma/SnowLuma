@@ -18,6 +18,9 @@ import { decodeTempMessage } from './decoders/temp-message';
 import { PkgType } from './enums';
 import { MsgPushRegistry } from './registry';
 
+export { SSO_GET_GROUP_MSG_CMD, fetchGroupMessageRange } from './fetch-group-history';
+export { SSO_GET_C2C_MSG_CMD, fetchC2cMessageRange } from './fetch-c2c-history';
+
 export const MSG_PUSH_CMD = 'trpc.msg.olpush.OlPushService.MsgPush';
 
 const registry = new MsgPushRegistry();

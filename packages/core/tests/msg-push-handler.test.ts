@@ -13,7 +13,7 @@ import type { GroupMemberInfo, QQGroupInfo } from '@snowluma/protocol/qq-info';
 // name) — we don't need to import it directly since assertions can
 // inline-extract the kind.
 import type {
-  GroupChange, NewFriend, FriendRecall, OperatorInfo, SelfJoinInGroup,
+  GroupChange, NewFriend, FriendRecall, OperatorInfo, SelfJoinInGroup, GroupAdmin,
 } from '@snowluma/proto-defs/notify';
 import type { PushMsg } from '@snowluma/proto-defs/message';
 import type {
@@ -24,6 +24,7 @@ import type {
 // we avoid an `import { FriendRecall as X }` that collides with the
 // proton import above.
 type FriendRecallEvent = Extract<QQEventVariant, { kind: 'friend_recall' }>;
+type GroupAdminEvent = Extract<QQEventVariant, { kind: 'group_admin' }>;
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import { subscribeLogs } from '@snowluma/common/logger';
 
@@ -345,5 +346,74 @@ describe('parseMsgPush PkgType 85 (bot self-joined a group)', () => {
 
     expect(event.operatorUin).toBe(admin.uin);
     expect(event.operatorUid).toBe(admin.uid);
+  });
+});
+
+describe('parseMsgPush PkgType 44 (group admin set/unset) keeps the member cache fresh', () => {
+  // Regression for #93: a member promoted to admin kept reading back as
+  // `member` via get_group_member_info because the admin-change push only
+  // emitted the notice and never patched the cached role — and that API
+  // serves straight from the cache (no per-read refetch, on purpose, to
+  // dodge risk-control). The decoder now mirrors the role into the cache.
+  function makeGroupAdminPacket(adminUid: string, set: boolean, fromUin = GROUP_ID): PacketInfo {
+    const extra = { adminUid };
+    const content = protobuf_encode<GroupAdmin>({
+      groupUin: GROUP_ID,
+      body: set ? { extraEnable: extra } : { extraDisable: extra },
+    });
+    const body = protobuf_encode<PushMsg>({
+      message: {
+        responseHead: { fromUin },
+        contentHead: { msgType: 44, timestamp: 1710000000 },
+        body: { msgContent: content },
+      },
+      status: 0,
+    });
+    return {
+      pid: 1, uin: SELF_UIN, serviceCmd: MSG_PUSH_CMD, seqId: 1,
+      retCode: 0, fromClient: false, body,
+    };
+  }
+
+  it('promotes a cached member to admin in the identity cache (and emits set=true)', () => {
+    const member = makeGroupMember(22222, 'u_member');
+    const identity = makeIdentity([member]);
+
+    const [event] = parseMsgPush(makeGroupAdminPacket(member.uid, true), identity) as GroupAdminEvent[];
+
+    expect(event.kind).toBe('group_admin');
+    expect(event.userUin).toBe(member.uin);
+    expect(event.set).toBe(true);
+    expect(identity.findGroupMember(GROUP_ID, member.uin)?.role).toBe('admin');
+  });
+
+  it('demotes a cached admin back to member on an unset push', () => {
+    const admin = { ...makeGroupMember(22222, 'u_admin'), role: 'admin' };
+    const identity = makeIdentity([admin]);
+
+    const [event] = parseMsgPush(makeGroupAdminPacket(admin.uid, false), identity) as GroupAdminEvent[];
+
+    expect(event.set).toBe(false);
+    expect(identity.findGroupMember(GROUP_ID, admin.uin)?.role).toBe('member');
+  });
+
+  it('never downgrades the owner', () => {
+    const owner = { ...makeGroupMember(22222, 'u_owner'), role: 'owner' };
+    const identity = makeIdentity([owner]);
+
+    parseMsgPush(makeGroupAdminPacket(owner.uid, false), identity);
+
+    expect(identity.findGroupMember(GROUP_ID, owner.uin)?.role).toBe('owner');
+  });
+
+  it('is a no-op (no throw, no phantom member) when the target is not cached', () => {
+    const identity = makeIdentity();
+
+    const [event] = parseMsgPush(makeGroupAdminPacket('u_unknown', true), identity) as GroupAdminEvent[];
+
+    expect(event.kind).toBe('group_admin');
+    // fromUin (the group id) is the resolve fallback — it must not be
+    // confused for a real, promotable member.
+    expect(identity.findGroupMember(GROUP_ID, GROUP_ID)).toBeNull();
   });
 });

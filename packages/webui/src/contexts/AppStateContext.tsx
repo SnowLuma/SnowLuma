@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react';
-import type { AccountConnections, HookProcessInfo, QQInfo, SystemInfo } from '@/types';
+import type { AccountConnections, HookProcessInfo, QQInfo, SystemInfo, UpdateInfo } from '@/types';
 import type { HookProcessOps } from '@/hooks/use-hook-process-ops';
 
 /**
@@ -13,12 +13,16 @@ export interface AppStateValue {
   processList: HookProcessInfo[];
   systemInfo: SystemInfo | null;
   connections: AccountConnections[];
+  /** Advisory update-availability info; null until the first check resolves. */
+  updateInfo: UpdateInfo | null;
   selectedUin: string | null;
   setSelectedUin: (uin: string | null) => void;
   processOps: HookProcessOps;
   refreshProcesses: () => void;
   refreshSystem: () => void;
   refreshConnections: () => void;
+  /** Re-run the update check; `force` bypasses the server-side cache. */
+  refreshUpdate: (force?: boolean) => Promise<void>;
   /** Triggered from the topbar logout button. */
   onLogout: () => void;
 }

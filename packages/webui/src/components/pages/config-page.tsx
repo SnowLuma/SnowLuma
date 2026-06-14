@@ -3,13 +3,12 @@
 // Layout: collapsible left sidebar for account selection + tabbed right
 // pane (通用 / 4 network kinds). Each network tab is a list view of
 // summary cards with inline enable/disable; create + edit both go
-// through `NodeEditDialog`. The dirty-modify guard from the original
-// hook is preserved end-to-end — switching accounts or kinds doesn't
-// drop unsaved changes silently.
+// through `NodeEditDialog`. All changes auto-save: network mutations
+// persist immediately; general-settings edits are debounced (500 ms).
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { MousePointerClick, Plus, Save } from 'lucide-react';
+import { Check, Loader2, MousePointerClick, Plus, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
@@ -23,6 +22,7 @@ import type {
 } from '@/types';
 import { useOneBotInstanceConfig } from '@/hooks/use-onebot-instance-config';
 import { useAppState } from '@/contexts/AppStateContext';
+import { useLayout } from '@/contexts/LayoutContext';
 import { AccountSidebar } from '@/components/config/account-sidebar';
 import { GeneralSettingsTab } from '@/components/config/general-settings-tab';
 import { NodeSummaryCard } from '@/components/config/node-summary-card';
@@ -56,13 +56,21 @@ export function ConfigPage() {
     onSelectedUinChange: setSelectedUin,
   });
 
-  const [activeTab, setActiveTab] = useState<TabKey>('general');
+  const { pages, setPages } = useLayout();
+  const [activeTab, setActiveTabState] = useState<TabKey>(() => {
+    const t = pages.configTab;
+    return t === 'general' || (!!t && t in NETWORK_TABS) ? (t as TabKey) : 'general';
+  });
+  // Persist the last-used tab as the default for next time.
+  const setActiveTab = useCallback((t: TabKey) => {
+    setActiveTabState(t);
+    setPages({ configTab: t });
+  }, [setPages]);
   // Default the account strip to its 56px avatar-only form on narrow screens
   // (≤lg) so the editor pane isn't squeezed; the user can still expand it.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 1024px)').matches,
   );
-  const [confirmSave, setConfirmSave] = useState(false);
   // The edit dialog is modal and blocks every other click in the page,
   // so `selectedUin` cannot change while it's open — no defensive close
   // wiring needed beyond the dialog's own open/close.
@@ -82,13 +90,31 @@ export function ConfigPage() {
     return map;
   }, [connections, selectedUin]);
 
-  // A discrete node mutation (create / edit / delete / enable-toggle) is
-  // persisted the moment it happens — clicking 保存 inside the editor dialog
-  // (or flipping the enable switch) IS the save. This removes the old
-  // two-step trap where editing a token in the dialog only marked the config
-  // "dirty" until you also pressed the top-right 保存, which silently cost
-  // many users their token edits. The general-settings tab keeps its explicit
-  // top-right save (it's a continuously-edited free-form surface).
+  // Auto-save general settings with debounce. Network mutations
+  // (create / edit / delete / enable-toggle) persist immediately in commitKind.
+  const debounceRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (debounceRef.current != null) window.clearTimeout(debounceRef.current);
+    if (dirty) {
+      debounceRef.current = window.setTimeout(() => {
+        void save();
+        debounceRef.current = null;
+      }, 500);
+    }
+    return () => {
+      if (debounceRef.current != null) window.clearTimeout(debounceRef.current);
+    };
+  }, [dirty, config, save]);
+
+  /** Immediate save: clear any pending auto-save debounce and persist now. */
+  const immediateSave = useCallback(() => {
+    if (debounceRef.current != null) {
+      window.clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    void save();
+  }, [save]);
+
   function commitKind<K extends NetworkKind>(kind: K, nextList: OneBotNetworks[K]): void {
     if (!config) return;
     const next = { ...config, networks: { ...config.networks, [kind]: nextList } };
@@ -161,7 +187,7 @@ export function ConfigPage() {
               selectedUin={selectedUin}
               dirty={dirty}
               saveStatus={saveStatus}
-              onSave={() => setConfirmSave(true)}
+              onSave={immediateSave}
               activeTab={activeTab}
               onCreate={
                 activeTab !== 'general' ? () => openCreate(activeTab as NetworkKind) : undefined
@@ -208,15 +234,6 @@ export function ConfigPage() {
       )}
 
       <ConfirmDialog
-        open={confirmSave}
-        onOpenChange={setConfirmSave}
-        title="保存配置变更？"
-        description={`即将把当前修改保存到 UIN ${selectedUin ?? ''} 的配置文件，并尝试热重载该会话。`}
-        confirmText="保存"
-        onConfirm={save}
-      />
-
-      <ConfirmDialog
         open={pendingSwitchUin != null}
         onOpenChange={(open) => !open && cancelSwitch()}
         title="放弃未保存的修改？"
@@ -259,24 +276,18 @@ function HeaderBar({ selectedUin, dirty, saveStatus, onSave, activeTab, onCreate
           UIN {selectedUin}
         </code>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {saveStatus && (
-          <span
-            className={cn(
-              'rounded-full border px-2.5 py-1 text-[11px] font-medium',
-              saveStatus === '保存成功' && 'border-success/30 bg-success/10 text-success',
-              saveStatus === '保存中...' && 'border-border bg-muted text-muted-foreground',
-              saveStatus !== '保存成功' &&
-                saveStatus !== '保存中...' &&
-                'border-destructive/30 bg-destructive/10 text-destructive',
+      <div className="flex flex-wrap items-center gap-3">
+        {(saveStatus || dirty) && (
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium">
+            {saveStatus === '保存中...' ? (
+              <><Loader2 className="size-3.5 animate-spin text-muted-foreground" /><span className="text-muted-foreground">保存中</span></>
+            ) : saveStatus === '保存成功' ? (
+              <><Check className="size-3.5 text-success" /><span className="text-success">已保存</span></>
+            ) : saveStatus ? (
+              <><span className="size-1.5 rounded-full bg-destructive" /><span className="text-destructive">{saveStatus}</span></>
+            ) : (
+              <><span className="size-1.5 rounded-full bg-warning" /><span className="text-warning">未保存</span></>
             )}
-          >
-            {saveStatus}
-          </span>
-        )}
-        {dirty && !saveStatus && (
-          <span className="rounded-full border border-warning/30 bg-warning/10 px-2.5 py-1 text-[11px] font-medium text-warning">
-            未保存
           </span>
         )}
         {onCreate && (
@@ -285,7 +296,7 @@ function HeaderBar({ selectedUin, dirty, saveStatus, onSave, activeTab, onCreate
             新建{activeTab === 'general' ? '' : NETWORK_TABS[activeTab as NetworkKind].title}
           </Button>
         )}
-        <Button onClick={onSave} size="sm" disabled={!dirty}>
+        <Button onClick={onSave} size="sm">
           <Save className="size-3.5" /> 保存
         </Button>
       </div>
@@ -393,7 +404,7 @@ function NetworkTabView({
 
   if (list.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-muted-foreground">
+      <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed py-16 text-muted-foreground">
         <p className="text-sm">暂无 {tab.title} 节点</p>
         <Button variant="outline" size="sm" onClick={onCreateClick}>
           <Plus className="size-3.5" /> 创建第一个
@@ -430,8 +441,8 @@ function NetworkTabView({
 
 function EmptyState() {
   return (
-    <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-lg border border-dashed text-muted-foreground">
-      <MousePointerClick className="size-7" strokeWidth={1.5} />
+    <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-xl border border-dashed text-muted-foreground">
+      <MousePointerClick className="size-8 opacity-40" strokeWidth={1.5} />
       <p className="text-sm">请在左栏选择会话以配置通信节点</p>
     </div>
   );

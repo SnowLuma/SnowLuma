@@ -2,7 +2,7 @@ import { createLogger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import type { ForwardNodePayload, MessageElement } from '@snowluma/protocol/events';
 import type { MessageSendResult } from '../api-handler';
-import { elementsToOneBotSegments } from '../event-converter';
+import { convertEvent, elementsToOneBotSegments, type ConverterContext } from '../event-converter';
 import { segmentsToRawMessage } from '../helper/cq';
 import type { OneBotInstanceContext } from '../instance-context';
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from '../message-id';
@@ -62,6 +62,146 @@ export async function getFriendMsgHistory(
       return Number.isFinite(uid) && Math.trunc(uid) === userId;
     })
     .map(sanitizeMessageEventForApi);
+}
+
+// Deps the server-backed history fetch needs from the instance context.
+interface HistoryRef {
+  bridge: BridgeInterface;
+  messageStore: MessageStore;
+  converterCtx: ConverterContext;
+  selfId: number;
+}
+
+/**
+ * Group history, fetched from the server (`SsoGetGroupMsg`) instead of only the
+ * local observed-message store — so it can return messages SnowLuma never saw
+ * live, and (because each fetched message is persisted) reply / get_msg on old
+ * messages start working too. Resolves the anchor sequence from the requested
+ * message_id (or the latest observed message), then asks the bridge for the
+ * `count` messages ending there. Falls back to the local store if the server
+ * fetch is unavailable or empty.
+ */
+export async function getGroupHistory(
+  ref: HistoryRef,
+  groupId: number,
+  messageId: number | undefined,
+  count: number | undefined,
+): Promise<JsonObject[]> {
+  if (!Number.isInteger(groupId) || groupId <= 0) return [];
+  const want = normalizeHistoryCount(count);
+
+  let anchorSeq = 0;
+  if (Number.isInteger(messageId) && messageId !== 0) {
+    const meta = ref.messageStore.findMeta(messageId as number);
+    if (!meta || !meta.isGroup || meta.targetId !== groupId || meta.sequence <= 0) {
+      // Anchor we don't know — best effort from the local store.
+      return getGroupMsgHistory(ref.messageStore, groupId, messageId, count);
+    }
+    anchorSeq = meta.sequence;
+  } else {
+    const latest = ref.messageStore.listSessionEvents(true, groupId, 1);
+    anchorSeq = latest.length ? toHistInt(latest[latest.length - 1].message_seq) : 0;
+  }
+
+  if (anchorSeq > 0) {
+    try {
+      const events = await ref.bridge.apis.message.getGroupHistory(groupId, anchorSeq, want, ref.selfId);
+      const out: JsonObject[] = [];
+      for (const ev of events) {
+        const json = await convertEvent(ref.converterCtx, ev);
+        if (!json || json.message_type !== 'group') continue;
+        persistHistoryEvent(ref.messageStore, json); // full event → reply/get_msg + future listing
+        out.push(sanitizeMessageEventForApi(json));   // sanitized for the API (matches the local path)
+      }
+      if (out.length > 0) return out;
+    } catch (err) {
+      log.warn('group history server fetch failed (%s); using local store', err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  return getGroupMsgHistory(ref.messageStore, groupId, messageId, count);
+}
+
+/**
+ * Private (c2c) history — the same server-fetch + persist pattern as
+ * {@link getGroupHistory}, but via `SsoGetC2cMsg` (peer = the friend's UID,
+ * resolved from the uin). The anchor is the message_id's sequence (any side of
+ * the conversation) or the latest observed inbound message. Falls back to the
+ * local store on unknown anchor / no uid / empty / error.
+ */
+export async function getFriendHistory(
+  ref: HistoryRef,
+  userId: number,
+  messageId: number | undefined,
+  count: number | undefined,
+): Promise<JsonObject[]> {
+  if (!Number.isInteger(userId) || userId <= 0) return [];
+  const want = normalizeHistoryCount(count);
+
+  let anchorSeq = 0;
+  if (Number.isInteger(messageId) && messageId !== 0) {
+    const meta = ref.messageStore.findMeta(messageId as number);
+    // A c2c conversation seq is shared across both directions, but self-sent
+    // messages are keyed under our own uin — so accept any private anchor by
+    // sequence rather than requiring targetId === userId.
+    if (!meta || meta.isGroup || meta.sequence <= 0) {
+      return getFriendMsgHistory(ref.messageStore, userId, messageId, count);
+    }
+    anchorSeq = meta.sequence;
+  } else {
+    // Latest observed *inbound* message from this friend (self-sent messages
+    // are keyed under our own uin, not the recipient, so the store can't give
+    // "latest sent to this friend"). The c2c sequence is shared across both
+    // directions, so the fetch window around this anchor still includes recent
+    // self-sent messages — only ones strictly newer than the last inbound are
+    // missed on the unparameterized first page (a paged client catches up).
+    const latest = ref.messageStore.listSessionEvents(false, userId, 1);
+    anchorSeq = latest.length ? toHistInt(latest[latest.length - 1].message_seq) : 0;
+  }
+
+  if (anchorSeq > 0) {
+    try {
+      const friendUid = await ref.bridge.resolveUserUid(userId);
+      if (friendUid) {
+        const events = await ref.bridge.apis.message.getC2cHistory(friendUid, anchorSeq, want, ref.selfId);
+        const out: JsonObject[] = [];
+        for (const ev of events) {
+          const json = await convertEvent(ref.converterCtx, ev);
+          if (!json || json.message_type !== 'private') continue;
+          persistHistoryEvent(ref.messageStore, json);
+          out.push(sanitizeMessageEventForApi(json));
+        }
+        if (out.length > 0) return out;
+      }
+    } catch (err) {
+      log.warn('friend history server fetch failed (%s); using local store', err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  return getFriendMsgHistory(ref.messageStore, userId, messageId, count);
+}
+
+// Persist a converted history event so reply / get_msg / future listing resolve
+// it — keyed exactly like the live pipeline (group → group_id, private → the
+// sender uin carried in user_id).
+function persistHistoryEvent(store: MessageStore, event: JsonObject): void {
+  const messageId = toHistInt(event.message_id);
+  if (messageId === 0) return;
+  const isGroup = event.message_type === 'group';
+  const sessionId = isGroup ? toHistInt(event.group_id) : toHistInt(event.user_id);
+  const sequence = toHistInt(event.message_seq);
+  const eventName = isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT;
+  if (sessionId === 0) return;
+  store.storeEvent(messageId, isGroup, sessionId, sequence, eventName, event);
+}
+
+function toHistInt(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
+  if (typeof value === 'string' && value.trim()) {
+    const n = Number(value);
+    if (Number.isFinite(n)) return Math.trunc(n);
+  }
+  return 0;
 }
 
 export async function deleteMessage(bridge: BridgeInterface, meta: MessageMeta): Promise<void> {
