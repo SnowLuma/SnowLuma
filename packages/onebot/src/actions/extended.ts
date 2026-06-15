@@ -219,8 +219,12 @@ export const actions = [
     summary: '获取群消息历史',
     readOnly: true,
     params: {
-      // 原实现用 `asNumber(message_id) || 0`，present 0 也映射为 0。
-      message_id: f.int({ min: 0 }).default(0),
+      // message_id is a signed int32 hash (hashMessageIdInt32) and is
+      // frequently NEGATIVE — a `{min:0}` validator rejects a real anchor at
+      // param-validation time (retcode 1400) before run() ever fires. Use a
+      // plain signed int; `.default(0)` keeps absent/present-0 → "fetch latest"
+      // (matches the original `asNumber(message_id) || 0`). `count` stays ≥0.
+      message_id: f.int().default(0),
       count: f.int({ min: 0 }).default(20),
     },
     run: async (p, ctx) => {
@@ -235,7 +239,8 @@ export const actions = [
     readOnly: true,
     params: {
       user_id: f.uint(),
-      message_id: f.int({ min: 0 }).default(0),
+      // Signed int32 hash, frequently negative — see get_group_msg_history.
+      message_id: f.int().default(0),
       count: f.int({ min: 0 }).default(20),
     },
     run: async (p, ctx) => {

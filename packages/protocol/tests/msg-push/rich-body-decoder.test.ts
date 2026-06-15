@@ -10,8 +10,12 @@
 
 import { describe, expect, it } from 'vitest';
 import { deflateSync } from 'zlib';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { decodeRichBody } from '../../src/msg-push/rich-body-decoder';
+import { buildSendElems } from '../../src/element-builder';
+import type { MessageElement } from '../../src/events';
 import type { MessageBody } from '@snowluma/proto-defs/message';
+import type { SrcMsgPbReserve } from '@snowluma/proto-defs/element';
 
 function lightAppBytes(json: unknown): Uint8Array {
   const buf = deflateSync(Buffer.from(JSON.stringify(json), 'utf8'));
@@ -119,5 +123,83 @@ describe('decodeRichBody / forward LightApp', () => {
     const out = decodeRichBody(body, true);
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({ type: 'forward', resId: 'legacy-res' });
+  });
+});
+
+// Market face (商城表情): decode the wire `marketFace` element into the
+// `emoji_id`/`emoji_package_id`/`key` markers, and round-trip an mface element
+// back through the real proton codegen (faceId hex bytes + pbReserve) so a
+// sticker SnowLuma re-sends decodes identically on the receiver.
+describe('decodeRichBody / market face', () => {
+  const EMOJI_ID = '235a82d9c0acd2e2db6e0b94e1a1c4f3';
+
+  it('decodes a wire marketFace into an mface element (emojiId = lowercase hex of faceId)', () => {
+    const body: MessageBody = {
+      richText: {
+        elems: [
+          {
+            marketFace: {
+              faceName: '可爱',
+              faceId: Buffer.from(EMOJI_ID, 'hex'),
+              tabId: 12,
+              key: 'abc',
+            },
+          } as any,
+        ],
+      },
+    };
+    const out = decodeRichBody(body, true);
+    expect(out).toEqual([{
+      type: 'mface', text: '可爱', emojiId: EMOJI_ID, emojiPackageId: 12, emojiKey: 'abc',
+    }]);
+  });
+
+  it('round-trips an mface element → wire → element through real proton codegen', async () => {
+    const el: MessageElement = {
+      type: 'mface', text: '可爱', emojiId: EMOJI_ID, emojiPackageId: 12, emojiKey: 'abc',
+    };
+    const elems = await buildSendElems([el]);
+    const wire = protobuf_encode<MessageBody>({ richText: { elems: elems as any } });
+    const decoded = protobuf_decode<MessageBody>(wire);
+    expect(decodeRichBody(decoded, true)).toEqual([el]);
+  });
+});
+
+// Reply identity for c2c: a friend's reply carries the per-sender
+// clientSequence in srcMsg.origSeqs[0], but the *canonical* replied-to sequence
+// (the one the original message is keyed by) is srcMsg.pbReserve.friendSequence.
+// Reading origSeqs[0] made get_msg on the quoted message miss ("无法解析申请信息").
+describe('decodeRichBody / reply uses friendSequence for c2c', () => {
+  const CLIENT_SEQ = 23188; // origSeqs[0] — per-sender clientSequence
+  const FRIEND_SEQ = 888;   // pbReserve.friendSequence — canonical replied-to seq
+
+  function replyBody(): MessageBody {
+    return {
+      richText: {
+        elems: [
+          {
+            srcMsg: {
+              origSeqs: [CLIENT_SEQ],
+              pbReserve: protobuf_encode<SrcMsgPbReserve>({ friendSequence: FRIEND_SEQ }),
+            },
+          } as any,
+        ],
+      },
+    };
+  }
+
+  it('c2c: replySeq = friendSequence, not origSeqs[0]', () => {
+    expect(decodeRichBody(replyBody(), false)).toContainEqual({ type: 'reply', replySeq: FRIEND_SEQ });
+  });
+
+  it('group: replySeq = origSeqs[0] (friendSequence ignored)', () => {
+    expect(decodeRichBody(replyBody(), true)).toContainEqual({ type: 'reply', replySeq: CLIENT_SEQ });
+  });
+
+  it('c2c without a reserve: falls back to origSeqs[0]', () => {
+    const body: MessageBody = {
+      richText: { elems: [{ srcMsg: { origSeqs: [CLIENT_SEQ] } } as any] },
+    };
+    expect(decodeRichBody(body, false)).toContainEqual({ type: 'reply', replySeq: CLIENT_SEQ });
   });
 });

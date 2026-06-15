@@ -453,9 +453,23 @@ describe('convertEvent — message elements (13 segment types)', () => {
     });
   });
 
-  it('mface: text + tab_id + sub_type', async () => {
-    const seg = await segment({ type: 'mface', text: 'sticker', faceId: 7, subType: 2 });
-    expect(seg).toEqual({ type: 'mface', data: { name: 'sticker', tab_id: 7, sub_type: 2 } });
+  it('mface: unified to an image segment carrying market-face markers', async () => {
+    const emojiId = '235a82d9c0acd2e2db6e0b94e1a1c4f3';
+    const seg = await segment({
+      type: 'mface', text: '可爱', emojiId, emojiPackageId: 12, emojiKey: 'abc',
+    });
+    expect(seg).toEqual({
+      type: 'image',
+      data: {
+        file: `23-${emojiId}.gif`,
+        url: `https://gxh.vip.qq.com/club/item/parcel/item/23/${emojiId}/raw300.gif`,
+        summary: '可爱',
+        sub_type: 0,
+        emoji_id: emojiId,
+        emoji_package_id: 12,
+        key: 'abc',
+      },
+    });
   });
 
   it('poke: subType forwarded as data.type', async () => {

@@ -85,6 +85,14 @@ export interface TransElem {
   elemValue?: pb<2, bytes>;
 }
 
+// MarketFace.pbReserve(13) inner message. NapCat/Lagrange set field8=1 on
+// send (marks the sticker as a "magic"/animated face). We encode it via
+// protobuf_encode<MarketFacePbReserve> into the bytes field — same pattern as
+// the mention pbReserve in element-builder.makeMentionElem.
+export interface MarketFacePbReserve {
+  field8?: pb<8, uint_32>;
+}
+
 export interface MarketFace {
   faceName?:    pb<1, string>;
   itemType?:    pb<2, uint_32>;
@@ -92,7 +100,10 @@ export interface MarketFace {
   faceId?:      pb<4, bytes>;
   tabId?:       pb<5, uint_32>;
   subType?:     pb<6, uint_32>;
-  key?:         pb<7, bytes>;
+  // `key` is a short ASCII token (e.g. "0"); Lagrange.Core and NapCat both
+  // type it as a string. Kept as string so it round-trips verbatim through
+  // the receive→`emoji_id` marker→re-send path without a bytes/utf8 hop.
+  key?:         pb<7, string>;
   param?:       pb<8, bytes>;
   mediaType?:   pb<9, uint_32>;
   imageWidth?:  pb<10, uint_32>;
@@ -209,6 +220,16 @@ export interface SrcMsg {
   sourceMsg?: pb<9, bytes>;
   toUin?:     pb<10, uint_64>;
   troopName?: pb<11, bytes>;
+}
+
+// Decoded content of SrcMsg.pbReserve(8). For a c2c (friend) reply the
+// canonical replied-to sequence lives here as `friendSequence`, NOT in
+// `origSeqs` (which carries the per-sender clientSequence). Lagrange resolves an
+// incoming reply as `Sequence = reserve.FriendSequence ?? OrigSeqs[0]`
+// (dev/Lagrange.Core/.../SourceMsg.PbPreserve.cs ProtoMember(8)).
+export interface SrcMsgPbReserve {
+  receiverUid?:    pb<7, string>;
+  friendSequence?: pb<8, uint_32>;
 }
 
 export interface LightAppElem {
