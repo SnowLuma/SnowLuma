@@ -9,6 +9,7 @@ import type {
   NotOnlineImage,
   QFaceExtra,
   QSmallFaceExtra,
+  SrcMsgPbReserve,
 } from '@snowluma/proto-defs/element';
 import type { FileExtra, MessageBody, RichText } from '@snowluma/proto-defs/message';
 import { decompressData, makeImageUrl } from './helpers';
@@ -21,7 +22,7 @@ export function decodeRichBody(body: PushMsgBody | undefined, isGroup: boolean):
   const elements: MessageElement[] = [];
   if (body?.richText) {
     const rt = body.richText;
-    if (rt.elems) elements.push(...convertElements(rt.elems as ElemDecoded[]));
+    if (rt.elems) elements.push(...convertElements(rt.elems as ElemDecoded[], isGroup));
     extractRichtextExtras(rt, elements, isGroup);
   }
   if (body?.msgContent && body.msgContent.length > 0) {
@@ -30,16 +31,27 @@ export function decodeRichBody(body: PushMsgBody | undefined, isGroup: boolean):
   return elements;
 }
 
-function convertElements(elems: ElemDecoded[]): MessageElement[] {
+function convertElements(elems: ElemDecoded[], isGroup: boolean): MessageElement[] {
   const result: MessageElement[] = [];
   let skipNext = false;
 
   for (const elem of elems) {
     if (skipNext) { skipNext = false; continue; }
 
-    // Reply / quote
-    if (elem.srcMsg?.origSeqs && elem.srcMsg.origSeqs.length > 0) {
-      result.push({ type: 'reply', replySeq: elem.srcMsg.origSeqs[0] });
+    // Reply / quote. For a c2c (friend) reply the canonical replied-to sequence
+    // is the srcMsg reserve's `friendSequence`, NOT `origSeqs[0]` — origSeqs
+    // carries the per-sender clientSequence, which doesn't match how the
+    // original message is keyed (by its server/private sequence), so resolving
+    // the reply (and get_msg on the quoted message) would miss. Mirrors
+    // Lagrange's `Sequence = reserve.FriendSequence ?? OrigSeqs[0]`
+    // (ForwardEntity.cs). Group replies keep origSeqs[0] (the shared group seq).
+    if (elem.srcMsg) {
+      let replySeq = elem.srcMsg.origSeqs?.[0] ?? 0;
+      if (!isGroup && elem.srcMsg.pbReserve && elem.srcMsg.pbReserve.length > 0) {
+        const reserve = protobuf_decode<SrcMsgPbReserve>(elem.srcMsg.pbReserve);
+        if (reserve.friendSequence) replySeq = reserve.friendSequence;
+      }
+      if (replySeq > 0) result.push({ type: 'reply', replySeq });
     }
 
     // Text (with possible @ detection)

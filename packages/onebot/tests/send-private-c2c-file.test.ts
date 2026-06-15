@@ -18,8 +18,6 @@ import { describe, expect, it, vi } from 'vitest';
 import type { BridgeInterface } from '../../src/bridge/bridge-interface';
 import type { OneBotInstanceContext } from '../src/instance-context';
 import { sendPrivateMessage } from '../src/modules/message-actions';
-import { hashMessageIdInt32, PRIVATE_MESSAGE_EVENT } from '../src/message-id';
-import { resolveReplyId } from '../src/event-converter/utils';
 
 function fakeBridge(overrides: Partial<BridgeInterface> = {}): BridgeInterface {
   return new Proxy(overrides as BridgeInterface, {
@@ -257,70 +255,5 @@ describe('send_private_msg with {type:"file"} segment', () => {
     expect(doUpload).toBe(true);
     // sendC2cFile must NOT be called — uploadPrivate() handles it internally
     expect(sendC2cFileMessage).not.toHaveBeenCalled();
-  });
-});
-
-// Regression: a friend replied to a bot self-sent private message; the bot
-// called get_msg on the quoted id and got "message not found" (then replied
-// "无法解析申请信息"). c2c replies reference the message by clientSequence
-// (Lagrange OrigSeqs = ClientSequence||Sequence), but the self-sent message was
-// keyed by the server (private) sequence — so the reply's resolved id never
-// matched the stored event. Self-sent c2c messages must be keyed by
-// clientSequence so the two agree.
-describe('send_private_msg self-sent message_id (c2c reply / get_msg resolution)', () => {
-  it('keys a self-sent private message by clientSequence, matching an incoming reply id', async () => {
-    // clientSequence and (server) sequence deliberately differ.
-    const receipt = { messageId: 1, sequence: 888, clientSequence: 21196, random: 7, timestamp: 1700000000 };
-    const sendPrivate = vi.fn(async () => receipt);
-    const cacheMessageMeta = vi.fn();
-    const bridge = fakeBridge({
-      apis: { message: { sendPrivate } } as any,
-      resolveUserUid: vi.fn(async () => 'u_peer'),
-    } as any);
-    const ctx = {
-      uin: '10001', selfId: 10001, bridge,
-      messageStore: { findEvent: () => null } as any,
-      cacheMessageMeta,
-      mediaStore: {} as any,
-      musicSignUrl: '',
-    } as unknown as OneBotInstanceContext;
-
-    const result = await sendPrivateMessage(ctx, 67890, 'hi', false);
-
-    // The id an incoming reply to this message resolves to — the peer quotes it
-    // by clientSequence, so resolveReplyId(...) hashes clientSequence. The
-    // resolver mirrors how instance.ts wires messageIdResolver (4-arg → hash).
-    const messageIdResolver = (_isGroup: boolean, sessionId: number, seq: number, eventName: string) =>
-      hashMessageIdInt32(seq, sessionId, eventName);
-    const incomingReplyId = resolveReplyId(false, 67890, 21196, messageIdResolver);
-    expect(result.messageId).toBe(incomingReplyId);
-    expect(result.messageId).toBe(hashMessageIdInt32(21196, 67890, PRIVATE_MESSAGE_EVENT));
-    // …and specifically NOT the server (private) sequence, which was the bug.
-    expect(result.messageId).not.toBe(hashMessageIdInt32(888, 67890, PRIVATE_MESSAGE_EVENT));
-    // Meta still carries both sequences (recall needs the server seq + clientSeq).
-    expect(cacheMessageMeta).toHaveBeenCalledWith(
-      incomingReplyId,
-      expect.objectContaining({ clientSequence: 21196, sequence: 888 }),
-    );
-  });
-
-  it('falls back to the server sequence when clientSequence is 0 (file-send receipt)', async () => {
-    const receipt = { messageId: 1, sequence: 888, clientSequence: 0, random: 7, timestamp: 1700000000 };
-    const sendPrivate = vi.fn(async () => receipt);
-    const cacheMessageMeta = vi.fn();
-    const bridge = fakeBridge({
-      apis: { message: { sendPrivate } } as any,
-      resolveUserUid: vi.fn(async () => 'u_peer'),
-    } as any);
-    const ctx = {
-      uin: '10001', selfId: 10001, bridge,
-      messageStore: { findEvent: () => null } as any,
-      cacheMessageMeta,
-      mediaStore: {} as any,
-      musicSignUrl: '',
-    } as unknown as OneBotInstanceContext;
-
-    const result = await sendPrivateMessage(ctx, 67890, 'hi', false);
-    expect(result.messageId).toBe(hashMessageIdInt32(888, 67890, PRIVATE_MESSAGE_EVENT));
   });
 });

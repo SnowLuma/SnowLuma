@@ -12,29 +12,6 @@ import type { JsonArray, JsonObject, JsonValue, MessageMeta } from '../types';
 
 const log = createLogger('OneBot');
 
-/**
- * message_id for a self-sent **c2c (private)** message.
- *
- * QQ-NT/Lagrange reference a c2c message in replies by the sender's
- * `clientSequence`, NOT the server sequence — Lagrange builds the reply source
- * as `OrigSeqs = ClientSequence != 0 ? ClientSequence : Sequence`
- * (`dev/Lagrange.Core/.../Message/Entity/ForwardEntity.cs`). So a self-sent
- * message MUST be keyed by `clientSequence`; otherwise an incoming reply's
- * resolved id (`hash(clientSequence, peer, private)`) never matches the stored
- * event and `get_msg` on the quoted message fails ("引用消息" can't be read,
- * even though replying still works because it only needs the meta row).
- *
- * Falls back to the server sequence when `clientSequence` is 0 (e.g. the c2c
- * file-send receipt), mirroring Lagrange's `||` exactly. Group messages do NOT
- * use this — their replies reference the (shared) group sequence.
- */
-function c2cSelfMessageId(
-  receipt: { sequence: number; clientSequence: number },
-  userId: number,
-): number {
-  return hashMessageIdInt32(receipt.clientSequence || receipt.sequence, userId, PRIVATE_MESSAGE_EVENT);
-}
-
 export async function getGroupMsgHistory(
   messageStore: MessageStore,
   groupId: number,
@@ -442,7 +419,7 @@ export async function sendPrivateMessage(
   }
   if (!lastReceipt) throw new Error('message is empty');
 
-  const messageId = c2cSelfMessageId(lastReceipt, userId);
+  const messageId = hashMessageIdInt32(lastReceipt.sequence, userId, PRIVATE_MESSAGE_EVENT);
   ref.cacheMessageMeta(messageId, {
     isGroup: false,
     targetId: userId,
@@ -608,7 +585,7 @@ export async function sendPrivateForwardMessage(
   const forwardId = await ref.bridge.apis.forward.upload(nodes, undefined, userId);
   const previewElement = buildForwardPreviewElement(forwardId, nodes, false, meta);
   const receipt = await ref.bridge.apis.message.sendPrivate(userId, [previewElement]);
-  const messageId = c2cSelfMessageId(receipt, userId);
+  const messageId = hashMessageIdInt32(receipt.sequence, userId, PRIVATE_MESSAGE_EVENT);
 
   ref.cacheMessageMeta(messageId, {
     isGroup: false,
@@ -695,7 +672,7 @@ export async function forwardSingleMessage(
     });
   } else {
     receipt = await ref.bridge.apis.message.sendPrivate(target.userId!, elements);
-    messageIdOut = c2cSelfMessageId(receipt, target.userId!);
+    messageIdOut = hashMessageIdInt32(receipt.sequence, target.userId!, PRIVATE_MESSAGE_EVENT);
     ref.cacheMessageMeta(messageIdOut, {
       isGroup: false,
       targetId: target.userId!,

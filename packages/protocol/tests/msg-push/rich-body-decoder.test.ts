@@ -15,6 +15,7 @@ import { decodeRichBody } from '../../src/msg-push/rich-body-decoder';
 import { buildSendElems } from '../../src/element-builder';
 import type { MessageElement } from '../../src/events';
 import type { MessageBody } from '@snowluma/proto-defs/message';
+import type { SrcMsgPbReserve } from '@snowluma/proto-defs/element';
 
 function lightAppBytes(json: unknown): Uint8Array {
   const buf = deflateSync(Buffer.from(JSON.stringify(json), 'utf8'));
@@ -161,5 +162,44 @@ describe('decodeRichBody / market face', () => {
     const wire = protobuf_encode<MessageBody>({ richText: { elems: elems as any } });
     const decoded = protobuf_decode<MessageBody>(wire);
     expect(decodeRichBody(decoded, true)).toEqual([el]);
+  });
+});
+
+// Reply identity for c2c: a friend's reply carries the per-sender
+// clientSequence in srcMsg.origSeqs[0], but the *canonical* replied-to sequence
+// (the one the original message is keyed by) is srcMsg.pbReserve.friendSequence.
+// Reading origSeqs[0] made get_msg on the quoted message miss ("无法解析申请信息").
+describe('decodeRichBody / reply uses friendSequence for c2c', () => {
+  const CLIENT_SEQ = 23188; // origSeqs[0] — per-sender clientSequence
+  const FRIEND_SEQ = 888;   // pbReserve.friendSequence — canonical replied-to seq
+
+  function replyBody(): MessageBody {
+    return {
+      richText: {
+        elems: [
+          {
+            srcMsg: {
+              origSeqs: [CLIENT_SEQ],
+              pbReserve: protobuf_encode<SrcMsgPbReserve>({ friendSequence: FRIEND_SEQ }),
+            },
+          } as any,
+        ],
+      },
+    };
+  }
+
+  it('c2c: replySeq = friendSequence, not origSeqs[0]', () => {
+    expect(decodeRichBody(replyBody(), false)).toContainEqual({ type: 'reply', replySeq: FRIEND_SEQ });
+  });
+
+  it('group: replySeq = origSeqs[0] (friendSequence ignored)', () => {
+    expect(decodeRichBody(replyBody(), true)).toContainEqual({ type: 'reply', replySeq: CLIENT_SEQ });
+  });
+
+  it('c2c without a reserve: falls back to origSeqs[0]', () => {
+    const body: MessageBody = {
+      richText: { elems: [{ srcMsg: { origSeqs: [CLIENT_SEQ] } } as any] },
+    };
+    expect(decodeRichBody(body, false)).toContainEqual({ type: 'reply', replySeq: CLIENT_SEQ });
   });
 });
