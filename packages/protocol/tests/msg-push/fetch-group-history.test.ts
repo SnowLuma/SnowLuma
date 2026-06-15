@@ -45,12 +45,12 @@ describe('fetchGroupMessageRange / SsoGetGroupMsg', () => {
           {
             responseHead: { fromUin: 222, grp: { groupUin: 9999, memberName: 'Bob' } },
             contentHead: { msgType: 82, sequence: 120, timestamp: 1700000120, msgId: 5120 },
-            body: { richText: { elems: [] } },
+            body: { richText: { elems: [{ text: { str: 'hi' } }] } },
           },
           {
             responseHead: { fromUin: 111, grp: { groupUin: 9999, memberName: 'Alice' } },
             contentHead: { msgType: 82, sequence: 110, timestamp: 1700000110, msgId: 5110 },
-            body: { richText: { elems: [] } },
+            body: { richText: { elems: [{ text: { str: 'hi' } }] } },
           },
         ],
       },
@@ -65,6 +65,29 @@ describe('fetchGroupMessageRange / SsoGetGroupMsg', () => {
     expect(out.every((m) => m.selfUin === 10001)).toBe(true);
     expect(out[0]).toMatchObject({ msgSeq: 110, senderUin: 111, senderNick: 'Alice' });
     expect(out[1]).toMatchObject({ msgSeq: 120, senderUin: 222, senderNick: 'Bob' });
+  });
+
+  it('drops content-less blank messages, keeps real ones (#102 parity)', async () => {
+    const resp = protobuf_encode<SsoGetGroupMsgResponse>({
+      body: {
+        groupUin: 9999,
+        messages: [
+          { // genuinely-blank control push → dropped
+            responseHead: { fromUin: 111, grp: { groupUin: 9999, memberName: 'Alice' } },
+            contentHead: { msgType: 82, sequence: 110, timestamp: 1700000110, msgId: 5110 },
+            body: { richText: { elems: [] } },
+          },
+          { // real message → kept
+            responseHead: { fromUin: 222, grp: { groupUin: 9999, memberName: 'Bob' } },
+            contentHead: { msgType: 82, sequence: 120, timestamp: 1700000120, msgId: 5120 },
+            body: { richText: { elems: [{ text: { str: 'hi' } }] } },
+          },
+        ],
+      },
+    });
+    const out = await fetchGroupMessageRange({ sendRawPacket: async () => okResult(resp) }, identity, 10001, 9999, 100, 120);
+    expect(out.map((m) => m.msgSeq)).toEqual([120]);
+    expect(out[0]).toMatchObject({ senderUin: 222, elements: [{ type: 'text', text: 'hi' }] });
   });
 
   it('returns [] on a failed packet or out-of-range request', async () => {

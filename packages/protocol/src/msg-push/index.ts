@@ -4,6 +4,7 @@ import type { PacketInfo } from '@snowluma/common/protocol-types';
 import type { Elem } from '@snowluma/proto-defs/element';
 import type { QQEventVariant } from '../events';
 import type { IdentityService } from '../identity-service';
+import { bodyHasDecodableContent } from './blank-filter';
 import { buildContext, type PushMsgBody } from './context';
 import { decodeEvent0x210 } from './decoders/event-0x210';
 import { decodeEvent0x2DC } from './decoders/event-0x2dc';
@@ -52,22 +53,6 @@ const log = createLogger('MsgPush');
 const MESSAGE_KINDS = new Set<QQEventVariant['kind']>([
   'friend_message', 'group_message', 'temp_message',
 ]);
-
-/**
- * Whether a push body carries anything the rich-body decoder could turn into an
- * element: source `richText.elems`, a voice (`ptt`), a c2c file
- * (`notOnlineFile`), or serialised `msgContent` file metadata. Mirrors exactly
- * what {@link decodeRichBody} reads. A body that has none of these is a
- * genuinely content-less control push, not an element type we fail to decode.
- */
-function bodyHasDecodableContent(body: PushMsgBody | undefined): boolean {
-  const rt = body?.richText;
-  if (rt) {
-    if (rt.elems && rt.elems.length > 0) return true;
-    if (rt.ptt || rt.notOnlineFile) return true;
-  }
-  return !!(body?.msgContent && body.msgContent.length > 0);
-}
 
 /**
  * Summarise a body that decoded to zero elements despite carrying content —

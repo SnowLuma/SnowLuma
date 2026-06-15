@@ -41,12 +41,12 @@ describe('fetchC2cMessageRange / SsoGetC2cMsg', () => {
         {
           responseHead: { fromUin: 222, forward: { friendName: 'Bob' } },
           contentHead: { msgType: 166, sequence: 120, timestamp: 1700000120, msgId: 7120 },
-          body: { richText: { elems: [] } },
+          body: { richText: { elems: [{ text: { str: 'hi' } }] } },
         },
         {
           responseHead: { fromUin: 111, forward: { friendName: 'Alice' } },
           contentHead: { msgType: 166, sequence: 110, timestamp: 1700000110, msgId: 7110 },
-          body: { richText: { elems: [] } },
+          body: { richText: { elems: [{ text: { str: 'hi' } }] } },
         },
       ],
     });
@@ -59,6 +59,27 @@ describe('fetchC2cMessageRange / SsoGetC2cMsg', () => {
     expect(out.every((m) => m.selfUin === 10001)).toBe(true);
     expect(out[0]).toMatchObject({ msgSeq: 110, senderUin: 111, senderNick: 'Alice' });
     expect(out[1]).toMatchObject({ msgSeq: 120, senderUin: 222, senderNick: 'Bob' });
+  });
+
+  it('drops content-less blank messages, keeps real ones (#102 parity)', async () => {
+    const resp = protobuf_encode<SsoGetC2cMsgResponse>({
+      friendUid: 'u_friend',
+      messages: [
+        { // genuinely-blank control push (the invite phantom) → dropped
+          responseHead: { fromUin: 111, forward: { friendName: 'Alice' } },
+          contentHead: { msgType: 166, sequence: 110, timestamp: 1700000110, msgId: 7110 },
+          body: { richText: { elems: [] } },
+        },
+        { // real message → kept
+          responseHead: { fromUin: 222, forward: { friendName: 'Bob' } },
+          contentHead: { msgType: 166, sequence: 120, timestamp: 1700000120, msgId: 7120 },
+          body: { richText: { elems: [{ text: { str: 'hi' } }] } },
+        },
+      ],
+    });
+    const out = await fetchC2cMessageRange({ sendRawPacket: async () => okResult(resp) }, identity, 10001, 'u_friend', 100, 120);
+    expect(out.map((m) => m.msgSeq)).toEqual([120]);
+    expect(out[0]).toMatchObject({ senderUin: 222, elements: [{ type: 'text', text: 'hi' }] });
   });
 
   it('returns [] on a failed packet, empty uid, or out-of-range request', async () => {
