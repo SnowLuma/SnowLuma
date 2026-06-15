@@ -54,13 +54,26 @@ const MESSAGE_KINDS = new Set<QQEventVariant['kind']>([
 ]);
 
 /**
- * Diagnostic for issue #102 (group invite → "[空消息]"). When a message decodes
- * to zero elements, dump what its body actually carried — each element's field
- * names, every `commonElem`'s serviceType/businessType + payload hex, and any
- * `msgContent` — so we can tell a genuinely content-less control push from an
- * element type we simply don't decode yet (and then decode it, rather than
- * blindly dropping the message). TODO(#102): remove once the culprit element is
- * identified and handled.
+ * Whether a push body carries anything the rich-body decoder could turn into an
+ * element: source `richText.elems`, a voice (`ptt`), a c2c file
+ * (`notOnlineFile`), or serialised `msgContent` file metadata. Mirrors exactly
+ * what {@link decodeRichBody} reads. A body that has none of these is a
+ * genuinely content-less control push, not an element type we fail to decode.
+ */
+function bodyHasDecodableContent(body: PushMsgBody | undefined): boolean {
+  const rt = body?.richText;
+  if (rt) {
+    if (rt.elems && rt.elems.length > 0) return true;
+    if (rt.ptt || rt.notOnlineFile) return true;
+  }
+  return !!(body?.msgContent && body.msgContent.length > 0);
+}
+
+/**
+ * Summarise a body that decoded to zero elements despite carrying content —
+ * each element's field names, every `commonElem`'s serviceType/businessType +
+ * payload hex, and any `msgContent` — so a missing decoder can be identified
+ * from one log line rather than swallowed silently.
  */
 function describeUndecodedBody(body: PushMsgBody | undefined): string {
   const elems = (body?.richText?.elems ?? []) as Elem[];
@@ -86,13 +99,21 @@ export function parseMsgPush(pkt: PacketInfo, identity: IdentityService): QQEven
   const ctx = buildContext(pkt, identity);
   if (!ctx) return [];
   const events = registry.decode(ctx);
-  // #102 diagnostic — surface what an empty-decoded message actually contained.
-  for (const ev of events) {
-    if (MESSAGE_KINDS.has(ev.kind) && (ev as { elements?: unknown[] }).elements?.length === 0) {
-      log.warn('[#102] empty message (kind=%s seq=%d from=%d msgType=%d/%d): %s',
+  return events.filter((ev) => {
+    if (!MESSAGE_KINDS.has(ev.kind)) return true;
+    if ((ev as { elements?: unknown[] }).elements?.length !== 0) return true;
+    // Empty-element message (#102). Drop it when the body is genuinely empty —
+    // QQ emits a content-less c2c push (msgType=166/0) alongside e.g. a group
+    // invite card, which otherwise surfaces to clients as a confusing
+    // "[空消息]". If instead the body *had* content we just couldn't decode,
+    // keep the (still-empty) event but warn so the missing decoder gets noticed
+    // rather than silently swallowed.
+    if (bodyHasDecodableContent(ctx.body)) {
+      log.warn('message had content but decoded to 0 elements — missing decoder? (kind=%s seq=%d from=%d msgType=%d/%d): %s',
         ev.kind, ctx.head.sequence, ctx.fromUin, ctx.head.msgType, ctx.head.subType,
         describeUndecodedBody(ctx.body));
+      return true;
     }
-  }
-  return events;
+    return false;
+  });
 }
