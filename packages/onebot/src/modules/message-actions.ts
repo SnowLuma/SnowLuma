@@ -1,6 +1,6 @@
 import { createLogger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
-import type { ForwardNodePayload, MessageElement } from '@snowluma/protocol/events';
+import type { ForwardNodePayload, FriendMessage, GroupMessage, MessageElement, QQEventVariant } from '@snowluma/protocol/events';
 import type { MessageSendResult } from '../api-handler';
 import { convertEvent, elementsToOneBotSegments, type ConverterContext } from '../event-converter';
 import { segmentsToRawMessage } from '../helper/cq';
@@ -179,6 +179,61 @@ export async function getFriendHistory(
   }
 
   return getFriendMsgHistory(ref.messageStore, userId, messageId, count);
+}
+
+/**
+ * Back-fill the message a freshly-received reply points to, when the local store
+ * doesn't have the full event (e.g. a message from before SnowLuma was running,
+ * or one it never observed). Fetches just the quoted message from the server —
+ * group via `SsoGetGroupMsg`, c2c via `SsoGetC2cMsg`, both through the shared
+ * history throttle gate — and persists it under the SAME id the reply resolves
+ * to, so a subsequent `get_msg` (or quote lookup) hits.
+ *
+ * No-op when: the event isn't a group/friend message, has no reply, the target
+ * is already stored, the uid can't be resolved, the fetch returns nothing, or
+ * it errors. Meant to be awaited before dispatch so the consumer's get_msg —
+ * which an approval bot fires right after seeing the reply — sees the message.
+ */
+export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant): Promise<void> {
+  let isGroup: boolean;
+  let session: number;
+  if (event.kind === 'group_message') { isGroup = true; session = event.groupId; }
+  else if (event.kind === 'friend_message') { isGroup = false; session = event.senderUin; }
+  else return;
+  if (!Number.isInteger(session) || session <= 0) return;
+
+  const reply = event.elements.find(
+    (e: MessageElement) => e.type === 'reply' && Number.isInteger(e.replySeq) && (e.replySeq ?? 0) > 0,
+  );
+  const replySeq = reply?.replySeq ?? 0;
+  if (replySeq <= 0) return;
+
+  const eventName = isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT;
+  const targetId = hashMessageIdInt32(replySeq, session, eventName);
+  if (ref.messageStore.findEvent(targetId)) return; // already have the full event
+
+  try {
+    let fetched: GroupMessage | FriendMessage | null;
+    if (isGroup) {
+      fetched = await ref.bridge.apis.message.getGroupMessageBySeq(session, replySeq, ref.selfId);
+    } else {
+      const friendUid = await ref.bridge.resolveUserUid(session);
+      if (!friendUid) return;
+      fetched = await ref.bridge.apis.message.getC2cMessageBySeq(friendUid, replySeq, ref.selfId);
+    }
+    if (!fetched) return;
+
+    const json = await convertEvent(ref.converterCtx, fetched);
+    if (!json) return;
+    // Key under the exact id the reply resolves to (and the reply's session) so
+    // get_msg(targetId) hits regardless of who sent the quoted message: a c2c
+    // message the bot itself sent converts with user_id=self and would
+    // otherwise key under a different session than the reply's peer.
+    json.message_id = targetId;
+    ref.messageStore.storeEvent(targetId, isGroup, session, replySeq, eventName, json);
+  } catch (err) {
+    log.warn('reply-target backfill failed (%s)', err instanceof Error ? err.message : String(err));
+  }
 }
 
 // Persist a converted history event so reply / get_msg / future listing resolve

@@ -422,5 +422,38 @@ export class MessageApi {
     return walkBackHistory(endSeq, count, (start, end) =>
       fetchC2cMessageRange(this.ctx, this.ctx.identity, selfUin, friendUid, start, end));
   }
+
+  /**
+   * Fetch a single group message by its exact sequence — `SsoGetGroupMsg` over a
+   * 1-wide `[seq, seq]` range, through the shared history throttle gate. Used to
+   * back-fill a replied-to message the local store never saw. Returns the
+   * matching `group_message`, or null if absent / on error.
+   */
+  async getGroupMessageBySeq(groupUin: number, seq: number, selfUin = 0): Promise<GroupMessage | null> {
+    if (!(groupUin > 0) || !(seq > 0)) return null;
+    await throttleHistory();
+    try {
+      const batch = await fetchGroupMessageRange(this.ctx, this.ctx.identity, selfUin, groupUin, seq, seq);
+      return batch.find((m) => m.msgSeq === seq) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Fetch a single c2c message by its exact sequence — `SsoGetC2cMsg` over a
+   * 1-wide `[seq, seq]` range, through the same throttle gate. `friendUid` is the
+   * conversation peer. Returns the matching `friend_message`, or null.
+   */
+  async getC2cMessageBySeq(friendUid: string, seq: number, selfUin = 0): Promise<FriendMessage | null> {
+    if (!friendUid || !(seq > 0)) return null;
+    await throttleHistory();
+    try {
+      const batch = await fetchC2cMessageRange(this.ctx, this.ctx.identity, selfUin, friendUid, seq, seq);
+      return batch.find((m) => m.msgSeq === seq) ?? null;
+    } catch {
+      return null;
+    }
+  }
 }
 

@@ -4,6 +4,7 @@ import type { QQEventVariant } from '@snowluma/protocol/events';
 import { convertEvent } from './event-converter';
 import type { OneBotInstanceContext } from './instance-context';
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from './message-id';
+import { backfillReplyTarget } from './modules/message-actions';
 import { deliverPttTransText, pttTransKey } from './modules/ptt-trans-waiter';
 
 const moduleLog = createLogger('Event');
@@ -94,6 +95,13 @@ async function runConvertAndDispatch(ctx: OneBotInstanceContext, log: Logger, ev
     log.trace(() => [`recv ${event.kind} ⇒ dropped (${Date.now() - startedAt}ms)`]);
     return;
   }
+  // If this message quotes one we don't have, fetch + persist it first (gated +
+  // throttled) so a consumer's get_msg on the quote resolves. No-op for the
+  // common case (no reply, or the quoted message is already stored). Never let a
+  // back-fill failure block delivery of the live message.
+  try {
+    await backfillReplyTarget(ctx, event);
+  } catch { /* best-effort — dispatch the live event regardless */ }
   ctx.dispatchEvent(converted);
   log.trace(() => [`recv ${event.kind} ⇒ ${String(converted.post_type ?? '?')} (${Date.now() - startedAt}ms)`]);
 }
