@@ -4,7 +4,7 @@ import type { PacketInfo } from '@snowluma/common/protocol-types';
 import type { Elem } from '@snowluma/proto-defs/element';
 import type { QQEventVariant } from '../events';
 import type { IdentityService } from '../identity-service';
-import { bodyHasDecodableContent } from './blank-filter';
+import { bodyHasDecodableContent, isC2cControlPush } from './blank-filter';
 import { buildContext, type PushMsgBody } from './context';
 import { decodeEvent0x210 } from './decoders/event-0x210';
 import { decodeEvent0x2DC } from './decoders/event-0x2dc';
@@ -86,13 +86,23 @@ export function parseMsgPush(pkt: PacketInfo, identity: IdentityService): QQEven
   const events = registry.decode(ctx);
   return events.filter((ev) => {
     if (!MESSAGE_KINDS.has(ev.kind)) return true;
+    // C2C control/system signal (#102): QQ NT routes these via OnRecvSysMsg and
+    // never shows them as a bubble. Drop by (msgType, c2cCmd) regardless of body
+    // — the precise discriminator, the group-invite "[空消息]" phantom being one.
+    if (isC2cControlPush(ctx.head)) {
+      const elemCount = (ev as { elements?: unknown[] }).elements?.length ?? 0;
+      if (elemCount > 0) {
+        log.debug('dropped c2c control push that carried %d element(s) (kind=%s seq=%d from=%d msgType=%d cmd=%d)',
+          elemCount, ev.kind, ctx.head.sequence, ctx.fromUin, ctx.head.msgType, ctx.head.c2cCmd);
+      }
+      return false;
+    }
     if ((ev as { elements?: unknown[] }).elements?.length !== 0) return true;
-    // Empty-element message (#102). Drop it when the body is genuinely empty —
-    // QQ emits a content-less c2c push (msgType=166/0) alongside e.g. a group
-    // invite card, which otherwise surfaces to clients as a confusing
-    // "[空消息]". If instead the body *had* content we just couldn't decode,
-    // keep the (still-empty) event but warn so the missing decoder gets noticed
-    // rather than silently swallowed.
+    // Empty-element message that's NOT a known control cmd. Drop it when the body
+    // is genuinely empty (a content-less push we don't yet classify by c2cCmd).
+    // If instead the body *had* content we just couldn't decode, keep the
+    // (still-empty) event but warn so the missing decoder gets noticed rather
+    // than silently swallowed.
     if (bodyHasDecodableContent(ctx.body)) {
       log.warn('message had content but decoded to 0 elements — missing decoder? (kind=%s seq=%d from=%d msgType=%d/%d): %s',
         ev.kind, ctx.head.sequence, ctx.fromUin, ctx.head.msgType, ctx.head.subType,

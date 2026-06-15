@@ -3,7 +3,7 @@ import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { SsoGetC2cMsg, SsoGetC2cMsgResponse } from '@snowluma/proto-defs/get-c2c-msg';
 import type { QQEventVariant } from '../events';
 import type { IdentityService } from '../identity-service';
-import { isBlankMessage } from './blank-filter';
+import { isBlankMessage, isC2cControlPush } from './blank-filter';
 import { buildContextFromMessage } from './context';
 import { decodeFriendMessage } from './decoders/friend-message';
 
@@ -50,9 +50,10 @@ export async function fetchC2cMessageRange(
     if (!ctx) continue;
     for (const ev of decodeFriendMessage(ctx)) {
       if (ev.kind !== 'friend_message' || ev.msgSeq <= 0) continue;
-      // Drop content-less control pushes (the "[空消息]" phantom, #102) just as
-      // QQ NT does on its roam/history fetch — keep history parity with live.
-      if (isBlankMessage(ev.elements, ctx.body)) continue;
+      // Drop C2C control/system signals and content-less pushes (the "[空消息]"
+      // phantom, #102) just as QQ NT does on its roam/history fetch — keep
+      // history parity with live (parseMsgPush).
+      if (isC2cControlPush(ctx.head) || isBlankMessage(ev.elements, ctx.body)) continue;
       out.push(ev);
     }
   }

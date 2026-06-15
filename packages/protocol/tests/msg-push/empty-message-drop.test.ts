@@ -46,6 +46,27 @@ describe('parseMsgPush — empty message drop (#102)', () => {
     expect(out[0]).toMatchObject({ kind: 'friend_message', elements: [{ type: 'text', text: 'hi' }] });
   });
 
+  it('drops a C2C control push by (msgType, c2cCmd) even when it carries content', () => {
+    // 166 + c2c_cmd ∈ {1,73,75,129,131,133,135,192} is a control/system signal
+    // QQ NT routes via OnRecvSysMsg, never a bubble — drop regardless of body.
+    const out = parseMsgPush(pushPacket({
+      responseHead: { fromUin: 10001, fromUid: 'u_x' },
+      contentHead: { msgType: 166, subType: 0, c2cCmd: 75, sequence: 200, timestamp: 1781540572, msgId: 3 },
+      body: { richText: { elems: [{ text: { str: 'noise' } }] } },
+    }), identity);
+    expect(out).toEqual([]);
+  });
+
+  it('keeps a normal 166 message whose c2cCmd is not a control command', () => {
+    const out = parseMsgPush(pushPacket({
+      responseHead: { fromUin: 10001, fromUid: 'u_x' },
+      contentHead: { msgType: 166, subType: 0, c2cCmd: 0, sequence: 201, timestamp: 1781540572, msgId: 4 },
+      body: { richText: { elems: [{ text: { str: 'hi' } }] } },
+    }), identity);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ kind: 'friend_message', elements: [{ type: 'text', text: 'hi' }] });
+  });
+
   it('keeps an empty-decoded message whose body still carried content (missing decoder)', () => {
     // A commonElem service type the rich-body decoder ignores → 0 elements, but
     // the body was not empty, so the message must survive (and be warned about),

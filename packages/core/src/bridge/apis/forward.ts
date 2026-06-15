@@ -150,7 +150,7 @@ async function buildForwardPushBody(
       msgId: random,
       sequence: seq,
       timestamp: now,
-      divSeq: 0,
+      c2cCmd: 0,
     },
     body: {
       richText: {

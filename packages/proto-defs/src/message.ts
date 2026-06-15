@@ -28,7 +28,12 @@ export interface ResponseHead {
 export interface ContentHead {
   msgType?:   pb<1, uint_32>;
   subType?:   pb<2, uint_32>;
-  divSeq?:    pb<3, uint_32>;
+  // C2C command / sub-message-type. QQ NT (msg_header_codec_helper.cc::
+  // DecodeRoutingHead) reads this as `c2c_cmd` and uses it to route C2C-family
+  // pushes (msgType 141/166/167) as system/control signals via OnRecvSysMsg
+  // rather than chat bubbles. A fixed set of values is excluded from the chat
+  // list — see `isC2cControlPush` in msg-push/blank-filter.ts.
+  c2cCmd?:    pb<3, uint_32>;
   msgId?:     pb<4, uint_32>;
   sequence?:  pb<5, uint_32>;
   timestamp?: pb<6, uint_32>;
