@@ -257,6 +257,35 @@ export interface OidbGroupListConfig {
 export interface OidbGroupListRequest {
   config?: pb<1, OidbGroupListConfig>;
 }
+
+// 0x88D_0 — fetch a single group's detail by group uin (works for groups the
+// bot has NOT joined, unlike the 0xFE5_2 joined-list query). `flags` is a
+// request mask: a present bool(true)/string("") asks the server to return that
+// field; the tags mirror the response `Results`. Cross-checked against
+// dev/Lagrange.Core/.../Request/OidbSvcTrpcTcp0x88D_0.cs.
+export interface OidbGroupDetailFlags {
+  ownerUid?:        pb<1, bool>;
+  createTime?:      pb<2, bool>;
+  maxMemberCount?:  pb<5, bool>;
+  memberCount?:     pb<6, bool>;
+  level?:           pb<10, bool>;
+  name?:            pb<15, string>;
+  noticePreview?:   pb<16, string>;
+  uin?:             pb<21, bool>;
+  lastSequence?:    pb<22, bool>;
+  lastMessageTime?: pb<23, bool>;
+  question?:        pb<24, bool>;
+  answer?:          pb<25, string>;
+  maxAdminCount?:   pb<29, string>;
+}
+export interface OidbGroupDetailConfig {
+  uin?:   pb<1, uint_64>;
+  flags?: pb<2, OidbGroupDetailFlags>;
+}
+export interface OidbGroupDetailRequest {
+  field1?: pb<1, uint_32>;
+  config?: pb<2, OidbGroupDetailConfig>;
+}
 export interface OidbGroupMemberListBody {
   memberName?:       pb<10, bool>;
   memberCard?:       pb<11, bool>;

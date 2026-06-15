@@ -139,6 +139,10 @@
       "types": "./src/oidb-services/contacts/fetch-friend-list-page.ts",
       "default": "./src/oidb-services/contacts/fetch-friend-list-page.ts"
     },
+    "./oidb-services/contacts/fetch-group-detail": {
+      "types": "./src/oidb-services/contacts/fetch-group-detail.ts",
+      "default": "./src/oidb-services/contacts/fetch-group-detail.ts"
+    },
     "./oidb-services/contacts/fetch-group-list": {
       "types": "./src/oidb-services/contacts/fetch-group-list.ts",
       "default": "./src/oidb-services/contacts/fetch-group-list.ts"
