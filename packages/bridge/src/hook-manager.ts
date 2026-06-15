@@ -251,6 +251,7 @@ export class HookManager {
       this.bridgeManager.onHookLogin(pid, uin, sender);
     });
     session.on('disconnected', (wasLoggedIn: boolean) => {
+      this.log.warn('[SPIKE] disconnected T2=%d PID=%d wasLoggedIn=%s', Date.now(), pid, wasLoggedIn); // SPIKE PROBE (亡语 Q2) — 验完即删
       if (wasLoggedIn) this.bridgeManager.onPidDisconnected(pid);
     });
     session.on('disposed', () => {
