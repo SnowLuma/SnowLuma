@@ -22,12 +22,14 @@ import { reconcileLayoutItems, useLayout } from '@/contexts/LayoutContext';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import {
   CONFIGURABLE_WIDGETS, GRID_COLS, MOBILE_WIDGET_IDS, mobileHeightOf,
-  parseAlertsConfig, parseSessionsConfig, widgetLabel,
-  type AlertsConfig, type SessionsConfig,
+  parseAlertsConfig, parseConnectionsConfig, parseHostConfig, parseSessionsConfig, widgetLabel,
+  type AlertsConfig, type ConnectionsConfig, type HostConfig, type SessionsConfig,
 } from '@/lib/dashboard-layout';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DashboardGrid, type GridCoord } from '@/components/pages/dashboard-grid';
-import { AlertsConfigForm, SessionsConfigForm } from '@/components/pages/widget-config-forms';
+import {
+  AlertsConfigForm, ConnectionsConfigForm, HostConfigForm, SessionsConfigForm,
+} from '@/components/pages/widget-config-forms';
 
 function qqAvatarUrl(uin: string) {
   return `/avatar/${encodeURIComponent(uin)}`;
@@ -36,9 +38,9 @@ function qqAvatarUrl(uin: string) {
 function renderWidget(block: UiLayoutItem): ReactNode {
   if (block.id.startsWith('stat:')) return <StatTileWidget id={block.id} />;
   switch (block.id) {
-    case 'connections': return <ConnectionsBlock />;
+    case 'connections': return <ConnectionsBlock config={parseConnectionsConfig(block.config)} />;
     case 'alerts': return <RecentAlertsCard config={parseAlertsConfig(block.config)} />;
-    case 'host': return <HostBlock />;
+    case 'host': return <HostBlock config={parseHostConfig(block.config)} />;
     case 'sessions': return <SessionsBlock config={parseSessionsConfig(block.config)} />;
     default: return null;
   }
@@ -180,6 +182,8 @@ export function OverviewPage() {
           </DialogHeader>
           {configBlock?.id === 'alerts' && <AlertsConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('alerts', c)} />}
           {configBlock?.id === 'sessions' && <SessionsConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('sessions', c)} />}
+          {configBlock?.id === 'host' && <HostConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('host', c)} />}
+          {configBlock?.id === 'connections' && <ConnectionsConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('connections', c)} />}
         </DialogContent>
       </Dialog>
     </div>
@@ -385,8 +389,11 @@ function StatTileWidget({ id }: { id: string }) {
 
 // ─────────────── host resources ───────────────
 
-function HostBlock() {
+const HOST_GRID_COLS: Record<number, string> = { 1: 'lg:grid-cols-1', 2: 'lg:grid-cols-2', 3: 'lg:grid-cols-3' };
+
+function HostBlock({ config }: { config: HostConfig }) {
   const { systemInfo, refreshSystem } = useAppState();
+  const panelCount = [config.cpu, config.memory, config.runtime].filter(Boolean).length;
   return (
     <Card className="flex h-full flex-col">
       <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
@@ -402,84 +409,90 @@ function HostBlock() {
           <RefreshCw className="size-3.5" /> 刷新
         </Button>
       </CardHeader>
-      <CardContent className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-3">
+      <CardContent className={cn('grid flex-1 grid-cols-1 gap-4', HOST_GRID_COLS[panelCount] ?? 'lg:grid-cols-3')}>
         {/* CPU */}
-        <div className="rounded-xl border bg-card/40 p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Cpu className="size-4 text-primary" />
-              <span className="text-sm font-semibold">CPU 使用率</span>
+        {config.cpu && (
+          <div className="rounded-xl border bg-card/40 p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Cpu className="size-4 text-primary" />
+                <span className="text-sm font-semibold">CPU 使用率</span>
+              </div>
+              <span className="text-sm font-semibold tabular-nums text-primary">
+                {systemInfo ? `${systemInfo.cpu.average.toFixed(1)}%` : '—'}
+              </span>
             </div>
-            <span className="text-sm font-semibold tabular-nums text-primary">
-              {systemInfo ? `${systemInfo.cpu.average.toFixed(1)}%` : '—'}
-            </span>
-          </div>
-          <Progress value={systemInfo?.cpu.average ?? 0} />
-          <p className="mt-2 text-[11px] text-muted-foreground">
+            <Progress value={systemInfo?.cpu.average ?? 0} />
+            <p className="mt-2 text-[11px] text-muted-foreground">
             负载: {systemInfo ? systemInfo.cpu.loadAvg.map((v) => v.toFixed(2)).join(' / ') : '—'}
-          </p>
-          {systemInfo && systemInfo.cpu.perCore.length > 0 && (
-            <div className="mt-3 grid grid-cols-8 gap-1">
-              {systemInfo.cpu.perCore.map((p, i) => (
-                <div key={i} title={`Core ${i}: ${p.toFixed(1)}%`} className="h-6 rounded-sm bg-muted overflow-hidden flex items-end">
-                  <div className="w-full bg-primary/70 transition-[height] duration-500" style={{ height: `${Math.max(4, p)}%` }} />
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+            </p>
+            {systemInfo && systemInfo.cpu.perCore.length > 0 && (
+              <div className="mt-3 grid grid-cols-8 gap-1">
+                {systemInfo.cpu.perCore.map((p, i) => (
+                  <div key={i} title={`Core ${i}: ${p.toFixed(1)}%`} className="h-6 rounded-sm bg-muted overflow-hidden flex items-end">
+                    <div className="w-full bg-primary/70 transition-[height] duration-500" style={{ height: `${Math.max(4, p)}%` }} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {/* Memory */}
-        <div className="rounded-xl border bg-card/40 p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <MemoryStick className="size-4 text-primary" />
-              <span className="text-sm font-semibold">内存使用</span>
+        {config.memory && (
+          <div className="rounded-xl border bg-card/40 p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <MemoryStick className="size-4 text-primary" />
+                <span className="text-sm font-semibold">内存使用</span>
+              </div>
+              <span className="text-sm font-semibold tabular-nums text-primary">
+                {systemInfo ? `${systemInfo.memory.usagePercent.toFixed(1)}%` : '—'}
+              </span>
             </div>
-            <span className="text-sm font-semibold tabular-nums text-primary">
-              {systemInfo ? `${systemInfo.memory.usagePercent.toFixed(1)}%` : '—'}
-            </span>
+            <Progress value={systemInfo?.memory.usagePercent ?? 0} />
+            <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground tabular-nums">
+              <span>已用 {systemInfo ? formatBytes(systemInfo.memory.used) : '—'}</span>
+              <span>共 {systemInfo ? formatBytes(systemInfo.memory.total) : '—'}</span>
+            </div>
           </div>
-          <Progress value={systemInfo?.memory.usagePercent ?? 0} />
-          <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground tabular-nums">
-            <span>已用 {systemInfo ? formatBytes(systemInfo.memory.used) : '—'}</span>
-            <span>共 {systemInfo ? formatBytes(systemInfo.memory.total) : '—'}</span>
-          </div>
-        </div>
+        )}
         {/* Runtime */}
-        <div className="rounded-xl border bg-card/40 p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Server className="size-4 text-primary" />
-              <span className="text-sm font-semibold">运行进程</span>
+        {config.runtime && (
+          <div className="rounded-xl border bg-card/40 p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Server className="size-4 text-primary" />
+                <span className="text-sm font-semibold">运行进程</span>
+              </div>
+              <span className="text-sm font-semibold tabular-nums text-primary">
+                {systemInfo ? `PID ${systemInfo.runtime.pid}` : '—'}
+              </span>
             </div>
-            <span className="text-sm font-semibold tabular-nums text-primary">
-              {systemInfo ? `PID ${systemInfo.runtime.pid}` : '—'}
-            </span>
+            {!systemInfo ? (
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-4 w-1/2" />
+              </div>
+            ) : (
+              <div className="space-y-1.5 text-xs">
+                <div className="flex items-center justify-between rounded-md bg-background/60 px-2 py-1.5">
+                  <span className="text-muted-foreground">RSS</span>
+                  <span className="font-medium tabular-nums">{formatBytes(systemInfo.runtime.rss)}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-md bg-background/60 px-2 py-1.5">
+                  <span className="text-muted-foreground">堆内存</span>
+                  <span className="font-medium tabular-nums">
+                    {formatBytes(systemInfo.runtime.heapUsed)} / {formatBytes(systemInfo.runtime.heapTotal)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-md bg-background/60 px-2 py-1.5">
+                  <span className="text-muted-foreground">外部内存</span>
+                  <span className="font-medium tabular-nums">{formatBytes(systemInfo.runtime.external)}</span>
+                </div>
+              </div>
+            )}
           </div>
-          {!systemInfo ? (
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="h-4 w-1/2" />
-            </div>
-          ) : (
-            <div className="space-y-1.5 text-xs">
-              <div className="flex items-center justify-between rounded-md bg-background/60 px-2 py-1.5">
-                <span className="text-muted-foreground">RSS</span>
-                <span className="font-medium tabular-nums">{formatBytes(systemInfo.runtime.rss)}</span>
-              </div>
-              <div className="flex items-center justify-between rounded-md bg-background/60 px-2 py-1.5">
-                <span className="text-muted-foreground">堆内存</span>
-                <span className="font-medium tabular-nums">
-                  {formatBytes(systemInfo.runtime.heapUsed)} / {formatBytes(systemInfo.runtime.heapTotal)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between rounded-md bg-background/60 px-2 py-1.5">
-                <span className="text-muted-foreground">外部内存</span>
-                <span className="font-medium tabular-nums">{formatBytes(systemInfo.runtime.external)}</span>
-              </div>
-            </div>
-          )}
-        </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -561,25 +574,50 @@ const ADAPTER_KIND_LABEL: Record<AdapterStatus['kind'], string> = {
   httpServer: 'HTTP 服务端', httpClient: 'HTTP 上报', wsServer: 'WS 服务端', wsClient: 'WS 客户端',
 };
 
-function ConnectionsBlock() {
+// Worst-status-first ordering (down → warn → disabled → ok).
+const CONN_STATUS_RANK: Record<AdapterStatusLevel, number> = { down: 0, warn: 1, disabled: 2, ok: 3 };
+
+function ConnectionsBlock({ config }: { config: ConnectionsConfig }) {
   const { connections } = useAppState();
+  const list = useMemo(() => {
+    const f = config.filter.trim().toLowerCase();
+    // Optionally drop healthy adapters, then accounts left with none.
+    let arr = connections.map((acc) => ({
+      ...acc,
+      adapters: config.onlyIssues ? acc.adapters.filter((a) => a.status !== 'ok') : acc.adapters,
+    }));
+    if (config.onlyIssues) arr = arr.filter((acc) => acc.adapters.length > 0);
+    if (f) arr = arr.filter((acc) => (acc.nickname ?? '').toLowerCase().includes(f) || acc.uin.includes(f));
+    if (config.sort === 'name') {
+      arr = [...arr].sort((a, b) => (a.nickname || a.uin).localeCompare(b.nickname || b.uin));
+    } else if (config.sort === 'status') {
+      const worst = (acc: typeof arr[number]) =>
+        acc.adapters.reduce((m, a) => Math.min(m, CONN_STATUS_RANK[a.status]), 99);
+      arr = [...arr].sort((a, b) => worst(a) - worst(b));
+    }
+    return arr;
+  }, [connections, config.filter, config.onlyIssues, config.sort]);
+
+  const filtered = config.filter.trim() !== '' || config.onlyIssues;
   return (
     <Card className="flex h-full flex-col">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Cable className="size-4 text-primary" /> OneBot 连接
         </CardTitle>
-        <CardDescription>各账号协议端点的实时连接状态</CardDescription>
+        <CardDescription>
+          各账号协议端点的实时连接状态{config.onlyIssues ? ' · 仅异常' : ''}{config.filter.trim() ? ` · 筛选：${config.filter.trim()}` : ''}
+        </CardDescription>
       </CardHeader>
       <CardContent className="min-h-0 flex-1 overflow-auto">
-        {connections.length === 0 ? (
+        {list.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-10 text-muted-foreground">
             <Cable className="size-8 opacity-40" strokeWidth={1.5} />
-            <p className="text-sm">暂无已接入的账号实例</p>
+            <p className="text-sm">{filtered ? '无匹配的连接' : '暂无已接入的账号实例'}</p>
           </div>
         ) : (
           <div className="flex flex-col gap-4">
-            {connections.map((acc) => (
+            {list.map((acc) => (
               <div key={acc.uin} className="flex flex-col gap-2">
                 <div className="flex items-baseline gap-2">
                   <span className="text-sm font-semibold">{acc.nickname || acc.uin}</span>

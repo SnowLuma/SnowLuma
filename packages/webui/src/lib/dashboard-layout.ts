@@ -123,12 +123,18 @@ export const ALL_LOG_LEVELS: LogLevel[] = ['trace', 'debug', 'info', 'success', 
 
 export interface AlertsConfig { count: number; levels: LogLevel[] }
 export interface SessionsConfig { sort: 'recent' | 'uin' | 'nickname'; filter: string }
+/** Host widget: which resource sub-panels to show. */
+export interface HostConfig { cpu: boolean; memory: boolean; runtime: boolean }
+/** Connections widget: filter + sort + issues-only. */
+export interface ConnectionsConfig { filter: string; onlyIssues: boolean; sort: 'default' | 'name' | 'status' }
 
 export const DEFAULT_ALERTS_CONFIG: AlertsConfig = { count: 5, levels: ['warn', 'error'] };
 export const DEFAULT_SESSIONS_CONFIG: SessionsConfig = { sort: 'recent', filter: '' };
+export const DEFAULT_HOST_CONFIG: HostConfig = { cpu: true, memory: true, runtime: true };
+export const DEFAULT_CONNECTIONS_CONFIG: ConnectionsConfig = { filter: '', onlyIssues: false, sort: 'default' };
 
 /** Widgets that expose a config form (gear) in the layout editor. */
-export const CONFIGURABLE_WIDGETS = new Set(['alerts', 'sessions']);
+export const CONFIGURABLE_WIDGETS = new Set(['alerts', 'sessions', 'host', 'connections']);
 
 export function parseAlertsConfig(config: Record<string, unknown> | undefined): AlertsConfig {
   const c = config ?? {};
@@ -148,4 +154,28 @@ export function parseSessionsConfig(config: Record<string, unknown> | undefined)
     : DEFAULT_SESSIONS_CONFIG.sort;
   const filter = typeof c.filter === 'string' ? c.filter.slice(0, 100) : '';
   return { sort, filter };
+}
+
+export function parseHostConfig(config: Record<string, unknown> | undefined): HostConfig {
+  const c = config ?? {};
+  const bool = (v: unknown, d: boolean) => (typeof v === 'boolean' ? v : d);
+  const cfg = {
+    cpu: bool(c.cpu, true),
+    memory: bool(c.memory, true),
+    runtime: bool(c.runtime, true),
+  };
+  // Never let every panel be hidden — that leaves an empty card; fall back to all.
+  return cfg.cpu || cfg.memory || cfg.runtime ? cfg : { ...DEFAULT_HOST_CONFIG };
+}
+
+export function parseConnectionsConfig(config: Record<string, unknown> | undefined): ConnectionsConfig {
+  const c = config ?? {};
+  const sort = c.sort === 'name' || c.sort === 'status' || c.sort === 'default'
+    ? c.sort
+    : DEFAULT_CONNECTIONS_CONFIG.sort;
+  return {
+    filter: typeof c.filter === 'string' ? c.filter.slice(0, 100) : '',
+    onlyIssues: typeof c.onlyIssues === 'boolean' ? c.onlyIssues : false,
+    sort,
+  };
 }
