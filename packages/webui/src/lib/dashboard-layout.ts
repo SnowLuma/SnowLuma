@@ -110,6 +110,13 @@ export function minSizeOf(id: string): { minW: number; minH: number } {
   return { minW: spec?.minW ?? 1, minH: spec?.minH ?? 1 };
 }
 
+/** A widget's natural height (grid rows) for single-column mobile stacking —
+ *  the catalogue default, so phones get sensible per-widget heights without
+ *  carrying the desktop grid's stored coords. */
+export function mobileHeightOf(id: string): number {
+  return WIDGET_BY_ID.get(id)?.def.h ?? 1;
+}
+
 // ─── Per-widget config (interpreted client-side from the opaque block.config) ───
 
 export const ALL_LOG_LEVELS: LogLevel[] = ['trace', 'debug', 'info', 'success', 'warn', 'error'];

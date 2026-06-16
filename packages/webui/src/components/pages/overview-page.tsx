@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { motion } from 'motion/react';
+import { motion, Reorder } from 'motion/react';
 import { Link } from '@tanstack/react-router';
 import {
-  Activity, ArrowRight, Bell, Cable, Check, Cpu, MemoryStick, MonitorCog, Pencil, PlugZap,
-  RefreshCw, RotateCcw, Server, Users,
+  Activity, ArrowRight, Bell, Cable, Check, Cpu, Eye, EyeOff, GripVertical, MemoryStick,
+  MonitorCog, Pencil, PlugZap, RefreshCw, RotateCcw, Server, Settings2, Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,10 +18,11 @@ import { useApi } from '@/lib/api';
 import { useAppState } from '@/contexts/AppStateContext';
 import { useSession } from '@/contexts/SessionContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useLayout } from '@/contexts/LayoutContext';
+import { reconcileLayoutItems, useLayout } from '@/contexts/LayoutContext';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import {
-  CONFIGURABLE_WIDGETS, GRID_COLS, parseAlertsConfig, parseSessionsConfig, widgetLabel,
+  CONFIGURABLE_WIDGETS, GRID_COLS, MOBILE_WIDGET_IDS, mobileHeightOf,
+  parseAlertsConfig, parseSessionsConfig, widgetLabel,
   type AlertsConfig, type SessionsConfig,
 } from '@/lib/dashboard-layout';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -45,16 +46,32 @@ function renderWidget(block: UiLayoutItem): ReactNode {
 
 export function OverviewPage() {
   const { qqList, processList } = useAppState();
-  const { overviewBlocks, setOverviewBlocks, resetLayout, editing: editingCtx, setEditing } = useLayout();
+  const {
+    overviewBlocks, setOverviewBlocks, overviewMobile, setOverviewMobile,
+    resetLayout, editing, setEditing,
+  } = useLayout();
   const off = useTheme().appearance.disableMotion;
   const isWide = useMediaQuery('(min-width: 768px)');
-  // Free-grid editing is desktop-only (no room to drag/resize on a phone).
-  const editing = isWide && editingCtx;
+  // Free-grid 2D editing is desktop-only; on a phone, editing surfaces a
+  // single-column drag-sort panel (overviewMobile) instead.
+  const gridEditing = isWide && editing;
   const [configId, setConfigId] = useState<string | null>(null);
 
   const visibleBlocks = useMemo(() => overviewBlocks.filter((b) => b.visible), [overviewBlocks]);
   // In edit mode show ALL blocks (hidden ones as re-enableable ghosts); else visible-only.
-  const gridBlocks = editing ? overviewBlocks : visibleBlocks;
+  const gridBlocks = gridEditing ? overviewBlocks : visibleBlocks;
+
+  // Per-widget config lives on the desktop blocks; mobile widgets reuse it.
+  const configById = useMemo(
+    () => new Map(overviewBlocks.map((b) => [b.id, b.config])),
+    [overviewBlocks],
+  );
+  // Reconcile the mobile order against the live widget catalogue (drop unknown,
+  // append new as visible) — so a widget added later just appears on phones too.
+  const mobileItems = useMemo(
+    () => reconcileLayoutItems(overviewMobile, MOBILE_WIDGET_IDS),
+    [overviewMobile],
+  );
 
   const onGridChange = (coords: GridCoord[]) => {
     const cmap = new Map(coords.map((c) => [c.id, c]));
@@ -68,6 +85,12 @@ export function OverviewPage() {
 
   const toggleBlock = (id: string) =>
     setOverviewBlocks(overviewBlocks.map((b) => (b.id === id ? { ...b, visible: !b.visible } : b)));
+  const toggleMobile = (id: string) =>
+    setOverviewMobile(mobileItems.map((b) => (b.id === id ? { ...b, visible: !b.visible } : b)));
+  const reorderMobile = (ids: string[]) => {
+    const byId = new Map(mobileItems.map((i) => [i.id, i]));
+    setOverviewMobile(ids.map((id) => byId.get(id)).filter((x): x is UiLayoutItem => !!x));
+  };
 
   const setBlockConfig = (id: string, config: Record<string, unknown>) =>
     setOverviewBlocks(overviewBlocks.map((b) => (b.id === id ? { ...b, config: { ...b.config, ...config } } : b)));
@@ -77,25 +100,25 @@ export function OverviewPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Toolbar: edit toggle is desktop-only. In edit mode the cards carry
-          their own floating drag/hide/settings overlays, and the sidebar nav
-          becomes drag-sortable — no separate editor panel. */}
-      {isWide && (
-        <div className="flex items-center justify-end gap-2">
-          {editing && (
-            <Button variant="ghost" size="sm" onClick={resetLayout} className="text-muted-foreground">
-              <RotateCcw className="size-3.5" /> 恢复默认
-            </Button>
-          )}
-          <Button variant={editing ? 'default' : 'outline'} size="sm" onClick={() => setEditing(!editingCtx)}>
-            {editing ? <><Check className="size-3.5" /> 完成</> : <><Pencil className="size-3.5" /> 编辑布局</>}
+      {/* Toolbar: edit toggle on both desktop (2D grid overlays) and mobile
+          (single-column drag-sort panel). The sidebar nav is drag-sortable in
+          edit mode on both — no separate editor panel. */}
+      <div className="flex items-center justify-end gap-2">
+        {editing && (
+          <Button variant="ghost" size="sm" onClick={resetLayout} className="text-muted-foreground">
+            <RotateCcw className="size-3.5" /> 恢复默认
           </Button>
-        </div>
-      )}
+        )}
+        <Button variant={editing ? 'default' : 'outline'} size="sm" onClick={() => setEditing(!editing)}>
+          {editing ? <><Check className="size-3.5" /> 完成</> : <><Pencil className="size-3.5" /> 编辑布局</>}
+        </Button>
+      </div>
 
       {editing && (
         <p className="rounded-xl border border-primary/20 bg-primary/5 px-3.5 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
-          拖动卡片顶部的「拖动」手柄移动位置、拖右下角缩放；眼睛图标显隐、齿轮改设置。左侧导航也可在编辑态拖动排序。
+          {isWide
+            ? '拖动卡片顶部的「拖动」手柄移动位置、拖右下角缩放；眼睛图标显隐、齿轮改设置。左侧导航也可在编辑态拖动排序。'
+            : '拖动手柄调整卡片顺序，眼睛图标显隐，齿轮改设置。手机为单列布局，与桌面网格各自独立。'}
         </p>
       )}
 
@@ -122,19 +145,31 @@ export function OverviewPage() {
         </motion.div>
       )}
 
-      {visibleBlocks.length === 0 && !editing ? (
-        <EmptyLayout onReset={resetLayout} />
+      {isWide ? (
+        visibleBlocks.length === 0 && !gridEditing ? (
+          <EmptyLayout onReset={resetLayout} />
+        ) : (
+          <DashboardGrid
+            blocks={gridBlocks}
+            editing={gridEditing}
+            cols={GRID_COLS}
+            onChange={onGridChange}
+            renderWidget={renderWidget}
+            labelFor={widgetLabel}
+            configurableIds={CONFIGURABLE_WIDGETS}
+            onToggleVisible={toggleBlock}
+            onConfigOpen={setConfigId}
+          />
+        )
       ) : (
-        <DashboardGrid
-          blocks={gridBlocks}
+        <MobileOverview
+          items={mobileItems}
           editing={editing}
-          cols={isWide ? GRID_COLS : 1}
-          onChange={onGridChange}
-          renderWidget={renderWidget}
-          labelFor={widgetLabel}
-          configurableIds={CONFIGURABLE_WIDGETS}
-          onToggleVisible={toggleBlock}
+          configById={configById}
+          onReorder={reorderMobile}
+          onToggle={toggleMobile}
           onConfigOpen={setConfigId}
+          onReset={resetLayout}
         />
       )}
 
@@ -158,6 +193,92 @@ function EmptyLayout({ onReset }: { onReset: () => void }) {
       <p className="text-sm">所有总览卡片都已隐藏</p>
       <Button variant="outline" size="sm" onClick={onReset}>恢复默认布局</Button>
     </div>
+  );
+}
+
+// ─────────────── mobile single-column overview ───────────────
+// Phones get a one-dimensional layout (`overviewMobile`), fully disjoint from
+// the desktop 2D grid. View mode reuses the grid renderer (drag disabled) so
+// each widget keeps its cell height; edit mode is a drag-sort panel.
+function MobileOverview({
+  items, editing, configById, onReorder, onToggle, onConfigOpen, onReset,
+}: {
+  items: UiLayoutItem[];
+  editing: boolean;
+  configById: Map<string, Record<string, unknown> | undefined>;
+  onReorder: (ids: string[]) => void;
+  onToggle: (id: string) => void;
+  onConfigOpen: (id: string) => void;
+  onReset: () => void;
+}) {
+  if (editing) {
+    return (
+      <Reorder.Group axis="y" values={items.map((i) => i.id)} onReorder={onReorder} className="flex flex-col gap-2">
+        {items.map((item) => (
+          <Reorder.Item
+            key={item.id}
+            value={item.id}
+            className={cn(
+              'flex select-none items-center gap-2 rounded-xl border bg-card/60 px-3 py-2.5 cursor-grab active:cursor-grabbing',
+              !item.visible && 'opacity-50',
+            )}
+          >
+            <GripVertical className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">{widgetLabel(item.id)}</span>
+            {CONFIGURABLE_WIDGETS.has(item.id) && item.visible && (
+              <button
+                type="button"
+                onClick={() => onConfigOpen(item.id)}
+                title="设置"
+                aria-label="设置"
+                className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground cursor-pointer"
+              >
+                <Settings2 className="size-3.5" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onToggle(item.id)}
+              title={item.visible ? '隐藏' : '显示'}
+              aria-label={item.visible ? '隐藏' : '显示'}
+              className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground cursor-pointer"
+            >
+              {item.visible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+            </button>
+          </Reorder.Item>
+        ))}
+      </Reorder.Group>
+    );
+  }
+
+  const visible = items.filter((i) => i.visible);
+  if (visible.length === 0) return <EmptyLayout onReset={onReset} />;
+
+  // Stack widgets in a single column with cumulative y + catalogue heights
+  // (pure prefix-sum; the widget count is tiny so the O(n²) is negligible).
+  const heights = visible.map((item) => mobileHeightOf(item.id));
+  const blocks: UiLayoutItem[] = visible.map((item, i) => ({
+    id: item.id,
+    visible: true,
+    x: 0,
+    y: heights.slice(0, i).reduce((sum, h) => sum + h, 0),
+    w: 1,
+    h: heights[i],
+    config: configById.get(item.id),
+  }));
+
+  return (
+    <DashboardGrid
+      blocks={blocks}
+      editing={false}
+      cols={1}
+      onChange={() => { /* no drag on mobile — order edited via the panel */ }}
+      renderWidget={renderWidget}
+      labelFor={widgetLabel}
+      configurableIds={CONFIGURABLE_WIDGETS}
+      onToggleVisible={() => { /* unused in view mode */ }}
+      onConfigOpen={onConfigOpen}
+    />
   );
 }
 
