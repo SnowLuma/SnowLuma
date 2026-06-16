@@ -7,6 +7,14 @@ import { Badge } from '@/components/ui/badge';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { NAV_ITEMS } from '@/components/layout/sidebar';
+import { reconcileLayoutItems, useLayout } from '@/contexts/LayoutContext';
+
+// Toggleable top-bar elements (the menu/title/logout are essential and always
+// render). Labels drive the settings toggles; ids match `topbarItems`.
+export const TOPBAR_CATALOGUE: { id: string; label: string }[] = [
+  { id: 'status', label: '连接状态徽章' },
+  { id: 'theme', label: '主题切换按钮' },
+];
 
 interface TopBarProps {
   status: string;
@@ -33,6 +41,15 @@ export function TopBar({
   const meta = NAV_ITEMS.find((n) => n.to === pathname);
   const PageIcon = meta?.icon;
   const online = status === '已连接';
+
+  // Which optional top-bar elements the operator has kept (reconciled against
+  // the live catalogue, so a new element defaults to shown).
+  const { topbarItems } = useLayout();
+  const shown = new Set(
+    reconcileLayoutItems(topbarItems, TOPBAR_CATALOGUE.map((t) => t.id))
+      .filter((i) => i.visible)
+      .map((i) => i.id),
+  );
 
   return (
     <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-2 border-b bg-background/55 px-3 backdrop-blur-xl backdrop-saturate-150 supports-[backdrop-filter]:bg-background/45 sm:px-4">
@@ -73,17 +90,19 @@ export function TopBar({
       </AnimatePresence>
 
       <div className="ml-auto flex items-center gap-2">
-        <Badge
-          variant={online ? 'success' : 'destructive'}
-          className="hidden sm:inline-flex gap-1.5"
-        >
-          <span
-            className={`size-1.5 rounded-full ${online ? 'bg-success' : 'bg-destructive'} ${online ? 'animate-pulse' : ''}`}
-          />
-          {status}
-        </Badge>
+        {shown.has('status') && (
+          <Badge
+            variant={online ? 'success' : 'destructive'}
+            className="hidden sm:inline-flex gap-1.5"
+          >
+            <span
+              className={`size-1.5 rounded-full ${online ? 'bg-success' : 'bg-destructive'} ${online ? 'animate-pulse' : ''}`}
+            />
+            {status}
+          </Badge>
+        )}
 
-        <ThemeToggle />
+        {shown.has('theme') && <ThemeToggle />}
 
         <Button
           variant="ghost"

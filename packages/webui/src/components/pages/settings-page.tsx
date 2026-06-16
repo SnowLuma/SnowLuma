@@ -2,7 +2,7 @@ import { createContext, useContext, useId, useRef, useState, type ReactNode } fr
 import { motion } from 'motion/react';
 import {
   Accessibility, AlertTriangle, Bug, Check, Clock, Code2, Download, ExternalLink, Github, Image as ImageIcon,
-  Info, KeyRound, Loader2, Monitor, Moon, Palette, Plus, RefreshCw, RotateCcw, ShieldCheck,
+  Info, KeyRound, Loader2, Monitor, Moon, Palette, PanelTop, Plus, RefreshCw, RotateCcw, ShieldCheck,
   Sparkles, Star, Sun, Tag, Upload, Trash2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -31,8 +31,9 @@ import {
   type ThemeMode,
   type TimeFormat,
 } from '@/contexts/ThemeContext';
-import { DEFAULT_LAYOUT, DEFAULT_PAGES, useLayout } from '@/contexts/LayoutContext';
+import { DEFAULT_LAYOUT, DEFAULT_PAGES, reconcileLayoutItems, useLayout } from '@/contexts/LayoutContext';
 import { NAV_ITEMS } from '@/components/layout/sidebar';
+import { TOPBAR_CATALOGUE } from '@/components/layout/top-bar';
 import { ChangePasswordDialog } from '@/components/change-password-dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useApi } from '@/lib/api';
@@ -280,6 +281,25 @@ function contrastRatio(a: string, b: string): number | null {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+// Top-bar element show/hide. Essential controls (menu, page title, logout) are
+// not listed — they always render.
+function TopbarPanel() {
+  const { topbarItems, setTopbarItems } = useLayout();
+  const reconciled = reconcileLayoutItems(topbarItems, TOPBAR_CATALOGUE.map((t) => t.id));
+  const shown = new Map(reconciled.map((i) => [i.id, i.visible]));
+  const toggle = (id: string) =>
+    setTopbarItems(reconciled.map((i) => (i.id === id ? { ...i, visible: !i.visible } : i)));
+  return (
+    <Group title="顶栏" icon={PanelTop} description="控制顶栏右侧元素的显示；菜单、页面标题与登出始终保留。">
+      {TOPBAR_CATALOGUE.map((t) => (
+        <SettingRow key={t.id} label={t.label} layout="inline">
+          <ToggleSwitch value={shown.get(t.id) ?? true} onChange={() => toggle(t.id)} ariaLabel={t.label} />
+        </SettingRow>
+      ))}
+    </Group>
+  );
+}
+
 function AppearancePanel() {
   const { appearance, setAppearance, uploadBackground, removeBackground, resolved } = useTheme();
   const a = appearance;
@@ -446,6 +466,8 @@ function AppearancePanel() {
       </Group>
 
       <ThemeVarsPanel cssVars={a.cssVars} onChange={(cssVars) => setAppearance({ cssVars })} />
+
+      <TopbarPanel />
 
       <Group title="无障碍与侧栏" icon={Accessibility} description="动效、对比度与侧栏默认状态。">
         <SettingRow label="减弱动效" hint="弱化页面切换、弹簧等装饰性动画（保留轻微淡入），对低端设备与晕动敏感者更友好。" layout="inline">
