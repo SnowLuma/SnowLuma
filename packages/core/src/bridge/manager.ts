@@ -5,7 +5,7 @@ import { IdentityService } from '@snowluma/protocol/identity-service';
 import { Bridge } from './bridge';
 
 export type SessionStartedCallback = (uin: string, bridge: Bridge) => void;
-export type SessionClosedCallback = (uin: string) => void;
+export type SessionClosedCallback = (uin: string, bridge: Bridge) => void;
 
 interface QQSession {
   bridge: Bridge;
@@ -18,11 +18,40 @@ export class BridgeManager {
   private pidToUin_ = new Map<number, string>();
   private pidPacketClients_ = new Map<number, PacketSender>();
 
-  private onSessionStarted_: SessionStartedCallback | null = null;
-  private onSessionClosed_: SessionClosedCallback | null = null;
+  private sessionStartedListeners_: SessionStartedCallback[] = [];
+  private sessionClosedListeners_: SessionClosedCallback[] = [];
 
-  setSessionStartedCallback(cb: SessionStartedCallback): void { this.onSessionStarted_ = cb; }
-  setSessionClosedCallback(cb: SessionClosedCallback): void { this.onSessionClosed_ = cb; }
+  /** Additive subscription: every observer (OneBotManager, NotificationManager,
+   *  …) receives every session edge. (Was a single `set*Callback` setter —
+   *  converted to N listeners so a second observer can't clobber the first.)
+   *  The close edge now carries the bridge too, since callers read the last
+   *  nickname before it is disposed. */
+  addSessionStartedListener(cb: SessionStartedCallback): void {
+    this.sessionStartedListeners_.push(cb);
+  }
+  addSessionClosedListener(cb: SessionClosedCallback): void {
+    this.sessionClosedListeners_.push(cb);
+  }
+
+  private fireSessionStarted(uin: string, bridge: Bridge): void {
+    for (const cb of this.sessionStartedListeners_) {
+      try {
+        cb(uin, bridge);
+      } catch (err) {
+        log.warn('session-started listener threw: %s', err instanceof Error ? err.message : String(err));
+      }
+    }
+  }
+
+  private fireSessionClosed(uin: string, bridge: Bridge): void {
+    for (const cb of this.sessionClosedListeners_) {
+      try {
+        cb(uin, bridge);
+      } catch (err) {
+        log.warn('session-closed listener threw: %s', err instanceof Error ? err.message : String(err));
+      }
+    }
+  }
 
   onPidDisconnected(pid: number): void {
     this.pidPacketClients_.delete(pid);
@@ -37,7 +66,8 @@ export class BridgeManager {
     if (session.bridge.empty) {
       this.sessions_.delete(uin);
       log.debug('session closed: UIN=%s', uin);
-      if (this.onSessionClosed_) this.onSessionClosed_(uin);
+      // Fire before dispose() so listeners can still read bridge.identity.
+      this.fireSessionClosed(uin, session.bridge);
       session.bridge.dispose();
     }
   }
@@ -59,9 +89,7 @@ export class BridgeManager {
 
     if (created) {
       log.debug('session started: UIN=%s', uin);
-      if (this.onSessionStarted_) {
-        this.onSessionStarted_(uin, session.bridge);
-      }
+      this.fireSessionStarted(uin, session.bridge);
     }
   }
 
@@ -84,9 +112,7 @@ export class BridgeManager {
     // Notify session started on first real packet
     if (created) {
       log.debug('session started: UIN=%s', uin);
-      if (this.onSessionStarted_) {
-        this.onSessionStarted_(uin, session.bridge);
-      }
+      this.fireSessionStarted(uin, session.bridge);
     }
 
     // Dispatch packet to bridge
