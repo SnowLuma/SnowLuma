@@ -82,10 +82,14 @@ export interface UiAppearance {
   palette: Palette;
   sidebarStyle: SidebarStyle;
   background: UiBackground;
-  /** Sans font preset id (frontend catalogue). */
+  /** Sans font preset id (frontend catalogue); 'custom' uses `fontSansCustom`. */
   fontSans: string;
-  /** Mono font preset id (frontend catalogue). */
+  /** Free-form sans font-family stack, used when `fontSans === 'custom'`. */
+  fontSansCustom: string;
+  /** Mono font preset id (frontend catalogue); 'custom' uses `fontMonoCustom`. */
   fontMono: string;
+  /** Free-form mono font-family stack, used when `fontMono === 'custom'`. */
+  fontMonoCustom: string;
   /** Global UI scale, 0.9…1.2. */
   uiScale: number;
   /** Corner radius in rem, 0…2. */
@@ -107,6 +111,13 @@ export interface UiAppearance {
    * lock the operator out.
    */
   customCss: string;
+  /**
+   * Theme-token overrides from the variable panel. Keys are restricted to a
+   * fixed whitelist of `--token` names and values to colours / lengths, so
+   * (unlike `customCss`) this is safe to serve to the unauthenticated login
+   * page — `normalizeAppearance` drops unknown keys and invalid values.
+   */
+  cssVars: Record<string, string>;
 }
 
 export interface UiLayoutItem {
@@ -196,7 +207,9 @@ const DEFAULT_APPEARANCE: UiAppearance = {
   sidebarStyle: 'follow',
   background: DEFAULT_BACKGROUND,
   fontSans: 'default',
+  fontSansCustom: '',
   fontMono: 'default',
+  fontMonoCustom: '',
   uiScale: 1,
   radius: 0.75,
   density: 'cozy',
@@ -207,6 +220,7 @@ const DEFAULT_APPEARANCE: UiAppearance = {
   timeFormat: '24h',
   pollInterval: 3000,
   customCss: '',
+  cssVars: {},
 };
 
 const DEFAULT_OVERVIEW_BLOCKS: UiLayoutItem[] = [
@@ -243,7 +257,7 @@ const DEFAULT_PAGES: UiPages = {
 export function defaultUiConfig(): UiConfig {
   return {
     version: UI_CONFIG_VERSION,
-    appearance: { ...DEFAULT_APPEARANCE, background: { ...DEFAULT_BACKGROUND } },
+    appearance: { ...DEFAULT_APPEARANCE, background: { ...DEFAULT_BACKGROUND }, cssVars: {} },
     layout: {
       overviewBlocks: DEFAULT_OVERVIEW_BLOCKS.map((b) => ({ ...b })),
       navItems: DEFAULT_NAV_ITEMS.map((b) => ({ ...b })),
@@ -300,6 +314,73 @@ function idOr(value: unknown, fallback: string, maxLen = 64): string {
   // Ids are slugs / route paths — refuse control chars and anything exotic.
   if (!/^[\w./:-]+$/.test(v)) return fallback;
   return v;
+}
+
+/**
+ * A free-form font-family value (a single family or a comma-separated stack),
+ * safe to interpolate into `--font-sans: <value>;`. Allows letters (incl. CJK),
+ * digits, spaces and the punctuation real font names use, but refuses anything
+ * that could break out of the declaration (`;`, `{`, `}`, control chars, etc.).
+ * Empty / over-long / invalid → fallback ('' = "no custom family set").
+ */
+const FONT_FAMILY_RE = /^[\p{L}\p{N}\s,'"._-]+$/u;
+function fontFamilyOr(value: unknown, fallback: string, maxLen = 200): string {
+  if (typeof value !== 'string') return fallback;
+  const v = value.trim();
+  if (v.length === 0) return ''; // explicitly cleared
+  if (v.length > maxLen || !FONT_FAMILY_RE.test(v)) return fallback;
+  return v;
+}
+
+// ─── cssVars (theme-token override panel) ──────────────────────────────────
+// Both the keys (which `--token` may be set) and the values (colour / length)
+// are whitelisted so the result is safe to serve to the UNAUTHENTICATED login
+// page — it shares the trust level of palette/accent, not of `customCss`.
+
+/** The `--token` names the variable panel is allowed to override. Kept in sync
+ *  with the surface/accent tokens `ThemeContext` actually injects. */
+const CSS_VAR_WHITELIST = new Set<string>([
+  '--background', '--foreground',
+  '--card', '--card-foreground',
+  '--popover', '--popover-foreground',
+  '--primary', '--primary-foreground',
+  '--secondary', '--secondary-foreground',
+  '--muted', '--muted-foreground',
+  '--accent', '--accent-foreground',
+  '--destructive', '--destructive-foreground',
+  '--success', '--warning',
+  '--border', '--input', '--ring',
+  '--sidebar', '--sidebar-foreground',
+  '--sidebar-primary', '--sidebar-primary-foreground',
+  '--sidebar-accent', '--sidebar-accent-foreground',
+  '--sidebar-border', '--sidebar-ring',
+]);
+
+// A CSS colour value, restricted to forms that cannot break out of a `--token:
+// <value>;` declaration. Hex, a named colour, or a single balanced functional
+// notation (rgb/hsl/oklch/… and color-mix) over a safe char set — crucially no
+// `;`, `{`, `}`, `:` or angle brackets are permitted anywhere.
+const CSS_HEX_RE = /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+const CSS_NAMED_RE = /^[a-zA-Z]{1,24}$/;
+const CSS_FUNC_RE = /^(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color|color-mix)\([a-zA-Z0-9.,%/\s#-]{1,120}\)$/;
+function cssColorOrNull(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const v = value.trim();
+  if (v.length === 0 || v.length > 128) return null;
+  if (CSS_HEX_RE.test(v) || CSS_NAMED_RE.test(v) || CSS_FUNC_RE.test(v)) return v;
+  return null;
+}
+
+/** Keep only whitelisted token keys with valid colour values; drop the rest. */
+function normalizeCssVars(value: unknown): Record<string, string> {
+  if (!isObject(value)) return {};
+  const out: Record<string, string> = {};
+  for (const key of Object.keys(value)) {
+    if (!CSS_VAR_WHITELIST.has(key)) continue;
+    const color = cssColorOrNull(value[key]);
+    if (color) out[key] = color;
+  }
+  return out;
 }
 
 function normalizeLayoutItems(value: unknown, fallback: UiLayoutItem[]): UiLayoutItem[] {
@@ -404,7 +485,9 @@ export function normalizeAppearance(value: unknown, imageState: ServerImageState
     sidebarStyle: oneOf<SidebarStyle>(v.sidebarStyle, ['follow', 'panel', 'accent'], DEFAULT_APPEARANCE.sidebarStyle),
     background: normalizeBackground(v.background, imageState),
     fontSans: idOr(v.fontSans, DEFAULT_APPEARANCE.fontSans),
+    fontSansCustom: fontFamilyOr(v.fontSansCustom, DEFAULT_APPEARANCE.fontSansCustom),
     fontMono: idOr(v.fontMono, DEFAULT_APPEARANCE.fontMono),
+    fontMonoCustom: fontFamilyOr(v.fontMonoCustom, DEFAULT_APPEARANCE.fontMonoCustom),
     uiScale: clampNum(v.uiScale, 0.9, 1.2, DEFAULT_APPEARANCE.uiScale),
     radius: clampNum(v.radius, 0, 2, DEFAULT_APPEARANCE.radius),
     density: oneOf<Density>(v.density, ['cozy', 'compact'], DEFAULT_APPEARANCE.density),
@@ -415,6 +498,7 @@ export function normalizeAppearance(value: unknown, imageState: ServerImageState
     timeFormat: oneOf<TimeFormat>(v.timeFormat, ['12h', '24h'], DEFAULT_APPEARANCE.timeFormat),
     pollInterval: clampNum(v.pollInterval, 0, 60_000, DEFAULT_APPEARANCE.pollInterval),
     customCss: typeof v.customCss === 'string' ? v.customCss.slice(0, 50_000) : DEFAULT_APPEARANCE.customCss,
+    cssVars: normalizeCssVars(v.cssVars),
   };
 }
 

@@ -12,6 +12,7 @@ import { Slider } from '@/components/ui/slider';
 import {
   ACCENTS,
   DEFAULT_APPEARANCE,
+  FONT_CUSTOM_ID,
   FONT_MONO_OPTIONS,
   FONT_SANS_OPTIONS,
   GRADIENT_OPTIONS,
@@ -25,6 +26,7 @@ import {
   type BackgroundType,
   type DarkIntensity,
   type Density,
+  type FontSpec,
   type SidebarStyle,
   type ThemeMode,
   type TimeFormat,
@@ -356,10 +358,24 @@ function AppearancePanel() {
 
       <Group title="排版与界面" icon={Palette} description="字体、圆角、缩放与密度。">
         <SettingRow label="界面字体" layout="stack">
-          <Segmented value={a.fontSans} options={FONT_SANS_OPTIONS.map((f) => ({ value: f.id, label: f.label }))} onChange={(fontSans) => setAppearance({ fontSans })} />
+          <FontField
+            value={a.fontSans}
+            custom={a.fontSansCustom}
+            presets={FONT_SANS_OPTIONS}
+            onChange={(fontSans) => setAppearance({ fontSans })}
+            onCustomChange={(fontSansCustom) => setAppearance({ fontSansCustom })}
+            placeholder="例如：LXGW WenKai, PingFang SC"
+          />
         </SettingRow>
         <SettingRow label="等宽字体" hint="用于日志与代码。" layout="stack">
-          <Segmented value={a.fontMono} options={FONT_MONO_OPTIONS.map((f) => ({ value: f.id, label: f.label }))} onChange={(fontMono) => setAppearance({ fontMono })} />
+          <FontField
+            value={a.fontMono}
+            custom={a.fontMonoCustom}
+            presets={FONT_MONO_OPTIONS}
+            onChange={(fontMono) => setAppearance({ fontMono })}
+            onCustomChange={(fontMonoCustom) => setAppearance({ fontMonoCustom })}
+            placeholder="例如：Cascadia Code, Sarasa Mono SC"
+          />
         </SettingRow>
         <SettingRow label="圆角">
           <Segmented value={a.radius} options={RADIUS_OPTIONS.map((r) => ({ value: r.value, label: r.label }))} onChange={(radius) => setAppearance({ radius })} />
@@ -383,6 +399,8 @@ function AppearancePanel() {
           <Segmented value={a.density} options={DENSITY_OPTIONS} onChange={(density) => setAppearance({ density })} />
         </SettingRow>
       </Group>
+
+      <ThemeVarsPanel cssVars={a.cssVars} onChange={(cssVars) => setAppearance({ cssVars })} />
 
       <Group title="无障碍与侧栏" icon={Accessibility} description="动效、对比度与侧栏默认状态。">
         <SettingRow label="减弱动效" hint="弱化页面切换、弹簧等装饰性动画（保留轻微淡入），对低端设备与晕动敏感者更友好。" layout="inline">
@@ -539,6 +557,165 @@ function BackgroundCard({
       )}
 
       {err && <p className="px-5 py-3 text-[12px] text-destructive">{err}</p>}
+    </Group>
+  );
+}
+
+// A font selector: preset segments + a "自定义" segment that reveals a
+// free-form family input. On Chromium (where `queryLocalFonts` exists) the
+// input gets a native <datalist> populated with the user's installed fonts;
+// everywhere else it stays a plain text box (feature-detect, silent fallback).
+type LocalFont = { family: string };
+type FontQueryWindow = Window & { queryLocalFonts?: () => Promise<LocalFont[]> };
+
+function FontField({
+  value, custom, presets, onChange, onCustomChange, placeholder,
+}: {
+  value: string;
+  custom: string;
+  presets: FontSpec[];
+  onChange: (id: string) => void;
+  onCustomChange: (family: string) => void;
+  placeholder: string;
+}) {
+  const listId = useId();
+  const [fonts, setFonts] = useState<string[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const canQuery = typeof (window as FontQueryWindow).queryLocalFonts === 'function';
+  const isCustom = value === FONT_CUSTOM_ID;
+
+  const options: Opt<string>[] = [
+    ...presets.map((f) => ({ value: f.id, label: f.label })),
+    { value: FONT_CUSTOM_ID, label: '自定义' },
+  ];
+
+  // Lazily enumerate local fonts the first time the field is focused. A denied
+  // permission (or any failure) just leaves the plain text box — no error UI.
+  const loadFonts = async () => {
+    if (fonts !== null || loading || !canQuery) return;
+    setLoading(true);
+    try {
+      const arr = await (window as FontQueryWindow).queryLocalFonts!();
+      setFonts(Array.from(new Set(arr.map((f) => f.family))).sort((x, y) => x.localeCompare(y)));
+    } catch {
+      setFonts([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <Segmented value={value} options={options} onChange={onChange} />
+      {isCustom && (
+        <div className="flex flex-col gap-1.5">
+          <input
+            type="text"
+            value={custom}
+            list={canQuery ? listId : undefined}
+            onChange={(e) => onCustomChange(e.target.value)}
+            onFocus={loadFonts}
+            placeholder={placeholder}
+            spellCheck={false}
+            autoComplete="off"
+            style={custom ? { fontFamily: custom } : undefined}
+            className="w-full rounded-lg border bg-card/40 px-3 py-2 text-sm outline-none focus:border-primary"
+          />
+          {canQuery && fonts && fonts.length > 0 && (
+            <datalist id={listId}>
+              {fonts.map((f) => <option key={f} value={f} />)}
+            </datalist>
+          )}
+          <p className="text-[11px] leading-snug text-muted-foreground">
+            {canQuery
+              ? '可输入字体名称，或聚焦后从已安装字体中选择；找不到时回退到系统字体。'
+              : '输入已安装的字体名称（可写多个，用逗号分隔）；找不到时回退到系统字体。'}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Curated subset of the cssVars whitelist surfaced as colour pickers. The
+// server accepts the full token set; this is just the operator-friendly view.
+const CSS_VAR_FIELDS: { token: string; label: string }[] = [
+  { token: '--background', label: '页面背景' },
+  { token: '--foreground', label: '主文字' },
+  { token: '--card', label: '卡片背景' },
+  { token: '--primary', label: '主色调' },
+  { token: '--muted-foreground', label: '次要文字' },
+  { token: '--border', label: '边框' },
+  { token: '--sidebar', label: '侧栏背景' },
+  { token: '--destructive', label: '危险 / 错误' },
+  { token: '--success', label: '成功' },
+  { token: '--warning', label: '警告' },
+];
+
+// The variable panel: per-token colour overrides layered over the active
+// palette/accent. Each override is a single hex value (validated server-side);
+// an unset token falls through to the theme default.
+function ThemeVarsPanel({
+  cssVars, onChange,
+}: { cssVars: Record<string, string>; onChange: (next: Record<string, string>) => void }) {
+  const set = (token: string, hex: string) => onChange({ ...cssVars, [token]: hex });
+  const clear = (token: string) => {
+    const next = { ...cssVars };
+    delete next[token];
+    onChange(next);
+  };
+  const count = CSS_VAR_FIELDS.filter((f) => cssVars[f.token]).length;
+
+  return (
+    <Group
+      title="主题微调"
+      icon={Palette}
+      description="逐个覆盖主题颜色变量，叠加在当前配色之上；未设置的保持配色默认值。登录页也会应用（安全：仅白名单变量与颜色值）。"
+    >
+      {CSS_VAR_FIELDS.map((f) => {
+        const override = cssVars[f.token];
+        return (
+          <SettingRow key={f.token} label={f.label} hint={<code className="font-mono text-[11px]">{f.token}</code>} layout="inline">
+            <div className="flex items-center gap-2.5">
+              {override ? (
+                <span className="font-mono text-[11px] text-muted-foreground tabular-nums">{override}</span>
+              ) : (
+                <span className="text-[11px] text-muted-foreground">默认</span>
+              )}
+              <label
+                title="选择颜色"
+                className="relative size-7 cursor-pointer overflow-hidden rounded-md border"
+                style={override ? { backgroundColor: override } : { background: 'repeating-conic-gradient(#cbd5e1 0% 25%, #fff 0% 50%) 50% / 10px 10px' }}
+              >
+                <input
+                  type="color"
+                  value={override || '#888888'}
+                  onChange={(e) => set(f.token, e.target.value)}
+                  className="absolute inset-0 cursor-pointer opacity-0"
+                  aria-label={`${f.label}颜色`}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => clear(f.token)}
+                disabled={!override}
+                aria-label={`重置${f.label}`}
+                className="rounded-md p-1 text-muted-foreground transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 enabled:hover:text-destructive disabled:opacity-30"
+              >
+                <RotateCcw className="size-3.5" />
+              </button>
+            </div>
+          </SettingRow>
+        );
+      })}
+      {count > 0 && (
+        <div className="flex items-center justify-between gap-4 px-5 py-3">
+          <span className="text-[11px] text-muted-foreground">已覆盖 {count} 个变量</span>
+          <Button variant="ghost" size="sm" onClick={() => onChange({})} className="text-destructive hover:text-destructive">
+            <RotateCcw className="size-4" /> 全部恢复默认
+          </Button>
+        </div>
+      )}
     </Group>
   );
 }

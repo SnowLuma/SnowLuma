@@ -202,7 +202,11 @@ export interface UiAppearance {
   sidebarStyle: SidebarStyle;
   background: UiBackground;
   fontSans: string;
+  /** Free-form sans font-family stack, used when `fontSans === 'custom'`. */
+  fontSansCustom: string;
   fontMono: string;
+  /** Free-form mono font-family stack, used when `fontMono === 'custom'`. */
+  fontMonoCustom: string;
   uiScale: number;
   radius: number;
   density: Density;
@@ -214,6 +218,8 @@ export interface UiAppearance {
   pollInterval: number;
   /** Operator custom CSS (applied post-auth only; stripped from /api/ui/public). */
   customCss: string;
+  /** Theme-token overrides from the variable panel (whitelisted keys/values). */
+  cssVars: Record<string, string>;
 }
 
 export interface UiLayoutItem {
