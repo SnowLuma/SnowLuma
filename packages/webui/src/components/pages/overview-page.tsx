@@ -3,7 +3,8 @@ import { motion, Reorder } from 'motion/react';
 import { Link } from '@tanstack/react-router';
 import {
   Activity, ArrowRight, Bell, Cable, Check, Cpu, ExternalLink, Eye, EyeOff, GripVertical,
-  MemoryStick, MonitorCog, Pencil, PlugZap, RefreshCw, RotateCcw, Server, Settings2, Users,
+  LayoutGrid, MemoryStick, MonitorCog, Pencil, Plus, PlugZap, RefreshCw, RotateCcw, Server,
+  Settings2, Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,14 +22,14 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { reconcileLayoutItems, useLayout } from '@/contexts/LayoutContext';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import {
-  CONFIGURABLE_WIDGETS, GRID_COLS, MOBILE_WIDGET_IDS, STATIC_WIDGET_IDS, mobileHeightOf,
+  CONFIGURABLE_WIDGETS, GRID_COLS, GRID_WIDGETS, MOBILE_WIDGET_IDS, STATIC_WIDGET_IDS, mobileHeightOf,
   parseAccountConfig, parseAlertsConfig, parseConnectionsConfig, parseHostConfig,
   parseLinkConfig, parseNoteConfig, parseSessionsConfig, widgetLabel,
   type AccountConfig, type AlertsConfig, type ConnectionsConfig, type HostConfig,
   type LinkConfig, type NoteConfig, type SessionsConfig,
 } from '@/lib/dashboard-layout';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { DashboardGrid, type GridCoord } from '@/components/pages/dashboard-grid';
+import { DashboardGrid, WIDGET_DRAG_TYPE, type GridCoord } from '@/components/pages/dashboard-grid';
 import {
   AccountConfigForm, AlertsConfigForm, ConnectionsConfigForm, HostConfigForm,
   LinkConfigForm, LINK_ICON_COMPONENTS, NoteConfigForm, SessionsConfigForm,
@@ -62,12 +63,12 @@ export function OverviewPage() {
   const isWide = useMediaQuery('(min-width: 768px)');
   // Free-grid 2D editing is desktop-only; on a phone, editing surfaces a
   // single-column drag-sort panel (overviewMobile) instead.
-  const gridEditing = isWide && editing;
   const [configId, setConfigId] = useState<string | null>(null);
 
+  // The grid shows only visible widgets (Apple-widgets model); hidden ones live
+  // in the gallery and are dragged in/out to add/remove.
   const visibleBlocks = useMemo(() => overviewBlocks.filter((b) => b.visible), [overviewBlocks]);
-  // In edit mode show ALL blocks (hidden ones as re-enableable ghosts); else visible-only.
-  const gridBlocks = gridEditing ? overviewBlocks : visibleBlocks;
+  const hiddenBlocks = useMemo(() => overviewBlocks.filter((b) => !b.visible), [overviewBlocks]);
 
   // Per-widget config lives on the desktop blocks; mobile widgets reuse it.
   const configById = useMemo(
@@ -81,18 +82,28 @@ export function OverviewPage() {
     [overviewMobile],
   );
 
+  // Single writer for the grid: move/resize updates coords; a visible block no
+  // longer present in the snapshot was dragged out to the gallery → hide it.
   const onGridChange = (coords: GridCoord[]) => {
     const cmap = new Map(coords.map((c) => [c.id, c]));
     setOverviewBlocks(
       overviewBlocks.map((b) => {
+        if (!b.visible) return b; // hidden (in the gallery) — leave untouched
         const c = cmap.get(b.id);
-        return c ? { ...b, x: c.x, y: c.y, w: c.w, h: c.h } : b;
+        if (c) return { ...b, x: c.x, y: c.y, w: c.w, h: c.h };
+        return { ...b, visible: false }; // was in the grid, now gone → removed
       }),
     );
   };
 
-  const toggleBlock = (id: string) =>
-    setOverviewBlocks(overviewBlocks.map((b) => (b.id === id ? { ...b, visible: !b.visible } : b)));
+  // Add a widget dragged from the gallery at the dropped cell (catalogue size).
+  const addWidget = (id: string, x: number, y: number) => {
+    const spec = GRID_WIDGETS.find((w) => w.id === id);
+    setOverviewBlocks(overviewBlocks.map((b) => (
+      b.id === id ? { ...b, visible: true, x, y, w: spec?.def.w ?? 3, h: spec?.def.h ?? 2 } : b
+    )));
+  };
+
   const toggleMobile = (id: string) =>
     setOverviewMobile(mobileItems.map((b) => (b.id === id ? { ...b, visible: !b.visible } : b)));
   const reorderMobile = (ids: string[]) => {
@@ -126,7 +137,7 @@ export function OverviewPage() {
       {editing && (
         <p className="rounded-xl border border-primary/20 bg-primary/5 px-3.5 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
           {isWide
-            ? '拖动卡片顶部的「拖动」手柄移动位置、拖右下角缩放；眼睛图标显隐、齿轮改设置。左侧导航也可在编辑态拖动排序。'
+            ? '拖动卡片移动位置、拖右下角缩放，右上齿轮改设置；把卡片拖回右侧「部件库」即可移除，从部件库拖到画布即可添加。左侧导航也可在编辑态拖动排序。'
             : '拖动手柄调整卡片顺序，眼睛图标显隐，齿轮改设置。手机为单列布局，与桌面网格各自独立。'}
         </p>
       )}
@@ -155,21 +166,30 @@ export function OverviewPage() {
       )}
 
       {isWide ? (
-        visibleBlocks.length === 0 && !gridEditing ? (
-          <EmptyLayout onReset={resetLayout} />
-        ) : (
-          <DashboardGrid
-            blocks={gridBlocks}
-            editing={gridEditing}
-            cols={GRID_COLS}
-            onChange={onGridChange}
-            renderWidget={renderWidget}
-            labelFor={widgetLabel}
-            configurableIds={CONFIGURABLE_WIDGETS}
-            onToggleVisible={toggleBlock}
-            onConfigOpen={setConfigId}
-          />
-        )
+        <div className="flex items-start gap-4">
+          <div className="min-w-0 flex-1">
+            {visibleBlocks.length === 0 ? (
+              editing ? (
+                <DropPlaceholder onAdd={addWidget} />
+              ) : (
+                <EmptyLayout onReset={resetLayout} />
+              )
+            ) : (
+              <DashboardGrid
+                blocks={visibleBlocks}
+                editing={editing}
+                cols={GRID_COLS}
+                onChange={onGridChange}
+                renderWidget={renderWidget}
+                configurableIds={CONFIGURABLE_WIDGETS}
+                onConfigOpen={setConfigId}
+                removableSelector=".widget-gallery"
+                onAdd={addWidget}
+              />
+            )}
+          </div>
+          {editing && <WidgetGallery hidden={hiddenBlocks} />}
+        </div>
       ) : (
         <MobileOverview
           items={mobileItems}
@@ -288,11 +308,70 @@ function MobileOverview({
       cols={1}
       onChange={() => { /* no drag on mobile — order edited via the panel */ }}
       renderWidget={renderWidget}
-      labelFor={widgetLabel}
       configurableIds={CONFIGURABLE_WIDGETS}
-      onToggleVisible={() => { /* unused in view mode */ }}
       onConfigOpen={onConfigOpen}
     />
+  );
+}
+
+// ─────────────── widget gallery (desktop edit mode) ───────────────
+// The right-hand "store": hidden widgets shown as draggable tiles. Dragging a
+// tile onto the canvas adds it (HTML5 DnD); dragging a canvas card back onto
+// this panel removes it (gridstack `removable`, matched by the .widget-gallery
+// class). Edit-mode only, desktop only.
+function WidgetGallery({ hidden }: { hidden: UiLayoutItem[] }) {
+  return (
+    <div className="widget-gallery w-56 shrink-0 self-stretch rounded-xl border border-dashed bg-muted/20 p-3">
+      <div className="mb-1.5 flex items-center gap-1.5 px-1">
+        <LayoutGrid className="size-3.5 text-primary" />
+        <span className="text-xs font-semibold">部件库</span>
+      </div>
+      <p className="mb-3 px-1 text-[11px] leading-snug text-muted-foreground">
+        拖到左侧画布添加；把卡片拖回此处即可移除。
+      </p>
+      {hidden.length === 0 ? (
+        <div className="rounded-lg border border-dashed px-2 py-8 text-center text-[11px] text-muted-foreground">
+          全部部件已添加
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {hidden.map((b) => (
+            <div
+              key={b.id}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData(WIDGET_DRAG_TYPE, b.id);
+                e.dataTransfer.effectAllowed = 'copy';
+              }}
+              className="flex cursor-grab items-center gap-2 rounded-lg border bg-card/70 px-2.5 py-2 text-sm transition-colors active:cursor-grabbing hover:border-primary/40 hover:bg-accent/30"
+            >
+              <GripVertical className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate">{widgetLabel(b.id)}</span>
+              <Plus className="size-3.5 shrink-0 text-muted-foreground/60" />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Empty-canvas drop target shown in edit mode when no widget is on the grid —
+// keeps an HTML5 drop zone so the first widget can still be dragged in.
+function DropPlaceholder({ onAdd }: { onAdd: (id: string, x: number, y: number) => void }) {
+  return (
+    <div
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault();
+        const id = e.dataTransfer.getData(WIDGET_DRAG_TYPE);
+        if (id) onAdd(id, 0, 0);
+      }}
+      className="flex min-h-60 flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed py-16 text-center text-muted-foreground"
+    >
+      <LayoutGrid className="size-8 opacity-40" strokeWidth={1.5} />
+      <p className="text-sm">从右侧「部件库」拖动部件到这里</p>
+    </div>
   );
 }
 
