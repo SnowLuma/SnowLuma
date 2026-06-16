@@ -1,8 +1,8 @@
 import { createContext, useContext, useId, useRef, useState, type ReactNode } from 'react';
 import { motion } from 'motion/react';
 import {
-  Accessibility, Bug, Check, Clock, Code2, Download, ExternalLink, Github, Image as ImageIcon,
-  Info, KeyRound, Loader2, Monitor, Moon, Palette, RefreshCw, RotateCcw, ShieldCheck,
+  Accessibility, AlertTriangle, Bug, Check, Clock, Code2, Download, ExternalLink, Github, Image as ImageIcon,
+  Info, KeyRound, Loader2, Monitor, Moon, Palette, Plus, RefreshCw, RotateCcw, ShieldCheck,
   Sparkles, Star, Sun, Tag, Upload, Trash2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -253,12 +253,57 @@ const DENSITY_OPTIONS: Opt<Density>[] = [
   { value: 'compact', label: '紧凑' },
 ];
 
+// ── a11y: one-time low-contrast advisory for a custom accent ──
+// Pure-advisory per the plan: never blocks, never a persistent banner, and
+// fires at most once per session (sessionStorage) so it can't nag.
+const CONTRAST_WARNED_KEY = 'snowluma_contrast_warned';
+
+function hexRgb(hex: string): { r: number; g: number; b: number } | null {
+  const m = hex.trim().replace('#', '');
+  const h = m.length === 3 ? m.split('').map((c) => c + c).join('') : m;
+  if (h.length < 6) return null;
+  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+  return Number.isNaN(r + g + b) ? null : { r, g, b };
+}
+
+function relLuminance({ r, g, b }: { r: number; g: number; b: number }): number {
+  const f = (c: number) => { const s = c / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+}
+
+/** WCAG contrast ratio between two hex colours (1…21), or null if unparseable. */
+function contrastRatio(a: string, b: string): number | null {
+  const ra = hexRgb(a), rb = hexRgb(b);
+  if (!ra || !rb) return null;
+  const la = relLuminance(ra), lb = relLuminance(rb);
+  const [hi, lo] = la > lb ? [la, lb] : [lb, la];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
 function AppearancePanel() {
-  const { appearance, setAppearance, uploadBackground, removeBackground } = useTheme();
+  const { appearance, setAppearance, uploadBackground, removeBackground, resolved } = useTheme();
   const a = appearance;
   // A Catppuccin flavor fixes its own light/dark + darkness, so the mode and
   // intensity controls are inert while one is active.
   const paletteFixed = paletteResolved(a.palette) !== null;
+
+  // Low-contrast accent advisory (applies the change immediately, then — once
+  // per session — offers to revert if the accent reads poorly on the canvas).
+  const [contrastWarn, setContrastWarn] = useState<{ ratio: number } | null>(null);
+  const pickCustomAccent = (hex: string) => {
+    setAppearance({ accentMode: 'custom', accentCustom: hex });
+    let warned = false;
+    try { warned = sessionStorage.getItem(CONTRAST_WARNED_KEY) === '1'; } catch { /* ignore */ }
+    if (warned) return;
+    // Accent doubles as link/icon colour on the page background — flag UI-level
+    // contrast below WCAG AA for large text / non-text (3:1).
+    const bg = resolved === 'dark' ? '#0a0a0a' : '#ffffff';
+    const ratio = contrastRatio(hex, bg);
+    if (ratio !== null && ratio < 3) {
+      try { sessionStorage.setItem(CONTRAST_WARNED_KEY, '1'); } catch { /* ignore */ }
+      setContrastWarn({ ratio });
+    }
+  };
 
   return (
     <div className="flex flex-col gap-5">
@@ -338,7 +383,7 @@ function AppearancePanel() {
               <input
                 type="color"
                 value={a.accentCustom}
-                onChange={(e) => setAppearance({ accentMode: 'custom', accentCustom: e.target.value })}
+                onChange={(e) => pickCustomAccent(e.target.value)}
                 className="absolute inset-0 cursor-pointer opacity-0"
                 aria-label="自定义强调色"
               />
@@ -416,6 +461,16 @@ function AppearancePanel() {
           <ToggleSwitch value={a.sidebarDefaultCollapsed} onChange={(sidebarDefaultCollapsed) => setAppearance({ sidebarDefaultCollapsed })} ariaLabel="侧栏默认折叠" />
         </SettingRow>
       </Group>
+
+      <ConfirmDialog
+        open={contrastWarn !== null}
+        onOpenChange={(o) => { if (!o) setContrastWarn(null); }}
+        title="强调色对比度较低"
+        description={`所选强调色与背景的对比度约为 ${contrastWarn?.ratio.toFixed(1)}:1，低于推荐的 3:1，用作链接或图标时可能不易辨认。可以保留，或恢复默认强调色。`}
+        confirmText="恢复默认色"
+        cancelText="仍然使用"
+        onConfirm={() => setAppearance({ accentMode: 'preset', accentPreset: DEFAULT_APPEARANCE.accentPreset, accentCustom: DEFAULT_APPEARANCE.accentCustom })}
+      />
     </div>
   );
 }
@@ -763,8 +818,44 @@ function DataPanel() {
 
 // ─────────────── 高级（自定义 CSS + 备份/重置） ───────────────
 
+// Ready-made CSS snippets, inserted at the cursor / appended. Plain string
+// constants (no editor library) — the operator tweaks them in the textarea and
+// native Cmd/Ctrl+Z undoes. Each is a complete, valid rule.
+const CSS_SNIPPETS: { label: string; css: string }[] = [
+  { label: '侧栏字号', css: '.text-sidebar-foreground {\n  font-size: 1.05em;\n}' },
+  { label: '卡片毛玻璃', css: '.bg-card {\n  backdrop-filter: blur(8px);\n  background-color: color-mix(in oklab, var(--card) 80%, transparent);\n}' },
+  { label: '隐藏滚动条', css: '*::-webkit-scrollbar {\n  width: 0;\n  height: 0;\n}' },
+  { label: '加粗标题', css: 'h1, h2, h3 {\n  font-weight: 700;\n  letter-spacing: -0.01em;\n}' },
+  { label: '紧凑卡片', css: '.rounded-xl {\n  border-radius: 0.5rem;\n}' },
+];
+
+// On-blur sanity check: parse the CSS once and surface a gentle warning if it
+// looks broken (unbalanced braces, or non-empty input that parses to zero
+// rules). Best-effort — returns null when parsing isn't available or the CSS
+// looks fine. Never blocks saving; the operator can always ?safe-mode=1.
+function validateCss(css: string): string | null {
+  const trimmed = css.trim();
+  if (!trimmed) return null;
+  const opens = (trimmed.match(/\{/g) ?? []).length;
+  const closes = (trimmed.match(/\}/g) ?? []).length;
+  if (opens !== closes) return `括号不匹配（${opens} 个 “{” / ${closes} 个 “}”）— 可能有规则未闭合。`;
+  if (opens === 0) return '没有检测到任何 CSS 规则（缺少 “{ … }”）。';
+  try {
+    if (typeof CSSStyleSheet === 'function' && 'replaceSync' in CSSStyleSheet.prototype) {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(trimmed);
+      if (sheet.cssRules.length === 0) return '未解析出有效规则，请检查语法。';
+    }
+  } catch {
+    return 'CSS 解析失败，请检查语法。';
+  }
+  return null;
+}
+
 function AdvancedPanel() {
   const { appearance, setAppearance } = useTheme();
+  const cssRef = useRef<HTMLTextAreaElement>(null);
+  const [cssWarn, setCssWarn] = useState<string | null>(null);
   const api = useApi();
   const fileRef = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
@@ -820,6 +911,23 @@ function AdvancedPanel() {
     }
   };
 
+  // Insert a template at the cursor (or append), then re-validate.
+  const insertSnippet = (snippet: string) => {
+    const ta = cssRef.current;
+    const cur = appearance.customCss;
+    let next: string;
+    if (ta && ta.selectionStart != null) {
+      const before = cur.slice(0, ta.selectionStart);
+      const after = cur.slice(ta.selectionEnd ?? ta.selectionStart);
+      const sep = before && !before.endsWith('\n') ? '\n' : '';
+      next = `${before}${sep}${snippet}\n${after}`;
+    } else {
+      next = cur ? `${cur}\n${snippet}\n` : `${snippet}\n`;
+    }
+    setAppearance({ customCss: next.slice(0, 50000) });
+    setCssWarn(validateCss(next));
+  };
+
   return (
     <div className="flex flex-col gap-5">
       <Card>
@@ -831,20 +939,40 @@ function AdvancedPanel() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-[11px] text-muted-foreground">插入模板：</span>
+            {CSS_SNIPPETS.map((s) => (
+              <button
+                key={s.label}
+                type="button"
+                onClick={() => insertSnippet(s.css)}
+                className="inline-flex items-center gap-1 rounded-md border bg-muted/40 px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors cursor-pointer outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40"
+              >
+                <Plus className="size-3" /> {s.label}
+              </button>
+            ))}
+          </div>
           <textarea
+            ref={cssRef}
             value={appearance.customCss}
-            onChange={(e) => setAppearance({ customCss: e.target.value })}
+            onChange={(e) => { setAppearance({ customCss: e.target.value }); if (cssWarn) setCssWarn(null); }}
+            onBlur={(e) => setCssWarn(validateCss(e.target.value))}
             maxLength={50000}
             spellCheck={false}
             placeholder={'/* 例如：放大侧栏字号 */\n.text-sidebar-foreground { font-size: 1.05em; }'}
             className="h-64 w-full resize-y rounded-lg border bg-card/40 p-3 font-mono text-[12px] leading-relaxed outline-none focus:border-primary"
           />
+          {cssWarn && (
+            <p className="flex items-start gap-1.5 text-[11px] text-warning">
+              <AlertTriangle className="mt-px size-3.5 shrink-0" /> {cssWarn}
+            </p>
+          )}
           <div className="flex items-center justify-between gap-2">
             <span className="text-[11px] text-muted-foreground">{appearance.customCss.length} / 50000 字符</span>
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setAppearance({ customCss: '' })}
+              onClick={() => { setAppearance({ customCss: '' }); setCssWarn(null); }}
               disabled={!appearance.customCss}
               className="text-destructive hover:text-destructive"
             >
