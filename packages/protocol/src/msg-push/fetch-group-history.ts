@@ -3,6 +3,7 @@ import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { SsoGetGroupMsg, SsoGetGroupMsgResponse } from '@snowluma/proto-defs/get-group-msg';
 import type { QQEventVariant } from '../events';
 import type { IdentityService } from '../identity-service';
+import { isBlankMessage } from './blank-filter';
 import { buildContextFromMessage } from './context';
 import { decodeGroupMessage } from './decoders/group-message';
 
@@ -48,7 +49,11 @@ export async function fetchGroupMessageRange(
     const ctx = buildContextFromMessage(msg, selfUin, identity);
     if (!ctx) continue;
     for (const ev of decodeGroupMessage(ctx)) {
-      if (ev.kind === 'group_message' && ev.msgSeq > 0) out.push(ev);
+      if (ev.kind !== 'group_message' || ev.msgSeq <= 0) continue;
+      // Drop content-less control pushes (the "[空消息]" phantom, #102) just as
+      // QQ NT does on its group roam/history fetch — keep history parity with live.
+      if (isBlankMessage(ev.elements, ctx.body)) continue;
+      out.push(ev);
     }
   }
   out.sort((a, b) => a.msgSeq - b.msgSeq);

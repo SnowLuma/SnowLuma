@@ -3,6 +3,7 @@ import { closeLogger, createLogger } from '@snowluma/common/logger';
 import { loadRuntimeConfig } from '@snowluma/common/runtime';
 import { OneBotManager } from '@snowluma/onebot/manager';
 import { BridgeManager } from './bridge/manager';
+import { createNotificationManager } from './notifications/manager';
 
 const runtimeConfig = loadRuntimeConfig();
 const log = createLogger('App');
@@ -36,13 +37,18 @@ async function main() {
 
   oneBotManager.bind(bridgeManager);
 
+  // Global notification subsystem (account up/down → webhook). Bound AFTER
+  // OneBotManager so the nickname fallback is already populated when it observes.
+  const notificationManager = createNotificationManager();
+  notificationManager.bind(bridgeManager);
+
   if (
     (typeof __BUILD_WEBUI__ !== 'undefined' && __BUILD_WEBUI__) ||
     process.env.SNOWLUMA_DEV_WEBUI === '1'
   ) {
     try {
       const { initWebUI } = await import('./webui/server');
-      await initWebUI(runtimeConfig.webuiPort || 5099, oneBotManager, hookManager);
+      await initWebUI(runtimeConfig.webuiPort || 5099, oneBotManager, hookManager, notificationManager);
     } catch (err) {
       log.error('Failed to start WebUI: ', err);
     }
@@ -53,6 +59,7 @@ async function main() {
   const shutdown = (signal: string) => async () => {
     log.warn(`Shutting down (${signal})...`);
     oneBotManager.dispose();
+    notificationManager.dispose();
     hookManager.dispose();
     await closeLogger();
     process.exit(0);

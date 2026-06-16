@@ -25,6 +25,8 @@ import {
   writeBackgroundImage,
 } from './ui-config';
 import { getUpdateInfo } from './update-check';
+import { loadNotificationsConfig, saveNotificationsConfig } from '../notifications/config';
+import type { NotificationManager } from '../notifications/manager';
 
 const log = createLogger('WebUI');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -102,6 +104,7 @@ export async function initWebUI(
   desiredPort: number = 5099,
   oneBotManager: OneBotManager,
   hookManager?: HookManager,
+  notificationManager?: NotificationManager,
 ): Promise<{ port: number }> {
   const auth = WebuiAuth.load();
   const initialPassword = auth.takeInitialPassword();
@@ -541,6 +544,60 @@ export async function initWebUI(
       log.warn('save config for uin=%s failed: %s', uin, err instanceof Error ? err.message : String(err));
       return c.json({ success: false, message: '配置保存失败，请检查服务器日志' }, 400);
     }
+  });
+
+  // ─── Notifications (account up/down → webhook) ───────────────────────────
+  // Global channel store (config/notifications.json); per-UIN opt-in lives in
+  // OneBotConfig.notifications.channelIds. All bearer-gated — channel URLs can
+  // embed secrets, so none of this is exposed unauthenticated.
+  app.get('/api/notifications/config', (c) => c.json({ config: loadNotificationsConfig() }));
+
+  app.post('/api/notifications/config', async (c) => {
+    const declaredLen = Number(c.req.header('content-length'));
+    if (Number.isFinite(declaredLen) && declaredLen > 512 * 1024) {
+      return c.json({ success: false, message: '配置过大' }, 413);
+    }
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    try {
+      const config = saveNotificationsConfig(body);
+      return c.json({ success: true, config });
+    } catch (err) {
+      log.warn('save notifications config failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '保存失败，请检查服务器日志' }, 500);
+    }
+  });
+
+  app.get('/api/notifications/recent', (c) => {
+    if (!notificationManager) return c.json({ recent: [] });
+    const limitRaw = Number(c.req.query('limit'));
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.trunc(limitRaw), 100) : 100;
+    return c.json({ recent: notificationManager.getRecent(limit) });
+  });
+
+  app.post('/api/notifications/test', async (c) => {
+    if (!notificationManager) return c.json({ success: false, message: '通知子系统不可用' }, 503);
+    let body: { channelId?: unknown };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const channelId = typeof body.channelId === 'string' ? body.channelId : '';
+    if (!channelId) return c.json({ success: false, message: '缺少 channelId' }, 400);
+    const result = await notificationManager.testSend(channelId);
+    if (!result.found) return c.json({ success: false, message: '渠道不存在' }, 404);
+    return c.json({
+      success: result.ok,
+      status: result.status,
+      message: result.ok
+        ? '测试发送成功'
+        : `测试发送失败：${result.error ?? (result.status ? `HTTP ${result.status}` : '未知错误')}`,
+    });
   });
 
   // ─── WebUI customization config (config/ui.json) ─────────────────────────

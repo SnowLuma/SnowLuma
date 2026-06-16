@@ -3,6 +3,8 @@ import type {
   HookProcessInfo,
   LogEntry,
   LogLevel,
+  NotificationDeliveryRecord,
+  NotificationsConfig,
   OneBotConfig,
   QQInfo,
   SystemInfo,
@@ -70,6 +72,18 @@ export interface ApiClient {
   config: {
     get(uin: string): Promise<OneBotConfig>;
     save(uin: string, config: OneBotConfig): Promise<OneBotConfig>;
+  };
+
+  // ---- notifications (account up/down webhooks) ----
+  notifications: {
+    /** Global channel store (channels + debounce). Bearer-gated. */
+    getConfig(): Promise<NotificationsConfig>;
+    /** Persist the global store (whole-config; server normalizes). */
+    saveConfig(config: Partial<NotificationsConfig>): Promise<NotificationsConfig>;
+    /** Recent in-memory delivery history, most-recent-first (≤100). */
+    recent(limit?: number): Promise<NotificationDeliveryRecord[]>;
+    /** Fire a one-off test to a single channel by id. */
+    test(channelId: string): Promise<{ success: boolean; message?: string; status?: number }>;
   };
 
   // ---- update check ----

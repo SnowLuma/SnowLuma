@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useRouterState } from '@tanstack/react-router';
+import { Minimize2 } from 'lucide-react';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sidebar } from '@/components/layout/sidebar';
@@ -8,6 +9,7 @@ import { TopBar } from '@/components/layout/top-bar';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLayout } from '@/contexts/LayoutContext';
+import { useKiosk } from '@/contexts/KioskContext';
 import { cn } from '@/lib/utils';
 
 interface MainLayoutProps {
@@ -33,6 +35,7 @@ export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
   // “减少动效” setting actually felt.
   const reduce = appearance.reduceMotion || appearance.disableMotion;
   const { editing } = useLayout();
+  const { kiosk, exit: exitKiosk } = useKiosk();
   // Force the sidebar open while editing layout so its drag-to-reorder list
   // has room (it returns to the user's collapsed pref on 完成).
   const effectiveCollapsed = collapsed && !editing;
@@ -45,8 +48,8 @@ export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
 
   return (
     <div className={cn('flex h-screen w-screen overflow-hidden text-foreground', customBg ? 'bg-transparent' : 'bg-background')}>
-      {/* Desktop sidebar */}
-      {!isMobile && (
+      {/* Desktop sidebar (hidden in kiosk) */}
+      {!isMobile && !kiosk && (
         <motion.aside
           initial={false}
           animate={{ width: effectiveCollapsed ? 64 : 248 }}
@@ -57,8 +60,8 @@ export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
         </motion.aside>
       )}
 
-      {/* Mobile sidebar in sheet */}
-      {isMobile && (
+      {/* Mobile sidebar in sheet (hidden in kiosk) */}
+      {isMobile && !kiosk && (
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetContent side="left" className="w-64 max-w-[80vw] p-0">
             {/* Radix Dialog (the Sheet primitive) requires an accessible name +
@@ -71,17 +74,32 @@ export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
         </Sheet>
       )}
 
+      {/* Kiosk: chrome-free, with a corner button (+ Esc) to exit. */}
+      {kiosk && (
+        <button
+          type="button"
+          onClick={exitKiosk}
+          title="退出展示模式 (Esc)"
+          aria-label="退出展示模式"
+          className="fixed right-3 top-3 z-50 inline-flex size-9 items-center justify-center rounded-full border bg-background/70 text-muted-foreground opacity-30 backdrop-blur transition-opacity outline-none hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/40"
+        >
+          <Minimize2 className="size-4" />
+        </button>
+      )}
+
       {/* Main column */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar
-          status={status}
-          collapsed={effectiveCollapsed}
-          onToggleCollapse={() => setCollapsed((v) => !v)}
-          onOpenMobile={() => setMobileOpen(true)}
-          onLogout={onLogout}
-          isMobile={isMobile}
-          editing={editing}
-        />
+        {!kiosk && (
+          <TopBar
+            status={status}
+            collapsed={effectiveCollapsed}
+            onToggleCollapse={() => setCollapsed((v) => !v)}
+            onOpenMobile={() => setMobileOpen(true)}
+            onLogout={onLogout}
+            isMobile={isMobile}
+            editing={editing}
+          />
+        )}
 
         <main className={cn('flex min-h-0 flex-1 flex-col')}>
           <ScrollArea className="flex-1 min-h-0" viewportClassName="[&>div]:!block">

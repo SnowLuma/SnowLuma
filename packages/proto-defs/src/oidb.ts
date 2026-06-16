@@ -94,6 +94,32 @@ export interface OidbSvcTrpcTcp0xFE5_2Response {
   groups?: pb_repeated<2, OidbSvcTrpcTcp0xFE5_2Group>;
 }
 
+// Oidb.0x88D_0 — single group detail by uin. `results` tags mirror the request
+// flags. Cross-checked against
+// dev/Lagrange.Core/.../Response/OidbSvcTrpcTcp0x88D_0Response.cs.
+export interface OidbSvcTrpcTcp0x88D_0Results {
+  ownerUid?:        pb<1, string>;
+  createTime?:      pb<2, uint_64>;
+  maxMemberCount?:  pb<5, uint_64>;
+  memberCount?:     pb<6, uint_64>;
+  level?:           pb<10, uint_64>;
+  name?:            pb<15, string>;
+  noticePreview?:   pb<16, string>;
+  uin?:             pb<21, uint_64>;
+  lastSequence?:    pb<22, uint_64>;
+  lastMessageTime?: pb<23, uint_64>;
+  question?:        pb<24, string>;
+  answer?:          pb<25, string>;
+  maxAdminCount?:   pb<29, uint_64>;
+}
+export interface OidbSvcTrpcTcp0x88D_0ResponseGroupInfo {
+  uin?:     pb<1, uint_64>;
+  results?: pb<3, OidbSvcTrpcTcp0x88D_0Results>;
+}
+export interface OidbSvcTrpcTcp0x88D_0Response {
+  groupInfo?: pb<1, OidbSvcTrpcTcp0x88D_0ResponseGroupInfo>;
+}
+
 // Oidb.0xFE7_3 Group member list
 export interface OidbSvcTrpcTcp0xFE7_3Uin {
   uid?: pb<2, string>;

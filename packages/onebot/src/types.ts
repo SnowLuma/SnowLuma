@@ -86,6 +86,10 @@ export interface OneBotConfig {
   musicSignUrl?: string;
   /** Built-in `#sl` status command settings. Always present after normalization. */
   statusCommand: StatusCommandConfig;
+  /** Which GLOBAL notification channels this account opts into (channel ids are
+   *  validated slugs; channels themselves live in config/notifications.json).
+   *  Always present after normalization. */
+  notifications?: { channelIds: string[] };
 }
 
 export interface MessageMeta {

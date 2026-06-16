@@ -16,6 +16,15 @@ function normalizeStatusCommand(raw: unknown): StatusCommandConfig {
   };
 }
 
+/** Keep only string channel ids (the server re-validates slugs on save). */
+function normalizeNotifications(raw: unknown): { channelIds: string[] } {
+  const src = (raw ?? {}) as Record<string, unknown>;
+  const channelIds = Array.isArray(src.channelIds)
+    ? src.channelIds.filter((x): x is string => typeof x === 'string')
+    : [];
+  return { channelIds };
+}
+
 /**
  * Anti-corruption layer for the per-UIN config payload. Older backends emit
  * `messageFormat` / `reportSelfMessage` at the top level instead of per
@@ -47,5 +56,6 @@ export function normalizeOneBotConfig(raw: unknown): OneBotConfig {
     },
     musicSignUrl: typeof cfg.musicSignUrl === 'string' ? cfg.musicSignUrl : undefined,
     statusCommand: normalizeStatusCommand(cfg.statusCommand),
+    notifications: normalizeNotifications(cfg.notifications),
   };
 }

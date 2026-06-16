@@ -34,6 +34,7 @@ const APIS_ROUTING: Record<string, string> = {
   fetchFriendList: 'contacts', fetchGroupList: 'contacts',
   fetchGroupMemberList: 'contacts', fetchUserProfile: 'contacts',
   fetchGroupRequests: 'contacts', fetchDownloadRKeys: 'contacts',
+  fetchGroupDetail: 'contacts',
 };
 
 function fakeBridge(overrides: Record<string, any> = {}): BridgeInterface {
@@ -211,12 +212,51 @@ describe('onebot/contact-actions / getGroupInfo', () => {
     expect(out).toMatchObject({ group_id: 600, group_name: 'Group F' });
   });
 
-  it('returns null when the group remains unknown after fetch', async () => {
+  it('returns null when the group remains unknown after fetch and the server has no such group', async () => {
     const bridge = fakeBridge({
       fetchGroupList: vi.fn(async () => []),
+      fetchGroupDetail: vi.fn(async () => null),
       identity: fakeIdentity({ findGroup: () => null }),
     });
     expect(await getGroupInfo(bridge, 700)).toBeNull();
+  });
+
+  it('resolves a non-member group via the by-id server lookup (e.g. a group invite name)', async () => {
+    const fetchGroupDetail = vi.fn(async () => makeGroup(7100, '邀请来的群'));
+    const bridge = fakeBridge({
+      fetchGroupList: vi.fn(async () => []),
+      fetchGroupDetail,
+      identity: fakeIdentity({ findGroup: () => null }),
+    });
+    const out = await getGroupInfo(bridge, 7100);
+    expect(fetchGroupDetail).toHaveBeenCalledWith(7100);
+    expect(out).toMatchObject({ group_id: 7100, group_name: '邀请来的群' });
+  });
+
+  it('caches the non-member lookup — a second call within TTL does not re-fetch', async () => {
+    const fetchGroupDetail = vi.fn(async () => makeGroup(7200, 'Cached Invite Group'));
+    const bridge = fakeBridge({
+      fetchGroupList: vi.fn(async () => []),
+      fetchGroupDetail,
+      identity: fakeIdentity({ findGroup: () => null }),
+    });
+    const a = await getGroupInfo(bridge, 7200);
+    const b = await getGroupInfo(bridge, 7200);
+    expect(a).toMatchObject({ group_name: 'Cached Invite Group' });
+    expect(b).toMatchObject({ group_name: 'Cached Invite Group' });
+    expect(fetchGroupDetail).toHaveBeenCalledTimes(1);
+  });
+
+  it('noCache bypasses the non-member cache', async () => {
+    const fetchGroupDetail = vi.fn(async () => makeGroup(7300, 'NoCache Group'));
+    const bridge = fakeBridge({
+      fetchGroupList: vi.fn(async () => []),
+      fetchGroupDetail,
+      identity: fakeIdentity({ findGroup: () => null }),
+    });
+    await getGroupInfo(bridge, 7300);
+    await getGroupInfo(bridge, 7300, true);
+    expect(fetchGroupDetail).toHaveBeenCalledTimes(2);
   });
 });
 

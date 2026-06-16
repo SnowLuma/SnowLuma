@@ -108,6 +108,35 @@ export interface OneBotConfig {
   networks: OneBotNetworks;
   musicSignUrl?: string;
   statusCommand: StatusCommandConfig;
+  /** Per-account opt-in to global notification channels (by channel id). */
+  notifications?: { channelIds: string[] };
+}
+
+// ─── Notifications (account up/down webhooks) ───────────────────────────────
+export type NotificationEventKind = 'offline' | 'online';
+
+export interface NotificationChannel {
+  id: string;
+  name: string;
+  url: string;
+  bodyTemplate: string;
+  enabled: boolean;
+}
+
+export interface NotificationsConfig {
+  version: number;
+  debounceSeconds: number;
+  channels: NotificationChannel[];
+}
+
+export interface NotificationDeliveryRecord {
+  time: number;
+  uin: string;
+  event: NotificationEventKind;
+  channelId: string;
+  ok: boolean;
+  status?: number;
+  error?: string;
 }
 
 export type NetworkKind = keyof OneBotNetworks;
@@ -202,7 +231,11 @@ export interface UiAppearance {
   sidebarStyle: SidebarStyle;
   background: UiBackground;
   fontSans: string;
+  /** Free-form sans font-family stack, used when `fontSans === 'custom'`. */
+  fontSansCustom: string;
   fontMono: string;
+  /** Free-form mono font-family stack, used when `fontMono === 'custom'`. */
+  fontMonoCustom: string;
   uiScale: number;
   radius: number;
   density: Density;
@@ -214,6 +247,8 @@ export interface UiAppearance {
   pollInterval: number;
   /** Operator custom CSS (applied post-auth only; stripped from /api/ui/public). */
   customCss: string;
+  /** Theme-token overrides from the variable panel (whitelisted keys/values). */
+  cssVars: Record<string, string>;
 }
 
 export interface UiLayoutItem {
@@ -229,8 +264,13 @@ export interface UiLayoutItem {
 }
 
 export interface UiLayout {
+  /** Desktop 2D grid blocks (carry x/y/w/h). */
   overviewBlocks: UiLayoutItem[];
+  /** Single-column mobile overview order (id+visible only). */
+  overviewMobile: UiLayoutItem[];
   navItems: UiLayoutItem[];
+  /** Top-bar element show/hide list (id+visible). */
+  topbarItems: UiLayoutItem[];
 }
 
 export interface UiHighlightRule {
@@ -238,12 +278,16 @@ export interface UiHighlightRule {
   color: string;
 }
 
+export type LogsPreset = 'dev' | 'ops' | 'minimal' | 'custom';
+
 export interface UiLogsPrefs {
   visibleLevels: string[];
   maxLines: number;
   autoScroll: boolean;
   wrap: boolean;
   highlightRules: UiHighlightRule[];
+  /** Active view preset; 'custom' = hand-tuned. Client owns the bundles. */
+  preset: LogsPreset;
 }
 
 export interface UiPages {

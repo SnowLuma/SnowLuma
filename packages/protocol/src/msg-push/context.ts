@@ -10,6 +10,9 @@ export type PushMsgContentHead = ContentHead;
 export interface MsgPushHead {
   readonly msgType: number;
   readonly subType: number;
+  /** C2C command (`contentHead` field 3). Discriminates control pushes — see
+   *  `isC2cControlPush` in ./blank-filter. */
+  readonly c2cCmd: number;
   readonly sequence: number;
   readonly timestamp: number;
   readonly msgId: number;
@@ -63,6 +66,7 @@ export function buildContextFromMessage(
   const head: MsgPushHead = {
     msgType: msg.contentHead.msgType ?? 0,
     subType: msg.contentHead.subType ?? 0,
+    c2cCmd: msg.contentHead.c2cCmd ?? 0,
     sequence: msg.contentHead.sequence ?? 0,
     timestamp: msg.contentHead.timestamp ?? 0,
     msgId: msg.contentHead.msgId ?? 0,
