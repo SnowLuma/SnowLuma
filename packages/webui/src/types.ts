@@ -235,8 +235,13 @@ export interface UiLayoutItem {
 }
 
 export interface UiLayout {
+  /** Desktop 2D grid blocks (carry x/y/w/h). */
   overviewBlocks: UiLayoutItem[];
+  /** Single-column mobile overview order (id+visible only). */
+  overviewMobile: UiLayoutItem[];
   navItems: UiLayoutItem[];
+  /** Top-bar element show/hide list (id+visible). */
+  topbarItems: UiLayoutItem[];
 }
 
 export interface UiHighlightRule {

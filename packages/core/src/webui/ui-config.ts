@@ -142,10 +142,15 @@ export interface UiLayoutItem {
 }
 
 export interface UiLayout {
-  /** Ordered overview blocks. Frontend reconciles against its known set. */
+  /** Ordered overview blocks (desktop 2D grid). Frontend reconciles vs its set. */
   overviewBlocks: UiLayoutItem[];
+  /** Ordered single-column mobile overview (id+visible only; the 2D grid is
+   *  desktop-only). Kept separate so phone ordering never pollutes the grid. */
+  overviewMobile: UiLayoutItem[];
   /** Ordered sidebar nav items, keyed by route path. */
   navItems: UiLayoutItem[];
+  /** Top-bar element show/hide list (id+visible), mirroring navItems' shape. */
+  topbarItems: UiLayoutItem[];
 }
 
 export interface UiHighlightRule {
@@ -231,12 +236,36 @@ const DEFAULT_OVERVIEW_BLOCKS: UiLayoutItem[] = [
   { id: 'sessions', visible: true },
 ];
 
+// Single-column mobile order = the desktop grid catalogue's widgets, flattened
+// (stat tiles, then the cards). The client reconciles against its real
+// catalogue, so this just seeds first run; unknown ids are dropped on load.
+const DEFAULT_OVERVIEW_MOBILE: UiLayoutItem[] = [
+  { id: 'stat:status', visible: true },
+  { id: 'stat:accounts', visible: true },
+  { id: 'stat:processes', visible: true },
+  { id: 'stat:host', visible: true },
+  { id: 'stat:uptime', visible: true },
+  { id: 'connections', visible: true },
+  { id: 'alerts', visible: true },
+  { id: 'host', visible: true },
+  { id: 'sessions', visible: true },
+];
+
 const DEFAULT_NAV_ITEMS: UiLayoutItem[] = [
   { id: '/', visible: true },
   { id: '/processes', visible: true },
   { id: '/config', visible: true },
   { id: '/logs', visible: true },
   { id: '/settings', visible: true },
+];
+
+// Toggleable top-bar elements (essential ones — menu, page title, logout — are
+// pinned in the client and never appear here). The client reconciles, so a new
+// element (e.g. the kiosk button) just appears as visible.
+const DEFAULT_TOPBAR_ITEMS: UiLayoutItem[] = [
+  { id: 'status', visible: true },
+  { id: 'theme', visible: true },
+  { id: 'kiosk', visible: true },
 ];
 
 const LOG_LEVELS = ['trace', 'debug', 'info', 'success', 'warn', 'error'];
@@ -260,7 +289,9 @@ export function defaultUiConfig(): UiConfig {
     appearance: { ...DEFAULT_APPEARANCE, background: { ...DEFAULT_BACKGROUND }, cssVars: {} },
     layout: {
       overviewBlocks: DEFAULT_OVERVIEW_BLOCKS.map((b) => ({ ...b })),
+      overviewMobile: DEFAULT_OVERVIEW_MOBILE.map((b) => ({ ...b })),
       navItems: DEFAULT_NAV_ITEMS.map((b) => ({ ...b })),
+      topbarItems: DEFAULT_TOPBAR_ITEMS.map((b) => ({ ...b })),
     },
     pages: defaultPages(),
   };
@@ -506,7 +537,9 @@ export function normalizeLayout(value: unknown): UiLayout {
   const layout = isObject(value) ? value : {};
   return {
     overviewBlocks: normalizeLayoutItems(layout.overviewBlocks, DEFAULT_OVERVIEW_BLOCKS),
+    overviewMobile: normalizeLayoutItems(layout.overviewMobile, DEFAULT_OVERVIEW_MOBILE),
     navItems: normalizeLayoutItems(layout.navItems, DEFAULT_NAV_ITEMS),
+    topbarItems: normalizeLayoutItems(layout.topbarItems, DEFAULT_TOPBAR_ITEMS),
   };
 }
 

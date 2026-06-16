@@ -61,6 +61,15 @@ export function defaultOverviewGrid(): UiLayoutItem[] {
   return GRID_WIDGETS.map((w) => ({ id: w.id, visible: true, ...w.def }));
 }
 
+/** The widget ids in single-column (mobile) default order — same catalogue as
+ *  the desktop grid, flattened. Mobile items carry id+visible only (no coords). */
+export const MOBILE_WIDGET_IDS: readonly string[] = GRID_WIDGETS.map((w) => w.id);
+
+/** Default single-column mobile overview (id+visible, no coords). */
+export function defaultOverviewMobile(): UiLayoutItem[] {
+  return GRID_WIDGETS.map((w) => ({ id: w.id, visible: true }));
+}
+
 /**
  * Bring any stored overview layout up to the current grid catalogue:
  *  - expand the legacy single `stats` block into the 5 individual tiles
