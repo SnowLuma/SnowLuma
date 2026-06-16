@@ -63,18 +63,6 @@ export class Bridge implements BridgeInterface {
       },
     });
     this.pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
-    // ── PROBE (webhook 原因富化) — 验完即删 ──────────────────────────
-    // 亡语 Q2 已判死(服务器侧会话失效 → PbSendMsg 1006509, 见
-    // docs/plans/spike-deathrattle-window.md). 留这一只只读 probe 抓 KickNT
-    // body, 给后续 webhook reason-enrichment 反 tipsTitle/tipsDesc 的字段
-    // 布局. 不试发、不旁路 loggedIn 门. 抓到一次 body 后即删。
-    this.pipeline.registerCmd('trpc.qq_new_tech.status_svc.StatusService.KickNT', (pkt) => {
-      const buf = Buffer.from(pkt.body);
-      log.warn('[KICK-BODY] uin=%s len=%dB hex=%s utf8=%s',
-        this.identity.uin, buf.length, buf.toString('hex'), JSON.stringify(buf.toString('utf8')));
-      return [];
-    });
-    // ── /PROBE ──────────────────────────────────────────────────────
   }
 
   dispose(): void {
