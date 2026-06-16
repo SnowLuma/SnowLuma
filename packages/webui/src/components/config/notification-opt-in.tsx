@@ -71,9 +71,12 @@ export function NotificationOptIn({ selectedIds, onChange }: NotificationOptInPr
                 <p className="truncate text-[11px] text-muted-foreground">{ch.url}</p>
               </div>
               <ToggleSwitch
-                value={selected.has(ch.id)}
+                // Globally-disabled channel: lock the switch and force it off
+                // (it can never fire, so the per-account opt-in must read off).
+                value={ch.enabled && selected.has(ch.id)}
                 onChange={(v) => toggle(ch.id, v)}
                 ariaLabel={`为该账号启用渠道 ${ch.name || ch.id}`}
+                disabled={!ch.enabled}
               />
             </div>
           ))}
