@@ -402,11 +402,7 @@ export class HookSession extends EventEmitter {
   }
 
   private handlePacket(packet: QqHookPacket): void {
-    // ── SPIKE PROBE (亡语 Q2) — 验完即删: KickNT 必须在 loggedIn 翻 false 后仍放行 ──
-    const __spikeKick = packet.cmd === 'trpc.qq_new_tech.status_svc.StatusService.KickNT';
-    if (__spikeKick) this.log.warn('[SPIKE] KickNT@pipe T0pipe=%d PID=%d loggedIn=%s', Date.now(), this.pid, this.loggedIn);
-    if (!this.loggedIn && !__spikeKick) return; // SPIKE: 原为 `if (!this.loggedIn) return;`
-    // ── /SPIKE PROBE ──
+    if (!this.loggedIn) return;
     const uin = packet.uin || this._uin;
     if (!isRealUin(uin)) return;
     if (!this.onPacket) return;

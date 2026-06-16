@@ -63,21 +63,18 @@ export class Bridge implements BridgeInterface {
       },
     });
     this.pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
-    // ── SPIKE PROBE (亡语 Q2) — 验完即删 ─────────────────────────────
-    // KickNT(被踢 push) 一到就同步试发一条带 T0 的私聊, 验 native teardown 前
-    // 是否还有可写窗口. 目标: env SPIKE_DEATHRATTLE_TARGET(uin), 缺省发给自己.
-    this.pipeline.registerCmd('trpc.qq_new_tech.status_svc.StatusService.KickNT', () => {
-      const t0 = Date.now();
-      const target = Number(process.env.SPIKE_DEATHRATTLE_TARGET) || Number(this.identity.uin) || 0;
-      log.warn('[SPIKE] KickNT@bridge T0=%d uin=%s target=%d', t0, this.identity.uin, target);
-      if (target > 0) {
-        this.apis.message.sendPrivate(target, [{ type: 'text', text: `亡语测试 T0=${t0}` }])
-          .then(r => log.warn('[SPIKE] send OK   T0=%d T1=%d Δ=%dms seq=%d msgId=%d', t0, Date.now(), Date.now() - t0, r.sequence, r.messageId))
-          .catch(e => log.warn('[SPIKE] send FAIL T0=%d T1=%d Δ=%dms err=%s', t0, Date.now(), Date.now() - t0, e instanceof Error ? e.message : String(e)));
-      }
+    // ── PROBE (webhook 原因富化) — 验完即删 ──────────────────────────
+    // 亡语 Q2 已判死(服务器侧会话失效 → PbSendMsg 1006509, 见
+    // docs/plans/spike-deathrattle-window.md). 留这一只只读 probe 抓 KickNT
+    // body, 给后续 webhook reason-enrichment 反 tipsTitle/tipsDesc 的字段
+    // 布局. 不试发、不旁路 loggedIn 门. 抓到一次 body 后即删。
+    this.pipeline.registerCmd('trpc.qq_new_tech.status_svc.StatusService.KickNT', (pkt) => {
+      const buf = Buffer.from(pkt.body);
+      log.warn('[KICK-BODY] uin=%s len=%dB hex=%s utf8=%s',
+        this.identity.uin, buf.length, buf.toString('hex'), JSON.stringify(buf.toString('utf8')));
       return [];
     });
-    // ── /SPIKE PROBE ────────────────────────────────────────────────
+    // ── /PROBE ──────────────────────────────────────────────────────
   }
 
   dispose(): void {
