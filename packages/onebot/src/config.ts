@@ -56,6 +56,7 @@ export function makeDefaultOneBotConfig(): OneBotConfig {
     },
     musicSignUrl: '',
     statusCommand: makeDefaultStatusCommand(),
+    notifications: { channelIds: [] },
   };
 }
 
@@ -113,6 +114,7 @@ function toJsonObject(config: OneBotConfig): JsonObject {
       swallow: config.statusCommand.swallow,
       cooldownSeconds: config.statusCommand.cooldownSeconds,
     },
+    notifications: { channelIds: config.notifications?.channelIds ?? [] },
   };
 }
 
@@ -196,7 +198,41 @@ function fromJson(sources: JsonObject[], freshInstall: boolean): OneBotConfig {
   }
 
   const networks: OneBotNetworks = { httpServers, httpClients, wsServers, wsClients };
-  return { networks, musicSignUrl, statusCommand: parseStatusCommand(sources) };
+  return {
+    networks,
+    musicSignUrl,
+    statusCommand: parseStatusCommand(sources),
+    notifications: parseNotifications(sources),
+  };
+}
+
+/** Last-write-wins merge of `notifications.channelIds` across config sources,
+ *  each id validated as a slug + deduped. Mirrors the channel-id rule in
+ *  packages/core/src/notifications/config.ts (CHANNEL_ID_RE) — duplicated
+ *  deliberately: core depends on onebot, so onebot cannot import from core. */
+function parseNotifications(sources: JsonObject[]): { channelIds: string[] } {
+  let channelIds: string[] = [];
+  for (const src of sources) {
+    const raw = src.notifications;
+    if (!isObject(raw)) continue;
+    if (Array.isArray(raw.channelIds)) channelIds = normalizeChannelIds(raw.channelIds);
+  }
+  return { channelIds };
+}
+
+function normalizeChannelIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const v = item.trim();
+    if (!v || v.length > 64 || !/^[\w.-]+$/.test(v)) continue;
+    if (seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+  }
+  return out;
 }
 
 /** Last-write-wins merge of `statusCommand` across config sources, with

@@ -26,6 +26,7 @@ describe('makeDefaultOneBotConfig', () => {
     expect(config.networks.wsClients).toEqual([]);
     expect(config.musicSignUrl).toBe('');
     expect(config.statusCommand).toEqual({ enabled: true, swallow: false, cooldownSeconds: 5 });
+    expect(config.notifications).toEqual({ channelIds: [] });
   });
 });
 
@@ -219,6 +220,55 @@ describe('loadOneBotConfig', () => {
     expect(names.every((n) => n.length > 0)).toBe(true);
     expect(config.networks.httpServers.every((n) => n.messageFormat === 'array')).toBe(true);
     expect(config.networks.httpServers.every((n) => n.reportSelfMessage === false)).toBe(true);
+  });
+});
+
+describe('OneBotConfig.notifications (per-UIN channel opt-in)', () => {
+  let tempDir: string;
+  let prevCwd: string;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snowluma-onebot-notif-'));
+    prevCwd = process.cwd();
+    process.chdir(tempDir);
+  });
+
+  afterEach(() => {
+    process.chdir(prevCwd);
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('defaults to an empty channelIds list when absent', () => {
+    const config = loadOneBotConfig('20001');
+    expect(config.notifications).toEqual({ channelIds: [] });
+  });
+
+  it('validates, dedupes and drops bad channel ids', () => {
+    const uin = '20002';
+    const dir = path.join(tempDir, 'config');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, `onebot_${uin}.json`),
+      JSON.stringify({
+        networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
+        notifications: { channelIds: ['dingtalk', 'dingtalk', 'bad id!', '', 42, 'feishu'] },
+      }),
+    );
+    const config = loadOneBotConfig(uin);
+    expect(config.notifications?.channelIds).toEqual(['dingtalk', 'feishu']);
+  });
+
+  it('round-trips channelIds through save/load and persists them', () => {
+    const uin = '20003';
+    const config = makeDefaultOneBotConfig();
+    config.notifications = { channelIds: ['discord', 'serverchan'] };
+    saveOneBotConfig(uin, config);
+
+    const reloaded = loadOneBotConfig(uin);
+    expect(reloaded.notifications?.channelIds).toEqual(['discord', 'serverchan']);
+
+    const onDisk = JSON.parse(fs.readFileSync(path.join(tempDir, 'config', `onebot_${uin}.json`), 'utf8'));
+    expect(onDisk.notifications).toEqual({ channelIds: ['discord', 'serverchan'] });
   });
 });
 
