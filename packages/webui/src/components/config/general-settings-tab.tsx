@@ -6,6 +6,7 @@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
+import { NotificationOptIn } from '@/components/config/notification-opt-in';
 import type { OneBotConfig, StatusCommandConfig } from '@/types';
 
 interface GeneralSettingsTabProps {
@@ -83,6 +84,11 @@ export function GeneralSettingsTab({ config, onChange }: GeneralSettingsTabProps
           </p>
         </div>
       </div>
+
+      <NotificationOptIn
+        selectedIds={config.notifications?.channelIds ?? []}
+        onChange={(channelIds) => onChange({ ...config, notifications: { channelIds } })}
+      />
     </div>
   );
 }

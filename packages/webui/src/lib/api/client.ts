@@ -1,4 +1,4 @@
-import type { AccountConnections, HookProcessInfo, LogEntry, LogLevel, QQInfo, SystemInfo, UiAppearance, UiConfig, UpdateInfo } from '@/types';
+import type { AccountConnections, HookProcessInfo, LogEntry, LogLevel, NotificationDeliveryRecord, NotificationsConfig, QQInfo, SystemInfo, UiAppearance, UiConfig, UpdateInfo } from '@/types';
 import type { PasswordRule } from '@/components/pages/change-password-page';
 import { normalizeOneBotConfig } from '@/lib/onebot-config';
 import {
@@ -44,6 +44,7 @@ class HttpApiClient implements ApiClient {
   readonly logs: ApiClient['logs'];
   readonly update: ApiClient['update'];
   readonly ui: ApiClient['ui'];
+  readonly notifications: ApiClient['notifications'];
 
   constructor(opts: CreateApiClientOptions = {}) {
     this.tokenStore = opts.tokenStore ?? localStorageTokenStore(DEFAULT_TOKEN_KEY);
@@ -135,6 +136,26 @@ class HttpApiClient implements ApiClient {
         const data = await this.fetchJson<{ config: UiConfig }>('/api/ui/background', { method: 'DELETE' });
         return data.config;
       },
+    };
+
+    this.notifications = {
+      getConfig: () =>
+        this.getJson<{ config: NotificationsConfig }>('/api/notifications/config').then((d) => d.config),
+      saveConfig: async (config) => {
+        const data = await this.postJson<{ success: boolean; config: NotificationsConfig }>(
+          '/api/notifications/config',
+          config,
+        );
+        return data.config;
+      },
+      recent: (limit) =>
+        this.getJson<{ recent: NotificationDeliveryRecord[] }>(
+          `/api/notifications/recent${limit ? `?limit=${limit}` : ''}`,
+        ).then((d) => d.recent ?? []),
+      test: (channelId) =>
+        this.postJson<{ success: boolean; message?: string; status?: number }>('/api/notifications/test', {
+          channelId,
+        }),
     };
   }
 

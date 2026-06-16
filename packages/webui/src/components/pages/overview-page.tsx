@@ -22,7 +22,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { reconcileLayoutItems, useLayout } from '@/contexts/LayoutContext';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import {
-  CONFIGURABLE_WIDGETS, GRID_COLS, GRID_WIDGETS, MOBILE_WIDGET_IDS, STATIC_WIDGET_IDS, mobileHeightOf,
+  CONFIGURABLE_WIDGETS, GRID_COLS, GRID_WIDGETS, HIDDEN_BY_DEFAULT_IDS, MOBILE_WIDGET_IDS, mobileHeightOf,
   parseAccountConfig, parseAlertsConfig, parseConnectionsConfig, parseHostConfig,
   parseLinkConfig, parseNoteConfig, parseSessionsConfig, widgetLabel,
   type AccountConfig, type AlertsConfig, type ConnectionsConfig, type HostConfig,
@@ -34,6 +34,7 @@ import {
   AccountConfigForm, AlertsConfigForm, ConnectionsConfigForm, HostConfigForm,
   LinkConfigForm, LINK_ICON_COMPONENTS, NoteConfigForm, SessionsConfigForm,
 } from '@/components/pages/widget-config-forms';
+import { DeliveriesWidget } from '@/components/overview/deliveries-widget';
 
 function qqAvatarUrl(uin: string) {
   return `/avatar/${encodeURIComponent(uin)}`;
@@ -49,6 +50,7 @@ function renderWidget(block: UiLayoutItem): ReactNode {
     case 'note': return <NoteWidget config={parseNoteConfig(block.config)} />;
     case 'link': return <LinkWidget config={parseLinkConfig(block.config)} />;
     case 'account': return <AccountWidget config={parseAccountConfig(block.config)} />;
+    case 'deliveries': return <DeliveriesWidget />;
     default: return null;
   }
 }
@@ -78,7 +80,7 @@ export function OverviewPage() {
   // Reconcile the mobile order against the live widget catalogue (drop unknown,
   // append new as visible) — so a widget added later just appears on phones too.
   const mobileItems = useMemo(
-    () => reconcileLayoutItems(overviewMobile, MOBILE_WIDGET_IDS, [], STATIC_WIDGET_IDS),
+    () => reconcileLayoutItems(overviewMobile, MOBILE_WIDGET_IDS, [], HIDDEN_BY_DEFAULT_IDS),
     [overviewMobile],
   );
 

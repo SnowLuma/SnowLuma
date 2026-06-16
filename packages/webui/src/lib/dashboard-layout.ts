@@ -45,10 +45,16 @@ export const GRID_WIDGETS: GridWidgetSpec[] = [
   { id: 'note', label: '便签', minW: 2, minH: 2, def: { x: 0, y: 14, w: 4, h: 2 }, defaultVisible: false },
   { id: 'link', label: '链接卡', minW: 2, minH: 1, def: { x: 4, y: 14, w: 4, h: 1 }, defaultVisible: false },
   { id: 'account', label: '账号快捷卡', minW: 2, minH: 1, def: { x: 8, y: 14, w: 4, h: 1 }, defaultVisible: false },
+  { id: 'deliveries', label: '最近投递', minW: 3, minH: 3, def: { x: 0, y: 16, w: 6, h: 3 }, defaultVisible: false },
 ];
 
-/** The opt-in static widgets — appended hidden when reconciling forward. */
-export const STATIC_WIDGET_IDS: ReadonlySet<string> = new Set(['note', 'link', 'account']);
+/** Widgets hidden on first sight (opt-in) — derived from the catalogue's
+ *  `defaultVisible:false` so a new opt-in widget is hidden on BOTH desktop
+ *  (migrateOverviewBlocks) and mobile (reconcileLayoutItems) from a single
+ *  source of truth — no second registration to forget. */
+export const HIDDEN_BY_DEFAULT_IDS: ReadonlySet<string> = new Set(
+  GRID_WIDGETS.filter((w) => w.defaultVisible === false).map((w) => w.id),
+);
 
 const WIDGET_BY_ID = new Map(GRID_WIDGETS.map((w) => [w.id, w]));
 

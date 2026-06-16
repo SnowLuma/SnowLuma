@@ -108,6 +108,35 @@ export interface OneBotConfig {
   networks: OneBotNetworks;
   musicSignUrl?: string;
   statusCommand: StatusCommandConfig;
+  /** Per-account opt-in to global notification channels (by channel id). */
+  notifications?: { channelIds: string[] };
+}
+
+// ─── Notifications (account up/down webhooks) ───────────────────────────────
+export type NotificationEventKind = 'offline' | 'online';
+
+export interface NotificationChannel {
+  id: string;
+  name: string;
+  url: string;
+  bodyTemplate: string;
+  enabled: boolean;
+}
+
+export interface NotificationsConfig {
+  version: number;
+  debounceSeconds: number;
+  channels: NotificationChannel[];
+}
+
+export interface NotificationDeliveryRecord {
+  time: number;
+  uin: string;
+  event: NotificationEventKind;
+  channelId: string;
+  ok: boolean;
+  status?: number;
+  error?: string;
 }
 
 export type NetworkKind = keyof OneBotNetworks;
