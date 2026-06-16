@@ -50,12 +50,14 @@ export const DEFAULT_PAGES: UiPages = defaultPages();
 /**
  * Order + visibility for a known catalogue: keep stored items that still exist
  * (in their stored order + visibility), then append any catalogue entries the
- * stored layout predates (visible). `pinned` ids are forced visible.
+ * stored layout predates. `pinned` ids are forced visible; ids in
+ * `hiddenByDefault` are appended hidden (opt-in widgets), otherwise visible.
  */
 export function reconcileLayoutItems(
   stored: UiLayoutItem[] | undefined,
   known: readonly string[],
   pinned: readonly string[] = [],
+  hiddenByDefault: ReadonlySet<string> = new Set(),
 ): UiLayoutItem[] {
   const knownSet = new Set(known);
   const seen = new Set<string>();
@@ -66,7 +68,7 @@ export function reconcileLayoutItems(
     out.push({ id: item.id, visible: pinned.includes(item.id) ? true : item.visible !== false });
   }
   for (const id of known) {
-    if (!seen.has(id)) out.push({ id, visible: true });
+    if (!seen.has(id)) out.push({ id, visible: !hiddenByDefault.has(id) });
   }
   return out;
 }

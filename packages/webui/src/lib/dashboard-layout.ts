@@ -21,6 +21,9 @@ export interface GridWidgetSpec {
   minH: number;
   /** Default placement when the operator hasn't positioned it yet. */
   def: { x: number; y: number; w: number; h: number };
+  /** Whether the widget is shown by default. Static widgets (note/link/account)
+   *  start hidden — they're opt-in and need configuring first. Defaults true. */
+  defaultVisible?: boolean;
 }
 
 /** The five top stat tiles, split out of the legacy single `stats` block. */
@@ -38,7 +41,14 @@ export const GRID_WIDGETS: GridWidgetSpec[] = [
   { id: 'alerts', label: '最近告警', minW: 3, minH: 3, def: { x: 6, y: 1, w: 6, h: 4 } },
   { id: 'host', label: '主机资源', minW: 4, minH: 3, def: { x: 0, y: 5, w: 12, h: 4 } },
   { id: 'sessions', label: '在线会话', minW: 3, minH: 3, def: { x: 0, y: 9, w: 12, h: 5 } },
+  // Static, opt-in widgets — content lives in block.config, hidden by default.
+  { id: 'note', label: '便签', minW: 2, minH: 2, def: { x: 0, y: 14, w: 4, h: 2 }, defaultVisible: false },
+  { id: 'link', label: '链接卡', minW: 2, minH: 1, def: { x: 4, y: 14, w: 4, h: 1 }, defaultVisible: false },
+  { id: 'account', label: '账号快捷卡', minW: 2, minH: 1, def: { x: 8, y: 14, w: 4, h: 1 }, defaultVisible: false },
 ];
+
+/** The opt-in static widgets — appended hidden when reconciling forward. */
+export const STATIC_WIDGET_IDS: ReadonlySet<string> = new Set(['note', 'link', 'account']);
 
 const WIDGET_BY_ID = new Map(GRID_WIDGETS.map((w) => [w.id, w]));
 
@@ -58,7 +68,7 @@ function validCoords(item: UiLayoutItem | undefined): boolean {
 
 /** A fully-positioned overview block (coords always present). */
 export function defaultOverviewGrid(): UiLayoutItem[] {
-  return GRID_WIDGETS.map((w) => ({ id: w.id, visible: true, ...w.def }));
+  return GRID_WIDGETS.map((w) => ({ id: w.id, visible: w.defaultVisible !== false, ...w.def }));
 }
 
 /** The widget ids in single-column (mobile) default order — same catalogue as
@@ -67,7 +77,7 @@ export const MOBILE_WIDGET_IDS: readonly string[] = GRID_WIDGETS.map((w) => w.id
 
 /** Default single-column mobile overview (id+visible, no coords). */
 export function defaultOverviewMobile(): UiLayoutItem[] {
-  return GRID_WIDGETS.map((w) => ({ id: w.id, visible: true }));
+  return GRID_WIDGETS.map((w) => ({ id: w.id, visible: w.defaultVisible !== false }));
 }
 
 /**
@@ -97,7 +107,7 @@ export function migrateOverviewBlocks(stored: UiLayoutItem[] | undefined): UiLay
       ? item.visible !== false
       : isStatTile && legacyStats
         ? legacyStats.visible !== false
-        : true;
+        : spec.defaultVisible !== false;
     const coords = validCoords(item)
       ? { x: item!.x!, y: item!.y!, w: item!.w!, h: item!.h! }
       : { ...spec.def };
@@ -133,8 +143,41 @@ export const DEFAULT_SESSIONS_CONFIG: SessionsConfig = { sort: 'recent', filter:
 export const DEFAULT_HOST_CONFIG: HostConfig = { cpu: true, memory: true, runtime: true };
 export const DEFAULT_CONNECTIONS_CONFIG: ConnectionsConfig = { filter: '', onlyIssues: false, sort: 'default' };
 
+/** Static-widget content (stored in block.config). */
+export interface NoteConfig { text: string }
+export interface LinkConfig { label: string; url: string; icon: string }
+export interface AccountConfig { uin: string }
+
+/** Allowed link-card icon ids (a curated lucide subset). */
+export const LINK_ICON_IDS = ['link', 'external', 'github', 'book', 'server', 'globe', 'star', 'bell'] as const;
+/** Max note length — kept under the server's 4096-byte block.config JSON cap. */
+export const NOTE_MAX = 4000;
+
 /** Widgets that expose a config form (gear) in the layout editor. */
-export const CONFIGURABLE_WIDGETS = new Set(['alerts', 'sessions', 'host', 'connections']);
+export const CONFIGURABLE_WIDGETS = new Set([
+  'alerts', 'sessions', 'host', 'connections', 'note', 'link', 'account',
+]);
+
+export function parseNoteConfig(config: Record<string, unknown> | undefined): NoteConfig {
+  const c = config ?? {};
+  return { text: typeof c.text === 'string' ? c.text.slice(0, NOTE_MAX) : '' };
+}
+
+// Only http(s) — never javascript:/data: (the url goes into an <a href>).
+const SAFE_URL_RE = /^https?:\/\//i;
+export function parseLinkConfig(config: Record<string, unknown> | undefined): LinkConfig {
+  const c = config ?? {};
+  const label = typeof c.label === 'string' ? c.label.slice(0, 60) : '';
+  const url = typeof c.url === 'string' && SAFE_URL_RE.test(c.url.trim()) ? c.url.trim().slice(0, 2048) : '';
+  const icon = typeof c.icon === 'string' && (LINK_ICON_IDS as readonly string[]).includes(c.icon) ? c.icon : 'link';
+  return { label, url, icon };
+}
+
+export function parseAccountConfig(config: Record<string, unknown> | undefined): AccountConfig {
+  const c = config ?? {};
+  const uin = typeof c.uin === 'string' ? c.uin.replace(/\D/g, '').slice(0, 15) : '';
+  return { uin };
+}
 
 export function parseAlertsConfig(config: Record<string, unknown> | undefined): AlertsConfig {
   const c = config ?? {};

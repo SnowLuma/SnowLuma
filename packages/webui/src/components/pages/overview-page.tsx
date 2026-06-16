@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { motion, Reorder } from 'motion/react';
 import { Link } from '@tanstack/react-router';
 import {
-  Activity, ArrowRight, Bell, Cable, Check, Cpu, Eye, EyeOff, GripVertical, MemoryStick,
-  MonitorCog, Pencil, PlugZap, RefreshCw, RotateCcw, Server, Settings2, Users,
+  Activity, ArrowRight, Bell, Cable, Check, Cpu, ExternalLink, Eye, EyeOff, GripVertical,
+  MemoryStick, MonitorCog, Pencil, PlugZap, RefreshCw, RotateCcw, Server, Settings2, Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,14 +21,17 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { reconcileLayoutItems, useLayout } from '@/contexts/LayoutContext';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import {
-  CONFIGURABLE_WIDGETS, GRID_COLS, MOBILE_WIDGET_IDS, mobileHeightOf,
-  parseAlertsConfig, parseConnectionsConfig, parseHostConfig, parseSessionsConfig, widgetLabel,
-  type AlertsConfig, type ConnectionsConfig, type HostConfig, type SessionsConfig,
+  CONFIGURABLE_WIDGETS, GRID_COLS, MOBILE_WIDGET_IDS, STATIC_WIDGET_IDS, mobileHeightOf,
+  parseAccountConfig, parseAlertsConfig, parseConnectionsConfig, parseHostConfig,
+  parseLinkConfig, parseNoteConfig, parseSessionsConfig, widgetLabel,
+  type AccountConfig, type AlertsConfig, type ConnectionsConfig, type HostConfig,
+  type LinkConfig, type NoteConfig, type SessionsConfig,
 } from '@/lib/dashboard-layout';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DashboardGrid, type GridCoord } from '@/components/pages/dashboard-grid';
 import {
-  AlertsConfigForm, ConnectionsConfigForm, HostConfigForm, SessionsConfigForm,
+  AccountConfigForm, AlertsConfigForm, ConnectionsConfigForm, HostConfigForm,
+  LinkConfigForm, LINK_ICON_COMPONENTS, NoteConfigForm, SessionsConfigForm,
 } from '@/components/pages/widget-config-forms';
 
 function qqAvatarUrl(uin: string) {
@@ -42,6 +45,9 @@ function renderWidget(block: UiLayoutItem): ReactNode {
     case 'alerts': return <RecentAlertsCard config={parseAlertsConfig(block.config)} />;
     case 'host': return <HostBlock config={parseHostConfig(block.config)} />;
     case 'sessions': return <SessionsBlock config={parseSessionsConfig(block.config)} />;
+    case 'note': return <NoteWidget config={parseNoteConfig(block.config)} />;
+    case 'link': return <LinkWidget config={parseLinkConfig(block.config)} />;
+    case 'account': return <AccountWidget config={parseAccountConfig(block.config)} />;
     default: return null;
   }
 }
@@ -71,7 +77,7 @@ export function OverviewPage() {
   // Reconcile the mobile order against the live widget catalogue (drop unknown,
   // append new as visible) — so a widget added later just appears on phones too.
   const mobileItems = useMemo(
-    () => reconcileLayoutItems(overviewMobile, MOBILE_WIDGET_IDS),
+    () => reconcileLayoutItems(overviewMobile, MOBILE_WIDGET_IDS, [], STATIC_WIDGET_IDS),
     [overviewMobile],
   );
 
@@ -184,6 +190,9 @@ export function OverviewPage() {
           {configBlock?.id === 'sessions' && <SessionsConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('sessions', c)} />}
           {configBlock?.id === 'host' && <HostConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('host', c)} />}
           {configBlock?.id === 'connections' && <ConnectionsConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('connections', c)} />}
+          {configBlock?.id === 'note' && <NoteConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('note', c)} />}
+          {configBlock?.id === 'link' && <LinkConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('link', c)} />}
+          {configBlock?.id === 'account' && <AccountConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('account', c)} />}
         </DialogContent>
       </Dialog>
     </div>
@@ -647,6 +656,85 @@ function ConnectionsBlock({ config }: { config: ConnectionsConfig }) {
             ))}
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─────────────── static widgets (note / link / account) ───────────────
+
+function NoteWidget({ config }: { config: NoteConfig }) {
+  return (
+    <Card className="h-full overflow-hidden">
+      <CardContent className="h-full overflow-auto p-4">
+        {config.text.trim() ? (
+          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{config.text}</p>
+        ) : (
+          <p className="text-sm text-muted-foreground">空便签 · 在编辑模式点齿轮填写内容</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function LinkWidget({ config }: { config: LinkConfig }) {
+  const Icon = LINK_ICON_COMPONENTS[config.icon] ?? LINK_ICON_COMPONENTS.link;
+  if (!config.url) {
+    return (
+      <Card className="h-full overflow-hidden">
+        <CardContent className="flex h-full items-center gap-3 p-4 text-muted-foreground">
+          <Icon className="size-5 shrink-0" />
+          <span className="text-sm">未配置链接 · 点齿轮设置</span>
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <a href={config.url} target="_blank" rel="noreferrer noopener" className="block h-full rounded-xl outline-none">
+      <Card className="h-full overflow-hidden transition-colors hover:border-primary/40 hover:bg-accent/30">
+        <CardContent className="flex h-full items-center gap-3 p-4">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <Icon className="size-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold">{config.label || config.url}</p>
+            <p className="truncate text-[11px] text-muted-foreground">{config.url}</p>
+          </div>
+          <ExternalLink className="size-4 shrink-0 text-muted-foreground/60" />
+        </CardContent>
+      </Card>
+    </a>
+  );
+}
+
+function AccountWidget({ config }: { config: AccountConfig }) {
+  const { qqList } = useAppState();
+  const acct = qqList.find((q) => q.uin === config.uin);
+  if (!config.uin) {
+    return (
+      <Card className="h-full overflow-hidden">
+        <CardContent className="flex h-full items-center gap-3 p-4 text-muted-foreground">
+          <Users className="size-5 shrink-0" />
+          <span className="text-sm">未指定账号 · 点齿轮设置</span>
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <Card className="h-full overflow-hidden">
+      <CardContent className="flex h-full items-center gap-3 p-4">
+        <Avatar size={40}>
+          <AvatarImage src={qqAvatarUrl(config.uin)} alt={acct?.nickname || config.uin} />
+          <AvatarFallback>{(acct?.nickname || config.uin).slice(0, 2)}</AvatarFallback>
+        </Avatar>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold">{acct?.nickname || '未接入账号'}</p>
+          <p className="truncate font-mono text-[11px] text-muted-foreground tabular-nums">{config.uin}</p>
+        </div>
+        <span
+          title={acct ? '在线' : '未接入'}
+          className={cn('size-2 shrink-0 rounded-full', acct ? 'bg-success' : 'bg-muted-foreground/40')}
+        />
       </CardContent>
     </Card>
   );
