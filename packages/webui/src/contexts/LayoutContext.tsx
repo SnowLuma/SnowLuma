@@ -39,7 +39,7 @@ const ALL_LEVELS = ['trace', 'debug', 'info', 'success', 'warn', 'error'];
 export function defaultPages(): UiPages {
   return {
     defaultRoute: '/',
-    logs: { visibleLevels: [...ALL_LEVELS], maxLines: 1000, autoScroll: true, wrap: true, highlightRules: [] },
+    logs: { visibleLevels: [...ALL_LEVELS], maxLines: 1000, autoScroll: true, wrap: true, highlightRules: [], preset: 'custom' },
     processesSort: 'pid',
     configTab: '',
   };

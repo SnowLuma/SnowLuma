@@ -249,12 +249,16 @@ export interface UiHighlightRule {
   color: string;
 }
 
+export type LogsPreset = 'dev' | 'ops' | 'minimal' | 'custom';
+
 export interface UiLogsPrefs {
   visibleLevels: string[];
   maxLines: number;
   autoScroll: boolean;
   wrap: boolean;
   highlightRules: UiHighlightRule[];
+  /** Active view preset; 'custom' = hand-tuned. Client owns the bundles. */
+  preset: LogsPreset;
 }
 
 export interface UiPages {

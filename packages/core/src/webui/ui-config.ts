@@ -158,6 +158,8 @@ export interface UiHighlightRule {
   color: string;
 }
 
+export type LogsPreset = 'dev' | 'ops' | 'minimal' | 'custom';
+
 export interface UiLogsPrefs {
   /** Log levels shown by default (client display filter). */
   visibleLevels: string[];
@@ -167,6 +169,9 @@ export interface UiLogsPrefs {
   wrap: boolean;
   /** Keyword → colour row highlights. */
   highlightRules: UiHighlightRule[];
+  /** Active view preset id; 'custom' = the operator hand-tuned the prefs. The
+   *  client owns the preset → prefs bundles; the server just stores the id. */
+  preset: LogsPreset;
 }
 
 export interface UiPages {
@@ -278,6 +283,7 @@ const DEFAULT_PAGES: UiPages = {
     autoScroll: true,
     wrap: true,
     highlightRules: [],
+    preset: 'custom',
   },
   processesSort: 'pid',
   configTab: '',
@@ -571,6 +577,7 @@ export function normalizePages(value: unknown): UiPages {
       autoScroll: boolOr(logs.autoScroll, DEFAULT_PAGES.logs.autoScroll),
       wrap: boolOr(logs.wrap, DEFAULT_PAGES.logs.wrap),
       highlightRules: normalizeHighlightRules(logs.highlightRules),
+      preset: oneOf<LogsPreset>(logs.preset, ['dev', 'ops', 'minimal', 'custom'], 'custom'),
     },
     processesSort: idOr(v.processesSort, DEFAULT_PAGES.processesSort),
     configTab: typeof v.configTab === 'string' ? v.configTab.slice(0, 64) : DEFAULT_PAGES.configTab,

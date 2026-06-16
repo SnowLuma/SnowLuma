@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowDownToLine, Filter, Highlighter, Inbox, Pause, Plus, RefreshCw, Search, SearchX, SlidersHorizontal, Trash2, WrapText, X } from 'lucide-react';
+import { ArrowDownToLine, Download, Filter, Highlighter, Inbox, Pause, Plus, RefreshCw, Search, SearchX, SlidersHorizontal, Trash2, WrapText, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -8,7 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
-import type { LogEntry, LogLevel, UiHighlightRule } from '@/types';
+import type { LogEntry, LogLevel, LogsPreset, UiHighlightRule } from '@/types';
 import { useApi } from '@/lib/api';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLayout } from '@/contexts/LayoutContext';
@@ -23,6 +23,15 @@ const levelClass: Record<LogLevel, string> = {
 };
 
 const LEVELS: LogLevel[] = ['trace', 'debug', 'info', 'success', 'warn', 'error'];
+
+// View presets bundle the display prefs (levels/maxLines/autoScroll/wrap). The
+// server stores only the id; 'custom' (any hand-tuned state) has no bundle.
+interface PresetBundle { visibleLevels: LogLevel[]; maxLines: number; autoScroll: boolean; wrap: boolean }
+const LOG_PRESETS: { id: Exclude<LogsPreset, 'custom'>; label: string; hint: string; bundle: PresetBundle }[] = [
+  { id: 'dev', label: '开发', hint: '全部级别 · 2000 行 · 换行', bundle: { visibleLevels: [...LEVELS], maxLines: 2000, autoScroll: true, wrap: true } },
+  { id: 'ops', label: '运维', hint: 'INFO 以上 · 1000 行', bundle: { visibleLevels: ['info', 'success', 'warn', 'error'], maxLines: 1000, autoScroll: true, wrap: false } },
+  { id: 'minimal', label: '精简', hint: '仅 WARN/ERROR · 500 行', bundle: { visibleLevels: ['warn', 'error'], maxLines: 500, autoScroll: true, wrap: false } },
+];
 
 // Highlight palette — keyword rules tint a matching row. Stored as an id.
 const HIGHLIGHT_COLORS: { id: string; label: string; swatch: string }[] = [
@@ -164,16 +173,37 @@ export function LogsPage() {
     });
   }, [logs, filter, enabled, maxLines]);
 
+  // Any hand edit to the bundled prefs drops the active preset to 'custom'.
   const toggleLevel = (lv: LogLevel) => {
     const next = new Set(enabled);
     if (next.has(lv)) next.delete(lv); else next.add(lv);
-    setPages({ logs: { ...prefs, visibleLevels: LEVELS.filter((l) => next.has(l)) } });
+    setPages({ logs: { ...prefs, visibleLevels: LEVELS.filter((l) => next.has(l)), preset: 'custom' } });
   };
 
   const clearFilters = useCallback(() => {
     setFilter('');
-    setPages({ logs: { ...prefs, visibleLevels: [...LEVELS] } });
+    setPages({ logs: { ...prefs, visibleLevels: [...LEVELS], preset: 'custom' } });
   }, [prefs, setPages]);
+
+  const applyPreset = useCallback((p: typeof LOG_PRESETS[number]) => {
+    setPages({ logs: { ...prefs, ...p.bundle, preset: p.id } });
+  }, [prefs, setPages]);
+
+  // Dump the current (filtered) view to a .log text file — purely client-side.
+  const exportLogs = useCallback(() => {
+    if (filtered.length === 0) return;
+    const lines = filtered.map(
+      (l) => l.line || `${l.time} ${l.level.toUpperCase().padEnd(7)} [${l.scope}] ${l.message}`,
+    );
+    const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    a.href = url;
+    a.download = `snowluma-logs-${ts}.log`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [filtered]);
 
   const addHighlight = () => {
     const kw = newKeyword.trim();
@@ -244,14 +274,14 @@ export function LogsPage() {
             <ToolButton
               label={prefs.autoScroll ? '自动滚动已开启' : '自动滚动已暂停'}
               active={prefs.autoScroll}
-              onClick={() => setPages({ logs: { ...prefs, autoScroll: !prefs.autoScroll } })}
+              onClick={() => setPages({ logs: { ...prefs, autoScroll: !prefs.autoScroll, preset: 'custom' } })}
             >
               {prefs.autoScroll ? <ArrowDownToLine /> : <Pause />}
             </ToolButton>
             <ToolButton
               label="自动换行"
               active={prefs.wrap}
-              onClick={() => setPages({ logs: { ...prefs, wrap: !prefs.wrap } })}
+              onClick={() => setPages({ logs: { ...prefs, wrap: !prefs.wrap, preset: 'custom' } })}
             >
               <WrapText />
             </ToolButton>
@@ -264,6 +294,9 @@ export function LogsPage() {
 
           <ToolButton label="刷新" onClick={() => void loadLogs()}>
             <RefreshCw />
+          </ToolButton>
+          <ToolButton label="导出当前视图" onClick={exportLogs} disabled={filtered.length === 0}>
+            <Download />
           </ToolButton>
           <ToolButton label="清空视图" danger onClick={() => setConfirmClear(true)}>
             <Trash2 />
@@ -310,6 +343,43 @@ export function LogsPage() {
             className="overflow-hidden"
           >
             <div className="mx-5 mb-3 flex flex-col gap-4 rounded-xl border bg-muted/20 p-4">
+              {/* View presets */}
+              <div>
+                <div className="mb-2 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                  <SlidersHorizontal className="size-3.5 text-muted-foreground" />
+                  <span className="text-xs font-medium text-foreground">视图预设</span>
+                  <span className="text-[10px] text-muted-foreground">· 一键套用级别 / 行数 / 换行；手动调整后变为「自定义」</span>
+                </div>
+                <div className="inline-flex flex-wrap gap-1 rounded-lg bg-muted/60 p-1">
+                  {LOG_PRESETS.map((p) => {
+                    const active = prefs.preset === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => applyPreset(p)}
+                        aria-pressed={active}
+                        title={p.hint}
+                        className={cn(
+                          'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition-all cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40',
+                          active ? 'bg-card text-foreground shadow-sm ring-1 ring-border/60' : 'text-muted-foreground/70 hover:text-foreground',
+                        )}
+                      >
+                        {p.label}
+                      </button>
+                    );
+                  })}
+                  <span
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium',
+                      prefs.preset === 'custom' ? 'bg-card text-foreground shadow-sm ring-1 ring-border/60' : 'text-muted-foreground/40',
+                    )}
+                  >
+                    自定义
+                  </span>
+                </div>
+              </div>
+
               {/* Server-side level */}
               <div>
                 <div className="mb-2 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
