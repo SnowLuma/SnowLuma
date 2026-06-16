@@ -8,6 +8,7 @@ import { NAV_ITEMS } from '@/components/layout/sidebar';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AppStateProvider } from '@/contexts/AppStateContext';
+import { KioskProvider } from '@/contexts/KioskContext';
 import { LayoutProvider, useLayout } from '@/contexts/LayoutContext';
 import { useSession } from '@/contexts/SessionContext';
 import type { AppPath } from '@/router';
@@ -157,16 +158,18 @@ export function AppLayout() {
       }}
     >
       <LayoutProvider>
-        <DefaultRouteRedirect />
-        <MainLayout status={session.status} onLogout={handleLogout}>
-          {/* Routes use `lazyRouteComponent` (router/index.tsx) for
-              code-splitting, which suspends until the chunk is fetched.
-              The chrome (sidebar / top bar) stays mounted across this
-              boundary so only the page surface flashes a skeleton. */}
-          <Suspense fallback={<PageFallback />}>
-            <Outlet />
-          </Suspense>
-        </MainLayout>
+        <KioskProvider>
+          <DefaultRouteRedirect />
+          <MainLayout status={session.status} onLogout={handleLogout}>
+            {/* Routes use `lazyRouteComponent` (router/index.tsx) for
+                code-splitting, which suspends until the chunk is fetched.
+                The chrome (sidebar / top bar) stays mounted across this
+                boundary so only the page surface flashes a skeleton. */}
+            <Suspense fallback={<PageFallback />}>
+              <Outlet />
+            </Suspense>
+          </MainLayout>
+        </KioskProvider>
       </LayoutProvider>
 
       <ConfirmDialog

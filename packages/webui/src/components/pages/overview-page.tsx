@@ -110,8 +110,9 @@ export function OverviewPage() {
     <div className="flex flex-col gap-5">
       {/* Toolbar: edit toggle on both desktop (2D grid overlays) and mobile
           (single-column drag-sort panel). The sidebar nav is drag-sortable in
-          edit mode on both — no separate editor panel. */}
-      <div className="flex items-center justify-end gap-2">
+          edit mode on both — no separate editor panel. Hidden in kiosk mode
+          (data-kiosk-hide → CSS) so a wall display has no edit entry. */}
+      <div data-kiosk-hide className="flex items-center justify-end gap-2">
         {editing && (
           <Button variant="ghost" size="sm" onClick={resetLayout} className="text-muted-foreground">
             <RotateCcw className="size-3.5" /> 恢复默认

@@ -210,6 +210,12 @@ html[data-contrast="high"] {
   --sidebar-border: color-mix(in oklab, var(--foreground) 55%, var(--sidebar-border));
 }
 
+/* Kiosk ("展示模式"): hide any in-content edit/config entry points marked with
+   data-kiosk-hide (the chrome itself is removed in MainLayout). */
+html[data-kiosk="1"] [data-kiosk-hide] {
+  display: none !important;
+}
+
 /* Reduce motion: a CSS fallback for non-Framer transitions/animations.
    Framer Motion itself is handled by <MotionConfig reducedMotion>. */
 html[data-reduce-motion="1"] *,

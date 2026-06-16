@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LogOut, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { LogOut, Menu, Monitor, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useRouterState } from '@tanstack/react-router';
 import { Button } from '@/components/ui/button';
@@ -8,12 +8,14 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { NAV_ITEMS } from '@/components/layout/sidebar';
 import { reconcileLayoutItems, useLayout } from '@/contexts/LayoutContext';
+import { useKiosk } from '@/contexts/KioskContext';
 
 // Toggleable top-bar elements (the menu/title/logout are essential and always
 // render). Labels drive the settings toggles; ids match `topbarItems`.
 export const TOPBAR_CATALOGUE: { id: string; label: string }[] = [
   { id: 'status', label: '连接状态徽章' },
   { id: 'theme', label: '主题切换按钮' },
+  { id: 'kiosk', label: '展示模式按钮' },
 ];
 
 interface TopBarProps {
@@ -45,6 +47,7 @@ export function TopBar({
   // Which optional top-bar elements the operator has kept (reconciled against
   // the live catalogue, so a new element defaults to shown).
   const { topbarItems } = useLayout();
+  const { enter: enterKiosk } = useKiosk();
   const shown = new Set(
     reconcileLayoutItems(topbarItems, TOPBAR_CATALOGUE.map((t) => t.id))
       .filter((i) => i.visible)
@@ -103,6 +106,19 @@ export function TopBar({
         )}
 
         {shown.has('theme') && <ThemeToggle />}
+
+        {shown.has('kiosk') && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={enterKiosk}
+            aria-label="展示模式"
+            title="展示模式（隐藏侧栏与顶栏，Esc 退出）"
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <Monitor className="size-4" />
+          </Button>
+        )}
 
         <Button
           variant="ghost"
