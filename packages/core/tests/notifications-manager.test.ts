@@ -101,6 +101,54 @@ describe('NotificationManager — dispatch + history', () => {
   });
 });
 
+describe('NotificationManager.testSend', () => {
+  function setup(over: Partial<NotificationManagerDeps> = {}) {
+    const posts: { url: string; body: string }[] = [];
+    const cfg: NotificationsConfig = {
+      version: 1,
+      debounceSeconds: 30,
+      // disabled + nobody opted in — testSend must still fire it.
+      channels: [ch({ id: 'c1', enabled: false, bodyTemplate: 'test:{event}:{nickname}' })],
+    };
+    const deps: NotificationManagerDeps = {
+      loadConfig: () => cfg,
+      loadChannelIds: () => [],
+      post: async (url, body): Promise<PostResult> => {
+        posts.push({ url, body });
+        return { ok: true, status: 200 };
+      },
+      now: () => 1000,
+      ...over,
+    };
+    return { posts, mgr: new NotificationManager(deps) };
+  }
+
+  it('fires a disabled / non-opted-in channel with sample vars', async () => {
+    const { posts, mgr } = setup();
+    const res = await mgr.testSend('c1');
+    expect(res).toMatchObject({ found: true, ok: true, status: 200 });
+    expect(posts).toHaveLength(1);
+    expect(posts[0].body).toBe('test:offline:测试账号');
+  });
+
+  it('returns found:false for an unknown channel and posts nothing', async () => {
+    const { posts, mgr } = setup();
+    expect(await mgr.testSend('ghost')).toMatchObject({ found: false, ok: false });
+    expect(posts).toEqual([]);
+  });
+
+  it('does not record test sends in history', async () => {
+    const { mgr } = setup();
+    await mgr.testSend('c1');
+    expect(mgr.getRecent()).toEqual([]);
+  });
+
+  it('surfaces a failed delivery without throwing', async () => {
+    const { mgr } = setup({ post: async (): Promise<PostResult> => ({ ok: false, status: 500, error: 'nope' }) });
+    expect(await mgr.testSend('c1')).toMatchObject({ found: true, ok: false, status: 500 });
+  });
+});
+
 describe('NotificationManager — debounce integration (fake timers)', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());

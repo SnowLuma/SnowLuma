@@ -182,6 +182,31 @@ export class NotificationManager {
     }
   }
 
+  /** Send a one-off test to a single channel by id — ignores `enabled` and the
+   *  per-UIN opt-in (you test a channel before wiring it up), with sample
+   *  variables. Reuses the real render+POST path; NOT recorded to history.
+   *  `found:false` means the channel id is unknown. */
+  async testSend(channelId: string): Promise<PostResult & { found: boolean }> {
+    let channel: NotificationChannel | undefined;
+    try {
+      channel = this.deps.loadConfig().channels.find((c) => c.id === channelId);
+    } catch (err) {
+      return { ok: false, found: false, error: errMsg(err) };
+    }
+    if (!channel) return { ok: false, found: false };
+    const body = renderTemplate(channel.bodyTemplate, {
+      uin: '10000',
+      nickname: '测试账号',
+      event: 'offline',
+      time: new Date(this.deps.now()).toISOString(),
+    });
+    try {
+      return { ...(await this.deps.post(channel.url, body)), found: true };
+    } catch (err) {
+      return { ok: false, found: true, error: errMsg(err) };
+    }
+  }
+
   private record(rec: DeliveryRecord): void {
     this.history.push(rec);
     if (this.history.length > this.historyLimit) {
