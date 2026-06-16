@@ -1,6 +1,6 @@
 {
   "name": "snowluma-monorepo",
-  "version": "1.9.11",
+  "version": "1.9.12",
   "description": "SnowLuma monorepo workspace (pnpm)",
   "private": true,
   "type": "module",

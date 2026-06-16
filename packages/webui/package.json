@@ -1,7 +1,7 @@
 {
   "name": "webui",
   "private": true,
-  "version": "1.9.11",
+  "version": "1.9.12",
   "type": "module",
   "scripts": {
     "dev": "vite",
