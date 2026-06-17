@@ -43,19 +43,27 @@ describe('ImageOcr namespace', () => {
     expect(out.ocrReqBody).toMatchObject({ imageUrl: 'https://x/a.jpg', isCut: false });
   });
 
-  it('routes to OidbSvcTrpcTcp.0xe07_0 and round-trips the request body (locks pb tags)', async () => {
+  it('routes to OidbSvcTrpcTcp.0xe07_0 and encodes the exact wire bytes (fixed byte-oracle locks pb tags)', async () => {
     const sender = makeSender();
     await ImageOcr.invoke(sender, { imageUrl: 'https://x/a.jpg' });
     const [cmd, bytes] = sender.sendRawPacket.mock.calls[0]!;
     expect(cmd).toBe('OidbSvcTrpcTcp.0xe07_0');
+    // Independent byte-oracle: a fixed hex constant, NOT re-derived from the
+    // proto, so a tag change actually goes red (a symmetric encode→decode
+    // round-trip would not). Hand-decoded: 08 871c = field1 command varint
+    // 0xE07; 22 17 = field4 body (23B); body: 08 01 version=1, 18 01
+    // entrance=1 (client=0 omitted), 52 11 = field10 ocrReqBody (17B):
+    // 0a 0f = field1 imageUrl + "https://x/a.jpg".
+    expect(Buffer.from(bytes).toString('hex'))
+      .toBe('08871c22170801180152110a0f68747470733a2f2f782f612e6a7067');
+    // And the structure decodes back as expected.
     const env = protobuf_decode<OidbBase<ImageOcrReq>>(bytes);
     expect(env.command).toBe(0xE07);
-    // subCommand 0 is a protobuf default → omitted on the wire (decodes to
-    // null); the '0xe07_0' cmd string above already pins it. version/entrance
-    // are non-zero so survive; client=0 is likewise omitted (serialize test
-    // covers the pre-encode shape).
-    expect(env.body).toMatchObject({ version: 1, entrance: 1 });
     expect(env.body.ocrReqBody?.imageUrl).toBe('https://x/a.jpg');
+  });
+
+  it('deserializes an empty ocr body to {texts:[], language:""}', () => {
+    expect(ImageOcr.deserialize({} as any, { retCode: 0 })).toEqual({ texts: [], language: '' });
   });
 
   it('deserializes text detections + coordinates + language', async () => {

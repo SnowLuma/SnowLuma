@@ -1258,6 +1258,9 @@ export const actions = [
     readOnly: true,
     params: { image: f.string({ allowEmpty: false }) },
     run: async (p, ctx) => {
+      // A passed-in http(s) URL is used verbatim (NOT re-signed) — if it is a
+      // stale CDN URL with an expired rkey the server fetch fails and surfaces
+      // the server's retCode. The file_id path below re-signs via getImageInfo.
       let url = /^https?:\/\//i.test(p.image) ? p.image : '';
       if (!url) {
         const info = await ctx.getImageInfo(p.image);
