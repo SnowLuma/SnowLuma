@@ -662,22 +662,20 @@ describe('extended-actions / get_file', () => {
     expect(res).toMatchObject({ status: 'ok', data: recordInfo });
   });
 
-  it('fails when the id resolves to nothing cached', async () => {
+  it('fails with a neutral cache-miss message that points to the group-file path', async () => {
+    // A double cache miss is runtime-indistinguishable between "a group-file
+    // file_id was passed (unsupported here)" and "the image/voice really isn't
+    // cached" — run() does not parse the id's shape. So the error must stay
+    // neutral: state the cache miss, then offer the group-file path as
+    // guidance, without asserting "unsupported".
     const getImageInfo = vi.fn(async () => null);
     const getRecordInfo = vi.fn(async () => null);
     const res = await makeHandler(fakeCtx(fakeBridge(), { getImageInfo, getRecordInfo })).handle('get_file', { file_id: 'nope' });
     expect(res).toMatchObject({ status: 'failed', retcode: 100 });
-  });
-
-  it('gives an unsupported-file_id message (not a misleading "not cached") for a group-file id', async () => {
-    // A group-file file_id cannot be resolved here (no group context); the
-    // error must say so rather than imply the file is merely uncached.
-    const getImageInfo = vi.fn(async () => null);
-    const getRecordInfo = vi.fn(async () => null);
-    const res = await makeHandler(fakeCtx(fakeBridge(), { getImageInfo, getRecordInfo }))
-      .handle('get_file', { file_id: '/abcdef-group-file-id' });
-    expect(res.status).toBe('failed');
-    expect((res as { wording?: string }).wording).toMatch(/unsupported|get_group_file_url/);
+    const wording = (res as { wording?: string }).wording ?? '';
+    expect(wording).toMatch(/not found in the image\/voice cache/);
+    expect(wording).toMatch(/get_group_file_url/);
+    expect(wording).not.toMatch(/unsupported/);
   });
 
   it('rejects when neither file nor file_id is given', async () => {

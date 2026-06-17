@@ -1043,7 +1043,11 @@ export const actions = [
   // 局限：群文件/普通文件的 file_id 无法在此解析——OneBot `get_file` 单参
   // 签名不含 group_id，而 SnowLuma 群文件下载需要 group 上下文（用
   // get_group_file_url / get_private_file_url）。故此处仅覆盖图片/语音，
-  // 不为群文件伪造结果，且对群文件 file_id 给出可区分的错误信息。
+  // 不为群文件伪造结果。
+  // 注意：缓存双 miss 时无法在此区分"传入的是群文件 file_id"与"图片/语音
+  // 确实未缓存（如进程重启丢失）"——run() 不解析 id 形态。故错误信息保持
+  // 中性：先陈述"未命中缓存"的事实，再把群文件改用别的接口作为指引，
+  // 而非武断断言"不支持"。（summary 仅进离线文档，调用方运行时只看到 wording。）
   defineAction({
     name: 'get_file',
     summary: '获取文件信息（仅图片/语音缓存；群文件请用 get_group_file_url）',
@@ -1059,12 +1063,10 @@ export const actions = [
       if (image) return okResponse(image);
       const record = await ctx.getRecordInfo(fileId);
       if (record) return okResponse(record);
-      // 与 NapCat 不同，本接口不解析群文件/普通文件 file_id（需 group 上下文）。
-      // 区分"不支持此类 file_id"与"图片/语音确实未缓存"，避免调用方误判。
       return failedResponse(
         RETCODE.ACTION_FAILED,
-        'get_file resolves only image/voice file_id from the media cache; '
-        + 'group/normal file_id is unsupported here — use get_group_file_url or get_private_file_url',
+        'file_id not found in the image/voice cache. get_file only resolves cached '
+        + 'image/voice ids; for group/normal files use get_group_file_url or get_private_file_url',
       );
     },
   }),
