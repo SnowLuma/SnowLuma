@@ -1248,12 +1248,34 @@ export const actions = [
     },
   }),
 
+  // ocr_image — 服务端 OCR via OIDB 0xE07_0（port 自 Lagrange/NapCat proto）。
+  // 该 cmd 接收图片 URL（服务端拉取），故 image 支持：http(s) URL 直用，或
+  // 已缓存图片的 file_id（经 getImageInfo 解析出 URL）。base64/本地文件需先
+  // 上传换 URL，本实现不覆盖（NapCat 走的是 Windows-only 内核 OCR，不可移植）。
   defineAction({
     name: ['ocr_image', '.ocr_image'],
-    summary: 'OCR 图片（未实现）',
+    summary: 'OCR 图片（服务端，需图片 URL 或已缓存的图片 file_id）',
     readOnly: true,
-    params: {},
-    run: () => failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented'),
+    params: { image: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      let url = /^https?:\/\//i.test(p.image) ? p.image : '';
+      if (!url) {
+        const info = await ctx.getImageInfo(p.image);
+        const resolved = info && typeof info.url === 'string' ? info.url : '';
+        if (resolved) url = resolved;
+      }
+      if (!url) {
+        return failedResponse(
+          RETCODE.ACTION_FAILED,
+          'ocr_image needs an http(s) image url or a cached image file_id; '
+          + 'base64/local-file input is not supported',
+        );
+      }
+      const result = await ctx.bridge.apis.misc.ocrImage(url);
+      // OcrResult is plain JSON data; the interface just lacks an index
+      // signature, so coerce for the JsonValue-typed response.
+      return okResponse(result as unknown as JsonObject);
+    },
   }),
 
   groupAction({

@@ -751,3 +751,48 @@ describe('extended-actions / get_rkey_server', () => {
     expect(res).toMatchObject({ status: 'failed', retcode: 100 });
   });
 });
+
+// ─── Wave 3: ocr_image / .ocr_image (OIDB 0xE07_0) ───
+
+describe('extended-actions / ocr_image', () => {
+  const ocrResult = { texts: [{ text: 'hello', confidence: 99, coordinates: [{ x: 1, y: 2 }] }], language: 'en' };
+
+  it('OCRs an http(s) image URL directly', async () => {
+    const ocrImage = vi.fn(async () => ocrResult);
+    const bridge = fakeBridge({ apis: { misc: { ocrImage } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('ocr_image', { image: 'https://x/a.jpg' });
+    expect(res).toMatchObject({ status: 'ok', data: ocrResult });
+    expect(ocrImage).toHaveBeenCalledWith('https://x/a.jpg');
+  });
+
+  it('resolves a cached image file_id to a url via getImageInfo', async () => {
+    const ocrImage = vi.fn(async () => ocrResult);
+    const getImageInfo = vi.fn(async () => ({ url: 'https://cdn/resolved.jpg' }));
+    const bridge = fakeBridge({ apis: { misc: { ocrImage } } });
+    const res = await makeHandler(fakeCtx(bridge, { getImageInfo })).handle('ocr_image', { image: 'abc.jpg' });
+    expect(res.status).toBe('ok');
+    expect(ocrImage).toHaveBeenCalledWith('https://cdn/resolved.jpg');
+  });
+
+  it('.ocr_image shares the same handler', async () => {
+    const ocrImage = vi.fn(async () => ocrResult);
+    const bridge = fakeBridge({ apis: { misc: { ocrImage } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('.ocr_image', { image: 'http://x/a.jpg' });
+    expect(res.status).toBe('ok');
+  });
+
+  it('fails when the id cannot be resolved to a url', async () => {
+    const ocrImage = vi.fn();
+    const getImageInfo = vi.fn(async () => null);
+    const bridge = fakeBridge({ apis: { misc: { ocrImage } } });
+    const res = await makeHandler(fakeCtx(bridge, { getImageInfo })).handle('ocr_image', { image: 'unknown' });
+    expect(res.status).toBe('failed');
+    expect(ocrImage).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing image', async () => {
+    const bridge = fakeBridge({ apis: { misc: { ocrImage: vi.fn() } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('ocr_image', {});
+    expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
+  });
+});

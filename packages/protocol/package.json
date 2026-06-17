@@ -99,6 +99,10 @@
       "types": "./src/oidb-services/misc/translate-en-to-zh.ts",
       "default": "./src/oidb-services/misc/translate-en-to-zh.ts"
     },
+    "./oidb-services/misc/image-ocr": {
+      "types": "./src/oidb-services/misc/image-ocr.ts",
+      "default": "./src/oidb-services/misc/image-ocr.ts"
+    },
     "./oidb-services/misc/click-inline-keyboard-button": {
       "types": "./src/oidb-services/misc/click-inline-keyboard-button.ts",
       "default": "./src/oidb-services/misc/click-inline-keyboard-button.ts"

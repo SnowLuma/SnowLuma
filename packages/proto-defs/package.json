@@ -70,6 +70,10 @@
     "./oidb-actions/media": {
       "types": "./src/oidb-actions/media.ts",
       "default": "./src/oidb-actions/media.ts"
+    },
+    "./oidb-actions/ocr": {
+      "types": "./src/oidb-actions/ocr.ts",
+      "default": "./src/oidb-actions/ocr.ts"
     }
   },
   "scripts": {
