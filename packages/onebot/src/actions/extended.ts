@@ -705,15 +705,20 @@ export const actions = [
     },
   }),
 
-  // get_group_shut_list 依赖尚未封装的 oidb。
-  // 这里遵循 NapCat 约定返回空列表，避免调用方出错。
-  defineAction({
+  // get_group_shut_list — SnowLuma 无独立"禁言列表"cmd，按成员列表的
+  // shutUpTime 字段（绝对到期时间戳，秒）派生：保留仍在禁言中的成员。
+  // 走带 TTL 缓存的 fetchGroupMemberList（风控友好），与 NapCat 返回形状对齐。
+  groupAction({
     name: 'get_group_shut_list',
-    summary: '获取群禁言列表（占位）',
+    summary: '获取群禁言列表',
     readOnly: true,
-    params: {},
-    run: async () => {
-      return okResponse([]);
+    run: async (p, ctx) => {
+      const members = await ctx.bridge.apis.contacts.fetchGroupMemberList(p.group_id);
+      const nowSec = Math.floor(Date.now() / 1000);
+      const list = members
+        .filter((m) => (m.shutUpTime ?? 0) > nowSec)
+        .map((m) => ({ user_id: m.uin, nickname: m.nickname, shut_up_time: m.shutUpTime }));
+      return okResponse(list);
     },
   }),
 

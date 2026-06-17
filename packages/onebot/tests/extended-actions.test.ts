@@ -350,12 +350,6 @@ describe('extended-actions / get_group_ignore_add_request', () => {
   });
 });
 
-describe('extended-actions / get_group_shut_list', () => {
-  it('returns empty list (oidb not yet wrapped)', async () => {
-    const res = await makeHandler(fakeCtx(fakeBridge())).handle('get_group_shut_list', {});
-    expect(res).toEqual({ status: 'ok', retcode: 0, data: [] });
-  });
-});
 
 // ─── Tier 1: delete_group_folder alias ───
 
@@ -618,5 +612,31 @@ describe('extended-actions / set_group_portrait', () => {
       group_id: 1, file: 'x.png',
     });
     expect(res).toMatchObject({ status: 'failed', retcode: 100, wording: 'highway 500' });
+  });
+});
+
+// ─── Wave 1: get_group_shut_list ───
+
+describe('extended-actions / get_group_shut_list', () => {
+  it('returns only currently-muted members in NapCat shape', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const fetchGroupMemberList = vi.fn(async () => [
+      { uin: 111, uid: 'u1', nickname: 'muted', card: '', role: 'member', level: 1, title: '', joinTime: 0, lastSentTime: 0, shutUpTime: nowSec + 3600 },
+      { uin: 222, uid: 'u2', nickname: 'free', card: '', role: 'member', level: 1, title: '', joinTime: 0, lastSentTime: 0, shutUpTime: 0 },
+      { uin: 333, uid: 'u3', nickname: 'expired', card: '', role: 'member', level: 1, title: '', joinTime: 0, lastSentTime: 0, shutUpTime: nowSec - 3600 },
+    ]);
+    const bridge = fakeBridge({ fetchGroupMemberList: fetchGroupMemberList as any });
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_group_shut_list', { group_id: 12345 });
+    expect(res.status).toBe('ok');
+    expect(fetchGroupMemberList).toHaveBeenCalledWith(12345);
+    expect(res.data).toEqual([
+      { user_id: 111, nickname: 'muted', shut_up_time: nowSec + 3600 },
+    ]);
+  });
+
+  it('rejects missing group_id', async () => {
+    const bridge = fakeBridge({ fetchGroupMemberList: vi.fn() as any });
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_group_shut_list', {});
+    expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
   });
 });
