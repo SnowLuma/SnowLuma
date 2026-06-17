@@ -16,7 +16,10 @@ import { cn } from '@/lib/utils';
 import type { NotificationChannel, NotificationsConfig } from '@/types';
 import { NotificationChannelDialog } from './notification-channel-dialog';
 
-const DEFAULT_TEMPLATE = '{nickname}({uin}) {event} @ {time}';
+const DEFAULT_TEMPLATE = `{
+  "title": "账号状态通知：{event}",
+  "desp": "您的账号状态发生了改变。\\n\\n**昵称**：{nickname}\\n**QQ号**：{uin}\\n**当前状态**：{event}\\n**时间**：{time}"
+}`;
 
 /** A fresh channel with a non-colliding default id. */
 function blankChannel(existing: NotificationChannel[]): NotificationChannel {

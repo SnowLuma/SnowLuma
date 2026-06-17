@@ -48,9 +48,13 @@ export interface NotificationsConfig {
   channels: NotificationChannel[];
 }
 
-/** A neutral plaintext starting point; the WebUI ships per-vendor presets
- *  (钉钉/Discord/…) as frontend constants the operator can drop in. */
-export const DEFAULT_BODY_TEMPLATE = '{nickname}({uin}) {event} @ {time}';
+/** Default body template — Server酱-style JSON ({title}/{desp}). The WebUI
+ *  ships additional per-vendor presets (钉钉/Discord/…) as frontend constants
+ *  the operator can drop in. */
+export const DEFAULT_BODY_TEMPLATE = `{
+  "title": "账号状态通知：{event}",
+  "desp": "您的账号状态发生了改变。\\n\\n**昵称**：{nickname}\\n**QQ号**：{uin}\\n**当前状态**：{event}\\n**时间**：{time}"
+}`;
 
 export function defaultNotificationsConfig(): NotificationsConfig {
   return {
