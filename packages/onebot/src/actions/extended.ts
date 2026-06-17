@@ -1032,18 +1032,25 @@ export const actions = [
     },
   }),
 
+  // get_file — 统一文件信息入口。SnowLuma 按 file_id 解析媒体缓存：
+  // 先图片、后语音（两者已带 url 重签与 file_size/file_name）。文档类文件
+  // 当前无可按 id 解析的缓存，故不在此伪造，仅覆盖图片/语音的主流用例。
   defineAction({
     name: 'get_file',
-    summary: '获取文件（未实现）',
+    summary: '获取文件信息（图片/语音缓存）',
     readOnly: true,
     params: {
       file_id: f.string().default(''),
       file: f.string().default(''),
     },
-    run: async (p) => {
-      const fileId = p.file_id || p.file;
+    run: async (p, ctx) => {
+      const fileId = p.file || p.file_id;
       if (!fileId) return failedResponse(RETCODE.BAD_REQUEST, 'file_id is required');
-      return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
+      const image = await ctx.getImageInfo(fileId);
+      if (image) return okResponse(image);
+      const record = await ctx.getRecordInfo(fileId);
+      if (record) return okResponse(record);
+      return failedResponse(RETCODE.ACTION_FAILED, 'file not found in cache');
     },
   }),
 

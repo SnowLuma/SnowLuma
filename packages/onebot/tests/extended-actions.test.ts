@@ -640,3 +640,37 @@ describe('extended-actions / get_group_shut_list', () => {
     expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
   });
 });
+
+// ─── Wave 1: get_file (compose image→record cache) ───
+
+describe('extended-actions / get_file', () => {
+  const imageInfo = { file: 'a.jpg', url: 'http://x/a.jpg', file_size: '12', file_name: 'a.jpg' };
+  const recordInfo = { file: 'b.amr', url: 'http://x/b.amr', file_size: '34', file_name: 'b.amr' };
+
+  it('resolves an image file_id via the image cache', async () => {
+    const getImageInfo = vi.fn(async () => imageInfo);
+    const getRecordInfo = vi.fn(async () => null);
+    const res = await makeHandler(fakeCtx(fakeBridge(), { getImageInfo, getRecordInfo })).handle('get_file', { file_id: 'a.jpg' });
+    expect(res).toMatchObject({ status: 'ok', data: imageInfo });
+    expect(getRecordInfo).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the record cache when not an image', async () => {
+    const getImageInfo = vi.fn(async () => null);
+    const getRecordInfo = vi.fn(async () => recordInfo);
+    const res = await makeHandler(fakeCtx(fakeBridge(), { getImageInfo, getRecordInfo })).handle('get_file', { file: 'b.amr' });
+    expect(res).toMatchObject({ status: 'ok', data: recordInfo });
+  });
+
+  it('fails when the id resolves to nothing cached', async () => {
+    const getImageInfo = vi.fn(async () => null);
+    const getRecordInfo = vi.fn(async () => null);
+    const res = await makeHandler(fakeCtx(fakeBridge(), { getImageInfo, getRecordInfo })).handle('get_file', { file_id: 'nope' });
+    expect(res).toMatchObject({ status: 'failed', retcode: 100 });
+  });
+
+  it('rejects when neither file nor file_id is given', async () => {
+    const res = await makeHandler(fakeCtx(fakeBridge())).handle('get_file', {});
+    expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
+  });
+});
