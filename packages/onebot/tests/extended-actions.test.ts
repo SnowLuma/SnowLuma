@@ -714,3 +714,34 @@ describe('extended-actions / rename_group_file', () => {
     expect(res).toMatchObject({ status: 'failed', retcode: 1200, wording: 'rename rejected' });
   });
 });
+
+// ─── Wave 2: get_rkey_server ───
+
+describe('extended-actions / get_rkey_server', () => {
+  it('reshapes download rkeys into the NapCat server shape (private=10, group=20)', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const getDownloadRKeys = vi.fn(async () => [
+      { rkey: '&rkey=PRIV', type: 10, ttl: 3600, create_time: 100 },
+      { rkey: '&rkey=GRP', type: 20, ttl: 7200, create_time: 200 },
+    ]);
+    const res = await makeHandler(fakeCtx(fakeBridge(), { getDownloadRKeys })).handle('get_rkey_server', {});
+    expect(res.status).toBe('ok');
+    const d = res.data as { private_rkey?: string; group_rkey?: string; expired_time: number; name: string };
+    expect(d.private_rkey).toBe('&rkey=PRIV');
+    expect(d.group_rkey).toBe('&rkey=GRP');
+    expect(d.name).toBe('SnowLuma');
+    // expiry = now + min(ttl) = now + 3600 (allow a 1s clock tick)
+    expect(d.expired_time).toBeGreaterThanOrEqual(nowSec + 3600);
+    expect(d.expired_time).toBeLessThanOrEqual(nowSec + 3601);
+  });
+
+  it('leaves a missing scope undefined', async () => {
+    const getDownloadRKeys = vi.fn(async () => [
+      { rkey: '&rkey=PRIV', type: 10, ttl: 3600, create_time: 100 },
+    ]);
+    const res = await makeHandler(fakeCtx(fakeBridge(), { getDownloadRKeys })).handle('get_rkey_server', {});
+    const d = res.data as { private_rkey?: string; group_rkey?: string };
+    expect(d.private_rkey).toBe('&rkey=PRIV');
+    expect(d.group_rkey).toBeUndefined();
+  });
+});

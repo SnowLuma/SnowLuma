@@ -1215,6 +1215,33 @@ export const actions = [
         : failedResponse(RETCODE.ACTION_FAILED, 'not implemented'),
   }),
 
+  // get_rkey_server — 把下载 rkey 列表（type 10=私聊 / 20=群聊，同 0x9067 来源）
+  // 收敛成 NapCat 的 server 形状。expired_time = now + 在场 rkey ttl 的最小值。
+  defineAction({
+    name: 'get_rkey_server',
+    summary: '获取 rkey 服务器信息',
+    readOnly: true,
+    params: {},
+    run: async (_p, ctx) => {
+      if (!ctx.getDownloadRKeys) return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+      const rkeys = await ctx.getDownloadRKeys();
+      const pick = (type: number) =>
+        rkeys.find((r) => (r as { type?: number }).type === type) as
+          { rkey?: string; ttl?: number } | undefined;
+      const priv = pick(10);
+      const group = pick(20);
+      const ttls = [priv?.ttl, group?.ttl].filter((t): t is number => typeof t === 'number' && t > 0);
+      const minTtl = ttls.length ? Math.min(...ttls) : 0;
+      const data: JsonObject = {
+        expired_time: Math.floor(Date.now() / 1000) + minTtl,
+        name: 'SnowLuma',
+      };
+      if (priv?.rkey) data.private_rkey = priv.rkey;
+      if (group?.rkey) data.group_rkey = group.rkey;
+      return okResponse(data);
+    },
+  }),
+
   defineAction({
     name: ['ocr_image', '.ocr_image'],
     summary: 'OCR 图片（未实现）',
