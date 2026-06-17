@@ -59,6 +59,10 @@
       "types": "./src/oidb-services/emoji/delete-fav-emoji.ts",
       "default": "./src/oidb-services/emoji/delete-fav-emoji.ts"
     },
+    "./oidb-services/emoji/add-fav-emoji": {
+      "types": "./src/oidb-services/emoji/add-fav-emoji.ts",
+      "default": "./src/oidb-services/emoji/add-fav-emoji.ts"
+    },
     "./oidb-services/interaction/send-poke": {
       "types": "./src/oidb-services/interaction/send-poke.ts",
       "default": "./src/oidb-services/interaction/send-poke.ts"

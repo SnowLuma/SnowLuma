@@ -232,6 +232,38 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "add_fav_emoji",
+    "aliases": [],
+    "summary": "添加收藏表情",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "file",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "file"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "bot_exit",
     "aliases": [],
     "summary": "退出机器人",
@@ -5937,7 +5969,7 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "扩展",
-    "count": 87
+    "count": 88
   },
   {
     "category": "群相册",

@@ -244,6 +244,21 @@ export const actions = [
     },
   }),
 
+  // 添加收藏表情（ImgStore.BDHExpressionRoam + highway HTTP 上传）
+  defineAction({
+    name: 'add_fav_emoji',
+    summary: '添加收藏表情',
+    params: { file: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      try {
+        const emojiId = await ctx.bridge.apis.emoji.addFavEmoji(p.file);
+        return okResponse({ emoji_id: emojiId });
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
   // 消息历史
   groupAction({
     name: 'get_group_msg_history',

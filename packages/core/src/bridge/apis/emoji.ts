@@ -5,8 +5,10 @@
 // 文件里，这里只负责把 ctx.identity.uin 填进 Params，保持调用方
 // `bridge.apis.emoji.fetchFavList()` 的顺手写法。
 
+import { AddFavEmoji } from '@snowluma/protocol/oidb-services/emoji/add-fav-emoji';
 import { DeleteFavEmoji } from '@snowluma/protocol/oidb-services/emoji/delete-fav-emoji';
 import { FetchFavList } from '@snowluma/protocol/oidb-services/emoji/fetch-fav-list';
+import { loadBinarySource } from '@snowluma/protocol/highway/utils';
 import type { BridgeContext } from '../bridge-context';
 
 export class EmojiApi {
@@ -23,5 +25,14 @@ export class EmojiApi {
   /** 删除一个收藏表情。emoji_id 形如 `<UIN>_0_0_0_<MD5>_0_0`，来自 fetch 响应。 */
   deleteFavEmoji(emojiId: string): Promise<void> {
     return DeleteFavEmoji.invoke(this.ctx, { uin: this.ctx.identity.uin, emojiId });
+  }
+
+  /**
+   * 添加收藏表情。imageSource 支持 file:///、base64://、http(s)://
+   * （复用 highway utils 的 loadBinarySource）。返回新 emoji_id。
+   */
+  async addFavEmoji(imageSource: string): Promise<string> {
+    const { bytes } = await loadBinarySource(imageSource, 'fav-emoji');
+    return AddFavEmoji.invoke(this.ctx, { uin: this.ctx.identity.uin, imageBytes: bytes });
   }
 }

@@ -563,6 +563,95 @@ export interface FaceroamOpReq {
 export interface FaceroamOpBody {
   emojiId?: pb<1, string>;
 }
+
+// ImgStore.BDHExpressionRoam — 收藏表情上传申请（add 第1步）
+// 请求 body 结构来自 9.9.26-44343 frida 抓包。
+export interface BDHExpressionRoamInner {
+  field1?:   pb<1, uint_32>;
+  uin?:      pb<2, uint_64>;
+  field3?:   pb<3, uint_32>;
+  /** 图片 MD5（16B 二进制，非 hex 字符串）。 */
+  md5?:      pb<4, bytes>;
+  /** 图片字节数。 */
+  filesize?: pb<5, uint_32>;
+  field7?:   pb<7, uint_32>;
+  field8?:   pb<8, uint_32>;
+  field9?:   pb<9, uint_32>;
+  ver?:      pb<13, string>;
+  field16?:  pb<16, uint_32>;
+}
+export interface BDHExpressionRoamTailInner {
+  field1?: pb<1, uint_32>;
+  field2?: pb<2, uint_32>;
+  field3?: pb<3, string>;
+}
+export interface BDHExpressionRoamTail {
+  inner?: pb<1, BDHExpressionRoamTailInner>;
+  field2?: pb<2, uint_32>;
+}
+export interface BDHExpressionRoamReq {
+  field1?:   pb<1, uint_32>;
+  field2?:   pb<2, uint_32>;
+  inner?:    pb<3, BDHExpressionRoamInner>;
+  field7?:   pb<7, uint_32>;
+  tail?:     pb<1001, BDHExpressionRoamTail>;
+}
+
+// BDHExpressionRoam 响应：含上传节点 + token（add 第2步 highway 上传用）
+export interface BDHExpressionRoamRespInner {
+  field1?:  pb<1, uint_32>;
+  field2?:  pb<2, uint_32>;
+  field4?:  pb<4, uint_32>;
+  /** repeated varint，抓包见 6 个；上传节点走 fetchHighwaySession，不用这个。 */
+  field6?:  pb_repeated<6, uint_32>;
+  field7?:  pb_repeated<7, uint_32>;
+  /** 128B 上传 token，highway head 的 serviceTicket 用它。 */
+  token?:   pb<8, bytes>;
+  field12?: pb<12, uint_32>;
+  field3?:  pb<3, bytes>;
+}
+export interface BDHExpressionRoamResp {
+  field1?: pb<1, uint_32>;
+  field2?: pb<2, uint_32>;
+  inner?:  pb<3, BDHExpressionRoamRespInner>;
+}
+
+// highway head（add 第2步，PicUp.DataUp commandId=9）
+// 结构对齐 SnowLuma makeHighwayHead 的 msgBaseHead + msgSegHead，
+// 但 commandId=9（表情）、segHead.serviceTicket = BDHExpressionRoam token（非 sigSession）、
+// 顶层 f3 = emoji_id、f5 = 82B（含义未知，先不填）。
+export interface FavEmojiHighwayBaseHead {
+  version?:    pb<1, uint_32>;
+  uin?:        pb<2, string>;
+  command?:    pb<3, string>;
+  seq?:        pb<4, uint_32>;
+  retryTimes?: pb<5, uint_32>;
+  filesize?:   pb<6, uint_64>;
+  dataFlag?:   pb<7, uint_32>;
+  commandId?:  pb<8, uint_32>;
+}
+export interface FavEmojiHighwaySegHead {
+  serviceId?:     pb<1, uint_32>;
+  filesize?:      pb<2, uint_64>;
+  dataOffset?:    pb<3, uint_64>;
+  dataLength?:    pb<4, uint_64>;
+  /** 上传凭证 = BDHExpressionRoam token。 */
+  serviceTicket?: pb<6, bytes>;
+  md5?:           pb<8, bytes>;
+  fileMd5?:       pb<9, bytes>;
+}
+export interface FavEmojiIdWrap {
+  emojiId?: pb<1, string>;
+}
+export interface FavEmojiHighwayHead {
+  baseHead?:    pb<1, FavEmojiHighwayBaseHead>;
+  segHead?:     pb<2, FavEmojiHighwaySegHead>;
+  emojiIdWrap?: pb<3, FavEmojiIdWrap>;
+  field4?:      pb<4, uint_32>;
+  /** 82B，抓包见过但非必需。 */
+  field5?:      pb<5, bytes>;
+  field8?:      pb<8, uint_32>;
+}
 export interface FaceroamOpRespItem {
   faceIds?:    pb_repeated<1, string>;
   category?:   pb<3, string>;
