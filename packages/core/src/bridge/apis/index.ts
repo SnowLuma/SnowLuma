@@ -1,5 +1,6 @@
 import type { BridgeContext } from '../bridge-context';
 import { ContactsApi } from './contacts';
+import { EmojiApi } from './emoji';
 import { ExtrasApi } from './extras';
 import { ForwardApi } from './forward';
 import { FriendApi } from './friend';
@@ -25,6 +26,8 @@ export interface ApiHub {
   readonly groupAlbum: GroupAlbumApi;
   /** Interactive engagement: poke / like / reaction / essence / emoji-like-list. */
   readonly interaction: InteractionApi;
+  /** Favorite emoji roam (Faceroam.OpReq): fetch list / delete. */
+  readonly emoji: EmojiApi;
   /** Friend roster mutations: handleRequest / delete / setRemark. */
   readonly friend: FriendApi;
   /** Personal profile: status / avatar / nickname / likes / custom-faces. */
@@ -55,6 +58,7 @@ export function buildApiHub(ctx: BridgeContext): ApiHub {
     groupFile: new GroupFileApi(ctx),
     groupAlbum: new GroupAlbumApi(ctx),
     interaction: new InteractionApi(ctx),
+    emoji: new EmojiApi(ctx),
     friend: new FriendApi(ctx),
     profile: new ProfileApi(ctx),
     forward: new ForwardApi(ctx),
@@ -68,6 +72,7 @@ export function buildApiHub(ctx: BridgeContext): ApiHub {
 // `import type { MessageApi } from '@snowluma/core/.../apis'` for
 // signature use. Concrete instances always come from `bridge.apis.*`.
 export { ContactsApi } from './contacts';
+export { EmojiApi } from './emoji';
 export { ExtrasApi } from './extras';
 export { ForwardApi } from './forward';
 export { FriendApi } from './friend';

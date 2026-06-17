@@ -710,6 +710,38 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "delete_fav_emoji",
+    "aliases": [],
+    "summary": "删除收藏表情",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "emoji_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "emoji_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "emoji_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "delete_friend",
     "aliases": [],
     "summary": "删除好友",
@@ -1172,6 +1204,35 @@ export const ACTIONS: CatalogAction[] = [
         "message_id",
         "emojiId"
       ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "fetch_fav_emoji_list",
+    "aliases": [],
+    "summary": "获取收藏表情列表",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "force_refresh",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "default": true
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "force_refresh": {
+          "type": "boolean",
+          "default": true
+        }
+      },
       "additionalProperties": true
     },
     "category": "扩展"
@@ -1767,8 +1828,7 @@ export const ACTIONS: CatalogAction[] = [
         "type": "int",
         "required": false,
         "schema": {
-          "type": "integer",
-          "minimum": 0
+          "type": "integer"
         },
         "default": 0
       },
@@ -1793,7 +1853,6 @@ export const ACTIONS: CatalogAction[] = [
         },
         "message_id": {
           "type": "integer",
-          "minimum": 0,
           "default": 0
         },
         "count": {
@@ -2448,8 +2507,7 @@ export const ACTIONS: CatalogAction[] = [
         "type": "int",
         "required": false,
         "schema": {
-          "type": "integer",
-          "minimum": 0
+          "type": "integer"
         },
         "default": 0
       },
@@ -2475,7 +2533,6 @@ export const ACTIONS: CatalogAction[] = [
         },
         "message_id": {
           "type": "integer",
-          "minimum": 0,
           "default": 0
         },
         "count": {
@@ -5880,7 +5937,7 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "扩展",
-    "count": 85
+    "count": 87
   },
   {
     "category": "群相册",

@@ -557,7 +557,11 @@ export interface FaceroamOpReq {
   inner?:  pb<1, FaceroamOpReqInner>;
   uin?:    pb<2, uint_64>;
   field3?: pb<3, uint_32>;
+  body?:   pb<5, FaceroamOpBody>;
   field6?: pb<6, uint_32>;
+}
+export interface FaceroamOpBody {
+  emojiId?: pb<1, string>;
 }
 export interface FaceroamOpRespItem {
   faceIds?:    pb_repeated<1, string>;

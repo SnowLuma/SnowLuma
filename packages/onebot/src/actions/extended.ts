@@ -213,6 +213,37 @@ export const actions = [
     },
   }),
 
+  // 收藏表情列表（Faceroam.OpReq opType=1）
+  defineAction({
+    name: 'fetch_fav_emoji_list',
+    summary: '获取收藏表情列表',
+    readOnly: true,
+    params: { force_refresh: f.bool().default(true) },
+    run: async (p, ctx) => {
+      try {
+        const emojis = await ctx.bridge.apis.emoji.fetchFavList(p.force_refresh);
+        return okResponse(emojis.map((e) => e.emojiId));
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  // 删除收藏表情（Faceroam.OpReq opType=2）
+  defineAction({
+    name: 'delete_fav_emoji',
+    summary: '删除收藏表情',
+    params: { emoji_id: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      try {
+        await ctx.bridge.apis.emoji.deleteFavEmoji(p.emoji_id);
+        return okResponse();
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
   // 消息历史
   groupAction({
     name: 'get_group_msg_history',
