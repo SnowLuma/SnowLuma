@@ -1029,15 +1029,6 @@ export const actions = [
     },
   }),
 
-  defineAction({
-    name: 'rename_group_file',
-    summary: '重命名群文件（未实现）',
-    params: {},
-    run: async () => {
-      return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
-    },
-  }),
-
   // get_file — 统一文件信息入口。SnowLuma 按 file_id 解析媒体缓存：
   // 先图片、后语音（两者已带 url 重签与 file_size/file_name）。
   // 局限：群文件/普通文件的 file_id 无法在此解析——OneBot `get_file` 单参

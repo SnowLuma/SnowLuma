@@ -263,6 +263,10 @@
       "types": "./src/oidb-services/group-file/move-group-file.ts",
       "default": "./src/oidb-services/group-file/move-group-file.ts"
     },
+    "./oidb-services/group-file/rename-group-file": {
+      "types": "./src/oidb-services/group-file/rename-group-file.ts",
+      "default": "./src/oidb-services/group-file/rename-group-file.ts"
+    },
     "./oidb-services/group-file/create-group-folder": {
       "types": "./src/oidb-services/group-file/create-group-folder.ts",
       "default": "./src/oidb-services/group-file/create-group-folder.ts"

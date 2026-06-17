@@ -683,3 +683,34 @@ describe('extended-actions / get_file', () => {
     expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
   });
 });
+
+// ─── Wave 2: rename_group_file (0x6D6_4) ───
+
+describe('extended-actions / rename_group_file', () => {
+  it('renames a group file via apis.groupFile.rename', async () => {
+    const rename = vi.fn(async () => undefined);
+    const bridge = fakeBridge({ apis: { groupFile: { rename } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('rename_group_file', {
+      group_id: 12345, file_id: '/abc', current_parent_directory: '/', new_name: 'new.txt',
+    });
+    expect(res.status).toBe('ok');
+    expect(rename).toHaveBeenCalledWith(12345, '/abc', '/', 'new.txt');
+  });
+
+  it('rejects missing required params', async () => {
+    const rename = vi.fn();
+    const bridge = fakeBridge({ apis: { groupFile: { rename } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('rename_group_file', { group_id: 12345, file_id: '/abc' });
+    expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(rename).not.toHaveBeenCalled();
+  });
+
+  it('surfaces oidb errors (handler maps a thrown error to INTERNAL_ERROR, as its sibling file ops do)', async () => {
+    const rename = vi.fn(async () => { throw new Error('rename rejected'); });
+    const bridge = fakeBridge({ apis: { groupFile: { rename } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('rename_group_file', {
+      group_id: 1, file_id: '/a', current_parent_directory: '/', new_name: 'x',
+    });
+    expect(res).toMatchObject({ status: 'failed', retcode: 1200, wording: 'rename rejected' });
+  });
+});

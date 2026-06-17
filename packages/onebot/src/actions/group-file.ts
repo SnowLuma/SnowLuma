@@ -100,6 +100,22 @@ export const actions = [
     },
   }),
 
+  // rename_group_file — 0x6D6_4。NapCat 入参：file_id + current_parent_directory
+  // （文件当前所在目录）+ new_name。SnowLuma 的 file_id 即原始 fileId，无需 UUID 解码。
+  groupAction({
+    name: 'rename_group_file',
+    summary: '重命名群文件',
+    params: {
+      file_id: f.string({ allowEmpty: false }),
+      current_parent_directory: f.string().default('/'),
+      new_name: f.string({ allowEmpty: false }),
+    },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.groupFile.rename(p.group_id, p.file_id, p.current_parent_directory || '/', p.new_name);
+      return okResponse({ ok: true });
+    },
+  }),
+
   groupAction({
     name: 'create_group_file_folder',
     summary: '创建群文件夹',
