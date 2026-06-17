@@ -744,4 +744,10 @@ describe('extended-actions / get_rkey_server', () => {
     expect(d.private_rkey).toBe('&rkey=PRIV');
     expect(d.group_rkey).toBeUndefined();
   });
+
+  it('fails (not an expired empty shell) when no rkey is available', async () => {
+    const getDownloadRKeys = vi.fn(async () => []);
+    const res = await makeHandler(fakeCtx(fakeBridge(), { getDownloadRKeys })).handle('get_rkey_server', {});
+    expect(res).toMatchObject({ status: 'failed', retcode: 100 });
+  });
 });

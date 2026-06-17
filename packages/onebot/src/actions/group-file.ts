@@ -112,6 +112,8 @@ export const actions = [
     },
     run: async (p, ctx) => {
       await ctx.bridge.apis.groupFile.rename(p.group_id, p.file_id, p.current_parent_directory || '/', p.new_name);
+      // {ok:true} 刻意对齐 NapCat RenameGroupFile 的返回体，偏离 SnowLuma 同类
+      // 文件写操作（move/delete 返回空 data）——为 NapCat 客户端 drop-in 兼容。
       return okResponse({ ok: true });
     },
   }),

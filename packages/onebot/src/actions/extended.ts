@@ -1230,6 +1230,12 @@ export const actions = [
           { rkey?: string; ttl?: number } | undefined;
       const priv = pick(10);
       const group = pick(20);
+      // No rkey at all → fail rather than hand back an "expired_time = now,
+      // no keys" shell that a caching caller would misread as a valid-but-empty
+      // (already-expired) result.
+      if (!priv?.rkey && !group?.rkey) {
+        return failedResponse(RETCODE.ACTION_FAILED, 'no download rkey available');
+      }
       const ttls = [priv?.ttl, group?.ttl].filter((t): t is number => typeof t === 'number' && t > 0);
       const minTtl = ttls.length ? Math.min(...ttls) : 0;
       const data: JsonObject = {
