@@ -669,6 +669,17 @@ describe('extended-actions / get_file', () => {
     expect(res).toMatchObject({ status: 'failed', retcode: 100 });
   });
 
+  it('gives an unsupported-file_id message (not a misleading "not cached") for a group-file id', async () => {
+    // A group-file file_id cannot be resolved here (no group context); the
+    // error must say so rather than imply the file is merely uncached.
+    const getImageInfo = vi.fn(async () => null);
+    const getRecordInfo = vi.fn(async () => null);
+    const res = await makeHandler(fakeCtx(fakeBridge(), { getImageInfo, getRecordInfo }))
+      .handle('get_file', { file_id: '/abcdef-group-file-id' });
+    expect(res.status).toBe('failed');
+    expect((res as { wording?: string }).wording).toMatch(/unsupported|get_group_file_url/);
+  });
+
   it('rejects when neither file nor file_id is given', async () => {
     const res = await makeHandler(fakeCtx(fakeBridge())).handle('get_file', {});
     expect(res).toMatchObject({ status: 'failed', retcode: 1400 });

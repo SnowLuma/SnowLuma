@@ -563,9 +563,12 @@ export const actions = [
     },
   }),
 
+  // _mark_all_as_read — no-op。NapCat 靠单次内核 IPC markAllMsgAsRead() 实现，
+  // SnowLuma 无等价单包 SSO cmd；遍历所有会话逐个发已读报告是风控高危群发，
+  // 故暂不真正执行（留待 RE 出"一键全读"cmd）。返回 ok 以兼容启动时盲调的客户端。
   defineAction({
     name: '_mark_all_as_read',
-    summary: '标记全部已读',
+    summary: '标记全部已读（no-op，待 RE 全读 cmd）',
     params: {},
     run: async () => {
       return okResponse();
@@ -707,7 +710,10 @@ export const actions = [
 
   // get_group_shut_list — SnowLuma 无独立"禁言列表"cmd，按成员列表的
   // shutUpTime 字段（绝对到期时间戳，秒）派生：保留仍在禁言中的成员。
-  // 走带 TTL 缓存的 fetchGroupMemberList（风控友好），与 NapCat 返回形状对齐。
+  // 走带 TTL 缓存的 fetchGroupMemberList（风控友好，0xfe7 高频会触发腾讯封号），
+  // 与 NapCat 文档返回形状 {user_id,nickname,shut_up_time} 对齐。
+  // 取舍：NapCat 此接口实时，本实现复用成员缓存，故结果最长有 ~60s 延迟——
+  // 刚下/解的禁言可能在该窗口内未反映，属可接受的低频运维查询取舍。
   groupAction({
     name: 'get_group_shut_list',
     summary: '获取群禁言列表',
@@ -1033,11 +1039,14 @@ export const actions = [
   }),
 
   // get_file — 统一文件信息入口。SnowLuma 按 file_id 解析媒体缓存：
-  // 先图片、后语音（两者已带 url 重签与 file_size/file_name）。文档类文件
-  // 当前无可按 id 解析的缓存，故不在此伪造，仅覆盖图片/语音的主流用例。
+  // 先图片、后语音（两者已带 url 重签与 file_size/file_name）。
+  // 局限：群文件/普通文件的 file_id 无法在此解析——OneBot `get_file` 单参
+  // 签名不含 group_id，而 SnowLuma 群文件下载需要 group 上下文（用
+  // get_group_file_url / get_private_file_url）。故此处仅覆盖图片/语音，
+  // 不为群文件伪造结果，且对群文件 file_id 给出可区分的错误信息。
   defineAction({
     name: 'get_file',
-    summary: '获取文件信息（图片/语音缓存）',
+    summary: '获取文件信息（仅图片/语音缓存；群文件请用 get_group_file_url）',
     readOnly: true,
     params: {
       file_id: f.string().default(''),
@@ -1050,7 +1059,13 @@ export const actions = [
       if (image) return okResponse(image);
       const record = await ctx.getRecordInfo(fileId);
       if (record) return okResponse(record);
-      return failedResponse(RETCODE.ACTION_FAILED, 'file not found in cache');
+      // 与 NapCat 不同，本接口不解析群文件/普通文件 file_id（需 group 上下文）。
+      // 区分"不支持此类 file_id"与"图片/语音确实未缓存"，避免调用方误判。
+      return failedResponse(
+        RETCODE.ACTION_FAILED,
+        'get_file resolves only image/voice file_id from the media cache; '
+        + 'group/normal file_id is unsupported here — use get_group_file_url or get_private_file_url',
+      );
     },
   }),
 
