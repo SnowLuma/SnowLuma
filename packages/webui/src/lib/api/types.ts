@@ -8,6 +8,9 @@ import type {
   OneBotConfig,
   QQInfo,
   SystemInfo,
+  SystemSettings,
+  SystemSettingsPatch,
+  SystemSettingsResponse,
   UiAppearance,
   UiConfig,
   UpdateInfo,
@@ -72,6 +75,15 @@ export interface ApiClient {
   config: {
     get(uin: string): Promise<OneBotConfig>;
     save(uin: string, config: OneBotConfig): Promise<OneBotConfig>;
+  };
+
+  // ---- WebUI listener self-config (port / host / TLS / trust-proxy) ----
+  systemSettings: {
+    get(): Promise<SystemSettingsResponse>;
+    save(patch: SystemSettingsPatch): Promise<{ settings: SystemSettings; restartRequiredToApply: boolean }>;
+    /** Validate + write config/cert.pem + key.pem (restart to apply). */
+    uploadCert(cert: string, key: string): Promise<void>;
+    deleteCert(): Promise<void>;
   };
 
   // ---- notifications (account up/down webhooks) ----

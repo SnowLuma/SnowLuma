@@ -141,6 +141,23 @@ export interface NotificationDeliveryRecord {
 
 export type NetworkKind = keyof OneBotNetworks;
 
+// WebUI listener self-config (Wave A1). Listener-level changes are
+// restart-to-apply; `envOverrides` lists fields currently pinned by env vars.
+export interface SystemSettings {
+  webuiPort: number;
+  webuiHost: string;
+  tlsEnabled: boolean;
+  trustProxy: string;
+}
+export type SystemSettingsPatch = Partial<SystemSettings>;
+export interface SystemSettingsResponse {
+  settings: SystemSettings;
+  hasCert: boolean;
+  envOverrides: string[];
+  listeningPort: number;
+  restartRequiredToApply: boolean;
+}
+
 export interface SystemInfo {
   hostname: string;
   platform: string;

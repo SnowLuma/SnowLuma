@@ -1,4 +1,4 @@
-import type { AccountConnections, HookProcessInfo, LogEntry, LogLevel, NotificationDeliveryRecord, NotificationsConfig, QQInfo, SystemInfo, UiAppearance, UiConfig, UpdateInfo } from '@/types';
+import type { AccountConnections, HookProcessInfo, LogEntry, LogLevel, NotificationDeliveryRecord, NotificationsConfig, QQInfo, SystemInfo, SystemSettingsPatch, SystemSettingsResponse, UiAppearance, UiConfig, UpdateInfo } from '@/types';
 import type { PasswordRule } from '@/components/pages/change-password-page';
 import { normalizeOneBotConfig } from '@/lib/onebot-config';
 import {
@@ -45,6 +45,7 @@ class HttpApiClient implements ApiClient {
   readonly update: ApiClient['update'];
   readonly ui: ApiClient['ui'];
   readonly notifications: ApiClient['notifications'];
+  readonly systemSettings: ApiClient['systemSettings'];
 
   constructor(opts: CreateApiClientOptions = {}) {
     this.tokenStore = opts.tokenStore ?? localStorageTokenStore(DEFAULT_TOKEN_KEY);
@@ -96,6 +97,21 @@ class HttpApiClient implements ApiClient {
     this.update = {
       check: (force) =>
         this.getJson<UpdateInfo>(`/api/update/check${force ? '?force=true' : ''}`),
+    };
+
+    this.systemSettings = {
+      get: () => this.getJson<SystemSettingsResponse>('/api/system/settings'),
+      save: (patch: SystemSettingsPatch) =>
+        this.postJson<{ settings: SystemSettingsResponse['settings']; restartRequiredToApply: boolean }>(
+          '/api/system/settings',
+          patch,
+        ),
+      uploadCert: async (cert: string, key: string) => {
+        await this.postJson<{ success: boolean }>('/api/system/tls/cert', { cert, key });
+      },
+      deleteCert: async () => {
+        await this.fetchJson<{ success: boolean }>('/api/system/tls/cert', { method: 'DELETE' });
+      },
     };
 
     this.ui = {
