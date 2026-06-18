@@ -24,6 +24,10 @@
 
 SnowLuma 是一个基于 TypeScript 的协议转换框架，旨在为 QQ 客户端提供 [OneBot v11](https://github.com/botuniverse/onebot-11) 标准接口，支持 WebSocket/HTTP 适配、多账号并行及 WebUI 管理。
 
+> ⚠️ **免责声明**：SnowLuma 是独立的第三方互操作项目，**与腾讯 / QQ 无任何隶属或授权关系**。本项目**仅供学习与技术研究**，请遵守《QQ 用户协议》及适用法律；软件按"现状"提供、不附带任何担保，使用风险自负。详见 [`EULA.md`](EULA.md)。
+>
+> ⚠️ **Disclaimer**: SnowLuma is an independent, third-party interoperability project with **no affiliation with or endorsement by Tencent / QQ**, provided **for study and research only**, "as is" without warranty. Comply with the QQ User Agreement and applicable law; use at your own risk. See [`EULA.md`](EULA.md).
+
 ## 特性
 
 - **OneBot v11 兼容**：支持文本、音视频、Markdown、JSON 等消息格式。
