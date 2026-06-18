@@ -2,6 +2,9 @@ import type {
   AccountConnections,
   BackupBundle,
   BackupImportResult,
+  DebugActionDoc,
+  DebugInvokeResult,
+  DebugStreamMessage,
   HookProcessInfo,
   LogEntry,
   LogLevel,
@@ -90,6 +93,14 @@ export interface ApiClient {
     exportBackup(includeCredentials: boolean): Promise<BackupBundle>;
     /** Validate + restore a bundle (snapshots current config first). */
     importBackup(backup: BackupBundle, restoreCredentials: boolean): Promise<BackupImportResult>;
+  };
+
+  // ---- debug tools (action tester + live event/action stream) ----
+  debug: {
+    actions(): Promise<{ actions: DebugActionDoc[]; categories: { category: string; count: number }[] }>;
+    invoke(uin: string, action: string, params: Record<string, unknown>): Promise<DebugInvokeResult>;
+    /** Live merged SSE; returns an unsubscribe. */
+    stream(onMessage: (m: DebugStreamMessage) => void, onStatus?: (s: StreamStatus) => void): () => void;
   };
 
   // ---- notifications (account up/down webhooks) ----
