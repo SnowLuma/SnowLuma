@@ -4,7 +4,7 @@ import type { HookManager, HookProcessInfo } from '@snowluma/bridge';
 import { createLogger, getLogLevel, getRecentLogs, LOG_LEVELS, setLogLevel, subscribeLogs } from '@snowluma/common/logger';
 import { loadOneBotConfig, saveOneBotConfig } from '@snowluma/onebot/config';
 import type { OneBotManager } from '@snowluma/onebot/manager';
-import type { OneBotConfig } from '@snowluma/onebot/types';
+import type { OneBotConfig, JsonObject as OneBotJsonObject } from '@snowluma/onebot/types';
 import { readRuntimeConfig, updateRuntimeConfig, resolveRuntimeEnvOverrides } from '@snowluma/common/runtime';
 import { randomBytes } from 'crypto';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
@@ -17,6 +17,7 @@ import { evaluatePasswordRules, isStrongPassword, WebuiAuth } from './auth';
 import { resolveTlsContext, validateTlsPair } from './tls';
 import { coerceSettingsPatch } from './system-settings';
 import { buildBackup, planRestore, validateBackup } from './backup';
+import { collectActionDocs, collectCategories } from '@snowluma/onebot/action-docs';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
 import { findAvailablePort } from './port';
 import {
@@ -65,6 +66,7 @@ const MUST_CHANGE_ALLOWLIST = new Set([
 // into access logs / Referer / browser history.
 const TOKEN_QUERY_ALLOWLIST = new Set([
   '/api/logs/stream',
+  '/api/debug/stream',
 ]);
 
 // uin = QQ number; 5–12 digits. Used to construct config file paths,
@@ -582,6 +584,73 @@ export async function initWebUI(
       log.warn('backup import failed: %s', err instanceof Error ? err.message : String(err));
       return c.json({ success: false, message: '恢复失败；若为写入阶段失败则当前配置未改动，否则可从 config/.restore-backup-* 快照恢复' }, 500);
     }
+  });
+
+  // ── Debug tools (Wave A3) ──
+  // Action schemas for the tester form (declarative actions only; legacy ones
+  // are invoked freeform).
+  app.get('/api/debug/actions', (c) =>
+    c.json({ actions: collectActionDocs(), categories: collectCategories() }));
+
+  // Manually invoke an action against one account. Real side effects — gated by
+  // the same /api/* auth.
+  app.post('/api/debug/invoke', async (c) => {
+    let body: unknown;
+    try { body = await c.req.json(); } catch { return c.json({ status: 'failed', message: '请求格式错误' }, 400); }
+    const { uin, action, params } = (body ?? {}) as { uin?: unknown; action?: unknown; params?: unknown };
+    if (typeof uin !== 'string' || !UIN_REGEX.test(uin)) return c.json({ status: 'failed', message: '无效的账号' }, 400);
+    if (typeof action !== 'string' || !action) return c.json({ status: 'failed', message: 'action 必填' }, 400);
+    if (params !== undefined && (typeof params !== 'object' || params === null || Array.isArray(params))) {
+      return c.json({ status: 'failed', message: 'params 必须是对象' }, 400);
+    }
+    const inst = oneBotManager.getInstance(uin);
+    if (!inst) return c.json({ status: 'failed', message: '账号不在线' }, 404);
+    const result = await inst.invokeAction(action, (params ?? {}) as OneBotJsonObject);
+    return c.json(result);
+  });
+
+  // Live merged SSE of OneBot events + action calls across all accounts. Taps
+  // are attached only while a client is connected (on-demand). A slow client is
+  // dropped (not back-pressured onto the bot) with a periodic drop marker.
+  app.get('/api/debug/stream', (c) => {
+    const stream = new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder();
+        let closed = false;
+        let dropped = 0;
+        const offs: Array<() => void> = [];
+        let heartbeat: NodeJS.Timeout | undefined;
+        const teardown = () => {
+          if (closed) return;
+          closed = true;
+          if (heartbeat) clearInterval(heartbeat);
+          for (const off of offs) { try { off(); } catch { /* ignore */ } }
+          try { controller.close(); } catch { /* ignore */ }
+        };
+        const raw = (chunk: Uint8Array) => {
+          if (closed) return;
+          try { controller.enqueue(chunk); } catch { teardown(); }
+        };
+        const send = (payload: unknown) => {
+          if (closed) return;
+          // Drop under backpressure rather than buffer unbounded into memory.
+          if (controller.desiredSize !== null && controller.desiredSize <= 0) { dropped += 1; return; }
+          if (dropped > 0) { raw(encoder.encode(`data: ${JSON.stringify({ kind: 'dropped', count: dropped })}\n\n`)); dropped = 0; }
+          raw(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+        };
+        send({ kind: 'ready' });
+        for (const inst of oneBotManager.getInstances()) {
+          const uin = inst.uin;
+          offs.push(inst.subscribeDebugEvents((event) => send({ kind: 'event', uin, event })));
+          offs.push(inst.observeActions((rec) => send({ kind: 'action', uin, ...rec })));
+        }
+        heartbeat = setInterval(() => raw(encoder.encode(': heartbeat\n\n')), 15000);
+        c.req.raw.signal.addEventListener('abort', teardown);
+      },
+    });
+    return new Response(stream, {
+      headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' },
+    });
   });
 
   app.get('/api/qq-list', (c) => {
