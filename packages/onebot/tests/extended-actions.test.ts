@@ -864,3 +864,23 @@ describe('extended-actions / get_group_signed_list', () => {
     expect(res.status).toBe('failed');
   });
 });
+
+// ─── TierB ②: get_recent_contact (documented stub) ───
+// QQ's recent-contact list is a kernel-local snapshot with rich peer
+// metadata (peerName/remark/lastestMsg) that SnowLuma can't reproduce —
+// there's no SSO/packet wire, and the bot's own message store only covers
+// sessions it observed and lacks those fields. Rather than ship a
+// divergent approximation under a name implying QQ's native list, we
+// return an honest empty list and accept the `count` param for compat.
+describe('extended-actions / get_recent_contact stub', () => {
+  it('returns an empty list and accepts count', async () => {
+    const res = await makeHandler(fakeCtx(fakeBridge())).handle('get_recent_contact', { count: 10 });
+    expect(res).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(res.data).toEqual([]);
+  });
+
+  it('works with no params', async () => {
+    const res = await makeHandler(fakeCtx(fakeBridge())).handle('get_recent_contact', {});
+    expect(res).toMatchObject({ status: 'ok', data: [] });
+  });
+});

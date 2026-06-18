@@ -877,6 +877,23 @@ export const actions = [
     },
   }),
 
+  // get_recent_contact — 最近会话列表（占位）。QQ 原生该接口是内核本地快照
+  // （getRecentContactListSnapShot），返回带 peerName/remark/lastestMsg 等丰富
+  // 元信息；SnowLuma 既无对应 SSO/packet wire，自有 message store 也只覆盖
+  // 「机器人观测到的会话」且缺这些字段，无法忠实复现。故诚实返回空表（而非
+  // 用同名接口给出语义有偏差的近似），接受 count 入参以兼容客户端盲调。
+  defineAction({
+    name: 'get_recent_contact',
+    summary: '获取最近会话（占位）',
+    readOnly: true,
+    params: {
+      count: f.int({ min: 0 }).default(10),
+    },
+    run: async () => {
+      return okResponse([]);
+    },
+  }),
+
   // get_online_clients — 在线设备列表。NapCat 也拿不到（注册监听后 sleep 500ms
   // 直接返回空），且其返回是裸数组 []，偏离 OneBot v11 / go-cqhttp 规范。
   // SnowLuma 暂无对应单包 SSO cmd，返回 OneBot v11 标准空壳 { clients: [] }
