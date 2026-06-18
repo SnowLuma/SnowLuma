@@ -7,7 +7,7 @@ import type { OneBotManager } from '@snowluma/onebot/manager';
 import type { OneBotConfig } from '@snowluma/onebot/types';
 import { readRuntimeConfig, updateRuntimeConfig, resolveRuntimeEnvOverrides } from '@snowluma/common/runtime';
 import { randomBytes } from 'crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { createServer as createHttpsServer } from 'https';
 import { Hono, type Context } from 'hono';
 import os from 'os';
@@ -472,7 +472,11 @@ export async function initWebUI(
     try {
       mkdirSync('config', { recursive: true });
       writeFileSync(SYSTEM_CERT_PATH, cert.endsWith('\n') ? cert : cert + '\n', 'utf8');
-      writeFileSync(SYSTEM_KEY_PATH, key.endsWith('\n') ? key : key + '\n', 'utf8');
+      // Private key must not be world-readable (mirrors auth.ts's webui.json
+      // 0600). writeFileSync's mode is ignored for an existing file, so chmod
+      // explicitly afterwards.
+      writeFileSync(SYSTEM_KEY_PATH, key.endsWith('\n') ? key : key + '\n', { encoding: 'utf8', mode: 0o600 });
+      chmodSync(SYSTEM_KEY_PATH, 0o600);
     } catch (err) {
       log.warn('write cert/key failed: %s', err instanceof Error ? err.message : String(err));
       return c.json({ success: false, message: '写入证书失败，请检查服务器日志' }, 500);
