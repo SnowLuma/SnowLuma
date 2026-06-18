@@ -230,7 +230,8 @@ export class WebApi {
 
   // ─────────────── group sign-in (打卡) ───────────────
 
-  /** Today's group sign-in list via qun.qq.com. [] when none / on failure. */
+  /** Today's group sign-in list via qun.qq.com. [] when the group has no
+   *  sign-ins; THROWS on transport / auth failure (caller maps to failed). */
   async getSignedList(groupId: number): Promise<SignedListMember[]> {
     const bridge = asBridge(this.ctx);
     const cookieObject = await getCookies(bridge, 'qun.qq.com');
