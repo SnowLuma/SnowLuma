@@ -43,7 +43,6 @@ import { cn } from '@/lib/utils';
 import { settingsRoute, type SettingsTab } from '@/router';
 import { NotificationsPanel } from '@/components/settings/notifications-panel';
 import { SystemPanel } from '@/components/settings/system-panel';
-import { DebugPanel } from '@/components/settings/debug-panel';
 
 const TABS: { key: SettingsTab; label: string; icon: typeof Sun }[] = [
   { key: 'appearance', label: '外观', icon: Palette },
@@ -51,7 +50,6 @@ const TABS: { key: SettingsTab; label: string; icon: typeof Sun }[] = [
   { key: 'advanced', label: '高级', icon: Code2 },
   { key: 'account', label: '账号安全', icon: ShieldCheck },
   { key: 'system', label: '服务', icon: Server },
-  { key: 'debug', label: '调试', icon: Bug },
   { key: 'notifications', label: '通知', icon: Bell },
   { key: 'about', label: '关于', icon: Info },
 ];
@@ -84,7 +82,6 @@ export function SettingsPage() {
           {tab === 'advanced' && <AdvancedPanel />}
           {tab === 'account' && <AccountPanel />}
           {tab === 'system' && <SystemPanel />}
-          {tab === 'debug' && <DebugPanel />}
           {tab === 'notifications' && <NotificationsPanel />}
           {tab === 'about' && <AboutPanel />}
         </motion.div>
