@@ -48,9 +48,13 @@ export interface NotificationsConfig {
   channels: NotificationChannel[];
 }
 
-/** A neutral plaintext starting point; the WebUI ships per-vendor presets
- *  (钉钉/Discord/…) as frontend constants the operator can drop in. */
-export const DEFAULT_BODY_TEMPLATE = '{nickname}({uin}) {event} @ {time}';
+/** Default body template — Server酱-style JSON ({title}/{desp}). The WebUI
+ *  ships additional per-vendor presets (钉钉/Discord/…) as frontend constants
+ *  the operator can drop in. */
+export const DEFAULT_BODY_TEMPLATE = `{
+  "title": "账号状态通知：{event}",
+  "desp": "您的账号状态发生了改变。\\n\\n**昵称**：{nickname}\\n**QQ号**：{uin}\\n**当前状态**：{event}\\n**时间**：{time}"
+}`;
 
 export function defaultNotificationsConfig(): NotificationsConfig {
   return {
@@ -67,12 +71,25 @@ export function defaultNotificationsConfig(): NotificationsConfig {
  * A key present in `vars` is replaced by its value; an unknown `{key}` is left
  * untouched (原样) so a typo'd placeholder is visible rather than silently
  * blanked. Pure + total (a non-string template yields '').
+ *
+ * **JSON safety**: When the template is valid JSON (parseable by JSON.parse),
+ * values are escaped to prevent breaking the JSON structure — backslashes
+ * become `\\` and double-quotes become `\"`.
  */
 export function renderTemplate(template: string, vars: Record<string, string>): string {
   if (typeof template !== 'string') return '';
-  return template.replace(/\{(\w+)\}/g, (match, key: string) =>
-    Object.prototype.hasOwnProperty.call(vars, key) ? vars[key] : match,
-  );
+  let isJson = false;
+  try {
+    JSON.parse(template);
+    isJson = true;
+  } catch {
+    // not JSON — plain text mode
+  }
+  return template.replace(/\{(\w+)\}/g, (match, key: string) => {
+    if (!Object.prototype.hasOwnProperty.call(vars, key)) return match;
+    const val = vars[key];
+    return isJson ? val.replace(/\\/g, '\\\\').replace(/"/g, '\\"') : val;
+  });
 }
 
 // ─── Normalization helpers (replicated from ui-config conventions) ──────────

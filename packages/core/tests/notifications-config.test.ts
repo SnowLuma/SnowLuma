@@ -47,6 +47,15 @@ describe('renderTemplate — mechanical {key} substitution', () => {
     // to a recursive/loop replace would break this while passing every other test.
     expect(renderTemplate('{a}', { a: '{b}', b: 'NESTED' })).toBe('{b}');
   });
+
+  it('escapes backslashes and quotes when template is JSON-like', () => {
+    const tmpl = '{"text": "{val}"}';
+    expect(renderTemplate(tmpl, { val: 'a"b\\c' })).toBe('{"text": "a\\"b\\\\c"}');
+  });
+
+  it('does NOT escape when template is plain text', () => {
+    expect(renderTemplate('{val}', { val: 'a"b\\c' })).toBe('a"b\\c');
+  });
 });
 
 describe('normalizeNotificationsConfig — total normalize', () => {
