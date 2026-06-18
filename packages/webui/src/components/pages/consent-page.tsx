@@ -127,25 +127,35 @@ export function ConsentPage({ documents, version, onAccept, onDecline }: Consent
               )}
             </div>
 
-            {/* agree checkbox */}
+            {/* agree checkbox — full-width row so it reads as an obvious control */}
             <button
               type="button"
               onClick={() => setAgreed((v) => !v)}
-              className="mt-4 flex items-start gap-2.5 text-left"
               aria-pressed={agreed}
+              className={cn(
+                'mt-4 flex w-full items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition-colors',
+                agreed
+                  ? 'border-primary/60 bg-primary/5'
+                  : 'border-border hover:border-primary/40 hover:bg-accent/40',
+              )}
             >
               <span
                 className={cn(
-                  'mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border transition-colors',
-                  agreed ? 'border-primary bg-primary text-primary-foreground' : 'border-input',
+                  'flex size-5 shrink-0 items-center justify-center rounded-[5px] border-2 transition-colors',
+                  agreed
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-muted-foreground/50 bg-background',
                 )}
               >
-                {agreed && <Check className="size-3" />}
+                {agreed && <Check className="size-3.5" strokeWidth={3} />}
               </span>
-              <span className="text-xs leading-relaxed text-muted-foreground">
-                我已阅读并同意《用户协议》与《隐私政策》。
-                <br />
-                I have read and agree to the User Agreement and the Privacy Notice.
+              <span className="leading-snug">
+                <span className="text-sm font-medium text-foreground">
+                  我已阅读并同意《用户协议》与《隐私政策》
+                </span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  I have read and agree to the User Agreement and the Privacy Notice.
+                </span>
               </span>
             </button>
 
