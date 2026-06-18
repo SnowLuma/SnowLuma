@@ -51,6 +51,14 @@
       "types": "./src/oidb-services/reaction/get-emoji-likes.ts",
       "default": "./src/oidb-services/reaction/get-emoji-likes.ts"
     },
+    "./oidb-services/custom-face/delete-custom-face": {
+      "types": "./src/oidb-services/custom-face/delete-custom-face.ts",
+      "default": "./src/oidb-services/custom-face/delete-custom-face.ts"
+    },
+    "./oidb-services/custom-face/add-custom-face": {
+      "types": "./src/oidb-services/custom-face/add-custom-face.ts",
+      "default": "./src/oidb-services/custom-face/add-custom-face.ts"
+    },
     "./oidb-services/interaction/send-poke": {
       "types": "./src/oidb-services/interaction/send-poke.ts",
       "default": "./src/oidb-services/interaction/send-poke.ts"

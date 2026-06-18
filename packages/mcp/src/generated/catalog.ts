@@ -110,7 +110,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "_mark_all_as_read",
     "aliases": [],
-    "summary": "标记全部已读",
+    "summary": "标记全部已读（no-op，待 RE 全读 cmd）",
     "readOnly": false,
     "params": [],
     "invariants": [],
@@ -227,6 +227,38 @@ export const ACTIONS: CatalogAction[] = [
     "inputSchema": {
       "type": "object",
       "properties": {},
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "add_custom_face",
+    "aliases": [],
+    "summary": "添加收藏表情",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "file",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "file"
+      ],
       "additionalProperties": true
     },
     "category": "扩展"
@@ -674,6 +706,38 @@ export const ACTIONS: CatalogAction[] = [
     "category": "群相册"
   },
   {
+    "name": "delete_custom_face",
+    "aliases": [],
+    "summary": "删除收藏表情",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "emoji_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "emoji_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "emoji_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "delete_essence_msg",
     "aliases": [],
     "summary": "移除精华消息",
@@ -1082,6 +1146,15 @@ export const ACTIONS: CatalogAction[] = [
           "minimum": 0
         },
         "default": 10
+      },
+      {
+        "name": "return_type",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "default": "url"
       }
     ],
     "invariants": [],
@@ -1092,6 +1165,10 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "minimum": 0,
           "default": 10
+        },
+        "return_type": {
+          "type": "string",
+          "default": "url"
         }
       },
       "additionalProperties": true
@@ -1666,7 +1743,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "get_file",
     "aliases": [],
-    "summary": "获取文件（未实现）",
+    "summary": "获取文件信息（仅图片/语音缓存；群文件请用 get_group_file_url）",
     "readOnly": true,
     "params": [
       {
@@ -1767,8 +1844,7 @@ export const ACTIONS: CatalogAction[] = [
         "type": "int",
         "required": false,
         "schema": {
-          "type": "integer",
-          "minimum": 0
+          "type": "integer"
         },
         "default": 0
       },
@@ -1793,7 +1869,6 @@ export const ACTIONS: CatalogAction[] = [
         },
         "message_id": {
           "type": "integer",
-          "minimum": 0,
           "default": 0
         },
         "count": {
@@ -2448,8 +2523,7 @@ export const ACTIONS: CatalogAction[] = [
         "type": "int",
         "required": false,
         "schema": {
-          "type": "integer",
-          "minimum": 0
+          "type": "integer"
         },
         "default": 0
       },
@@ -2475,7 +2549,6 @@ export const ACTIONS: CatalogAction[] = [
         },
         "message_id": {
           "type": "integer",
-          "minimum": 0,
           "default": 0
         },
         "count": {
@@ -2528,13 +2601,33 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "get_group_shut_list",
     "aliases": [],
-    "summary": "获取群禁言列表（占位）",
+    "summary": "获取群禁言列表",
     "readOnly": true,
-    "params": [],
+    "params": [
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "群号"
+      }
+    ],
     "invariants": [],
     "inputSchema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "群号"
+        }
+      },
+      "required": [
+        "group_id"
+      ],
       "additionalProperties": true
     },
     "category": "扩展"
@@ -2842,6 +2935,20 @@ export const ACTIONS: CatalogAction[] = [
       "nc_get_rkey"
     ],
     "summary": "获取下载 rkey",
+    "readOnly": true,
+    "params": [],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "get_rkey_server",
+    "aliases": [],
+    "summary": "获取 rkey 服务器信息",
     "readOnly": true,
     "params": [],
     "invariants": [],
@@ -3250,13 +3357,31 @@ export const ACTIONS: CatalogAction[] = [
     "aliases": [
       ".ocr_image"
     ],
-    "summary": "OCR 图片（未实现）",
+    "summary": "OCR 图片（服务端，需图片 URL 或已缓存的图片 file_id）",
     "readOnly": true,
-    "params": [],
+    "params": [
+      {
+        "name": "image",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
     "invariants": [],
     "inputSchema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "image": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "image"
+      ],
       "additionalProperties": true
     },
     "category": "扩展"
@@ -3264,16 +3389,77 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "rename_group_file",
     "aliases": [],
-    "summary": "重命名群文件（未实现）",
+    "summary": "重命名群文件",
     "readOnly": false,
-    "params": [],
+    "params": [
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "群号"
+      },
+      {
+        "name": "file_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      {
+        "name": "current_parent_directory",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "default": "/"
+      },
+      {
+        "name": "new_name",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
     "invariants": [],
     "inputSchema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "群号"
+        },
+        "file_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "current_parent_directory": {
+          "type": "string",
+          "default": "/"
+        },
+        "new_name": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "group_id",
+        "file_id",
+        "new_name"
+      ],
       "additionalProperties": true
     },
-    "category": "扩展"
+    "category": "群文件"
   },
   {
     "name": "rename_group_file_folder",
@@ -5872,7 +6058,7 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "群文件",
-    "count": 11
+    "count": 12
   },
   {
     "category": "请求",
@@ -5880,7 +6066,7 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "扩展",
-    "count": 85
+    "count": 87
   },
   {
     "category": "群相册",

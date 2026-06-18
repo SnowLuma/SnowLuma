@@ -213,6 +213,36 @@ export const actions = [
     },
   }),
 
+  // 删除收藏表情（Faceroam.OpReq opType=2）
+  defineAction({
+    name: 'delete_custom_face',
+    summary: '删除收藏表情',
+    params: { emoji_id: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      try {
+        await ctx.bridge.apis.profile.deleteCustomFace(p.emoji_id);
+        return okResponse();
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  // 添加收藏表情（ImgStore.BDHExpressionRoam + highway HTTP 上传）
+  defineAction({
+    name: 'add_custom_face',
+    summary: '添加收藏表情',
+    params: { file: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      try {
+        const emojiId = await ctx.bridge.apis.profile.addCustomFace(p.file);
+        return okResponse({ emoji_id: emojiId });
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
   // 消息历史
   groupAction({
     name: 'get_group_msg_history',
@@ -803,10 +833,22 @@ export const actions = [
     name: 'fetch_custom_face',
     summary: '获取自定义表情',
     readOnly: true,
-    params: { count: f.int({ min: 0 }).default(10) },
+    params: {
+      count: f.int({ min: 0 }).default(10),
+      // return_type=url 返回图片 URL（默认，给前端显示）；
+      // return_type=id 返回 emoji_id（给 delete/add 用）。
+      return_type: f.string().default('url'),
+    },
     run: async (p, ctx) => {
       try {
         const urls = await ctx.bridge.apis.profile.fetchCustomFace(p.count);
+        if (p.return_type === 'id') {
+          const emojiIds = urls.map((url) => {
+            const m = /\/qq_expression\/[^/]+\/([^/]+)\//.exec(url);
+            return m ? m[1] : '';
+          }).filter(Boolean);
+          return okResponse(emojiIds);
+        }
         return okResponse(urls);
       } catch (e) {
         return failedResponse(RETCODE.ACTION_FAILED, String(e));
