@@ -77,6 +77,19 @@ export function loadRuntimeConfig(): RuntimeConfig {
   return { ...normalized, ...resolveRuntimeEnvOverrides(process.env) };
 }
 
+/**
+ * Persist a partial update. Merges onto the ON-DISK config (not the env-merged
+ * runtime view) so an env override (e.g. SNOWLUMA_WEBUI_PORT) is never baked
+ * into runtime.json. Returns the new persisted config (without env overrides).
+ */
+export function updateRuntimeConfig(patch: Partial<RuntimeConfig>): RuntimeConfig {
+  fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  const onDisk = normalizeRuntimeConfig(tryLoadRuntimeConfig() ?? {});
+  const next = normalizeRuntimeConfig({ ...onDisk, ...patch });
+  saveRuntimeConfig(next);
+  return next;
+}
+
 function tryLoadRuntimeConfig(): Record<string, unknown> | null {
   if (!fs.existsSync(RUNTIME_CONFIG_PATH)) return null;
   try {

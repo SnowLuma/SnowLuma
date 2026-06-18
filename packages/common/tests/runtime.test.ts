@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { normalizeRuntimeConfig, resolveRuntimeEnvOverrides } from '../src/runtime';
 
 describe('normalizeRuntimeConfig', () => {
@@ -72,5 +72,46 @@ describe('resolveRuntimeEnvOverrides', () => {
 
   it('treats trustProxy="0"/"off" as a real override (not absent)', () => {
     expect(resolveRuntimeEnvOverrides({ SNOWLUMA_WEBUI_TRUST_PROXY: '0' })).toEqual({ trustProxy: '0' });
+  });
+});
+
+describe('updateRuntimeConfig (fs)', () => {
+  let prevCwd: string;
+  let dir: string;
+  let prevPortEnv: string | undefined;
+  beforeEach(async () => {
+    const fs = await import('fs'); const os = await import('os'); const path = await import('path');
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sl-rt-'));
+    prevCwd = process.cwd();
+    process.chdir(dir);
+    prevPortEnv = process.env.SNOWLUMA_WEBUI_PORT;
+    delete process.env.SNOWLUMA_WEBUI_PORT;
+  });
+  afterEach(async () => {
+    const fs = await import('fs');
+    process.chdir(prevCwd);
+    if (prevPortEnv === undefined) delete process.env.SNOWLUMA_WEBUI_PORT;
+    else process.env.SNOWLUMA_WEBUI_PORT = prevPortEnv;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('merges a patch over on-disk values and persists normalized', async () => {
+    const { updateRuntimeConfig } = await import('../src/runtime');
+    const fs = await import('fs'); const path = await import('path');
+    const out = updateRuntimeConfig({ webuiHost: '127.0.0.1', webuiTls: { enabled: true } });
+    expect(out.webuiHost).toBe('127.0.0.1');
+    expect(out.webuiTls).toEqual({ enabled: true });
+    const onDisk = JSON.parse(fs.readFileSync(path.join('config', 'runtime.json'), 'utf8'));
+    expect(onDisk.webuiHost).toBe('127.0.0.1');
+    expect(onDisk.webuiTls).toEqual({ enabled: true });
+  });
+
+  it('does NOT bake an env-overridden port into the persisted file', async () => {
+    const { updateRuntimeConfig } = await import('../src/runtime');
+    const fs = await import('fs'); const path = await import('path');
+    process.env.SNOWLUMA_WEBUI_PORT = '9999';
+    updateRuntimeConfig({ webuiHost: '127.0.0.1' });
+    const onDisk = JSON.parse(fs.readFileSync(path.join('config', 'runtime.json'), 'utf8'));
+    expect(onDisk.webuiPort).toBe(5099); // default on-disk, NOT the env 9999
   });
 });
