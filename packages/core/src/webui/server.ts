@@ -80,14 +80,6 @@ function purgeExpiredTokens() {
   }
 }
 
-/**
- * Resolve the client IP for per-IP rate limiting. Default is the TCP
- * socket peer (cannot be spoofed by the client). Operators behind a
- * reverse proxy must opt in via the `SNOWLUMA_WEBUI_TRUST_PROXY` env
- * var; see `./client-ip.ts` for the accepted values.
- */
-const trustProxyMode = parseTrustProxy(process.env.SNOWLUMA_WEBUI_TRUST_PROXY);
-const getClientIp = makeClientIpResolver(trustProxyMode);
 
 async function fetchQqAvatar(uin: string): Promise<{ body: Uint8Array; contentType: string }> {
   const response = await fetch(`https://q1.qlogo.cn/g?b=qq&nk=${encodeURIComponent(uin)}&s=100`, {
@@ -107,8 +99,15 @@ export async function initWebUI(
   oneBotManager: OneBotManager,
   hookManager?: HookManager,
   notificationManager?: NotificationManager,
-  listener: { host?: string; tlsEnabled?: boolean } = {},
+  listener: { host?: string; tlsEnabled?: boolean; trustProxy?: string } = {},
 ): Promise<{ port: number }> {
+  // Resolve the client IP for per-IP rate limiting from the configured
+  // trust-proxy directive (runtime.json `trustProxy`, env-overridable via
+  // SNOWLUMA_WEBUI_TRUST_PROXY which loadRuntimeConfig already merged in).
+  // Default ('') = trust the TCP socket peer only (cannot be spoofed).
+  const trustProxyMode = parseTrustProxy(listener.trustProxy);
+  const getClientIp = makeClientIpResolver(trustProxyMode);
+
   const auth = WebuiAuth.load();
   const initialPassword = auth.takeInitialPassword();
   if (auth.isDevMode()) {

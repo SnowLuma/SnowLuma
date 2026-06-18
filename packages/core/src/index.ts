@@ -51,6 +51,7 @@ async function main() {
       await initWebUI(runtimeConfig.webuiPort || 5099, oneBotManager, hookManager, notificationManager, {
         host: runtimeConfig.webuiHost,
         tlsEnabled: runtimeConfig.webuiTls?.enabled,
+        trustProxy: runtimeConfig.trustProxy,
       });
     } catch (err) {
       log.error('Failed to start WebUI: ', err);
