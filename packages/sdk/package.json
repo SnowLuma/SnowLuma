@@ -23,7 +23,7 @@
     "url": "git+https://github.com/SnowLuma/SnowLuma.git",
     "directory": "packages/sdk"
   },
-  "license": "UNLICENSED",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.js",

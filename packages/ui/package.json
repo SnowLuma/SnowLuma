@@ -22,7 +22,7 @@
     "url": "git+https://github.com/SnowLuma/SnowLuma.git",
     "directory": "packages/ui"
   },
-  "license": "UNLICENSED",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "sideEffects": [
     "**/*.css"
