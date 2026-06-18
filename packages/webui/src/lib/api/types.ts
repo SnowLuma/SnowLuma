@@ -1,5 +1,7 @@
 import type {
   AccountConnections,
+  BackupBundle,
+  BackupImportResult,
   HookProcessInfo,
   LogEntry,
   LogLevel,
@@ -84,6 +86,10 @@ export interface ApiClient {
     /** Validate + write config/cert.pem + key.pem (restart to apply). */
     uploadCert(cert: string, key: string): Promise<void>;
     deleteCert(): Promise<void>;
+    /** Download the config backup bundle (credentials gated). */
+    exportBackup(includeCredentials: boolean): Promise<BackupBundle>;
+    /** Validate + restore a bundle (snapshots current config first). */
+    importBackup(backup: BackupBundle, restoreCredentials: boolean): Promise<BackupImportResult>;
   };
 
   // ---- notifications (account up/down webhooks) ----

@@ -4,9 +4,9 @@
 // self-restart, so we never offer a "restart now" button, only a banner.
 // Fields currently pinned by SNOWLUMA_* env vars are flagged (edits to them
 // won't take effect until the env var is removed).
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { AlertTriangle, Loader2, Lock, Pencil, Save, ShieldCheck, Trash2 } from 'lucide-react';
+import { AlertTriangle, Database, Download, Loader2, Lock, Pencil, Save, ShieldCheck, Trash2, Upload } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -36,6 +36,11 @@ export function SystemPanel() {
   // When a cert is already installed we hide the PEM inputs (sensitive) and
   // show a "已安装" summary + 更改 button; editing reveals the inputs again.
   const [editingCert, setEditingCert] = useState(false);
+
+  // backup / restore
+  const [exportCreds, setExportCreds] = useState(false);
+  const [restoreCreds, setRestoreCreds] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
     try {
@@ -105,6 +110,43 @@ export function SystemPanel() {
       flash('err', e instanceof Error ? e.message : '删除失败');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const exportBackup = async () => {
+    setSaving(true);
+    try {
+      const bundle = await api.systemSettings.exportBackup(exportCreds);
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `snowluma-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      flash('ok', '已导出备份');
+    } catch (e) {
+      flash('err', e instanceof Error ? e.message : '导出失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const importBackup = async (file: File) => {
+    setSaving(true);
+    try {
+      const text = await file.text();
+      let parsed: Record<string, unknown>;
+      try { parsed = JSON.parse(text); } catch { flash('err', '文件不是有效的 JSON'); return; }
+      const res = await api.systemSettings.importBackup(parsed, restoreCreds);
+      const parts = [`已恢复 ${res.restored.length} 项`];
+      if (res.skipped.length) parts.push(`跳过 ${res.skipped.length} 项（凭据未恢复）`);
+      flash('ok', `${parts.join('，')}，重启后生效`);
+    } catch (e) {
+      flash('err', e instanceof Error ? e.message : '恢复失败');
+    } finally {
+      setSaving(false);
+      if (fileRef.current) fileRef.current.value = '';
     }
   };
 
@@ -218,6 +260,54 @@ export function SystemPanel() {
               </p>
             </>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-sm"><Database className="h-4 w-4" /> 配置备份 / 恢复</CardTitle>
+          <CardDescription>导出/导入全部配置（OneBot、外观、通知、系统设置、证书）。不含消息数据库。</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <Label>导出时包含登录凭据</Label>
+              <ToggleSwitch value={exportCreds} onChange={setExportCreds} ariaLabel="导出包含登录凭据" />
+            </div>
+            {exportCreds && (
+              <p className="text-[11px] text-red-600 dark:text-red-400">⚠ 备份文件将包含登录口令哈希与 TLS 私钥，请妥善保管。</p>
+            )}
+            <div>
+              <Button onClick={exportBackup} disabled={saving} className="gap-1.5">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} 导出备份
+              </Button>
+            </div>
+          </div>
+
+          <div className="h-px bg-border" />
+
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <Label>恢复时一并恢复登录凭据</Label>
+              <ToggleSwitch value={restoreCreds} onChange={setRestoreCreds} ariaLabel="恢复包含登录凭据" />
+            </div>
+            {restoreCreds && (
+              <p className="text-[11px] text-red-600 dark:text-red-400">⚠ 将覆盖当前登录口令与私钥；若备份口令未知可能登不进。</p>
+            )}
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void importBackup(f); }}
+            />
+            <div>
+              <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={saving} className="gap-1.5">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} 选择备份文件并恢复
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground">恢复前会自动把当前配置快照到 config/.restore-backup-*；恢复后需重启生效。</p>
+          </div>
         </CardContent>
       </Card>
     </motion.div>

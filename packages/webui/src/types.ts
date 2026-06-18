@@ -158,6 +158,16 @@ export interface SystemSettingsResponse {
   restartRequiredToApply: boolean;
 }
 
+// Config backup/restore (Wave A2). The bundle is an opaque JSON object the
+// server validates; the client never inspects its internals.
+export type BackupBundle = Record<string, unknown>;
+export interface BackupImportResult {
+  restored: string[];
+  skipped: string[];
+  snapshotDir: string;
+  restartRequiredToApply: boolean;
+}
+
 export interface SystemInfo {
   hostname: string;
   platform: string;

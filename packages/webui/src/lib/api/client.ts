@@ -1,4 +1,4 @@
-import type { AccountConnections, HookProcessInfo, LogEntry, LogLevel, NotificationDeliveryRecord, NotificationsConfig, QQInfo, SystemInfo, SystemSettingsPatch, SystemSettingsResponse, UiAppearance, UiConfig, UpdateInfo } from '@/types';
+import type { AccountConnections, BackupBundle, BackupImportResult, HookProcessInfo, LogEntry, LogLevel, NotificationDeliveryRecord, NotificationsConfig, QQInfo, SystemInfo, SystemSettingsPatch, SystemSettingsResponse, UiAppearance, UiConfig, UpdateInfo } from '@/types';
 import type { PasswordRule } from '@/components/pages/change-password-page';
 import { normalizeOneBotConfig } from '@/lib/onebot-config';
 import {
@@ -112,6 +112,10 @@ class HttpApiClient implements ApiClient {
       deleteCert: async () => {
         await this.fetchJson<{ success: boolean }>('/api/system/tls/cert', { method: 'DELETE' });
       },
+      exportBackup: (includeCredentials: boolean) =>
+        this.getJson<BackupBundle>(`/api/system/backup/export${includeCredentials ? '?credentials=1' : ''}`),
+      importBackup: (backup: BackupBundle, restoreCredentials: boolean) =>
+        this.postJson<BackupImportResult>('/api/system/backup/import', { backup, restoreCredentials }),
     };
 
     this.ui = {
