@@ -7,7 +7,7 @@ import type { OneBotManager } from '@snowluma/onebot/manager';
 import type { OneBotConfig } from '@snowluma/onebot/types';
 import { readRuntimeConfig, updateRuntimeConfig, resolveRuntimeEnvOverrides } from '@snowluma/common/runtime';
 import { randomBytes } from 'crypto';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
 import { createServer as createHttpsServer } from 'https';
 import { Hono, type Context } from 'hono';
 import os from 'os';
@@ -16,7 +16,7 @@ import { fileURLToPath } from 'url';
 import { evaluatePasswordRules, isStrongPassword, WebuiAuth } from './auth';
 import { resolveTlsContext, validateTlsPair } from './tls';
 import { coerceSettingsPatch } from './system-settings';
-import { applyBackup, buildBackup, validateBackup } from './backup';
+import { buildBackup, planRestore, validateBackup } from './backup';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
 import { findAvailablePort } from './port';
 import {
@@ -505,11 +505,20 @@ export async function initWebUI(
     return existsSync(p) ? readFileSync(p) : null;
   };
 
+  const listPerUinOnebot = (): string[] => {
+    try {
+      return existsSync('config') ? readdirSync('config').filter((n) => /^onebot_\d+\.json$/.test(n)) : [];
+    } catch { return []; }
+  };
+
   app.get('/api/system/backup/export', (c) => {
     const includeCredentials = c.req.query('credentials') === '1';
     const ts = new Date().toISOString();
-    const bundle = buildBackup(readCfg, { includeCredentials }, ts);
+    const bundle = buildBackup(readCfg, listPerUinOnebot(), { includeCredentials }, ts);
     c.header('Content-Disposition', `attachment; filename="snowluma-backup-${ts.replace(/[:.]/g, '-')}.json"`);
+    // Bundle may carry the TLS private key / password hash — never cache it.
+    c.header('Cache-Control', 'no-store, max-age=0');
+    c.header('Pragma', 'no-cache');
     return c.json(bundle);
   });
 
@@ -531,37 +540,47 @@ export async function initWebUI(
     const v = validateBackup(backup);
     if (!v.ok) return c.json({ success: false, message: v.error }, 400);
 
-    // Snapshot the current config before overwriting so a bad restore is
+    const plan = planRestore(v.backup, { restoreCredentials: restoreCredentials === true });
+    // Snapshot the current (about-to-be-overwritten) config so a restore is
     // recoverable; one timestamped dir per import.
     const snapDir = path.join('config', `.restore-backup-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+    // Two-phase write for near-atomicity: stage every file as a .tmp first, then
+    // rename them all. A failure during staging touches no live file; rename
+    // almost never fails, shrinking the half-applied window to near zero.
+    const staged: Array<{ tmp: string; dest: string; name: string }> = [];
     try {
-      const res = applyBackup(v.backup, {
-        snapshot: (name) => {
-          const src = cfgPath(name);
-          if (!existsSync(src)) return;
-          const dest = path.join(snapDir, name);
-          mkdirSync(path.dirname(dest), { recursive: true });
-          copyFileSync(src, dest);
-        },
-        write: (name, data) => {
-          const dest = cfgPath(name);
-          mkdirSync(path.dirname(dest), { recursive: true });
-          const tmp = dest + '.tmp';
-          writeFileSync(tmp, data, name === 'key.pem' ? { mode: 0o600 } : undefined);
-          renameSync(tmp, dest);
-          if (name === 'key.pem') { try { chmodSync(dest, 0o600); } catch { /* best-effort */ } }
-        },
-      }, { restoreCredentials: restoreCredentials === true });
+      for (const { name } of plan.restore) {
+        const src = cfgPath(name);
+        if (!existsSync(src)) continue;
+        const snap = path.join(snapDir, name);
+        mkdirSync(path.dirname(snap), { recursive: true });
+        copyFileSync(src, snap);
+      }
+      for (const { name, data } of plan.restore) {
+        const dest = cfgPath(name);
+        mkdirSync(path.dirname(dest), { recursive: true });
+        const tmp = dest + '.restore.tmp';
+        writeFileSync(tmp, data, name === 'key.pem' ? { mode: 0o600 } : undefined);
+        staged.push({ tmp, dest, name });
+      }
+      for (const { tmp, dest, name } of staged) {
+        renameSync(tmp, dest);
+        if (name === 'key.pem') { try { chmodSync(dest, 0o600); } catch { /* best-effort */ } }
+      }
       return c.json({
         success: true,
-        restored: res.restored,
-        skipped: res.skipped,
+        restored: plan.restore.map((r) => r.name),
+        skipped: plan.skipped,
         snapshotDir: snapDir,
         restartRequiredToApply: true,
       });
     } catch (err) {
+      // Clean up any staged .tmp not yet renamed (staging-phase failure leaves
+      // the live config untouched; a rare rename-phase failure may be partial,
+      // recoverable from the snapshot dir).
+      for (const { tmp } of staged) { try { if (existsSync(tmp)) rmSync(tmp, { force: true }); } catch { /* ignore */ } }
       log.warn('backup import failed: %s', err instanceof Error ? err.message : String(err));
-      return c.json({ success: false, message: '恢复失败，请检查服务器日志（原配置已快照备份）' }, 500);
+      return c.json({ success: false, message: '恢复失败；若为写入阶段失败则当前配置未改动，否则可从 config/.restore-backup-* 快照恢复' }, 500);
     }
   });
 
