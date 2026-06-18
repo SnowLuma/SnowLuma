@@ -243,6 +243,43 @@ export const actions = [
     },
   }),
 
+  // 修改收藏表情备注（OIDB 0x902e_1 opType=3）
+  defineAction({
+    name: 'modify_custom_face',
+    summary: '修改收藏表情备注',
+    params: {
+      emoji_id: f.string({ allowEmpty: false }),
+      desc: f.string().default(''),
+    },
+    run: async (p, ctx) => {
+      try {
+        await ctx.bridge.apis.profile.modifyCustomFace(p.emoji_id, p.desc);
+        return okResponse();
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  // 收藏表情排序（OIDB 0x902f + 0x902e opType=2 两步）。把 emoji_id 移到
+  // position 位置（1=最前）。move_to_front 是 position=1 的语法糖。
+  // 收藏表情移到最前（OIDB 0x902f + 0x902e opType=2 两步）。QQ 客户端只有
+  // "移动到最前"操作，协议层也只支持最前——0x902f 的 f3=1 是固定标志，不是
+  // 位置变量，移到其他位置服务端不生效。所以这个 action 只做"移到最前"。
+  defineAction({
+    name: 'move_custom_face_to_front',
+    summary: '收藏表情移到最前',
+    params: { emoji_id: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      try {
+        await ctx.bridge.apis.profile.moveCustomFaceToFront(p.emoji_id);
+        return okResponse();
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
   // 消息历史
   groupAction({
     name: 'get_group_msg_history',
