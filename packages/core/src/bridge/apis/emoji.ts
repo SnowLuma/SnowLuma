@@ -3,24 +3,18 @@
 // 每个方法一行转发到 @snowluma/protocol/oidb-services/emoji 下的 namespace，
 // 和其它 Api 一样：wire 工作（encode / sendRawPacket / decode）都在 namespace
 // 文件里，这里只负责把 ctx.identity.uin 填进 Params，保持调用方
-// `bridge.apis.emoji.fetchFavList()` 的顺手写法。
+// `bridge.apis.emoji.X()` 的顺手写法。
+//
+// fetch 走 ProfileApi.fetchCustomFace（同走 Faceroam.OpReq，已返回表情 URL，
+// 其中路径段就是 emoji_id），不在这里重复发包。
 
 import { AddFavEmoji } from '@snowluma/protocol/oidb-services/emoji/add-fav-emoji';
 import { DeleteFavEmoji } from '@snowluma/protocol/oidb-services/emoji/delete-fav-emoji';
-import { FetchFavList } from '@snowluma/protocol/oidb-services/emoji/fetch-fav-list';
 import { loadBinarySource } from '@snowluma/protocol/highway/utils';
 import type { BridgeContext } from '../bridge-context';
 
 export class EmojiApi {
   constructor(private readonly ctx: BridgeContext) { }
-
-  /**
-   * 拉取收藏表情列表。返回 emoji_id 列表（形如
-   * `<UIN>_0_0_0_<MD5>_0_0`），forceRefresh=true 对应打开表情列表时刷新。
-   */
-  fetchFavList(forceRefresh = true): Promise<FetchFavList.FavEmojiEntry[]> {
-    return FetchFavList.invoke(this.ctx, { uin: this.ctx.identity.uin, forceRefresh });
-  }
 
   /** 删除一个收藏表情。emoji_id 形如 `<UIN>_0_0_0_<MD5>_0_0`，来自 fetch 响应。 */
   deleteFavEmoji(emojiId: string): Promise<void> {

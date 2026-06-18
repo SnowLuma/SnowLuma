@@ -213,16 +213,22 @@ export const actions = [
     },
   }),
 
-  // 收藏表情列表（Faceroam.OpReq opType=1）
+  // 收藏表情列表（Faceroam.OpReq opType=1）。复用 ProfileApi.fetchCustomFace，
+  // 从返回的图片 URL（https://p.qpic.cn/qq_expression/<uin>/<id>/0）里抠出
+  // emoji_id，供 delete/add 用，避免对 Faceroam.OpReq 二次发包。
   defineAction({
     name: 'fetch_fav_emoji_list',
     summary: '获取收藏表情列表',
     readOnly: true,
     params: { force_refresh: f.bool().default(true) },
-    run: async (p, ctx) => {
+    run: async (_p, ctx) => {
       try {
-        const emojis = await ctx.bridge.apis.emoji.fetchFavList(p.force_refresh);
-        return okResponse(emojis.map((e) => e.emojiId));
+        const urls = await ctx.bridge.apis.profile.fetchCustomFace();
+        const emojiIds = urls.map((url) => {
+          const m = /\/qq_expression\/[^/]+\/([^/]+)\//.exec(url);
+          return m ? m[1] : '';
+        }).filter(Boolean);
+        return okResponse(emojiIds);
       } catch (e) {
         return failedResponse(RETCODE.ACTION_FAILED, String(e));
       }
