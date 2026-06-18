@@ -860,10 +860,13 @@ export const actions = [
     },
   }),
 
-  // NapCat 似乎也用不了，暂时不处理。
+  // get_online_clients — 在线设备列表。NapCat 也拿不到（注册监听后 sleep 500ms
+  // 直接返回空），且其返回是裸数组 []，偏离 OneBot v11 / go-cqhttp 规范。
+  // SnowLuma 暂无对应单包 SSO cmd，返回 OneBot v11 标准空壳 { clients: [] }
+  // ——刻意采用规范形状而非 NapCat 的裸 []，故对照 NapCat 客户端此处不严格 parity。
   defineAction({
     name: 'get_online_clients',
-    summary: '获取在线客户端（占位）',
+    summary: '获取在线客户端（占位，OneBot v11 形状）',
     readOnly: true,
     params: {},
     run: async () => {
@@ -872,9 +875,10 @@ export const actions = [
   }),
 
   // _get_model_show — NapCat 纯内核无 packet wire，其实现是硬编码 mock
-  // （返回单条 variants，model_show 固定 'napcat'）。SnowLuma 同样无对应单包
-  // SSO cmd，故给出 NapCat 同形状的兼容返回：data 为数组 [{ variants: {...} }]，
-  // model_show 回显请求的 model（缺省 'snowluma'），need_pay 恒 false。
+  // （无视入参，model_show 恒返回字面量 'napcat'）。SnowLuma 同样无对应单包
+  // SSO cmd，故只复用 NapCat 的*外层形状*：data 为数组 [{ variants: {...} }]、
+  // need_pay 恒 false；但刻意不照搬其固定字面量——回显请求的 model（缺省
+  // 'snowluma'），对调用方更有信息量。属有意的行为分歧，仅形状对齐。
   defineAction({
     name: '_get_model_show',
     summary: '获取机型展示（兼容 mock）',

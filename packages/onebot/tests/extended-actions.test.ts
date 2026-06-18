@@ -800,7 +800,12 @@ describe('extended-actions / ocr_image', () => {
 // ─── TierB Phase 1: compat stubs (model_show / online_clients / mark_all_as_read) ───
 // These are kernel-only in NapCat (mock/no-op), so SnowLuma ships honest
 // compat shapes rather than RE-ing a wire that doesn't exist. We pin the
-// response *shape* so clients written against the napcat surface keep working.
+// response *shape* of each. NOTE two deliberate divergences from NapCat:
+//   • _get_model_show reuses NapCat's array/variants shape but ECHOES the
+//     requested model instead of NapCat's hardcoded 'napcat'.
+//   • get_online_clients returns the OneBot-v11/go-cqhttp { clients: [] }
+//     envelope, NOT NapCat's (non-standard) bare []. A strict-NapCat client
+//     would expect an array here; we intentionally follow the spec instead.
 
 describe('extended-actions / TierB compat stubs', () => {
   it('_get_model_show returns the napcat-shaped variants array, echoing the model', async () => {
@@ -812,11 +817,13 @@ describe('extended-actions / TierB compat stubs', () => {
     expect((res.data as any)[0].variants).toMatchObject({ model_show: 'MyPhone', need_pay: false });
   });
 
-  it('_get_model_show defaults model_show when no model is given', async () => {
-    const res = await makeHandler(fakeCtx(fakeBridge())).handle('_get_model_show', {});
-    expect(res.status).toBe('ok');
-    expect((res.data as any)[0].variants.model_show).toBeTruthy();
-    expect((res.data as any)[0].variants.need_pay).toBe(false);
+  it('_get_model_show defaults model_show to snowluma when model is absent or empty', async () => {
+    for (const params of [{}, { model: '' }]) {
+      const res = await makeHandler(fakeCtx(fakeBridge())).handle('_get_model_show', params);
+      expect(res.status).toBe('ok');
+      expect((res.data as any)[0].variants.model_show).toBe('snowluma');
+      expect((res.data as any)[0].variants.need_pay).toBe(false);
+    }
   });
 
   it('_set_model_show is an accepted no-op', async () => {
