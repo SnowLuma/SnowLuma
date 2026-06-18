@@ -1,4 +1,4 @@
-// Faceroam add — 添加收藏表情：BDHExpressionRoam 申请 → highway HTTP 上传。
+// Faceroam add — 添加收藏表情（custom face）：BDHExpressionRoam 申请 → highway HTTP 上传。
 //
 // 走的是 trpc service "ImgStore.BDHExpressionRoam"（不是 OIDB），申请上传
 // 拿到 token，然后把图片数据打成 highway 帧用 HTTP POST 发到
@@ -18,7 +18,7 @@ import type { BridgeContext } from '../../bridge-context';
 import { fetchHighwaySession } from '../../highway/highway-client';
 import { computeMd5, packHighwayFrame } from '../../highway/utils';
 
-export namespace AddFavEmoji {
+export namespace AddCustomFace {
   const BDH_SERVICE = 'ImgStore.BDHExpressionRoam';
 
   export interface Params {

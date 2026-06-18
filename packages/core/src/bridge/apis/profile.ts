@@ -5,6 +5,8 @@ import type {
   SetStatusReq,
   SetStatusResp,
 } from '@snowluma/proto-defs/oidb-actions/base';
+import { AddCustomFace } from '@snowluma/protocol/oidb-services/custom-face/add-custom-face';
+import { DeleteCustomFace } from '@snowluma/protocol/oidb-services/custom-face/delete-custom-face';
 import { fetchHighwaySession, uploadHighwayHttp } from '@snowluma/protocol/highway';
 import { computeHashes, loadBinarySource } from '@snowluma/protocol/highway/utils';
 import { GetLike, type LikeInfo } from '@snowluma/protocol/oidb-services/profile/get-like';
@@ -146,5 +148,19 @@ export class ProfileApi {
     }
     const faceIds = resp.item?.faceIds || [];
     return faceIds.slice(0, count).map((id: string) => `https://p.qpic.cn/qq_expression/${this.ctx.identity.uin}/${id}/0`);
+  }
+
+  /** 删除一个收藏表情（custom face）。emoji_id 来自 fetchCustomFace 返回的 URL 路径段。 */
+  deleteCustomFace(emojiId: string): Promise<void> {
+    return DeleteCustomFace.invoke(this.ctx, { uin: this.ctx.identity.uin, emojiId });
+  }
+
+  /**
+   * 添加收藏表情（custom face）。imageSource 支持 file:///、base64://、http(s)://
+   * （复用 highway utils 的 loadBinarySource）。返回新 emoji_id。
+   */
+  async addCustomFace(imageSource: string): Promise<string> {
+    const { bytes } = await loadBinarySource(imageSource, 'custom-face');
+    return AddCustomFace.invoke(this.ctx, { uin: this.ctx.identity.uin, imageBytes: bytes });
   }
 }

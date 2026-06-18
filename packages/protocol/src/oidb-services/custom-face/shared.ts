@@ -1,6 +1,6 @@
 // Faceroam.OpReq 共用的常量与请求 inner 构造。
 //
-// 放在 emoji/ 目录而不是上一层 oidb-services/shared.ts，因为这些值
+// 放在 custom-face/ 目录而不是上一层 oidb-services/shared.ts，因为这些值
 // 只有 Faceroam 这一族操作要用——那边存的是所有 OIDB namespace 共享
 // 的 toInt / ensureRetCodeZero 那一类小工具，混进去会让无关 service 也
 // 看到 Faceroam 的版本号字符串。

@@ -217,10 +217,10 @@ export const actions = [
   // 从返回的图片 URL（https://p.qpic.cn/qq_expression/<uin>/<id>/0）里抠出
   // emoji_id，供 delete/add 用，避免对 Faceroam.OpReq 二次发包。
   defineAction({
-    name: 'fetch_fav_emoji_list',
-    summary: '获取收藏表情列表',
+    name: 'fetch_custom_face_ids',
+    summary: '获取收藏表情 ID 列表',
     readOnly: true,
-    params: { force_refresh: f.bool().default(true) },
+    params: {},
     run: async (_p, ctx) => {
       try {
         const urls = await ctx.bridge.apis.profile.fetchCustomFace();
@@ -237,12 +237,12 @@ export const actions = [
 
   // 删除收藏表情（Faceroam.OpReq opType=2）
   defineAction({
-    name: 'delete_fav_emoji',
+    name: 'delete_custom_face',
     summary: '删除收藏表情',
     params: { emoji_id: f.string({ allowEmpty: false }) },
     run: async (p, ctx) => {
       try {
-        await ctx.bridge.apis.emoji.deleteFavEmoji(p.emoji_id);
+        await ctx.bridge.apis.profile.deleteCustomFace(p.emoji_id);
         return okResponse();
       } catch (e) {
         return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -252,12 +252,12 @@ export const actions = [
 
   // 添加收藏表情（ImgStore.BDHExpressionRoam + highway HTTP 上传）
   defineAction({
-    name: 'add_fav_emoji',
+    name: 'add_custom_face',
     summary: '添加收藏表情',
     params: { file: f.string({ allowEmpty: false }) },
     run: async (p, ctx) => {
       try {
-        const emojiId = await ctx.bridge.apis.emoji.addFavEmoji(p.file);
+        const emojiId = await ctx.bridge.apis.profile.addCustomFace(p.file);
         return okResponse({ emoji_id: emojiId });
       } catch (e) {
         return failedResponse(RETCODE.ACTION_FAILED, String(e));

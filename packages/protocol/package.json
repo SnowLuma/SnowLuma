@@ -51,13 +51,13 @@
       "types": "./src/oidb-services/reaction/get-emoji-likes.ts",
       "default": "./src/oidb-services/reaction/get-emoji-likes.ts"
     },
-    "./oidb-services/emoji/delete-fav-emoji": {
-      "types": "./src/oidb-services/emoji/delete-fav-emoji.ts",
-      "default": "./src/oidb-services/emoji/delete-fav-emoji.ts"
+    "./oidb-services/custom-face/delete-custom-face": {
+      "types": "./src/oidb-services/custom-face/delete-custom-face.ts",
+      "default": "./src/oidb-services/custom-face/delete-custom-face.ts"
     },
-    "./oidb-services/emoji/add-fav-emoji": {
-      "types": "./src/oidb-services/emoji/add-fav-emoji.ts",
-      "default": "./src/oidb-services/emoji/add-fav-emoji.ts"
+    "./oidb-services/custom-face/add-custom-face": {
+      "types": "./src/oidb-services/custom-face/add-custom-face.ts",
+      "default": "./src/oidb-services/custom-face/add-custom-face.ts"
     },
     "./oidb-services/interaction/send-poke": {
       "types": "./src/oidb-services/interaction/send-poke.ts",

@@ -232,7 +232,7 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
-    "name": "add_fav_emoji",
+    "name": "add_custom_face",
     "aliases": [],
     "summary": "添加收藏表情",
     "readOnly": false,
@@ -706,6 +706,38 @@ export const ACTIONS: CatalogAction[] = [
     "category": "群相册"
   },
   {
+    "name": "delete_custom_face",
+    "aliases": [],
+    "summary": "删除收藏表情",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "emoji_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "emoji_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "emoji_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "delete_essence_msg",
     "aliases": [],
     "summary": "移除精华消息",
@@ -736,38 +768,6 @@ export const ACTIONS: CatalogAction[] = [
       },
       "required": [
         "message_id"
-      ],
-      "additionalProperties": true
-    },
-    "category": "扩展"
-  },
-  {
-    "name": "delete_fav_emoji",
-    "aliases": [],
-    "summary": "删除收藏表情",
-    "readOnly": false,
-    "params": [
-      {
-        "name": "emoji_id",
-        "type": "string",
-        "required": true,
-        "schema": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    ],
-    "invariants": [],
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "emoji_id": {
-          "type": "string",
-          "minLength": 1
-        }
-      },
-      "required": [
-        "emoji_id"
       ],
       "additionalProperties": true
     },
@@ -1163,6 +1163,20 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "fetch_custom_face_ids",
+    "aliases": [],
+    "summary": "获取收藏表情 ID 列表",
+    "readOnly": true,
+    "params": [],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "fetch_emoji_like",
     "aliases": [],
     "summary": "获取表情回应用户（NapCat 分页）",
@@ -1236,35 +1250,6 @@ export const ACTIONS: CatalogAction[] = [
         "message_id",
         "emojiId"
       ],
-      "additionalProperties": true
-    },
-    "category": "扩展"
-  },
-  {
-    "name": "fetch_fav_emoji_list",
-    "aliases": [],
-    "summary": "获取收藏表情列表",
-    "readOnly": true,
-    "params": [
-      {
-        "name": "force_refresh",
-        "type": "bool",
-        "required": false,
-        "schema": {
-          "type": "boolean"
-        },
-        "default": true
-      }
-    ],
-    "invariants": [],
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "force_refresh": {
-          "type": "boolean",
-          "default": true
-        }
-      },
       "additionalProperties": true
     },
     "category": "扩展"
