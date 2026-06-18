@@ -871,13 +871,20 @@ export const actions = [
     },
   }),
 
+  // _get_model_show — NapCat 纯内核无 packet wire，其实现是硬编码 mock
+  // （返回单条 variants，model_show 固定 'napcat'）。SnowLuma 同样无对应单包
+  // SSO cmd，故给出 NapCat 同形状的兼容返回：data 为数组 [{ variants: {...} }]，
+  // model_show 回显请求的 model（缺省 'snowluma'），need_pay 恒 false。
   defineAction({
     name: '_get_model_show',
-    summary: '获取机型展示（占位）',
+    summary: '获取机型展示（兼容 mock）',
     readOnly: true,
-    params: {},
-    run: async () => {
-      return okResponse({ variants: [] });
+    params: {
+      model: f.string().default(''),
+    },
+    run: async (p) => {
+      const modelShow = p.model || 'snowluma';
+      return okResponse([{ variants: { model_show: modelShow, need_pay: false } }]);
     },
   }),
 

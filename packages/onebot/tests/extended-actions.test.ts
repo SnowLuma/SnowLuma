@@ -796,3 +796,42 @@ describe('extended-actions / ocr_image', () => {
     expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
   });
 });
+
+// ─── TierB Phase 1: compat stubs (model_show / online_clients / mark_all_as_read) ───
+// These are kernel-only in NapCat (mock/no-op), so SnowLuma ships honest
+// compat shapes rather than RE-ing a wire that doesn't exist. We pin the
+// response *shape* so clients written against the napcat surface keep working.
+
+describe('extended-actions / TierB compat stubs', () => {
+  it('_get_model_show returns the napcat-shaped variants array, echoing the model', async () => {
+    const res = await makeHandler(fakeCtx(fakeBridge())).handle('_get_model_show', { model: 'MyPhone' });
+    expect(res.status).toBe('ok');
+    // NapCat shape: data = [{ variants: { model_show, need_pay } }]
+    expect(Array.isArray(res.data)).toBe(true);
+    expect(res.data).toHaveLength(1);
+    expect((res.data as any)[0].variants).toMatchObject({ model_show: 'MyPhone', need_pay: false });
+  });
+
+  it('_get_model_show defaults model_show when no model is given', async () => {
+    const res = await makeHandler(fakeCtx(fakeBridge())).handle('_get_model_show', {});
+    expect(res.status).toBe('ok');
+    expect((res.data as any)[0].variants.model_show).toBeTruthy();
+    expect((res.data as any)[0].variants.need_pay).toBe(false);
+  });
+
+  it('_set_model_show is an accepted no-op', async () => {
+    const res = await makeHandler(fakeCtx(fakeBridge())).handle('_set_model_show', { model: 'x', model_show: 'y' });
+    expect(res).toMatchObject({ status: 'ok', retcode: 0, data: null });
+  });
+
+  it('get_online_clients returns the OneBot-standard {clients:[]} envelope', async () => {
+    const res = await makeHandler(fakeCtx(fakeBridge())).handle('get_online_clients', {});
+    expect(res.status).toBe('ok');
+    expect(res.data).toMatchObject({ clients: [] });
+  });
+
+  it('_mark_all_as_read is an accepted no-op', async () => {
+    const res = await makeHandler(fakeCtx(fakeBridge())).handle('_mark_all_as_read', {});
+    expect(res).toMatchObject({ status: 'ok', retcode: 0 });
+  });
+});
