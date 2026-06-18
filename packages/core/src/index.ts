@@ -48,7 +48,10 @@ async function main() {
   ) {
     try {
       const { initWebUI } = await import('./webui/server');
-      await initWebUI(runtimeConfig.webuiPort || 5099, oneBotManager, hookManager, notificationManager);
+      await initWebUI(runtimeConfig.webuiPort || 5099, oneBotManager, hookManager, notificationManager, {
+        host: runtimeConfig.webuiHost,
+        tlsEnabled: runtimeConfig.webuiTls?.enabled,
+      });
     } catch (err) {
       log.error('Failed to start WebUI: ', err);
     }

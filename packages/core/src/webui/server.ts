@@ -7,11 +7,13 @@ import type { OneBotManager } from '@snowluma/onebot/manager';
 import type { OneBotConfig } from '@snowluma/onebot/types';
 import { randomBytes } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
+import { createServer as createHttpsServer } from 'https';
 import { Hono, type Context } from 'hono';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { evaluatePasswordRules, isStrongPassword, WebuiAuth } from './auth';
+import { resolveTlsContext } from './tls';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
 import { findAvailablePort } from './port';
 import {
@@ -105,6 +107,7 @@ export async function initWebUI(
   oneBotManager: OneBotManager,
   hookManager?: HookManager,
   notificationManager?: NotificationManager,
+  listener: { host?: string; tlsEnabled?: boolean } = {},
 ): Promise<{ port: number }> {
   const auth = WebuiAuth.load();
   const initialPassword = auth.takeInitialPassword();
@@ -709,9 +712,25 @@ export async function initWebUI(
     log.warn('port %d is in use, using %d instead', desiredPort, finalPort);
   }
 
+  const host = listener.host || '0.0.0.0';
+
+  // TLS: only when explicitly enabled AND the on-disk cert/key load. A bad
+  // or missing cert must never brick the WebUI — fall back to HTTP + warn.
+  let tlsServe: { createServer: typeof createHttpsServer; serverOptions: { cert: Buffer; key: Buffer } } | undefined;
+  let scheme = 'http';
+  if (listener.tlsEnabled) {
+    const tls = resolveTlsContext('config');
+    if (tls.ok && tls.cert && tls.key) {
+      tlsServe = { createServer: createHttpsServer, serverOptions: { cert: tls.cert, key: tls.key } };
+      scheme = 'https';
+    } else {
+      log.warn('TLS enabled but cert/key unusable (%s) — serving over HTTP instead', tls.reason);
+    }
+  }
+
   await new Promise<void>((resolve) => {
-    serve({ fetch: app.fetch, port: finalPort }, (info) => {
-      log.info(`listening http://localhost:${info.port}`);
+    serve({ fetch: app.fetch, port: finalPort, hostname: host, ...(tlsServe ?? {}) }, (info) => {
+      log.info(`listening ${scheme}://${host}:${info.port}`);
       resolve();
     });
   });
