@@ -2,7 +2,7 @@ import { createLogger, type Logger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import { formatGroup, formatMessageSegments, formatReply, formatUser } from '@snowluma/protocol/format';
 import path from 'path';
-import { ApiHandler } from './api-handler';
+import { ApiHandler, type ActionObserver } from './api-handler';
 import type { ConverterContext } from './event-converter';
 import { registerEventPipeline } from './event-pipeline';
 import { buildApiContext, type OneBotInstanceContext } from './instance-context';
@@ -24,7 +24,7 @@ import {
   type NetworkAdapterContext,
 } from './network';
 import { ReactionStore } from './reaction-store';
-import type { JsonObject, JsonValue, MessageMeta, NetworkBase, OneBotConfig } from './types';
+import type { ApiResponse, JsonObject, JsonValue, MessageMeta, NetworkBase, OneBotConfig } from './types';
 
 const moduleLog = createLogger('Event');
 
@@ -57,6 +57,20 @@ export class OneBotInstance {
   /** Live status of this account's OneBot network adapters. */
   getConnectionStatuses(): AdapterStatus[] {
     return this.networkManager.describeStatuses();
+  }
+
+  // ── Debug taps (WebUI debug stream / tester) ──
+  /** Tap every emitted OneBot event for this account. Returns an unsubscribe. */
+  subscribeDebugEvents(cb: (event: JsonObject) => void): () => void {
+    return this.networkManager.subscribeDebug(cb);
+  }
+  /** Observe every handled action for this account. Returns an unsubscribe. */
+  observeActions(cb: ActionObserver): () => void {
+    return this.apiHandler.setObserver(cb);
+  }
+  /** Invoke an OneBot action against this account (debug tester). */
+  invokeAction(action: string, params: JsonObject): Promise<ApiResponse> {
+    return this.apiHandler.handle(action, params);
   }
 
   constructor(uin: string, bridge: BridgeInterface, config: OneBotConfig) {
