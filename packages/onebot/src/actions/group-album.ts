@@ -18,6 +18,36 @@ export const actions = [
     },
   }),
 
+  // get_qun_album_list — NapCat-named/shaped variant of get_group_album_list.
+  // NapCat's own impl calls the kernel AlbumService (trpc, not statically
+  // recoverable); we instead reuse the qun_list_album_v2 web API (the same one
+  // get_group_album_list uses) and reshape into NapCat's
+  // {album_list, attach_info, has_more} envelope. The web endpoint fetches up
+  // to 1000 albums in one shot, so attach_info/has_more are ''/false (no cursor
+  // pagination); cover_url isn't returned by this endpoint.
+  groupAction({
+    name: 'get_qun_album_list',
+    readOnly: true,
+    run: async (p, ctx) => {
+      try {
+        const albumList = await ctx.bridge.apis.groupAlbum.list(p.group_id);
+        return okResponse({
+          album_list: albumList.map((a) => ({
+            album_id: a.id,
+            album_name: a.name,
+            create_time: a.createTime,
+            pic_num: a.picNum,
+          })),
+          attach_info: '',
+          has_more: false,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'failed to get qun album list';
+        return failedResponse(RETCODE.INTERNAL_ERROR, message);
+      }
+    },
+  }),
+
   groupAction({
     name: 'upload_image_to_qun_album',
     params: {

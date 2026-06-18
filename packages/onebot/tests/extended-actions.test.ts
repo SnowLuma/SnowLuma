@@ -961,3 +961,33 @@ describe('extended-actions / TierB ③ share + doubt + robot-option', () => {
     expect(res).toMatchObject({ status: 'ok' });
   });
 });
+
+// ─── napcat-parity: get_qun_album_list (NapCat-shaped envelope over existing web API) ───
+// SnowLuma already exposes the qun_list_album_v2 web API as get_group_album_list
+// (raw array). NapCat's get_qun_album_list wraps it as {album_list, attach_info,
+// has_more} with {album_id, album_name, create_time, ...} items. We add the
+// NapCat-named/shaped action reusing the same bridge call.
+describe('extended-actions / get_qun_album_list', () => {
+  it('maps the album list into the napcat {album_list, attach_info, has_more} envelope', async () => {
+    const list = vi.fn(async () => [
+      { id: 'a1', name: '相册一', picNum: 5, createTime: 1700000000 },
+      { id: 'a2', name: '相册二', picNum: 0, createTime: 1700000100 },
+    ]);
+    const bridge = fakeBridge({ apis: { groupAlbum: { list } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_qun_album_list', { group_id: 12345 });
+    expect(list).toHaveBeenCalledWith(12345);
+    expect(res.status).toBe('ok');
+    expect(res.data).toMatchObject({ attach_info: '', has_more: false });
+    expect((res.data as any).album_list).toEqual([
+      { album_id: 'a1', album_name: '相册一', create_time: 1700000000, pic_num: 5 },
+      { album_id: 'a2', album_name: '相册二', create_time: 1700000100, pic_num: 0 },
+    ]);
+  });
+
+  it('surfaces failure as a failed response', async () => {
+    const list = vi.fn(async () => { throw new Error('no pskey'); });
+    const bridge = fakeBridge({ apis: { groupAlbum: { list } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_qun_album_list', { group_id: 1 });
+    expect(res.status).toBe('failed');
+  });
+});
