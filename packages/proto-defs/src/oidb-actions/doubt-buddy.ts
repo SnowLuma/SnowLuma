@@ -49,3 +49,15 @@ export interface OidbDoubtApprovalReq {
   uid?:       pb<1, string>;
   targetUid?: pb<2, string>;
 }
+
+// delDoubtBuddyReq (reject/decline) — same cmd 0xd69_0 as get/approval, but a
+// distinct body. RE'd from doubt_buddy_del_worker.cc EncodeRequest sub_3F3E860:
+//   {1: varint const 3 (op discriminator; get uses 1), 3: {1: string uid}}.
+// The uid comes from kernel attr 21001.
+export interface OidbDoubtDelReqInner {
+  uid?: pb<1, string>;
+}
+export interface OidbDoubtDelReq {
+  field1?: pb<1, uint_32>;
+  inner?:  pb<3, OidbDoubtDelReqInner>;
+}

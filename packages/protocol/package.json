@@ -95,6 +95,10 @@
       "types": "./src/oidb-services/friend/approve-doubt-buddy-req.ts",
       "default": "./src/oidb-services/friend/approve-doubt-buddy-req.ts"
     },
+    "./oidb-services/friend/reject-doubt-buddy-req": {
+      "types": "./src/oidb-services/friend/reject-doubt-buddy-req.ts",
+      "default": "./src/oidb-services/friend/reject-doubt-buddy-req.ts"
+    },
     "./oidb-services/contacts/get-buddy-recommend-ark": {
       "types": "./src/oidb-services/contacts/get-buddy-recommend-ark.ts",
       "default": "./src/oidb-services/contacts/get-buddy-recommend-ark.ts"

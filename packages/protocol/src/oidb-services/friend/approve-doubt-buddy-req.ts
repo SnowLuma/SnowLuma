@@ -3,8 +3,8 @@
 // {1:uid, 2:uid, [3:u32], [4:str]} — tags 3/4 emitted only when present, and
 // NapCat passes empty str1/str2, so the approve flow is just {1:uid, 2:uid}.
 // Same OIDB cmd as the getter; the server discriminates by body shape.
-// uin-form OIDB (envelope reserved=1). NapCat only supports approve (no
-// reject — rejection would be a separate delDoubtBuddyReq cmd, not RE'd here).
+// uin-form OIDB (envelope reserved=1). The reject/decline path is a separate
+// cmd (delDoubtBuddyReq) — see sibling reject-doubt-buddy-req.ts.
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase, OidbEmpty } from '@snowluma/proto-defs/oidb';

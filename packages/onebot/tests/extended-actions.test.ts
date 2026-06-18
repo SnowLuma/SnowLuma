@@ -943,11 +943,13 @@ describe('extended-actions / TierB ③ share + doubt + robot-option', () => {
     expect(res).toMatchObject({ status: 'ok' });
   });
 
-  it('set_doubt_friends_add_request rejects approve:false instead of silently approving', async () => {
+  it('set_doubt_friends_add_request with approve:false calls rejectDoubtRequest (not approve)', async () => {
     const approveDoubtRequest = vi.fn(async () => {});
-    const bridge = fakeBridge({ apis: { friend: { approveDoubtRequest } } });
+    const rejectDoubtRequest = vi.fn(async () => {});
+    const bridge = fakeBridge({ apis: { friend: { approveDoubtRequest, rejectDoubtRequest } } });
     const res = await makeHandler(fakeCtx(bridge)).handle('set_doubt_friends_add_request', { flag: 'u_abc', approve: false });
-    expect(res.status).toBe('failed');
+    expect(res).toMatchObject({ status: 'ok' });
+    expect(rejectDoubtRequest).toHaveBeenCalledWith('u_abc');
     expect(approveDoubtRequest).not.toHaveBeenCalled();
   });
 

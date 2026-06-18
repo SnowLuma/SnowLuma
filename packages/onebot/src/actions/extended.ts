@@ -1080,8 +1080,10 @@ export const actions = [
       }
     },
   }),
-  // set_doubt_friends_add_request — approve a 可疑好友申请 (0xd69_0). `flag` is
-  // the uid from the get list. NapCat only supports approve (no reject path).
+  // set_doubt_friends_add_request — handle a 可疑好友申请 (0xd69_0). `flag` is
+  // the uid from the get list. approve → approvalDoubtBuddyReq; approve:false
+  // → delDoubtBuddyReq (reject/decline). NapCat only ever approves; we add the
+  // reject path since we RE'd delDoubtBuddyReq too.
   defineAction({
     name: 'set_doubt_friends_add_request',
     summary: '处理可疑好友申请',
@@ -1090,15 +1092,14 @@ export const actions = [
       approve: f.bool().default(true),
     },
     run: async (p, ctx) => {
-      // Only approve is RE'd (reject would be a separate delDoubtBuddyReq cmd
-      // we haven't recovered). Reject explicitly rather than silently approve
-      // — accepting approve:false then approving anyway would be the opposite
-      // of the caller's intent.
-      if (!p.approve) {
-        return failedResponse(RETCODE.ACTION_FAILED, 'rejecting a doubt request (delDoubtBuddyReq) is not implemented');
-      }
+      // approve → approvalDoubtBuddyReq (0xd69_0); reject → delDoubtBuddyReq
+      // (also 0xd69_0, distinct body) — both RE'd from the binary.
       try {
-        await ctx.bridge.apis.friend.approveDoubtRequest(p.flag);
+        if (p.approve) {
+          await ctx.bridge.apis.friend.approveDoubtRequest(p.flag);
+        } else {
+          await ctx.bridge.apis.friend.rejectDoubtRequest(p.flag);
+        }
         return okResponse();
       } catch (e) {
         return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
