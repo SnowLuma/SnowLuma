@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { Slider } from '@/components/ui/slider';
+import { Textarea } from '@/components/ui/textarea';
 import {
   ACCENTS,
   DEFAULT_APPEARANCE,
@@ -980,7 +981,7 @@ function AdvancedPanel() {
               </button>
             ))}
           </div>
-          <textarea
+          <Textarea
             ref={cssRef}
             value={appearance.customCss}
             onChange={(e) => { setAppearance({ customCss: e.target.value }); if (cssWarn) setCssWarn(null); }}
@@ -988,7 +989,7 @@ function AdvancedPanel() {
             maxLength={50000}
             spellCheck={false}
             placeholder={'/* 例如：放大侧栏字号 */\n.text-sidebar-foreground { font-size: 1.05em; }'}
-            className="h-64 w-full resize-y rounded-lg border bg-card/40 p-3 font-mono text-[12px] leading-relaxed outline-none focus:border-primary"
+            className="h-64 resize-y rounded-lg bg-card/40 p-3 font-mono text-[12px] leading-relaxed"
           />
           {cssWarn && (
             <p className="flex items-start gap-1.5 text-[11px] text-warning">

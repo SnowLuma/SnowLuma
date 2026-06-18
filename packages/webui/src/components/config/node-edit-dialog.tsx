@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import type {
   HttpClientNetwork,
@@ -447,17 +448,13 @@ function SelectField<T extends string>({
   return (
     <div className="flex flex-col gap-1.5">
       <Label>{label}</Label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value as T)}
-        className="h-9 rounded-md border bg-background px-2 text-sm shadow-xs"
-      >
+      <Select value={value} onChange={(e) => onChange(e.target.value as T)}>
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}
           </option>
         ))}
-      </select>
+      </Select>
     </div>
   );
 }

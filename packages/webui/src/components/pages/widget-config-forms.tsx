@@ -2,6 +2,7 @@ import { useId } from 'react';
 import { Bell, BookOpen, ExternalLink, Github, Globe, Link2, Server, Star } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { useAppState } from '@/contexts/AppStateContext';
 import {
@@ -172,13 +173,13 @@ export function NoteConfigForm({ config, onChange }: FormProps) {
   return (
     <div className="flex flex-col gap-2">
       <span className="text-sm text-muted-foreground">便签内容（纯文本，保留换行）</span>
-      <textarea
+      <Textarea
         value={c.text}
         onChange={(e) => onChange({ text: e.target.value.slice(0, NOTE_MAX) })}
         maxLength={NOTE_MAX}
         spellCheck={false}
         placeholder="写点备注、待办或快捷信息…"
-        className="h-40 w-full resize-y rounded-lg border bg-card/40 p-3 text-sm leading-relaxed outline-none focus:border-primary"
+        className="h-40 resize-y rounded-lg bg-card/40 p-3 text-sm leading-relaxed"
       />
       <span className="text-right text-[11px] text-muted-foreground">{c.text.length} / {NOTE_MAX}</span>
     </div>

@@ -6,20 +6,18 @@
 // won't take effect until the env var is removed).
 import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { AlertTriangle, Loader2, Lock, Save, ShieldCheck, Trash2 } from 'lucide-react';
+import { AlertTriangle, Loader2, Lock, Pencil, Save, ShieldCheck, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { useApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { SystemSettingsResponse } from '@/types';
-
-const TEXTAREA_CLS =
-  'w-full min-h-28 rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs ' +
-  'outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
 export function SystemPanel() {
   const api = useApi();
@@ -35,6 +33,9 @@ export function SystemPanel() {
   const [tlsEnabled, setTlsEnabled] = useState(false);
   const [certPem, setCertPem] = useState('');
   const [keyPem, setKeyPem] = useState('');
+  // When a cert is already installed we hide the PEM inputs (sensitive) and
+  // show a "已安装" summary + 更改 button; editing reveals the inputs again.
+  const [editingCert, setEditingCert] = useState(false);
 
   const load = async () => {
     try {
@@ -83,6 +84,7 @@ export function SystemPanel() {
     try {
       await api.systemSettings.uploadCert(certPem, keyPem);
       setCertPem(''); setKeyPem('');
+      setEditingCert(false);
       await load();
       flash('ok', '证书已保存，重启后生效');
     } catch (e) {
@@ -96,6 +98,7 @@ export function SystemPanel() {
     setSaving(true);
     try {
       await api.systemSettings.deleteCert();
+      setEditingCert(false);
       await load();
       flash('ok', '证书已删除');
     } catch (e) {
@@ -140,14 +143,10 @@ export function SystemPanel() {
           </div>
           <div className="flex flex-col gap-1.5">
             <Label className="flex items-center">绑定地址<EnvBadge field="webuiHost" /></Label>
-            <select
-              value={host}
-              onChange={(e) => setHost(e.target.value)}
-              className="h-9 rounded-lg border border-border bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
+            <Select value={host} onChange={(e) => setHost(e.target.value)}>
               <option value="0.0.0.0">0.0.0.0（所有网卡）</option>
               <option value="127.0.0.1">127.0.0.1（仅本机）</option>
-            </select>
+            </Select>
           </div>
           <div className="flex flex-col gap-1.5">
             <Label className="flex items-center">信任代理 (trust-proxy)<EnvBadge field="trustProxy" /></Label>
@@ -177,27 +176,48 @@ export function SystemPanel() {
             <ToggleSwitch value={tlsEnabled} onChange={setTlsEnabled} ariaLabel="启用 HTTPS" />
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <Label>证书 (cert.pem)</Label>
-            <textarea className={TEXTAREA_CLS} value={certPem} onChange={(e) => setCertPem(e.target.value)} placeholder="-----BEGIN CERTIFICATE-----" />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label>私钥 (key.pem)</Label>
-            <textarea className={TEXTAREA_CLS} value={keyPem} onChange={(e) => setKeyPem(e.target.value)} placeholder="-----BEGIN PRIVATE KEY-----" />
-          </div>
-          <div className="flex gap-2">
-            <Button onClick={uploadCert} disabled={saving} className="gap-1.5">
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} 保存证书
-            </Button>
-            {data?.hasCert && (
-              <Button variant="outline" onClick={deleteCert} disabled={saving} className="gap-1.5">
-                <Trash2 className="h-4 w-4" /> 删除证书
-              </Button>
-            )}
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            私钥仅写入服务器 config/key.pem，不会回显。证书无效时保存会被拒绝；若启用了 TLS 但证书加载失败，启动时会自动回退到 HTTP。
-          </p>
+          {data?.hasCert && !editingCert ? (
+            // Cert already installed — don't re-render the sensitive PEM. Show a
+            // summary + actions; private key is never sent back to the client.
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                <ShieldCheck className="h-4 w-4 text-emerald-500" />
+                <span>证书与私钥已安装（出于安全不回显，未改变）。</span>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setEditingCert(true)} className="gap-1.5">
+                  <Pencil className="h-4 w-4" /> 更改证书
+                </Button>
+                <Button variant="outline" onClick={deleteCert} disabled={saving} className="gap-1.5">
+                  <Trash2 className="h-4 w-4" /> 删除证书
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-col gap-1.5">
+                <Label>证书 (cert.pem)</Label>
+                <Textarea className="min-h-28 font-mono text-xs" value={certPem} onChange={(e) => setCertPem(e.target.value)} placeholder="-----BEGIN CERTIFICATE-----" />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>私钥 (key.pem)</Label>
+                <Textarea className="min-h-28 font-mono text-xs" value={keyPem} onChange={(e) => setKeyPem(e.target.value)} placeholder="-----BEGIN PRIVATE KEY-----" />
+              </div>
+              <div className="flex gap-2">
+                <Button onClick={uploadCert} disabled={saving} className="gap-1.5">
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} 保存证书
+                </Button>
+                {data?.hasCert && editingCert && (
+                  <Button variant="outline" onClick={() => { setEditingCert(false); setCertPem(''); setKeyPem(''); }} className="gap-1.5">
+                    取消
+                  </Button>
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                私钥仅写入服务器 config/key.pem（0600 权限），不会回显。证书无效时保存会被拒绝；若启用了 TLS 但证书加载失败，启动时会自动回退到 HTTP。
+              </p>
+            </>
+          )}
         </CardContent>
       </Card>
     </motion.div>
