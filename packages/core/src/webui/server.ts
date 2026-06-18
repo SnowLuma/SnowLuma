@@ -7,7 +7,7 @@ import type { OneBotManager } from '@snowluma/onebot/manager';
 import type { OneBotConfig } from '@snowluma/onebot/types';
 import { readRuntimeConfig, updateRuntimeConfig, resolveRuntimeEnvOverrides } from '@snowluma/common/runtime';
 import { randomBytes } from 'crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
 import { createServer as createHttpsServer } from 'https';
 import { Hono, type Context } from 'hono';
 import os from 'os';
@@ -16,6 +16,7 @@ import { fileURLToPath } from 'url';
 import { evaluatePasswordRules, isStrongPassword, WebuiAuth } from './auth';
 import { resolveTlsContext, validateTlsPair } from './tls';
 import { coerceSettingsPatch } from './system-settings';
+import { applyBackup, buildBackup, validateBackup } from './backup';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
 import { findAvailablePort } from './port';
 import {
@@ -495,6 +496,73 @@ export async function initWebUI(
       return c.json({ success: false, message: '删除证书失败' }, 500);
     }
     return c.json({ success: true });
+  });
+
+  // ── Config backup / restore (Wave A2) ──
+  const cfgPath = (name: string) => path.join('config', name);
+  const readCfg = (name: string): Buffer | null => {
+    const p = cfgPath(name);
+    return existsSync(p) ? readFileSync(p) : null;
+  };
+
+  app.get('/api/system/backup/export', (c) => {
+    const includeCredentials = c.req.query('credentials') === '1';
+    const ts = new Date().toISOString();
+    const bundle = buildBackup(readCfg, { includeCredentials }, ts);
+    c.header('Content-Disposition', `attachment; filename="snowluma-backup-${ts.replace(/[:.]/g, '-')}.json"`);
+    return c.json(bundle);
+  });
+
+  app.post('/api/system/backup/import', async (c) => {
+    const declaredLen = Number(c.req.header('content-length'));
+    if (Number.isFinite(declaredLen) && declaredLen > 32 * 1024 * 1024) {
+      return c.json({ success: false, message: '备份文件过大' }, 413);
+    }
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    if (typeof body !== 'object' || body === null) {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const { backup, restoreCredentials } = body as { backup?: unknown; restoreCredentials?: unknown };
+    const v = validateBackup(backup);
+    if (!v.ok) return c.json({ success: false, message: v.error }, 400);
+
+    // Snapshot the current config before overwriting so a bad restore is
+    // recoverable; one timestamped dir per import.
+    const snapDir = path.join('config', `.restore-backup-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+    try {
+      const res = applyBackup(v.backup, {
+        snapshot: (name) => {
+          const src = cfgPath(name);
+          if (!existsSync(src)) return;
+          const dest = path.join(snapDir, name);
+          mkdirSync(path.dirname(dest), { recursive: true });
+          copyFileSync(src, dest);
+        },
+        write: (name, data) => {
+          const dest = cfgPath(name);
+          mkdirSync(path.dirname(dest), { recursive: true });
+          const tmp = dest + '.tmp';
+          writeFileSync(tmp, data, name === 'key.pem' ? { mode: 0o600 } : undefined);
+          renameSync(tmp, dest);
+          if (name === 'key.pem') { try { chmodSync(dest, 0o600); } catch { /* best-effort */ } }
+        },
+      }, { restoreCredentials: restoreCredentials === true });
+      return c.json({
+        success: true,
+        restored: res.restored,
+        skipped: res.skipped,
+        snapshotDir: snapDir,
+        restartRequiredToApply: true,
+      });
+    } catch (err) {
+      log.warn('backup import failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '恢复失败，请检查服务器日志（原配置已快照备份）' }, 500);
+    }
   });
 
   app.get('/api/qq-list', (c) => {
