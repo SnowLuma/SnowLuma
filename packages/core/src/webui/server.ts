@@ -476,7 +476,9 @@ export async function initWebUI(
       // 0600). writeFileSync's mode is ignored for an existing file, so chmod
       // explicitly afterwards.
       writeFileSync(SYSTEM_KEY_PATH, key.endsWith('\n') ? key : key + '\n', { encoding: 'utf8', mode: 0o600 });
-      chmodSync(SYSTEM_KEY_PATH, 0o600);
+      // Best-effort (mirrors auth.ts): the key is already written 0600 above, so
+      // a rare chmod failure must not fail the request.
+      try { chmodSync(SYSTEM_KEY_PATH, 0o600); } catch { /* best-effort */ }
     } catch (err) {
       log.warn('write cert/key failed: %s', err instanceof Error ? err.message : String(err));
       return c.json({ success: false, message: '写入证书失败，请检查服务器日志' }, 500);
