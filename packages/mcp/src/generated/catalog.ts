@@ -1146,6 +1146,15 @@ export const ACTIONS: CatalogAction[] = [
           "minimum": 0
         },
         "default": 10
+      },
+      {
+        "name": "return_type",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "default": "url"
       }
     ],
     "invariants": [],
@@ -1156,22 +1165,12 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "minimum": 0,
           "default": 10
+        },
+        "return_type": {
+          "type": "string",
+          "default": "url"
         }
       },
-      "additionalProperties": true
-    },
-    "category": "扩展"
-  },
-  {
-    "name": "fetch_custom_face_ids",
-    "aliases": [],
-    "summary": "获取收藏表情 ID 列表",
-    "readOnly": true,
-    "params": [],
-    "invariants": [],
-    "inputSchema": {
-      "type": "object",
-      "properties": {},
       "additionalProperties": true
     },
     "category": "扩展"
@@ -6067,7 +6066,7 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "扩展",
-    "count": 88
+    "count": 87
   },
   {
     "category": "群相册",
