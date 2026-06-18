@@ -21,6 +21,7 @@ import { GetPrivateVideoUrl } from '@snowluma/protocol/oidb-services/group-file/
 import { ListGroupFilesPage } from '@snowluma/protocol/oidb-services/group-file/list-group-files-page';
 import { MoveGroupFile } from '@snowluma/protocol/oidb-services/group-file/move-group-file';
 import { PublishGroupFile } from '@snowluma/protocol/oidb-services/group-file/publish-group-file';
+import { RenameGroupFile } from '@snowluma/protocol/oidb-services/group-file/rename-group-file';
 import { RenameGroupFolder } from '@snowluma/protocol/oidb-services/group-file/rename-group-folder';
 import { UploadGroupFileRequest } from '@snowluma/protocol/oidb-services/group-file/upload-group-file-request';
 import { UploadPrivateFileRequest } from '@snowluma/protocol/oidb-services/group-file/upload-private-file-request';
@@ -602,6 +603,10 @@ export class GroupFileApi {
 
   move(groupId: number, fileId: string, parentDirectory: string, targetDirectory: string): Promise<void> {
     return MoveGroupFile.invoke(this.ctx, { groupId, fileId, parentDirectory, targetDirectory });
+  }
+
+  rename(groupId: number, fileId: string, parentDirectory: string, newFileName: string): Promise<void> {
+    return RenameGroupFile.invoke(this.ctx, { groupId, fileId, parentDirectory, newFileName });
   }
 
   // ─────────────── folders ───────────────

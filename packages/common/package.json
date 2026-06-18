@@ -1,6 +1,6 @@
 {
   "name": "@snowluma/common",
-  "version": "1.9.12",
+  "version": "1.9.13",
   "private": true,
   "type": "module",
   "description": "SnowLuma shared infrastructure — leaf-package utilities with zero business dependencies. Logger / hex codec / log file transport / log line summariser / packet sender wire-protocol types / runtime config loader. Consumed by @snowluma/protocol, @snowluma/core, and @snowluma/onebot. Per-file subpath exports keep import sites unambiguous and let the bundler tree-shake aggressively (importing `@snowluma/common/hex` doesn't pull in `node:fs` from the logger transport).",
@@ -45,10 +45,12 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@types/node": "^24.12.2",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "^4.1.4"
   }
 }

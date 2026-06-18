@@ -4,14 +4,21 @@ import type { HookManager, HookProcessInfo } from '@snowluma/bridge';
 import { createLogger, getLogLevel, getRecentLogs, LOG_LEVELS, setLogLevel, subscribeLogs } from '@snowluma/common/logger';
 import { loadOneBotConfig, saveOneBotConfig } from '@snowluma/onebot/config';
 import type { OneBotManager } from '@snowluma/onebot/manager';
-import type { OneBotConfig } from '@snowluma/onebot/types';
+import type { OneBotConfig, JsonObject as OneBotJsonObject } from '@snowluma/onebot/types';
+import { readRuntimeConfig, updateRuntimeConfig, resolveRuntimeEnvOverrides } from '@snowluma/common/runtime';
 import { randomBytes } from 'crypto';
-import { existsSync, readFileSync } from 'fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
+import { createServer as createHttpsServer } from 'https';
 import { Hono, type Context } from 'hono';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { evaluatePasswordRules, isStrongPassword, WebuiAuth } from './auth';
+import { resolveTlsContext, validateTlsPair } from './tls';
+import { coerceSettingsPatch } from './system-settings';
+import { buildBackup, planRestore, validateBackup } from './backup';
+import { collectActionDocs, collectCategories } from '@snowluma/onebot/action-docs';
+import { createFramePusher } from './debug-stream';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
 import { findAvailablePort } from './port';
 import {
@@ -60,6 +67,7 @@ const MUST_CHANGE_ALLOWLIST = new Set([
 // into access logs / Referer / browser history.
 const TOKEN_QUERY_ALLOWLIST = new Set([
   '/api/logs/stream',
+  '/api/debug/stream',
 ]);
 
 // uin = QQ number; 5–12 digits. Used to construct config file paths,
@@ -78,14 +86,6 @@ function purgeExpiredTokens() {
   }
 }
 
-/**
- * Resolve the client IP for per-IP rate limiting. Default is the TCP
- * socket peer (cannot be spoofed by the client). Operators behind a
- * reverse proxy must opt in via the `SNOWLUMA_WEBUI_TRUST_PROXY` env
- * var; see `./client-ip.ts` for the accepted values.
- */
-const trustProxyMode = parseTrustProxy(process.env.SNOWLUMA_WEBUI_TRUST_PROXY);
-const getClientIp = makeClientIpResolver(trustProxyMode);
 
 async function fetchQqAvatar(uin: string): Promise<{ body: Uint8Array; contentType: string }> {
   const response = await fetch(`https://q1.qlogo.cn/g?b=qq&nk=${encodeURIComponent(uin)}&s=100`, {
@@ -105,7 +105,19 @@ export async function initWebUI(
   oneBotManager: OneBotManager,
   hookManager?: HookManager,
   notificationManager?: NotificationManager,
+  listener: { host?: string; tlsEnabled?: boolean; trustProxy?: string } = {},
 ): Promise<{ port: number }> {
+  // Resolve the client IP for per-IP rate limiting from the configured
+  // trust-proxy directive (runtime.json `trustProxy`, env-overridable via
+  // SNOWLUMA_WEBUI_TRUST_PROXY which loadRuntimeConfig already merged in).
+  // Default ('') = trust the TCP socket peer only (cannot be spoofed).
+  const trustProxyMode = parseTrustProxy(listener.trustProxy);
+  const getClientIp = makeClientIpResolver(trustProxyMode);
+
+  // Actual bound port (set just before serve; findAvailablePort may bump it).
+  // Read by GET /api/system/settings so the panel shows what's really live.
+  let boundPort = desiredPort;
+
   const auth = WebuiAuth.load();
   const initialPassword = auth.takeInitialPassword();
   if (auth.isDevMode()) {
@@ -392,6 +404,252 @@ export async function initWebUI(
         external: runtimeMemory.external,
         arrayBuffers: runtimeMemory.arrayBuffers,
       },
+    });
+  });
+
+  // ── System settings (WebUI listener) — Wave A1 ──
+  // Listener-level changes (port/host/TLS) are persisted but apply only on the
+  // next restart (no supervisor → no self-restart). The panel surfaces which
+  // fields are currently overridden by env so edits that won't take effect are
+  // visible.
+  const SYSTEM_CERT_PATH = path.join('config', 'cert.pem');
+  const SYSTEM_KEY_PATH = path.join('config', 'key.pem');
+  const hasCert = (): boolean => existsSync(SYSTEM_CERT_PATH) && existsSync(SYSTEM_KEY_PATH);
+
+  app.get('/api/system/settings', (c) => {
+    const disk = readRuntimeConfig();
+    const envOverrides = Object.keys(resolveRuntimeEnvOverrides(process.env));
+    return c.json({
+      settings: {
+        webuiPort: disk.webuiPort,
+        webuiHost: disk.webuiHost,
+        tlsEnabled: disk.webuiTls?.enabled ?? false,
+        trustProxy: disk.trustProxy ?? '',
+      },
+      hasCert: hasCert(),
+      envOverrides, // field names currently pinned by SNOWLUMA_* env vars
+      listeningPort: boundPort,
+      restartRequiredToApply: true,
+    });
+  });
+
+  app.post('/api/system/settings', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const coerced = coerceSettingsPatch(body);
+    if (!coerced.ok) return c.json({ success: false, message: coerced.error }, 400);
+    // Enabling TLS without a usable cert would brick HTTPS on restart — block it.
+    if (coerced.patch.webuiTls?.enabled && !resolveTlsContext('config').ok) {
+      return c.json({ success: false, message: '启用 TLS 前请先上传有效的证书与私钥' }, 400);
+    }
+    const saved = updateRuntimeConfig(coerced.patch);
+    return c.json({
+      success: true,
+      settings: {
+        webuiPort: saved.webuiPort,
+        webuiHost: saved.webuiHost,
+        tlsEnabled: saved.webuiTls?.enabled ?? false,
+        trustProxy: saved.trustProxy ?? '',
+      },
+      restartRequiredToApply: true,
+    });
+  });
+
+  app.post('/api/system/tls/cert', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const cert = (body as { cert?: unknown }).cert;
+    const key = (body as { key?: unknown }).key;
+    if (typeof cert !== 'string' || typeof key !== 'string') {
+      return c.json({ success: false, message: 'cert 和 key 必须为 PEM 字符串' }, 400);
+    }
+    const valid = validateTlsPair(cert, key);
+    if (!valid.ok) return c.json({ success: false, message: valid.reason }, 400);
+    try {
+      mkdirSync('config', { recursive: true });
+      writeFileSync(SYSTEM_CERT_PATH, cert.endsWith('\n') ? cert : cert + '\n', 'utf8');
+      // Private key must not be world-readable (mirrors auth.ts's webui.json
+      // 0600). writeFileSync's mode is ignored for an existing file, so chmod
+      // explicitly afterwards.
+      writeFileSync(SYSTEM_KEY_PATH, key.endsWith('\n') ? key : key + '\n', { encoding: 'utf8', mode: 0o600 });
+      // Best-effort (mirrors auth.ts): the key is already written 0600 above, so
+      // a rare chmod failure must not fail the request.
+      try { chmodSync(SYSTEM_KEY_PATH, 0o600); } catch { /* best-effort */ }
+    } catch (err) {
+      log.warn('write cert/key failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '写入证书失败，请检查服务器日志' }, 500);
+    }
+    return c.json({ success: true, restartRequiredToApply: true });
+  });
+
+  app.delete('/api/system/tls/cert', (c) => {
+    try {
+      rmSync(SYSTEM_CERT_PATH, { force: true });
+      rmSync(SYSTEM_KEY_PATH, { force: true });
+    } catch (err) {
+      log.warn('remove cert/key failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '删除证书失败' }, 500);
+    }
+    return c.json({ success: true });
+  });
+
+  // ── Config backup / restore (Wave A2) ──
+  const cfgPath = (name: string) => path.join('config', name);
+  const readCfg = (name: string): Buffer | null => {
+    const p = cfgPath(name);
+    return existsSync(p) ? readFileSync(p) : null;
+  };
+
+  const listPerUinOnebot = (): string[] => {
+    try {
+      return existsSync('config') ? readdirSync('config').filter((n) => /^onebot_\d+\.json$/.test(n)) : [];
+    } catch { return []; }
+  };
+
+  app.get('/api/system/backup/export', (c) => {
+    const includeCredentials = c.req.query('credentials') === '1';
+    const ts = new Date().toISOString();
+    const bundle = buildBackup(readCfg, listPerUinOnebot(), { includeCredentials }, ts);
+    c.header('Content-Disposition', `attachment; filename="snowluma-backup-${ts.replace(/[:.]/g, '-')}.json"`);
+    // Bundle may carry the TLS private key / password hash — never cache it.
+    c.header('Cache-Control', 'no-store, max-age=0');
+    c.header('Pragma', 'no-cache');
+    return c.json(bundle);
+  });
+
+  app.post('/api/system/backup/import', async (c) => {
+    const declaredLen = Number(c.req.header('content-length'));
+    if (Number.isFinite(declaredLen) && declaredLen > 32 * 1024 * 1024) {
+      return c.json({ success: false, message: '备份文件过大' }, 413);
+    }
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    if (typeof body !== 'object' || body === null) {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const { backup, restoreCredentials } = body as { backup?: unknown; restoreCredentials?: unknown };
+    const v = validateBackup(backup);
+    if (!v.ok) return c.json({ success: false, message: v.error }, 400);
+
+    const plan = planRestore(v.backup, { restoreCredentials: restoreCredentials === true });
+    // Snapshot the current (about-to-be-overwritten) config so a restore is
+    // recoverable; one timestamped dir per import.
+    const snapDir = path.join('config', `.restore-backup-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+    // Two-phase write for near-atomicity: stage every file as a .tmp first, then
+    // rename them all. A failure during staging touches no live file; rename
+    // almost never fails, shrinking the half-applied window to near zero.
+    const staged: Array<{ tmp: string; dest: string; name: string }> = [];
+    try {
+      for (const { name } of plan.restore) {
+        const src = cfgPath(name);
+        if (!existsSync(src)) continue;
+        const snap = path.join(snapDir, name);
+        mkdirSync(path.dirname(snap), { recursive: true });
+        copyFileSync(src, snap);
+      }
+      for (const { name, data } of plan.restore) {
+        const dest = cfgPath(name);
+        mkdirSync(path.dirname(dest), { recursive: true });
+        const tmp = dest + '.restore.tmp';
+        writeFileSync(tmp, data, name === 'key.pem' ? { mode: 0o600 } : undefined);
+        staged.push({ tmp, dest, name });
+      }
+      for (const { tmp, dest, name } of staged) {
+        renameSync(tmp, dest);
+        if (name === 'key.pem') { try { chmodSync(dest, 0o600); } catch { /* best-effort */ } }
+      }
+      return c.json({
+        success: true,
+        restored: plan.restore.map((r) => r.name),
+        skipped: plan.skipped,
+        snapshotDir: snapDir,
+        restartRequiredToApply: true,
+      });
+    } catch (err) {
+      // Clean up any staged .tmp not yet renamed (staging-phase failure leaves
+      // the live config untouched; a rare rename-phase failure may be partial,
+      // recoverable from the snapshot dir).
+      for (const { tmp } of staged) { try { if (existsSync(tmp)) rmSync(tmp, { force: true }); } catch { /* ignore */ } }
+      log.warn('backup import failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '恢复失败；若为写入阶段失败则当前配置未改动，否则可从 config/.restore-backup-* 快照恢复' }, 500);
+    }
+  });
+
+  // ── Debug tools (Wave A3) ──
+  // Action schemas for the tester form (declarative actions only; legacy ones
+  // are invoked freeform).
+  app.get('/api/debug/actions', (c) =>
+    c.json({ actions: collectActionDocs(), categories: collectCategories() }));
+
+  // Manually invoke an action against one account. Real side effects — gated by
+  // the same /api/* auth.
+  app.post('/api/debug/invoke', async (c) => {
+    let body: unknown;
+    try { body = await c.req.json(); } catch { return c.json({ status: 'failed', message: '请求格式错误' }, 400); }
+    const { uin, action, params } = (body ?? {}) as { uin?: unknown; action?: unknown; params?: unknown };
+    if (typeof uin !== 'string' || !UIN_REGEX.test(uin)) return c.json({ status: 'failed', message: '无效的账号' }, 400);
+    if (typeof action !== 'string' || !action) return c.json({ status: 'failed', message: 'action 必填' }, 400);
+    if (params !== undefined && (typeof params !== 'object' || params === null || Array.isArray(params))) {
+      return c.json({ status: 'failed', message: 'params 必须是对象' }, 400);
+    }
+    const inst = oneBotManager.getInstance(uin);
+    if (!inst) return c.json({ status: 'failed', message: '账号不在线' }, 404);
+    const result = await inst.invokeAction(action, (params ?? {}) as OneBotJsonObject);
+    return c.json(result);
+  });
+
+  // Live merged SSE of OneBot events + action calls across all accounts. Taps
+  // are attached only while a client is connected (on-demand). A slow client is
+  // dropped (not back-pressured onto the bot) with a periodic drop marker.
+  app.get('/api/debug/stream', (c) => {
+    const stream = new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder();
+        let closed = false;
+        const offs: Array<() => void> = [];
+        let heartbeat: NodeJS.Timeout | undefined;
+        const teardown = () => {
+          if (closed) return;
+          closed = true;
+          if (heartbeat) clearInterval(heartbeat);
+          for (const off of offs) { try { off(); } catch { /* ignore */ } }
+          try { controller.close(); } catch { /* ignore */ }
+        };
+        const raw = (chunk: Uint8Array) => {
+          if (closed) return;
+          try { controller.enqueue(chunk); } catch { teardown(); }
+        };
+        // Drop-under-backpressure framing (unit-tested in debug-stream.ts).
+        const pushFrame = createFramePusher({
+          desiredSize: () => controller.desiredSize,
+          enqueue: raw,
+          encode: (s) => encoder.encode(s),
+        });
+        const send = (payload: unknown) => { if (!closed) pushFrame(payload); };
+        send({ kind: 'ready' });
+        for (const inst of oneBotManager.getInstances()) {
+          const uin = inst.uin;
+          offs.push(inst.subscribeDebugEvents((event) => send({ kind: 'event', uin, event })));
+          offs.push(inst.observeActions((rec) => send({ kind: 'action', uin, ...rec })));
+        }
+        heartbeat = setInterval(() => raw(encoder.encode(': heartbeat\n\n')), 15000);
+        c.req.raw.signal.addEventListener('abort', teardown);
+      },
+    });
+    return new Response(stream, {
+      headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' },
     });
   });
 
@@ -708,10 +966,27 @@ export async function initWebUI(
   if (finalPort !== desiredPort) {
     log.warn('port %d is in use, using %d instead', desiredPort, finalPort);
   }
+  boundPort = finalPort;
+
+  const host = listener.host || '0.0.0.0';
+
+  // TLS: only when explicitly enabled AND the on-disk cert/key load. A bad
+  // or missing cert must never brick the WebUI — fall back to HTTP + warn.
+  let tlsServe: { createServer: typeof createHttpsServer; serverOptions: { cert: Buffer; key: Buffer } } | undefined;
+  let scheme = 'http';
+  if (listener.tlsEnabled) {
+    const tls = resolveTlsContext('config');
+    if (tls.ok && tls.cert && tls.key) {
+      tlsServe = { createServer: createHttpsServer, serverOptions: { cert: tls.cert, key: tls.key } };
+      scheme = 'https';
+    } else {
+      log.warn('TLS enabled but cert/key unusable (%s) — serving over HTTP instead', tls.reason);
+    }
+  }
 
   await new Promise<void>((resolve) => {
-    serve({ fetch: app.fetch, port: finalPort }, (info) => {
-      log.info(`listening http://localhost:${info.port}`);
+    serve({ fetch: app.fetch, port: finalPort, hostname: host, ...(tlsServe ?? {}) }, (info) => {
+      log.info(`listening ${scheme}://${host}:${info.port}`);
       resolve();
     });
   });

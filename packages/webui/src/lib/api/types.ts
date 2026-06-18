@@ -1,5 +1,10 @@
 import type {
   AccountConnections,
+  BackupBundle,
+  BackupImportResult,
+  DebugActionDoc,
+  DebugInvokeResult,
+  DebugStreamMessage,
   HookProcessInfo,
   LogEntry,
   LogLevel,
@@ -8,6 +13,9 @@ import type {
   OneBotConfig,
   QQInfo,
   SystemInfo,
+  SystemSettings,
+  SystemSettingsPatch,
+  SystemSettingsResponse,
   UiAppearance,
   UiConfig,
   UpdateInfo,
@@ -72,6 +80,27 @@ export interface ApiClient {
   config: {
     get(uin: string): Promise<OneBotConfig>;
     save(uin: string, config: OneBotConfig): Promise<OneBotConfig>;
+  };
+
+  // ---- WebUI listener self-config (port / host / TLS / trust-proxy) ----
+  systemSettings: {
+    get(): Promise<SystemSettingsResponse>;
+    save(patch: SystemSettingsPatch): Promise<{ settings: SystemSettings; restartRequiredToApply: boolean }>;
+    /** Validate + write config/cert.pem + key.pem (restart to apply). */
+    uploadCert(cert: string, key: string): Promise<void>;
+    deleteCert(): Promise<void>;
+    /** Download the config backup bundle (credentials gated). */
+    exportBackup(includeCredentials: boolean): Promise<BackupBundle>;
+    /** Validate + restore a bundle (snapshots current config first). */
+    importBackup(backup: BackupBundle, restoreCredentials: boolean): Promise<BackupImportResult>;
+  };
+
+  // ---- debug tools (action tester + live event/action stream) ----
+  debug: {
+    actions(): Promise<{ actions: DebugActionDoc[]; categories: { category: string; count: number }[] }>;
+    invoke(uin: string, action: string, params: Record<string, unknown>): Promise<DebugInvokeResult>;
+    /** Live merged SSE; returns an unsubscribe. */
+    stream(onMessage: (m: DebugStreamMessage) => void, onStatus?: (s: StreamStatus) => void): () => void;
   };
 
   // ---- notifications (account up/down webhooks) ----

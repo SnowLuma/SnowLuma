@@ -141,6 +141,64 @@ export interface NotificationDeliveryRecord {
 
 export type NetworkKind = keyof OneBotNetworks;
 
+// WebUI listener self-config (Wave A1). Listener-level changes are
+// restart-to-apply; `envOverrides` lists fields currently pinned by env vars.
+export interface SystemSettings {
+  webuiPort: number;
+  webuiHost: string;
+  tlsEnabled: boolean;
+  trustProxy: string;
+}
+export type SystemSettingsPatch = Partial<SystemSettings>;
+export interface SystemSettingsResponse {
+  settings: SystemSettings;
+  hasCert: boolean;
+  envOverrides: string[];
+  listeningPort: number;
+  restartRequiredToApply: boolean;
+}
+
+// Debug tools (Wave A3).
+export interface DebugActionParam {
+  name: string;
+  type: string;
+  required: boolean;
+  default?: unknown;
+  desc?: string;
+  values?: (string | number)[];
+}
+export interface DebugActionDoc {
+  name: string;
+  aliases: string[];
+  category?: string;
+  summary?: string;
+  returns?: string;
+  readOnly: boolean;
+  params: DebugActionParam[];
+}
+export interface DebugInvokeResult {
+  status: string;
+  retcode?: number;
+  data?: unknown;
+  message?: string;
+  wording?: string;
+}
+export type DebugStreamMessage =
+  | { kind: 'ready' }
+  | { kind: 'dropped'; count: number }
+  | { kind: 'event'; uin: string; event: Record<string, unknown> }
+  | { kind: 'action'; uin: string; action: string; params: Record<string, unknown>; response: Record<string, unknown>; ms: number };
+
+// Config backup/restore (Wave A2). The bundle is an opaque JSON object the
+// server validates; the client never inspects its internals.
+export type BackupBundle = Record<string, unknown>;
+export interface BackupImportResult {
+  restored: string[];
+  skipped: string[];
+  snapshotDir: string;
+  restartRequiredToApply: boolean;
+}
+
 export interface SystemInfo {
   hostname: string;
   platform: string;

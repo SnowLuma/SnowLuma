@@ -350,12 +350,6 @@ describe('extended-actions / get_group_ignore_add_request', () => {
   });
 });
 
-describe('extended-actions / get_group_shut_list', () => {
-  it('returns empty list (oidb not yet wrapped)', async () => {
-    const res = await makeHandler(fakeCtx(fakeBridge())).handle('get_group_shut_list', {});
-    expect(res).toEqual({ status: 'ok', retcode: 0, data: [] });
-  });
-});
 
 // ─── Tier 1: delete_group_folder alias ───
 
@@ -618,5 +612,233 @@ describe('extended-actions / set_group_portrait', () => {
       group_id: 1, file: 'x.png',
     });
     expect(res).toMatchObject({ status: 'failed', retcode: 100, wording: 'highway 500' });
+  });
+});
+
+// ─── Wave 1: get_group_shut_list ───
+
+describe('extended-actions / get_group_shut_list', () => {
+  it('returns only currently-muted members in NapCat shape', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const fetchGroupMemberList = vi.fn(async () => [
+      { uin: 111, uid: 'u1', nickname: 'muted', card: '', role: 'member', level: 1, title: '', joinTime: 0, lastSentTime: 0, shutUpTime: nowSec + 3600 },
+      { uin: 222, uid: 'u2', nickname: 'free', card: '', role: 'member', level: 1, title: '', joinTime: 0, lastSentTime: 0, shutUpTime: 0 },
+      { uin: 333, uid: 'u3', nickname: 'expired', card: '', role: 'member', level: 1, title: '', joinTime: 0, lastSentTime: 0, shutUpTime: nowSec - 3600 },
+    ]);
+    const bridge = fakeBridge({ fetchGroupMemberList: fetchGroupMemberList as any });
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_group_shut_list', { group_id: 12345 });
+    expect(res.status).toBe('ok');
+    expect(fetchGroupMemberList).toHaveBeenCalledWith(12345);
+    expect(res.data).toEqual([
+      { user_id: 111, nickname: 'muted', shut_up_time: nowSec + 3600 },
+    ]);
+  });
+
+  it('rejects missing group_id', async () => {
+    const bridge = fakeBridge({ fetchGroupMemberList: vi.fn() as any });
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_group_shut_list', {});
+    expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
+  });
+});
+
+// ─── Wave 1: get_file (compose image→record cache) ───
+
+describe('extended-actions / get_file', () => {
+  const imageInfo = { file: 'a.jpg', url: 'http://x/a.jpg', file_size: '12', file_name: 'a.jpg' };
+  const recordInfo = { file: 'b.amr', url: 'http://x/b.amr', file_size: '34', file_name: 'b.amr' };
+
+  it('resolves an image file_id via the image cache', async () => {
+    const getImageInfo = vi.fn(async () => imageInfo);
+    const getRecordInfo = vi.fn(async () => null);
+    const res = await makeHandler(fakeCtx(fakeBridge(), { getImageInfo, getRecordInfo })).handle('get_file', { file_id: 'a.jpg' });
+    expect(res).toMatchObject({ status: 'ok', data: imageInfo });
+    expect(getRecordInfo).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the record cache when not an image', async () => {
+    const getImageInfo = vi.fn(async () => null);
+    const getRecordInfo = vi.fn(async () => recordInfo);
+    const res = await makeHandler(fakeCtx(fakeBridge(), { getImageInfo, getRecordInfo })).handle('get_file', { file: 'b.amr' });
+    expect(res).toMatchObject({ status: 'ok', data: recordInfo });
+  });
+
+  it('fails with a neutral cache-miss message that points to the group-file path', async () => {
+    // A double cache miss is runtime-indistinguishable between "a group-file
+    // file_id was passed (unsupported here)" and "the image/voice really isn't
+    // cached" — run() does not parse the id's shape. So the error must stay
+    // neutral: state the cache miss, then offer the group-file path as
+    // guidance, without asserting "unsupported".
+    const getImageInfo = vi.fn(async () => null);
+    const getRecordInfo = vi.fn(async () => null);
+    const res = await makeHandler(fakeCtx(fakeBridge(), { getImageInfo, getRecordInfo })).handle('get_file', { file_id: 'nope' });
+    expect(res).toMatchObject({ status: 'failed', retcode: 100 });
+    const wording = (res as { wording?: string }).wording ?? '';
+    expect(wording).toMatch(/not found in the image\/voice cache/);
+    expect(wording).toMatch(/get_group_file_url/);
+    expect(wording).not.toMatch(/unsupported/);
+  });
+
+  it('rejects when neither file nor file_id is given', async () => {
+    const res = await makeHandler(fakeCtx(fakeBridge())).handle('get_file', {});
+    expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
+  });
+});
+
+// ─── Wave 2: rename_group_file (0x6D6_4) ───
+
+describe('extended-actions / rename_group_file', () => {
+  it('renames a group file via apis.groupFile.rename', async () => {
+    const rename = vi.fn(async () => undefined);
+    const bridge = fakeBridge({ apis: { groupFile: { rename } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('rename_group_file', {
+      group_id: 12345, file_id: '/abc', current_parent_directory: '/', new_name: 'new.txt',
+    });
+    expect(res.status).toBe('ok');
+    expect(rename).toHaveBeenCalledWith(12345, '/abc', '/', 'new.txt');
+  });
+
+  it('rejects missing required params', async () => {
+    const rename = vi.fn();
+    const bridge = fakeBridge({ apis: { groupFile: { rename } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('rename_group_file', { group_id: 12345, file_id: '/abc' });
+    expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(rename).not.toHaveBeenCalled();
+  });
+
+  it('surfaces oidb errors (handler maps a thrown error to INTERNAL_ERROR, as its sibling file ops do)', async () => {
+    const rename = vi.fn(async () => { throw new Error('rename rejected'); });
+    const bridge = fakeBridge({ apis: { groupFile: { rename } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('rename_group_file', {
+      group_id: 1, file_id: '/a', current_parent_directory: '/', new_name: 'x',
+    });
+    expect(res).toMatchObject({ status: 'failed', retcode: 1200, wording: 'rename rejected' });
+  });
+});
+
+// ─── Wave 2: get_rkey_server ───
+
+describe('extended-actions / get_rkey_server', () => {
+  it('reshapes download rkeys into the NapCat server shape (private=10, group=20)', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const getDownloadRKeys = vi.fn(async () => [
+      { rkey: '&rkey=PRIV', type: 10, ttl: 3600, create_time: 100 },
+      { rkey: '&rkey=GRP', type: 20, ttl: 7200, create_time: 200 },
+    ]);
+    const res = await makeHandler(fakeCtx(fakeBridge(), { getDownloadRKeys })).handle('get_rkey_server', {});
+    expect(res.status).toBe('ok');
+    const d = res.data as { private_rkey?: string; group_rkey?: string; expired_time: number; name: string };
+    expect(d.private_rkey).toBe('&rkey=PRIV');
+    expect(d.group_rkey).toBe('&rkey=GRP');
+    expect(d.name).toBe('SnowLuma');
+    // expiry = now + min(ttl) = now + 3600 (allow a 1s clock tick)
+    expect(d.expired_time).toBeGreaterThanOrEqual(nowSec + 3600);
+    expect(d.expired_time).toBeLessThanOrEqual(nowSec + 3601);
+  });
+
+  it('leaves a missing scope undefined', async () => {
+    const getDownloadRKeys = vi.fn(async () => [
+      { rkey: '&rkey=PRIV', type: 10, ttl: 3600, create_time: 100 },
+    ]);
+    const res = await makeHandler(fakeCtx(fakeBridge(), { getDownloadRKeys })).handle('get_rkey_server', {});
+    const d = res.data as { private_rkey?: string; group_rkey?: string };
+    expect(d.private_rkey).toBe('&rkey=PRIV');
+    expect(d.group_rkey).toBeUndefined();
+  });
+
+  it('fails (not an expired empty shell) when no rkey is available', async () => {
+    const getDownloadRKeys = vi.fn(async () => []);
+    const res = await makeHandler(fakeCtx(fakeBridge(), { getDownloadRKeys })).handle('get_rkey_server', {});
+    expect(res).toMatchObject({ status: 'failed', retcode: 100 });
+  });
+});
+
+// ─── Wave 3: ocr_image / .ocr_image (OIDB 0xE07_0) ───
+
+describe('extended-actions / ocr_image', () => {
+  const ocrResult = { texts: [{ text: 'hello', confidence: 99, coordinates: [{ x: 1, y: 2 }] }], language: 'en' };
+
+  it('OCRs an http(s) image URL directly', async () => {
+    const ocrImage = vi.fn(async () => ocrResult);
+    const bridge = fakeBridge({ apis: { misc: { ocrImage } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('ocr_image', { image: 'https://x/a.jpg' });
+    expect(res).toMatchObject({ status: 'ok', data: ocrResult });
+    expect(ocrImage).toHaveBeenCalledWith('https://x/a.jpg');
+  });
+
+  it('resolves a cached image file_id to a url via getImageInfo', async () => {
+    const ocrImage = vi.fn(async () => ocrResult);
+    const getImageInfo = vi.fn(async () => ({ url: 'https://cdn/resolved.jpg' }));
+    const bridge = fakeBridge({ apis: { misc: { ocrImage } } });
+    const res = await makeHandler(fakeCtx(bridge, { getImageInfo })).handle('ocr_image', { image: 'abc.jpg' });
+    expect(res.status).toBe('ok');
+    expect(ocrImage).toHaveBeenCalledWith('https://cdn/resolved.jpg');
+  });
+
+  it('.ocr_image shares the same handler', async () => {
+    const ocrImage = vi.fn(async () => ocrResult);
+    const bridge = fakeBridge({ apis: { misc: { ocrImage } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('.ocr_image', { image: 'http://x/a.jpg' });
+    expect(res.status).toBe('ok');
+  });
+
+  it('fails when the id cannot be resolved to a url', async () => {
+    const ocrImage = vi.fn();
+    const getImageInfo = vi.fn(async () => null);
+    const bridge = fakeBridge({ apis: { misc: { ocrImage } } });
+    const res = await makeHandler(fakeCtx(bridge, { getImageInfo })).handle('ocr_image', { image: 'unknown' });
+    expect(res.status).toBe('failed');
+    expect(ocrImage).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing image', async () => {
+    const bridge = fakeBridge({ apis: { misc: { ocrImage: vi.fn() } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('ocr_image', {});
+    expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
+  });
+});
+
+// ─── TierB Phase 1: compat stubs (model_show / online_clients / mark_all_as_read) ───
+// These are kernel-only in NapCat (mock/no-op), so SnowLuma ships honest
+// compat shapes rather than RE-ing a wire that doesn't exist. We pin the
+// response *shape* of each. NOTE two deliberate divergences from NapCat:
+//   • _get_model_show reuses NapCat's array/variants shape but ECHOES the
+//     requested model instead of NapCat's hardcoded 'napcat'.
+//   • get_online_clients returns the OneBot-v11/go-cqhttp { clients: [] }
+//     envelope, NOT NapCat's (non-standard) bare []. A strict-NapCat client
+//     would expect an array here; we intentionally follow the spec instead.
+
+describe('extended-actions / TierB compat stubs', () => {
+  it('_get_model_show returns the napcat-shaped variants array, echoing the model', async () => {
+    const res = await makeHandler(fakeCtx(fakeBridge())).handle('_get_model_show', { model: 'MyPhone' });
+    expect(res.status).toBe('ok');
+    // NapCat shape: data = [{ variants: { model_show, need_pay } }]
+    expect(Array.isArray(res.data)).toBe(true);
+    expect(res.data).toHaveLength(1);
+    expect((res.data as any)[0].variants).toMatchObject({ model_show: 'MyPhone', need_pay: false });
+  });
+
+  it('_get_model_show defaults model_show to snowluma when model is absent or empty', async () => {
+    for (const params of [{}, { model: '' }]) {
+      const res = await makeHandler(fakeCtx(fakeBridge())).handle('_get_model_show', params);
+      expect(res.status).toBe('ok');
+      expect((res.data as any)[0].variants.model_show).toBe('snowluma');
+      expect((res.data as any)[0].variants.need_pay).toBe(false);
+    }
+  });
+
+  it('_set_model_show is an accepted no-op', async () => {
+    const res = await makeHandler(fakeCtx(fakeBridge())).handle('_set_model_show', { model: 'x', model_show: 'y' });
+    expect(res).toMatchObject({ status: 'ok', retcode: 0, data: null });
+  });
+
+  it('get_online_clients returns the OneBot-standard {clients:[]} envelope', async () => {
+    const res = await makeHandler(fakeCtx(fakeBridge())).handle('get_online_clients', {});
+    expect(res.status).toBe('ok');
+    expect(res.data).toMatchObject({ clients: [] });
+  });
+
+  it('_mark_all_as_read is an accepted no-op', async () => {
+    const res = await makeHandler(fakeCtx(fakeBridge())).handle('_mark_all_as_read', {});
+    expect(res).toMatchObject({ status: 'ok', retcode: 0 });
   });
 });

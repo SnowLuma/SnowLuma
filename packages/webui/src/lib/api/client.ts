@@ -1,4 +1,4 @@
-import type { AccountConnections, HookProcessInfo, LogEntry, LogLevel, NotificationDeliveryRecord, NotificationsConfig, QQInfo, SystemInfo, UiAppearance, UiConfig, UpdateInfo } from '@/types';
+import type { AccountConnections, BackupBundle, BackupImportResult, DebugActionDoc, DebugInvokeResult, DebugStreamMessage, HookProcessInfo, LogEntry, LogLevel, NotificationDeliveryRecord, NotificationsConfig, QQInfo, SystemInfo, SystemSettingsPatch, SystemSettingsResponse, UiAppearance, UiConfig, UpdateInfo } from '@/types';
 import type { PasswordRule } from '@/components/pages/change-password-page';
 import { normalizeOneBotConfig } from '@/lib/onebot-config';
 import {
@@ -45,6 +45,8 @@ class HttpApiClient implements ApiClient {
   readonly update: ApiClient['update'];
   readonly ui: ApiClient['ui'];
   readonly notifications: ApiClient['notifications'];
+  readonly systemSettings: ApiClient['systemSettings'];
+  readonly debug: ApiClient['debug'];
 
   constructor(opts: CreateApiClientOptions = {}) {
     this.tokenStore = opts.tokenStore ?? localStorageTokenStore(DEFAULT_TOKEN_KEY);
@@ -96,6 +98,32 @@ class HttpApiClient implements ApiClient {
     this.update = {
       check: (force) =>
         this.getJson<UpdateInfo>(`/api/update/check${force ? '?force=true' : ''}`),
+    };
+
+    this.systemSettings = {
+      get: () => this.getJson<SystemSettingsResponse>('/api/system/settings'),
+      save: (patch: SystemSettingsPatch) =>
+        this.postJson<{ settings: SystemSettingsResponse['settings']; restartRequiredToApply: boolean }>(
+          '/api/system/settings',
+          patch,
+        ),
+      uploadCert: async (cert: string, key: string) => {
+        await this.postJson<{ success: boolean }>('/api/system/tls/cert', { cert, key });
+      },
+      deleteCert: async () => {
+        await this.fetchJson<{ success: boolean }>('/api/system/tls/cert', { method: 'DELETE' });
+      },
+      exportBackup: (includeCredentials: boolean) =>
+        this.getJson<BackupBundle>(`/api/system/backup/export${includeCredentials ? '?credentials=1' : ''}`),
+      importBackup: (backup: BackupBundle, restoreCredentials: boolean) =>
+        this.postJson<BackupImportResult>('/api/system/backup/import', { backup, restoreCredentials }),
+    };
+
+    this.debug = {
+      actions: () => this.getJson<{ actions: DebugActionDoc[]; categories: { category: string; count: number }[] }>('/api/debug/actions'),
+      invoke: (uin: string, action: string, params: Record<string, unknown>) =>
+        this.postJson<DebugInvokeResult>('/api/debug/invoke', { uin, action, params }),
+      stream: (onMessage, onStatus) => this.openDebugStream(onMessage, onStatus),
     };
 
     this.ui = {
@@ -318,6 +346,21 @@ class HttpApiClient implements ApiClient {
       source.close();
       options.onStatus?.('closed');
     };
+  }
+
+  private openDebugStream(
+    onMessage: (m: DebugStreamMessage) => void,
+    onStatus?: (s: import('./types').StreamStatus) => void,
+  ): () => void {
+    if (!this.currentToken) { onStatus?.('closed'); return () => {}; }
+    const url = `/api/debug/stream?token=${encodeURIComponent(this.currentToken)}`;
+    const source = new EventSource(url);
+    source.onopen = () => onStatus?.('open');
+    source.onerror = () => onStatus?.('reconnecting');
+    source.onmessage = (event) => {
+      try { onMessage(JSON.parse(event.data) as DebugStreamMessage); } catch { /* skip malformed */ }
+    };
+    return () => { source.close(); onStatus?.('closed'); };
   }
 }
 

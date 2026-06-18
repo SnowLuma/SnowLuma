@@ -563,9 +563,12 @@ export const actions = [
     },
   }),
 
+  // _mark_all_as_read — no-op。NapCat 靠单次内核 IPC markAllMsgAsRead() 实现，
+  // SnowLuma 无等价单包 SSO cmd；遍历所有会话逐个发已读报告是风控高危群发，
+  // 故暂不真正执行（留待 RE 出"一键全读"cmd）。返回 ok 以兼容启动时盲调的客户端。
   defineAction({
     name: '_mark_all_as_read',
-    summary: '标记全部已读',
+    summary: '标记全部已读（no-op，待 RE 全读 cmd）',
     params: {},
     run: async () => {
       return okResponse();
@@ -705,15 +708,23 @@ export const actions = [
     },
   }),
 
-  // get_group_shut_list 依赖尚未封装的 oidb。
-  // 这里遵循 NapCat 约定返回空列表，避免调用方出错。
-  defineAction({
+  // get_group_shut_list — SnowLuma 无独立"禁言列表"cmd，按成员列表的
+  // shutUpTime 字段（绝对到期时间戳，秒）派生：保留仍在禁言中的成员。
+  // 走带 TTL 缓存的 fetchGroupMemberList（风控友好，0xfe7 高频会触发腾讯封号），
+  // 与 NapCat 文档返回形状 {user_id,nickname,shut_up_time} 对齐。
+  // 取舍：NapCat 此接口实时，本实现复用成员缓存，故结果最长有 ~60s 延迟——
+  // 刚下/解的禁言可能在该窗口内未反映，属可接受的低频运维查询取舍。
+  groupAction({
     name: 'get_group_shut_list',
-    summary: '获取群禁言列表（占位）',
+    summary: '获取群禁言列表',
     readOnly: true,
-    params: {},
-    run: async () => {
-      return okResponse([]);
+    run: async (p, ctx) => {
+      const members = await ctx.bridge.apis.contacts.fetchGroupMemberList(p.group_id);
+      const nowSec = Math.floor(Date.now() / 1000);
+      const list = members
+        .filter((m) => (m.shutUpTime ?? 0) > nowSec)
+        .map((m) => ({ user_id: m.uin, nickname: m.nickname, shut_up_time: m.shutUpTime }));
+      return okResponse(list);
     },
   }),
 
@@ -849,10 +860,13 @@ export const actions = [
     },
   }),
 
-  // NapCat 似乎也用不了，暂时不处理。
+  // get_online_clients — 在线设备列表。NapCat 也拿不到（注册监听后 sleep 500ms
+  // 直接返回空），且其返回是裸数组 []，偏离 OneBot v11 / go-cqhttp 规范。
+  // SnowLuma 暂无对应单包 SSO cmd，返回 OneBot v11 标准空壳 { clients: [] }
+  // ——刻意采用规范形状而非 NapCat 的裸 []，故对照 NapCat 客户端此处不严格 parity。
   defineAction({
     name: 'get_online_clients',
-    summary: '获取在线客户端（占位）',
+    summary: '获取在线客户端（占位，OneBot v11 形状）',
     readOnly: true,
     params: {},
     run: async () => {
@@ -860,13 +874,21 @@ export const actions = [
     },
   }),
 
+  // _get_model_show — NapCat 纯内核无 packet wire，其实现是硬编码 mock
+  // （无视入参，model_show 恒返回字面量 'napcat'）。SnowLuma 同样无对应单包
+  // SSO cmd，故只复用 NapCat 的*外层形状*：data 为数组 [{ variants: {...} }]、
+  // need_pay 恒 false；但刻意不照搬其固定字面量——回显请求的 model（缺省
+  // 'snowluma'），对调用方更有信息量。属有意的行为分歧，仅形状对齐。
   defineAction({
     name: '_get_model_show',
-    summary: '获取机型展示（占位）',
+    summary: '获取机型展示（兼容 mock）',
     readOnly: true,
-    params: {},
-    run: async () => {
-      return okResponse({ variants: [] });
+    params: {
+      model: f.string().default(''),
+    },
+    run: async (p) => {
+      const modelShow = p.model || 'snowluma';
+      return okResponse([{ variants: { model_show: modelShow, need_pay: false } }]);
     },
   }),
 
@@ -1018,27 +1040,36 @@ export const actions = [
     },
   }),
 
-  defineAction({
-    name: 'rename_group_file',
-    summary: '重命名群文件（未实现）',
-    params: {},
-    run: async () => {
-      return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
-    },
-  }),
-
+  // get_file — 统一文件信息入口。SnowLuma 按 file_id 解析媒体缓存：
+  // 先图片、后语音（两者已带 url 重签与 file_size/file_name）。
+  // 局限：群文件/普通文件的 file_id 无法在此解析——OneBot `get_file` 单参
+  // 签名不含 group_id，而 SnowLuma 群文件下载需要 group 上下文（用
+  // get_group_file_url / get_private_file_url）。故此处仅覆盖图片/语音，
+  // 不为群文件伪造结果。
+  // 注意：缓存双 miss 时无法在此区分"传入的是群文件 file_id"与"图片/语音
+  // 确实未缓存（如进程重启丢失）"——run() 不解析 id 形态。故错误信息保持
+  // 中性：先陈述"未命中缓存"的事实，再把群文件改用别的接口作为指引，
+  // 而非武断断言"不支持"。（summary 仅进离线文档，调用方运行时只看到 wording。）
   defineAction({
     name: 'get_file',
-    summary: '获取文件（未实现）',
+    summary: '获取文件信息（仅图片/语音缓存；群文件请用 get_group_file_url）',
     readOnly: true,
     params: {
       file_id: f.string().default(''),
       file: f.string().default(''),
     },
-    run: async (p) => {
-      const fileId = p.file_id || p.file;
+    run: async (p, ctx) => {
+      const fileId = p.file || p.file_id;
       if (!fileId) return failedResponse(RETCODE.BAD_REQUEST, 'file_id is required');
-      return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
+      const image = await ctx.getImageInfo(fileId);
+      if (image) return okResponse(image);
+      const record = await ctx.getRecordInfo(fileId);
+      if (record) return okResponse(record);
+      return failedResponse(
+        RETCODE.ACTION_FAILED,
+        'file_id not found in the image/voice cache. get_file only resolves cached '
+        + 'image/voice ids; for group/normal files use get_group_file_url or get_private_file_url',
+      );
     },
   }),
 
@@ -1195,12 +1226,70 @@ export const actions = [
         : failedResponse(RETCODE.ACTION_FAILED, 'not implemented'),
   }),
 
+  // get_rkey_server — 把下载 rkey 列表（type 10=私聊 / 20=群聊，同 0x9067 来源）
+  // 收敛成 NapCat 的 server 形状。expired_time = now + 在场 rkey ttl 的最小值。
   defineAction({
-    name: ['ocr_image', '.ocr_image'],
-    summary: 'OCR 图片（未实现）',
+    name: 'get_rkey_server',
+    summary: '获取 rkey 服务器信息',
     readOnly: true,
     params: {},
-    run: () => failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented'),
+    run: async (_p, ctx) => {
+      if (!ctx.getDownloadRKeys) return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+      const rkeys = await ctx.getDownloadRKeys();
+      const pick = (type: number) =>
+        rkeys.find((r) => (r as { type?: number }).type === type) as
+          { rkey?: string; ttl?: number } | undefined;
+      const priv = pick(10);
+      const group = pick(20);
+      // No rkey at all → fail rather than hand back an "expired_time = now,
+      // no keys" shell that a caching caller would misread as a valid-but-empty
+      // (already-expired) result.
+      if (!priv?.rkey && !group?.rkey) {
+        return failedResponse(RETCODE.ACTION_FAILED, 'no download rkey available');
+      }
+      const ttls = [priv?.ttl, group?.ttl].filter((t): t is number => typeof t === 'number' && t > 0);
+      const minTtl = ttls.length ? Math.min(...ttls) : 0;
+      const data: JsonObject = {
+        expired_time: Math.floor(Date.now() / 1000) + minTtl,
+        name: 'SnowLuma',
+      };
+      if (priv?.rkey) data.private_rkey = priv.rkey;
+      if (group?.rkey) data.group_rkey = group.rkey;
+      return okResponse(data);
+    },
+  }),
+
+  // ocr_image — 服务端 OCR via OIDB 0xE07_0（port 自 Lagrange/NapCat proto）。
+  // 该 cmd 接收图片 URL（服务端拉取），故 image 支持：http(s) URL 直用，或
+  // 已缓存图片的 file_id（经 getImageInfo 解析出 URL）。base64/本地文件需先
+  // 上传换 URL，本实现不覆盖（NapCat 走的是 Windows-only 内核 OCR，不可移植）。
+  defineAction({
+    name: ['ocr_image', '.ocr_image'],
+    summary: 'OCR 图片（服务端，需图片 URL 或已缓存的图片 file_id）',
+    readOnly: true,
+    params: { image: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      // A passed-in http(s) URL is used verbatim (NOT re-signed) — if it is a
+      // stale CDN URL with an expired rkey the server fetch fails and surfaces
+      // the server's retCode. The file_id path below re-signs via getImageInfo.
+      let url = /^https?:\/\//i.test(p.image) ? p.image : '';
+      if (!url) {
+        const info = await ctx.getImageInfo(p.image);
+        const resolved = info && typeof info.url === 'string' ? info.url : '';
+        if (resolved) url = resolved;
+      }
+      if (!url) {
+        return failedResponse(
+          RETCODE.ACTION_FAILED,
+          'ocr_image needs an http(s) image url or a cached image file_id; '
+          + 'base64/local-file input is not supported',
+        );
+      }
+      const result = await ctx.bridge.apis.misc.ocrImage(url);
+      // OcrResult is plain JSON data; the interface just lacks an index
+      // signature, so coerce for the JsonValue-typed response.
+      return okResponse(result as unknown as JsonObject);
+    },
   }),
 
   groupAction({

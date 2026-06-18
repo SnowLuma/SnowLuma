@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { cn } from '@/lib/utils';
 import type { NotificationChannel } from '@/types';
@@ -100,12 +101,12 @@ export function NotificationChannelDialog(props: NotificationChannelDialogProps)
 
           <div className="flex flex-col gap-1.5">
             <Label>Body 模板</Label>
-            <textarea
+            <Textarea
               value={draft.bodyTemplate}
               rows={3}
               spellCheck={false}
               onChange={(e) => patch({ bodyTemplate: e.target.value })}
-              className="w-full rounded-md border border-border bg-transparent px-3 py-2 font-mono text-xs leading-relaxed shadow-xs outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+              className="font-mono text-xs leading-relaxed"
             />
             <p className="text-[11px] leading-relaxed text-muted-foreground">
               变量：<code className="font-mono">{'{uin}'}</code> <code className="font-mono">{'{nickname}'}</code>{' '}

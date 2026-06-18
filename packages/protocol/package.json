@@ -1,6 +1,6 @@
 {
   "name": "@snowluma/protocol",
-  "version": "1.9.12",
+  "version": "1.9.13",
   "private": true,
   "type": "module",
   "description": "SnowLuma protocol — the protocol-layer between QQ wire bytes and typed events. Owns: identity service (uid↔uin cache with SQLite persistence), event bus, packet pipeline (incoming SSO packet → QQEventVariant), msg-push decoders, element-builder (MessageElement → wire elems[]), highway upload protocol (file/image/video/ptt), OIDB envelope helper, and the event/notice/request type vocabulary. Consumers (@snowluma/core, @snowluma/onebot) talk to this package through `BridgeContext` for runtime calls and the standalone classes (IdentityService, BridgeEventBus, IncomingPacketPipeline) for composition. Per-file subpath exports mirror the legacy `core/src/bridge/*` layout 1:1 so the previous `import { …} from '../bridge/<x>'` collapses to `import { … } from '@snowluma/protocol/<x>'`.",
@@ -98,6 +98,10 @@
     "./oidb-services/misc/translate-en-to-zh": {
       "types": "./src/oidb-services/misc/translate-en-to-zh.ts",
       "default": "./src/oidb-services/misc/translate-en-to-zh.ts"
+    },
+    "./oidb-services/misc/image-ocr": {
+      "types": "./src/oidb-services/misc/image-ocr.ts",
+      "default": "./src/oidb-services/misc/image-ocr.ts"
     },
     "./oidb-services/misc/click-inline-keyboard-button": {
       "types": "./src/oidb-services/misc/click-inline-keyboard-button.ts",
@@ -262,6 +266,10 @@
     "./oidb-services/group-file/move-group-file": {
       "types": "./src/oidb-services/group-file/move-group-file.ts",
       "default": "./src/oidb-services/group-file/move-group-file.ts"
+    },
+    "./oidb-services/group-file/rename-group-file": {
+      "types": "./src/oidb-services/group-file/rename-group-file.ts",
+      "default": "./src/oidb-services/group-file/rename-group-file.ts"
     },
     "./oidb-services/group-file/create-group-folder": {
       "types": "./src/oidb-services/group-file/create-group-folder.ts",

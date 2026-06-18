@@ -84,10 +84,18 @@ export interface OidbGroupFileMoveReq {
   parentDirectory?: pb<5, string>;
   targetDirectory?: pb<6, string>;
 }
+export interface OidbGroupFileRenameReq {
+  groupUin?:     pb<1, uint_32>;
+  busId?:        pb<3, uint_32>;
+  fileId?:       pb<4, string>;
+  parentFolder?: pb<5, string>;
+  newFileName?:  pb<6, string>;
+}
 export interface OidbGroupFileReq {
   file?:     pb<1, OidbGroupFileUploadReq>;
   download?: pb<3, OidbGroupFileDownloadReq>;
   delete?:   pb<4, OidbGroupFileDeleteReq>;
+  rename?:   pb<5, OidbGroupFileRenameReq>;
   move?:     pb<6, OidbGroupFileMoveReq>;
 }
 export interface OidbGroupFileUploadResp {
@@ -121,6 +129,7 @@ export interface OidbGroupFileResp {
   upload?:   pb<1, OidbGroupFileUploadResp>;
   download?: pb<3, OidbGroupFileDownloadResp>;
   delete?:   pb<4, OidbGroupFileRetResp>;
+  rename?:   pb<5, OidbGroupFileRetResp>;
   move?:     pb<6, OidbGroupFileRetResp>;
 }
 export interface OidbGroupSendFileInfo {
