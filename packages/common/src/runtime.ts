@@ -78,6 +78,14 @@ export function loadRuntimeConfig(): RuntimeConfig {
 }
 
 /**
+ * Read the persisted config (normalized, no env overrides, no write). For the
+ * settings panel's GET — shows what's actually saved/editable on disk.
+ */
+export function readRuntimeConfig(): RuntimeConfig {
+  return normalizeRuntimeConfig(tryLoadRuntimeConfig() ?? {});
+}
+
+/**
  * Persist a partial update. Merges onto the ON-DISK config (not the env-merged
  * runtime view) so an env override (e.g. SNOWLUMA_WEBUI_PORT) is never baked
  * into runtime.json. Returns the new persisted config (without env overrides).

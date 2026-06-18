@@ -5,15 +5,17 @@ import { createLogger, getLogLevel, getRecentLogs, LOG_LEVELS, setLogLevel, subs
 import { loadOneBotConfig, saveOneBotConfig } from '@snowluma/onebot/config';
 import type { OneBotManager } from '@snowluma/onebot/manager';
 import type { OneBotConfig } from '@snowluma/onebot/types';
+import { readRuntimeConfig, updateRuntimeConfig, resolveRuntimeEnvOverrides } from '@snowluma/common/runtime';
 import { randomBytes } from 'crypto';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { createServer as createHttpsServer } from 'https';
 import { Hono, type Context } from 'hono';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { evaluatePasswordRules, isStrongPassword, WebuiAuth } from './auth';
-import { resolveTlsContext } from './tls';
+import { resolveTlsContext, validateTlsPair } from './tls';
+import { coerceSettingsPatch } from './system-settings';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
 import { findAvailablePort } from './port';
 import {
@@ -107,6 +109,10 @@ export async function initWebUI(
   // Default ('') = trust the TCP socket peer only (cannot be spoofed).
   const trustProxyMode = parseTrustProxy(listener.trustProxy);
   const getClientIp = makeClientIpResolver(trustProxyMode);
+
+  // Actual bound port (set just before serve; findAvailablePort may bump it).
+  // Read by GET /api/system/settings so the panel shows what's really live.
+  let boundPort = desiredPort;
 
   const auth = WebuiAuth.load();
   const initialPassword = auth.takeInitialPassword();
@@ -395,6 +401,94 @@ export async function initWebUI(
         arrayBuffers: runtimeMemory.arrayBuffers,
       },
     });
+  });
+
+  // ── System settings (WebUI listener) — Wave A1 ──
+  // Listener-level changes (port/host/TLS) are persisted but apply only on the
+  // next restart (no supervisor → no self-restart). The panel surfaces which
+  // fields are currently overridden by env so edits that won't take effect are
+  // visible.
+  const SYSTEM_CERT_PATH = path.join('config', 'cert.pem');
+  const SYSTEM_KEY_PATH = path.join('config', 'key.pem');
+  const hasCert = (): boolean => existsSync(SYSTEM_CERT_PATH) && existsSync(SYSTEM_KEY_PATH);
+
+  app.get('/api/system/settings', (c) => {
+    const disk = readRuntimeConfig();
+    const envOverrides = Object.keys(resolveRuntimeEnvOverrides(process.env));
+    return c.json({
+      settings: {
+        webuiPort: disk.webuiPort,
+        webuiHost: disk.webuiHost,
+        tlsEnabled: disk.webuiTls?.enabled ?? false,
+        trustProxy: disk.trustProxy ?? '',
+      },
+      hasCert: hasCert(),
+      envOverrides, // field names currently pinned by SNOWLUMA_* env vars
+      listeningPort: boundPort,
+      restartRequiredToApply: true,
+    });
+  });
+
+  app.post('/api/system/settings', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const coerced = coerceSettingsPatch(body);
+    if (!coerced.ok) return c.json({ success: false, message: coerced.error }, 400);
+    // Enabling TLS without a usable cert would brick HTTPS on restart — block it.
+    if (coerced.patch.webuiTls?.enabled && !resolveTlsContext('config').ok) {
+      return c.json({ success: false, message: '启用 TLS 前请先上传有效的证书与私钥' }, 400);
+    }
+    const saved = updateRuntimeConfig(coerced.patch);
+    return c.json({
+      success: true,
+      settings: {
+        webuiPort: saved.webuiPort,
+        webuiHost: saved.webuiHost,
+        tlsEnabled: saved.webuiTls?.enabled ?? false,
+        trustProxy: saved.trustProxy ?? '',
+      },
+      restartRequiredToApply: true,
+    });
+  });
+
+  app.post('/api/system/tls/cert', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const cert = (body as { cert?: unknown }).cert;
+    const key = (body as { key?: unknown }).key;
+    if (typeof cert !== 'string' || typeof key !== 'string') {
+      return c.json({ success: false, message: 'cert 和 key 必须为 PEM 字符串' }, 400);
+    }
+    const valid = validateTlsPair(cert, key);
+    if (!valid.ok) return c.json({ success: false, message: valid.reason }, 400);
+    try {
+      mkdirSync('config', { recursive: true });
+      writeFileSync(SYSTEM_CERT_PATH, cert.endsWith('\n') ? cert : cert + '\n', 'utf8');
+      writeFileSync(SYSTEM_KEY_PATH, key.endsWith('\n') ? key : key + '\n', 'utf8');
+    } catch (err) {
+      log.warn('write cert/key failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '写入证书失败，请检查服务器日志' }, 500);
+    }
+    return c.json({ success: true, restartRequiredToApply: true });
+  });
+
+  app.delete('/api/system/tls/cert', (c) => {
+    try {
+      rmSync(SYSTEM_CERT_PATH, { force: true });
+      rmSync(SYSTEM_KEY_PATH, { force: true });
+    } catch (err) {
+      log.warn('remove cert/key failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '删除证书失败' }, 500);
+    }
+    return c.json({ success: true });
   });
 
   app.get('/api/qq-list', (c) => {
@@ -710,6 +804,7 @@ export async function initWebUI(
   if (finalPort !== desiredPort) {
     log.warn('port %d is in use, using %d instead', desiredPort, finalPort);
   }
+  boundPort = finalPort;
 
   const host = listener.host || '0.0.0.0';
 
