@@ -371,6 +371,10 @@
       "types": "./src/web/group-notice.ts",
       "default": "./src/web/group-notice.ts"
     },
+    "./web/group-signin": {
+      "types": "./src/web/group-signin.ts",
+      "default": "./src/web/group-signin.ts"
+    },
     "./web/request-util": {
       "types": "./src/web/request-util.ts",
       "default": "./src/web/request-util.ts"

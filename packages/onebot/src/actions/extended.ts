@@ -728,6 +728,23 @@ export const actions = [
     },
   }),
 
+  // get_group_signed_list — 群今日打卡名单。NapCat 走 qun.qq.com 的
+  // v2/signin/trpc/GetDaySignedList（HTTP + PSKey），非 OIDB；SnowLuma 复用
+  // 现有 web cookie/bkn 基建（与群公告/精华同套路），故无需 RE。失败/无打卡返回空表。
+  groupAction({
+    name: 'get_group_signed_list',
+    summary: '获取群今日打卡列表',
+    readOnly: true,
+    run: async (p, ctx) => {
+      try {
+        const list = await ctx.bridge.apis.web.getSignedList(p.group_id);
+        return okResponse(list);
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      }
+    },
+  }),
+
   defineAction({
     name: 'forward_friend_single_msg',
     summary: '转发单条消息给好友',

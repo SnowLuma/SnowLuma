@@ -842,3 +842,25 @@ describe('extended-actions / TierB compat stubs', () => {
     expect(res).toMatchObject({ status: 'ok', retcode: 0 });
   });
 });
+
+// ─── TierB ①: get_group_signed_list (qun.qq.com HTTP, real) ───
+// Thin wrapper over WebApi.getSignedList; we pin that the action drives
+// the web api with the numeric group id and passes the mapped list through.
+
+describe('extended-actions / get_group_signed_list', () => {
+  it('calls web.getSignedList with the group id and returns the list', async () => {
+    const list = [{ user_id: 10001, nick: 'Alice', time: 1700000000, rank: 1 }];
+    const getSignedList = vi.fn(async () => list);
+    const bridge = fakeBridge({ apis: { web: { getSignedList } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_group_signed_list', { group_id: 12345 });
+    expect(getSignedList).toHaveBeenCalledWith(12345);
+    expect(res).toMatchObject({ status: 'ok', retcode: 0, data: list });
+  });
+
+  it('surfaces a failure as a failed response', async () => {
+    const getSignedList = vi.fn(async () => { throw new Error('no pskey'); });
+    const bridge = fakeBridge({ apis: { web: { getSignedList } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_group_signed_list', { group_id: 12345 });
+    expect(res.status).toBe('failed');
+  });
+});
