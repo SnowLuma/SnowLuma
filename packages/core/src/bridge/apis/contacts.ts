@@ -6,6 +6,8 @@ import { FetchGroupMemberListPage } from '@snowluma/protocol/oidb-services/conta
 import { FetchGroupRequests } from '@snowluma/protocol/oidb-services/contacts/fetch-group-requests';
 import { FetchUserProfile } from '@snowluma/protocol/oidb-services/contacts/fetch-user-profile';
 import { FetchUserProfileByUid } from '@snowluma/protocol/oidb-services/contacts/fetch-user-profile-by-uid';
+import { GetBuddyRecommendArk } from '@snowluma/protocol/oidb-services/contacts/get-buddy-recommend-ark';
+import { GetGroupRecommendArk } from '@snowluma/protocol/oidb-services/contacts/get-group-recommend-ark';
 import type {
   FriendInfo,
   GroupMemberInfo,
@@ -65,6 +67,16 @@ export class ContactsApi {
   private memberListLastFetch = new Map<number, { at: number; data: GroupMemberInfo[] }>();
 
   constructor(private readonly ctx: BridgeContext) { }
+
+  /** Server-built ARK share card (JSON string) recommending a friend. */
+  getBuddyRecommendArk(userId: number, phoneNumber = ''): Promise<string> {
+    return GetBuddyRecommendArk.invoke(this.ctx, { userId, phoneNumber });
+  }
+
+  /** Server-built ARK share card (JSON string) recommending a group. */
+  getGroupRecommendArk(groupId: number): Promise<string> {
+    return GetGroupRecommendArk.invoke(this.ctx, { groupId });
+  }
 
   async fetchFriendList(): Promise<FriendInfo[]> {
     const friends: FriendInfo[] = [];

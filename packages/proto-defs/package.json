@@ -59,6 +59,18 @@
       "types": "./src/oidb-actions/base.ts",
       "default": "./src/oidb-actions/base.ts"
     },
+    "./oidb-actions/contact-ark": {
+      "types": "./src/oidb-actions/contact-ark.ts",
+      "default": "./src/oidb-actions/contact-ark.ts"
+    },
+    "./oidb-actions/doubt-buddy": {
+      "types": "./src/oidb-actions/doubt-buddy.ts",
+      "default": "./src/oidb-actions/doubt-buddy.ts"
+    },
+    "./oidb-actions/group-ext": {
+      "types": "./src/oidb-actions/group-ext.ts",
+      "default": "./src/oidb-actions/group-ext.ts"
+    },
     "./oidb-actions/group-album": {
       "types": "./src/oidb-actions/group-album.ts",
       "default": "./src/oidb-actions/group-album.ts"

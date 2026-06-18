@@ -884,3 +884,78 @@ describe('extended-actions / get_recent_contact stub', () => {
     expect(res).toMatchObject({ status: 'ok', data: [] });
   });
 });
+
+// ─── TierB ③: RE'd OIDB-backed actions (wiring through handle) ───
+describe('extended-actions / TierB ③ share + doubt + robot-option', () => {
+  it('share_peer with user_id calls getBuddyRecommendArk and wraps the ark', async () => {
+    const getBuddyRecommendArk = vi.fn(async () => '{"app":"x"}');
+    const bridge = fakeBridge({ apis: { contacts: { getBuddyRecommendArk } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('share_peer', { user_id: 10000 });
+    expect(getBuddyRecommendArk).toHaveBeenCalledWith(10000, '');
+    expect(res).toMatchObject({ status: 'ok', data: { arkMsg: '{"app":"x"}' } });
+  });
+
+  it('share_peer with group_id calls getGroupRecommendArk', async () => {
+    const getGroupRecommendArk = vi.fn(async () => '{"app":"g"}');
+    const bridge = fakeBridge({ apis: { contacts: { getGroupRecommendArk } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('share_peer', { group_id: 555 });
+    expect(getGroupRecommendArk).toHaveBeenCalledWith(555);
+    expect(res).toMatchObject({ status: 'ok', data: { arkMsg: '{"app":"g"}' } });
+  });
+
+  it('share_peer with neither id fails', async () => {
+    const res = await makeHandler(fakeCtx(fakeBridge())).handle('share_peer', {});
+    expect(res.status).toBe('failed');
+  });
+
+  it('send_ark_share shares the buddy/group routing', async () => {
+    const getBuddyRecommendArk = vi.fn(async () => 'ARK');
+    const bridge = fakeBridge({ apis: { contacts: { getBuddyRecommendArk } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('send_ark_share', { user_id: 1, phone_number: '99' });
+    expect(getBuddyRecommendArk).toHaveBeenCalledWith(1, '99');
+    expect(res).toMatchObject({ status: 'ok', data: { arkMsg: 'ARK' } });
+  });
+
+  it('share_group_ex / send_group_ark_share return the group ark string', async () => {
+    const getGroupRecommendArk = vi.fn(async () => 'GROUP_ARK');
+    const bridge = fakeBridge({ apis: { contacts: { getGroupRecommendArk } } });
+    for (const name of ['share_group_ex', 'send_group_ark_share']) {
+      const res = await makeHandler(fakeCtx(bridge)).handle(name, { group_id: 42 });
+      expect(res).toMatchObject({ status: 'ok', data: 'GROUP_ARK' });
+    }
+    expect(getGroupRecommendArk).toHaveBeenCalledWith(42);
+  });
+
+  it('get_doubt_friends_add_request returns the mapped list', async () => {
+    const list = [{ uid: 'u1', nick: 'A', source: 's', msg: 'm', reqTime: 123 }];
+    const getDoubtRequests = vi.fn(async () => list);
+    const bridge = fakeBridge({ apis: { friend: { getDoubtRequests } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_doubt_friends_add_request', { count: 5 });
+    expect(getDoubtRequests).toHaveBeenCalledWith(5);
+    expect(res).toMatchObject({ status: 'ok', data: list });
+  });
+
+  it('set_doubt_friends_add_request approves by flag (uid)', async () => {
+    const approveDoubtRequest = vi.fn(async () => {});
+    const bridge = fakeBridge({ apis: { friend: { approveDoubtRequest } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('set_doubt_friends_add_request', { flag: 'u_abc', approve: true });
+    expect(approveDoubtRequest).toHaveBeenCalledWith('u_abc');
+    expect(res).toMatchObject({ status: 'ok' });
+  });
+
+  it('set_doubt_friends_add_request rejects approve:false instead of silently approving', async () => {
+    const approveDoubtRequest = vi.fn(async () => {});
+    const bridge = fakeBridge({ apis: { friend: { approveDoubtRequest } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('set_doubt_friends_add_request', { flag: 'u_abc', approve: false });
+    expect(res.status).toBe('failed');
+    expect(approveDoubtRequest).not.toHaveBeenCalled();
+  });
+
+  it('set_group_robot_add_option forwards group + switch/examine', async () => {
+    const setRobotAddOption = vi.fn(async () => {});
+    const bridge = fakeBridge({ apis: { groupAdmin: { setRobotAddOption } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('set_group_robot_add_option', { group_id: 12345, robot_member_switch: 1, robot_member_examine: 2 });
+    expect(setRobotAddOption).toHaveBeenCalledWith(12345, 1, 2);
+    expect(res).toMatchObject({ status: 'ok' });
+  });
+});

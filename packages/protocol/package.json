@@ -87,6 +87,26 @@
       "types": "./src/oidb-services/friend/handle-friend-request.ts",
       "default": "./src/oidb-services/friend/handle-friend-request.ts"
     },
+    "./oidb-services/friend/get-doubt-buddy-req": {
+      "types": "./src/oidb-services/friend/get-doubt-buddy-req.ts",
+      "default": "./src/oidb-services/friend/get-doubt-buddy-req.ts"
+    },
+    "./oidb-services/friend/approve-doubt-buddy-req": {
+      "types": "./src/oidb-services/friend/approve-doubt-buddy-req.ts",
+      "default": "./src/oidb-services/friend/approve-doubt-buddy-req.ts"
+    },
+    "./oidb-services/contacts/get-buddy-recommend-ark": {
+      "types": "./src/oidb-services/contacts/get-buddy-recommend-ark.ts",
+      "default": "./src/oidb-services/contacts/get-buddy-recommend-ark.ts"
+    },
+    "./oidb-services/contacts/get-group-recommend-ark": {
+      "types": "./src/oidb-services/contacts/get-group-recommend-ark.ts",
+      "default": "./src/oidb-services/contacts/get-group-recommend-ark.ts"
+    },
+    "./oidb-services/group-admin/modify-group-ext-info": {
+      "types": "./src/oidb-services/group-admin/modify-group-ext-info.ts",
+      "default": "./src/oidb-services/group-admin/modify-group-ext-info.ts"
+    },
     "./oidb-services/friend/delete-friend": {
       "types": "./src/oidb-services/friend/delete-friend.ts",
       "default": "./src/oidb-services/friend/delete-friend.ts"

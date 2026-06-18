@@ -978,6 +978,155 @@ export const actions = [
     },
   }),
 
+  // ─── TierB ③: RE'd OIDB-backed actions (self-constructed packets) ───
+  // Recovered from QQNT wrapper.linux.node via IDA (no NapCat packet wire
+  // existed to port). All low-frequency/benign ops. See each OIDB service
+  // file for the cmd + protobuf provenance.
+
+  // share_peer / send_ark_share — get a "recommend contact" Ark card for a
+  // friend (0x9130_0) or group (0x8b7_5). NapCat's SharePeerBase routes by
+  // which id is present; we mirror that. Returns the server-built ark JSON.
+  defineAction({
+    name: 'share_peer',
+    summary: '分享用户/群 Ark 卡片',
+    readOnly: true,
+    params: {
+      user_id: f.uint().optional(),
+      group_id: f.uint().optional(),
+      phone_number: f.string().default(''),
+    },
+    run: async (p, ctx) => {
+      try {
+        if (p.group_id) {
+          return okResponse({ arkMsg: await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id) });
+        }
+        if (p.user_id) {
+          return okResponse({ arkMsg: await ctx.bridge.apis.contacts.getBuddyRecommendArk(p.user_id, p.phone_number) });
+        }
+        return failedResponse(RETCODE.BAD_REQUEST, 'user_id or group_id is required');
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      }
+    },
+  }),
+  defineAction({
+    name: 'send_ark_share',
+    summary: '分享用户/群 Ark 卡片（NapCat 标准名）',
+    readOnly: true,
+    params: {
+      user_id: f.uint().optional(),
+      group_id: f.uint().optional(),
+      phone_number: f.string().default(''),
+    },
+    run: async (p, ctx) => {
+      try {
+        if (p.group_id) {
+          return okResponse({ arkMsg: await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id) });
+        }
+        if (p.user_id) {
+          return okResponse({ arkMsg: await ctx.bridge.apis.contacts.getBuddyRecommendArk(p.user_id, p.phone_number) });
+        }
+        return failedResponse(RETCODE.BAD_REQUEST, 'user_id or group_id is required');
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      }
+    },
+  }),
+
+  // share_group_ex / send_group_ark_share — group-only Ark share. NapCat uses
+  // a distinct kernel API (getArkJsonGroupShare) we did NOT RE; we route to
+  // the fully-RE'd group recommend-contact ark (0x8b7_5), the closest
+  // confident equivalent. The card may differ slightly from NapCat's.
+  defineAction({
+    name: 'share_group_ex',
+    summary: '分享群 Ark 卡片',
+    readOnly: true,
+    params: { group_id: f.uint() },
+    run: async (p, ctx) => {
+      try {
+        return okResponse(await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id));
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      }
+    },
+  }),
+  defineAction({
+    name: 'send_group_ark_share',
+    summary: '分享群 Ark 卡片（NapCat 标准名）',
+    readOnly: true,
+    params: { group_id: f.uint() },
+    run: async (p, ctx) => {
+      try {
+        return okResponse(await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id));
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      }
+    },
+  }),
+
+  // get_doubt_friends_add_request — list 可能认识的人 / 被过滤好友申请 (0xd69_0).
+  // The list item's `uid` is what set_doubt_friends_add_request takes as flag.
+  defineAction({
+    name: 'get_doubt_friends_add_request',
+    summary: '获取可疑好友申请',
+    readOnly: true,
+    params: { count: f.int({ min: 0 }).default(50) },
+    run: async (p, ctx) => {
+      try {
+        const list = await ctx.bridge.apis.friend.getDoubtRequests(p.count);
+        return okResponse(list);
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      }
+    },
+  }),
+  // set_doubt_friends_add_request — approve a 可疑好友申请 (0xd69_0). `flag` is
+  // the uid from the get list. NapCat only supports approve (no reject path).
+  defineAction({
+    name: 'set_doubt_friends_add_request',
+    summary: '处理可疑好友申请',
+    params: {
+      flag: f.string({ allowEmpty: false }),
+      approve: f.bool().default(true),
+    },
+    run: async (p, ctx) => {
+      // Only approve is RE'd (reject would be a separate delDoubtBuddyReq cmd
+      // we haven't recovered). Reject explicitly rather than silently approve
+      // — accepting approve:false then approving anyway would be the opposite
+      // of the caller's intent.
+      if (!p.approve) {
+        return failedResponse(RETCODE.ACTION_FAILED, 'rejecting a doubt request (delDoubtBuddyReq) is not implemented');
+      }
+      try {
+        await ctx.bridge.apis.friend.approveDoubtRequest(p.flag);
+        return okResponse();
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      }
+    },
+  }),
+
+  // set_group_robot_add_option — group robot-add switch/examine via group
+  // ext-info (0xf00_3). Omitted params leave the field unchanged.
+  groupAction({
+    name: 'set_group_robot_add_option',
+    summary: '设置群机器人加群选项',
+    run: async (p, ctx) => {
+      try {
+        await ctx.bridge.apis.groupAdmin.setRobotAddOption(
+          p.group_id, p.robot_member_switch, p.robot_member_examine,
+        );
+        return okResponse();
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      }
+    },
+    params: {
+      robot_member_switch: f.int({ min: 0 }).optional(),
+      robot_member_examine: f.int({ min: 0 }).optional(),
+    },
+  }),
+
   defineAction({
     name: 'get_collection_list',
     summary: '获取收藏列表（占位）',
