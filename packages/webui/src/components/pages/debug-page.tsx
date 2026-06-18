@@ -34,12 +34,15 @@ function Segmented<T extends string>({ value, onChange, options }: {
 }) {
   const id = useId();
   return (
-    <div className="inline-flex rounded-full bg-muted/70 p-0.5 text-sm">
+    <div role="radiogroup" className="inline-flex rounded-full bg-muted/70 p-0.5 text-sm">
       {options.map((o) => {
         const active = o.value === value;
         return (
           <button
             key={o.value}
+            type="button"
+            role="radio"
+            aria-checked={active}
             onClick={() => onChange(o.value)}
             className={cn('relative rounded-full px-3.5 py-1 font-medium transition-colors',
               active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground')}
@@ -225,7 +228,7 @@ export function DebugPage() {
             </div>
           )}
 
-          <button onClick={invoke} disabled={invoking}
+          <button type="button" onClick={invoke} disabled={invoking}
             className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary text-[15px] font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90 active:scale-[0.99] disabled:opacity-50">
             {invoking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} 执行
           </button>
@@ -287,7 +290,7 @@ export function DebugPage() {
 
 function IconBtn({ onClick, title, children }: { onClick: () => void; title: string; children: ReactNode }) {
   return (
-    <button onClick={onClick} title={title}
+    <button type="button" onClick={onClick} title={title} aria-label={title}
       className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
       {children}
     </button>
@@ -333,7 +336,7 @@ function StreamRowItem({ row }: { row: StreamRow }) {
 
   return (
     <div className="group rounded-xl transition-colors hover:bg-muted/40">
-      <button className="flex w-full items-center gap-2.5 px-2.5 py-2 text-left text-[13px]" onClick={() => setOpen((v) => !v)}>
+      <button type="button" aria-expanded={open} className="flex w-full items-center gap-2.5 px-2.5 py-2 text-left text-[13px]" onClick={() => setOpen((v) => !v)}>
         <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground/60 transition-transform', open && 'rotate-90')} />
         <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">{time}</span>
         <span className={cn('shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold',
