@@ -18,6 +18,7 @@ import { resolveTlsContext, validateTlsPair } from './tls';
 import { coerceSettingsPatch } from './system-settings';
 import { buildBackup, planRestore, validateBackup } from './backup';
 import { collectActionDocs, collectCategories } from '@snowluma/onebot/action-docs';
+import { createFramePusher } from './debug-stream';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
 import { findAvailablePort } from './port';
 import {
@@ -617,7 +618,6 @@ export async function initWebUI(
       start(controller) {
         const encoder = new TextEncoder();
         let closed = false;
-        let dropped = 0;
         const offs: Array<() => void> = [];
         let heartbeat: NodeJS.Timeout | undefined;
         const teardown = () => {
@@ -631,13 +631,13 @@ export async function initWebUI(
           if (closed) return;
           try { controller.enqueue(chunk); } catch { teardown(); }
         };
-        const send = (payload: unknown) => {
-          if (closed) return;
-          // Drop under backpressure rather than buffer unbounded into memory.
-          if (controller.desiredSize !== null && controller.desiredSize <= 0) { dropped += 1; return; }
-          if (dropped > 0) { raw(encoder.encode(`data: ${JSON.stringify({ kind: 'dropped', count: dropped })}\n\n`)); dropped = 0; }
-          raw(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
-        };
+        // Drop-under-backpressure framing (unit-tested in debug-stream.ts).
+        const pushFrame = createFramePusher({
+          desiredSize: () => controller.desiredSize,
+          enqueue: raw,
+          encode: (s) => encoder.encode(s),
+        });
+        const send = (payload: unknown) => { if (!closed) pushFrame(payload); };
         send({ kind: 'ready' });
         for (const inst of oneBotManager.getInstances()) {
           const uin = inst.uin;
