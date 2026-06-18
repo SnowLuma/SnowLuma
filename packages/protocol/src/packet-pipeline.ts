@@ -163,6 +163,19 @@ export class IncomingPacketPipeline {
   private async dispatchGroupInvite(event: Extract<QQEventVariant, { kind: 'group_invite' }>): Promise<void> {
     const uid = event.fromUid;
     if (uid) {
+      // Record the requester's identity up-front (synchronously), mirroring the
+      // friend_request path — uid-bearing group_invites take this async branch
+      // and would otherwise never store the inviter's uid↔uin when the uin is
+      // already known (needsProfile=false). uin equal to the group's own uin is
+      // the legacy decoder-pollution signature → pass 0 so the map write is
+      // skipped (rememberUidUin short-circuits on uin <= 0).
+      this.deps.identity.rememberRequestIdentity({
+        groupId: event.groupId,
+        uid,
+        uin: event.fromUin > 0 && event.fromUin !== event.groupId ? event.fromUin : 0,
+        source: 'group_request',
+      });
+
       const subType = event.subType === 'invite' ? 'invite' : 'add';
       // ALWAYS fetch the verify comment (it's never in the push). Resolve
       // the UID→UIN profile only when the requester isn't already known —
@@ -180,6 +193,13 @@ export class IncomingPacketPipeline {
       if (needsProfile) {
         if (profileR.status === 'fulfilled' && profileR.value && profileR.value.uin > 0) {
           event.fromUin = profileR.value.uin;
+          // uin was unknown/polluted at entry; now resolved → self-heal the map.
+          this.deps.identity.rememberRequestIdentity({
+            groupId: event.groupId,
+            uid,
+            uin: event.fromUin,
+            source: 'group_request',
+          });
         } else if (profileR.status === 'rejected') {
           this.log.warn('failed to resolve stranger profile: uid=%s err=%s',
             uid, profileR.reason instanceof Error ? profileR.reason.message : String(profileR.reason));
