@@ -96,13 +96,28 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "_get_model_show",
     "aliases": [],
-    "summary": "获取机型展示（占位）",
+    "summary": "获取机型展示（兼容 mock）",
     "readOnly": true,
-    "params": [],
+    "params": [
+      {
+        "name": "model",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "default": ""
+      }
+    ],
     "invariants": [],
     "inputSchema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "model": {
+          "type": "string",
+          "default": ""
+        }
+      },
       "additionalProperties": true
     },
     "category": "扩展"
@@ -1657,6 +1672,37 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "get_doubt_friends_add_request",
+    "aliases": [],
+    "summary": "获取可疑好友申请",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "count",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "default": 50
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 50
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "get_emoji_likes",
     "aliases": [],
     "summary": "获取表情回应用户",
@@ -2633,6 +2679,40 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "get_group_signed_list",
+    "aliases": [],
+    "summary": "获取群今日打卡列表",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "群号"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "群号"
+        }
+      },
+      "required": [
+        "group_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "get_group_system_msg",
     "aliases": [],
     "summary": "获取群系统消息",
@@ -2754,7 +2834,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "get_online_clients",
     "aliases": [],
-    "summary": "获取在线客户端（占位）",
+    "summary": "获取在线客户端（占位，OneBot v11 形状）",
     "readOnly": true,
     "params": [],
     "invariants": [],
@@ -2877,6 +2957,70 @@ export const ACTIONS: CatalogAction[] = [
           "minimum": 0,
           "default": 0
         },
+        "count": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 10
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "get_qun_album_list",
+    "aliases": [],
+    "readOnly": true,
+    "params": [
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "群号"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "群号"
+        }
+      },
+      "required": [
+        "group_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "群相册"
+  },
+  {
+    "name": "get_recent_contact",
+    "aliases": [],
+    "summary": "获取最近会话（占位）",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "count",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "default": 10
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
         "count": {
           "type": "integer",
           "minimum": 0,
@@ -3231,6 +3375,83 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "modify_custom_face",
+    "aliases": [],
+    "summary": "修改收藏表情备注",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "emoji_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      {
+        "name": "desc",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "default": ""
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "emoji_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "emoji_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "move_custom_face_to_front",
+    "aliases": [],
+    "summary": "收藏表情移到最前",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "emoji_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "emoji_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "emoji_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "move_group_file",
     "aliases": [],
     "summary": "移动群文件",
@@ -3568,6 +3789,61 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "send_ark_share",
+    "aliases": [],
+    "summary": "分享用户/群 Ark 卡片（NapCat 标准名）",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "user_id",
+        "type": "uint",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      {
+        "name": "phone_number",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "default": ""
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "group_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "phone_number": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "send_forward_msg",
     "aliases": [],
     "summary": "发送合并转发（按 message_type/群号自动路由）",
@@ -3678,6 +3954,38 @@ export const ACTIONS: CatalogAction[] = [
         "group_id",
         "character",
         "text"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "send_group_ark_share",
+    "aliases": [],
+    "summary": "分享群 Ark 卡片（NapCat 标准名）",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "group_id"
       ],
       "additionalProperties": true
     },
@@ -4201,6 +4509,51 @@ export const ACTIONS: CatalogAction[] = [
       },
       "required": [
         "face_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "set_doubt_friends_add_request",
+    "aliases": [],
+    "summary": "处理可疑好友申请",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "flag",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      {
+        "name": "approve",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "default": true
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "flag": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approve": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "required": [
+        "flag"
       ],
       "additionalProperties": true
     },
@@ -5125,6 +5478,66 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "set_group_robot_add_option",
+    "aliases": [],
+    "summary": "设置群机器人加群选项",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "群号"
+      },
+      {
+        "name": "robot_member_switch",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      {
+        "name": "robot_member_examine",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "群号"
+        },
+        "robot_member_switch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "robot_member_examine": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "group_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "set_group_search",
     "aliases": [],
     "summary": "允许群被搜索",
@@ -5645,6 +6058,93 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "share_group_ex",
+    "aliases": [],
+    "summary": "分享群 Ark 卡片",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "group_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "share_peer",
+    "aliases": [],
+    "summary": "分享用户/群 Ark 卡片",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "user_id",
+        "type": "uint",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      {
+        "name": "phone_number",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "default": ""
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "group_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "phone_number": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "trans_group_file",
     "aliases": [],
     "summary": "转存群文件（未实现）",
@@ -6066,10 +6566,10 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "扩展",
-    "count": 87
+    "count": 98
   },
   {
     "category": "群相册",
-    "count": 7
+    "count": 8
   }
 ];

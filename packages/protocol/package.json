@@ -60,6 +60,18 @@
       "types": "./src/oidb-services/custom-face/add-custom-face.ts",
       "default": "./src/oidb-services/custom-face/add-custom-face.ts"
     },
+    "./oidb-services/custom-face/modify-custom-face": {
+      "types": "./src/oidb-services/custom-face/modify-custom-face.ts",
+      "default": "./src/oidb-services/custom-face/modify-custom-face.ts"
+    },
+    "./oidb-services/custom-face/move-custom-face": {
+      "types": "./src/oidb-services/custom-face/move-custom-face.ts",
+      "default": "./src/oidb-services/custom-face/move-custom-face.ts"
+    },
+    "./oidb-services/custom-face/order-custom-face": {
+      "types": "./src/oidb-services/custom-face/order-custom-face.ts",
+      "default": "./src/oidb-services/custom-face/order-custom-face.ts"
+    },
     "./oidb-services/interaction/send-poke": {
       "types": "./src/oidb-services/interaction/send-poke.ts",
       "default": "./src/oidb-services/interaction/send-poke.ts"

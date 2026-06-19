@@ -11,9 +11,10 @@ import type { FaceroamOpReqInner } from '@snowluma/proto-defs/oidb-actions/base'
 export const FACEROAM_SERVICE = 'Faceroam.OpReq';
 
 // 客户端版本标识。直接硬编码抓包看到的值——QQ 不同小版本之间这部分
-// 理论上会变，但 Faceroam 服务端对版本号并不敏感，先按当前目标版本写死，
+// 理论上会变，但服务端对版本号并不敏感，先按当前目标版本写死，
 // 真出问题再从 identity 里取。
-const CLIENT_VERSION = '10.0.26200';
+/** osVersion 字符串，Faceroam inner 与 0x902e 业务体 f2 共用。 */
+export const CLIENT_VERSION = '10.0.26200';
 const CLIENT_BUILD = '9.9.26-44343';
 
 /**
