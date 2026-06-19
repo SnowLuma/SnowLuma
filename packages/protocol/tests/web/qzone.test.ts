@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { getQzoneFeeds, getQzoneMsgList, mapFeeds, mapMsgList, parseQzoneJson } from '@snowluma/protocol/web/qzone';
+import { getQzoneFeeds, getQzoneMsgList, mapFeeds, mapMsgList, parseQzoneJson, publishQzoneMsg } from '@snowluma/protocol/web/qzone';
 import { RequestUtil } from '@snowluma/protocol/web/request-util';
 
 // The 说说 list comes from taotao.qzone.qq.com's emotion_cgi_msglist_v6 CGI,
@@ -187,5 +187,48 @@ describe('qzone / getQzoneFeeds (HTTP layer)', () => {
   it('throws when the data array is absent (cookie failure), not an empty list', async () => {
     vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"data":{}}');
     await expect(getQzoneFeeds(cookies, '10000')).rejects.toThrow('无法获取空间好友动态');
+  });
+});
+
+describe('qzone / publishQzoneMsg (HTTP layer)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('POSTs a form-urlencoded body to the proxied publish CGI and returns tid/time', async () => {
+    const spy = vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"tid":"NEWTID","now":1700000000}');
+
+    const out = await publishQzoneMsg(cookies, '10000', 'hello 世界');
+
+    expect(out).toEqual({ tid: 'NEWTID', time: 1700000000 });
+
+    const [url, method, body, headers] = spy.mock.calls[0]!;
+    expect(method).toBe('POST');
+    expect(url).toBe(
+      `https://h5.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_publish_v6?g_tk=${expectedGtk}`,
+    );
+    const h = headers as Record<string, string>;
+    expect(h['Content-Type']).toBe('application/x-www-form-urlencoded');
+    expect(h.Cookie).toContain('p_skey=PSK');
+    // form body carries the content (urlencoded) and the host uin
+    const form = new URLSearchParams(body as string);
+    expect(form.get('con')).toBe('hello 世界');
+    expect(form.get('hostuin')).toBe('10000');
+    expect(form.get('format')).toBe('json');
+    expect(form.get('qzreferrer')).toBe('https://user.qzone.qq.com/10000');
+  });
+
+  it('rejects empty content before any request', async () => {
+    const spy = vi.spyOn(RequestUtil, 'HttpGetText');
+    await expect(publishQzoneMsg(cookies, '10000', '')).rejects.toThrow('content is required');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('throws on a non-zero qzone code (rejected/rate-limited)', async () => {
+    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":-10000,"message":"too frequent"}');
+    await expect(publishQzoneMsg(cookies, '10000', 'hi')).rejects.toThrow('code=-10000');
+  });
+
+  it('throws when the success body carries no tid', async () => {
+    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"now":1700000000}');
+    await expect(publishQzoneMsg(cookies, '10000', 'hi')).rejects.toThrow('缺少 tid');
   });
 });

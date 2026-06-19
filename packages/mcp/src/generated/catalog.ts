@@ -4574,6 +4574,40 @@ export const ACTIONS: CatalogAction[] = [
     "category": "消息"
   },
   {
+    "name": "send_qzone_msg",
+    "aliases": [],
+    "summary": "发表一条纯文字说说（QQ 空间）",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "content",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "说说正文"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "description": "说说正文"
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
     "name": "set_diy_online_status",
     "aliases": [],
     "summary": "设置自定义在线状态",
@@ -6693,6 +6727,6 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "空间",
-    "count": 2
+    "count": 3
   }
 ];

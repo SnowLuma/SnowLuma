@@ -47,6 +47,26 @@ export const actions = [
       }
     },
   }),
+
+  // send_qzone_msg — 发表一条纯文字说说。写操作，发到机器人自己的空间。
+  // 返回新说说的 tid（供后续 delete/comment/like 使用）。
+  // 注意：发说说为主动行为，高频会被 Qzone 风控，调用方需自行限流。
+  defineAction({
+    name: 'send_qzone_msg',
+    summary: '发表一条纯文字说说（QQ 空间）',
+    params: {
+      content: f.string({ allowEmpty: false }).describe('说说正文'),
+    },
+    run: async (p, ctx) => {
+      try {
+        const res = await ctx.bridge.apis.qzone.publish(p.content);
+        return okResponse(res as unknown as JsonValue);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'failed to publish qzone msg';
+        return failedResponse(RETCODE.INTERNAL_ERROR, message);
+      }
+    },
+  }),
 ];
 
 export function register(h: ApiHandler, ctx: ApiActionContext): void {

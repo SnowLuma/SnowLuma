@@ -1,8 +1,10 @@
 import {
   getQzoneFeeds,
   getQzoneMsgList,
+  publishQzoneMsg,
   type QzoneFeedsResult,
   type QzoneMsgListResult,
+  type QzonePublishResult,
 } from '@snowluma/protocol/web/qzone';
 import type { BridgeContext } from '../bridge-context';
 
@@ -32,5 +34,11 @@ export class QzoneApi {
   async getFeeds(pageNum = 1, count = 10): Promise<QzoneFeedsResult> {
     const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
     return getQzoneFeeds(cookieObject, this.ctx.identity.uin, pageNum, count);
+  }
+
+  /** 发表一条纯文字说说，返回新说说的 tid。始终发到机器人自己的空间。 */
+  async publish(content: string): Promise<QzonePublishResult> {
+    const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
+    return publishQzoneMsg(cookieObject, this.ctx.identity.uin, content);
   }
 }

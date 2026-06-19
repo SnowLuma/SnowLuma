@@ -299,3 +299,90 @@ export async function getQzoneFeeds(
 
   return mapFeeds(data);
 }
+
+// ─────────────── 发说说 (publish emotion) — emotion_cgi_publish_v6 ───────────────
+// First write path. Text-only here; 带图 (image) publishing layers an
+// upload step on top in a later slice. Same cookie/g_tk plumbing + proxy
+// gateway + tolerant parse as the read paths. WRITE OP — callers should
+// rate-limit (publishing is an active action and Qzone风控s high frequency,
+// same as sending messages).
+
+interface RawPublishResponse {
+  code?: number;
+  subcode?: number;
+  message?: string;
+  /** Published feed id on success. */
+  tid?: string;
+  /** Post timestamp (unix seconds) on success. */
+  now?: number;
+}
+
+/** Result of publishing a 说说. */
+export interface QzonePublishResult {
+  [key: string]: JsonValue;
+  /** The new feed's id — the handle for a later delete/comment/like. */
+  tid: string;
+  /** Unix seconds the 说说 was published. */
+  time: number;
+}
+
+/**
+ * Publish a text-only 说说 via taotao.qzone.qq.com's emotion_cgi_publish_v6
+ * CGI (proxied through h5.qzone.qq.com). POSTs a form-urlencoded body with
+ * `g_tk` in the query, on the bot's own space (`hostUin`).
+ *
+ * Errors PROPAGATE: a transport failure, a non-zero Qzone `code` (its error
+ * envelope, e.g. content rejected / rate-limited), or a success body that
+ * carries no `tid` all throw — we never report a publish as succeeded
+ * without the server-assigned feed id.
+ */
+export async function publishQzoneMsg(
+  cookieObject: Record<string, string>,
+  hostUin: string,
+  content: string,
+): Promise<QzonePublishResult> {
+  if (!cookieObject || typeof cookieObject !== 'object') {
+    throw new Error('cookieObject is required');
+  }
+  if (!content) {
+    throw new Error('content is required');
+  }
+
+  const bkn = getBknFromCookie(cookieObject);
+  const url = `https://h5.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_publish_v6?g_tk=${bkn}`;
+  const body = new URLSearchParams({
+    syn_tweet_verson: '1',
+    paramstr: '1',
+    pic_template: '',
+    richtype: '',
+    richval: '',
+    special_url: '',
+    subrichtype: '',
+    con: content,
+    feedversion: '1',
+    ver: '1',
+    ugc_right: '1',
+    to_sign: '0',
+    hostuin: hostUin,
+    code_version: '1',
+    format: 'json',
+    qzreferrer: `https://user.qzone.qq.com/${hostUin}`,
+  }).toString();
+
+  const text = await RequestUtil.HttpGetText(url, 'POST', body, {
+    Cookie: cookieToString(cookieObject),
+    'Content-Type': 'application/x-www-form-urlencoded',
+  });
+  const data = parseQzoneJson<RawPublishResponse>(text);
+
+  if (typeof data.code === 'number' && data.code !== 0) {
+    log.warn('publishQzoneMsg: non-zero code (uin=%s) code=%d msg=%s', hostUin, data.code, data.message);
+    throw new Error(`qzone publish failed: code=${data.code} ${data.message ?? ''}`.trim());
+  }
+  if (!data.tid) {
+    log.warn('publishQzoneMsg: no tid in response (uin=%s) — publish likely rejected', hostUin);
+    throw new Error('发表说说失败：响应缺少 tid');
+  }
+
+  return { tid: String(data.tid), time: Number(data.now ?? 0) };
+}

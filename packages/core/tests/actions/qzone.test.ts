@@ -48,4 +48,14 @@ describe('apis/qzone', () => {
     expect(getCookies).toHaveBeenCalledWith('qzone.qq.com');
     expect(feedsSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', 3, 20);
   });
+
+  it('publish posts to the bot\'s own space with the given content', async () => {
+    const getCookies = vi.fn(async () => ({ p_skey: 'PSK' }));
+    const bridge = mockBridge({ apis: { ...mockApiHub(), web: { getCookies } } as never });
+    const pubSpy = vi.spyOn(qzoneWeb, 'publishQzoneMsg').mockResolvedValue({ tid: 'T', time: 1 });
+    const out = await new QzoneApi(bridge as never).publish('hello');
+    expect(getCookies).toHaveBeenCalledWith('qzone.qq.com');
+    expect(pubSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', 'hello');
+    expect(out).toEqual({ tid: 'T', time: 1 });
+  });
 });
