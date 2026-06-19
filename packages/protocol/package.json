@@ -420,6 +420,10 @@
       "types": "./src/web/group-signin.ts",
       "default": "./src/web/group-signin.ts"
     },
+    "./web/qzone": {
+      "types": "./src/web/qzone.ts",
+      "default": "./src/web/qzone.ts"
+    },
     "./web/request-util": {
       "types": "./src/web/request-util.ts",
       "default": "./src/web/request-util.ts"

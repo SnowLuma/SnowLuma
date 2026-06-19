@@ -3001,6 +3001,73 @@ export const ACTIONS: CatalogAction[] = [
     "category": "群相册"
   },
   {
+    "name": "get_qzone_msg_list",
+    "aliases": [],
+    "summary": "获取 QQ 空间说说列表（默认机器人自己的空间）",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "target_uin",
+        "type": "uint",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "目标 QQ 号，省略则取机器人自己"
+      },
+      {
+        "name": "pos",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "desc": "起始偏移",
+        "default": 0
+      },
+      {
+        "name": "num",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "desc": "本页数量",
+        "default": 20
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "target_uin": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "目标 QQ 号，省略则取机器人自己"
+        },
+        "pos": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "起始偏移",
+          "default": 0
+        },
+        "num": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "本页数量",
+          "default": 20
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
     "name": "get_recent_contact",
     "aliases": [],
     "summary": "获取最近会话（占位）",
@@ -6571,5 +6638,9 @@ export const CATEGORIES: CatalogCategory[] = [
   {
     "category": "群相册",
     "count": 8
+  },
+  {
+    "category": "空间",
+    "count": 1
   }
 ];
