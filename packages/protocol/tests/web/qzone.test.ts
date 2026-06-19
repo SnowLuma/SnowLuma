@@ -296,13 +296,14 @@ describe('qzone / deleteQzoneMsg (HTTP layer)', () => {
 describe('qzone / setQzoneLike (HTTP layer)', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('POSTs to internal_dolike_app with the mood unikey/curkey/fid when liking', async () => {
+  it('POSTs to internal_dolike_app with the mood unikey/curkey/fid/abstime when liking', async () => {
     const spy = vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"subcode":0}');
 
-    await expect(setQzoneLike(cookies, '10000', '20002', 'TIDX', true)).resolves.toBeUndefined();
+    await expect(setQzoneLike(cookies, '10000', '20002', 'TIDX', true, 1700000000)).resolves.toBeUndefined();
 
     const [url, method, body, headers] = spy.mock.calls[0]!;
     expect(method).toBe('POST');
+    // like CGI + unikey/curkey shape + opuin + appid CONFIRMED (QLiker.py, CSDN)
     expect(url).toBe(
       `https://h5.qzone.qq.com/proxy/domain/w.qzone.qq.com/cgi-bin/likes/internal_dolike_app?g_tk=${expectedGtk}`,
     );
@@ -316,9 +317,18 @@ describe('qzone / setQzoneLike (HTTP layer)', () => {
     expect(form.get('fid')).toBe('TIDX');
     expect(form.get('opuin')).toBe('10000');
     expect(form.get('appid')).toBe('311');
+    // abstime threaded through (every real dolike impl sends it)
+    expect(form.get('abstime')).toBe('1700000000');
   });
 
-  it('hits internal_unlike_app when unliking', async () => {
+  it('defaults abstime to 0 when not supplied', async () => {
+    const spy = vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0}');
+    await setQzoneLike(cookies, '10000', '20002', 'TIDX', true);
+    const form = new URLSearchParams(spy.mock.calls[0]![2] as string);
+    expect(form.get('abstime')).toBe('0');
+  });
+
+  it('hits internal_unlike_app when unliking (NB: unlike endpoint UNVERIFIED, pending a live capture)', async () => {
     const spy = vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0}');
     await setQzoneLike(cookies, '10000', '10000', 'TIDX', false);
     const [url] = spy.mock.calls[0]!;

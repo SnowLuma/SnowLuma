@@ -3405,6 +3405,17 @@ export const ACTIONS: CatalogAction[] = [
           "minimum": 1
         },
         "desc": "说说所属 QQ 号，省略则为机器人自己"
+      },
+      {
+        "name": "abstime",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "desc": "说说发表时间（unix 秒），传真实值更可靠",
+        "default": 0
       }
     ],
     "invariants": [],
@@ -3420,6 +3431,12 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "minimum": 1,
           "description": "说说所属 QQ 号，省略则为机器人自己"
+        },
+        "abstime": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "说说发表时间（unix 秒），传真实值更可靠",
+          "default": 0
         }
       },
       "required": [
@@ -6421,7 +6438,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "unlike_qzone",
     "aliases": [],
-    "summary": "取消对一条说说的点赞（QQ 空间）",
+    "summary": "取消对一条说说的点赞（QQ 空间；取消赞端点待真机核实）",
     "readOnly": false,
     "params": [
       {
@@ -6443,6 +6460,17 @@ export const ACTIONS: CatalogAction[] = [
           "minimum": 1
         },
         "desc": "说说所属 QQ 号，省略则为机器人自己"
+      },
+      {
+        "name": "abstime",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "desc": "说说发表时间（unix 秒），传真实值更可靠",
+        "default": 0
       }
     ],
     "invariants": [],
@@ -6458,6 +6486,12 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "minimum": 1,
           "description": "说说所属 QQ 号，省略则为机器人自己"
+        },
+        "abstime": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "说说发表时间（unix 秒），传真实值更可靠",
+          "default": 0
         }
       },
       "required": [

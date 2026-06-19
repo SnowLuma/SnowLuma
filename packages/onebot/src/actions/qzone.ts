@@ -87,17 +87,19 @@ export const actions = [
   }),
 
   // like_qzone — 给一条说说点赞。target_uin 省略=机器人自己空间；点赞好友说说传其 uin。
-  // 写操作；高频点赞会被 Qzone 风控，调用方需限流。
+  // abstime=该说说的发表时间（unix 秒，来自 get_qzone_feeds/get_qzone_msg_list），
+  // 传真实值更可靠；不传按 0。写操作；高频点赞会被 Qzone 风控，调用方需限流。
   defineAction({
     name: 'like_qzone',
     summary: '给一条说说点赞（QQ 空间）',
     params: {
       tid: f.string({ allowEmpty: false }).describe('说说 tid'),
       target_uin: f.uint().describe('说说所属 QQ 号，省略则为机器人自己').optional(),
+      abstime: f.int({ min: 0 }).describe('说说发表时间（unix 秒），传真实值更可靠').default(0),
     },
     run: async (p, ctx) => {
       try {
-        await ctx.bridge.apis.qzone.like(p.tid, p.target_uin, true);
+        await ctx.bridge.apis.qzone.like(p.tid, p.target_uin, true, p.abstime);
         return okResponse(null);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'failed to like qzone msg';
@@ -107,16 +109,18 @@ export const actions = [
   }),
 
   // unlike_qzone — 取消对一条说说的点赞。参数同 like_qzone。写操作。
+  // 注意：取消赞端点（internal_unlike_app）暂未经真机核实，待抓包确认。
   defineAction({
     name: 'unlike_qzone',
-    summary: '取消对一条说说的点赞（QQ 空间）',
+    summary: '取消对一条说说的点赞（QQ 空间；取消赞端点待真机核实）',
     params: {
       tid: f.string({ allowEmpty: false }).describe('说说 tid'),
       target_uin: f.uint().describe('说说所属 QQ 号，省略则为机器人自己').optional(),
+      abstime: f.int({ min: 0 }).describe('说说发表时间（unix 秒），传真实值更可靠').default(0),
     },
     run: async (p, ctx) => {
       try {
-        await ctx.bridge.apis.qzone.like(p.tid, p.target_uin, false);
+        await ctx.bridge.apis.qzone.like(p.tid, p.target_uin, false, p.abstime);
         return okResponse(null);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'failed to unlike qzone msg';

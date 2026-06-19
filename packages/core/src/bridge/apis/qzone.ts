@@ -54,10 +54,10 @@ export class QzoneApi {
    * 给一条说说点赞/取消赞。`targetUin` 省略时点赞机器人自己空间的说说；
    * 点赞好友说说时传好友 uin（tid 来自 get_qzone_feeds / get_qzone_msg_list）。
    */
-  async like(tid: string, targetUin: number | undefined, like: boolean): Promise<void> {
+  async like(tid: string, targetUin: number | undefined, like: boolean, abstime = 0): Promise<void> {
     const selfUin = this.ctx.identity.uin;
     const owner = targetUin && targetUin > 0 ? targetUin.toString() : selfUin;
     const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
-    await setQzoneLike(cookieObject, selfUin, owner, tid, like);
+    await setQzoneLike(cookieObject, selfUin, owner, tid, like, abstime);
   }
 }

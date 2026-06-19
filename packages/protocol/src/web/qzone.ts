@@ -463,12 +463,22 @@ export async function deleteQzoneMsg(
 }
 
 // ─────────────── 点赞/取消赞 (like/unlike) — internal_dolike_app ───────────────
-// Likes or unlikes a 说说 (mood, appid 311) on `targetUin`'s space. like →
-// internal_dolike_app, unlike → internal_unlike_app, same form body keyed by
-// the feed's unikey/curkey (`http://user.qzone.qq.com/<uin>/mood/<tid>`) and
-// `fid` (= tid). WRITE OP — rate-limit (likes are an active action,风控'd
-// like sending messages). Scope is 说说 only; other feed types use a
-// different unikey shape and are out of scope for this slice.
+// Likes or unlikes a 说说 (mood, appid 311) on `targetUin`'s space, keyed by
+// the feed's unikey/curkey (`http://user.qzone.qq.com/<uin>/mood/<tid>`,
+// identical, http not https) and `fid` (= tid). The like CGI
+// (internal_dolike_app), opuin=liker, unikey/curkey shape, and appid=311 are
+// CONFIRMED against community impls (QLiker.py, CSDN 点赞协议). Two things are
+// NOT live-verified and follow this file's "extrapolated, pending a live
+// capture" posture:
+//   • the UNLIKE endpoint `internal_unlike_app` — it's the conventional
+//     paired CGI but no public bot impl exercises unlike, so it's best-guess.
+//   • the success SIGNAL — we throw on a non-zero code/subcode (extrapolated
+//     from sibling CGIs); the dolike response may instead carry a succ/fail
+//     token, so a clean parse is treated as success.
+// `abstime` (the target feed's post time) is threaded through because every
+// real dolike impl sends it; 0 is a tolerated fallback when unknown.
+// WRITE OP — rate-limit (likes are an active action,风控'd like messages).
+// Scope is 说说 only; other feed types use a different unikey shape.
 
 interface RawLikeResponse {
   code?: number;
@@ -478,9 +488,11 @@ interface RawLikeResponse {
 
 /**
  * Like or unlike a 说说 by `tid` on `targetUin`'s space, as the bot
- * (`opUin`). Resolves on success; THROWS on a transport failure or a
- * non-zero Qzone `code`/`subcode` (e.g. an unknown tid, no permission, or
- * an auth failure). `like=false` hits the unlike CGI.
+ * (`opUin`). `abstime` is the target feed's post time (unix seconds) — pass
+ * the real value (from get_qzone_feeds/msglist) for reliability; 0 is a
+ * tolerated fallback. Resolves on success; THROWS on a transport failure or
+ * a non-zero Qzone `code`/`subcode`. `like=false` hits the (unverified)
+ * unlike CGI.
  */
 export async function setQzoneLike(
   cookieObject: Record<string, string>,
@@ -488,6 +500,7 @@ export async function setQzoneLike(
   targetUin: string,
   tid: string,
   like: boolean,
+  abstime = 0,
 ): Promise<void> {
   if (!cookieObject || typeof cookieObject !== 'object') {
     throw new Error('cookieObject is required');
@@ -508,6 +521,7 @@ export async function setQzoneLike(
     curkey: unikey,
     appid: '311',
     typeid: '0',
+    abstime: String(abstime),
     fid: tid,
     from: '1',
     active: '0',
