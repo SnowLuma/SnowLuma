@@ -147,7 +147,7 @@ describe('qzone / getQzoneFeeds (HTTP layer)', () => {
 
   it('GETs the exact feeds url + params and maps the JSONP body', async () => {
     const spy = vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue(
-      '_Callback({"code":0,"data":{"hasmore":1,"data":[{"uin":12345,"nickname":"Alice","abstime":1700000000,"appid":311,"key":"K1","html":"<div>a</div>"}]}});',
+      '_preloadCallback({"code":0,"data":{"hasmore":1,"data":[{"uin":12345,"nickname":"Alice","abstime":1700000000,"appid":311,"key":"K1","html":"<div>a</div>"}]}});',
     );
 
     const out = await getQzoneFeeds(cookies, '10000', 2, 10);
