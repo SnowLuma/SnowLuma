@@ -67,6 +67,24 @@ export const actions = [
       }
     },
   }),
+
+  // delete_qzone_msg — 删除机器人自己空间的一条说说（按 tid）。写操作。
+  defineAction({
+    name: 'delete_qzone_msg',
+    summary: '删除一条说说（QQ 空间，按 tid）',
+    params: {
+      tid: f.string({ allowEmpty: false }).describe('说说 tid（来自 get_qzone_msg_list / send_qzone_msg）'),
+    },
+    run: async (p, ctx) => {
+      try {
+        await ctx.bridge.apis.qzone.delete(p.tid);
+        return okResponse(null);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'failed to delete qzone msg';
+        return failedResponse(RETCODE.INTERNAL_ERROR, message);
+      }
+    },
+  }),
 ];
 
 export function register(h: ApiHandler, ctx: ApiActionContext): void {

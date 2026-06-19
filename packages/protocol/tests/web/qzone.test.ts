@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { getQzoneFeeds, getQzoneMsgList, mapFeeds, mapMsgList, parseQzoneJson, publishQzoneMsg } from '@snowluma/protocol/web/qzone';
+import { deleteQzoneMsg, getQzoneFeeds, getQzoneMsgList, mapFeeds, mapMsgList, parseQzoneJson, publishQzoneMsg } from '@snowluma/protocol/web/qzone';
 import { RequestUtil } from '@snowluma/protocol/web/request-util';
 
 // The 说说 list comes from taotao.qzone.qq.com's emotion_cgi_msglist_v6 CGI,
@@ -241,5 +241,39 @@ describe('qzone / publishQzoneMsg (HTTP layer)', () => {
   it('throws when the success body carries no feed id (neither t1_tid nor tid)', async () => {
     vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"t1_time":"1700000000"}');
     await expect(publishQzoneMsg(cookies, '10000', 'hi')).rejects.toThrow('缺少 tid');
+  });
+});
+
+describe('qzone / deleteQzoneMsg (HTTP layer)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('POSTs the tid form body to the proxied delete CGI and resolves on code 0', async () => {
+    const spy = vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"subcode":0,"message":""}');
+
+    await expect(deleteQzoneMsg(cookies, '10000', 'TID123')).resolves.toBeUndefined();
+
+    const [url, method, body, headers] = spy.mock.calls[0]!;
+    expect(method).toBe('POST');
+    expect(url).toBe(
+      `https://h5.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_delete_v6?g_tk=${expectedGtk}`,
+    );
+    const h = headers as Record<string, string>;
+    expect(h['Content-Type']).toBe('application/x-www-form-urlencoded');
+    expect(h.Cookie).toContain('p_skey=PSK');
+    const form = new URLSearchParams(body as string);
+    expect(form.get('tid')).toBe('TID123');
+    expect(form.get('hostuin')).toBe('10000');
+    expect(form.get('format')).toBe('json');
+  });
+
+  it('rejects an empty tid before any request', async () => {
+    const spy = vi.spyOn(RequestUtil, 'HttpGetText');
+    await expect(deleteQzoneMsg(cookies, '10000', '')).rejects.toThrow('tid is required');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('throws on a non-zero qzone code (foreign/unknown tid or auth failure)', async () => {
+    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":-4001,"message":"no permission"}');
+    await expect(deleteQzoneMsg(cookies, '10000', 'TID123')).rejects.toThrow('code=-4001');
   });
 });

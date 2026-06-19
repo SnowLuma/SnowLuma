@@ -58,4 +58,13 @@ describe('apis/qzone', () => {
     expect(pubSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', 'hello');
     expect(out).toEqual({ tid: 'T', time: 1 });
   });
+
+  it('delete removes a feed by tid from the bot\'s own space', async () => {
+    const getCookies = vi.fn(async () => ({ p_skey: 'PSK' }));
+    const bridge = mockBridge({ apis: { ...mockApiHub(), web: { getCookies } } as never });
+    const delSpy = vi.spyOn(qzoneWeb, 'deleteQzoneMsg').mockResolvedValue();
+    await new QzoneApi(bridge as never).delete('TID9');
+    expect(getCookies).toHaveBeenCalledWith('qzone.qq.com');
+    expect(delSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', 'TID9');
+  });
 });

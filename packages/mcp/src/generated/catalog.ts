@@ -1016,6 +1016,40 @@ export const ACTIONS: CatalogAction[] = [
     "category": "消息"
   },
   {
+    "name": "delete_qzone_msg",
+    "aliases": [],
+    "summary": "删除一条说说（QQ 空间，按 tid）",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "tid",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "说说 tid（来自 get_qzone_msg_list / send_qzone_msg）"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tid": {
+          "type": "string",
+          "minLength": 1,
+          "description": "说说 tid（来自 get_qzone_msg_list / send_qzone_msg）"
+        }
+      },
+      "required": [
+        "tid"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
     "name": "do_group_album_comment",
     "aliases": [],
     "readOnly": false,
@@ -6727,6 +6761,6 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "空间",
-    "count": 3
+    "count": 4
   }
 ];

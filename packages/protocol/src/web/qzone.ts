@@ -394,3 +394,58 @@ export async function publishQzoneMsg(
   // numeric fallback) uniformly.
   return { tid: String(tid), time: Number(data.t1_time ?? data.now ?? 0) };
 }
+
+// ─────────────── 删说说 (delete emotion) — emotion_cgi_delete_v6 ───────────────
+// Deletes one of the bot's OWN 说说 by tid. Same form-POST mechanics as
+// publish. No positive payload on success beyond `code: 0`, so the contract
+// is throw-on-non-zero-code; a clean parse with code 0 (or absent) is a
+// success. WRITE OP.
+
+interface RawDeleteResponse {
+  code?: number;
+  subcode?: number;
+  message?: string;
+}
+
+/**
+ * Delete a 说说 by `tid` via taotao.qzone.qq.com's emotion_cgi_delete_v6 CGI
+ * (proxied through h5.qzone.qq.com), on the bot's own space. Resolves on
+ * success; THROWS on a transport failure or a non-zero Qzone `code` (e.g. an
+ * unknown/foreign tid, or an auth failure). Only the bot's own feeds can be
+ * deleted — the server rejects a tid the `hostUin` doesn't own.
+ */
+export async function deleteQzoneMsg(
+  cookieObject: Record<string, string>,
+  hostUin: string,
+  tid: string,
+): Promise<void> {
+  if (!cookieObject || typeof cookieObject !== 'object') {
+    throw new Error('cookieObject is required');
+  }
+  if (!tid) {
+    throw new Error('tid is required');
+  }
+
+  const bkn = getBknFromCookie(cookieObject);
+  const url = `https://h5.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_delete_v6?g_tk=${bkn}`;
+  const body = new URLSearchParams({
+    hostuin: hostUin,
+    tid,
+    t1_source: '1',
+    code_version: '1',
+    format: 'json',
+    json: '1',
+    qzreferrer: `https://user.qzone.qq.com/${hostUin}`,
+  }).toString();
+
+  const text = await RequestUtil.HttpGetText(url, 'POST', body, {
+    Cookie: cookieToString(cookieObject),
+    'Content-Type': 'application/x-www-form-urlencoded',
+  });
+  const data = parseQzoneJson<RawDeleteResponse>(text);
+
+  if (typeof data.code === 'number' && data.code !== 0) {
+    log.warn('deleteQzoneMsg: non-zero code (uin=%s tid=%s) code=%d msg=%s', hostUin, tid, data.code, data.message);
+    throw new Error(`qzone delete failed: code=${data.code} ${data.message ?? ''}`.trim());
+  }
+}

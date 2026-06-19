@@ -1,4 +1,5 @@
 import {
+  deleteQzoneMsg,
   getQzoneFeeds,
   getQzoneMsgList,
   publishQzoneMsg,
@@ -40,5 +41,11 @@ export class QzoneApi {
   async publish(content: string): Promise<QzonePublishResult> {
     const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
     return publishQzoneMsg(cookieObject, this.ctx.identity.uin, content);
+  }
+
+  /** 删除机器人自己空间的一条说说（按 tid）。 */
+  async delete(tid: string): Promise<void> {
+    const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
+    await deleteQzoneMsg(cookieObject, this.ctx.identity.uin, tid);
   }
 }
