@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { getQzoneMsgList, mapMsgList, parseQzoneJson } from '@snowluma/protocol/web/qzone';
+import { getQzoneFeeds, getQzoneMsgList, mapFeeds, mapMsgList, parseQzoneJson } from '@snowluma/protocol/web/qzone';
 import { RequestUtil } from '@snowluma/protocol/web/request-util';
 
 // The 说说 list comes from taotao.qzone.qq.com's emotion_cgi_msglist_v6 CGI,
@@ -113,5 +113,74 @@ describe('qzone / getQzoneMsgList (HTTP layer)', () => {
   it('throws when msglist is absent (cookie failure), not an empty list', async () => {
     vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"total":0}');
     await expect(getQzoneMsgList(cookies, '10000')).rejects.toThrow('无法获取空间说说列表');
+  });
+});
+
+describe('qzone / mapFeeds', () => {
+  it('maps structured fields, prefers key over feedskey, and reads has_more', () => {
+    const out = mapFeeds({
+      code: 0,
+      data: {
+        hasmore: 1,
+        data: [
+          { uin: 12345, nickname: 'Alice', abstime: 1700000000, appid: 311, key: 'K1', html: '<div>a</div>' },
+          { uin: '67890', nickname: 'Bob', abstime: '1700000050', appid: '4', feedskey: 'FK2', html: '<div>b</div>' },
+        ],
+      },
+    });
+    expect(out).toEqual({
+      has_more: true,
+      feeds: [
+        { uin: 12345, nickname: 'Alice', time: 1700000000, appid: 311, key: 'K1', html: '<div>a</div>' },
+        { uin: 67890, nickname: 'Bob', time: 1700000050, appid: 4, key: 'FK2', html: '<div>b</div>' },
+      ],
+    });
+  });
+
+  it('tolerates missing fields and empty data', () => {
+    expect(mapFeeds({ code: 0, data: { data: [] } })).toEqual({ feeds: [], has_more: false });
+  });
+});
+
+describe('qzone / getQzoneFeeds (HTTP layer)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('GETs the exact feeds url + params and maps the JSONP body', async () => {
+    const spy = vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue(
+      '_Callback({"code":0,"data":{"hasmore":1,"data":[{"uin":12345,"nickname":"Alice","abstime":1700000000,"appid":311,"key":"K1","html":"<div>a</div>"}]}});',
+    );
+
+    const out = await getQzoneFeeds(cookies, '10000', 2, 10);
+
+    expect(out).toEqual({
+      has_more: true,
+      feeds: [{ uin: 12345, nickname: 'Alice', time: 1700000000, appid: 311, key: 'K1', html: '<div>a</div>' }],
+    });
+
+    const [url, method, body, headers] = spy.mock.calls[0]!;
+    expect(method).toBe('GET');
+    expect(body).toBe('');
+    expect((headers as Record<string, string>).Cookie).toContain('p_skey=PSK');
+    expect(url).toContain('https://ic2.qzone.qq.com/cgi-bin/feeds/feeds3_html_more?');
+    const q = new URLSearchParams((url as string).split('?')[1]);
+    expect(q.get('uin')).toBe('10000');
+    expect(q.get('pagenum')).toBe('2');
+    expect(q.get('count')).toBe('10');
+    expect(q.get('g_tk')).toBe(expectedGtk);
+  });
+
+  it('returns an empty list (not a throw) for a genuinely empty feed', async () => {
+    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"data":{"data":[],"hasmore":0}}');
+    await expect(getQzoneFeeds(cookies, '10000')).resolves.toEqual({ feeds: [], has_more: false });
+  });
+
+  it('throws on a non-zero qzone code', async () => {
+    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":-3000,"message":"need login"}');
+    await expect(getQzoneFeeds(cookies, '10000')).rejects.toThrow('code=-3000');
+  });
+
+  it('throws when the data array is absent (cookie failure), not an empty list', async () => {
+    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"data":{}}');
+    await expect(getQzoneFeeds(cookies, '10000')).rejects.toThrow('无法获取空间好友动态');
   });
 });

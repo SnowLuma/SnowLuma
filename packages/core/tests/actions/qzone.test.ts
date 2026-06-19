@@ -39,4 +39,13 @@ describe('apis/qzone', () => {
     await new QzoneApi(bridge as never).getMsgList(20002, 5, 50);
     expect(fetchSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '20002', 5, 50);
   });
+
+  it('getFeeds always uses the bot\'s own uin and threads pageNum/count', async () => {
+    const getCookies = vi.fn(async () => ({ p_skey: 'PSK' }));
+    const bridge = mockBridge({ apis: { ...mockApiHub(), web: { getCookies } } as never });
+    const feedsSpy = vi.spyOn(qzoneWeb, 'getQzoneFeeds').mockResolvedValue({ feeds: [], has_more: false });
+    await new QzoneApi(bridge as never).getFeeds(3, 20);
+    expect(getCookies).toHaveBeenCalledWith('qzone.qq.com');
+    expect(feedsSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', 3, 20);
+  });
 });

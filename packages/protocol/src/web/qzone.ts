@@ -158,3 +158,128 @@ export async function getQzoneMsgList(
 
   return mapMsgList(data);
 }
+
+// ─────────────── 好友动态 (friend feeds) — feeds3_html_more ───────────────
+// The friend-feed CGI returns each feed as a pre-rendered HTML blob plus a
+// few structured fields. We surface the stable structured fields and pass
+// the `html` through verbatim (deep HTML→segment parsing is out of scope —
+// callers that want it parse the blob themselves). Exact field names /
+// pagination cursor to be re-confirmed against a live capture, same posture
+// as the msglist helper.
+
+interface RawFeedItem {
+  uin?: number | string;
+  nickname?: string;
+  abstime?: number | string;
+  appid?: number | string;
+  typeid?: number | string;
+  key?: string;
+  feedskey?: string;
+  html?: string;
+}
+
+interface RawFeedsResponse {
+  code?: number;
+  subcode?: number;
+  message?: string;
+  data?: {
+    data?: RawFeedItem[] | null;
+    hasmore?: number | string;
+  };
+}
+
+/** One friend-feed entry in a normalised, OneBot-friendly form. */
+export interface QzoneFeed {
+  [key: string]: JsonValue;
+  /** Author uin. */
+  uin: number;
+  nickname: string;
+  /** Unix seconds the feed was posted. */
+  time: number;
+  /** Qzone app id (311 = 说说, 4 = 相册, …). */
+  appid: number;
+  /** Feed key — the handle Qzone uses to address this feed. */
+  key: string;
+  /** Pre-rendered HTML blob for the feed (passed through verbatim). */
+  html: string;
+}
+
+export interface QzoneFeedsResult {
+  [key: string]: JsonValue;
+  feeds: QzoneFeed[];
+  /** Whether the server reports more pages after this one. */
+  has_more: boolean;
+}
+
+/** Pure transform from the raw feeds response into the OneBot list. */
+export function mapFeeds(data: RawFeedsResponse): QzoneFeedsResult {
+  const list = data.data?.data ?? [];
+  return {
+    feeds: list.map((f) => ({
+      uin: Number(f.uin ?? 0),
+      nickname: f.nickname ?? '',
+      time: Number(f.abstime ?? 0),
+      appid: Number(f.appid ?? 0),
+      key: String(f.key ?? f.feedskey ?? ''),
+      html: f.html ?? '',
+    })),
+    has_more: Number(data.data?.hasmore ?? 0) !== 0,
+  };
+}
+
+/**
+ * Fetch the 好友动态 (friend-feed) list via ic2.qzone.qq.com's
+ * feeds3_html_more CGI. `pageNum` is 1-based; `count` is the page size.
+ * Same cookie/g_tk plumbing and throw-on-auth-failure contract as
+ * {@link getQzoneMsgList}: a missing `data.data` array means the cookie/
+ * auth failed and throws, whereas a genuinely empty feed (`data.data: []`)
+ * maps to an empty list.
+ */
+export async function getQzoneFeeds(
+  cookieObject: Record<string, string>,
+  selfUin: string,
+  pageNum = 1,
+  count = 10,
+): Promise<QzoneFeedsResult> {
+  if (!cookieObject || typeof cookieObject !== 'object') {
+    throw new Error('cookieObject is required');
+  }
+
+  const bkn = getBknFromCookie(cookieObject);
+  const url = `https://ic2.qzone.qq.com/cgi-bin/feeds/feeds3_html_more?${new URLSearchParams(
+    {
+      uin: selfUin,
+      scope: '0',
+      view: '1',
+      filter: 'all',
+      flag: '1',
+      applist: 'all',
+      pagenum: String(pageNum),
+      count: String(count),
+      aisortEndTime: '0',
+      aisortOffset: '0',
+      aisortBeginTime: '0',
+      begintime: '0',
+      format: 'json',
+      g_tk: bkn,
+      useutf8: '1',
+      outputhtmlfeed: '1',
+    },
+  ).toString()}`;
+
+  const text = await RequestUtil.HttpGetText(url, 'GET', '', {
+    Cookie: cookieToString(cookieObject),
+  });
+  const data = parseQzoneJson<RawFeedsResponse>(text);
+
+  if (typeof data.code === 'number' && data.code !== 0) {
+    log.warn('getQzoneFeeds: non-zero code (uin=%s) code=%d msg=%s', selfUin, data.code, data.message);
+    throw new Error(`qzone feeds failed: code=${data.code} ${data.message ?? ''}`.trim());
+  }
+  if (!Array.isArray(data.data?.data)) {
+    log.warn('getQzoneFeeds: no data array in response (uin=%s) — likely auth/cookie failure', selfUin);
+    throw new Error('无法获取空间好友动态');
+  }
+
+  return mapFeeds(data);
+}

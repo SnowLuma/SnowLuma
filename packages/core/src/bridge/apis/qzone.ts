@@ -1,4 +1,9 @@
-import { getQzoneMsgList, type QzoneMsgListResult } from '@snowluma/protocol/web/qzone';
+import {
+  getQzoneFeeds,
+  getQzoneMsgList,
+  type QzoneFeedsResult,
+  type QzoneMsgListResult,
+} from '@snowluma/protocol/web/qzone';
 import type { BridgeContext } from '../bridge-context';
 
 /**
@@ -18,5 +23,14 @@ export class QzoneApi {
     const uin = targetUin && targetUin > 0 ? targetUin.toString() : this.ctx.identity.uin;
     const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
     return getQzoneMsgList(cookieObject, uin, pos, num);
+  }
+
+  /**
+   * 获取好友动态（feed）。`pageNum` 为 1 起的页码，`count` 为本页数量。
+   * 始终以机器人自己的身份拉取好友动态。
+   */
+  async getFeeds(pageNum = 1, count = 10): Promise<QzoneFeedsResult> {
+    const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
+    return getQzoneFeeds(cookieObject, this.ctx.identity.uin, pageNum, count);
   }
 }

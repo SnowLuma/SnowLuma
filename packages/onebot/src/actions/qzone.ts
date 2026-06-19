@@ -26,6 +26,27 @@ export const actions = [
       }
     },
   }),
+
+  // get_qzone_feeds — 获取好友动态（feed）。只读，始终以机器人自己身份拉取。
+  // 每条 feed 含结构化字段 + 预渲染 html 原样透传（深度解析交由调用方）。
+  defineAction({
+    name: 'get_qzone_feeds',
+    readOnly: true,
+    summary: '获取 QQ 空间好友动态（feed）',
+    params: {
+      page_num: f.int({ min: 1 }).describe('页码（1 起）').default(1),
+      count: f.int({ min: 1, max: 50 }).describe('本页数量').default(10),
+    },
+    run: async (p, ctx) => {
+      try {
+        const res = await ctx.bridge.apis.qzone.getFeeds(p.page_num, p.count);
+        return okResponse(res as unknown as JsonValue);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'failed to get qzone feeds';
+        return failedResponse(RETCODE.INTERNAL_ERROR, message);
+      }
+    },
+  }),
 ];
 
 export function register(h: ApiHandler, ctx: ApiActionContext): void {

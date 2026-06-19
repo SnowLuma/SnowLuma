@@ -3001,6 +3001,58 @@ export const ACTIONS: CatalogAction[] = [
     "category": "群相册"
   },
   {
+    "name": "get_qzone_feeds",
+    "aliases": [],
+    "summary": "获取 QQ 空间好友动态（feed）",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "page_num",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "页码（1 起）",
+        "default": 1
+      },
+      {
+        "name": "count",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "desc": "本页数量",
+        "default": 10
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "page_num": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "页码（1 起）",
+          "default": 1
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "description": "本页数量",
+          "default": 10
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
     "name": "get_qzone_msg_list",
     "aliases": [],
     "summary": "获取 QQ 空间说说列表（默认机器人自己的空间）",
@@ -6641,6 +6693,6 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "空间",
-    "count": 1
+    "count": 2
   }
 ];
