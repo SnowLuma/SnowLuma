@@ -371,12 +371,20 @@ describe('qzone / commentQzoneMsg (HTTP layer)', () => {
     expect(h['Content-Type']).toBe('application/x-www-form-urlencoded');
     expect(h.Cookie).toContain('p_skey=PSK');
     const form = new URLSearchParams(body as string);
-    // topicId keys the target feed as <hostUin>_<tid>__1; uin=commenter(self)
+    // topicId base <hostUin>_<tid> is confirmed; the __1 suffix is on 2/3
+    // impls (one omits it) — kept as the default, not asserted as canonical.
     expect(form.get('topicId')).toBe('20002_TIDX__1');
+    // uin=commenter(self), hostUin=feed owner — verified not-swapped
     expect(form.get('uin')).toBe('10000');
     expect(form.get('hostUin')).toBe('20002');
     expect(form.get('content')).toBe('说得好 & 顶');
     expect(form.get('format')).toBe('fs');
+    // qzreferrer carries the commenter's own space (matches the impls)
+    expect(form.get('qzreferrer')).toBe('https://user.qzone.qq.com/10000');
+    // the re_feeds param family (3/3 impls) the publish sibling also sends
+    expect(form.get('feedsType')).toBe('100');
+    expect(form.get('private')).toBe('0');
+    expect(form.get('paramstr')).toBe('1');
   });
 
   it('resolves with empty comment_id on success when the response carries no id (field name varies)', async () => {

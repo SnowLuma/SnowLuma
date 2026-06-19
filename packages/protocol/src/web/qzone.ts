@@ -548,12 +548,16 @@ export async function setQzoneLike(
 
 // ─────────────── 评论说说 (comment) — emotion_cgi_re_feeds ───────────────
 // Posts a comment on a 说说 owned by `hostUin`, as the bot (`selfUin`). Same
-// form-POST mechanics as publish/delete. The `topicId` keys the target feed
-// as `<hostUin>_<tid>__1`. Success is `code 0` (throw on non-zero code/
+// form-POST mechanics + param family (paramstr/richtype/richval) as
+// publishQzoneMsg. The `topicId` keys the target feed as `<hostUin>_<tid>`;
+// the trailing `__1` suffix is CONFIRMED on 2/3 community impls but a third
+// omits it, so the suffix specifically is the unverified piece (the base
+// shape is confirmed). `uin`=commenter(self), `hostUin`=feed owner — verified
+// not-swapped across 3 impls. Success is `code 0` (throw on non-zero code/
 // subcode); the new comment id is returned best-effort (the response field
 // name varies — commentid/commentId — so a missing id is NOT a failure when
-// code is 0). WRITE OP — rate-limit. topicId shape + comment-id field are
-// EXTRAPOLATED from community impls, pending a live capture.
+// code is 0). WRITE OP — rate-limit. The topicId `__1` suffix + comment-id
+// field are extrapolated, pending a live capture.
 
 interface RawCommentResponse {
   code?: number;
@@ -597,13 +601,20 @@ export async function commentQzoneMsg(
   const bkn = getBknFromCookie(cookieObject);
   const url = `https://h5.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_re_feeds?g_tk=${bkn}`;
   const body = new URLSearchParams({
-    qzreferrer: `https://user.qzone.qq.com/${hostUin}`,
+    // qzreferrer carries the commenter's (self) space, matching the impls.
+    qzreferrer: `https://user.qzone.qq.com/${selfUin}`,
     inCharset: 'utf-8',
     outCharset: 'utf-8',
     hostUin,
     format: 'fs',
     ref: 'feeds',
     topicId: `${hostUin}_${tid}__1`,
+    feedsType: '100',
+    private: '0',
+    paramstr: '1',
+    richtype: '',
+    richval: '',
+    isSignIn: '',
     uin: selfUin,
     content,
     plat: 'qzone',
