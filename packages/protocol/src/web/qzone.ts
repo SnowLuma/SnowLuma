@@ -220,6 +220,9 @@ export function mapFeeds(data: RawFeedsResponse): QzoneFeedsResult {
       nickname: f.nickname ?? '',
       time: Number(f.abstime ?? 0),
       appid: Number(f.appid ?? 0),
+      // `key` is the per-feed handle; `feedskey` is its older alias on some
+      // feed types. They name the same per-feed identifier here (NOT the
+      // list-level next-page cursor, which lives on data.* not the item).
       key: String(f.key ?? f.feedskey ?? ''),
       html: f.html ?? '',
     })),
@@ -228,12 +231,24 @@ export function mapFeeds(data: RawFeedsResponse): QzoneFeedsResult {
 }
 
 /**
- * Fetch the 好友动态 (friend-feed) list via ic2.qzone.qq.com's
- * feeds3_html_more CGI. `pageNum` is 1-based; `count` is the page size.
- * Same cookie/g_tk plumbing and throw-on-auth-failure contract as
- * {@link getQzoneMsgList}: a missing `data.data` array means the cookie/
- * auth failed and throws, whereas a genuinely empty feed (`data.data: []`)
- * maps to an empty list.
+ * Fetch the 好友动态 (friend-feed) list via the feeds3_html_more CGI on
+ * ic2.qzone.qq.com, routed through the h5.qzone.qq.com proxy gateway — the
+ * same gateway {@link getQzoneMsgList} and group-album use, because the
+ * qzone.qq.com cookie jar only authenticates against the proxy origin
+ * (hitting ic2 directly fails the referer/same-origin check). Body is
+ * requested as JSONP (`format=jsonp` + a callback) and parsed with the
+ * shared tolerant parser, matching slice-1's contract exactly.
+ *
+ * `pageNum` is 1-based; `count` is the page size. PAGINATION CAVEAT: this
+ * CGI's reliable deep-pagination is driven by a time cursor
+ * (begintime/externparam/usertime carried forward from the previous page),
+ * which we do not yet thread — so `pageNum` is dependable for the first
+ * page and `has_more` only signals whether more exist, not a stable
+ * page-2 fetch. Cursor pagination is deferred until a live capture.
+ *
+ * Same throw-on-auth-failure contract as {@link getQzoneMsgList}: a missing
+ * `data.data` array means the cookie/auth failed and throws, whereas a
+ * genuinely empty feed (`data.data: []`) maps to an empty list.
  */
 export async function getQzoneFeeds(
   cookieObject: Record<string, string>,
@@ -246,7 +261,7 @@ export async function getQzoneFeeds(
   }
 
   const bkn = getBknFromCookie(cookieObject);
-  const url = `https://ic2.qzone.qq.com/cgi-bin/feeds/feeds3_html_more?${new URLSearchParams(
+  const url = `https://h5.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/feeds3_html_more?${new URLSearchParams(
     {
       uin: selfUin,
       scope: '0',
@@ -260,8 +275,9 @@ export async function getQzoneFeeds(
       aisortOffset: '0',
       aisortBeginTime: '0',
       begintime: '0',
-      format: 'json',
       g_tk: bkn,
+      callback: '_preloadCallback',
+      format: 'jsonp',
       useutf8: '1',
       outputhtmlfeed: '1',
     },

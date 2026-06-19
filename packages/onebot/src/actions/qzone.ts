@@ -32,9 +32,9 @@ export const actions = [
   defineAction({
     name: 'get_qzone_feeds',
     readOnly: true,
-    summary: '获取 QQ 空间好友动态（feed）',
+    summary: '获取 QQ 空间好友动态（feed）；page_num 仅首页可靠，深翻页需时间游标（暂未实现）',
     params: {
-      page_num: f.int({ min: 1 }).describe('页码（1 起）').default(1),
+      page_num: f.int({ min: 1 }).describe('页码（1 起；仅首页可靠）').default(1),
       count: f.int({ min: 1, max: 50 }).describe('本页数量').default(10),
     },
     run: async (p, ctx) => {

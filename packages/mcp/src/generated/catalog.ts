@@ -3003,7 +3003,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "get_qzone_feeds",
     "aliases": [],
-    "summary": "获取 QQ 空间好友动态（feed）",
+    "summary": "获取 QQ 空间好友动态（feed）；page_num 仅首页可靠，深翻页需时间游标（暂未实现）",
     "readOnly": true,
     "params": [
       {
@@ -3014,7 +3014,7 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "minimum": 1
         },
-        "desc": "页码（1 起）",
+        "desc": "页码（1 起；仅首页可靠）",
         "default": 1
       },
       {
@@ -3037,7 +3037,7 @@ export const ACTIONS: CatalogAction[] = [
         "page_num": {
           "type": "integer",
           "minimum": 1,
-          "description": "页码（1 起）",
+          "description": "页码（1 起；仅首页可靠）",
           "default": 1
         },
         "count": {

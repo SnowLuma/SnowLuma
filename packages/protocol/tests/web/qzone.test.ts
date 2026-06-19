@@ -161,12 +161,17 @@ describe('qzone / getQzoneFeeds (HTTP layer)', () => {
     expect(method).toBe('GET');
     expect(body).toBe('');
     expect((headers as Record<string, string>).Cookie).toContain('p_skey=PSK');
-    expect(url).toContain('https://ic2.qzone.qq.com/cgi-bin/feeds/feeds3_html_more?');
+    // Routed through the h5.qzone proxy gateway (NOT ic2 directly), because
+    // the qzone.qq.com cookie jar only authenticates against the proxy origin.
+    expect(url).toContain('https://h5.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/feeds3_html_more?');
     const q = new URLSearchParams((url as string).split('?')[1]);
     expect(q.get('uin')).toBe('10000');
     expect(q.get('pagenum')).toBe('2');
     expect(q.get('count')).toBe('10');
     expect(q.get('g_tk')).toBe(expectedGtk);
+    // The request asks for JSONP — pin it so the JSONP-bodied response above
+    // actually exercises the requested format (not just the tolerant parser).
+    expect(q.get('format')).toBe('jsonp');
   });
 
   it('returns an empty list (not a throw) for a genuinely empty feed', async () => {
