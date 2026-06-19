@@ -85,6 +85,45 @@ export const actions = [
       }
     },
   }),
+
+  // like_qzone — 给一条说说点赞。target_uin 省略=机器人自己空间；点赞好友说说传其 uin。
+  // 写操作；高频点赞会被 Qzone 风控，调用方需限流。
+  defineAction({
+    name: 'like_qzone',
+    summary: '给一条说说点赞（QQ 空间）',
+    params: {
+      tid: f.string({ allowEmpty: false }).describe('说说 tid'),
+      target_uin: f.uint().describe('说说所属 QQ 号，省略则为机器人自己').optional(),
+    },
+    run: async (p, ctx) => {
+      try {
+        await ctx.bridge.apis.qzone.like(p.tid, p.target_uin, true);
+        return okResponse(null);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'failed to like qzone msg';
+        return failedResponse(RETCODE.INTERNAL_ERROR, message);
+      }
+    },
+  }),
+
+  // unlike_qzone — 取消对一条说说的点赞。参数同 like_qzone。写操作。
+  defineAction({
+    name: 'unlike_qzone',
+    summary: '取消对一条说说的点赞（QQ 空间）',
+    params: {
+      tid: f.string({ allowEmpty: false }).describe('说说 tid'),
+      target_uin: f.uint().describe('说说所属 QQ 号，省略则为机器人自己').optional(),
+    },
+    run: async (p, ctx) => {
+      try {
+        await ctx.bridge.apis.qzone.like(p.tid, p.target_uin, false);
+        return okResponse(null);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'failed to unlike qzone msg';
+        return failedResponse(RETCODE.INTERNAL_ERROR, message);
+      }
+    },
+  }),
 ];
 
 export function register(h: ApiHandler, ctx: ApiActionContext): void {

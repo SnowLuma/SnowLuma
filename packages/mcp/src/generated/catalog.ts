@@ -3381,6 +3381,55 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "like_qzone",
+    "aliases": [],
+    "summary": "给一条说说点赞（QQ 空间）",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "tid",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "说说 tid"
+      },
+      {
+        "name": "target_uin",
+        "type": "uint",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "说说所属 QQ 号，省略则为机器人自己"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tid": {
+          "type": "string",
+          "minLength": 1,
+          "description": "说说 tid"
+        },
+        "target_uin": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "说说所属 QQ 号，省略则为机器人自己"
+        }
+      },
+      "required": [
+        "tid"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
     "name": "mark_group_msg_as_read",
     "aliases": [],
     "summary": "标记群消息已读",
@@ -6370,6 +6419,55 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "unlike_qzone",
+    "aliases": [],
+    "summary": "取消对一条说说的点赞（QQ 空间）",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "tid",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "说说 tid"
+      },
+      {
+        "name": "target_uin",
+        "type": "uint",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "说说所属 QQ 号，省略则为机器人自己"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tid": {
+          "type": "string",
+          "minLength": 1,
+          "description": "说说 tid"
+        },
+        "target_uin": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "说说所属 QQ 号，省略则为机器人自己"
+        }
+      },
+      "required": [
+        "tid"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
     "name": "upload_forward_msg",
     "aliases": [],
     "summary": "上传转发消息",
@@ -6761,6 +6859,6 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "空间",
-    "count": 4
+    "count": 6
   }
 ];

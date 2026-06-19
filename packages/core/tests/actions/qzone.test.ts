@@ -67,4 +67,21 @@ describe('apis/qzone', () => {
     expect(getCookies).toHaveBeenCalledWith('qzone.qq.com');
     expect(delSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', 'TID9');
   });
+
+  it('like defaults the feed owner to self and passes opUin=self + like flag', async () => {
+    const getCookies = vi.fn(async () => ({ p_skey: 'PSK' }));
+    const bridge = mockBridge({ apis: { ...mockApiHub(), web: { getCookies } } as never });
+    const likeSpy = vi.spyOn(qzoneWeb, 'setQzoneLike').mockResolvedValue();
+    await new QzoneApi(bridge as never).like('TIDX', undefined, true);
+    // opUin = self ('10001'), owner defaults to self when target_uin absent
+    expect(likeSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', '10001', 'TIDX', true);
+  });
+
+  it('like targets a friend\'s space (owner = target_uin) and threads the unlike flag', async () => {
+    const getCookies = vi.fn(async () => ({ p_skey: 'PSK' }));
+    const bridge = mockBridge({ apis: { ...mockApiHub(), web: { getCookies } } as never });
+    const likeSpy = vi.spyOn(qzoneWeb, 'setQzoneLike').mockResolvedValue();
+    await new QzoneApi(bridge as never).like('TIDX', 20002, false);
+    expect(likeSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', '20002', 'TIDX', false);
+  });
 });

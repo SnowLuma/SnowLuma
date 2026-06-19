@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { deleteQzoneMsg, getQzoneFeeds, getQzoneMsgList, mapFeeds, mapMsgList, parseQzoneJson, publishQzoneMsg } from '@snowluma/protocol/web/qzone';
+import { deleteQzoneMsg, getQzoneFeeds, getQzoneMsgList, mapFeeds, mapMsgList, parseQzoneJson, publishQzoneMsg, setQzoneLike } from '@snowluma/protocol/web/qzone';
 import { RequestUtil } from '@snowluma/protocol/web/request-util';
 
 // The 说说 list comes from taotao.qzone.qq.com's emotion_cgi_msglist_v6 CGI,
@@ -290,5 +290,54 @@ describe('qzone / deleteQzoneMsg (HTTP layer)', () => {
   it('resolves when neither code nor subcode is present (extrapolated success branch)', async () => {
     vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"message":""}');
     await expect(deleteQzoneMsg(cookies, '10000', 'TID123')).resolves.toBeUndefined();
+  });
+});
+
+describe('qzone / setQzoneLike (HTTP layer)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('POSTs to internal_dolike_app with the mood unikey/curkey/fid when liking', async () => {
+    const spy = vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"subcode":0}');
+
+    await expect(setQzoneLike(cookies, '10000', '20002', 'TIDX', true)).resolves.toBeUndefined();
+
+    const [url, method, body, headers] = spy.mock.calls[0]!;
+    expect(method).toBe('POST');
+    expect(url).toBe(
+      `https://h5.qzone.qq.com/proxy/domain/w.qzone.qq.com/cgi-bin/likes/internal_dolike_app?g_tk=${expectedGtk}`,
+    );
+    const h = headers as Record<string, string>;
+    expect(h['Content-Type']).toBe('application/x-www-form-urlencoded');
+    expect(h.Cookie).toContain('p_skey=PSK');
+    const form = new URLSearchParams(body as string);
+    // unikey/curkey address the target's 说说 (mood), fid is the tid, opuin is self
+    expect(form.get('unikey')).toBe('http://user.qzone.qq.com/20002/mood/TIDX');
+    expect(form.get('curkey')).toBe('http://user.qzone.qq.com/20002/mood/TIDX');
+    expect(form.get('fid')).toBe('TIDX');
+    expect(form.get('opuin')).toBe('10000');
+    expect(form.get('appid')).toBe('311');
+  });
+
+  it('hits internal_unlike_app when unliking', async () => {
+    const spy = vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0}');
+    await setQzoneLike(cookies, '10000', '10000', 'TIDX', false);
+    const [url] = spy.mock.calls[0]!;
+    expect(url).toContain('/cgi-bin/likes/internal_unlike_app?');
+  });
+
+  it('rejects an empty tid before any request', async () => {
+    const spy = vi.spyOn(RequestUtil, 'HttpGetText');
+    await expect(setQzoneLike(cookies, '10000', '10000', '', true)).rejects.toThrow('tid is required');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('throws on a non-zero code (no permission / unknown tid)', async () => {
+    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":-3000,"message":"no perm"}');
+    await expect(setQzoneLike(cookies, '10000', '20002', 'TIDX', true)).rejects.toThrow('like failed: code=-3000');
+  });
+
+  it('throws on a non-zero subcode too', async () => {
+    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"subcode":-7}');
+    await expect(setQzoneLike(cookies, '10000', '20002', 'TIDX', false)).rejects.toThrow('unlike failed: subcode=-7');
   });
 });

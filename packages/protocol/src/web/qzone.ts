@@ -461,3 +461,73 @@ export async function deleteQzoneMsg(
     throw new Error(`qzone delete failed: subcode=${data.subcode} ${data.message ?? ''}`.trim());
   }
 }
+
+// ─────────────── 点赞/取消赞 (like/unlike) — internal_dolike_app ───────────────
+// Likes or unlikes a 说说 (mood, appid 311) on `targetUin`'s space. like →
+// internal_dolike_app, unlike → internal_unlike_app, same form body keyed by
+// the feed's unikey/curkey (`http://user.qzone.qq.com/<uin>/mood/<tid>`) and
+// `fid` (= tid). WRITE OP — rate-limit (likes are an active action,风控'd
+// like sending messages). Scope is 说说 only; other feed types use a
+// different unikey shape and are out of scope for this slice.
+
+interface RawLikeResponse {
+  code?: number;
+  subcode?: number;
+  message?: string;
+}
+
+/**
+ * Like or unlike a 说说 by `tid` on `targetUin`'s space, as the bot
+ * (`opUin`). Resolves on success; THROWS on a transport failure or a
+ * non-zero Qzone `code`/`subcode` (e.g. an unknown tid, no permission, or
+ * an auth failure). `like=false` hits the unlike CGI.
+ */
+export async function setQzoneLike(
+  cookieObject: Record<string, string>,
+  opUin: string,
+  targetUin: string,
+  tid: string,
+  like: boolean,
+): Promise<void> {
+  if (!cookieObject || typeof cookieObject !== 'object') {
+    throw new Error('cookieObject is required');
+  }
+  if (!tid) {
+    throw new Error('tid is required');
+  }
+
+  const bkn = getBknFromCookie(cookieObject);
+  const cgi = like ? 'internal_dolike_app' : 'internal_unlike_app';
+  const url = `https://h5.qzone.qq.com/proxy/domain/w.qzone.qq.com/cgi-bin/likes/${cgi}?g_tk=${bkn}`;
+  // unikey/curkey address the 说说 (mood) feed; fid is the tid.
+  const unikey = `http://user.qzone.qq.com/${targetUin}/mood/${tid}`;
+  const body = new URLSearchParams({
+    qzreferrer: `https://user.qzone.qq.com/${opUin}`,
+    opuin: opUin,
+    unikey,
+    curkey: unikey,
+    appid: '311',
+    typeid: '0',
+    fid: tid,
+    from: '1',
+    active: '0',
+    fupdate: '1',
+    format: 'json',
+  }).toString();
+
+  const text = await RequestUtil.HttpGetText(url, 'POST', body, {
+    Cookie: cookieToString(cookieObject),
+    'Content-Type': 'application/x-www-form-urlencoded',
+  });
+  const data = parseQzoneJson<RawLikeResponse>(text);
+
+  const verb = like ? 'like' : 'unlike';
+  if (typeof data.code === 'number' && data.code !== 0) {
+    log.warn('setQzoneLike(%s): non-zero code (tid=%s) code=%d msg=%s', verb, tid, data.code, data.message);
+    throw new Error(`qzone ${verb} failed: code=${data.code} ${data.message ?? ''}`.trim());
+  }
+  if (typeof data.subcode === 'number' && data.subcode !== 0) {
+    log.warn('setQzoneLike(%s): non-zero subcode (tid=%s) subcode=%d msg=%s', verb, tid, data.subcode, data.message);
+    throw new Error(`qzone ${verb} failed: subcode=${data.subcode} ${data.message ?? ''}`.trim());
+  }
+}
