@@ -428,13 +428,15 @@ export async function deleteQzoneMsg(
 
   const bkn = getBknFromCookie(cookieObject);
   const url = `https://h5.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_delete_v6?g_tk=${bkn}`;
+  // The canonical delete request uses `format=fs` (NOT json) and the exact
+  // param set below — confirmed across the silica-github/qq_zone_delete
+  // working script and community docs.
   const body = new URLSearchParams({
     hostuin: hostUin,
     tid,
     t1_source: '1',
     code_version: '1',
-    format: 'json',
-    json: '1',
+    format: 'fs',
     qzreferrer: `https://user.qzone.qq.com/${hostUin}`,
   }).toString();
 
@@ -444,8 +446,18 @@ export async function deleteQzoneMsg(
   });
   const data = parseQzoneJson<RawDeleteResponse>(text);
 
+  // Success signal: delete has no positive payload, so we throw on a
+  // non-zero code OR sub-code. NOTE: that `code`/`subcode` is delete's
+  // success field is EXTRAPOLATED from the sibling CGIs (publish/msglist)
+  // — public delete impls only check HTTP 2xx — so this is pending a live
+  // capture to confirm the exact failure envelope (same posture as the
+  // other helpers in this file).
   if (typeof data.code === 'number' && data.code !== 0) {
     log.warn('deleteQzoneMsg: non-zero code (uin=%s tid=%s) code=%d msg=%s', hostUin, tid, data.code, data.message);
     throw new Error(`qzone delete failed: code=${data.code} ${data.message ?? ''}`.trim());
+  }
+  if (typeof data.subcode === 'number' && data.subcode !== 0) {
+    log.warn('deleteQzoneMsg: non-zero subcode (uin=%s tid=%s) subcode=%d msg=%s', hostUin, tid, data.subcode, data.message);
+    throw new Error(`qzone delete failed: subcode=${data.subcode} ${data.message ?? ''}`.trim());
   }
 }

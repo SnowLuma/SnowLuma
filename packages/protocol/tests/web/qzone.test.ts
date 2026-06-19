@@ -247,7 +247,10 @@ describe('qzone / publishQzoneMsg (HTTP layer)', () => {
 describe('qzone / deleteQzoneMsg (HTTP layer)', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('POSTs the tid form body to the proxied delete CGI and resolves on code 0', async () => {
+  it('POSTs the tid form body (format=fs) to the proxied delete CGI and resolves on code 0', async () => {
+    // NB: the success-body shape is a guess extrapolated from sibling CGIs —
+    // no public delete impl parses the response — so this mock pins our
+    // success contract, not a verified server envelope (see helper comment).
     const spy = vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"subcode":0,"message":""}');
 
     await expect(deleteQzoneMsg(cookies, '10000', 'TID123')).resolves.toBeUndefined();
@@ -263,7 +266,9 @@ describe('qzone / deleteQzoneMsg (HTTP layer)', () => {
     const form = new URLSearchParams(body as string);
     expect(form.get('tid')).toBe('TID123');
     expect(form.get('hostuin')).toBe('10000');
-    expect(form.get('format')).toBe('json');
+    // delete_v6 wants format=fs (NOT json), per the working community script
+    expect(form.get('format')).toBe('fs');
+    expect(form.get('json')).toBeNull(); // no bogus json param
   });
 
   it('rejects an empty tid before any request', async () => {
@@ -275,5 +280,15 @@ describe('qzone / deleteQzoneMsg (HTTP layer)', () => {
   it('throws on a non-zero qzone code (foreign/unknown tid or auth failure)', async () => {
     vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":-4001,"message":"no permission"}');
     await expect(deleteQzoneMsg(cookies, '10000', 'TID123')).rejects.toThrow('code=-4001');
+  });
+
+  it('throws on a non-zero subcode even when code is 0', async () => {
+    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"subcode":-12,"message":"sub error"}');
+    await expect(deleteQzoneMsg(cookies, '10000', 'TID123')).rejects.toThrow('subcode=-12');
+  });
+
+  it('resolves when neither code nor subcode is present (extrapolated success branch)', async () => {
+    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"message":""}');
+    await expect(deleteQzoneMsg(cookies, '10000', 'TID123')).resolves.toBeUndefined();
   });
 });
