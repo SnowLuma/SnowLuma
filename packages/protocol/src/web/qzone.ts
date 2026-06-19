@@ -397,9 +397,9 @@ export async function publishQzoneMsg(
 
 // ─────────────── 删说说 (delete emotion) — emotion_cgi_delete_v6 ───────────────
 // Deletes one of the bot's OWN 说说 by tid. Same form-POST mechanics as
-// publish. No positive payload on success beyond `code: 0`, so the contract
-// is throw-on-non-zero-code; a clean parse with code 0 (or absent) is a
-// success. WRITE OP.
+// publish. No positive payload on success, so the contract is throw on a
+// non-zero `code` OR `subcode`; a clean parse with both zero (or absent) is
+// a success. WRITE OP.
 
 interface RawDeleteResponse {
   code?: number;
