@@ -93,6 +93,13 @@ describe('qzone / getQzoneMsgList (HTTP layer)', () => {
     expect(q.get('format')).toBe('jsonp');
   });
 
+  it('returns an empty list (not a throw) for a genuinely empty space', async () => {
+    // The throw-on-auth-failure contract hinges on distinguishing a missing
+    // msglist (cookie failure → throw) from an empty msglist (no 说说 → []).
+    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"total":0,"msglist":[]}');
+    await expect(getQzoneMsgList(cookies, '10000')).resolves.toEqual({ total: 0, msglist: [] });
+  });
+
   it('propagates a transport error instead of swallowing it', async () => {
     vi.spyOn(RequestUtil, 'HttpGetText').mockRejectedValue(new Error('Unexpected status code: 403'));
     await expect(getQzoneMsgList(cookies, '10000')).rejects.toThrow('403');
