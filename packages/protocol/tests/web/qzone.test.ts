@@ -193,10 +193,15 @@ describe('qzone / getQzoneFeeds (HTTP layer)', () => {
 describe('qzone / publishQzoneMsg (HTTP layer)', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('POSTs a form-urlencoded body to the proxied publish CGI and returns tid/time', async () => {
-    const spy = vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"tid":"NEWTID","now":1700000000}');
+  it('POSTs a form-urlencoded body and reads the real t1_tid/t1_time (string) success fields', async () => {
+    // The real publish_v6 success envelope names the new feed id `t1_tid`
+    // and the post time `t1_time` (a STRING) — reading `tid`/`now` would
+    // false-throw on every successful publish.
+    const spy = vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue(
+      '{"code":0,"t1_tid":"NEWTID","t1_time":"1700000000"}',
+    );
 
-    const out = await publishQzoneMsg(cookies, '10000', 'hello 世界');
+    const out = await publishQzoneMsg(cookies, '10000', 'hello 世界 & friends');
 
     expect(out).toEqual({ tid: 'NEWTID', time: 1700000000 });
 
@@ -208,12 +213,18 @@ describe('qzone / publishQzoneMsg (HTTP layer)', () => {
     const h = headers as Record<string, string>;
     expect(h['Content-Type']).toBe('application/x-www-form-urlencoded');
     expect(h.Cookie).toContain('p_skey=PSK');
-    // form body carries the content (urlencoded) and the host uin
+    // form body carries the content (urlencoded, incl. the `&`) and host uin
     const form = new URLSearchParams(body as string);
-    expect(form.get('con')).toBe('hello 世界');
+    expect(form.get('con')).toBe('hello 世界 & friends');
     expect(form.get('hostuin')).toBe('10000');
+    expect(form.get('who')).toBe('1');
     expect(form.get('format')).toBe('json');
     expect(form.get('qzreferrer')).toBe('https://user.qzone.qq.com/10000');
+  });
+
+  it('falls back to tid/now for alternate client builds', async () => {
+    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"tid":"ALT","now":1700000001}');
+    await expect(publishQzoneMsg(cookies, '10000', 'hi')).resolves.toEqual({ tid: 'ALT', time: 1700000001 });
   });
 
   it('rejects empty content before any request', async () => {
@@ -227,8 +238,8 @@ describe('qzone / publishQzoneMsg (HTTP layer)', () => {
     await expect(publishQzoneMsg(cookies, '10000', 'hi')).rejects.toThrow('code=-10000');
   });
 
-  it('throws when the success body carries no tid', async () => {
-    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"now":1700000000}');
+  it('throws when the success body carries no feed id (neither t1_tid nor tid)', async () => {
+    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"t1_time":"1700000000"}');
     await expect(publishQzoneMsg(cookies, '10000', 'hi')).rejects.toThrow('缺少 tid');
   });
 });

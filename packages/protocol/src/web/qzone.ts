@@ -311,9 +311,13 @@ interface RawPublishResponse {
   code?: number;
   subcode?: number;
   message?: string;
-  /** Published feed id on success. */
+  // The publish_v6 SUCCESS envelope names the new feed id `t1_tid` and the
+  // post time `t1_time` (the latter arrives as a STRING). `tid`/`now` are
+  // kept as defensive fallbacks for alternate client builds, but `t1_tid`
+  // is the real primary — reading `tid` alone false-throws on every success.
+  t1_tid?: string;
+  t1_time?: string;
   tid?: string;
-  /** Post timestamp (unix seconds) on success. */
   now?: number;
 }
 
@@ -363,6 +367,7 @@ export async function publishQzoneMsg(
     ver: '1',
     ugc_right: '1',
     to_sign: '0',
+    who: '1',
     hostuin: hostUin,
     code_version: '1',
     format: 'json',
@@ -379,10 +384,13 @@ export async function publishQzoneMsg(
     log.warn('publishQzoneMsg: non-zero code (uin=%s) code=%d msg=%s', hostUin, data.code, data.message);
     throw new Error(`qzone publish failed: code=${data.code} ${data.message ?? ''}`.trim());
   }
-  if (!data.tid) {
+  const tid = data.t1_tid ?? data.tid;
+  if (!tid) {
     log.warn('publishQzoneMsg: no tid in response (uin=%s) — publish likely rejected', hostUin);
     throw new Error('发表说说失败：响应缺少 tid');
   }
 
-  return { tid: String(data.tid), time: Number(data.now ?? 0) };
+  // t1_time is a string on the wire; Number() coerces it (and the `now`
+  // numeric fallback) uniformly.
+  return { tid: String(tid), time: Number(data.t1_time ?? data.now ?? 0) };
 }
