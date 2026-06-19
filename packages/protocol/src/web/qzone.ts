@@ -545,3 +545,87 @@ export async function setQzoneLike(
     throw new Error(`qzone ${verb} failed: subcode=${data.subcode} ${data.message ?? ''}`.trim());
   }
 }
+
+// ─────────────── 评论说说 (comment) — emotion_cgi_re_feeds ───────────────
+// Posts a comment on a 说说 owned by `hostUin`, as the bot (`selfUin`). Same
+// form-POST mechanics as publish/delete. The `topicId` keys the target feed
+// as `<hostUin>_<tid>__1`. Success is `code 0` (throw on non-zero code/
+// subcode); the new comment id is returned best-effort (the response field
+// name varies — commentid/commentId — so a missing id is NOT a failure when
+// code is 0). WRITE OP — rate-limit. topicId shape + comment-id field are
+// EXTRAPOLATED from community impls, pending a live capture.
+
+interface RawCommentResponse {
+  code?: number;
+  subcode?: number;
+  message?: string;
+  commentid?: string | number;
+  commentId?: string | number;
+}
+
+/** Result of commenting on a 说说. */
+export interface QzoneCommentResult {
+  [key: string]: JsonValue;
+  /** New comment id when the response carries one ('' if absent). */
+  comment_id: string;
+}
+
+/**
+ * Comment on a 说说 (`tid`, owned by `hostUin`) as the bot (`selfUin`) via
+ * taotao.qzone.qq.com's emotion_cgi_re_feeds CGI (proxied through h5.qzone).
+ * Resolves with the new comment id (best-effort) on success; THROWS on a
+ * transport failure or a non-zero Qzone `code`/`subcode` (e.g. comments
+ * disabled, no permission, or auth failure).
+ */
+export async function commentQzoneMsg(
+  cookieObject: Record<string, string>,
+  selfUin: string,
+  hostUin: string,
+  tid: string,
+  content: string,
+): Promise<QzoneCommentResult> {
+  if (!cookieObject || typeof cookieObject !== 'object') {
+    throw new Error('cookieObject is required');
+  }
+  if (!tid) {
+    throw new Error('tid is required');
+  }
+  if (!content) {
+    throw new Error('content is required');
+  }
+
+  const bkn = getBknFromCookie(cookieObject);
+  const url = `https://h5.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_re_feeds?g_tk=${bkn}`;
+  const body = new URLSearchParams({
+    qzreferrer: `https://user.qzone.qq.com/${hostUin}`,
+    inCharset: 'utf-8',
+    outCharset: 'utf-8',
+    hostUin,
+    format: 'fs',
+    ref: 'feeds',
+    topicId: `${hostUin}_${tid}__1`,
+    uin: selfUin,
+    content,
+    plat: 'qzone',
+    source: 'ic',
+    platformid: '52',
+  }).toString();
+
+  const text = await RequestUtil.HttpGetText(url, 'POST', body, {
+    Cookie: cookieToString(cookieObject),
+    'Content-Type': 'application/x-www-form-urlencoded',
+  });
+  const data = parseQzoneJson<RawCommentResponse>(text);
+
+  if (typeof data.code === 'number' && data.code !== 0) {
+    log.warn('commentQzoneMsg: non-zero code (host=%s tid=%s) code=%d msg=%s', hostUin, tid, data.code, data.message);
+    throw new Error(`qzone comment failed: code=${data.code} ${data.message ?? ''}`.trim());
+  }
+  if (typeof data.subcode === 'number' && data.subcode !== 0) {
+    log.warn('commentQzoneMsg: non-zero subcode (host=%s tid=%s) subcode=%d msg=%s', hostUin, tid, data.subcode, data.message);
+    throw new Error(`qzone comment failed: subcode=${data.subcode} ${data.message ?? ''}`.trim());
+  }
+
+  const commentId = data.commentid ?? data.commentId;
+  return { comment_id: commentId !== undefined ? String(commentId) : '' };
+}

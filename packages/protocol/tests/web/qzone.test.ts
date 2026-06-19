@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { deleteQzoneMsg, getQzoneFeeds, getQzoneMsgList, mapFeeds, mapMsgList, parseQzoneJson, publishQzoneMsg, setQzoneLike } from '@snowluma/protocol/web/qzone';
+import { commentQzoneMsg, deleteQzoneMsg, getQzoneFeeds, getQzoneMsgList, mapFeeds, mapMsgList, parseQzoneJson, publishQzoneMsg, setQzoneLike } from '@snowluma/protocol/web/qzone';
 import { RequestUtil } from '@snowluma/protocol/web/request-util';
 
 // The 说说 list comes from taotao.qzone.qq.com's emotion_cgi_msglist_v6 CGI,
@@ -349,5 +349,55 @@ describe('qzone / setQzoneLike (HTTP layer)', () => {
   it('throws on a non-zero subcode too', async () => {
     vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"subcode":-7}');
     await expect(setQzoneLike(cookies, '10000', '20002', 'TIDX', false)).rejects.toThrow('unlike failed: subcode=-7');
+  });
+});
+
+describe('qzone / commentQzoneMsg (HTTP layer)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('POSTs to re_feeds with the topicId/uin/hostUin/content and returns the comment id', async () => {
+    const spy = vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"commentid":987}');
+
+    const out = await commentQzoneMsg(cookies, '10000', '20002', 'TIDX', '说得好 & 顶');
+
+    expect(out).toEqual({ comment_id: '987' });
+
+    const [url, method, body, headers] = spy.mock.calls[0]!;
+    expect(method).toBe('POST');
+    expect(url).toBe(
+      `https://h5.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_re_feeds?g_tk=${expectedGtk}`,
+    );
+    const h = headers as Record<string, string>;
+    expect(h['Content-Type']).toBe('application/x-www-form-urlencoded');
+    expect(h.Cookie).toContain('p_skey=PSK');
+    const form = new URLSearchParams(body as string);
+    // topicId keys the target feed as <hostUin>_<tid>__1; uin=commenter(self)
+    expect(form.get('topicId')).toBe('20002_TIDX__1');
+    expect(form.get('uin')).toBe('10000');
+    expect(form.get('hostUin')).toBe('20002');
+    expect(form.get('content')).toBe('说得好 & 顶');
+    expect(form.get('format')).toBe('fs');
+  });
+
+  it('resolves with empty comment_id on success when the response carries no id (field name varies)', async () => {
+    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0}');
+    await expect(commentQzoneMsg(cookies, '10000', '20002', 'TIDX', 'hi')).resolves.toEqual({ comment_id: '' });
+  });
+
+  it('reads the commentId (camelCase) fallback field', async () => {
+    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"commentId":"abc"}');
+    await expect(commentQzoneMsg(cookies, '10000', '20002', 'TIDX', 'hi')).resolves.toEqual({ comment_id: 'abc' });
+  });
+
+  it('rejects empty tid or content before any request', async () => {
+    const spy = vi.spyOn(RequestUtil, 'HttpGetText');
+    await expect(commentQzoneMsg(cookies, '10000', '20002', '', 'hi')).rejects.toThrow('tid is required');
+    await expect(commentQzoneMsg(cookies, '10000', '20002', 'TIDX', '')).rejects.toThrow('content is required');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('throws on a non-zero code (comments disabled / no permission)', async () => {
+    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":-3000,"message":"forbidden"}');
+    await expect(commentQzoneMsg(cookies, '10000', '20002', 'TIDX', 'hi')).rejects.toThrow('comment failed: code=-3000');
   });
 });

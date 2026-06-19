@@ -1,9 +1,11 @@
 import {
+  commentQzoneMsg,
   deleteQzoneMsg,
   getQzoneFeeds,
   getQzoneMsgList,
   publishQzoneMsg,
   setQzoneLike,
+  type QzoneCommentResult,
   type QzoneFeedsResult,
   type QzoneMsgListResult,
   type QzonePublishResult,
@@ -59,5 +61,16 @@ export class QzoneApi {
     const owner = targetUin && targetUin > 0 ? targetUin.toString() : selfUin;
     const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
     await setQzoneLike(cookieObject, selfUin, owner, tid, like, abstime);
+  }
+
+  /**
+   * 评论一条说说。`targetUin` 为说说所属 QQ 号（省略=机器人自己空间）；
+   * 始终以机器人身份发表评论。返回新评论 id（尽力而为）。
+   */
+  async comment(tid: string, content: string, targetUin: number | undefined): Promise<QzoneCommentResult> {
+    const selfUin = this.ctx.identity.uin;
+    const owner = targetUin && targetUin > 0 ? targetUin.toString() : selfUin;
+    const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
+    return commentQzoneMsg(cookieObject, selfUin, owner, tid, content);
   }
 }

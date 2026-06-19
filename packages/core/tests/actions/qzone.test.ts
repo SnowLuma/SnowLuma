@@ -85,4 +85,22 @@ describe('apis/qzone', () => {
     // abstime defaults to 0 when omitted
     expect(likeSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', '20002', 'TIDX', false, 0);
   });
+
+  it('comment defaults the feed owner to self and posts as self', async () => {
+    const getCookies = vi.fn(async () => ({ p_skey: 'PSK' }));
+    const bridge = mockBridge({ apis: { ...mockApiHub(), web: { getCookies } } as never });
+    const cmtSpy = vi.spyOn(qzoneWeb, 'commentQzoneMsg').mockResolvedValue({ comment_id: '1' });
+    const out = await new QzoneApi(bridge as never).comment('TIDX', 'nice', undefined);
+    // selfUin='10001' commenter; owner defaults to self
+    expect(cmtSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', '10001', 'TIDX', 'nice');
+    expect(out).toEqual({ comment_id: '1' });
+  });
+
+  it('comment targets a friend\'s feed (owner = target_uin), commenter stays self', async () => {
+    const getCookies = vi.fn(async () => ({ p_skey: 'PSK' }));
+    const bridge = mockBridge({ apis: { ...mockApiHub(), web: { getCookies } } as never });
+    const cmtSpy = vi.spyOn(qzoneWeb, 'commentQzoneMsg').mockResolvedValue({ comment_id: '2' });
+    await new QzoneApi(bridge as never).comment('TIDX', 'nice', 20002);
+    expect(cmtSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', '20002', 'TIDX', 'nice');
+  });
 });

@@ -533,6 +533,71 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "comment_qzone",
+    "aliases": [],
+    "summary": "评论一条说说（QQ 空间）",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "tid",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "说说 tid"
+      },
+      {
+        "name": "content",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "评论内容"
+      },
+      {
+        "name": "target_uin",
+        "type": "uint",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "说说所属 QQ 号，省略则为机器人自己"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tid": {
+          "type": "string",
+          "minLength": 1,
+          "description": "说说 tid"
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "description": "评论内容"
+        },
+        "target_uin": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "说说所属 QQ 号，省略则为机器人自己"
+        }
+      },
+      "required": [
+        "tid",
+        "content"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
     "name": "complete_group_todo",
     "aliases": [],
     "summary": "完成群待办",
@@ -6893,6 +6958,6 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "空间",
-    "count": 6
+    "count": 7
   }
 ];

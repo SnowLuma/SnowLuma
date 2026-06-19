@@ -128,6 +128,27 @@ export const actions = [
       }
     },
   }),
+
+  // comment_qzone — 评论一条说说。target_uin=说说所属 QQ 号（省略=机器人自己空间）。
+  // 写操作；高频评论会被 Qzone 风控，调用方需限流。
+  defineAction({
+    name: 'comment_qzone',
+    summary: '评论一条说说（QQ 空间）',
+    params: {
+      tid: f.string({ allowEmpty: false }).describe('说说 tid'),
+      content: f.string({ allowEmpty: false }).describe('评论内容'),
+      target_uin: f.uint().describe('说说所属 QQ 号，省略则为机器人自己').optional(),
+    },
+    run: async (p, ctx) => {
+      try {
+        const res = await ctx.bridge.apis.qzone.comment(p.tid, p.content, p.target_uin);
+        return okResponse(res as unknown as JsonValue);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'failed to comment qzone msg';
+        return failedResponse(RETCODE.INTERNAL_ERROR, message);
+      }
+    },
+  }),
 ];
 
 export function register(h: ApiHandler, ctx: ApiActionContext): void {
