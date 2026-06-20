@@ -22,6 +22,11 @@ export namespace PrepareUpload {
     fileName: string;
     fileSize: number;
     sha1: string;       // 40 hex
+    /** fileset 内序号（1,2,3...），与 0x93d0 commit f6 一致。缩略图序号在主文件之后递增。 */
+    fileIndex: number;
+    /** 格式码：与 commit f7 一致（mp4=2, rar/zip=4）。主文件 filesetWrap.f7 用此值；
+     *  缩略图固定 png=26/jpg=2。 */
+    formatCode: number;
     /** 缩略图类型：undefined=主文件, 'png'=png 缩略图, 'jpg'=jpg 缩略图。
      *  主文件下载入口需要缩略图关联才会被服务端填充，缩略图字段差异据此切换。 */
     thumbType?: 'png' | 'jpg';
@@ -31,7 +36,8 @@ export namespace PrepareUpload {
   export type Deps = OidbSender;
 
   export const serialize = (_ctx: Deps, p: Params): FlashPrepareUploadReq => {
-    // 缩略图与主文件字段差异：config.f103、FileInfo.f5.f1/f6/f7/f9、filesetWrap.f4/f6/f7。
+    // 缩略图与主文件字段差异：config.f103、FileInfo.f5.f1/f6/f7/f9、filesetWrap.f6/f7。
+    // filesetWrap.f4 统一用 fileIndex（主文件和缩略图都从 facade 传入，保证与 commit f6 一致）。
     const isThumb = p.thumbType !== undefined;
     const isJpg = p.thumbType === 'jpg';
     return {
@@ -71,10 +77,10 @@ export namespace PrepareUpload {
           filesetUuid: p.filesetUuid,
           uploadKey: p.filesetUuid,
           fileUuid: p.fileUuid,
-          field4: (!isThumb || isJpg) ? 1 : 2,   // png=2, jpg/mp4=1
+          field4: p.fileIndex,
           field5: 0,
-          field6: isThumb ? 1 : 0,                // 缩略图=1, 主文件=0
-          field7: isThumb ? (isJpg ? 2 : 26) : 26, // 主文件=26, png缩略图=26, jpg缩略图=2
+          field6: isThumb ? 1 : 0,                 // 缩略图=1, 主文件=0
+          field7: isThumb ? (isJpg ? 2 : 26) : p.formatCode, // 主文件=formatCode(mp4=2), png缩略图=26, jpg缩略图=2
           field8: {},
           field9: 1, field10: 0, field11: 0, field12: 0, field13: 0, field14: 0,
         },
