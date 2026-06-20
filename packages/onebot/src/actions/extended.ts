@@ -118,7 +118,8 @@ async function groupTodoRun(
   }
 }
 
-/** FlashTransferApi 返回的 FlashFileInfo → OneBot JSON 响应（plain object，JsonObject 兼容）。 */
+/** FlashTransferApi 返回的 FlashFileInfo → OneBot JSON 响应（plain object，JsonObject 兼容）。
+ *  字段名对齐 NapCat（get_flash_file_list 用 size，非 file_size），便于客户端 drop-in 迁移。 */
 function flashFileInfoToJson(f: {
   filesetUuid: string; fileName: string; origName: string; fileSize: number;
   shareUrl: string; fileId: string; downloadUrl: string;
@@ -127,7 +128,7 @@ function flashFileInfoToJson(f: {
     fileset_id: f.filesetUuid,
     file_name: f.fileName,
     orig_name: f.origName,
-    file_size: f.fileSize,
+    size: f.fileSize,
     share_url: f.shareUrl,
     file_id: f.fileId,
     download_url: f.downloadUrl,
