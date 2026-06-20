@@ -1,12 +1,9 @@
 import { createLogger } from '@snowluma/common/logger';
+import { configPath, ensureConfigDir } from '@snowluma/common/paths';
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import fs from 'fs';
-import path from 'path';
 
 const log = createLogger('WebUI.Auth');
-
-const CONFIG_DIR = 'config';
-const WEBUI_CONFIG_PATH = path.join(CONFIG_DIR, 'webui.json');
 
 const SCRYPT_KEYLEN = 64;
 const SCRYPT_N = 16384; // cost
@@ -60,10 +57,6 @@ function hashPassword(password: string, salt: Buffer): Buffer {
   return scryptSync(password, salt, SCRYPT_KEYLEN, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P });
 }
 
-function ensureConfigDir(): void {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true });
-}
-
 function isValidState(value: unknown): value is WebuiAuthState {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
@@ -90,9 +83,10 @@ function generateInitialState(initialPassword: string): WebuiAuthState {
 }
 
 function backupCorruptConfig(): void {
+  const webuiConfigPath = configPath('webui.json');
   try {
-    const dest = `${WEBUI_CONFIG_PATH}.bak.${Date.now()}`;
-    fs.renameSync(WEBUI_CONFIG_PATH, dest);
+    const dest = `${webuiConfigPath}.bak.${Date.now()}`;
+    fs.renameSync(webuiConfigPath, dest);
     log.warn('previous webui.json moved to %s', dest);
   } catch (err) {
     log.warn('failed to back up corrupt webui.json: %s', err instanceof Error ? err.message : String(err));
@@ -101,14 +95,15 @@ function backupCorruptConfig(): void {
 
 function atomicWrite(state: WebuiAuthState): void {
   ensureConfigDir();
-  const tmp = WEBUI_CONFIG_PATH + '.tmp';
+  const webuiConfigPath = configPath('webui.json');
+  const tmp = webuiConfigPath + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { encoding: 'utf8', mode: 0o600 });
   try {
     fs.chmodSync(tmp, 0o600);
   } catch {
     /* ignore */
   }
-  fs.renameSync(tmp, WEBUI_CONFIG_PATH);
+  fs.renameSync(tmp, webuiConfigPath);
 }
 
 export class WebuiAuth {
@@ -137,9 +132,10 @@ export class WebuiAuth {
       return new WebuiAuth(state, null, true);
     }
     ensureConfigDir();
-    if (fs.existsSync(WEBUI_CONFIG_PATH)) {
+    const webuiConfigPath = configPath('webui.json');
+    if (fs.existsSync(webuiConfigPath)) {
       try {
-        const raw = fs.readFileSync(WEBUI_CONFIG_PATH, 'utf8');
+        const raw = fs.readFileSync(webuiConfigPath, 'utf8');
         const parsed = JSON.parse(raw) as unknown;
         if (isValidState(parsed)) {
           if (parsed.mustChangePassword) {

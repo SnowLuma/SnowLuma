@@ -36,6 +36,10 @@
       "types": "./src/packet-sender.ts",
       "default": "./src/packet-sender.ts"
     },
+    "./paths": {
+      "types": "./src/paths.ts",
+      "default": "./src/paths.ts"
+    },
     "./protocol-types": {
       "types": "./src/protocol-types.ts",
       "default": "./src/protocol-types.ts"

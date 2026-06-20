@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import type { HookManager, HookProcessInfo } from '@snowluma/bridge';
 import { createLogger, getLogLevel, getRecentLogs, LOG_LEVELS, setLogLevel, subscribeLogs } from '@snowluma/common/logger';
+import { configPath, ensureConfigDir, getConfigDir } from '@snowluma/common/paths';
 import { loadOneBotConfig, saveOneBotConfig } from '@snowluma/onebot/config';
 import type { OneBotManager } from '@snowluma/onebot/manager';
 import type { OneBotConfig, JsonObject as OneBotJsonObject } from '@snowluma/onebot/types';
@@ -482,8 +483,9 @@ export async function initWebUI(
   // next restart (no supervisor → no self-restart). The panel surfaces which
   // fields are currently overridden by env so edits that won't take effect are
   // visible.
-  const SYSTEM_CERT_PATH = path.join('config', 'cert.pem');
-  const SYSTEM_KEY_PATH = path.join('config', 'key.pem');
+  const configDir = getConfigDir();
+  const SYSTEM_CERT_PATH = configPath('cert.pem');
+  const SYSTEM_KEY_PATH = configPath('key.pem');
   const hasCert = (): boolean => existsSync(SYSTEM_CERT_PATH) && existsSync(SYSTEM_KEY_PATH);
 
   app.get('/api/system/settings', (c) => {
@@ -513,7 +515,7 @@ export async function initWebUI(
     const coerced = coerceSettingsPatch(body);
     if (!coerced.ok) return c.json({ success: false, message: coerced.error }, 400);
     // Enabling TLS without a usable cert would brick HTTPS on restart — block it.
-    if (coerced.patch.webuiTls?.enabled && !resolveTlsContext('config').ok) {
+    if (coerced.patch.webuiTls?.enabled && !resolveTlsContext(configDir).ok) {
       return c.json({ success: false, message: '启用 TLS 前请先上传有效的证书与私钥' }, 400);
     }
     const saved = updateRuntimeConfig(coerced.patch);
@@ -544,7 +546,7 @@ export async function initWebUI(
     const valid = validateTlsPair(cert, key);
     if (!valid.ok) return c.json({ success: false, message: valid.reason }, 400);
     try {
-      mkdirSync('config', { recursive: true });
+      ensureConfigDir();
       writeFileSync(SYSTEM_CERT_PATH, cert.endsWith('\n') ? cert : cert + '\n', 'utf8');
       // Private key must not be world-readable (mirrors auth.ts's webui.json
       // 0600). writeFileSync's mode is ignored for an existing file, so chmod
@@ -572,7 +574,7 @@ export async function initWebUI(
   });
 
   // ── Config backup / restore (Wave A2) ──
-  const cfgPath = (name: string) => path.join('config', name);
+  const cfgPath = (name: string) => configPath(name);
   const readCfg = (name: string): Buffer | null => {
     const p = cfgPath(name);
     return existsSync(p) ? readFileSync(p) : null;
@@ -580,7 +582,7 @@ export async function initWebUI(
 
   const listPerUinOnebot = (): string[] => {
     try {
-      return existsSync('config') ? readdirSync('config').filter((n) => /^onebot_\d+\.json$/.test(n)) : [];
+      return existsSync(configDir) ? readdirSync(configDir).filter((n) => /^onebot_\d+\.json$/.test(n)) : [];
     } catch { return []; }
   };
 
@@ -616,7 +618,7 @@ export async function initWebUI(
     const plan = planRestore(v.backup, { restoreCredentials: restoreCredentials === true });
     // Snapshot the current (about-to-be-overwritten) config so a restore is
     // recoverable; one timestamped dir per import.
-    const snapDir = path.join('config', `.restore-backup-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+    const snapDir = configPath(`.restore-backup-${new Date().toISOString().replace(/[:.]/g, '-')}`);
     // Two-phase write for near-atomicity: stage every file as a .tmp first, then
     // rename them all. A failure during staging touches no live file; rename
     // almost never fails, shrinking the half-applied window to near zero.
@@ -653,7 +655,7 @@ export async function initWebUI(
       // recoverable from the snapshot dir).
       for (const { tmp } of staged) { try { if (existsSync(tmp)) rmSync(tmp, { force: true }); } catch { /* ignore */ } }
       log.warn('backup import failed: %s', err instanceof Error ? err.message : String(err));
-      return c.json({ success: false, message: '恢复失败；若为写入阶段失败则当前配置未改动，否则可从 config/.restore-backup-* 快照恢复' }, 500);
+      return c.json({ success: false, message: `恢复失败；若为写入阶段失败则当前配置未改动，否则可从 ${configDir}/.restore-backup-* 快照恢复` }, 500);
     }
   });
 
@@ -1045,7 +1047,7 @@ export async function initWebUI(
   let tlsServe: { createServer: typeof createHttpsServer; serverOptions: { cert: Buffer; key: Buffer } } | undefined;
   let scheme = 'http';
   if (listener.tlsEnabled) {
-    const tls = resolveTlsContext('config');
+    const tls = resolveTlsContext(configDir);
     if (tls.ok && tls.cert && tls.key) {
       tlsServe = { createServer: createHttpsServer, serverOptions: { cert: tls.cert, key: tls.key } };
       scheme = 'https';

@@ -1,4 +1,5 @@
 import { createLogger } from '@snowluma/common/logger';
+import { configPath, ensureConfigDir } from '@snowluma/common/paths';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -17,9 +18,9 @@ import type {
 
 const log = createLogger('OneBot.Config');
 
-const CONFIG_DIR = 'config';
-const DEFAULT_CONFIG_PATH = path.join(CONFIG_DIR, 'onebot.json');
 const DEFAULT_ACCESS_TOKEN_BYTES = 32;
+const DEFAULT_HTTP_SERVER_PORT = 3000;
+const DEFAULT_WS_SERVER_PORT = 3001;
 
 const DEFAULT_STATUS_COMMAND: StatusCommandConfig = { enabled: true, swallow: false, cooldownSeconds: 5 };
 /** Upper bound on the `#sl` reply cooldown — a year is effectively "off but sane". */
@@ -35,7 +36,7 @@ export function makeDefaultOneBotConfig(): OneBotConfig {
       httpServers: [{
         name: 'http-default',
         host: '0.0.0.0',
-        port: 3000,
+        port: resolveDefaultPort(process.env.SNOWLUMA_ONEBOT_HTTP_PORT, DEFAULT_HTTP_SERVER_PORT),
         path: '/',
         accessToken: generateAccessToken(),
         messageFormat: 'array',
@@ -45,7 +46,7 @@ export function makeDefaultOneBotConfig(): OneBotConfig {
       wsServers: [{
         name: 'ws-default',
         host: '0.0.0.0',
-        port: 3001,
+        port: resolveDefaultPort(process.env.SNOWLUMA_ONEBOT_WS_PORT, DEFAULT_WS_SERVER_PORT),
         path: '/',
         role: 'Universal',
         accessToken: generateAccessToken(),
@@ -64,6 +65,14 @@ function generateAccessToken(): string {
   return randomBytes(DEFAULT_ACCESS_TOKEN_BYTES).toString('base64url');
 }
 
+function resolveDefaultPort(raw: unknown, fallback: number): number {
+  if (typeof raw !== 'string' || !raw.trim()) return fallback;
+  const n = Number(raw.trim());
+  if (!Number.isFinite(n)) return fallback;
+  const port = Math.trunc(n);
+  return port > 0 && port <= 65535 ? port : fallback;
+}
+
 export interface LoadOneBotConfigOptions {
   persistDefaults?: boolean;
 }
@@ -71,8 +80,8 @@ export interface LoadOneBotConfigOptions {
 export function loadOneBotConfig(uin: string, options: LoadOneBotConfigOptions = {}): OneBotConfig {
   ensureConfigDir();
 
-  const perUinPath = path.join(CONFIG_DIR, `onebot_${uin}.json`);
-  const globalRaw = tryLoadJson(DEFAULT_CONFIG_PATH);
+  const perUinPath = configPath(`onebot_${uin}.json`);
+  const globalRaw = tryLoadJson(configPath('onebot.json'));
   const perUinRaw = tryLoadJson(perUinPath);
   const legacy = !!perUinRaw && hasLegacyTopLevel(perUinRaw);
 
@@ -91,12 +100,8 @@ export function loadOneBotConfig(uin: string, options: LoadOneBotConfigOptions =
 
 export function saveOneBotConfig(uin: string, config: OneBotConfig): void {
   ensureConfigDir();
-  const perUinPath = path.join(CONFIG_DIR, `onebot_${uin}.json`);
+  const perUinPath = configPath(`onebot_${uin}.json`);
   saveJson(perUinPath, toJsonObject(config));
-}
-
-function ensureConfigDir(): void {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true });
 }
 
 function toJsonObject(config: OneBotConfig): JsonObject {

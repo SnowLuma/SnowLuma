@@ -1,4 +1,5 @@
 import { createLogger } from '@snowluma/common/logger';
+import { configPath, ensureConfigDir } from '@snowluma/common/paths';
 import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -6,9 +7,6 @@ import { fileURLToPath } from 'url';
 
 const log = createLogger('WebUI.Consent');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-const CONFIG_DIR = 'config';
-const CONSENT_CONFIG_PATH = path.join(CONFIG_DIR, 'consent.json');
 
 // The two legal documents shown at the consent gate. Source of truth is the
 // repo-root markdown; the build copies them next to the bundle (dist/) so the
@@ -134,10 +132,6 @@ export function loadAgreements(): { docs: AgreementDoc[]; version: string } {
 
 // ── Consent persistence (config/consent.json, atomic) ───────────────────────
 
-function ensureConfigDir(): void {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true });
-}
-
 function isConsentRecord(value: unknown): value is ConsentRecord {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
@@ -145,9 +139,10 @@ function isConsentRecord(value: unknown): value is ConsentRecord {
 }
 
 export function loadConsentRecord(): ConsentRecord | null {
+  const consentConfigPath = configPath('consent.json');
   try {
-    if (!fs.existsSync(CONSENT_CONFIG_PATH)) return null;
-    const parsed = JSON.parse(fs.readFileSync(CONSENT_CONFIG_PATH, 'utf8')) as unknown;
+    if (!fs.existsSync(consentConfigPath)) return null;
+    const parsed = JSON.parse(fs.readFileSync(consentConfigPath, 'utf8')) as unknown;
     return isConsentRecord(parsed) ? parsed : null;
   } catch (err) {
     log.warn('consent.json unreadable, treating as no consent: %s', err instanceof Error ? err.message : String(err));
@@ -157,9 +152,10 @@ export function loadConsentRecord(): ConsentRecord | null {
 
 function atomicWrite(record: ConsentRecord): void {
   ensureConfigDir();
-  const tmp = CONSENT_CONFIG_PATH + '.tmp';
+  const consentConfigPath = configPath('consent.json');
+  const tmp = consentConfigPath + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(record, null, 2), { encoding: 'utf8' });
-  fs.renameSync(tmp, CONSENT_CONFIG_PATH);
+  fs.renameSync(tmp, consentConfigPath);
 }
 
 /** Persist that the operator accepted `version`. Returns the stored record. */

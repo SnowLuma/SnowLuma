@@ -1,6 +1,6 @@
 import { createLogger } from '@snowluma/common/logger';
+import { configPath, ensureConfigDir } from '@snowluma/common/paths';
 import fs from 'fs';
-import path from 'path';
 
 // Server-side store for the WebUI customization config (`config/ui.json`).
 //
@@ -21,13 +21,10 @@ import path from 'path';
 
 const log = createLogger('WebUI.UiConfig');
 
-const CONFIG_DIR = 'config';
-const UI_CONFIG_PATH = path.join(CONFIG_DIR, 'ui.json');
-
 /** Directory for operator-uploaded UI assets (currently just the background). */
-export const UI_ASSETS_DIR = path.join(CONFIG_DIR, 'ui-assets');
+export const UI_ASSETS_DIR = configPath('ui-assets');
 /** Fixed path of the single background image (overwrite-on-upload). */
-export const BACKGROUND_IMAGE_PATH = path.join(UI_ASSETS_DIR, 'background');
+export const BACKGROUND_IMAGE_PATH = configPath('ui-assets', 'background');
 /** Reject uploads larger than this (bytes). */
 export const MAX_BACKGROUND_BYTES = 5 * 1024 * 1024;
 
@@ -596,15 +593,12 @@ export function normalizeUiConfig(value: unknown, imageState: ServerImageState =
 
 // ─── Persistence ────────────────────────────────────────────────────────────
 
-function ensureConfigDir(): void {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true });
-}
-
 function atomicWrite(config: UiConfig): void {
   ensureConfigDir();
-  const tmp = UI_CONFIG_PATH + '.tmp';
+  const uiConfigPath = configPath('ui.json');
+  const tmp = uiConfigPath + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(config, null, 2), 'utf8');
-  fs.renameSync(tmp, UI_CONFIG_PATH);
+  fs.renameSync(tmp, uiConfigPath);
 }
 
 let cached: UiConfig | null = null;
@@ -614,7 +608,8 @@ export function loadUiConfig(): UiConfig {
   if (cached) return cached;
   ensureConfigDir();
 
-  if (!fs.existsSync(UI_CONFIG_PATH)) {
+  const uiConfigPath = configPath('ui.json');
+  if (!fs.existsSync(uiConfigPath)) {
     const fresh = defaultUiConfig();
     try {
       atomicWrite(fresh);
@@ -626,7 +621,7 @@ export function loadUiConfig(): UiConfig {
   }
 
   try {
-    const raw = fs.readFileSync(UI_CONFIG_PATH, 'utf8');
+    const raw = fs.readFileSync(uiConfigPath, 'utf8');
     const parsed = JSON.parse(raw) as unknown;
     // On load, the file itself is the source of truth for the server-managed
     // image fields — so they survive restarts (don't reset to defaults).

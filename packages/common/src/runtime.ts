@@ -1,5 +1,5 @@
 import fs from 'fs';
-import path from 'path';
+import { configPath, ensureConfigDir } from './paths';
 
 export interface RuntimeConfig {
   webuiPort?: number;
@@ -17,9 +17,6 @@ export interface RuntimeConfig {
    * consumed by the WebUI's client-ip resolver. '' = trust nobody. */
   trustProxy?: string;
 }
-
-const CONFIG_DIR = 'config';
-const RUNTIME_CONFIG_PATH = path.join(CONFIG_DIR, 'runtime.json');
 
 const DEFAULT_WEBUI_PORT = 5099;
 const DEFAULT_WEBUI_HOST = '0.0.0.0';
@@ -62,7 +59,7 @@ export function resolveRuntimeEnvOverrides(env: NodeJS.ProcessEnv): Partial<Runt
 }
 
 export function loadRuntimeConfig(): RuntimeConfig {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  ensureConfigDir();
 
   const parsed = tryLoadRuntimeConfig();
   const normalized = normalizeRuntimeConfig(parsed ?? {});
@@ -91,7 +88,7 @@ export function readRuntimeConfig(): RuntimeConfig {
  * into runtime.json. Returns the new persisted config (without env overrides).
  */
 export function updateRuntimeConfig(patch: Partial<RuntimeConfig>): RuntimeConfig {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  ensureConfigDir();
   const onDisk = normalizeRuntimeConfig(tryLoadRuntimeConfig() ?? {});
   const next = normalizeRuntimeConfig({ ...onDisk, ...patch });
   saveRuntimeConfig(next);
@@ -99,9 +96,10 @@ export function updateRuntimeConfig(patch: Partial<RuntimeConfig>): RuntimeConfi
 }
 
 function tryLoadRuntimeConfig(): Record<string, unknown> | null {
-  if (!fs.existsSync(RUNTIME_CONFIG_PATH)) return null;
+  const runtimeConfigPath = configPath('runtime.json');
+  if (!fs.existsSync(runtimeConfigPath)) return null;
   try {
-    const parsed = JSON.parse(fs.readFileSync(RUNTIME_CONFIG_PATH, 'utf8')) as unknown;
+    const parsed = JSON.parse(fs.readFileSync(runtimeConfigPath, 'utf8')) as unknown;
     return isObject(parsed) ? parsed : null;
   } catch {
     return null;
@@ -109,7 +107,7 @@ function tryLoadRuntimeConfig(): Record<string, unknown> | null {
 }
 
 function saveRuntimeConfig(config: RuntimeConfig): void {
-  fs.writeFileSync(RUNTIME_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8');
+  fs.writeFileSync(configPath('runtime.json'), JSON.stringify(config, null, 2), 'utf8');
 }
 
 /** True when the raw on-disk object already matches the normalized config

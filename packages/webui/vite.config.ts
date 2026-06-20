@@ -12,6 +12,9 @@ const rootPkg = JSON.parse(
   fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf-8'),
 ) as { version: string };
 
+const backendPort = process.env.SNOWLUMA_WEBUI_PORT || '5290';
+const backendTarget = `http://localhost:${backendPort}`;
+
 export default defineConfig({
   plugins: [tailwindcss(), react()],
   resolve: {
@@ -26,8 +29,8 @@ export default defineConfig({
     port: 5178,
     strictPort: false,
     proxy: {
-      '/api': { target: 'http://localhost:5099', changeOrigin: true, ws: true },
-      '/avatar': { target: 'http://localhost:5099', changeOrigin: true },
+      '/api': { target: backendTarget, changeOrigin: true, ws: true },
+      '/avatar': { target: backendTarget, changeOrigin: true },
     },
   },
   build: {

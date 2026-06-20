@@ -8,13 +8,10 @@
 // Channels are GLOBAL (defined once here); each UIN opts into a subset via
 // `OneBotConfig.notifications.channelIds` (see packages/onebot/src/config.ts).
 import { createLogger } from '@snowluma/common/logger';
+import { configPath, ensureConfigDir } from '@snowluma/common/paths';
 import fs from 'fs';
-import path from 'path';
 
 const log = createLogger('Notifications.Config');
-
-const CONFIG_DIR = 'config';
-const NOTIFICATIONS_CONFIG_PATH = path.join(CONFIG_DIR, 'notifications.json');
 
 export const NOTIFICATIONS_CONFIG_VERSION = 1 as const;
 
@@ -177,15 +174,12 @@ export function normalizeNotificationsConfig(value: unknown): NotificationsConfi
 
 // ─── Persistence (atomic write + module-level cache) ────────────────────────
 
-function ensureConfigDir(): void {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true });
-}
-
 function atomicWrite(config: NotificationsConfig): void {
   ensureConfigDir();
-  const tmp = NOTIFICATIONS_CONFIG_PATH + '.tmp';
+  const notificationsConfigPath = configPath('notifications.json');
+  const tmp = notificationsConfigPath + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(config, null, 2), 'utf8');
-  fs.renameSync(tmp, NOTIFICATIONS_CONFIG_PATH);
+  fs.renameSync(tmp, notificationsConfigPath);
 }
 
 let cached: NotificationsConfig | null = null;
@@ -195,7 +189,8 @@ export function loadNotificationsConfig(): NotificationsConfig {
   if (cached) return cached;
   ensureConfigDir();
 
-  if (!fs.existsSync(NOTIFICATIONS_CONFIG_PATH)) {
+  const notificationsConfigPath = configPath('notifications.json');
+  if (!fs.existsSync(notificationsConfigPath)) {
     const fresh = defaultNotificationsConfig();
     try {
       atomicWrite(fresh);
@@ -207,7 +202,7 @@ export function loadNotificationsConfig(): NotificationsConfig {
   }
 
   try {
-    const raw = fs.readFileSync(NOTIFICATIONS_CONFIG_PATH, 'utf8');
+    const raw = fs.readFileSync(notificationsConfigPath, 'utf8');
     const parsed = JSON.parse(raw) as unknown;
     const normalized = normalizeNotificationsConfig(parsed);
     // Self-heal on disk only if normalization changed something (corrupt/old).

@@ -7,6 +7,23 @@ import { loadOneBotConfig, makeDefaultOneBotConfig, saveOneBotConfig } from '../
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 describe('makeDefaultOneBotConfig', () => {
+  let prevHttpPort: string | undefined;
+  let prevWsPort: string | undefined;
+
+  beforeEach(() => {
+    prevHttpPort = process.env.SNOWLUMA_ONEBOT_HTTP_PORT;
+    prevWsPort = process.env.SNOWLUMA_ONEBOT_WS_PORT;
+    delete process.env.SNOWLUMA_ONEBOT_HTTP_PORT;
+    delete process.env.SNOWLUMA_ONEBOT_WS_PORT;
+  });
+
+  afterEach(() => {
+    if (prevHttpPort === undefined) delete process.env.SNOWLUMA_ONEBOT_HTTP_PORT;
+    else process.env.SNOWLUMA_ONEBOT_HTTP_PORT = prevHttpPort;
+    if (prevWsPort === undefined) delete process.env.SNOWLUMA_ONEBOT_WS_PORT;
+    else process.env.SNOWLUMA_ONEBOT_WS_PORT = prevWsPort;
+  });
+
   it('returns default unified networks structure', () => {
     const config = makeDefaultOneBotConfig();
     expect(config.networks.httpServers).toHaveLength(1);
@@ -27,6 +44,16 @@ describe('makeDefaultOneBotConfig', () => {
     expect(config.musicSignUrl).toBe('');
     expect(config.statusCommand).toEqual({ enabled: true, swallow: false, cooldownSeconds: 5 });
     expect(config.notifications).toEqual({ channelIds: [] });
+  });
+
+  it('allows the default server ports to be isolated by environment', () => {
+    process.env.SNOWLUMA_ONEBOT_HTTP_PORT = '5300';
+    process.env.SNOWLUMA_ONEBOT_WS_PORT = '5301';
+
+    const config = makeDefaultOneBotConfig();
+
+    expect(config.networks.httpServers[0].port).toBe(5300);
+    expect(config.networks.wsServers[0].port).toBe(5301);
   });
 });
 
