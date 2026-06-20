@@ -54,6 +54,29 @@ async function fetchDownloadFile(
   return Buffer.concat(chunks, total);
 }
 
+// 把下载好的字节落盘到 data/downloads。<preferredName> 缺省时用内容 md5 命名。
+// basename + relative 检查拦截目录穿越：名称里的路径分隔符被剥成纯文件名，
+// 再确认解析后仍在 downloads 目录下，避免 ../ 逃逸。
+async function saveDownloadBuffer(buf: Buffer, preferredName: string): Promise<string> {
+  const fs = await import('fs');
+  const pathMod = await import('path');
+  const cryptoMod = await import('crypto');
+  const tempDir = pathMod.resolve('data', 'downloads');
+  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+  const rawName = preferredName || cryptoMod.createHash('md5').update(buf).digest('hex');
+  const safeName = pathMod.basename(rawName);
+  if (!safeName || safeName === '.' || safeName === '..' || /[\\/]/.test(safeName)) {
+    throw new Error('invalid file name');
+  }
+  const resolved = pathMod.resolve(tempDir, safeName);
+  const rel = pathMod.relative(tempDir, resolved);
+  if (rel.startsWith('..') || pathMod.isAbsolute(rel)) {
+    throw new Error('invalid file name');
+  }
+  await fs.promises.writeFile(resolved, buf);
+  return resolved;
+}
+
 // 从 send_*_forward_msg 的参数里提取 NapCat 兼容的转发预览元信息。四个字段都是可选的——如果没有提供，模块层会根据实际消息节点列表推断出合理的默认值。
 function readForwardPreviewMeta(params: Record<string, unknown>): ForwardPreviewMeta | undefined {
   const source = asString(params.source) || undefined;
@@ -93,6 +116,22 @@ async function groupTodoRun(
   } catch (err) {
     return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
   }
+}
+
+/** FlashTransferApi 返回的 FlashFileInfo → OneBot JSON 响应（plain object，JsonObject 兼容）。 */
+function flashFileInfoToJson(f: {
+  filesetUuid: string; fileName: string; origName: string; fileSize: number;
+  shareUrl: string; fileId: string; downloadUrl: string;
+}): JsonObject {
+  return {
+    fileset_id: f.filesetUuid,
+    file_name: f.fileName,
+    orig_name: f.origName,
+    file_size: f.fileSize,
+    share_url: f.shareUrl,
+    file_id: f.fileId,
+    download_url: f.downloadUrl,
+  };
 }
 
 export const actions = [
@@ -1670,20 +1709,6 @@ export const actions = [
       const base64 = p.base64;
       const name = p.name;
       if (!url && !base64) return failedResponse(RETCODE.BAD_REQUEST, 'url or base64 is required');
-      const fs = await import('fs');
-      const pathMod = await import('path');
-      const cryptoMod = await import('crypto');
-      const tempDir = pathMod.resolve('data', 'downloads');
-      if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-      const resolveSafePath = (preferredName: string, fallbackBuf: Buffer): string | null => {
-        const rawName = preferredName || cryptoMod.createHash('md5').update(fallbackBuf).digest('hex');
-        const safeName = pathMod.basename(rawName);
-        if (!safeName || safeName === '.' || safeName === '..' || /[\\/]/.test(safeName)) return null;
-        const resolved = pathMod.resolve(tempDir, safeName);
-        const rel = pathMod.relative(tempDir, resolved);
-        if (rel.startsWith('..') || pathMod.isAbsolute(rel)) return null;
-        return resolved;
-      };
       let buf: Buffer;
       if (base64) {
         const upperBound = Math.floor((base64.length * 3) / 4);
@@ -1697,10 +1722,12 @@ export const actions = [
           return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
         }
       }
-      const safe = resolveSafePath(name, buf);
-      if (!safe) return failedResponse(RETCODE.BAD_REQUEST, 'invalid file name');
-      await fs.promises.writeFile(safe, buf);
-      return okResponse({ file: safe });
+      try {
+        const safe = await saveDownloadBuffer(buf, name);
+        return okResponse({ file: safe });
+      } catch (err) {
+        return failedResponse(RETCODE.BAD_REQUEST, err instanceof Error ? err.message : String(err));
+      }
     },
   }),
 
@@ -1829,6 +1856,185 @@ export const actions = [
     summary: '取消群待办',
     params: { message_id: f.messageId() },
     run: (p, ctx) => groupTodoRun(p, ctx, (g, s) => ctx.bridge.apis.extras.cancelGroupTodo(g, s)),
+  }),
+
+  // ─────────────── 闪传（FlashTransfer / fileset） ───────────────
+
+  defineAction({
+    name: 'create_flash_task',
+    summary: '创建闪传任务',
+    params: {
+      files: f.string({ allowEmpty: false }),
+      name: f.string().optional(),
+      thumb_path: f.string().optional(),
+    },
+    run: async (p, ctx) => {
+      try {
+        const result = await ctx.bridge.apis.flashTransfer.createFlashTask(p.files, p.name, p.thumb_path);
+        return okResponse({ fileset_id: result.filesetId, task_id: result.filesetId });
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'get_fileset_info',
+    summary: '获取文件集信息',
+    params: { fileset_id: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      try {
+        const list = await ctx.bridge.apis.flashTransfer.getFilesetInfo(p.fileset_id);
+        return okResponse({ fileset_id: p.fileset_id, file_list: list.map(flashFileInfoToJson) });
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'get_flash_file_list',
+    summary: '获取闪传文件列表',
+    params: { fileset_id: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      try {
+        const list = await ctx.bridge.apis.flashTransfer.getFlashFileList(p.fileset_id);
+        return okResponse(list.map(flashFileInfoToJson));
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'get_flash_file_url',
+    summary: '获取闪传文件链接',
+    params: {
+      fileset_id: f.string({ allowEmpty: false }),
+      file_name: f.string().optional(),
+      file_index: f.number().optional(),
+    },
+    run: async (p, ctx) => {
+      try {
+        const url = await ctx.bridge.apis.flashTransfer.getFlashFileUrl(p.fileset_id);
+        return okResponse({ url });
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'get_share_link',
+    summary: '获取文件分享链接',
+    params: { fileset_id: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      try {
+        const url = await ctx.bridge.apis.flashTransfer.getShareLink(p.fileset_id);
+        return okResponse(url);
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'delete_flash_file',
+    summary: '删除闪传文件',
+    params: { fileset_id: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      try {
+        await ctx.bridge.apis.flashTransfer.deleteFlashFile(p.fileset_id);
+        return okResponse();
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'rename_flash_file',
+    summary: '重命名闪传文件',
+    params: {
+      fileset_id: f.string({ allowEmpty: false }),
+      new_name: f.string({ allowEmpty: false }),
+    },
+    run: async (p, ctx) => {
+      try {
+        await ctx.bridge.apis.flashTransfer.renameFlashFile(p.fileset_id, p.new_name);
+        return okResponse();
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'download_fileset',
+    summary: '解析闪传文件下载直链（不下载，由调用方实现下载）',
+    returns: '{ url, file_name, file_size }',
+    params: {
+      fileset_id: f.string({ allowEmpty: false }),
+      file_name: f.string().optional(),
+      file_index: f.number().optional(),
+    },
+    run: async (p, ctx) => {
+      try {
+        const target = await ctx.bridge.apis.flashTransfer.downloadFileset(p.fileset_id, {
+          fileName: p.file_name,
+          fileIndex: p.file_index,
+        });
+        return okResponse({
+          url: target.url,
+          file_name: target.fileName,
+          file_size: target.fileSize,
+        });
+      } catch (err) {
+        return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'send_flash_msg',
+    summary: '发送闪传消息（私聊或群聊，引用 fileset_id 让对端下载）',
+    returns: '{ message_id }',
+    params: {
+      fileset_id: f.string({ allowEmpty: false }),
+      user_id: f.uint().optional(),
+      group_id: f.uint().optional(),
+    },
+    run: async (p, ctx) => {
+      if (!p.user_id && !p.group_id) {
+        return failedResponse(RETCODE.BAD_REQUEST, 'user_id or group_id is required');
+      }
+      try {
+        await ctx.bridge.apis.flashTransfer.sendFlashMsg(p.fileset_id, {
+          userId: p.user_id,
+          groupId: p.group_id,
+        });
+        // 0x93d7 响应无 message_id（分享 fileset，非传统消息），返回 0 兼容 OneBot 形状。
+        return okResponse({ message_id: 0 });
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'get_fileset_id',
+    summary: '从分享码/链接获取 fileset_id',
+    readOnly: true,
+    returns: '{ fileset_id }',
+    params: { share_code: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      try {
+        const filesetId = await ctx.bridge.apis.flashTransfer.getFilesetIdByCode(p.share_code);
+        return okResponse({ fileset_id: filesetId });
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      }
+    },
   }),
 ];
 

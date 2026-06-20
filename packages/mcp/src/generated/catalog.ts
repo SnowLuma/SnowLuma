@@ -664,6 +664,60 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "create_flash_task",
+    "aliases": [],
+    "summary": "创建闪传任务",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "files",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "thumb_path",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "files": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string"
+        },
+        "thumb_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "files"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "create_group_file_folder",
     "aliases": [],
     "summary": "创建群文件夹",
@@ -848,6 +902,38 @@ export const ACTIONS: CatalogAction[] = [
       },
       "required": [
         "message_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "delete_flash_file",
+    "aliases": [],
+    "summary": "删除闪传文件",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "fileset_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fileset_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "fileset_id"
       ],
       "additionalProperties": true
     },
@@ -1241,6 +1327,61 @@ export const ACTIONS: CatalogAction[] = [
           "default": ""
         }
       },
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "download_fileset",
+    "aliases": [],
+    "summary": "解析闪传文件下载直链（不下载，由调用方实现下载）",
+    "returns": "{ url, file_name, file_size }",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "fileset_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      {
+        "name": "file_name",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "file_index",
+        "type": "number",
+        "required": false,
+        "schema": {
+          "type": "number"
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fileset_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file_name": {
+          "type": "string"
+        },
+        "file_index": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "fileset_id"
+      ],
       "additionalProperties": true
     },
     "category": "扩展"
@@ -1923,6 +2064,157 @@ export const ACTIONS: CatalogAction[] = [
           "default": ""
         }
       },
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "get_fileset_id",
+    "aliases": [],
+    "summary": "从分享码/链接获取 fileset_id",
+    "returns": "{ fileset_id }",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "share_code",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "share_code": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "share_code"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "get_fileset_info",
+    "aliases": [],
+    "summary": "获取文件集信息",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "fileset_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fileset_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "fileset_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "get_flash_file_list",
+    "aliases": [],
+    "summary": "获取闪传文件列表",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "fileset_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fileset_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "fileset_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "get_flash_file_url",
+    "aliases": [],
+    "summary": "获取闪传文件链接",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "fileset_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      {
+        "name": "file_name",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "file_index",
+        "type": "number",
+        "required": false,
+        "schema": {
+          "type": "number"
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fileset_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file_name": {
+          "type": "string"
+        },
+        "file_index": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "fileset_id"
+      ],
       "additionalProperties": true
     },
     "category": "扩展"
@@ -3322,6 +3614,38 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "get_share_link",
+    "aliases": [],
+    "summary": "获取文件分享链接",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "fileset_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fileset_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "fileset_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "get_status",
     "aliases": [],
     "readOnly": true,
@@ -3892,6 +4216,52 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "rename_flash_file",
+    "aliases": [],
+    "summary": "重命名闪传文件",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "fileset_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      {
+        "name": "new_name",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fileset_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "new_name": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "fileset_id",
+        "new_name"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "rename_group_file",
     "aliases": [],
     "summary": "重命名群文件",
@@ -4123,6 +4493,65 @@ export const ACTIONS: CatalogAction[] = [
           "default": ""
         }
       },
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "send_flash_msg",
+    "aliases": [],
+    "summary": "发送闪传消息（私聊或群聊，引用 fileset_id 让对端下载）",
+    "returns": "{ message_id }",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "fileset_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      {
+        "name": "user_id",
+        "type": "uint",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fileset_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "user_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "group_id": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "fileset_id"
+      ],
       "additionalProperties": true
     },
     "category": "扩展"
@@ -6950,7 +7379,7 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "扩展",
-    "count": 98
+    "count": 108
   },
   {
     "category": "群相册",
