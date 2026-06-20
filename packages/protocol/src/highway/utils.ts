@@ -231,8 +231,8 @@ function readLE32(data: Uint8Array, offset: number): number {
   return (data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24)) >>> 0;
 }
 
-function readBE24(data: Uint8Array, offset: number): number {
-  return (data[offset] << 16) | (data[offset + 1] << 8) | data[offset + 2];
+function readLE24(data: Uint8Array, offset: number): number {
+  return data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16);
 }
 
 export function detectImageFormat(bytes: Uint8Array): ImageFormat {
@@ -279,8 +279,11 @@ export function detectImageFormat(bytes: Uint8Array): ImageFormat {
       return { format: 1002, width, height };
     }
     if (bytes[12] === 0x56 && bytes[13] === 0x50 && bytes[14] === 0x38 && bytes[15] === 0x58) {
-      width = readBE24(bytes, 24) + 1;
-      height = readBE24(bytes, 27) + 1;
+      // VP8X canvas width/height are 24-bit LITTLE-endian (Minus-One). Reading
+      // them big-endian inflated dims to absurd values (e.g. 1920×1080 →
+      // 8324865×3605505), cropping the QQ thumbnail. (issue #112)
+      width = readLE24(bytes, 24) + 1;
+      height = readLE24(bytes, 27) + 1;
       return { format: 1002, width, height };
     }
   }
