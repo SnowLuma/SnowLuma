@@ -187,17 +187,20 @@ export interface FlashApplyFilesetResp {
 export interface FlashCommitFileInfo {
   filesetUuid?: pb<1, string>;
   fileUuid?: pb<2, string>;
-  field3?: pb<3, uint_32>;
+  /** pb_optional 强制 0 值上 wire（服务端多文件严格校验字段存在，省略 0 会导致文件不计入）。 */
+  field3?: pb_optional<3, uint_32>;
   field4?: pb<4, FlashEmpty>;
-  field5?: pb<5, uint_32>;
-  field6?: pb<6, uint_32>;
-  /** 格式码：rar=4, png=26（按扩展名映射）。 */
-  formatCode?: pb<7, uint_32>;
+  field5?: pb_optional<5, uint_32>;
+  /** 文件序号：fileset 内从 1 递增（1,2,3...），多文件时每条各不相同。
+   *  必须与 0x12a9 sub=100/103 filesetWrap.f4 一致，否则服务端不把文件计入 fileset。 */
+  field6?: pb_optional<6, uint_32>;
+  /** 格式码：rar=4, mp4=2, png=26（按扩展名映射）。 */
+  formatCode?: pb_optional<7, uint_32>;
   fileName?: pb<8, string>;
   origName?: pb<9, string>;
-  field10?: pb<10, uint_32>;
+  field10?: pb_optional<10, uint_32>;
   fileSize?: pb<11, uint_64>;
-  field12?: pb<12, uint_32>;
+  field12?: pb_optional<12, uint_32>;
   field24?: pb<24, FlashEmpty>;
 }
 
@@ -205,7 +208,9 @@ export interface FlashCommitFileReq {
   field1?: pb<1, uint_32>;       // 1
   filesetUuid?: pb<2, string>;
   uploadKey?: pb<3, string>;     // 同 filesetUuid
-  commitInfo?: pb<4, FlashCommitFileInfo>;
+  /** repeated：一个 0x93d0 请求同时携带 fileset 内所有文件条目（多文件机制）。
+   *  每条 field6=文件序号（1,2,3...）。单文件时只有一个条目。 */
+  commitInfo?: pb_repeated<4, FlashCommitFileInfo>;
   field5?: pb<5, uint_32>;       // 1
   field6?: pb<6, uint_32>;       // 1
 }
