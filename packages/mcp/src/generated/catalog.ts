@@ -671,12 +671,9 @@ export const ACTIONS: CatalogAction[] = [
     "params": [
       {
         "name": "files",
-        "type": "string",
-        "required": true,
-        "schema": {
-          "type": "string",
-          "minLength": 1
-        }
+        "type": "raw",
+        "required": false,
+        "schema": {}
       },
       {
         "name": "name",
@@ -699,10 +696,7 @@ export const ACTIONS: CatalogAction[] = [
     "inputSchema": {
       "type": "object",
       "properties": {
-        "files": {
-          "type": "string",
-          "minLength": 1
-        },
+        "files": {},
         "name": {
           "type": "string"
         },
@@ -710,9 +704,6 @@ export const ACTIONS: CatalogAction[] = [
           "type": "string"
         }
       },
-      "required": [
-        "files"
-      ],
       "additionalProperties": true
     },
     "category": "扩展"
@@ -3834,6 +3825,20 @@ export const ACTIONS: CatalogAction[] = [
       "additionalProperties": true
     },
     "category": "空间"
+  },
+  {
+    "name": "list_filesets",
+    "aliases": [],
+    "summary": "列出当前账号的所有闪传文件集",
+    "readOnly": false,
+    "params": [],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": true
+    },
+    "category": "扩展"
   },
   {
     "name": "mark_group_msg_as_read",
@@ -7379,7 +7384,7 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "扩展",
-    "count": 108
+    "count": 109
   },
   {
     "category": "群相册",

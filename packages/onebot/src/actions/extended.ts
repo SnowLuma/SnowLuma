@@ -1865,13 +1865,26 @@ export const actions = [
     name: 'create_flash_task',
     summary: '创建闪传任务',
     params: {
-      files: f.string({ allowEmpty: false }),
+      // files 支持单个路径(string)或多个路径(string[])，多文件共用一个 fileset
+      files: f.raw(),
       name: f.string().optional(),
       thumb_path: f.string().optional(),
     },
     run: async (p, ctx) => {
+      // f.raw() 不做校验，这里归一化为 string[] 并校验
+      const rawFiles = p.files;
+      let fileList: string[];
+      if (typeof rawFiles === 'string') {
+        if (rawFiles === '') return failedResponse(RETCODE.BAD_REQUEST, 'files must not be empty');
+        fileList = [rawFiles];
+      } else if (Array.isArray(rawFiles) && rawFiles.every((x) => typeof x === 'string')) {
+        if (rawFiles.length === 0) return failedResponse(RETCODE.BAD_REQUEST, 'files must not be empty');
+        fileList = rawFiles;
+      } else {
+        return failedResponse(RETCODE.BAD_REQUEST, 'files must be a string or string array');
+      }
       try {
-        const result = await ctx.bridge.apis.flashTransfer.createFlashTask(p.files, p.name, p.thumb_path);
+        const result = await ctx.bridge.apis.flashTransfer.createFlashTask(fileList, p.name, p.thumb_path);
         return okResponse({ fileset_id: result.filesetId, task_id: result.filesetId });
       } catch (e) {
         return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -1900,6 +1913,20 @@ export const actions = [
     run: async (p, ctx) => {
       try {
         const list = await ctx.bridge.apis.flashTransfer.getFlashFileList(p.fileset_id);
+        return okResponse(list.map(flashFileInfoToJson));
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'list_filesets',
+    summary: '列出当前账号的所有闪传文件集',
+    params: {},
+    run: async (_p, ctx) => {
+      try {
+        const list = await ctx.bridge.apis.flashTransfer.listFilesets();
         return okResponse(list.map(flashFileInfoToJson));
       } catch (e) {
         return failedResponse(RETCODE.ACTION_FAILED, String(e));
