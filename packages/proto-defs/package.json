@@ -80,6 +80,10 @@
       "types": "./src/oidb-actions/group-file.ts",
       "default": "./src/oidb-actions/group-file.ts"
     },
+    "./oidb-actions/flash-transfer": {
+      "types": "./src/oidb-actions/flash-transfer.ts",
+      "default": "./src/oidb-actions/flash-transfer.ts"
+    },
     "./oidb-actions/media": {
       "types": "./src/oidb-actions/media.ts",
       "default": "./src/oidb-actions/media.ts"
