@@ -118,11 +118,16 @@ export class FlashTransferApi {
   }
 
   /**
-   * 拿主文件下载直链 + 元信息（0x93d4 拿主文件 fileId → 0x12a9 sub=200 拿直链）。
-   * 0x93d3/0x93d4 的 downloadUrl 是缩略图（appid=14903/14902），主文件必须走 0x12a9 sub=200。
+   * 拿指定文件的下载直链 + 元信息。0x93d4 返回 fileset 内所有文件（f3 repeated，
+   * 多文件时每条 f6=序号、f14=主文件 fileId），按 fileIndex 选中后走 0x12a9 sub=200
+   * 拿主文件直链。0x93d3/0x93d4 的 downloadUrl 字段是缩略图（appid=14903/14902），
+   * 主文件必须走 0x12a9 sub=200。
    */
-  private async getMainFileDownload(filesetUuid: string): Promise<{ url: string; fileName: string; fileSize: number } | null> {
-    const meta = await GetDownloadUrl.invoke(this.ctx, { filesetUuid });
+  private async getFileDownload(
+    filesetUuid: string, fileIndex: number = 1,
+  ): Promise<{ url: string; fileName: string; fileSize: number } | null> {
+    const metas = await GetDownloadUrl.invoke(this.ctx, { filesetUuid });
+    const meta = metas.find((m) => m.fileIndex === fileIndex) ?? metas[0];
     if (!meta || !meta.fileId) return null;
     const url = await GetFlashDownload.invoke(this.ctx, {
       filesetUuid: meta.filesetUuid,
@@ -139,21 +144,20 @@ export class FlashTransferApi {
    * （0x93d3 的 downloadUrl 是缩略图 appid=14903，非主文件）。
    */
   async getFlashFileUrl(filesetUuid: string): Promise<string> {
-    const dl = await this.getMainFileDownload(filesetUuid);
+    const dl = await this.getFileDownload(filesetUuid);
     return dl?.url ?? '';
   }
 
   /**
-   * 解析闪传文件下载直链（download_fileset）。返回主文件下载 URL + 文件名/大小，
-   * 不下载（下载由调用方实现）。主文件直链走 0x12a9 sub=200（0x93d3/0x93d4 的
-   * downloadUrl 是缩略图 appid=14903/14902，非主文件）。
+   * 解析闪传文件下载直链（download_fileset）。返回指定文件的下载 URL + 文件名/大小，
+   * 不下载文件内容（由调用方拉）。多文件 fileset 用 fileIndex 指定第几个文件（默认 1）。
    */
   async downloadFileset(
     filesetUuid: string,
-    _opts?: { fileName?: string; fileIndex?: number },
+    opts?: { fileName?: string; fileIndex?: number },
   ): Promise<{ url: string; fileName: string; fileSize: number }> {
-    const dl = await this.getMainFileDownload(filesetUuid);
-    if (!dl || !dl.url) throw new Error('download_fileset: no main file download url available');
+    const dl = await this.getFileDownload(filesetUuid, opts?.fileIndex ?? 1);
+    if (!dl || !dl.url) throw new Error('download_fileset: no download url available');
     return dl;
   }
 

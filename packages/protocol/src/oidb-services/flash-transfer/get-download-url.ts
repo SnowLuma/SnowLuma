@@ -18,15 +18,20 @@ export namespace GetDownloadUrl {
 
   export interface Params {
     filesetUuid: string;
+    /** 指定下载 fileset 内第几个文件（1-based）。默认 1（主文件）。 */
+    fileIndex?: number;
   }
-  /** 主文件元信息（fileId + filesetUuid/fileUuid/fileName/fileSize）；无主文件 fileId 时 null。 */
-  export type Result = {
+  /** 单个文件的下载元信息；无主文件 fileId 时该条目 null。 */
+  export type FileMeta = {
+    fileIndex: number;
     fileId: string;
     filesetUuid: string;
     fileUuid: string;
     fileName: string;
     fileSize: number;
-  } | null;
+  };
+  /** fileset 内所有文件元信息（按 fileIndex 升序）。 */
+  export type Result = FileMeta[];
 
   export type Deps = OidbSender;
 
@@ -45,18 +50,21 @@ export namespace GetDownloadUrl {
   });
 
   export const deserialize = (_ctx: Deps, body: FlashGetDownloadUrlResp): Result => {
-    // 主文件 fileId 在 f1.f3.f14.f1（0x93d4 独有）。f13 是缩略图（appid=14902），
-    // 主文件下载 URL 需 0x12a9 sub=200（get-download）拿。
-    const info = body.entry?.fileInfo;
-    const fileId = info?.mainFile?.fileId;
-    if (!fileId) return null;
-    return {
-      fileId,
-      filesetUuid: info?.filesetUuid ?? '',
-      fileUuid: info?.fileUuid ?? '',
-      fileName: info?.fileName ?? '',
-      fileSize: Number(info?.fileSize ?? 0),
-    };
+    // f1.f3 是 repeated fileInfo，多文件 fileset 时每个文件一条（f6=序号，f14=主文件 fileId）。
+    // f13 是缩略图（appid=14902），主文件下载 URL 需 0x12a9 sub=200 拿。
+    const infos = body.entry?.fileInfo ?? [];
+    return infos.map((info, idx) => {
+      const fileId = info?.mainFile?.fileId ?? '';
+      const fileIndex = info?.field6 ?? idx + 1;
+      return {
+        fileIndex,
+        fileId,
+        filesetUuid: info?.filesetUuid ?? '',
+        fileUuid: info?.fileUuid ?? '',
+        fileName: info?.fileName ?? '',
+        fileSize: Number(info?.fileSize ?? 0),
+      };
+    });
   };
 
   export const encode = (env: OidbBase<FlashGetDownloadUrlReq>): Uint8Array =>

@@ -106,10 +106,13 @@ export interface FlashDownloadFileInfo {
   downloadInfo?: pb<13, FlashDownloadUrlInfo>;
   mainFile?: pb<14, FlashDownloadMainFile>;
 }
-/** 0x93d4 响应 f1 — entry wrapper。 */
+/** 0x93d4 响应 f1 — entry wrapper。多文件 fileset 时 f3 含每个文件的 fileInfo。 */
 export interface FlashDownloadEntry {
   field2?: pb<2, uint_32>;            // 1
-  fileInfo?: pb<3, FlashDownloadFileInfo>;
+  /** repeated：多文件 fileset 时每个文件一个 fileInfo（f6=文件序号，f14=主文件 fileId）。 */
+  fileInfo?: pb_repeated<3, FlashDownloadFileInfo>;
+  field4?: pb<4, string>;             // JSON：{"offset":N,"cursor_time":"..."}
+  field5?: pb<5, uint_32>;            // 1
 }
 /** 0x93d4 响应 — downloadUrl 在 f1.f3.f13.f2.f2（深层嵌套，非 0x93d3 的 f9.fileIdWrap）。 */
 export interface FlashGetDownloadUrlResp {

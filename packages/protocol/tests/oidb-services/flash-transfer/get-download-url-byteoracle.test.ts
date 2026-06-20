@@ -18,11 +18,14 @@ describe('GetDownloadUrl byte-oracle (0x93d4 deserialize)', () => {
     const bytes = Uint8Array.from(Buffer.from(RESP_HEX, 'hex'));
     const env = protobuf_decode<OidbBase<FlashGetDownloadUrlResp>>(bytes);
     const result = GetDownloadUrl.deserialize(null as never, env.body!);
-    expect(result).not.toBeNull();
+    // 0x93d4 f1.f3 是 repeated fileInfo，单文件场景返回一个元素的数组。
+    expect(result).toHaveLength(1);
+    const meta = result[0];
     // 主文件 fileId（0x93d4 f14.f1），用于 0x12a9 sub=200 拿主文件下载直链。
-    expect(result!.fileId).toBe('EhQ-cRbsTMS80LyHF7tVXbl8SlZNcBi89-MDILV0KIqT0ZmGlZUDMgRwcm9kUIDqSVoQVcvHCMSXXeUkTrl8NU_JAXoDLkb_ggECZ3o');
-    expect(result!.filesetUuid).toBe('e7453377-c8ea-404e-9285-53aa5fad1982');
-    expect(result!.fileName).toContain('mp4');
-    expect(result!.fileSize).toBe(7928764);
+    expect(meta.fileId).toBe('EhQ-cRbsTMS80LyHF7tVXbl8SlZNcBi89-MDILV0KIqT0ZmGlZUDMgRwcm9kUIDqSVoQVcvHCMSXXeUkTrl8NU_JAXoDLkb_ggECZ3o');
+    expect(meta.filesetUuid).toBe('e7453377-c8ea-404e-9285-53aa5fad1982');
+    expect(meta.fileName).toContain('mp4');
+    expect(meta.fileSize).toBe(7928764);
+    expect(meta.fileIndex).toBe(1);
   });
 });
