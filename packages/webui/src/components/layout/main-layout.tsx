@@ -29,9 +29,10 @@ export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
   const { editing } = useLayout();
   const { kiosk, exit: exitKiosk } = useKiosk();
   // The sidebar rests as a slim icon rail and auto-expands on hover/focus (the
-  // peek logic below) — there's no collapse button. Layout-edit mode force-
-  // expands it so the drag-to-reorder list has room.
-  const effectiveCollapsed = !editing;
+  // peek logic below) — there's no collapse button. Two cases force it fully
+  // expanded: layout-edit mode (the drag-to-reorder list needs room) and the
+  // 「钉住侧栏展开」 appearance pref (operator opted out of the rail entirely).
+  const effectiveCollapsed = !editing && !appearance.sidebarPinned;
   // Hover/focus peek: while collapsed, hovering (or keyboard-focusing) the rail
   // temporarily expands it. The rail lives in the flex flow, so the page
   // content is pushed right rather than overlaid. The pinned `collapsed` pref

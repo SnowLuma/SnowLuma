@@ -111,7 +111,7 @@ export const DEFAULT_APPEARANCE: UiAppearance = {
   reduceMotion: false,
   disableMotion: false,
   highContrast: false,
-  sidebarDefaultCollapsed: false,
+  sidebarPinned: false,
   timeFormat: '24h',
   pollInterval: 3000,
   customCss: '',

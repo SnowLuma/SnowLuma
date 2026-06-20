@@ -300,7 +300,8 @@ export interface UiAppearance {
   reduceMotion: boolean;
   disableMotion: boolean;
   highContrast: boolean;
-  sidebarDefaultCollapsed: boolean;
+  /** Pin the sidebar permanently expanded, opting out of the hover-expand rail. */
+  sidebarPinned: boolean;
   timeFormat: TimeFormat;
   pollInterval: number;
   /** Operator custom CSS (applied post-auth only; stripped from /api/ui/public). */
