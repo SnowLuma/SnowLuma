@@ -9,7 +9,7 @@ import { GetDownloadUrl } from '@snowluma/protocol/oidb-services/flash-transfer/
 import { GetFlashDownload } from '@snowluma/protocol/oidb-services/flash-transfer/get-flash-download';
 import { DeleteFlashFile } from '@snowluma/protocol/oidb-services/flash-transfer/delete-file';
 import { RenameFlashFile } from '@snowluma/protocol/oidb-services/flash-transfer/rename-file';
-import { ApplyFileset, type FlashUploaderInfo } from '@snowluma/protocol/oidb-services/flash-transfer/apply-fileset';
+import { ApplyFileset } from '@snowluma/protocol/oidb-services/flash-transfer/apply-fileset';
 import { CommitFile } from '@snowluma/protocol/oidb-services/flash-transfer/commit-file';
 import { CompleteFileset } from '@snowluma/protocol/oidb-services/flash-transfer/complete-fileset';
 import { SetFilesetStatus } from '@snowluma/protocol/oidb-services/flash-transfer/set-status';
@@ -213,9 +213,9 @@ export class FlashTransferApi {
   // ─────────────── 文件上传 ───────────────
 
   /**
-   * 文件扩展名 → 闪传类型码映射。0x93cf 的 f3(typeCode) + 0x93d0 的 f7(formatCode)。
-   * rar=2/4, zip=6/?, png=7/26, mp4=7/26。映射不完整，未知扩展名默认
-   * 用 png/mp4 的 7/26（媒体类），服务端按文件名扩展名判定，类型码主要做元数据。
+   * 文件扩展名 → 闪传类型码映射。typeCode 用于 0x93cf f3，formatCode 用于
+   * 0x93d0 commit f7 与 0x12a9 filesetWrap.f7（两者同值）。mp4 → 2，rar/zip → 4。
+   * 未知扩展名按媒体类处理（formatCode=2），服务端按文件名扩展名判定。
    */
   private static fileTypeCode(fileName: string): { typeCode: number; formatCode: number } {
     const ext = fileName.toLowerCase().match(/\.([^.]+)$/)?.[1] ?? '';
@@ -225,8 +225,8 @@ export class FlashTransferApi {
       case '7z': case 'gz': case 'tar': case 'bz2': return { typeCode: 2, formatCode: 4 };
       case 'png': case 'jpg': case 'jpeg': case 'bmp': case 'gif': case 'webp':
       case 'mp4': case 'mov': case 'avi': case 'mkv':
-        return { typeCode: 7, formatCode: 26 };
-      default: return { typeCode: 7, formatCode: 26 };
+        return { typeCode: 7, formatCode: 2 };
+      default: return { typeCode: 7, formatCode: 2 };
     }
   }
 
@@ -257,7 +257,12 @@ export class FlashTransferApi {
    * 不走小文件 PUT——QQ 客户端即使几百 KB 的文件也走 sliceupload。只有 sliceupload
    * 路径会上报主文件 sha1/size，服务端据此把 fileset 标记为完成（对端可下载）；
    * PUT 路径不上报 sha1，fileset 会卡在"上传中"无法被下载。
-   * files 暂只取第一个（多文件 folder 上传暂不支持）。
+   *
+   * 多文件：0x93d0 的 f4 是 repeated，一个 commit 请求同时携带 fileset 内所有文件
+   * 条目，每条 f6=文件序号（1,2,3...）。commit 在上传前只发一次，之后 complete →
+   * 逐个 prepare/apply/sliceupload。prepare/apply 的 filesetWrap.f4 必须与 commit
+   * 的 f6 一致，否则文件不计入 fileset。多文件时 ApplyFileset 的 fileName 用
+   * 「<首文件名>等N个文件」、fileSize 用总和——服务端据此判定 fileset 为多文件。
    */
   async createFlashTask(files: string | string[], _name?: string, _thumbPath?: string): Promise<{ filesetId: string }> {
     const fileList = Array.isArray(files) ? files : [files];
@@ -267,61 +272,83 @@ export class FlashTransferApi {
       nickname: this.ctx.identity.nickname,
       uid: this.ctx.identity.selfUid ?? '',
     };
-    const { bytes, fileName } = await loadBinarySource(fileList[0], 'flash-transfer');
-    const { filesetUuid } = await this.uploadLargeFile(bytes, fileName, uploader);
+    // 读取所有文件，每个分配 fileUuid + 序号 + formatCode
+    const items: { bytes: Uint8Array; fileName: string; fileUuid: string; fileIndex: number; formatCode: number }[] = [];
+    for (let i = 0; i < fileList.length; i++) {
+      const { bytes, fileName } = await loadBinarySource(fileList[i], 'flash-transfer');
+      const { formatCode } = FlashTransferApi.fileTypeCode(fileName);
+      items.push({ bytes: new Uint8Array(bytes), fileName, fileUuid: randomUUID(), fileIndex: i + 1, formatCode });
+    }
+    // 申请 fileset。多文件时 fileName 用「<首文件名>等N个文件」、fileSize 用总和，
+    // 服务端据此判定 fileset 为多文件，commit 的后续 entry 才会被计入。
+    const first = items[0];
+    const { typeCode } = FlashTransferApi.fileTypeCode(first.fileName);
+    const isMulti = items.length > 1;
+    const filesetName = isMulti ? `${first.fileName}等${items.length}个文件` : first.fileName;
+    const totalSize = items.reduce((s, it) => s + it.bytes.length, 0);
+    const apply = await ApplyFileset.invoke(this.ctx, {
+      fileName: filesetName, origName: filesetName,
+      fileSize: totalSize, typeCode, uploader,
+    });
+    const filesetUuid = apply.filesetUuid;
+    if (!filesetUuid) throw new Error('apply fileset failed: missing uuid');
+    // 一次性 commit 所有文件元数据（f4 repeated，每条 f6=序号）
+    const commitEntries = items.map((it) => ({
+      fileUuid: it.fileUuid, fileName: it.fileName, origName: it.fileName,
+      fileSize: it.bytes.length, formatCode: it.formatCode, fileIndex: it.fileIndex,
+    }));
+    await CommitFile.invoke(this.ctx, { filesetUuid, entries: commitEntries });
+    await CompleteFileset.invoke(this.ctx, { filesetUuid });
+    // 两阶段上传：先全部 prepare+apply 注册 fileId，再全部 sliceupload 落盘。
+    const prepared: { it: typeof items[0]; rkey: string; sha1StateV: Uint8Array[]; sliceCount: number }[] = [];
+    for (const it of items) {
+      const p = await this.prepareAndApply(filesetUuid, it.bytes, it.fileName, it.fileUuid, it.fileIndex, it.formatCode);
+      if (p) prepared.push({ it, ...p });
+    }
+    for (const p of prepared) {
+      await this.sliceuploadFile(p.it.bytes, p.rkey, p.sha1StateV, p.sliceCount, p.it.fileName);
+    }
+    // fileset 级缩略图（序号在主文件之后递增），主文件下载入口需要缩略图关联
+    await this.uploadThumbnail(filesetUuid, items[0].fileUuid, 'png', items.length + 1);
+    await this.uploadThumbnail(filesetUuid, items[0].fileUuid, 'jpg', items.length + 2);
+    await SetFilesetStatus.invoke(this.ctx, { filesetUuid });
     return { filesetId: filesetUuid };
   }
 
-  /** 文件上传（sliceupload，大小无关）。流程: 0x93cf→0x93d0→0x93db→0x12a9 apply-up→sliceupload×N→0x93d1。 */
-  private async uploadLargeFile(
-    bytes: Uint8Array, fileName: string, uploader: FlashUploaderInfo,
-  ): Promise<{ filesetUuid: string; fileUuid: string }> {
-    const { typeCode, formatCode } = FlashTransferApi.fileTypeCode(fileName);
+  /**
+   * 阶段1：prepare（拿 rkey）+ apply（注册 fileId）。返回 sliceupload 所需的 rkey/sha1state。
+   * 秒传（rkey=null）返回 null，调用方跳过 sliceupload。
+   */
+  private async prepareAndApply(
+    filesetUuid: string, bytes: Uint8Array, fileName: string, fileUuid: string, fileIndex: number, formatCode: number,
+  ): Promise<{ rkey: string; sha1StateV: Uint8Array[]; sliceCount: number } | null> {
     const fileSize = bytes.length;
     const hashes = computeHashes(bytes);
-    const md5Hex = hashes.md5Hex;
-    const sha1Hex = hashes.sha1Hex;
-    const fileSha1 = hashes.sha1;  // 20B raw
-
-    // 分片(1MB)，算累积 SHA1 state（sliceupload f107.f6 = Sha1StateV）
     const SLICE_SIZE = 1024 * 1024;
     const sliceCount = Math.ceil(fileSize / SLICE_SIZE);
     const sha1StateV = computeSha1StateV(bytes, sliceCount, SLICE_SIZE);
 
-    // 1. 申请 fileset
-    const apply = await ApplyFileset.invoke(this.ctx, {
-      fileName, origName: fileName, fileSize, typeCode, uploader,
-    });
-    const filesetUuid = apply.filesetUuid;
-    if (!filesetUuid) throw new Error('apply fileset failed: missing uuid');
-
-    // 2. commit 元数据(上传前)
-    const fileUuid = randomUUID();
-    await CommitFile.invoke(this.ctx, {
-      filesetUuid, fileUuid, fileName, origName: fileName, fileSize, formatCode,
-    });
-
-    // 3. fileset 完成(上传前)
-    await CompleteFileset.invoke(this.ctx, { filesetUuid });
-
-    // 4. prepare-upload(sub=100) 拿 sliceupload rkey（resp f2.f1 = CAES/CAIS/CAQS）。
-    //    秒传（文件已在服务端）时 rkey=null，跳过 sub-103/sliceupload 直接设状态。
     const rkey = await PrepareUpload.invoke(this.ctx, {
-      filesetUuid, fileUuid, fileName, fileSize, sha1: sha1Hex,
+      filesetUuid, fileUuid, fileName, fileSize, sha1: hashes.sha1Hex, fileIndex, formatCode,
     });
-    if (rkey === null) {
-      // 秒传：文件已在服务端，无需上传，直接设状态完成
-      await SetFilesetStatus.invoke(this.ctx, { filesetUuid });
-      return { filesetUuid, fileUuid };
-    }
+    if (rkey === null) return null;  // 秒传
 
-    // 5. apply-upload(sub=103) 带客户端构造的 fileId（注册，resp 无 rkey）
-    const fileId = FlashTransferApi.buildFileId(fileSha1, fileSize);
+    const fileId = FlashTransferApi.buildFileId(hashes.sha1, fileSize);
     await ApplyUpload.invoke(this.ctx, {
-      filesetUuid, fileUuid, fileId, fileName, fileSize, md5: md5Hex, sha1: sha1Hex,
+      filesetUuid, fileUuid, fileId, fileName, fileSize,
+      md5: hashes.md5Hex, sha1: hashes.sha1Hex, fileIndex, formatCode,
     });
+    return { rkey, sha1StateV, sliceCount };
+  }
 
-    // 6. sliceupload ×N
+  /**
+   * 阶段2：sliceupload 分片上传（所有文件 prepare+apply 完成后调用）。
+   */
+  private async sliceuploadFile(
+    bytes: Uint8Array, rkey: string, sha1StateV: Uint8Array[], sliceCount: number, fileName: string,
+  ): Promise<void> {
+    const fileSize = bytes.length;
+    const SLICE_SIZE = 1024 * 1024;
     for (let i = 0; i < sliceCount; i++) {
       const start = i * SLICE_SIZE;
       const chunk = bytes.subarray(start, Math.min(start + SLICE_SIZE, fileSize));
@@ -342,16 +369,8 @@ export class FlashTransferApi {
         },
       };
       const bodyBytes = protobuf_encode<FlashSliceUploadBody>(body);
-      await this.postSliceupload(bodyBytes, `sliceupload slice ${i}`);
+      await this.postSliceupload(bodyBytes, `${fileName} slice ${i}`);
     }
-
-    // 7. 上传缩略图（0x93d1 前；主文件下载入口需缩略图关联才会被服务端填充）
-    await this.uploadThumbnail(filesetUuid, fileUuid, 'png');
-    await this.uploadThumbnail(filesetUuid, fileUuid, 'jpg');
-
-    // 8. 设状态
-    await SetFilesetStatus.invoke(this.ctx, { filesetUuid });
-    return { filesetUuid, fileUuid };
   }
 
   /**
@@ -373,7 +392,8 @@ export class FlashTransferApi {
       const errBody = await resp.text().catch(() => '');
       throw new Error(`${label} failed: HTTP ${resp.status} ${errBody.slice(0, 300)}`);
     }
-    const sliceResp = protobuf_decode<FlashSliceUploadResp>(new Uint8Array(await resp.arrayBuffer()));
+    const respBuf = new Uint8Array(await resp.arrayBuffer());
+    const sliceResp = protobuf_decode<FlashSliceUploadResp>(respBuf);
     if (sliceResp.status && sliceResp.status !== 'success') {
       throw new Error(`${label} failed: ${sliceResp.status}`);
     }
@@ -383,9 +403,10 @@ export class FlashTransferApi {
    * 上传占位缩略图（png+jpg）。主文件上传后调用——主文件下载入口（0x93d3 的下载
    * fileId）需要缩略图关联才会被服务端填充，不传缩略图时 bot 自身上传的 fileset
    * 无法被 download_fileset 解析。缩略图用随机纯色 PNG，无需 ffmpeg/sharp。
+   * fileIndex 为缩略图在 fileset 内的序号（主文件之后递增），与 commit f6 对齐。
    */
   private async uploadThumbnail(
-    filesetUuid: string, mainFileUuid: string, thumbType: 'png' | 'jpg',
+    filesetUuid: string, mainFileUuid: string, thumbType: 'png' | 'jpg', fileIndex: number,
   ): Promise<void> {
     // 526x360 是 QQ 客户端缩略图尺寸；1x1 会被服务端拒（HTTP 400，宽高太小）。
     const width = 526, height = 360;
@@ -397,15 +418,16 @@ export class FlashTransferApi {
       : `${createHash('md5').update(thumbBytes).digest('hex').slice(0, 32)}.jpg`;
     const hashes = computeHashes(new Uint8Array(thumbBytes));
     const fileSize = thumbBytes.length;
+    const thumbFormatCode = thumbType === 'png' ? 26 : 2;  // png缩略图=26, jpg缩略图=2
     const rkey = await PrepareUpload.invoke(this.ctx, {
       filesetUuid, fileUuid, fileName, fileSize, sha1: hashes.sha1Hex,
-      thumbType, width, height,
+      fileIndex, formatCode: thumbFormatCode, thumbType, width, height,
     });
     if (rkey === null) return;  // 秒传
     const fileId = FlashTransferApi.buildFileId(hashes.sha1, fileSize, appid);
     await ApplyUpload.invoke(this.ctx, {
       filesetUuid, fileUuid, fileId, fileName, fileSize,
-      md5: hashes.md5Hex, sha1: hashes.sha1Hex, thumbType, width, height,
+      md5: hashes.md5Hex, sha1: hashes.sha1Hex, fileIndex, formatCode: thumbFormatCode, thumbType, width, height,
     });
     // sliceupload（缩略图小，1 片，Sha1StateV=[标准 SHA1]）
     const sha1StateV = computeSha1StateV(new Uint8Array(thumbBytes), 1, fileSize);
