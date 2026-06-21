@@ -18,6 +18,17 @@ const log = createLogger('Highway');
 const HIGHWAY_APP_ID = 1600001604;
 const HIGHWAY_BLOCK_SIZE = 1024 * 1024;
 
+// Per-chunk transport retry. A large file uploads as many sequential
+// one-shot TCP connections; QQ's highway edge nodes (and proxies/NAT on the
+// path) sporadically FIN a fresh connection before responding, so a single
+// transient close among a 48 MB file's ~48 chunks must not abort the whole
+// upload (issue #118). Only transport failures retry — a decoded highway
+// error_code is a definitive server reject and is never retried.
+const HIGHWAY_MAX_CHUNK_ATTEMPTS = 3;
+const HIGHWAY_RETRY_BASE_MS = 300;
+
+const sleepMs = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
 export const PRIVATE_IMAGE_CMD_ID = 1003;
 export const GROUP_IMAGE_CMD_ID = 1004;
 
@@ -261,14 +272,45 @@ export async function uploadHighwayHttp(
     );
     const frame = packHighwayFrame(head, chunk);
 
-    const socket = await tcpConnect(session.host, session.port);
-    let responseBody: Uint8Array;
-    try {
-      responseBody = await httpPostFrame(socket, session.host, pathStr, frame);
-    } finally {
-      socket.destroy();
+    // Retry the connect + POST for this chunk on transient transport errors
+    // (peer FIN before response, ECONNRESET, connect refused/timeout). Each
+    // attempt uses a fresh connection; re-sending the same offset range is
+    // idempotent on the server.
+    let responseBody: Uint8Array | undefined;
+    for (let attempt = 1; ; attempt++) {
+      let socket: net.Socket;
+      try {
+        socket = await tcpConnect(session.host, session.port);
+      } catch (err) {
+        if (attempt >= HIGHWAY_MAX_CHUNK_ATTEMPTS) {
+          throw new Error(
+            `highway connect failed after ${attempt} attempts ` +
+            `(cmdId=${commandId} offset=${offset}/${bytes.length}): ${String(err)}`,
+          );
+        }
+        await sleepMs(HIGHWAY_RETRY_BASE_MS * attempt);
+        continue;
+      }
+      try {
+        responseBody = await httpPostFrame(socket, session.host, pathStr, frame);
+        break;
+      } catch (err) {
+        if (attempt >= HIGHWAY_MAX_CHUNK_ATTEMPTS) {
+          throw new Error(
+            `highway upload transport failed after ${attempt} attempts ` +
+            `(cmdId=${commandId} chunk=${chunkSize}/${bytes.length} offset=${offset}): ${String(err)}`,
+          );
+        }
+        log.trace('chunk offset=%d attempt %d failed (%s), retrying', offset, attempt, String(err));
+        await sleepMs(HIGHWAY_RETRY_BASE_MS * attempt);
+      } finally {
+        socket.destroy();
+      }
     }
 
+    // Unreachable: the retry loop only exits via break (responseBody set) or
+    // throw — the guard just narrows the type for the compiler.
+    if (!responseBody) throw new Error('highway upload: missing response');
     const { head: respHead } = unpackHighwayFrame(responseBody);
     const resp = protobuf_decode<RespDataHighwayHead>(respHead);
     if (resp?.errorCode && resp.errorCode !== 0) {
