@@ -461,7 +461,7 @@ function StatTileWidget({ id }: { id: string }) {
           icon={<Server className="size-5" />}
           label="主机名"
           value={systemInfo?.hostname ?? '—'}
-          subtext={systemInfo ? `${systemInfo.platform} · ${systemInfo.arch}` : '加载中'}
+          subtext={systemInfo ? `${systemInfo.distro} · ${systemInfo.arch}` : '加载中'}
         />
       );
     case 'stat:uptime':
