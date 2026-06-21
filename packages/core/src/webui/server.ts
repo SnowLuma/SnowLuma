@@ -127,13 +127,33 @@ function detectDistro(): string {
 
   // ── Linux ──────────────────────────────────────────────────────────
   if (os.platform() === 'linux') {
-    const kernelVer = parseKernel(os.release());
+    const kernelRelease = os.release();
+    const kernelVer = parseKernel(kernelRelease);
+
+    // Extract distro version from kernel release string.
+    // Distros embed their version in the kernel ABI / build tag:
+    //   Debian: "6.8.12-1-deb13-amd64"             → 13
+    //   RHEL/CentOS/Rocky/Alma/Oracle: "4.18.0-513.el9.x86_64"  → 9
+    //   Fedora: "6.8.12-300.fc40.x86_64"            → 40
+    //   Amazon Linux: "6.1.158-178.288.amzn2023"    → 2023
+    //   Mageia: "6.8.12-1.mga10"                    → 10
+    const kernelDistroVer = (distro: string | null): string | null => {
+      if (!distro) return null;
+      const lr = kernelRelease.toLowerCase();
+      const ld = distro.toLowerCase();
+      if (ld === 'debian') { const m = lr.match(/deb(\d+)/); if (m) return m[1]; }
+      if (ld === 'red hat' || ld === 'centos') { const m = lr.match(/el(\d+)/); if (m) return m[1]; }
+      if (ld === 'fedora') { const m = lr.match(/fc(\d+)/); if (m) return m[1]; }
+      if (ld === 'amazon' || ld.includes('amazon')) { const m = lr.match(/amzn(\d+)/); if (m) return m[1]; }
+      if (ld === 'mageia') { const m = lr.match(/mga(\d+)/); if (m) return m[1]; }
+      return null;
+    };
 
     // Source A: /proc/version (host kernel build, crosses container boundary)
     let hostName: string | null = null;
     try {
       const raw = readFileSync('/proc/version', 'utf8').trim();
-      const vm = raw.match(/^Linux version\s+(\d+\.\d+\.\d+)/);
+      const vm = raw.match(/^Linux version\s+(\S+)/);
       if (vm) {
         const dm = raw.match(/\b(Debian|Ubuntu|Red Hat|CentOS|Fedora|Alpine|Arch|Gentoo|SUSE|Proxmox|OpenWrt)\b/);
         hostName = dm ? dm[1] : null;
@@ -159,7 +179,7 @@ function detectDistro(): string {
       }
     } catch { /* source B unavailable */ }
 
-    // Decide which source to trust for the distro name
+    // Decide which source to trust for the distro name & version
     let finalName: string;
     let finalVer: string | null;
 
@@ -168,20 +188,20 @@ function detectDistro(): string {
       const a = hostName.toLowerCase();
       const b = osReleaseName.toLowerCase();
       if (a.includes(b) || b.includes(a)) {
-        // Agree → use os-release version (richer), append kernel from host
+        // Agree → prefer version from kernel release, fall back to os-release
         finalName = osReleaseName;
-        finalVer = osReleaseVer;
+        finalVer = kernelDistroVer(hostName) ?? osReleaseVer;
       } else {
         // Disagree → host kernel build wins (crosses container boundary)
         finalName = hostName;
-        finalVer = null; // os-release version belongs to the wrong distro
+        finalVer = kernelDistroVer(hostName);
       }
     } else if (hostName) {
       finalName = hostName;
-      finalVer = null;
+      finalVer = kernelDistroVer(hostName);
     } else if (osReleaseName) {
       finalName = osReleaseName;
-      finalVer = osReleaseVer;
+      finalVer = kernelDistroVer(osReleaseName) ?? osReleaseVer;
     } else {
       // Source C: legacy release files
       for (const [path, prefix] of [
