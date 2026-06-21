@@ -397,6 +397,8 @@ function shortDistro(distro: string): string {
   s = s.replace(/^Manjaro Linux /, 'Manjaro ');
   s = s.replace(/^Void Linux /, 'Void ');
   s = s.replace(/^Alibaba Cloud Linux /, 'Alibaba ');
+  s = s.replace(/^Raspbian GNU\/Linux /, 'Raspbian ');
+  s = s.replace(/^DietPi v /, 'DietPi ');
   s = s.replace(/^Kali GNU\/Linux /, 'Kali ');
   s = s.replace(/^Proxmox VE /, 'Proxmox ');
   s = s.replace(/^Windows Server /, 'Win Svr ');
