@@ -203,6 +203,7 @@ export interface SystemInfo {
   hostname: string;
   platform: string;
   arch: string;
+  archLabel: string;
   release: string;
   distro: string;
   uptime: number;
