@@ -435,7 +435,29 @@ export async function initWebUI(
       } catch {}
       return `Windows ${os.release()}`;
     }
+    // Linux fallback files
+    if (existsSync('/etc/alpine-release')) return 'Alpine Linux ' + readFileSync('/etc/alpine-release', 'utf8').trim();
+    if (existsSync('/etc/redhat-release')) return readFileSync('/etc/redhat-release', 'utf8').trim();
+    if (existsSync('/etc/debian_version')) return 'Debian ' + readFileSync('/etc/debian_version', 'utf8').trim();
     return os.platform();
+  }
+
+  function normalizeArch(arch: string): string {
+    const map: Record<string, string> = {
+      loong64: 'LoongArch',
+      riscv64: 'RISC-V',
+      mips: 'MIPS',
+      mipsel: 'MIPS (LE)',
+      arm: 'ARM',
+      arm64: 'ARM64',
+      x64: 'x86_64',
+      ia32: 'x86',
+      s390: 'S/390',
+      s390x: 'S/390x',
+      ppc: 'PowerPC',
+      ppc64: 'PowerPC64',
+    };
+    return map[arch] ?? arch;
   }
 
   let lastCpuTimes: { idle: number; total: number }[] | null = null;
@@ -472,6 +494,7 @@ export async function initWebUI(
       hostname: os.hostname(),
       platform: os.platform(),
       arch: os.arch(),
+      archLabel: normalizeArch(os.arch()),
       release: os.release(),
       distro: detectDistro(),
       uptime: os.uptime(),
