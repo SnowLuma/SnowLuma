@@ -204,6 +204,7 @@ export interface SystemInfo {
   platform: string;
   arch: string;
   release: string;
+  distro: string;
   uptime: number;
   processUptime: number;
   nodeVersion: string;
