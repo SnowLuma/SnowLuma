@@ -8,6 +8,22 @@ import type { AdapterStatus } from './network';
 const log = createLogger('OneBot');
 const VERBOSE_WARMUP = process.env.SNOWLUMA_VERBOSE_WARMUP === '1';
 
+const WARMUP_MAX_RETRIES = 3;
+const WARMUP_RETRY_BASE_DELAY_MS = 1000;
+
+/** Serial execution queue — tasks run one after another, each waiting for the
+ *  previous to settle.  Used to sequence per-account warmup so N concurrent
+ *  QQ sessions don't blast OIDB requests at the same time. */
+class SerialQueue {
+  private chain: Promise<void> = Promise.resolve();
+
+  enqueue<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      this.chain = this.chain.then(() => fn().then(resolve, reject));
+    });
+  }
+}
+
 /** Per-account OneBot connection health, surfaced to the WebUI dashboard. */
 export interface AccountConnections {
   uin: string;
@@ -17,6 +33,7 @@ export interface AccountConnections {
 
 export class OneBotManager {
   private readonly instances = new Map<string, OneBotInstance>();
+  private readonly warmupQueue = new SerialQueue();
 
   bind(bridgeManager: BridgeManager): void {
     bridgeManager.addSessionStartedListener((uin, bridge) => {
@@ -76,8 +93,13 @@ export class OneBotManager {
 
     this.instances.set(uin, instance);
     log.info('session started: UIN=%s', uin);
-    warmUpBridgeState(uin, bridge).catch((err) => {
-      log.warn('warmup error for UIN %s: %s', uin, err instanceof Error ? (err.stack ?? err.message) : String(err));
+
+    // Serialize warmup across accounts so multiple QQ sessions do not
+    // fire OIDB requests concurrently during startup.  Network adapters
+    // and rkey warmup are started after the contacts warmup completes.
+    this.warmupQueue.enqueue(async () => {
+      await warmUpBridgeState(uin, bridge);
+      instance.start();
     });
   }
 
@@ -92,6 +114,31 @@ export class OneBotManager {
 
 }
 
+/** Retry `fn` up to `maxRetries` times with exponential backoff.  Returns
+ *  the first successful result, or null when all attempts fail. */
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  label: string,
+  maxRetries = WARMUP_MAX_RETRIES,
+  baseDelayMs = WARMUP_RETRY_BASE_DELAY_MS,
+): Promise<T | null> {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (i < maxRetries - 1) {
+        const delay = baseDelayMs * Math.pow(2, i);
+        log.warn('%s attempt %d/%d failed, retrying in %dms: %s', label, i + 1, maxRetries, delay, msg);
+        await new Promise((r) => setTimeout(r, delay));
+      } else {
+        log.warn('%s failed after %d attempts: %s', label, maxRetries, msg);
+      }
+    }
+  }
+  return null;
+}
+
 async function warmUpBridgeState(uin: string, bridge: BridgeInterface): Promise<void> {
   const selfUin = parseInt(uin, 10) || 0;
   let selfResolved = false;
@@ -100,8 +147,11 @@ async function warmUpBridgeState(uin: string, bridge: BridgeInterface): Promise<
   // include self in the response. Some accounts / versions omit self,
   // which used to leave identity.nickname empty — see step 1b for the
   // explicit fallback.
-  try {
-    const friends = await bridge.apis.contacts.fetchFriendList();
+  const friends = await retryWithBackoff(
+    () => bridge.apis.contacts.fetchFriendList(),
+    `fetch friend list for ${uin}`,
+  );
+  if (friends) {
     log.info('friends loaded: UIN=%s count=%d', uin, friends.length);
 
     for (const f of friends) {
@@ -117,8 +167,8 @@ async function warmUpBridgeState(uin: string, bridge: BridgeInterface): Promise<
         break;
       }
     }
-  } catch (e) {
-    log.warn('failed to load friends for UIN %s: %s', uin, e instanceof Error ? e.message : String(e));
+  } else {
+    log.warn('failed to load friends for UIN %s', uin);
   }
 
   // Step 1b: friend-list path didn't resolve self → fetch user profile
@@ -126,25 +176,31 @@ async function warmUpBridgeState(uin: string, bridge: BridgeInterface): Promise<
   // for every injected session, not just the ones where QQ echoed self
   // back in the friend list.
   if (!selfResolved && selfUin > 0) {
-    try {
-      const profile = await bridge.apis.contacts.fetchUserProfile(selfUin);
+    const profile = await retryWithBackoff(
+      () => bridge.apis.contacts.fetchUserProfile(selfUin),
+      `fetch user profile for ${uin}`,
+    );
+    if (profile) {
       bridge.identity.setSelfProfile(profile);
       bridge.identity.nickname = profile.nickname || uin;
       log.debug('self info via profile: UIN=%s uid=%s nickname=%s',
         uin, profile.uid, profile.nickname);
-    } catch (e) {
-      log.warn('failed to load self profile for UIN %s: %s',
-        uin, e instanceof Error ? e.message : String(e));
+    } else {
+      log.warn('failed to load self profile for UIN %s', uin);
     }
   }
 
   // Step 2: Fetch group list
   let groups: { groupId: number }[] = [];
-  try {
-    groups = await bridge.apis.contacts.fetchGroupList();
+  const fetchedGroups = await retryWithBackoff(
+    () => bridge.apis.contacts.fetchGroupList(),
+    `fetch group list for ${uin}`,
+  );
+  if (fetchedGroups) {
+    groups = fetchedGroups;
     log.info('groups loaded: UIN=%s count=%d', uin, groups.length);
-  } catch (e) {
-    log.warn('failed to load groups for UIN %s: %s', uin, e instanceof Error ? e.message : String(e));
+  } else {
+    log.warn('failed to load groups for UIN %s', uin);
   }
 
   // Step 3: Fetch members for each group
@@ -152,16 +208,21 @@ async function warmUpBridgeState(uin: string, bridge: BridgeInterface): Promise<
   let loadedMemberCount = 0;
   let failedGroupCount = 0;
   for (const g of groups) {
-    try {
-      const members = await bridge.apis.contacts.fetchGroupMemberList(g.groupId);
+    const members = await retryWithBackoff(
+      () => bridge.apis.contacts.fetchGroupMemberList(g.groupId),
+      `fetch member list for group ${g.groupId} (${uin})`,
+      // Fewer retries per group to avoid lengthy warmup on large accounts
+      2,
+    );
+    if (members) {
       loadedGroupCount += 1;
       loadedMemberCount += members.length;
       if (VERBOSE_WARMUP) {
         log.debug('members loaded: group=%d count=%d', g.groupId, members.length);
       }
-    } catch (e) {
+    } else {
       failedGroupCount += 1;
-      log.warn('failed to load members for group %d: %s', g.groupId, e instanceof Error ? e.message : String(e));
+      log.warn('failed to load members for group %d (UIN %s)', g.groupId, uin);
     }
   }
 

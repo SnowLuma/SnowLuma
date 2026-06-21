@@ -18,7 +18,9 @@ const RKEY_REFRESH_COOLDOWN = 30;
 // Upper bound on how long URL resolution may block on a refresh round-trip.
 // A stuck packet send must never wedge message conversion — past this we
 // fall back to whatever the cache holds (possibly nothing).
-const RKEY_REFRESH_TIMEOUT_MS = 5000;
+// Matches the Bridge.sendRawPacket default timeout so a busy QQ (e.g.
+// during multi-account startup) has enough time to respond.
+const RKEY_REFRESH_TIMEOUT_MS = 15000;
 const PRIVATE_IMAGE_RKEY_TYPE = 10;
 const GROUP_IMAGE_RKEY_TYPE = 20;
 const PRIVATE_VIDEO_RKEY_TYPE = 12;
@@ -34,7 +36,14 @@ export class RKeyCache {
 
   warmUp(bridge: BridgeInterface, uin: string): void {
     this.ensureFresh(bridge).then(
-      () => log.info('rkeys loaded: UIN=%s count=%d', uin, this.cache.size),
+      () => {
+        const count = this.cache.size;
+        if (count > 0) {
+          log.info('rkeys loaded: UIN=%s count=%d', uin, count);
+        } else {
+          log.warn('rkeys loaded but empty: UIN=%s', uin);
+        }
+      },
       (err) => log.warn('failed to load rkeys for UIN %s: %s', uin, err instanceof Error ? err.message : String(err)),
     );
   }
@@ -142,6 +151,9 @@ export class RKeyCache {
         .then((rkeys) => { this.updateCache(rkeys); })
         .catch((err) => {
           log.warn('rkey refresh failed: %s', err instanceof Error ? err.message : String(err));
+          // Reset cooldown so the next caller can retry immediately instead
+          // of being blocked by RKEY_REFRESH_COOLDOWN.
+          this.lastRefreshAttempt = 0;
         })
         .finally(() => { this.refreshInflight = null; });
     }

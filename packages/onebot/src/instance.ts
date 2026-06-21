@@ -116,13 +116,21 @@ export class OneBotInstance {
     this.apiHandler = new ApiHandler(buildApiContext(ctx), uinNum > 0 ? uinNum : undefined);
     this.networkManager = new OneBotNetworkManager();
     this.installAdaptersFromConfig(config);
+
+    this.startHeartbeat();
+    this.disposeEventPipeline = registerEventPipeline(ctx);
+  }
+
+  /** Start network adapters and warm up rkey cache.  Called after the
+   *  serialised contacts warmup (friends / groups / members) completes so
+   *  downstream WS clients don't connect before the account state is ready,
+   *  and the rkey request doesn't contend with the burst of OIDB requests
+   *  that the warmup sends. */
+  start(): void {
     void this.networkManager.openAll().catch((err) => {
       this.log.warn('openAll failed: %s', err instanceof Error ? (err.stack ?? err.message) : String(err));
     });
-
-    this.startHeartbeat();
     this.rkeyCache.warmUp(this.bridge, this.uin);
-    this.disposeEventPipeline = registerEventPipeline(ctx);
   }
 
   reloadConfig(config: OneBotConfig): void {
