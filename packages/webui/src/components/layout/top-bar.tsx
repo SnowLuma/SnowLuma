@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LogOut, Menu, Monitor, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { LogOut, Menu, Monitor } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useRouterState } from '@tanstack/react-router';
 import { Button } from '@/components/ui/button';
@@ -20,23 +20,16 @@ export const TOPBAR_CATALOGUE: { id: string; label: string }[] = [
 
 interface TopBarProps {
   status: string;
-  collapsed: boolean;
-  onToggleCollapse: () => void;
   onOpenMobile: () => void;
   onLogout: () => void;
   isMobile: boolean;
-  /** Layout edit mode force-expands the sidebar, so collapsing is disabled. */
-  editing?: boolean;
 }
 
 export function TopBar({
   status,
-  collapsed,
-  onToggleCollapse,
   onOpenMobile,
   onLogout,
   isMobile,
-  editing = false,
 }: TopBarProps) {
   const [confirmLogout, setConfirmLogout] = useState(false);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -55,26 +48,15 @@ export function TopBar({
   );
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-2 border-b bg-background/55 px-3 backdrop-blur-xl backdrop-saturate-150 supports-[backdrop-filter]:bg-background/45 sm:px-4">
-      {/* Collapse toggle (desktop) / menu (mobile) */}
-      {isMobile ? (
+    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-2 bg-background/55 px-3 backdrop-blur-xl backdrop-saturate-150 supports-[backdrop-filter]:bg-background/45 sm:px-4">
+      {/* Mobile-only menu trigger. On desktop there's no collapse button — the
+          sidebar auto-expands on hover/focus, and its boundary with the content
+          is a soft surface-tone shift, not a hard border. */}
+      {isMobile && (
         <Button variant="ghost" size="icon-sm" onClick={onOpenMobile} aria-label="打开菜单">
           <Menu className="size-4" />
         </Button>
-      ) : (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onToggleCollapse}
-          disabled={editing}
-          aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
-          title={editing ? '编辑布局时侧栏保持展开' : collapsed ? '展开侧边栏' : '收起侧边栏'}
-        >
-          {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
-        </Button>
       )}
-
-      <div className="mx-1 h-6 w-px bg-border" />
 
       {/* Page title */}
       <AnimatePresence mode="wait">

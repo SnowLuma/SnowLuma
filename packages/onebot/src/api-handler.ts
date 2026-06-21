@@ -9,6 +9,7 @@ import { register as registerGroupFile } from './actions/group-file';
 import { register as registerGroupInfo } from './actions/group-info';
 import { register as registerInfo } from './actions/info';
 import { register as registerMessage } from './actions/message';
+import { register as registerQzone } from './actions/qzone';
 import { register as registerRequest } from './actions/request';
 import type { ForwardPreviewMeta } from './modules/message-actions';
 import type { JsonObject, JsonValue, MessageMeta } from './types';
@@ -114,6 +115,7 @@ export class ApiHandler {
     registerRequest(this, context);
     registerExtended(this, context);
     registerGroupAlbum(this, context);
+    registerQzone(this, context);
   }
 
   registerAction(action: string, handler: ActionHandler): void {

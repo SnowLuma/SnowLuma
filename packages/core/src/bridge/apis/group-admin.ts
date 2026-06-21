@@ -12,10 +12,16 @@ import { SetGroupRemark } from '@snowluma/protocol/oidb-services/group-admin/set
 import { SetMemberCard } from '@snowluma/protocol/oidb-services/group-admin/set-member-card';
 import { SetSearch } from '@snowluma/protocol/oidb-services/group-admin/set-search';
 import { SetSpecialTitle } from '@snowluma/protocol/oidb-services/group-admin/set-special-title';
+import { ModifyGroupExtInfo } from '@snowluma/protocol/oidb-services/group-admin/modify-group-ext-info';
 import type { BridgeContext } from '../bridge-context';
 
 export class GroupAdminApi {
   constructor(private readonly ctx: BridgeContext) { }
+
+  /** Set the group's robot-add option (switch / examine) via group ext-info. */
+  setRobotAddOption(groupId: number, robotMemberSwitch?: number, robotMemberExamine?: number): Promise<void> {
+    return ModifyGroupExtInfo.invoke(this.ctx, { groupId, robotMemberSwitch, robotMemberExamine });
+  }
 
   muteMember(groupId: number, userId: number, duration: number): Promise<void> {
     return MuteMember.invoke(this.ctx, { groupId, userId, duration });

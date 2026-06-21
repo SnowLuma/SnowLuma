@@ -2,6 +2,7 @@ import type { AccountConnections, BackupBundle, BackupImportResult, DebugActionD
 import type { PasswordRule } from '@/components/pages/change-password-page';
 import { normalizeOneBotConfig } from '@/lib/onebot-config';
 import {
+  type AgreementsPayload,
   ApiError,
   type ApiClient,
   type ChangePasswordResult,
@@ -47,6 +48,7 @@ class HttpApiClient implements ApiClient {
   readonly notifications: ApiClient['notifications'];
   readonly systemSettings: ApiClient['systemSettings'];
   readonly debug: ApiClient['debug'];
+  readonly agreements: ApiClient['agreements'];
 
   constructor(opts: CreateApiClientOptions = {}) {
     this.tokenStore = opts.tokenStore ?? localStorageTokenStore(DEFAULT_TOKEN_KEY);
@@ -184,6 +186,26 @@ class HttpApiClient implements ApiClient {
         this.postJson<{ success: boolean; message?: string; status?: number }>('/api/notifications/test', {
           channelId,
         }),
+    };
+
+    this.agreements = {
+      get: () => this.getJson<AgreementsPayload>('/api/agreements'),
+      recordConsent: async (version) => {
+        // Read the body even on non-2xx so a 409 can surface currentVersion to
+        // the caller (instead of fetchJson throwing it away as an ApiError).
+        // A network failure (fetch reject) must resolve to {success:false}, not
+        // throw, or the consent button hangs on "提交中…" with no error shown.
+        try {
+          const res = await this.request('/api/agreements/record-consent', {
+            method: 'POST',
+            body: JSON.stringify({ version }),
+          });
+          const data = await readJson<{ success?: boolean; message?: string; currentVersion?: string }>(res);
+          return { success: res.ok && !!data.success, message: data.message, currentVersion: data.currentVersion };
+        } catch (e) {
+          return { success: false, message: e instanceof Error ? e.message : '网络错误，请重试' };
+        }
+      },
     };
   }
 

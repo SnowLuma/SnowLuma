@@ -39,6 +39,29 @@ export type LoginResult =
 
 export type ChangePasswordResult = { success: boolean; message?: string };
 
+export interface AgreementDoc {
+  id: 'eula' | 'privacy';
+  title: string;
+  declaredVersion: string;
+  effectiveDate: string;
+  text: string;
+}
+
+export interface AgreementsPayload {
+  /** Content-hash version of the current agreement set. */
+  version: string;
+  /** Whether the operator must (re-)accept before using the panel. */
+  consentRequired: boolean;
+  documents: AgreementDoc[];
+}
+
+export type RecordConsentResult = {
+  success: boolean;
+  message?: string;
+  /** On a 409 version-mismatch, the server's current version to re-fetch. */
+  currentVersion?: string;
+};
+
 export type ProcessActionResult = {
   process?: HookProcessInfo & { error?: string };
 };
@@ -60,6 +83,14 @@ export interface ApiClient {
   mustChangePassword(): Promise<boolean>;
   checkPasswordStrength(password: string): Promise<{ rules: PasswordRule[]; valid: boolean }>;
   changePassword(oldPassword: string, newPassword: string): Promise<ChangePasswordResult>;
+
+  // ---- EULA / PRIVACY consent (shown after login, before set-password) ----
+  agreements: {
+    /** Fetch agreement texts + current version + whether consent is required. */
+    get(): Promise<AgreementsPayload>;
+    /** Record acceptance of `version`. success:false (409) carries currentVersion. */
+    recordConsent(version: string): Promise<RecordConsentResult>;
+  };
 
   // ---- system ----
   qqList(): Promise<QQInfo[]>;

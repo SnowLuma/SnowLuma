@@ -100,7 +100,7 @@ export interface UiAppearance {
   /** Hard-disable all UI animations (stronger than reduceMotion). */
   disableMotion: boolean;
   highContrast: boolean;
-  sidebarDefaultCollapsed: boolean;
+  sidebarPinned: boolean;
   timeFormat: TimeFormat;
   /** Dashboard poll interval (ms); 0 = paused. */
   pollInterval: number;
@@ -226,7 +226,7 @@ const DEFAULT_APPEARANCE: UiAppearance = {
   reduceMotion: false,
   disableMotion: false,
   highContrast: false,
-  sidebarDefaultCollapsed: false,
+  sidebarPinned: false,
   timeFormat: '24h',
   pollInterval: 3000,
   customCss: '',
@@ -531,7 +531,7 @@ export function normalizeAppearance(value: unknown, imageState: ServerImageState
     reduceMotion: boolOr(v.reduceMotion, DEFAULT_APPEARANCE.reduceMotion),
     disableMotion: boolOr(v.disableMotion, DEFAULT_APPEARANCE.disableMotion),
     highContrast: boolOr(v.highContrast, DEFAULT_APPEARANCE.highContrast),
-    sidebarDefaultCollapsed: boolOr(v.sidebarDefaultCollapsed, DEFAULT_APPEARANCE.sidebarDefaultCollapsed),
+    sidebarPinned: boolOr(v.sidebarPinned, DEFAULT_APPEARANCE.sidebarPinned),
     timeFormat: oneOf<TimeFormat>(v.timeFormat, ['12h', '24h'], DEFAULT_APPEARANCE.timeFormat),
     pollInterval: clampNum(v.pollInterval, 0, 60_000, DEFAULT_APPEARANCE.pollInterval),
     customCss: typeof v.customCss === 'string' ? v.customCss.slice(0, 50_000) : DEFAULT_APPEARANCE.customCss,

@@ -1,6 +1,7 @@
 {
+  "license": "SEE LICENSE IN LICENSE",
   "name": "@snowluma/runtime",
-  "version": "1.9.13",
+  "version": "1.10.0",
   "private": true,
   "type": "module",
   "main": "index.mjs",

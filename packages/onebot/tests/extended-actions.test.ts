@@ -842,3 +842,237 @@ describe('extended-actions / TierB compat stubs', () => {
     expect(res).toMatchObject({ status: 'ok', retcode: 0 });
   });
 });
+
+// ─── TierB ①: get_group_signed_list (qun.qq.com HTTP, real) ───
+// Thin wrapper over WebApi.getSignedList; we pin that the action drives
+// the web api with the numeric group id and passes the mapped list through.
+
+describe('extended-actions / get_group_signed_list', () => {
+  it('calls web.getSignedList with the group id and returns the list', async () => {
+    const list = [{ user_id: 10001, nick: 'Alice', time: 1700000000, rank: 1 }];
+    const getSignedList = vi.fn(async () => list);
+    const bridge = fakeBridge({ apis: { web: { getSignedList } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_group_signed_list', { group_id: 12345 });
+    expect(getSignedList).toHaveBeenCalledWith(12345);
+    expect(res).toMatchObject({ status: 'ok', retcode: 0, data: list });
+  });
+
+  it('surfaces a failure as a failed response', async () => {
+    const getSignedList = vi.fn(async () => { throw new Error('no pskey'); });
+    const bridge = fakeBridge({ apis: { web: { getSignedList } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_group_signed_list', { group_id: 12345 });
+    expect(res.status).toBe('failed');
+  });
+});
+
+// ─── TierB ②: get_recent_contact (documented stub) ───
+// QQ's recent-contact list is a kernel-local snapshot with rich peer
+// metadata (peerName/remark/lastestMsg) that SnowLuma can't reproduce —
+// there's no SSO/packet wire, and the bot's own message store only covers
+// sessions it observed and lacks those fields. Rather than ship a
+// divergent approximation under a name implying QQ's native list, we
+// return an honest empty list and accept the `count` param for compat.
+describe('extended-actions / get_recent_contact stub', () => {
+  it('returns an empty list and accepts count', async () => {
+    const res = await makeHandler(fakeCtx(fakeBridge())).handle('get_recent_contact', { count: 10 });
+    expect(res).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(res.data).toEqual([]);
+  });
+
+  it('works with no params', async () => {
+    const res = await makeHandler(fakeCtx(fakeBridge())).handle('get_recent_contact', {});
+    expect(res).toMatchObject({ status: 'ok', data: [] });
+  });
+});
+
+// ─── TierB ③: RE'd OIDB-backed actions (wiring through handle) ───
+describe('extended-actions / TierB ③ share + doubt + robot-option', () => {
+  it('share_peer with user_id calls getBuddyRecommendArk and wraps the ark', async () => {
+    const getBuddyRecommendArk = vi.fn(async () => '{"app":"x"}');
+    const bridge = fakeBridge({ apis: { contacts: { getBuddyRecommendArk } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('share_peer', { user_id: 10000 });
+    expect(getBuddyRecommendArk).toHaveBeenCalledWith(10000, '');
+    expect(res).toMatchObject({ status: 'ok', data: { arkMsg: '{"app":"x"}' } });
+  });
+
+  it('share_peer with group_id calls getGroupRecommendArk', async () => {
+    const getGroupRecommendArk = vi.fn(async () => '{"app":"g"}');
+    const bridge = fakeBridge({ apis: { contacts: { getGroupRecommendArk } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('share_peer', { group_id: 555 });
+    expect(getGroupRecommendArk).toHaveBeenCalledWith(555);
+    expect(res).toMatchObject({ status: 'ok', data: { arkMsg: '{"app":"g"}' } });
+  });
+
+  it('share_peer with neither id fails', async () => {
+    const res = await makeHandler(fakeCtx(fakeBridge())).handle('share_peer', {});
+    expect(res.status).toBe('failed');
+  });
+
+  it('send_ark_share shares the buddy/group routing', async () => {
+    const getBuddyRecommendArk = vi.fn(async () => 'ARK');
+    const bridge = fakeBridge({ apis: { contacts: { getBuddyRecommendArk } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('send_ark_share', { user_id: 1, phone_number: '99' });
+    expect(getBuddyRecommendArk).toHaveBeenCalledWith(1, '99');
+    expect(res).toMatchObject({ status: 'ok', data: { arkMsg: 'ARK' } });
+  });
+
+  it('share_group_ex / send_group_ark_share return the group ark string', async () => {
+    const getGroupRecommendArk = vi.fn(async () => 'GROUP_ARK');
+    const bridge = fakeBridge({ apis: { contacts: { getGroupRecommendArk } } });
+    for (const name of ['share_group_ex', 'send_group_ark_share']) {
+      const res = await makeHandler(fakeCtx(bridge)).handle(name, { group_id: 42 });
+      expect(res).toMatchObject({ status: 'ok', data: 'GROUP_ARK' });
+    }
+    expect(getGroupRecommendArk).toHaveBeenCalledWith(42);
+  });
+
+  it('get_doubt_friends_add_request returns the mapped list', async () => {
+    const list = [{ uid: 'u1', nick: 'A', source: 's', msg: 'm', reqTime: 123 }];
+    const getDoubtRequests = vi.fn(async () => list);
+    const bridge = fakeBridge({ apis: { friend: { getDoubtRequests } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_doubt_friends_add_request', { count: 5 });
+    expect(getDoubtRequests).toHaveBeenCalledWith(5);
+    expect(res).toMatchObject({ status: 'ok', data: list });
+  });
+
+  it('set_doubt_friends_add_request approves by flag (uid)', async () => {
+    const approveDoubtRequest = vi.fn(async () => {});
+    const bridge = fakeBridge({ apis: { friend: { approveDoubtRequest } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('set_doubt_friends_add_request', { flag: 'u_abc', approve: true });
+    expect(approveDoubtRequest).toHaveBeenCalledWith('u_abc');
+    expect(res).toMatchObject({ status: 'ok' });
+  });
+
+  it('set_doubt_friends_add_request with approve:false calls rejectDoubtRequest (not approve)', async () => {
+    const approveDoubtRequest = vi.fn(async () => {});
+    const rejectDoubtRequest = vi.fn(async () => {});
+    const bridge = fakeBridge({ apis: { friend: { approveDoubtRequest, rejectDoubtRequest } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('set_doubt_friends_add_request', { flag: 'u_abc', approve: false });
+    expect(res).toMatchObject({ status: 'ok' });
+    expect(rejectDoubtRequest).toHaveBeenCalledWith('u_abc');
+    expect(approveDoubtRequest).not.toHaveBeenCalled();
+  });
+
+  it('set_group_robot_add_option forwards group + switch/examine', async () => {
+    const setRobotAddOption = vi.fn(async () => {});
+    const bridge = fakeBridge({ apis: { groupAdmin: { setRobotAddOption } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('set_group_robot_add_option', { group_id: 12345, robot_member_switch: 1, robot_member_examine: 2 });
+    expect(setRobotAddOption).toHaveBeenCalledWith(12345, 1, 2);
+    expect(res).toMatchObject({ status: 'ok' });
+  });
+});
+
+// ─── napcat-parity: get_qun_album_list (NapCat-shaped envelope over existing web API) ───
+// SnowLuma already exposes the qun_list_album_v2 web API as get_group_album_list
+// (raw array). NapCat's get_qun_album_list wraps it as {album_list, attach_info,
+// has_more} with {album_id, album_name, create_time, ...} items. We add the
+// NapCat-named/shaped action reusing the same bridge call.
+describe('extended-actions / get_qun_album_list', () => {
+  it('maps the album list into the napcat {album_list, attach_info, has_more} envelope', async () => {
+    const list = vi.fn(async () => [
+      { id: 'a1', name: '相册一', picNum: 5, createTime: 1700000000 },
+      { id: 'a2', name: '相册二', picNum: 0, createTime: 1700000100 },
+    ]);
+    const bridge = fakeBridge({ apis: { groupAlbum: { list } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_qun_album_list', { group_id: 12345 });
+    expect(list).toHaveBeenCalledWith(12345);
+    expect(res.status).toBe('ok');
+    expect(res.data).toMatchObject({ attach_info: '', has_more: false });
+    expect((res.data as any).album_list).toEqual([
+      { album_id: 'a1', album_name: '相册一', create_time: 1700000000, pic_num: 5 },
+      { album_id: 'a2', album_name: '相册二', create_time: 1700000100, pic_num: 0 },
+    ]);
+  });
+
+  it('surfaces failure as a failed response', async () => {
+    const list = vi.fn(async () => { throw new Error('no pskey'); });
+    const bridge = fakeBridge({ apis: { groupAlbum: { list } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_qun_album_list', { group_id: 1 });
+    expect(res.status).toBe('failed');
+  });
+});
+
+// ─── flash-transfer: download_fileset (闪传文件集下载到本地) ───
+// 接线测试：参数校验 + facade 错误传播。完整下载链路（0x93d3/0x93d4 取链接 →
+// HTTP GET → 落盘 data/downloads）依赖真实 OIDB 与文件系统，与 download_file
+// 一样靠端到端验证，此处不重复 mock fetch/fs。
+describe('extended-actions / download_fileset', () => {
+  it('rejects missing fileset_id', async () => {
+    const downloadFileset = vi.fn(async () => ({ url: '', fileName: '', fileSize: 0 }));
+    const bridge = fakeBridge({ apis: { flashTransfer: { downloadFileset: downloadFileset as any } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('download_fileset', {});
+    expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(downloadFileset).not.toHaveBeenCalled();
+  });
+
+  it('surfaces facade errors as action_failed', async () => {
+    const downloadFileset = vi.fn(async () => { throw new Error('no download url available'); });
+    const bridge = fakeBridge({ apis: { flashTransfer: { downloadFileset: downloadFileset as any } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('download_fileset', { fileset_id: 'abc' });
+    expect(downloadFileset).toHaveBeenCalledOnce();
+    expect(downloadFileset.mock.calls[0]![0]).toBe('abc');
+    expect(res).toMatchObject({ status: 'failed', retcode: 100, wording: 'no download url available' });
+  });
+});
+
+// ─── flash-transfer: send_flash_msg (0x93d7 发送闪传文件) ───
+// 接线测试：参数校验 + 私聊/群聊转发 + 错误传播。完整链路（user_id→uid / group_id →
+// 0x93d7）依赖真实 identity 与 OIDB，靠 send_packet 端到端验证。
+describe('extended-actions / send_flash_msg', () => {
+  it('rejects when neither user_id nor group_id given', async () => {
+    const sendFlashMsg = vi.fn(async () => {});
+    const bridge = fakeBridge({ apis: { flashTransfer: { sendFlashMsg: sendFlashMsg as any } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('send_flash_msg', { fileset_id: 'abc' });
+    expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(sendFlashMsg).not.toHaveBeenCalled();
+  });
+
+  it('forwards fileset_id + user_id (private) and returns message_id 0', async () => {
+    const sendFlashMsg = vi.fn(async () => {});
+    const bridge = fakeBridge({ apis: { flashTransfer: { sendFlashMsg: sendFlashMsg as any } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('send_flash_msg', { fileset_id: 'fs-1', user_id: 12345 });
+    expect(sendFlashMsg).toHaveBeenCalledWith('fs-1', { userId: 12345, groupId: undefined });
+    expect(res).toMatchObject({ status: 'ok', data: { message_id: 0 } });
+  });
+
+  it('forwards fileset_id + group_id (group) and returns message_id 0', async () => {
+    const sendFlashMsg = vi.fn(async () => {});
+    const bridge = fakeBridge({ apis: { flashTransfer: { sendFlashMsg: sendFlashMsg as any } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('send_flash_msg', { fileset_id: 'fs-1', group_id: 1017438661 });
+    expect(sendFlashMsg).toHaveBeenCalledWith('fs-1', { userId: undefined, groupId: 1017438661 });
+    expect(res).toMatchObject({ status: 'ok', data: { message_id: 0 } });
+  });
+
+  it('surfaces facade errors (e.g. uid resolve failed) as action_failed', async () => {
+    const sendFlashMsg = vi.fn(async () => { throw new Error('failed to resolve UID for UIN 999'); });
+    const bridge = fakeBridge({ apis: { flashTransfer: { sendFlashMsg: sendFlashMsg as any } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('send_flash_msg', { fileset_id: 'fs-1', user_id: 999 });
+    expect(res).toMatchObject({ status: 'failed', retcode: 100 });
+  });
+});
+
+// ─── flash-transfer: get_fileset_id (分享码→fileset_id, HTTP 网页解析) ───
+describe('extended-actions / get_fileset_id', () => {
+  it('forwards share_code to facade and returns fileset_id', async () => {
+    const getFilesetIdByCode = vi.fn(async () => '8e40afa1-829d-498b-852f-092394ddb31f');
+    const bridge = fakeBridge({ apis: { flashTransfer: { getFilesetIdByCode: getFilesetIdByCode as any } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_fileset_id', { share_code: 'K0sEqhYria' });
+    expect(getFilesetIdByCode).toHaveBeenCalledWith('K0sEqhYria');
+    expect(res).toMatchObject({ status: 'ok', data: { fileset_id: '8e40afa1-829d-498b-852f-092394ddb31f' } });
+  });
+
+  it('rejects missing share_code', async () => {
+    const getFilesetIdByCode = vi.fn(async () => 'x');
+    const bridge = fakeBridge({ apis: { flashTransfer: { getFilesetIdByCode: getFilesetIdByCode as any } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_fileset_id', {});
+    expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(getFilesetIdByCode).not.toHaveBeenCalled();
+  });
+
+  it('surfaces facade errors (e.g. not found) as action_failed', async () => {
+    const getFilesetIdByCode = vi.fn(async () => { throw new Error('get_fileset_id: fileset_id not found in share page'); });
+    const bridge = fakeBridge({ apis: { flashTransfer: { getFilesetIdByCode: getFilesetIdByCode as any } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_fileset_id', { share_code: 'invalid' });
+    expect(res).toMatchObject({ status: 'failed', retcode: 100 });
+  });
+});

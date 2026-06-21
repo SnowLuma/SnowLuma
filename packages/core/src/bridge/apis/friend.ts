@@ -1,7 +1,12 @@
+import { ApproveDoubtBuddyReq } from '@snowluma/protocol/oidb-services/friend/approve-doubt-buddy-req';
 import { DeleteFriend } from '@snowluma/protocol/oidb-services/friend/delete-friend';
+import { GetDoubtBuddyReq, type DoubtBuddyRequest } from '@snowluma/protocol/oidb-services/friend/get-doubt-buddy-req';
 import { HandleFriendRequest } from '@snowluma/protocol/oidb-services/friend/handle-friend-request';
+import { RejectDoubtBuddyReq } from '@snowluma/protocol/oidb-services/friend/reject-doubt-buddy-req';
 import { SetFriendRemark } from '@snowluma/protocol/oidb-services/friend/set-friend-remark';
 import type { BridgeContext } from '../bridge-context';
+
+export type { DoubtBuddyRequest };
 
 export class FriendApi {
   constructor(private readonly ctx: BridgeContext) { }
@@ -25,5 +30,20 @@ export class FriendApi {
 
   setRemark(userId: number, remark: string): Promise<void> {
     return SetFriendRemark.invoke(this.ctx, { userId, remark });
+  }
+
+  /** List doubtful friend-add requests (可能认识的人). */
+  getDoubtRequests(count: number): Promise<DoubtBuddyRequest[]> {
+    return GetDoubtBuddyReq.invoke(this.ctx, { count });
+  }
+
+  /** Approve a doubtful friend-add request by its uid (the list item's flag). */
+  approveDoubtRequest(uid: string): Promise<void> {
+    return ApproveDoubtBuddyReq.invoke(this.ctx, { uid });
+  }
+
+  /** Reject (delete/decline) a doubtful friend-add request by its uid. */
+  rejectDoubtRequest(uid: string): Promise<void> {
+    return RejectDoubtBuddyReq.invoke(this.ctx, { uid });
   }
 }

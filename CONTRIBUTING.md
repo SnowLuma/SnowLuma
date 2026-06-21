@@ -285,3 +285,13 @@ git push origin v1.7.0                      # → 仅触发 release.yml
 - 如果只是想确认"我这么改 OK 吗"，欢迎开 draft PR，先把代码亮出来再讨论。
 
 感谢你愿意花时间贡献 SnowLuma —— 这个项目能走多远，取决于你们每一个人。❄️
+
+## 贡献的许可 / Licensing of contributions
+
+当你提交 PR，即表示你的贡献按本项目的 [`LICENSE`](LICENSE)（SnowLuma 源码可见非商业许可）授权，且你声明你有权这么做、贡献为你的原创（若含第三方材料，请在 PR 中显著标注其来源与许可证）。
+
+**你保留对自己贡献的版权**，同时**授予 SnowLumaDevs 一项永久、全球、免费、不可撤销、可再许可（sublicensable）的许可**，可使用、复制、修改、分发你的贡献并基于其制作衍生作品，**包括以本项目非商业许可之外的其他条款（含商业条款）再许可与分发**——以便项目方无需逐一回头征求同意，即可在获授权的商业场景中使用社区贡献。
+
+By opening a PR, you agree your contribution is licensed under the project's [`LICENSE`](LICENSE); you represent that you have the right to submit it and that it is your own work (clearly identify any third-party material in the PR).
+
+**You retain copyright in your contribution** and additionally grant SnowLumaDevs a **perpetual, worldwide, royalty-free, irrevocable, sublicensable license** to use, reproduce, modify, distribute, and create derivative works of your contribution, **including the right to relicense and distribute it under terms other than this project's non-commercial license (including commercial terms)** — so the project can use community contributions in authorized commercial scenarios without seeking each contributor's consent again.

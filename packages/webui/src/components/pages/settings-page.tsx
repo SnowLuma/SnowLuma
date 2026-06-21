@@ -486,8 +486,8 @@ function AppearancePanel() {
         <SettingRow label="高对比模式" hint="加强边框与次要文字的对比度。" layout="inline">
           <ToggleSwitch value={a.highContrast} onChange={(highContrast) => setAppearance({ highContrast })} ariaLabel="高对比模式" />
         </SettingRow>
-        <SettingRow label="侧栏默认折叠" hint="新会话首次进入时侧栏默认收起（手动展开/收起后以手动选择为准）。" layout="inline">
-          <ToggleSwitch value={a.sidebarDefaultCollapsed} onChange={(sidebarDefaultCollapsed) => setAppearance({ sidebarDefaultCollapsed })} ariaLabel="侧栏默认折叠" />
+        <SettingRow label="钉住侧栏展开" hint="侧栏常驻展开，不再收成图标轨、也不随悬停自动收起。" layout="inline">
+          <ToggleSwitch value={a.sidebarPinned} onChange={(sidebarPinned) => setAppearance({ sidebarPinned })} ariaLabel="钉住侧栏展开" />
         </SettingRow>
       </Group>
 

@@ -3,6 +3,7 @@ import { ForceFetchClientKey, type ClientKeyInfo as NamespaceClientKeyInfo } fro
 import { GetPskey } from '@snowluma/protocol/oidb-services/web/get-pskey';
 import { getGroupEssenceMsg, getGroupEssenceMsgAll, type GroupEssenceMsgRet } from '@snowluma/protocol/web/group-essence';
 import { getHonorListWebAPI, WebHonorType, type WebHonorItem } from '@snowluma/protocol/web/group-honor';
+import { getDaySignedListWebAPI, type SignedListMember } from '@snowluma/protocol/web/group-signin';
 import {
   deleteGroupNotice as deleteGroupNoticeHttp,
   getGroupNoticeWebAPI,
@@ -225,6 +226,16 @@ export class WebApi {
     }
 
     return honorInfo;
+  }
+
+  // ─────────────── group sign-in (打卡) ───────────────
+
+  /** Today's group sign-in list via qun.qq.com. [] when the group has no
+   *  sign-ins; THROWS on transport / auth failure (caller maps to failed). */
+  async getSignedList(groupId: number): Promise<SignedListMember[]> {
+    const bridge = asBridge(this.ctx);
+    const cookieObject = await getCookies(bridge, 'qun.qq.com');
+    return getDaySignedListWebAPI(cookieObject, groupId.toString(), bridge.identity.uin.toString());
   }
 
   // ─────────────── group notice ───────────────

@@ -557,7 +557,177 @@ export interface FaceroamOpReq {
   inner?:  pb<1, FaceroamOpReqInner>;
   uin?:    pb<2, uint_64>;
   field3?: pb<3, uint_32>;
+  body?:   pb<5, FaceroamOpBody>;
   field6?: pb<6, uint_32>;
+}
+export interface FaceroamOpBody {
+  emojiId?: pb<1, string>;
+}
+
+// OIDB 0x902e_1 opType=3 — 修改收藏表情（custom face）备注。
+// modify 和 move 走两个不同 cmd：modify=0x902e（opType=3），move=0x902f。
+// 之前以为 move 也走 0x902e opType=2，实测不生效——0x902e opType=2 是 move 后
+// 服务端触发的列表同步包，不是 move 本身。真正 move 是 0x902f（见下）。
+//
+// modify 业务体（OIDB 信封 f4 内）:
+//   { f1:1, f2:osVersion, f3:3, f5:{ f1:{emojiId,md5}, f2:desc }, f12:1 }
+// f5.entry.emoji 是 {emojiId, md5}，desc 是新备注。f12=1 是修改标志。
+// 字段编号严格对齐 QQ 9.9.26-44343 抓包。
+export interface CustomFaceOpEmojiEntry {
+  emojiId?: pb<1, string>;
+  md5?:     pb<2, string>;
+}
+export interface CustomFaceModifyEntry {
+  emoji?: pb<1, CustomFaceOpEmojiEntry>;
+  desc?:  pb<2, string>;
+}
+export interface CustomFaceModifyBody {
+  field1?:    pb<1, uint_32>;
+  osVersion?: pb<2, string>;
+  opType?:    pb<3, uint_32>;
+  entry?:     pb<5, CustomFaceModifyEntry>;
+  field12?:   pb<12, uint_32>;
+}
+// 0x902e modify 响应：f1=retcode, f2=errmsg, f3=opType, f4 repeated 受影响条目
+// {f1:{emojiId,md5}, f3:desc}（含改后 desc）。
+export interface CustomFaceModifyRespEntry {
+  emoji?: pb<1, CustomFaceOpEmojiEntry>;
+  desc?:  pb<3, string>;
+}
+export interface CustomFaceModifyResp {
+  retCode?: pb<1, uint_32>;
+  errMsg?:  pb<2, string>;
+  opType?:  pb<3, uint_32>;
+  entries?: pb_repeated<4, CustomFaceModifyRespEntry>;
+}
+
+// OIDB 0x902f_1 — 收藏表情（custom face）移动指令（move 第1步）。
+// "移动到最前"的第一步：发 0x902f 指明目标 emoji + 目标位置，服务端据此
+// 调整顺序。f3=1 = 移到最前。envelope 带 f12=1（uinForm）。
+// 业务体（OIDB 信封 f4 内）:
+//   { f1:{f1:1024, f2:osVersion, f3:buildVersion}, f2:emojiId, f3:位置 }
+// f1 是客户端环境（1024 是 client type 标志），f2 要移动的 emoji_id，
+// f3 目标位置（1=最前）。
+export interface CustomFaceOrderEnv {
+  field1?:       pb<1, uint_32>;
+  osVersion?:    pb<2, string>;
+  buildVersion?: pb<3, string>;
+}
+export interface CustomFaceOrderBody {
+  env?:      pb<1, CustomFaceOrderEnv>;
+  emojiId?:  pb<2, string>;
+  /** 目标位置（从 1 开始，1=最前）。 */
+  position?: pb<3, uint_32>;
+}
+// 0x902f 响应复用 CustomFaceModifyResp（f1=retcode, f2=errmsg）。
+
+// OIDB 0x902e_1 opType=2 — 收藏表情排序上传（move 第2步）。
+// "移动到最前"的第二步：把新顺序的完整 emoji 列表上传，第一个就是移到最前的。
+// 必须先发 0x902f（移动指令），再发本包（新顺序）——单发本包不生效。
+// modify（opType=3）和 move（opType=2）共用 cmd 0x902e，区分在业务体 f3。
+// envelope 带 f12=1（reserved=1，uinForm）。业务体（OIDB 信封 f4 内）:
+//   { f1:1, f2:osVersion, f3:2, f4:[repeated {emojiId, md5}] }
+// f4 是完整排序后的列表，用 fetch 顺序把目标挪到第一即可（不需要 DB 显示顺序）。
+export interface CustomFaceMoveEntry {
+  emojiId?: pb<1, string>;
+  md5?:     pb<2, string>;
+}
+export interface CustomFaceMoveBody {
+  field1?:    pb<1, uint_32>;
+  osVersion?: pb<2, string>;
+  opType?:    pb<3, uint_32>;
+  emojis?:    pb_repeated<4, CustomFaceMoveEntry>;
+}
+// 0x902e move 响应复用 CustomFaceModifyResp（f1=retcode, f2=errmsg）。move 成功
+// 返回 "操作成功"，f3 是 opType 回显，只看 retCode。
+
+// ImgStore.BDHExpressionRoam — 收藏表情上传申请（add 第1步）
+// 请求 body 结构来自 9.9.26-44343 frida 抓包。
+export interface BDHExpressionRoamInner {
+  field1?:   pb<1, uint_32>;
+  uin?:      pb<2, uint_64>;
+  field3?:   pb<3, uint_32>;
+  /** 图片 MD5（16B 二进制，非 hex 字符串）。 */
+  md5?:      pb<4, bytes>;
+  /** 图片字节数。 */
+  filesize?: pb<5, uint_32>;
+  field7?:   pb<7, uint_32>;
+  field8?:   pb<8, uint_32>;
+  field9?:   pb<9, uint_32>;
+  ver?:      pb<13, string>;
+  field16?:  pb<16, uint_32>;
+}
+export interface BDHExpressionRoamTailInner {
+  field1?: pb<1, uint_32>;
+  field2?: pb<2, uint_32>;
+  field3?: pb<3, string>;
+}
+export interface BDHExpressionRoamTail {
+  inner?: pb<1, BDHExpressionRoamTailInner>;
+  field2?: pb<2, uint_32>;
+}
+export interface BDHExpressionRoamReq {
+  field1?:   pb<1, uint_32>;
+  field2?:   pb<2, uint_32>;
+  inner?:    pb<3, BDHExpressionRoamInner>;
+  field7?:   pb<7, uint_32>;
+  tail?:     pb<1001, BDHExpressionRoamTail>;
+}
+
+// BDHExpressionRoam 响应：含上传节点 + token（add 第2步 highway 上传用）
+export interface BDHExpressionRoamRespInner {
+  field1?:  pb<1, uint_32>;
+  field2?:  pb<2, uint_32>;
+  field4?:  pb<4, uint_32>;
+  /** repeated varint，抓包见 6 个；上传节点走 fetchHighwaySession，不用这个。 */
+  field6?:  pb_repeated<6, uint_32>;
+  field7?:  pb_repeated<7, uint_32>;
+  /** 128B 上传 token，highway head 的 serviceTicket 用它。 */
+  token?:   pb<8, bytes>;
+  field12?: pb<12, uint_32>;
+  field3?:  pb<3, bytes>;
+}
+export interface BDHExpressionRoamResp {
+  field1?: pb<1, uint_32>;
+  field2?: pb<2, uint_32>;
+  inner?:  pb<3, BDHExpressionRoamRespInner>;
+}
+
+// highway head（add 第2步，PicUp.DataUp commandId=9）
+// 结构对齐 SnowLuma makeHighwayHead 的 msgBaseHead + msgSegHead，
+// 但 commandId=9（表情）、segHead.serviceTicket = BDHExpressionRoam token（非 sigSession）、
+// 顶层 f3 = emoji_id、f5 = 82B（含义未知，先不填）。
+export interface FavEmojiHighwayBaseHead {
+  version?:    pb<1, uint_32>;
+  uin?:        pb<2, string>;
+  command?:    pb<3, string>;
+  seq?:        pb<4, uint_32>;
+  retryTimes?: pb<5, uint_32>;
+  filesize?:   pb<6, uint_64>;
+  dataFlag?:   pb<7, uint_32>;
+  commandId?:  pb<8, uint_32>;
+}
+export interface FavEmojiHighwaySegHead {
+  serviceId?:     pb<1, uint_32>;
+  filesize?:      pb<2, uint_64>;
+  dataOffset?:    pb<3, uint_64>;
+  dataLength?:    pb<4, uint_64>;
+  /** 上传凭证 = BDHExpressionRoam token。 */
+  serviceTicket?: pb<6, bytes>;
+  md5?:           pb<8, bytes>;
+  fileMd5?:       pb<9, bytes>;
+}
+export interface FavEmojiIdWrap {
+  emojiId?: pb<1, string>;
+}
+export interface FavEmojiHighwayHead {
+  baseHead?:    pb<1, FavEmojiHighwayBaseHead>;
+  segHead?:     pb<2, FavEmojiHighwaySegHead>;
+  emojiIdWrap?: pb<3, FavEmojiIdWrap>;
+  field4?:      pb<4, uint_32>;
+  /** 82B，抓包见过但非必需。 */
+  field5?:      pb<5, bytes>;
+  field8?:      pb<8, uint_32>;
 }
 export interface FaceroamOpRespItem {
   faceIds?:    pb_repeated<1, string>;
