@@ -991,3 +991,88 @@ describe('extended-actions / get_qun_album_list', () => {
     expect(res.status).toBe('failed');
   });
 });
+
+// ─── flash-transfer: download_fileset (闪传文件集下载到本地) ───
+// 接线测试：参数校验 + facade 错误传播。完整下载链路（0x93d3/0x93d4 取链接 →
+// HTTP GET → 落盘 data/downloads）依赖真实 OIDB 与文件系统，与 download_file
+// 一样靠端到端验证，此处不重复 mock fetch/fs。
+describe('extended-actions / download_fileset', () => {
+  it('rejects missing fileset_id', async () => {
+    const downloadFileset = vi.fn(async () => ({ url: '', fileName: '', fileSize: 0 }));
+    const bridge = fakeBridge({ apis: { flashTransfer: { downloadFileset: downloadFileset as any } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('download_fileset', {});
+    expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(downloadFileset).not.toHaveBeenCalled();
+  });
+
+  it('surfaces facade errors as action_failed', async () => {
+    const downloadFileset = vi.fn(async () => { throw new Error('no download url available'); });
+    const bridge = fakeBridge({ apis: { flashTransfer: { downloadFileset: downloadFileset as any } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('download_fileset', { fileset_id: 'abc' });
+    expect(downloadFileset).toHaveBeenCalledOnce();
+    expect(downloadFileset.mock.calls[0]![0]).toBe('abc');
+    expect(res).toMatchObject({ status: 'failed', retcode: 100, wording: 'no download url available' });
+  });
+});
+
+// ─── flash-transfer: send_flash_msg (0x93d7 发送闪传文件) ───
+// 接线测试：参数校验 + 私聊/群聊转发 + 错误传播。完整链路（user_id→uid / group_id →
+// 0x93d7）依赖真实 identity 与 OIDB，靠 send_packet 端到端验证。
+describe('extended-actions / send_flash_msg', () => {
+  it('rejects when neither user_id nor group_id given', async () => {
+    const sendFlashMsg = vi.fn(async () => {});
+    const bridge = fakeBridge({ apis: { flashTransfer: { sendFlashMsg: sendFlashMsg as any } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('send_flash_msg', { fileset_id: 'abc' });
+    expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(sendFlashMsg).not.toHaveBeenCalled();
+  });
+
+  it('forwards fileset_id + user_id (private) and returns message_id 0', async () => {
+    const sendFlashMsg = vi.fn(async () => {});
+    const bridge = fakeBridge({ apis: { flashTransfer: { sendFlashMsg: sendFlashMsg as any } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('send_flash_msg', { fileset_id: 'fs-1', user_id: 12345 });
+    expect(sendFlashMsg).toHaveBeenCalledWith('fs-1', { userId: 12345, groupId: undefined });
+    expect(res).toMatchObject({ status: 'ok', data: { message_id: 0 } });
+  });
+
+  it('forwards fileset_id + group_id (group) and returns message_id 0', async () => {
+    const sendFlashMsg = vi.fn(async () => {});
+    const bridge = fakeBridge({ apis: { flashTransfer: { sendFlashMsg: sendFlashMsg as any } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('send_flash_msg', { fileset_id: 'fs-1', group_id: 1017438661 });
+    expect(sendFlashMsg).toHaveBeenCalledWith('fs-1', { userId: undefined, groupId: 1017438661 });
+    expect(res).toMatchObject({ status: 'ok', data: { message_id: 0 } });
+  });
+
+  it('surfaces facade errors (e.g. uid resolve failed) as action_failed', async () => {
+    const sendFlashMsg = vi.fn(async () => { throw new Error('failed to resolve UID for UIN 999'); });
+    const bridge = fakeBridge({ apis: { flashTransfer: { sendFlashMsg: sendFlashMsg as any } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('send_flash_msg', { fileset_id: 'fs-1', user_id: 999 });
+    expect(res).toMatchObject({ status: 'failed', retcode: 100 });
+  });
+});
+
+// ─── flash-transfer: get_fileset_id (分享码→fileset_id, HTTP 网页解析) ───
+describe('extended-actions / get_fileset_id', () => {
+  it('forwards share_code to facade and returns fileset_id', async () => {
+    const getFilesetIdByCode = vi.fn(async () => '8e40afa1-829d-498b-852f-092394ddb31f');
+    const bridge = fakeBridge({ apis: { flashTransfer: { getFilesetIdByCode: getFilesetIdByCode as any } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_fileset_id', { share_code: 'K0sEqhYria' });
+    expect(getFilesetIdByCode).toHaveBeenCalledWith('K0sEqhYria');
+    expect(res).toMatchObject({ status: 'ok', data: { fileset_id: '8e40afa1-829d-498b-852f-092394ddb31f' } });
+  });
+
+  it('rejects missing share_code', async () => {
+    const getFilesetIdByCode = vi.fn(async () => 'x');
+    const bridge = fakeBridge({ apis: { flashTransfer: { getFilesetIdByCode: getFilesetIdByCode as any } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_fileset_id', {});
+    expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(getFilesetIdByCode).not.toHaveBeenCalled();
+  });
+
+  it('surfaces facade errors (e.g. not found) as action_failed', async () => {
+    const getFilesetIdByCode = vi.fn(async () => { throw new Error('get_fileset_id: fileset_id not found in share page'); });
+    const bridge = fakeBridge({ apis: { flashTransfer: { getFilesetIdByCode: getFilesetIdByCode as any } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_fileset_id', { share_code: 'invalid' });
+    expect(res).toMatchObject({ status: 'failed', retcode: 100 });
+  });
+});
