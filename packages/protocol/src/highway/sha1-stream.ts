@@ -90,16 +90,19 @@ export class Sha1Stream {
  * 计算闪传 sliceupload 的 Sha1StateV（累积 SHA1 state list）。
  * states[i] = SHA1 中间 state（从初始 state 处理 file[0:(i+1)*sliceSize] 后，无 finalize，小端 20B）。
  * 最后一片 states[last] = 标准整文件 SHA1（有 finalize）。
+ *
+ * 用单个 Sha1Stream 增量 update：每片只喂新增的 sliceSize 字节再快照，O(n)。
+ * （sliceSize=1MB 是 SHA1 块大小 64B 的整数倍，增量 update 不会残留半块。）
  */
 export function computeSha1StateV(bytes: Uint8Array, sliceCount: number, sliceSize: number): Uint8Array[] {
   const states: Uint8Array[] = [];
   const sha1 = new Sha1Stream();
   for (let i = 0; i < sliceCount; i++) {
+    const start = i * sliceSize;
+    const end = Math.min(start + sliceSize, bytes.length);
+    sha1.update(bytes.subarray(start, end));
     if (i !== sliceCount - 1) {
-      const accLength = (i + 1) * sliceSize;
-      sha1.reset();
-      sha1.update(bytes.subarray(0, accLength));
-      states.push(sha1.hash(true));  // 小端中间 state
+      states.push(sha1.hash(true));  // 小端中间 state，不 finalize
     } else {
       // 最后一片：标准整文件 SHA1（有 finalize）
       states.push(new Uint8Array(createHash('sha1').update(Buffer.from(bytes)).digest()));

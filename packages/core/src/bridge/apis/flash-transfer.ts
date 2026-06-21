@@ -127,7 +127,7 @@ export class FlashTransferApi {
     filesetUuid: string, fileIndex: number = 1,
   ): Promise<{ url: string; fileName: string; fileSize: number } | null> {
     const metas = await GetDownloadUrl.invoke(this.ctx, { filesetUuid });
-    const meta = metas.find((m) => m.fileIndex === fileIndex) ?? metas[0];
+    const meta = metas.find((m) => m.fileIndex === fileIndex);
     if (!meta || !meta.fileId) return null;
     const url = await GetFlashDownload.invoke(this.ctx, {
       filesetUuid: meta.filesetUuid,
@@ -141,11 +141,13 @@ export class FlashTransferApi {
 
   /**
    * 获取闪传文件下载链接（get_flash_file_url）。主文件直链走 0x12a9 sub=200
-   * （0x93d3 的 downloadUrl 是缩略图 appid=14903，非主文件）。
+   * （0x93d3 的 downloadUrl 是缩略图 appid=14903，非主文件）。多文件 fileset 用
+   * fileIndex 指定第几个文件（默认 1）。找不到文件或拿不到直链时抛错。
    */
-  async getFlashFileUrl(filesetUuid: string): Promise<string> {
-    const dl = await this.getFileDownload(filesetUuid);
-    return dl?.url ?? '';
+  async getFlashFileUrl(filesetUuid: string, fileIndex: number = 1): Promise<string> {
+    const dl = await this.getFileDownload(filesetUuid, fileIndex);
+    if (!dl || !dl.url) throw new Error('get_flash_file_url: no download url available');
+    return dl.url;
   }
 
   /**
@@ -398,8 +400,8 @@ export class FlashTransferApi {
     }
     const respBuf = new Uint8Array(await resp.arrayBuffer());
     const sliceResp = protobuf_decode<FlashSliceUploadResp>(respBuf);
-    if (sliceResp.status && sliceResp.status !== 'success') {
-      throw new Error(`${label} failed: ${sliceResp.status}`);
+    if (sliceResp.status !== 'success') {
+      throw new Error(`${label} failed: ${sliceResp.status || 'no status in response'}`);
     }
   }
 

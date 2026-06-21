@@ -1877,9 +1877,9 @@ export const actions = [
       if (typeof rawFiles === 'string') {
         if (rawFiles === '') return failedResponse(RETCODE.BAD_REQUEST, 'files must not be empty');
         fileList = [rawFiles];
-      } else if (Array.isArray(rawFiles) && rawFiles.every((x) => typeof x === 'string')) {
+      } else if (Array.isArray(rawFiles) && rawFiles.every((x) => typeof x === 'string' && x !== '')) {
         if (rawFiles.length === 0) return failedResponse(RETCODE.BAD_REQUEST, 'files must not be empty');
-        fileList = rawFiles;
+        fileList = rawFiles as string[];
       } else {
         return failedResponse(RETCODE.BAD_REQUEST, 'files must be a string or string array');
       }
@@ -1944,7 +1944,7 @@ export const actions = [
     },
     run: async (p, ctx) => {
       try {
-        const url = await ctx.bridge.apis.flashTransfer.getFlashFileUrl(p.fileset_id);
+        const url = await ctx.bridge.apis.flashTransfer.getFlashFileUrl(p.fileset_id, p.file_index);
         return okResponse({ url });
       } catch (e) {
         return failedResponse(RETCODE.ACTION_FAILED, String(e));
