@@ -385,8 +385,14 @@ function shortDistro(distro: string): string {
   s = s.replace(/^Debian GNU\/Linux /, 'Debian ');
   s = s.replace(/^Red Hat Enterprise Linux /, 'RHEL ');
   s = s.replace(/^CentOS (?:Linux )?release /, 'CentOS ');
+  s = s.replace(/^Rocky Linux /, 'Rocky ');
+  s = s.replace(/^Alma(?:Linux)? /, 'Alma ');
+  s = s.replace(/^Oracle Linux /, 'Oracle ');
+  s = s.replace(/^Amazon Linux /, 'Amazon ');
+  s = s.replace(/^Scientific Linux /, 'Scientific ');
   s = s.replace(/^SUSE Linux Enterprise (?:Server |Desktop )?/, 'SUSE ');
   s = s.replace(/^Kali GNU\/Linux /, 'Kali ');
+  s = s.replace(/^Proxmox VE /, 'Proxmox ');
   s = s.replace(/^Windows Server /, 'Win Svr ');
   s = s.replace(/^Windows (\d+)/, 'Win $1');
   s = s.replace(/\s*\([^)]+\)/g, '');
@@ -476,7 +482,7 @@ function StatTileWidget({ id }: { id: string }) {
           icon={<Server className="size-5" />}
           label="主机名"
           value={systemInfo?.hostname ?? '—'}
-          subtext={systemInfo ? <Tooltip><TooltipTrigger className="truncate text-left">{shortDistro(systemInfo.distro)} · {systemInfo.archLabel}</TooltipTrigger><TooltipContent>{systemInfo.distro} · {systemInfo.archLabel}</TooltipContent></Tooltip> : '加载中'}
+          subtext={systemInfo ? <Tooltip><TooltipTrigger className="block truncate text-left min-w-0">{shortDistro(systemInfo.distro)} · {systemInfo.archLabel}</TooltipTrigger><TooltipContent>{systemInfo.distro} · {systemInfo.archLabel}</TooltipContent></Tooltip> : '加载中'}
         />
       );
     case 'stat:uptime':
