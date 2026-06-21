@@ -6,6 +6,7 @@ import { loadOneBotConfig, saveOneBotConfig } from '@snowluma/onebot/config';
 import type { OneBotManager } from '@snowluma/onebot/manager';
 import type { OneBotConfig, JsonObject as OneBotJsonObject } from '@snowluma/onebot/types';
 import { readRuntimeConfig, updateRuntimeConfig, resolveRuntimeEnvOverrides } from '@snowluma/common/runtime';
+import { execSync } from 'child_process';
 import { randomBytes } from 'crypto';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
 import { createServer as createHttpsServer } from 'https';
@@ -414,6 +415,29 @@ export async function initWebUI(
   });
 
   // Host system info
+  function detectDistro(): string {
+    for (const f of ['/etc/os-release', '/usr/lib/os-release']) {
+      if (!existsSync(f)) continue;
+      const raw = readFileSync(f, 'utf8');
+      const get = (k: string) => { const m = raw.match(new RegExp(`^${k}=("?)(.+?)\\1$`, 'm')); return m?.[2] ?? null; };
+      const pretty = get('PRETTY_NAME') || get('NAME');
+      const ver = get('VERSION_ID');
+      if (pretty) return ver && !pretty.includes(ver) ? `${pretty} ${ver}` : pretty;
+    }
+    if (os.platform() === 'win32') {
+      try {
+        const out = execSync(
+          'reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion" /v ProductName',
+          { encoding: 'utf8', timeout: 3000, stdio: 'pipe' },
+        );
+        const m = out.match(/ProductName\s+REG_SZ\s+(.+)/);
+        if (m) return m[1].trim();
+      } catch {}
+      return `Windows ${os.release()}`;
+    }
+    return os.platform();
+  }
+
   let lastCpuTimes: { idle: number; total: number }[] | null = null;
   function sampleCpuLoad(): number[] {
     const cpus = os.cpus();
@@ -449,6 +473,7 @@ export async function initWebUI(
       platform: os.platform(),
       arch: os.arch(),
       release: os.release(),
+      distro: detectDistro(),
       uptime: os.uptime(),
       processUptime: process.uptime(),
       nodeVersion: process.version,
