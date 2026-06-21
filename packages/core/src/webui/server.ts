@@ -130,10 +130,18 @@ function detectDistro(): string {
     const kernelRelease = os.release();
     const kernelVer = parseKernel(kernelRelease);
 
+    // Normalize RHEL-family distro names before comparison.
+    // /proc/version typically shows "Red Hat" (GCC build tag) even on
+    // Rocky / Alma / Oracle Linux, while /etc/os-release carries the
+    // actual distro name.  Treat the whole family as a single group so
+    // they are never considered "disagreeing".
+    const isRhelFamily = (name: string): boolean =>
+      /^(red hat|centos|rocky|alma|oracle|scientific)/.test(name);
+
     // Extract distro version from kernel release string.
     // Distros embed their version in the kernel ABI / build tag:
     //   Debian: "6.8.12-1-deb13-amd64"             → 13
-    //   RHEL/CentOS/Rocky/Alma/Oracle: "4.18.0-513.el9.x86_64"  → 9
+    //   RHEL family: "4.18.0-513.el9.x86_64"        → 9
     //   Fedora: "6.8.12-300.fc40.x86_64"            → 40
     //   Amazon Linux: "6.1.158-178.288.amzn2023"    → 2023
     //   Mageia: "6.8.12-1.mga10"                    → 10
@@ -142,7 +150,7 @@ function detectDistro(): string {
       const lr = kernelRelease.toLowerCase();
       const ld = distro.toLowerCase();
       if (ld === 'debian') { const m = lr.match(/deb(\d+)/); if (m) return m[1]; }
-      if (ld === 'red hat' || ld === 'centos') { const m = lr.match(/el(\d+)/); if (m) return m[1]; }
+      if (isRhelFamily(ld)) { const m = lr.match(/el(\d+)/); if (m) return m[1]; }
       if (ld === 'fedora') { const m = lr.match(/fc(\d+)/); if (m) return m[1]; }
       if (ld === 'amazon' || ld.includes('amazon')) { const m = lr.match(/amzn(\d+)/); if (m) return m[1]; }
       if (ld === 'mageia') { const m = lr.match(/mga(\d+)/); if (m) return m[1]; }
@@ -184,10 +192,13 @@ function detectDistro(): string {
     let finalVer: string | null;
 
     if (hostName && osReleaseName) {
-      // Normalize and compare: e.g. "Debian" vs "Debian GNU/Linux" → match
+      // Normalize and compare: e.g. "Debian" vs "Debian GNU/Linux" → match.
+      // RHEL family members (Red Hat, CentOS, Rocky, Alma, Oracle, Scientific)
+      // are normalised to the same group — /proc/version usually shows "Red Hat"
+      // (GCC build tag) even when the actual distro is Rocky / Alma / Oracle.
       const a = hostName.toLowerCase();
       const b = osReleaseName.toLowerCase();
-      if (a.includes(b) || b.includes(a)) {
+      if (a.includes(b) || b.includes(a) || (isRhelFamily(a) && isRhelFamily(b))) {
         // Agree → prefer version from kernel release, fall back to os-release
         finalName = osReleaseName;
         finalVer = kernelDistroVer(hostName) ?? osReleaseVer;
@@ -266,11 +277,12 @@ function normalizeArch(arch: string): string {
     s390x: 'S/390x',
     ppc: 'PowerPC',
     ppc64: 'PowerPC64',
+    ppc64le: 'PowerPC64 (LE)',
   };
   return map[arch] ?? arch;
 }
 
-const CACHED_DISTRO = detectDistro();
+const CACHED_DISTRO = (() => { try { return detectDistro(); } catch { return os.platform(); } })();
 const CACHED_ARCH_LABEL = normalizeArch(os.arch());
 
 export async function initWebUI(
