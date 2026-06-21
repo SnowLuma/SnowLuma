@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn, formatBytes, formatUptime } from '@/lib/utils';
@@ -379,24 +380,17 @@ function DropPlaceholder({ onAdd }: { onAdd: (id: string, x: number, y: number) 
 
 // ─────────────── stat tiles (one widget each) ───────────────
 
-function summarizeDistro(distro: string): string {
-  const re: [RegExp, string][] = [
-    [/^Debian GNU\/Linux /, 'Debian '],
-    [/^Red Hat Enterprise Linux /, 'RHEL '],
-    [/^CentOS (?:Linux )?release /, 'CentOS '],
-    [/^SUSE Linux Enterprise (?:Server |Desktop )?/, 'SUSE '],
-    [/^Oracle Linux Server /, 'Oracle Linux '],
-    [/^Kali GNU\/Linux /, 'Kali '],
-    [/^Linux Mint /, 'Mint '],
-    [/^Manjaro Linux /, 'Manjaro '],
-    [/^Windows Server /, 'Win Svr '],
-    [/^Windows (\d+)/, 'Win $1'],
-    [/^\s*\([^)]+\)\s*/g, ''],
-    [/\s*\([^)]+\)/g, ''],
-    [/\s{2,}/g, ' '],
-  ];
+function shortDistro(distro: string): string {
   let s = distro;
-  for (const [p, r] of re) s = s.replace(p, r);
+  s = s.replace(/^Debian GNU\/Linux /, 'Debian ');
+  s = s.replace(/^Red Hat Enterprise Linux /, 'RHEL ');
+  s = s.replace(/^CentOS (?:Linux )?release /, 'CentOS ');
+  s = s.replace(/^SUSE Linux Enterprise (?:Server |Desktop )?/, 'SUSE ');
+  s = s.replace(/^Kali GNU\/Linux /, 'Kali ');
+  s = s.replace(/^Windows Server /, 'Win Svr ');
+  s = s.replace(/^Windows (\d+)/, 'Win $1');
+  s = s.replace(/\s*\([^)]+\)/g, '');
+  s = s.replace(/\s{2,}/g, ' ');
   return s.trim();
 }
 
@@ -423,7 +417,7 @@ function StatTile({
       <div className="min-w-0 flex-1">
         <p className="truncate text-[11px] font-medium uppercase leading-tight tracking-wider text-muted-foreground">{label}</p>
         <div className="mt-1 truncate text-lg font-semibold leading-tight tabular-nums">{value}</div>
-        {subtext && <p className="mt-1 truncate text-[11px] leading-tight text-muted-foreground" title={typeof subtext === 'string' ? subtext : (subtext as any)?.props?.title ?? undefined}>{subtext}</p>}
+        {subtext && <p className="mt-1 truncate text-[11px] leading-tight text-muted-foreground">{subtext}</p>}
       </div>
       {to && <ArrowRight className="size-4 shrink-0 text-muted-foreground/60" />}
     </CardContent>
@@ -482,7 +476,7 @@ function StatTileWidget({ id }: { id: string }) {
           icon={<Server className="size-5" />}
           label="主机名"
           value={systemInfo?.hostname ?? '—'}
-          subtext={systemInfo ? <span title={`${systemInfo.distro} · ${systemInfo.archLabel}`}>{summarizeDistro(systemInfo.distro)} · {systemInfo.archLabel}</span> : '加载中'}
+          subtext={systemInfo ? <Tooltip><TooltipTrigger className="truncate text-left">{shortDistro(systemInfo.distro)} · {systemInfo.archLabel}</TooltipTrigger><TooltipContent>{systemInfo.distro} · {systemInfo.archLabel}</TooltipContent></Tooltip> : '加载中'}
         />
       );
     case 'stat:uptime':
