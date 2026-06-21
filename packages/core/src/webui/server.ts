@@ -154,6 +154,10 @@ function detectDistro(): string {
       if (ld === 'fedora') { const m = lr.match(/fc(\d+)/); if (m) return m[1]; }
       if (ld === 'amazon' || ld.includes('amazon')) { const m = lr.match(/amzn(\d+)/); if (m) return m[1]; }
       if (ld === 'mageia') { const m = lr.match(/mga(\d+)/); if (m) return m[1]; }
+      if (ld === 'armbian') { const m = lr.match(/armbian(\d+)/); if (m) return m[1]; }
+      if (ld === 'dietpi') { const m = lr.match(/dietpi(\d+)/); if (m) return m[1]; }
+      if (ld.includes('libreelec')) { const m = lr.match(/libreelec(\d+)/); if (m) return m[1]; }
+      if (ld.includes('coreelec')) { const m = lr.match(/coreelec(\d+)/); if (m) return m[1]; }
       return null;
     };
 
@@ -163,8 +167,27 @@ function detectDistro(): string {
       const raw = readFileSync('/proc/version', 'utf8').trim();
       const vm = raw.match(/^Linux version\s+(\S+)/);
       if (vm) {
-        const dm = raw.match(/\b(Debian|Ubuntu|Red Hat|CentOS|Fedora|Alpine|Arch|Gentoo|SUSE|Proxmox|OpenWrt|Deepin|Kylin|openEuler|Anolis|UOS|Linux Mint|Slackware|Manjaro|NixOS|Void|Mageia|Kali|Amazon|Solus|Alibaba)\b/i);
-        hostName = dm ? dm[1] : null;
+        // Step 1: kernel release string — embedded distros embed their name
+        // here (e.g. "6.6.16-armbian", "6.1.60-dietpi"). More reliable than
+        // the GCC build tag, which often shows the cross-compilation toolchain
+        // (e.g. "Ubuntu" for Armbian / DietPi) rather than the actual OS.
+        const releaseStr = vm[1].toLowerCase();
+        const releaseNameMatch = releaseStr.match(/(armbian|dietpi|libreelec|coreelec)/);
+        if (releaseNameMatch) {
+          const nameMap: Record<string, string> = {
+            armbian: 'Armbian',
+            dietpi: 'DietPi',
+            libreelec: 'LibreELEC',
+            coreelec: 'CoreELEC',
+          };
+          hostName = nameMap[releaseNameMatch[1]] ?? releaseNameMatch[1];
+        } else {
+          // Step 2: GCC build tag — matches the distribution that compiled
+          // the running kernel (e.g. "(Ubuntu ...)", "(Debian ...)",
+          // "(Red Hat ...)").
+          const dm = raw.match(/\b(Debian|Ubuntu|Red Hat|CentOS|Fedora|Alpine|Arch|Gentoo|SUSE|Proxmox|OpenWrt|Deepin|Kylin|openEuler|Anolis|UOS|Linux Mint|Slackware|Manjaro|NixOS|Void|Mageia|Kali|Amazon|Solus|Alibaba|Armbian|DietPi|Raspbian)\b/i);
+          hostName = dm ? dm[1] : null;
+        }
       }
     } catch { /* source A unavailable */ }
 
