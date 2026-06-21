@@ -122,19 +122,27 @@ async function fetchQqAvatar(uin: string): Promise<{ body: Uint8Array; contentTy
 // ── Host system info (cached at module level, invariant over process lifetime) ──
 
 function detectDistro(): string {
-  // Linux
+  // Helper: extract major.minor.patch from a kernel version string
+  const parseKernel = (v: string): string | null => { const m = v.match(/(\d+\.\d+\.\d+)/); return m?.[1] ?? null; };
+
+  // ── Linux ──────────────────────────────────────────────────────────
   if (os.platform() === 'linux') {
-    // /proc/version reflects the host kernel (crosses container boundaries)
+    const kernelVer = parseKernel(os.release());
+
+    // Source A: /proc/version (host kernel build, crosses container boundary)
+    let hostName: string | null = null;
     try {
       const raw = readFileSync('/proc/version', 'utf8').trim();
-      const m = raw.match(/^Linux version\s+(\S+)/);
-      if (m) {
+      const vm = raw.match(/^Linux version\s+(\d+\.\d+\.\d+)/);
+      if (vm) {
         const dm = raw.match(/\b(Debian|Ubuntu|Red Hat|CentOS|Fedora|Alpine|Arch|Gentoo|SUSE|Proxmox|OpenWrt)\b/);
-        return dm ? `Linux ${m[1]} (${dm[1]})` : `Linux ${m[1]}`;
+        hostName = dm ? dm[1] : null;
       }
-    } catch { /* fall through */ }
+    } catch { /* source A unavailable */ }
 
-    // /etc/os-release (container image OS)
+    // Source B: /etc/os-release (container / local OS)
+    let osReleaseName: string | null = null;
+    let osReleaseVer: string | null = null;
     try {
       for (const f of ['/etc/os-release', '/usr/lib/os-release']) {
         if (!existsSync(f)) continue;
@@ -142,22 +150,61 @@ function detectDistro(): string {
         const get = (k: string) => { const m = raw.match(new RegExp(`^${k}=("?)(.+?)\\1$`, 'm')); return m?.[2] ?? null; };
         const pretty = get('PRETTY_NAME') || get('NAME');
         const ver = get('VERSION_ID');
-        if (pretty) return ver && !pretty.includes(ver) ? `${pretty} ${ver}` : pretty;
+        if (pretty) {
+          const nm = pretty.match(/^([^0-9]+)/);
+          osReleaseName = nm ? nm[1].trim() : pretty;
+          osReleaseVer = ver;
+          break;
+        }
       }
-    } catch { /* fall through */ }
+    } catch { /* source B unavailable */ }
 
-    // Other Linux fallback files
-    for (const [path, prefix] of [
-      ['/etc/alpine-release', 'Alpine Linux '],
-      ['/etc/redhat-release', ''],
-      ['/etc/debian_version', 'Debian '],
-    ] as [string, string][]) {
-      try { if (existsSync(path)) return prefix + readFileSync(path, 'utf8').trim(); } catch { /* try next */ }
+    // Decide which source to trust for the distro name
+    let finalName: string;
+    let finalVer: string | null;
+
+    if (hostName && osReleaseName) {
+      // Normalize and compare: e.g. "Debian" vs "Debian GNU/Linux" → match
+      const a = hostName.toLowerCase();
+      const b = osReleaseName.toLowerCase();
+      if (a.includes(b) || b.includes(a)) {
+        // Agree → use os-release version (richer), append kernel from host
+        finalName = osReleaseName;
+        finalVer = osReleaseVer;
+      } else {
+        // Disagree → host kernel build wins (crosses container boundary)
+        finalName = hostName;
+        finalVer = null; // os-release version belongs to the wrong distro
+      }
+    } else if (hostName) {
+      finalName = hostName;
+      finalVer = null;
+    } else if (osReleaseName) {
+      finalName = osReleaseName;
+      finalVer = osReleaseVer;
+    } else {
+      // Source C: legacy release files
+      for (const [path, prefix] of [
+        ['/etc/alpine-release', 'Alpine Linux '],
+        ['/etc/redhat-release', ''],
+        ['/etc/debian_version', 'Debian '],
+      ] as [string, string][]) {
+        try {
+          if (existsSync(path)) {
+            const raw = prefix + readFileSync(path, 'utf8').trim();
+            return kernelVer ? `${raw} (kernel ${kernelVer})` : raw;
+          }
+        } catch { /* try next */ }
+      }
+      return kernelVer ? `Linux (kernel ${kernelVer})` : 'Linux';
     }
-    return 'Linux';
+
+    // Unified output: <Name> <version> (kernel <kernel>)
+    const base = finalVer ? `${finalName} ${finalVer}` : finalName;
+    return kernelVer ? `${base} (kernel ${kernelVer})` : base;
   }
 
-  // Windows
+  // ── Windows ────────────────────────────────────────────────────────
   if (os.platform() === 'win32') {
     try {
       const productName = execSync(
