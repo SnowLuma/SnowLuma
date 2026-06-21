@@ -6,6 +6,7 @@ import { loadOneBotConfig, saveOneBotConfig } from '@snowluma/onebot/config';
 import type { OneBotManager } from '@snowluma/onebot/manager';
 import type { OneBotConfig, JsonObject as OneBotJsonObject } from '@snowluma/onebot/types';
 import { readRuntimeConfig, updateRuntimeConfig, resolveRuntimeEnvOverrides } from '@snowluma/common/runtime';
+import { execSync } from 'child_process';
 import { randomBytes } from 'crypto';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
 import { createServer as createHttpsServer } from 'https';
@@ -117,6 +118,78 @@ async function fetchQqAvatar(uin: string): Promise<{ body: Uint8Array; contentTy
   const body = new Uint8Array(await response.arrayBuffer());
   return { body, contentType };
 }
+
+// ── Host system info (cached at module level, invariant over process lifetime) ──
+
+function detectDistro(): string {
+  try {
+    for (const f of ['/etc/os-release', '/usr/lib/os-release']) {
+      if (!existsSync(f)) continue;
+      const raw = readFileSync(f, 'utf8');
+      const get = (k: string) => { const m = raw.match(new RegExp(`^${k}=("?)(.+?)\\1$`, 'm')); return m?.[2] ?? null; };
+      const pretty = get('PRETTY_NAME') || get('NAME');
+      const ver = get('VERSION_ID');
+      if (pretty) return ver && !pretty.includes(ver) ? `${pretty} ${ver}` : pretty;
+    }
+  } catch { /* fall through */ }
+
+  if (os.platform() === 'win32') {
+    try {
+      const productName = execSync(
+        'reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion" /v ProductName',
+        { encoding: 'utf8', timeout: 3000, stdio: 'pipe' },
+      );
+      const m = productName.match(/ProductName\s+REG_SZ\s+(.+)/);
+      let name = m ? m[1].trim() : `Windows ${os.release()}`;
+      // ProductName is still "Windows 10 Pro" on Windows 11 — check build number.
+      try {
+        const buildOut = execSync(
+          'reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion" /v CurrentBuildNumber',
+          { encoding: 'utf8', timeout: 3000, stdio: 'pipe' },
+        );
+        const bm = buildOut.match(/CurrentBuildNumber\s+REG_SZ\s+(\d+)/);
+        if (bm && parseInt(bm[1], 10) >= 22000) {
+          name = name.replace(/^Windows 10/, 'Windows 11');
+        }
+      } catch { /* keep name as-is */ }
+      return name;
+    } catch { /* fall through */ }
+    return `Windows ${os.release()}`;
+  }
+
+  // Linux fallback files
+  for (const [path, prefix] of [
+    ['/etc/alpine-release', 'Alpine Linux '],
+    ['/etc/redhat-release', ''],
+    ['/etc/debian_version', 'Debian '],
+  ] as [string, string][]) {
+    try {
+      if (existsSync(path)) return prefix + readFileSync(path, 'utf8').trim();
+    } catch { /* try next */ }
+  }
+  return os.platform();
+}
+
+function normalizeArch(arch: string): string {
+  const map: Record<string, string> = {
+    loong64: 'LoongArch',
+    riscv64: 'RISC-V',
+    mips: 'MIPS',
+    mipsel: 'MIPS (LE)',
+    arm: 'ARM',
+    arm64: 'ARM64',
+    x64: 'x86_64',
+    ia32: 'x86',
+    s390: 'S/390',
+    s390x: 'S/390x',
+    ppc: 'PowerPC',
+    ppc64: 'PowerPC64',
+  };
+  return map[arch] ?? arch;
+}
+
+const CACHED_DISTRO = detectDistro();
+const CACHED_ARCH_LABEL = normalizeArch(os.arch());
 
 export async function initWebUI(
   desiredPort: number = 5099,
@@ -413,7 +486,6 @@ export async function initWebUI(
     return c.json(await getUpdateInfo(force));
   });
 
-  // Host system info
   let lastCpuTimes: { idle: number; total: number }[] | null = null;
   function sampleCpuLoad(): number[] {
     const cpus = os.cpus();
@@ -448,7 +520,9 @@ export async function initWebUI(
       hostname: os.hostname(),
       platform: os.platform(),
       arch: os.arch(),
+      archLabel: CACHED_ARCH_LABEL,
       release: os.release(),
+      distro: CACHED_DISTRO,
       uptime: os.uptime(),
       processUptime: process.uptime(),
       nodeVersion: process.version,

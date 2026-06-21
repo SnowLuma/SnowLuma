@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn, formatBytes, formatUptime } from '@/lib/utils';
@@ -379,6 +380,20 @@ function DropPlaceholder({ onAdd }: { onAdd: (id: string, x: number, y: number) 
 
 // ─────────────── stat tiles (one widget each) ───────────────
 
+function shortDistro(distro: string): string {
+  let s = distro;
+  s = s.replace(/^Debian GNU\/Linux /, 'Debian ');
+  s = s.replace(/^Red Hat Enterprise Linux /, 'RHEL ');
+  s = s.replace(/^CentOS (?:Linux )?release /, 'CentOS ');
+  s = s.replace(/^SUSE Linux Enterprise (?:Server |Desktop )?/, 'SUSE ');
+  s = s.replace(/^Kali GNU\/Linux /, 'Kali ');
+  s = s.replace(/^Windows Server /, 'Win Svr ');
+  s = s.replace(/^Windows (\d+)/, 'Win $1');
+  s = s.replace(/\s*\([^)]+\)/g, '');
+  s = s.replace(/\s{2,}/g, ' ');
+  return s.trim();
+}
+
 function StatTile({
   icon, label, value, subtext, accent = false, to,
 }: {
@@ -461,7 +476,7 @@ function StatTileWidget({ id }: { id: string }) {
           icon={<Server className="size-5" />}
           label="主机名"
           value={systemInfo?.hostname ?? '—'}
-          subtext={systemInfo ? `${systemInfo.platform} · ${systemInfo.arch}` : '加载中'}
+          subtext={systemInfo ? <Tooltip><TooltipTrigger className="truncate text-left">{shortDistro(systemInfo.distro)} · {systemInfo.archLabel}</TooltipTrigger><TooltipContent>{systemInfo.distro} · {systemInfo.archLabel}</TooltipContent></Tooltip> : '加载中'}
         />
       );
     case 'stat:uptime':
