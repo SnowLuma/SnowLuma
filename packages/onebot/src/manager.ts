@@ -98,7 +98,22 @@ export class OneBotManager {
     // fire OIDB requests concurrently during startup.  Network adapters
     // and rkey warmup are started after the contacts warmup completes.
     this.warmupQueue.enqueue(async () => {
+      // Guard: session may have closed and reconnected while this task was
+      // queued behind another account's warmup.  If the instance is no
+      // longer current, skip — the new session's warmup task follows us in
+      // the queue and will handle it.
+      if (this.instances.get(uin) !== instance) {
+        log.info('warmup skipped: session for UIN=%s restarted before warmup', uin);
+        return;
+      }
       await warmUpBridgeState(uin, bridge);
+      // Guard: session may have closed/reconnected while warmup was running
+      // (e.g. during OIDB retries).  Don't start a disposed instance or
+      // issue OIDB/rkey work through a stale bridge.
+      if (this.instances.get(uin) !== instance) {
+        log.info('warmup stale: session for UIN=%s restarted during warmup', uin);
+        return;
+      }
       instance.start();
     });
   }
