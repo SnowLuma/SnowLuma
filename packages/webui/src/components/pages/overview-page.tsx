@@ -391,6 +391,12 @@ function shortDistro(distro: string): string {
   s = s.replace(/^Amazon Linux /, 'Amazon ');
   s = s.replace(/^Scientific Linux /, 'Scientific ');
   s = s.replace(/^SUSE Linux Enterprise (?:Server |Desktop )?/, 'SUSE ');
+  s = s.replace(/^Anolis OS /, 'Anolis ');
+  s = s.replace(/^TencentOS Server /, 'TencentOS ');
+  s = s.replace(/^Ubuntu Kylin /, 'Ubuntu ');
+  s = s.replace(/^Manjaro Linux /, 'Manjaro ');
+  s = s.replace(/^Void Linux /, 'Void ');
+  s = s.replace(/^Alibaba Cloud Linux /, 'Alibaba ');
   s = s.replace(/^Kali GNU\/Linux /, 'Kali ');
   s = s.replace(/^Proxmox VE /, 'Proxmox ');
   s = s.replace(/^Windows Server /, 'Win Svr ');
