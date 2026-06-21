@@ -136,7 +136,7 @@ function detectDistro(): string {
     // actual distro name.  Treat the whole family as a single group so
     // they are never considered "disagreeing".
     const isRhelFamily = (name: string): boolean =>
-      /^(red hat|centos|rocky|alma|oracle|scientific)/.test(name);
+      /^(red hat|centos|rocky|alma|oracle|scientific|anolis|tencentos|bclinux|opencloudos)/.test(name);
 
     // Extract distro version from kernel release string.
     // Distros embed their version in the kernel ABI / build tag:
@@ -163,7 +163,7 @@ function detectDistro(): string {
       const raw = readFileSync('/proc/version', 'utf8').trim();
       const vm = raw.match(/^Linux version\s+(\S+)/);
       if (vm) {
-        const dm = raw.match(/\b(Debian|Ubuntu|Red Hat|CentOS|Fedora|Alpine|Arch|Gentoo|SUSE|Proxmox|OpenWrt)\b/);
+        const dm = raw.match(/\b(Debian|Ubuntu|Red Hat|CentOS|Fedora|Alpine|Arch|Gentoo|SUSE|Proxmox|OpenWrt|Deepin|Kylin|openEuler|Anolis|UOS|Linux Mint|Slackware|Manjaro|NixOS|Void|Mageia|Kali|Amazon|Solus|Alibaba)\b/i);
         hostName = dm ? dm[1] : null;
       }
     } catch { /* source A unavailable */ }
