@@ -379,6 +379,27 @@ function DropPlaceholder({ onAdd }: { onAdd: (id: string, x: number, y: number) 
 
 // ─────────────── stat tiles (one widget each) ───────────────
 
+function summarizeDistro(distro: string): string {
+  const re: [RegExp, string][] = [
+    [/^Debian GNU\/Linux /, 'Debian '],
+    [/^Red Hat Enterprise Linux /, 'RHEL '],
+    [/^CentOS (?:Linux )?release /, 'CentOS '],
+    [/^SUSE Linux Enterprise (?:Server |Desktop )?/, 'SUSE '],
+    [/^Oracle Linux Server /, 'Oracle Linux '],
+    [/^Kali GNU\/Linux /, 'Kali '],
+    [/^Linux Mint /, 'Mint '],
+    [/^Manjaro Linux /, 'Manjaro '],
+    [/^Windows Server /, 'Win Svr '],
+    [/^Windows (\d+)/, 'Win $1'],
+    [/^\s*\([^)]+\)\s*/g, ''],
+    [/\s*\([^)]+\)/g, ''],
+    [/\s{2,}/g, ' '],
+  ];
+  let s = distro;
+  for (const [p, r] of re) s = s.replace(p, r);
+  return s.trim();
+}
+
 function StatTile({
   icon, label, value, subtext, accent = false, to,
 }: {
@@ -402,7 +423,7 @@ function StatTile({
       <div className="min-w-0 flex-1">
         <p className="truncate text-[11px] font-medium uppercase leading-tight tracking-wider text-muted-foreground">{label}</p>
         <div className="mt-1 truncate text-lg font-semibold leading-tight tabular-nums">{value}</div>
-        {subtext && <p className="mt-1 truncate text-[11px] leading-tight text-muted-foreground">{subtext}</p>}
+        {subtext && <p className="mt-1 truncate text-[11px] leading-tight text-muted-foreground" title={typeof subtext === 'string' ? subtext : (subtext as any)?.props?.title ?? undefined}>{subtext}</p>}
       </div>
       {to && <ArrowRight className="size-4 shrink-0 text-muted-foreground/60" />}
     </CardContent>
@@ -461,7 +482,7 @@ function StatTileWidget({ id }: { id: string }) {
           icon={<Server className="size-5" />}
           label="主机名"
           value={systemInfo?.hostname ?? '—'}
-          subtext={systemInfo ? `${systemInfo.distro} · ${systemInfo.archLabel}` : '加载中'}
+          subtext={systemInfo ? <span title={`${systemInfo.distro} · ${systemInfo.archLabel}`}>{summarizeDistro(systemInfo.distro)} · {systemInfo.archLabel}</span> : '加载中'}
         />
       );
     case 'stat:uptime':
