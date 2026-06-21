@@ -122,17 +122,42 @@ async function fetchQqAvatar(uin: string): Promise<{ body: Uint8Array; contentTy
 // ── Host system info (cached at module level, invariant over process lifetime) ──
 
 function detectDistro(): string {
-  try {
-    for (const f of ['/etc/os-release', '/usr/lib/os-release']) {
-      if (!existsSync(f)) continue;
-      const raw = readFileSync(f, 'utf8');
-      const get = (k: string) => { const m = raw.match(new RegExp(`^${k}=("?)(.+?)\\1$`, 'm')); return m?.[2] ?? null; };
-      const pretty = get('PRETTY_NAME') || get('NAME');
-      const ver = get('VERSION_ID');
-      if (pretty) return ver && !pretty.includes(ver) ? `${pretty} ${ver}` : pretty;
-    }
-  } catch { /* fall through */ }
+  // Linux
+  if (os.platform() === 'linux') {
+    // /proc/version reflects the host kernel (crosses container boundaries)
+    try {
+      const raw = readFileSync('/proc/version', 'utf8').trim();
+      const m = raw.match(/^Linux version\s+(\S+)/);
+      if (m) {
+        const dm = raw.match(/\b(Debian|Ubuntu|Red Hat|CentOS|Fedora|Alpine|Arch|Gentoo|SUSE|Proxmox|OpenWrt)\b/);
+        return dm ? `Linux ${m[1]} (${dm[1]})` : `Linux ${m[1]}`;
+      }
+    } catch { /* fall through */ }
 
+    // /etc/os-release (container image OS)
+    try {
+      for (const f of ['/etc/os-release', '/usr/lib/os-release']) {
+        if (!existsSync(f)) continue;
+        const raw = readFileSync(f, 'utf8');
+        const get = (k: string) => { const m = raw.match(new RegExp(`^${k}=("?)(.+?)\\1$`, 'm')); return m?.[2] ?? null; };
+        const pretty = get('PRETTY_NAME') || get('NAME');
+        const ver = get('VERSION_ID');
+        if (pretty) return ver && !pretty.includes(ver) ? `${pretty} ${ver}` : pretty;
+      }
+    } catch { /* fall through */ }
+
+    // Other Linux fallback files
+    for (const [path, prefix] of [
+      ['/etc/alpine-release', 'Alpine Linux '],
+      ['/etc/redhat-release', ''],
+      ['/etc/debian_version', 'Debian '],
+    ] as [string, string][]) {
+      try { if (existsSync(path)) return prefix + readFileSync(path, 'utf8').trim(); } catch { /* try next */ }
+    }
+    return 'Linux';
+  }
+
+  // Windows
   if (os.platform() === 'win32') {
     try {
       const productName = execSync(
@@ -157,16 +182,6 @@ function detectDistro(): string {
     return `Windows ${os.release()}`;
   }
 
-  // Linux fallback files
-  for (const [path, prefix] of [
-    ['/etc/alpine-release', 'Alpine Linux '],
-    ['/etc/redhat-release', ''],
-    ['/etc/debian_version', 'Debian '],
-  ] as [string, string][]) {
-    try {
-      if (existsSync(path)) return prefix + readFileSync(path, 'utf8').trim();
-    } catch { /* try next */ }
-  }
   return os.platform();
 }
 
