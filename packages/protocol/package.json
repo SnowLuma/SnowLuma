@@ -72,6 +72,58 @@
       "types": "./src/oidb-services/custom-face/order-custom-face.ts",
       "default": "./src/oidb-services/custom-face/order-custom-face.ts"
     },
+    "./oidb-services/flash-transfer/get-fileset-detail": {
+      "types": "./src/oidb-services/flash-transfer/get-fileset-detail.ts",
+      "default": "./src/oidb-services/flash-transfer/get-fileset-detail.ts"
+    },
+    "./oidb-services/flash-transfer/list-filesets": {
+      "types": "./src/oidb-services/flash-transfer/list-filesets.ts",
+      "default": "./src/oidb-services/flash-transfer/list-filesets.ts"
+    },
+    "./oidb-services/flash-transfer/get-download-url": {
+      "types": "./src/oidb-services/flash-transfer/get-download-url.ts",
+      "default": "./src/oidb-services/flash-transfer/get-download-url.ts"
+    },
+    "./oidb-services/flash-transfer/delete-file": {
+      "types": "./src/oidb-services/flash-transfer/delete-file.ts",
+      "default": "./src/oidb-services/flash-transfer/delete-file.ts"
+    },
+    "./oidb-services/flash-transfer/rename-file": {
+      "types": "./src/oidb-services/flash-transfer/rename-file.ts",
+      "default": "./src/oidb-services/flash-transfer/rename-file.ts"
+    },
+    "./oidb-services/flash-transfer/apply-fileset": {
+      "types": "./src/oidb-services/flash-transfer/apply-fileset.ts",
+      "default": "./src/oidb-services/flash-transfer/apply-fileset.ts"
+    },
+    "./oidb-services/flash-transfer/commit-file": {
+      "types": "./src/oidb-services/flash-transfer/commit-file.ts",
+      "default": "./src/oidb-services/flash-transfer/commit-file.ts"
+    },
+    "./oidb-services/flash-transfer/complete-fileset": {
+      "types": "./src/oidb-services/flash-transfer/complete-fileset.ts",
+      "default": "./src/oidb-services/flash-transfer/complete-fileset.ts"
+    },
+    "./oidb-services/flash-transfer/set-status": {
+      "types": "./src/oidb-services/flash-transfer/set-status.ts",
+      "default": "./src/oidb-services/flash-transfer/set-status.ts"
+    },
+    "./oidb-services/flash-transfer/apply-upload": {
+      "types": "./src/oidb-services/flash-transfer/apply-upload.ts",
+      "default": "./src/oidb-services/flash-transfer/apply-upload.ts"
+    },
+    "./oidb-services/flash-transfer/prepare-upload": {
+      "types": "./src/oidb-services/flash-transfer/prepare-upload.ts",
+      "default": "./src/oidb-services/flash-transfer/prepare-upload.ts"
+    },
+    "./oidb-services/flash-transfer/send-flash": {
+      "types": "./src/oidb-services/flash-transfer/send-flash.ts",
+      "default": "./src/oidb-services/flash-transfer/send-flash.ts"
+    },
+    "./oidb-services/flash-transfer/get-flash-download": {
+      "types": "./src/oidb-services/flash-transfer/get-flash-download.ts",
+      "default": "./src/oidb-services/flash-transfer/get-flash-download.ts"
+    },
     "./oidb-services/interaction/send-poke": {
       "types": "./src/oidb-services/interaction/send-poke.ts",
       "default": "./src/oidb-services/interaction/send-poke.ts"
@@ -379,6 +431,10 @@
     "./highway/utils": {
       "types": "./src/highway/utils.ts",
       "default": "./src/highway/utils.ts"
+    },
+    "./highway/sha1-stream": {
+      "types": "./src/highway/sha1-stream.ts",
+      "default": "./src/highway/sha1-stream.ts"
     },
     "./highway/pipeline": {
       "types": "./src/highway/pipeline.ts",

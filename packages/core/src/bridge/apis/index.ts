@@ -1,6 +1,7 @@
 import type { BridgeContext } from '../bridge-context';
 import { ContactsApi } from './contacts';
 import { ExtrasApi } from './extras';
+import { FlashTransferApi } from './flash-transfer';
 import { ForwardApi } from './forward';
 import { FriendApi } from './friend';
 import { GroupAdminApi } from './group-admin';
@@ -32,6 +33,8 @@ export interface ApiHub {
   readonly friend: FriendApi;
   /** Personal profile: status / avatar / nickname / likes / custom-faces. */
   readonly profile: ProfileApi;
+  /** QQ 闪传（fileset 文件集）: 上传/查询/分享/发送/删除/重命名。 */
+  readonly flashTransfer: FlashTransferApi;
   /** Long-message (forward / 聊天记录) upload + retrieval with NapCat piggyback. */
   readonly forward: ForwardApi;
   /** Odds & ends: translate / mini-app ARK / inline-keyboard / group sign. */
@@ -61,6 +64,7 @@ export function buildApiHub(ctx: BridgeContext): ApiHub {
     interaction: new InteractionApi(ctx),
     friend: new FriendApi(ctx),
     profile: new ProfileApi(ctx),
+    flashTransfer: new FlashTransferApi(ctx),
     forward: new ForwardApi(ctx),
     misc: new MiscApi(ctx),
     extras: new ExtrasApi(ctx),
@@ -83,5 +87,6 @@ export { MessageApi } from './message';
 export { MiscApi } from './misc';
 export { ProfileApi } from './profile';
 export { QzoneApi } from './qzone';
+export { FlashTransferApi, type FlashFileInfo } from './flash-transfer';
 export { WebApi } from './web';
 
