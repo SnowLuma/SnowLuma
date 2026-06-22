@@ -105,6 +105,20 @@ function makeReplyElem(element: MessageElement): ProtoElem {
   return { srcMsg };
 }
 
+// The replied sender, encoded as a mention element placed right after srcMsg.
+// QQ NT's group reply wire shape expects this; without it a following
+// user-supplied @ is silently not honored by the server (issue #129).
+async function makeReplyMentionElem(ctx: SendContext, uin: number): Promise<ProtoElem | null> {
+  if (ctx.groupId === undefined || uin <= 0) return null;
+  const member = ctx.bridge.identity.findGroupMember(ctx.groupId, uin);
+  let uid = member?.uid ?? '';
+  if (!uid) uid = await ctx.bridge.identity.resolveUid(uin, ctx.groupId).catch(() => '');
+  if (!uid) return null;
+  const name = member?.card?.trim() || member?.nickname?.trim() || String(uin);
+  const extra = protobuf_encode<MentionExtraSend>({ type: 2, uin, field5: 0, uid });
+  return { text: { str: `@${name} `, pbReserve: extra } };
+}
+
 function makeDeflatedPayload(content: string): Uint8Array {
   const deflated = deflateSync(Buffer.from(content, 'utf8'));
   const payload = new Uint8Array(deflated.length + 1);
@@ -378,6 +392,12 @@ async function makeVideoElem(ctx: SendContext, element: MessageElement): Promise
  */
 export async function buildSendElems(elements: MessageElement[], ctx?: SendContext): Promise<ProtoElem[]> {
   const result: ProtoElem[] = [];
+  // A user-supplied @ that lands immediately after a reply's srcMsg isn't
+  // honored by the QQ NT group server (the @ shows but never notifies, #129).
+  // When a reply and an @ coexist, emit the replied sender as a trailing
+  // mention right after srcMsg (mirrors Lagrange ForwardEntity.PackElement),
+  // which restores the wire shape the server expects.
+  const hasUserAt = elements.some((e) => e.type === 'at');
 
   for (const elem of elements) {
     switch (elem.type) {
@@ -398,7 +418,13 @@ export async function buildSendElems(elements: MessageElement[], ctx?: SendConte
         break;
 
       case 'reply':
-        if (elem.replySeq) result.push(makeReplyElem(elem));
+        if (elem.replySeq) {
+          result.push(makeReplyElem(elem));
+          if (hasUserAt && ctx?.groupId !== undefined && elem.replySenderUin) {
+            const replyMention = await makeReplyMentionElem(ctx, elem.replySenderUin);
+            if (replyMention) result.push(replyMention);
+          }
+        }
         break;
 
       case 'json':
