@@ -11,7 +11,7 @@ import type {
   QSmallFaceExtra,
   SrcMsgPbReserve,
 } from '@snowluma/proto-defs/element';
-import type { FileExtra, MessageBody, RichText } from '@snowluma/proto-defs/message';
+import type { FileExtra, MessageBody, PushMsgBody as PushMsgBodyFull, RichText } from '@snowluma/proto-defs/message';
 import { decompressData, makeImageUrl } from './helpers';
 
 type ElemDecoded = Elem;
@@ -51,7 +51,40 @@ function convertElements(elems: ElemDecoded[], isGroup: boolean): MessageElement
         const reserve = protobuf_decode<SrcMsgPbReserve>(elem.srcMsg.pbReserve);
         if (reserve.friendSequence) replySeq = reserve.friendSequence;
       }
-      if (replySeq > 0) result.push({ type: 'reply', replySeq });
+      if (replySeq > 0) {
+        const reply: MessageElement = { type: 'reply', replySeq };
+        if (elem.srcMsg.senderUin) reply.replySenderUin = Number(elem.srcMsg.senderUin);
+        if (elem.srcMsg.time) reply.replyTime = elem.srcMsg.time;
+        if (elem.srcMsg.elemsRaw?.length) {
+          const decodedElems: Elem[] = [];
+          for (const raw of elem.srcMsg.elemsRaw) {
+            try {
+              const e = protobuf_decode<Elem>(raw);
+              decodedElems.push(e);
+            } catch { /* skip corrupted element */ }
+          }
+          if (decodedElems.length) reply.replyElements = convertElements(decodedElems, isGroup);
+        }
+        // C2C 文件消息的 NotOnlineFile 不在 Elem[] 中（在 RichText 层级），
+        // 因此当 elemsRaw 未产生 file 元素时，尝试从 sourceMsg（字段 9）
+        // 解码 PushMsgBody → body.richText.notOnlineFile。
+        if (elem.srcMsg.sourceMsg?.length && !reply.replyElements?.some(e => e.type === 'file')) {
+          try {
+            const pmsg = protobuf_decode<PushMsgBodyFull>(elem.srcMsg.sourceMsg);
+            const nof = pmsg?.body?.richText?.notOnlineFile;
+            if (nof?.fileName) {
+              if (!reply.replyElements) reply.replyElements = [];
+              reply.replyElements.push({
+                type: 'file',
+                fileName: nof.fileName,
+                fileSize: nof.fileSize !== undefined ? Number(nof.fileSize) : 0,
+                fileId: nof.fileUuid ?? '',
+              });
+            }
+          } catch { /* sourceMsg decode 失败不影响正常逻辑 */ }
+        }
+        result.push(reply);
+      }
     }
 
     // Text (with possible @ detection)

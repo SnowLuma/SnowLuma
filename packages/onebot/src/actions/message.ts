@@ -1,7 +1,10 @@
+import { createLogger } from '@snowluma/common/logger';
 import type { JsonObject, JsonValue } from '../types';
 import type { ApiHandler, ApiActionContext } from '../api-handler';
 import { defineAction, groupAction, registerActions, f } from '../action-kit';
 import { RETCODE, failedResponse, okResponse } from '../types';
+
+const log = createLogger('OneBot');
 
 /**
  * Re-sign image URLs in a stored message event at read time. `get_msg`
@@ -89,7 +92,10 @@ export const actions = [
     params: { message_id: f.messageId() },
     run: async (p, ctx) => {
       const data = ctx.getMessage(p.message_id);
-      if (!data) return failedResponse(RETCODE.ACTION_FAILED, 'message not found');
+      if (!data) {
+        log.warn('[get_msg] miss message_id=%d', p.message_id);
+        return failedResponse(RETCODE.ACTION_FAILED, 'message not found');
+      }
       const result: JsonObject = { ...data };
       delete result.post_type;
       delete result.self_id;
