@@ -32,7 +32,16 @@ function testMatch(text: string, trigger: string, mode: StatusCommandMatchMode):
     case 'contains':
       return normalize(text).includes(normalize(trigger));
     case 'regex':
-      try { return new RegExp(trigger).test(text); } catch { return false; }
+      try {
+        let pattern = trigger;
+        let flags = '';
+        while (pattern.startsWith('(?') && pattern.length > 2) {
+          const needle = pattern[2];
+          if (needle === 'i') { flags += 'i'; pattern = pattern.slice(4); }
+          else { break; }
+        }
+        return new RegExp(pattern, flags).test(text);
+      } catch { return false; }
   }
 }
 

@@ -123,6 +123,11 @@ function toJsonObject(config: OneBotConfig): JsonObject {
       enabled: config.statusCommand.enabled,
       swallow: config.statusCommand.swallow,
       cooldownSeconds: config.statusCommand.cooldownSeconds,
+      trigger: config.statusCommand.trigger,
+      matchMode: config.statusCommand.matchMode,
+      scope: config.statusCommand.scope,
+      showPlatform: config.statusCommand.showPlatform,
+      platformDetail: config.statusCommand.platformDetail,
     },
     notifications: { channelIds: config.notifications?.channelIds ?? [] },
   };
