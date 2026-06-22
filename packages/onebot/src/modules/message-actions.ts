@@ -220,7 +220,10 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
   const originalSenderUin = reply?.replySenderUin ?? event.senderUin;
   const storeSession = isGroup ? session : originalSenderUin;
   const targetId = hashMessageIdInt32(replySeq, storeSession, eventName);
-  if (ref.messageStore.findEvent(targetId)) return; // Tier 0: already have the full event
+  if (ref.messageStore.findEvent(targetId)) {
+    log.info('[bbf] hit cached target=%d seq=%d kind=%s', targetId, replySeq, event.kind);
+    return;
+  }
 
   // Tier 1: Server fetch (SsoGetGroupMsg / SsoGetC2cMsg)
   let stored = false;
@@ -240,10 +243,12 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
         json.message_id = targetId;
         ref.messageStore.storeEvent(targetId, isGroup, storeSession, replySeq, eventName, json);
         stored = true;
+        log.info('[bbf] tier=1 stored target=%d seq=%d kind=%s', targetId, replySeq, event.kind);
       }
     }
   } catch (err) {
-    log.warn('reply-target server fetch failed (%s)', err instanceof Error ? err.message : String(err));
+    log.warn('[bbf] tier=1 fail target=%d seq=%d err=%s', targetId, replySeq,
+      err instanceof Error ? err.message : String(err));
   }
   if (stored) return;
 
@@ -253,15 +258,18 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
   if (reply?.replyElements?.length) {
     try {
       const segments = await elementsToOneBotSegments(
-        reply.replyElements, isGroup, originalSenderUin,
+        reply.replyElements, isGroup, isGroup ? session : originalSenderUin,
         ref.converterCtx.imageUrlResolver, ref.converterCtx.mediaUrlResolver,
         ref.converterCtx.messageIdResolver, ref.converterCtx.mediaSegmentSink,
       ) as JsonArray;
       const fallback = buildFallbackEvent(targetId, replySeq, originalSenderUin,
         reply.replyTime ?? 0, segments, ref.selfId, isGroup, session);
       ref.messageStore.storeEvent(targetId, isGroup, storeSession, replySeq, eventName, fallback);
+      log.info('[bbf] tier=2 stored target=%d seq=%d kind=%s elems=%d', targetId, replySeq, event.kind, reply.replyElements.length);
       return;
-    } catch { /* fall through to Tier 3 */ }
+    } catch {
+      log.warn('[bbf] tier=2 fail target=%d seq=%d kind=%s', targetId, replySeq, event.kind);
+    }
   }
 
   // Tier 3: Minimal text placeholder — ensures get_msg never returns
@@ -269,6 +277,7 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
   const minimal = buildFallbackMinimal(targetId, replySeq, originalSenderUin,
     reply?.replyTime ?? 0, ref.selfId, isGroup, session);
   ref.messageStore.storeEvent(targetId, isGroup, storeSession, replySeq, eventName, minimal);
+  log.info('[bbf] tier=3 stored target=%d seq=%d kind=%s', targetId, replySeq, event.kind);
 }
 
 function buildFallbackEvent(
