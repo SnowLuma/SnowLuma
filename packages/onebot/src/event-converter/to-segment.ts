@@ -19,10 +19,14 @@ export async function elementsToJson(
 ): Promise<JsonArray> {
   const result: JsonArray = [];
   for (const element of elements) {
-    result.push(await elementToSegment(
-      element, isGroup, sessionId,
-      imageUrlResolver, mediaUrlResolver, messageIdResolver, mediaSegmentSink,
-    ));
+    try {
+      result.push(await elementToSegment(
+        element, isGroup, sessionId,
+        imageUrlResolver, mediaUrlResolver, messageIdResolver, mediaSegmentSink,
+      ));
+    } catch {
+      // 单个元素转换失败不阻塞整条消息，静默跳过
+    }
   }
   return result;
 }
@@ -64,7 +68,10 @@ async function elementToSegment(
   }
 
   if (element.type === 'reply') {
-    const id = resolveReplyId(isGroup, sessionId, element.replySeq ?? 0, messageIdResolver);
+    // 私聊回复段 data.id 必须与原始消息的 hash 一致（使用原始发送者 UIN，
+    // 而非当前消息发送者 UIN），否则 astrbot 用 data.id 调 get_msg 会 miss。
+    const effectiveSession = isGroup ? sessionId : (element.replySenderUin ?? sessionId);
+    const id = resolveReplyId(isGroup, effectiveSession, element.replySeq ?? 0, messageIdResolver);
     return { type: 'reply', data: { id: String(id) } };
   }
 
