@@ -232,7 +232,7 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
     if (isGroup) {
       fetched = await ref.bridge.apis.message.getGroupMessageBySeq(session, replySeq, ref.selfId);
     } else {
-      const friendUid = await ref.bridge.resolveUserUid(originalSenderUin);
+      const friendUid = await ref.bridge.resolveUserUid(session);
       if (friendUid) {
         fetched = await ref.bridge.apis.message.getC2cMessageBySeq(friendUid, replySeq, ref.selfId);
       }
