@@ -15,6 +15,18 @@ export async function handleGroupAddRequest(
   if (!groupId) throw new Error('invalid group_id in flag');
   if (!targetUid) throw new Error('invalid request target in flag');
 
+  // Bot self-invited via a private "qun.invite" card: the only sequence the
+  // server accepts at 0x10c8_1 is that card's jumpUrl msgseq, with eventType=2
+  // / filtered=false. The fetchGroupRequests tuple below fails this case with
+  // 120161001 ("handle async message fail"). See issue #125.
+  if (requestType === 'invite') {
+    const cardSequence = bridge.apis.contacts.getGroupInviteCardSequence(groupId);
+    if (cardSequence) {
+      await bridge.apis.groupAdmin.setAddRequest(groupId, cardSequence, 2, approve, reason, false);
+      return;
+    }
+  }
+
   const requests = await bridge.apis.contacts.fetchGroupRequests();
   const matching = requests.find((r) => {
     if (r.groupId !== groupId) return false;
