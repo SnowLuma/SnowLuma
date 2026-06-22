@@ -9,9 +9,8 @@ import type {
   NotOnlineImage,
   QFaceExtra,
   QSmallFaceExtra,
-  SrcMsgPbReserve,
 } from '@snowluma/proto-defs/element';
-import type { FileExtra, MessageBody, RichText } from '@snowluma/proto-defs/message';
+import type { FileExtra, MessageBody, PushMsgBody as PushMsgBodyFull, RichText } from '@snowluma/proto-defs/message';
 import { decompressData, makeImageUrl } from './helpers';
 
 type ElemDecoded = Elem;
@@ -22,7 +21,7 @@ export function decodeRichBody(body: PushMsgBody | undefined, isGroup: boolean):
   const elements: MessageElement[] = [];
   if (body?.richText) {
     const rt = body.richText;
-    if (rt.elems) elements.push(...convertElements(rt.elems as ElemDecoded[], isGroup));
+    if (rt.elems) elements.push(...convertElements(rt.elems as ElemDecoded[]));
     extractRichtextExtras(rt, elements, isGroup);
   }
   if (body?.msgContent && body.msgContent.length > 0) {
@@ -31,9 +30,16 @@ export function decodeRichBody(body: PushMsgBody | undefined, isGroup: boolean):
   return elements;
 }
 
-function convertElements(elems: ElemDecoded[], isGroup: boolean): MessageElement[] {
+function convertElements(elems: ElemDecoded[]): MessageElement[] {
   const result: MessageElement[] = [];
   let skipNext = false;
+  // [#127] A QQ NT reply carries the replied sender as a structural auto-mention
+  // (MentionExtra.type=2, uin=0) right after srcMsg, followed by a blank
+  // separator text. Both are part of the reply wire shape, not user content —
+  // drop them so they aren't reported as a spurious @ + empty segment. A real
+  // user @ carries a non-zero MentionExtra.uin, so it's preserved.
+  let sawReply = false;
+  let dropNextBlankText = false;
 
   for (const elem of elems) {
     if (skipNext) { skipNext = false; continue; }
@@ -46,12 +52,49 @@ function convertElements(elems: ElemDecoded[], isGroup: boolean): MessageElement
     // Lagrange's `Sequence = reserve.FriendSequence ?? OrigSeqs[0]`
     // (ForwardEntity.cs). Group replies keep origSeqs[0] (the shared group seq).
     if (elem.srcMsg) {
-      let replySeq = elem.srcMsg.origSeqs?.[0] ?? 0;
-      if (!isGroup && elem.srcMsg.pbReserve && elem.srcMsg.pbReserve.length > 0) {
-        const reserve = protobuf_decode<SrcMsgPbReserve>(elem.srcMsg.pbReserve);
-        if (reserve.friendSequence) replySeq = reserve.friendSequence;
+      // The reply resolves to srcMsg.origSeqs[0] — for BOTH group (shared group
+      // seq) and c2c. On-target capture (#114 / #124) proved origSeqs[0] equals
+      // the quoted message's head.sequence, i.e. the seq its message_id is
+      // hashed from. reserve.friendSequence is a small friend-relationship
+      // counter that does NOT match (e.g. 25 vs a head.sequence of 12707), so
+      // the earlier `friendSequence` override made reply.id != the quoted
+      // message_id: get_msg(reply_id) missed and a quoted File's content came
+      // back empty.
+      const src = elem.srcMsg;
+      const replySeq = src.origSeqs?.[0] ?? 0;
+      if (replySeq > 0) {
+        const reply: MessageElement = { type: 'reply', replySeq };
+        if (src.senderUin) reply.replySenderUin = Number(src.senderUin);
+        if (src.time) reply.replyTime = src.time;
+        // Decode the quoted message's own elements (SrcMsg.elems, field 5) so a
+        // backfill can reconstruct it locally if it isn't in the store / server.
+        if (src.elemsRaw?.length) {
+          const decoded: ElemDecoded[] = [];
+          for (const raw of src.elemsRaw) {
+            try { decoded.push(protobuf_decode<Elem>(raw)); } catch { /* skip corrupt elem */ }
+          }
+          if (decoded.length) reply.replyElements = convertElements(decoded);
+        }
+        // A C2C quoted FILE lives in RichText.notOnlineFile (message level), not
+        // in elems[] — recover it from sourceMsg (field 9) when elems carried no
+        // file, so a quoted file's content survives into get_msg (#124).
+        if (src.sourceMsg?.length && !reply.replyElements?.some((e) => e.type === 'file')) {
+          try {
+            const pmsg = protobuf_decode<PushMsgBodyFull>(src.sourceMsg);
+            const nof = pmsg?.body?.richText?.notOnlineFile;
+            if (nof?.fileName) {
+              (reply.replyElements ??= []).push({
+                type: 'file',
+                fileName: nof.fileName,
+                fileSize: nof.fileSize !== undefined ? Number(nof.fileSize) : 0,
+                fileId: nof.fileUuid ?? '',
+              });
+            }
+          } catch { /* sourceMsg decode is best-effort */ }
+        }
+        result.push(reply);
       }
-      if (replySeq > 0) result.push({ type: 'reply', replySeq });
+      sawReply = true;
     }
 
     // Text (with possible @ detection)
@@ -63,6 +106,17 @@ function convertElements(elems: ElemDecoded[], isGroup: boolean): MessageElement
       }
       const hasAttr6 = t.attr6Buf && t.attr6Buf.length > 11;
       const hasMention = mention && (mention.type === 1 || mention.type === 2);
+
+      // [#127] drop the reply's structural auto-mention (type=2, uin=0) and the
+      // blank separator text right after it; keep real @s (non-zero uin).
+      if (sawReply && mention && mention.type === 2 && (mention.uin ?? 0) === 0) {
+        dropNextBlankText = true;
+        continue;
+      }
+      if (dropNextBlankText) {
+        dropNextBlankText = false;
+        if (!hasMention && (t.str ?? '').trim() === '') continue;
+      }
 
       if (hasAttr6 || hasMention) {
         const me: MessageElement = { type: 'at', text: t.str ?? '' };

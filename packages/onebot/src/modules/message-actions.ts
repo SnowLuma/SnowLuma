@@ -210,30 +210,103 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
 
   const eventName = isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT;
   const targetId = hashMessageIdInt32(replySeq, session, eventName);
-  if (ref.messageStore.findEvent(targetId)) return; // already have the full event
+  if (ref.messageStore.findEvent(targetId)) return; // Tier 0: already have the full event
 
+  // Tier 1: fetch the quoted message from the server, keyed under the exact id
+  // the reply resolves to (replySeq is origSeqs[0] == the quoted message's own
+  // head.sequence, so this matches how it was/would be stored). A c2c message
+  // the bot itself sent converts with user_id=self but is still keyed under the
+  // reply's session (the peer), so get_msg(targetId) hits.
   try {
-    let fetched: GroupMessage | FriendMessage | null;
+    let fetched: GroupMessage | FriendMessage | null = null;
     if (isGroup) {
       fetched = await ref.bridge.apis.message.getGroupMessageBySeq(session, replySeq, ref.selfId);
     } else {
       const friendUid = await ref.bridge.resolveUserUid(session);
-      if (!friendUid) return;
-      fetched = await ref.bridge.apis.message.getC2cMessageBySeq(friendUid, replySeq, ref.selfId);
+      if (friendUid) {
+        fetched = await ref.bridge.apis.message.getC2cMessageBySeq(friendUid, replySeq, ref.selfId);
+      }
     }
-    if (!fetched) return;
-
-    const json = await convertEvent(ref.converterCtx, fetched);
-    if (!json) return;
-    // Key under the exact id the reply resolves to (and the reply's session) so
-    // get_msg(targetId) hits regardless of who sent the quoted message: a c2c
-    // message the bot itself sent converts with user_id=self and would
-    // otherwise key under a different session than the reply's peer.
-    json.message_id = targetId;
-    ref.messageStore.storeEvent(targetId, isGroup, session, replySeq, eventName, json);
+    if (fetched) {
+      const json = await convertEvent(ref.converterCtx, fetched);
+      if (json) {
+        json.message_id = targetId;
+        ref.messageStore.storeEvent(targetId, isGroup, session, replySeq, eventName, json);
+        return;
+      }
+    }
   } catch (err) {
-    log.warn('reply-target backfill failed (%s)', err instanceof Error ? err.message : String(err));
+    log.warn('reply-target backfill tier-1 failed (%s)', err instanceof Error ? err.message : String(err));
   }
+
+  // Tier 2: reconstruct from the quoted message's own elements, which the push
+  // embeds in SrcMsg.elems — no server round-trip. Covers messages the server
+  // won't return (expired, self-c2c, file-only) but whose content rode along.
+  const quotedSender = reply?.replySenderUin ?? (isGroup ? 0 : session);
+  if (reply?.replyElements?.length) {
+    try {
+      const segments = await elementsToOneBotSegments(
+        reply.replyElements, isGroup, session,
+        ref.converterCtx.imageUrlResolver, ref.converterCtx.mediaUrlResolver,
+        ref.converterCtx.messageIdResolver, ref.converterCtx.mediaSegmentSink,
+      ) as JsonArray;
+      const fallback = buildBackfillEvent(targetId, replySeq, quotedSender,
+        reply.replyTime ?? 0, segments, ref.selfId, isGroup, session);
+      ref.messageStore.storeEvent(targetId, isGroup, session, replySeq, eventName, fallback);
+      return;
+    } catch (err) {
+      log.warn('reply-target backfill tier-2 failed (%s)', err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // Tier 3: minimal `[引用消息]` placeholder so get_msg(reply_id) never returns
+  // "message not found" — an approval bot that fires get_msg right after seeing
+  // the reply gets a well-formed (if sparse) event instead of an error.
+  const placeholder = buildBackfillEvent(targetId, replySeq, quotedSender,
+    reply?.replyTime ?? 0, [{ type: 'text', data: { text: '[引用消息]' } }],
+    ref.selfId, isGroup, session);
+  ref.messageStore.storeEvent(targetId, isGroup, session, replySeq, eventName, placeholder);
+}
+
+// Build a stored-message event for a backfilled reply target (Tier 2/3).
+function buildBackfillEvent(
+  messageId: number,
+  msgSeq: number,
+  senderUin: number,
+  timestamp: number,
+  segments: JsonArray,
+  selfId: number,
+  isGroup: boolean,
+  sessionId: number,
+): JsonObject {
+  const common = {
+    time: timestamp || Math.floor(Date.now() / 1000),
+    self_id: selfId,
+    post_type: 'message' as const,
+    message_id: messageId,
+    message_seq: msgSeq,
+    message: segments,
+    raw_message: segmentsToRawMessage(segments),
+    font: 0,
+  };
+  if (isGroup) {
+    return {
+      ...common,
+      message_type: 'group',
+      sub_type: 'normal',
+      group_id: sessionId,
+      user_id: senderUin,
+      sender: { user_id: senderUin, nickname: '', card: '', role: 'member', sex: 'unknown', age: 0 },
+      anonymous: null,
+    };
+  }
+  return {
+    ...common,
+    message_type: 'private',
+    sub_type: 'friend',
+    user_id: senderUin,
+    sender: { user_id: senderUin, nickname: '', sex: 'unknown', age: 0 },
+  };
 }
 
 // Persist a converted history event so reply / get_msg / future listing resolve
