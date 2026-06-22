@@ -145,7 +145,30 @@ describe('backfillReplyTarget', () => {
     expect(store.storeEvent).not.toHaveBeenCalled();
   });
 
-  it('does not store when the server has nothing at that sequence', async () => {
+  it('reconstructs from replyElements when the server has nothing (tier 2)', async () => {
+    const store = fakeStore(false);
+    const getGroupMessageBySeq = vi.fn(async () => null);
+    const ref = {
+      selfId: SELF, converterCtx, messageStore: store,
+      bridge: { apis: { message: { getGroupMessageBySeq } }, resolveUserUid: vi.fn() },
+    } as any;
+    const event = {
+      kind: 'group_message', time: 1, selfUin: SELF, groupId: 700, senderUin: 900,
+      senderNick: '', senderCard: '', senderRole: 'member', msgSeq: 999, msgId: 2,
+      elements: [{ type: 'reply', replySeq: 123, replySenderUin: 800, replyElements: [{ type: 'text', text: 'quoted' }] }],
+    } as any;
+
+    await backfillReplyTarget(ref, event);
+
+    const targetId = hashMessageIdInt32(123, 700, GROUP_MESSAGE_EVENT);
+    expect(store.storeEvent).toHaveBeenCalledOnce();
+    expect(store.storeEvent).toHaveBeenCalledWith(
+      targetId, true, 700, 123, GROUP_MESSAGE_EVENT,
+      expect.objectContaining({ message_id: targetId, message_type: 'group', user_id: 800 }),
+    );
+  });
+
+  it('stores a [引用消息] placeholder when server fetch and replyElements both miss (tier 3)', async () => {
     const store = fakeStore(false);
     const getGroupMessageBySeq = vi.fn(async () => null);
     const ref = {
@@ -156,6 +179,11 @@ describe('backfillReplyTarget', () => {
     await backfillReplyTarget(ref, groupEvent(123));
 
     expect(getGroupMessageBySeq).toHaveBeenCalledOnce();
-    expect(store.storeEvent).not.toHaveBeenCalled();
+    const targetId = hashMessageIdInt32(123, 700, GROUP_MESSAGE_EVENT);
+    expect(store.storeEvent).toHaveBeenCalledOnce();
+    expect(store.storeEvent).toHaveBeenCalledWith(
+      targetId, true, 700, 123, GROUP_MESSAGE_EVENT,
+      expect.objectContaining({ message_id: targetId, message_type: 'group' }),
+    );
   });
 });

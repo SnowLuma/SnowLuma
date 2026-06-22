@@ -14,6 +14,7 @@ export interface MessageElement {
   replySenderUin?: number;  // For reply: original sender's UIN
   replyTime?: number;       // For reply: original message timestamp
   replyRandom?: number;     // For reply: original message random/msgId
+  replyElements?: MessageElement[];  // Decoded elements of the quoted message (SrcMsg.elems) — lets a backfill reconstruct it for get_msg without a server round-trip
   url?: string;
   thumbUrl?: string;
   subType?: number;

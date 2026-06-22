@@ -165,13 +165,15 @@ describe('decodeRichBody / market face', () => {
   });
 });
 
-// Reply identity for c2c: a friend's reply carries the per-sender
-// clientSequence in srcMsg.origSeqs[0], but the *canonical* replied-to sequence
-// (the one the original message is keyed by) is srcMsg.pbReserve.friendSequence.
-// Reading origSeqs[0] made get_msg on the quoted message miss ("无法解析申请信息").
-describe('decodeRichBody / reply uses friendSequence for c2c', () => {
-  const CLIENT_SEQ = 23188; // origSeqs[0] — per-sender clientSequence
-  const FRIEND_SEQ = 888;   // pbReserve.friendSequence — canonical replied-to seq
+// Reply identity for c2c: the replied-to sequence is srcMsg.origSeqs[0] for BOTH
+// group and c2c. On-target capture (#114 / #124) proved origSeqs[0] equals the
+// quoted message's head.sequence — i.e. the seq its message_id is hashed from —
+// while pbReserve.friendSequence is a small friend-relationship counter that does
+// NOT match (e.g. 25 vs a head.sequence of 12707). Reading friendSequence made
+// reply.id != the quoted message_id, so get_msg(reply_id) missed.
+describe('decodeRichBody / reply uses origSeqs[0] for c2c', () => {
+  const CLIENT_SEQ = 23188; // origSeqs[0] — the quoted message's head.sequence
+  const FRIEND_SEQ = 888;   // pbReserve.friendSequence — a small unrelated counter, ignored
 
   function replyBody(): MessageBody {
     return {
@@ -188,8 +190,9 @@ describe('decodeRichBody / reply uses friendSequence for c2c', () => {
     };
   }
 
-  it('c2c: replySeq = friendSequence, not origSeqs[0]', () => {
-    expect(decodeRichBody(replyBody(), false)).toContainEqual({ type: 'reply', replySeq: FRIEND_SEQ });
+  it('c2c: replySeq = origSeqs[0], not friendSequence (#114/#124)', () => {
+    expect(decodeRichBody(replyBody(), false)).toContainEqual({ type: 'reply', replySeq: CLIENT_SEQ });
+    expect(FRIEND_SEQ).not.toBe(CLIENT_SEQ); // guard: the two must differ for this to mean anything
   });
 
   it('group: replySeq = origSeqs[0] (friendSequence ignored)', () => {

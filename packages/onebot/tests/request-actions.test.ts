@@ -8,6 +8,7 @@ const APIS_ROUTING: Record<string, string> = {
   fetchFriendList: 'contacts', fetchGroupList: 'contacts',
   fetchGroupMemberList: 'contacts', fetchUserProfile: 'contacts',
   fetchGroupRequests: 'contacts', fetchDownloadRKeys: 'contacts',
+  getGroupInviteCardSequence: 'contacts',
 };
 
 function fakeBridge(overrides: Record<string, any> = {}): BridgeInterface {
@@ -72,6 +73,7 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
       fetchGroupRequests: vi.fn(async () => [
         fakeRequest({ groupId: 999, invitorUid: 'u_i', sequence: 97, eventType: 8, filtered: false }),
       ]),
+      getGroupInviteCardSequence: vi.fn(() => null),
       apis: { groupAdmin: { setAddRequest } } as any,
     });
 

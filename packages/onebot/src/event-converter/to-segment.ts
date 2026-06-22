@@ -7,6 +7,9 @@ import type {
   MessageIdResolver,
 } from './index';
 import { resolveReplyId } from './utils';
+import { createLogger } from '@snowluma/common/logger';
+
+const log = createLogger('OneBot');
 
 export async function elementsToJson(
   elements: MessageElement[],
@@ -19,10 +22,17 @@ export async function elementsToJson(
 ): Promise<JsonArray> {
   const result: JsonArray = [];
   for (const element of elements) {
-    result.push(await elementToSegment(
-      element, isGroup, sessionId,
-      imageUrlResolver, mediaUrlResolver, messageIdResolver, mediaSegmentSink,
-    ));
+    // One malformed element shouldn't drop the whole message — skip it (with a
+    // breadcrumb) and keep converting the rest.
+    try {
+      result.push(await elementToSegment(
+        element, isGroup, sessionId,
+        imageUrlResolver, mediaUrlResolver, messageIdResolver, mediaSegmentSink,
+      ));
+    } catch (err) {
+      log.warn('segment convert skipped type=%s (%s)', element.type,
+        err instanceof Error ? err.message : String(err));
+    }
   }
   return result;
 }

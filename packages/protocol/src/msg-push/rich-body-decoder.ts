@@ -10,7 +10,7 @@ import type {
   QFaceExtra,
   QSmallFaceExtra,
 } from '@snowluma/proto-defs/element';
-import type { FileExtra, MessageBody, RichText } from '@snowluma/proto-defs/message';
+import type { FileExtra, MessageBody, PushMsgBody as PushMsgBodyFull, RichText } from '@snowluma/proto-defs/message';
 import { decompressData, makeImageUrl } from './helpers';
 
 type ElemDecoded = Elem;
@@ -60,8 +60,40 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
       // the earlier `friendSequence` override made reply.id != the quoted
       // message_id: get_msg(reply_id) missed and a quoted File's content came
       // back empty.
-      const replySeq = elem.srcMsg.origSeqs?.[0] ?? 0;
-      if (replySeq > 0) result.push({ type: 'reply', replySeq });
+      const src = elem.srcMsg;
+      const replySeq = src.origSeqs?.[0] ?? 0;
+      if (replySeq > 0) {
+        const reply: MessageElement = { type: 'reply', replySeq };
+        if (src.senderUin) reply.replySenderUin = Number(src.senderUin);
+        if (src.time) reply.replyTime = src.time;
+        // Decode the quoted message's own elements (SrcMsg.elems, field 5) so a
+        // backfill can reconstruct it locally if it isn't in the store / server.
+        if (src.elemsRaw?.length) {
+          const decoded: ElemDecoded[] = [];
+          for (const raw of src.elemsRaw) {
+            try { decoded.push(protobuf_decode<Elem>(raw)); } catch { /* skip corrupt elem */ }
+          }
+          if (decoded.length) reply.replyElements = convertElements(decoded);
+        }
+        // A C2C quoted FILE lives in RichText.notOnlineFile (message level), not
+        // in elems[] — recover it from sourceMsg (field 9) when elems carried no
+        // file, so a quoted file's content survives into get_msg (#124).
+        if (src.sourceMsg?.length && !reply.replyElements?.some((e) => e.type === 'file')) {
+          try {
+            const pmsg = protobuf_decode<PushMsgBodyFull>(src.sourceMsg);
+            const nof = pmsg?.body?.richText?.notOnlineFile;
+            if (nof?.fileName) {
+              (reply.replyElements ??= []).push({
+                type: 'file',
+                fileName: nof.fileName,
+                fileSize: nof.fileSize !== undefined ? Number(nof.fileSize) : 0,
+                fileId: nof.fileUuid ?? '',
+              });
+            }
+          } catch { /* sourceMsg decode is best-effort */ }
+        }
+        result.push(reply);
+      }
       sawReply = true;
     }
 
