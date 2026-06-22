@@ -225,7 +225,7 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
   // Tier 1: Server fetch (SsoGetGroupMsg / SsoGetC2cMsg)
   let stored = false;
   try {
-    let fetched: GroupMessage | FriendMessage | null;
+    let fetched: GroupMessage | FriendMessage | null = null;
     if (isGroup) {
       fetched = await ref.bridge.apis.message.getGroupMessageBySeq(session, replySeq, ref.selfId);
     } else {
