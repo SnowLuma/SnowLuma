@@ -51,7 +51,13 @@ function convertElements(elems: ElemDecoded[], isGroup: boolean): MessageElement
         const reserve = protobuf_decode<SrcMsgPbReserve>(elem.srcMsg.pbReserve);
         if (reserve.friendSequence) replySeq = reserve.friendSequence;
       }
-      if (replySeq > 0) result.push({ type: 'reply', replySeq });
+      if (replySeq > 0) {
+        const reply: MessageElement = { type: 'reply', replySeq };
+        if (elem.srcMsg.senderUin) reply.replySenderUin = Number(elem.srcMsg.senderUin);
+        if (elem.srcMsg.time) reply.replyTime = elem.srcMsg.time;
+        if (elem.srcMsg.elems?.length) reply.replyElements = convertElements(elem.srcMsg.elems, isGroup);
+        result.push(reply);
+      }
     }
 
     // Text (with possible @ detection)
