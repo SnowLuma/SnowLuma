@@ -117,6 +117,33 @@ describe('backfillReplyTarget', () => {
     );
   });
 
+  it('c2c: replySenderUin === selfUin falls back to peer session for hash (Codex case)', async () => {
+    // When someone replies to a message the bot sent, replySenderUin = SELF,
+    // but the original was cached under the peer UIN. The hash must use the
+    // peer (event.senderUin) not SELF.
+    const store = fakeStore(false);
+    const getC2cMessageBySeq = vi.fn(async () => null); // Tier 1 miss
+    const ref = {
+      selfId: SELF, converterCtx, messageStore: store,
+      bridge: { apis: { message: { getC2cMessageBySeq } }, resolveUserUid: vi.fn(async () => 'u_friend') },
+    } as any;
+    const event = {
+      kind: 'friend_message', time: 1, selfUin: SELF, senderUin: 448671521,
+      senderNick: '', msgSeq: 999, msgId: 2,
+      elements: [{ type: 'reply', replySeq: 456, replySenderUin: SELF }],
+    } as any;
+
+    await backfillReplyTarget(ref, event);
+
+    // hash should use peer (448671521), not SELF
+    const targetId = hashMessageIdInt32(456, 448671521, PRIVATE_MESSAGE_EVENT);
+    expect(store.storeEvent).toHaveBeenCalledOnce();
+    expect(store.storeEvent).toHaveBeenCalledWith(
+      targetId, false, 448671521, 456, PRIVATE_MESSAGE_EVENT,
+      expect.objectContaining({ message_id: targetId, message_type: 'private' }),
+    );
+  });
+
   it('no-op when the quoted message is already stored (no fetch)', async () => {
     const store = fakeStore(true); // findEvent hits
     const getGroupMessageBySeq = vi.fn();

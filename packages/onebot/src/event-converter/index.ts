@@ -86,13 +86,14 @@ export async function elementsToOneBotSegments(
   elements: MessageElement[],
   isGroup: boolean,
   sessionId: number,
+  selfUin: number,
   imageUrlResolver?: ImageUrlResolver | null,
   mediaUrlResolver?: MediaUrlResolver | null,
   messageIdResolver?: MessageIdResolver | null,
   mediaSegmentSink?: MediaSegmentSink | null,
 ) {
   return elementsToJson(
-    elements, isGroup, sessionId,
+    elements, isGroup, sessionId, selfUin,
     imageUrlResolver, mediaUrlResolver, messageIdResolver, mediaSegmentSink,
   );
 }

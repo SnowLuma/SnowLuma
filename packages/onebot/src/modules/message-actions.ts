@@ -218,7 +218,11 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
   // under its own senderUin, not the reply's sender.
   const eventName = isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT;
   const originalSenderUin = reply?.replySenderUin ?? event.senderUin;
-  const storeSession = isGroup ? session : originalSenderUin;
+  // When the bot sent the original message (originalSenderUin === ref.selfId),
+  // the message was cached keyed under the peer UIN (event.senderUin in C2C),
+  // not the bot's own UIN — use the peer for hash consistency.
+  const peerUin = !isGroup && originalSenderUin === ref.selfId ? event.senderUin : originalSenderUin;
+  const storeSession = isGroup ? session : peerUin;
   const targetId = hashMessageIdInt32(replySeq, storeSession, eventName);
   if (ref.messageStore.findEvent(targetId)) {
     log.info('[bbf] hit cached target=%d seq=%d kind=%s', targetId, replySeq, event.kind);
@@ -258,11 +262,11 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
   if (reply?.replyElements?.length) {
     try {
       const segments = await elementsToOneBotSegments(
-        reply.replyElements, isGroup, isGroup ? session : originalSenderUin,
+        reply.replyElements, isGroup, isGroup ? session : peerUin, ref.selfId,
         ref.converterCtx.imageUrlResolver, ref.converterCtx.mediaUrlResolver,
         ref.converterCtx.messageIdResolver, ref.converterCtx.mediaSegmentSink,
       ) as JsonArray;
-      const fallback = buildFallbackEvent(targetId, replySeq, originalSenderUin,
+      const fallback = buildFallbackEvent(targetId, replySeq, peerUin,
         reply.replyTime ?? 0, segments, ref.selfId, isGroup, session);
       ref.messageStore.storeEvent(targetId, isGroup, storeSession, replySeq, eventName, fallback);
       log.info('[bbf] tier=2 stored target=%d seq=%d kind=%s elems=%d', targetId, replySeq, event.kind, reply.replyElements.length);
@@ -274,7 +278,7 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
 
   // Tier 3: Minimal text placeholder — ensures get_msg never returns
   // "message not found" even when server fetch and SrcMsg decode both fail.
-  const minimal = buildFallbackMinimal(targetId, replySeq, originalSenderUin,
+  const minimal = buildFallbackMinimal(targetId, replySeq, peerUin,
     reply?.replyTime ?? 0, ref.selfId, isGroup, session);
   ref.messageStore.storeEvent(targetId, isGroup, storeSession, replySeq, eventName, minimal);
   log.info('[bbf] tier=3 stored target=%d seq=%d kind=%s', targetId, replySeq, event.kind);
@@ -478,7 +482,7 @@ async function cacheSelfSentMessage(
     // resolver is async and bound to the receive pipeline; skipping it
     // means /get_msg returns the segment with the original `file` path
     // and an empty `url`, which is what Lagrange does too.
-    const segments = await elementsToOneBotSegments(elements, isGroup, sessionId) as JsonArray;
+    const segments = await elementsToOneBotSegments(elements, isGroup, sessionId, ref.selfId) as JsonArray;
     const raw = segmentsToRawMessage(segments);
     const eventName = isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT;
     const selfId = ref.selfId;
@@ -1001,7 +1005,7 @@ export async function getForwardMessage(
     // exactly issue #74 (`/get_forward_msg` image url 缺少 rkey). Image rkey
     // re-signing is scene-aware via the appid in the URL (see instance-rkey).
     const segments = await elementsToOneBotSegments(
-      node.elements, isGroup, sessionId,
+      node.elements, isGroup, sessionId, ref.selfId,
       ref.converterCtx.imageUrlResolver,
       ref.converterCtx.mediaUrlResolver,
     );
