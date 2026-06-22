@@ -9,8 +9,9 @@ import type {
   NotOnlineImage,
   QFaceExtra,
   QSmallFaceExtra,
+  SrcMsgPbReserve,
 } from '@snowluma/proto-defs/element';
-import type { FileExtra, MessageBody, RichText } from '@snowluma/proto-defs/message';
+import type { FileExtra, MessageBody, PushMsgBody as PushMsgBodyFull, RichText } from '@snowluma/proto-defs/message';
 import { decompressData, makeImageUrl } from './helpers';
 
 type ElemDecoded = Elem;
@@ -21,7 +22,7 @@ export function decodeRichBody(body: PushMsgBody | undefined, isGroup: boolean):
   const elements: MessageElement[] = [];
   if (body?.richText) {
     const rt = body.richText;
-    if (rt.elems) elements.push(...convertElements(rt.elems as ElemDecoded[]));
+    if (rt.elems) elements.push(...convertElements(rt.elems as ElemDecoded[], isGroup));
     extractRichtextExtras(rt, elements, isGroup);
   }
   if (body?.msgContent && body.msgContent.length > 0) {
@@ -30,7 +31,7 @@ export function decodeRichBody(body: PushMsgBody | undefined, isGroup: boolean):
   return elements;
 }
 
-function convertElements(elems: ElemDecoded[]): MessageElement[] {
+function convertElements(elems: ElemDecoded[], isGroup: boolean): MessageElement[] {
   const result: MessageElement[] = [];
   let skipNext = false;
 
@@ -45,16 +46,45 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
     // Lagrange's `Sequence = reserve.FriendSequence ?? OrigSeqs[0]`
     // (ForwardEntity.cs). Group replies keep origSeqs[0] (the shared group seq).
     if (elem.srcMsg) {
-      // The reply resolves to srcMsg.origSeqs[0] — for BOTH group (shared group
-      // seq) and c2c. On-target capture (#114 / #124) proved origSeqs[0] equals
-      // the quoted message's head.sequence, i.e. the seq its message_id is
-      // hashed from. reserve.friendSequence is a small friend-relationship
-      // counter that does NOT match (e.g. 25 vs a head.sequence of 12707), so
-      // the earlier `friendSequence` override made reply.id != the quoted
-      // message_id: get_msg(reply_id) missed and a quoted File's content came
-      // back empty.
-      const replySeq = elem.srcMsg.origSeqs?.[0] ?? 0;
-      if (replySeq > 0) result.push({ type: 'reply', replySeq });
+      let replySeq = elem.srcMsg.origSeqs?.[0] ?? 0;
+      if (!isGroup && elem.srcMsg.pbReserve && elem.srcMsg.pbReserve.length > 0) {
+        const reserve = protobuf_decode<SrcMsgPbReserve>(elem.srcMsg.pbReserve);
+        if (reserve.friendSequence) replySeq = reserve.friendSequence;
+      }
+      if (replySeq > 0) {
+        const reply: MessageElement = { type: 'reply', replySeq };
+        if (elem.srcMsg.senderUin) reply.replySenderUin = Number(elem.srcMsg.senderUin);
+        if (elem.srcMsg.time) reply.replyTime = elem.srcMsg.time;
+        if (elem.srcMsg.elemsRaw?.length) {
+          const decodedElems: Elem[] = [];
+          for (const raw of elem.srcMsg.elemsRaw) {
+            try {
+              const e = protobuf_decode<Elem>(raw);
+              decodedElems.push(e);
+            } catch { /* skip corrupted element */ }
+          }
+          if (decodedElems.length) reply.replyElements = convertElements(decodedElems, isGroup);
+        }
+        // C2C 文件消息的 NotOnlineFile 不在 Elem[] 中（在 RichText 层级），
+        // 因此当 elemsRaw 未产生 file 元素时，尝试从 sourceMsg（字段 9）
+        // 解码 PushMsgBody → body.richText.notOnlineFile。
+        if (elem.srcMsg.sourceMsg?.length && !reply.replyElements?.some(e => e.type === 'file')) {
+          try {
+            const pmsg = protobuf_decode<PushMsgBodyFull>(elem.srcMsg.sourceMsg);
+            const nof = pmsg?.body?.richText?.notOnlineFile;
+            if (nof?.fileName) {
+              if (!reply.replyElements) reply.replyElements = [];
+              reply.replyElements.push({
+                type: 'file',
+                fileName: nof.fileName,
+                fileSize: nof.fileSize !== undefined ? Number(nof.fileSize) : 0,
+                fileId: nof.fileUuid ?? '',
+              });
+            }
+          } catch { /* sourceMsg decode 失败不影响正常逻辑 */ }
+        }
+        result.push(reply);
+      }
     }
 
     // Text (with possible @ detection)

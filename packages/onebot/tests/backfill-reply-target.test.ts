@@ -156,6 +156,12 @@ describe('backfillReplyTarget', () => {
     await backfillReplyTarget(ref, groupEvent(123));
 
     expect(getGroupMessageBySeq).toHaveBeenCalledOnce();
-    expect(store.storeEvent).not.toHaveBeenCalled();
+    // Tier 3 stores a minimal placeholder when server fetch returns nothing
+    const targetId = hashMessageIdInt32(123, 700, GROUP_MESSAGE_EVENT);
+    expect(store.storeEvent).toHaveBeenCalledOnce();
+    expect(store.storeEvent).toHaveBeenCalledWith(
+      targetId, true, 700, 123, GROUP_MESSAGE_EVENT,
+      expect.objectContaining({ message_id: targetId, message_type: 'group' }),
+    );
   });
 });
