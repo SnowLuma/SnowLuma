@@ -1,3 +1,4 @@
+import { getSystemInfo } from '@snowluma/core/system-info';
 import { defineAction, registerActions } from '../action-kit';
 import type { ApiActionContext, ApiHandler } from '../api-handler';
 import { okResponse } from '../types';
@@ -22,7 +23,16 @@ export const actions = [
     params: {},
     run: (_p, ctx) => {
       const online = ctx.isOnline();
-      return okResponse({ online, good: online });
+      const sys = getSystemInfo();
+      return okResponse({
+        online,
+        good: online,
+        platform: sys.platform,
+        arch: sys.arch,
+        arch_label: sys.archLabel,
+        release: sys.release,
+        distro: sys.distro,
+      });
     },
   }),
 
@@ -35,6 +45,9 @@ export const actions = [
         app_name: 'SnowLuma',
         app_version: `${appVersion}-node`,
         protocol_version: 'v11',
+        node_version: process.version,
+        platform: process.platform,
+        arch: process.arch,
       });
     },
   }),

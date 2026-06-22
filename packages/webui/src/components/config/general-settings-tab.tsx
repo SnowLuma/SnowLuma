@@ -1,10 +1,6 @@
-// "通用设置" tab — fields that apply to the whole OneBotInstance rather
-// than any specific adapter: the music-sign service URL and the built-in
-// `#sl` status command. Edits here mark the config dirty and are
-// auto-saved with debounce by the parent ConfigPage.
-
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { NotificationOptIn } from '@/components/config/notification-opt-in';
 import type { OneBotConfig, StatusCommandConfig } from '@/types';
@@ -18,6 +14,8 @@ export function GeneralSettingsTab({ config, onChange }: GeneralSettingsTabProps
   const sc = config.statusCommand;
   const setStatusCommand = (patch: Partial<StatusCommandConfig>) =>
     onChange({ ...config, statusCommand: { ...sc, ...patch } });
+
+  const disabled = !sc.enabled;
 
   return (
     <div className="flex flex-col gap-4">
@@ -47,13 +45,93 @@ export function GeneralSettingsTab({ config, onChange }: GeneralSettingsTabProps
           <ToggleSwitch
             value={sc.enabled}
             onChange={(v) => setStatusCommand({ enabled: v })}
-            ariaLabel="启用 #sl 状态命令"
+            ariaLabel="启用状态命令"
           />
         </div>
 
+        {/* Trigger word */}
+        <div className="flex flex-col gap-1.5 border-t pt-3">
+          <Label className={disabled ? 'text-muted-foreground' : undefined}>触发词</Label>
+          <Input
+            className="w-48 font-mono tabular-nums"
+            value={sc.trigger}
+            disabled={disabled}
+            onChange={(e) => setStatusCommand({ trigger: e.target.value.slice(0, 64) })}
+          />
+        </div>
+
+        {/* Match mode */}
+        <div className="flex flex-col gap-1.5">
+          <Label className={disabled ? 'text-muted-foreground' : undefined}>匹配模式</Label>
+          <Select
+            className="w-40"
+            value={sc.matchMode}
+            disabled={disabled}
+            onChange={(e) => setStatusCommand({ matchMode: e.target.value as StatusCommandConfig['matchMode'] })}
+          >
+            <option value="exact">exact（精确）</option>
+            <option value="prefix">prefix（前缀）</option>
+            <option value="contains">contains（包含）</option>
+            <option value="regex">regex（正则）</option>
+          </Select>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            {sc.matchMode === 'regex'
+              ? '正则模式默认大小写敏感，可在正则开头添加 (?i) 启用不区分大小写。'
+              : '匹配前会去除首尾空格并转为小写。'}
+          </p>
+        </div>
+
+        {/* Scope */}
+        <div className="flex flex-col gap-1.5">
+          <Label className={disabled ? 'text-muted-foreground' : undefined}>响应范围</Label>
+          <Select
+            className="w-40"
+            value={sc.scope}
+            disabled={disabled}
+            onChange={(e) => setStatusCommand({ scope: e.target.value as StatusCommandConfig['scope'] })}
+          >
+            <option value="all">全部</option>
+            <option value="private">仅私聊</option>
+            <option value="group">仅群聊</option>
+          </Select>
+        </div>
+
+        {/* showPlatform */}
         <div className="flex items-start justify-between gap-3 border-t pt-3">
           <div className="min-w-0">
-            <Label className={sc.enabled ? undefined : 'text-muted-foreground'}>不转发给下游（swallow）</Label>
+            <Label className={disabled ? 'text-muted-foreground' : undefined}>展示平台信息</Label>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              关闭后回复中不包含「平台: xxx」一行。
+            </p>
+          </div>
+          <ToggleSwitch
+            value={sc.showPlatform}
+            onChange={(v) => setStatusCommand({ showPlatform: v })}
+            ariaLabel="展示平台信息"
+            disabled={disabled}
+          />
+        </div>
+
+        {/* platformDetail */}
+        <div className="flex flex-col gap-1.5">
+          <Label className={disabled || !sc.showPlatform ? 'text-muted-foreground' : undefined}>
+            平台信息详细度
+          </Label>
+          <Select
+            className="w-40"
+            value={sc.platformDetail}
+            disabled={disabled || !sc.showPlatform}
+            onChange={(e) => setStatusCommand({ platformDetail: e.target.value as StatusCommandConfig['platformDetail'] })}
+          >
+            <option value="simple">简要（platform-arch）</option>
+            <option value="detailed">详细（发行版 · 架构）</option>
+          </Select>
+        </div>
+
+        {/* Swallow + cooldown */}
+        <div className="flex items-start justify-between gap-3 border-t pt-3">
+          <div className="min-w-0">
+            <Label className={disabled ? 'text-muted-foreground' : undefined}>不转发给下游（swallow）</Label>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
               开启后，命中的 <code className="font-mono">#sl</code> 不再投递给已连接的 Bot（仍会回复并本地记录）。默认关闭即透传。
             </p>
@@ -62,18 +140,18 @@ export function GeneralSettingsTab({ config, onChange }: GeneralSettingsTabProps
             value={sc.swallow}
             onChange={(v) => setStatusCommand({ swallow: v })}
             ariaLabel="吞掉 #sl 不转发给下游"
-            disabled={!sc.enabled}
+            disabled={disabled}
           />
         </div>
 
         <div className="flex flex-col gap-1.5 border-t pt-3">
-          <Label className={sc.enabled ? undefined : 'text-muted-foreground'}>回复冷却（秒）</Label>
+          <Label className={disabled ? 'text-muted-foreground' : undefined}>回复冷却（秒）</Label>
           <Input
             type="number"
             min={0}
             className="w-32 tabular-nums"
             value={sc.cooldownSeconds}
-            disabled={!sc.enabled}
+            disabled={disabled}
             onChange={(e) => {
               const n = Math.trunc(Number(e.target.value));
               setStatusCommand({ cooldownSeconds: Number.isFinite(n) && n >= 0 ? n : 0 });

@@ -13,6 +13,7 @@ import { MediaUrlResolver } from './media-url-resolver';
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from './message-id';
 import { MessageStore } from './message-store';
 import { sendGroupMessage, sendPrivateMessage } from './modules/message-actions';
+import { getSystemInfo } from '@snowluma/core/system-info';
 import { buildStatusText, matchesStatusCommand, statusCooldownElapsed } from './modules/status-command';
 import {
   HttpPostAdapter,
@@ -24,7 +25,7 @@ import {
   type NetworkAdapterContext,
 } from './network';
 import { ReactionStore } from './reaction-store';
-import type { ApiResponse, JsonObject, JsonValue, MessageMeta, NetworkBase, OneBotConfig } from './types';
+import type { ApiResponse, JsonObject, JsonValue, MessageMeta, NetworkBase, OneBotConfig, StatusCommandConfig } from './types';
 
 const moduleLog = createLogger('Event');
 
@@ -189,7 +190,11 @@ export class OneBotInstance {
     if (!cfg.enabled) return false;
     const postType = event.post_type;
     if (postType !== 'message' && postType !== 'message_sent') return false;
-    if (!matchesStatusCommand(event.message)) return false;
+    if (!matchesStatusCommand(event.message, cfg.trigger, cfg.matchMode)) return false;
+
+    // Scope filter
+    if (cfg.scope === 'private' && event.message_type !== 'private') return false;
+    if (cfg.scope === 'group' && event.message_type !== 'group') return false;
 
     const isGroup = event.message_type === 'group';
     const sessionId = isGroup ? toInt(event.group_id) : toInt(event.user_id);
@@ -199,20 +204,25 @@ export class OneBotInstance {
     const now = Date.now();
     if (statusCooldownElapsed(this.statusCommandCooldown.get(key), now, cfg.cooldownSeconds)) {
       this.statusCommandCooldown.set(key, now);
-      void this.replyStatus(isGroup, sessionId).catch((err) => {
+      void this.replyStatus(isGroup, sessionId, cfg).catch((err) => {
         this.log.warn('status command reply failed: %s', err instanceof Error ? err.message : String(err));
       });
     }
     return cfg.swallow;
   }
 
-  private async replyStatus(isGroup: boolean, sessionId: number): Promise<void> {
-    const text = buildStatusText({
-      version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev',
-      platform: process.platform,
-      arch: process.arch,
-      uptimeMs: Date.now() - this.startedAt,
-    });
+  private async replyStatus(isGroup: boolean, sessionId: number, cfg: StatusCommandConfig): Promise<void> {
+    const text = buildStatusText(
+      {
+        version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev',
+        platform: process.platform,
+        arch: process.arch,
+        uptimeMs: Date.now() - this.startedAt,
+      },
+      cfg.showPlatform,
+      cfg.platformDetail,
+      cfg.showPlatform && cfg.platformDetail === 'detailed' ? getSystemInfo() : undefined,
+    );
     if (isGroup) await sendGroupMessage(this.ctx, sessionId, text, true);
     else await sendPrivateMessage(this.ctx, sessionId, text, true);
   }

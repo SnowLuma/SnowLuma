@@ -63,20 +63,35 @@ export interface OneBotNetworks {
   wsClients: WsClientNetwork[];
 }
 
+export type StatusCommandMatchMode = 'exact' | 'prefix' | 'contains' | 'regex';
+export type StatusCommandScope = 'all' | 'private' | 'group';
+export type StatusCommandPlatformDetail = 'simple' | 'detailed';
+
 /**
- * Built-in `#sl` status command. The trigger word is hardcoded (`#sl`,
- * exact match, case-insensitive); only these toggles are configurable.
+ * Built-in status command settings. The trigger word is configurable;
+ * defaults to `#sl` with exact case-insensitive matching.
  */
 export interface StatusCommandConfig {
-  /** Master on/off. Default `true` — built-in, but freely disableable. */
+  /** Master on/off. Default `true`. */
   enabled: boolean;
   /**
-   * When `true`, a matched `#sl` is NOT forwarded to downstream adapters
-   * (it is still cached, logged, and replied to). Default `false` (pass-through).
+   * When `true`, a matched status command is NOT forwarded to downstream
+   * adapters (it is still cached, logged, and replied to). Default `false`.
    */
   swallow: boolean;
   /** Per-conversation reply cooldown in seconds. `0` disables it. Default `5`. */
   cooldownSeconds: number;
+
+  /** Trigger word. Default `'#sl'`. Non-empty, max 64 chars. */
+  trigger: string;
+  /** How to match the trigger against incoming messages. Default `'exact'`. */
+  matchMode: StatusCommandMatchMode;
+  /** Which message_type to respond to. Default `'all'`. */
+  scope: StatusCommandScope;
+  /** Whether to include the platform line in the reply. Default `true`. */
+  showPlatform: boolean;
+  /** Level of detail for the platform line. Default `'simple'`. */
+  platformDetail: StatusCommandPlatformDetail;
 }
 
 /** Per-UIN OneBot configuration. */
