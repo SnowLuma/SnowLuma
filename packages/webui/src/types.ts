@@ -99,7 +99,7 @@ export interface OneBotNetworks {
 
 export type StatusCommandMatchMode = 'exact' | 'prefix' | 'contains' | 'regex';
 export type StatusCommandScope = 'all' | 'private' | 'group';
-export type StatusCommandPlatformDetail = 'simple' | 'detailed';
+export type StatusCommandPlatformDetail = 'brief' | 'summary' | 'detailed' | 'fuzzy';
 
 /** Built-in status command settings. Trigger word is configurable. */
 export interface StatusCommandConfig {

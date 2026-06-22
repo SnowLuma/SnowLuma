@@ -8,12 +8,12 @@ const DEFAULT_STATUS_COMMAND: StatusCommandConfig = {
   matchMode: 'exact',
   scope: 'all',
   showPlatform: true,
-  platformDetail: 'simple',
+  platformDetail: 'brief',
 };
 
 const VALID_MATCH_MODES = new Set<StatusCommandMatchMode>(['exact', 'prefix', 'contains', 'regex']);
 const VALID_SCOPES = new Set<StatusCommandScope>(['all', 'private', 'group']);
-const VALID_PLATFORM_DETAILS = new Set<StatusCommandPlatformDetail>(['simple', 'detailed']);
+const VALID_PLATFORM_DETAILS = new Set<StatusCommandPlatformDetail>(['brief', 'summary', 'detailed', 'fuzzy']);
 
 /** Fill the `statusCommand` block with defaults when the backend omits or
  *  partially supplies it (older configs predate the feature). */

@@ -221,7 +221,7 @@ export class OneBotInstance {
       },
       cfg.showPlatform,
       cfg.platformDetail,
-      cfg.showPlatform && cfg.platformDetail === 'detailed' ? getSystemInfo() : undefined,
+      cfg.showPlatform && cfg.platformDetail !== 'brief' ? getSystemInfo() : undefined,
     );
     if (isGroup) await sendGroupMessage(this.ctx, sessionId, text, true);
     else await sendPrivateMessage(this.ctx, sessionId, text, true);
