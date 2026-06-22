@@ -55,7 +55,16 @@ function convertElements(elems: ElemDecoded[], isGroup: boolean): MessageElement
         const reply: MessageElement = { type: 'reply', replySeq };
         if (elem.srcMsg.senderUin) reply.replySenderUin = Number(elem.srcMsg.senderUin);
         if (elem.srcMsg.time) reply.replyTime = elem.srcMsg.time;
-        if (elem.srcMsg.elems?.length) reply.replyElements = convertElements(elem.srcMsg.elems, isGroup);
+        if (elem.srcMsg.elemsRaw?.length) {
+          const decodedElems: Elem[] = [];
+          for (const raw of elem.srcMsg.elemsRaw) {
+            try {
+              const e = protobuf_decode<Elem>(raw);
+              decodedElems.push(e);
+            } catch { /* skip corrupted element */ }
+          }
+          if (decodedElems.length) reply.replyElements = convertElements(decodedElems, isGroup);
+        }
         result.push(reply);
       }
     }
