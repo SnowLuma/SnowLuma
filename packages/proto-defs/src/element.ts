@@ -213,7 +213,7 @@ export interface SrcMsg {
   senderUin?: pb<2, uint_64>;
   time?:      pb<3, int_32>;
   flag?:      pb<4, int_32>;
-  elems?:     pb_repeated<5, Elem>;
+  elemsRaw?:  pb_repeated<5, bytes>;
   type?:      pb<6, int_32>;
   richMsg?:   pb<7, bytes>;
   pbReserve?: pb<8, bytes>;
