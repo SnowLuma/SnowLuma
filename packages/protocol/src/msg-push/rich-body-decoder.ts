@@ -33,6 +33,10 @@ export function decodeRichBody(body: PushMsgBody | undefined, isGroup: boolean):
 function convertElements(elems: ElemDecoded[]): MessageElement[] {
   const result: MessageElement[] = [];
   let skipNext = false;
+  // True between a srcMsg elem and the first "anchor" @ text elem that follows
+  // it — see the srcMsg / text branches for why QQNT's auto-inserted reply
+  // anchor @ must be dropped (#127).
+  let replyAnchorPending = false;
 
   for (const elem of elems) {
     if (skipNext) { skipNext = false; continue; }
@@ -55,6 +59,19 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
       // back empty.
       const replySeq = elem.srcMsg.origSeqs?.[0] ?? 0;
       if (replySeq > 0) result.push({ type: 'reply', replySeq });
+      // A quoted reply is always followed by an "@<replied-to user>" anchor
+      // elem that QQNT auto-inserts as a reply prefix (Lagrange's
+      // ReplyEntity.Build sends it too — TextMsg=`@<nick>`, pbReserve with
+      // TextResvAttr.AtType=2 / AtMemberUid = replied-to uid). On the wire it
+      // carries attr6Buf AND a pbReserve, but its AtMemberUin (MentionExtra.uin,
+      // field4) is LEFT AT 0 — only the uid is filled. A genuine user-typed
+      // @mention fills AtMemberUin with the real UIN. So while the anchor and
+      // a real @ both send identical attr6Buf (both point at the same target),
+      // the anchor's mention.uin === 0 vs the real @'s mention.uin > 0. Without
+      // dropping it OneBot would report a phantom [CQ:at] for every quoted
+      // reply (#127). Only the FIRST such elem right after srcMsg qualifies —
+      // a later uin===0 type=2 would be a degenerate real @ we shouldn't eat.
+      replyAnchorPending = true;
     }
 
     // Text (with possible @ detection)
@@ -67,7 +84,15 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
       const hasAttr6 = t.attr6Buf && t.attr6Buf.length > 11;
       const hasMention = mention && (mention.type === 1 || mention.type === 2);
 
-      if (hasAttr6 || hasMention) {
+      // Quoted-reply anchor @ (see the srcMsg branch above): type=2 mention
+      // with AtMemberUin == 0, sitting immediately after the srcMsg. Drop it
+      // so OneBot doesn't surface a phantom @ for the replied-to user.
+      const isReplyAnchor = replyAnchorPending && hasAttr6
+        && mention != null && mention.type === 2 && (mention.uin ?? 0) === 0;
+
+      if (isReplyAnchor) {
+        replyAnchorPending = false;
+      } else if (hasAttr6 || hasMention) {
         const me: MessageElement = { type: 'at', text: t.str ?? '' };
         if (hasAttr6) {
           const buf = t.attr6Buf!;
@@ -78,9 +103,14 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
           if (!me.targetUin) me.targetUin = mention.uin ?? 0;
         }
         result.push(me);
+        // The pending reply anchor is consumed by any text elem carrying a
+        // real @ (the anchor and a real @ are mutually exclusive at the same
+        // slot — once a genuine @ shows up right after srcMsg, no later elem
+        // can be the auto-anchor).
+        if (hasMention) replyAnchorPending = false;
       } else {
         const text = t.str ?? '';
-        if (text) result.push({ type: 'text', text });
+        if (text.trim()) result.push({ type: 'text', text });
       }
     }
 
