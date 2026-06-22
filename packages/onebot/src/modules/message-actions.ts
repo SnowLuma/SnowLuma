@@ -184,15 +184,20 @@ export async function getFriendHistory(
 /**
  * Back-fill the message a freshly-received reply points to, when the local store
  * doesn't have the full event (e.g. a message from before SnowLuma was running,
- * or one it never observed). Fetches just the quoted message from the server —
- * group via `SsoGetGroupMsg`, c2c via `SsoGetC2cMsg`, both through the shared
- * history throttle gate — and persists it under the SAME id the reply resolves
- * to, so a subsequent `get_msg` (or quote lookup) hits.
+ * or one it never observed). Uses a three-tier fallback chain:
  *
- * No-op when: the event isn't a group/friend message, has no reply, the target
- * is already stored, the uid can't be resolved, the fetch returns nothing, or
- * it errors. Meant to be awaited before dispatch so the consumer's get_msg —
- * which an approval bot fires right after seeing the reply — sees the message.
+ *   Tier 0 — Local store hit (already have the event).
+ *   Tier 1 — Server fetch via SsoGetGroupMsg / SsoGetC2cMsg.
+ *   Tier 2 — Reconstruct from SrcMsg.elems (Elem[] embedded in the push).
+ *   Tier 3 — Minimal `[引用消息]` text placeholder.
+ *
+ * Tiers 2 & 3 ensure get_msg never returns "message not found", even when the
+ * server fetch fails (self-c2c, file messages, non-friend peers, etc.).
+ *
+ * No-op when: the event isn't a group/friend message, has no reply, or the
+ * target is already stored. Meant to be awaited before dispatch so the
+ * consumer's get_msg — which an approval bot fires right after seeing the
+ * reply — sees the message.
  */
 export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant): Promise<void> {
   let isGroup: boolean;
@@ -208,32 +213,167 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
   const replySeq = reply?.replySeq ?? 0;
   if (replySeq <= 0) return;
 
+  // Hash key: groups use groupId, private chats use the original sender's UIN
+  // (from SrcMsg) for consistency — the original message was stored keyed
+  // under its own senderUin, not the reply's sender.
   const eventName = isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT;
-  const targetId = hashMessageIdInt32(replySeq, session, eventName);
-  if (ref.messageStore.findEvent(targetId)) return; // already have the full event
+  const originalSenderUin = reply?.replySenderUin ?? event.senderUin;
+  const storeSession = isGroup ? session : originalSenderUin;
+  const targetId = hashMessageIdInt32(replySeq, storeSession, eventName);
+  if (ref.messageStore.findEvent(targetId)) return; // Tier 0: already have the full event
 
+  // Tier 1: Server fetch (SsoGetGroupMsg / SsoGetC2cMsg)
+  let stored = false;
   try {
     let fetched: GroupMessage | FriendMessage | null;
     if (isGroup) {
       fetched = await ref.bridge.apis.message.getGroupMessageBySeq(session, replySeq, ref.selfId);
     } else {
-      const friendUid = await ref.bridge.resolveUserUid(session);
-      if (!friendUid) return;
-      fetched = await ref.bridge.apis.message.getC2cMessageBySeq(friendUid, replySeq, ref.selfId);
+      const friendUid = await ref.bridge.resolveUserUid(originalSenderUin);
+      if (friendUid) {
+        fetched = await ref.bridge.apis.message.getC2cMessageBySeq(friendUid, replySeq, ref.selfId);
+      }
     }
-    if (!fetched) return;
-
-    const json = await convertEvent(ref.converterCtx, fetched);
-    if (!json) return;
-    // Key under the exact id the reply resolves to (and the reply's session) so
-    // get_msg(targetId) hits regardless of who sent the quoted message: a c2c
-    // message the bot itself sent converts with user_id=self and would
-    // otherwise key under a different session than the reply's peer.
-    json.message_id = targetId;
-    ref.messageStore.storeEvent(targetId, isGroup, session, replySeq, eventName, json);
+    if (fetched) {
+      const json = await convertEvent(ref.converterCtx, fetched);
+      if (json) {
+        json.message_id = targetId;
+        ref.messageStore.storeEvent(targetId, isGroup, storeSession, replySeq, eventName, json);
+        stored = true;
+      }
+    }
   } catch (err) {
-    log.warn('reply-target backfill failed (%s)', err instanceof Error ? err.message : String(err));
+    log.warn('reply-target server fetch failed (%s)', err instanceof Error ? err.message : String(err));
   }
+  if (stored) return;
+
+  // Tier 2: Reconstruct from SrcMsg.elems (no server request). The QQ server
+  // includes the quoted message's elements in the push (SrcMsg field 5,
+  // repeated Elem), so we can build a local event from them.
+  if (reply?.replyElements?.length) {
+    try {
+      const segments = await elementsToOneBotSegments(
+        reply.replyElements, isGroup, originalSenderUin,
+        ref.converterCtx.imageUrlResolver, ref.converterCtx.mediaUrlResolver,
+        ref.converterCtx.messageIdResolver, ref.converterCtx.mediaSegmentSink,
+      ) as JsonArray;
+      const fallback = buildFallbackEvent(targetId, replySeq, originalSenderUin,
+        reply.replyTime ?? 0, segments, ref.selfId, isGroup, session);
+      ref.messageStore.storeEvent(targetId, isGroup, storeSession, replySeq, eventName, fallback);
+      return;
+    } catch { /* fall through to Tier 3 */ }
+  }
+
+  // Tier 3: Minimal text placeholder — ensures get_msg never returns
+  // "message not found" even when server fetch and SrcMsg decode both fail.
+  const minimal = buildFallbackMinimal(targetId, replySeq, originalSenderUin,
+    reply?.replyTime ?? 0, ref.selfId, isGroup, session);
+  ref.messageStore.storeEvent(targetId, isGroup, storeSession, replySeq, eventName, minimal);
+}
+
+function buildFallbackEvent(
+  messageId: number,
+  msgSeq: number,
+  senderUin: number,
+  timestamp: number,
+  segments: JsonArray,
+  selfId: number,
+  isGroup: boolean,
+  sessionId: number,
+): JsonObject {
+  const common = {
+    time: timestamp || Math.floor(Date.now() / 1000),
+    self_id: selfId,
+    post_type: 'message' as const,
+    message_id: messageId,
+    message_seq: msgSeq,
+    message: segments,
+    raw_message: segmentsToRawMessage(segments),
+    font: 0,
+  };
+  if (isGroup) {
+    return {
+      ...common,
+      message_type: 'group' as const,
+      sub_type: 'normal' as const,
+      group_id: sessionId,
+      user_id: senderUin,
+      sender: {
+        user_id: senderUin,
+        nickname: '',
+        card: '',
+        role: 'member' as const,
+        sex: 'unknown' as const,
+        age: 0,
+      },
+      anonymous: null,
+    };
+  }
+  return {
+    ...common,
+    message_type: 'private' as const,
+    sub_type: 'friend' as const,
+    user_id: senderUin,
+    sender: {
+      user_id: senderUin,
+      nickname: '',
+      sex: 'unknown' as const,
+      age: 0,
+    },
+  };
+}
+
+function buildFallbackMinimal(
+  messageId: number,
+  msgSeq: number,
+  senderUin: number,
+  timestamp: number,
+  selfId: number,
+  isGroup: boolean,
+  sessionId: number,
+): JsonObject {
+  const segment: JsonArray = [{ type: 'text', data: { text: '[引用消息]' } }];
+  const raw = '[引用消息]';
+  const common = {
+    time: timestamp || Math.floor(Date.now() / 1000),
+    self_id: selfId,
+    post_type: 'message' as const,
+    message_id: messageId,
+    message_seq: msgSeq,
+    message: segment,
+    raw_message: raw,
+    font: 0,
+  };
+  if (isGroup) {
+    return {
+      ...common,
+      message_type: 'group' as const,
+      sub_type: 'normal' as const,
+      group_id: sessionId,
+      user_id: senderUin,
+      sender: {
+        user_id: senderUin,
+        nickname: '',
+        card: '',
+        role: 'member' as const,
+        sex: 'unknown' as const,
+        age: 0,
+      },
+      anonymous: null,
+    };
+  }
+  return {
+    ...common,
+    message_type: 'private' as const,
+    sub_type: 'friend' as const,
+    user_id: senderUin,
+    sender: {
+      user_id: senderUin,
+      nickname: '',
+      sex: 'unknown' as const,
+      age: 0,
+    },
+  };
 }
 
 // Persist a converted history event so reply / get_msg / future listing resolve
