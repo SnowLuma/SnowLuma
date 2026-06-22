@@ -21,9 +21,19 @@ const CONFIG_DIR = 'config';
 const DEFAULT_CONFIG_PATH = path.join(CONFIG_DIR, 'onebot.json');
 const DEFAULT_ACCESS_TOKEN_BYTES = 32;
 
-const DEFAULT_STATUS_COMMAND: StatusCommandConfig = { enabled: true, swallow: false, cooldownSeconds: 5 };
-/** Upper bound on the `#sl` reply cooldown — a year is effectively "off but sane". */
+const DEFAULT_STATUS_COMMAND: StatusCommandConfig = {
+  enabled: true,
+  swallow: false,
+  cooldownSeconds: 5,
+  trigger: '#sl',
+  matchMode: 'exact',
+  scope: 'all',
+  showPlatform: true,
+  platformDetail: 'simple',
+};
+/** Upper bound on the status-command reply cooldown — a year is effectively "off but sane". */
 const STATUS_COMMAND_COOLDOWN_MAX = 31_536_000;
+const STATUS_COMMAND_TRIGGER_MAX_LENGTH = 64;
 
 function makeDefaultStatusCommand(): StatusCommandConfig {
   return { ...DEFAULT_STATUS_COMMAND };
@@ -237,6 +247,10 @@ function normalizeChannelIds(value: unknown): string[] {
 
 /** Last-write-wins merge of `statusCommand` across config sources, with
  *  defaults filled and the cooldown clamped to a sane non-negative range. */
+const VALID_MATCH_MODES: ReadonlySet<string> = new Set(['exact', 'prefix', 'contains', 'regex']);
+const VALID_SCOPES: ReadonlySet<string> = new Set(['all', 'private', 'group']);
+const VALID_PLATFORM_DETAILS: ReadonlySet<string> = new Set(['simple', 'detailed']);
+
 function parseStatusCommand(sources: JsonObject[]): StatusCommandConfig {
   const out = makeDefaultStatusCommand();
   for (const src of sources) {
@@ -249,6 +263,19 @@ function parseStatusCommand(sources: JsonObject[]): StatusCommandConfig {
         STATUS_COMMAND_COOLDOWN_MAX,
         asNumber(raw.cooldownSeconds, DEFAULT_STATUS_COMMAND.cooldownSeconds),
       );
+    }
+    if (typeof raw.trigger === 'string' && raw.trigger.trim().length > 0) {
+      out.trigger = raw.trigger.trim().slice(0, STATUS_COMMAND_TRIGGER_MAX_LENGTH);
+    }
+    if (typeof raw.matchMode === 'string' && VALID_MATCH_MODES.has(raw.matchMode)) {
+      out.matchMode = raw.matchMode as StatusCommandConfig['matchMode'];
+    }
+    if (typeof raw.scope === 'string' && VALID_SCOPES.has(raw.scope)) {
+      out.scope = raw.scope as StatusCommandConfig['scope'];
+    }
+    if (typeof raw.showPlatform === 'boolean') out.showPlatform = raw.showPlatform;
+    if (typeof raw.platformDetail === 'string' && VALID_PLATFORM_DETAILS.has(raw.platformDetail)) {
+      out.platformDetail = raw.platformDetail as StatusCommandConfig['platformDetail'];
     }
   }
   return out;

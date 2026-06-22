@@ -1,32 +1,39 @@
-import type { JsonObject, JsonValue } from '../types';
+import type { SystemInfo } from '@snowluma/core/system-info';
+import type { JsonObject, JsonValue, StatusCommandMatchMode, StatusCommandPlatformDetail } from '../types';
 
 /**
- * Hardcoded trigger for the built-in status command — exact match,
- * case-insensitive, after trimming. Intentionally NOT configurable: the
- * `statusCommand.enabled` toggle is the only knob (the gate is on/off, not
- * the word).
- */
-export const STATUS_COMMAND_TRIGGER = '#sl';
-
-/**
- * True iff `message` is exactly the trigger: a single `text` segment (or a
- * bare string for string-format adapters) whose trimmed, lowercased content
- * equals {@link STATUS_COMMAND_TRIGGER}.
+ * True iff `message` matches the given trigger using the given match mode.
  *
- * Reads the segment array rather than `raw_message` to avoid CQ-encoding
- * ambiguity, and rejects mixed-segment messages (`#sl` + image/at/reply) so
- * only a pure `#sl` triggers — no `startsWith`, so `#slogan` never matches.
+ * Only a single text segment (or a bare string) is accepted — mixed-segment
+ * messages (e.g. `#sl` + image) never match, regardless of mode.
  */
-export function matchesStatusCommand(message: JsonValue | undefined): boolean {
+export function matchesStatusCommand(
+  message: JsonValue | undefined,
+  trigger: string,
+  matchMode: StatusCommandMatchMode,
+): boolean {
   if (typeof message === 'string') {
-    return normalize(message) === STATUS_COMMAND_TRIGGER;
+    return testMatch(message, trigger, matchMode);
   }
   if (!Array.isArray(message) || message.length !== 1) return false;
   const seg = message[0];
   if (!isObject(seg) || seg.type !== 'text') return false;
   const data = isObject(seg.data) ? seg.data : null;
   const text = data && typeof data.text === 'string' ? data.text : '';
-  return normalize(text) === STATUS_COMMAND_TRIGGER;
+  return testMatch(text, trigger, matchMode);
+}
+
+function testMatch(text: string, trigger: string, mode: StatusCommandMatchMode): boolean {
+  switch (mode) {
+    case 'exact':
+      return normalize(text) === normalize(trigger);
+    case 'prefix':
+      return normalize(text).startsWith(normalize(trigger));
+    case 'contains':
+      return normalize(text).includes(normalize(trigger));
+    case 'regex':
+      try { return new RegExp(trigger).test(text); } catch { return false; }
+  }
 }
 
 function normalize(s: string): string {
@@ -58,14 +65,24 @@ export interface StatusInfo {
   uptimeMs: number;
 }
 
-/** Render the public-safe `#sl` reply: version + platform/arch + uptime. */
-export function buildStatusText(info: StatusInfo): string {
-  return [
-    'SnowLuma 状态',
-    `版本: ${info.version}`,
-    `平台: ${info.platform}-${info.arch}`,
-    `运行时长: ${formatUptime(info.uptimeMs)}`,
-  ].join('\n');
+/** Render the status reply with configurable platform detail. */
+export function buildStatusText(
+  info: StatusInfo,
+  showPlatform: boolean,
+  platformDetail: StatusCommandPlatformDetail,
+  systemInfo?: SystemInfo,
+): string {
+  const lines = ['SnowLuma 状态'];
+  lines.push(`版本: ${info.version}`);
+  if (showPlatform) {
+    if (platformDetail === 'detailed' && systemInfo) {
+      lines.push(`平台: ${systemInfo.distro} · ${systemInfo.archLabel}`);
+    } else {
+      lines.push(`平台: ${info.platform}-${info.arch}`);
+    }
+  }
+  lines.push(`运行时长: ${formatUptime(info.uptimeMs)}`);
+  return lines.join('\n');
 }
 
 /** Human-readable uptime (zh-CN), dropping leading zero units. */

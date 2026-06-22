@@ -97,11 +97,20 @@ export interface OneBotNetworks {
   wsClients: WsClientNetwork[];
 }
 
-/** Built-in `#sl` status command settings (trigger word is hardcoded). */
+export type StatusCommandMatchMode = 'exact' | 'prefix' | 'contains' | 'regex';
+export type StatusCommandScope = 'all' | 'private' | 'group';
+export type StatusCommandPlatformDetail = 'simple' | 'detailed';
+
+/** Built-in status command settings. Trigger word is configurable. */
 export interface StatusCommandConfig {
   enabled: boolean;
   swallow: boolean;
   cooldownSeconds: number;
+  trigger: string;
+  matchMode: StatusCommandMatchMode;
+  scope: StatusCommandScope;
+  showPlatform: boolean;
+  platformDetail: StatusCommandPlatformDetail;
 }
 
 export interface OneBotConfig {
