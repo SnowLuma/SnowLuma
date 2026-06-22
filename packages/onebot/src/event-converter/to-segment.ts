@@ -12,6 +12,7 @@ export async function elementsToJson(
   elements: MessageElement[],
   isGroup: boolean,
   sessionId: number,
+  selfUin: number,
   imageUrlResolver?: ImageUrlResolver | null,
   mediaUrlResolver?: MediaUrlResolver | null,
   messageIdResolver?: MessageIdResolver | null,
@@ -21,7 +22,7 @@ export async function elementsToJson(
   for (const element of elements) {
     try {
       result.push(await elementToSegment(
-        element, isGroup, sessionId,
+        element, isGroup, sessionId, selfUin,
         imageUrlResolver, mediaUrlResolver, messageIdResolver, mediaSegmentSink,
       ));
     } catch {
@@ -35,6 +36,7 @@ async function elementToSegment(
   element: MessageElement,
   isGroup: boolean,
   sessionId: number,
+  selfUin: number,
   imageUrlResolver?: ImageUrlResolver | null,
   mediaUrlResolver?: MediaUrlResolver | null,
   messageIdResolver?: MessageIdResolver | null,
@@ -68,9 +70,16 @@ async function elementToSegment(
   }
 
   if (element.type === 'reply') {
-    // 私聊回复段 data.id 必须与原始消息的 hash 一致（使用原始发送者 UIN，
-    // 而非当前消息发送者 UIN），否则 astrbot 用 data.id 调 get_msg 会 miss。
-    const effectiveSession = isGroup ? sessionId : (element.replySenderUin ?? sessionId);
+    // 私聊回复段 data.id 必须与原始消息的 message_id 一致（OneBot v11 标准）。
+    // 私聊的 message_id 始终使用对话对方 UIN（peer）作为 hash key。
+    // 当引用消息是机器人自身发送时（replySenderUin === selfUin），
+    // 原消息在 sendPrivateMessage 时已按 peer UIN 缓存，故此处也用 peer UIN。
+    // 当引用消息是他人发送时（replySenderUin !== selfUin），
+    // 原消息在收到时已按 replySenderUin 缓存，故此处用 replySenderUin。
+    const effectiveSession = isGroup ? sessionId
+      : (element.replySenderUin != null && element.replySenderUin !== selfUin)
+        ? element.replySenderUin
+        : sessionId;
     const id = resolveReplyId(isGroup, effectiveSession, element.replySeq ?? 0, messageIdResolver);
     return { type: 'reply', data: { id: String(id) } };
   }

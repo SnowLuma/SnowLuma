@@ -17,7 +17,7 @@ export async function convertFriendMessage(ctx: ConverterContext, event: FriendM
     ctx.messageIdResolver, false, event.senderUin, event.msgSeq, PRIVATE_MESSAGE_EVENT,
   );
   const segments = await elementsToJson(
-    event.elements, false, event.senderUin,
+    event.elements, false, event.senderUin, ctx.selfId,
     ctx.imageUrlResolver, ctx.mediaUrlResolver, ctx.messageIdResolver, ctx.mediaSegmentSink,
   );
   return {
@@ -48,7 +48,7 @@ export async function convertGroupMessage(ctx: ConverterContext, event: GroupMes
     ctx.messageIdResolver, true, event.groupId, event.msgSeq, GROUP_MESSAGE_EVENT,
   );
   const segments = await elementsToJson(
-    event.elements, true, event.groupId,
+    event.elements, true, event.groupId, ctx.selfId,
     ctx.imageUrlResolver, ctx.mediaUrlResolver, ctx.messageIdResolver, ctx.mediaSegmentSink,
   );
   return {
@@ -83,7 +83,7 @@ export async function convertTempMessage(ctx: ConverterContext, event: TempMessa
     ctx.messageIdResolver, false, event.senderUin, event.msgSeq, PRIVATE_MESSAGE_EVENT,
   );
   const segments = await elementsToJson(
-    event.elements, false, event.senderUin,
+    event.elements, false, event.senderUin, ctx.selfId,
     ctx.imageUrlResolver, ctx.mediaUrlResolver, ctx.messageIdResolver, ctx.mediaSegmentSink,
   );
   return {

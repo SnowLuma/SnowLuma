@@ -326,7 +326,7 @@ describe('convertEvent — message elements (13 segment types)', () => {
   async function segment(element: MessageElement, opts: Partial<ConverterContext> = {}): Promise<Segment> {
     const ctx = bareCtx(opts);
     const segments = await elementsToOneBotSegments(
-      [element], false, PEER_UIN,
+      [element], false, PEER_UIN, SELF_ID,
       ctx.imageUrlResolver, ctx.mediaUrlResolver, ctx.messageIdResolver, ctx.mediaSegmentSink,
     );
     return segments[0] as unknown as Segment;
@@ -491,7 +491,7 @@ describe('convertEvent — message elements (13 segment types)', () => {
         { type: 'video', fileName: 'v.mp4', fileId: 'v' },
         { type: 'text', text: 'not media' },
       ],
-      true, GROUP_ID,
+      true, GROUP_ID, SELF_ID,
       ctx.imageUrlResolver, ctx.mediaUrlResolver, ctx.messageIdResolver, ctx.mediaSegmentSink,
     );
     expect(calls).toEqual(['image', 'record', 'video']);
