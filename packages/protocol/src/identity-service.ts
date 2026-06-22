@@ -345,6 +345,20 @@ export class IdentityService {
     this.hydrateActiveMembersForGroups(groups.map((group) => group.groupId));
   }
 
+  /**
+   * Drop a single group from the roster after the bot leaves/is removed, so
+   * `get_group_list` and member lookups stop returning a group we're no longer
+   * in (#133). Removes the in-memory entry and marks the DB row inactive so it
+   * doesn't resurrect on the next load (the server refetch won't include it).
+   */
+  forgetGroup(groupId: number): void {
+    this.groups_.delete(groupId);
+    this.runWrite('forget group', () => {
+      this.pstmt('UPDATE groups SET active = 0, updated_at = ? WHERE group_id = ?')
+        .run(nowSeconds(), groupId);
+    });
+  }
+
   rememberGroupMembers(groupId: number, members: GroupMemberInfo[]): void {
     this.setGroupMembersInMemory(groupId, members);
     for (const member of members) this.rememberUidUin(member.uid, member.uin);

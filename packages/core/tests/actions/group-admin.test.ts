@@ -88,13 +88,24 @@ describe('apis/group-admin', () => {
     expect(env.body?.rejectAddRequest ?? 0).toBe(0);
   });
 
-  it('leave sends 0x1097_1 with the groupUin', async () => {
+  it('leave sends 0x1097_1, emits a self group_member_leave, and forgets the group (#133)', async () => {
     const bridge = mockBridge();
     await new GroupAdminApi(bridge as any).leave(12345);
     const [cmd, bytes] = bridge.sendRawPacket.mock.calls[0]!;
     expect(cmd).toBe('OidbSvcTrpcTcp.0x1097_1');
     const env = protobuf_decode<OidbBase<OidbLeaveGroup>>(bytes);
     expect(env.body).toMatchObject({ groupUin: 12345 });
+
+    // The server never pushes a member-decrease for our own voluntary leave, so
+    // the bridge synthesizes it (self user_id/operator_id) and drops the group.
+    expect(bridge.events.emit).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'group_member_leave',
+      groupId: 12345,
+      userUin: 10001,
+      operatorUin: 10001,
+      leaveType: 'leave',
+    }));
+    expect(bridge.identity.forgetGroup).toHaveBeenCalledWith(12345);
   });
 
   it('setAdmin resolves UID and sends 0x1096_1', async () => {
