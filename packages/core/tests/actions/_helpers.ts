@@ -124,7 +124,9 @@ export interface MockBridge {
     findUidByUin: ReturnType<typeof vi.fn>;
     findUinByUid: ReturnType<typeof vi.fn>;
     findGroupMember: ReturnType<typeof vi.fn>;
+    forgetGroup: ReturnType<typeof vi.fn>;
   };
+  events: { emit: ReturnType<typeof vi.fn> };
   apis: MockApiHub;
   sendRawPacket: ReturnType<typeof vi.fn>;
   fetchFriendList: ReturnType<typeof vi.fn>;
@@ -154,8 +156,10 @@ export function mockBridge(overrides: Partial<MockBridge> = {}): MockBridge {
       findUidByUin: vi.fn(() => 'cached-uid'),
       findUinByUid: vi.fn(() => 0),
       findGroupMember: vi.fn(() => null),
+      forgetGroup: vi.fn(),
       ...(overrides.identity ?? {}),
     } as MockBridge['identity'],
+    events: overrides.events ?? { emit: vi.fn(async () => undefined) },
     apis: overrides.apis ?? mockApiHub(),
     sendRawPacket: vi.fn(async () => defaultResp),
     fetchFriendList: vi.fn(async () => []),

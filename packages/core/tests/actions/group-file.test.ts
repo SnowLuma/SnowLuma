@@ -233,6 +233,7 @@ describe('apis/group-file', () => {
         findUidByUin: vi.fn(() => 'cached-uid'),
         findUinByUid: vi.fn(() => 0),
         findGroupMember: vi.fn(() => null),
+        forgetGroup: vi.fn(),
       },
     });
     vi.mocked(bridge.resolveUserUid)
