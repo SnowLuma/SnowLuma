@@ -1,7 +1,7 @@
 {
   "license": "SEE LICENSE IN LICENSE",
   "name": "@snowluma/proton",
-  "version": "1.10.1",
+  "version": "1.10.2",
   "private": true,
   "type": "module",
   "description": "Compile-time protobuf encoder/decoder generator for SnowLuma. TypeScript interfaces → fully-inlined, zero-runtime protobuf codec functions. Vendored from SnowLuma/protobuf-dsl (reference copy under dev/protobuf-dsl/) with edge-case fixes applied.",
