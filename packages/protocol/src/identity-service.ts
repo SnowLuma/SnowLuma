@@ -105,6 +105,10 @@ export class IdentityService {
   private readonly userProfiles_ = new Map<number, UserProfileInfo>();
   private friends_: FriendInfo[] = [];
   private readonly groups_ = new Map<number, QQGroupInfo>();
+  // groupUin → approval msgseq from a private "qun.invite" card's jumpUrl.
+  // The 0x10c8 approval for a bot self-invite needs THIS sequence (with
+  // eventType=2); the MSF invite push never carries it. See issue #125.
+  private readonly groupInviteCardSeqs_ = new Map<number, number>();
 
   // ─── Bidirectional UID↔UIN index (O(1), populated by every observation) ───
   private readonly uinByUid = new Map<string, number>();
@@ -379,6 +383,17 @@ export class IdentityService {
       remark: info.remark,
       source: 'profile',
     })));
+  }
+
+  /** Remember the approval msgseq carried by a private "qun.invite" card's
+   *  jumpUrl, keyed by group. `set_group_add_request` reads it back to approve
+   *  a bot self-invite via 0x10c8 (eventType=2). See issue #125. */
+  rememberGroupInviteCardSequence(groupUin: number, sequence: number): void {
+    if (groupUin > 0 && sequence > 0) this.groupInviteCardSeqs_.set(groupUin, sequence);
+  }
+
+  getGroupInviteCardSequence(groupUin: number): number | undefined {
+    return this.groupInviteCardSeqs_.get(groupUin);
   }
 
   rememberGroupRequests(requests: GroupRequestInfo[]): void {

@@ -232,6 +232,13 @@ export class ContactsApi {
     return requests;
   }
 
+  /** The approval msgseq captured from a private "qun.invite" card for this
+   *  group, or undefined if none was seen. `set_group_add_request` uses it to
+   *  approve a bot self-invite via 0x10c8 (eventType=2). See issue #125. */
+  getGroupInviteCardSequence(groupId: number): number | undefined {
+    return this.ctx.identity.getGroupInviteCardSequence(groupId);
+  }
+
   async fetchDownloadRKeys(): Promise<DownloadRKeyInfo[]> {
     const resp = await FetchDownloadRkeys.invoke(this.ctx);
 
