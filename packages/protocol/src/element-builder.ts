@@ -115,7 +115,11 @@ async function makeReplyMentionElem(ctx: SendContext, uin: number): Promise<Prot
   if (!uid) uid = await ctx.bridge.identity.resolveUid(uin, ctx.groupId).catch(() => '');
   if (!uid) return null;
   const name = member?.card?.trim() || member?.nickname?.trim() || String(uin);
-  const extra = protobuf_encode<MentionExtraSend>({ type: 2, uin, field5: 0, uid });
+  // uin=0 matches QQ NT's native reply auto-mention (the real uid lives in
+  // `uid`). It does not itself notify — the user's own @ does — and the receive
+  // side strips a type=2/uin=0 mention as structural (#127), so the bot's own
+  // replies don't surface a spurious @ either.
+  const extra = protobuf_encode<MentionExtraSend>({ type: 2, uin: 0, field5: 0, uid });
   return { text: { str: `@${name} `, pbReserve: extra } };
 }
 

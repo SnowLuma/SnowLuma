@@ -33,6 +33,13 @@ export function decodeRichBody(body: PushMsgBody | undefined, isGroup: boolean):
 function convertElements(elems: ElemDecoded[]): MessageElement[] {
   const result: MessageElement[] = [];
   let skipNext = false;
+  // [#127] A QQ NT reply carries the replied sender as a structural auto-mention
+  // (MentionExtra.type=2, uin=0) right after srcMsg, followed by a blank
+  // separator text. Both are part of the reply wire shape, not user content —
+  // drop them so they aren't reported as a spurious @ + empty segment. A real
+  // user @ carries a non-zero MentionExtra.uin, so it's preserved.
+  let sawReply = false;
+  let dropNextBlankText = false;
 
   for (const elem of elems) {
     if (skipNext) { skipNext = false; continue; }
@@ -55,6 +62,7 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
       // back empty.
       const replySeq = elem.srcMsg.origSeqs?.[0] ?? 0;
       if (replySeq > 0) result.push({ type: 'reply', replySeq });
+      sawReply = true;
     }
 
     // Text (with possible @ detection)
@@ -66,6 +74,17 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
       }
       const hasAttr6 = t.attr6Buf && t.attr6Buf.length > 11;
       const hasMention = mention && (mention.type === 1 || mention.type === 2);
+
+      // [#127] drop the reply's structural auto-mention (type=2, uin=0) and the
+      // blank separator text right after it; keep real @s (non-zero uin).
+      if (sawReply && mention && mention.type === 2 && (mention.uin ?? 0) === 0) {
+        dropNextBlankText = true;
+        continue;
+      }
+      if (dropNextBlankText) {
+        dropNextBlankText = false;
+        if (!hasMention && (t.str ?? '').trim() === '') continue;
+      }
 
       if (hasAttr6 || hasMention) {
         const me: MessageElement = { type: 'at', text: t.str ?? '' };
