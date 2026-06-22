@@ -69,15 +69,13 @@ export function GeneralSettingsTab({ config, onChange }: GeneralSettingsTabProps
             disabled={disabled}
             onChange={(e) => setStatusCommand({ matchMode: e.target.value as StatusCommandConfig['matchMode'] })}
           >
-            <option value="exact">exact（精确）</option>
-            <option value="prefix">prefix（前缀）</option>
-            <option value="contains">contains（包含）</option>
-            <option value="regex">regex（正则）</option>
+            <option value="exact">精确</option>
+            <option value="prefix">前缀</option>
+            <option value="contains">包含</option>
+            <option value="regex">正则</option>
           </Select>
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            {sc.matchMode === 'regex'
-              ? '正则模式默认大小写敏感，可在正则开头添加 (?i) 启用不区分大小写。'
-              : '匹配前会去除首尾空格并转为小写。'}
+            匹配前会去除首尾空格并转为小写。
           </p>
         </div>
 
@@ -123,8 +121,10 @@ export function GeneralSettingsTab({ config, onChange }: GeneralSettingsTabProps
             disabled={disabled || !sc.showPlatform}
             onChange={(e) => setStatusCommand({ platformDetail: e.target.value as StatusCommandConfig['platformDetail'] })}
           >
-            <option value="simple">简要（platform-arch）</option>
-            <option value="detailed">详细（发行版 · 架构）</option>
+            <option value="brief">简要</option>
+            <option value="summary">摘要</option>
+            <option value="detailed">详细</option>
+            <option value="fuzzy">模糊</option>
           </Select>
         </div>
 

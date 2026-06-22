@@ -25,7 +25,7 @@ describe('makeDefaultOneBotConfig', () => {
     expect(config.networks.wsServers[0].reportSelfMessage).toBe(false);
     expect(config.networks.wsClients).toEqual([]);
     expect(config.musicSignUrl).toBe('');
-    expect(config.statusCommand).toEqual({ enabled: true, swallow: false, cooldownSeconds: 5, trigger: '#sl', matchMode: 'exact', scope: 'all', showPlatform: true, platformDetail: 'simple' });
+    expect(config.statusCommand).toEqual({ enabled: true, swallow: false, cooldownSeconds: 5, trigger: '#sl', matchMode: 'exact', scope: 'all', showPlatform: true, platformDetail: 'brief' });
     expect(config.notifications).toEqual({ channelIds: [] });
   });
 });
@@ -60,7 +60,7 @@ describe('loadOneBotConfig', () => {
     expect(onDisk.httpServers).toBeUndefined();
     expect(onDisk.wsServers).toBeUndefined();
     // statusCommand is materialised with defaults on a fresh install.
-    expect(onDisk.statusCommand).toEqual({ enabled: true, swallow: false, cooldownSeconds: 5, trigger: '#sl', matchMode: 'exact', scope: 'all', showPlatform: true, platformDetail: 'simple' });
+    expect(onDisk.statusCommand).toEqual({ enabled: true, swallow: false, cooldownSeconds: 5, trigger: '#sl', matchMode: 'exact', scope: 'all', showPlatform: true, platformDetail: 'brief' });
   });
 
   it('fills statusCommand defaults and clamps a negative cooldown', () => {
@@ -168,7 +168,7 @@ describe('loadOneBotConfig', () => {
     expect(config.statusCommand.matchMode).toBe('exact'); // default
     expect(config.statusCommand.scope).toBe('all'); // default
     expect(config.statusCommand.showPlatform).toBe(true); // default
-    expect(config.statusCommand.platformDetail).toBe('simple'); // default
+    expect(config.statusCommand.platformDetail).toBe('brief'); // default
   });
 
   it('clamps trigger length and rejects empty trigger', () => {
@@ -187,7 +187,7 @@ describe('loadOneBotConfig', () => {
     expect(config.statusCommand.trigger).toBe('#sl'); // empty → default
     expect(config.statusCommand.matchMode).toBe('exact'); // invalid → default
     expect(config.statusCommand.scope).toBe('all'); // invalid → default
-    expect(config.statusCommand.platformDetail).toBe('simple'); // invalid → default
+    expect(config.statusCommand.platformDetail).toBe('brief'); // invalid → default
   });
 
   it('does not write to disk by default (read-only contract)', () => {

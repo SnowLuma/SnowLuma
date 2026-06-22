@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   buildStatusText,
   formatUptime,
@@ -53,8 +53,8 @@ describe('matchesStatusCommand', () => {
   it('matches regex mode correctly', () => {
     expect(matchesStatusCommand(textSeg('#sl'), '^#sl$', 'regex')).toBe(true);
     expect(matchesStatusCommand(textSeg('#sl help'), '^#sl', 'regex')).toBe(true);
-    expect(matchesStatusCommand(textSeg('#SL'), '^#sl$', 'regex')).toBe(false); // case-sensitive
-    expect(matchesStatusCommand(textSeg('#SL'), '(?i)^#sl$', 'regex')).toBe(true); // case-insensitive flag
+    expect(matchesStatusCommand(textSeg('#SL'), '^#sl$', 'regex')).toBe(false);
+    expect(matchesStatusCommand(textSeg('#SL'), '(?i)^#sl$', 'regex')).toBe(true);
   });
 
   it('returns false for invalid regex', () => {
@@ -127,8 +127,8 @@ describe('buildStatusText', () => {
     uptimeMs: 90_000,
   };
 
-  it('renders version / platform / uptime with simple detail', () => {
-    const text = buildStatusText(info, true, 'simple');
+  it('renders version / platform / uptime with brief detail', () => {
+    const text = buildStatusText(info, true, 'brief');
     expect(text).toContain('SnowLuma');
     expect(text).toContain('版本: 1.9.3-node');
     expect(text).toContain('平台: linux-x64');
@@ -137,13 +137,24 @@ describe('buildStatusText', () => {
   });
 
   it('hides platform line when showPlatform is false', () => {
-    const text = buildStatusText(info, false, 'simple');
+    const text = buildStatusText(info, false, 'brief');
     expect(text).toContain('版本: 1.9.3-node');
     expect(text).not.toContain('平台:');
     expect(text).toContain('运行时长: 1分钟 30秒');
   });
 
-  it('renders detailed platform when systemInfo is provided', () => {
+  it('renders summary platform (simplifyDistro + archLabel) when systemInfo is provided', () => {
+    const text = buildStatusText(info, true, 'summary', {
+      platform: 'linux',
+      arch: 'x64',
+      archLabel: 'x86_64',
+      release: '6.8.12',
+      distro: 'Debian GNU/Linux 13 (kernel 6.12.74)',
+    });
+    expect(text).toContain('平台: Debian 13 x86_64');
+  });
+
+  it('renders detailed platform when systemInfo is provided (wraps long lines for mobile QQ)', () => {
     const text = buildStatusText(info, true, 'detailed', {
       platform: 'linux',
       arch: 'x64',
@@ -151,11 +162,31 @@ describe('buildStatusText', () => {
       release: '6.8.12',
       distro: 'Ubuntu 22.04 (kernel 6.8.12)',
     });
-    expect(text).toContain('平台: Ubuntu 22.04 (kernel 6.8.12) · x86_64');
+    // Long line auto-splits at " · " separator for mobile readability
+    expect(text).toContain('平台: Ubuntu 22.04 (kernel 6.8.12)');
+    expect(text).toContain('架构: x86_64');
+    expect(text).not.toContain('· x86_64');
   });
 
-  it('falls back to simple detail when systemInfo is missing even if detailed mode', () => {
-    const text = buildStatusText(info, true, 'detailed');
-    expect(text).toContain('平台: linux-x64');
+  it('falls back to simple detail when systemInfo is missing', () => {
+    expect(buildStatusText(info, true, 'summary')).toContain('平台: linux-x64');
+    expect(buildStatusText(info, true, 'detailed')).toContain('平台: linux-x64');
+  });
+
+  it('fuzzy mode returns a non-empty platform line (random mock)', () => {
+    // Run multiple times to cover different random outcomes
+    for (let i = 0; i < 10; i++) {
+      const text = buildStatusText(info, true, 'fuzzy');
+      expect(text).toContain('平台:');
+      expect(text.length).toBeGreaterThan(10);
+    }
+  });
+
+  it('fuzzy mode platform line differs across invocations', () => {
+    const results = new Set<string>();
+    for (let i = 0; i < 20; i++) {
+      results.add(buildStatusText(info, true, 'fuzzy'));
+    }
+    expect(results.size).toBeGreaterThan(1);
   });
 });

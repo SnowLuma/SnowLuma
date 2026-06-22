@@ -1,5 +1,9 @@
+import { getMockSystem, simplifyDistro } from '@snowluma/core/system-info';
 import type { SystemInfo } from '@snowluma/core/system-info';
 import type { JsonObject, JsonValue, StatusCommandMatchMode, StatusCommandPlatformDetail } from '../types';
+
+/** ~40 half-width chars fits ~2 lines on mobile QQ in portrait. */
+const QQ_LINE_LIMIT = 38;
 
 /**
  * True iff `message` matches the given trigger using the given match mode.
@@ -84,14 +88,40 @@ export function buildStatusText(
   const lines = ['SnowLuma 状态'];
   lines.push(`版本: ${info.version}`);
   if (showPlatform) {
-    if (platformDetail === 'detailed' && systemInfo) {
-      lines.push(`平台: ${systemInfo.distro} · ${systemInfo.archLabel}`);
+    const platformLine = buildPlatformLine(info, platformDetail, systemInfo);
+    // Wrap long lines for mobile QQ (~2 lines max on phone screen).
+    if (platformLine.length > QQ_LINE_LIMIT) {
+      const splitAt = platformLine.indexOf(' · ');
+      if (splitAt > 0 && splitAt < QQ_LINE_LIMIT) {
+        lines.push(platformLine.slice(0, splitAt));
+        lines.push(`架构: ${platformLine.slice(splitAt + 3)}`);
+      } else {
+        lines.push(platformLine.slice(0, QQ_LINE_LIMIT));
+        lines.push(platformLine.slice(QQ_LINE_LIMIT));
+      }
     } else {
-      lines.push(`平台: ${info.platform}-${info.arch}`);
+      lines.push(platformLine);
     }
   }
   lines.push(`运行时长: ${formatUptime(info.uptimeMs)}`);
   return lines.join('\n');
+}
+
+function buildPlatformLine(
+  info: StatusInfo,
+  detail: StatusCommandPlatformDetail,
+  sys?: SystemInfo,
+): string {
+  switch (detail) {
+    case 'brief':
+      return `平台: ${info.platform}-${info.arch}`;
+    case 'summary':
+      return `平台: ${sys ? `${simplifyDistro(sys.distro)} ${sys.archLabel}` : `${info.platform}-${info.arch}`}`;
+    case 'detailed':
+      return `平台: ${sys ? `${sys.distro} · ${sys.archLabel}` : `${info.platform}-${info.arch}`}`;
+    case 'fuzzy':
+      return `平台: ${getMockSystem()}`;
+  }
 }
 
 /** Human-readable uptime (zh-CN), dropping leading zero units. */

@@ -2,6 +2,19 @@ import { execSync } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
 import os from 'os';
 
+/**
+ * Strip kernel version and GNU/Linux suffix from a distro string.
+ * "Debian GNU/Linux 13 (kernel 6.12.74)" → "Debian 13"
+ * "Ubuntu 22.04 (kernel 6.8.12)"         → "Ubuntu 22.04"
+ */
+export function simplifyDistro(distro: string): string {
+  return distro
+    .replace(/\s*\(kernel [^)]+\)/gi, '')
+    .replace(/\s*GNU\/Linux\s*/i, ' ')
+    .replace(/\s*Linux\s*/i, ' ')
+    .trim();
+}
+
 export interface SystemInfo {
   platform: string;
   arch: string;
@@ -169,6 +182,59 @@ export function getSystemDistro(): string {
 
 export function getNormalizedArch(): string {
   return CACHED_ARCH_LABEL;
+}
+
+// ─── Mock systems for fuzzy/privacy mode ─────────────────────────────────
+// Built once from the project's known distro + arch identifiers
+// so there is zero runtime allocation or complex logic per call.
+
+const MOCK_SYSTEMS: readonly string[] = (() => {
+  const DISTROS = [
+    'Windows 11', 'Windows 10', 'Windows Server 2025',
+    'macOS 15 Sequoia', 'macOS 14 Sonoma', 'macOS 13 Ventura',
+    'Ubuntu 24.04', 'Ubuntu 22.04', 'Ubuntu 20.04',
+    'Debian 13', 'Debian 12', 'Debian 11',
+    'Fedora 41', 'Fedora 40',
+    'CentOS Stream 9', 'Red Hat Enterprise Linux 9',
+    'Alpine Linux 3.21', 'Arch Linux', 'openSUSE Tumbleweed',
+    'Gentoo Linux', 'Slackware 15.0', 'Manjaro 24',
+    'NixOS 25.05', 'Void Linux', 'Kali 2024.1',
+    'Armbian 24.11', 'Raspbian 12', 'DietPi',
+    'Deepin 23', 'Kylin V10', 'UOS 20',
+    'Linux Mint 22', 'Proxmox VE 8', 'OpenWrt 23.05',
+    'Alibaba Cloud Linux 3', 'Anolis OS 8',
+    'Android 15', 'Android 14',
+    'FreeBSD 14.1', 'OpenBSD 7.5',
+  ];
+
+  const ARCHES: Record<string, string[]> = {
+    'Windows': ['x86_64', 'x86'],
+    'macOS': ['arm64', 'x86_64'],
+    'Android': ['aarch64', 'ARM64'],
+    'FreeBSD': ['amd64', 'x86'],
+    'OpenBSD': ['amd64', 'arm64'],
+    '*': ['x86_64', 'aarch64', 'ARM64', 'ARM', 'RISC-V', 'LoongArch'],
+  };
+
+  const out: string[] = [];
+  for (const d of DISTROS) {
+    let prefix: string;
+    if (d.startsWith('Windows')) prefix = 'Windows';
+    else if (d.startsWith('macOS')) prefix = 'macOS';
+    else if (d.startsWith('Android')) prefix = 'Android';
+    else if (d.startsWith('FreeBSD')) prefix = 'FreeBSD';
+    else if (d.startsWith('OpenBSD')) prefix = 'OpenBSD';
+    else prefix = '*';
+    for (const arch of (ARCHES[prefix] ?? ARCHES['*'])) {
+      out.push(`${d} ${arch}`);
+    }
+  }
+  return out;
+})();
+
+/** Return a randomly-selected mock system string (fuzzy/privacy mode). */
+export function getMockSystem(): string {
+  return MOCK_SYSTEMS[Math.floor(Math.random() * MOCK_SYSTEMS.length)];
 }
 
 export function getSystemInfo(): SystemInfo {

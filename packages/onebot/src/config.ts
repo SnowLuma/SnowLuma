@@ -29,11 +29,11 @@ const DEFAULT_STATUS_COMMAND: StatusCommandConfig = {
   matchMode: 'exact',
   scope: 'all',
   showPlatform: true,
-  platformDetail: 'simple',
+  platformDetail: 'brief',
 };
 /** Upper bound on the status-command reply cooldown — a year is effectively "off but sane". */
 const STATUS_COMMAND_COOLDOWN_MAX = 31_536_000;
-const STATUS_COMMAND_TRIGGER_MAX_LENGTH = 64;
+const STATUS_COMMAND_TRIGGER_MAX_LENGTH = 32;
 
 function makeDefaultStatusCommand(): StatusCommandConfig {
   return { ...DEFAULT_STATUS_COMMAND };
@@ -254,7 +254,7 @@ function normalizeChannelIds(value: unknown): string[] {
  *  defaults filled and the cooldown clamped to a sane non-negative range. */
 const VALID_MATCH_MODES: ReadonlySet<string> = new Set(['exact', 'prefix', 'contains', 'regex']);
 const VALID_SCOPES: ReadonlySet<string> = new Set(['all', 'private', 'group']);
-const VALID_PLATFORM_DETAILS: ReadonlySet<string> = new Set(['simple', 'detailed']);
+const VALID_PLATFORM_DETAILS: ReadonlySet<string> = new Set(['brief', 'summary', 'detailed', 'fuzzy']);
 
 function parseStatusCommand(sources: JsonObject[]): StatusCommandConfig {
   const out = makeDefaultStatusCommand();
