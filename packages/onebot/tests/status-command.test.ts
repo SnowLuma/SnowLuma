@@ -154,7 +154,7 @@ describe('buildStatusText', () => {
     expect(text).toContain('平台: Debian 13 x86_64');
   });
 
-  it('renders detailed platform when systemInfo is provided', () => {
+  it('renders detailed platform when systemInfo is provided (wraps long lines for mobile QQ)', () => {
     const text = buildStatusText(info, true, 'detailed', {
       platform: 'linux',
       arch: 'x64',
@@ -162,7 +162,10 @@ describe('buildStatusText', () => {
       release: '6.8.12',
       distro: 'Ubuntu 22.04 (kernel 6.8.12)',
     });
-    expect(text).toContain('平台: Ubuntu 22.04 (kernel 6.8.12) · x86_64');
+    // Long line auto-splits at " · " separator for mobile readability
+    expect(text).toContain('平台: Ubuntu 22.04 (kernel 6.8.12)');
+    expect(text).toContain('架构: x86_64');
+    expect(text).not.toContain('· x86_64');
   });
 
   it('falls back to simple detail when systemInfo is missing', () => {
