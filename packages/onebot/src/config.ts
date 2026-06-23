@@ -33,7 +33,7 @@ const DEFAULT_STATUS_COMMAND: StatusCommandConfig = {
 };
 /** Upper bound on the status-command reply cooldown — a year is effectively "off but sane". */
 const STATUS_COMMAND_COOLDOWN_MAX = 31_536_000;
-const STATUS_COMMAND_TRIGGER_MAX_LENGTH = 32;
+const STATUS_COMMAND_TRIGGER_MAX_LENGTH = 64;
 
 function makeDefaultStatusCommand(): StatusCommandConfig {
   return { ...DEFAULT_STATUS_COMMAND };
@@ -270,7 +270,11 @@ function parseStatusCommand(sources: JsonObject[]): StatusCommandConfig {
       );
     }
     if (typeof raw.trigger === 'string' && raw.trigger.trim().length > 0) {
-      out.trigger = raw.trigger.trim().slice(0, STATUS_COMMAND_TRIGGER_MAX_LENGTH);
+      const trimmed = raw.trigger.trim();
+      if (trimmed.length > STATUS_COMMAND_TRIGGER_MAX_LENGTH) {
+        log.warn('status command trigger exceeds %d characters, truncating', STATUS_COMMAND_TRIGGER_MAX_LENGTH);
+      }
+      out.trigger = trimmed.slice(0, STATUS_COMMAND_TRIGGER_MAX_LENGTH);
     }
     if (typeof raw.matchMode === 'string' && VALID_MATCH_MODES.has(raw.matchMode)) {
       out.matchMode = raw.matchMode as StatusCommandConfig['matchMode'];
