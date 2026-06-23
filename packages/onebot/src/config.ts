@@ -1,4 +1,5 @@
 import { createLogger } from '@snowluma/common/logger';
+import { parseRegexTrigger } from './modules/status-command';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -281,6 +282,21 @@ function parseStatusCommand(sources: JsonObject[]): StatusCommandConfig {
     if (typeof raw.showPlatform === 'boolean') out.showPlatform = raw.showPlatform;
     if (typeof raw.platformDetail === 'string' && VALID_PLATFORM_DETAILS.has(raw.platformDetail)) {
       out.platformDetail = raw.platformDetail as StatusCommandConfig['platformDetail'];
+    }
+  }
+  // Validate final merged regex config once (industry best practice: merge
+  // all sources first, then validate).  Use the same inline-flag stripping
+  // that testMatch uses at runtime so patterns like `(?i)foo` are accepted.
+  if (out.matchMode === 'regex') {
+    const parsed = parseRegexTrigger(out.trigger);
+    if (parsed === null) {
+      out.trigger = DEFAULT_STATUS_COMMAND.trigger;
+      out.matchMode = DEFAULT_STATUS_COMMAND.matchMode;
+    } else {
+      try { new RegExp(parsed.pattern, parsed.flags); } catch {
+        out.trigger = DEFAULT_STATUS_COMMAND.trigger;
+        out.matchMode = DEFAULT_STATUS_COMMAND.matchMode;
+      }
     }
   }
   return out;

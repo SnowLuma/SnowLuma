@@ -53,6 +53,19 @@ describe('matchesStatusCommand', () => {
   it('returns false for invalid regex', () => {
     expect(matchesStatusCommand(textSeg('#sl'), '[invalid', 'regex')).toBe(false);
   });
+  it('rejects malformed inline flag (?i without closing paren)', () => {
+    expect(matchesStatusCommand(textSeg('#sl'), '(?i', 'regex')).toBe(false);
+    expect(matchesStatusCommand(textSeg('anything'), '(?i', 'regex')).toBe(false);
+  });
+  it('rejects empty pattern after stripping (?i)', () => {
+    expect(matchesStatusCommand(textSeg('#sl'), '(?i)', 'regex')).toBe(false);
+  });
+  it('rejects malformed regex with incomplete inline flag', () => {
+    expect(matchesStatusCommand(textSeg('#sl'), '(?i^#sl$', 'regex')).toBe(false);
+  });
+  it('rejects unknown inline flag (?x) at runtime', () => {
+    expect(matchesStatusCommand(textSeg('#sl'), '(?x)^#sl$', 'regex')).toBe(false);
+  });
   it('rejects mixed-segment messages', () => {
     const mixed = [
       { type: 'text', data: { text: '#sl' } },
