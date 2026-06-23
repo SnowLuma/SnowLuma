@@ -1,79 +1,24 @@
-import { extractTags, getMockSystem, simplifyDistro } from '@snowluma/core/system-info';
-import type { SystemInfo } from '@snowluma/core/system-info';
-import type { JsonObject, JsonValue, StatusCommandMatchMode, StatusCommandPlatformDetail } from '../types';
-
-const MAX_DISTRO_WIDTH = 24;
-
-/** Truncate to at most `max` display cells, appending `…` if cut. */
-function truncateWidth(s: string, max: number): string {
-  if (max < 2) return s;
-  let w = 0;
-  let out = '';
-  for (const ch of s) {
-    const cw = ch < '\u{2E80}' ? 1 : 2;
-    if (w + cw + 1 > max) return out + '…';
-    out += ch;
-    w += cw;
-  }
-  return s;
-}
-
-/** Strip leading JS regex inline flags (currently only `(?i)`) from a
- *  trigger string and return the cleaned pattern + accumulated flags.
- *  Returns `null` if an unknown flag is encountered or the pattern is
- *  empty after stripping. */
-export function parseRegexTrigger(trigger: string): { pattern: string; flags: string } | null {
-  let pattern = trigger;
-  let flags = '';
-  while (pattern.startsWith('(?') && pattern.length > 3) {
-    if (pattern.startsWith('(?i)')) {
-      if (!flags.includes('i')) flags += 'i';
-      pattern = pattern.slice(4);
-    } else {
-      return null;
-    }
-  }
-  if (pattern.length === 0) return null;
-  return { pattern, flags };
-}
+import type { JsonObject, JsonValue } from '../types';
 
 /**
- * True iff `message` matches the given trigger using the given match mode.
+ * True iff `message` matches the given trigger using exact match.
  *
  * Only a single text segment (or a bare string) is accepted — mixed-segment
- * messages (e.g. `#sl` + image) never match, regardless of mode.
+ * messages (e.g. `#sl` + image) never match.
  */
 export function matchesStatusCommand(
   message: JsonValue | undefined,
   trigger: string,
-  matchMode: StatusCommandMatchMode,
 ): boolean {
   if (typeof message === 'string') {
-    return testMatch(message, trigger, matchMode);
+    return normalize(message) === normalize(trigger);
   }
   if (!Array.isArray(message) || message.length !== 1) return false;
   const seg = message[0];
   if (!isObject(seg) || seg.type !== 'text') return false;
   const data = isObject(seg.data) ? seg.data : null;
   const text = data && typeof data.text === 'string' ? data.text : '';
-  return testMatch(text, trigger, matchMode);
-}
-
-function testMatch(text: string, trigger: string, mode: StatusCommandMatchMode): boolean {
-  switch (mode) {
-    case 'exact':
-      return normalize(text) === normalize(trigger);
-    case 'prefix':
-      return normalize(text).startsWith(normalize(trigger));
-    case 'contains':
-      return normalize(text).includes(normalize(trigger));
-    case 'regex':
-      try {
-        const parsed = parseRegexTrigger(trigger);
-        if (parsed === null) return false;
-        return new RegExp(parsed.pattern, parsed.flags).test(text);
-      } catch { return false; }
-  }
+  return normalize(text) === normalize(trigger);
 }
 
 function normalize(s: string): string {
@@ -105,83 +50,13 @@ export interface StatusInfo {
   uptimeMs: number;
 }
 
-/** Render the status reply with configurable platform detail. */
-export function buildStatusText(
-  info: StatusInfo,
-  showPlatform: boolean,
-  platformDetail: StatusCommandPlatformDetail,
-  systemInfo?: SystemInfo,
-): string {
+/** Render the status reply. */
+export function buildStatusText(info: StatusInfo): string {
   const lines = ['SnowLuma 状态'];
   lines.push(`版本: ${info.version}`);
-  if (showPlatform) {
-    switch (platformDetail) {
-      case 'brief':
-        lines.push(`平台: ${info.platform}-${info.arch}`);
-        break;
-      case 'detailed':
-        if (systemInfo) {
-          renderDetailedPlatform(lines, systemInfo);
-        } else {
-          lines.push(`平台: ${info.platform}-${info.arch}`);
-        }
-        break;
-      case 'summary':
-        if (systemInfo) {
-          renderSummaryPlatform(lines, systemInfo);
-        } else {
-          lines.push(`平台: ${info.platform}-${info.arch}`);
-        }
-        break;
-      case 'fuzzy':
-        renderFuzzyPlatform(lines);
-        break;
-    }
-  }
+  lines.push(`平台: ${info.platform}-${info.arch}`);
   lines.push(`运行时长: ${formatUptime(info.uptimeMs)}`);
   return lines.join('\n');
-}
-
-function renderPlatformLines(
-  lines: string[],
-  distroName: string,
-  tags: string[],
-  archLabel: string,
-  kernel?: string,
-): void {
-  const indent = '         ';
-  lines.push(`平台: ${truncateWidth(distroName, MAX_DISTRO_WIDTH)}`);
-  if (kernel) lines.push(`${indent}[kernel ${kernel}]`);
-  for (const tag of tags) lines.push(`${indent}[${tag}]`);
-  lines.push(`${indent}${archLabel}`);
-}
-
-function renderDetailedPlatform(lines: string[], sys: SystemInfo): void {
-  const { cleanName, tags } = extractTags(sys.distro);
-  const kernelMatch = cleanName.match(/\(kernel\s+([^)]+)\)/);
-  const distroName = kernelMatch
-    ? cleanName.replace(/\s*\(kernel [^)]+\)/, '').trim()
-    : cleanName;
-  if (tags.length > 0 || kernelMatch) {
-    renderPlatformLines(lines, distroName, tags, sys.archLabel, kernelMatch?.[1]);
-  } else {
-    lines.push(`平台: ${truncateWidth(distroName, MAX_DISTRO_WIDTH)} ${sys.archLabel}`);
-  }
-}
-
-function renderSummaryPlatform(lines: string[], sys: SystemInfo): void {
-  const { cleanName, tags } = extractTags(sys.distro);
-  const simplified = simplifyDistro(cleanName);
-  if (tags.length > 0) {
-    renderPlatformLines(lines, simplified, tags, sys.archLabel);
-  } else {
-    lines.push(`平台: ${truncateWidth(simplified, MAX_DISTRO_WIDTH)} ${sys.archLabel}`);
-  }
-}
-
-function renderFuzzyPlatform(lines: string[]): void {
-  const mock = getMockSystem();
-  renderPlatformLines(lines, mock.distro, mock.tags, mock.arch);
 }
 
 /** Human-readable uptime (zh-CN), dropping leading zero units. */

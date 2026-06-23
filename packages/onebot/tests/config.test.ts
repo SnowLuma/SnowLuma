@@ -25,7 +25,7 @@ describe('makeDefaultOneBotConfig', () => {
     expect(config.networks.wsServers[0].reportSelfMessage).toBe(false);
     expect(config.networks.wsClients).toEqual([]);
     expect(config.musicSignUrl).toBe('');
-    expect(config.statusCommand).toEqual({ enabled: true, swallow: false, cooldownSeconds: 5, trigger: '#sl', matchMode: 'exact', scope: 'all', showPlatform: true, platformDetail: 'brief' });
+    expect(config.statusCommand).toEqual({ enabled: true, swallow: false, cooldownSeconds: 5, trigger: '#sl' });
     expect(config.notifications).toEqual({ channelIds: [] });
   });
 });
@@ -60,7 +60,7 @@ describe('loadOneBotConfig', () => {
     expect(onDisk.httpServers).toBeUndefined();
     expect(onDisk.wsServers).toBeUndefined();
     // statusCommand is materialised with defaults on a fresh install.
-    expect(onDisk.statusCommand).toEqual({ enabled: true, swallow: false, cooldownSeconds: 5, trigger: '#sl', matchMode: 'exact', scope: 'all', showPlatform: true, platformDetail: 'brief' });
+    expect(onDisk.statusCommand).toEqual({ enabled: true, swallow: false, cooldownSeconds: 5, trigger: '#sl' });
   });
 
   it('fills statusCommand defaults and clamps a negative cooldown', () => {
@@ -165,10 +165,6 @@ describe('loadOneBotConfig', () => {
     const config = loadOneBotConfig(uin);
     expect(config.statusCommand.enabled).toBe(false); // from file
     expect(config.statusCommand.trigger).toBe('#sl'); // default
-    expect(config.statusCommand.matchMode).toBe('exact'); // default
-    expect(config.statusCommand.scope).toBe('all'); // default
-    expect(config.statusCommand.showPlatform).toBe(true); // default
-    expect(config.statusCommand.platformDetail).toBe('brief'); // default
   });
 
   it('clamps trigger length and rejects empty trigger', () => {
@@ -179,111 +175,28 @@ describe('loadOneBotConfig', () => {
       path.join(dir, `onebot_${uin}.json`),
       JSON.stringify({
         networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
-        statusCommand: { trigger: '', matchMode: 'invalid', scope: 'bad', platformDetail: 'wrong' },
+        statusCommand: { trigger: '' },
       }),
     );
 
     const config = loadOneBotConfig(uin);
     expect(config.statusCommand.trigger).toBe('#sl'); // empty → default
-    expect(config.statusCommand.matchMode).toBe('exact'); // invalid → default
-    expect(config.statusCommand.scope).toBe('all'); // invalid → default
-    expect(config.statusCommand.platformDetail).toBe('brief'); // invalid → default
   });
 
-  it('rejects invalid regex trigger when matchMode is regex', () => {
-    const uin = '10044';
+  it('truncates trigger to max 32 chars', () => {
+    const uin = '10049';
     const dir = path.join(tempDir, 'config');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
       path.join(dir, `onebot_${uin}.json`),
       JSON.stringify({
         networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
-        statusCommand: { trigger: '[invalid', matchMode: 'regex' },
+        statusCommand: { trigger: 'a'.repeat(100) },
       }),
     );
 
     const config = loadOneBotConfig(uin);
-    expect(config.statusCommand.trigger).toBe('#sl');
-    expect(config.statusCommand.matchMode).toBe('exact');
-  });
-
-  it('accepts valid regex trigger when matchMode is regex', () => {
-    const uin = '10045';
-    const dir = path.join(tempDir, 'config');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(
-      path.join(dir, `onebot_${uin}.json`),
-      JSON.stringify({
-        networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
-        statusCommand: { trigger: '^#sl$', matchMode: 'regex' },
-      }),
-    );
-
-    const config = loadOneBotConfig(uin);
-    expect(config.statusCommand.trigger).toBe('^#sl$');
-    expect(config.statusCommand.matchMode).toBe('regex');
-  });
-
-  it('rejects malformed inline flag (?i) at config load time', () => {
-    const uin = '10046';
-    const dir = path.join(tempDir, 'config');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(
-      path.join(dir, `onebot_${uin}.json`),
-      JSON.stringify({
-        networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
-        statusCommand: { trigger: '(?i', matchMode: 'regex' },
-      }),
-    );
-
-    const config = loadOneBotConfig(uin);
-    expect(config.statusCommand.trigger).toBe('#sl');
-    expect(config.statusCommand.matchMode).toBe('exact');
-  });
-
-  it('accepts pattern with (?i) inline flag at config load time (stripped before validation)', () => {
-    const uin = '10047';
-    const dir = path.join(tempDir, 'config');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(
-      path.join(dir, `onebot_${uin}.json`),
-      JSON.stringify({
-        networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
-        statusCommand: { trigger: '(?i)^#sl$', matchMode: 'regex' },
-      }),
-    );
-
-    const config = loadOneBotConfig(uin);
-    expect(config.statusCommand.trigger).toBe('(?i)^#sl$');
-    expect(config.statusCommand.matchMode).toBe('regex');
-  });
-
-  it('validates only final merged values, not intermediate sources', () => {
-    const uin = '10048';
-    const dir = path.join(tempDir, 'config');
-    fs.mkdirSync(dir, { recursive: true });
-    // Global config sets regex trigger + mode
-    fs.writeFileSync(
-      path.join(dir, 'onebot.json'),
-      JSON.stringify({
-        networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
-        statusCommand: { trigger: '^valid$', matchMode: 'regex' },
-      }),
-    );
-    // Per-UIN override changes only matchMode
-    fs.writeFileSync(
-      path.join(dir, `onebot_${uin}.json`),
-      JSON.stringify({
-        networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
-        statusCommand: { matchMode: 'exact' },
-      }),
-    );
-
-    const config = loadOneBotConfig(uin);
-    // trigger from global should be preserved (per-UIN didn't touch it)
-    expect(config.statusCommand.trigger).toBe('^valid$');
-    // matchMode from per-UIN wins (last-write-wins)
-    expect(config.statusCommand.matchMode).toBe('exact');
+    expect(config.statusCommand.trigger.length).toBe(32);
   });
 
   it('does not write to disk by default (read-only contract)', () => {

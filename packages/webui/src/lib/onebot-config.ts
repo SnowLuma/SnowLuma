@@ -1,19 +1,11 @@
-import type { MessageFormat, OneBotConfig, StatusCommandConfig, StatusCommandMatchMode, StatusCommandScope, StatusCommandPlatformDetail } from '@/types';
+import type { MessageFormat, OneBotConfig, StatusCommandConfig } from '@/types';
 
 const DEFAULT_STATUS_COMMAND: StatusCommandConfig = {
   enabled: true,
   swallow: false,
   cooldownSeconds: 5,
   trigger: '#sl',
-  matchMode: 'exact',
-  scope: 'all',
-  showPlatform: true,
-  platformDetail: 'brief',
 };
-
-const VALID_MATCH_MODES = new Set<StatusCommandMatchMode>(['exact', 'prefix', 'contains', 'regex']);
-const VALID_SCOPES = new Set<StatusCommandScope>(['all', 'private', 'group']);
-const VALID_PLATFORM_DETAILS = new Set<StatusCommandPlatformDetail>(['brief', 'summary', 'detailed', 'fuzzy']);
 
 /** Fill the `statusCommand` block with defaults when the backend omits or
  *  partially supplies it (older configs predate the feature). */
@@ -27,18 +19,8 @@ function normalizeStatusCommand(raw: unknown): StatusCommandConfig {
         ? Math.trunc(src.cooldownSeconds)
         : DEFAULT_STATUS_COMMAND.cooldownSeconds,
     trigger: typeof src.trigger === 'string' && src.trigger.trim().length > 0
-      ? src.trigger.trim().slice(0, 64)
+      ? src.trigger.trim().slice(0, 32)
       : DEFAULT_STATUS_COMMAND.trigger,
-    matchMode: VALID_MATCH_MODES.has(src.matchMode as StatusCommandMatchMode)
-      ? (src.matchMode as StatusCommandMatchMode)
-      : DEFAULT_STATUS_COMMAND.matchMode,
-    scope: VALID_SCOPES.has(src.scope as StatusCommandScope)
-      ? (src.scope as StatusCommandScope)
-      : DEFAULT_STATUS_COMMAND.scope,
-    showPlatform: typeof src.showPlatform === 'boolean' ? src.showPlatform : DEFAULT_STATUS_COMMAND.showPlatform,
-    platformDetail: VALID_PLATFORM_DETAILS.has(src.platformDetail as StatusCommandPlatformDetail)
-      ? (src.platformDetail as StatusCommandPlatformDetail)
-      : DEFAULT_STATUS_COMMAND.platformDetail,
   };
 }
 

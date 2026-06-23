@@ -63,10 +63,6 @@ export interface OneBotNetworks {
   wsClients: WsClientNetwork[];
 }
 
-export type StatusCommandMatchMode = 'exact' | 'prefix' | 'contains' | 'regex';
-export type StatusCommandScope = 'all' | 'private' | 'group';
-export type StatusCommandPlatformDetail = 'brief' | 'summary' | 'detailed' | 'fuzzy';
-
 /**
  * Built-in status command settings. The trigger word is configurable;
  * defaults to `#sl` with exact case-insensitive matching.
@@ -82,16 +78,8 @@ export interface StatusCommandConfig {
   /** Per-conversation reply cooldown in seconds. `0` disables it. Default `5`. */
   cooldownSeconds: number;
 
-  /** Trigger word. Default `'#sl'`. Non-empty, max 64 chars. */
+  /** Trigger word. Default `'#sl'`. Non-empty, max 32 chars. */
   trigger: string;
-  /** How to match the trigger against incoming messages. Default `'exact'`. */
-  matchMode: StatusCommandMatchMode;
-  /** Which message_type to respond to. Default `'all'`. */
-  scope: StatusCommandScope;
-  /** Whether to include the platform line in the reply. Default `true`. */
-  showPlatform: boolean;
-  /** Level of detail for the platform line. Default `'simple'`. */
-  platformDetail: StatusCommandPlatformDetail;
 }
 
 /** Per-UIN OneBot configuration. */

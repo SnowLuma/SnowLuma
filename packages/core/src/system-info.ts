@@ -1,6 +1,5 @@
 import { execSync } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
-import { randomInt } from 'crypto';
 import os from 'os';
 
 /**
@@ -22,12 +21,6 @@ export interface SystemInfo {
   archLabel: string;
   release: string;
   distro: string;
-}
-
-export interface MockSystem {
-  distro: string;
-  arch: string;
-  tags: string[];
 }
 
 function detectDistro(): string {
@@ -84,18 +77,8 @@ function detectDistro(): string {
       for (const f of ['/etc/os-release', '/usr/lib/os-release']) {
         if (!existsSync(f)) continue;
         const raw = readFileSync(f, 'utf8');
-        if (raw.length > 4096) continue;
-        const get = (k: string): string | null => {
-          const prefix = `${k}=`;
-          for (const line of raw.split('\n')) {
-            if (!line.startsWith(prefix)) continue;
-            const val = line.slice(prefix.length);
-            if (val.startsWith('"') && val.endsWith('"')) return val.slice(1, -1);
-            if (val.startsWith("'") && val.endsWith("'")) return val.slice(1, -1);
-            return val;
-          }
-          return null;
-        };
+        const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const get = (k: string) => { const m = raw.match(new RegExp(`^${esc(k)}=("?)(.+?)\\1$`, 'm')); return m?.[2] ?? null; };
         const pretty = get('PRETTY_NAME') || get('NAME');
         const ver = get('VERSION_ID');
         if (pretty) {
@@ -191,17 +174,6 @@ export function normalizeArch(arch: string): string {
   return map[arch] ?? arch;
 }
 
-/**
- * Extract leading `[tags]` from a distro string.
- * "Debian 13 (kernel 6.12.74) [docker]" → { cleanName: "Debian 13 (kernel 6.12.74)", tags: ["docker"] }
- */
-export function extractTags(distro: string): { cleanName: string; tags: string[] } {
-  return {
-    cleanName: distro.replace(/\[[^\]]+\]\s*/g, '').trim(),
-    tags: [...distro.matchAll(/\[([^\]]+)\]/g)].map(m => m[1]),
-  };
-}
-
 export function isDockerEnvironment(): boolean {
   if (os.platform() !== 'linux') return false;
   try { if (existsSync('/.dockerenv')) return true; } catch { /* ignore */ }
@@ -231,52 +203,58 @@ export function getNormalizedArch(): string {
 }
 
 // ─── Mock systems for fuzzy/privacy mode ─────────────────────────────────
+// Built once from the project's known distro + arch identifiers
+// so there is zero runtime allocation or complex logic per call.
 
-const DISTROS = [
-  'Windows 11', 'Windows 10', 'Windows Server 2025',
-  'macOS 15 Sequoia', 'macOS 14 Sonoma', 'macOS 13 Ventura',
-  'Ubuntu 24.04', 'Ubuntu 22.04', 'Ubuntu 20.04',
-  'Debian 13', 'Debian 12', 'Debian 11',
-  'Fedora 41', 'Fedora 40',
-  'CentOS Stream 9', 'Red Hat Enterprise Linux 9',
-  'Alpine Linux 3.21', 'Arch Linux', 'openSUSE Tumbleweed',
-  'Gentoo Linux', 'Slackware 15.0', 'Manjaro 24',
-  'NixOS 25.05', 'Void Linux', 'Kali 2024.1',
-  'Armbian 24.11', 'Raspbian 12', 'DietPi',
-  'Deepin 23', 'Kylin V10', 'UOS 20',
-  'Linux Mint 22', 'Proxmox VE 8', 'OpenWrt 23.05',
-  'Alibaba Cloud Linux 3', 'Anolis OS 8',
-  'Android 15', 'Android 14',
-  'FreeBSD 14.1', 'OpenBSD 7.5',
-];
+const MOCK_SYSTEMS: readonly string[] = (() => {
+  const DISTROS = [
+    'Windows 11', 'Windows 10', 'Windows Server 2025',
+    'macOS 15 Sequoia', 'macOS 14 Sonoma', 'macOS 13 Ventura',
+    'Ubuntu 24.04', 'Ubuntu 22.04', 'Ubuntu 20.04',
+    'Debian 13', 'Debian 12', 'Debian 11',
+    'Fedora 41', 'Fedora 40',
+    'CentOS Stream 9', 'Red Hat Enterprise Linux 9',
+    'Alpine Linux 3.21', 'Arch Linux', 'openSUSE Tumbleweed',
+    'Gentoo Linux', 'Slackware 15.0', 'Manjaro 24',
+    'NixOS 25.05', 'Void Linux', 'Kali 2024.1',
+    'Armbian 24.11', 'Raspbian 12', 'DietPi',
+    'Deepin 23', 'Kylin V10', 'UOS 20',
+    'Linux Mint 22', 'Proxmox VE 8', 'OpenWrt 23.05',
+    'Alibaba Cloud Linux 3', 'Anolis OS 8',
+    'Android 15', 'Android 14',
+    'FreeBSD 14.1', 'OpenBSD 7.5',
+  ];
 
-const ARCHES: Record<string, readonly string[]> = {
-  Windows: ['x86_64', 'x86'],
-  macOS: ['arm64', 'x86_64'],
-  Android: ['aarch64', 'ARM64'],
-  FreeBSD: ['amd64', 'x86'],
-  OpenBSD: ['amd64', 'arm64'],
-  '*': ['x86_64', 'aarch64', 'ARM64', 'ARM', 'RISC-V', 'LoongArch'],
-};
+  const ARCHES: Record<string, string[]> = {
+    'Windows': ['x86_64', 'x86'],
+    'macOS': ['arm64', 'x86_64'],
+    'Android': ['aarch64', 'ARM64'],
+    'FreeBSD': ['amd64', 'x86'],
+    'OpenBSD': ['amd64', 'arm64'],
+    '*': ['x86_64', 'aarch64', 'ARM64', 'ARM', 'RISC-V', 'LoongArch'],
+  };
 
-/** Return a randomly-selected mock system (fuzzy/privacy mode). ~5-20% chance of [docker] suffix. */
-export function getMockSystem(): MockSystem {
-  const distro = DISTROS[randomInt(DISTROS.length)];
-  const prefix = distro.startsWith('Windows') ? 'Windows'
-    : distro.startsWith('macOS') ? 'macOS'
-    : distro.startsWith('Android') ? 'Android'
-    : distro.startsWith('FreeBSD') ? 'FreeBSD'
-    : distro.startsWith('OpenBSD') ? 'OpenBSD'
-    : '*';
-  const archList = ARCHES[prefix] ?? ARCHES['*'];
-  const arch = archList[randomInt(archList.length)];
-  return { distro, arch, tags: randomInt(100) < (5 + randomInt(16)) ? ['docker'] : [] };
+  const out: string[] = [];
+  for (const d of DISTROS) {
+    let prefix: string;
+    if (d.startsWith('Windows')) prefix = 'Windows';
+    else if (d.startsWith('macOS')) prefix = 'macOS';
+    else if (d.startsWith('Android')) prefix = 'Android';
+    else if (d.startsWith('FreeBSD')) prefix = 'FreeBSD';
+    else if (d.startsWith('OpenBSD')) prefix = 'OpenBSD';
+    else prefix = '*';
+    for (const arch of (ARCHES[prefix] ?? ARCHES['*'])) {
+      out.push(`${d} ${arch}`);
+    }
+  }
+  return out;
+})();
+
+/** Return a randomly-selected mock system string (fuzzy/privacy mode). ~10% chance of [docker] suffix. */
+export function getMockSystem(): string {
+  const base = MOCK_SYSTEMS[Math.floor(Math.random() * MOCK_SYSTEMS.length)];
+  return Math.random() < 0.1 ? `${base} [docker]` : base;
 }
-
-/** @visibleForTesting */
-export const __DISTROS = DISTROS;
-/** @visibleForTesting */
-export const __ARCHES = ARCHES;
 
 export function getSystemInfo(): SystemInfo {
   return {

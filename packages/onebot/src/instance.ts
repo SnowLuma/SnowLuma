@@ -13,7 +13,6 @@ import { MediaUrlResolver } from './media-url-resolver';
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from './message-id';
 import { MessageStore } from './message-store';
 import { sendGroupMessage, sendPrivateMessage } from './modules/message-actions';
-import { getSystemInfo } from '@snowluma/core/system-info';
 import { buildStatusText, matchesStatusCommand, statusCooldownElapsed } from './modules/status-command';
 import {
   HttpPostAdapter,
@@ -190,11 +189,7 @@ export class OneBotInstance {
     if (!cfg.enabled) return false;
     const postType = event.post_type;
     if (postType !== 'message' && postType !== 'message_sent') return false;
-    if (!matchesStatusCommand(event.message, cfg.trigger, cfg.matchMode)) return false;
-
-    // Scope filter
-    if (cfg.scope === 'private' && event.message_type !== 'private') return false;
-    if (cfg.scope === 'group' && event.message_type !== 'group') return false;
+    if (!matchesStatusCommand(event.message, cfg.trigger)) return false;
 
     const isGroup = event.message_type === 'group';
     const sessionId = isGroup ? toInt(event.group_id) : toInt(event.user_id);
@@ -211,18 +206,13 @@ export class OneBotInstance {
     return cfg.swallow;
   }
 
-  private async replyStatus(isGroup: boolean, sessionId: number, cfg: StatusCommandConfig): Promise<void> {
-    const text = buildStatusText(
-      {
-        version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev',
-        platform: process.platform,
-        arch: process.arch,
-        uptimeMs: Date.now() - this.startedAt,
-      },
-      cfg.showPlatform,
-      cfg.platformDetail,
-      cfg.showPlatform && cfg.platformDetail !== 'brief' ? getSystemInfo() : undefined,
-    );
+  private async replyStatus(isGroup: boolean, sessionId: number, _cfg: StatusCommandConfig): Promise<void> {
+    const text = buildStatusText({
+      version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev',
+      platform: process.platform,
+      arch: process.arch,
+      uptimeMs: Date.now() - this.startedAt,
+    });
     if (isGroup) await sendGroupMessage(this.ctx, sessionId, text, true);
     else await sendPrivateMessage(this.ctx, sessionId, text, true);
   }
