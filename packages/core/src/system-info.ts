@@ -178,12 +178,10 @@ export function normalizeArch(arch: string): string {
  * "Debian 13 (kernel 6.12.74) [docker]" → { cleanName: "Debian 13 (kernel 6.12.74)", tags: ["docker"] }
  */
 export function extractTags(distro: string): { cleanName: string; tags: string[] } {
-  const tags: string[] = [];
-  const cleanName = distro.replace(/\[([^\]]+)\]/g, (_, tag: string) => {
-    tags.push(tag);
-    return '';
-  }).replace(/\s+/g, ' ').trim();
-  return { cleanName, tags };
+  return {
+    cleanName: distro.replace(/\[[^\]]+\]\s*/g, '').trim(),
+    tags: [...distro.matchAll(/\[([^\]]+)\]/g)].map(m => m[1]),
+  };
 }
 
 export function isDockerEnvironment(): boolean {

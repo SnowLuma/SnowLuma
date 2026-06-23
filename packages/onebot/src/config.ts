@@ -270,11 +270,7 @@ function parseStatusCommand(sources: JsonObject[]): StatusCommandConfig {
       );
     }
     if (typeof raw.trigger === 'string' && raw.trigger.trim().length > 0) {
-      const trimmed = raw.trigger.trim();
-      if (trimmed.length > STATUS_COMMAND_TRIGGER_MAX_LENGTH) {
-        log.warn('status command trigger exceeds %d characters, truncating', STATUS_COMMAND_TRIGGER_MAX_LENGTH);
-      }
-      out.trigger = trimmed.slice(0, STATUS_COMMAND_TRIGGER_MAX_LENGTH);
+      out.trigger = raw.trigger.trim().slice(0, STATUS_COMMAND_TRIGGER_MAX_LENGTH);
     }
     if (typeof raw.matchMode === 'string' && VALID_MATCH_MODES.has(raw.matchMode)) {
       out.matchMode = raw.matchMode as StatusCommandConfig['matchMode'];
