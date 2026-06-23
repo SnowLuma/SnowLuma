@@ -166,13 +166,13 @@ describe('buildStatusText', () => {
     });
     expect(text).toContain('Debian 13');
     expect(text).toContain('[kernel 6.12.74]');
-    expect(text).toContain('[docker]  x86_64');
+    expect(text).toContain('[docker] \u00B7 x86_64');
   });
   it('detailed without kernel renders single line', () => {
     const text = buildStatusText(info, true, 'detailed', {
       platform: 'linux', arch: 'x64', archLabel: 'x86_64', release: '6.8.12',
       distro: 'Windows 11 [docker]',
     });
-    expect(text).toContain('Windows 11 [docker]  x86_64');
+    expect(text).toContain('Windows 11 [docker] \u00B7 x86_64');
   });
 });
