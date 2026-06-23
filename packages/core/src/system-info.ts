@@ -213,57 +213,46 @@ export function getNormalizedArch(): string {
 }
 
 // ─── Mock systems for fuzzy/privacy mode ─────────────────────────────────
-// Built once from the project's known distro + arch identifiers
-// so there is zero runtime allocation or complex logic per call.
 
-const MOCK_SYSTEMS: readonly string[] = (() => {
-  const DISTROS = [
-    'Windows 11', 'Windows 10', 'Windows Server 2025',
-    'macOS 15 Sequoia', 'macOS 14 Sonoma', 'macOS 13 Ventura',
-    'Ubuntu 24.04', 'Ubuntu 22.04', 'Ubuntu 20.04',
-    'Debian 13', 'Debian 12', 'Debian 11',
-    'Fedora 41', 'Fedora 40',
-    'CentOS Stream 9', 'Red Hat Enterprise Linux 9',
-    'Alpine Linux 3.21', 'Arch Linux', 'openSUSE Tumbleweed',
-    'Gentoo Linux', 'Slackware 15.0', 'Manjaro 24',
-    'NixOS 25.05', 'Void Linux', 'Kali 2024.1',
-    'Armbian 24.11', 'Raspbian 12', 'DietPi',
-    'Deepin 23', 'Kylin V10', 'UOS 20',
-    'Linux Mint 22', 'Proxmox VE 8', 'OpenWrt 23.05',
-    'Alibaba Cloud Linux 3', 'Anolis OS 8',
-    'Android 15', 'Android 14',
-    'FreeBSD 14.1', 'OpenBSD 7.5',
-  ];
+const DISTROS = [
+  'Windows 11', 'Windows 10', 'Windows Server 2025',
+  'macOS 15 Sequoia', 'macOS 14 Sonoma', 'macOS 13 Ventura',
+  'Ubuntu 24.04', 'Ubuntu 22.04', 'Ubuntu 20.04',
+  'Debian 13', 'Debian 12', 'Debian 11',
+  'Fedora 41', 'Fedora 40',
+  'CentOS Stream 9', 'Red Hat Enterprise Linux 9',
+  'Alpine Linux 3.21', 'Arch Linux', 'openSUSE Tumbleweed',
+  'Gentoo Linux', 'Slackware 15.0', 'Manjaro 24',
+  'NixOS 25.05', 'Void Linux', 'Kali 2024.1',
+  'Armbian 24.11', 'Raspbian 12', 'DietPi',
+  'Deepin 23', 'Kylin V10', 'UOS 20',
+  'Linux Mint 22', 'Proxmox VE 8', 'OpenWrt 23.05',
+  'Alibaba Cloud Linux 3', 'Anolis OS 8',
+  'Android 15', 'Android 14',
+  'FreeBSD 14.1', 'OpenBSD 7.5',
+];
 
-  const ARCHES: Record<string, string[]> = {
-    'Windows': ['x86_64', 'x86'],
-    'macOS': ['arm64', 'x86_64'],
-    'Android': ['aarch64', 'ARM64'],
-    'FreeBSD': ['amd64', 'x86'],
-    'OpenBSD': ['amd64', 'arm64'],
-    '*': ['x86_64', 'aarch64', 'ARM64', 'ARM', 'RISC-V', 'LoongArch'],
-  };
-
-  const out: string[] = [];
-  for (const d of DISTROS) {
-    let prefix: string;
-    if (d.startsWith('Windows')) prefix = 'Windows';
-    else if (d.startsWith('macOS')) prefix = 'macOS';
-    else if (d.startsWith('Android')) prefix = 'Android';
-    else if (d.startsWith('FreeBSD')) prefix = 'FreeBSD';
-    else if (d.startsWith('OpenBSD')) prefix = 'OpenBSD';
-    else prefix = '*';
-    for (const arch of (ARCHES[prefix] ?? ARCHES['*'])) {
-      out.push(`${d} ${arch}`);
-    }
-  }
-  return out;
-})();
+const ARCHES: Record<string, readonly string[]> = {
+  Windows: ['x86_64', 'x86'],
+  macOS: ['arm64', 'x86_64'],
+  Android: ['aarch64', 'ARM64'],
+  FreeBSD: ['amd64', 'x86'],
+  OpenBSD: ['amd64', 'arm64'],
+  '*': ['x86_64', 'aarch64', 'ARM64', 'ARM', 'RISC-V', 'LoongArch'],
+};
 
 /** Return a randomly-selected mock system string (fuzzy/privacy mode). ~10% chance of [docker] suffix. */
 export function getMockSystem(): string {
-  const base = MOCK_SYSTEMS[Math.floor(Math.random() * MOCK_SYSTEMS.length)];
-  return Math.random() < 0.1 ? `${base} [docker]` : base;
+  const distro = DISTROS[Math.floor(Math.random() * DISTROS.length)];
+  const prefix = distro.startsWith('Windows') ? 'Windows'
+    : distro.startsWith('macOS') ? 'macOS'
+    : distro.startsWith('Android') ? 'Android'
+    : distro.startsWith('FreeBSD') ? 'FreeBSD'
+    : distro.startsWith('OpenBSD') ? 'OpenBSD'
+    : '*';
+  const archList = ARCHES[prefix] ?? ARCHES['*'];
+  const arch = archList[Math.floor(Math.random() * archList.length)];
+  return Math.random() < 0.1 ? `${distro} ${arch} [docker]` : `${distro} ${arch}`;
 }
 
 export function getSystemInfo(): SystemInfo {
