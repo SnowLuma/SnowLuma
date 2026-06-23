@@ -119,7 +119,7 @@ function renderPlatformLines(
   archLabel: string,
   kernel?: string,
 ): void {
-  const indent = '          ';
+  const indent = '         ';
   lines.push(`平台: ${distroName}`);
   if (kernel) lines.push(`${indent}[kernel ${kernel}]`);
   for (const tag of tags) lines.push(`${indent}[${tag}]`);
@@ -155,11 +155,7 @@ function renderFuzzyPlatform(lines: string[]): void {
   const lastSpace = cleanName.lastIndexOf(' ');
   const distro = lastSpace > 0 ? cleanName.slice(0, lastSpace) : cleanName;
   const archLabel = lastSpace > 0 ? cleanName.slice(lastSpace + 1) : cleanName;
-  if (tags.length > 0) {
-    renderPlatformLines(lines, distro, tags, archLabel);
-  } else {
-    lines.push(`平台: ${mock}`);
-  }
+  renderPlatformLines(lines, distro, tags, archLabel);
 }
 
 /** Human-readable uptime (zh-CN), dropping leading zero units. */
