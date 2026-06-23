@@ -189,4 +189,33 @@ describe('buildStatusText', () => {
     }
     expect(results.size).toBeGreaterThan(1);
   });
+
+  it('summary mode preserves [docker] tag from distro', () => {
+    const text = buildStatusText(info, true, 'summary', {
+      platform: 'linux', arch: 'x64', archLabel: 'x86_64',
+      release: '6.8.12',
+      distro: 'Debian 13 (kernel 6.8.12) [docker]',
+    });
+    expect(text).toContain('平台: Debian 13 [docker] x86_64');
+  });
+
+  it('detailed mode with kernel splits into aligned lines', () => {
+    const text = buildStatusText(info, true, 'detailed', {
+      platform: 'linux', arch: 'x64', archLabel: 'x86_64',
+      release: '6.8.12',
+      distro: 'Debian 13 (kernel 6.12.74) [docker]',
+    });
+    expect(text).toContain('平台: Debian 13');
+    expect(text).toContain('[kernel 6.12.74]');
+    expect(text).toContain('[docker] · x86_64');
+  });
+
+  it('detailed mode without kernel renders single line', () => {
+    const text = buildStatusText(info, true, 'detailed', {
+      platform: 'linux', arch: 'x64', archLabel: 'x86_64',
+      release: '6.8.12',
+      distro: 'Windows 11 [docker]',
+    });
+    expect(text).toContain('平台: Windows 11 [docker] · x86_64');
+  });
 });
