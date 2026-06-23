@@ -1,5 +1,4 @@
 import { createLogger } from '@snowluma/common/logger';
-import { parseRegexTrigger } from './modules/status-command';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -27,14 +26,10 @@ const DEFAULT_STATUS_COMMAND: StatusCommandConfig = {
   swallow: false,
   cooldownSeconds: 5,
   trigger: '#sl',
-  matchMode: 'exact',
-  scope: 'all',
-  showPlatform: true,
-  platformDetail: 'brief',
 };
 /** Upper bound on the status-command reply cooldown — a year is effectively "off but sane". */
 const STATUS_COMMAND_COOLDOWN_MAX = 31_536_000;
-const STATUS_COMMAND_TRIGGER_MAX_LENGTH = 64;
+const STATUS_COMMAND_TRIGGER_MAX_LENGTH = 32;
 
 function makeDefaultStatusCommand(): StatusCommandConfig {
   return { ...DEFAULT_STATUS_COMMAND };
@@ -125,10 +120,6 @@ function toJsonObject(config: OneBotConfig): JsonObject {
       swallow: config.statusCommand.swallow,
       cooldownSeconds: config.statusCommand.cooldownSeconds,
       trigger: config.statusCommand.trigger,
-      matchMode: config.statusCommand.matchMode,
-      scope: config.statusCommand.scope,
-      showPlatform: config.statusCommand.showPlatform,
-      platformDetail: config.statusCommand.platformDetail,
     },
     notifications: { channelIds: config.notifications?.channelIds ?? [] },
   };
@@ -253,10 +244,6 @@ function normalizeChannelIds(value: unknown): string[] {
 
 /** Last-write-wins merge of `statusCommand` across config sources, with
  *  defaults filled and the cooldown clamped to a sane non-negative range. */
-const VALID_MATCH_MODES: ReadonlySet<string> = new Set(['exact', 'prefix', 'contains', 'regex']);
-const VALID_SCOPES: ReadonlySet<string> = new Set(['all', 'private', 'group']);
-const VALID_PLATFORM_DETAILS: ReadonlySet<string> = new Set(['brief', 'summary', 'detailed', 'fuzzy']);
-
 function parseStatusCommand(sources: JsonObject[]): StatusCommandConfig {
   const out = makeDefaultStatusCommand();
   for (const src of sources) {
@@ -272,40 +259,6 @@ function parseStatusCommand(sources: JsonObject[]): StatusCommandConfig {
     }
     if (typeof raw.trigger === 'string' && raw.trigger.trim().length > 0) {
       out.trigger = raw.trigger.trim().slice(0, STATUS_COMMAND_TRIGGER_MAX_LENGTH);
-    }
-    if (typeof raw.matchMode === 'string' && VALID_MATCH_MODES.has(raw.matchMode)) {
-      out.matchMode = raw.matchMode as StatusCommandConfig['matchMode'];
-    }
-    if (typeof raw.scope === 'string' && VALID_SCOPES.has(raw.scope)) {
-      out.scope = raw.scope as StatusCommandConfig['scope'];
-    }
-    if (typeof raw.showPlatform === 'boolean') out.showPlatform = raw.showPlatform;
-    if (typeof raw.platformDetail === 'string' && VALID_PLATFORM_DETAILS.has(raw.platformDetail)) {
-      out.platformDetail = raw.platformDetail as StatusCommandConfig['platformDetail'];
-    }
-  }
-  // Validate final merged regex config once (industry best practice: merge
-  // all sources first, then validate).  Use the same inline-flag stripping
-  // that testMatch uses at runtime so patterns like `(?i)foo` are accepted.
-  if (out.matchMode === 'regex') {
-    const parsed = parseRegexTrigger(out.trigger);
-    if (parsed === null) {
-      log.warn(
-        'statusCommand regex trigger "%s" rejected (invalid flags or empty), falling back to default "%s" / %s',
-        out.trigger, DEFAULT_STATUS_COMMAND.trigger, DEFAULT_STATUS_COMMAND.matchMode,
-      );
-      out.trigger = DEFAULT_STATUS_COMMAND.trigger;
-      out.matchMode = DEFAULT_STATUS_COMMAND.matchMode;
-    } else {
-      try { new RegExp(parsed.pattern, parsed.flags); } catch (err) {
-        log.warn(
-          'statusCommand regex trigger "%s" failed to compile: %s, falling back to default "%s" / %s',
-          out.trigger, err instanceof Error ? err.message : String(err),
-          DEFAULT_STATUS_COMMAND.trigger, DEFAULT_STATUS_COMMAND.matchMode,
-        );
-        out.trigger = DEFAULT_STATUS_COMMAND.trigger;
-        out.matchMode = DEFAULT_STATUS_COMMAND.matchMode;
-      }
     }
   }
   return out;
