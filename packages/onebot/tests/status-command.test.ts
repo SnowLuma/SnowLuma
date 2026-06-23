@@ -217,5 +217,12 @@ describe('buildStatusText', () => {
       distro: 'Windows 11 [docker]',
     });
     expect(text).toContain('平台: Windows 11 [docker] · x86_64');
+  it('detailed mode preserves [docker] tag from distro', () => {
+    const text = buildStatusText(info, true, 'detailed', {
+      platform: 'linux', arch: 'x64', archLabel: 'x86_64',
+      release: '6.8.12',
+      distro: 'Ubuntu 22.04 [docker]',
+    });
+    expect(text).toContain('平台: Ubuntu 22.04 [docker] · x86_64');
   });
 });
