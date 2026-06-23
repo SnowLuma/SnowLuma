@@ -2,6 +2,22 @@ import { extractTags, getMockSystem, simplifyDistro } from '@snowluma/core/syste
 import type { SystemInfo } from '@snowluma/core/system-info';
 import type { JsonObject, JsonValue, StatusCommandMatchMode, StatusCommandPlatformDetail } from '../types';
 
+/** Strip leading JS regex inline flags (currently only `(?i)`) from a
+ *  trigger string and return the cleaned pattern + accumulated flags.
+ *  Returns `null` when the pattern is empty after stripping. */
+export function parseRegexTrigger(trigger: string): { pattern: string; flags: string } | null {
+  let pattern = trigger;
+  let flags = '';
+  while (pattern.startsWith('(?') && pattern.length > 3) {
+    if (pattern[2] === 'i' && pattern[3] === ')') {
+      flags += 'i';
+      pattern = pattern.slice(4);
+    } else { break; }
+  }
+  if (pattern.length === 0) return null;
+  return { pattern, flags };
+}
+
 /**
  * True iff `message` matches the given trigger using the given match mode.
  *
@@ -34,16 +50,9 @@ function testMatch(text: string, trigger: string, mode: StatusCommandMatchMode):
       return normalize(text).includes(normalize(trigger));
     case 'regex':
       try {
-        let pattern = trigger;
-        let flags = '';
-        while (pattern.startsWith('(?') && pattern.length > 3) {
-          if (pattern[2] === 'i' && pattern[3] === ')') {
-            flags += 'i';
-            pattern = pattern.slice(4);
-          } else { break; }
-        }
-        if (pattern.length === 0) return false;
-        return new RegExp(pattern, flags).test(text);
+        const parsed = parseRegexTrigger(trigger);
+        if (parsed === null) return false;
+        return new RegExp(parsed.pattern, parsed.flags).test(text);
       } catch { return false; }
   }
 }

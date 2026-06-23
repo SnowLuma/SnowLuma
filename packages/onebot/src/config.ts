@@ -1,4 +1,5 @@
 import { createLogger } from '@snowluma/common/logger';
+import { parseRegexTrigger } from './modules/status-command';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -275,21 +276,27 @@ function parseStatusCommand(sources: JsonObject[]): StatusCommandConfig {
     if (typeof raw.matchMode === 'string' && VALID_MATCH_MODES.has(raw.matchMode)) {
       out.matchMode = raw.matchMode as StatusCommandConfig['matchMode'];
     }
-    // Regex trigger validation: when matchMode is 'regex', confirm the trigger
-    // compiles as a valid RegExp.  If not, fall back to the default trigger +
-    // matchMode so an invalid pattern never reaches the hot path.
-    if (out.matchMode === 'regex') {
-      try { new RegExp(out.trigger); } catch {
-        out.trigger = DEFAULT_STATUS_COMMAND.trigger;
-        out.matchMode = DEFAULT_STATUS_COMMAND.matchMode;
-      }
-    }
     if (typeof raw.scope === 'string' && VALID_SCOPES.has(raw.scope)) {
       out.scope = raw.scope as StatusCommandConfig['scope'];
     }
     if (typeof raw.showPlatform === 'boolean') out.showPlatform = raw.showPlatform;
     if (typeof raw.platformDetail === 'string' && VALID_PLATFORM_DETAILS.has(raw.platformDetail)) {
       out.platformDetail = raw.platformDetail as StatusCommandConfig['platformDetail'];
+    }
+  }
+  // Validate final merged regex config once (industry best practice: merge
+  // all sources first, then validate).  Use the same inline-flag stripping
+  // that testMatch uses at runtime so patterns like `(?i)foo` are accepted.
+  if (out.matchMode === 'regex') {
+    const parsed = parseRegexTrigger(out.trigger);
+    if (parsed === null) {
+      out.trigger = DEFAULT_STATUS_COMMAND.trigger;
+      out.matchMode = DEFAULT_STATUS_COMMAND.matchMode;
+    } else {
+      try { new RegExp(parsed.pattern, parsed.flags); } catch {
+        out.trigger = DEFAULT_STATUS_COMMAND.trigger;
+        out.matchMode = DEFAULT_STATUS_COMMAND.matchMode;
+      }
     }
   }
   return out;

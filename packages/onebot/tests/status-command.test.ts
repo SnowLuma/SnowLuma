@@ -63,6 +63,9 @@ describe('matchesStatusCommand', () => {
   it('rejects malformed regex with incomplete inline flag', () => {
     expect(matchesStatusCommand(textSeg('#sl'), '(?i^#sl$', 'regex')).toBe(false);
   });
+  it('rejects unknown inline flag (?x) at runtime', () => {
+    expect(matchesStatusCommand(textSeg('#sl'), '(?x)^#sl$', 'regex')).toBe(false);
+  });
   it('rejects mixed-segment messages', () => {
     const mixed = [
       { type: 'text', data: { text: '#sl' } },
