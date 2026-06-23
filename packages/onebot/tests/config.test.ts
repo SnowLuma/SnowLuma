@@ -190,6 +190,40 @@ describe('loadOneBotConfig', () => {
     expect(config.statusCommand.platformDetail).toBe('brief'); // invalid → default
   });
 
+  it('rejects invalid regex trigger when matchMode is regex', () => {
+    const uin = '10044';
+    const dir = path.join(tempDir, 'config');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, `onebot_${uin}.json`),
+      JSON.stringify({
+        networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
+        statusCommand: { trigger: '[invalid', matchMode: 'regex' },
+      }),
+    );
+
+    const config = loadOneBotConfig(uin);
+    expect(config.statusCommand.trigger).toBe('#sl');
+    expect(config.statusCommand.matchMode).toBe('exact');
+  });
+
+  it('accepts valid regex trigger when matchMode is regex', () => {
+    const uin = '10045';
+    const dir = path.join(tempDir, 'config');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, `onebot_${uin}.json`),
+      JSON.stringify({
+        networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
+        statusCommand: { trigger: '^#sl$', matchMode: 'regex' },
+      }),
+    );
+
+    const config = loadOneBotConfig(uin);
+    expect(config.statusCommand.trigger).toBe('^#sl$');
+    expect(config.statusCommand.matchMode).toBe('regex');
+  });
+
   it('does not write to disk by default (read-only contract)', () => {
     const uin = '10006';
     const cfgPath = path.join(tempDir, 'config', `onebot_${uin}.json`);

@@ -36,11 +36,13 @@ function testMatch(text: string, trigger: string, mode: StatusCommandMatchMode):
       try {
         let pattern = trigger;
         let flags = '';
-        while (pattern.startsWith('(?') && pattern.length > 2) {
-          const needle = pattern[2];
-          if (needle === 'i') { flags += 'i'; pattern = pattern.slice(4); }
-          else { break; }
+        while (pattern.startsWith('(?') && pattern.length > 3) {
+          if (pattern[2] === 'i' && pattern[3] === ')') {
+            flags += 'i';
+            pattern = pattern.slice(4);
+          } else { break; }
         }
+        if (pattern.length === 0) return false;
         return new RegExp(pattern, flags).test(text);
       } catch { return false; }
   }

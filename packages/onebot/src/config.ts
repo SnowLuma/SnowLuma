@@ -275,6 +275,15 @@ function parseStatusCommand(sources: JsonObject[]): StatusCommandConfig {
     if (typeof raw.matchMode === 'string' && VALID_MATCH_MODES.has(raw.matchMode)) {
       out.matchMode = raw.matchMode as StatusCommandConfig['matchMode'];
     }
+    // Regex trigger validation: when matchMode is 'regex', confirm the trigger
+    // compiles as a valid RegExp.  If not, fall back to the default trigger +
+    // matchMode so an invalid pattern never reaches the hot path.
+    if (out.matchMode === 'regex') {
+      try { new RegExp(out.trigger); } catch {
+        out.trigger = DEFAULT_STATUS_COMMAND.trigger;
+        out.matchMode = DEFAULT_STATUS_COMMAND.matchMode;
+      }
+    }
     if (typeof raw.scope === 'string' && VALID_SCOPES.has(raw.scope)) {
       out.scope = raw.scope as StatusCommandConfig['scope'];
     }
