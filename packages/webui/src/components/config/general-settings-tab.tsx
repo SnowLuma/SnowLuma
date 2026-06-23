@@ -21,27 +21,27 @@ export function GeneralSettingsTab({ config, onChange }: GeneralSettingsTabProps
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1.5 rounded-lg border bg-card/40 p-4">
-        <Label>闊充箰绛惧悕鏈嶅姟 URL</Label>
+        <Label>闂婂厖绠扮粵鎯ф倳閺堝秴濮?URL</Label>
         <Input
           type="url"
-          placeholder="鐣欑┖鍒欎笉鍚敤"
+          placeholder="閻ｆ瑧鈹栭崚娆庣瑝閸氼垳鏁?
           value={config.musicSignUrl ?? ''}
           onChange={(e) => onChange({ ...config, musicSignUrl: e.target.value || undefined })}
         />
         <p className="text-[11px] leading-relaxed text-muted-foreground">
-          鐢ㄤ簬闊充箰鍒嗕韩鍗＄墖绛惧悕銆傛湭閰嶇疆鏃堕煶涔愮浉鍏虫秷鎭浼氬洖钀戒负鏅€氭枃鏈€?        </p>
+          閻劋绨棅鍏呯閸掑棔闊╅崡锛勫缁涙儳鎮曢妴鍌涙弓闁板秶鐤嗛弮鍫曠叾娑旀劗娴夐崗铏Х閹垱顔屾导姘礀閽€鎴掕礋閺咁噣鈧碍鏋冮張顑锯偓?        </p>
       </div>
 
       <details className="group rounded-lg border bg-card/40 p-4">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="text-muted-foreground transition-transform group-open:rotate-90">鈻?/span>
-            <Label>鍐呯疆鐘舵€佸懡浠?<code className="font-mono text-xs">#sl</code></Label>
+            <span className="text-muted-foreground transition-transform group-open:rotate-90">閳?/span>
+            <Label>閸愬懐鐤嗛悩鑸碘偓浣告嚒娴?<code className="font-mono text-xs">#sl</code></Label>
           </div>
           <ToggleSwitch
             value={sc.enabled}
             onChange={(v) => setStatusCommand({ enabled: v })}
-            ariaLabel="鍚敤鐘舵€佸懡浠?
+            ariaLabel="閸氼垳鏁ら悩鑸碘偓浣告嚒娴?
           />
         </summary>
 
@@ -50,7 +50,7 @@ export function GeneralSettingsTab({ config, onChange }: GeneralSettingsTabProps
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className="flex min-w-0 flex-1 basis-36 flex-col gap-1.5">
-                  <Label className={disabled ? 'text-muted-foreground' : undefined}>瑙﹀彂璇?/Label>
+                  <Label className={disabled ? 'text-muted-foreground' : undefined}>鐟欙箑褰傜拠?/Label>
                   <Input
                     className="w-full font-mono tabular-nums"
                     value={sc.trigger}
@@ -60,112 +60,111 @@ export function GeneralSettingsTab({ config, onChange }: GeneralSettingsTabProps
                 </div>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={6}>
-                瑙﹀彂璇嶏細榛樿 #sl锛屾渶闀?64 瀛楃銆傚尮閰嶅墠浼氬幓闄ら灏剧┖鏍煎苟杞负灏忓啓銆?              </TooltipContent>
+                鐟欙箑褰傜拠宥忕窗姒涙顓?#sl閿涘本娓堕梹?64 鐎涙顑侀妴鍌氬爱闁板秴澧犳导姘箵闂勩倝顩荤亸鍓р敄閺嶇厧鑻熸潪顑胯礋鐏忓繐鍟撻妴?              </TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className="flex min-w-0 flex-1 basis-32 flex-col gap-1.5">
-                  <Label className={disabled ? 'text-muted-foreground' : undefined}>鍖归厤</Label>
+                  <Label className={disabled ? 'text-muted-foreground' : undefined}>閸栧綊鍘?/Label>
                   <Select
                     className="w-full"
                     value={sc.matchMode}
                     disabled={disabled}
                     onChange={(e) => setStatusCommand({ matchMode: e.target.value as StatusCommandConfig['matchMode'] })}
                   >
-                    <option value="exact">绮剧‘</option>
-                    <option value="prefix">鍓嶇紑</option>
-                    <option value="contains">鍖呭惈</option>
-                    <option value="regex">姝ｅ垯</option>
+                    <option value="exact">缁墽鈥?/option>
+                    <option value="prefix">閸撳秶绱?/option>
+                    <option value="contains">閸栧懎鎯?/option>
+                    <option value="regex">濮濓絽鍨?/option>
                   </Select>
                 </div>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={6}>
-                鍖归厤妯″紡锛氱簿纭?闇€涓庤Е鍙戣瘝瀹屽叏涓€鑷达紱鍓嶇紑=娑堟伅浠ユ寮€澶达紱鍖呭惈=娑堟伅鍚湁姝よ瘝锛涙鍒?鎸夋鍒欒〃杈惧紡鍖归厤銆備粎绾枃鏈秷鎭彲鍖归厤锛屽惈濯掍綋娈电殑涓嶅尮閰嶃€?              </TooltipContent>
+                閸栧綊鍘ゅΟ鈥崇础閿涙氨绨跨涵?闂団偓娑撳氦袝閸欐垼鐦濈€瑰苯鍙忔稉鈧懛杈剧幢閸撳秶绱?濞戝牊浼呮禒銉︻劃瀵偓婢惰揪绱遍崠鍛儓=濞戝牊浼呴崥顐ｆ箒濮濄倛鐦濋敍娑欘劀閸?閹稿顒滈崚娆掋€冩潏鎯х础閸栧綊鍘ら妴鍌欑矌缁绢垱鏋冮張顒佺Х閹垰褰查崠褰掑帳閿涘苯鎯堟刊鎺嶇秼濞堢數娈戞稉宥呭爱闁板秲鈧?              </TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className="flex min-w-0 flex-1 basis-28 flex-col gap-1.5">
-                  <Label className={disabled ? 'text-muted-foreground' : undefined}>鑼冨洿</Label>
+                  <Label className={disabled ? 'text-muted-foreground' : undefined}>閼煎啫娲?/Label>
                   <Select
                     className="w-full"
                     value={sc.scope}
                     disabled={disabled}
                     onChange={(e) => setStatusCommand({ scope: e.target.value as StatusCommandConfig['scope'] })}
                   >
-                    <option value="all">鍏ㄩ儴</option>
-                    <option value="private">浠呯鑱?/option>
-                    <option value="group">浠呯兢鑱?/option>
+                    <option value="all">閸忋劑鍎?/option>
+                    <option value="private">娴犲懐顫嗛懕?/option>
+                    <option value="group">娴犲懐鍏㈤懕?/option>
                   </Select>
                 </div>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={6}>
-                鍝嶅簲鑼冨洿锛氬叏閮?鎵€鏈変細璇濆潎鍝嶅簲锛涗粎绉佽亰=浠呭鐞嗙鑱婃秷鎭紱浠呯兢鑱?浠呭鐞嗙兢鑱婃秷鎭€?              </TooltipContent>
+                閸濆秴绨查懠鍐ㄦ纯閿涙艾鍙忛柈?閹碘偓閺堝绱扮拠婵嗘綆閸濆秴绨查敍娑楃矌缁変浇浜?娴犲懎顦╅悶鍡欘潌閼卞﹥绉烽幁顖ょ幢娴犲懐鍏㈤懕?娴犲懎顦╅悶鍡欏參閼卞﹥绉烽幁顖樷偓?              </TooltipContent>
             </Tooltip>
           </div>
 
-          {/* Row 2 鈥?Toggle 鐙崰涓€琛?*/}
+          {/* Row 2 閳?Toggle 閻欘剙宕版稉鈧悰?*/}
           <div className="flex flex-row flex-wrap gap-3">
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className="flex min-w-0 flex-1 basis-24 flex-col gap-1.5">
                   <Label className="flex items-center gap-1.5">
-                    灞曠ず
-                    <ToggleSwitch
+                    鐏炴洜銇?                    <ToggleSwitch
                       value={sc.showPlatform}
                       onChange={(v) => setStatusCommand({ showPlatform: v })}
-                      ariaLabel="灞曠ず骞冲彴淇℃伅"
+                      ariaLabel="鐏炴洜銇氶獮鍐插酱娣団剝浼?
                       disabled={disabled}
                     />
                   </Label>
                 </div>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={6}>
-                灞曠ず骞冲彴淇℃伅锛氬洖澶嶄腑鍖呭惈绯荤粺骞冲彴鏍囪瘑琛屻€傚叧闂悗璇ヨ涓嶅嚭鐜帮紝鍏朵綑鐘舵€佷俊鎭収甯稿洖澶嶃€?              </TooltipContent>
+                鐏炴洜銇氶獮鍐插酱娣団剝浼呴敍姘礀婢跺秳鑵戦崠鍛儓缁崵绮洪獮鍐插酱閺嶅洩鐦戠悰灞烩偓鍌氬彠闂傤厼鎮楃拠銉攽娑撳秴鍤悳甯礉閸忔湹缍戦悩鑸碘偓浣蜂繆閹垳鍙庣敮绋挎礀婢跺秲鈧?              </TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className="flex min-w-0 flex-1 basis-24 flex-col gap-1.5">
                   <Label className="flex items-center gap-1.5">
-                    涓嶈浆鍙?                    <ToggleSwitch
+                    娑撳秷娴嗛崣?                    <ToggleSwitch
                       value={sc.swallow}
                       onChange={(v) => setStatusCommand({ swallow: v })}
-                      ariaLabel="涓嶈浆鍙戠粰涓嬫父"
+                      ariaLabel="娑撳秷娴嗛崣鎴犵舶娑撳鐖?
                       disabled={disabled}
                     />
                   </Label>
                 </div>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={6}>
-                涓嶈浆鍙戜笅娓革細寮€鍚悗鍛戒腑鐨?<code className="font-mono">#sl</code> 涓嶅啀鎶曢€掔粰宸茶繛鎺ョ殑 Bot锛堜粛浼氬洖澶嶅苟鏈湴璁板綍锛夈€傞粯璁ゅ叧闂嵆閫忎紶銆?              </TooltipContent>
+                娑撳秷娴嗛崣鎴滅瑓濞撻潻绱板鈧崥顖氭倵閸涙垝鑵戦惃?<code className="font-mono">#sl</code> 娑撳秴鍟€閹舵洟鈧帞绮板鑼剁箾閹恒儳娈?Bot閿涘牅绮涙导姘礀婢跺秴鑻熼張顒€婀寸拋鏉跨秿閿涘鈧倿绮拋銈呭彠闂傤厼宓嗛柅蹇庣炊閵?              </TooltipContent>
             </Tooltip>
           </div>
 
-          {/* Row 3 鈥?Select / Input 鐙崰涓€琛?*/}
+          {/* Row 3 閳?Select / Input 閻欘剙宕版稉鈧悰?*/}
           <div className="flex flex-row flex-wrap gap-3">
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className="flex min-w-0 flex-1 basis-36 flex-col gap-1.5">
-                  <Label className={disabled || !sc.showPlatform ? 'text-muted-foreground' : undefined}>璇︾粏搴?/Label>
+                  <Label className={disabled || !sc.showPlatform ? 'text-muted-foreground' : undefined}>鐠囷妇绮忔惔?/Label>
                   <Select
                     className="w-full"
                     value={sc.platformDetail}
                     disabled={disabled || !sc.showPlatform}
                     onChange={(e) => setStatusCommand({ platformDetail: e.target.value as StatusCommandConfig['platformDetail'] })}
                   >
-                    <option value="brief">绠€瑕?/option>
-                    <option value="summary">鎽樿</option>
-                    <option value="detailed">璇︾粏</option>
-                    <option value="fuzzy">妯＄硦</option>
+                    <option value="brief">缁犫偓鐟?/option>
+                    <option value="summary">閹芥顩?/option>
+                    <option value="detailed">鐠囷妇绮?/option>
+                    <option value="fuzzy">濡紕纭?/option>
                   </Select>
                 </div>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={6}>
-                骞冲彴璇︾粏搴︼細绠€瑕?浠呯郴缁熷悕绉帮紱鎽樿=绯荤粺鍚嶇О+鐗堟湰鍙凤紱璇︾粏=瀹屾暣绯荤粺淇℃伅锛涙ā绯?璇箟妯＄硦鍖栧鐞嗗悗鍥炲銆?              </TooltipContent>
+                楠炲啿褰寸拠锔剧矎鎼达讣绱扮粻鈧憰?娴犲懐閮寸紒鐔锋倳缁夊府绱遍幗妯款洣=缁崵绮洪崥宥囆?閻楀牊婀伴崣鍑ょ幢鐠囷妇绮?鐎瑰本鏆ｇ化鑽ょ埠娣団剝浼呴敍娑櫮佺化?鐠囶厺绠熷Ο锛勭ˇ閸栨牕顦╅悶鍡楁倵閸ョ偛顦查妴?              </TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className="flex min-w-0 flex-1 basis-36 flex-col gap-1.5">
-                  <Label className={disabled ? 'text-muted-foreground' : undefined}>鍐峰嵈</Label>
+                  <Label className={disabled ? 'text-muted-foreground' : undefined}>閸愬嘲宓?/Label>
                   <Input
                     type="number"
                     min={0}
@@ -180,13 +179,13 @@ export function GeneralSettingsTab({ config, onChange }: GeneralSettingsTabProps
                 </div>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={6}>
-                鍐峰嵈鏃堕棿锛氬悓涓€浼氳瘽鍦ㄨ绉掓暟鍐呴噸澶嶈Е鍙戣瘝涓嶅啀鍥炲锛岄槻鍒峰睆銆? 琛ㄧず涓嶉檺鍒躲€?              </TooltipContent>
+                閸愬嘲宓堥弮鍫曟？閿涙艾鎮撴稉鈧导姘崇樈閸︺劏顕氱粔鎺撴殶閸愬懘鍣告径宥埿曢崣鎴ｇ槤娑撳秴鍟€閸ョ偛顦查敍宀勬Щ閸掑嘲鐫嗛妴? 鐞涖劎銇氭稉宥夋閸掕翰鈧?              </TooltipContent>
             </Tooltip>
           </div>
 
           <ul className="list-disc space-y-1 pl-4 text-[11px] leading-relaxed text-muted-foreground">
-            <li>鏀跺埌绾枃鏈尮閰嶈Е鍙戣瘝鏃跺洖澶?SnowLuma 鐗堟湰 / 骞冲彴 / 杩愯鏃堕暱銆?/li>
-            <li>浠讳綍浜哄彲瑙﹀彂锛屽叧闂悗瀹屽叏涓嶅搷搴斻€?/li>
+            <li>閺€璺哄煂缁绢垱鏋冮張顒€灏柊宥埿曢崣鎴ｇ槤閺冭泛娲栨径?SnowLuma 閻楀牊婀?/ 楠炲啿褰?/ 鏉╂劘顢戦弮鍫曟毐閵?/li>
+            <li>娴犺缍嶆禍鍝勫讲鐟欙箑褰傞敍灞藉彠闂傤厼鎮楃€瑰苯鍙忔稉宥呮惙鎼存柣鈧?/li>
           </ul>
         </div>
       </details>
