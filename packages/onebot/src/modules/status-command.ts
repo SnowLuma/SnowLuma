@@ -6,10 +6,13 @@ const MAX_DISTRO_WIDTH = 24;
 
 /** Truncate to at most `max` display cells, appending `…` if cut. */
 function truncateWidth(s: string, max: number): string {
+  if (max < 2) return s;
   let w = 0;
-  for (let i = 0; i < s.length; i++) {
-    const cw = s[i] < '\u{2E80}' ? 1 : 2;
-    if (w + cw > max) return s.slice(0, i) + '…';
+  let out = '';
+  for (const ch of s) {
+    const cw = ch < '\u{2E80}' ? 1 : 2;
+    if (w + cw + 1 > max) return out + '…';
+    out += ch;
     w += cw;
   }
   return s;

@@ -57,7 +57,7 @@ export function GeneralSettingsTab({ config, onChange }: GeneralSettingsTabProps
                     value={sc.trigger}
                     disabled={disabled}
                     maxLength={64}
-                    onChange={(e) => setStatusCommand({ trigger: e.target.value.slice(0, 64) })}
+                    onChange={(e) => setStatusCommand({ trigger: e.target.value })}
                   />
                 </div>
               </TooltipTrigger>

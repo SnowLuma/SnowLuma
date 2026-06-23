@@ -126,16 +126,19 @@ describe('simplifyDistro edge cases', () => {
     expect(simplifyDistro('Debian 13')).toBe('Debian 13');
   });
   it('strips kernel version from Red Hat distro name', () => {
-    expect(simplifyDistro('Red Hat Enterprise Linux 9 (kernel 5.14.0)')).toBe('Red Hat Enterprise Linux 9');
+    expect(simplifyDistro('Red Hat Enterprise Linux 9 (kernel 5.14.0)')).toBe('Red Hat Enterprise 9');
   });
   it('strips kernel version from Linux Mint', () => {
-    expect(simplifyDistro('Linux Mint 22 (kernel 6.8.0)')).toBe('Linux Mint 22');
+    expect(simplifyDistro('Linux Mint 22 (kernel 6.8.0)')).toBe('Mint 22');
   });
   it('handles only kernel version in parentheses', () => {
     expect(simplifyDistro('(kernel 6.8.0)')).toBe('');
   });
   it('preserves [docker] with kernel and GNU/Linux combined', () => {
     expect(simplifyDistro('Debian GNU/Linux 13 (kernel 6.12.74) [docker]')).toBe('Debian 13 [docker]');
+  });
+  it('preserves non-kernel parentheses annotations', () => {
+    expect(simplifyDistro('Ubuntu 24.04 (LTS)')).toBe('Ubuntu 24.04 (LTS)');
   });
 });
 
