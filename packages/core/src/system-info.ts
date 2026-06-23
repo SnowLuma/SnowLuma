@@ -1,5 +1,6 @@
 import { execSync } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
+import { randomInt } from 'crypto';
 import os from 'os';
 
 /**
@@ -21,6 +22,12 @@ export interface SystemInfo {
   archLabel: string;
   release: string;
   distro: string;
+}
+
+export interface MockSystem {
+  distro: string;
+  arch: string;
+  tags: string[];
 }
 
 function detectDistro(): string {
@@ -77,7 +84,18 @@ function detectDistro(): string {
       for (const f of ['/etc/os-release', '/usr/lib/os-release']) {
         if (!existsSync(f)) continue;
         const raw = readFileSync(f, 'utf8');
-        const get = (k: string) => { const m = raw.match(new RegExp(`^${k}=("?)(.+?)\\1$`, 'm')); return m?.[2] ?? null; };
+        if (raw.length > 4096) continue;
+        const get = (k: string): string | null => {
+          const prefix = `${k}=`;
+          for (const line of raw.split('\n')) {
+            if (!line.startsWith(prefix)) continue;
+            const val = line.slice(prefix.length);
+            if (val.startsWith('"') && val.endsWith('"')) return val.slice(1, -1);
+            if (val.startsWith("'") && val.endsWith("'")) return val.slice(1, -1);
+            return val;
+          }
+          return null;
+        };
         const pretty = get('PRETTY_NAME') || get('NAME');
         const ver = get('VERSION_ID');
         if (pretty) {
@@ -241,9 +259,9 @@ const ARCHES: Record<string, readonly string[]> = {
   '*': ['x86_64', 'aarch64', 'ARM64', 'ARM', 'RISC-V', 'LoongArch'],
 };
 
-/** Return a randomly-selected mock system string (fuzzy/privacy mode). ~10% chance of [docker] suffix. */
-export function getMockSystem(): string {
-  const distro = DISTROS[Math.floor(Math.random() * DISTROS.length)];
+/** Return a randomly-selected mock system (fuzzy/privacy mode). ~5-20% chance of [docker] suffix. */
+export function getMockSystem(): MockSystem {
+  const distro = DISTROS[randomInt(DISTROS.length)];
   const prefix = distro.startsWith('Windows') ? 'Windows'
     : distro.startsWith('macOS') ? 'macOS'
     : distro.startsWith('Android') ? 'Android'
@@ -251,9 +269,14 @@ export function getMockSystem(): string {
     : distro.startsWith('OpenBSD') ? 'OpenBSD'
     : '*';
   const archList = ARCHES[prefix] ?? ARCHES['*'];
-  const arch = archList[Math.floor(Math.random() * archList.length)];
-  return Math.random() < 0.1 ? `${distro} ${arch} [docker]` : `${distro} ${arch}`;
+  const arch = archList[randomInt(archList.length)];
+  return { distro, arch, tags: randomInt(100) < (5 + randomInt(16)) ? ['docker'] : [] };
 }
+
+/** @visibleForTesting */
+export const __DISTROS = DISTROS;
+/** @visibleForTesting */
+export const __ARCHES = ARCHES;
 
 export function getSystemInfo(): SystemInfo {
   return {
