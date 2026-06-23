@@ -173,7 +173,24 @@ export function normalizeArch(arch: string): string {
   return map[arch] ?? arch;
 }
 
-const CACHED_DISTRO = (() => { try { return detectDistro(); } catch { return os.platform(); } })();
+export function isDockerEnvironment(): boolean {
+  if (os.platform() !== 'linux') return false;
+  try { if (existsSync('/.dockerenv')) return true; } catch { /* ignore */ }
+  try {
+    const cgroup = readFileSync('/proc/1/cgroup', 'utf8');
+    if (/docker/i.test(cgroup)) return true;
+  } catch { /* ignore */ }
+  return false;
+}
+
+const CACHED_IS_DOCKER = (() => { try { return isDockerEnvironment(); } catch { return false; } })();
+
+const CACHED_DISTRO = (() => {
+  try {
+    const distro = detectDistro();
+    return CACHED_IS_DOCKER ? `${distro} [docker]` : distro;
+  } catch { return os.platform(); }
+})();
 const CACHED_ARCH_LABEL = normalizeArch(os.arch());
 
 export function getSystemDistro(): string {
@@ -232,9 +249,10 @@ const MOCK_SYSTEMS: readonly string[] = (() => {
   return out;
 })();
 
-/** Return a randomly-selected mock system string (fuzzy/privacy mode). */
+/** Return a randomly-selected mock system string (fuzzy/privacy mode). ~10% chance of [docker] suffix. */
 export function getMockSystem(): string {
-  return MOCK_SYSTEMS[Math.floor(Math.random() * MOCK_SYSTEMS.length)];
+  const base = MOCK_SYSTEMS[Math.floor(Math.random() * MOCK_SYSTEMS.length)];
+  return Math.random() < 0.1 ? `${base} [docker]` : base;
 }
 
 export function getSystemInfo(): SystemInfo {
