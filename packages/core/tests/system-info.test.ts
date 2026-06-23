@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import os from 'os';
 import * as fs from 'fs';
-import { isDockerEnvironment, simplifyDistro, getMockSystem } from '@snowluma/core/system-info';
+import { extractTags, isDockerEnvironment, simplifyDistro, getMockSystem } from '@snowluma/core/system-info';
 
 vi.mock('fs', async (importActual) => {
   const actual = await importActual<typeof import('fs')>();
@@ -61,6 +61,44 @@ describe('simplifyDistro with [docker] tag', () => {
 
   it('preserves [docker] after stripping standalone Linux word', () => {
     expect(simplifyDistro('Alpine Linux 3.21 [docker]')).toBe('Alpine 3.21 [docker]');
+  });
+});
+
+describe('extractTags', () => {
+  it('extracts [docker] tag from distro string', () => {
+    const { cleanName, tags } = extractTags('Debian 13 (kernel 6.12.74) [docker]');
+    expect(cleanName).toBe('Debian 13 (kernel 6.12.74)');
+    expect(tags).toEqual(['docker']);
+  });
+
+  it('returns empty tags when no brackets present', () => {
+    const { cleanName, tags } = extractTags('Debian GNU/Linux 13');
+    expect(cleanName).toBe('Debian GNU/Linux 13');
+    expect(tags).toEqual([]);
+  });
+
+  it('handles multiple tags', () => {
+    const { cleanName, tags } = extractTags('Debian 13 [docker] [wsl]');
+    expect(cleanName).toBe('Debian 13');
+    expect(tags).toEqual(['docker', 'wsl']);
+  });
+
+  it('preserves trailing tag in mock format', () => {
+    const { cleanName, tags } = extractTags('Debian 13 x86_64 [docker]');
+    expect(cleanName).toBe('Debian 13 x86_64');
+    expect(tags).toEqual(['docker']);
+  });
+
+  it('handles empty string', () => {
+    const { cleanName, tags } = extractTags('');
+    expect(cleanName).toBe('');
+    expect(tags).toEqual([]);
+  });
+
+  it('handles string with only a tag', () => {
+    const { cleanName, tags } = extractTags('[docker]');
+    expect(cleanName).toBe('');
+    expect(tags).toEqual(['docker']);
   });
 });
 

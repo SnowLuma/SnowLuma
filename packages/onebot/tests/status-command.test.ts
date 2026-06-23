@@ -121,7 +121,7 @@ describe('buildStatusText', () => {
     expect(text).not.toContain('linux-x64');
     expect(text).toContain('1\u5206\u949f 30\u79d2');
   });
-  it('renders summary platform', () => {
+  it('renders summary platform without tags as single line', () => {
     const text = buildStatusText(info, true, 'summary', {
       platform: 'linux', arch: 'x64', archLabel: 'x86_64', release: '6.8.12',
       distro: 'Debian GNU/Linux 13 (kernel 6.12.74)',
@@ -135,10 +135,12 @@ describe('buildStatusText', () => {
     });
     expect(text).toContain('Ubuntu 22.04');
     expect(text).toContain('[kernel 6.8.12]');
+    expect(text).toContain('x86_64');
   });
   it('falls back to simple format when systemInfo is missing', () => {
     expect(buildStatusText(info, true, 'summary')).toContain('linux-x64');
     expect(buildStatusText(info, true, 'detailed')).toContain('linux-x64');
+    expect(buildStatusText(info, true, 'fuzzy')).toContain('平台');
   });
   it('fuzzy mode returns a non-empty platform line', () => {
     for (let i = 0; i < 10; i++) {
@@ -152,27 +154,42 @@ describe('buildStatusText', () => {
     for (let i = 0; i < 20; i++) results.add(buildStatusText(info, true, 'fuzzy'));
     expect(results.size).toBeGreaterThan(1);
   });
-  it('summary preserves [docker] tag', () => {
+  it('summary renders [docker] tag on separate indented line', () => {
     const text = buildStatusText(info, true, 'summary', {
       platform: 'linux', arch: 'x64', archLabel: 'x86_64', release: '6.8.12',
       distro: 'Debian 13 (kernel 6.8.12) [docker]',
     });
-    expect(text).toContain('Debian 13 [docker] x86_64');
+    expect(text).toContain('Debian 13');
+    expect(text).toContain('[docker]');
+    expect(text).toContain('x86_64');
+    expect(text).not.toContain('\u00B7');
   });
-  it('detailed with kernel splits into aligned lines', () => {
+  it('detailed with kernel and tag renders each on own indented line', () => {
     const text = buildStatusText(info, true, 'detailed', {
       platform: 'linux', arch: 'x64', archLabel: 'x86_64', release: '6.8.12',
       distro: 'Debian 13 (kernel 6.12.74) [docker]',
     });
     expect(text).toContain('Debian 13');
     expect(text).toContain('[kernel 6.12.74]');
-    expect(text).toContain('[docker] \u00B7 x86_64');
+    expect(text).toContain('[docker]');
+    expect(text).toContain('x86_64');
+    expect(text).not.toContain('\u00B7');
   });
-  it('detailed without kernel renders single line', () => {
+  it('detailed without kernel but with tag renders multi-line', () => {
     const text = buildStatusText(info, true, 'detailed', {
       platform: 'linux', arch: 'x64', archLabel: 'x86_64', release: '6.8.12',
       distro: 'Windows 11 [docker]',
     });
-    expect(text).toContain('Windows 11 [docker] \u00B7 x86_64');
+    expect(text).toContain('Windows 11');
+    expect(text).toContain('[docker]');
+    expect(text).toContain('x86_64');
+    expect(text).not.toContain('\u00B7');
+  });
+  it('detailed without kernel or tag renders single line', () => {
+    const text = buildStatusText(info, true, 'detailed', {
+      platform: 'linux', arch: 'x64', archLabel: 'x86_64', release: '6.8.12',
+      distro: 'Windows 11',
+    });
+    expect(text).toContain('Windows 11 x86_64');
   });
 });
