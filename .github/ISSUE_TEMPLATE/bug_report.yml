@@ -24,7 +24,7 @@ body:
     attributes:
       label: SnowLuma 版本
       description: 启动日志首行或 `package.json` 里的版本号
-      placeholder: "例如 1.8.5"
+      placeholder: "例如 1.10.2"
     validations:
       required: true
 
@@ -50,6 +50,19 @@ body:
     attributes:
       label: 操作系统
       placeholder: "例如 Windows 11 23H2 / macOS 14.5 / Ubuntu 22.04"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deploy
+    attributes:
+      label: 部署方式
+      description: 如何运行 SnowLuma
+      options:
+        - 源码运行（pnpm dev / start）
+        - 预构建包
+        - Docker
+        - 其他 / 不确定
     validations:
       required: true
 
