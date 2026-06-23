@@ -183,6 +183,22 @@ describe('loadOneBotConfig', () => {
     expect(config.statusCommand.trigger).toBe('#sl'); // empty → default
   });
 
+  it('truncates trigger to max 32 chars', () => {
+    const uin = '10049';
+    const dir = path.join(tempDir, 'config');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, `onebot_${uin}.json`),
+      JSON.stringify({
+        networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
+        statusCommand: { trigger: 'a'.repeat(100) },
+      }),
+    );
+
+    const config = loadOneBotConfig(uin);
+    expect(config.statusCommand.trigger.length).toBe(32);
+  });
+
   it('does not write to disk by default (read-only contract)', () => {
     const uin = '10006';
     const cfgPath = path.join(tempDir, 'config', `onebot_${uin}.json`);

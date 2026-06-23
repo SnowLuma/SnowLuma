@@ -77,7 +77,8 @@ function detectDistro(): string {
       for (const f of ['/etc/os-release', '/usr/lib/os-release']) {
         if (!existsSync(f)) continue;
         const raw = readFileSync(f, 'utf8');
-        const get = (k: string) => { const m = raw.match(new RegExp(`^${k}=("?)(.+?)\\1$`, 'm')); return m?.[2] ?? null; };
+        const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const get = (k: string) => { const m = raw.match(new RegExp(`^${esc(k)}=("?)(.+?)\\1$`, 'm')); return m?.[2] ?? null; };
         const pretty = get('PRETTY_NAME') || get('NAME');
         const ver = get('VERSION_ID');
         if (pretty) {
