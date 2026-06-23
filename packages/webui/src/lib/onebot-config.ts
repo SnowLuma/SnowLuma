@@ -1,6 +1,11 @@
 import type { MessageFormat, OneBotConfig, StatusCommandConfig } from '@/types';
 
-const DEFAULT_STATUS_COMMAND: StatusCommandConfig = { enabled: true, swallow: false, cooldownSeconds: 5 };
+const DEFAULT_STATUS_COMMAND: StatusCommandConfig = {
+  enabled: true,
+  swallow: false,
+  cooldownSeconds: 5,
+  trigger: '#sl',
+};
 
 /** Fill the `statusCommand` block with defaults when the backend omits or
  *  partially supplies it (older configs predate the feature). */
@@ -13,6 +18,9 @@ function normalizeStatusCommand(raw: unknown): StatusCommandConfig {
       typeof src.cooldownSeconds === 'number' && Number.isFinite(src.cooldownSeconds) && src.cooldownSeconds >= 0
         ? Math.trunc(src.cooldownSeconds)
         : DEFAULT_STATUS_COMMAND.cooldownSeconds,
+    trigger: typeof src.trigger === 'string' && src.trigger.trim().length > 0
+      ? src.trigger.trim().slice(0, 32)
+      : DEFAULT_STATUS_COMMAND.trigger,
   };
 }
 
