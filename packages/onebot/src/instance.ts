@@ -189,7 +189,7 @@ export class OneBotInstance {
     if (!cfg.enabled) return false;
     const postType = event.post_type;
     if (postType !== 'message' && postType !== 'message_sent') return false;
-    if (!matchesStatusCommand(event.message)) return false;
+    if (!matchesStatusCommand(event.message, cfg.trigger)) return false;
 
     const isGroup = event.message_type === 'group';
     const sessionId = isGroup ? toInt(event.group_id) : toInt(event.user_id);

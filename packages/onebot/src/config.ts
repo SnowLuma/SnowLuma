@@ -21,9 +21,15 @@ const CONFIG_DIR = 'config';
 const DEFAULT_CONFIG_PATH = path.join(CONFIG_DIR, 'onebot.json');
 const DEFAULT_ACCESS_TOKEN_BYTES = 32;
 
-const DEFAULT_STATUS_COMMAND: StatusCommandConfig = { enabled: true, swallow: false, cooldownSeconds: 5 };
-/** Upper bound on the `#sl` reply cooldown — a year is effectively "off but sane". */
+const DEFAULT_STATUS_COMMAND: StatusCommandConfig = {
+  enabled: true,
+  swallow: false,
+  cooldownSeconds: 5,
+  trigger: '#sl',
+};
+/** Upper bound on the status-command reply cooldown — a year is effectively "off but sane". */
 const STATUS_COMMAND_COOLDOWN_MAX = 31_536_000;
+const STATUS_COMMAND_TRIGGER_MAX_LENGTH = 32;
 
 function makeDefaultStatusCommand(): StatusCommandConfig {
   return { ...DEFAULT_STATUS_COMMAND };
@@ -113,6 +119,7 @@ function toJsonObject(config: OneBotConfig): JsonObject {
       enabled: config.statusCommand.enabled,
       swallow: config.statusCommand.swallow,
       cooldownSeconds: config.statusCommand.cooldownSeconds,
+      trigger: config.statusCommand.trigger,
     },
     notifications: { channelIds: config.notifications?.channelIds ?? [] },
   };
@@ -249,6 +256,9 @@ function parseStatusCommand(sources: JsonObject[]): StatusCommandConfig {
         STATUS_COMMAND_COOLDOWN_MAX,
         asNumber(raw.cooldownSeconds, DEFAULT_STATUS_COMMAND.cooldownSeconds),
       );
+    }
+    if (typeof raw.trigger === 'string' && raw.trigger.trim().length > 0) {
+      out.trigger = raw.trigger.trim().slice(0, STATUS_COMMAND_TRIGGER_MAX_LENGTH);
     }
   }
   return out;
