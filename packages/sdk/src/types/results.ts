@@ -25,12 +25,20 @@ export interface LoginInfo {
 export interface StatusInfo {
   online: boolean;
   good: boolean;
+  platform: string;
+  arch: string;
+  arch_label: string;
+  release: string;
+  distro: string;
 }
 
 export interface VersionInfo {
   app_name: string;
   app_version: string;
   protocol_version: string;
+  node_version: string;
+  platform: string;
+  arch: string;
 }
 
 export interface CapabilityInfo {
