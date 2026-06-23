@@ -189,4 +189,22 @@ describe('buildStatusText', () => {
     }
     expect(results.size).toBeGreaterThan(1);
   });
+
+  it('summary mode preserves [docker] tag from distro', () => {
+    const text = buildStatusText(info, true, 'summary', {
+      platform: 'linux', arch: 'x64', archLabel: 'x86_64',
+      release: '6.8.12',
+      distro: 'Debian 13 (kernel 6.8.12) [docker]',
+    });
+    expect(text).toContain('平台: Debian 13 [docker] x86_64');
+  });
+
+  it('detailed mode preserves [docker] tag from distro', () => {
+    const text = buildStatusText(info, true, 'detailed', {
+      platform: 'linux', arch: 'x64', archLabel: 'x86_64',
+      release: '6.8.12',
+      distro: 'Ubuntu 22.04 [docker]',
+    });
+    expect(text).toContain('平台: Ubuntu 22.04 [docker] · x86_64');
+  });
 });
