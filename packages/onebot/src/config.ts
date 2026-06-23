@@ -290,10 +290,19 @@ function parseStatusCommand(sources: JsonObject[]): StatusCommandConfig {
   if (out.matchMode === 'regex') {
     const parsed = parseRegexTrigger(out.trigger);
     if (parsed === null) {
+      log.warn(
+        'statusCommand regex trigger "%s" rejected (invalid flags or empty), falling back to default "%s" / %s',
+        out.trigger, DEFAULT_STATUS_COMMAND.trigger, DEFAULT_STATUS_COMMAND.matchMode,
+      );
       out.trigger = DEFAULT_STATUS_COMMAND.trigger;
       out.matchMode = DEFAULT_STATUS_COMMAND.matchMode;
     } else {
-      try { new RegExp(parsed.pattern, parsed.flags); } catch {
+      try { new RegExp(parsed.pattern, parsed.flags); } catch (err) {
+        log.warn(
+          'statusCommand regex trigger "%s" failed to compile: %s, falling back to default "%s" / %s',
+          out.trigger, err instanceof Error ? err.message : String(err),
+          DEFAULT_STATUS_COMMAND.trigger, DEFAULT_STATUS_COMMAND.matchMode,
+        );
         out.trigger = DEFAULT_STATUS_COMMAND.trigger;
         out.matchMode = DEFAULT_STATUS_COMMAND.matchMode;
       }

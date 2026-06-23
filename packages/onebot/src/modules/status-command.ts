@@ -2,17 +2,33 @@ import { extractTags, getMockSystem, simplifyDistro } from '@snowluma/core/syste
 import type { SystemInfo } from '@snowluma/core/system-info';
 import type { JsonObject, JsonValue, StatusCommandMatchMode, StatusCommandPlatformDetail } from '../types';
 
+const MAX_DISTRO_WIDTH = 24;
+
+/** Truncate to at most `max` display cells, appending `…` if cut. */
+function truncateWidth(s: string, max: number): string {
+  let w = 0;
+  for (let i = 0; i < s.length; i++) {
+    const cw = s[i] < '\u{2E80}' ? 1 : 2;
+    if (w + cw > max) return s.slice(0, i) + '…';
+    w += cw;
+  }
+  return s;
+}
+
 /** Strip leading JS regex inline flags (currently only `(?i)`) from a
  *  trigger string and return the cleaned pattern + accumulated flags.
- *  Returns `null` when the pattern is empty after stripping. */
+ *  Returns `null` if an unknown flag is encountered or the pattern is
+ *  empty after stripping. */
 export function parseRegexTrigger(trigger: string): { pattern: string; flags: string } | null {
   let pattern = trigger;
   let flags = '';
   while (pattern.startsWith('(?') && pattern.length > 3) {
-    if (pattern[2] === 'i' && pattern[3] === ')') {
-      flags += 'i';
+    if (pattern.startsWith('(?i)')) {
+      if (!flags.includes('i')) flags += 'i';
       pattern = pattern.slice(4);
-    } else { break; }
+    } else {
+      return null;
+    }
   }
   if (pattern.length === 0) return null;
   return { pattern, flags };
@@ -131,7 +147,7 @@ function renderPlatformLines(
   kernel?: string,
 ): void {
   const indent = '         ';
-  lines.push(`平台: ${distroName}`);
+  lines.push(`平台: ${truncateWidth(distroName, MAX_DISTRO_WIDTH)}`);
   if (kernel) lines.push(`${indent}[kernel ${kernel}]`);
   for (const tag of tags) lines.push(`${indent}[${tag}]`);
   lines.push(`${indent}${archLabel}`);
@@ -146,7 +162,7 @@ function renderDetailedPlatform(lines: string[], sys: SystemInfo): void {
   if (tags.length > 0 || kernelMatch) {
     renderPlatformLines(lines, distroName, tags, sys.archLabel, kernelMatch?.[1]);
   } else {
-    lines.push(`平台: ${distroName} ${sys.archLabel}`);
+    lines.push(`平台: ${truncateWidth(distroName, MAX_DISTRO_WIDTH)} ${sys.archLabel}`);
   }
 }
 
@@ -156,17 +172,13 @@ function renderSummaryPlatform(lines: string[], sys: SystemInfo): void {
   if (tags.length > 0) {
     renderPlatformLines(lines, simplified, tags, sys.archLabel);
   } else {
-    lines.push(`平台: ${simplified} ${sys.archLabel}`);
+    lines.push(`平台: ${truncateWidth(simplified, MAX_DISTRO_WIDTH)} ${sys.archLabel}`);
   }
 }
 
 function renderFuzzyPlatform(lines: string[]): void {
   const mock = getMockSystem();
-  const { cleanName, tags } = extractTags(mock);
-  const lastSpace = cleanName.lastIndexOf(' ');
-  const distro = lastSpace > 0 ? cleanName.slice(0, lastSpace) : cleanName;
-  const archLabel = lastSpace > 0 ? cleanName.slice(lastSpace + 1) : cleanName;
-  renderPlatformLines(lines, distro, tags, archLabel);
+  renderPlatformLines(lines, mock.distro, mock.tags, mock.arch);
 }
 
 /** Human-readable uptime (zh-CN), dropping leading zero units. */

@@ -3,6 +3,7 @@ import {
   buildStatusText,
   formatUptime,
   matchesStatusCommand,
+  parseRegexTrigger,
   statusCooldownElapsed,
 } from '../src/modules/status-command';
 import type { JsonValue, StatusCommandMatchMode, StatusCommandPlatformDetail } from '../src/types';
@@ -204,5 +205,37 @@ describe('buildStatusText', () => {
       distro: 'Windows 11',
     });
     expect(text).toContain('Windows 11 x86_64');
+  });
+});
+
+describe('parseRegexTrigger', () => {
+  it('strips a single (?i) prefix', () => {
+    const result = parseRegexTrigger('(?i)^hello$');
+    expect(result).toEqual({ pattern: '^hello$', flags: 'i' });
+  });
+  it('strips multiple (?i) prefixes', () => {
+    const result = parseRegexTrigger('(?i)(?i)^hello$');
+    expect(result).toEqual({ pattern: '^hello$', flags: 'i' });
+  });
+  it('does not duplicate i flag when (?i) appears multiple times', () => {
+    const result = parseRegexTrigger('(?i)(?i)^hello$');
+    expect(result?.flags).toBe('i');
+  });
+  it('returns null for unknown flag (?x)', () => {
+    expect(parseRegexTrigger('(?x)^hello$')).toBeNull();
+  });
+  it('returns null for incomplete flag (?i without paren)', () => {
+    expect(parseRegexTrigger('(?i^hello$')).toBeNull();
+  });
+  it('returns null for empty pattern after stripping', () => {
+    expect(parseRegexTrigger('(?i)')).toBeNull();
+  });
+  it('returns pattern+flags for plain pattern with no prefix flags', () => {
+    const result = parseRegexTrigger('^#sl$');
+    expect(result).toEqual({ pattern: '^#sl$', flags: '' });
+  });
+  it('marks match as false when parseRegexTrigger rejects trigger', () => {
+    expect(matchesStatusCommand({ type: 'text', data: { text: '#sl' } } as unknown as JsonValue, '(?x)#sl', 'regex')).toBe(false);
+    expect(matchesStatusCommand({ type: 'text', data: { text: '#sl' } } as unknown as JsonValue, '(?i)', 'regex')).toBe(false);
   });
 });

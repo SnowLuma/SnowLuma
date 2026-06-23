@@ -56,6 +56,7 @@ export function GeneralSettingsTab({ config, onChange }: GeneralSettingsTabProps
                     className="w-full font-mono tabular-nums"
                     value={sc.trigger}
                     disabled={disabled}
+                    maxLength={64}
                     onChange={(e) => setStatusCommand({ trigger: e.target.value.slice(0, 64) })}
                   />
                 </div>
