@@ -1,9 +1,6 @@
-import { getMockSystem, simplifyDistro } from '@snowluma/core/system-info';
+import { extractTags, getMockSystem, simplifyDistro } from '@snowluma/core/system-info';
 import type { SystemInfo } from '@snowluma/core/system-info';
 import type { JsonObject, JsonValue, StatusCommandMatchMode, StatusCommandPlatformDetail } from '../types';
-
-/** ~40 half-width chars fits ~2 lines on mobile QQ in portrait. */
-const QQ_LINE_LIMIT = 38;
 
 /**
  * True iff `message` matches the given trigger using the given match mode.
@@ -88,57 +85,81 @@ export function buildStatusText(
   const lines = ['SnowLuma 状态'];
   lines.push(`版本: ${info.version}`);
   if (showPlatform) {
-    if (platformDetail === 'detailed' && systemInfo) {
-      renderDetailedPlatform(lines, systemInfo);
-    } else {
-      const platformLine = buildPlatformLine(info, platformDetail, systemInfo);
-      if (platformLine.length > QQ_LINE_LIMIT) {
-        const splitAt = platformLine.indexOf(' · ');
-        if (splitAt > 0 && splitAt < QQ_LINE_LIMIT) {
-          lines.push(platformLine.slice(0, splitAt));
-          lines.push(`架构: ${platformLine.slice(splitAt + 3)}`);
+    switch (platformDetail) {
+      case 'brief':
+        lines.push(`平台: ${info.platform}-${info.arch}`);
+        break;
+      case 'detailed':
+        if (systemInfo) {
+          renderDetailedPlatform(lines, systemInfo);
         } else {
-          lines.push(platformLine.slice(0, QQ_LINE_LIMIT));
-          lines.push(platformLine.slice(QQ_LINE_LIMIT));
+          lines.push(`平台: ${info.platform}-${info.arch}`);
         }
-      } else {
-        lines.push(platformLine);
-      }
+        break;
+      case 'summary':
+        if (systemInfo) {
+          renderSummaryPlatform(lines, systemInfo);
+        } else {
+          lines.push(`平台: ${info.platform}-${info.arch}`);
+        }
+        break;
+      case 'fuzzy':
+        renderFuzzyPlatform(lines);
+        break;
     }
   }
   lines.push(`运行时长: ${formatUptime(info.uptimeMs)}`);
   return lines.join('\n');
 }
 
-function renderDetailedPlatform(lines: string[], sys: SystemInfo): void {
+function renderPlatformLines(
+  lines: string[],
+  distroName: string,
+  tags: string[],
+  archLabel: string,
+  kernel?: string,
+): void {
   const indent = '          ';
-  const kernelMatch = sys.distro.match(/\(kernel\s+([^)]+)\)/);
-  const hasDocker = sys.distro.includes('[docker]');
+  lines.push(`平台: ${distroName}`);
+  if (kernel) lines.push(`${indent}[kernel ${kernel}]`);
+  for (const tag of tags) lines.push(`${indent}[${tag}]`);
+  lines.push(`${indent}${archLabel}`);
+}
 
-  if (kernelMatch) {
-    const base = sys.distro.replace(/\s*\(kernel [^)]+\)/, '').trim();
-    lines.push(`平台: ${base}`);
-    lines.push(`${indent}[kernel ${kernelMatch[1]}]`);
-    lines.push(`${indent}${hasDocker ? '[docker] ' : ''}· ${sys.archLabel}`);
+function renderDetailedPlatform(lines: string[], sys: SystemInfo): void {
+  const { cleanName, tags } = extractTags(sys.distro);
+  const kernelMatch = cleanName.match(/\(kernel\s+([^)]+)\)/);
+  const distroName = kernelMatch
+    ? cleanName.replace(/\s*\(kernel [^)]+\)/, '').trim()
+    : cleanName;
+  if (tags.length > 0 || kernelMatch) {
+    renderPlatformLines(lines, distroName, tags, sys.archLabel, kernelMatch?.[1]);
   } else {
-    lines.push(`平台: ${sys.distro} · ${sys.archLabel}`);
+    lines.push(`平台: ${distroName} ${sys.archLabel}`);
   }
 }
 
-function buildPlatformLine(
-  info: StatusInfo,
-  detail: StatusCommandPlatformDetail,
-  sys?: SystemInfo,
-): string {
-  switch (detail) {
-    case 'brief':
-      return `平台: ${info.platform}-${info.arch}`;
-    case 'summary':
-      return `平台: ${sys ? `${simplifyDistro(sys.distro)} ${sys.archLabel}` : `${info.platform}-${info.arch}`}`;
-    case 'fuzzy':
-      return `平台: ${getMockSystem()}`;
+function renderSummaryPlatform(lines: string[], sys: SystemInfo): void {
+  const { cleanName, tags } = extractTags(sys.distro);
+  const simplified = simplifyDistro(cleanName);
+  if (tags.length > 0) {
+    renderPlatformLines(lines, simplified, tags, sys.archLabel);
+  } else {
+    lines.push(`平台: ${simplified} ${sys.archLabel}`);
   }
-  return `${info.platform}-${info.arch}`;
+}
+
+function renderFuzzyPlatform(lines: string[]): void {
+  const mock = getMockSystem();
+  const { cleanName, tags } = extractTags(mock);
+  const lastSpace = cleanName.lastIndexOf(' ');
+  const distro = lastSpace > 0 ? cleanName.slice(0, lastSpace) : cleanName;
+  const archLabel = lastSpace > 0 ? cleanName.slice(lastSpace + 1) : cleanName;
+  if (tags.length > 0) {
+    renderPlatformLines(lines, distro, tags, archLabel);
+  } else {
+    lines.push(`平台: ${mock}`);
+  }
 }
 
 /** Human-readable uptime (zh-CN), dropping leading zero units. */
