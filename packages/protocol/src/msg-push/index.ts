@@ -21,6 +21,9 @@ import { decodeGroupMessage } from './decoders/group-message';
 import { decodeTempMessage } from './decoders/temp-message';
 import { PkgType } from './enums';
 import { MsgPushRegistry } from './registry';
+import { SysMsgDedup } from './sysmsg-dedup';
+
+export { SysMsgDedup } from './sysmsg-dedup';
 
 export { SSO_GET_GROUP_MSG_CMD, fetchGroupMessageRange } from './fetch-group-history';
 export { SSO_GET_C2C_MSG_CMD, fetchC2cMessageRange } from './fetch-c2c-history';
@@ -80,11 +83,15 @@ function describeUndecodedBody(body: PushMsgBody | undefined): string {
   return `elems=[${parts.join('; ')}]${extras.length ? ` ${extras.join(' ')}` : ''}`;
 }
 
-export function parseMsgPush(pkt: PacketInfo, identity: IdentityService): QQEventVariant[] {
+export function parseMsgPush(
+  pkt: PacketInfo,
+  identity: IdentityService,
+  dedup?: SysMsgDedup,
+): QQEventVariant[] {
   const ctx = buildContext(pkt, identity);
   if (!ctx) return [];
   const events = registry.decode(ctx);
-  return events.filter((ev) => {
+  const out = events.filter((ev) => {
     if (!MESSAGE_KINDS.has(ev.kind)) return true;
     // C2C control/system signal (#102): QQ NT routes these via OnRecvSysMsg and
     // never shows them as a bubble. Drop by (msgType, c2cCmd) regardless of body
@@ -111,4 +118,21 @@ export function parseMsgPush(pkt: PacketInfo, identity: IdentityService): QQEven
     }
     return false;
   });
+
+  // #137: mirror QQ NT `sys_msg_mgr.cc::ProcessRecvSysMsg` global-key dedup.
+  // The server pushes some system notices twice (e.g. inviting an official
+  // robot → two `group_member_increase`); the kernel drops the duplicate by
+  // (peer, seq, random) before any listener sees it, but we read the raw
+  // OlPush, so we replicate the drop. Scoped to system pushes only — chat
+  // messages have their own NT dedup path and the forward re-parse re-runs
+  // this without a tracker. A push that decodes to a message kind, or to
+  // nothing, is never deduped here.
+  if (dedup && out.length > 0 && out.every((ev) => !MESSAGE_KINDS.has(ev.kind))) {
+    if (dedup.seenDuplicate(ctx.head, ctx.fromUin)) {
+      log.debug('dropped duplicate system push (kinds=%s seq=%d from=%d msgType=%d msgId=%d)',
+        out.map((ev) => ev.kind).join(','), ctx.head.sequence, ctx.fromUin, ctx.head.msgType, ctx.head.msgId);
+      return [];
+    }
+  }
+  return out;
 }

@@ -3,7 +3,7 @@ import type { PacketSender, SendPacketResult } from '@snowluma/common/packet-sen
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import { BridgeEventBus } from '@snowluma/protocol/event-bus';
 import { IdentityService } from '@snowluma/protocol/identity-service';
-import { MSG_PUSH_CMD, parseMsgPush } from '@snowluma/protocol/msg-push';
+import { MSG_PUSH_CMD, parseMsgPush, SysMsgDedup } from '@snowluma/protocol/msg-push';
 import { IncomingPacketPipeline, type CmdParser } from '@snowluma/protocol/packet-pipeline';
 import { buildApiHub, type ApiHub } from './apis';
 import {
@@ -26,6 +26,8 @@ export class Bridge implements BridgeInterface {
   private uploadedFileMeta_ = new Map<string, UploadedFileMeta>();
   private clientSeq_ = 100000000 + (Date.now() % 1000000000);
   private msgRandom_ = (Date.now() & 0xFFFFFFFF) >>> 0;
+  // Per-account dedup for QQ NT's already-deduped system pushes (#137).
+  private readonly sysMsgDedup_ = new SysMsgDedup();
 
   constructor(identity: IdentityService) {
     this.identity = identity;
@@ -62,7 +64,7 @@ export class Bridge implements BridgeInterface {
         }
       },
     });
-    this.pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
+    this.pipeline.registerCmd(MSG_PUSH_CMD, (pkt, identity) => parseMsgPush(pkt, identity, this.sysMsgDedup_));
   }
 
   dispose(): void {
