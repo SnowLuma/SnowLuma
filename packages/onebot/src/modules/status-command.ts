@@ -88,23 +88,41 @@ export function buildStatusText(
   const lines = ['SnowLuma 状态'];
   lines.push(`版本: ${info.version}`);
   if (showPlatform) {
-    const platformLine = buildPlatformLine(info, platformDetail, systemInfo);
-    // Wrap long lines for mobile QQ (~2 lines max on phone screen).
-    if (platformLine.length > QQ_LINE_LIMIT) {
-      const splitAt = platformLine.indexOf(' · ');
-      if (splitAt > 0 && splitAt < QQ_LINE_LIMIT) {
-        lines.push(platformLine.slice(0, splitAt));
-        lines.push(`架构: ${platformLine.slice(splitAt + 3)}`);
-      } else {
-        lines.push(platformLine.slice(0, QQ_LINE_LIMIT));
-        lines.push(platformLine.slice(QQ_LINE_LIMIT));
-      }
+    if (platformDetail === 'detailed' && systemInfo) {
+      renderDetailedPlatform(lines, systemInfo);
     } else {
-      lines.push(platformLine);
+      const platformLine = buildPlatformLine(info, platformDetail, systemInfo);
+      if (platformLine.length > QQ_LINE_LIMIT) {
+        const splitAt = platformLine.indexOf(' · ');
+        if (splitAt > 0 && splitAt < QQ_LINE_LIMIT) {
+          lines.push(platformLine.slice(0, splitAt));
+          lines.push(`架构: ${platformLine.slice(splitAt + 3)}`);
+        } else {
+          lines.push(platformLine.slice(0, QQ_LINE_LIMIT));
+          lines.push(platformLine.slice(QQ_LINE_LIMIT));
+        }
+      } else {
+        lines.push(platformLine);
+      }
     }
   }
   lines.push(`运行时长: ${formatUptime(info.uptimeMs)}`);
   return lines.join('\n');
+}
+
+function renderDetailedPlatform(lines: string[], sys: SystemInfo): void {
+  const indent = '          ';
+  const kernelMatch = sys.distro.match(/\(kernel\s+([^)]+)\)/);
+  const hasDocker = sys.distro.includes('[docker]');
+
+  if (kernelMatch) {
+    const base = sys.distro.replace(/\s*\(kernel [^)]+\)/, '').trim();
+    lines.push(`平台: ${base}`);
+    lines.push(`${indent}[kernel ${kernelMatch[1]}]`);
+    lines.push(`${indent}${hasDocker ? '[docker] ' : ''}· ${sys.archLabel}`);
+  } else {
+    lines.push(`平台: ${sys.distro} · ${sys.archLabel}`);
+  }
 }
 
 function buildPlatformLine(
@@ -117,11 +135,10 @@ function buildPlatformLine(
       return `平台: ${info.platform}-${info.arch}`;
     case 'summary':
       return `平台: ${sys ? `${simplifyDistro(sys.distro)} ${sys.archLabel}` : `${info.platform}-${info.arch}`}`;
-    case 'detailed':
-      return `平台: ${sys ? `${sys.distro} · ${sys.archLabel}` : `${info.platform}-${info.arch}`}`;
     case 'fuzzy':
       return `平台: ${getMockSystem()}`;
   }
+  return `${info.platform}-${info.arch}`;
 }
 
 /** Human-readable uptime (zh-CN), dropping leading zero units. */
