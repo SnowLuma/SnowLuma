@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { loadOneBotConfig, makeDefaultOneBotConfig, saveOneBotConfig } from '../src/config';
+import { loadOneBotConfig, makeDefaultOneBotConfig, saveOneBotConfig, STATUS_COMMAND_TRIGGER_MAX_LENGTH } from '../src/config';
 
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
@@ -25,7 +25,7 @@ describe('makeDefaultOneBotConfig', () => {
     expect(config.networks.wsServers[0].reportSelfMessage).toBe(false);
     expect(config.networks.wsClients).toEqual([]);
     expect(config.musicSignUrl).toBe('');
-    expect(config.statusCommand).toEqual({ enabled: true, swallow: false, cooldownSeconds: 5 });
+    expect(config.statusCommand).toEqual({ enabled: true, swallow: false, cooldownSeconds: 5, trigger: '#sl' });
     expect(config.notifications).toEqual({ channelIds: [] });
   });
 });
@@ -60,7 +60,7 @@ describe('loadOneBotConfig', () => {
     expect(onDisk.httpServers).toBeUndefined();
     expect(onDisk.wsServers).toBeUndefined();
     // statusCommand is materialised with defaults on a fresh install.
-    expect(onDisk.statusCommand).toEqual({ enabled: true, swallow: false, cooldownSeconds: 5 });
+    expect(onDisk.statusCommand).toEqual({ enabled: true, swallow: false, cooldownSeconds: 5, trigger: '#sl' });
   });
 
   it('fills statusCommand defaults and clamps a negative cooldown', () => {
@@ -148,6 +148,75 @@ describe('loadOneBotConfig', () => {
     expect(reloaded.networks.httpClients[0].name).toBe('self-mirror');
     expect(reloaded.networks.httpClients[0].messageFormat).toBe('string');
     expect(reloaded.networks.httpClients[0].reportSelfMessage).toBe(true);
+  });
+
+  it('fills new statusCommand fields with defaults when absent', () => {
+    const uin = '10042';
+    const dir = path.join(tempDir, 'config');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, `onebot_${uin}.json`),
+      JSON.stringify({
+        networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
+        statusCommand: { enabled: false },
+      }),
+    );
+
+    const config = loadOneBotConfig(uin);
+    expect(config.statusCommand.enabled).toBe(false); // from file
+    expect(config.statusCommand.trigger).toBe('#sl'); // default
+  });
+
+  it('clamps trigger length and rejects empty trigger', () => {
+    const uin = '10043';
+    const dir = path.join(tempDir, 'config');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, `onebot_${uin}.json`),
+      JSON.stringify({
+        networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
+        statusCommand: { trigger: '' },
+      }),
+    );
+
+    const config = loadOneBotConfig(uin);
+    expect(config.statusCommand.trigger).toBe('#sl'); // empty → default
+  });
+
+  it('truncates trigger to max 32 chars', () => {
+    const uin = '10049';
+    const dir = path.join(tempDir, 'config');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, `onebot_${uin}.json`),
+      JSON.stringify({
+        networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
+        statusCommand: { trigger: 'a'.repeat(100) },
+      }),
+    );
+
+    const config = loadOneBotConfig(uin);
+    expect(config.statusCommand.trigger.length).toBe(32);
+  });
+
+  it('rejects trigger containing newline, falls back to default', () => {
+    const uin = '10050';
+    const dir = path.join(tempDir, 'config');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, `onebot_${uin}.json`),
+      JSON.stringify({
+        networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
+        statusCommand: { trigger: '#sl\nbot' },
+      }),
+    );
+
+    const config = loadOneBotConfig(uin);
+    expect(config.statusCommand.trigger).toBe('#sl');
+  });
+
+  it('aligns MAX_LENGTH constant with expected value', () => {
+    expect(STATUS_COMMAND_TRIGGER_MAX_LENGTH).toBe(32);
   });
 
   it('does not write to disk by default (read-only contract)', () => {

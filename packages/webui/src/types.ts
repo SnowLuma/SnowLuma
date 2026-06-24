@@ -97,11 +97,12 @@ export interface OneBotNetworks {
   wsClients: WsClientNetwork[];
 }
 
-/** Built-in `#sl` status command settings (trigger word is hardcoded). */
+/** Built-in status command settings. Trigger word is configurable. */
 export interface StatusCommandConfig {
   enabled: boolean;
   swallow: boolean;
   cooldownSeconds: number;
+  trigger: string;
 }
 
 export interface OneBotConfig {
