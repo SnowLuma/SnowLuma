@@ -83,14 +83,20 @@ const CONSENT_ALLOWLIST = new Set([
   '/api/logout',
 ]);
 
-// Endpoints that may authenticate via `?token=` query parameter. Only the
-// SSE log stream is here because EventSource cannot set custom headers; all
-// other endpoints MUST use the Authorization header so tokens never leak
-// into access logs / Referer / browser history.
-const TOKEN_QUERY_ALLOWLIST = new Set([
+// Endpoints that may authenticate via `?token=` query parameter. Reserved
+// for SSE streams: EventSource cannot set custom headers, so these MUST
+// accept the token via query. All other endpoints use the Authorization
+// header so tokens never leak into access logs / Referer / browser history.
+//
+// Exported so the regression test can lock the invariant — a missing entry
+// here silently 401s the EventSource and the whole push channel goes dark,
+// which has happened (see /api/state/stream's first cut).
+export const SSE_TOKEN_QUERY_PATHS: ReadonlySet<string> = new Set([
   '/api/logs/stream',
   '/api/debug/stream',
+  '/api/state/stream',
 ]);
+const TOKEN_QUERY_ALLOWLIST = SSE_TOKEN_QUERY_PATHS;
 
 // uin = QQ number; 5–12 digits. Used to construct config file paths,
 // so we MUST refuse anything else (path traversal, NUL bytes, etc.).
