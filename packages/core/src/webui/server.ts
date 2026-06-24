@@ -313,7 +313,10 @@ export async function initWebUI(
   oneBotManager: OneBotManager,
   hookManager?: HookManager,
   notificationManager?: NotificationManager,
-  listener: { host?: string; tlsEnabled?: boolean; trustProxy?: string } = {},
+  // `stateBus` is consumed in phase 3 by the /api/state/stream handler.
+  // Threading it through here in phase 2 so the wiring in index.ts can stay
+  // committed independently of the SSE endpoint.
+  listener: { host?: string; tlsEnabled?: boolean; trustProxy?: string; stateBus?: import('./state-bus').StateBus } = {},
 ): Promise<{ port: number }> {
   // Resolve the client IP for per-IP rate limiting from the configured
   // trust-proxy directive (runtime.json `trustProxy`, env-overridable via
