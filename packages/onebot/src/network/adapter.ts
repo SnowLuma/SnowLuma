@@ -1,6 +1,6 @@
 import { createLogger, type Logger } from '@snowluma/common/logger';
 import type { ApiHandler } from '../api-handler';
-import type { DispatchPayload } from '../event-filter';
+import { shapeEventForAdapter, type DispatchPayload, type EventReportOptions } from '../event-filter';
 import type { JsonObject, NetworkBase } from '../types';
 
 export interface NetworkAdapterContext {
@@ -57,6 +57,39 @@ export abstract class IOneBotNetworkAdapter<C extends NetworkBase> {
 
   /** Report live connection health for the WebUI dashboard. */
   abstract describeStatus(): AdapterStatus;
+
+  // ── meta-event framing: shared by the connection-oriented adapters ─────
+  //
+  // Lifecycle (connect/enable/disable) and heartbeat meta events don't flow
+  // through `OneBotNetworkManager.emitEvent` (no pre-serialized DispatchPayload),
+  // so each connection-oriented adapter shapes them per its report options and
+  // serializes on the spot. The shape+serialize policy lives here once; the
+  // adapters only own the transport (which socket(s) to `safeSend` to).
+
+  /** Shape one meta event for `options` and serialize it to a wire frame, or
+   *  `null` when the shaper drops it (e.g. a self-message under
+   *  `reportSelfMessage:false`). */
+  protected metaFrame(event: JsonObject, options: EventReportOptions): string | null {
+    const shaped = shapeEventForAdapter(event, options);
+    return shaped === null ? null : JSON.stringify(shaped);
+  }
+
+  /** The bootstrap meta frames an event client receives on (re)connect:
+   *  `connect`, `enable`, then a `heartbeat`, shaped for `options`. Frames the
+   *  shaper drops are omitted. */
+  protected bootstrapMetaFrames(options: EventReportOptions): string[] {
+    const events = [
+      this.ctx.buildLifecycleEvent('connect'),
+      this.ctx.buildLifecycleEvent('enable'),
+      this.ctx.buildHeartbeatEvent(),
+    ];
+    const frames: string[] = [];
+    for (const event of events) {
+      const frame = this.metaFrame(event, options);
+      if (frame !== null) frames.push(frame);
+    }
+    return frames;
+  }
 
   // ── reload: shared hot-reload state machine (template method) ──────────
   //
