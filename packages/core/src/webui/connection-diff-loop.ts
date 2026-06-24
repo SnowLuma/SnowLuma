@@ -74,6 +74,11 @@ export function startConnectionDiffLoop(opts: ConnectionDiffLoopOptions): Connec
   };
 
   const timer = setInterval(tick, intervalMs);
+  // Don't pin the Node event loop: the loop is permanent for the server
+  // lifetime by design, but tests / a future hot-reload scenario must be
+  // able to exit cleanly without an outstanding interval ref. Mirrors the
+  // tokenJanitor pattern in server.ts.
+  timer.unref?.();
 
   return {
     dispose(): void {

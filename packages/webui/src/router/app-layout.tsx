@@ -106,9 +106,13 @@ export function AppLayout() {
 
   // Primary live-state path: subscribe to /api/state/stream and apply
   // pushed snapshots directly. Initial frames on connect prime
-  // processes/qqList/connections without a polling tick. systemInfo isn't
-  // covered by the SSE feed (it changes on a daily cadence — kernel/
-  // distro details) so it stays REST-driven below.
+  // processes/qqList/connections without a polling tick.
+  //
+  // On `{kind:'dropped'}` (backpressure made the server skip some frames),
+  // a per-resource SSE auto-recovery is NOT guaranteed: the next delivered
+  // frame is whatever resource next changes, not necessarily the one whose
+  // update we lost. So on dropped, kick a one-shot REST reconcile to
+  // recover immediately instead of waiting up to 30s for the fallback.
   useEffect(() => {
     const dispose = api.stateStream({
       onEvent: (event) => {
@@ -116,37 +120,60 @@ export function AppLayout() {
           if (event.resource === 'processes') setProcessList(event.data);
           else if (event.resource === 'qq-list') setQqList(event.data);
           else if (event.resource === 'connections') setConnections(event.data);
+          return;
         }
-        // 'ready' / 'dropped' control frames intentionally ignored — a
-        // 'dropped' just means the SSE skipped some intermediate frames
-        // under backpressure; the NEXT delivered frame is a full snapshot
-        // so the UI auto-recovers.
+        if ('kind' in event && event.kind === 'dropped') {
+          // Fire-and-forget; each refresh has its own try/catch.
+          void refreshQqList();
+          void refreshProcesses();
+          void refreshConnections();
+        }
       },
     });
     return () => { dispose(); };
-  }, [api]);
+  }, [api, refreshQqList, refreshProcesses, refreshConnections]);
 
-  // Fallback reconcile loop: even with the SSE primary, fire a single
-  // REST tick every `pollInterval` × 10 (so the default 3s → 30s) just to
-  // recover from a silent SSE drop (proxy rewrites text/event-stream,
-  // browser tab thrashing, etc.). systemInfo refreshes here too.
+  // Slow reconcile fallback for the SSE-covered resources. SSE drops can
+  // be silent (proxy rewrites text/event-stream, tab thrashing). One REST
+  // tick per (pollInterval × 10, min 10s) recovers from those without
+  // hammering the server.
   useEffect(() => {
     if (pollInterval <= 0) return;
     let cancelled = false;
     const reconcileMs = Math.max(pollInterval * 10, 10_000);
     const tick = async () => {
       if (cancelled) return;
-      await Promise.all([refreshQqList(), refreshProcesses(), refreshSystem(), refreshConnections()]);
+      await Promise.all([refreshQqList(), refreshProcesses(), refreshConnections()]);
     };
-    // Initial tick so the four lists exist before the SSE handshake
-    // completes (avoids a flash of empty state in the chrome).
+    // Initial tick primes the lists before the SSE handshake completes
+    // (avoids a flash of empty state in the chrome).
     tick();
     const interval = setInterval(tick, reconcileMs);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [pollInterval, refreshQqList, refreshProcesses, refreshSystem, refreshConnections]);
+  }, [pollInterval, refreshQqList, refreshProcesses, refreshConnections]);
+
+  // systemInfo has its OWN fast cadence — it carries live values (uptime,
+  // cpu loadAvg, memory.usagePercent, runtime.heapUsed) that the overview
+  // widget visibly animates. It isn't on the SSE feed, so a 30s reconcile
+  // would visibly lag the dashboard. Keep the user's configured
+  // pollInterval (default 3s) here.
+  useEffect(() => {
+    if (pollInterval <= 0) return;
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled) return;
+      await refreshSystem();
+    };
+    tick();
+    const interval = setInterval(tick, pollInterval);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [pollInterval, refreshSystem]);
 
   // Update check runs on its own slow cadence (6h), independent of the fast
   // list-polling above — GitHub's API is rate-limited, the result rarely

@@ -334,7 +334,9 @@ export async function initWebUI(
   // Connection-status diff loop: OneBot adapters don't emit events for
   // listening/connected/client-count changes, so we poll the snapshot at
   // 500ms and publish 'connections' to the StateBus when it actually
-  // moves. One loop per server lifetime, lives until process exit.
+  // moves. One loop per server lifetime, lives until process exit (the
+  // setInterval is .unref'd inside the loop so it doesn't pin the event
+  // loop on shutdown).
   //
   // `pickComparable` strips `adapter.detail` — that's a localised human
   // string assembled with HH:MM:SS timestamps from the last webhook
@@ -344,6 +346,8 @@ export async function initWebUI(
   // renders differently. The SSE handler still ships the FULL snapshot
   // (with `detail`) — it's only the diff key that's pruned.
   if (listener.stateBus) {
+    // Handle deliberately discarded — initWebUI has no shutdown path; the
+    // loop's setInterval is .unref'd so it doesn't pin the event loop.
     startConnectionDiffLoop({
       bus: listener.stateBus,
       getSnapshot: () => oneBotManager.getConnectionStatuses(),
