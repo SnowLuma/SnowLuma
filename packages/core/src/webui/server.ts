@@ -335,10 +335,31 @@ export async function initWebUI(
   // listening/connected/client-count changes, so we poll the snapshot at
   // 500ms and publish 'connections' to the StateBus when it actually
   // moves. One loop per server lifetime, lives until process exit.
+  //
+  // `pickComparable` strips `adapter.detail` — that's a localised human
+  // string assembled with HH:MM:SS timestamps from the last webhook
+  // delivery; including it in the diff would make every webhook event
+  // produce a publish (defeating the diff). We compare ONLY name + kind +
+  // status, which captures every transition the dashboard actually
+  // renders differently. The SSE handler still ships the FULL snapshot
+  // (with `detail`) — it's only the diff key that's pruned.
   if (listener.stateBus) {
     startConnectionDiffLoop({
       bus: listener.stateBus,
       getSnapshot: () => oneBotManager.getConnectionStatuses(),
+      pickComparable: (snap) => {
+        if (!Array.isArray(snap)) return snap;
+        return (snap as Array<{ uin: string; nickname?: string; adapters?: unknown[] }>).map((acc) => ({
+          uin: acc.uin,
+          nickname: acc.nickname,
+          adapters: Array.isArray(acc.adapters)
+            ? acc.adapters.map((a: unknown) => {
+                const o = a as { name?: string; kind?: string; status?: string };
+                return { name: o.name, kind: o.kind, status: o.status };
+              })
+            : acc.adapters,
+        }));
+      },
       intervalMs: 500,
     });
   }

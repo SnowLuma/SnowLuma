@@ -84,6 +84,63 @@ describe('startConnectionDiffLoop', () => {
     expect(seen).toEqual([]);
   });
 
+  it('pickComparable() strips volatile fields so detail-only changes do NOT publish', () => {
+    const bus = new StateBus();
+    const seen: string[] = [];
+    bus.subscribe((r) => seen.push(r));
+    // Reproduces the real-world bug: HttpPostAdapter.describeStatus()
+    // embeds HH:MM:SS in `detail`; every webhook delivery rotates that
+    // string every second. WITHOUT pickComparable, the loop would publish
+    // every tick under any active webhook. WITH it (stripping `detail`),
+    // only level changes publish.
+    let snap = [{ uin: '1', adapters: [{ kind: 'httpClient', status: 'ok', detail: '上次推送 14:00:00' }] }];
+    const handle = startConnectionDiffLoop({
+      bus,
+      getSnapshot: () => snap,
+      pickComparable: (s) => {
+        if (!Array.isArray(s)) return s;
+        return (s as Array<{ uin: string; adapters?: unknown[] }>).map((acc) => ({
+          uin: acc.uin,
+          adapters: Array.isArray(acc.adapters)
+            ? acc.adapters.map((a: unknown) => {
+                const o = a as { name?: string; kind?: string; status?: string };
+                return { name: o.name, kind: o.kind, status: o.status };
+              })
+            : acc.adapters,
+        }));
+      },
+      intervalMs: 500,
+    });
+    vi.advanceTimersByTime(500); // baseline
+    expect(seen).toEqual([]);
+    // detail changes every second; raw JSON differs each tick.
+    for (let t = 1; t <= 10; t++) {
+      snap = [{ uin: '1', adapters: [{ kind: 'httpClient', status: 'ok', detail: `上次推送 14:00:${String(t).padStart(2, '0')}` }] }];
+      vi.advanceTimersByTime(500);
+    }
+    expect(seen).toEqual([]); // ZERO publishes — detail is not comparable
+    // Now a REAL state change (status level) → publish exactly once.
+    snap = [{ uin: '1', adapters: [{ kind: 'httpClient', status: 'down', detail: '连接失败' }] }];
+    vi.advanceTimersByTime(500);
+    expect(seen).toEqual(['connections']);
+    handle.dispose();
+  });
+
+  it('a throwing pickComparable() is isolated — loop keeps ticking, no publish', () => {
+    const bus = new StateBus();
+    const seen: string[] = [];
+    bus.subscribe((r) => seen.push(r));
+    const handle = startConnectionDiffLoop({
+      bus,
+      getSnapshot: () => [{ uin: '1' }],
+      pickComparable: () => { throw new Error('projector boom'); },
+      intervalMs: 500,
+    });
+    vi.advanceTimersByTime(2_000);
+    expect(seen).toEqual([]);
+    handle.dispose();
+  });
+
   it('survives a throwing snapshot() — keeps trying on the next tick', () => {
     const bus = new StateBus();
     const seen: string[] = [];

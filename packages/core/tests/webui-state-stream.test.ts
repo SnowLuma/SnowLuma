@@ -164,7 +164,7 @@ describe('bindStateStream', () => {
     // observed frame as the older snapshot.
     let call = 0;
     const versions = ['snap-T0', 'snap-T60'];
-    const snapshot = vi.fn(async (resource: StateResource): Promise<unknown> => {
+    const snapshot = vi.fn(async (_resource: StateResource): Promise<unknown> => {
       const i = call++;
       const sleep = i === 0 ? 200 : 10;
       await new Promise<void>((r) => setTimeout(r, sleep));
@@ -196,7 +196,7 @@ describe('bindStateStream', () => {
     const bus = new StateBus();
     const sent: CapturedFrame[] = [];
     let call = 0;
-    const snapshot = vi.fn(async (resource: StateResource): Promise<unknown> => {
+    const snapshot = vi.fn(async (_resource: StateResource): Promise<unknown> => {
       call++;
       await new Promise<void>((r) => setTimeout(r, 100));
       return `snap-#${call}`;

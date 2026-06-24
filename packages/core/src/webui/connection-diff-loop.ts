@@ -17,6 +17,14 @@ export interface ConnectionDiffLoopOptions {
   bus: StateBus;
   /** Read the current adapter-status snapshot for every live UIN. */
   getSnapshot: () => unknown;
+  /** Optional projector — return the "comparable" subset of the snapshot.
+   *  The full snapshot is what the SSE handler ships to the WebUI; this
+   *  projection is what the diff loop compares between ticks. Use it to
+   *  strip volatile fields (e.g. HH:MM:SS timestamps embedded in adapter
+   *  `detail` strings) that would otherwise produce a publish every tick
+   *  under any active webhook — defeating the loop's whole purpose.
+   *  Default: identity. */
+  pickComparable?: (snapshot: unknown) => unknown;
   /** Poll cadence in milliseconds; default 500. */
   intervalMs?: number;
 }
@@ -43,7 +51,14 @@ export function startConnectionDiffLoop(opts: ConnectionDiffLoopOptions): Connec
       // spuriously republish when the snapshot starts working again.
       return;
     }
-    const serialized = JSON.stringify(snap);
+    let comparable: unknown;
+    try {
+      comparable = opts.pickComparable ? opts.pickComparable(snap) : snap;
+    } catch {
+      // A buggy projector must not crash the diff loop or wedge baseline.
+      return;
+    }
+    const serialized = JSON.stringify(comparable);
     if (!haveBaseline) {
       // First successful observation. The SSE handler's sendAllInitial
       // already shipped a `connections` frame to every connected client
