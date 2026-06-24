@@ -16,6 +16,10 @@
       "types": "./src/logger.ts",
       "default": "./src/logger.ts"
     },
+    "./coerce": {
+      "types": "./src/coerce.ts",
+      "default": "./src/coerce.ts"
+    },
     "./hex": {
       "types": "./src/hex.ts",
       "default": "./src/hex.ts"
