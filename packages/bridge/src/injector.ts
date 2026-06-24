@@ -2,6 +2,8 @@ import { existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { listSnowlumaPipePidsSync } from './qq-hook-client';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export interface ManualMapHandle {
@@ -98,6 +100,17 @@ export function getNativeHookLoadError(): string | null {
 }
 
 export function listHookProcesses(): HookProcessBaseInfo[] {
+  // macOS: no native enumerate-QQ addon. The DYLD_INSERT injection model
+  // means QQ ran with our dylib already mapped, so the dylib's listener
+  // socket IS the discovery signal. Treat every `mojo.<pid>.control.sock`
+  // in the runtime dir as a known process (the watcher's subsequent
+  // connectable-probe gates the pipe-up emit, so a stale dangling socket
+  // here doesn't drive a false connect).
+  if (process.platform === 'darwin') {
+    return [...listSnowlumaPipePidsSync()]
+      .sort((a, b) => a - b)
+      .map(pid => ({ pid, name: defaultProcessName(), path: '' }));
+  }
   const addon = getNativeHookAddon();
   if (!addon) return [];
   return [...new Set(addon.getAllMainProcess())]
