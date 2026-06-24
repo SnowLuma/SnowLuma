@@ -29,7 +29,8 @@ const DEFAULT_STATUS_COMMAND: StatusCommandConfig = {
 };
 /** Upper bound on the status-command reply cooldown — a year is effectively "off but sane". */
 const STATUS_COMMAND_COOLDOWN_MAX = 31_536_000;
-const STATUS_COMMAND_TRIGGER_MAX_LENGTH = 32;
+/** Max length of a user-customised trigger word (UTF-16 code units). */
+export const STATUS_COMMAND_TRIGGER_MAX_LENGTH = 32;
 
 function makeDefaultStatusCommand(): StatusCommandConfig {
   return { ...DEFAULT_STATUS_COMMAND };
@@ -257,7 +258,7 @@ function parseStatusCommand(sources: JsonObject[]): StatusCommandConfig {
         asNumber(raw.cooldownSeconds, DEFAULT_STATUS_COMMAND.cooldownSeconds),
       );
     }
-    if (typeof raw.trigger === 'string' && raw.trigger.trim().length > 0) {
+    if (typeof raw.trigger === 'string' && raw.trigger.trim().length > 0 && !/[\r\n]/.test(raw.trigger)) {
       out.trigger = raw.trigger.trim().slice(0, STATUS_COMMAND_TRIGGER_MAX_LENGTH);
     }
   }

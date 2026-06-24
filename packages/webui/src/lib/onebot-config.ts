@@ -18,7 +18,7 @@ function normalizeStatusCommand(raw: unknown): StatusCommandConfig {
       typeof src.cooldownSeconds === 'number' && Number.isFinite(src.cooldownSeconds) && src.cooldownSeconds >= 0
         ? Math.trunc(src.cooldownSeconds)
         : DEFAULT_STATUS_COMMAND.cooldownSeconds,
-    trigger: typeof src.trigger === 'string' && src.trigger.trim().length > 0
+    trigger: typeof src.trigger === 'string' && src.trigger.trim().length > 0 && !/[\r\n]/.test(src.trigger)
       ? src.trigger.trim().slice(0, 32)
       : DEFAULT_STATUS_COMMAND.trigger,
   };

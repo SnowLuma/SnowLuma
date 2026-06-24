@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { loadOneBotConfig, makeDefaultOneBotConfig, saveOneBotConfig } from '../src/config';
+import { loadOneBotConfig, makeDefaultOneBotConfig, saveOneBotConfig, STATUS_COMMAND_TRIGGER_MAX_LENGTH } from '../src/config';
 
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
@@ -197,6 +197,26 @@ describe('loadOneBotConfig', () => {
 
     const config = loadOneBotConfig(uin);
     expect(config.statusCommand.trigger.length).toBe(32);
+  });
+
+  it('rejects trigger containing newline, falls back to default', () => {
+    const uin = '10050';
+    const dir = path.join(tempDir, 'config');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, `onebot_${uin}.json`),
+      JSON.stringify({
+        networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
+        statusCommand: { trigger: '#sl\nbot' },
+      }),
+    );
+
+    const config = loadOneBotConfig(uin);
+    expect(config.statusCommand.trigger).toBe('#sl');
+  });
+
+  it('aligns MAX_LENGTH constant with expected value', () => {
+    expect(STATUS_COMMAND_TRIGGER_MAX_LENGTH).toBe(32);
   });
 
   it('does not write to disk by default (read-only contract)', () => {
