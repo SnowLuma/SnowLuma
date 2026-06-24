@@ -10,6 +10,8 @@ import {
   type LoginResult,
   type LogsStreamOptions,
   type ProcessActionResult,
+  type StateStreamEvent,
+  type StateStreamOptions,
   type TokenStore,
 } from './types';
 import { localStorageTokenStore } from './token-store';
@@ -342,6 +344,26 @@ class HttpApiClient implements ApiClient {
 
   connections(): Promise<AccountConnections[]> {
     return this.getJson<{ list: AccountConnections[] }>('/api/connections').then((d) => d.list ?? []);
+  }
+
+  stateStream(options: StateStreamOptions): () => void {
+    if (!this.currentToken) { options.onStatus?.('closed'); return () => {}; }
+    const url = `/api/state/stream?token=${encodeURIComponent(this.currentToken)}`;
+    const source = new EventSource(url);
+    // EventSource auto-reconnects on transport drop: `onerror` fires once
+    // when the connection is lost and the browser is about to retry, so
+    // a single 'reconnecting' status is sufficient — no manual reconnect
+    // timer needed.
+    source.onopen = () => options.onStatus?.('open');
+    source.onerror = () => options.onStatus?.('reconnecting');
+    source.onmessage = (event) => {
+      try {
+        options.onEvent(JSON.parse(event.data) as StateStreamEvent);
+      } catch {
+        /* malformed frame — skip; the next one will arrive normally */
+      }
+    };
+    return () => { source.close(); options.onStatus?.('closed'); };
   }
 
   // ---------- SSE ----------
