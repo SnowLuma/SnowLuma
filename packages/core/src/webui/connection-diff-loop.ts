@@ -39,6 +39,11 @@ export function startConnectionDiffLoop(opts: ConnectionDiffLoopOptions): Connec
   let lastSerialized = '';
   let haveBaseline = false;
   let disposed = false;
+  // One-shot diagnostic latch: a projector that starts throwing only after
+  // a shape regression would otherwise wedge the baseline silently — no
+  // publishes, no log, no symptom besides "the dashboard's connections
+  // card stops updating". Surface it ONCE so the failure is visible.
+  let warnedProjectorThrew = false;
 
   const tick = (): void => {
     if (disposed) return;
@@ -54,8 +59,17 @@ export function startConnectionDiffLoop(opts: ConnectionDiffLoopOptions): Connec
     let comparable: unknown;
     try {
       comparable = opts.pickComparable ? opts.pickComparable(snap) : snap;
-    } catch {
+    } catch (err) {
       // A buggy projector must not crash the diff loop or wedge baseline.
+      // But silent wedge is its own bug class — log the FIRST occurrence
+      // so an operator can find it without re-running the loop locally.
+      if (!warnedProjectorThrew) {
+        warnedProjectorThrew = true;
+        // Static logger import avoided to keep the loop self-contained;
+        // stderr is good enough for a once-per-process latch.
+        // eslint-disable-next-line no-console
+        console.error('[connection-diff-loop] pickComparable threw — connections SSE diff will wedge until restart:', err);
+      }
       return;
     }
     const serialized = JSON.stringify(comparable);

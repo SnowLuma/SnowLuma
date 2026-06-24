@@ -345,6 +345,14 @@ export async function initWebUI(
   // status, which captures every transition the dashboard actually
   // renders differently. The SSE handler still ships the FULL snapshot
   // (with `detail`) — it's only the diff key that's pruned.
+  //
+  // Trade-off: the rendered detail string (e.g. "3 个客户端", "上次推送
+  // 14:53:01") only refreshes on the next SSE push or on the 30s REST
+  // reconcile — not in real time. The user's original reported bugs were
+  // about process / account edges (which DO push instantly); refreshing
+  // adapter detail strings at sub-second cadence wasn't required. If it
+  // becomes one, surface client-count as a structured field on
+  // AdapterStatus and include it in the comparable.
   if (listener.stateBus) {
     // Handle deliberately discarded — initWebUI has no shutdown path; the
     // loop's setInterval is .unref'd so it doesn't pin the event loop.
@@ -356,12 +364,15 @@ export async function initWebUI(
         return (snap as Array<{ uin: string; nickname?: string; adapters?: unknown[] }>).map((acc) => ({
           uin: acc.uin,
           nickname: acc.nickname,
+          // Empty fallback when `adapters` is not an array — never the
+          // raw value, which could re-introduce volatile fields verbatim
+          // if the snapshot shape ever drifts.
           adapters: Array.isArray(acc.adapters)
             ? acc.adapters.map((a: unknown) => {
                 const o = a as { name?: string; kind?: string; status?: string };
                 return { name: o.name, kind: o.kind, status: o.status };
               })
-            : acc.adapters,
+            : [],
         }));
       },
       intervalMs: 500,
