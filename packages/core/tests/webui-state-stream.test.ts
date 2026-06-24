@@ -155,6 +155,72 @@ describe('bindStateStream', () => {
     handle.dispose();
   });
 
+  it('serialises overlapping flushes for the same resource — the LAST sent frame reflects the LATEST publish (no stale overwrite)', async () => {
+    const bus = new StateBus();
+    const sent: CapturedFrame[] = [];
+    // Variable-latency snapshot: 1st call sleeps 200ms (slow), 2nd call
+    // sleeps 10ms (fast). Without single-flight, the second publish would
+    // race-overlap and send BEFORE the first, leaving the client's last
+    // observed frame as the older snapshot.
+    let call = 0;
+    const versions = ['snap-T0', 'snap-T60'];
+    const snapshot = vi.fn(async (resource: StateResource): Promise<unknown> => {
+      const i = call++;
+      const sleep = i === 0 ? 200 : 10;
+      await new Promise<void>((r) => setTimeout(r, sleep));
+      return versions[i] ?? `snap-#${i}`;
+    });
+    const handle = bindStateStream({
+      bus, snapshot,
+      send: (f) => sent.push(f),
+      debounceMs: 50,
+    });
+
+    bus.publish('processes');           // schedules timer1 → fires at 50, snapshot A (200ms)
+    await vi.advanceTimersByTimeAsync(60);
+    bus.publish('processes');           // arrives WHILE flush A is mid-snapshot
+    await vi.advanceTimersByTimeAsync(60);  // hits 120: timer2 should have fired, flush B observed_after A completes
+    await vi.advanceTimersByTimeAsync(300); // settle everything
+
+    // Exactly two frames; the LAST one must reflect the most recent snapshot.
+    expect(sent).toHaveLength(2);
+    expect(sent[sent.length - 1]).toEqual({ resource: 'processes', data: 'snap-T60' });
+    // For single-flight: snapshot is called once per flush (no overlap),
+    // so the SECOND snapshot read sees the latest state.
+    expect(call).toBe(2);
+
+    handle.dispose();
+  });
+
+  it('multiple publishes during an in-flight flush coalesce into ONE follow-up flush, not N', async () => {
+    const bus = new StateBus();
+    const sent: CapturedFrame[] = [];
+    let call = 0;
+    const snapshot = vi.fn(async (resource: StateResource): Promise<unknown> => {
+      call++;
+      await new Promise<void>((r) => setTimeout(r, 100));
+      return `snap-#${call}`;
+    });
+    const handle = bindStateStream({
+      bus, snapshot,
+      send: (f) => sent.push(f),
+      debounceMs: 50,
+    });
+
+    bus.publish('processes');
+    await vi.advanceTimersByTimeAsync(55);
+    // flush A in flight (100ms more). Send 5 publishes during the in-flight window.
+    for (let i = 0; i < 5; i++) bus.publish('processes');
+    await vi.advanceTimersByTimeAsync(200);
+    await vi.advanceTimersByTimeAsync(200);
+
+    // 1 initial flush + 1 coalesced follow-up = 2 frames, NOT 6.
+    expect(sent).toHaveLength(2);
+    expect(call).toBe(2);
+
+    handle.dispose();
+  });
+
   it('send() throw is isolated — the next publish still reaches a healthy send()', async () => {
     const bus = new StateBus();
     const sent: CapturedFrame[] = [];

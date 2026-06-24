@@ -46,30 +46,56 @@ const ALL_RESOURCES: readonly StateResource[] = ['processes', 'qq-list', 'connec
 export function bindStateStream(opts: BindStateStreamOptions): StateStreamHandle {
   const debounceMs = opts.debounceMs ?? 50;
   const timers = new Map<StateResource, ReturnType<typeof setTimeout>>();
+  // Single-flight per resource: at most one in-flight flush per resource so
+  // an uneven snapshot latency cannot interleave sends out of order (a slow
+  // earlier snapshot landing AFTER a later one, leaving the client's last
+  // observed frame stale). Publishes arriving while a flush is in flight
+  // mark `pending` and rearm the debounce timer once the flush completes.
+  const inFlight = new Set<StateResource>();
+  const pending = new Set<StateResource>();
   let disposed = false;
 
   const flush = async (resource: StateResource): Promise<void> => {
     if (disposed) return;
-    let data: unknown;
+    inFlight.add(resource);
     try {
-      data = await opts.snapshot(resource);
-    } catch {
-      // Per-resource snapshot failure (e.g. listProcesses threw): skip
-      // this frame so siblings keep flowing. The next publish for the
-      // same resource gets a fresh attempt.
-      return;
-    }
-    if (disposed) return;
-    try {
-      opts.send({ resource, data });
-    } catch {
-      // Downstream consumer (e.g. closed SSE controller) — same isolation
-      // contract as snapshot failures.
+      let data: unknown;
+      try {
+        data = await opts.snapshot(resource);
+      } catch {
+        // Per-resource snapshot failure (e.g. listProcesses threw): skip
+        // this frame so siblings keep flowing. The next publish for the
+        // same resource gets a fresh attempt.
+        return;
+      }
+      if (disposed) return;
+      try {
+        opts.send({ resource, data });
+      } catch {
+        // Downstream consumer (e.g. closed SSE controller) — same isolation
+        // contract as snapshot failures.
+      }
+    } finally {
+      inFlight.delete(resource);
+      // If a publish arrived during the in-flight window, schedule one
+      // follow-up flush. Re-uses the debounce so a sustained publish
+      // stream produces at most one frame per (debounceMs + flushLatency),
+      // not back-to-back frames.
+      if (!disposed && pending.has(resource)) {
+        pending.delete(resource);
+        schedule(resource);
+      }
     }
   };
 
   const schedule = (resource: StateResource): void => {
     if (disposed) return;
+    if (inFlight.has(resource)) {
+      // Defer to the post-flush re-arm; no new timer until the in-flight
+      // send completes. This is the load-bearing invariant for ordering.
+      pending.add(resource);
+      return;
+    }
     const existing = timers.get(resource);
     if (existing) clearTimeout(existing);
     const t = setTimeout(() => {
@@ -85,7 +111,9 @@ export function bindStateStream(opts: BindStateStreamOptions): StateStreamHandle
     async sendAllInitial(): Promise<void> {
       if (disposed) return;
       // Fire all three in parallel. Each resource's snapshot is independent
-      // so a slow listProcesses() doesn't gate qq-list/connections.
+      // so a slow listProcesses() doesn't gate qq-list/connections. Each
+      // call goes through the single-flight gate so a concurrent bus
+      // publish during this initial fan-out coalesces correctly.
       await Promise.all(ALL_RESOURCES.map((r) => flush(r)));
     },
     dispose(): void {
@@ -94,6 +122,7 @@ export function bindStateStream(opts: BindStateStreamOptions): StateStreamHandle
       unsubscribe();
       for (const t of timers.values()) clearTimeout(t);
       timers.clear();
+      pending.clear();
     },
   };
 }
