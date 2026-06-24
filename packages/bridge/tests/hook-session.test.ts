@@ -347,6 +347,50 @@ describe('HookSession — process gone', () => {
   });
 });
 
+describe('HookSession — refresh drift fix', () => {
+  // refresh while the pipe is down on a connected-but-never-logged-in
+  // session now reports 'connecting' (matching what onPipeDown gives for the
+  // same state), not the old spurious 'disconnected'. Pre-refactor, refresh's
+  // down branch ignored wasLoggedIn and always reported 'disconnected'.
+
+  it('refresh-while-down + never logged in → connecting (not disconnected), no disconnect emit', async () => {
+    const ctx = makeSession({ pipeLive: true });
+    await ctx.session.load();
+    ctx.session.onPipeUp();
+    await flush();
+    expect(ctx.session.status).toBe('loaded'); // connected, never logged in
+
+    const discSpy = vi.fn();
+    ctx.session.on('disconnected', discSpy);
+    ctx.setPipeLive(false);
+
+    const info = await ctx.session.refresh();
+
+    expect(info.status).toBe('connecting');     // drift fix: was 'disconnected'
+    expect(discSpy).not.toHaveBeenCalled();      // never logged in ⇒ nothing owed
+  });
+
+  it('refresh-while-down after login still → disconnected + emits disconnected(true)', async () => {
+    // The flip is scoped to the never-logged-in case; a real session that
+    // had reached login must still settle to 'disconnected' and notify.
+    const ctx = makeSession({ pipeLive: true });
+    await ctx.session.load();
+    ctx.session.onPipeUp();
+    await flush();
+    ctx.currentClient().fireLogin('10001');
+    expect(ctx.session.status).toBe('online');
+
+    const discSpy = vi.fn();
+    ctx.session.on('disconnected', discSpy);
+    ctx.setPipeLive(false);
+
+    const info = await ctx.session.refresh();
+
+    expect(info.status).toBe('disconnected');
+    expect(discSpy).toHaveBeenCalledWith(true);
+  });
+});
+
 describe('HookSession — pipe-down must not clobber a settled error', () => {
   // Regression net for the phase-2 reconcilePipeDown !connected short-circuit:
   // a pipe-down tick on a session that never reached a live connection must
