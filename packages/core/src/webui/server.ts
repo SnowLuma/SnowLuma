@@ -21,6 +21,8 @@ import { coerceSettingsPatch } from './system-settings';
 import { buildBackup, planRestore, validateBackup } from './backup';
 import { collectActionDocs, collectCategories } from '@snowluma/onebot/action-docs';
 import { createFramePusher } from './debug-stream';
+import { bindStateStream } from './state-stream';
+import type { StateBus, StateResource } from './state-bus';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
 import { findAvailablePort } from './port';
 import {
@@ -313,10 +315,7 @@ export async function initWebUI(
   oneBotManager: OneBotManager,
   hookManager?: HookManager,
   notificationManager?: NotificationManager,
-  // `stateBus` is consumed in phase 3 by the /api/state/stream handler.
-  // Threading it through here in phase 2 so the wiring in index.ts can stay
-  // committed independently of the SSE endpoint.
-  listener: { host?: string; tlsEnabled?: boolean; trustProxy?: string; stateBus?: import('./state-bus').StateBus } = {},
+  listener: { host?: string; tlsEnabled?: boolean; trustProxy?: string; stateBus?: StateBus } = {},
 ): Promise<{ port: number }> {
   // Resolve the client IP for per-IP rate limiting from the configured
   // trust-proxy directive (runtime.json `trustProxy`, env-overridable via
@@ -927,6 +926,77 @@ export async function initWebUI(
   // counts / last-delivery), powering the dashboard's connection card.
   app.get('/api/connections', (c) => {
     return c.json({ list: oneBotManager.getConnectionStatuses() });
+  });
+
+  // Combined SSE feed for the dashboard's three live resources — processes,
+  // qq-list, connections. Replaces the 3s REST polling tick in
+  // app-layout.tsx; the REST endpoints above stay for the initial fetch
+  // before SSE connects and for the slow (30s) reconciliation fallback.
+  //
+  // On connect: one frame per resource with the current snapshot. After
+  // that: a fresh snapshot per resource only when the StateBus signals a
+  // change (HookSession status-changed, BridgeManager session edges, the
+  // connection-status diff loop). 50ms per-resource debounce coalesces a
+  // burst (e.g. multiple HookSessions flipping status simultaneously).
+  const stateBus = listener.stateBus;
+  app.get('/api/state/stream', (c) => {
+    if (!stateBus) {
+      // Build without state-wiring (e.g. a future headless mode) — clients
+      // fall back to the REST endpoints. Treat as endpoint-not-here.
+      return c.text('state stream not configured', 503);
+    }
+    const liveBus = stateBus;
+    const stream = new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder();
+        let closed = false;
+        let binding: { dispose(): void } | undefined;
+        let heartbeat: NodeJS.Timeout | undefined;
+        const teardown = () => {
+          if (closed) return;
+          closed = true;
+          if (heartbeat) clearInterval(heartbeat);
+          binding?.dispose();
+          try { controller.close(); } catch { /* ignore */ }
+        };
+        const raw = (chunk: Uint8Array) => {
+          if (closed) return;
+          try { controller.enqueue(chunk); } catch { teardown(); }
+        };
+        const pushFrame = createFramePusher({
+          desiredSize: () => controller.desiredSize,
+          enqueue: raw,
+          encode: (s) => encoder.encode(s),
+        });
+        const send = (payload: unknown) => { if (!closed) pushFrame(payload); };
+        send({ kind: 'ready' });
+
+        const handle = bindStateStream({
+          bus: liveBus,
+          snapshot: async (resource: StateResource): Promise<unknown> => {
+            if (resource === 'processes') {
+              if (!hookManager) return [];
+              return hookManager.listProcesses();
+            }
+            if (resource === 'qq-list') {
+              return oneBotManager.getInstances().map((inst) => ({ uin: inst.uin, nickname: inst.nickname }));
+            }
+            return oneBotManager.getConnectionStatuses();
+          },
+          send: (frame) => send(frame),
+          debounceMs: 50,
+        });
+        binding = handle;
+        // Prime with the initial snapshot; if the client never sees the
+        // bus publish (idle system) it still has the current state.
+        void handle.sendAllInitial();
+        heartbeat = setInterval(() => raw(encoder.encode(': heartbeat\n\n')), 15000);
+        c.req.raw.signal.addEventListener('abort', teardown);
+      },
+    });
+    return new Response(stream, {
+      headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' },
+    });
   });
 
   app.get('/api/logs', (c) => {
