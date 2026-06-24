@@ -23,6 +23,7 @@ import { collectActionDocs, collectCategories } from '@snowluma/onebot/action-do
 import { createFramePusher } from './debug-stream';
 import { bindStateStream } from './state-stream';
 import type { StateBus, StateResource } from './state-bus';
+import { startConnectionDiffLoop } from './connection-diff-loop';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
 import { findAvailablePort } from './port';
 import {
@@ -323,6 +324,18 @@ export async function initWebUI(
   // Default ('') = trust the TCP socket peer only (cannot be spoofed).
   const trustProxyMode = parseTrustProxy(listener.trustProxy);
   const getClientIp = makeClientIpResolver(trustProxyMode);
+
+  // Connection-status diff loop: OneBot adapters don't emit events for
+  // listening/connected/client-count changes, so we poll the snapshot at
+  // 500ms and publish 'connections' to the StateBus when it actually
+  // moves. One loop per server lifetime, lives until process exit.
+  if (listener.stateBus) {
+    startConnectionDiffLoop({
+      bus: listener.stateBus,
+      getSnapshot: () => oneBotManager.getConnectionStatuses(),
+      intervalMs: 500,
+    });
+  }
 
   // Actual bound port (set just before serve; findAvailablePort may bump it).
   // Read by GET /api/system/settings so the panel shows what's really live.
