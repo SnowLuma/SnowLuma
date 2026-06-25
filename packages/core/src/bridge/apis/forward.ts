@@ -14,7 +14,7 @@ import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { randomUUID } from 'crypto';
 import { gunzipSync, gzipSync } from 'zlib';
 import type { Bridge } from '../bridge';
-import type { BridgeContext } from '../bridge-context';
+import type { BridgeContext, UploadedFileMeta } from '../bridge-context';
 import { resolveSelfUid, toInt } from './shared';
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
@@ -202,12 +202,147 @@ function previewFromElements(elements: MessageElement[]): string {
   return '';
 }
 
+function cloneNodeWithElements(node: ForwardNodePayload, elements: MessageElement[]): ForwardNodePayload {
+  return {
+    userUin: node.userUin,
+    nickname: node.nickname,
+    elements,
+    time: node.time,
+    msgId: node.msgId,
+    msgSeq: node.msgSeq,
+    groupId: node.groupId,
+    senderCard: node.senderCard,
+    messageType: node.messageType,
+    innerForward: node.innerForward,
+  };
+}
+
+function stripFileSource(element: MessageElement): MessageElement {
+  const next: MessageElement = { ...element };
+  delete next.url;
+  return next;
+}
+
+function isCachedFileUsableInTarget(
+  cached: UploadedFileMeta | undefined,
+  groupId?: number,
+  userId?: number,
+): boolean {
+  if (!cached) return true;
+  if (groupId !== undefined) {
+    return cached.scope === 'group' && cached.groupId === groupId;
+  }
+  if (userId !== undefined) {
+    return cached.scope === 'private' && cached.userId === userId;
+  }
+  return true;
+}
+
+function fileNameForUpload(element: MessageElement, cached?: UploadedFileMeta): string {
+  return (element.fileName ?? cached?.fileName ?? '').trim();
+}
+
 export class ForwardApi {
   constructor(private readonly ctx: BridgeContext) { }
 
   async upload(nodes: ForwardNodePayload[], groupId?: number, userId?: number): Promise<string> {
     const { resId } = await this.uploadRecursive(nodes, groupId, userId);
     return resId;
+  }
+
+  private async downloadSourceFromCachedFile(cached: UploadedFileMeta): Promise<string> {
+    if (cached.scope === 'group' && cached.groupId !== undefined) {
+      return this.ctx.apis.groupFile.getUrl(cached.groupId, cached.fileId);
+    }
+    if (cached.scope === 'private' && cached.userId !== undefined && cached.fileHash) {
+      return this.ctx.apis.groupFile.getPrivateUrl(cached.userId, cached.fileId, cached.fileHash);
+    }
+    throw new Error('forward file_id belongs to another scope; pass file/base64/url so SnowLuma can re-upload it');
+  }
+
+  private async uploadForwardFileSource(
+    source: string,
+    name: string,
+    groupId?: number,
+    userId?: number,
+  ): Promise<MessageElement> {
+    if (groupId !== undefined) {
+      const uploaded = await this.ctx.apis.groupFile.upload(groupId, source, name, '/', true, false);
+      if (!uploaded.fileId) throw new Error('forward group file upload returned no file_id');
+      const cached = this.ctx.recallUploadedFile(uploaded.fileId);
+      const element: MessageElement = {
+        type: 'file',
+        fileId: uploaded.fileId,
+      };
+      const fileName = cached?.fileName || name;
+      if (fileName) element.fileName = fileName;
+      if (cached?.fileSize !== undefined) element.fileSize = cached.fileSize;
+      return element;
+    }
+    if (userId !== undefined) {
+      const uploaded = await this.ctx.apis.groupFile.uploadPrivate(userId, source, name, true, false);
+      if (!uploaded.fileId) throw new Error('forward private file upload returned no file_id');
+      const cached = this.ctx.recallUploadedFile(uploaded.fileId);
+      const element: MessageElement = {
+        type: 'file',
+        fileId: uploaded.fileId,
+      };
+      const fileName = cached?.fileName || name;
+      const fileHash = uploaded.fileHash ?? cached?.fileHash ?? '';
+      if (fileName) element.fileName = fileName;
+      if (cached?.fileSize !== undefined) element.fileSize = cached.fileSize;
+      if (fileHash) element.fileHash = fileHash;
+      return element;
+    }
+    throw new Error('forward file source requires group_id or user_id');
+  }
+
+  private async prepareForwardFileElement(
+    element: MessageElement,
+    groupId?: number,
+    userId?: number,
+  ): Promise<MessageElement> {
+    if (element.type !== 'file') return element;
+
+    const source = (element.url ?? '').trim();
+    if (source && !element.fileId) {
+      const uploaded = await this.uploadForwardFileSource(source, fileNameForUpload(element), groupId, userId);
+      return {
+        ...stripFileSource(element),
+        ...uploaded,
+      };
+    }
+
+    if (element.fileId) {
+      const cached = this.ctx.recallUploadedFile(element.fileId);
+      if (isCachedFileUsableInTarget(cached, groupId, userId)) return element;
+      const sourceFromCache = await this.downloadSourceFromCachedFile(cached!);
+      const uploaded = await this.uploadForwardFileSource(
+        sourceFromCache,
+        fileNameForUpload(element, cached),
+        groupId,
+        userId,
+      );
+      return {
+        ...stripFileSource(element),
+        ...uploaded,
+      };
+    }
+
+    return element;
+  }
+
+  private async prepareForwardFiles(
+    nodes: ForwardNodePayload[],
+    groupId?: number,
+    userId?: number,
+  ): Promise<ForwardNodePayload[]> {
+    return Promise.all(nodes.map(async (node) => {
+      const elements = await Promise.all(node.elements.map(
+        element => this.prepareForwardFileElement(element, groupId, userId),
+      ));
+      return cloneNodeWithElements(node, elements);
+    }));
   }
 
   /**
@@ -304,8 +439,10 @@ export class ForwardApi {
       }
     }
 
+    const uploadReadyNodes = await this.prepareForwardFiles(processedNodes, groupId, userId);
+
     // Encode this level's msgBody.
-    const msgBody = await Promise.all(processedNodes.map(
+    const msgBody = await Promise.all(uploadReadyNodes.map(
       node => buildForwardPushBody(bridge, node, groupId, userUid),
     ));
 
@@ -349,7 +486,7 @@ export class ForwardApi {
       throw new Error('upload forward message response missing res_id');
     }
 
-    forwardResCache.set(resId, processedNodes.map(node => ({
+    forwardResCache.set(resId, uploadReadyNodes.map(node => ({
       userUin: node.userUin,
       nickname: node.nickname,
       elements: [...node.elements],
