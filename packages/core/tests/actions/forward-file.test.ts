@@ -165,4 +165,156 @@ describe('actions/forward — file segment inside forward node', () => {
 
     expect(recallUploadedFile).toHaveBeenCalledWith('pfid-cached');
   });
+
+  it('group forward pre-uploads file sources into the target group without publishing a separate file message', async () => {
+    buildSendElemsMock.mockClear();
+    const upload = vi.fn(async () => ({ fileId: 'gfid-from-base64' }));
+    const publish = vi.fn();
+    const bridge = mockBridge({
+      sendRawPacket: vi.fn(async () => uploadResponseWithResId('res-grp-source')) as any,
+      apis: {
+        ...mockBridge().apis,
+        groupFile: {
+          ...mockBridge().apis.groupFile,
+          upload,
+          publish,
+        },
+      },
+      recallUploadedFile: vi.fn((id: string) => id === 'gfid-from-base64' ? {
+        fileId: 'gfid-from-base64',
+        scope: 'group' as const,
+        groupId: 12345,
+        fileName: 'note.txt',
+        fileSize: 3,
+        fileMd5: new Uint8Array(16),
+        fileSha1: new Uint8Array(20),
+        rememberedAt: 0,
+      } : undefined),
+    });
+
+    await new ForwardApi(bridge as any).upload([{
+      userUin: 10001,
+      nickname: 'alice',
+      elements: [{ type: 'file', url: 'base64://AQID', fileName: 'note.txt' } as any],
+    }], 12345);
+
+    expect(upload).toHaveBeenCalledWith(12345, 'base64://AQID', 'note.txt', '/', true, false);
+    expect(publish).not.toHaveBeenCalled();
+    const [elements] = buildSendElemsMock.mock.calls[0]!;
+    expect(elements).toEqual([expect.objectContaining({
+      type: 'file',
+      fileId: 'gfid-from-base64',
+      fileName: 'note.txt',
+      fileSize: 3,
+    })]);
+  });
+
+  it('private forward pre-uploads file sources without sending a standalone c2c file message', async () => {
+    buildSendElemsMock.mockClear();
+    const uploadPrivate = vi.fn(async () => ({ fileId: 'pfid-from-base64', fileHash: 'phash' }));
+    const sendC2cFile = vi.fn();
+    const bridge = mockBridge({
+      sendRawPacket: vi.fn(async () => uploadResponseWithResId('res-c2c-source')) as any,
+      apis: {
+        ...mockBridge().apis,
+        message: {
+          ...mockBridge().apis.message,
+          sendC2cFile,
+        },
+        groupFile: {
+          ...mockBridge().apis.groupFile,
+          uploadPrivate,
+        },
+      },
+      recallUploadedFile: vi.fn((id: string) => id === 'pfid-from-base64' ? {
+        fileId: 'pfid-from-base64',
+        scope: 'private' as const,
+        userId: 67890,
+        fileName: 'note.txt',
+        fileSize: 3,
+        fileMd5: new Uint8Array(16),
+        fileSha1: new Uint8Array(20),
+        fileHash: 'phash',
+        rememberedAt: 0,
+      } : undefined),
+    });
+
+    await new ForwardApi(bridge as any).upload([{
+      userUin: 10001,
+      nickname: 'alice',
+      elements: [{ type: 'file', url: 'base64://AQID', fileName: 'note.txt' } as any],
+    }], undefined, 67890);
+
+    expect(uploadPrivate).toHaveBeenCalledWith(67890, 'base64://AQID', 'note.txt', true, false);
+    expect(sendC2cFile).not.toHaveBeenCalled();
+    const [elements] = buildSendElemsMock.mock.calls[0]!;
+    expect(elements).toEqual([expect.objectContaining({
+      type: 'file',
+      fileId: 'pfid-from-base64',
+      fileName: 'note.txt',
+      fileSize: 3,
+      fileHash: 'phash',
+    })]);
+  });
+
+  it('group forward re-uploads a cached private file_id into the target group scope', async () => {
+    buildSendElemsMock.mockClear();
+    const getPrivateUrl = vi.fn(async () => 'https://download.test/private-file');
+    const upload = vi.fn(async () => ({ fileId: 'gfid-reuploaded' }));
+    const bridge = mockBridge({
+      sendRawPacket: vi.fn(async () => uploadResponseWithResId('res-cross-scope')) as any,
+      apis: {
+        ...mockBridge().apis,
+        groupFile: {
+          ...mockBridge().apis.groupFile,
+          getPrivateUrl,
+          upload,
+        },
+      },
+      recallUploadedFile: vi.fn((id: string) => {
+        if (id === 'pfid-cached') {
+          return {
+            fileId: 'pfid-cached',
+            scope: 'private' as const,
+            userId: 67890,
+            fileName: 'cached.txt',
+            fileSize: 5,
+            fileMd5: new Uint8Array(16),
+            fileSha1: new Uint8Array(20),
+            fileHash: 'cached-hash',
+            rememberedAt: 0,
+          };
+        }
+        if (id === 'gfid-reuploaded') {
+          return {
+            fileId: 'gfid-reuploaded',
+            scope: 'group' as const,
+            groupId: 12345,
+            fileName: 'cached.txt',
+            fileSize: 5,
+            fileMd5: new Uint8Array(16),
+            fileSha1: new Uint8Array(20),
+            rememberedAt: 1,
+          };
+        }
+        return undefined;
+      }),
+    });
+
+    await new ForwardApi(bridge as any).upload([{
+      userUin: 10001,
+      nickname: 'alice',
+      elements: [{ type: 'file', fileId: 'pfid-cached' } as any],
+    }], 12345);
+
+    expect(getPrivateUrl).toHaveBeenCalledWith(67890, 'pfid-cached', 'cached-hash');
+    expect(upload).toHaveBeenCalledWith(12345, 'https://download.test/private-file', 'cached.txt', '/', true, false);
+    const [elements] = buildSendElemsMock.mock.calls[0]!;
+    expect(elements).toEqual([expect.objectContaining({
+      type: 'file',
+      fileId: 'gfid-reuploaded',
+      fileName: 'cached.txt',
+      fileSize: 5,
+    })]);
+  });
 });
