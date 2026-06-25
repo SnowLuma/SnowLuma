@@ -511,6 +511,23 @@ function StatTileWidget({ id }: { id: string }) {
 
 const HOST_GRID_COLS: Record<number, string> = { 1: 'lg:grid-cols-1', 2: 'lg:grid-cols-2', 3: 'lg:grid-cols-3' };
 
+function bestGrid(n: number, maxCols = 48): { cols: number; rows: number; waste: number } {
+  let best = { cols: 2, rows: Math.ceil(n / 2), waste: 0 };
+  let bestScore = Infinity;
+  const limit = Math.min(maxCols, n);
+  for (let cols = 2; cols <= limit; cols++) {
+    const rows = Math.ceil(n / cols);
+    const waste = cols * rows - n;
+    const balance = Math.abs(cols - rows);
+    const score = waste * 20 + balance;
+    if (score < bestScore) {
+      bestScore = score;
+      best = { cols, rows, waste };
+    }
+  }
+  return best;
+}
+
 function HostBlock({ config }: { config: HostConfig }) {
   const { systemInfo, refreshSystem } = useAppState();
   const panelCount = [config.cpu, config.memory, config.runtime].filter(Boolean).length;
@@ -547,13 +564,32 @@ function HostBlock({ config }: { config: HostConfig }) {
             负载: {systemInfo ? systemInfo.cpu.loadAvg.map((v) => v.toFixed(2)).join(' / ') : '—'}
             </p>
             {systemInfo && systemInfo.cpu.perCore.length > 0 && (
-              <div className="mt-3 grid grid-cols-8 gap-1">
-                {systemInfo.cpu.perCore.map((p, i) => (
-                  <div key={i} title={`Core ${i}: ${p.toFixed(1)}%`} className="h-6 rounded-sm bg-muted overflow-hidden flex items-end">
-                    <div className="w-full bg-primary/70 transition-[height] duration-500" style={{ height: `${Math.max(4, p)}%` }} />
+              (() => {
+                const n = systemInfo.cpu.perCore.length;
+                const { cols, rows } = bestGrid(n);
+                const total = cols * rows;
+                return (
+                  <div
+                    className="mt-3 overflow-hidden"
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: `repeat(${cols}, 1fr)`,
+                      gridTemplateRows: `repeat(${rows}, 1fr)`,
+                      gap: 2,
+                      height: 80,
+                    }}
+                  >
+                    {systemInfo.cpu.perCore.map((p, i) => (
+                      <div key={i} title={`Core ${i}: ${p.toFixed(1)}%`} className="rounded-sm bg-muted overflow-hidden relative">
+                        <div className="absolute bottom-0 left-0 right-0 bg-primary/70 transition-[height] duration-500" style={{ height: `${Math.max(2, p)}%` }} />
+                      </div>
+                    ))}
+                    {Array.from({ length: total - n }).map((_, i) => (
+                      <div key={`e-${i}`} className="rounded-sm bg-muted" style={{ visibility: 'hidden' }} />
+                    ))}
                   </div>
-                ))}
-              </div>
+                );
+              })()
             )}
           </div>
         )}
