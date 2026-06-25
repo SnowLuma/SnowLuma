@@ -70,14 +70,6 @@ const ffmpegSrcDir = path.resolve(nativeDir, 'ffmpeg');
 // Fail fast if any expected native binary is missing from packages/runtime/native/.
 // vite-plugin-cp only emits a warning on missing source files; we want a hard
 // error so CI can't accidentally ship an incomplete archive.
-//
-// Escape hatch: SNOWLUMA_BUILD_SKIP_NATIVES=1 downgrades the missing-native
-// error to a warning. Use ONLY for local dev on platforms where prebuilt
-// native binaries aren't available yet (e.g. darwin-arm64 — the websocket
-// native source lives in a separate private build repo). The runtime
-// websocket loader has its own `SNOWLUMA_DEV_NO_NATIVE=1` stub that lets
-// the daemon boot without the addon at the cost of WebSocket I/O; the qq-hook
-// path is independent and unaffected.
 const missingNatives = nativeFiles.filter(
   (f) => !fs.existsSync(path.join(nativeDir, f)),
 );
@@ -85,15 +77,10 @@ if (!fs.existsSync(path.join(ffmpegSrcDir, ffmpegAddonFile))) {
   missingNatives.push(`ffmpeg/${ffmpegAddonFile}`);
 }
 if (missingNatives.length > 0) {
-  const detail = `Missing native binaries for target ${targetTriple}:\n` +
-    missingNatives.map((f) => `  - ${path.join(nativeDir, f)}`).join('\n');
-  if (process.env.SNOWLUMA_BUILD_SKIP_NATIVES === '1') {
-    console.warn(`[vite.config] ${detail}\n` +
-      `  (continuing because SNOWLUMA_BUILD_SKIP_NATIVES=1 — runtime needs ` +
-      `SNOWLUMA_DEV_NO_NATIVE=1 to skip the missing addon at boot)`);
-  } else {
-    throw new Error(detail);
-  }
+  throw new Error(
+    `Missing native binaries for target ${targetTriple}:\n` +
+    missingNatives.map((f) => `  - ${path.join(nativeDir, f)}`).join('\n'),
+  );
 }
 
 // Legal docs are served by the WebUI consent gate; a missing one would silently
