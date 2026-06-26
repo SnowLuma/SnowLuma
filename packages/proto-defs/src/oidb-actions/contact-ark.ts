@@ -1,8 +1,7 @@
 // Recommend-contact ARK card protobufs, RE'd from QQNT wrapper.linux.node.
 //
-// Buddy: OidbSvcTrpcTcp.0x9130_0 (getBuddyRecommendContactArkJson) — encoder
-//   `buddy_recommend_contact_ark_json.cc::EncodeRequest` writes {1:uin,
-//   2:phone,3:jump_url}; decoder reads {1:ark json}.
+// Buddy: OidbSvcTrpcTcp.0x12b6_0 (getBuddyRecommendContactArkJson) —
+//   request writes {1:uin, 2:phone, 3:jump_url}; response reads {1:ark}.
 // Group: OidbSvcTrpcTcp.0x8b7_5 (getGroupRecommendContactArkJson) — encoder
 //   `group_get_ark_json_worker.cc::EncodeRequest` writes {1:reqType=1,
 //   2:groupCode,5:flag=1}; response (group_info_mgr.cc `[gp_get_ark_json]`)
@@ -12,12 +11,12 @@
 import type { pb, uint_32 } from '@snowluma/proton';
 
 export interface OidbBuddyRecommendArkReq {
-  uin?:      pb<1, uint_32>;
-  phoneNum?: pb<2, string>;
-  jumpUrl?:  pb<3, string>;
+  uin?:         pb<1, uint_32>;
+  phoneNumber?: pb<2, string>;
+  jumpUrl?:     pb<3, string>;
 }
 export interface OidbBuddyRecommendArkResp {
-  arkJson?: pb<1, string>;
+  ark?: pb<1, string>;
 }
 
 export interface OidbGroupRecommendArkReq {
