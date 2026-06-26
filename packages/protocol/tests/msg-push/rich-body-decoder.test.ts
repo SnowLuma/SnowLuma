@@ -82,6 +82,49 @@ describe('decodeRichBody / forward LightApp', () => {
     expect(typeof (out[0] as any).text).toBe('string');
   });
 
+  // [#146] A QQ mini-program / ark share (e.g. a B站 video card) arrives as a
+  // `lightApp` ark element followed by a plain `text` element carrying QQ's
+  // graceful-degradation compat string ("当前QQ版本不支持此应用，请升级") — the
+  // text the protocol attaches for clients too old to render the ark. QQ NT and
+  // the kernel-backed bridges (NapCat) drop it and surface only the card. The
+  // captured wire is exactly: [lightApp, text(fallback), generalFlags, {}, extraInfo].
+  it('[#146] drops QQ ark-compat fallback text sibling of a mini-app card', () => {
+    const ark = {
+      app: 'com.tencent.miniapp_01',
+      prompt: '[QQ小程序]【危机合约】平民3人50',
+      meta: { detail_1: { appid: '1109937557', title: '哔哩哔哩', desc: '【危机合约】平民3人50' } },
+    };
+    const body: MessageBody = {
+      richText: {
+        elems: [
+          { lightApp: { data: lightAppBytes(ark) } } as any,
+          { text: { str: '当前QQ版本不支持此应用，请升级' } } as any,
+          { generalFlags: {} } as any,
+          {} as any,
+          { extraInfo: {} } as any,
+        ],
+      },
+    };
+    const out = decodeRichBody(body, true);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.type).toBe('json');
+    expect(JSON.parse((out[0] as any).text).meta.detail_1.title).toBe('哔哩哔哩');
+  });
+
+  it('[#146] keeps genuine user text alongside a card (only the compat string is dropped)', () => {
+    const body: MessageBody = {
+      richText: {
+        elems: [
+          { lightApp: { data: lightAppBytes({ app: 'com.tencent.miniapp_01', meta: {} }) } } as any,
+          { text: { str: '快看这个视频' } } as any,
+        ],
+      },
+    };
+    const out = decodeRichBody(body, true);
+    expect(out.map((e) => e.type)).toEqual(['json', 'text']);
+    expect((out[1] as any).text).toBe('快看这个视频');
+  });
+
   it('falls back to {type:"json"} when com.tencent.multimsg is missing resid (malformed)', () => {
     const body: MessageBody = {
       richText: {
