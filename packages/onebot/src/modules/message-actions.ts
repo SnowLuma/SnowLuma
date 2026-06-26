@@ -504,6 +504,22 @@ export async function sendPrivateMessage(
   });
   if (elements.length === 0) throw new Error('message is empty');
 
+  // Private chats cannot @-mention anyone — QQ simply ignores the mention
+  // element in c2c messages.  Many OneBot callers blindly append an `at`
+  // segment right after `reply` (the group-chat convention), which ends up
+  // producing a broken wire message.  Strip `at` elements so they never
+  // reach the protocol layer.
+  const hasReply = elements.some(e => e.type === 'reply');
+  for (let i = elements.length - 1; i >= 0; i--) {
+    if (elements[i].type === 'at') {
+      if (!hasReply) {
+        log.warn('[OneBot] at segment in private message is unsupported — stripped');
+      }
+      elements.splice(i, 1);
+    }
+  }
+  if (elements.length === 0) throw new Error('message is empty');
+
   // C2C `{type:'file'}` segments can't ride on the elems[] pipeline —
   // c2c files live on `RichText.notOnlineFile`, parallel to elems
   // (see `@snowluma/proto-defs/message:notOnlineFile`). The element-builder
