@@ -3,6 +3,24 @@ import type { ApiActionContext, ApiHandler } from '../api-handler';
 import type { JsonValue } from '../types';
 import { RETCODE, failedResponse, okResponse } from '../types';
 
+async function uploadQzoneImages(
+  ctx: ApiActionContext,
+  images: string[],
+  select: (upload: { richval: string; url: string }) => string,
+): Promise<string> {
+  const parts: string[] = [];
+  for (let i = 0; i < images.length; i++) {
+    try {
+      const upload = await ctx.bridge.apis.qzone.uploadImageFromSource(images[i]);
+      parts.push(select(upload));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'unknown error';
+      throw new Error(`第 ${i + 1} 张图片上传失败: ${message}`);
+    }
+  }
+  return parts.join('\t');
+}
+
 export const actions = [
   // get_qzone_msg_list — 获取 QQ 空间说说列表。无 go-cqhttp 标准，自定义命名。
   // 默认取机器人自己的空间；传 target_uin 可查看指定账号（需有权限）。
@@ -48,17 +66,24 @@ export const actions = [
     },
   }),
 
-  // send_qzone_msg — 发表一条纯文字说说。写操作，发到机器人自己的空间。
+  // send_qzone_msg — 发表说说（纯文字或带图）。写操作，发到机器人自己的空间。
+  // 传入 images 数组，自动上传并发布。
   // 返回新说说的 tid（供后续 delete/comment/like 使用）。
   // 注意：发说说为主动行为，高频会被 Qzone 风控，调用方需自行限流。
   defineAction({
     name: 'send_qzone_msg',
-    summary: '发表一条纯文字说说（QQ 空间）',
+    summary: '发表说说（QQ 空间，支持纯文字或带图；传 images 自动上传）',
     params: {
       content: f.string({ allowEmpty: false }).describe('说说正文'),
+      images: f.array(f.string({ allowEmpty: false })).describe('图片数组（可选），支持 file:// http:// base64://；自动上传').optional(),
     },
     run: async (p, ctx) => {
       try {
+        if (p.images && p.images.length > 0) {
+          const richval = await uploadQzoneImages(ctx, p.images, (upload) => upload.richval);
+          const res = await ctx.bridge.apis.qzone.publish(p.content, 1, richval);
+          return okResponse(res as unknown as JsonValue);
+        }
         const res = await ctx.bridge.apis.qzone.publish(p.content);
         return okResponse(res as unknown as JsonValue);
       } catch (error) {
@@ -130,17 +155,24 @@ export const actions = [
   }),
 
   // comment_qzone — 评论一条说说。target_uin=说说所属 QQ 号（省略=机器人自己空间）。
+  // 传入 images 数组，自动上传获取直链（多图用 tab 拼接）。
   // 写操作；高频评论会被 Qzone 风控，调用方需限流。
   defineAction({
     name: 'comment_qzone',
-    summary: '评论一条说说（QQ 空间）',
+    summary: '评论一条说说（QQ 空间，支持纯文字或带图；传 images 自动上传）',
     params: {
       tid: f.string({ allowEmpty: false }).describe('说说 tid'),
       content: f.string({ allowEmpty: false }).describe('评论内容'),
       target_uin: f.uint().describe('说说所属 QQ 号，省略则为机器人自己').optional(),
+      images: f.array(f.string({ allowEmpty: false })).describe('图片数组（可选），支持 file:// http:// base64://；自动上传').optional(),
     },
     run: async (p, ctx) => {
       try {
+        if (p.images && p.images.length > 0) {
+          const richval = await uploadQzoneImages(ctx, p.images, (upload) => upload.url);
+          const res = await ctx.bridge.apis.qzone.comment(p.tid, p.content, p.target_uin, 1, richval);
+          return okResponse(res as unknown as JsonValue);
+        }
         const res = await ctx.bridge.apis.qzone.comment(p.tid, p.content, p.target_uin);
         return okResponse(res as unknown as JsonValue);
       } catch (error) {

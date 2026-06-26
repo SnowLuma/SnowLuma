@@ -535,7 +535,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "comment_qzone",
     "aliases": [],
-    "summary": "评论一条说说（QQ 空间）",
+    "summary": "评论一条说说（QQ 空间，支持纯文字或带图；传 images 自动上传）",
     "readOnly": false,
     "params": [
       {
@@ -567,6 +567,19 @@ export const ACTIONS: CatalogAction[] = [
           "minimum": 1
         },
         "desc": "说说所属 QQ 号，省略则为机器人自己"
+      },
+      {
+        "name": "images",
+        "type": "string[]",
+        "required": false,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "desc": "图片数组（可选），支持 file:// http:// base64://；自动上传"
       }
     ],
     "invariants": [],
@@ -587,6 +600,14 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "minimum": 1,
           "description": "说说所属 QQ 号，省略则为机器人自己"
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "图片数组（可选），支持 file:// http:// base64://；自动上传"
         }
       },
       "required": [
@@ -5318,7 +5339,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "send_qzone_msg",
     "aliases": [],
-    "summary": "发表一条纯文字说说（QQ 空间）",
+    "summary": "发表说说（QQ 空间，支持纯文字或带图；传 images 自动上传）",
     "readOnly": false,
     "params": [
       {
@@ -5330,6 +5351,19 @@ export const ACTIONS: CatalogAction[] = [
           "minLength": 1
         },
         "desc": "说说正文"
+      },
+      {
+        "name": "images",
+        "type": "string[]",
+        "required": false,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "desc": "图片数组（可选），支持 file:// http:// base64://；自动上传"
       }
     ],
     "invariants": [],
@@ -5340,6 +5374,14 @@ export const ACTIONS: CatalogAction[] = [
           "type": "string",
           "minLength": 1,
           "description": "说说正文"
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "图片数组（可选），支持 file:// http:// base64://；自动上传"
         }
       },
       "required": [
