@@ -70,6 +70,12 @@ export const actions = [
   defineAction({
     name: 'can_send_image',
     readOnly: true,
+    returns: '能力查询结果。',
+    returnsSchema: {
+      type: 'object',
+      properties: { yes: { type: 'boolean', description: '是否支持发送图片' } },
+      required: ['yes'],
+    },
     params: {},
     run: (_p, ctx) => {
       return okResponse({ yes: ctx.canSendImage?.() ?? false });
@@ -79,6 +85,12 @@ export const actions = [
   defineAction({
     name: 'can_send_record',
     readOnly: true,
+    returns: '能力查询结果。',
+    returnsSchema: {
+      type: 'object',
+      properties: { yes: { type: 'boolean', description: '是否支持发送语音' } },
+      required: ['yes'],
+    },
     params: {},
     run: (_p, ctx) => {
       return okResponse({ yes: ctx.canSendRecord?.() ?? false });
