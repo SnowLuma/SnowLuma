@@ -73,6 +73,20 @@ export interface LogsStreamOptions {
   onStatus?: (status: StreamStatus) => void;
 }
 
+/** A single frame from /api/state/stream — either a control frame or a
+ *  fresh snapshot for one of the three live dashboard resources. */
+export type StateStreamEvent =
+  | { kind: 'ready' }
+  | { kind: 'dropped'; count: number }
+  | { resource: 'processes'; data: HookProcessInfo[] }
+  | { resource: 'qq-list'; data: QQInfo[] }
+  | { resource: 'connections'; data: AccountConnections[] };
+
+export interface StateStreamOptions {
+  onEvent: (event: StateStreamEvent) => void;
+  onStatus?: (status: StreamStatus) => void;
+}
+
 export interface ApiClient {
   // ---- auth ----
   login(password: string): Promise<LoginResult>;
@@ -97,6 +111,13 @@ export interface ApiClient {
   system(): Promise<SystemInfo>;
   /** Live OneBot adapter health per account. */
   connections(): Promise<AccountConnections[]>;
+
+  /** Subscribe to the unified SSE feed pushing fresh snapshots whenever
+   *  processes / qq-list / connections change. Initial frames on connect
+   *  give the current snapshot for all three resources. Returns a disposer.
+   *  REST endpoints above remain for the pre-SSE first paint and the slow
+   *  reconcile fallback if the SSE drops. */
+  stateStream(options: StateStreamOptions): () => void;
 
   // ---- hook processes ----
   processes: {

@@ -54,8 +54,26 @@ export class GroupAdminApi {
     return KickMembers.invoke(this.ctx, { groupId, userIds, reject });
   }
 
-  leave(groupId: number): Promise<void> {
-    return LeaveGroup.invoke(this.ctx, { groupId });
+  async leave(groupId: number): Promise<void> {
+    await LeaveGroup.invoke(this.ctx, { groupId });
+    // The server doesn't push a member-decrease back to the member who left of
+    // its own accord, so synthesize the self group_member_leave here — otherwise
+    // downstream never sees notice.group_decrease and keeps a "zombie" group in
+    // its cache (#133). Also drop the group from our own roster.
+    const selfUin = Number(this.ctx.identity.uin) || 0;
+    const selfUid = this.ctx.identity.selfUid ?? '';
+    await this.ctx.events.emit({
+      kind: 'group_member_leave',
+      time: Math.floor(Date.now() / 1000),
+      selfUin,
+      groupId,
+      userUin: selfUin,
+      operatorUin: selfUin,
+      userUid: selfUid,
+      operatorUid: selfUid,
+      leaveType: 'leave',
+    });
+    this.ctx.identity.forgetGroup(groupId);
   }
 
   setAdmin(groupId: number, userId: number, enable: boolean): Promise<void> {

@@ -170,6 +170,28 @@ describe('apis/group-file', () => {
     expect(publishSpy).not.toHaveBeenCalled();
   });
 
+  it('upload can PUT bytes without publishing a separate group file message', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
+      protobuf_encode<OidbBase<OidbGroupFileResp>>({
+        body: {
+          upload: {
+            fileId: 'fid-forward',
+            uploadIp: '127.0.0.1',
+            uploadPort: 443,
+            fileKey: new Uint8Array([1]),
+            checkKey: new Uint8Array([2]),
+          } as any,
+        },
+      }),
+    ));
+    const api = new GroupFileApi(bridge as any);
+    const publishSpy = vi.spyOn(api, 'publish').mockResolvedValue();
+    await api.upload(12345, 'base64://AQID', 'forward.txt', '/', true, false);
+    expect(highwayClient.uploadHighwayHttp).toHaveBeenCalledOnce();
+    expect(publishSpy).not.toHaveBeenCalled();
+  });
+
   it('upload returns success even when the chat post fails (file is still uploaded)', async () => {
     const bridge = mockBridge();
     bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
@@ -233,6 +255,7 @@ describe('apis/group-file', () => {
         findUidByUin: vi.fn(() => 'cached-uid'),
         findUinByUid: vi.fn(() => 0),
         findGroupMember: vi.fn(() => null),
+        forgetGroup: vi.fn(),
       },
     });
     vi.mocked(bridge.resolveUserUid)
@@ -294,6 +317,28 @@ describe('apis/group-file', () => {
       }),
     ));
     await new GroupFileApi(bridge as any).uploadPrivate(67890, '/path/file', '', false);
+    expect(bridge.apis.message.sendC2cFile).not.toHaveBeenCalled();
+  });
+
+  it('uploadPrivate can PUT bytes without publishing a separate c2c file message', async () => {
+    const bridge = mockBridge();
+    vi.mocked(bridge.resolveUserUid).mockResolvedValueOnce('target-uid');
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
+      protobuf_encode<OidbBase<OidbPrivateFileUploadResp>>({
+        body: {
+          upload: {
+            uuid: 'pfid-forward',
+            fileAddon: 'phash-forward',
+            rtpMediaPlatformUploadAddress: [
+              { outIP: 0, outPort: 0, inIP: 16885952, inPort: 8080, iPType: 1 },
+            ],
+            mediaPlatformUploadKey: new Uint8Array([1, 2, 3]),
+          } as any,
+        },
+      }),
+    ));
+    await new GroupFileApi(bridge as any).uploadPrivate(67890, 'base64://AQID', 'forward.txt', true, false);
+    expect(highwayClient.uploadHighwayHttp).toHaveBeenCalledOnce();
     expect(bridge.apis.message.sendC2cFile).not.toHaveBeenCalled();
   });
 

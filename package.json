@@ -1,7 +1,7 @@
 {
   "license": "SEE LICENSE IN LICENSE",
   "name": "snowluma-monorepo",
-  "version": "1.10.2",
+  "version": "1.10.3",
   "description": "SnowLuma monorepo workspace (pnpm)",
   "private": true,
   "type": "module",
@@ -16,6 +16,9 @@
     "dev:web": "pnpm --filter webui dev",
     "test": "pnpm --filter @snowluma/core test",
     "test:watch": "pnpm --filter @snowluma/core test:watch",
+    "test:common": "pnpm --filter @snowluma/common test",
+    "test:all": "pnpm -r --if-present test",
+    "coverage": "pnpm --filter @snowluma/common test -- --coverage",
     "typecheck": "pnpm -r --if-present typecheck",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

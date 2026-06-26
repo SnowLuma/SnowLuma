@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { promises as fs } from 'fs';
+import { readdirSync, promises as fs } from 'fs';
 import net from 'net';
 import os from 'os';
 import path from 'path';
@@ -85,12 +85,59 @@ interface PendingAck {
   wantReply: boolean;
 }
 
+/**
+ * Sync directory scan for `mojo.<pid>.control.sock` socket files in the
+ * runtime dir, returning the pid set. Used by the darwin path of
+ * `listHookProcesses()` — on macOS the DYLD_INSERT injection model means
+ * there is no native enumerate-QQ-processes addon; the existence of our
+ * dylib's listener socket IS the proof that a QQ process is hooked. The
+ * sync variant is needed because the watcher's `listProcesses` dep is sync.
+ *
+ * Mirrors `listLiveLinuxPipePids` (the async + connectable-probe variant)
+ * but skips the connectable probe — the existence of the socket file is
+ * sufficient signal for "process exists with our dylib mapped". The async
+ * variant still gates the subsequent `pipe-up` emit via a real connect.
+ */
+export function listSnowlumaPipePidsSync(
+  runtimeDir = linuxRuntimeDir(),
+): Set<number> {
+  const result = new Set<number>();
+  let names: string[];
+  try {
+    names = readdirSync(runtimeDir);
+  } catch {
+    return result;
+  }
+  for (const name of names) {
+    const m = /^mojo\.(\d+)\.control\.sock$/i.exec(name);
+    if (!m) continue;
+    const pid = Number(m[1]);
+    if (Number.isInteger(pid) && pid > 0) result.add(pid);
+  }
+  return result;
+}
+
 function linuxRuntimeDir(): string {
+  // Name kept for historical reasons (the function predates the macOS port);
+  // applies to every non-win32 platform. The fallback order mirrors each
+  // platform hook's runtime_dir(): explicit override first, then the OS-
+  // native ephemeral-dir convention.
   const explicit = process.env.SNOWLUMA_HOOK_RUNTIME_DIR;
   if (explicit && explicit.length > 0) return explicit;
   const xdg = process.env.XDG_RUNTIME_DIR;
   if (xdg && xdg.length > 0) return xdg;
-  // Mirrors hook_stub.cpp runtime_dir() fallback.
+  // macOS: dylib defaults to "$TMPDIR/snowluma-hook" (apps/qq/macos/
+  // qq_hook_dylib.cpp's runtime_dir()). $TMPDIR is per-user on macOS
+  // (under /var/folders/.../T) so this is the right place — Linux's
+  // /tmp/snowluma-<uid> doesn't exist on a stock Mac.
+  if (process.platform === 'darwin') {
+    const tmpdir = process.env.TMPDIR;
+    if (tmpdir && tmpdir.length > 0) {
+      const trimmed = tmpdir.endsWith('/') ? tmpdir.slice(0, -1) : tmpdir;
+      return path.join(trimmed, 'snowluma-hook');
+    }
+  }
+  // Linux fallback: mirrors hook_stub.cpp runtime_dir() last-resort.
   // process.geteuid is POSIX-only; cast to allow non-Linux type checks.
   const uid = typeof process.geteuid === 'function' ? process.geteuid() : os.userInfo().uid;
   return `/tmp/snowluma-${uid}`;

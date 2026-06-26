@@ -8,7 +8,7 @@ import { buildSendElems } from '@snowluma/protocol/element-builder';
 import type { MentionExtraSend } from '@snowluma/proto-defs/action';
 import type { MarketFacePbReserve } from '@snowluma/proto-defs/element';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
-import type { NTV2UploadRichMediaResp } from '@snowluma/proto-defs/highway';
+import type { NTV2UploadRichMediaReq, NTV2UploadRichMediaResp } from '@snowluma/proto-defs/highway';
 
 describe('parseMessage', () => {
   describe('plain text', () => {
@@ -275,8 +275,16 @@ describe('parseMessage', () => {
           thumbUrl: 'base64://iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
         }], { bridge, groupId: 123456 });
 
-        expect(bridge.sendRawPacket).toHaveBeenCalledTimes(1);
-        expect(bridge.sendRawPacket).toHaveBeenCalledWith('OidbSvcTrpcTcp.0x11ea_100', expect.any(Uint8Array));
+        // The video main file carries real bytes but the server fast-paths it
+        // (fileExist:true, no uKey) — #145's forceFullOnFastPath re-issues the
+        // OIDB request with fast-upload disabled, so two packets go out.
+        expect(bridge.sendRawPacket).toHaveBeenCalledTimes(2);
+        expect(bridge.sendRawPacket).toHaveBeenNthCalledWith(1, 'OidbSvcTrpcTcp.0x11ea_100', expect.any(Uint8Array));
+        expect(bridge.sendRawPacket).toHaveBeenNthCalledWith(2, 'OidbSvcTrpcTcp.0x11ea_100', expect.any(Uint8Array));
+        const firstReq = protobuf_decode<OidbBase<NTV2UploadRichMediaReq>>(bridge.sendRawPacket.mock.calls[0]![1] as Uint8Array);
+        const secondReq = protobuf_decode<OidbBase<NTV2UploadRichMediaReq>>(bridge.sendRawPacket.mock.calls[1]![1] as Uint8Array);
+        expect(firstReq.body.upload.tryFastUploadCompleted).toBe(true);
+        expect(secondReq.body.upload.tryFastUploadCompleted ?? false).toBe(false);
         expect(protoElems).toHaveLength(1);
         expect(protoElems[0].commonElem?.serviceType).toBe(48);
         expect(protoElems[0].commonElem?.businessType).toBe(21);

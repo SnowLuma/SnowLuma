@@ -4,6 +4,7 @@ import { EventEmitter } from 'events';
 import { HookPacketClient } from './hook-packet-client';
 import type { HookInjectResult } from './injector';
 import type { QqHookClient, QqHookLoginState, QqHookPacket } from './qq-hook-client';
+import { statusFor } from './hook-status';
 import type { HookProcessInfo, HookProcessStatus } from './types';
 
 export type HookSessionDeps = {
@@ -131,17 +132,7 @@ export class HookSession extends EventEmitter {
     if (this.disposed) return;
     void this.serialize(async () => {
       if (this.disposed) return;
-      // Adopt a DLL that survived a SnowLuma restart.
-      if (!this.injected) {
-        this.injected = true;
-        if (!this._method) this._method = 'reconnect';
-      }
-      if (this.client?.isClosed) this.tearDownClient();
-      if (!this.connected) {
-        await this.attemptConnect();
-      } else {
-        this.setStatus(this.loggedIn ? 'online' : 'loaded', '');
-      }
+      await this.reconcilePipeUp();
     }).catch(err => this.log.warn('onPipeUp failed: PID=%d err=%s', this.pid, errMsg(err)));
   }
 
@@ -149,18 +140,7 @@ export class HookSession extends EventEmitter {
     if (this.disposed) return;
     void this.serialize(async () => {
       if (this.disposed) return;
-      if (!this.connected) {
-        // Nothing to tear down; just keep status visible.
-        if (this.injected) this.setStatus('connecting', this._error);
-        return;
-      }
-      const wasLoggedIn = this.loggedIn;
-      this.tearDownClient();
-      this.setStatus(
-        this.injected ? (wasLoggedIn ? 'disconnected' : 'connecting') : 'available',
-        '',
-      );
-      if (wasLoggedIn) this.emit('disconnected', true);
+      this.reconcilePipeDown();
     }).catch(err => this.log.warn('onPipeDown failed: PID=%d err=%s', this.pid, errMsg(err)));
   }
 
@@ -227,10 +207,7 @@ export class HookSession extends EventEmitter {
           this._method = this.injectResult.method;
         }
       }
-      this.setStatus(
-        this.connected ? (this.loggedIn ? 'online' : 'loaded') : 'connecting',
-        '',
-      );
+      this.applyStatus();
     } catch (error) {
       this._error = errMsg(error);
       this.setStatus('error', this._error);
@@ -281,24 +258,14 @@ export class HookSession extends EventEmitter {
   private async refreshInternal(): Promise<HookProcessInfo> {
     this._error = '';
     try {
-      const pipeUp = this.pipeWatcher.isPipeLive(this.pid);
-      if (pipeUp) {
-        // Adopt an unknown DLL the same way onPipeUp would.
-        if (!this.injected) {
-          this.injected = true;
-          this._method = this._method || 'reconnect';
-        }
-        if (this.client?.isClosed) this.tearDownClient();
-        if (!this.connected) {
-          await this.attemptConnect();
-        } else {
-          this.setStatus(this.loggedIn ? 'online' : 'loaded', '');
-        }
+      // Same pipe-up / pipe-down reconcilers the watcher drives, chosen by
+      // a fresh poll. This collapses what used to be a hand-copied pair of
+      // onPipeUp/onPipeDown bodies — and fixes the drift where the down
+      // branch reported 'disconnected' even for a never-logged-in session.
+      if (this.pipeWatcher.isPipeLive(this.pid)) {
+        await this.reconcilePipeUp();
       } else {
-        const wasLoggedIn = this.loggedIn;
-        this.tearDownClient();
-        this.setStatus(this.injected ? 'disconnected' : 'available', '');
-        if (wasLoggedIn) this.emit('disconnected', true);
+        this.reconcilePipeDown();
       }
     } catch (error) {
       this._error = errMsg(error);
@@ -306,6 +273,55 @@ export class HookSession extends EventEmitter {
       this.log.warn('refresh failed: PID=%d err=%s', this.pid, this._error);
     }
     return this.toInfo();
+  }
+
+  // ─────────────── settled-status reconcilers ───────────────
+
+  /** Push the settled status derived from the live flags. `wasLoggedIn`
+   * defaults to the current `loggedIn`; callers that just tore the client
+   * down pass the value captured *before* teardown (teardown clears it). */
+  private applyStatus(wasLoggedIn: boolean = this.loggedIn, error = ''): void {
+    this.setStatus(statusFor({
+      injected: this.injected,
+      connected: this.connected,
+      loggedIn: this.loggedIn,
+      wasLoggedIn,
+    }), error);
+  }
+
+  /** Pipe is up: adopt a DLL that survived a SnowLuma restart, drop a
+   * stale client, then (re)connect if needed or just settle the status.
+   * Shared by onPipeUp and refresh's pipe-up branch. */
+  private async reconcilePipeUp(): Promise<void> {
+    if (!this.injected) {
+      this.injected = true;
+      if (!this._method) this._method = 'reconnect';
+    }
+    if (this.client?.isClosed) this.tearDownClient();
+    if (!this.connected) {
+      await this.attemptConnect();
+    } else {
+      this.applyStatus();
+    }
+  }
+
+  /** Pipe is down (or the client closed): tear down, settle the status,
+   * and emit the disconnect notification iff we owed BridgeManager one
+   * (i.e. we had reached login). Shared by onPipeDown, refresh's pipe-down
+   * branch, and the client 'close' handler. */
+  private reconcilePipeDown(): void {
+    if (!this.connected) {
+      // Nothing live to tear down. A session that never connected can't owe
+      // a disconnect, and we must NOT clobber a diagnostic the failed
+      // connect/load already set — settle the status keeping `_error`, or
+      // (when not even injected) leave the status untouched entirely.
+      if (this.injected) this.applyStatus(this.loggedIn, this._error);
+      return;
+    }
+    const wasLoggedIn = this.loggedIn;
+    this.tearDownClient();
+    this.applyStatus(wasLoggedIn);
+    if (wasLoggedIn) this.emit('disconnected', true);
   }
 
   // ─────────────── client plumbing ───────────────
@@ -327,15 +343,19 @@ export class HookSession extends EventEmitter {
     try {
       await client.connectAll({ recv: true });
       this.connected = true;
-      this.setStatus(client.isLoggedIn ? 'online' : 'loaded', '');
       const loginState = client.getLoginState();
+      // handleLoginState owns the connected+loggedIn → 'online' (+ login
+      // emit) transition; defer to it so the status is set once. Otherwise
+      // we're connected-but-not-logged-in → 'loaded'.
       if (loginState.loggedIn) this.handleLoginState(loginState);
+      else this.applyStatus();
       this.log.info('pipe connected: PID=%d', this.pid);
     } catch (error) {
       this._error = errMsg(error);
       // Drop the client so the next attempt builds a fresh socket pair.
+      // A failed connect was never logged in → 'connecting' (or 'available').
       this.tearDownClient();
-      this.setStatus(this.injected ? 'connecting' : 'available', this._error);
+      this.applyStatus(false, this._error);
     }
   }
 
@@ -355,16 +375,7 @@ export class HookSession extends EventEmitter {
       void this.serialize(async () => {
         if (this.disposed) return;
         if (this.client !== client) return;
-        const wasLoggedIn = this.loggedIn;
-        this.tearDownClient();
-        if (!this.injected) {
-          this.setStatus('available', '');
-        } else if (wasLoggedIn) {
-          this.setStatus('disconnected', '');
-        } else {
-          this.setStatus('connecting', '');
-        }
-        if (wasLoggedIn) this.emit('disconnected', true);
+        this.reconcilePipeDown();
       }).catch(err => this.log.warn('close reconcile failed: PID=%d err=%s', this.pid, errMsg(err)));
     });
   }
@@ -388,10 +399,14 @@ export class HookSession extends EventEmitter {
     this._uin = state.uin || state.uinNumber.toString();
     this.loggedIn = state.loggedIn && isRealUin(this._uin);
 
-    if (this.loggedIn) {
-      this.setStatus('online', '');
-    } else if (this.connected) {
-      this.setStatus('loaded', this._error);
+    // Only the connected/logged-in states are ours to set here; when fully
+    // down we leave the status the teardown path already settled.
+    // Load-bearing invariant: `loggedIn ⇒ connected` (login can only be
+    // observed on a live client, and teardown clears `loggedIn` before
+    // `connected`), so statusFor lands 'online' here rather than the
+    // disconnected/connecting branch.
+    if (this.connected || this.loggedIn) {
+      this.applyStatus(wasLoggedIn, this.loggedIn ? '' : this._error);
     }
 
     if (!this.loggedIn || !this.sender) return;

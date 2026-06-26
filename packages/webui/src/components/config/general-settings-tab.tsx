@@ -51,6 +51,20 @@ export function GeneralSettingsTab({ config, onChange }: GeneralSettingsTabProps
           />
         </div>
 
+        <div className="flex flex-col gap-1.5 border-t pt-3">
+          <Label className={sc.enabled ? undefined : 'text-muted-foreground'}>触发词</Label>
+          <Input
+            className="w-full font-mono"
+            value={sc.trigger}
+            disabled={!sc.enabled}
+            maxLength={32}
+            onChange={(e) => setStatusCommand({ trigger: e.target.value })}
+          />
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            自定义触发词，默认 <code className="font-mono">#sl</code>。最长 32 字符，匹配前会去除首尾空格并转为小写。
+          </p>
+        </div>
+
         <div className="flex items-start justify-between gap-3 border-t pt-3">
           <div className="min-w-0">
             <Label className={sc.enabled ? undefined : 'text-muted-foreground'}>不转发给下游（swallow）</Label>

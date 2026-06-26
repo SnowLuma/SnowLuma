@@ -1,3 +1,4 @@
+import { boolOr, clampInt, clampNum, isObject } from '@snowluma/common/coerce';
 import { createLogger } from '@snowluma/common/logger';
 import fs from 'fs';
 import path from 'path';
@@ -308,10 +309,8 @@ function defaultPages(): UiPages {
 }
 
 // ─── Normalization helpers ─────────────────────────────────────────────────
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+// isObject / boolOr / clampNum / clampInt come from @snowluma/common/coerce.
+// oneOf (enum), isFiniteNum, and hexOr (CSS color) are ui-specific and stay.
 
 function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
   return typeof value === 'string' && (allowed as readonly string[]).includes(value)
@@ -319,23 +318,9 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback
     : fallback;
 }
 
-function clampNum(value: unknown, min: number, max: number, fallback: number): number {
-  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(max, Math.max(min, n));
-}
-
-function clampInt(value: unknown, min: number, max: number, fallback: number): number {
-  return Math.trunc(clampNum(value, min, max, fallback));
-}
-
 function isFiniteNum(value: unknown): boolean {
   if (typeof value === 'number') return Number.isFinite(value);
   return typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value));
-}
-
-function boolOr(value: unknown, fallback: boolean): boolean {
-  return typeof value === 'boolean' ? value : fallback;
 }
 
 const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;

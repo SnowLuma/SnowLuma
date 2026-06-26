@@ -347,6 +347,95 @@ describe('HookSession — process gone', () => {
   });
 });
 
+describe('HookSession — refresh drift fix', () => {
+  // refresh while the pipe is down on a connected-but-never-logged-in
+  // session now reports 'connecting' (matching what onPipeDown gives for the
+  // same state), not the old spurious 'disconnected'. Pre-refactor, refresh's
+  // down branch ignored wasLoggedIn and always reported 'disconnected'.
+
+  it('refresh-while-down + never logged in → connecting (not disconnected), no disconnect emit', async () => {
+    const ctx = makeSession({ pipeLive: true });
+    await ctx.session.load();
+    ctx.session.onPipeUp();
+    await flush();
+    expect(ctx.session.status).toBe('loaded'); // connected, never logged in
+
+    const discSpy = vi.fn();
+    ctx.session.on('disconnected', discSpy);
+    ctx.setPipeLive(false);
+
+    const info = await ctx.session.refresh();
+
+    expect(info.status).toBe('connecting');     // drift fix: was 'disconnected'
+    expect(discSpy).not.toHaveBeenCalled();      // never logged in ⇒ nothing owed
+  });
+
+  it('refresh-while-down after login still → disconnected + emits disconnected(true)', async () => {
+    // The flip is scoped to the never-logged-in case; a real session that
+    // had reached login must still settle to 'disconnected' and notify.
+    const ctx = makeSession({ pipeLive: true });
+    await ctx.session.load();
+    ctx.session.onPipeUp();
+    await flush();
+    ctx.currentClient().fireLogin('10001');
+    expect(ctx.session.status).toBe('online');
+
+    const discSpy = vi.fn();
+    ctx.session.on('disconnected', discSpy);
+    ctx.setPipeLive(false);
+
+    const info = await ctx.session.refresh();
+
+    expect(info.status).toBe('disconnected');
+    expect(discSpy).toHaveBeenCalledWith(true);
+  });
+});
+
+describe('HookSession — pipe-down must not clobber a settled error', () => {
+  // Regression net for the phase-2 reconcilePipeDown !connected short-circuit:
+  // a pipe-down tick on a session that never reached a live connection must
+  // not wipe a diagnostic error or emit a spurious status-changed.
+
+  it('onPipeDown after a failed connect keeps the error and does not re-emit', async () => {
+    const ctx = makeSession({ pipeLive: true, clientFailsConnect: true });
+    await ctx.session.load();
+    ctx.session.onPipeUp();
+    await flush();
+    expect(ctx.session.status).toBe('connecting');
+    expect(ctx.session.error).toBe('connect failed');
+
+    const statusSpy = vi.fn();
+    ctx.session.on('status-changed', statusSpy);
+    ctx.session.onPipeDown();
+    await flush();
+
+    expect(ctx.session.status).toBe('connecting');
+    expect(ctx.session.error).toBe('connect failed'); // not wiped to ''
+    expect(statusSpy).not.toHaveBeenCalled();          // no spurious emit
+  });
+
+  it('onPipeDown after a failed load leaves the error status intact', async () => {
+    const injector = {
+      inject: vi.fn(() => { throw new Error('inject boom'); }),
+      unload: vi.fn(),
+    };
+    const session = new HookSession(1234, {
+      injector,
+      makeClient: () => new FakeClient() as unknown as QqHookClient,
+      pipeWatcher: { isPipeLive: () => false },
+    });
+    await session.load();
+    expect(session.status).toBe('error');
+    expect(session.error).toBe('inject boom');
+
+    session.onPipeDown();
+    await flush();
+
+    expect(session.status).toBe('error');      // not flipped to 'available'
+    expect(session.error).toBe('inject boom');  // not wiped
+  });
+});
+
 describe('HookSession — packet forwarding', () => {
   // These tests cover the field-rename + filter logic that used to live
   // inside the deleted NtqqHandler.onHookPacket. Inlining it here means

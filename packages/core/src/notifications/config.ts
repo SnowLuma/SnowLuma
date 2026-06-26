@@ -7,6 +7,7 @@
 //
 // Channels are GLOBAL (defined once here); each UIN opts into a subset via
 // `OneBotConfig.notifications.channelIds` (see packages/onebot/src/config.ts).
+import { boolOr, clampInt, isObject } from '@snowluma/common/coerce';
 import { createLogger } from '@snowluma/common/logger';
 import fs from 'fs';
 import path from 'path';
@@ -92,21 +93,9 @@ export function renderTemplate(template: string, vars: Record<string, string>): 
   });
 }
 
-// ─── Normalization helpers (replicated from ui-config conventions) ──────────
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function boolOr(value: unknown, fallback: boolean): boolean {
-  return typeof value === 'boolean' ? value : fallback;
-}
-
-function clampInt(value: unknown, min: number, max: number, fallback: number): number {
-  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
-  if (!Number.isFinite(n)) return fallback;
-  return Math.trunc(Math.min(max, Math.max(min, n)));
-}
+// ─── Normalization helpers ──────────────────────────────────────────────────
+// isObject / boolOr / clampInt come from @snowluma/common/coerce. strOr is
+// notifications-only (string truncation to maxLen), so it stays here.
 
 function strOr(value: unknown, fallback: string, maxLen: number): string {
   return typeof value === 'string' ? value.slice(0, maxLen) : fallback;

@@ -4,7 +4,6 @@ import { createLogger } from '@snowluma/common/logger';
 import {
   pickDispatchJson,
   resolveReportOptions,
-  shapeEventForAdapter,
   type DispatchPayload,
   type EventReportOptions,
 } from '../event-filter';
@@ -45,9 +44,8 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
     const lifecycle = this.ctx.buildLifecycleEvent('disable');
     for (const conn of this.connections.values()) {
       if (conn.role === 'Api') continue;
-      const shaped = shapeEventForAdapter(lifecycle, conn.options);
-      if (!shaped) continue;
-      safeSend(conn.socket, JSON.stringify(shaped));
+      const frame = this.metaFrame(lifecycle, conn.options);
+      if (frame) safeSend(conn.socket, frame);
     }
 
     this.isEnabled = false;
@@ -142,16 +140,7 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
   }
 
   private sendBootstrapMetaEvents(socket: WebSocket): void {
-    const events = [
-      this.ctx.buildLifecycleEvent('connect'),
-      this.ctx.buildLifecycleEvent('enable'),
-      this.ctx.buildHeartbeatEvent(),
-    ];
-    for (const event of events) {
-      const shaped = shapeEventForAdapter(event, this.options);
-      if (!shaped) continue;
-      safeSend(socket, JSON.stringify(shaped));
-    }
+    for (const frame of this.bootstrapMetaFrames(this.options)) safeSend(socket, frame);
   }
 }
 

@@ -33,6 +33,20 @@ export function decodeRichBody(body: PushMsgBody | undefined, isGroup: boolean):
 function convertElements(elems: ElemDecoded[]): MessageElement[] {
   const result: MessageElement[] = [];
   let skipNext = false;
+  // [#146] A QQ mini-program / ark share (B站 video, QQ 小程序, …) arrives as a
+  // `lightApp`/`richMsg` card element plus a plain `text` element carrying QQ's
+  // graceful-degradation compat string ("当前QQ版本不支持此应用，请升级") — the text
+  // protocol-old clients render instead of the card. The text element has NO wire
+  // marker distinguishing it (confirmed on-target: no pbReserve / attr6Buf), and
+  // the receiver binary contains none of these strings, so QQ does NOT match by
+  // content. Instead QQ NT's kernel codec (msg_codec_mgr) collapses the message
+  // to a single ark element — the sibling text is never emitted (verified by RE:
+  // wrapper.linux.node has no fallback strings; NapCat maps kernel elements 1:1
+  // with no ark-aware skip yet surfaces only the card). We mirror that structural
+  // rule: when a card is present, drop sibling plain `text`. `@`/reply/face etc.
+  // are not plain text and survive. `richMsg` covers json (svc=1) and xml (svc=35)
+  // cards alike.
+  const hasCard = elems.some((e) => e.lightApp || e.richMsg);
   // [#127] A QQ NT reply carries the replied sender as a structural auto-mention
   // (MentionExtra.type=2, uin=0) right after srcMsg, followed by a blank
   // separator text. Both are part of the reply wire shape, not user content —
@@ -131,6 +145,9 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
         result.push(me);
       } else {
         const text = t.str ?? '';
+        // [#146] drop QQ's ark-compat fallback text — structurally, like the
+        // kernel codec: a card message collapses to just the card element.
+        if (text && hasCard) continue;
         if (text) result.push({ type: 'text', text });
       }
     }

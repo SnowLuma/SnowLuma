@@ -1,7 +1,7 @@
 {
   "license": "SEE LICENSE IN LICENSE",
   "name": "@snowluma/common",
-  "version": "1.10.2",
+  "version": "1.10.3",
   "private": true,
   "type": "module",
   "description": "SnowLuma shared infrastructure — leaf-package utilities with zero business dependencies. Logger / hex codec / log file transport / log line summariser / packet sender wire-protocol types / runtime config loader. Consumed by @snowluma/protocol, @snowluma/core, and @snowluma/onebot. Per-file subpath exports keep import sites unambiguous and let the bundler tree-shake aggressively (importing `@snowluma/common/hex` doesn't pull in `node:fs` from the logger transport).",
@@ -15,6 +15,10 @@
     "./logger": {
       "types": "./src/logger.ts",
       "default": "./src/logger.ts"
+    },
+    "./coerce": {
+      "types": "./src/coerce.ts",
+      "default": "./src/coerce.ts"
     },
     "./hex": {
       "types": "./src/hex.ts",

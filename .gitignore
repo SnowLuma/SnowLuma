@@ -11,7 +11,13 @@ dist/
 
 /config/
 /data/
+# per-package runtime data dirs (e.g. packages/core/data/<uin>/*.db written by
+# IdentityService during tests) — not just the root /data/
+**/data/
 logs/
 
 # macOS metadata
 .DS_Store
+
+# test coverage output
+coverage/

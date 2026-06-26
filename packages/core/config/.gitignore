@@ -1,0 +1,16 @@
+# Per-instance runtime state written by the dev server / production daemon.
+# `runtime.json` is the only tracked file (the deploy-time overrides for
+# webuiPort, hookAutoLoad, etc); everything else here is operator-private:
+#   * webui.json          — admin password hash + rotation state
+#   * consent.json        — EULA/PRIVACY acceptance per agreement version
+#   * notifications.json  — per-account webhook destinations
+#   * onebot_<uin>.json   — per-uin OneBot transport binding (HTTP/WS ports etc)
+#   * ui.json             — WebUI panel layout per operator
+#
+# Without this ignore file, every `pnpm dev:mode` / `node dist/index.mjs`
+# leaves a 5-file untracked surface in `packages/core/config/` that pollutes
+# `git status` and would accidentally commit local creds if `git add -A` is used.
+
+*
+!.gitignore
+!runtime.json

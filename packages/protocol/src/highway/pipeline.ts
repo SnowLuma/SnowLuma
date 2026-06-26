@@ -51,6 +51,16 @@ export interface MediaSubFileUpload {
    *  Omit if the caller guarantees bytes always exist (e.g. video thumb
    *  always has FALLBACK_THUMB bytes). */
   fastOnlyError?: string;
+  /** When true and the server fast-paths THIS sub-file (returns no uKey)
+   *  even though we hold real bytes for it, `runNtv2Upload` re-issues the
+   *  whole OIDB request with `tryFastUploadCompleted: false` to force a
+   *  fresh full upload. Video sets this on the main file: group/c2c video
+   *  resources expire server-side, so a fast-path hit can reference a
+   *  stale object the receiver renders as "资源已过期". The thumb leaves
+   *  this off — a cached thumb is harmless and not worth re-pushing the
+   *  whole (potentially 100 MB) main video for. Forwarding paths carry no
+   *  bytes (`bytes.length === 0`), so this never fires for them. */
+  forceFullOnFastPath?: boolean;
 }
 
 export interface NtV2UploadParams {
@@ -120,94 +130,135 @@ export async function runNtv2Upload(params: NtV2UploadParams): Promise<NTV2Uploa
     ? moduleLog.child({ uin: uinNum })
     : moduleLog;
 
-  // Build the full body once. Pulling this in here means each format file
-  // only specifies the seven fields that actually vary.
-  const body: NTV2UploadRichMediaReq = {
-    reqHead: {
-      common: { requestId: params.requestId, command: 100 },
-      scene: {
-        requestType: 2,
-        businessType: params.businessType,
-        sceneType: isGroup ? 2 : 1,
-        ...(isGroup
-          ? { group: { groupUin: Number(targetIdOrUid) } }
-          : { c2c: { accountType: 2, targetUid: String(targetIdOrUid) } }),
+  // Send one OIDB request and return its decoded `upload` body. `tryFast`
+  // toggles `tryFastUploadCompleted`: true asks the server to reuse a
+  // cached resource (skip the bytes); false forces it to allocate a fresh
+  // upload session and hand back a uKey. NOTE: proton only emits a plain
+  // `pb<bool>` when it's `true`, so `tryFast === false` omits field 2 —
+  // the server reads that as "don't fast-upload" (the opt-in default).
+  const requestUpload = async (tryFast: boolean): Promise<NTV2UploadRespBody> => {
+    const body: NTV2UploadRichMediaReq = {
+      reqHead: {
+        common: { requestId: params.requestId, command: 100 },
+        scene: {
+          requestType: 2,
+          businessType: params.businessType,
+          sceneType: isGroup ? 2 : 1,
+          ...(isGroup
+            ? { group: { groupUin: Number(targetIdOrUid) } }
+            : { c2c: { accountType: 2, targetUid: String(targetIdOrUid) } }),
+        },
+        client: { agentType: 2 },
       },
-      client: { agentType: 2 },
-    },
-    upload: {
-      uploadInfo: params.uploadInfo,
-      tryFastUploadCompleted: true,
-      srvSendMsg: false,
-      clientRandomId: makeClientRandomId(),
-      compatQmsgSceneType: params.compatQmsgSceneType,
-      extBizInfo: params.extBizInfo,
-      clientSeq: 0,
-      noNeedCompatMsg: false,
-    },
+      upload: {
+        uploadInfo: params.uploadInfo,
+        tryFastUploadCompleted: tryFast,
+        srvSendMsg: false,
+        clientRandomId: makeClientRandomId(),
+        compatQmsgSceneType: params.compatQmsgSceneType,
+        extBizInfo: params.extBizInfo,
+        clientSeq: 0,
+        noNeedCompatMsg: false,
+      },
+    };
+
+    const env = makeOidbEnvelope<NTV2UploadRichMediaReq>(oidbCmd, 100, body, true);
+    const requestBytes = protobuf_encode<OidbBase<NTV2UploadRichMediaReq>>(env);
+
+    const result = await bridge.sendRawPacket(serviceCmd, requestBytes);
+    if (!result.success || !result.gotResponse || !result.responseData) {
+      throw new Error(result.errorMessage || `${label} upload request failed`);
+    }
+
+    const resp = protobuf_decode<OidbBase<NTV2UploadRichMediaResp>>(result.responseData);
+    if (!resp) throw new Error(`failed to decode ${label} upload response`);
+    if (resp.errorCode && resp.errorCode !== 0) {
+      throw new Error(`OIDB error ${resp.errorCode}: ${resp.errorMsg ?? ''}`);
+    }
+
+    const uploadBody = resp.body;
+    if (!uploadBody) throw new Error(`${label} upload response body missing`);
+    if (uploadBody.respHead?.retCode && uploadBody.respHead.retCode !== 0) {
+      throw new Error(uploadBody.respHead.message ?? `${label} upload failed`);
+    }
+    const upload = uploadBody.upload;
+    if (!upload) throw new Error(`${label} upload response body missing`);
+    return upload;
   };
 
-  const env = makeOidbEnvelope<NTV2UploadRichMediaReq>(oidbCmd, 100, body, true);
-  const requestBytes = protobuf_encode<OidbBase<NTV2UploadRichMediaReq>>(env);
-
-  const result = await bridge.sendRawPacket(serviceCmd, requestBytes);
-  if (!result.success || !result.gotResponse || !result.responseData) {
-    throw new Error(result.errorMessage || `${label} upload request failed`);
-  }
-
-  const resp = protobuf_decode<OidbBase<NTV2UploadRichMediaResp>>(result.responseData);
-  if (!resp) throw new Error(`failed to decode ${label} upload response`);
-  if (resp.errorCode && resp.errorCode !== 0) {
-    throw new Error(`OIDB error ${resp.errorCode}: ${resp.errorMsg ?? ''}`);
-  }
-
-  const uploadBody = resp.body;
-  if (!uploadBody) throw new Error(`${label} upload response body missing`);
-  if (uploadBody.respHead?.retCode && uploadBody.respHead.retCode !== 0) {
-    throw new Error(uploadBody.respHead.message ?? `${label} upload failed`);
-  }
-  const upload = uploadBody.upload;
-  if (!upload) throw new Error(`${label} upload response body missing`);
-
   // Highway PUTs. Session is lazily fetched and cached — video does two
-  // PUTs (main + thumb) and shouldn't pay for two sessions.
+  // PUTs (main + thumb) and shouldn't pay for two sessions, and a forced
+  // retry shouldn't re-fetch it either.
   let session: Awaited<ReturnType<typeof fetchHighwaySession>> | null = null;
   const getSession = async () => {
     session ??= await fetchHighwaySession(bridge);
     return session;
   };
 
-  let didPut = false;
-  for (const sub of uploads) {
-    const target = sub.source === 'top' ? upload : upload.subFileInfos?.[sub.source];
-    const uKey = target?.uKey ?? '';
-    // Either the server fast-pathed this sub-file (no uKey) or msgInfo is
-    // missing entirely; either way nothing to push.
-    if (!uKey || !upload.msgInfo) continue;
+  // Run whatever PUTs the given `upload` response asks for. Returns true
+  // when a sub-file flagged `forceFullOnFastPath` was fast-pathed by the
+  // server (no uKey) while we hold real bytes for it — the caller uses
+  // that to force a non-fast-upload retry.
+  const runPuts = async (upload: NTV2UploadRespBody): Promise<boolean> => {
+    let didPut = false;
+    let staleFastPath = false;
+    for (const sub of uploads) {
+      const target = sub.source === 'top' ? upload : upload.subFileInfos?.[sub.source];
+      const uKey = target?.uKey ?? '';
+      // No uKey: the server fast-pathed this sub-file (or msgInfo is absent
+      // entirely). When we actually hold bytes for it, the server is
+      // reusing a cached resource — surface it, and flag a stale fast-path
+      // when the caller asked us to distrust it for this sub-file.
+      if (!uKey || !upload.msgInfo) {
+        if (!uKey && upload.msgInfo && sub.bytes.length > 0) {
+          log.debug('%s fast-upload hit for sub=%s (server reusing cached resource)', label, String(sub.source));
+          if (sub.forceFullOnFastPath) staleFastPath = true;
+        }
+        continue;
+      }
 
-    if (sub.bytes.length === 0) {
-      if (sub.fastOnlyError) throw new Error(sub.fastOnlyError);
-      continue;
+      if (sub.bytes.length === 0) {
+        if (sub.fastOnlyError) throw new Error(sub.fastOnlyError);
+        continue;
+      }
+
+      if (!target) continue;
+
+      const extend = buildHighwayExtend(
+        uKey,
+        upload.msgInfo,
+        target.ipv4s ?? [],
+        sub.sha1,
+        sub.subFileIndex ?? 0,
+      );
+      log.debug('%s OIDB requires bytes, PUT %d bytes (sub=%s)', label, sub.bytes.length, String(sub.source));
+      const t0 = Date.now();
+      await uploadHighwayHttp(bridge, await getSession(), sub.cmdId, sub.bytes, sub.md5, extend);
+      log.debug('%s PUT done in %dms', label, Date.now() - t0);
+      didPut = true;
     }
 
-    if (!target) continue;
+    if (!didPut) {
+      log.debug('%s fast-upload hit (server already had bytes)', label);
+    }
+    return staleFastPath;
+  };
 
-    const extend = buildHighwayExtend(
-      uKey,
-      upload.msgInfo,
-      target.ipv4s ?? [],
-      sub.sha1,
-      sub.subFileIndex ?? 0,
-    );
-    log.debug('%s OIDB requires bytes, PUT %d bytes (sub=%s)', label, sub.bytes.length, String(sub.source));
-    const t0 = Date.now();
-    await uploadHighwayHttp(bridge, await getSession(), sub.cmdId, sub.bytes, sub.md5, extend);
-    log.debug('%s PUT done in %dms', label, Date.now() - t0);
-    didPut = true;
-  }
+  let upload = await requestUpload(true);
+  const staleFastPath = await runPuts(upload);
 
-  if (!didPut) {
-    log.debug('%s fast-upload hit (server already had bytes)', label);
+  // A flagged sub-file (video main) was fast-pathed to a server resource
+  // that may have expired. Re-issue without fast-upload so the server
+  // allocates a fresh resource and demands the bytes, then redo the PUTs
+  // against that response — the returned `upload` (and its msgInfo) must
+  // be the one we actually pushed bytes to.
+  if (staleFastPath) {
+    log.debug('%s forcing full upload — fast-path resource may be stale/expired', label);
+    upload = await requestUpload(false);
+    const stillFastPathed = await runPuts(upload);
+    if (stillFastPathed) {
+      log.debug('%s server still fast-pathed after forcing full upload — resource may remain stale', label);
+    }
   }
 
   return upload;
