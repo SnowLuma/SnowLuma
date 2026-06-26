@@ -111,7 +111,13 @@ describe('decodeRichBody / forward LightApp', () => {
     expect(JSON.parse((out[0] as any).text).meta.detail_1.title).toBe('哔哩哔哩');
   });
 
-  it('[#146] keeps genuine user text alongside a card (only the compat string is dropped)', () => {
+  // RE of wrapper.linux.node confirmed QQ's kernel codec (msg_codec_mgr) has no
+  // fallback strings and collapses a card message to a single ark element —
+  // ANY sibling plain text is dropped, not just the known compat string. We
+  // mirror that structural rule rather than content-matching (which would break
+  // when Tencent reworded the string). NapCat shows the same: it maps kernel
+  // elements 1:1, and the kernel already dropped the text.
+  it('[#146] drops any sibling plain text beside a card (structural, matches QQ kernel)', () => {
     const body: MessageBody = {
       richText: {
         elems: [
@@ -121,8 +127,22 @@ describe('decodeRichBody / forward LightApp', () => {
       },
     };
     const out = decodeRichBody(body, true);
-    expect(out.map((e) => e.type)).toEqual(['json', 'text']);
-    expect((out[1] as any).text).toBe('快看这个视频');
+    expect(out.map((e) => e.type)).toEqual(['json']);
+  });
+
+  // Scope guard: only PLAIN text is dropped beside a card. A real @ mention
+  // (non-zero uin) is not plain text and must survive.
+  it('[#146] keeps a genuine @ mention beside a card', () => {
+    const body: MessageBody = {
+      richText: {
+        elems: [
+          { lightApp: { data: lightAppBytes({ app: 'com.tencent.miniapp_01', meta: {} }) } } as any,
+          { text: { str: '@someone', attr6Buf: new Uint8Array([0, 1, 0, 0, 0, 0, 0, 0, 0x12, 0x34, 0x56, 0x78, 0]) } } as any,
+        ],
+      },
+    };
+    const out = decodeRichBody(body, true);
+    expect(out.map((e) => e.type)).toEqual(['json', 'at']);
   });
 
   it('falls back to {type:"json"} when com.tencent.multimsg is missing resid (malformed)', () => {
