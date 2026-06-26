@@ -90,17 +90,25 @@ jobs:
           OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
+          src="$(pwd)/packages/mcp/src/generated/catalog.json"
           tmp="$(mktemp -d)"
           git clone --depth 1 \
             "https://x-access-token:${GH_TOKEN}@github.com/${OWNER}/SnowLumaDocs.git" "$tmp"
-          cp packages/mcp/src/generated/catalog.json "$tmp/docs/public/api/catalog.json"
+          mkdir -p "$tmp/docs/public/api"
+          cp "$src" "$tmp/docs/public/api/catalog.json"
           cd "$tmp"
-          if git diff --quiet -- docs/public/api/catalog.json; then
+          git config user.name "${BOT_LOGIN}"
+          git config user.email "${BOT_EMAIL}"
+          # Stage first: `git diff --quiet` ignores UNTRACKED files, so on the
+          # initial sync (catalog.json not yet in the docs repo) the index diff
+          # is the only reliable change check.
+          git add docs/public/api/catalog.json
+          if git diff --cached --quiet; then
             echo "::notice::catalog.json unchanged; nothing to sync."
             exit 0
           fi
-          git config user.name "${BOT_LOGIN}"
-          git config user.email "${BOT_EMAIL}"
-          git add docs/public/api/catalog.json
           git commit -m "chore(api): sync action catalog from SnowLuma@${GITHUB_SHA::7}"
+          # Single writer, but guard against a concurrent docs commit racing the
+          # shallow clone: rebase onto the latest main before pushing.
+          git pull --rebase --depth 1 origin main
           git push origin HEAD:main

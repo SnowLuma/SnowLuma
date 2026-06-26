@@ -41,3 +41,13 @@ jobs:
 
       - name: Run all package tests
         run: pnpm -r --no-bail --if-present test
+
+      # The MCP test suite regenerates the action catalog (catalog.ts + the
+      # catalog.json the docs site consumes). Fail if the committed snapshot
+      # drifted from the live specs — keeps the API docs from going stale.
+      - name: Verify generated action catalog is up to date
+        run: |
+          if ! git diff --exit-code -- packages/mcp/src/generated; then
+            echo '::error::Generated action catalog is stale. Run `pnpm --filter @snowluma/mcp gen` and commit packages/mcp/src/generated/.' >&2
+            exit 1
+          fi
