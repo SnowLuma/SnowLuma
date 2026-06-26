@@ -10,6 +10,30 @@ export const actions = [
   defineAction({
     name: 'get_qzone_msg_list',
     readOnly: true,
+    returns: '说说列表对象，含说说总数与本页说说数组。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        total: { type: 'integer', description: '账号说说总数（非本页数量）' },
+        msglist: {
+          type: 'array',
+          description: '本页说说数组',
+          items: {
+            type: 'object',
+            properties: {
+              tid: { type: 'string', description: '说说 id（delete/comment/like 的句柄）' },
+              content: { type: 'string', description: '说说正文' },
+              time: { type: 'integer', description: '发表时间（unix 秒）' },
+              comment_num: { type: 'integer', description: '评论数' },
+              is_private: { type: 'boolean', description: '是否仅自己可见' },
+              images: { type: 'array', items: { type: 'string' }, description: '图片 URL 列表（每图取最大可用变体）' },
+            },
+            required: ['tid', 'content', 'time', 'comment_num', 'is_private', 'images'],
+          },
+        },
+      },
+      required: ['total', 'msglist'],
+    },
     summary: '获取 QQ 空间说说列表（默认机器人自己的空间）',
     params: {
       target_uin: f.uint().describe('目标 QQ 号，省略则取机器人自己').optional(),
@@ -32,6 +56,30 @@ export const actions = [
   defineAction({
     name: 'get_qzone_feeds',
     readOnly: true,
+    returns: '好友动态对象，含本页 feed 数组与是否有更多页。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        feeds: {
+          type: 'array',
+          description: '本页好友动态数组',
+          items: {
+            type: 'object',
+            properties: {
+              uin: { type: 'integer', description: '动态作者 QQ 号' },
+              nickname: { type: 'string', description: '作者昵称' },
+              time: { type: 'integer', description: '发表时间（unix 秒）' },
+              appid: { type: 'integer', description: 'Qzone 应用 id（311=说说，4=相册，…）' },
+              key: { type: 'string', description: 'feed 句柄（Qzone 用于定位该条动态）' },
+              html: { type: 'string', description: '预渲染 HTML 原样透传' },
+            },
+            required: ['uin', 'nickname', 'time', 'appid', 'key', 'html'],
+          },
+        },
+        has_more: { type: 'boolean', description: '服务端是否报告本页之后还有更多页' },
+      },
+      required: ['feeds', 'has_more'],
+    },
     summary: '获取 QQ 空间好友动态（feed）；page_num 仅首页可靠，深翻页需时间游标（暂未实现）',
     params: {
       page_num: f.int({ min: 1 }).describe('页码（1 起；仅首页可靠）').default(1),

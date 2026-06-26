@@ -7,6 +7,21 @@ export const actions = [
   groupAction({
     name: 'get_group_album_list',
     readOnly: true,
+    returns: '群相册列表数组，每项为一个相册的基本信息。',
+    returnsSchema: {
+      type: 'array',
+      description: '群相册列表',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: '相册 id' },
+          name: { type: 'string', description: '相册名称' },
+          picNum: { type: 'integer', description: '相册内照片数量' },
+          createTime: { type: 'integer', description: '相册创建时间（unix 秒）' },
+        },
+        required: ['id', 'name', 'picNum', 'createTime'],
+      },
+    },
     run: async (p, ctx) => {
       try {
         const albumList = await ctx.bridge.apis.groupAlbum.list(p.group_id);
@@ -28,6 +43,29 @@ export const actions = [
   groupAction({
     name: 'get_qun_album_list',
     readOnly: true,
+    returns: 'NapCat 风格的相册列表封套：{album_list, attach_info, has_more}（本实现 attach_info 恒为空串、has_more 恒为 false）。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        album_list: {
+          type: 'array',
+          description: '相册列表',
+          items: {
+            type: 'object',
+            properties: {
+              album_id: { type: 'string', description: '相册 id' },
+              album_name: { type: 'string', description: '相册名称' },
+              create_time: { type: 'integer', description: '相册创建时间（unix 秒）' },
+              pic_num: { type: 'integer', description: '相册内照片数量' },
+            },
+            required: ['album_id', 'album_name', 'create_time', 'pic_num'],
+          },
+        },
+        attach_info: { type: 'string', description: '分页游标（本 web 实现一次取满，恒为空串）' },
+        has_more: { type: 'boolean', description: '是否还有更多（本 web 实现恒为 false）' },
+      },
+      required: ['album_list', 'attach_info', 'has_more'],
+    },
     run: async (p, ctx) => {
       try {
         const albumList = await ctx.bridge.apis.groupAlbum.list(p.group_id);
@@ -69,6 +107,19 @@ export const actions = [
   groupAction({
     name: 'get_group_album_media_list',
     readOnly: true,
+    returns: '相册媒体列表及下一页分页游标：{mediaList, nextAttachInfo}。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        mediaList: {
+          type: 'array',
+          description: '相册媒体项列表（各项字段不固定）',
+          items: { type: 'object' },
+        },
+        nextAttachInfo: { type: 'string', description: '下一页分页游标（空串表示无更多）' },
+      },
+      required: ['mediaList', 'nextAttachInfo'],
+    },
     params: {
       album_id: f.string({ allowEmpty: false }),
       attach_info: f.string().default(''),
