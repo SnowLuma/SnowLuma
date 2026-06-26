@@ -2547,13 +2547,9 @@ export const ACTIONS: CatalogAction[] = [
       },
       {
         "name": "busid",
-        "type": "int",
+        "type": "raw",
         "required": false,
-        "schema": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "default": 102
+        "schema": {}
       }
     ],
     "invariants": [],
@@ -2569,11 +2565,7 @@ export const ACTIONS: CatalogAction[] = [
           "type": "string",
           "minLength": 1
         },
-        "busid": {
-          "type": "integer",
-          "minimum": 0,
-          "default": 102
-        }
+        "busid": {}
       },
       "required": [
         "group_id",
@@ -2716,6 +2708,34 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_info",
     "aliases": [],
     "summary": "获取群信息",
+    "returns": "群信息对象。",
+    "returnsSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "description": "群号"
+        },
+        "group_name": {
+          "type": "string",
+          "description": "群名"
+        },
+        "member_count": {
+          "type": "integer",
+          "description": "当前成员数"
+        },
+        "max_member_count": {
+          "type": "integer",
+          "description": "成员上限"
+        }
+      },
+      "required": [
+        "group_id",
+        "group_name",
+        "member_count",
+        "max_member_count"
+      ]
+    },
     "readOnly": true,
     "params": [
       {
@@ -2824,6 +2844,72 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_member_info",
     "aliases": [],
     "summary": "获取群成员信息",
+    "returns": "群成员信息对象。",
+    "returnsSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "description": "群号"
+        },
+        "user_id": {
+          "type": "integer",
+          "description": "QQ 号"
+        },
+        "nickname": {
+          "type": "string",
+          "description": "昵称"
+        },
+        "card": {
+          "type": "string",
+          "description": "群名片"
+        },
+        "sex": {
+          "type": "string",
+          "enum": [
+            "male",
+            "female",
+            "unknown"
+          ],
+          "description": "性别"
+        },
+        "age": {
+          "type": "integer",
+          "description": "年龄"
+        },
+        "join_time": {
+          "type": "integer",
+          "description": "入群时间戳（秒）"
+        },
+        "last_sent_time": {
+          "type": "integer",
+          "description": "最后发言时间戳（秒）"
+        },
+        "level": {
+          "type": "string",
+          "description": "群等级"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "owner",
+            "admin",
+            "member"
+          ],
+          "description": "角色"
+        },
+        "title": {
+          "type": "string",
+          "description": "专属头衔"
+        }
+      },
+      "required": [
+        "group_id",
+        "user_id",
+        "nickname",
+        "role"
+      ]
+    },
     "readOnly": true,
     "params": [
       {
@@ -3153,6 +3239,24 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "get_login_info",
     "aliases": [],
+    "returns": "当前登录账号的 QQ 号与昵称。",
+    "returnsSchema": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "integer",
+          "description": "登录 QQ 号"
+        },
+        "nickname": {
+          "type": "string",
+          "description": "登录昵称"
+        }
+      },
+      "required": [
+        "user_id",
+        "nickname"
+      ]
+    },
     "readOnly": true,
     "params": [],
     "invariants": [],
@@ -3237,7 +3341,7 @@ export const ACTIONS: CatalogAction[] = [
       {
         "name": "user_id",
         "type": "uint",
-        "required": true,
+        "required": false,
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -3255,11 +3359,11 @@ export const ACTIONS: CatalogAction[] = [
       {
         "name": "file_hash",
         "type": "string",
-        "required": true,
+        "required": false,
         "schema": {
-          "type": "string",
-          "minLength": 1
-        }
+          "type": "string"
+        },
+        "default": ""
       }
     ],
     "invariants": [],
@@ -3276,13 +3380,11 @@ export const ACTIONS: CatalogAction[] = [
         },
         "file_hash": {
           "type": "string",
-          "minLength": 1
+          "default": ""
         }
       },
       "required": [
-        "user_id",
-        "file_id",
-        "file_hash"
+        "file_id"
       ],
       "additionalProperties": true
     },
@@ -3639,6 +3741,24 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "get_status",
     "aliases": [],
+    "returns": "运行状态。`online`/`good` 均表示账号是否在线。",
+    "returnsSchema": {
+      "type": "object",
+      "properties": {
+        "online": {
+          "type": "boolean",
+          "description": "是否在线"
+        },
+        "good": {
+          "type": "boolean",
+          "description": "状态是否正常（与 online 一致）"
+        }
+      },
+      "required": [
+        "online",
+        "good"
+      ]
+    },
     "readOnly": true,
     "params": [],
     "invariants": [],
@@ -3700,6 +3820,29 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "get_version_info",
     "aliases": [],
+    "returns": "实现与协议版本信息。",
+    "returnsSchema": {
+      "type": "object",
+      "properties": {
+        "app_name": {
+          "type": "string",
+          "description": "实现名称（SnowLuma）"
+        },
+        "app_version": {
+          "type": "string",
+          "description": "实现版本"
+        },
+        "protocol_version": {
+          "type": "string",
+          "description": "OneBot 协议版本"
+        }
+      },
+      "required": [
+        "app_name",
+        "app_version",
+        "protocol_version"
+      ]
+    },
     "readOnly": true,
     "params": [],
     "invariants": [],

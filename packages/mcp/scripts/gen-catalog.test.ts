@@ -29,4 +29,11 @@ it('generates src/generated/catalog.ts from the live action specs', () => {
   const dir = new URL('../src/generated/', import.meta.url);
   mkdirSync(dir, { recursive: true });
   writeFileSync(new URL('../src/generated/catalog.ts', import.meta.url), body);
+
+  // Plain-JSON twin of the catalog, consumed by the docs site (SnowLumaDocs)
+  // via the sync-docs-catalog workflow. Same data as catalog.ts.
+  writeFileSync(
+    new URL('../src/generated/catalog.json', import.meta.url),
+    JSON.stringify({ actions, categories }, null, 2) + '\n',
+  );
 });
