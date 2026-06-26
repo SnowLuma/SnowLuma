@@ -9,6 +9,7 @@ export interface ParseMessageOptions {
   resolveReplySequence?: (replyMessageId: number) => number | null;
   resolveReplyMeta?: (replyMessageId: number) => { senderUin: number; time: number; random: number } | null;
   resolveMentionUid?: (targetUin: number) => string | null | Promise<string | null>;
+  resolveContactArk?: (contactType: string, contactId: number) => string | null | Promise<string | null>;
   musicSignUrl?: string;
 }
 
@@ -291,6 +292,13 @@ export async function segmentToElement(type: string, data: Record<string, unknow
       // Contact card — map to json card
       const contactType = String(data.type ?? 'qq');
       const contactId = String(data.id ?? '');
+      const numericId = intOr(contactId, 0);
+      const normalizedContactType = contactType.trim().toLowerCase();
+      if (numericId > 0 && options?.resolveContactArk && (normalizedContactType === 'qq' || normalizedContactType === 'group')) {
+        const ark = await options.resolveContactArk(contactType, numericId);
+        if (!ark) throw new Error(`contact ark unavailable for ${contactType}:${numericId}`);
+        return { type: 'json', text: ark };
+      }
       const jsonData = JSON.stringify({
         app: 'com.tencent.contact.lua',
         view: 'contact',

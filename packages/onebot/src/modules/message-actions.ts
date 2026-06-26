@@ -448,6 +448,13 @@ async function cacheSelfSentMessage(
   }
 }
 
+function resolveContactArk(ref: OneBotInstanceContext, contactType: string, contactId: number): Promise<string> | null {
+  const normalized = contactType.trim().toLowerCase();
+  if (normalized === 'qq') return ref.bridge.apis.contacts.getBuddyRecommendArk(contactId, '');
+  if (normalized === 'group') return ref.bridge.apis.contacts.getGroupRecommendArk(contactId);
+  return null;
+}
+
 export async function sendPrivateMessage(
   ref: OneBotInstanceContext,
   userId: number,
@@ -492,6 +499,7 @@ export async function sendPrivateMessage(
       return null;
     },
     resolveMentionUid: (targetUin) => ref.bridge.resolveUserUid(targetUin),
+    resolveContactArk: (contactType, contactId) => resolveContactArk(ref, contactType, contactId),
     musicSignUrl: ref.musicSignUrl,
   });
   if (elements.length === 0) throw new Error('message is empty');
@@ -595,6 +603,7 @@ export async function sendGroupMessage(
       return null;
     },
     resolveMentionUid: (targetUin) => ref.bridge.resolveUserUid(targetUin, groupId),
+    resolveContactArk: (contactType, contactId) => resolveContactArk(ref, contactType, contactId),
     musicSignUrl: ref.musicSignUrl,
   });
   if (elements.length === 0) throw new Error('message is empty');
