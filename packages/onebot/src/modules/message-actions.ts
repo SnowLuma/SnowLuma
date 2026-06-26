@@ -1,6 +1,7 @@
 import { createLogger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import type { ForwardNodePayload, FriendMessage, GroupMessage, MessageElement, QQEventVariant } from '@snowluma/protocol/events';
+import { getVideoSourceSize, MAX_VIDEO_SIZE } from '@snowluma/protocol/highway/video-upload';
 import type { MessageSendResult } from '../api-handler';
 import { convertEvent, elementsToOneBotSegments, type ConverterContext } from '../event-converter';
 import { segmentsToRawMessage } from '../helper/cq';
@@ -536,13 +537,49 @@ export async function sendPrivateMessage(
   // Two sub-paths:
   //  a) has url/path but no file_id → uploadPrivate() which internally calls sendC2cFile()
   //  b) has file_id from a prior upload_private_file → sendC2cFile() only
-  const allFileElements = elements.filter(e => e.type === 'file');
-  const nonFileElements = elements.filter(e => e.type !== 'file');
+  let allFileElements = elements.filter(e => e.type === 'file');
+  let nonFileElements = elements.filter(e => e.type !== 'file');
 
   let lastReceipt: Awaited<ReturnType<typeof ref.bridge.apis.message.sendPrivate>> | undefined;
   if (nonFileElements.length > 0) {
-    lastReceipt = await ref.bridge.apis.message.sendPrivate(userId, nonFileElements);
-    logSentMessage(false, userId, nonFileElements);
+    try {
+      lastReceipt = await ref.bridge.apis.message.sendPrivate(userId, nonFileElements);
+      logSentMessage(false, userId, nonFileElements);
+    } catch (err) {
+      // Highway upload failed — check if a large video element triggered it
+      // and fall back to file upload for that element (private messages
+      // cannot carry file elements through the element pipeline).
+      const isSizeErr = err instanceof Error && /size limit|too large|413|too big|exceed/i.test(err.message);
+      const videoElements = nonFileElements.filter(e => e.type === 'video');
+      // Trigger fallback when a video element is known to exceed the size
+      // limit, OR when the error message itself indicates a size-related
+      // failure (covers remote videos whose size couldn't be inferred).
+      const needsFallback = videoElements.some(e => {
+        const sz = getVideoSourceSize(e);
+        return sz !== null ? sz > MAX_VIDEO_SIZE : isSizeErr;
+      });
+      if (needsFallback) {
+        log.warn('[OneBot] private video upload failed, falling back to file upload: %s', err instanceof Error ? err.message : String(err));
+        const remaining: MessageElement[] = [];
+        for (const e of nonFileElements) {
+          if (e.type === 'video') {
+            const sz = getVideoSourceSize(e);
+            if (sz !== null ? sz > MAX_VIDEO_SIZE : isSizeErr) {
+              allFileElements = [...allFileElements, { type: 'file', url: e.url, fileId: e.fileId, fileName: e.fileName || 'video.mp4' }];
+              continue;
+            }
+          }
+          remaining.push(e);
+        }
+        nonFileElements = remaining;
+        if (nonFileElements.length > 0) {
+          lastReceipt = await ref.bridge.apis.message.sendPrivate(userId, nonFileElements);
+          logSentMessage(false, userId, nonFileElements);
+        }
+      } else {
+        throw err;
+      }
+    }
   }
   if (allFileElements.length > 0) {
     const userUid = await ref.bridge.resolveUserUid(userId);
