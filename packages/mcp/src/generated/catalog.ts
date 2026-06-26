@@ -96,13 +96,28 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "_get_model_show",
     "aliases": [],
-    "summary": "获取机型展示（占位）",
+    "summary": "获取机型展示（兼容 mock）",
     "readOnly": true,
-    "params": [],
+    "params": [
+      {
+        "name": "model",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "default": ""
+      }
+    ],
     "invariants": [],
     "inputSchema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "model": {
+          "type": "string",
+          "default": ""
+        }
+      },
       "additionalProperties": true
     },
     "category": "扩展"
@@ -110,7 +125,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "_mark_all_as_read",
     "aliases": [],
-    "summary": "标记全部已读",
+    "summary": "标记全部已读（no-op，待 RE 全读 cmd）",
     "readOnly": false,
     "params": [],
     "invariants": [],
@@ -227,6 +242,38 @@ export const ACTIONS: CatalogAction[] = [
     "inputSchema": {
       "type": "object",
       "properties": {},
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "add_custom_face",
+    "aliases": [],
+    "summary": "添加收藏表情",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "file",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "file"
+      ],
       "additionalProperties": true
     },
     "category": "扩展"
@@ -486,6 +533,71 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "comment_qzone",
+    "aliases": [],
+    "summary": "评论一条说说（QQ 空间）",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "tid",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "说说 tid"
+      },
+      {
+        "name": "content",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "评论内容"
+      },
+      {
+        "name": "target_uin",
+        "type": "uint",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "说说所属 QQ 号，省略则为机器人自己"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tid": {
+          "type": "string",
+          "minLength": 1,
+          "description": "说说 tid"
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "description": "评论内容"
+        },
+        "target_uin": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "说说所属 QQ 号，省略则为机器人自己"
+        }
+      },
+      "required": [
+        "tid",
+        "content"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
     "name": "complete_group_todo",
     "aliases": [],
     "summary": "完成群待办",
@@ -547,6 +659,51 @@ export const ACTIONS: CatalogAction[] = [
     "inputSchema": {
       "type": "object",
       "properties": {},
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "create_flash_task",
+    "aliases": [],
+    "summary": "创建闪传任务",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "files",
+        "type": "raw",
+        "required": false,
+        "schema": {}
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "thumb_path",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "files": {},
+        "name": {
+          "type": "string"
+        },
+        "thumb_path": {
+          "type": "string"
+        }
+      },
       "additionalProperties": true
     },
     "category": "扩展"
@@ -674,6 +831,38 @@ export const ACTIONS: CatalogAction[] = [
     "category": "群相册"
   },
   {
+    "name": "delete_custom_face",
+    "aliases": [],
+    "summary": "删除收藏表情",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "emoji_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "emoji_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "emoji_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "delete_essence_msg",
     "aliases": [],
     "summary": "移除精华消息",
@@ -704,6 +893,38 @@ export const ACTIONS: CatalogAction[] = [
       },
       "required": [
         "message_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "delete_flash_file",
+    "aliases": [],
+    "summary": "删除闪传文件",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "fileset_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fileset_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "fileset_id"
       ],
       "additionalProperties": true
     },
@@ -937,6 +1158,40 @@ export const ACTIONS: CatalogAction[] = [
     "category": "消息"
   },
   {
+    "name": "delete_qzone_msg",
+    "aliases": [],
+    "summary": "删除一条说说（QQ 空间，按 tid）",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "tid",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "说说 tid（来自 get_qzone_msg_list / send_qzone_msg）"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tid": {
+          "type": "string",
+          "minLength": 1,
+          "description": "说说 tid（来自 get_qzone_msg_list / send_qzone_msg）"
+        }
+      },
+      "required": [
+        "tid"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
     "name": "do_group_album_comment",
     "aliases": [],
     "readOnly": false,
@@ -1068,6 +1323,61 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "download_fileset",
+    "aliases": [],
+    "summary": "解析闪传文件下载直链（不下载，由调用方实现下载）",
+    "returns": "{ url, file_name, file_size }",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "fileset_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      {
+        "name": "file_name",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "file_index",
+        "type": "number",
+        "required": false,
+        "schema": {
+          "type": "number"
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fileset_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file_name": {
+          "type": "string"
+        },
+        "file_index": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "fileset_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "fetch_custom_face",
     "aliases": [],
     "summary": "获取自定义表情",
@@ -1082,6 +1392,15 @@ export const ACTIONS: CatalogAction[] = [
           "minimum": 0
         },
         "default": 10
+      },
+      {
+        "name": "return_type",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "default": "url"
       }
     ],
     "invariants": [],
@@ -1092,6 +1411,10 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "minimum": 0,
           "default": 10
+        },
+        "return_type": {
+          "type": "string",
+          "default": "url"
         }
       },
       "additionalProperties": true
@@ -1580,6 +1903,37 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "get_doubt_friends_add_request",
+    "aliases": [],
+    "summary": "获取可疑好友申请",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "count",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "default": 50
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 50
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "get_emoji_likes",
     "aliases": [],
     "summary": "获取表情回应用户",
@@ -1666,7 +2020,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "get_file",
     "aliases": [],
-    "summary": "获取文件（未实现）",
+    "summary": "获取文件信息（仅图片/语音缓存；群文件请用 get_group_file_url）",
     "readOnly": true,
     "params": [
       {
@@ -1701,6 +2055,157 @@ export const ACTIONS: CatalogAction[] = [
           "default": ""
         }
       },
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "get_fileset_id",
+    "aliases": [],
+    "summary": "从分享码/链接获取 fileset_id",
+    "returns": "{ fileset_id }",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "share_code",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "share_code": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "share_code"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "get_fileset_info",
+    "aliases": [],
+    "summary": "获取文件集信息",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "fileset_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fileset_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "fileset_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "get_flash_file_list",
+    "aliases": [],
+    "summary": "获取闪传文件列表",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "fileset_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fileset_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "fileset_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "get_flash_file_url",
+    "aliases": [],
+    "summary": "获取闪传文件链接",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "fileset_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      {
+        "name": "file_name",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "file_index",
+        "type": "number",
+        "required": false,
+        "schema": {
+          "type": "number"
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fileset_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file_name": {
+          "type": "string"
+        },
+        "file_index": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "fileset_id"
+      ],
       "additionalProperties": true
     },
     "category": "扩展"
@@ -1767,8 +2272,7 @@ export const ACTIONS: CatalogAction[] = [
         "type": "int",
         "required": false,
         "schema": {
-          "type": "integer",
-          "minimum": 0
+          "type": "integer"
         },
         "default": 0
       },
@@ -1793,7 +2297,6 @@ export const ACTIONS: CatalogAction[] = [
         },
         "message_id": {
           "type": "integer",
-          "minimum": 0,
           "default": 0
         },
         "count": {
@@ -2448,8 +2951,7 @@ export const ACTIONS: CatalogAction[] = [
         "type": "int",
         "required": false,
         "schema": {
-          "type": "integer",
-          "minimum": 0
+          "type": "integer"
         },
         "default": 0
       },
@@ -2475,7 +2977,6 @@ export const ACTIONS: CatalogAction[] = [
         },
         "message_id": {
           "type": "integer",
-          "minimum": 0,
           "default": 0
         },
         "count": {
@@ -2528,13 +3029,67 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "get_group_shut_list",
     "aliases": [],
-    "summary": "获取群禁言列表（占位）",
+    "summary": "获取群禁言列表",
     "readOnly": true,
-    "params": [],
+    "params": [
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "群号"
+      }
+    ],
     "invariants": [],
     "inputSchema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "群号"
+        }
+      },
+      "required": [
+        "group_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "get_group_signed_list",
+    "aliases": [],
+    "summary": "获取群今日打卡列表",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "群号"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "群号"
+        }
+      },
+      "required": [
+        "group_id"
+      ],
       "additionalProperties": true
     },
     "category": "扩展"
@@ -2661,7 +3216,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "get_online_clients",
     "aliases": [],
-    "summary": "获取在线客户端（占位）",
+    "summary": "获取在线客户端（占位，OneBot v11 形状）",
     "readOnly": true,
     "params": [],
     "invariants": [],
@@ -2795,6 +3350,189 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "get_qun_album_list",
+    "aliases": [],
+    "readOnly": true,
+    "params": [
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "群号"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "群号"
+        }
+      },
+      "required": [
+        "group_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "群相册"
+  },
+  {
+    "name": "get_qzone_feeds",
+    "aliases": [],
+    "summary": "获取 QQ 空间好友动态（feed）；page_num 仅首页可靠，深翻页需时间游标（暂未实现）",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "page_num",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "页码（1 起；仅首页可靠）",
+        "default": 1
+      },
+      {
+        "name": "count",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "desc": "本页数量",
+        "default": 10
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "page_num": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "页码（1 起；仅首页可靠）",
+          "default": 1
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "description": "本页数量",
+          "default": 10
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
+    "name": "get_qzone_msg_list",
+    "aliases": [],
+    "summary": "获取 QQ 空间说说列表（默认机器人自己的空间）",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "target_uin",
+        "type": "uint",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "目标 QQ 号，省略则取机器人自己"
+      },
+      {
+        "name": "pos",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "desc": "起始偏移",
+        "default": 0
+      },
+      {
+        "name": "num",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "desc": "本页数量",
+        "default": 20
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "target_uin": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "目标 QQ 号，省略则取机器人自己"
+        },
+        "pos": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "起始偏移",
+          "default": 0
+        },
+        "num": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "本页数量",
+          "default": 20
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
+    "name": "get_recent_contact",
+    "aliases": [],
+    "summary": "获取最近会话（占位）",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "count",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "default": 10
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 10
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "get_record",
     "aliases": [],
     "summary": "获取语音信息",
@@ -2848,6 +3586,52 @@ export const ACTIONS: CatalogAction[] = [
     "inputSchema": {
       "type": "object",
       "properties": {},
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "get_rkey_server",
+    "aliases": [],
+    "summary": "获取 rkey 服务器信息",
+    "readOnly": true,
+    "params": [],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "get_share_link",
+    "aliases": [],
+    "summary": "获取文件分享链接",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "fileset_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fileset_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "fileset_id"
+      ],
       "additionalProperties": true
     },
     "category": "扩展"
@@ -2972,6 +3756,86 @@ export const ACTIONS: CatalogAction[] = [
         "group_id",
         "user_id"
       ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "like_qzone",
+    "aliases": [],
+    "summary": "给一条说说点赞（QQ 空间）",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "tid",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "说说 tid"
+      },
+      {
+        "name": "target_uin",
+        "type": "uint",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "说说所属 QQ 号，省略则为机器人自己"
+      },
+      {
+        "name": "abstime",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "desc": "说说发表时间（unix 秒），传真实值更可靠",
+        "default": 0
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tid": {
+          "type": "string",
+          "minLength": 1,
+          "description": "说说 tid"
+        },
+        "target_uin": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "说说所属 QQ 号，省略则为机器人自己"
+        },
+        "abstime": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "说说发表时间（unix 秒），传真实值更可靠",
+          "default": 0
+        }
+      },
+      "required": [
+        "tid"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
+    "name": "list_filesets",
+    "aliases": [],
+    "summary": "列出当前账号的所有闪传文件集",
+    "readOnly": false,
+    "params": [],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
       "additionalProperties": true
     },
     "category": "扩展"
@@ -3124,6 +3988,83 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "modify_custom_face",
+    "aliases": [],
+    "summary": "修改收藏表情备注",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "emoji_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      {
+        "name": "desc",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "default": ""
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "emoji_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "emoji_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "move_custom_face_to_front",
+    "aliases": [],
+    "summary": "收藏表情移到最前",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "emoji_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "emoji_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "emoji_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "move_group_file",
     "aliases": [],
     "summary": "移动群文件",
@@ -3250,13 +4191,77 @@ export const ACTIONS: CatalogAction[] = [
     "aliases": [
       ".ocr_image"
     ],
-    "summary": "OCR 图片（未实现）",
+    "summary": "OCR 图片（服务端，需图片 URL 或已缓存的图片 file_id）",
     "readOnly": true,
-    "params": [],
+    "params": [
+      {
+        "name": "image",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
     "invariants": [],
     "inputSchema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "image": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "image"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "rename_flash_file",
+    "aliases": [],
+    "summary": "重命名闪传文件",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "fileset_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      {
+        "name": "new_name",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fileset_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "new_name": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "fileset_id",
+        "new_name"
+      ],
       "additionalProperties": true
     },
     "category": "扩展"
@@ -3264,16 +4269,77 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "rename_group_file",
     "aliases": [],
-    "summary": "重命名群文件（未实现）",
+    "summary": "重命名群文件",
     "readOnly": false,
-    "params": [],
+    "params": [
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "群号"
+      },
+      {
+        "name": "file_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      {
+        "name": "current_parent_directory",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "default": "/"
+      },
+      {
+        "name": "new_name",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    ],
     "invariants": [],
     "inputSchema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "群号"
+        },
+        "file_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "current_parent_directory": {
+          "type": "string",
+          "default": "/"
+        },
+        "new_name": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "group_id",
+        "file_id",
+        "new_name"
+      ],
       "additionalProperties": true
     },
-    "category": "扩展"
+    "category": "群文件"
   },
   {
     "name": "rename_group_file_folder",
@@ -3376,6 +4442,120 @@ export const ACTIONS: CatalogAction[] = [
       },
       "required": [
         "db_path"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "send_ark_share",
+    "aliases": [],
+    "summary": "分享用户/群 Ark 卡片（NapCat 标准名）",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "user_id",
+        "type": "uint",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      {
+        "name": "phone_number",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "default": ""
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "group_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "phone_number": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "send_flash_msg",
+    "aliases": [],
+    "summary": "发送闪传消息（私聊或群聊，引用 fileset_id 让对端下载）",
+    "returns": "{ message_id }",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "fileset_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      {
+        "name": "user_id",
+        "type": "uint",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fileset_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "user_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "group_id": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "fileset_id"
       ],
       "additionalProperties": true
     },
@@ -3492,6 +4672,38 @@ export const ACTIONS: CatalogAction[] = [
         "group_id",
         "character",
         "text"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "send_group_ark_share",
+    "aliases": [],
+    "summary": "分享群 Ark 卡片（NapCat 标准名）",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "group_id"
       ],
       "additionalProperties": true
     },
@@ -3961,6 +5173,40 @@ export const ACTIONS: CatalogAction[] = [
     "category": "消息"
   },
   {
+    "name": "send_qzone_msg",
+    "aliases": [],
+    "summary": "发表一条纯文字说说（QQ 空间）",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "content",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "说说正文"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "description": "说说正文"
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
     "name": "set_diy_online_status",
     "aliases": [],
     "summary": "设置自定义在线状态",
@@ -4015,6 +5261,51 @@ export const ACTIONS: CatalogAction[] = [
       },
       "required": [
         "face_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "set_doubt_friends_add_request",
+    "aliases": [],
+    "summary": "处理可疑好友申请",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "flag",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      {
+        "name": "approve",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "default": true
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "flag": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approve": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "required": [
+        "flag"
       ],
       "additionalProperties": true
     },
@@ -4939,6 +6230,66 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "set_group_robot_add_option",
+    "aliases": [],
+    "summary": "设置群机器人加群选项",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "群号"
+      },
+      {
+        "name": "robot_member_switch",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      {
+        "name": "robot_member_examine",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "群号"
+        },
+        "robot_member_switch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "robot_member_examine": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "group_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "set_group_search",
     "aliases": [],
     "summary": "允许群被搜索",
@@ -5459,6 +6810,93 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "share_group_ex",
+    "aliases": [],
+    "summary": "分享群 Ark 卡片",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "group_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
+    "name": "share_peer",
+    "aliases": [],
+    "summary": "分享用户/群 Ark 卡片",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "user_id",
+        "type": "uint",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      {
+        "name": "phone_number",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "default": ""
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "group_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "phone_number": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "trans_group_file",
     "aliases": [],
     "summary": "转存群文件（未实现）",
@@ -5495,6 +6933,72 @@ export const ACTIONS: CatalogAction[] = [
       "additionalProperties": true
     },
     "category": "扩展"
+  },
+  {
+    "name": "unlike_qzone",
+    "aliases": [],
+    "summary": "取消对一条说说的点赞（QQ 空间；取消赞端点待真机核实）",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "tid",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "说说 tid"
+      },
+      {
+        "name": "target_uin",
+        "type": "uint",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "说说所属 QQ 号，省略则为机器人自己"
+      },
+      {
+        "name": "abstime",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "desc": "说说发表时间（unix 秒），传真实值更可靠",
+        "default": 0
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tid": {
+          "type": "string",
+          "minLength": 1,
+          "description": "说说 tid"
+        },
+        "target_uin": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "说说所属 QQ 号，省略则为机器人自己"
+        },
+        "abstime": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "说说发表时间（unix 秒），传真实值更可靠",
+          "default": 0
+        }
+      },
+      "required": [
+        "tid"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
   },
   {
     "name": "upload_forward_msg",
@@ -5872,7 +7376,7 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "群文件",
-    "count": 11
+    "count": 12
   },
   {
     "category": "请求",
@@ -5880,10 +7384,14 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "扩展",
-    "count": 85
+    "count": 109
   },
   {
     "category": "群相册",
+    "count": 8
+  },
+  {
+    "category": "空间",
     "count": 7
   }
 ];

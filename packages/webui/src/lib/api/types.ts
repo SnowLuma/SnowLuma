@@ -1,11 +1,21 @@
 import type {
   AccountConnections,
+  BackupBundle,
+  BackupImportResult,
+  DebugActionDoc,
+  DebugInvokeResult,
+  DebugStreamMessage,
   HookProcessInfo,
   LogEntry,
   LogLevel,
+  NotificationDeliveryRecord,
+  NotificationsConfig,
   OneBotConfig,
   QQInfo,
   SystemInfo,
+  SystemSettings,
+  SystemSettingsPatch,
+  SystemSettingsResponse,
   UiAppearance,
   UiConfig,
   UpdateInfo,
@@ -29,6 +39,29 @@ export type LoginResult =
 
 export type ChangePasswordResult = { success: boolean; message?: string };
 
+export interface AgreementDoc {
+  id: 'eula' | 'privacy';
+  title: string;
+  declaredVersion: string;
+  effectiveDate: string;
+  text: string;
+}
+
+export interface AgreementsPayload {
+  /** Content-hash version of the current agreement set. */
+  version: string;
+  /** Whether the operator must (re-)accept before using the panel. */
+  consentRequired: boolean;
+  documents: AgreementDoc[];
+}
+
+export type RecordConsentResult = {
+  success: boolean;
+  message?: string;
+  /** On a 409 version-mismatch, the server's current version to re-fetch. */
+  currentVersion?: string;
+};
+
 export type ProcessActionResult = {
   process?: HookProcessInfo & { error?: string };
 };
@@ -37,6 +70,20 @@ export type StreamStatus = 'open' | 'reconnecting' | 'closed';
 
 export interface LogsStreamOptions {
   onLine: (line: LogEntry) => void;
+  onStatus?: (status: StreamStatus) => void;
+}
+
+/** A single frame from /api/state/stream — either a control frame or a
+ *  fresh snapshot for one of the three live dashboard resources. */
+export type StateStreamEvent =
+  | { kind: 'ready' }
+  | { kind: 'dropped'; count: number }
+  | { resource: 'processes'; data: HookProcessInfo[] }
+  | { resource: 'qq-list'; data: QQInfo[] }
+  | { resource: 'connections'; data: AccountConnections[] };
+
+export interface StateStreamOptions {
+  onEvent: (event: StateStreamEvent) => void;
   onStatus?: (status: StreamStatus) => void;
 }
 
@@ -51,11 +98,26 @@ export interface ApiClient {
   checkPasswordStrength(password: string): Promise<{ rules: PasswordRule[]; valid: boolean }>;
   changePassword(oldPassword: string, newPassword: string): Promise<ChangePasswordResult>;
 
+  // ---- EULA / PRIVACY consent (shown after login, before set-password) ----
+  agreements: {
+    /** Fetch agreement texts + current version + whether consent is required. */
+    get(): Promise<AgreementsPayload>;
+    /** Record acceptance of `version`. success:false (409) carries currentVersion. */
+    recordConsent(version: string): Promise<RecordConsentResult>;
+  };
+
   // ---- system ----
   qqList(): Promise<QQInfo[]>;
   system(): Promise<SystemInfo>;
   /** Live OneBot adapter health per account. */
   connections(): Promise<AccountConnections[]>;
+
+  /** Subscribe to the unified SSE feed pushing fresh snapshots whenever
+   *  processes / qq-list / connections change. Initial frames on connect
+   *  give the current snapshot for all three resources. Returns a disposer.
+   *  REST endpoints above remain for the pre-SSE first paint and the slow
+   *  reconcile fallback if the SSE drops. */
+  stateStream(options: StateStreamOptions): () => void;
 
   // ---- hook processes ----
   processes: {
@@ -70,6 +132,39 @@ export interface ApiClient {
   config: {
     get(uin: string): Promise<OneBotConfig>;
     save(uin: string, config: OneBotConfig): Promise<OneBotConfig>;
+  };
+
+  // ---- WebUI listener self-config (port / host / TLS / trust-proxy) ----
+  systemSettings: {
+    get(): Promise<SystemSettingsResponse>;
+    save(patch: SystemSettingsPatch): Promise<{ settings: SystemSettings; restartRequiredToApply: boolean }>;
+    /** Validate + write config/cert.pem + key.pem (restart to apply). */
+    uploadCert(cert: string, key: string): Promise<void>;
+    deleteCert(): Promise<void>;
+    /** Download the config backup bundle (credentials gated). */
+    exportBackup(includeCredentials: boolean): Promise<BackupBundle>;
+    /** Validate + restore a bundle (snapshots current config first). */
+    importBackup(backup: BackupBundle, restoreCredentials: boolean): Promise<BackupImportResult>;
+  };
+
+  // ---- debug tools (action tester + live event/action stream) ----
+  debug: {
+    actions(): Promise<{ actions: DebugActionDoc[]; categories: { category: string; count: number }[] }>;
+    invoke(uin: string, action: string, params: Record<string, unknown>): Promise<DebugInvokeResult>;
+    /** Live merged SSE; returns an unsubscribe. */
+    stream(onMessage: (m: DebugStreamMessage) => void, onStatus?: (s: StreamStatus) => void): () => void;
+  };
+
+  // ---- notifications (account up/down webhooks) ----
+  notifications: {
+    /** Global channel store (channels + debounce). Bearer-gated. */
+    getConfig(): Promise<NotificationsConfig>;
+    /** Persist the global store (whole-config; server normalizes). */
+    saveConfig(config: Partial<NotificationsConfig>): Promise<NotificationsConfig>;
+    /** Recent in-memory delivery history, most-recent-first (≤100). */
+    recent(limit?: number): Promise<NotificationDeliveryRecord[]>;
+    /** Fire a one-off test to a single channel by id. */
+    test(channelId: string): Promise<{ success: boolean; message?: string; status?: number }>;
   };
 
   // ---- update check ----

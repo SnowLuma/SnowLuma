@@ -64,8 +64,17 @@ const logsRoute = createRoute({
   ),
 });
 
+const debugRoute = createRoute({
+  path: '/debug',
+  getParentRoute: () => appLayoutRoute,
+  component: lazyRouteComponent(
+    () => import('@/components/pages/debug-page'),
+    'DebugPage',
+  ),
+});
+
 /** Settings sub-tabs — also the contract for the `?tab=` deep link. */
-export const SETTINGS_TABS = ['appearance', 'data', 'advanced', 'account', 'about'] as const;
+export const SETTINGS_TABS = ['appearance', 'data', 'advanced', 'account', 'system', 'notifications', 'about'] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 export const settingsRoute = createRoute({
@@ -86,7 +95,7 @@ export const settingsRoute = createRoute({
 });
 
 const routeTree = rootRoute.addChildren([
-  appLayoutRoute.addChildren([overviewRoute, processesRoute, configRoute, logsRoute, settingsRoute]),
+  appLayoutRoute.addChildren([overviewRoute, processesRoute, configRoute, logsRoute, debugRoute, settingsRoute]),
 ]);
 
 export const appRouter = createRouter({
@@ -103,4 +112,4 @@ declare module '@tanstack/react-router' {
 }
 
 /** Paths registered on the layout — single source of truth for nav metadata. */
-export type AppPath = '/' | '/processes' | '/config' | '/logs' | '/settings';
+export type AppPath = '/' | '/processes' | '/config' | '/logs' | '/debug' | '/settings';

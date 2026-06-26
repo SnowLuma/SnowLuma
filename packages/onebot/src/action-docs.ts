@@ -22,6 +22,7 @@ import { actions as groupFileActions } from './actions/group-file';
 import { actions as requestActions } from './actions/request';
 import { actions as extendedActions } from './actions/extended';
 import { actions as groupAlbumActions } from './actions/group-album';
+import { actions as qzoneActions } from './actions/qzone';
 
 type AnySpec = ActionSpec<Record<string, Field<unknown>>>;
 
@@ -36,6 +37,7 @@ const GROUPS: ReadonlyArray<{ category: string; specs: readonly AnySpec[] }> = [
   { category: '请求', specs: requestActions },
   { category: '扩展', specs: extendedActions },
   { category: '群相册', specs: groupAlbumActions },
+  { category: '空间', specs: qzoneActions },
 ];
 
 /** Every declarative action's doc (with category), sorted by name. */

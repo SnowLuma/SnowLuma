@@ -9,6 +9,14 @@ type AnyAdapter = IOneBotNetworkAdapter<NetworkBase>;
 
 export class OneBotNetworkManager {
   private readonly adapters = new Map<string, AnyAdapter>();
+  /** Debug-stream taps — notified for every emitted event regardless of adapter
+   *  state. Attached on-demand (ref-counted) by the WebUI debug stream. */
+  private readonly debugSubscribers = new Set<(event: JsonObject) => void>();
+
+  subscribeDebug(cb: (event: JsonObject) => void): () => void {
+    this.debugSubscribers.add(cb);
+    return () => { this.debugSubscribers.delete(cb); };
+  }
 
   register<C extends NetworkBase>(adapter: IOneBotNetworkAdapter<C>): void {
     const existing = this.adapters.get(adapter.name);
@@ -75,6 +83,14 @@ export class OneBotNetworkManager {
   }
 
   async emitEvent(event: JsonObject): Promise<void> {
+    // Notify debug taps first — before the adapter check — so the debug stream
+    // sees every event even when no adapter is connected. Never let a tap throw
+    // into the dispatch path.
+    if (this.debugSubscribers.size) {
+      for (const cb of this.debugSubscribers) {
+        try { cb(event); } catch (err) { log.warn('debug subscriber error: %s', errMessage(err)); }
+      }
+    }
     if (!this.hasActiveAdapters()) return;
     const payload = buildDispatchPayload(event);
     const tasks: Promise<unknown>[] = [];

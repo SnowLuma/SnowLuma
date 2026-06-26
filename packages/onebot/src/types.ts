@@ -64,19 +64,22 @@ export interface OneBotNetworks {
 }
 
 /**
- * Built-in `#sl` status command. The trigger word is hardcoded (`#sl`,
- * exact match, case-insensitive); only these toggles are configurable.
+ * Built-in status command settings. The trigger word is configurable;
+ * defaults to `#sl` with exact case-insensitive matching.
  */
 export interface StatusCommandConfig {
-  /** Master on/off. Default `true` — built-in, but freely disableable. */
+  /** Master on/off. Default `true`. */
   enabled: boolean;
   /**
-   * When `true`, a matched `#sl` is NOT forwarded to downstream adapters
-   * (it is still cached, logged, and replied to). Default `false` (pass-through).
+   * When `true`, a matched status command is NOT forwarded to downstream
+   * adapters (it is still cached, logged, and replied to). Default `false`.
    */
   swallow: boolean;
   /** Per-conversation reply cooldown in seconds. `0` disables it. Default `5`. */
   cooldownSeconds: number;
+
+  /** Trigger word. Default `'#sl'`. Non-empty, max 32 chars. */
+  trigger: string;
 }
 
 /** Per-UIN OneBot configuration. */
@@ -86,6 +89,10 @@ export interface OneBotConfig {
   musicSignUrl?: string;
   /** Built-in `#sl` status command settings. Always present after normalization. */
   statusCommand: StatusCommandConfig;
+  /** Which GLOBAL notification channels this account opts into (channel ids are
+   *  validated slugs; channels themselves live in config/notifications.json).
+   *  Always present after normalization. */
+  notifications?: { channelIds: string[] };
 }
 
 export interface MessageMeta {

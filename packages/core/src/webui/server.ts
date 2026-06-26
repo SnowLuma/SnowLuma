@@ -4,14 +4,26 @@ import type { HookManager, HookProcessInfo } from '@snowluma/bridge';
 import { createLogger, getLogLevel, getRecentLogs, LOG_LEVELS, setLogLevel, subscribeLogs } from '@snowluma/common/logger';
 import { loadOneBotConfig, saveOneBotConfig } from '@snowluma/onebot/config';
 import type { OneBotManager } from '@snowluma/onebot/manager';
-import type { OneBotConfig } from '@snowluma/onebot/types';
+import type { OneBotConfig, JsonObject as OneBotJsonObject } from '@snowluma/onebot/types';
+import { readRuntimeConfig, updateRuntimeConfig, resolveRuntimeEnvOverrides } from '@snowluma/common/runtime';
+import { execSync } from 'child_process';
 import { randomBytes } from 'crypto';
-import { existsSync, readFileSync } from 'fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
+import { createServer as createHttpsServer } from 'https';
 import { Hono, type Context } from 'hono';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { evaluatePasswordRules, isStrongPassword, WebuiAuth } from './auth';
+import { getAgreementsPayload, isConsentRequired, loadAgreements, recordConsent } from './consent';
+import { resolveTlsContext, validateTlsPair } from './tls';
+import { coerceSettingsPatch } from './system-settings';
+import { buildBackup, planRestore, validateBackup } from './backup';
+import { collectActionDocs, collectCategories } from '@snowluma/onebot/action-docs';
+import { createFramePusher } from './debug-stream';
+import { bindStateStream } from './state-stream';
+import type { StateBus, StateResource } from './state-bus';
+import { startConnectionDiffLoop } from './connection-diff-loop';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
 import { findAvailablePort } from './port';
 import {
@@ -25,6 +37,8 @@ import {
   writeBackgroundImage,
 } from './ui-config';
 import { getUpdateInfo } from './update-check';
+import { loadNotificationsConfig, saveNotificationsConfig } from '../notifications/config';
+import type { NotificationManager } from '../notifications/manager';
 
 const log = createLogger('WebUI');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -49,16 +63,40 @@ const MUST_CHANGE_ALLOWLIST = new Set([
   '/api/auth/state',
   '/api/auth/check-strength',
   '/api/auth/change-password',
+  // Consent is collected AFTER login but BEFORE the forced password change, so
+  // reading + recording it must be reachable while the session mustChangePassword.
+  '/api/agreements',
+  '/api/agreements/record-consent',
   '/api/logout',
 ]);
 
-// Endpoints that may authenticate via `?token=` query parameter. Only the
-// SSE log stream is here because EventSource cannot set custom headers; all
-// other endpoints MUST use the Authorization header so tokens never leak
-// into access logs / Referer / browser history.
-const TOKEN_QUERY_ALLOWLIST = new Set([
-  '/api/logs/stream',
+// Endpoints reachable while consent is still pending. Everything else is 403'd
+// with consentRequired:true until the operator accepts — the same server-side
+// enforcement pattern as MUST_CHANGE_ALLOWLIST, so the consent gate is real and
+// not merely a frontend convention. Ordered BEFORE the must-change gate so a
+// fresh install must consent first, then set its password.
+const CONSENT_ALLOWLIST = new Set([
+  '/api/status',
+  '/api/auth/state',
+  '/api/agreements',
+  '/api/agreements/record-consent',
+  '/api/logout',
 ]);
+
+// Endpoints that may authenticate via `?token=` query parameter. Reserved
+// for SSE streams: EventSource cannot set custom headers, so these MUST
+// accept the token via query. All other endpoints use the Authorization
+// header so tokens never leak into access logs / Referer / browser history.
+//
+// Exported so the regression test can lock the invariant — a missing entry
+// here silently 401s the EventSource and the whole push channel goes dark,
+// which has happened (see /api/state/stream's first cut).
+export const SSE_TOKEN_QUERY_PATHS: ReadonlySet<string> = new Set([
+  '/api/logs/stream',
+  '/api/debug/stream',
+  '/api/state/stream',
+]);
+const TOKEN_QUERY_ALLOWLIST = SSE_TOKEN_QUERY_PATHS;
 
 // uin = QQ number; 5–12 digits. Used to construct config file paths,
 // so we MUST refuse anything else (path traversal, NUL bytes, etc.).
@@ -76,14 +114,6 @@ function purgeExpiredTokens() {
   }
 }
 
-/**
- * Resolve the client IP for per-IP rate limiting. Default is the TCP
- * socket peer (cannot be spoofed by the client). Operators behind a
- * reverse proxy must opt in via the `SNOWLUMA_WEBUI_TRUST_PROXY` env
- * var; see `./client-ip.ts` for the accepted values.
- */
-const trustProxyMode = parseTrustProxy(process.env.SNOWLUMA_WEBUI_TRUST_PROXY);
-const getClientIp = makeClientIpResolver(trustProxyMode);
 
 async function fetchQqAvatar(uin: string): Promise<{ body: Uint8Array; contentType: string }> {
   const response = await fetch(`https://q1.qlogo.cn/g?b=qq&nk=${encodeURIComponent(uin)}&s=100`, {
@@ -98,11 +128,261 @@ async function fetchQqAvatar(uin: string): Promise<{ body: Uint8Array; contentTy
   return { body, contentType };
 }
 
+// ── Host system info (cached at module level, invariant over process lifetime) ──
+
+function detectDistro(): string {
+  // Helper: extract major.minor.patch from a kernel version string
+  const parseKernel = (v: string): string | null => { const m = v.match(/(\d+\.\d+\.\d+)/); return m?.[1] ?? null; };
+
+  // ── Linux ──────────────────────────────────────────────────────────
+  if (os.platform() === 'linux') {
+    const kernelRelease = os.release();
+    const kernelVer = parseKernel(kernelRelease);
+
+    // Normalize RHEL-family distro names before comparison.
+    // /proc/version typically shows "Red Hat" (GCC build tag) even on
+    // Rocky / Alma / Oracle Linux, while /etc/os-release carries the
+    // actual distro name.  Treat the whole family as a single group so
+    // they are never considered "disagreeing".
+    const isRhelFamily = (name: string): boolean =>
+      /^(red hat|centos|rocky|alma|oracle|scientific|anolis|tencentos|bclinux|opencloudos)/.test(name);
+
+    // Extract distro version from kernel release string.
+    // Distros embed their version in the kernel ABI / build tag:
+    //   Debian: "6.8.12-1-deb13-amd64"             → 13
+    //   RHEL family: "4.18.0-513.el9.x86_64"        → 9
+    //   Fedora: "6.8.12-300.fc40.x86_64"            → 40
+    //   Amazon Linux: "6.1.158-178.288.amzn2023"    → 2023
+    //   Mageia: "6.8.12-1.mga10"                    → 10
+    const kernelDistroVer = (distro: string | null): string | null => {
+      if (!distro) return null;
+      const lr = kernelRelease.toLowerCase();
+      const ld = distro.toLowerCase();
+      if (ld === 'debian') { const m = lr.match(/deb(\d+)/); if (m) return m[1]; }
+      if (isRhelFamily(ld)) { const m = lr.match(/el(\d+)/); if (m) return m[1]; }
+      if (ld === 'fedora') { const m = lr.match(/fc(\d+)/); if (m) return m[1]; }
+      if (ld === 'amazon' || ld.includes('amazon')) { const m = lr.match(/amzn(\d+)/); if (m) return m[1]; }
+      if (ld === 'mageia') { const m = lr.match(/mga(\d+)/); if (m) return m[1]; }
+      if (ld === 'armbian') { const m = lr.match(/armbian(\d+)/); if (m) return m[1]; }
+      if (ld === 'dietpi') { const m = lr.match(/dietpi(\d+)/); if (m) return m[1]; }
+      if (ld.includes('libreelec')) { const m = lr.match(/libreelec(\d+)/); if (m) return m[1]; }
+      if (ld.includes('coreelec')) { const m = lr.match(/coreelec(\d+)/); if (m) return m[1]; }
+      return null;
+    };
+
+    // Source A: /proc/version (host kernel build, crosses container boundary)
+    let hostName: string | null = null;
+    try {
+      const raw = readFileSync('/proc/version', 'utf8').trim();
+      const vm = raw.match(/^Linux version\s+(\S+)/);
+      if (vm) {
+        // Step 1: kernel release string — embedded distros embed their name
+        // here (e.g. "6.6.16-armbian", "6.1.60-dietpi"). More reliable than
+        // the GCC build tag, which often shows the cross-compilation toolchain
+        // (e.g. "Ubuntu" for Armbian / DietPi) rather than the actual OS.
+        const releaseStr = vm[1].toLowerCase();
+        const releaseNameMatch = releaseStr.match(/(armbian|dietpi|libreelec|coreelec)/);
+        if (releaseNameMatch) {
+          const nameMap: Record<string, string> = {
+            armbian: 'Armbian',
+            dietpi: 'DietPi',
+            libreelec: 'LibreELEC',
+            coreelec: 'CoreELEC',
+          };
+          hostName = nameMap[releaseNameMatch[1]] ?? releaseNameMatch[1];
+        } else {
+          // Step 2: GCC build tag — matches the distribution that compiled
+          // the running kernel (e.g. "(Ubuntu ...)", "(Debian ...)",
+          // "(Red Hat ...)").
+          const dm = raw.match(/\b(Debian|Ubuntu|Red Hat|CentOS|Fedora|Alpine|Arch|Gentoo|SUSE|Proxmox|OpenWrt|Deepin|Kylin|openEuler|Anolis|UOS|Linux Mint|Slackware|Manjaro|NixOS|Void|Mageia|Kali|Amazon|Solus|Alibaba|Armbian|DietPi|Raspbian)\b/i);
+          hostName = dm ? dm[1] : null;
+        }
+      }
+    } catch { /* source A unavailable */ }
+
+    // Source B: /etc/os-release (container / local OS)
+    let osReleaseName: string | null = null;
+    let osReleaseVer: string | null = null;
+    try {
+      for (const f of ['/etc/os-release', '/usr/lib/os-release']) {
+        if (!existsSync(f)) continue;
+        const raw = readFileSync(f, 'utf8');
+        const get = (k: string) => { const m = raw.match(new RegExp(`^${k}=("?)(.+?)\\1$`, 'm')); return m?.[2] ?? null; };
+        const pretty = get('PRETTY_NAME') || get('NAME');
+        const ver = get('VERSION_ID');
+        if (pretty) {
+          const nm = pretty.match(/^([^0-9]+)/);
+          osReleaseName = nm ? nm[1].trim() : pretty;
+          osReleaseVer = ver;
+          break;
+        }
+      }
+    } catch { /* source B unavailable */ }
+
+    // Decide which source to trust for the distro name & version
+    let finalName: string;
+    let finalVer: string | null;
+
+    if (hostName && osReleaseName) {
+      // Normalize and compare: e.g. "Debian" vs "Debian GNU/Linux" → match.
+      // RHEL family members (Red Hat, CentOS, Rocky, Alma, Oracle, Scientific)
+      // are normalised to the same group — /proc/version usually shows "Red Hat"
+      // (GCC build tag) even when the actual distro is Rocky / Alma / Oracle.
+      const a = hostName.toLowerCase();
+      const b = osReleaseName.toLowerCase();
+      if (a.includes(b) || b.includes(a) || (isRhelFamily(a) && isRhelFamily(b))) {
+        // Agree → prefer version from kernel release, fall back to os-release
+        finalName = osReleaseName;
+        finalVer = kernelDistroVer(hostName) ?? osReleaseVer;
+      } else {
+        // Disagree → host kernel build wins (crosses container boundary)
+        finalName = hostName;
+        finalVer = kernelDistroVer(hostName);
+      }
+    } else if (hostName) {
+      finalName = hostName;
+      finalVer = kernelDistroVer(hostName);
+    } else if (osReleaseName) {
+      finalName = osReleaseName;
+      finalVer = kernelDistroVer(osReleaseName) ?? osReleaseVer;
+    } else {
+      // Source C: legacy release files
+      for (const [path, prefix] of [
+        ['/etc/alpine-release', 'Alpine Linux '],
+        ['/etc/redhat-release', ''],
+        ['/etc/debian_version', 'Debian '],
+      ] as [string, string][]) {
+        try {
+          if (existsSync(path)) {
+            const raw = prefix + readFileSync(path, 'utf8').trim();
+            return kernelVer ? `${raw} (kernel ${kernelVer})` : raw;
+          }
+        } catch { /* try next */ }
+      }
+      return kernelVer ? `Linux (kernel ${kernelVer})` : 'Linux';
+    }
+
+    // Unified output: <Name> <version> (kernel <kernel>)
+    const base = finalVer ? `${finalName} ${finalVer}` : finalName;
+    return kernelVer ? `${base} (kernel ${kernelVer})` : base;
+  }
+
+  // ── Windows ────────────────────────────────────────────────────────
+  if (os.platform() === 'win32') {
+    try {
+      const productName = execSync(
+        'reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion" /v ProductName',
+        { encoding: 'utf8', timeout: 3000, stdio: 'pipe' },
+      );
+      const m = productName.match(/ProductName\s+REG_SZ\s+(.+)/);
+      let name = m ? m[1].trim() : `Windows ${os.release()}`;
+      // ProductName is still "Windows 10 Pro" on Windows 11 — check build number.
+      try {
+        const buildOut = execSync(
+          'reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion" /v CurrentBuildNumber',
+          { encoding: 'utf8', timeout: 3000, stdio: 'pipe' },
+        );
+        const bm = buildOut.match(/CurrentBuildNumber\s+REG_SZ\s+(\d+)/);
+        if (bm && parseInt(bm[1], 10) >= 22000) {
+          name = name.replace(/^Windows 10/, 'Windows 11');
+        }
+      } catch { /* keep name as-is */ }
+      return name;
+    } catch { /* fall through */ }
+    return `Windows ${os.release()}`;
+  }
+
+  return os.platform();
+}
+
+function normalizeArch(arch: string): string {
+  const map: Record<string, string> = {
+    loong64: 'LoongArch',
+    riscv64: 'RISC-V',
+    mips: 'MIPS',
+    mipsel: 'MIPS (LE)',
+    arm: 'ARM',
+    arm64: 'ARM64',
+    x64: 'x86_64',
+    ia32: 'x86',
+    s390: 'S/390',
+    s390x: 'S/390x',
+    ppc: 'PowerPC',
+    ppc64: 'PowerPC64',
+    ppc64le: 'PowerPC64 (LE)',
+  };
+  return map[arch] ?? arch;
+}
+
+const CACHED_DISTRO = (() => { try { return detectDistro(); } catch { return os.platform(); } })();
+const CACHED_ARCH_LABEL = normalizeArch(os.arch());
+
 export async function initWebUI(
   desiredPort: number = 5099,
   oneBotManager: OneBotManager,
   hookManager?: HookManager,
+  notificationManager?: NotificationManager,
+  listener: { host?: string; tlsEnabled?: boolean; trustProxy?: string; stateBus?: StateBus } = {},
 ): Promise<{ port: number }> {
+  // Resolve the client IP for per-IP rate limiting from the configured
+  // trust-proxy directive (runtime.json `trustProxy`, env-overridable via
+  // SNOWLUMA_WEBUI_TRUST_PROXY which loadRuntimeConfig already merged in).
+  // Default ('') = trust the TCP socket peer only (cannot be spoofed).
+  const trustProxyMode = parseTrustProxy(listener.trustProxy);
+  const getClientIp = makeClientIpResolver(trustProxyMode);
+
+  // Connection-status diff loop: OneBot adapters don't emit events for
+  // listening/connected/client-count changes, so we poll the snapshot at
+  // 500ms and publish 'connections' to the StateBus when it actually
+  // moves. One loop per server lifetime, lives until process exit (the
+  // setInterval is .unref'd inside the loop so it doesn't pin the event
+  // loop on shutdown).
+  //
+  // `pickComparable` strips `adapter.detail` — that's a localised human
+  // string assembled with HH:MM:SS timestamps from the last webhook
+  // delivery; including it in the diff would make every webhook event
+  // produce a publish (defeating the diff). We compare ONLY name + kind +
+  // status, which captures every transition the dashboard actually
+  // renders differently. The SSE handler still ships the FULL snapshot
+  // (with `detail`) — it's only the diff key that's pruned.
+  //
+  // Trade-off: the rendered detail string (e.g. "3 个客户端", "上次推送
+  // 14:53:01") only refreshes on the next SSE push or on the 30s REST
+  // reconcile — not in real time. The user's original reported bugs were
+  // about process / account edges (which DO push instantly); refreshing
+  // adapter detail strings at sub-second cadence wasn't required. If it
+  // becomes one, surface client-count as a structured field on
+  // AdapterStatus and include it in the comparable.
+  if (listener.stateBus) {
+    // Handle deliberately discarded — initWebUI has no shutdown path; the
+    // loop's setInterval is .unref'd so it doesn't pin the event loop.
+    startConnectionDiffLoop({
+      bus: listener.stateBus,
+      getSnapshot: () => oneBotManager.getConnectionStatuses(),
+      pickComparable: (snap) => {
+        if (!Array.isArray(snap)) return snap;
+        return (snap as Array<{ uin: string; nickname?: string; adapters?: unknown[] }>).map((acc) => ({
+          uin: acc.uin,
+          nickname: acc.nickname,
+          // Empty fallback when `adapters` is not an array — never the
+          // raw value, which could re-introduce volatile fields verbatim
+          // if the snapshot shape ever drifts.
+          adapters: Array.isArray(acc.adapters)
+            ? acc.adapters.map((a: unknown) => {
+                const o = a as { name?: string; kind?: string; status?: string };
+                return { name: o.name, kind: o.kind, status: o.status };
+              })
+            : [],
+        }));
+      },
+      intervalMs: 500,
+    });
+  }
+
+  // Actual bound port (set just before serve; findAvailablePort may bump it).
+  // Read by GET /api/system/settings so the panel shows what's really live.
+  let boundPort = desiredPort;
+
   const auth = WebuiAuth.load();
   const initialPassword = auth.takeInitialPassword();
   if (auth.isDevMode()) {
@@ -124,6 +404,12 @@ export async function initWebUI(
   if (trustProxyMode.kind === 'all') {
     log.warn('SNOWLUMA_WEBUI_TRUST_PROXY=1 — only safe behind a reverse proxy that strips client-set X-Real-IP / X-Forwarded-For');
   }
+
+  // Memoized once at startup (agreements version is fixed per process; a text
+  // change ships with a redeploy that restarts us). Flipped to false the moment
+  // consent is recorded, so the middleware never touches disk per request.
+  let consentGatePending = isConsentRequired();
+  if (consentGatePending) log.info('awaiting EULA/PRIVACY consent before the panel unlocks');
 
   const app = new Hono();
 
@@ -164,6 +450,17 @@ export async function initWebUI(
     const info = sessionTokens.get(token);
     if (!info || Date.now() > info.expiresAt) {
       return c.json({ status: 'failed', message: 'Token expired or invalid' }, 401);
+    }
+
+    // Consent gate (before the password gate): block everything outside the
+    // consent allowlist until the operator has accepted the current agreements.
+    // `consentGatePending` is memoized (see below) so this is a Set lookup, not
+    // a disk read, on the hot path.
+    if (consentGatePending && !CONSENT_ALLOWLIST.has(reqPath)) {
+      return c.json(
+        { status: 'failed', message: '请先阅读并同意用户协议与隐私政策', consentRequired: true },
+        403,
+      );
     }
 
     if (info.mustChangePassword && !MUST_CHANGE_ALLOWLIST.has(reqPath)) {
@@ -271,6 +568,41 @@ export async function initWebUI(
     return c.json({ success: true, requireRelogin: true });
   });
 
+  // ─── EULA / PRIVACY consent ──────────────────────────────────────────────
+  // Both are bearer-gated (consent is collected AFTER login) and live in the
+  // consent + must-change allowlists so they're reachable during onboarding.
+  // The version is content-derived, so consent is stable across app upgrades
+  // and re-prompted only when the agreement text itself changes.
+  app.get('/api/agreements', (c) => c.json(getAgreementsPayload()));
+
+  app.post('/api/agreements/record-consent', async (c) => {
+    let body: { version?: unknown };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const version = typeof body.version === 'string' ? body.version : '';
+    const current = loadAgreements().version;
+    // Reject a stale/blank version so a client that read an older agreement set
+    // can't record consent that the server would then treat as current.
+    if (!version || version !== current) {
+      return c.json(
+        { success: false, message: '协议版本已更新，请刷新后重新确认', currentVersion: current },
+        409,
+      );
+    }
+    try {
+      recordConsent(version);
+    } catch (err) {
+      log.warn('record consent failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '保存失败，请检查服务器日志' }, 500);
+    }
+    consentGatePending = false; // unlock the rest of the API for this process
+    log.info('agreements consent recorded (version=%s)', version);
+    return c.json({ success: true, version });
+  });
+
   // ─── Avatar proxy (uin validated) ────────────────────────────────────────
   app.get('/avatar/:uin', async (c) => {
     const uin = c.req.param('uin');
@@ -328,7 +660,6 @@ export async function initWebUI(
     return c.json(await getUpdateInfo(force));
   });
 
-  // Host system info
   let lastCpuTimes: { idle: number; total: number }[] | null = null;
   function sampleCpuLoad(): number[] {
     const cpus = os.cpus();
@@ -363,7 +694,9 @@ export async function initWebUI(
       hostname: os.hostname(),
       platform: os.platform(),
       arch: os.arch(),
+      archLabel: CACHED_ARCH_LABEL,
       release: os.release(),
+      distro: CACHED_DISTRO,
       uptime: os.uptime(),
       processUptime: process.uptime(),
       nodeVersion: process.version,
@@ -392,6 +725,252 @@ export async function initWebUI(
     });
   });
 
+  // ── System settings (WebUI listener) — Wave A1 ──
+  // Listener-level changes (port/host/TLS) are persisted but apply only on the
+  // next restart (no supervisor → no self-restart). The panel surfaces which
+  // fields are currently overridden by env so edits that won't take effect are
+  // visible.
+  const SYSTEM_CERT_PATH = path.join('config', 'cert.pem');
+  const SYSTEM_KEY_PATH = path.join('config', 'key.pem');
+  const hasCert = (): boolean => existsSync(SYSTEM_CERT_PATH) && existsSync(SYSTEM_KEY_PATH);
+
+  app.get('/api/system/settings', (c) => {
+    const disk = readRuntimeConfig();
+    const envOverrides = Object.keys(resolveRuntimeEnvOverrides(process.env));
+    return c.json({
+      settings: {
+        webuiPort: disk.webuiPort,
+        webuiHost: disk.webuiHost,
+        tlsEnabled: disk.webuiTls?.enabled ?? false,
+        trustProxy: disk.trustProxy ?? '',
+      },
+      hasCert: hasCert(),
+      envOverrides, // field names currently pinned by SNOWLUMA_* env vars
+      listeningPort: boundPort,
+      restartRequiredToApply: true,
+    });
+  });
+
+  app.post('/api/system/settings', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const coerced = coerceSettingsPatch(body);
+    if (!coerced.ok) return c.json({ success: false, message: coerced.error }, 400);
+    // Enabling TLS without a usable cert would brick HTTPS on restart — block it.
+    if (coerced.patch.webuiTls?.enabled && !resolveTlsContext('config').ok) {
+      return c.json({ success: false, message: '启用 TLS 前请先上传有效的证书与私钥' }, 400);
+    }
+    const saved = updateRuntimeConfig(coerced.patch);
+    return c.json({
+      success: true,
+      settings: {
+        webuiPort: saved.webuiPort,
+        webuiHost: saved.webuiHost,
+        tlsEnabled: saved.webuiTls?.enabled ?? false,
+        trustProxy: saved.trustProxy ?? '',
+      },
+      restartRequiredToApply: true,
+    });
+  });
+
+  app.post('/api/system/tls/cert', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const cert = (body as { cert?: unknown }).cert;
+    const key = (body as { key?: unknown }).key;
+    if (typeof cert !== 'string' || typeof key !== 'string') {
+      return c.json({ success: false, message: 'cert 和 key 必须为 PEM 字符串' }, 400);
+    }
+    const valid = validateTlsPair(cert, key);
+    if (!valid.ok) return c.json({ success: false, message: valid.reason }, 400);
+    try {
+      mkdirSync('config', { recursive: true });
+      writeFileSync(SYSTEM_CERT_PATH, cert.endsWith('\n') ? cert : cert + '\n', 'utf8');
+      // Private key must not be world-readable (mirrors auth.ts's webui.json
+      // 0600). writeFileSync's mode is ignored for an existing file, so chmod
+      // explicitly afterwards.
+      writeFileSync(SYSTEM_KEY_PATH, key.endsWith('\n') ? key : key + '\n', { encoding: 'utf8', mode: 0o600 });
+      // Best-effort (mirrors auth.ts): the key is already written 0600 above, so
+      // a rare chmod failure must not fail the request.
+      try { chmodSync(SYSTEM_KEY_PATH, 0o600); } catch { /* best-effort */ }
+    } catch (err) {
+      log.warn('write cert/key failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '写入证书失败，请检查服务器日志' }, 500);
+    }
+    return c.json({ success: true, restartRequiredToApply: true });
+  });
+
+  app.delete('/api/system/tls/cert', (c) => {
+    try {
+      rmSync(SYSTEM_CERT_PATH, { force: true });
+      rmSync(SYSTEM_KEY_PATH, { force: true });
+    } catch (err) {
+      log.warn('remove cert/key failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '删除证书失败' }, 500);
+    }
+    return c.json({ success: true });
+  });
+
+  // ── Config backup / restore (Wave A2) ──
+  const cfgPath = (name: string) => path.join('config', name);
+  const readCfg = (name: string): Buffer | null => {
+    const p = cfgPath(name);
+    return existsSync(p) ? readFileSync(p) : null;
+  };
+
+  const listPerUinOnebot = (): string[] => {
+    try {
+      return existsSync('config') ? readdirSync('config').filter((n) => /^onebot_\d+\.json$/.test(n)) : [];
+    } catch { return []; }
+  };
+
+  app.get('/api/system/backup/export', (c) => {
+    const includeCredentials = c.req.query('credentials') === '1';
+    const ts = new Date().toISOString();
+    const bundle = buildBackup(readCfg, listPerUinOnebot(), { includeCredentials }, ts);
+    c.header('Content-Disposition', `attachment; filename="snowluma-backup-${ts.replace(/[:.]/g, '-')}.json"`);
+    // Bundle may carry the TLS private key / password hash — never cache it.
+    c.header('Cache-Control', 'no-store, max-age=0');
+    c.header('Pragma', 'no-cache');
+    return c.json(bundle);
+  });
+
+  app.post('/api/system/backup/import', async (c) => {
+    const declaredLen = Number(c.req.header('content-length'));
+    if (Number.isFinite(declaredLen) && declaredLen > 32 * 1024 * 1024) {
+      return c.json({ success: false, message: '备份文件过大' }, 413);
+    }
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    if (typeof body !== 'object' || body === null) {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const { backup, restoreCredentials } = body as { backup?: unknown; restoreCredentials?: unknown };
+    const v = validateBackup(backup);
+    if (!v.ok) return c.json({ success: false, message: v.error }, 400);
+
+    const plan = planRestore(v.backup, { restoreCredentials: restoreCredentials === true });
+    // Snapshot the current (about-to-be-overwritten) config so a restore is
+    // recoverable; one timestamped dir per import.
+    const snapDir = path.join('config', `.restore-backup-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+    // Two-phase write for near-atomicity: stage every file as a .tmp first, then
+    // rename them all. A failure during staging touches no live file; rename
+    // almost never fails, shrinking the half-applied window to near zero.
+    const staged: Array<{ tmp: string; dest: string; name: string }> = [];
+    try {
+      for (const { name } of plan.restore) {
+        const src = cfgPath(name);
+        if (!existsSync(src)) continue;
+        const snap = path.join(snapDir, name);
+        mkdirSync(path.dirname(snap), { recursive: true });
+        copyFileSync(src, snap);
+      }
+      for (const { name, data } of plan.restore) {
+        const dest = cfgPath(name);
+        mkdirSync(path.dirname(dest), { recursive: true });
+        const tmp = dest + '.restore.tmp';
+        writeFileSync(tmp, data, name === 'key.pem' ? { mode: 0o600 } : undefined);
+        staged.push({ tmp, dest, name });
+      }
+      for (const { tmp, dest, name } of staged) {
+        renameSync(tmp, dest);
+        if (name === 'key.pem') { try { chmodSync(dest, 0o600); } catch { /* best-effort */ } }
+      }
+      return c.json({
+        success: true,
+        restored: plan.restore.map((r) => r.name),
+        skipped: plan.skipped,
+        snapshotDir: snapDir,
+        restartRequiredToApply: true,
+      });
+    } catch (err) {
+      // Clean up any staged .tmp not yet renamed (staging-phase failure leaves
+      // the live config untouched; a rare rename-phase failure may be partial,
+      // recoverable from the snapshot dir).
+      for (const { tmp } of staged) { try { if (existsSync(tmp)) rmSync(tmp, { force: true }); } catch { /* ignore */ } }
+      log.warn('backup import failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '恢复失败；若为写入阶段失败则当前配置未改动，否则可从 config/.restore-backup-* 快照恢复' }, 500);
+    }
+  });
+
+  // ── Debug tools (Wave A3) ──
+  // Action schemas for the tester form (declarative actions only; legacy ones
+  // are invoked freeform).
+  app.get('/api/debug/actions', (c) =>
+    c.json({ actions: collectActionDocs(), categories: collectCategories() }));
+
+  // Manually invoke an action against one account. Real side effects — gated by
+  // the same /api/* auth.
+  app.post('/api/debug/invoke', async (c) => {
+    let body: unknown;
+    try { body = await c.req.json(); } catch { return c.json({ status: 'failed', message: '请求格式错误' }, 400); }
+    const { uin, action, params } = (body ?? {}) as { uin?: unknown; action?: unknown; params?: unknown };
+    if (typeof uin !== 'string' || !UIN_REGEX.test(uin)) return c.json({ status: 'failed', message: '无效的账号' }, 400);
+    if (typeof action !== 'string' || !action) return c.json({ status: 'failed', message: 'action 必填' }, 400);
+    if (params !== undefined && (typeof params !== 'object' || params === null || Array.isArray(params))) {
+      return c.json({ status: 'failed', message: 'params 必须是对象' }, 400);
+    }
+    const inst = oneBotManager.getInstance(uin);
+    if (!inst) return c.json({ status: 'failed', message: '账号不在线' }, 404);
+    const result = await inst.invokeAction(action, (params ?? {}) as OneBotJsonObject);
+    return c.json(result);
+  });
+
+  // Live merged SSE of OneBot events + action calls across all accounts. Taps
+  // are attached only while a client is connected (on-demand). A slow client is
+  // dropped (not back-pressured onto the bot) with a periodic drop marker.
+  app.get('/api/debug/stream', (c) => {
+    const stream = new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder();
+        let closed = false;
+        const offs: Array<() => void> = [];
+        let heartbeat: NodeJS.Timeout | undefined;
+        const teardown = () => {
+          if (closed) return;
+          closed = true;
+          if (heartbeat) clearInterval(heartbeat);
+          for (const off of offs) { try { off(); } catch { /* ignore */ } }
+          try { controller.close(); } catch { /* ignore */ }
+        };
+        const raw = (chunk: Uint8Array) => {
+          if (closed) return;
+          try { controller.enqueue(chunk); } catch { teardown(); }
+        };
+        // Drop-under-backpressure framing (unit-tested in debug-stream.ts).
+        const pushFrame = createFramePusher({
+          desiredSize: () => controller.desiredSize,
+          enqueue: raw,
+          encode: (s) => encoder.encode(s),
+        });
+        const send = (payload: unknown) => { if (!closed) pushFrame(payload); };
+        send({ kind: 'ready' });
+        for (const inst of oneBotManager.getInstances()) {
+          const uin = inst.uin;
+          offs.push(inst.subscribeDebugEvents((event) => send({ kind: 'event', uin, event })));
+          offs.push(inst.observeActions((rec) => send({ kind: 'action', uin, ...rec })));
+        }
+        heartbeat = setInterval(() => raw(encoder.encode(': heartbeat\n\n')), 15000);
+        c.req.raw.signal.addEventListener('abort', teardown);
+      },
+    });
+    return new Response(stream, {
+      headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' },
+    });
+  });
+
   app.get('/api/qq-list', (c) => {
     const instances = oneBotManager.getInstances();
     const list = instances.map((inst) => ({ uin: inst.uin, nickname: inst.nickname }));
@@ -402,6 +981,77 @@ export async function initWebUI(
   // counts / last-delivery), powering the dashboard's connection card.
   app.get('/api/connections', (c) => {
     return c.json({ list: oneBotManager.getConnectionStatuses() });
+  });
+
+  // Combined SSE feed for the dashboard's three live resources — processes,
+  // qq-list, connections. Replaces the 3s REST polling tick in
+  // app-layout.tsx; the REST endpoints above stay for the initial fetch
+  // before SSE connects and for the slow (30s) reconciliation fallback.
+  //
+  // On connect: one frame per resource with the current snapshot. After
+  // that: a fresh snapshot per resource only when the StateBus signals a
+  // change (HookSession status-changed, BridgeManager session edges, the
+  // connection-status diff loop). 50ms per-resource debounce coalesces a
+  // burst (e.g. multiple HookSessions flipping status simultaneously).
+  const stateBus = listener.stateBus;
+  app.get('/api/state/stream', (c) => {
+    if (!stateBus) {
+      // Build without state-wiring (e.g. a future headless mode) — clients
+      // fall back to the REST endpoints. Treat as endpoint-not-here.
+      return c.text('state stream not configured', 503);
+    }
+    const liveBus = stateBus;
+    const stream = new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder();
+        let closed = false;
+        let binding: { dispose(): void } | undefined;
+        let heartbeat: NodeJS.Timeout | undefined;
+        const teardown = () => {
+          if (closed) return;
+          closed = true;
+          if (heartbeat) clearInterval(heartbeat);
+          binding?.dispose();
+          try { controller.close(); } catch { /* ignore */ }
+        };
+        const raw = (chunk: Uint8Array) => {
+          if (closed) return;
+          try { controller.enqueue(chunk); } catch { teardown(); }
+        };
+        const pushFrame = createFramePusher({
+          desiredSize: () => controller.desiredSize,
+          enqueue: raw,
+          encode: (s) => encoder.encode(s),
+        });
+        const send = (payload: unknown) => { if (!closed) pushFrame(payload); };
+        send({ kind: 'ready' });
+
+        const handle = bindStateStream({
+          bus: liveBus,
+          snapshot: async (resource: StateResource): Promise<unknown> => {
+            if (resource === 'processes') {
+              if (!hookManager) return [];
+              return hookManager.listProcesses();
+            }
+            if (resource === 'qq-list') {
+              return oneBotManager.getInstances().map((inst) => ({ uin: inst.uin, nickname: inst.nickname }));
+            }
+            return oneBotManager.getConnectionStatuses();
+          },
+          send: (frame) => send(frame),
+          debounceMs: 50,
+        });
+        binding = handle;
+        // Prime with the initial snapshot; if the client never sees the
+        // bus publish (idle system) it still has the current state.
+        void handle.sendAllInitial();
+        heartbeat = setInterval(() => raw(encoder.encode(': heartbeat\n\n')), 15000);
+        c.req.raw.signal.addEventListener('abort', teardown);
+      },
+    });
+    return new Response(stream, {
+      headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' },
+    });
   });
 
   app.get('/api/logs', (c) => {
@@ -543,6 +1193,60 @@ export async function initWebUI(
     }
   });
 
+  // ─── Notifications (account up/down → webhook) ───────────────────────────
+  // Global channel store (config/notifications.json); per-UIN opt-in lives in
+  // OneBotConfig.notifications.channelIds. All bearer-gated — channel URLs can
+  // embed secrets, so none of this is exposed unauthenticated.
+  app.get('/api/notifications/config', (c) => c.json({ config: loadNotificationsConfig() }));
+
+  app.post('/api/notifications/config', async (c) => {
+    const declaredLen = Number(c.req.header('content-length'));
+    if (Number.isFinite(declaredLen) && declaredLen > 512 * 1024) {
+      return c.json({ success: false, message: '配置过大' }, 413);
+    }
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    try {
+      const config = saveNotificationsConfig(body);
+      return c.json({ success: true, config });
+    } catch (err) {
+      log.warn('save notifications config failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '保存失败，请检查服务器日志' }, 500);
+    }
+  });
+
+  app.get('/api/notifications/recent', (c) => {
+    if (!notificationManager) return c.json({ recent: [] });
+    const limitRaw = Number(c.req.query('limit'));
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.trunc(limitRaw), 100) : 100;
+    return c.json({ recent: notificationManager.getRecent(limit) });
+  });
+
+  app.post('/api/notifications/test', async (c) => {
+    if (!notificationManager) return c.json({ success: false, message: '通知子系统不可用' }, 503);
+    let body: { channelId?: unknown };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const channelId = typeof body.channelId === 'string' ? body.channelId : '';
+    if (!channelId) return c.json({ success: false, message: '缺少 channelId' }, 400);
+    const result = await notificationManager.testSend(channelId);
+    if (!result.found) return c.json({ success: false, message: '渠道不存在' }, 404);
+    return c.json({
+      success: result.ok,
+      status: result.status,
+      message: result.ok
+        ? '测试发送成功'
+        : `测试发送失败：${result.error ?? (result.status ? `HTTP ${result.status}` : '未知错误')}`,
+    });
+  });
+
   // ─── WebUI customization config (config/ui.json) ─────────────────────────
   // Appearance (A) + layout (C). The full config is bearer-gated; only the
   // cosmetic appearance subset is exposed unauthenticated for the login page.
@@ -651,10 +1355,27 @@ export async function initWebUI(
   if (finalPort !== desiredPort) {
     log.warn('port %d is in use, using %d instead', desiredPort, finalPort);
   }
+  boundPort = finalPort;
+
+  const host = listener.host || '0.0.0.0';
+
+  // TLS: only when explicitly enabled AND the on-disk cert/key load. A bad
+  // or missing cert must never brick the WebUI — fall back to HTTP + warn.
+  let tlsServe: { createServer: typeof createHttpsServer; serverOptions: { cert: Buffer; key: Buffer } } | undefined;
+  let scheme = 'http';
+  if (listener.tlsEnabled) {
+    const tls = resolveTlsContext('config');
+    if (tls.ok && tls.cert && tls.key) {
+      tlsServe = { createServer: createHttpsServer, serverOptions: { cert: tls.cert, key: tls.key } };
+      scheme = 'https';
+    } else {
+      log.warn('TLS enabled but cert/key unusable (%s) — serving over HTTP instead', tls.reason);
+    }
+  }
 
   await new Promise<void>((resolve) => {
-    serve({ fetch: app.fetch, port: finalPort }, (info) => {
-      log.info(`listening http://localhost:${info.port}`);
+    serve({ fetch: app.fetch, port: finalPort, hostname: host, ...(tlsServe ?? {}) }, (info) => {
+      log.info(`listening ${scheme}://${host}:${info.port}`);
       resolve();
     });
   });

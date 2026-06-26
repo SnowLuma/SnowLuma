@@ -102,18 +102,24 @@ export const DEFAULT_APPEARANCE: UiAppearance = {
   sidebarStyle: 'follow',
   background: { type: 'none', color: '#0ea5e9', gradient: 'none', imageOpacity: 0.15, imageBlur: 0, hasImage: false, imageMime: '', imageVersion: 0 },
   fontSans: 'default',
+  fontSansCustom: '',
   fontMono: 'default',
+  fontMonoCustom: '',
   uiScale: 1,
   radius: 0.75,
   density: 'cozy',
   reduceMotion: false,
   disableMotion: false,
   highContrast: false,
-  sidebarDefaultCollapsed: false,
+  sidebarPinned: false,
   timeFormat: '24h',
   pollInterval: 3000,
   customCss: '',
+  cssVars: {},
 };
+
+/** The sentinel `fontSans`/`fontMono` id selecting the free-form custom family. */
+export const FONT_CUSTOM_ID = 'custom';
 
 const LS_CACHE = 'snowluma_ui_appearance';
 const LS_MIGRATED = 'snowluma_ui_migrated';
@@ -306,8 +312,48 @@ function paletteVarsCss(a: UiAppearance): string {
   return `${selector}{${body}}`;
 }
 
-function fontStack(options: FontSpec[], id: string): string {
+// Guards the locally-tamperable cache from injecting arbitrary CSS through the
+// `--font-sans`/`--font-mono` declaration. Mirrors the server's fontFamilyOr.
+const FONT_FAMILY_RE = /^[\p{L}\p{N}\s,'"._-]+$/u;
+function safeFontFamily(value: string): string | null {
+  const v = value.trim();
+  if (v.length === 0 || v.length > 200 || !FONT_FAMILY_RE.test(v)) return null;
+  return v;
+}
+
+/** Resolve the active font stack: a preset's stack, or — when `id === 'custom'`
+ *  and the free-form family is valid — that family with a generic fallback
+ *  appended (so a missing font still degrades gracefully). */
+function resolveFontStack(options: FontSpec[], id: string, custom: string, generic: string): string {
+  if (id === FONT_CUSTOM_ID) {
+    const fam = safeFontFamily(custom);
+    if (fam) return `${fam}, ${generic}`;
+    return options[0].stack; // 'custom' selected but empty/invalid → default preset
+  }
   return (options.find((f) => f.id === id) ?? options[0]).stack;
+}
+
+/** Build the `:root{ --token: value; … }` block from whitelisted cssVar
+ *  overrides. Re-validates keys/values defensively (the cache is tamperable;
+ *  the server is the real validator). Applied last so it wins over palette. */
+const CSS_VAR_WHITELIST = new Set<string>([
+  '--background', '--foreground', '--card', '--card-foreground',
+  '--popover', '--popover-foreground', '--primary', '--primary-foreground',
+  '--secondary', '--secondary-foreground', '--muted', '--muted-foreground',
+  '--accent', '--accent-foreground', '--destructive', '--destructive-foreground',
+  '--success', '--warning', '--border', '--input', '--ring',
+  '--sidebar', '--sidebar-foreground', '--sidebar-primary', '--sidebar-primary-foreground',
+  '--sidebar-accent', '--sidebar-accent-foreground', '--sidebar-border', '--sidebar-ring',
+]);
+const CSS_COLOR_RE = /^(?:#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|[a-zA-Z]{1,24}|(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color|color-mix)\([a-zA-Z0-9.,%/\s#-]{1,120}\))$/;
+function cssVarsCss(a: UiAppearance): string {
+  const vars = a.cssVars;
+  if (!vars || typeof vars !== 'object') return '';
+  const decls = Object.entries(vars)
+    .filter(([k, v]) => CSS_VAR_WHITELIST.has(k) && typeof v === 'string' && CSS_COLOR_RE.test(v.trim()))
+    .map(([k, v]) => `${k}:${v.trim()};`)
+    .join('');
+  return decls ? `:root{${decls}}` : '';
 }
 
 function applyAppearance(a: UiAppearance, resolved: 'light' | 'dark'): void {
@@ -334,8 +380,8 @@ function applyAppearance(a: UiAppearance, resolved: 'light' | 'dark'): void {
 
   // Mode-independent vars go inline on :root.
   root.style.setProperty('--radius', `${a.radius}rem`);
-  root.style.setProperty('--font-sans', fontStack(FONT_SANS_OPTIONS, a.fontSans));
-  root.style.setProperty('--font-mono', fontStack(FONT_MONO_OPTIONS, a.fontMono));
+  root.style.setProperty('--font-sans', resolveFontStack(FONT_SANS_OPTIONS, a.fontSans, a.fontSansCustom, 'system-ui, sans-serif'));
+  root.style.setProperty('--font-mono', resolveFontStack(FONT_MONO_OPTIONS, a.fontMono, a.fontMonoCustom, 'ui-monospace, monospace'));
   // UI scale: scale the root font-size so all rem-based sizing tracks it.
   // Clamp defensively (the localStorage cache is locally tamperable; the
   // server already bounds this to 0.9..1.2 for its own values).
@@ -351,8 +397,9 @@ function applyAppearance(a: UiAppearance, resolved: 'light' | 'dark'): void {
     document.head.appendChild(el);
   }
   // Palette (base/surface tokens) first, then accent (--primary/--ring) — a
-  // disjoint var set, layered after so it composes with any flavor.
-  el.textContent = `${paletteVarsCss(a)}\n${accentVarsCss(a)}`;
+  // disjoint var set, layered after so it composes with any flavor. The
+  // operator's variable-panel overrides come last so they win over both.
+  el.textContent = `${paletteVarsCss(a)}\n${accentVarsCss(a)}\n${cssVarsCss(a)}`;
 
   // Custom CSS — appended AFTER the accent block so it is the last style in
   // <head> and can override anything. Skipped under ?safe-mode=1 (escape

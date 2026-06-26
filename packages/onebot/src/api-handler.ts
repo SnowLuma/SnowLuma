@@ -9,6 +9,7 @@ import { register as registerGroupFile } from './actions/group-file';
 import { register as registerGroupInfo } from './actions/group-info';
 import { register as registerInfo } from './actions/info';
 import { register as registerMessage } from './actions/message';
+import { register as registerQzone } from './actions/qzone';
 import { register as registerRequest } from './actions/request';
 import type { ForwardPreviewMeta } from './modules/message-actions';
 import type { JsonObject, JsonValue, MessageMeta } from './types';
@@ -81,9 +82,27 @@ export interface ApiActionContext {
 
 type ActionHandler = (params: JsonObject) => Promise<import('./types').ApiResponse>;
 
+/** A handled-action record handed to debug observers. */
+export interface ActionRecord {
+  action: string;
+  params: JsonObject;
+  response: import('./types').ApiResponse;
+  ms: number;
+}
+export type ActionObserver = (rec: ActionRecord) => void;
+
 export class ApiHandler {
   private readonly handlers = new Map<string, ActionHandler>();
   private readonly log: Logger;
+  /** Debug-stream taps — notified after every handled action. Attached
+   *  on-demand (ref-counted) by the WebUI debug stream. */
+  private readonly observers = new Set<ActionObserver>();
+
+  /** Observe handled actions (debug). Returns an unsubscribe. */
+  setObserver(cb: ActionObserver): () => void {
+    this.observers.add(cb);
+    return () => { this.observers.delete(cb); };
+  }
 
   constructor(context: ApiActionContext, uin?: number) {
     this.log = typeof uin === 'number' && uin > 0 ? moduleLog.child({ uin }) : moduleLog;
@@ -96,6 +115,7 @@ export class ApiHandler {
     registerRequest(this, context);
     registerExtended(this, context);
     registerGroupAlbum(this, context);
+    registerQzone(this, context);
   }
 
   registerAction(action: string, handler: ActionHandler): void {
@@ -132,10 +152,10 @@ export class ApiHandler {
     this.log.trace(() => [`${action} ⇐ %s`, renderParamsVerbose(params)]);
 
     const startedAt = Date.now();
+    let response: import('./types').ApiResponse;
     try {
-      const response = await handler(params);
+      response = await handler(params);
       this.log.trace(() => [`${action} ⇒ ${response.status} (${Date.now() - startedAt}ms)`]);
-      return response;
     } catch (error) {
       // Action failures are almost always param-shape problems coming
       // from the OneBot client; warn (not error) is the right level so
@@ -145,7 +165,23 @@ export class ApiHandler {
         error instanceof Error ? error.message : String(error),
         error instanceof Error ? (error.stack ?? '') : '');
       const message = error instanceof Error ? error.message : 'internal error';
-      return failedResponse(RETCODE.INTERNAL_ERROR, message);
+      response = failedResponse(RETCODE.INTERNAL_ERROR, message);
+    }
+    this.notifyObservers(action, params, response, Date.now() - startedAt);
+    return response;
+  }
+
+  private notifyObservers(
+    action: string,
+    params: JsonObject,
+    response: import('./types').ApiResponse,
+    ms: number,
+  ): void {
+    if (!this.observers.size) return;
+    for (const cb of this.observers) {
+      try { cb({ action, params, response, ms }); } catch (err) {
+        this.log.warn('action observer error: %s', err instanceof Error ? err.message : String(err));
+      }
     }
   }
 

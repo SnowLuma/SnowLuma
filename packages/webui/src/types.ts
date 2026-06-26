@@ -97,26 +97,116 @@ export interface OneBotNetworks {
   wsClients: WsClientNetwork[];
 }
 
-/** Built-in `#sl` status command settings (trigger word is hardcoded). */
+/** Built-in status command settings. Trigger word is configurable. */
 export interface StatusCommandConfig {
   enabled: boolean;
   swallow: boolean;
   cooldownSeconds: number;
+  trigger: string;
 }
 
 export interface OneBotConfig {
   networks: OneBotNetworks;
   musicSignUrl?: string;
   statusCommand: StatusCommandConfig;
+  /** Per-account opt-in to global notification channels (by channel id). */
+  notifications?: { channelIds: string[] };
+}
+
+// ─── Notifications (account up/down webhooks) ───────────────────────────────
+export type NotificationEventKind = 'offline' | 'online';
+
+export interface NotificationChannel {
+  id: string;
+  name: string;
+  url: string;
+  bodyTemplate: string;
+  enabled: boolean;
+}
+
+export interface NotificationsConfig {
+  version: number;
+  debounceSeconds: number;
+  channels: NotificationChannel[];
+}
+
+export interface NotificationDeliveryRecord {
+  time: number;
+  uin: string;
+  event: NotificationEventKind;
+  channelId: string;
+  ok: boolean;
+  status?: number;
+  error?: string;
 }
 
 export type NetworkKind = keyof OneBotNetworks;
+
+// WebUI listener self-config (Wave A1). Listener-level changes are
+// restart-to-apply; `envOverrides` lists fields currently pinned by env vars.
+export interface SystemSettings {
+  webuiPort: number;
+  webuiHost: string;
+  tlsEnabled: boolean;
+  trustProxy: string;
+}
+export type SystemSettingsPatch = Partial<SystemSettings>;
+export interface SystemSettingsResponse {
+  settings: SystemSettings;
+  hasCert: boolean;
+  envOverrides: string[];
+  listeningPort: number;
+  restartRequiredToApply: boolean;
+}
+
+// Debug tools (Wave A3).
+export interface DebugActionParam {
+  name: string;
+  type: string;
+  required: boolean;
+  default?: unknown;
+  desc?: string;
+  values?: (string | number)[];
+}
+export interface DebugActionDoc {
+  name: string;
+  aliases: string[];
+  category?: string;
+  summary?: string;
+  returns?: string;
+  readOnly: boolean;
+  params: DebugActionParam[];
+}
+export interface DebugInvokeResult {
+  status: string;
+  retcode?: number;
+  data?: unknown;
+  message?: string;
+  wording?: string;
+}
+export type DebugStreamMessage =
+  | { kind: 'ready' }
+  | { kind: 'dropped'; count: number }
+  | { kind: 'event'; uin: string; event: Record<string, unknown> }
+  | { kind: 'action'; uin: string; action: string; params: Record<string, unknown>; response: Record<string, unknown>; ms: number };
+
+// Config backup/restore (Wave A2). The bundle is an opaque JSON object the
+// server validates; the client never inspects its internals.
+export type BackupBundle = Record<string, unknown>;
+export interface BackupImportResult {
+  restored: string[];
+  skipped: string[];
+  snapshotDir: string;
+  restartRequiredToApply: boolean;
+}
 
 export interface SystemInfo {
   hostname: string;
   platform: string;
   arch: string;
+  archLabel: string;
   release: string;
+  distro: string;
   uptime: number;
   processUptime: number;
   nodeVersion: string;
@@ -202,18 +292,25 @@ export interface UiAppearance {
   sidebarStyle: SidebarStyle;
   background: UiBackground;
   fontSans: string;
+  /** Free-form sans font-family stack, used when `fontSans === 'custom'`. */
+  fontSansCustom: string;
   fontMono: string;
+  /** Free-form mono font-family stack, used when `fontMono === 'custom'`. */
+  fontMonoCustom: string;
   uiScale: number;
   radius: number;
   density: Density;
   reduceMotion: boolean;
   disableMotion: boolean;
   highContrast: boolean;
-  sidebarDefaultCollapsed: boolean;
+  /** Pin the sidebar permanently expanded, opting out of the hover-expand rail. */
+  sidebarPinned: boolean;
   timeFormat: TimeFormat;
   pollInterval: number;
   /** Operator custom CSS (applied post-auth only; stripped from /api/ui/public). */
   customCss: string;
+  /** Theme-token overrides from the variable panel (whitelisted keys/values). */
+  cssVars: Record<string, string>;
 }
 
 export interface UiLayoutItem {
@@ -229,8 +326,13 @@ export interface UiLayoutItem {
 }
 
 export interface UiLayout {
+  /** Desktop 2D grid blocks (carry x/y/w/h). */
   overviewBlocks: UiLayoutItem[];
+  /** Single-column mobile overview order (id+visible only). */
+  overviewMobile: UiLayoutItem[];
   navItems: UiLayoutItem[];
+  /** Top-bar element show/hide list (id+visible). */
+  topbarItems: UiLayoutItem[];
 }
 
 export interface UiHighlightRule {
@@ -238,12 +340,16 @@ export interface UiHighlightRule {
   color: string;
 }
 
+export type LogsPreset = 'dev' | 'ops' | 'minimal' | 'custom';
+
 export interface UiLogsPrefs {
   visibleLevels: string[];
   maxLines: number;
   autoScroll: boolean;
   wrap: boolean;
   highlightRules: UiHighlightRule[];
+  /** Active view preset; 'custom' = hand-tuned. Client owns the bundles. */
+  preset: LogsPreset;
 }
 
 export interface UiPages {

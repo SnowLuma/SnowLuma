@@ -12,10 +12,16 @@ import { SetGroupRemark } from '@snowluma/protocol/oidb-services/group-admin/set
 import { SetMemberCard } from '@snowluma/protocol/oidb-services/group-admin/set-member-card';
 import { SetSearch } from '@snowluma/protocol/oidb-services/group-admin/set-search';
 import { SetSpecialTitle } from '@snowluma/protocol/oidb-services/group-admin/set-special-title';
+import { ModifyGroupExtInfo } from '@snowluma/protocol/oidb-services/group-admin/modify-group-ext-info';
 import type { BridgeContext } from '../bridge-context';
 
 export class GroupAdminApi {
   constructor(private readonly ctx: BridgeContext) { }
+
+  /** Set the group's robot-add option (switch / examine) via group ext-info. */
+  setRobotAddOption(groupId: number, robotMemberSwitch?: number, robotMemberExamine?: number): Promise<void> {
+    return ModifyGroupExtInfo.invoke(this.ctx, { groupId, robotMemberSwitch, robotMemberExamine });
+  }
 
   muteMember(groupId: number, userId: number, duration: number): Promise<void> {
     return MuteMember.invoke(this.ctx, { groupId, userId, duration });
@@ -48,8 +54,26 @@ export class GroupAdminApi {
     return KickMembers.invoke(this.ctx, { groupId, userIds, reject });
   }
 
-  leave(groupId: number): Promise<void> {
-    return LeaveGroup.invoke(this.ctx, { groupId });
+  async leave(groupId: number): Promise<void> {
+    await LeaveGroup.invoke(this.ctx, { groupId });
+    // The server doesn't push a member-decrease back to the member who left of
+    // its own accord, so synthesize the self group_member_leave here — otherwise
+    // downstream never sees notice.group_decrease and keeps a "zombie" group in
+    // its cache (#133). Also drop the group from our own roster.
+    const selfUin = Number(this.ctx.identity.uin) || 0;
+    const selfUid = this.ctx.identity.selfUid ?? '';
+    await this.ctx.events.emit({
+      kind: 'group_member_leave',
+      time: Math.floor(Date.now() / 1000),
+      selfUin,
+      groupId,
+      userUin: selfUin,
+      operatorUin: selfUin,
+      userUid: selfUid,
+      operatorUid: selfUid,
+      leaveType: 'leave',
+    });
+    this.ctx.identity.forgetGroup(groupId);
   }
 
   setAdmin(groupId: number, userId: number, enable: boolean): Promise<void> {

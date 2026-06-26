@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useApi } from '@/lib/api';
-import { defaultOverviewGrid, migrateOverviewBlocks } from '@/lib/dashboard-layout';
+import { defaultOverviewGrid, defaultOverviewMobile, migrateOverviewBlocks } from '@/lib/dashboard-layout';
 import type { UiLayout, UiLayoutItem, UiPages } from '@/types';
 
 // Client-side layout customization (the "C" half). The server stores the
@@ -20,11 +20,18 @@ const DEFAULT_NAV_ITEMS: UiLayoutItem[] = [
   { id: '/settings', visible: true },
 ];
 
+// Toggleable top-bar elements (essential ones are pinned in the consumer). The
+// catalogue (labels) lives with the top-bar; this is just the default order.
+export const TOPBAR_ITEM_IDS = ['status', 'theme', 'kiosk'] as const;
+const DEFAULT_TOPBAR_ITEMS: UiLayoutItem[] = TOPBAR_ITEM_IDS.map((id) => ({ id, visible: true }));
+
 export const DEFAULT_LAYOUT: UiLayout = {
   // Overview blocks are the positioned grid widgets (the catalogue owns the
   // default placement + the legacy `stats`→tiles migration).
   overviewBlocks: defaultOverviewGrid(),
+  overviewMobile: defaultOverviewMobile(),
   navItems: DEFAULT_NAV_ITEMS.map((i) => ({ ...i })),
+  topbarItems: DEFAULT_TOPBAR_ITEMS.map((i) => ({ ...i })),
 };
 
 const ALL_LEVELS = ['trace', 'debug', 'info', 'success', 'warn', 'error'];
@@ -32,7 +39,7 @@ const ALL_LEVELS = ['trace', 'debug', 'info', 'success', 'warn', 'error'];
 export function defaultPages(): UiPages {
   return {
     defaultRoute: '/',
-    logs: { visibleLevels: [...ALL_LEVELS], maxLines: 1000, autoScroll: true, wrap: true, highlightRules: [] },
+    logs: { visibleLevels: [...ALL_LEVELS], maxLines: 1000, autoScroll: true, wrap: true, highlightRules: [], preset: 'custom' },
     processesSort: 'pid',
     configTab: '',
   };
@@ -43,12 +50,14 @@ export const DEFAULT_PAGES: UiPages = defaultPages();
 /**
  * Order + visibility for a known catalogue: keep stored items that still exist
  * (in their stored order + visibility), then append any catalogue entries the
- * stored layout predates (visible). `pinned` ids are forced visible.
+ * stored layout predates. `pinned` ids are forced visible; ids in
+ * `hiddenByDefault` are appended hidden (opt-in widgets), otherwise visible.
  */
 export function reconcileLayoutItems(
   stored: UiLayoutItem[] | undefined,
   known: readonly string[],
   pinned: readonly string[] = [],
+  hiddenByDefault: ReadonlySet<string> = new Set(),
 ): UiLayoutItem[] {
   const knownSet = new Set(known);
   const seen = new Set<string>();
@@ -59,19 +68,25 @@ export function reconcileLayoutItems(
     out.push({ id: item.id, visible: pinned.includes(item.id) ? true : item.visible !== false });
   }
   for (const id of known) {
-    if (!seen.has(id)) out.push({ id, visible: true });
+    if (!seen.has(id)) out.push({ id, visible: !hiddenByDefault.has(id) });
   }
   return out;
 }
 
 interface LayoutContextValue {
   overviewBlocks: UiLayoutItem[];
+  overviewMobile: UiLayoutItem[];
   navItems: UiLayoutItem[];
-  /** Persist a new overview-block order/visibility. */
+  topbarItems: UiLayoutItem[];
+  /** Persist a new overview-block order/visibility (desktop 2D grid). */
   setOverviewBlocks: (items: UiLayoutItem[]) => void;
+  /** Persist a new single-column mobile order/visibility. */
+  setOverviewMobile: (items: UiLayoutItem[]) => void;
   /** Persist a new nav order/visibility. */
   setNavItems: (items: UiLayoutItem[]) => void;
-  /** Reset layout (blocks + nav) to defaults. */
+  /** Persist a new top-bar show/hide order. */
+  setTopbarItems: (items: UiLayoutItem[]) => void;
+  /** Reset layout (blocks + mobile + nav + topbar) to defaults. */
   resetLayout: () => void;
   /** Per-page preferences (default route, logs/processes/config prefs). */
   pages: UiPages;
@@ -117,7 +132,11 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
           if (config.layout) {
             setLayout({
               overviewBlocks: migrateOverviewBlocks(config.layout.overviewBlocks),
+              // Mobile/topbar are stored raw; consumers reconcile against their
+              // known catalogues (so a new widget/element "just appears").
+              overviewMobile: config.layout.overviewMobile ?? defaultOverviewMobile(),
               navItems: config.layout.navItems,
+              topbarItems: config.layout.topbarItems ?? DEFAULT_TOPBAR_ITEMS.map((i) => ({ ...i })),
             });
           }
           if (config.pages) setPagesState(config.pages);
@@ -159,14 +178,24 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
     persist({ ...layoutRef.current, overviewBlocks: items });
   }, [persist]);
 
+  const setOverviewMobile = useCallback((items: UiLayoutItem[]) => {
+    persist({ ...layoutRef.current, overviewMobile: items });
+  }, [persist]);
+
   const setNavItems = useCallback((items: UiLayoutItem[]) => {
     persist({ ...layoutRef.current, navItems: items });
+  }, [persist]);
+
+  const setTopbarItems = useCallback((items: UiLayoutItem[]) => {
+    persist({ ...layoutRef.current, topbarItems: items });
   }, [persist]);
 
   const resetLayout = useCallback(() => {
     persist({
       overviewBlocks: defaultOverviewGrid(),
+      overviewMobile: defaultOverviewMobile(),
       navItems: DEFAULT_NAV_ITEMS.map((i) => ({ ...i })),
+      topbarItems: DEFAULT_TOPBAR_ITEMS.map((i) => ({ ...i })),
     });
   }, [persist]);
 
@@ -184,16 +213,20 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<LayoutContextValue>(() => ({
     overviewBlocks: layout.overviewBlocks,
+    overviewMobile: layout.overviewMobile,
     navItems: layout.navItems,
+    topbarItems: layout.topbarItems,
     setOverviewBlocks,
+    setOverviewMobile,
     setNavItems,
+    setTopbarItems,
     resetLayout,
     pages,
     setPages,
     ready,
     editing,
     setEditing,
-  }), [layout, setOverviewBlocks, setNavItems, resetLayout, pages, setPages, ready, editing]);
+  }), [layout, setOverviewBlocks, setOverviewMobile, setNavItems, setTopbarItems, resetLayout, pages, setPages, ready, editing]);
 
   return <LayoutContext.Provider value={value}>{children}</LayoutContext.Provider>;
 }

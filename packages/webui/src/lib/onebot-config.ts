@@ -1,6 +1,11 @@
 import type { MessageFormat, OneBotConfig, StatusCommandConfig } from '@/types';
 
-const DEFAULT_STATUS_COMMAND: StatusCommandConfig = { enabled: true, swallow: false, cooldownSeconds: 5 };
+const DEFAULT_STATUS_COMMAND: StatusCommandConfig = {
+  enabled: true,
+  swallow: false,
+  cooldownSeconds: 5,
+  trigger: '#sl',
+};
 
 /** Fill the `statusCommand` block with defaults when the backend omits or
  *  partially supplies it (older configs predate the feature). */
@@ -13,7 +18,19 @@ function normalizeStatusCommand(raw: unknown): StatusCommandConfig {
       typeof src.cooldownSeconds === 'number' && Number.isFinite(src.cooldownSeconds) && src.cooldownSeconds >= 0
         ? Math.trunc(src.cooldownSeconds)
         : DEFAULT_STATUS_COMMAND.cooldownSeconds,
+    trigger: typeof src.trigger === 'string' && src.trigger.trim().length > 0 && !/[\r\n]/.test(src.trigger)
+      ? src.trigger.trim().slice(0, 32)
+      : DEFAULT_STATUS_COMMAND.trigger,
   };
+}
+
+/** Keep only string channel ids (the server re-validates slugs on save). */
+function normalizeNotifications(raw: unknown): { channelIds: string[] } {
+  const src = (raw ?? {}) as Record<string, unknown>;
+  const channelIds = Array.isArray(src.channelIds)
+    ? src.channelIds.filter((x): x is string => typeof x === 'string')
+    : [];
+  return { channelIds };
 }
 
 /**
@@ -47,5 +64,6 @@ export function normalizeOneBotConfig(raw: unknown): OneBotConfig {
     },
     musicSignUrl: typeof cfg.musicSignUrl === 'string' ? cfg.musicSignUrl : undefined,
     statusCommand: normalizeStatusCommand(cfg.statusCommand),
+    notifications: normalizeNotifications(cfg.notifications),
   };
 }

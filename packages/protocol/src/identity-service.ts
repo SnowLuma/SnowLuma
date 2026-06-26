@@ -105,6 +105,10 @@ export class IdentityService {
   private readonly userProfiles_ = new Map<number, UserProfileInfo>();
   private friends_: FriendInfo[] = [];
   private readonly groups_ = new Map<number, QQGroupInfo>();
+  // groupUin → approval msgseq from a private "qun.invite" card's jumpUrl.
+  // The 0x10c8 approval for a bot self-invite needs THIS sequence (with
+  // eventType=2); the MSF invite push never carries it. See issue #125.
+  private readonly groupInviteCardSeqs_ = new Map<number, number>();
 
   // ─── Bidirectional UID↔UIN index (O(1), populated by every observation) ───
   private readonly uinByUid = new Map<string, number>();
@@ -341,6 +345,20 @@ export class IdentityService {
     this.hydrateActiveMembersForGroups(groups.map((group) => group.groupId));
   }
 
+  /**
+   * Drop a single group from the roster after the bot leaves/is removed, so
+   * `get_group_list` and member lookups stop returning a group we're no longer
+   * in (#133). Removes the in-memory entry and marks the DB row inactive so it
+   * doesn't resurrect on the next load (the server refetch won't include it).
+   */
+  forgetGroup(groupId: number): void {
+    this.groups_.delete(groupId);
+    this.runWrite('forget group', () => {
+      this.pstmt('UPDATE groups SET active = 0, updated_at = ? WHERE group_id = ?')
+        .run(nowSeconds(), groupId);
+    });
+  }
+
   rememberGroupMembers(groupId: number, members: GroupMemberInfo[]): void {
     this.setGroupMembersInMemory(groupId, members);
     for (const member of members) this.rememberUidUin(member.uid, member.uin);
@@ -379,6 +397,17 @@ export class IdentityService {
       remark: info.remark,
       source: 'profile',
     })));
+  }
+
+  /** Remember the approval msgseq carried by a private "qun.invite" card's
+   *  jumpUrl, keyed by group. `set_group_add_request` reads it back to approve
+   *  a bot self-invite via 0x10c8 (eventType=2). See issue #125. */
+  rememberGroupInviteCardSequence(groupUin: number, sequence: number): void {
+    if (groupUin > 0 && sequence > 0) this.groupInviteCardSeqs_.set(groupUin, sequence);
+  }
+
+  getGroupInviteCardSequence(groupUin: number): number | undefined {
+    return this.groupInviteCardSeqs_.get(groupUin);
   }
 
   rememberGroupRequests(requests: GroupRequestInfo[]): void {

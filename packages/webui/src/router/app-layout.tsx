@@ -8,6 +8,7 @@ import { NAV_ITEMS } from '@/components/layout/sidebar';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AppStateProvider } from '@/contexts/AppStateContext';
+import { KioskProvider } from '@/contexts/KioskContext';
 import { LayoutProvider, useLayout } from '@/contexts/LayoutContext';
 import { useSession } from '@/contexts/SessionContext';
 import type { AppPath } from '@/router';
@@ -103,12 +104,68 @@ export function AppLayout() {
     onAfterOp: refreshProcesses,
   });
 
+  // Primary live-state path: subscribe to /api/state/stream and apply
+  // pushed snapshots directly. Initial frames on connect prime
+  // processes/qqList/connections without a polling tick.
+  //
+  // On `{kind:'dropped'}` (backpressure made the server skip some frames),
+  // a per-resource SSE auto-recovery is NOT guaranteed: the next delivered
+  // frame is whatever resource next changes, not necessarily the one whose
+  // update we lost. So on dropped, kick a one-shot REST reconcile to
+  // recover immediately instead of waiting up to 30s for the fallback.
+  useEffect(() => {
+    const dispose = api.stateStream({
+      onEvent: (event) => {
+        if ('resource' in event) {
+          if (event.resource === 'processes') setProcessList(event.data);
+          else if (event.resource === 'qq-list') setQqList(event.data);
+          else if (event.resource === 'connections') setConnections(event.data);
+          return;
+        }
+        if ('kind' in event && event.kind === 'dropped') {
+          // Fire-and-forget; each refresh has its own try/catch.
+          void refreshQqList();
+          void refreshProcesses();
+          void refreshConnections();
+        }
+      },
+    });
+    return () => { dispose(); };
+  }, [api, refreshQqList, refreshProcesses, refreshConnections]);
+
+  // Slow reconcile fallback for the SSE-covered resources. SSE drops can
+  // be silent (proxy rewrites text/event-stream, tab thrashing). One REST
+  // tick per (pollInterval × 10, min 10s) recovers from those without
+  // hammering the server.
+  useEffect(() => {
+    if (pollInterval <= 0) return;
+    let cancelled = false;
+    const reconcileMs = Math.max(pollInterval * 10, 10_000);
+    const tick = async () => {
+      if (cancelled) return;
+      await Promise.all([refreshQqList(), refreshProcesses(), refreshConnections()]);
+    };
+    // Initial tick primes the lists before the SSE handshake completes
+    // (avoids a flash of empty state in the chrome).
+    tick();
+    const interval = setInterval(tick, reconcileMs);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [pollInterval, refreshQqList, refreshProcesses, refreshConnections]);
+
+  // systemInfo has its OWN fast cadence — it carries live values (uptime,
+  // cpu loadAvg, memory.usagePercent, runtime.heapUsed) that the overview
+  // widget visibly animates. It isn't on the SSE feed, so a 30s reconcile
+  // would visibly lag the dashboard. Keep the user's configured
+  // pollInterval (default 3s) here.
   useEffect(() => {
     if (pollInterval <= 0) return;
     let cancelled = false;
     const tick = async () => {
       if (cancelled) return;
-      await Promise.all([refreshQqList(), refreshProcesses(), refreshSystem(), refreshConnections()]);
+      await refreshSystem();
     };
     tick();
     const interval = setInterval(tick, pollInterval);
@@ -116,7 +173,7 @@ export function AppLayout() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [pollInterval, refreshQqList, refreshProcesses, refreshSystem, refreshConnections]);
+  }, [pollInterval, refreshSystem]);
 
   // Update check runs on its own slow cadence (6h), independent of the fast
   // list-polling above — GitHub's API is rate-limited, the result rarely
@@ -157,16 +214,18 @@ export function AppLayout() {
       }}
     >
       <LayoutProvider>
-        <DefaultRouteRedirect />
-        <MainLayout status={session.status} onLogout={handleLogout}>
-          {/* Routes use `lazyRouteComponent` (router/index.tsx) for
-              code-splitting, which suspends until the chunk is fetched.
-              The chrome (sidebar / top bar) stays mounted across this
-              boundary so only the page surface flashes a skeleton. */}
-          <Suspense fallback={<PageFallback />}>
-            <Outlet />
-          </Suspense>
-        </MainLayout>
+        <KioskProvider>
+          <DefaultRouteRedirect />
+          <MainLayout status={session.status} onLogout={handleLogout}>
+            {/* Routes use `lazyRouteComponent` (router/index.tsx) for
+                code-splitting, which suspends until the chunk is fetched.
+                The chrome (sidebar / top bar) stays mounted across this
+                boundary so only the page surface flashes a skeleton. */}
+            <Suspense fallback={<PageFallback />}>
+              <Outlet />
+            </Suspense>
+          </MainLayout>
+        </KioskProvider>
       </LayoutProvider>
 
       <ConfirmDialog

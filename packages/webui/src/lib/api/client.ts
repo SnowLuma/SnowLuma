@@ -1,7 +1,8 @@
-import type { AccountConnections, HookProcessInfo, LogEntry, LogLevel, QQInfo, SystemInfo, UiAppearance, UiConfig, UpdateInfo } from '@/types';
+import type { AccountConnections, BackupBundle, BackupImportResult, DebugActionDoc, DebugInvokeResult, DebugStreamMessage, HookProcessInfo, LogEntry, LogLevel, NotificationDeliveryRecord, NotificationsConfig, QQInfo, SystemInfo, SystemSettingsPatch, SystemSettingsResponse, UiAppearance, UiConfig, UpdateInfo } from '@/types';
 import type { PasswordRule } from '@/components/pages/change-password-page';
 import { normalizeOneBotConfig } from '@/lib/onebot-config';
 import {
+  type AgreementsPayload,
   ApiError,
   type ApiClient,
   type ChangePasswordResult,
@@ -9,6 +10,8 @@ import {
   type LoginResult,
   type LogsStreamOptions,
   type ProcessActionResult,
+  type StateStreamEvent,
+  type StateStreamOptions,
   type TokenStore,
 } from './types';
 import { localStorageTokenStore } from './token-store';
@@ -44,6 +47,10 @@ class HttpApiClient implements ApiClient {
   readonly logs: ApiClient['logs'];
   readonly update: ApiClient['update'];
   readonly ui: ApiClient['ui'];
+  readonly notifications: ApiClient['notifications'];
+  readonly systemSettings: ApiClient['systemSettings'];
+  readonly debug: ApiClient['debug'];
+  readonly agreements: ApiClient['agreements'];
 
   constructor(opts: CreateApiClientOptions = {}) {
     this.tokenStore = opts.tokenStore ?? localStorageTokenStore(DEFAULT_TOKEN_KEY);
@@ -97,6 +104,32 @@ class HttpApiClient implements ApiClient {
         this.getJson<UpdateInfo>(`/api/update/check${force ? '?force=true' : ''}`),
     };
 
+    this.systemSettings = {
+      get: () => this.getJson<SystemSettingsResponse>('/api/system/settings'),
+      save: (patch: SystemSettingsPatch) =>
+        this.postJson<{ settings: SystemSettingsResponse['settings']; restartRequiredToApply: boolean }>(
+          '/api/system/settings',
+          patch,
+        ),
+      uploadCert: async (cert: string, key: string) => {
+        await this.postJson<{ success: boolean }>('/api/system/tls/cert', { cert, key });
+      },
+      deleteCert: async () => {
+        await this.fetchJson<{ success: boolean }>('/api/system/tls/cert', { method: 'DELETE' });
+      },
+      exportBackup: (includeCredentials: boolean) =>
+        this.getJson<BackupBundle>(`/api/system/backup/export${includeCredentials ? '?credentials=1' : ''}`),
+      importBackup: (backup: BackupBundle, restoreCredentials: boolean) =>
+        this.postJson<BackupImportResult>('/api/system/backup/import', { backup, restoreCredentials }),
+    };
+
+    this.debug = {
+      actions: () => this.getJson<{ actions: DebugActionDoc[]; categories: { category: string; count: number }[] }>('/api/debug/actions'),
+      invoke: (uin: string, action: string, params: Record<string, unknown>) =>
+        this.postJson<DebugInvokeResult>('/api/debug/invoke', { uin, action, params }),
+      stream: (onMessage, onStatus) => this.openDebugStream(onMessage, onStatus),
+    };
+
     this.ui = {
       get: () => this.getJson<{ config: UiConfig }>('/api/ui').then((d) => d.config),
       save: async (config) => {
@@ -134,6 +167,46 @@ class HttpApiClient implements ApiClient {
       deleteBackground: async () => {
         const data = await this.fetchJson<{ config: UiConfig }>('/api/ui/background', { method: 'DELETE' });
         return data.config;
+      },
+    };
+
+    this.notifications = {
+      getConfig: () =>
+        this.getJson<{ config: NotificationsConfig }>('/api/notifications/config').then((d) => d.config),
+      saveConfig: async (config) => {
+        const data = await this.postJson<{ success: boolean; config: NotificationsConfig }>(
+          '/api/notifications/config',
+          config,
+        );
+        return data.config;
+      },
+      recent: (limit) =>
+        this.getJson<{ recent: NotificationDeliveryRecord[] }>(
+          `/api/notifications/recent${limit ? `?limit=${limit}` : ''}`,
+        ).then((d) => d.recent ?? []),
+      test: (channelId) =>
+        this.postJson<{ success: boolean; message?: string; status?: number }>('/api/notifications/test', {
+          channelId,
+        }),
+    };
+
+    this.agreements = {
+      get: () => this.getJson<AgreementsPayload>('/api/agreements'),
+      recordConsent: async (version) => {
+        // Read the body even on non-2xx so a 409 can surface currentVersion to
+        // the caller (instead of fetchJson throwing it away as an ApiError).
+        // A network failure (fetch reject) must resolve to {success:false}, not
+        // throw, or the consent button hangs on "提交中…" with no error shown.
+        try {
+          const res = await this.request('/api/agreements/record-consent', {
+            method: 'POST',
+            body: JSON.stringify({ version }),
+          });
+          const data = await readJson<{ success?: boolean; message?: string; currentVersion?: string }>(res);
+          return { success: res.ok && !!data.success, message: data.message, currentVersion: data.currentVersion };
+        } catch (e) {
+          return { success: false, message: e instanceof Error ? e.message : '网络错误，请重试' };
+        }
       },
     };
   }
@@ -273,6 +346,26 @@ class HttpApiClient implements ApiClient {
     return this.getJson<{ list: AccountConnections[] }>('/api/connections').then((d) => d.list ?? []);
   }
 
+  stateStream(options: StateStreamOptions): () => void {
+    if (!this.currentToken) { options.onStatus?.('closed'); return () => {}; }
+    const url = `/api/state/stream?token=${encodeURIComponent(this.currentToken)}`;
+    const source = new EventSource(url);
+    // EventSource auto-reconnects on transport drop: `onerror` fires once
+    // when the connection is lost and the browser is about to retry, so
+    // a single 'reconnecting' status is sufficient — no manual reconnect
+    // timer needed.
+    source.onopen = () => options.onStatus?.('open');
+    source.onerror = () => options.onStatus?.('reconnecting');
+    source.onmessage = (event) => {
+      try {
+        options.onEvent(JSON.parse(event.data) as StateStreamEvent);
+      } catch {
+        /* malformed frame — skip; the next one will arrive normally */
+      }
+    };
+    return () => { source.close(); options.onStatus?.('closed'); };
+  }
+
   // ---------- SSE ----------
 
   private openLogStream(options: LogsStreamOptions): () => void {
@@ -297,6 +390,21 @@ class HttpApiClient implements ApiClient {
       source.close();
       options.onStatus?.('closed');
     };
+  }
+
+  private openDebugStream(
+    onMessage: (m: DebugStreamMessage) => void,
+    onStatus?: (s: import('./types').StreamStatus) => void,
+  ): () => void {
+    if (!this.currentToken) { onStatus?.('closed'); return () => {}; }
+    const url = `/api/debug/stream?token=${encodeURIComponent(this.currentToken)}`;
+    const source = new EventSource(url);
+    source.onopen = () => onStatus?.('open');
+    source.onerror = () => onStatus?.('reconnecting');
+    source.onmessage = (event) => {
+      try { onMessage(JSON.parse(event.data) as DebugStreamMessage); } catch { /* skip malformed */ }
+    };
+    return () => { source.close(); onStatus?.('closed'); };
   }
 }
 

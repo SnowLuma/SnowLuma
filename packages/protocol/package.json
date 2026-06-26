@@ -1,6 +1,7 @@
 {
+  "license": "SEE LICENSE IN LICENSE",
   "name": "@snowluma/protocol",
-  "version": "1.9.10",
+  "version": "1.10.3",
   "private": true,
   "type": "module",
   "description": "SnowLuma protocol — the protocol-layer between QQ wire bytes and typed events. Owns: identity service (uid↔uin cache with SQLite persistence), event bus, packet pipeline (incoming SSO packet → QQEventVariant), msg-push decoders, element-builder (MessageElement → wire elems[]), highway upload protocol (file/image/video/ptt), OIDB envelope helper, and the event/notice/request type vocabulary. Consumers (@snowluma/core, @snowluma/onebot) talk to this package through `BridgeContext` for runtime calls and the standalone classes (IdentityService, BridgeEventBus, IncomingPacketPipeline) for composition. Per-file subpath exports mirror the legacy `core/src/bridge/*` layout 1:1 so the previous `import { …} from '../bridge/<x>'` collapses to `import { … } from '@snowluma/protocol/<x>'`.",
@@ -51,6 +52,78 @@
       "types": "./src/oidb-services/reaction/get-emoji-likes.ts",
       "default": "./src/oidb-services/reaction/get-emoji-likes.ts"
     },
+    "./oidb-services/custom-face/delete-custom-face": {
+      "types": "./src/oidb-services/custom-face/delete-custom-face.ts",
+      "default": "./src/oidb-services/custom-face/delete-custom-face.ts"
+    },
+    "./oidb-services/custom-face/add-custom-face": {
+      "types": "./src/oidb-services/custom-face/add-custom-face.ts",
+      "default": "./src/oidb-services/custom-face/add-custom-face.ts"
+    },
+    "./oidb-services/custom-face/modify-custom-face": {
+      "types": "./src/oidb-services/custom-face/modify-custom-face.ts",
+      "default": "./src/oidb-services/custom-face/modify-custom-face.ts"
+    },
+    "./oidb-services/custom-face/move-custom-face": {
+      "types": "./src/oidb-services/custom-face/move-custom-face.ts",
+      "default": "./src/oidb-services/custom-face/move-custom-face.ts"
+    },
+    "./oidb-services/custom-face/order-custom-face": {
+      "types": "./src/oidb-services/custom-face/order-custom-face.ts",
+      "default": "./src/oidb-services/custom-face/order-custom-face.ts"
+    },
+    "./oidb-services/flash-transfer/get-fileset-detail": {
+      "types": "./src/oidb-services/flash-transfer/get-fileset-detail.ts",
+      "default": "./src/oidb-services/flash-transfer/get-fileset-detail.ts"
+    },
+    "./oidb-services/flash-transfer/list-filesets": {
+      "types": "./src/oidb-services/flash-transfer/list-filesets.ts",
+      "default": "./src/oidb-services/flash-transfer/list-filesets.ts"
+    },
+    "./oidb-services/flash-transfer/get-download-url": {
+      "types": "./src/oidb-services/flash-transfer/get-download-url.ts",
+      "default": "./src/oidb-services/flash-transfer/get-download-url.ts"
+    },
+    "./oidb-services/flash-transfer/delete-file": {
+      "types": "./src/oidb-services/flash-transfer/delete-file.ts",
+      "default": "./src/oidb-services/flash-transfer/delete-file.ts"
+    },
+    "./oidb-services/flash-transfer/rename-file": {
+      "types": "./src/oidb-services/flash-transfer/rename-file.ts",
+      "default": "./src/oidb-services/flash-transfer/rename-file.ts"
+    },
+    "./oidb-services/flash-transfer/apply-fileset": {
+      "types": "./src/oidb-services/flash-transfer/apply-fileset.ts",
+      "default": "./src/oidb-services/flash-transfer/apply-fileset.ts"
+    },
+    "./oidb-services/flash-transfer/commit-file": {
+      "types": "./src/oidb-services/flash-transfer/commit-file.ts",
+      "default": "./src/oidb-services/flash-transfer/commit-file.ts"
+    },
+    "./oidb-services/flash-transfer/complete-fileset": {
+      "types": "./src/oidb-services/flash-transfer/complete-fileset.ts",
+      "default": "./src/oidb-services/flash-transfer/complete-fileset.ts"
+    },
+    "./oidb-services/flash-transfer/set-status": {
+      "types": "./src/oidb-services/flash-transfer/set-status.ts",
+      "default": "./src/oidb-services/flash-transfer/set-status.ts"
+    },
+    "./oidb-services/flash-transfer/apply-upload": {
+      "types": "./src/oidb-services/flash-transfer/apply-upload.ts",
+      "default": "./src/oidb-services/flash-transfer/apply-upload.ts"
+    },
+    "./oidb-services/flash-transfer/prepare-upload": {
+      "types": "./src/oidb-services/flash-transfer/prepare-upload.ts",
+      "default": "./src/oidb-services/flash-transfer/prepare-upload.ts"
+    },
+    "./oidb-services/flash-transfer/send-flash": {
+      "types": "./src/oidb-services/flash-transfer/send-flash.ts",
+      "default": "./src/oidb-services/flash-transfer/send-flash.ts"
+    },
+    "./oidb-services/flash-transfer/get-flash-download": {
+      "types": "./src/oidb-services/flash-transfer/get-flash-download.ts",
+      "default": "./src/oidb-services/flash-transfer/get-flash-download.ts"
+    },
     "./oidb-services/interaction/send-poke": {
       "types": "./src/oidb-services/interaction/send-poke.ts",
       "default": "./src/oidb-services/interaction/send-poke.ts"
@@ -87,6 +160,30 @@
       "types": "./src/oidb-services/friend/handle-friend-request.ts",
       "default": "./src/oidb-services/friend/handle-friend-request.ts"
     },
+    "./oidb-services/friend/get-doubt-buddy-req": {
+      "types": "./src/oidb-services/friend/get-doubt-buddy-req.ts",
+      "default": "./src/oidb-services/friend/get-doubt-buddy-req.ts"
+    },
+    "./oidb-services/friend/approve-doubt-buddy-req": {
+      "types": "./src/oidb-services/friend/approve-doubt-buddy-req.ts",
+      "default": "./src/oidb-services/friend/approve-doubt-buddy-req.ts"
+    },
+    "./oidb-services/friend/reject-doubt-buddy-req": {
+      "types": "./src/oidb-services/friend/reject-doubt-buddy-req.ts",
+      "default": "./src/oidb-services/friend/reject-doubt-buddy-req.ts"
+    },
+    "./oidb-services/contacts/get-buddy-recommend-ark": {
+      "types": "./src/oidb-services/contacts/get-buddy-recommend-ark.ts",
+      "default": "./src/oidb-services/contacts/get-buddy-recommend-ark.ts"
+    },
+    "./oidb-services/contacts/get-group-recommend-ark": {
+      "types": "./src/oidb-services/contacts/get-group-recommend-ark.ts",
+      "default": "./src/oidb-services/contacts/get-group-recommend-ark.ts"
+    },
+    "./oidb-services/group-admin/modify-group-ext-info": {
+      "types": "./src/oidb-services/group-admin/modify-group-ext-info.ts",
+      "default": "./src/oidb-services/group-admin/modify-group-ext-info.ts"
+    },
     "./oidb-services/friend/delete-friend": {
       "types": "./src/oidb-services/friend/delete-friend.ts",
       "default": "./src/oidb-services/friend/delete-friend.ts"
@@ -98,6 +195,10 @@
     "./oidb-services/misc/translate-en-to-zh": {
       "types": "./src/oidb-services/misc/translate-en-to-zh.ts",
       "default": "./src/oidb-services/misc/translate-en-to-zh.ts"
+    },
+    "./oidb-services/misc/image-ocr": {
+      "types": "./src/oidb-services/misc/image-ocr.ts",
+      "default": "./src/oidb-services/misc/image-ocr.ts"
     },
     "./oidb-services/misc/click-inline-keyboard-button": {
       "types": "./src/oidb-services/misc/click-inline-keyboard-button.ts",
@@ -138,6 +239,10 @@
     "./oidb-services/contacts/fetch-friend-list-page": {
       "types": "./src/oidb-services/contacts/fetch-friend-list-page.ts",
       "default": "./src/oidb-services/contacts/fetch-friend-list-page.ts"
+    },
+    "./oidb-services/contacts/fetch-group-detail": {
+      "types": "./src/oidb-services/contacts/fetch-group-detail.ts",
+      "default": "./src/oidb-services/contacts/fetch-group-detail.ts"
     },
     "./oidb-services/contacts/fetch-group-list": {
       "types": "./src/oidb-services/contacts/fetch-group-list.ts",
@@ -259,6 +364,10 @@
       "types": "./src/oidb-services/group-file/move-group-file.ts",
       "default": "./src/oidb-services/group-file/move-group-file.ts"
     },
+    "./oidb-services/group-file/rename-group-file": {
+      "types": "./src/oidb-services/group-file/rename-group-file.ts",
+      "default": "./src/oidb-services/group-file/rename-group-file.ts"
+    },
     "./oidb-services/group-file/create-group-folder": {
       "types": "./src/oidb-services/group-file/create-group-folder.ts",
       "default": "./src/oidb-services/group-file/create-group-folder.ts"
@@ -323,6 +432,10 @@
       "types": "./src/highway/utils.ts",
       "default": "./src/highway/utils.ts"
     },
+    "./highway/sha1-stream": {
+      "types": "./src/highway/sha1-stream.ts",
+      "default": "./src/highway/sha1-stream.ts"
+    },
     "./highway/pipeline": {
       "types": "./src/highway/pipeline.ts",
       "default": "./src/highway/pipeline.ts"
@@ -358,6 +471,14 @@
     "./web/group-notice": {
       "types": "./src/web/group-notice.ts",
       "default": "./src/web/group-notice.ts"
+    },
+    "./web/group-signin": {
+      "types": "./src/web/group-signin.ts",
+      "default": "./src/web/group-signin.ts"
+    },
+    "./web/qzone": {
+      "types": "./src/web/qzone.ts",
+      "default": "./src/web/qzone.ts"
     },
     "./web/request-util": {
       "types": "./src/web/request-util.ts",

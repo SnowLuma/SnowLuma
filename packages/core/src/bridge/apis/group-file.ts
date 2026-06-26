@@ -21,6 +21,7 @@ import { GetPrivateVideoUrl } from '@snowluma/protocol/oidb-services/group-file/
 import { ListGroupFilesPage } from '@snowluma/protocol/oidb-services/group-file/list-group-files-page';
 import { MoveGroupFile } from '@snowluma/protocol/oidb-services/group-file/move-group-file';
 import { PublishGroupFile } from '@snowluma/protocol/oidb-services/group-file/publish-group-file';
+import { RenameGroupFile } from '@snowluma/protocol/oidb-services/group-file/rename-group-file';
 import { RenameGroupFolder } from '@snowluma/protocol/oidb-services/group-file/rename-group-folder';
 import { UploadGroupFileRequest } from '@snowluma/protocol/oidb-services/group-file/upload-group-file-request';
 import { UploadPrivateFileRequest } from '@snowluma/protocol/oidb-services/group-file/upload-private-file-request';
@@ -240,6 +241,7 @@ export class GroupFileApi {
     name = '',
     folderId = '/',
     uploadFile = true,
+    publishFile = uploadFile,
   ): Promise<UploadFileResult> {
     const bridge = asBridge(this.ctx);
     // Group/private files may legitimately be up to 4 GiB on QQ's wire,
@@ -315,11 +317,11 @@ export class GroupFileApi {
     // the chat shows nothing. The publish step goes via a dedicated OIDB
     // call (0x6D9_4), NOT via `MessageSvc.PbSendMsg` with a transElem(24)
     // payload — the QQ-NT server rejects that with `result=79`. Mirrors
-    // Lagrange.Core V2's `GroupSendFileService.cs`. Suppressed when the
-    // caller opts out via `uploadFile=false` (treat that as "I only
-    // wanted the slot allocated, hold the chat post"). Routes through
-    // `this.publish` so tests can mock at the same Api boundary.
-    if (uploadFile) {
+    // Lagrange.Core V2's `GroupSendFileService.cs`. Suppressed when a
+    // caller only needs a valid file_id embedded elsewhere, e.g. a
+    // forward-message long-msg payload. Routes through `this.publish` so
+    // tests can mock at the same Api boundary.
+    if (publishFile) {
       try {
         await this.publish(groupId, fileId);
       } catch (err) {
@@ -340,6 +342,7 @@ export class GroupFileApi {
     source: string,
     name = '',
     uploadFile = true,
+    publishFile = uploadFile,
   ): Promise<UploadFileResult> {
     const bridge = asBridge(this.ctx);
     const loaded = await loadBinarySource(source, 'file', FILE_UPLOAD_MAX_BYTES);
@@ -481,7 +484,7 @@ export class GroupFileApi {
     // which only knows about elems[]. NapCat does the same atomic
     // upload+send dance — without it the file sits on the server and
     // the recipient sees nothing.
-    if (uploadFile) {
+    if (publishFile) {
       try {
         await this.ctx.apis.message.sendC2cFile(userId, targetUid, {
           fileId,
@@ -602,6 +605,10 @@ export class GroupFileApi {
 
   move(groupId: number, fileId: string, parentDirectory: string, targetDirectory: string): Promise<void> {
     return MoveGroupFile.invoke(this.ctx, { groupId, fileId, parentDirectory, targetDirectory });
+  }
+
+  rename(groupId: number, fileId: string, parentDirectory: string, newFileName: string): Promise<void> {
+    return RenameGroupFile.invoke(this.ctx, { groupId, fileId, parentDirectory, newFileName });
   }
 
   // ─────────────── folders ───────────────

@@ -4,7 +4,7 @@
     "name": "MotricSeven",
     "email": "motricseven@gmail.com"
   },
-  "version": "1.9.10",
+  "version": "1.10.3",
   "description": "Shared SnowLuma UI primitives — Tailwind 4 theme tokens + shadcn-style atomic components",
   "keywords": [
     "snowluma",
@@ -22,7 +22,7 @@
     "url": "git+https://github.com/SnowLuma/SnowLuma.git",
     "directory": "packages/ui"
   },
-  "license": "UNLICENSED",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "sideEffects": [
     "**/*.css"

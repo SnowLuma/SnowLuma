@@ -1,8 +1,7 @@
-import { Check, Eye, EyeOff, GripVertical, LayoutDashboard, Lock, PlugZap, Settings, Sparkles, SlidersHorizontal, Terminal } from 'lucide-react';
+import { Bug, Check, Eye, EyeOff, GripVertical, LayoutDashboard, Lock, PlugZap, Settings, Sparkles, SlidersHorizontal, Terminal } from 'lucide-react';
 import { motion, Reorder } from 'motion/react';
 import { Link, useRouterState } from '@tanstack/react-router';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { APP_NAME, APP_VERSION } from '@/types';
 import { useAppState } from '@/contexts/AppStateContext';
@@ -21,6 +20,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/processes', label: '进程注入', icon: PlugZap, description: '加载 / 卸载 / 登录' },
   { to: '/config', label: '节点配置', icon: Settings, description: 'OneBot 协议端点' },
   { to: '/logs', label: '日志', icon: Terminal, description: '实时事件流' },
+  { to: '/debug', label: '调试', icon: Bug, description: '测试台与实时活动' },
   { to: '/settings', label: '系统设置', icon: SlidersHorizontal, description: '主题与账号' },
 ];
 
@@ -58,7 +58,7 @@ export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
   return (
     <div className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
       {/* Brand */}
-      <div className={cn('flex h-16 items-center gap-3 border-b px-4', collapsed && 'justify-center px-2')}>
+      <div className={cn('flex h-16 items-center gap-3 px-4', collapsed && 'justify-center px-2')}>
         <div className="relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-primary/10 ring-1 ring-primary/20">
           <img src="/logo.png" alt="SnowLuma" className="size-7 object-contain" />
         </div>
@@ -82,7 +82,7 @@ export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
               <button
                 type="button"
                 onClick={() => setEditing(false)}
-                className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 py-0.5 text-[11px] text-primary transition-colors hover:bg-primary/15 cursor-pointer"
+                className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-2 py-0.5 text-[11px] text-primary transition-colors hover:bg-primary/20 cursor-pointer"
               >
                 <Check className="size-3" /> 完成
               </button>
@@ -98,7 +98,7 @@ export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
                     key={item.id}
                     value={item.id}
                     className={cn(
-                      'flex select-none items-center gap-2 rounded-lg border bg-sidebar-accent/30 px-2 py-2 cursor-grab active:cursor-grabbing',
+                      'flex select-none items-center gap-2 rounded-lg bg-sidebar-accent/40 px-2 py-2 cursor-grab active:cursor-grabbing',
                       !item.visible && 'opacity-50',
                     )}
                   >
@@ -145,11 +145,18 @@ export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
                   )}
                 >
                   {isActive && (
-                    <motion.span
-                      layoutId="sidebar-active-pill"
-                      className="absolute inset-0 rounded-lg bg-sidebar-accent ring-1 ring-primary/20"
-                      transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-                    />
+                    <>
+                      <motion.span
+                        layoutId="sidebar-active-pill"
+                        className="absolute inset-0 rounded-lg bg-sidebar-accent"
+                        transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+                      />
+                      <motion.span
+                        layoutId="sidebar-active-bar"
+                        className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-primary"
+                        transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+                      />
+                    </>
                   )}
                   <Icon className={cn('relative z-10 size-4 shrink-0', isActive && 'text-primary')} />
                   {!collapsed && (
@@ -165,7 +172,6 @@ export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
         )}
       </ScrollArea>
 
-      <Separator />
       {updateInfo?.hasUpdate && (
         <div className={cn('px-2 pt-2', collapsed && 'px-0')}>
           <Link
@@ -175,7 +181,7 @@ export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
             title={updateInfo.latest ? `有新版本 v${updateInfo.latest} · 点击查看` : '有可用更新'}
             aria-label="有可用更新"
             className={cn(
-              'group relative flex items-center gap-2.5 rounded-lg border border-primary/30 bg-primary/[0.07] px-3 py-2 text-left transition-colors hover:bg-primary/10',
+              'group relative flex items-center gap-2.5 rounded-lg bg-primary/[0.1] px-3 py-2 text-left transition-colors hover:bg-primary/15',
               collapsed && 'mx-auto w-10 justify-center px-0',
             )}
           >

@@ -54,6 +54,29 @@ async function fetchDownloadFile(
   return Buffer.concat(chunks, total);
 }
 
+// 把下载好的字节落盘到 data/downloads。<preferredName> 缺省时用内容 md5 命名。
+// basename + relative 检查拦截目录穿越：名称里的路径分隔符被剥成纯文件名，
+// 再确认解析后仍在 downloads 目录下，避免 ../ 逃逸。
+async function saveDownloadBuffer(buf: Buffer, preferredName: string): Promise<string> {
+  const fs = await import('fs');
+  const pathMod = await import('path');
+  const cryptoMod = await import('crypto');
+  const tempDir = pathMod.resolve('data', 'downloads');
+  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+  const rawName = preferredName || cryptoMod.createHash('md5').update(buf).digest('hex');
+  const safeName = pathMod.basename(rawName);
+  if (!safeName || safeName === '.' || safeName === '..' || /[\\/]/.test(safeName)) {
+    throw new Error('invalid file name');
+  }
+  const resolved = pathMod.resolve(tempDir, safeName);
+  const rel = pathMod.relative(tempDir, resolved);
+  if (rel.startsWith('..') || pathMod.isAbsolute(rel)) {
+    throw new Error('invalid file name');
+  }
+  await fs.promises.writeFile(resolved, buf);
+  return resolved;
+}
+
 // 从 send_*_forward_msg 的参数里提取 NapCat 兼容的转发预览元信息。四个字段都是可选的——如果没有提供，模块层会根据实际消息节点列表推断出合理的默认值。
 function readForwardPreviewMeta(params: Record<string, unknown>): ForwardPreviewMeta | undefined {
   const source = asString(params.source) || undefined;
@@ -93,6 +116,23 @@ async function groupTodoRun(
   } catch (err) {
     return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
   }
+}
+
+/** FlashTransferApi 返回的 FlashFileInfo → OneBot JSON 响应（plain object，JsonObject 兼容）。
+ *  字段名对齐 NapCat（get_flash_file_list 用 size，非 file_size），便于客户端 drop-in 迁移。 */
+function flashFileInfoToJson(f: {
+  filesetUuid: string; fileName: string; origName: string; fileSize: number;
+  shareUrl: string; fileId: string; downloadUrl: string;
+}): JsonObject {
+  return {
+    fileset_id: f.filesetUuid,
+    file_name: f.fileName,
+    orig_name: f.origName,
+    size: f.fileSize,
+    share_url: f.shareUrl,
+    file_id: f.fileId,
+    download_url: f.downloadUrl,
+  };
 }
 
 export const actions = [
@@ -213,14 +253,85 @@ export const actions = [
     },
   }),
 
+  // 删除收藏表情（Faceroam.OpReq opType=2）
+  defineAction({
+    name: 'delete_custom_face',
+    summary: '删除收藏表情',
+    params: { emoji_id: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      try {
+        await ctx.bridge.apis.profile.deleteCustomFace(p.emoji_id);
+        return okResponse();
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  // 添加收藏表情（ImgStore.BDHExpressionRoam + highway HTTP 上传）
+  defineAction({
+    name: 'add_custom_face',
+    summary: '添加收藏表情',
+    params: { file: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      try {
+        const emojiId = await ctx.bridge.apis.profile.addCustomFace(p.file);
+        return okResponse({ emoji_id: emojiId });
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  // 修改收藏表情备注（OIDB 0x902e_1 opType=3）
+  defineAction({
+    name: 'modify_custom_face',
+    summary: '修改收藏表情备注',
+    params: {
+      emoji_id: f.string({ allowEmpty: false }),
+      desc: f.string().default(''),
+    },
+    run: async (p, ctx) => {
+      try {
+        await ctx.bridge.apis.profile.modifyCustomFace(p.emoji_id, p.desc);
+        return okResponse();
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  // 收藏表情排序（OIDB 0x902f + 0x902e opType=2 两步）。把 emoji_id 移到
+  // position 位置（1=最前）。move_to_front 是 position=1 的语法糖。
+  // 收藏表情移到最前（OIDB 0x902f + 0x902e opType=2 两步）。QQ 客户端只有
+  // "移动到最前"操作，协议层也只支持最前——0x902f 的 f3=1 是固定标志，不是
+  // 位置变量，移到其他位置服务端不生效。所以这个 action 只做"移到最前"。
+  defineAction({
+    name: 'move_custom_face_to_front',
+    summary: '收藏表情移到最前',
+    params: { emoji_id: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      try {
+        await ctx.bridge.apis.profile.moveCustomFaceToFront(p.emoji_id);
+        return okResponse();
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
   // 消息历史
   groupAction({
     name: 'get_group_msg_history',
     summary: '获取群消息历史',
     readOnly: true,
     params: {
-      // 原实现用 `asNumber(message_id) || 0`，present 0 也映射为 0。
-      message_id: f.int({ min: 0 }).default(0),
+      // message_id is a signed int32 hash (hashMessageIdInt32) and is
+      // frequently NEGATIVE — a `{min:0}` validator rejects a real anchor at
+      // param-validation time (retcode 1400) before run() ever fires. Use a
+      // plain signed int; `.default(0)` keeps absent/present-0 → "fetch latest"
+      // (matches the original `asNumber(message_id) || 0`). `count` stays ≥0.
+      message_id: f.int().default(0),
       count: f.int({ min: 0 }).default(20),
     },
     run: async (p, ctx) => {
@@ -235,7 +346,8 @@ export const actions = [
     readOnly: true,
     params: {
       user_id: f.uint(),
-      message_id: f.int({ min: 0 }).default(0),
+      // Signed int32 hash, frequently negative — see get_group_msg_history.
+      message_id: f.int().default(0),
       count: f.int({ min: 0 }).default(20),
     },
     run: async (p, ctx) => {
@@ -558,9 +670,12 @@ export const actions = [
     },
   }),
 
+  // _mark_all_as_read — no-op。NapCat 靠单次内核 IPC markAllMsgAsRead() 实现，
+  // SnowLuma 无等价单包 SSO cmd；遍历所有会话逐个发已读报告是风控高危群发，
+  // 故暂不真正执行（留待 RE 出"一键全读"cmd）。返回 ok 以兼容启动时盲调的客户端。
   defineAction({
     name: '_mark_all_as_read',
-    summary: '标记全部已读',
+    summary: '标记全部已读（no-op，待 RE 全读 cmd）',
     params: {},
     run: async () => {
       return okResponse();
@@ -700,15 +815,40 @@ export const actions = [
     },
   }),
 
-  // get_group_shut_list 依赖尚未封装的 oidb。
-  // 这里遵循 NapCat 约定返回空列表，避免调用方出错。
-  defineAction({
+  // get_group_shut_list — SnowLuma 无独立"禁言列表"cmd，按成员列表的
+  // shutUpTime 字段（绝对到期时间戳，秒）派生：保留仍在禁言中的成员。
+  // 走带 TTL 缓存的 fetchGroupMemberList（风控友好，0xfe7 高频会触发腾讯封号），
+  // 与 NapCat 文档返回形状 {user_id,nickname,shut_up_time} 对齐。
+  // 取舍：NapCat 此接口实时，本实现复用成员缓存，故结果最长有 ~60s 延迟——
+  // 刚下/解的禁言可能在该窗口内未反映，属可接受的低频运维查询取舍。
+  groupAction({
     name: 'get_group_shut_list',
-    summary: '获取群禁言列表（占位）',
+    summary: '获取群禁言列表',
     readOnly: true,
-    params: {},
-    run: async () => {
-      return okResponse([]);
+    run: async (p, ctx) => {
+      const members = await ctx.bridge.apis.contacts.fetchGroupMemberList(p.group_id);
+      const nowSec = Math.floor(Date.now() / 1000);
+      const list = members
+        .filter((m) => (m.shutUpTime ?? 0) > nowSec)
+        .map((m) => ({ user_id: m.uin, nickname: m.nickname, shut_up_time: m.shutUpTime }));
+      return okResponse(list);
+    },
+  }),
+
+  // get_group_signed_list — 群今日打卡名单。NapCat 走 qun.qq.com 的
+  // v2/signin/trpc/GetDaySignedList（HTTP + PSKey），非 OIDB；SnowLuma 复用
+  // 现有 web cookie/bkn 基建（与群公告/精华同套路），故无需 RE。失败/无打卡返回空表。
+  groupAction({
+    name: 'get_group_signed_list',
+    summary: '获取群今日打卡列表',
+    readOnly: true,
+    run: async (p, ctx) => {
+      try {
+        const list = await ctx.bridge.apis.web.getSignedList(p.group_id);
+        return okResponse(list);
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      }
     },
   }),
 
@@ -770,10 +910,22 @@ export const actions = [
     name: 'fetch_custom_face',
     summary: '获取自定义表情',
     readOnly: true,
-    params: { count: f.int({ min: 0 }).default(10) },
+    params: {
+      count: f.int({ min: 0 }).default(10),
+      // return_type=url 返回图片 URL（默认，给前端显示）；
+      // return_type=id 返回 emoji_id（给 delete/add 用）。
+      return_type: f.string().default('url'),
+    },
     run: async (p, ctx) => {
       try {
         const urls = await ctx.bridge.apis.profile.fetchCustomFace(p.count);
+        if (p.return_type === 'id') {
+          const emojiIds = urls.map((url) => {
+            const m = /\/qq_expression\/[^/]+\/([^/]+)\//.exec(url);
+            return m ? m[1] : '';
+          }).filter(Boolean);
+          return okResponse(emojiIds);
+        }
         return okResponse(urls);
       } catch (e) {
         return failedResponse(RETCODE.ACTION_FAILED, String(e));
@@ -844,10 +996,30 @@ export const actions = [
     },
   }),
 
-  // NapCat 似乎也用不了，暂时不处理。
+  // get_recent_contact — 最近会话列表（占位）。QQ 原生该接口是内核本地快照
+  // （getRecentContactListSnapShot），返回带 peerName/remark/lastestMsg 等丰富
+  // 元信息；SnowLuma 既无对应 SSO/packet wire，自有 message store 也只覆盖
+  // 「机器人观测到的会话」且缺这些字段，无法忠实复现。故诚实返回空表（而非
+  // 用同名接口给出语义有偏差的近似），接受 count 入参以兼容客户端盲调。
+  defineAction({
+    name: 'get_recent_contact',
+    summary: '获取最近会话（占位）',
+    readOnly: true,
+    params: {
+      count: f.int({ min: 0 }).default(10),
+    },
+    run: async () => {
+      return okResponse([]);
+    },
+  }),
+
+  // get_online_clients — 在线设备列表。NapCat 也拿不到（注册监听后 sleep 500ms
+  // 直接返回空），且其返回是裸数组 []，偏离 OneBot v11 / go-cqhttp 规范。
+  // SnowLuma 暂无对应单包 SSO cmd，返回 OneBot v11 标准空壳 { clients: [] }
+  // ——刻意采用规范形状而非 NapCat 的裸 []，故对照 NapCat 客户端此处不严格 parity。
   defineAction({
     name: 'get_online_clients',
-    summary: '获取在线客户端（占位）',
+    summary: '获取在线客户端（占位，OneBot v11 形状）',
     readOnly: true,
     params: {},
     run: async () => {
@@ -855,13 +1027,21 @@ export const actions = [
     },
   }),
 
+  // _get_model_show — NapCat 纯内核无 packet wire，其实现是硬编码 mock
+  // （无视入参，model_show 恒返回字面量 'napcat'）。SnowLuma 同样无对应单包
+  // SSO cmd，故只复用 NapCat 的*外层形状*：data 为数组 [{ variants: {...} }]、
+  // need_pay 恒 false；但刻意不照搬其固定字面量——回显请求的 model（缺省
+  // 'snowluma'），对调用方更有信息量。属有意的行为分歧，仅形状对齐。
   defineAction({
     name: '_get_model_show',
-    summary: '获取机型展示（占位）',
+    summary: '获取机型展示（兼容 mock）',
     readOnly: true,
-    params: {},
-    run: async () => {
-      return okResponse({ variants: [] });
+    params: {
+      model: f.string().default(''),
+    },
+    run: async (p) => {
+      const modelShow = p.model || 'snowluma';
+      return okResponse([{ variants: { model_show: modelShow, need_pay: false } }]);
     },
   }),
 
@@ -914,6 +1094,156 @@ export const actions = [
         return failedResponse(RETCODE.ACTION_FAILED, 'get clientkey error');
       }
       return okResponse({ ...clientKeyInfo });
+    },
+  }),
+
+  // ─── TierB ③: RE'd OIDB-backed actions (self-constructed packets) ───
+  // Recovered from QQNT wrapper.linux.node via IDA (no NapCat packet wire
+  // existed to port). All low-frequency/benign ops. See each OIDB service
+  // file for the cmd + protobuf provenance.
+
+  // share_peer / send_ark_share — get a "recommend contact" Ark card for a
+  // friend (0x9130_0) or group (0x8b7_5). NapCat's SharePeerBase routes by
+  // which id is present; we mirror that. Returns the server-built ark JSON.
+  defineAction({
+    name: 'share_peer',
+    summary: '分享用户/群 Ark 卡片',
+    readOnly: true,
+    params: {
+      user_id: f.uint().optional(),
+      group_id: f.uint().optional(),
+      phone_number: f.string().default(''),
+    },
+    run: async (p, ctx) => {
+      try {
+        if (p.group_id) {
+          return okResponse({ arkMsg: await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id) });
+        }
+        if (p.user_id) {
+          return okResponse({ arkMsg: await ctx.bridge.apis.contacts.getBuddyRecommendArk(p.user_id, p.phone_number) });
+        }
+        return failedResponse(RETCODE.BAD_REQUEST, 'user_id or group_id is required');
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      }
+    },
+  }),
+  defineAction({
+    name: 'send_ark_share',
+    summary: '分享用户/群 Ark 卡片（NapCat 标准名）',
+    readOnly: true,
+    params: {
+      user_id: f.uint().optional(),
+      group_id: f.uint().optional(),
+      phone_number: f.string().default(''),
+    },
+    run: async (p, ctx) => {
+      try {
+        if (p.group_id) {
+          return okResponse({ arkMsg: await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id) });
+        }
+        if (p.user_id) {
+          return okResponse({ arkMsg: await ctx.bridge.apis.contacts.getBuddyRecommendArk(p.user_id, p.phone_number) });
+        }
+        return failedResponse(RETCODE.BAD_REQUEST, 'user_id or group_id is required');
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      }
+    },
+  }),
+
+  // share_group_ex / send_group_ark_share — group-only Ark share. NapCat uses
+  // a distinct kernel API (getArkJsonGroupShare) we did NOT RE; we route to
+  // the fully-RE'd group recommend-contact ark (0x8b7_5), the closest
+  // confident equivalent. The card may differ slightly from NapCat's.
+  defineAction({
+    name: 'share_group_ex',
+    summary: '分享群 Ark 卡片',
+    readOnly: true,
+    params: { group_id: f.uint() },
+    run: async (p, ctx) => {
+      try {
+        return okResponse(await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id));
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      }
+    },
+  }),
+  defineAction({
+    name: 'send_group_ark_share',
+    summary: '分享群 Ark 卡片（NapCat 标准名）',
+    readOnly: true,
+    params: { group_id: f.uint() },
+    run: async (p, ctx) => {
+      try {
+        return okResponse(await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id));
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      }
+    },
+  }),
+
+  // get_doubt_friends_add_request — list 可能认识的人 / 被过滤好友申请 (0xd69_0).
+  // The list item's `uid` is what set_doubt_friends_add_request takes as flag.
+  defineAction({
+    name: 'get_doubt_friends_add_request',
+    summary: '获取可疑好友申请',
+    readOnly: true,
+    params: { count: f.int({ min: 0 }).default(50) },
+    run: async (p, ctx) => {
+      try {
+        const list = await ctx.bridge.apis.friend.getDoubtRequests(p.count);
+        return okResponse(list);
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      }
+    },
+  }),
+  // set_doubt_friends_add_request — handle a 可疑好友申请 (0xd69_0). `flag` is
+  // the uid from the get list. approve → approvalDoubtBuddyReq; approve:false
+  // → delDoubtBuddyReq (reject/decline). NapCat only ever approves; we add the
+  // reject path since we RE'd delDoubtBuddyReq too.
+  defineAction({
+    name: 'set_doubt_friends_add_request',
+    summary: '处理可疑好友申请',
+    params: {
+      flag: f.string({ allowEmpty: false }),
+      approve: f.bool().default(true),
+    },
+    run: async (p, ctx) => {
+      // approve → approvalDoubtBuddyReq (0xd69_0); reject → delDoubtBuddyReq
+      // (also 0xd69_0, distinct body) — both RE'd from the binary.
+      try {
+        if (p.approve) {
+          await ctx.bridge.apis.friend.approveDoubtRequest(p.flag);
+        } else {
+          await ctx.bridge.apis.friend.rejectDoubtRequest(p.flag);
+        }
+        return okResponse();
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      }
+    },
+  }),
+
+  // set_group_robot_add_option — group robot-add switch/examine via group
+  // ext-info (0xf00_3). Omitted params leave the field unchanged.
+  groupAction({
+    name: 'set_group_robot_add_option',
+    summary: '设置群机器人加群选项',
+    run: async (p, ctx) => {
+      try {
+        await ctx.bridge.apis.groupAdmin.setRobotAddOption(
+          p.group_id, p.robot_member_switch, p.robot_member_examine,
+        );
+        return okResponse();
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      }
+    },
+    params: {
+      robot_member_switch: f.int({ min: 0 }).optional(),
+      robot_member_examine: f.int({ min: 0 }).optional(),
     },
   }),
 
@@ -1013,27 +1343,36 @@ export const actions = [
     },
   }),
 
-  defineAction({
-    name: 'rename_group_file',
-    summary: '重命名群文件（未实现）',
-    params: {},
-    run: async () => {
-      return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
-    },
-  }),
-
+  // get_file — 统一文件信息入口。SnowLuma 按 file_id 解析媒体缓存：
+  // 先图片、后语音（两者已带 url 重签与 file_size/file_name）。
+  // 局限：群文件/普通文件的 file_id 无法在此解析——OneBot `get_file` 单参
+  // 签名不含 group_id，而 SnowLuma 群文件下载需要 group 上下文（用
+  // get_group_file_url / get_private_file_url）。故此处仅覆盖图片/语音，
+  // 不为群文件伪造结果。
+  // 注意：缓存双 miss 时无法在此区分"传入的是群文件 file_id"与"图片/语音
+  // 确实未缓存（如进程重启丢失）"——run() 不解析 id 形态。故错误信息保持
+  // 中性：先陈述"未命中缓存"的事实，再把群文件改用别的接口作为指引，
+  // 而非武断断言"不支持"。（summary 仅进离线文档，调用方运行时只看到 wording。）
   defineAction({
     name: 'get_file',
-    summary: '获取文件（未实现）',
+    summary: '获取文件信息（仅图片/语音缓存；群文件请用 get_group_file_url）',
     readOnly: true,
     params: {
       file_id: f.string().default(''),
       file: f.string().default(''),
     },
-    run: async (p) => {
-      const fileId = p.file_id || p.file;
+    run: async (p, ctx) => {
+      const fileId = p.file || p.file_id;
       if (!fileId) return failedResponse(RETCODE.BAD_REQUEST, 'file_id is required');
-      return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
+      const image = await ctx.getImageInfo(fileId);
+      if (image) return okResponse(image);
+      const record = await ctx.getRecordInfo(fileId);
+      if (record) return okResponse(record);
+      return failedResponse(
+        RETCODE.ACTION_FAILED,
+        'file_id not found in the image/voice cache. get_file only resolves cached '
+        + 'image/voice ids; for group/normal files use get_group_file_url or get_private_file_url',
+      );
     },
   }),
 
@@ -1190,12 +1529,70 @@ export const actions = [
         : failedResponse(RETCODE.ACTION_FAILED, 'not implemented'),
   }),
 
+  // get_rkey_server — 把下载 rkey 列表（type 10=私聊 / 20=群聊，同 0x9067 来源）
+  // 收敛成 NapCat 的 server 形状。expired_time = now + 在场 rkey ttl 的最小值。
   defineAction({
-    name: ['ocr_image', '.ocr_image'],
-    summary: 'OCR 图片（未实现）',
+    name: 'get_rkey_server',
+    summary: '获取 rkey 服务器信息',
     readOnly: true,
     params: {},
-    run: () => failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented'),
+    run: async (_p, ctx) => {
+      if (!ctx.getDownloadRKeys) return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+      const rkeys = await ctx.getDownloadRKeys();
+      const pick = (type: number) =>
+        rkeys.find((r) => (r as { type?: number }).type === type) as
+          { rkey?: string; ttl?: number } | undefined;
+      const priv = pick(10);
+      const group = pick(20);
+      // No rkey at all → fail rather than hand back an "expired_time = now,
+      // no keys" shell that a caching caller would misread as a valid-but-empty
+      // (already-expired) result.
+      if (!priv?.rkey && !group?.rkey) {
+        return failedResponse(RETCODE.ACTION_FAILED, 'no download rkey available');
+      }
+      const ttls = [priv?.ttl, group?.ttl].filter((t): t is number => typeof t === 'number' && t > 0);
+      const minTtl = ttls.length ? Math.min(...ttls) : 0;
+      const data: JsonObject = {
+        expired_time: Math.floor(Date.now() / 1000) + minTtl,
+        name: 'SnowLuma',
+      };
+      if (priv?.rkey) data.private_rkey = priv.rkey;
+      if (group?.rkey) data.group_rkey = group.rkey;
+      return okResponse(data);
+    },
+  }),
+
+  // ocr_image — 服务端 OCR via OIDB 0xE07_0（port 自 Lagrange/NapCat proto）。
+  // 该 cmd 接收图片 URL（服务端拉取），故 image 支持：http(s) URL 直用，或
+  // 已缓存图片的 file_id（经 getImageInfo 解析出 URL）。base64/本地文件需先
+  // 上传换 URL，本实现不覆盖（NapCat 走的是 Windows-only 内核 OCR，不可移植）。
+  defineAction({
+    name: ['ocr_image', '.ocr_image'],
+    summary: 'OCR 图片（服务端，需图片 URL 或已缓存的图片 file_id）',
+    readOnly: true,
+    params: { image: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      // A passed-in http(s) URL is used verbatim (NOT re-signed) — if it is a
+      // stale CDN URL with an expired rkey the server fetch fails and surfaces
+      // the server's retCode. The file_id path below re-signs via getImageInfo.
+      let url = /^https?:\/\//i.test(p.image) ? p.image : '';
+      if (!url) {
+        const info = await ctx.getImageInfo(p.image);
+        const resolved = info && typeof info.url === 'string' ? info.url : '';
+        if (resolved) url = resolved;
+      }
+      if (!url) {
+        return failedResponse(
+          RETCODE.ACTION_FAILED,
+          'ocr_image needs an http(s) image url or a cached image file_id; '
+          + 'base64/local-file input is not supported',
+        );
+      }
+      const result = await ctx.bridge.apis.misc.ocrImage(url);
+      // OcrResult is plain JSON data; the interface just lacks an index
+      // signature, so coerce for the JsonValue-typed response.
+      return okResponse(result as unknown as JsonObject);
+    },
   }),
 
   groupAction({
@@ -1313,20 +1710,6 @@ export const actions = [
       const base64 = p.base64;
       const name = p.name;
       if (!url && !base64) return failedResponse(RETCODE.BAD_REQUEST, 'url or base64 is required');
-      const fs = await import('fs');
-      const pathMod = await import('path');
-      const cryptoMod = await import('crypto');
-      const tempDir = pathMod.resolve('data', 'downloads');
-      if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-      const resolveSafePath = (preferredName: string, fallbackBuf: Buffer): string | null => {
-        const rawName = preferredName || cryptoMod.createHash('md5').update(fallbackBuf).digest('hex');
-        const safeName = pathMod.basename(rawName);
-        if (!safeName || safeName === '.' || safeName === '..' || /[\\/]/.test(safeName)) return null;
-        const resolved = pathMod.resolve(tempDir, safeName);
-        const rel = pathMod.relative(tempDir, resolved);
-        if (rel.startsWith('..') || pathMod.isAbsolute(rel)) return null;
-        return resolved;
-      };
       let buf: Buffer;
       if (base64) {
         const upperBound = Math.floor((base64.length * 3) / 4);
@@ -1340,10 +1723,12 @@ export const actions = [
           return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
         }
       }
-      const safe = resolveSafePath(name, buf);
-      if (!safe) return failedResponse(RETCODE.BAD_REQUEST, 'invalid file name');
-      await fs.promises.writeFile(safe, buf);
-      return okResponse({ file: safe });
+      try {
+        const safe = await saveDownloadBuffer(buf, name);
+        return okResponse({ file: safe });
+      } catch (err) {
+        return failedResponse(RETCODE.BAD_REQUEST, err instanceof Error ? err.message : String(err));
+      }
     },
   }),
 
@@ -1472,6 +1857,212 @@ export const actions = [
     summary: '取消群待办',
     params: { message_id: f.messageId() },
     run: (p, ctx) => groupTodoRun(p, ctx, (g, s) => ctx.bridge.apis.extras.cancelGroupTodo(g, s)),
+  }),
+
+  // ─────────────── 闪传（FlashTransfer / fileset） ───────────────
+
+  defineAction({
+    name: 'create_flash_task',
+    summary: '创建闪传任务',
+    params: {
+      // files 支持单个路径(string)或多个路径(string[])，多文件共用一个 fileset
+      files: f.raw(),
+      name: f.string().optional(),
+      thumb_path: f.string().optional(),
+    },
+    run: async (p, ctx) => {
+      // f.raw() 不做校验，这里归一化为 string[] 并校验
+      const rawFiles = p.files;
+      let fileList: string[];
+      if (typeof rawFiles === 'string') {
+        if (rawFiles === '') return failedResponse(RETCODE.BAD_REQUEST, 'files must not be empty');
+        fileList = [rawFiles];
+      } else if (Array.isArray(rawFiles) && rawFiles.every((x) => typeof x === 'string' && x !== '')) {
+        if (rawFiles.length === 0) return failedResponse(RETCODE.BAD_REQUEST, 'files must not be empty');
+        fileList = rawFiles as string[];
+      } else {
+        return failedResponse(RETCODE.BAD_REQUEST, 'files must be a string or string array');
+      }
+      try {
+        const result = await ctx.bridge.apis.flashTransfer.createFlashTask(fileList, p.name, p.thumb_path);
+        return okResponse({ fileset_id: result.filesetId, task_id: result.filesetId });
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'get_fileset_info',
+    summary: '获取文件集信息',
+    params: { fileset_id: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      try {
+        const list = await ctx.bridge.apis.flashTransfer.getFilesetInfo(p.fileset_id);
+        return okResponse({ fileset_id: p.fileset_id, file_list: list.map(flashFileInfoToJson) });
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'get_flash_file_list',
+    summary: '获取闪传文件列表',
+    params: { fileset_id: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      try {
+        const list = await ctx.bridge.apis.flashTransfer.getFlashFileList(p.fileset_id);
+        return okResponse(list.map(flashFileInfoToJson));
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'list_filesets',
+    summary: '列出当前账号的所有闪传文件集',
+    params: {},
+    run: async (_p, ctx) => {
+      try {
+        const list = await ctx.bridge.apis.flashTransfer.listFilesets();
+        return okResponse(list.map(flashFileInfoToJson));
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'get_flash_file_url',
+    summary: '获取闪传文件链接',
+    params: {
+      fileset_id: f.string({ allowEmpty: false }),
+      file_name: f.string().optional(),
+      file_index: f.number().optional(),
+    },
+    run: async (p, ctx) => {
+      try {
+        const url = await ctx.bridge.apis.flashTransfer.getFlashFileUrl(p.fileset_id, p.file_index);
+        return okResponse({ url });
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'get_share_link',
+    summary: '获取文件分享链接',
+    params: { fileset_id: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      try {
+        const url = await ctx.bridge.apis.flashTransfer.getShareLink(p.fileset_id);
+        return okResponse(url);
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'delete_flash_file',
+    summary: '删除闪传文件',
+    params: { fileset_id: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      try {
+        await ctx.bridge.apis.flashTransfer.deleteFlashFile(p.fileset_id);
+        return okResponse();
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'rename_flash_file',
+    summary: '重命名闪传文件',
+    params: {
+      fileset_id: f.string({ allowEmpty: false }),
+      new_name: f.string({ allowEmpty: false }),
+    },
+    run: async (p, ctx) => {
+      try {
+        await ctx.bridge.apis.flashTransfer.renameFlashFile(p.fileset_id, p.new_name);
+        return okResponse();
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'download_fileset',
+    summary: '解析闪传文件下载直链（不下载，由调用方实现下载）',
+    returns: '{ url, file_name, file_size }',
+    params: {
+      fileset_id: f.string({ allowEmpty: false }),
+      file_name: f.string().optional(),
+      file_index: f.number().optional(),
+    },
+    run: async (p, ctx) => {
+      try {
+        const target = await ctx.bridge.apis.flashTransfer.downloadFileset(p.fileset_id, {
+          fileName: p.file_name,
+          fileIndex: p.file_index,
+        });
+        return okResponse({
+          url: target.url,
+          file_name: target.fileName,
+          file_size: target.fileSize,
+        });
+      } catch (err) {
+        return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'send_flash_msg',
+    summary: '发送闪传消息（私聊或群聊，引用 fileset_id 让对端下载）',
+    returns: '{ message_id }',
+    params: {
+      fileset_id: f.string({ allowEmpty: false }),
+      user_id: f.uint().optional(),
+      group_id: f.uint().optional(),
+    },
+    run: async (p, ctx) => {
+      if (!p.user_id && !p.group_id) {
+        return failedResponse(RETCODE.BAD_REQUEST, 'user_id or group_id is required');
+      }
+      try {
+        await ctx.bridge.apis.flashTransfer.sendFlashMsg(p.fileset_id, {
+          userId: p.user_id,
+          groupId: p.group_id,
+        });
+        // 0x93d7 响应无 message_id（分享 fileset，非传统消息），返回 0 兼容 OneBot 形状。
+        return okResponse({ message_id: 0 });
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'get_fileset_id',
+    summary: '从分享码/链接获取 fileset_id',
+    readOnly: true,
+    returns: '{ fileset_id }',
+    params: { share_code: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      try {
+        const filesetId = await ctx.bridge.apis.flashTransfer.getFilesetIdByCode(p.share_code);
+        return okResponse({ fileset_id: filesetId });
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      }
+    },
   }),
 ];
 

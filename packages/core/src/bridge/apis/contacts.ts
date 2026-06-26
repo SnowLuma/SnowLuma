@@ -1,10 +1,13 @@
 import { FetchDownloadRkeys } from '@snowluma/protocol/oidb-services/contacts/fetch-download-rkeys';
 import { FetchFriendListPage } from '@snowluma/protocol/oidb-services/contacts/fetch-friend-list-page';
+import { FetchGroupDetail } from '@snowluma/protocol/oidb-services/contacts/fetch-group-detail';
 import { FetchGroupList } from '@snowluma/protocol/oidb-services/contacts/fetch-group-list';
 import { FetchGroupMemberListPage } from '@snowluma/protocol/oidb-services/contacts/fetch-group-member-list-page';
 import { FetchGroupRequests } from '@snowluma/protocol/oidb-services/contacts/fetch-group-requests';
 import { FetchUserProfile } from '@snowluma/protocol/oidb-services/contacts/fetch-user-profile';
 import { FetchUserProfileByUid } from '@snowluma/protocol/oidb-services/contacts/fetch-user-profile-by-uid';
+import { GetBuddyRecommendArk } from '@snowluma/protocol/oidb-services/contacts/get-buddy-recommend-ark';
+import { GetGroupRecommendArk } from '@snowluma/protocol/oidb-services/contacts/get-group-recommend-ark';
 import type {
   FriendInfo,
   GroupMemberInfo,
@@ -65,6 +68,16 @@ export class ContactsApi {
 
   constructor(private readonly ctx: BridgeContext) { }
 
+  /** Server-built ARK share card (JSON string) recommending a friend. */
+  getBuddyRecommendArk(userId: number, phoneNumber = ''): Promise<string> {
+    return GetBuddyRecommendArk.invoke(this.ctx, { userId, phoneNumber });
+  }
+
+  /** Server-built ARK share card (JSON string) recommending a group. */
+  getGroupRecommendArk(groupId: number): Promise<string> {
+    return GetGroupRecommendArk.invoke(this.ctx, { groupId });
+  }
+
   async fetchFriendList(): Promise<FriendInfo[]> {
     const friends: FriendInfo[] = [];
     let nextUin: number | null = null;
@@ -102,6 +115,28 @@ export class ContactsApi {
     }
     this.ctx.identity.rememberGroups(groups);
     return groups;
+  }
+
+  /**
+   * Fetch a single group's public detail by id via `0x88D_0` — works even for a
+   * group the bot hasn't joined (used to resolve a group-invite's name). Returns
+   * null when the server has no such group / denies the lookup. Deliberately
+   * does NOT `rememberGroups` it — a non-member group must not pollute the
+   * joined-groups roster / get_group_list.
+   */
+  async fetchGroupDetail(groupId: number): Promise<QQGroupInfo | null> {
+    if (!(groupId > 0)) return null;
+    const resp = await FetchGroupDetail.invoke(this.ctx, { groupUin: groupId });
+    const r = resp.groupInfo?.results;
+    if (!r) return null;
+    return {
+      groupId,
+      groupName: r.name ?? '',
+      remark: '',
+      memberCount: Number(r.memberCount ?? 0n),
+      memberMax: Number(r.maxMemberCount ?? 0n),
+      members: new Map(),
+    };
   }
 
   async fetchGroupMemberList(
@@ -195,6 +230,13 @@ export class ContactsApi {
     }
     this.ctx.identity.rememberGroupRequests(requests);
     return requests;
+  }
+
+  /** The approval msgseq captured from a private "qun.invite" card for this
+   *  group, or undefined if none was seen. `set_group_add_request` uses it to
+   *  approve a bot self-invite via 0x10c8 (eventType=2). See issue #125. */
+  getGroupInviteCardSequence(groupId: number): number | undefined {
+    return this.ctx.identity.getGroupInviteCardSequence(groupId);
   }
 
   async fetchDownloadRKeys(): Promise<DownloadRKeyInfo[]> {

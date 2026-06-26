@@ -19,11 +19,11 @@ export class OneBotManager {
   private readonly instances = new Map<string, OneBotInstance>();
 
   bind(bridgeManager: BridgeManager): void {
-    bridgeManager.setSessionStartedCallback((uin, bridge) => {
+    bridgeManager.addSessionStartedListener((uin, bridge) => {
       this.onSessionStarted(uin, bridge);
     });
 
-    bridgeManager.setSessionClosedCallback((uin) => {
+    bridgeManager.addSessionClosedListener((uin) => {
       this.onSessionClosed(uin);
     });
   }

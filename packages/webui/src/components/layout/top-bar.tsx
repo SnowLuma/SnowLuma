@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LogOut, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { LogOut, Menu, Monitor } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useRouterState } from '@tanstack/react-router';
 import { Button } from '@/components/ui/button';
@@ -7,26 +7,29 @@ import { Badge } from '@/components/ui/badge';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { NAV_ITEMS } from '@/components/layout/sidebar';
+import { reconcileLayoutItems, useLayout } from '@/contexts/LayoutContext';
+import { useKiosk } from '@/contexts/KioskContext';
+
+// Toggleable top-bar elements (the menu/title/logout are essential and always
+// render). Labels drive the settings toggles; ids match `topbarItems`.
+export const TOPBAR_CATALOGUE: { id: string; label: string }[] = [
+  { id: 'status', label: '连接状态徽章' },
+  { id: 'theme', label: '主题切换按钮' },
+  { id: 'kiosk', label: '展示模式按钮' },
+];
 
 interface TopBarProps {
   status: string;
-  collapsed: boolean;
-  onToggleCollapse: () => void;
   onOpenMobile: () => void;
   onLogout: () => void;
   isMobile: boolean;
-  /** Layout edit mode force-expands the sidebar, so collapsing is disabled. */
-  editing?: boolean;
 }
 
 export function TopBar({
   status,
-  collapsed,
-  onToggleCollapse,
   onOpenMobile,
   onLogout,
   isMobile,
-  editing = false,
 }: TopBarProps) {
   const [confirmLogout, setConfirmLogout] = useState(false);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -34,27 +37,26 @@ export function TopBar({
   const PageIcon = meta?.icon;
   const online = status === '已连接';
 
+  // Which optional top-bar elements the operator has kept (reconciled against
+  // the live catalogue, so a new element defaults to shown).
+  const { topbarItems } = useLayout();
+  const { enter: enterKiosk } = useKiosk();
+  const shown = new Set(
+    reconcileLayoutItems(topbarItems, TOPBAR_CATALOGUE.map((t) => t.id))
+      .filter((i) => i.visible)
+      .map((i) => i.id),
+  );
+
   return (
-    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-2 border-b bg-background/55 px-3 backdrop-blur-xl backdrop-saturate-150 supports-[backdrop-filter]:bg-background/45 sm:px-4">
-      {/* Collapse toggle (desktop) / menu (mobile) */}
-      {isMobile ? (
+    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-2 bg-background/55 px-3 backdrop-blur-xl backdrop-saturate-150 supports-[backdrop-filter]:bg-background/45 sm:px-4">
+      {/* Mobile-only menu trigger. On desktop there's no collapse button — the
+          sidebar auto-expands on hover/focus, and its boundary with the content
+          is a soft surface-tone shift, not a hard border. */}
+      {isMobile && (
         <Button variant="ghost" size="icon-sm" onClick={onOpenMobile} aria-label="打开菜单">
           <Menu className="size-4" />
         </Button>
-      ) : (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onToggleCollapse}
-          disabled={editing}
-          aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
-          title={editing ? '编辑布局时侧栏保持展开' : collapsed ? '展开侧边栏' : '收起侧边栏'}
-        >
-          {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
-        </Button>
       )}
-
-      <div className="mx-1 h-6 w-px bg-border" />
 
       {/* Page title */}
       <AnimatePresence mode="wait">
@@ -73,17 +75,32 @@ export function TopBar({
       </AnimatePresence>
 
       <div className="ml-auto flex items-center gap-2">
-        <Badge
-          variant={online ? 'success' : 'destructive'}
-          className="hidden sm:inline-flex gap-1.5"
-        >
-          <span
-            className={`size-1.5 rounded-full ${online ? 'bg-success' : 'bg-destructive'} ${online ? 'animate-pulse' : ''}`}
-          />
-          {status}
-        </Badge>
+        {shown.has('status') && (
+          <Badge
+            variant={online ? 'success' : 'destructive'}
+            className="hidden sm:inline-flex gap-1.5"
+          >
+            <span
+              className={`size-1.5 rounded-full ${online ? 'bg-success' : 'bg-destructive'} ${online ? 'animate-pulse' : ''}`}
+            />
+            {status}
+          </Badge>
+        )}
 
-        <ThemeToggle />
+        {shown.has('theme') && <ThemeToggle />}
+
+        {shown.has('kiosk') && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={enterKiosk}
+            aria-label="展示模式"
+            title="展示模式（隐藏侧栏与顶栏，Esc 退出）"
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <Monitor className="size-4" />
+          </Button>
+        )}
 
         <Button
           variant="ghost"

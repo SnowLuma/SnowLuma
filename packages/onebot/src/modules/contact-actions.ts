@@ -53,6 +53,13 @@ export async function getGroupList(
   }));
 }
 
+// Short-TTL cache for the non-member group lookup (0x88D_0). Joined groups come
+// from the identity roster (kept fresh by fetchGroupList) and are NOT cached
+// here; this only memoizes the per-id server query so a burst of invites for the
+// same group doesn't hammer 0x88D_0 (which would risk a rate-limit / kick).
+const NON_MEMBER_GROUP_TTL_MS = 5 * 60 * 1000;
+const nonMemberGroupCache = new Map<number, { info: JsonObject; at: number }>();
+
 export async function getGroupInfo(
   bridge: BridgeInterface,
   groupId: number,
@@ -66,13 +73,37 @@ export async function getGroupInfo(
     }
   }
   const g = bridge.identity.findGroup(groupId);
-  if (!g) return null;
-  return {
-    group_id: g.groupId,
-    group_name: g.groupName,
-    member_count: g.memberCount,
-    max_member_count: g.memberMax,
-  };
+  if (g) {
+    return {
+      group_id: g.groupId,
+      group_name: g.groupName,
+      member_count: g.memberCount,
+      max_member_count: g.memberMax,
+    };
+  }
+
+  // Not a joined group — fall back to the by-id server lookup so a group invite
+  // can still resolve its name. Cached with a short TTL (skipped when noCache).
+  if (!noCache) {
+    const cached = nonMemberGroupCache.get(groupId);
+    if (cached && Date.now() - cached.at < NON_MEMBER_GROUP_TTL_MS) return { ...cached.info };
+  }
+  try {
+    const detail = await bridge.apis.contacts.fetchGroupDetail(groupId);
+    if (detail) {
+      const info: JsonObject = {
+        group_id: detail.groupId,
+        group_name: detail.groupName,
+        member_count: detail.memberCount,
+        max_member_count: detail.memberMax,
+      };
+      nonMemberGroupCache.set(groupId, { info, at: Date.now() });
+      return { ...info };
+    }
+  } catch {
+    // Server lookup failed (no such group / denied) — fall through to null.
+  }
+  return null;
 }
 
 export async function getGroupMemberList(

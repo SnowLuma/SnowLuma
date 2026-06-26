@@ -3,7 +3,6 @@ import { createLogger } from '@snowluma/common/logger';
 import {
   pickDispatchJson,
   resolveReportOptions,
-  shapeEventForAdapter,
   type DispatchPayload,
   type EventReportOptions,
 } from '../event-filter';
@@ -153,16 +152,7 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
 
   private sendBootstrapMetaEvents(socket: WebSocket): void {
     if (this.role !== 'Event' && this.role !== 'Universal') return;
-    const events = [
-      this.ctx.buildLifecycleEvent('connect'),
-      this.ctx.buildLifecycleEvent('enable'),
-      this.ctx.buildHeartbeatEvent(),
-    ];
-    for (const event of events) {
-      const shaped = shapeEventForAdapter(event, this.options);
-      if (!shaped) continue;
-      safeSend(socket, JSON.stringify(shaped));
-    }
+    for (const frame of this.bootstrapMetaFrames(this.options)) safeSend(socket, frame);
   }
 }
 

@@ -283,6 +283,113 @@ describe('pipeline — runNtv2Upload', () => {
     }))).rejects.toThrow(/image fast-upload not available/);
   });
 
+  // ─────────── forceFullOnFastPath (video stale-resource fallback, #145) ───────────
+
+  // Bridge whose sendRawPacket returns a different OIDB response per call,
+  // so we can model "round 1 fast-paths the main file, round 2 demands the
+  // bytes after we disable fast-upload".
+  function makeSequencedBridge(responses: Buffer[]) {
+    let call = 0;
+    const sendRawPacket = vi.fn<(cmd: string, body: Uint8Array) => Promise<SendPacketResult>>(
+      async () => {
+        const responseData = responses[Math.min(call, responses.length - 1)]!;
+        call += 1;
+        return { success: true, gotResponse: true, errorCode: 0, errorMessage: '', responseData };
+      },
+    );
+    return { sendRawPacket };
+  }
+
+  it('forceFullOnFastPath: re-requests with fast-upload disabled when the flagged main file is fast-pathed', async () => {
+    const bridge = makeSequencedBridge([
+      // Round 1: server fast-paths the main file (no uKey) but demands nothing.
+      encodeOidbResponse({ upload: { msgInfo: { msgInfoBody: [], extBizInfo: {} } /* no uKey */ } }),
+      // Round 2 (fast-upload disabled): server now hands back a uKey.
+      encodeOidbResponse({
+        upload: {
+          uKey: 'fresh-ukey',
+          ipv4s: [{ ipv4: '1.2.3.4', port: 80 }],
+          msgInfo: { msgInfoBody: [], extBizInfo: {} },
+        },
+      }),
+    ]);
+
+    const upload = await runNtv2Upload(baseParams({
+      bridge,
+      label: 'video',
+      uploads: [{
+        source: 'top',
+        cmdId: 1003,
+        bytes: new Uint8Array([1, 2, 3]),
+        md5: new Uint8Array(16),
+        sha1: new Uint8Array(20),
+        forceFullOnFastPath: true,
+      }],
+    }));
+
+    // Two OIDB requests went out; the second omits tryFastUploadCompleted
+    // (proton drops `false`), which the server reads as "no fast-upload".
+    expect(bridge.sendRawPacket).toHaveBeenCalledTimes(2);
+    const firstReq: any = protobuf_decode<OidbBase<NTV2UploadRichMediaReq>>(bridge.sendRawPacket.mock.calls[0]![1] as Uint8Array);
+    const secondReq: any = protobuf_decode<OidbBase<NTV2UploadRichMediaReq>>(bridge.sendRawPacket.mock.calls[1]![1] as Uint8Array);
+    expect(firstReq.body.upload.tryFastUploadCompleted).toBe(true);
+    expect(secondReq.body.upload.tryFastUploadCompleted ?? false).toBe(false);
+
+    // The forced full upload PUT ran, and the returned upload is round 2's.
+    expect(highway.uploadHighwayHttp).toHaveBeenCalledOnce();
+    expect(upload.uKey).toBe('fresh-ukey');
+  });
+
+  it('forceFullOnFastPath: no retry when the flagged file gets a uKey on the first try', async () => {
+    const bridge = makeBridge({
+      responseData: encodeOidbResponse({
+        upload: { uKey: 'ukey-1', msgInfo: { msgInfoBody: [], extBizInfo: {} } },
+      }),
+    });
+    await runNtv2Upload(baseParams({
+      bridge,
+      uploads: [{
+        source: 'top', cmdId: 1003, bytes: new Uint8Array([1, 2, 3]),
+        md5: new Uint8Array(16), sha1: new Uint8Array(20), forceFullOnFastPath: true,
+      }],
+    }));
+    expect(bridge.sendRawPacket).toHaveBeenCalledOnce();
+    expect(highway.uploadHighwayHttp).toHaveBeenCalledOnce();
+  });
+
+  it('forceFullOnFastPath: no retry for a fast-pathed forward (no bytes to upload)', async () => {
+    const bridge = makeBridge({
+      responseData: encodeOidbResponse({ upload: { msgInfo: { msgInfoBody: [], extBizInfo: {} } } }),
+    });
+    await runNtv2Upload(baseParams({
+      bridge,
+      uploads: [{
+        source: 'top', cmdId: 1003, bytes: new Uint8Array(0),
+        md5: new Uint8Array(16), sha1: new Uint8Array(20), forceFullOnFastPath: true,
+      }],
+    }));
+    // bytes.length === 0 → nothing to distrust; the fast-path stands.
+    expect(bridge.sendRawPacket).toHaveBeenCalledOnce();
+    expect(highway.uploadHighwayHttp).not.toHaveBeenCalled();
+  });
+
+  it('a fast-pathed sub-file WITHOUT the flag (e.g. thumb) does not trigger a retry', async () => {
+    const bridge = makeBridge({
+      responseData: encodeOidbResponse({
+        // Main fully uploaded (has uKey); thumb fast-pathed (no subFileInfos).
+        upload: { uKey: 'main-ukey', msgInfo: { msgInfoBody: [], extBizInfo: {} } },
+      }),
+    });
+    await runNtv2Upload(baseParams({
+      bridge,
+      uploads: [
+        { source: 'top', cmdId: 1001, bytes: new Uint8Array([1]), md5: new Uint8Array(16), sha1: new Uint8Array(20), forceFullOnFastPath: true },
+        { source: 0, cmdId: 1002, bytes: new Uint8Array([2]), md5: new Uint8Array(16), sha1: new Uint8Array(20) /* no flag */ },
+      ],
+    }));
+    expect(bridge.sendRawPacket).toHaveBeenCalledOnce();
+  });
+
   it('silently skips a sub-file with empty bytes when no fastOnlyError is configured', async () => {
     // This mirrors the video-thumb path where bytes are always synthesised
     // (FALLBACK_THUMB) so we don't expect the check to fire even if the

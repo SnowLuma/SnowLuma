@@ -1,6 +1,7 @@
 {
+  "license": "SEE LICENSE IN LICENSE",
   "name": "@snowluma/proto-defs",
-  "version": "1.9.10",
+  "version": "1.10.3",
   "private": true,
   "type": "module",
   "description": "SnowLuma QQ/Lagrange wire-protobuf type definitions. Pure TypeScript interfaces with proton's `pb<N, T>` marker types — `@snowluma/proton`'s vite plugin compiles them into zero-runtime encoder/decoder functions at the call sites in `@snowluma/core` (and any downstream consumer). Exposed as per-file subpaths (`@snowluma/proto-defs/oidb`, `@snowluma/proto-defs/message`, …) so the import-site shape mirrors the legacy `bridge/proto/proton/*` layout and avoids name collisions across files (notably `highway.ts` and `oidb-actions/media.ts` share NTV2-prefixed names).",
@@ -59,6 +60,18 @@
       "types": "./src/oidb-actions/base.ts",
       "default": "./src/oidb-actions/base.ts"
     },
+    "./oidb-actions/contact-ark": {
+      "types": "./src/oidb-actions/contact-ark.ts",
+      "default": "./src/oidb-actions/contact-ark.ts"
+    },
+    "./oidb-actions/doubt-buddy": {
+      "types": "./src/oidb-actions/doubt-buddy.ts",
+      "default": "./src/oidb-actions/doubt-buddy.ts"
+    },
+    "./oidb-actions/group-ext": {
+      "types": "./src/oidb-actions/group-ext.ts",
+      "default": "./src/oidb-actions/group-ext.ts"
+    },
     "./oidb-actions/group-album": {
       "types": "./src/oidb-actions/group-album.ts",
       "default": "./src/oidb-actions/group-album.ts"
@@ -67,9 +80,17 @@
       "types": "./src/oidb-actions/group-file.ts",
       "default": "./src/oidb-actions/group-file.ts"
     },
+    "./oidb-actions/flash-transfer": {
+      "types": "./src/oidb-actions/flash-transfer.ts",
+      "default": "./src/oidb-actions/flash-transfer.ts"
+    },
     "./oidb-actions/media": {
       "types": "./src/oidb-actions/media.ts",
       "default": "./src/oidb-actions/media.ts"
+    },
+    "./oidb-actions/ocr": {
+      "types": "./src/oidb-actions/ocr.ts",
+      "default": "./src/oidb-actions/ocr.ts"
     }
   },
   "scripts": {

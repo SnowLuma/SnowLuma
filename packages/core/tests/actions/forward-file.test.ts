@@ -24,6 +24,7 @@
 // split.
 
 import { describe, it, expect, vi } from 'vitest';
+import { gunzipSync } from 'zlib';
 
 vi.mock('@snowluma/protocol/bridge-oidb', () => ({
   runOidb: vi.fn(async () => new Uint8Array()),
@@ -44,8 +45,9 @@ vi.mock('@snowluma/protocol/element-builder', () => ({
   buildSendElems: buildSendElemsMock,
 }));
 
-import { protobuf_encode } from '@snowluma/proton';
-import type { SendLongMsgResp } from '@snowluma/proto-defs/longmsg';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import type { LongMsgResult, SendLongMsgReq, SendLongMsgResp } from '@snowluma/proto-defs/longmsg';
+import type { FileExtra } from '@snowluma/proto-defs/message';
 import { ForwardApi } from '../../src/bridge/apis/forward';
 import { mockBridge } from './_helpers';
 
@@ -58,6 +60,13 @@ function uploadResponseWithResId(resId: string) {
     errorMessage: '',
     responseData: Buffer.from(encoded),
   };
+}
+
+function decodeLongMsgRequest(rawBytes: Uint8Array): LongMsgResult {
+  const env = protobuf_decode<SendLongMsgReq>(rawBytes);
+  const payload = env.info?.payload;
+  if (!(payload instanceof Uint8Array)) throw new Error('payload missing on SendLongMsgReq');
+  return protobuf_decode<LongMsgResult>(gunzipSync(Buffer.from(payload)));
 }
 
 describe('actions/forward — file segment inside forward node', () => {
@@ -120,18 +129,19 @@ describe('actions/forward — file segment inside forward node', () => {
     expect(ctx).toMatchObject({ forwardFake: true });
     expect(ctx?.groupId).toBeUndefined();
 
-    // Spot-check that the upload body carries the file metadata. The
-    // payload is gzipped + protobuf-wrapped, so we just verify the
-    // raw filename string survived — that's enough to confirm the
-    // FileExtra branch ran (a "missing file" regression would drop
-    // these bytes entirely).
     expect(captured).toBeDefined();
-    const flat = Buffer.from(captured!).toString('binary');
-    // The filename gets gzipped, so we can't substring-search; instead
-    // assert the body is large enough that the FileExtra wasn't elided.
-    // (A name-only forward with no msgContent runs ~80-100 bytes; with
-    // the FileExtra blob it's noticeably larger.)
-    expect(flat.length).toBeGreaterThan(80);
+    const longMsg = decodeLongMsgRequest(captured!);
+    const body = longMsg.action?.[0]?.actionData?.msgBody?.[0]?.body;
+    expect(body?.msgContent).toBeInstanceOf(Uint8Array);
+    expect(body?.richText?.notOnlineFile ?? undefined).toBeUndefined();
+
+    const fileExtra = protobuf_decode<FileExtra>(body!.msgContent as Uint8Array);
+    expect(fileExtra.file).toMatchObject({
+      fileUuid: 'pfid-1',
+      fileName: 'invoice.pdf',
+      fileHash: 'srv-hash-abc',
+    });
+    expect(fileExtra.file?.fileSize).toBe(4096n);
   });
 
   it('c2c forward falls back to the upload metadata cache when inline fields are missing', async () => {
@@ -164,5 +174,191 @@ describe('actions/forward — file segment inside forward node', () => {
     }], undefined, 67890);
 
     expect(recallUploadedFile).toHaveBeenCalledWith('pfid-cached');
+  });
+
+  it('group forward pre-uploads file sources into the target group without publishing a separate file message', async () => {
+    buildSendElemsMock.mockClear();
+    const upload = vi.fn(async () => ({ fileId: 'gfid-from-base64' }));
+    const publish = vi.fn();
+    const bridge = mockBridge({
+      sendRawPacket: vi.fn(async () => uploadResponseWithResId('res-grp-source')) as any,
+      apis: {
+        ...mockBridge().apis,
+        groupFile: {
+          ...mockBridge().apis.groupFile,
+          upload,
+          publish,
+        },
+      },
+      recallUploadedFile: vi.fn((id: string) => id === 'gfid-from-base64' ? {
+        fileId: 'gfid-from-base64',
+        scope: 'group' as const,
+        groupId: 12345,
+        fileName: 'note.txt',
+        fileSize: 3,
+        fileMd5: new Uint8Array(16),
+        fileSha1: new Uint8Array(20),
+        rememberedAt: 0,
+      } : undefined),
+    });
+
+    await new ForwardApi(bridge as any).upload([{
+      userUin: 10001,
+      nickname: 'alice',
+      elements: [{ type: 'file', url: 'base64://AQID', fileName: 'note.txt' } as any],
+    }], 12345);
+
+    expect(upload).toHaveBeenCalledWith(12345, 'base64://AQID', 'note.txt', '/', true, false);
+    expect(publish).not.toHaveBeenCalled();
+    const [elements] = buildSendElemsMock.mock.calls[0]!;
+    expect(elements).toEqual([expect.objectContaining({
+      type: 'file',
+      fileId: 'gfid-from-base64',
+      fileName: 'note.txt',
+      fileSize: 3,
+    })]);
+  });
+
+  it('private forward pre-uploads file sources without sending a standalone c2c file message', async () => {
+    buildSendElemsMock.mockClear();
+    const uploadPrivate = vi.fn(async () => ({ fileId: 'pfid-from-base64', fileHash: 'phash' }));
+    const sendC2cFile = vi.fn();
+    const bridge = mockBridge({
+      sendRawPacket: vi.fn(async () => uploadResponseWithResId('res-c2c-source')) as any,
+      apis: {
+        ...mockBridge().apis,
+        message: {
+          ...mockBridge().apis.message,
+          sendC2cFile,
+        },
+        groupFile: {
+          ...mockBridge().apis.groupFile,
+          uploadPrivate,
+        },
+      },
+      recallUploadedFile: vi.fn((id: string) => id === 'pfid-from-base64' ? {
+        fileId: 'pfid-from-base64',
+        scope: 'private' as const,
+        userId: 67890,
+        fileName: 'note.txt',
+        fileSize: 3,
+        fileMd5: new Uint8Array(16),
+        fileSha1: new Uint8Array(20),
+        fileHash: 'phash',
+        rememberedAt: 0,
+      } : undefined),
+    });
+
+    await new ForwardApi(bridge as any).upload([{
+      userUin: 10001,
+      nickname: 'alice',
+      elements: [{ type: 'file', url: 'base64://AQID', fileName: 'note.txt' } as any],
+    }], undefined, 67890);
+
+    expect(uploadPrivate).toHaveBeenCalledWith(67890, 'base64://AQID', 'note.txt', true, false);
+    expect(sendC2cFile).not.toHaveBeenCalled();
+    const [elements] = buildSendElemsMock.mock.calls[0]!;
+    expect(elements).toEqual([expect.objectContaining({
+      type: 'file',
+      fileId: 'pfid-from-base64',
+      fileName: 'note.txt',
+      fileSize: 3,
+      fileHash: 'phash',
+    })]);
+  });
+
+  it('private file forward keeps the long-msg upload under the self uid namespace', async () => {
+    buildSendElemsMock.mockClear();
+    let captured: Uint8Array | undefined;
+    const bridge = mockBridge({
+      sendRawPacket: vi.fn(async (_cmd: string, body: Uint8Array) => {
+        captured = body;
+        return uploadResponseWithResId('res-c2c-target-uid');
+      }) as any,
+      resolveUserUid: vi.fn(async () => 'target-uid'),
+      recallUploadedFile: vi.fn((id: string) => id === 'pfid-1' ? {
+        fileId: 'pfid-1',
+        scope: 'private' as const,
+        userId: 67890,
+        fileName: 'invoice.pdf',
+        fileSize: 4096,
+        fileMd5: new Uint8Array(16),
+        fileSha1: new Uint8Array(20),
+        fileHash: 'srv-hash',
+        rememberedAt: 0,
+      } : undefined),
+    });
+
+    await new ForwardApi(bridge as any).upload([{
+      userUin: 10001,
+      nickname: 'alice',
+      elements: [{ type: 'file', fileId: 'pfid-1' } as any],
+    }], undefined, 67890);
+
+    expect(bridge.resolveUserUid).not.toHaveBeenCalled();
+    expect(captured).toBeDefined();
+    const request = protobuf_decode<SendLongMsgReq>(captured!);
+    expect(request.info?.uid?.uid).toBe('self-uid');
+  });
+
+  it('group forward re-uploads a cached private file_id into the target group scope', async () => {
+    buildSendElemsMock.mockClear();
+    const getPrivateUrl = vi.fn(async () => 'https://download.test/private-file');
+    const upload = vi.fn(async () => ({ fileId: 'gfid-reuploaded' }));
+    const bridge = mockBridge({
+      sendRawPacket: vi.fn(async () => uploadResponseWithResId('res-cross-scope')) as any,
+      apis: {
+        ...mockBridge().apis,
+        groupFile: {
+          ...mockBridge().apis.groupFile,
+          getPrivateUrl,
+          upload,
+        },
+      },
+      recallUploadedFile: vi.fn((id: string) => {
+        if (id === 'pfid-cached') {
+          return {
+            fileId: 'pfid-cached',
+            scope: 'private' as const,
+            userId: 67890,
+            fileName: 'cached.txt',
+            fileSize: 5,
+            fileMd5: new Uint8Array(16),
+            fileSha1: new Uint8Array(20),
+            fileHash: 'cached-hash',
+            rememberedAt: 0,
+          };
+        }
+        if (id === 'gfid-reuploaded') {
+          return {
+            fileId: 'gfid-reuploaded',
+            scope: 'group' as const,
+            groupId: 12345,
+            fileName: 'cached.txt',
+            fileSize: 5,
+            fileMd5: new Uint8Array(16),
+            fileSha1: new Uint8Array(20),
+            rememberedAt: 1,
+          };
+        }
+        return undefined;
+      }),
+    });
+
+    await new ForwardApi(bridge as any).upload([{
+      userUin: 10001,
+      nickname: 'alice',
+      elements: [{ type: 'file', fileId: 'pfid-cached' } as any],
+    }], 12345);
+
+    expect(getPrivateUrl).toHaveBeenCalledWith(67890, 'pfid-cached', 'cached-hash');
+    expect(upload).toHaveBeenCalledWith(12345, 'https://download.test/private-file', 'cached.txt', '/', true, false);
+    const [elements] = buildSendElemsMock.mock.calls[0]!;
+    expect(elements).toEqual([expect.objectContaining({
+      type: 'file',
+      fileId: 'gfid-reuploaded',
+      fileName: 'cached.txt',
+      fileSize: 5,
+    })]);
   });
 });

@@ -21,9 +21,16 @@ const CONFIG_DIR = 'config';
 const DEFAULT_CONFIG_PATH = path.join(CONFIG_DIR, 'onebot.json');
 const DEFAULT_ACCESS_TOKEN_BYTES = 32;
 
-const DEFAULT_STATUS_COMMAND: StatusCommandConfig = { enabled: true, swallow: false, cooldownSeconds: 5 };
-/** Upper bound on the `#sl` reply cooldown — a year is effectively "off but sane". */
+const DEFAULT_STATUS_COMMAND: StatusCommandConfig = {
+  enabled: true,
+  swallow: false,
+  cooldownSeconds: 5,
+  trigger: '#sl',
+};
+/** Upper bound on the status-command reply cooldown — a year is effectively "off but sane". */
 const STATUS_COMMAND_COOLDOWN_MAX = 31_536_000;
+/** Max length of a user-customised trigger word (UTF-16 code units). */
+export const STATUS_COMMAND_TRIGGER_MAX_LENGTH = 32;
 
 function makeDefaultStatusCommand(): StatusCommandConfig {
   return { ...DEFAULT_STATUS_COMMAND };
@@ -56,6 +63,7 @@ export function makeDefaultOneBotConfig(): OneBotConfig {
     },
     musicSignUrl: '',
     statusCommand: makeDefaultStatusCommand(),
+    notifications: { channelIds: [] },
   };
 }
 
@@ -112,7 +120,9 @@ function toJsonObject(config: OneBotConfig): JsonObject {
       enabled: config.statusCommand.enabled,
       swallow: config.statusCommand.swallow,
       cooldownSeconds: config.statusCommand.cooldownSeconds,
+      trigger: config.statusCommand.trigger,
     },
+    notifications: { channelIds: config.notifications?.channelIds ?? [] },
   };
 }
 
@@ -196,7 +206,41 @@ function fromJson(sources: JsonObject[], freshInstall: boolean): OneBotConfig {
   }
 
   const networks: OneBotNetworks = { httpServers, httpClients, wsServers, wsClients };
-  return { networks, musicSignUrl, statusCommand: parseStatusCommand(sources) };
+  return {
+    networks,
+    musicSignUrl,
+    statusCommand: parseStatusCommand(sources),
+    notifications: parseNotifications(sources),
+  };
+}
+
+/** Last-write-wins merge of `notifications.channelIds` across config sources,
+ *  each id validated as a slug + deduped. Mirrors the channel-id rule in
+ *  packages/core/src/notifications/config.ts (CHANNEL_ID_RE) — duplicated
+ *  deliberately: core depends on onebot, so onebot cannot import from core. */
+function parseNotifications(sources: JsonObject[]): { channelIds: string[] } {
+  let channelIds: string[] = [];
+  for (const src of sources) {
+    const raw = src.notifications;
+    if (!isObject(raw)) continue;
+    if (Array.isArray(raw.channelIds)) channelIds = normalizeChannelIds(raw.channelIds);
+  }
+  return { channelIds };
+}
+
+function normalizeChannelIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const v = item.trim();
+    if (!v || v.length > 64 || !/^[\w.-]+$/.test(v)) continue;
+    if (seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+  }
+  return out;
 }
 
 /** Last-write-wins merge of `statusCommand` across config sources, with
@@ -213,6 +257,9 @@ function parseStatusCommand(sources: JsonObject[]): StatusCommandConfig {
         STATUS_COMMAND_COOLDOWN_MAX,
         asNumber(raw.cooldownSeconds, DEFAULT_STATUS_COMMAND.cooldownSeconds),
       );
+    }
+    if (typeof raw.trigger === 'string' && raw.trigger.trim().length > 0 && !/[\r\n]/.test(raw.trigger)) {
+      out.trigger = raw.trigger.trim().slice(0, STATUS_COMMAND_TRIGGER_MAX_LENGTH);
     }
   }
   return out;

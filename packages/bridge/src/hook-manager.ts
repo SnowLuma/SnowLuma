@@ -49,6 +49,13 @@ export type HookManagerDeps = {
    * `loadProcess(pid)` from the watcher's 'process-discovered' handler).
    * Failed loads are logged and leave the session in the 'error' state. */
   autoLoadOnDiscovery?: boolean;
+  /** Optional hook fired whenever the set of HookProcessInfo observable to
+   * `listProcesses()` changes — new process discovered, process gone, or
+   * any session's status mutated. Used by the WebUI SSE wiring to push a
+   * fresh processes snapshot to connected clients without REST polling.
+   * Exceptions thrown by the callback are caught and logged; they do not
+   * break the watcher / session event loops. */
+  onSessionsChanged?: () => void;
   log?: Logger;
 };
 
@@ -76,6 +83,7 @@ export class HookManager {
   private readonly ownsPipeWatcher: boolean;
   private readonly listProcessesNative: () => HookProcessBaseInfo[];
   private readonly autoLoadOnDiscovery: boolean;
+  private readonly onSessionsChangedRaw?: () => void;
   private readonly log: Logger;
   private readonly sessions = new Map<number, HookSession>();
   private readonly startPromise: Promise<void>;
@@ -85,6 +93,7 @@ export class HookManager {
   constructor(deps: HookManagerDeps) {
     this.bridgeManager = deps.bridgeManager;
     this.onPacket = deps.onPacket ?? ((pkt) => deps.bridgeManager.onPacket(pkt));
+    this.onSessionsChangedRaw = deps.onSessionsChanged;
     this.log = deps.log ?? createLogger('Hook');
 
     this.injector = deps.injector ?? {
@@ -193,11 +202,13 @@ export class HookManager {
           this.log.warn('auto-load failed: PID=%d err=%s', info.pid, errMsg(err));
         });
       }
+      this.notifySessionsChanged();
     });
     this.pipeWatcher.on('process-gone', (pid: number) => {
       if (this.disposed) return;
       const session = this.sessions.get(pid);
       if (session) session.notifyProcessGone();
+      this.notifySessionsChanged();
     });
     this.pipeWatcher.on('pipe-up', (pid: number) => {
       if (this.disposed) return;
@@ -253,12 +264,31 @@ export class HookManager {
     session.on('disconnected', (wasLoggedIn: boolean) => {
       if (wasLoggedIn) this.bridgeManager.onPidDisconnected(pid);
     });
+    // status-changed fires on EVERY internal status mutation, including the
+    // ones reached via login / disconnected / refresh — subscribing here
+    // alone covers every transition the WebUI processes view cares about.
+    session.on('status-changed', () => {
+      this.notifySessionsChanged();
+    });
     session.on('disposed', () => {
       this.sessions.delete(pid);
     });
 
     this.sessions.set(pid, session);
     return session;
+  }
+
+  /** Fire the optional sessions-changed hook with exceptions isolated.
+   * A throwing subscriber must not abort the watcher's emit loop or break
+   * a HookSession event handler in flight. */
+  private notifySessionsChanged(): void {
+    if (this.disposed) return;
+    if (!this.onSessionsChangedRaw) return;
+    try {
+      this.onSessionsChangedRaw();
+    } catch (err) {
+      this.log.warn('onSessionsChanged threw: %s', errMsg(err));
+    }
   }
 
   private assertValidPid(pid: number): void {
