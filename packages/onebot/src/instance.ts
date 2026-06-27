@@ -81,7 +81,7 @@ export class OneBotInstance {
       ? moduleLog.child({ uin: uinNum })
       : moduleLog;
 
-    this.rkeyCache = new RKeyCache();
+    this.rkeyCache = new RKeyCache(config.rkey);
     this.mediaStore = new MediaStore(path.join('data', this.uin, 'media.db'));
     this.messageStore = new MessageStore(path.join('data', this.uin, 'messages.json'));
     this.reactionStore = new ReactionStore(path.join('data', this.uin, 'reactions.db'));

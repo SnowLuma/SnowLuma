@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { RKeyCache } from '../src/instance-rkey';
 import type { MessageElement } from '@snowluma/protocol/events';
 
@@ -176,5 +176,97 @@ describe('RKeyCache.resolveImageUrl', () => {
 
     expect(url).toBe('https://gchat.qpic.cn/foo.jpg');
     expect(fetchDownloadRKeys).not.toHaveBeenCalled();
+  });
+});
+
+describe('RKeyCache remote fallback (#156)', () => {
+  const SERVER = 'https://rkey.example/r';
+
+  function stubFetch(payload: unknown, status = 200) {
+    return vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify(payload), { status }),
+    );
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('is off by default: never contacts a server, leaves the URL bare', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const { bridge } = makeBridge(async () => []); // native yields nothing
+    const cache = new RKeyCache(); // no config → fallback off
+
+    const url = await cache.resolveImageUrl(bridge as never, imageEl(), true);
+
+    expect(url).toBe(NT_IMAGE_URL);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the configured server when the native fetch is empty', async () => {
+    const fetchSpy = stubFetch({
+      group_rkey: '&rkey=FBGROUP', private_rkey: '&rkey=FBPRIV', expired_time: nowSec() + 3600,
+    });
+    const { bridge } = makeBridge(async () => []);
+    const cache = new RKeyCache({ fallbackServers: [SERVER] });
+
+    const url = await cache.resolveImageUrl(bridge as never, imageEl(), true);
+
+    expect(url).toBe(`${NT_IMAGE_URL}&rkey=FBGROUP`);
+    expect(fetchSpy).toHaveBeenCalledWith(SERVER, expect.anything());
+  });
+
+  it('signs c2c images with the fallback private rkey', async () => {
+    stubFetch({ group_rkey: '&rkey=FBGROUP', private_rkey: '&rkey=FBPRIV', expired_time: nowSec() + 3600 });
+    const { bridge } = makeBridge(async () => []);
+    const cache = new RKeyCache({ fallbackServers: [SERVER] });
+
+    const url = await cache.resolveImageUrl(bridge as never, privateImageEl(), false);
+
+    expect(url).toBe(`${NT_PRIVATE_IMAGE_URL}&rkey=FBPRIV`);
+  });
+
+  it('accepts an OneBot { retcode, data } wrapper and bare (unprefixed) tokens', async () => {
+    stubFetch({ retcode: 0, data: { group_rkey: 'BAREKEY', private_rkey: '', expired_time: nowSec() + 3600 } });
+    const { bridge } = makeBridge(async () => []);
+    const cache = new RKeyCache({ fallbackServers: [SERVER] });
+
+    const url = await cache.resolveImageUrl(bridge as never, imageEl(), true);
+
+    expect(url).toBe(`${NT_IMAGE_URL}&rkey=BAREKEY`);
+  });
+
+  it('does not hit any server when the native fetch already returned a rkey', async () => {
+    const fetchSpy = stubFetch({ group_rkey: '&rkey=FBGROUP', expired_time: nowSec() + 3600 });
+    const { bridge } = makeBridge(async () => freshGroupRkey());
+    const cache = new RKeyCache({ fallbackServers: [SERVER] });
+
+    const url = await cache.resolveImageUrl(bridge as never, imageEl(), true);
+
+    expect(url).toBe(`${NT_IMAGE_URL}&rkey=GROUPKEY`); // native rkey, not fallback
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('tries the next server when the first one fails', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockRejectedValueOnce(new Error('down'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ group_rkey: '&rkey=SECOND', expired_time: nowSec() + 3600 }), { status: 200 }));
+    const { bridge } = makeBridge(async () => []);
+    const cache = new RKeyCache({ fallbackServers: ['https://a.example/r', 'https://b.example/r'] });
+
+    const url = await cache.resolveImageUrl(bridge as never, imageEl(), true);
+
+    expect(url).toBe(`${NT_IMAGE_URL}&rkey=SECOND`);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves the URL bare when every fallback server fails', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('down'));
+    const { bridge } = makeBridge(async () => []);
+    const cache = new RKeyCache({ fallbackServers: [SERVER] });
+
+    const url = await cache.resolveImageUrl(bridge as never, imageEl(), true);
+
+    expect(url).toBe(NT_IMAGE_URL);
   });
 });
