@@ -93,6 +93,56 @@ describe('parseMessage', () => {
       expect(result[0].url).toBe('https://example.com/img.png');
     });
 
+    it('prefers a real url when file is a QQ-internal id (issue #155)', async () => {
+      // Yunzai et al. echo a received image by resending the original
+      // `file=<md5>.ext` together with the download `url`. `file` is not a
+      // local path, so picking it would statSync → ENOENT on send.
+      const result = await parseMessage(
+        [{
+          type: 'image',
+          data: {
+            file: '35246A5B5C287F680C90839829FD7620.png',
+            url: 'https://multimedia.nt.qq.com.cn/download?fileid=abc&rkey=xyz',
+            sub_type: 1,
+            summary: '[动画表情]',
+          },
+        }] as any,
+        true,
+      );
+      expect(result[0].type).toBe('image');
+      expect(result[0].url).toBe('https://multimedia.nt.qq.com.cn/download?fileid=abc&rkey=xyz');
+    });
+
+    it('keeps file when it is itself loadable even if a url is also present', async () => {
+      // A path (has a separator) or inline bytes are the actual content and
+      // must win over any sibling url.
+      const viaPath = await parseMessage(
+        [{ type: 'image', data: { file: '/tmp/local.png', url: 'https://example.com/other.png' } }] as any,
+        false,
+      );
+      expect(viaPath[0].url).toBe('/tmp/local.png');
+
+      const viaBase64 = await parseMessage(
+        [{ type: 'image', data: { file: 'base64://AAAA', url: 'https://example.com/other.png' } }] as any,
+        false,
+      );
+      expect(viaBase64[0].url).toBe('base64://AAAA');
+    });
+
+    it('falls back a QQ-internal id record/video to the sibling url (issue #155)', async () => {
+      const rec = await parseMessage(
+        [{ type: 'record', data: { file: 'ABCD1234.amr', url: 'https://example.com/v.amr' } }] as any,
+        false,
+      );
+      expect(rec).toEqual([{ type: 'record', url: 'https://example.com/v.amr' }]);
+
+      const vid = await parseMessage(
+        [{ type: 'video', data: { file: 'EF567890.mp4', url: 'https://example.com/v.mp4' } }] as any,
+        false,
+      );
+      expect(vid).toEqual([{ type: 'video', url: 'https://example.com/v.mp4', thumbUrl: undefined }]);
+    });
+
     it('parses record segment from data.file', async () => {
       const result = await parseMessage(
         [{ type: 'record', data: { file: 'file:///tmp/voice.amr' } }] as any,
