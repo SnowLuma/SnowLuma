@@ -15,6 +15,11 @@ interface CachedRKey {
 
 const RKEY_REFRESH_SKEW = 60;
 const RKEY_REFRESH_COOLDOWN = 30;
+// When the cache holds NO usable image rkey, the alternative to refreshing is
+// handing out a bare URL the CDN rejects with `invalid rkey` (issue #156). So
+// retry far more eagerly than the 30s steady-state backoff — but still throttled
+// so a persistently-failing fetch isn't hammered once per inbound image.
+const RKEY_EMPTY_COOLDOWN = 10;
 // Upper bound on how long URL resolution may block on a refresh round-trip.
 // A stuck packet send must never wedge message conversion — past this we
 // fall back to whatever the cache holds (possibly nothing).
@@ -101,6 +106,13 @@ export class RKeyCache {
     }
   }
 
+  /** True when at least one common image rkey (group or private) is cached and
+   *  still valid — i.e. we can sign a typical image without a fresh fetch. */
+  private hasUsableRkey(): boolean {
+    return this.findInCache(GROUP_IMAGE_RKEY_TYPE) !== null
+      || this.findInCache(PRIVATE_IMAGE_RKEY_TYPE) !== null;
+  }
+
   /** Pull a still-valid rkey out of the cache, or null if missing/expiring. */
   private findInCache(primaryType: number): string | null {
     const now = Math.floor(Date.now() / 1000);
@@ -128,15 +140,18 @@ export class RKeyCache {
 
   /**
    * Refresh the rkey cache via OIDB 0x9067_202, coalescing concurrent
-   * callers onto one in-flight request and backing off for
-   * RKEY_REFRESH_COOLDOWN after a failed attempt so a persistently
-   * unreachable server isn't hammered once per inbound image. The await is
-   * bounded by RKEY_REFRESH_TIMEOUT_MS.
+   * callers onto one in-flight request and backing off (RKEY_REFRESH_COOLDOWN
+   * when a usable rkey is held, RKEY_EMPTY_COOLDOWN while none is) so a
+   * persistently-failing fetch isn't hammered once per inbound image. The await
+   * is bounded by RKEY_REFRESH_TIMEOUT_MS.
    */
   private async ensureFresh(bridge: BridgeInterface): Promise<void> {
     if (!this.refreshInflight) {
       const now = Math.floor(Date.now() / 1000);
-      if (now - this.lastRefreshAttempt < RKEY_REFRESH_COOLDOWN) return;
+      // Back off hard once we hold a usable rkey; retry quickly while we don't,
+      // so a transient empty/failed fetch self-heals in seconds, not 30s (#156).
+      const cooldown = this.hasUsableRkey() ? RKEY_REFRESH_COOLDOWN : RKEY_EMPTY_COOLDOWN;
+      if (now - this.lastRefreshAttempt < cooldown) return;
       this.lastRefreshAttempt = now;
       this.refreshInflight = bridge.apis.contacts.fetchDownloadRKeys()
         .then((rkeys) => { this.updateCache(rkeys); })

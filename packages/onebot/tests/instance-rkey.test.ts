@@ -124,6 +124,49 @@ describe('RKeyCache.resolveImageUrl', () => {
     expect(url).toBe(`${noAppidUrl}&rkey=GROUPKEY`);
   });
 
+  // #156: a transient empty/failed fetch must self-heal in seconds, not 30s.
+  // An empty cache uses the short RKEY_EMPTY_COOLDOWN (10s), so a retry ~11s
+  // later refetches — under the 30s steady-state backoff it would not.
+  it('retries before the 30s cooldown while the cache holds no usable rkey', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date(1_700_000_000_000));
+      let calls = 0;
+      const { bridge, fetchDownloadRKeys } = makeBridge(
+        async () => (++calls === 1 ? [] : freshGroupRkey()),
+      );
+      const cache = new RKeyCache();
+
+      const url1 = await cache.resolveImageUrl(bridge as never, imageEl(), true);
+      expect(url1).toBe(NT_IMAGE_URL); // empty fetch → bare URL
+
+      vi.setSystemTime(new Date(1_700_000_000_000 + 11_000)); // +11s: past 10s empty-cooldown, inside 30s
+      const url2 = await cache.resolveImageUrl(bridge as never, imageEl(), true);
+
+      expect(url2).toBe(`${NT_IMAGE_URL}&rkey=GROUPKEY`);
+      expect(fetchDownloadRKeys).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does NOT refetch within 30s once a usable rkey is cached', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date(1_700_000_000_000));
+      const { bridge, fetchDownloadRKeys } = makeBridge(async () => freshGroupRkey());
+      const cache = new RKeyCache();
+
+      await cache.resolveImageUrl(bridge as never, imageEl(), true);
+      vi.setSystemTime(new Date(1_700_000_000_000 + 15_000)); // +15s, inside 30s backoff
+      await cache.resolveImageUrl(bridge as never, imageEl(), true);
+
+      expect(fetchDownloadRKeys).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('leaves non-NT URLs untouched and never fetches', async () => {
     const { bridge, fetchDownloadRKeys } = makeBridge(async () => freshGroupRkey());
     const cache = new RKeyCache();
