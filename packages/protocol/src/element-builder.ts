@@ -375,26 +375,22 @@ async function makeVideoElem(ctx: SendContext, element: MessageElement): Promise
     throw new Error('private video target uid is missing');
   }
 
-  try {
-    const msgInfo = await uploadVideoMsgInfo(ctx.bridge, isGroup, targetIdOrUid, element);
+  const msgInfo = await uploadVideoMsgInfo(ctx.bridge, isGroup, targetIdOrUid, element);
 
-    // commonElem.businessType is the QQ NT scene tag the receive-side
-    // decoder pairs with: 11=c2c, 21=group. Sending the group tag on a
-    // c2c message bounces with PbSendMsg result=79.
-    return {
-      commonElem: {
-        serviceType: 48,
-        pbElem: msgInfo,
-        businessType: isGroup ? 21 : 11,
-      },
-    };
-  } catch (err) {
-    if (isGroup && element.fileId) {
-      console.warn('[ElemBuilder] video upload failed, falling back to file element: %s', err instanceof Error ? err.message : String(err));
-      return makeGroupFileElem(element, ctx);
-    }
-    throw err;
-  }
+  // commonElem.businessType is the QQ NT scene tag the receive-side
+  // decoder pairs with: 11=c2c, 21=group. Sending the group tag on a
+  // c2c message bounces with PbSendMsg result=79.
+  //
+  // Oversize videos throw here; the OneBot layer catches that and falls
+  // back to file upload (see message-actions.ts video fallback). A file
+  // element can't be built here — there's no uploaded file_id yet.
+  return {
+    commonElem: {
+      serviceType: 48,
+      pbElem: msgInfo,
+      businessType: isGroup ? 21 : 11,
+    },
+  };
 }
 
 /**

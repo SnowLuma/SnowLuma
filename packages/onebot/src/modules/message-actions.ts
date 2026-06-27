@@ -13,6 +13,49 @@ import type { JsonArray, JsonObject, JsonValue, MessageMeta } from '../types';
 
 const log = createLogger('OneBot');
 
+// A video larger than QQ's Highway video ceiling can't be sent through the
+// element pipeline — it must fall back to a regular file upload. The fallback
+// is decided at the OneBot layer (not element-builder) because building a
+// group/c2c file element needs an uploaded file, which only the file-upload
+// pipeline produces. See send-video-fallback.test.ts.
+
+/** Whether a Highway upload error message looks size-related. */
+export function isHighwaySizeError(err: unknown): boolean {
+  return err instanceof Error && /size limit|too large|413|too big|exceed/i.test(err.message);
+}
+
+/**
+ * A video element should fall back to file upload when its source size is
+ * known to exceed the limit, or — when the size can't be inferred (remote
+ * URL) — when the upload error itself looks size-related.
+ */
+export function videoNeedsFileFallback(element: MessageElement, isSizeErr: boolean): boolean {
+  if (element.type !== 'video') return false;
+  const sz = getVideoSourceSize(element);
+  return sz !== null ? sz > MAX_VIDEO_SIZE : isSizeErr;
+}
+
+/**
+ * Partition elements after a failed Highway send: oversized videos become
+ * `file` elements (re-routed through the file-upload pipeline), everything
+ * else is returned for a normal re-send.
+ */
+export function splitVideoFileFallback(
+  elements: MessageElement[],
+  isSizeErr: boolean,
+): { fileEls: MessageElement[]; remaining: MessageElement[] } {
+  const fileEls: MessageElement[] = [];
+  const remaining: MessageElement[] = [];
+  for (const e of elements) {
+    if (videoNeedsFileFallback(e, isSizeErr)) {
+      fileEls.push({ type: 'file', url: e.url, fileId: e.fileId, fileName: e.fileName || 'video.mp4' });
+    } else {
+      remaining.push(e);
+    }
+  }
+  return { fileEls, remaining };
+}
+
 export async function getGroupMsgHistory(
   messageStore: MessageStore,
   groupId: number,
@@ -546,38 +589,18 @@ export async function sendPrivateMessage(
       lastReceipt = await ref.bridge.apis.message.sendPrivate(userId, nonFileElements);
       logSentMessage(false, userId, nonFileElements);
     } catch (err) {
-      // Highway upload failed — check if a large video element triggered it
-      // and fall back to file upload for that element (private messages
-      // cannot carry file elements through the element pipeline).
-      const isSizeErr = err instanceof Error && /size limit|too large|413|too big|exceed/i.test(err.message);
-      const videoElements = nonFileElements.filter(e => e.type === 'video');
-      // Trigger fallback when a video element is known to exceed the size
-      // limit, OR when the error message itself indicates a size-related
-      // failure (covers remote videos whose size couldn't be inferred).
-      const needsFallback = videoElements.some(e => {
-        const sz = getVideoSourceSize(e);
-        return sz !== null ? sz > MAX_VIDEO_SIZE : isSizeErr;
-      });
-      if (needsFallback) {
-        log.warn('[OneBot] private video upload failed, falling back to file upload: %s', err instanceof Error ? err.message : String(err));
-        const remaining: MessageElement[] = [];
-        for (const e of nonFileElements) {
-          if (e.type === 'video') {
-            const sz = getVideoSourceSize(e);
-            if (sz !== null ? sz > MAX_VIDEO_SIZE : isSizeErr) {
-              allFileElements = [...allFileElements, { type: 'file', url: e.url, fileId: e.fileId, fileName: e.fileName || 'video.mp4' }];
-              continue;
-            }
-          }
-          remaining.push(e);
-        }
-        nonFileElements = remaining;
-        if (nonFileElements.length > 0) {
-          lastReceipt = await ref.bridge.apis.message.sendPrivate(userId, nonFileElements);
-          logSentMessage(false, userId, nonFileElements);
-        }
-      } else {
-        throw err;
+      // Highway upload failed — if a large video triggered it, fall back to
+      // file upload for that element (private messages cannot carry file
+      // elements through the element pipeline).
+      const isSizeErr = isHighwaySizeError(err);
+      if (!nonFileElements.some(e => videoNeedsFileFallback(e, isSizeErr))) throw err;
+      log.warn('[OneBot] private video upload failed, falling back to file upload: %s', err instanceof Error ? err.message : String(err));
+      const { fileEls, remaining } = splitVideoFileFallback(nonFileElements, isSizeErr);
+      allFileElements = [...allFileElements, ...fileEls];
+      nonFileElements = remaining;
+      if (nonFileElements.length > 0) {
+        lastReceipt = await ref.bridge.apis.message.sendPrivate(userId, nonFileElements);
+        logSentMessage(false, userId, nonFileElements);
       }
     }
   }
@@ -664,13 +687,29 @@ export async function sendGroupMessage(
   // Two sub-paths for group file segments:
   //  a) has url/path but no file_id → upload() which internally calls publish()
   //  b) has file_id from a prior upload_group_file → publish() only
-  const allFileElements = elements.filter(e => e.type === 'file');
-  const nonFileElements = elements.filter(e => e.type !== 'file');
+  let allFileElements = elements.filter(e => e.type === 'file');
+  let nonFileElements = elements.filter(e => e.type !== 'file');
 
   let lastReceipt: Awaited<ReturnType<typeof ref.bridge.apis.message.sendGroup>> | undefined;
   if (nonFileElements.length > 0) {
-    lastReceipt = await ref.bridge.apis.message.sendGroup(groupId, nonFileElements);
-    logSentMessage(true, groupId, nonFileElements);
+    try {
+      lastReceipt = await ref.bridge.apis.message.sendGroup(groupId, nonFileElements);
+      logSentMessage(true, groupId, nonFileElements);
+    } catch (err) {
+      // Highway upload failed — if a large video triggered it, fall back to
+      // group file upload (mirrors the private path; element-builder cannot
+      // build a group file element without an already-uploaded file_id).
+      const isSizeErr = isHighwaySizeError(err);
+      if (!nonFileElements.some(e => videoNeedsFileFallback(e, isSizeErr))) throw err;
+      log.warn('[OneBot] group video upload failed, falling back to file upload: %s', err instanceof Error ? err.message : String(err));
+      const { fileEls, remaining } = splitVideoFileFallback(nonFileElements, isSizeErr);
+      allFileElements = [...allFileElements, ...fileEls];
+      nonFileElements = remaining;
+      if (nonFileElements.length > 0) {
+        lastReceipt = await ref.bridge.apis.message.sendGroup(groupId, nonFileElements);
+        logSentMessage(true, groupId, nonFileElements);
+      }
+    }
   }
   for (const fileEl of allFileElements) {
     let fileId: string;
