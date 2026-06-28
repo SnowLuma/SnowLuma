@@ -108,7 +108,7 @@ export class OneBotInstance {
       reactionStore: this.reactionStore,
       converterCtx: this.converterCtx,
       config,
-      musicSignUrl: config.musicSignUrl,
+      musicSignUrl: globalSettings.musicSignUrl,
       cacheMessageMeta: (messageId, meta) => this.cacheMessageMeta(messageId, meta),
       dispatchEvent: (event) => this.dispatchEvent(event),
     };
@@ -139,6 +139,7 @@ export class OneBotInstance {
    *  the manager when config/snowluma.json is saved from the WebUI. */
   applyGlobalSettings(globalSettings: GlobalSettings): void {
     this.rkeyCache.setFallbackServers(globalSettings.rkey.fallbackServers);
+    this.ctx.musicSignUrl = globalSettings.musicSignUrl;
   }
 
   dispose(): void {

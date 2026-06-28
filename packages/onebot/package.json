@@ -40,6 +40,10 @@
       "types": "./src/config.ts",
       "default": "./src/config.ts"
     },
+    "./global-config": {
+      "types": "./src/global-config.ts",
+      "default": "./src/global-config.ts"
+    },
     "./types": {
       "types": "./src/types.ts",
       "default": "./src/types.ts"

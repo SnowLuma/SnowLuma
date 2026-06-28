@@ -103,8 +103,6 @@ export interface RKeyConfig {
 /** Per-UIN OneBot configuration. */
 export interface OneBotConfig {
   networks: OneBotNetworks;
-  /** Music card signing service URL (optional). */
-  musicSignUrl?: string;
   /** Built-in `#sl` status command settings. Always present after normalization. */
   statusCommand: StatusCommandConfig;
   /** Which GLOBAL notification channels this account opts into (channel ids are
