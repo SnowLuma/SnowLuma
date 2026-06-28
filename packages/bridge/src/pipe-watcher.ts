@@ -6,8 +6,11 @@ const DEFAULT_INTERVAL_MS = 1500;
 const MIN_INTERVAL_MS = 250;
 
 export type PipeWatcherDeps = {
-  /** Native: list QQ.exe processes currently running. */
-  listProcesses: () => HookProcessBaseInfo[];
+  /** Native: list QQ.exe processes currently running. May be async and may
+   *  return `null` (UNKNOWN) when enumeration timed out / failed — in which
+   *  case this tick keeps the prior process+pipe state instead of treating the
+   *  missing data as "everything disappeared" (issue #158). */
+  listProcesses: () => HookProcessBaseInfo[] | null | Promise<HookProcessBaseInfo[] | null>;
   /** Native: PIDs that currently have a live SnowLuma named pipe. */
   listLivePipes: () => Promise<Set<number>>;
   /** Polling interval in ms. Defaults to 1500, floored to 250. */
@@ -138,12 +141,22 @@ export class PipeWatcher extends EventEmitter {
     }
     this.ticking = true;
     try {
-      let processes: HookProcessBaseInfo[];
+      let processes: HookProcessBaseInfo[] | null;
       try {
-        processes = this.listProcesses();
+        processes = await this.listProcesses();
       } catch (error) {
         this.log.warn('listProcesses failed: %s', errMsg(error));
-        processes = [];
+        processes = null;
+      }
+      // UNKNOWN (timeout / failure): keep the prior process + pipe snapshot.
+      // Treating missing data as "everything disappeared" would fire
+      // process-gone for every live PID and dispose healthy sessions — the
+      // freeze-then-teardown footgun behind issue #158. Still emit 'tick' so
+      // the manager's per-tick reconnect retries keep running off last-known
+      // live pipes.
+      if (processes === null) {
+        this.emit('tick');
+        return;
       }
       let livePipes: Set<number>;
       try {
