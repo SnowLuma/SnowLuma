@@ -66,7 +66,13 @@ export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
           }}
           className="relative h-full shrink-0 overflow-hidden"
         >
-          <Sidebar collapsed={showCollapsed} />
+          {/* Fixed-width inner: the rail's content is ALWAYS laid out at the
+              expanded width and the aside simply clips it as `width` animates.
+              Nothing reflows during the transition, so icons never shift and
+              labels never wrap — they're revealed/clipped, not re-laid-out. */}
+          <div className="h-full w-[248px]">
+            <Sidebar collapsed={showCollapsed} />
+          </div>
         </motion.aside>
       )}
 
