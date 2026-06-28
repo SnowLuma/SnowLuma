@@ -344,6 +344,10 @@
       "types": "./src/oidb-services/group-file/upload-private-file-request.ts",
       "default": "./src/oidb-services/group-file/upload-private-file-request.ts"
     },
+    "./oidb-services/group-file/finalize-offline-file": {
+      "types": "./src/oidb-services/group-file/finalize-offline-file.ts",
+      "default": "./src/oidb-services/group-file/finalize-offline-file.ts"
+    },
     "./oidb-services/group-file/list-group-files-page": {
       "types": "./src/oidb-services/group-file/list-group-files-page.ts",
       "default": "./src/oidb-services/group-file/list-group-files-page.ts"

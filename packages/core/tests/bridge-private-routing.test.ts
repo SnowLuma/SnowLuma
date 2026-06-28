@@ -3,6 +3,8 @@ import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 import type { SendMessageRequest, SendMessageResponse } from '@snowluma/proto-defs/action';
 import type { FileExtra } from '@snowluma/proto-defs/message';
+import type { OidbBase } from '@snowluma/proto-defs/oidb';
+import type { OidbOfflineFileFinalizeResp } from '@snowluma/proto-defs/oidb-actions/media';
 
 vi.mock('@snowluma/protocol/element-builder', () => ({
   buildSendElems: vi.fn(async () => [{ text: { str: 'stub media elem' } }]),
@@ -64,7 +66,23 @@ describe('Bridge private media routing', () => {
 
     class TestBridge extends Bridge {
       capturedBody: Uint8Array | null = null;
-      override async sendRawPacket(_cmd: string, body: Uint8Array): Promise<SendPacketResult> {
+      finalizeCmd: string | null = null;
+
+      override async resolveUserUid(uin: number): Promise<string> {
+        return uin === 10000 ? 'u_self' : `u_${uin}`;
+      }
+
+      override async sendRawPacket(cmd: string, body: Uint8Array): Promise<SendPacketResult> {
+        // The c2c file send first runs the 0xE37_800 finalize, then PbSendMsg.
+        if (cmd.includes('0xe37_800')) {
+          this.finalizeCmd = cmd;
+          return {
+            success: true, gotResponse: true, errorCode: 0, errorMessage: '',
+            responseData: Buffer.from(protobuf_encode<OidbBase<OidbOfflineFileFinalizeResp>>({
+              body: { body: { metadata: { field3: 11, field100: new Uint8Array([1]), field101: new Uint8Array([2]), field110: 22, timestamp1: 1710000123 } } },
+            })),
+          };
+        }
         this.capturedBody = body;
         return {
           success: true, gotResponse: true, errorCode: 0, errorMessage: '',
@@ -117,6 +135,22 @@ describe('Bridge private media routing', () => {
     expect(fileExtra?.file?.fileMd5).toEqual(fileMd5);
     // expireTime is now+7d; just sanity-check it landed (non-zero, plausible)
     expect(fileExtra?.file?.expireTime).toBeGreaterThan(Math.floor(Date.now() / 1000));
+
+    // issue #157: the finalize (0xE37_800) must run, and its download routing
+    // must ride along in field6 — without it the recipient can't download.
+    expect(bridge.finalizeCmd).toBe('OidbSvcTrpcTcp.0xe37_800');
+    expect(fileExtra?.field6?.field2).toMatchObject({
+      fileUuid: 'uuid-abc-123',
+      fileName: 'doc.txt',
+      fileHash: 'hash-xyz',
+      selfUid: 'u_self',
+      destUid: 'u_peer_xyz',
+      field1: 22,         // ← finalize metadata.field110
+      field6: 11,         // ← finalize metadata.field3
+      timestamp1: 1710000123,
+    });
+    expect(fileExtra?.field6?.field2?.field7).toEqual(new Uint8Array([2]));  // ← metadata.field101
+    expect(fileExtra?.field6?.field2?.field8).toEqual(new Uint8Array([1]));  // ← metadata.field100
 
     // c2cCmd is left at 0 / undefined — the old `c2cCmd=11` was a
     // stale go-cqhttp value the QQ-NT server doesn't recognise on the

@@ -85,8 +85,29 @@ export interface MessageBody {
 
 // C2C 文件附加信息
 // 统一使用与线上数据对齐的 NotOnlineFile 结构，修复收发双向的解析问题。
+//
+// `field6` 携带服务器签发的下载路由（来自 0xE37_800 finalize 响应的
+// metadata）。发送 c2c 文件时缺了它，接收方点开会"文件传输失败"——
+// `file` 只是元数据，真正的下载凭证在这里。字段 tag 对照 NapCat
+// `message/component.ts: PrivateFileExtra / PrivateFileExtraField2`。
+export interface PrivateFileExtraField2 {
+  field1?:     pb<1, uint_32>;   // ← finalize metadata.field110
+  fileUuid?:   pb<4, string>;
+  fileName?:   pb<5, string>;
+  field6?:     pb<6, uint_32>;   // ← finalize metadata.field3
+  field7?:     pb<7, bytes>;     // ← finalize metadata.field101
+  field8?:     pb<8, bytes>;     // ← finalize metadata.field100
+  timestamp1?: pb<9, uint_32>;   // ← finalize metadata.timestamp1
+  fileHash?:   pb<14, string>;
+  selfUid?:    pb<15, string>;
+  destUid?:    pb<16, string>;
+}
+export interface PrivateFileExtra {
+  field2?: pb<2, PrivateFileExtraField2>;
+}
 export interface FileExtra {
-  file?: pb<1, NotOnlineFile>;
+  file?:   pb<1, NotOnlineFile>;
+  field6?: pb<6, PrivateFileExtra>;
 }
 
 // PushMsgBody 

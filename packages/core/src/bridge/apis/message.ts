@@ -9,6 +9,7 @@ import type {
   SsoReadedReportReq,
 } from '@snowluma/proto-defs/oidb-actions/base';
 import { buildSendElems } from '@snowluma/protocol/element-builder';
+import { FinalizeOfflineFile } from '@snowluma/protocol/oidb-services/group-file/finalize-offline-file';
 import type { MessageElement, QQEventVariant } from '@snowluma/protocol/events';
 import { fetchC2cMessageRange, fetchGroupMessageRange } from '@snowluma/protocol/msg-push';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
@@ -238,6 +239,11 @@ export class MessageApi {
    *   - `subcmd: 1`     — c2c file send command code
    *   - `dangerEvel: 0` — virus-scan severity, always 0 client-side
    *   - `expireTime`    — 7 days from now (Lagrange convention)
+   *
+   * Beyond NotOnlineFile (`FileExtra.file`), the message MUST also carry
+   * `FileExtra.field6` — the server-issued download routing. We obtain it by
+   * running the 0xE37_800 finalize first; without it the recipient sees
+   * "文件传输失败" even though PbSendMsg returns ok (issue #157).
    */
   async sendC2cFile(
     userUin: number,
@@ -246,6 +252,28 @@ export class MessageApi {
   ): Promise<SendMessageReceipt> {
     const random = this.ctx.nextMessageRandom();
     const clientSeq = this.ctx.nextClientSequence();
+
+    // Resolve our own uid — needed both for the 0xE37_800 finalize and the
+    // `field6` download-routing the receiver reads.
+    let selfUid = this.ctx.identity.selfUid;
+    if (!selfUid) {
+      const selfUin = Number.parseInt(this.ctx.identity.uin ?? '', 10);
+      if (Number.isFinite(selfUin) && selfUin > 0) selfUid = await this.ctx.resolveUserUid(selfUin);
+    }
+    if (!selfUid) throw new Error('self uid unavailable for c2c file send');
+
+    // Finalize the offline file (0xE37_800) to obtain the server-issued
+    // download routing. The apply + Highway upload alone leave the file
+    // un-downloadable; `field6` below carries the credential the recipient
+    // needs (see finalize-offline-file.ts). Mirrors NapCat's upload→finalize
+    // →send sequence (issue #157).
+    const fileHash = info.fileHash ?? '';
+    const meta = await FinalizeOfflineFile.invoke(this.ctx, {
+      senderUid: selfUid,
+      receiverUid: userUid,
+      fileUuid: info.fileId,
+      fileHash,
+    });
 
     const nowSec = Math.floor(Date.now() / 1000);
     const sevenDaysSec = 7 * 24 * 60 * 60;
@@ -259,7 +287,21 @@ export class MessageApi {
         subcmd: 1,
         dangerEvel: 0,
         expireTime: nowSec + sevenDaysSec,
-        fileHash: info.fileHash ?? '',
+        fileHash,
+      },
+      field6: {
+        field2: {
+          field1: meta.field110,
+          fileUuid: info.fileId,
+          fileName: info.fileName,
+          field6: meta.field3,
+          field7: meta.field101,
+          field8: meta.field100,
+          timestamp1: meta.timestamp1,
+          fileHash,
+          selfUid,
+          destUid: userUid,
+        },
       },
     });
 
