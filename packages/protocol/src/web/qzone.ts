@@ -799,7 +799,7 @@ export interface QzoneCommentResult {
 /**
  * Comment on a 说说 (`tid`, owned by `hostUin`) as the bot (`selfUin`) via
  * taotao.qzone.qq.com's emotion_cgi_re_feeds CGI (proxied through
- * user.qzone.qq.com, matching php-qzone's working request).
+ * h5.qzone.qq.com, matching php-qzone's working request).
  *
  * `richType` / `richval`: for image comments, set `richType=1` and pass the
  * direct image URL from {@link uploadQzoneImage}'s `url` field (NOT the
