@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import {
   Accessibility, AlertTriangle, Bell, Bug, Check, Clock, Code2, Download, ExternalLink, Github, Image as ImageIcon,
   Info, KeyRound, Loader2, Monitor, Moon, Palette, PanelTop, Plus, RefreshCw, RotateCcw, Server, ShieldCheck,
-  Sparkles, Star, Sun, Tag, Upload, Trash2,
+  SlidersHorizontal, Sparkles, Star, Sun, Tag, Upload, Trash2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -42,6 +42,7 @@ import { useAppState } from '@/contexts/AppStateContext';
 import { cn } from '@/lib/utils';
 import { settingsRoute, type SettingsTab } from '@/router';
 import { NotificationsPanel } from '@/components/settings/notifications-panel';
+import { GlobalConfigPanel } from '@/components/settings/global-config-panel';
 import { SystemPanel } from '@/components/settings/system-panel';
 
 const TABS: { key: SettingsTab; label: string; icon: typeof Sun }[] = [
@@ -51,6 +52,7 @@ const TABS: { key: SettingsTab; label: string; icon: typeof Sun }[] = [
   { key: 'account', label: '账号安全', icon: ShieldCheck },
   { key: 'system', label: '服务', icon: Server },
   { key: 'notifications', label: '通知', icon: Bell },
+  { key: 'globalConfig', label: '全局配置', icon: SlidersHorizontal },
   { key: 'about', label: '关于', icon: Info },
 ];
 
@@ -83,6 +85,7 @@ export function SettingsPage() {
           {tab === 'account' && <AccountPanel />}
           {tab === 'system' && <SystemPanel />}
           {tab === 'notifications' && <NotificationsPanel />}
+          {tab === 'globalConfig' && <GlobalConfigPanel />}
           {tab === 'about' && <AboutPanel />}
         </motion.div>
       </div>

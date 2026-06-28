@@ -3,6 +3,7 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import type { HookManager, HookProcessInfo } from '@snowluma/bridge';
 import { createLogger, getLogLevel, getRecentLogs, LOG_LEVELS, setLogLevel, subscribeLogs } from '@snowluma/common/logger';
 import { loadOneBotConfig, saveOneBotConfig } from '@snowluma/onebot/config';
+import { loadGlobalSettings, saveGlobalSettings } from '@snowluma/onebot/global-config';
 import type { OneBotManager } from '@snowluma/onebot/manager';
 import type { OneBotConfig, JsonObject as OneBotJsonObject } from '@snowluma/onebot/types';
 import { readRuntimeConfig, updateRuntimeConfig, resolveRuntimeEnvOverrides } from '@snowluma/common/runtime';
@@ -1245,6 +1246,32 @@ export async function initWebUI(
         ? '测试发送成功'
         : `测试发送失败：${result.error ?? (result.status ? `HTTP ${result.status}` : '未知错误')}`,
     });
+  });
+
+  // ─── Global deployment config (config/snowluma.json) ─────────────────────
+  // All-accounts SnowLuma knobs (rkey fallback servers + musicSignUrl). Saving
+  // section-merges + normalizes server-side, then hot-reloads every instance.
+  app.get('/api/global-config', (c) => c.json({ config: loadGlobalSettings() }));
+
+  app.post('/api/global-config', async (c) => {
+    const declaredLen = Number(c.req.header('content-length'));
+    if (Number.isFinite(declaredLen) && declaredLen > 512 * 1024) {
+      return c.json({ success: false, message: '配置过大' }, 413);
+    }
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    try {
+      const config = saveGlobalSettings(body);
+      oneBotManager.reloadGlobalSettings();
+      return c.json({ success: true, config });
+    } catch (err) {
+      log.warn('save global config failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '保存失败，请检查服务器日志' }, 500);
+    }
   });
 
   // ─── WebUI customization config (config/ui.json) ─────────────────────────

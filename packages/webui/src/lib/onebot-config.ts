@@ -62,7 +62,6 @@ export function normalizeOneBotConfig(raw: unknown): OneBotConfig {
       wsServers: list(nets.wsServers) as unknown as OneBotConfig['networks']['wsServers'],
       wsClients: list(nets.wsClients) as unknown as OneBotConfig['networks']['wsClients'],
     },
-    musicSignUrl: typeof cfg.musicSignUrl === 'string' ? cfg.musicSignUrl : undefined,
     statusCommand: normalizeStatusCommand(cfg.statusCommand),
     notifications: normalizeNotifications(cfg.notifications),
   };

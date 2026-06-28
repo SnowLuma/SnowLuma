@@ -1,4 +1,4 @@
-import type { AccountConnections, BackupBundle, BackupImportResult, DebugActionDoc, DebugInvokeResult, DebugStreamMessage, HookProcessInfo, LogEntry, LogLevel, NotificationDeliveryRecord, NotificationsConfig, QQInfo, SystemInfo, SystemSettingsPatch, SystemSettingsResponse, UiAppearance, UiConfig, UpdateInfo } from '@/types';
+import type { AccountConnections, BackupBundle, BackupImportResult, DebugActionDoc, DebugInvokeResult, DebugStreamMessage, GlobalSettings, HookProcessInfo, LogEntry, LogLevel, NotificationDeliveryRecord, NotificationsConfig, QQInfo, SystemInfo, SystemSettingsPatch, SystemSettingsResponse, UiAppearance, UiConfig, UpdateInfo } from '@/types';
 import type { PasswordRule } from '@/components/pages/change-password-page';
 import { normalizeOneBotConfig } from '@/lib/onebot-config';
 import {
@@ -48,6 +48,7 @@ class HttpApiClient implements ApiClient {
   readonly update: ApiClient['update'];
   readonly ui: ApiClient['ui'];
   readonly notifications: ApiClient['notifications'];
+  readonly globalConfig: ApiClient['globalConfig'];
   readonly systemSettings: ApiClient['systemSettings'];
   readonly debug: ApiClient['debug'];
   readonly agreements: ApiClient['agreements'];
@@ -188,6 +189,18 @@ class HttpApiClient implements ApiClient {
         this.postJson<{ success: boolean; message?: string; status?: number }>('/api/notifications/test', {
           channelId,
         }),
+    };
+
+    this.globalConfig = {
+      get: () =>
+        this.getJson<{ config: GlobalSettings }>('/api/global-config').then((d) => d.config),
+      save: async (config) => {
+        const data = await this.postJson<{ success: boolean; config: GlobalSettings }>(
+          '/api/global-config',
+          config,
+        );
+        return data.config;
+      },
     };
 
     this.agreements = {
