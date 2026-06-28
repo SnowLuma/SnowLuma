@@ -63,30 +63,6 @@ describe('loadOneBotConfig', () => {
     expect(onDisk.statusCommand).toEqual({ enabled: true, swallow: false, cooldownSeconds: 5, trigger: '#sl' });
   });
 
-  it('defaults rkey.fallbackServers to empty (feature off)', () => {
-    const config = loadOneBotConfig('10055');
-    expect(config.rkey).toEqual({ fallbackServers: [] });
-  });
-
-  it('parses, validates (http only), dedupes and round-trips rkey.fallbackServers', () => {
-    const uin = '10056';
-    const dir = path.join(tempDir, 'config');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(
-      path.join(dir, `onebot_${uin}.json`),
-      JSON.stringify({ rkey: { fallbackServers: ['https://a.example/r', 'not-a-url', 'https://a.example/r', 'http://b.example/r', 42] } }),
-      'utf8',
-    );
-
-    const config = loadOneBotConfig(uin);
-    expect(config.rkey.fallbackServers).toEqual(['https://a.example/r', 'http://b.example/r']);
-
-    saveOneBotConfig(uin, config);
-    const onDisk = JSON.parse(fs.readFileSync(path.join(dir, `onebot_${uin}.json`), 'utf8'));
-    expect(onDisk.rkey).toEqual({ fallbackServers: ['https://a.example/r', 'http://b.example/r'] });
-    expect(loadOneBotConfig(uin).rkey.fallbackServers).toEqual(['https://a.example/r', 'http://b.example/r']);
-  });
-
   it('fills statusCommand defaults and clamps a negative cooldown', () => {
     const uin = '10042';
     const dir = path.join(tempDir, 'config');

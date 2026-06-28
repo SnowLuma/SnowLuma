@@ -9,7 +9,6 @@ import type {
   MessageFormat,
   OneBotConfig,
   OneBotNetworks,
-  RKeyConfig,
   StatusCommandConfig,
   WsClientNetwork,
   WsRole,
@@ -65,7 +64,6 @@ export function makeDefaultOneBotConfig(): OneBotConfig {
     musicSignUrl: '',
     statusCommand: makeDefaultStatusCommand(),
     notifications: { channelIds: [] },
-    rkey: { fallbackServers: [] },
   };
 }
 
@@ -125,7 +123,6 @@ function toJsonObject(config: OneBotConfig): JsonObject {
       trigger: config.statusCommand.trigger,
     },
     notifications: { channelIds: config.notifications?.channelIds ?? [] },
-    rkey: { fallbackServers: config.rkey?.fallbackServers ?? [] },
   };
 }
 
@@ -214,37 +211,7 @@ function fromJson(sources: JsonObject[], freshInstall: boolean): OneBotConfig {
     musicSignUrl,
     statusCommand: parseStatusCommand(sources),
     notifications: parseNotifications(sources),
-    rkey: parseRKeyConfig(sources),
   };
-}
-
-/** Last-write-wins merge of `rkey.fallbackServers` across config sources. Only
- *  http(s) URLs are kept; the list is deduped. Default empty (feature off). */
-function parseRKeyConfig(sources: JsonObject[]): RKeyConfig {
-  let fallbackServers: string[] = [];
-  for (const src of sources) {
-    const raw = src.rkey;
-    if (!isObject(raw)) continue;
-    if (Array.isArray(raw.fallbackServers)) {
-      fallbackServers = normalizeRkeyServers(raw.fallbackServers);
-    }
-  }
-  return { fallbackServers };
-}
-
-function normalizeRkeyServers(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const item of value) {
-    if (typeof item !== 'string') continue;
-    const v = item.trim();
-    if (!v || !/^https?:\/\//i.test(v)) continue;
-    if (seen.has(v)) continue;
-    seen.add(v);
-    out.push(v);
-  }
-  return out;
 }
 
 /** Last-write-wins merge of `notifications.channelIds` across config sources,

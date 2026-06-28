@@ -111,9 +111,6 @@ export interface OneBotConfig {
    *  validated slugs; channels themselves live in config/notifications.json).
    *  Always present after normalization. */
   notifications?: { channelIds: string[] };
-  /** Remote rkey fallback servers (opt-in, default off). Always present after
-   *  normalization. */
-  rkey: RKeyConfig;
 }
 
 export interface MessageMeta {

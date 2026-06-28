@@ -111,9 +111,6 @@ export interface OneBotConfig {
   statusCommand: StatusCommandConfig;
   /** Per-account opt-in to global notification channels (by channel id). */
   notifications?: { channelIds: string[] };
-  /** Opt-in remote rkey fallback servers. No dedicated form yet — preserved
-   *  verbatim across load/save so a hand-edited value survives WebUI writes. */
-  rkey?: { fallbackServers: string[] };
 }
 
 // ─── Notifications (account up/down webhooks) ───────────────────────────────

@@ -38,10 +38,15 @@ export class RKeyCache {
   private lastRefreshAttempt = 0;
   private refreshInflight: Promise<void> | null = null;
   /** Opt-in remote rkey endpoints; empty = feature off (the default). */
-  private readonly fallbackServers: string[];
+  private fallbackServers: string[];
 
   constructor(config?: RKeyConfig) {
     this.fallbackServers = config?.fallbackServers ?? [];
+  }
+
+  /** Replace the fallback endpoint list (global-config hot-reload). */
+  setFallbackServers(servers: string[]): void {
+    this.fallbackServers = servers;
   }
 
   warmUp(bridge: BridgeInterface, uin: string): void {

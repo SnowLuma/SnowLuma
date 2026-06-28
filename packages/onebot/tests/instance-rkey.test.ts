@@ -269,4 +269,30 @@ describe('RKeyCache remote fallback (#156)', () => {
 
     expect(url).toBe(NT_IMAGE_URL);
   });
+
+  // Hot-reload wire: manager.reloadGlobalSettings → instance.applyGlobalSettings
+  // → rkeyCache.setFallbackServers. Verify the new list actually takes effect.
+  // (Fake Date so the 2nd lookup clears the empty-cache refresh cooldown.)
+  it('setFallbackServers turns the fallback on for a cache that started with none', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date(1_700_000_000_000));
+      const fetchSpy = stubFetch({ group_rkey: '&rkey=HOTGROUP', expired_time: 1_700_000_000 + 3600 });
+      const { bridge } = makeBridge(async () => []);
+      const cache = new RKeyCache(); // starts OFF (no servers)
+
+      const before = await cache.resolveImageUrl(bridge as never, imageEl(), true);
+      expect(before).toBe(NT_IMAGE_URL);     // bare — fallback off
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      cache.setFallbackServers([SERVER]);    // hot-reload pushes a new endpoint
+      vi.setSystemTime(new Date(1_700_000_000_000 + 11_000)); // clear the 10s empty-cooldown
+
+      const after = await cache.resolveImageUrl(bridge as never, imageEl(), true);
+      expect(after).toBe(`${NT_IMAGE_URL}&rkey=HOTGROUP`);
+      expect(fetchSpy).toHaveBeenCalledWith(SERVER, expect.anything());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

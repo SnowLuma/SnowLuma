@@ -65,16 +65,5 @@ export function normalizeOneBotConfig(raw: unknown): OneBotConfig {
     musicSignUrl: typeof cfg.musicSignUrl === 'string' ? cfg.musicSignUrl : undefined,
     statusCommand: normalizeStatusCommand(cfg.statusCommand),
     notifications: normalizeNotifications(cfg.notifications),
-    rkey: normalizeRkey(cfg.rkey),
   };
-}
-
-/** Preserve `rkey.fallbackServers` verbatim so a hand-edited value isn't wiped
- *  when the operator saves an unrelated change from the WebUI (no form yet). */
-function normalizeRkey(raw: unknown): { fallbackServers: string[] } {
-  const obj = (raw ?? {}) as Record<string, unknown>;
-  const servers = Array.isArray(obj.fallbackServers)
-    ? obj.fallbackServers.filter((s): s is string => typeof s === 'string')
-    : [];
-  return { fallbackServers: servers };
 }
