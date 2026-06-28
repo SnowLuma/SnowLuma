@@ -24,7 +24,6 @@ describe('makeDefaultOneBotConfig', () => {
     expect(config.networks.wsServers[0].messageFormat).toBe('array');
     expect(config.networks.wsServers[0].reportSelfMessage).toBe(false);
     expect(config.networks.wsClients).toEqual([]);
-    expect(config.musicSignUrl).toBe('');
     expect(config.statusCommand).toEqual({ enabled: true, swallow: false, cooldownSeconds: 5, trigger: '#sl' });
     expect(config.notifications).toEqual({ channelIds: [] });
   });
@@ -118,8 +117,6 @@ describe('loadOneBotConfig', () => {
     expect(config.networks.wsClients[0].url).toBe('ws://127.0.0.1:8080');
     expect(config.networks.wsClients[0].messageFormat).toBe('string');
     expect(config.networks.wsClients[0].reportSelfMessage).toBe(true);
-
-    expect(config.musicSignUrl).toBe('https://example.com/sign');
 
     // File should now be in unified format on disk.
     const onDisk = JSON.parse(fs.readFileSync(path.join(dir, `onebot_${uin}.json`), 'utf8'));

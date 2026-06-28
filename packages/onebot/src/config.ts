@@ -61,7 +61,6 @@ export function makeDefaultOneBotConfig(): OneBotConfig {
       }],
       wsClients: [],
     },
-    musicSignUrl: '',
     statusCommand: makeDefaultStatusCommand(),
     notifications: { channelIds: [] },
   };
@@ -115,7 +114,6 @@ function toJsonObject(config: OneBotConfig): JsonObject {
       wsServers: nets.wsServers.map(wsServerToJson),
       wsClients: nets.wsClients.map(wsClientToJson),
     },
-    musicSignUrl: config.musicSignUrl ?? '',
     statusCommand: {
       enabled: config.statusCommand.enabled,
       swallow: config.statusCommand.swallow,
@@ -179,12 +177,10 @@ function wsClientToJson(n: WsClientNetwork): JsonObject {
 function fromJson(sources: JsonObject[], freshInstall: boolean): OneBotConfig {
   let legacyFormat: MessageFormat | undefined;
   let legacyReport: boolean | undefined;
-  let musicSignUrl = '';
   for (const src of sources) {
     const mf = parseMessageFormat(src.messageFormat);
     if (mf) legacyFormat = mf;
     if (typeof src.reportSelfMessage === 'boolean') legacyReport = src.reportSelfMessage;
-    if (typeof src.musicSignUrl === 'string') musicSignUrl = src.musicSignUrl;
   }
   const inheritedFormat: MessageFormat = legacyFormat ?? 'array';
   const inheritedReport: boolean = legacyReport ?? false;
@@ -208,7 +204,6 @@ function fromJson(sources: JsonObject[], freshInstall: boolean): OneBotConfig {
   const networks: OneBotNetworks = { httpServers, httpClients, wsServers, wsClients };
   return {
     networks,
-    musicSignUrl,
     statusCommand: parseStatusCommand(sources),
     notifications: parseNotifications(sources),
   };

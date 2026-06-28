@@ -380,6 +380,10 @@ async function makeVideoElem(ctx: SendContext, element: MessageElement): Promise
   // commonElem.businessType is the QQ NT scene tag the receive-side
   // decoder pairs with: 11=c2c, 21=group. Sending the group tag on a
   // c2c message bounces with PbSendMsg result=79.
+  //
+  // Oversize videos throw here; the OneBot layer catches that and falls
+  // back to file upload (see message-actions.ts video fallback). A file
+  // element can't be built here — there's no uploaded file_id yet.
   return {
     commonElem: {
       serviceType: 48,

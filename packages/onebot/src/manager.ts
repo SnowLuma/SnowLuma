@@ -2,6 +2,7 @@ import { createLogger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import type { BridgeManager } from '@snowluma/core/manager';
 import { loadOneBotConfig } from './config';
+import { loadGlobalSettings } from './global-config';
 import { OneBotInstance } from './instance';
 import type { AdapterStatus } from './network';
 
@@ -55,6 +56,16 @@ export class OneBotManager {
     return true;
   }
 
+  /** Re-read global (all-accounts) settings from config/snowluma.json and push
+   *  them to every live instance. Called after the WebUI saves global config. */
+  reloadGlobalSettings(): void {
+    const globalSettings = loadGlobalSettings();
+    for (const instance of this.instances.values()) {
+      instance.applyGlobalSettings(globalSettings);
+    }
+    log.info('global settings reloaded for %d instance(s)', this.instances.size);
+  }
+
   dispose(): void {
     for (const instance of this.instances.values()) {
       instance.dispose();
@@ -66,7 +77,7 @@ export class OneBotManager {
     if (this.instances.has(uin)) return;
 
     const config = loadOneBotConfig(uin, { persistDefaults: true });
-    const instance = new OneBotInstance(uin, bridge, config);
+    const instance = new OneBotInstance(uin, bridge, config, loadGlobalSettings());
 
     const activePid = bridge.activePid;
     if (activePid !== null) {

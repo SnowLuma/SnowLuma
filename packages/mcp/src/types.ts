@@ -21,6 +21,8 @@ export interface CatalogAction {
   category?: string;
   summary?: string;
   returns?: string;
+  /** JSON Schema for the action's `data` payload (absent when undocumented). */
+  returnsSchema?: Record<string, unknown>;
   /** True only for pure data-fetch actions (no side effects). Drives the
    *  read/write tool routing: read-only → query_action, else → invoke_action.
    *  Classified at the source spec by what the action's `run` actually does. */

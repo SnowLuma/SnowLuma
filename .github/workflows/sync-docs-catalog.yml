@@ -1,0 +1,114 @@
+name: Sync action catalog to docs
+
+# Regenerates the OneBot action catalog from @snowluma/onebot's specs and commits
+# the plain-JSON twin (catalog.json) into the SnowLumaDocs repo, where the docs
+# build turns it into the API Reference pages. Runs on main (the release/promote
+# target) so the published docs always describe shipped behavior. Uses the same
+# SnowLuma bot GitHub App as the promote-dev-to-main flow.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/onebot/src/actions/**'
+      - 'packages/onebot/src/action-kit.ts'
+      - 'packages/onebot/src/action-docs.ts'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-docs-catalog
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout SnowLuma
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.28.0
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate catalog.json
+        run: pnpm --filter @snowluma/mcp gen
+
+      - name: Validate GitHub App credentials
+        env:
+          APP_ID: ${{ secrets.SNOWLUMA_BOT_APP_ID }}
+          PRIVATE_KEY: ${{ secrets.SNOWLUMA_BOT_PRIVATE_KEY }}
+        run: |
+          if [ -z "${APP_ID}" ] || [ -z "${PRIVATE_KEY}" ]; then
+            echo 'Missing SNOWLUMA_BOT_APP_ID and/or SNOWLUMA_BOT_PRIVATE_KEY secrets.' >&2
+            echo 'Configure the same GitHub App used by the promote-dev-to-main flow.' >&2
+            exit 1
+          fi
+
+      - name: Mint GitHub App installation token (scoped to SnowLumaDocs)
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SNOWLUMA_BOT_APP_ID }}
+          private-key: ${{ secrets.SNOWLUMA_BOT_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: SnowLumaDocs
+
+      - name: Resolve bot identity
+        id: bot
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+          bot_login="${APP_SLUG}[bot]"
+          bot_id="$(gh api "/users/${bot_login}" --jq .id)"
+          bot_email="${bot_id}+${bot_login}@users.noreply.github.com"
+          {
+            echo "login=${bot_login}"
+            echo "email=${bot_email}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Commit catalog.json to docs repo
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BOT_LOGIN: ${{ steps.bot.outputs.login }}
+          BOT_EMAIL: ${{ steps.bot.outputs.email }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          src="$(pwd)/packages/mcp/src/generated/catalog.json"
+          tmp="$(mktemp -d)"
+          git clone --depth 1 \
+            "https://x-access-token:${GH_TOKEN}@github.com/${OWNER}/SnowLumaDocs.git" "$tmp"
+          mkdir -p "$tmp/docs/public/api"
+          cp "$src" "$tmp/docs/public/api/catalog.json"
+          cd "$tmp"
+          git config user.name "${BOT_LOGIN}"
+          git config user.email "${BOT_EMAIL}"
+          # Stage first: `git diff --quiet` ignores UNTRACKED files, so on the
+          # initial sync (catalog.json not yet in the docs repo) the index diff
+          # is the only reliable change check.
+          git add docs/public/api/catalog.json
+          if git diff --cached --quiet; then
+            echo "::notice::catalog.json unchanged; nothing to sync."
+            exit 0
+          fi
+          git commit -m "chore(api): sync action catalog from SnowLuma@${GITHUB_SHA::7}"
+          # Single writer, but guard against a concurrent docs commit racing the
+          # shallow clone: rebase onto the latest main before pushing.
+          git pull --rebase --depth 1 origin main
+          git push origin HEAD:main

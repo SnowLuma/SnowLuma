@@ -28,6 +28,9 @@ export const BACKUP_FILES: readonly BackupFileSpec[] = [
   { name: 'runtime.json', binary: false, credential: false },
   { name: 'ui.json', binary: false, credential: false },
   { name: 'notifications.json', binary: false, credential: false },
+  // Global all-accounts SnowLuma settings (rkey fallback servers, …). Same
+  // class as notifications.json: global, opt-in, non-credential.
+  { name: 'snowluma.json', binary: false, credential: false },
   { name: 'cert.pem', binary: false, credential: false },
   { name: 'ui-assets/background', binary: true, credential: false },
   { name: 'webui.json', binary: false, credential: true },

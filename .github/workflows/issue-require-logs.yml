@@ -31,10 +31,14 @@ jobs:
             const m = body.match(/###\s*TRACE 日志[^\n]*\n([\s\S]*?)(?:\n###\s|$)/);
             const section = (m ? m[1] : '').trim();
 
+            // 粘贴的终端日志常带 ANSI 颜色码（如 \x1b[90mTRACE\x1b[0m），
+            // 颜色码结尾的 'm' 紧贴 TRACE 会吃掉 \b 单词边界，先剥掉再判定。
+            const clean = section.replace(/\x1b\[[0-9;]*m/g, '');
+
             const empty = section === '' || /^_no response_$/i.test(section);
-            const hasTrace = /\bTRACE\b/i.test(section);
+            const hasTrace = /\bTRACE\b/i.test(clean);
             // 去掉代码围栏后过短，基本等于没给
-            const stripped = section.replace(/```[a-z]*|```|`/gi, '').trim();
+            const stripped = clean.replace(/```[a-z]*|```|`/gi, '').trim();
             const tooShort = stripped.length < 40;
             const ok = !empty && hasTrace && !tooShort;
 

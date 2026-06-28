@@ -89,6 +89,7 @@ export const actions = [
     name: 'get_msg',
     summary: '获取消息',
     readOnly: true,
+    returns: '消息事件对象（首次收到时存储的副本，已去除 post_type/self_id、附带 real_id 字段并刷新图片 URL）。',
     params: { message_id: f.messageId() },
     run: async (p, ctx) => {
       const data = ctx.getMessage(p.message_id);

@@ -9,6 +9,20 @@ export const actions = [
     name: 'get_group_list',
     summary: '获取群列表',
     readOnly: true,
+    returns: '群信息对象数组。',
+    returnsSchema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          group_id: { type: 'integer', description: '群号' },
+          group_name: { type: 'string', description: '群名' },
+          member_count: { type: 'integer', description: '当前成员数' },
+          max_member_count: { type: 'integer', description: '成员上限' },
+        },
+        required: ['group_id', 'group_name', 'member_count', 'max_member_count'],
+      },
+    },
     params: { no_cache: f.bool().default(false) },
     run: async (p, ctx) => {
       const noCache = p.no_cache;
@@ -23,6 +37,17 @@ export const actions = [
     name: 'get_group_info',
     summary: '获取群信息',
     readOnly: true,
+    returns: '群信息对象。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        group_id: { type: 'integer', description: '群号' },
+        group_name: { type: 'string', description: '群名' },
+        member_count: { type: 'integer', description: '当前成员数' },
+        max_member_count: { type: 'integer', description: '成员上限' },
+      },
+      required: ['group_id', 'group_name', 'member_count', 'max_member_count'],
+    },
     params: { no_cache: f.bool().default(false) },
     run: async (p, ctx) => {
       const groupId = p.group_id;
@@ -39,6 +64,27 @@ export const actions = [
     name: 'get_group_member_list',
     summary: '获取群成员列表',
     readOnly: true,
+    returns: '群成员信息对象数组。',
+    returnsSchema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          group_id: { type: 'integer', description: '群号' },
+          user_id: { type: 'integer', description: 'QQ 号' },
+          nickname: { type: 'string', description: '昵称' },
+          card: { type: 'string', description: '群名片' },
+          sex: { type: 'string', enum: ['male', 'female', 'unknown'], description: '性别' },
+          age: { type: 'integer', description: '年龄' },
+          join_time: { type: 'integer', description: '入群时间戳（秒）' },
+          last_sent_time: { type: 'integer', description: '最后发言时间戳（秒）' },
+          level: { type: 'string', description: '群等级' },
+          role: { type: 'string', enum: ['owner', 'admin', 'member'], description: '角色' },
+          title: { type: 'string', description: '专属头衔' },
+        },
+        required: ['group_id', 'user_id', 'nickname', 'role'],
+      },
+    },
     params: { no_cache: f.bool().default(false) },
     run: async (p, ctx) => {
       const groupId = p.group_id;
@@ -54,6 +100,24 @@ export const actions = [
     name: 'get_group_member_info',
     summary: '获取群成员信息',
     readOnly: true,
+    returns: '群成员信息对象。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        group_id: { type: 'integer', description: '群号' },
+        user_id: { type: 'integer', description: 'QQ 号' },
+        nickname: { type: 'string', description: '昵称' },
+        card: { type: 'string', description: '群名片' },
+        sex: { type: 'string', enum: ['male', 'female', 'unknown'], description: '性别' },
+        age: { type: 'integer', description: '年龄' },
+        join_time: { type: 'integer', description: '入群时间戳（秒）' },
+        last_sent_time: { type: 'integer', description: '最后发言时间戳（秒）' },
+        level: { type: 'string', description: '群等级' },
+        role: { type: 'string', enum: ['owner', 'admin', 'member'], description: '角色' },
+        title: { type: 'string', description: '专属头衔' },
+      },
+      required: ['group_id', 'user_id', 'nickname', 'role'],
+    },
     params: { no_cache: f.bool().default(false) },
     run: async (p, ctx) => {
       const groupId = p.group_id;

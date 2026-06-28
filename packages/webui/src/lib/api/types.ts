@@ -5,6 +5,7 @@ import type {
   DebugActionDoc,
   DebugInvokeResult,
   DebugStreamMessage,
+  GlobalSettings,
   HookProcessInfo,
   LogEntry,
   LogLevel,
@@ -165,6 +166,14 @@ export interface ApiClient {
     recent(limit?: number): Promise<NotificationDeliveryRecord[]>;
     /** Fire a one-off test to a single channel by id. */
     test(channelId: string): Promise<{ success: boolean; message?: string; status?: number }>;
+  };
+
+  // ---- global deployment config (rkey fallback servers + musicSignUrl) ----
+  globalConfig: {
+    /** Fetch the all-accounts global settings (config/snowluma.json). Bearer-gated. */
+    get(): Promise<GlobalSettings>;
+    /** Persist global settings (section-merged + normalized server-side). */
+    save(config: Partial<GlobalSettings>): Promise<GlobalSettings>;
   };
 
   // ---- update check ----
