@@ -29,7 +29,7 @@ import { StreamStatus } from '../streaming';
 
 const log = createLogger('OneBot.Stream');
 
-const STREAM_ROOT = path.join(os.tmpdir(), 'snowluma-stream');
+export const STREAM_ROOT = path.join(os.tmpdir(), 'snowluma-stream');
 export const STREAM_UPLOAD_DIR = path.join(STREAM_ROOT, 'upload');
 export const STREAM_DOWNLOAD_DIR = path.join(STREAM_ROOT, 'download');
 

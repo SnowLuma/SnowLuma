@@ -12,6 +12,7 @@ import { register as registerMessage } from './actions/message';
 import { register as registerQzone } from './actions/qzone';
 import { register as registerRequest } from './actions/request';
 import { register as registerStreamFile } from './actions/stream-file';
+import { register as registerStreamDownload } from './actions/stream-download';
 import type { ForwardPreviewMeta } from './modules/message-actions';
 import type { JsonObject, JsonValue, MessageMeta } from './types';
 import { RETCODE, failedResponse } from './types';
@@ -122,6 +123,7 @@ export class ApiHandler {
     registerGroupAlbum(this, context);
     registerQzone(this, context);
     registerStreamFile(this, context);
+    registerStreamDownload(this, context);
   }
 
   registerAction(action: string, handler: ActionHandler): void {
