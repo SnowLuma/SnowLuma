@@ -5,18 +5,20 @@ import {
   getQzoneMsgList,
   publishQzoneMsg,
   setQzoneLike,
+  uploadQzoneImageFromSource,
   type QzoneCommentResult,
   type QzoneFeedsResult,
   type QzoneMsgListResult,
   type QzonePublishResult,
+  type QzoneUploadImageResult,
 } from '@snowluma/protocol/web/qzone';
 import type { BridgeContext } from '../bridge-context';
 
 /**
  * Personal QQ-Zone (个人空间) web API: 说说 (feed) read/write, likes,
- * comments — all over the cookie-backed qzone.qq.com CGIs, reusing the same
- * `getCookies('qzone.qq.com')` plumbing as GroupAlbumApi. Distinct from the
- * group-album surface, which lives on GroupAlbumApi.
+ * comments, image upload — all over the cookie-backed qzone.qq.com CGIs,
+ * reusing the same `getCookies('qzone.qq.com')` plumbing as GroupAlbumApi.
+ * Distinct from the group-album surface, which lives on GroupAlbumApi.
  */
 export class QzoneApi {
   constructor(private readonly ctx: BridgeContext) { }
@@ -40,10 +42,23 @@ export class QzoneApi {
     return getQzoneFeeds(cookieObject, this.ctx.identity.uin, pageNum, count);
   }
 
-  /** 发表一条纯文字说说，返回新说说的 tid。始终发到机器人自己的空间。 */
-  async publish(content: string): Promise<QzonePublishResult> {
+  /**
+   * 从来源上传图片到 QQ 空间。
+   * `source` 支持: file:// 本地路径 | http(s):// URL | base64:// base64数据
+   */
+  async uploadImageFromSource(source: string): Promise<QzoneUploadImageResult> {
     const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
-    return publishQzoneMsg(cookieObject, this.ctx.identity.uin, content);
+    return uploadQzoneImageFromSource(cookieObject, this.ctx.identity.uin, source);
+  }
+
+  /**
+   * 发表说说，返回新说说的 tid。始终发到机器人自己的空间。
+   * `richType` / `richval`: 带图说说时传 richType=1 和 richval 字符串
+   * (多图用 `\t` 连接多个 richval)。纯文字说说省略这两个参数。
+   */
+  async publish(content: string, richType?: number, richval?: string): Promise<QzonePublishResult> {
+    const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
+    return publishQzoneMsg(cookieObject, this.ctx.identity.uin, content, richType, richval);
   }
 
   /** 删除机器人自己空间的一条说说（按 tid）。 */
@@ -66,11 +81,19 @@ export class QzoneApi {
   /**
    * 评论一条说说。`targetUin` 为说说所属 QQ 号（省略=机器人自己空间）；
    * 始终以机器人身份发表评论。返回新评论 id（尽力而为）。
+   * `richType` / `richval`: 带图评论时传 richType=1 和图片直链 URL
+   * (从 uploadImageFromSource 的 url 字段获取)。
    */
-  async comment(tid: string, content: string, targetUin: number | undefined): Promise<QzoneCommentResult> {
+  async comment(
+    tid: string,
+    content: string,
+    targetUin: number | undefined,
+    richType?: number,
+    richval?: string,
+  ): Promise<QzoneCommentResult> {
     const selfUin = this.ctx.identity.uin;
     const owner = targetUin && targetUin > 0 ? targetUin.toString() : selfUin;
     const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
-    return commentQzoneMsg(cookieObject, selfUin, owner, tid, content);
+    return commentQzoneMsg(cookieObject, selfUin, owner, tid, content, richType, richval);
   }
 }
