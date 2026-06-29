@@ -457,12 +457,6 @@ export async function uploadVideoMsgInfo(
         sha1: video.sha1Blocks,
         subFileIndex: 0,
         fastOnlyError: 'video fast-upload not available (server requires bytes)',
-        // Distrust a server fast-path for the main video: group/c2c video
-        // resources expire server-side, so reusing a cached object can show
-        // "资源已过期" on the receiver even though the send "succeeded".
-        // When we hold the real bytes, force a fresh full upload instead.
-        // (Forwarding carries no bytes, so this never fires there.) See #145.
-        forceFullOnFastPath: true,
       },
       {
         source: 0, // upload.subFileInfos[0]

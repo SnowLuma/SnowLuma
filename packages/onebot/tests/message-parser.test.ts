@@ -326,15 +326,13 @@ describe('parseMessage', () => {
         }], { bridge, groupId: 123456 });
 
         // The video main file carries real bytes but the server fast-paths it
-        // (fileExist:true, no uKey) — #145's forceFullOnFastPath re-issues the
-        // OIDB request with fast-upload disabled, so two packets go out.
-        expect(bridge.sendRawPacket).toHaveBeenCalledTimes(2);
+        // (fileExist:true, no uKey). The send trusts that single fast-path
+        // response — the old forceFullOnFastPath retry was removed (proven
+        // ineffective, see #145), so exactly ONE OIDB request goes out.
+        expect(bridge.sendRawPacket).toHaveBeenCalledTimes(1);
         expect(bridge.sendRawPacket).toHaveBeenNthCalledWith(1, 'OidbSvcTrpcTcp.0x11ea_100', expect.any(Uint8Array));
-        expect(bridge.sendRawPacket).toHaveBeenNthCalledWith(2, 'OidbSvcTrpcTcp.0x11ea_100', expect.any(Uint8Array));
         const firstReq = protobuf_decode<OidbBase<NTV2UploadRichMediaReq>>(bridge.sendRawPacket.mock.calls[0]![1] as Uint8Array);
-        const secondReq = protobuf_decode<OidbBase<NTV2UploadRichMediaReq>>(bridge.sendRawPacket.mock.calls[1]![1] as Uint8Array);
         expect(firstReq.body.upload.tryFastUploadCompleted).toBe(true);
-        expect(secondReq.body.upload.tryFastUploadCompleted ?? false).toBe(false);
         expect(protoElems).toHaveLength(1);
         expect(protoElems[0].commonElem?.serviceType).toBe(48);
         expect(protoElems[0].commonElem?.businessType).toBe(21);

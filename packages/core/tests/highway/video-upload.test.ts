@@ -80,14 +80,14 @@ describe('video-upload', () => {
     expect(uploads[1]!.fastOnlyError).toBeUndefined();
   });
 
-  it('main file distrusts a server fast-path (forceFullOnFastPath); thumb does not (#145)', async () => {
-    // Group/c2c video resources expire server-side: a fast-path hit can
-    // reference a stale object the receiver shows as "资源已过期", so the
-    // main file forces a fresh full upload. The thumb stays fast-path-OK.
+  it('does NOT set a force-full retry flag on the main file (#145 — proven ineffective)', async () => {
+    // The old forceFullOnFastPath retry was removed: real-machine + kernel RE
+    // showed it never forces a fresh upload (the server fast-paths by md5
+    // metadata regardless of tryFastUploadCompleted). An expired-but-indexed
+    // video resource is a platform limitation, not an upload-flow fix.
     await uploadVideoMsgInfo({} as any, true, 12345, FINGERPRINT);
     const uploads = vi.mocked(pipeline.runNtv2Upload).mock.calls[0]![0].uploads;
-    expect(uploads[0]!.forceFullOnFastPath).toBe(true);
-    expect(uploads[1]!.forceFullOnFastPath).toBeUndefined();
+    expect((uploads[0] as unknown as Record<string, unknown>).forceFullOnFastPath).toBeUndefined();
   });
 
   it('uploadInfo carries TWO entries (main mp4 + thumb jpg) with subFileType 0 and 100', async () => {
