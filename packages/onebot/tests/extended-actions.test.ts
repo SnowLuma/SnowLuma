@@ -641,6 +641,31 @@ describe('extended-actions / get_group_shut_list', () => {
   });
 });
 
+// ─── Wave 1: trans_group_file (0x6D9_0) ───
+
+describe('extended-actions / trans_group_file', () => {
+  it('forwards group_id + file_id to apis.groupFile.trans and returns ok:true', async () => {
+    const trans = vi.fn(async () => ({ saveBusId: 102, saveFilePath: '/saved/path' }));
+    const bridge = fakeBridge({ apis: { groupFile: { trans } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('trans_group_file', {
+      group_id: 12345,
+      file_id: 'fid-trans',
+    });
+    expect(trans).toHaveBeenCalledWith(12345, 'fid-trans');
+    expect(res).toMatchObject({ status: 'ok', retcode: 0, data: { ok: true } });
+  });
+
+  it('rejects missing required params', async () => {
+    const trans = vi.fn();
+    const bridge = fakeBridge({ apis: { groupFile: { trans } } });
+    const r1 = await makeHandler(fakeCtx(bridge)).handle('trans_group_file', { file_id: 'fid' });
+    const r2 = await makeHandler(fakeCtx(bridge)).handle('trans_group_file', { group_id: 12345 });
+    expect(r1).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(r2).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(trans).not.toHaveBeenCalled();
+  });
+});
+
 // ─── Wave 1: get_file (compose image→record cache) ───
 
 describe('extended-actions / get_file', () => {

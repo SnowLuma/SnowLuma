@@ -8,6 +8,7 @@ import type {
   OidbGroupFileViewResp,
   OidbGroupFileFolderResp,
   OidbGroupSendFileReq,
+  OidbGroupSendFileResp,
 } from '@snowluma/proto-defs/oidb-actions/group-file';
 import type {
   OidbPrivateFileUploadResp,
@@ -243,6 +244,26 @@ describe('apis/group-file', () => {
         fileId: 'fid-publish',
         field5: true,
       }),
+    });
+  });
+
+  it('trans hits OIDB 0x6d9_0 and returns the saved path metadata', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
+      protobuf_encode<OidbBase<OidbGroupSendFileResp>>({
+        body: { transFile: { saveBusId: 102, saveFilePath: '/saved/path' } },
+      }),
+    ));
+    const out = await new GroupFileApi(bridge as any).trans(12345, 'fid-trans');
+    expect(out).toEqual({ saveBusId: 102, saveFilePath: '/saved/path' });
+    const [wire, bytes] = bridge.sendRawPacket.mock.calls[0]!;
+    expect(wire).toBe('OidbSvcTrpcTcp.0x6d9_0');
+    const env = protobuf_decode<OidbBase<OidbGroupSendFileReq>>(bytes);
+    expect(env.body?.transFile).toMatchObject({
+      groupUin: 12345n,
+      appId: 7,
+      busId: 102,
+      fileId: 'fid-trans',
     });
   });
 

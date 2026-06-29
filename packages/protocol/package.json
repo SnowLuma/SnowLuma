@@ -332,6 +332,10 @@
       "types": "./src/oidb-services/group-file/publish-group-file.ts",
       "default": "./src/oidb-services/group-file/publish-group-file.ts"
     },
+    "./oidb-services/group-file/trans-group-file": {
+      "types": "./src/oidb-services/group-file/trans-group-file.ts",
+      "default": "./src/oidb-services/group-file/trans-group-file.ts"
+    },
     "./oidb-services/group-file/get-group-file-count": {
       "types": "./src/oidb-services/group-file/get-group-file-count.ts",
       "default": "./src/oidb-services/group-file/get-group-file-count.ts"
