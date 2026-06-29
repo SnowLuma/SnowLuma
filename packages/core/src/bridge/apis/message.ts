@@ -13,6 +13,7 @@ import { FinalizeOfflineFile } from '@snowluma/protocol/oidb-services/group-file
 import type { MessageElement, QQEventVariant } from '@snowluma/protocol/events';
 import { fetchC2cMessageRange, fetchGroupMessageRange } from '@snowluma/protocol/msg-push';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import { createLogger } from '@snowluma/common/logger';
 import type { BridgeContext } from '../bridge-context';
 // `Bridge` is imported as a type only so we can narrow `ctx` back to
 // the concrete Bridge instance when passing it to `buildSendElems`
@@ -25,6 +26,8 @@ import type { BridgeContext } from '../bridge-context';
 import type { Bridge, SendMessageReceipt } from '../bridge';
 
 const SEND_MSG_CMD = 'MessageSvc.PbSendMsg';
+
+const log = createLogger('Bridge.Message');
 
 type GroupMessage = Extract<QQEventVariant, { kind: 'group_message' }>;
 type FriendMessage = Extract<QQEventVariant, { kind: 'friend_message' }>;
@@ -240,10 +243,11 @@ export class MessageApi {
    *   - `dangerEvel: 0` — virus-scan severity, always 0 client-side
    *   - `expireTime`    — 7 days from now (Lagrange convention)
    *
-   * Beyond NotOnlineFile (`FileExtra.file`), the message MUST also carry
-   * `FileExtra.field6` — the server-issued download routing. We obtain it by
-   * running the 0xE37_800 finalize first; without it the recipient sees
-   * "文件传输失败" even though PbSendMsg returns ok (issue #157).
+   * `FileExtra.file` alone makes the file downloadable (verified on a live
+   * account). We ALSO attach `FileExtra.field6` — extra server-issued download
+   * routing from a best-effort 0xE37_800 finalize that mirrors NapCat and may
+   * help some receiver clients. The finalize is non-fatal: if it fails we send
+   * without field6 rather than failing the send (issue #157).
    */
   async sendC2cFile(
     userUin: number,
@@ -262,22 +266,31 @@ export class MessageApi {
     }
     if (!selfUid) throw new Error('self uid unavailable for c2c file send');
 
-    // Finalize the offline file (0xE37_800) to obtain the server-issued
-    // download routing. The apply + Highway upload alone leave the file
-    // un-downloadable; `field6` below carries the credential the recipient
-    // needs (see finalize-offline-file.ts). Mirrors NapCat's upload→finalize
-    // →send sequence (issue #157).
+    // The file is already downloadable from the `NotOnlineFile` reference
+    // alone — verified on a live account: a plain c2c file send (no field6)
+    // downloads fine. `field6` is EXTRA server-issued download routing (from
+    // the 0xE37_800 finalize) that mirrors NapCat and may help some receiver
+    // clients. So fetch it BEST-EFFORT: if the finalize fails, send without
+    // field6 rather than failing the whole send. (issue #157 — the finalize
+    // was originally fatal, which could regress a send that would otherwise
+    // succeed.)
     const fileHash = info.fileHash ?? '';
-    const meta = await FinalizeOfflineFile.invoke(this.ctx, {
-      senderUid: selfUid,
-      receiverUid: userUid,
-      fileUuid: info.fileId,
-      fileHash,
-    });
+    let meta: Awaited<ReturnType<typeof FinalizeOfflineFile.invoke>> | null = null;
+    try {
+      meta = await FinalizeOfflineFile.invoke(this.ctx, {
+        senderUid: selfUid,
+        receiverUid: userUid,
+        fileUuid: info.fileId,
+        fileHash,
+      });
+    } catch (err) {
+      log.warn('c2c file finalize (0xE37_800) failed, sending without field6: %s',
+        err instanceof Error ? err.message : String(err));
+    }
 
     const nowSec = Math.floor(Date.now() / 1000);
     const sevenDaysSec = 7 * 24 * 60 * 60;
-    const fileExtraBytes = protobuf_encode<FileExtra>({
+    const fileExtra: FileExtra = {
       file: {
         fileType: 0,
         fileUuid: info.fileId,
@@ -289,7 +302,9 @@ export class MessageApi {
         expireTime: nowSec + sevenDaysSec,
         fileHash,
       },
-      field6: {
+    };
+    if (meta) {
+      fileExtra.field6 = {
         field2: {
           field1: meta.field110,
           fileUuid: info.fileId,
@@ -302,8 +317,9 @@ export class MessageApi {
           selfUid,
           destUid: userUid,
         },
-      },
-    });
+      };
+    }
+    const fileExtraBytes = protobuf_encode<FileExtra>(fileExtra);
 
     const request = protobuf_encode<SendMessageRequest>({
       routingHead: {
