@@ -5,8 +5,10 @@ import {
   type Server,
   type ServerResponse,
 } from 'http';
+import type { ApiHandler } from '../api-handler';
 import type { DispatchPayload } from '../event-filter';
-import type { HttpServerNetwork, JsonObject, JsonValue } from '../types';
+import type { ApiResponse, HttpServerNetwork, JsonObject, JsonValue } from '../types';
+import { type StreamSink, wrapStreamFrame, wrapStreamTerminal } from '../streaming';
 import { IOneBotNetworkAdapter, type AdapterStatus, type NetworkAdapterContext } from './adapter';
 import { isAuthorized, normalizePath } from './utils';
 
@@ -181,6 +183,13 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
         return;
       }
 
+      // Stream API (#163): answer with chunked multi-frame output — each frame
+      // a JSON envelope delimited by `\r\n\r\n`, terminated by the final frame.
+      if (this.ctx.api.isStreamAction(action)) {
+        await streamHttpResponse(res, this.ctx.api, action, params as JsonObject, echo as JsonValue | undefined);
+        return;
+      }
+
       const response = await this.ctx.api.handle(action, params as JsonObject);
       if (echo !== undefined) {
         response.echo = echo as JsonValue;
@@ -212,7 +221,41 @@ function readRequestBody(req: IncomingMessage, maxBytes = 2 * 1024 * 1024): Prom
 }
 
 function writeJson(res: ServerResponse, statusCode: number, data: unknown): void {
+  // A streaming response may already have flushed headers (and even ended); a
+  // late error must not double-send and trip ERR_HTTP_HEADERS_SENT.
+  if (res.headersSent || res.writableEnded) return;
   res.statusCode = statusCode;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.end(JSON.stringify(data));
+}
+
+/** Stream a multi-frame Stream API response (#163): chunked transfer (no
+ *  Content-Length → Node frames it), each frame a JSON envelope delimited by
+ *  `\r\n\r\n`, the action's terminal response written last. Matches NapCat:
+ *  the body is `\r\n\r\n`-joined JSON objects, NOT a single JSON document, so
+ *  no `application/json` Content-Type is claimed. Each `res.write` is awaited
+ *  (flush callback) for backpressure, and the sink aborts the action once the
+ *  client disconnects so a big download stops pumping into a dead socket. */
+async function streamHttpResponse(
+  res: ServerResponse,
+  api: ApiHandler,
+  action: string,
+  params: JsonObject,
+  echo: JsonValue | undefined,
+): Promise<void> {
+  res.statusCode = 200;
+  const writeFrame = (frame: ApiResponse): Promise<void> =>
+    new Promise((resolve) => {
+      if (res.writableEnded || res.destroyed) { resolve(); return; }
+      res.write(JSON.stringify(frame) + '\r\n\r\n', () => resolve());
+    });
+  const sink: StreamSink = {
+    send: async (frame) => {
+      if (res.writableEnded || res.destroyed) throw new Error('stream client disconnected');
+      await writeFrame(wrapStreamFrame(frame, echo));
+    },
+  };
+  const response = await api.handle(action, params, sink);
+  await writeFrame(wrapStreamTerminal(response, echo));
+  if (!res.writableEnded && !res.destroyed) res.end();
 }

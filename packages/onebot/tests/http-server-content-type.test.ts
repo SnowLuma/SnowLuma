@@ -18,6 +18,7 @@ function fakeCtx(handleFn: (action: string, params: Record<string, unknown>) => 
         const data = handleFn(action, params);
         return { status: 'ok', retcode: 0, data };
       }),
+      isStreamAction: () => false,
     } as any,
     buildLifecycleEvent: vi.fn(() => ({})),
     buildHeartbeatEvent: vi.fn(() => ({})),

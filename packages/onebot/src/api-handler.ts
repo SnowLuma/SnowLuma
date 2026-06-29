@@ -14,6 +14,7 @@ import { register as registerRequest } from './actions/request';
 import type { ForwardPreviewMeta } from './modules/message-actions';
 import type { JsonObject, JsonValue, MessageMeta } from './types';
 import { RETCODE, failedResponse } from './types';
+import { type StreamSink, wrapStreamFrame, wrapStreamTerminal } from './streaming';
 const moduleLog = createLogger('Bridge.Action');
 
 
@@ -80,7 +81,7 @@ export interface ApiActionContext {
   fetchPttText: (messageId: number) => Promise<{ text: string }>;
 }
 
-type ActionHandler = (params: JsonObject) => Promise<import('./types').ApiResponse>;
+type ActionHandler = (params: JsonObject, sink?: StreamSink) => Promise<import('./types').ApiResponse>;
 
 /** A handled-action record handed to debug observers. */
 export interface ActionRecord {
@@ -93,6 +94,9 @@ export type ActionObserver = (rec: ActionRecord) => void;
 
 export class ApiHandler {
   private readonly handlers = new Map<string, ActionHandler>();
+  /** Names that answer with a multi-frame Stream API response (#163). The
+   *  network adapter consults this BEFORE dispatch to pick streaming output. */
+  private readonly streamActions = new Set<string>();
   private readonly log: Logger;
   /** Debug-stream taps — notified after every handled action. Attached
    *  on-demand (ref-counted) by the WebUI debug stream. */
@@ -122,7 +126,19 @@ export class ApiHandler {
     this.handlers.set(action, handler);
   }
 
-  async handle(action: string, params: JsonObject): Promise<import('./types').ApiResponse> {
+  /** Register a Stream API action — dispatched exactly like a normal action,
+   *  but flagged so adapters stream its frames (the handler receives a sink). */
+  registerStreamAction(action: string, handler: ActionHandler): void {
+    this.handlers.set(action, handler);
+    this.streamActions.add(action);
+  }
+
+  /** Whether `action` answers with a multi-frame Stream API response. */
+  isStreamAction(action: string): boolean {
+    return this.streamActions.has(action);
+  }
+
+  async handle(action: string, params: JsonObject, sink?: StreamSink): Promise<import('./types').ApiResponse> {
     const handler = this.handlers.get(action);
     if (!handler) {
       this.log.debug('unknown action %s', action);
@@ -134,15 +150,16 @@ export class ApiHandler {
     // the wrap + id allocation when trace is actually live, so the default
     // path stays allocation-free.
     if (getLogLevel() !== 'trace') {
-      return this.runAction(action, handler, params);
+      return this.runAction(action, handler, params, sink);
     }
-    return runWithRequestId(nextRequestId(), () => this.runAction(action, handler, params));
+    return runWithRequestId(nextRequestId(), () => this.runAction(action, handler, params, sink));
   }
 
   private async runAction(
     action: string,
     handler: ActionHandler,
     params: JsonObject,
+    sink?: StreamSink,
   ): Promise<import('./types').ApiResponse> {
     // Terse breadcrumb to the log file (debug, always persisted): lets the
     // operator grep "what did the bot get asked to do" in post-mortems.
@@ -154,7 +171,7 @@ export class ApiHandler {
     const startedAt = Date.now();
     let response: import('./types').ApiResponse;
     try {
-      response = await handler(params);
+      response = await handler(params, sink);
       this.log.trace(() => [`${action} ⇒ ${response.status} (${Date.now() - startedAt}ms)`]);
     } catch (error) {
       // Action failures are almost always param-shape problems coming
@@ -185,33 +202,52 @@ export class ApiHandler {
     }
   }
 
-  async processRequest(rawRequest: string): Promise<string> {
-    if (!rawRequest.trim()) {
-      return JSON.stringify(failedResponse(RETCODE.BAD_REQUEST, 'bad request'));
-    }
+  /** WS dispatch supporting Stream API multi-frame responses. A normal action
+   *  emits exactly one frame; a stream action emits each intermediate frame
+   *  then the terminal frame — every frame carries the request's echo. `emit`
+   *  writes one JSON string per frame; awaiting it lets the transport apply
+   *  backpressure. `isAlive`, when supplied, is checked before each stream
+   *  frame — returning false aborts the action (e.g. the client disconnected),
+   *  so a dead client can't make a download keep pumping frames into the void. */
+  async processStreamRequest(
+    rawRequest: string,
+    emit: (json: string) => void | Promise<void>,
+    isAlive?: () => boolean,
+  ): Promise<void> {
+    const bad = (): void => { void emit(JSON.stringify(failedResponse(RETCODE.BAD_REQUEST, 'bad request'))); };
+    if (!rawRequest.trim()) { bad(); return; }
 
+    let action: string;
+    let params: JsonObject;
+    let echo: JsonValue | undefined;
     try {
       const parsed = JSON.parse(rawRequest) as unknown;
-      if (!isJsonObject(parsed)) {
-        return JSON.stringify(failedResponse(RETCODE.BAD_REQUEST, 'bad request'));
-      }
-
-      const action = asString(parsed.action);
-      if (!action) {
-        return JSON.stringify(failedResponse(RETCODE.BAD_REQUEST, 'bad request'));
-      }
-
-      const params = isJsonObject(parsed.params) ? parsed.params : {};
-      const echo = parsed.echo;
-      const response = await this.handle(action, params);
-      if (echo !== undefined) {
-        response.echo = toJsonValue(echo);
-      }
-
-      return JSON.stringify(response);
+      if (!isJsonObject(parsed)) { bad(); return; }
+      const a = asString(parsed.action);
+      if (!a) { bad(); return; }
+      action = a;
+      params = isJsonObject(parsed.params) ? parsed.params : {};
+      echo = parsed.echo !== undefined ? toJsonValue(parsed.echo) : undefined;
     } catch {
-      return JSON.stringify(failedResponse(RETCODE.BAD_REQUEST, 'bad request'));
+      bad();
+      return;
     }
+
+    if (!this.isStreamAction(action)) {
+      const response = await this.handle(action, params);
+      if (echo !== undefined) response.echo = echo;
+      await emit(JSON.stringify(response));
+      return;
+    }
+
+    const sink: StreamSink = {
+      send: async (frame) => {
+        if (isAlive && !isAlive()) throw new Error('stream transport closed');
+        await emit(JSON.stringify(wrapStreamFrame(frame, echo)));
+      },
+    };
+    const response = await this.handle(action, params, sink);
+    await emit(JSON.stringify(wrapStreamTerminal(response, echo)));
   }
 }
 

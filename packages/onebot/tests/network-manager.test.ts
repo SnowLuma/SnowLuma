@@ -52,7 +52,7 @@ class FakeAdapter extends IOneBotNetworkAdapter<FakeNetworkConfig> {
 
 const NULL_CTX: NetworkAdapterContext = {
   uin: '10001',
-  api: { handle: async () => ({ status: 'failed', retcode: 0, data: null }), processRequest: async () => '' } as never,
+  api: { handle: async () => ({ status: 'failed', retcode: 0, data: null }), processStreamRequest: async () => {} } as never,
   buildLifecycleEvent: () => ({}),
   buildHeartbeatEvent: () => ({}),
 };

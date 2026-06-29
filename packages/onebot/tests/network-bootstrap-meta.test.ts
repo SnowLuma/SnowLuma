@@ -68,7 +68,7 @@ import type { JsonObject, WsClientNetwork, WsServerNetwork } from '../src/types'
 function ctx(): NetworkAdapterContext {
   return {
     uin: '10001',
-    api: { processRequest: async () => '' } as never,
+    api: { processStreamRequest: async () => {} } as never,
     buildLifecycleEvent: (sub) => ({ post_type: 'meta_event', meta_event_type: 'lifecycle', sub_type: sub }),
     buildHeartbeatEvent: () => ({ post_type: 'meta_event', meta_event_type: 'heartbeat', interval: 5000 }),
   };

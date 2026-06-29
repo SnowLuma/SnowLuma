@@ -8,7 +8,7 @@ import {
 } from '../event-filter';
 import type { JsonObject, WsClientNetwork, WsRole } from '../types';
 import { IOneBotNetworkAdapter, type AdapterStatus, type NetworkAdapterContext } from './adapter';
-import { rawDataToString, safeClose, safeSend } from './utils';
+import { rawDataToString, safeClose, safeSend, safeSendAsync } from './utils';
 
 const moduleLog = createLogger('OneBot.WS-Client');
 const DEFAULT_RECONNECT_INTERVAL_MS = 5000;
@@ -146,8 +146,13 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
     if (this.role !== 'Api' && this.role !== 'Universal') return;
     const text = rawDataToString(raw);
     if (!text) return;
-    const response = await this.ctx.api.processRequest(text);
-    safeSend(socket, response);
+    // Stream API (#163): one frame for a normal action, N for a streaming one.
+    // Async send = backpressure; liveness check aborts on disconnect.
+    await this.ctx.api.processStreamRequest(
+      text,
+      (frame) => safeSendAsync(socket, frame),
+      () => socket.readyState === 1,
+    );
   }
 
   private sendBootstrapMetaEvents(socket: WebSocket): void {

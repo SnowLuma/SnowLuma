@@ -9,7 +9,7 @@ import {
 } from '../event-filter';
 import type { JsonObject, WsRole, WsServerNetwork } from '../types';
 import { IOneBotNetworkAdapter, type AdapterStatus, type NetworkAdapterContext } from './adapter';
-import { isAuthorized, normalizePath, parseRequestPath, rawDataToString, safeClose, safeSend } from './utils';
+import { isAuthorized, normalizePath, parseRequestPath, rawDataToString, safeClose, safeSend, safeSendAsync } from './utils';
 
 const moduleLog = createLogger('OneBot.WS-Server');
 
@@ -119,7 +119,9 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
     this.connections.set(socket, conn);
 
     socket.on('message', (raw: Buffer) => {
-      void this.handleApiMessage(socket, role, raw);
+      void this.handleApiMessage(socket, role, raw).catch((err) => {
+        this.log.warn('[%s] handleApiMessage threw: %s', this.name, err instanceof Error ? (err.stack ?? err.message) : String(err));
+      });
     });
     socket.on('close', () => this.connections.delete(socket));
     socket.on('error', (err: Error) => {
@@ -135,8 +137,15 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
     if (role !== 'Api' && role !== 'Universal') return;
     const text = rawDataToString(raw);
     if (!text) return;
-    const response = await this.ctx.api.processRequest(text);
-    safeSend(socket, response);
+    // Stream API (#163) emits multiple frames per request; processStreamRequest
+    // sends one frame for a normal action and N for a streaming one. The async
+    // send applies backpressure (awaits flush); the liveness check aborts a
+    // streaming action once the client goes away.
+    await this.ctx.api.processStreamRequest(
+      text,
+      (frame) => safeSendAsync(socket, frame),
+      () => socket.readyState === 1,
+    );
   }
 
   private sendBootstrapMetaEvents(socket: WebSocket): void {

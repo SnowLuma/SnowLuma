@@ -21,6 +21,7 @@
 import { RETCODE, failedResponse } from './types';
 import type { ApiResponse, JsonObject, JsonValue } from './types';
 import type { ApiActionContext, ApiHandler } from './api-handler';
+import { type StreamSink, NOOP_SINK } from './streaming';
 
 // ─────────────────────────── result currency ───────────────────────────
 
@@ -441,6 +442,63 @@ export function defineAction<S extends Spec>(def: ActionDef<S>): ActionSpec<S> {
     register: (h, ctx) => {
       const handler = toHandler(ctx);
       for (const name of names) h.registerAction(name, handler);
+    },
+  };
+}
+
+// ─────────────────────────── defineStreamAction ───────────────────────────
+// A Stream API action (#163): same param contract + doc machinery as
+// `defineAction`, but `run` additionally receives a `StreamSink` to push
+// intermediate frames, and it registers via `registerStreamAction` so the
+// network adapter streams its output. The handler's return value is still the
+// terminal `ApiResponse` (the final frame). Reuses `defineAction` for
+// parse/describe so the two stay in lock-step.
+
+interface StreamActionDef<S extends Spec> {
+  name: string | readonly [string, ...string[]];
+  summary?: string;
+  returns?: string;
+  returnsSchema?: JsonSchema;
+  readOnly?: boolean;
+  params: S;
+  rules?: (r: RuleBuilders<InferParams<S>>) => readonly CrossFieldRule[];
+  run: (p: InferParams<S>, ctx: ApiActionContext, raw: JsonObject, sink: StreamSink) => Promise<ApiResponse> | ApiResponse;
+}
+
+export interface StreamActionSpec<S extends Spec> {
+  readonly names: string[];
+  readonly params: S;
+  parse(raw: JsonObject): CoerceResult<InferParams<S>>;
+  describe(): ActionDoc;
+  register(h: ApiHandler, ctx: ApiActionContext): void;
+}
+
+export function defineStreamAction<S extends Spec>(def: StreamActionDef<S>): StreamActionSpec<S> {
+  // Borrow defineAction's parse + describe (run is never invoked — register
+  // below installs the sink-aware handler instead).
+  const base = defineAction<S>({
+    name: def.name,
+    summary: def.summary,
+    returns: def.returns,
+    returnsSchema: def.returnsSchema,
+    readOnly: def.readOnly,
+    params: def.params,
+    rules: def.rules,
+    run: () => failedResponse(RETCODE.INTERNAL_ERROR, 'stream action dispatched without a sink'),
+  });
+
+  return {
+    names: base.names,
+    params: def.params,
+    parse: base.parse,
+    describe: base.describe,
+    register: (h, ctx) => {
+      const handler = async (params: JsonObject, sink?: StreamSink): Promise<ApiResponse> => {
+        const r = base.parse(params);
+        if (!r.ok) return failedResponse(RETCODE.BAD_REQUEST, wording(r));
+        return def.run(r.value, ctx, params, sink ?? NOOP_SINK);
+      };
+      for (const name of base.names) h.registerStreamAction(name, handler);
     },
   };
 }

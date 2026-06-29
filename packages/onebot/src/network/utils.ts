@@ -31,6 +31,19 @@ export function safeSend(socket: WebSocket, payload: string, onError?: (err: Err
   });
 }
 
+/** Backpressure-aware send: resolves only once `ws` has flushed `payload` to
+ *  the socket (the `send` callback fires post-write), so a streaming producer
+ *  that awaits this won't outrun a slow client and balloon the send buffer.
+ *  Never rejects — a closed socket or send error resolves quietly (the stream
+ *  sink handles liveness/abort separately so a dead client can't crash the
+ *  per-message handler with an unhandled rejection). */
+export function safeSendAsync(socket: WebSocket, payload: string): Promise<void> {
+  return new Promise((resolve) => {
+    if (socket.readyState !== 1 /* WebSocket.OPEN */) { resolve(); return; }
+    socket.send(payload, () => resolve());
+  });
+}
+
 export function safeClose(socket: WebSocket, code = 1000, reason = 'normal'): void {
   if (socket.readyState === 3 /* CLOSED */ || socket.readyState === 2 /* CLOSING */) return;
   socket.close(code, reason);
