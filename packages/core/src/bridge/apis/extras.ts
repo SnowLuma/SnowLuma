@@ -7,6 +7,7 @@ import { GetStrangerStatus, type StrangerStatus as NamespaceStrangerStatus } fro
 import { GroupTodo } from '@snowluma/protocol/oidb-services/extras/group-todo';
 import { convertAudioBytes } from '@snowluma/protocol/highway/ffmpeg-addon';
 import { loadBinarySource } from '@snowluma/protocol/highway/utils';
+import { createLogger } from '@snowluma/common/logger';
 import type { PttTransReq, PttTransResp } from '@snowluma/proto-defs/ptt-trans';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { BridgeContext } from '../bridge-context';
@@ -56,6 +57,8 @@ export interface AiVoiceItem {
   voiceDisplayName: string;
   voiceExampleUrl: string;
 }
+
+const log = createLogger('Bridge.Extras');
 
 export class ExtrasApi {
   constructor(private readonly ctx: BridgeContext) { }
@@ -156,7 +159,18 @@ export class ExtrasApi {
     }
     const resp = protobuf_decode<PttTransResp>(result.responseData);
     const item = input.isGroup ? resp?.groupResult : resp?.c2cResult;
-    if (item?.errCode) throw new Error(`ptt translate failed: error=${item.errCode}`);
+    if (item?.errCode) {
+      // Diagnostic (#165 备选): correlate QQ's errCode with the request fields we
+      // sourced from cache, to tell a server-side ASR failure apart from our own
+      // missing/zero field (md5/format/uuid). Behaviour unchanged — still throws.
+      log.warn(
+        'ptt translate errCode=%d isGroup=%s md5=%s format=%d uuid=%s dur=%d size=%d',
+        item.errCode, input.isGroup,
+        input.md5Hex ? `${input.md5Hex.length / 2}B` : 'EMPTY',
+        input.format, input.uuid ? 'set' : 'EMPTY', input.duration, input.size,
+      );
+      throw new Error(`ptt translate failed: error=${item.errCode}`);
+    }
     return item?.text ?? ''; // '' = transcribing async; caller awaits the push
   }
 
