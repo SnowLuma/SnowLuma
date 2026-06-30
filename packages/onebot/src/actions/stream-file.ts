@@ -359,9 +359,10 @@ const cleanStreamTempFile = defineAction({
   },
 });
 
+export const actions = [uploadFileStream, cleanStreamTempFile];
+
 export function register(h: ApiHandler, ctx: ApiActionContext): void {
-  uploadFileStream.register(h, ctx);
-  cleanStreamTempFile.register(h, ctx);
+  for (const a of actions) a.register(h, ctx);
 }
 
 // Exposed for tests.

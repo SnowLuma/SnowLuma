@@ -539,6 +539,21 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "clean_stream_temp_file",
+    "aliases": [],
+    "summary": "清理流式传输临时文件(仅清理 stream 上传/下载目录)",
+    "returns": "{ message, removed }",
+    "readOnly": false,
+    "params": [],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": true
+    },
+    "category": "流式接口"
+  },
+  {
     "name": "click_inline_keyboard_button",
     "aliases": [],
     "summary": "点击内联键盘按钮",
@@ -1410,6 +1425,180 @@ export const ACTIONS: CatalogAction[] = [
       "additionalProperties": true
     },
     "category": "扩展"
+  },
+  {
+    "name": "download_file_image_stream",
+    "aliases": [],
+    "summary": "以流式方式下载图片(缓存图片 id / URL / stream 目录本地文件)",
+    "returns": "流式帧:file_info → file_chunk* → file_complete",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "file",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "desc": "文件路径(限 stream 临时目录)/ http(s) URL"
+      },
+      {
+        "name": "file_id",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "desc": "文件 ID(缓存的图片/语音 id)"
+      },
+      {
+        "name": "chunk_size",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "分块大小(字节,默认 64KB)"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "文件路径(限 stream 临时目录)/ http(s) URL"
+        },
+        "file_id": {
+          "type": "string",
+          "description": "文件 ID(缓存的图片/语音 id)"
+        },
+        "chunk_size": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "分块大小(字节,默认 64KB)"
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "流式接口"
+  },
+  {
+    "name": "download_file_record_stream",
+    "aliases": [],
+    "summary": "以流式方式下载语音(缓存语音 id / URL / stream 目录本地文件)",
+    "returns": "流式帧:file_info → file_chunk* → file_complete",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "file",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "desc": "文件路径(限 stream 临时目录)/ http(s) URL"
+      },
+      {
+        "name": "file_id",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "desc": "文件 ID(缓存的图片/语音 id)"
+      },
+      {
+        "name": "chunk_size",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "分块大小(字节,默认 64KB)"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "文件路径(限 stream 临时目录)/ http(s) URL"
+        },
+        "file_id": {
+          "type": "string",
+          "description": "文件 ID(缓存的图片/语音 id)"
+        },
+        "chunk_size": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "分块大小(字节,默认 64KB)"
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "流式接口"
+  },
+  {
+    "name": "download_file_stream",
+    "aliases": [],
+    "summary": "以流式方式下载文件(stream 目录本地文件 / URL / 缓存媒体)",
+    "returns": "流式帧:file_info → file_chunk* → file_complete",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "file",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "desc": "文件路径(限 stream 临时目录)/ http(s) URL"
+      },
+      {
+        "name": "file_id",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "desc": "文件 ID(缓存的图片/语音 id)"
+      },
+      {
+        "name": "chunk_size",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "分块大小(字节,默认 64KB)"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "文件路径(限 stream 临时目录)/ http(s) URL"
+        },
+        "file_id": {
+          "type": "string",
+          "description": "文件 ID(缓存的图片/语音 id)"
+        },
+        "chunk_size": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "分块大小(字节,默认 64KB)"
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "流式接口"
   },
   {
     "name": "download_fileset",
@@ -8506,6 +8695,38 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "test_download_stream",
+    "aliases": [],
+    "summary": "测试下载流(推送 10 个数据帧,验证流式传输,不触达 QQ)",
+    "returns": "流式帧:data_chunk*10 → data_complete(error=true 时以 error 帧结束)",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "error",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "default": false,
+        "desc": "是否触发测试错误"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "boolean",
+          "description": "是否触发测试错误",
+          "default": false
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "流式接口"
+  },
+  {
     "name": "trans_group_file",
     "aliases": [],
     "summary": "转存群文件（未实现）",
@@ -8623,6 +8844,181 @@ export const ACTIONS: CatalogAction[] = [
       "additionalProperties": true
     },
     "category": "空间"
+  },
+  {
+    "name": "upload_file_stream",
+    "aliases": [],
+    "summary": "以流式分块方式上传文件到机器人本地(返回可用于发送的本地路径)",
+    "returns": "流式帧:分块确认 type=stream、完成 type=response(含 file_path/file_size/sha256)",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "stream_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "流 ID(客户端生成的 UUID,限 [A-Za-z0-9_-])"
+      },
+      {
+        "name": "chunk_data",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "desc": "分块数据(Base64)"
+      },
+      {
+        "name": "chunk_index",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "desc": "分块索引(从 0 开始)"
+      },
+      {
+        "name": "total_chunks",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "总分块数(新流必填)"
+      },
+      {
+        "name": "file_size",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "desc": "文件总大小(字节)"
+      },
+      {
+        "name": "expected_sha256",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "desc": "期望的整文件 SHA256(校验)"
+      },
+      {
+        "name": "is_complete",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "desc": "是否为最后一个分块/触发合并"
+      },
+      {
+        "name": "filename",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "desc": "文件名"
+      },
+      {
+        "name": "reset",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "desc": "重置并丢弃该流"
+      },
+      {
+        "name": "verify_only",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "desc": "仅查询当前流状态"
+      },
+      {
+        "name": "file_retention",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "default": 300000,
+        "desc": "合并文件保留毫秒(0=不回收)"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "stream_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "流 ID(客户端生成的 UUID,限 [A-Za-z0-9_-])"
+        },
+        "chunk_data": {
+          "type": "string",
+          "description": "分块数据(Base64)"
+        },
+        "chunk_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "分块索引(从 0 开始)"
+        },
+        "total_chunks": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "总分块数(新流必填)"
+        },
+        "file_size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "文件总大小(字节)"
+        },
+        "expected_sha256": {
+          "type": "string",
+          "description": "期望的整文件 SHA256(校验)"
+        },
+        "is_complete": {
+          "type": "boolean",
+          "description": "是否为最后一个分块/触发合并"
+        },
+        "filename": {
+          "type": "string",
+          "description": "文件名"
+        },
+        "reset": {
+          "type": "boolean",
+          "description": "重置并丢弃该流"
+        },
+        "verify_only": {
+          "type": "boolean",
+          "description": "仅查询当前流状态"
+        },
+        "file_retention": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "合并文件保留毫秒(0=不回收)",
+          "default": 300000
+        }
+      },
+      "required": [
+        "stream_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "流式接口"
   },
   {
     "name": "upload_forward_msg",
@@ -9017,5 +9413,9 @@ export const CATEGORIES: CatalogCategory[] = [
   {
     "category": "空间",
     "count": 7
+  },
+  {
+    "category": "流式接口",
+    "count": 6
   }
 ];

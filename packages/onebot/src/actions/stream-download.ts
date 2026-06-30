@@ -368,11 +368,10 @@ const testDownloadStream = defineStreamAction({
   },
 });
 
+export const actions = [downloadFileStream, downloadFileImageStream, downloadFileRecordStream, testDownloadStream];
+
 export function register(h: ApiHandler, ctx: ApiActionContext): void {
-  downloadFileStream.register(h, ctx);
-  downloadFileImageStream.register(h, ctx);
-  downloadFileRecordStream.register(h, ctx);
-  testDownloadStream.register(h, ctx);
+  for (const a of actions) a.register(h, ctx);
 }
 
 // Exposed for tests.
