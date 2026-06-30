@@ -65,6 +65,7 @@ export interface MockGroupFileApi {
   upload: ReturnType<typeof vi.fn>;
   uploadPrivate: ReturnType<typeof vi.fn>;
   publish: ReturnType<typeof vi.fn>;
+  trans: ReturnType<typeof vi.fn>;
   getCount: ReturnType<typeof vi.fn>;
   list: ReturnType<typeof vi.fn>;
   getUrl: ReturnType<typeof vi.fn>;
@@ -85,6 +86,7 @@ export function mockGroupFileApi(): MockGroupFileApi {
     upload: vi.fn(async () => ({ fileId: 'stub-fid' })),
     uploadPrivate: vi.fn(async () => ({ fileId: 'stub-pfid', fileHash: 'stub-hash' })),
     publish: vi.fn(async () => undefined),
+    trans: vi.fn(async () => ({ saveBusId: 102, saveFilePath: '/stub-path' })),
     getCount: vi.fn(async () => ({ fileCount: 0, maxCount: 10000 })),
     list: vi.fn(async () => ({ files: [], folders: [] })),
     getUrl: vi.fn(async () => 'stub://url'),

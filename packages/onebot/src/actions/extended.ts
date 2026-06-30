@@ -1636,10 +1636,15 @@ export const actions = [
 
   defineAction({
     name: 'trans_group_file',
-    summary: '转存群文件（未实现）',
-    params: {},
-    run: async () => {
-      return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
+    summary: '转存群文件',
+    returns: '{ ok: true }',
+    params: {
+      group_id: f.uint(),
+      file_id: f.string({ allowEmpty: false }),
+    },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.groupFile.trans(p.group_id, p.file_id);
+      return okResponse({ ok: true });
     },
   }),
 

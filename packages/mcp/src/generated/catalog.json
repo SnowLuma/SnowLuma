@@ -9094,13 +9094,46 @@
     {
       "name": "trans_group_file",
       "aliases": [],
-      "summary": "转存群文件（未实现）",
+      "summary": "转存群文件",
+      "returns": "{ ok: true }",
       "readOnly": false,
-      "params": [],
+      "params": [
+        {
+          "name": "group_id",
+          "type": "uint",
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        {
+          "name": "file_id",
+          "type": "string",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
       "invariants": [],
       "inputSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "file_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "group_id",
+          "file_id"
+        ],
         "additionalProperties": true
       },
       "category": "扩展"

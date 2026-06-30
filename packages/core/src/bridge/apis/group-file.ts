@@ -23,6 +23,7 @@ import { MoveGroupFile } from '@snowluma/protocol/oidb-services/group-file/move-
 import { PublishGroupFile } from '@snowluma/protocol/oidb-services/group-file/publish-group-file';
 import { RenameGroupFile } from '@snowluma/protocol/oidb-services/group-file/rename-group-file';
 import { RenameGroupFolder } from '@snowluma/protocol/oidb-services/group-file/rename-group-folder';
+import { TransGroupFile, type TransGroupFileResult } from '@snowluma/protocol/oidb-services/group-file/trans-group-file';
 import { UploadGroupFileRequest } from '@snowluma/protocol/oidb-services/group-file/upload-group-file-request';
 import { UploadPrivateFileRequest } from '@snowluma/protocol/oidb-services/group-file/upload-private-file-request';
 import { ensureRetCodeZero } from '@snowluma/protocol/oidb-services/shared';
@@ -236,6 +237,11 @@ export class GroupFileApi {
   publish(groupId: number, fileId: string): Promise<void> {
     if (!fileId) throw new Error('publish requires fileId');
     return PublishGroupFile.invoke(this.ctx, { groupId, fileId });
+  }
+
+  trans(groupId: number, fileId: string): Promise<TransGroupFileResult> {
+    if (!fileId) throw new Error('trans requires fileId');
+    return TransGroupFile.invoke(this.ctx, { groupId, fileId });
   }
 
   // ─────────────── count ───────────────
