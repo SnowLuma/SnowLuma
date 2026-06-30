@@ -44,12 +44,33 @@ type Raw = JsonValue | typeof MISSING;
  *  them into an action's `inputSchema` (consumed by docs / the MCP). */
 export type JsonSchema = Record<string, unknown>;
 
+/** Semantic role of a param, orthogonal to `type` (which governs coercion).
+ *  Two `uint` fields `group_id` and `user_id` coerce identically but mean
+ *  different things — `role` is what a UI keys its picker/widget off of.
+ *  Closed set: consumers (the WebUI debug console) switch on it exhaustively
+ *  and fall back to the plain typed control for anything unrecognised. */
+export type FieldRole =
+  | 'group_id'
+  | 'user_id'
+  | 'member_id' // a group member's uin — its picker depends on a sibling group_id
+  | 'message_id'
+  | 'file_id'
+  | 'file'
+  | 'image'
+  | 'record'
+  | 'video'
+  | 'duration'
+  | 'timestamp'
+  | 'face_id';
+
 export interface FieldDoc {
   type: string;
   required: boolean;
   default?: JsonValue;
   desc?: string;
   values?: readonly (string | number)[];
+  /** Semantic role driving UI widget selection; orthogonal to `type`. */
+  role?: FieldRole;
   /** JSON Schema fragment for this field's value (constraints only; presence
    *  and default are applied at the object level by `describe()`). */
   schema?: JsonSchema;
@@ -65,6 +86,10 @@ export interface Field<T> {
    *  numeric field is an error, not a silent fallback). */
   default(value: T): Field<T>;
   describe(text: string): Field<T>;
+  /** Stamp a semantic role (escape hatch for params whose name lies, or to
+   *  override a preset). Most call sites use the `f.groupId()`-style semantic
+   *  constructors instead. */
+  role(role: FieldRole): Field<T>;
   /** Complete JSON Schema for this field's value (constraints + description +
    *  default). Object-level required-ness is handled by `describe()`. */
   toJsonSchema(): JsonSchema;
@@ -104,10 +129,15 @@ class FieldImpl<T> implements Field<T> {
     return new FieldImpl<T>(this.core, { ...this.doc, desc: text });
   }
 
+  role(role: FieldRole): Field<T> {
+    return new FieldImpl<T>(this.core, { ...this.doc, role });
+  }
+
   toJsonSchema(): JsonSchema {
     const out: JsonSchema = { ...(this.doc.schema ?? {}) };
     if (this.doc.desc) out.description = this.doc.desc;
     if (this.doc.default !== undefined) out.default = this.doc.default;
+    if (this.doc.role) out['x-role'] = this.doc.role;
     return out;
   }
 }
@@ -148,6 +178,21 @@ function strSchema(opts: StrOpts): JsonSchema {
   return s;
 }
 
+/** Coerce to string (numbers/booleans stringify; matches legacy `asString`),
+ *  then apply emptiness / length bounds. Shared by `f.string()` and the
+ *  string-valued semantic constructors. */
+function stringCore(opts: StrOpts): Core<string> {
+  return (raw, field) => {
+    let s: string;
+    if (typeof raw === 'string') s = raw;
+    else if (typeof raw === 'number' || typeof raw === 'boolean') s = String(raw);
+    else return err(field, 'expected a string');
+    if (opts.allowEmpty === false && s === '') return err(field, 'must not be empty');
+    if (opts.maxLen !== undefined && s.length > opts.maxLen) return err(field, `must be <= ${opts.maxLen} chars`);
+    return ok(s);
+  };
+}
+
 function arrayField<E>(el: Field<E>, mustBeNonEmpty: boolean): Field<E[]> & { nonEmpty(): Field<E[]> } {
   const core: Core<E[]> = (raw, field) => {
     if (!Array.isArray(raw)) return err(field, 'expected an array');
@@ -181,7 +226,59 @@ export const f = {
   /** OneBot message id: a non-zero integer. NEGATIVES ARE VALID (ids are a
    *  signed int32 hash) — do NOT use `uint()` for message_id. */
   messageId(): Field<number> {
-    return new FieldImpl<number>(intCore('a message id', { nonZero: true }), { type: 'messageId', required: true, schema: intSchema({ nonZero: true }) });
+    return new FieldImpl<number>(intCore('a message id', { nonZero: true }), { type: 'messageId', required: true, role: 'message_id', schema: intSchema({ nonZero: true }) });
+  },
+  // ── Semantic constructors (role-stamped) ──
+  // Each wraps a coercion primitive and stamps a `role` so the WebUI debug
+  // console renders the right picker. The Agent backfill replaces a bare
+  // `f.uint()` named `group_id` with `f.groupId()`, etc. — purely additive to
+  // coercion (a groupId still coerces exactly like a uint).
+  /** Group number (uint) → group picker. */
+  groupId(): Field<number> {
+    return new FieldImpl<number>(intCore('a positive integer', { min: 1 }), { type: 'uint', required: true, role: 'group_id', schema: intSchema({ min: 1 }) });
+  },
+  /** Friend / stranger uin (uint) → friend picker. */
+  userId(): Field<number> {
+    return new FieldImpl<number>(intCore('a positive integer', { min: 1 }), { type: 'uint', required: true, role: 'user_id', schema: intSchema({ min: 1 }) });
+  },
+  /** Group member's uin (uint) → member picker, linked to a sibling group_id. */
+  memberId(): Field<number> {
+    return new FieldImpl<number>(intCore('a positive integer', { min: 1 }), { type: 'uint', required: true, role: 'member_id', schema: intSchema({ min: 1 }) });
+  },
+  /** Opaque file id (string) → file picker / history. */
+  fileId(): Field<string> {
+    return new FieldImpl<string>(stringCore({ allowEmpty: false }), { type: 'string', required: true, role: 'file_id', schema: strSchema({ allowEmpty: false }) });
+  },
+  // Media sources reject '' (an empty path/URL is meaningless) — this matches
+  // the `f.string({ allowEmpty: false })` they replace during backfill, so the
+  // swap preserves the empty-string guard.
+  /** Local path / URL / base64 of a generic file → FileSource control. */
+  file(): Field<string> {
+    return new FieldImpl<string>(stringCore({ allowEmpty: false }), { type: 'string', required: true, role: 'file', schema: strSchema({ allowEmpty: false }) });
+  },
+  /** Image source (path / URL / base64) → FileSource control. */
+  image(): Field<string> {
+    return new FieldImpl<string>(stringCore({ allowEmpty: false }), { type: 'string', required: true, role: 'image', schema: strSchema({ allowEmpty: false }) });
+  },
+  /** Voice/record source → FileSource control. */
+  record(): Field<string> {
+    return new FieldImpl<string>(stringCore({ allowEmpty: false }), { type: 'string', required: true, role: 'record', schema: strSchema({ allowEmpty: false }) });
+  },
+  /** Video source → FileSource control. */
+  video(): Field<string> {
+    return new FieldImpl<string>(stringCore({ allowEmpty: false }), { type: 'string', required: true, role: 'video', schema: strSchema({ allowEmpty: false }) });
+  },
+  /** Seconds (int ≥ 0) → duration control. */
+  duration(): Field<number> {
+    return new FieldImpl<number>(intCore('an integer', { min: 0 }), { type: 'int', required: true, role: 'duration', schema: intSchema({ min: 0 }) });
+  },
+  /** Unix timestamp (int ≥ 0) → datetime control. */
+  timestamp(): Field<number> {
+    return new FieldImpl<number>(intCore('an integer', { min: 0 }), { type: 'int', required: true, role: 'timestamp', schema: intSchema({ min: 0 }) });
+  },
+  /** QQ face id (non-negative int; face 0 is valid) → face grid. */
+  faceId(): Field<number> {
+    return new FieldImpl<number>(intCore('a non-negative integer', { min: 0 }), { type: 'int', required: true, role: 'face_id', schema: intSchema({ min: 0 }) });
   },
   /** Finite number (fractions allowed). */
   number(): Field<number> {
@@ -194,15 +291,7 @@ export const f = {
   /** String. Numbers/booleans stringify (matches legacy `asString`). Empty
    *  allowed by default; `{ allowEmpty: false }` rejects ''. */
   string(opts: StrOpts = {}): Field<string> {
-    return new FieldImpl<string>((raw, field) => {
-      let s: string;
-      if (typeof raw === 'string') s = raw;
-      else if (typeof raw === 'number' || typeof raw === 'boolean') s = String(raw);
-      else return err(field, 'expected a string');
-      if (opts.allowEmpty === false && s === '') return err(field, 'must not be empty');
-      if (opts.maxLen !== undefined && s.length > opts.maxLen) return err(field, `must be <= ${opts.maxLen} chars`);
-      return ok(s);
-    }, { type: 'string', required: true, schema: strSchema(opts) });
+    return new FieldImpl<string>(stringCore(opts), { type: 'string', required: true, schema: strSchema(opts) });
   },
   /** true/1/yes/on ⇒ true; false/0/no/off ⇒ false (matches legacy `asBoolean`). */
   bool(): Field<boolean> {
@@ -339,6 +428,10 @@ export interface ActionDoc {
   /** True only for pure data-fetch actions (no side effects). Drives the MCP's
    *  read/write tool routing; defaults to false (treated as a write). */
   readOnly: boolean;
+  /** True for Stream API actions (`defineStreamAction`) — they push multiple
+   *  frames through a sink, so a caller must use the streaming transport rather
+   *  than a single request/response. Absent ⇒ ordinary single-response action. */
+  stream?: boolean;
   params: ParamDoc[];
   invariants: string[];
   /** Composed JSON Schema for the whole params object (properties + required). */
@@ -491,7 +584,7 @@ export function defineStreamAction<S extends Spec>(def: StreamActionDef<S>): Str
     names: base.names,
     params: def.params,
     parse: base.parse,
-    describe: base.describe,
+    describe: () => ({ ...base.describe(), stream: true }),
     register: (h, ctx) => {
       const handler = async (params: JsonObject, sink?: StreamSink): Promise<ApiResponse> => {
         const r = base.parse(params);
@@ -524,7 +617,7 @@ interface PresetDef<S extends Spec, Extra> {
 
 /** Pre-seeds `group_id` (uint, required). */
 export function groupAction<S extends Spec>(def: PresetDef<S, { group_id: number }>): ActionSpec<WithGroup<S>> {
-  const params = { group_id: f.uint().describe('群号'), ...(def.params ?? {}) } as WithGroup<S>;
+  const params = { group_id: f.groupId().describe('群号'), ...(def.params ?? {}) } as WithGroup<S>;
   return defineAction({ ...def, params } as unknown as ActionDef<WithGroup<S>>);
 }
 
@@ -533,8 +626,10 @@ export function groupUserAction<S extends Spec>(
   def: PresetDef<S, { group_id: number; user_id: number }>,
 ): ActionSpec<WithGroupUser<S>> {
   const params = {
-    group_id: f.uint().describe('群号'),
-    user_id: f.uint().describe('QQ 号'),
+    group_id: f.groupId().describe('群号'),
+    // In a group action, the user_id is a member of *that* group — so its
+    // picker links to the sibling group_id (member_id role, not user_id).
+    user_id: f.memberId().describe('QQ 号'),
     ...(def.params ?? {}),
   } as WithGroupUser<S>;
   return defineAction({ ...def, params } as unknown as ActionDef<WithGroupUser<S>>);

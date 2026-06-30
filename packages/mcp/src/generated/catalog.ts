@@ -13,6 +13,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -43,7 +44,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "fid": {
           "type": "string"
@@ -69,6 +71,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -83,7 +86,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         }
       },
       "required": [
@@ -175,6 +179,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -225,7 +230,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "content": {
           "type": "string",
@@ -382,6 +388,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -422,7 +429,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "album_id": {
           "type": "string",
@@ -455,6 +463,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -465,6 +474,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "message_id",
         "type": "messageId",
         "required": true,
+        "role": "message_id",
         "schema": {
           "type": "integer",
           "not": {
@@ -480,13 +490,15 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "message_id": {
           "type": "integer",
           "not": {
             "const": 0
-          }
+          },
+          "x-role": "message_id"
         }
       },
       "required": [
@@ -563,6 +575,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -595,7 +608,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "bot_appid": {
           "type": "integer",
@@ -711,6 +725,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -721,6 +736,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "message_id",
         "type": "messageId",
         "required": true,
+        "role": "message_id",
         "schema": {
           "type": "integer",
           "not": {
@@ -736,13 +752,15 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "message_id": {
           "type": "integer",
           "not": {
             "const": 0
-          }
+          },
+          "x-role": "message_id"
         }
       },
       "required": [
@@ -822,6 +840,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -854,7 +873,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "name": {
           "type": "string",
@@ -882,6 +902,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -914,7 +935,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "album_id": {
           "type": "string",
@@ -976,6 +998,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "message_id",
         "type": "messageId",
         "required": true,
+        "role": "message_id",
         "schema": {
           "type": "integer",
           "not": {
@@ -992,7 +1015,8 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "not": {
             "const": 0
-          }
+          },
+          "x-role": "message_id"
         }
       },
       "required": [
@@ -1091,6 +1115,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -1114,7 +1139,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "file_id": {
           "type": "string",
@@ -1139,6 +1165,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -1162,7 +1189,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "folder_id": {
           "type": "string",
@@ -1187,6 +1215,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -1210,7 +1239,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "folder_id": {
           "type": "string",
@@ -1235,6 +1265,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "message_id",
         "type": "messageId",
         "required": true,
+        "role": "message_id",
         "schema": {
           "type": "integer",
           "not": {
@@ -1251,7 +1282,8 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "not": {
             "const": 0
-          }
+          },
+          "x-role": "message_id"
         }
       },
       "required": [
@@ -1304,6 +1336,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -1345,7 +1378,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "album_id": {
           "type": "string",
@@ -1482,6 +1516,7 @@ export const ACTIONS: CatalogAction[] = [
       },
       "additionalProperties": true
     },
+    "stream": true,
     "category": "流式接口"
   },
   {
@@ -1540,6 +1575,7 @@ export const ACTIONS: CatalogAction[] = [
       },
       "additionalProperties": true
     },
+    "stream": true,
     "category": "流式接口"
   },
   {
@@ -1598,6 +1634,7 @@ export const ACTIONS: CatalogAction[] = [
       },
       "additionalProperties": true
     },
+    "stream": true,
     "category": "流式接口"
   },
   {
@@ -1777,6 +1814,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "message_id",
         "type": "messageId",
         "required": true,
+        "role": "message_id",
         "schema": {
           "type": "integer",
           "not": {
@@ -1821,7 +1859,8 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "not": {
             "const": 0
-          }
+          },
+          "x-role": "message_id"
         },
         "emojiId": {
           "type": "string",
@@ -1900,6 +1939,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "message_id",
         "type": "messageId",
         "required": true,
+        "role": "message_id",
         "schema": {
           "type": "integer",
           "not": {
@@ -1925,7 +1965,8 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "not": {
             "const": 0
-          }
+          },
+          "x-role": "message_id"
         },
         "user_id": {
           "type": "integer",
@@ -1950,6 +1991,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "message_id",
         "type": "messageId",
         "required": true,
+        "role": "message_id",
         "schema": {
           "type": "integer",
           "not": {
@@ -1975,7 +2017,8 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "not": {
             "const": 0
-          }
+          },
+          "x-role": "message_id"
         },
         "group_id": {
           "type": "integer",
@@ -2088,6 +2131,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -2112,7 +2156,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "chat_type": {
           "type": "integer",
@@ -2137,6 +2182,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -2179,7 +2225,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "character": {
           "type": "string",
@@ -2488,6 +2535,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "message_id",
         "type": "messageId",
         "required": true,
+        "role": "message_id",
         "schema": {
           "type": "integer",
           "not": {
@@ -2513,7 +2561,8 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "not": {
             "const": 0
-          }
+          },
+          "x-role": "message_id"
         },
         "emoji_id": {
           "type": "string",
@@ -2538,6 +2587,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -2552,7 +2602,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         }
       },
       "required": [
@@ -2981,6 +3032,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -2995,7 +3047,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         }
       },
       "required": [
@@ -3035,6 +3088,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -3067,7 +3121,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "album_id": {
           "type": "string",
@@ -3119,6 +3174,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -3133,7 +3189,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         }
       },
       "required": [
@@ -3213,6 +3270,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -3227,7 +3285,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         }
       },
       "required": [
@@ -3260,6 +3319,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -3289,7 +3349,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "file_id": {
           "type": "string",
@@ -3415,6 +3476,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -3447,7 +3509,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "folder_id": {
           "type": "string",
@@ -3475,6 +3538,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -3495,7 +3559,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "type": {}
       },
@@ -3694,6 +3759,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -3717,7 +3783,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "no_cache": {
           "type": "boolean",
@@ -3899,6 +3966,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -3909,6 +3977,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": true,
+        "role": "member_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -3932,12 +4001,14 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "user_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "QQ 号"
+          "description": "QQ 号",
+          "x-role": "member_id"
         },
         "no_cache": {
           "type": "boolean",
@@ -4031,6 +4102,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -4054,7 +4126,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "no_cache": {
           "type": "boolean",
@@ -4094,6 +4167,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -4127,7 +4201,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "message_id": {
           "type": "integer",
@@ -4256,6 +4331,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -4270,7 +4346,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         }
       },
       "required": [
@@ -4316,6 +4393,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -4330,7 +4408,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         }
       },
       "required": [
@@ -4350,6 +4429,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -4364,7 +4444,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         }
       },
       "required": [
@@ -4486,6 +4567,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "message_id",
         "type": "messageId",
         "required": true,
+        "role": "message_id",
         "schema": {
           "type": "integer",
           "not": {
@@ -4502,7 +4584,8 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "not": {
             "const": 0
-          }
+          },
+          "x-role": "message_id"
         }
       },
       "required": [
@@ -4798,6 +4881,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -4812,7 +4896,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         }
       },
       "required": [
@@ -5381,6 +5466,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -5391,6 +5477,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": true,
+        "role": "member_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -5405,12 +5492,14 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "user_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "QQ 号"
+          "description": "QQ 号",
+          "x-role": "member_id"
         }
       },
       "required": [
@@ -5511,6 +5600,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "message_id",
         "type": "messageId",
         "required": true,
+        "role": "message_id",
         "schema": {
           "type": "integer",
           "not": {
@@ -5536,7 +5626,8 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "not": {
             "const": 0
-          }
+          },
+          "x-role": "message_id"
         },
         "group_id": {
           "type": "integer",
@@ -5560,6 +5651,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "message_id",
         "type": "messageId",
         "required": true,
+        "role": "message_id",
         "schema": {
           "type": "integer",
           "not": {
@@ -5585,7 +5677,8 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "not": {
             "const": 0
-          }
+          },
+          "x-role": "message_id"
         },
         "target_id": {
           "type": "integer",
@@ -5609,6 +5702,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "message_id",
         "type": "messageId",
         "required": true,
+        "role": "message_id",
         "schema": {
           "type": "integer",
           "not": {
@@ -5634,7 +5728,8 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "not": {
             "const": 0
-          }
+          },
+          "x-role": "message_id"
         },
         "user_id": {
           "type": "integer",
@@ -5735,6 +5830,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -5776,7 +5872,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "file_id": {
           "type": "string",
@@ -6017,6 +6114,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -6058,7 +6156,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "file_id": {
           "type": "string",
@@ -6092,6 +6191,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -6133,7 +6233,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "folder_id": {
           "type": "string",
@@ -6364,6 +6465,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -6406,7 +6508,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "character": {
           "type": "string",
@@ -6479,6 +6582,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -6509,7 +6613,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "messages": {
           "description": "OneBot message: string | segment[] | object"
@@ -6536,6 +6641,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -6567,7 +6673,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "message": {
           "description": "OneBot message: string | segment[] | object"
@@ -7101,6 +7208,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "message_id",
         "type": "messageId",
         "required": true,
+        "role": "message_id",
         "schema": {
           "type": "integer",
           "not": {
@@ -7117,7 +7225,8 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "not": {
             "const": 0
-          }
+          },
+          "x-role": "message_id"
         }
       },
       "required": [
@@ -7226,6 +7335,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -7250,7 +7360,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "add_type": {
           "type": "integer",
@@ -7347,6 +7458,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -7357,6 +7469,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": true,
+        "role": "member_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -7380,12 +7493,14 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "user_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "QQ 号"
+          "description": "QQ 号",
+          "x-role": "member_id"
         },
         "enable": {
           "type": "boolean",
@@ -7409,6 +7524,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -7449,7 +7565,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "album_id": {
           "type": "string",
@@ -7510,6 +7627,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -7520,6 +7638,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": true,
+        "role": "member_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -7544,12 +7663,14 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "user_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "QQ 号"
+          "description": "QQ 号",
+          "x-role": "member_id"
         },
         "duration": {
           "type": "integer",
@@ -7575,6 +7696,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -7585,6 +7707,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": true,
+        "role": "member_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -7608,12 +7731,14 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "user_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "QQ 号"
+          "description": "QQ 号",
+          "x-role": "member_id"
         },
         "card": {
           "type": "string",
@@ -7638,6 +7763,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -7648,6 +7774,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": true,
+        "role": "member_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -7671,12 +7798,14 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "user_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "QQ 号"
+          "description": "QQ 号",
+          "x-role": "member_id"
         },
         "reject_add_request": {
           "type": "boolean",
@@ -7701,6 +7830,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -7737,7 +7867,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "user_id": {
           "type": "array",
@@ -7770,6 +7901,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -7784,7 +7916,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         }
       },
       "required": [
@@ -7804,6 +7937,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -7827,7 +7961,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "group_name": {
           "type": "string",
@@ -7851,6 +7986,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -7874,7 +8010,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "file": {
           "type": "string",
@@ -7908,6 +8045,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "message_id",
         "type": "messageId",
         "required": true,
+        "role": "message_id",
         "schema": {
           "type": "integer",
           "not": {
@@ -7946,7 +8084,8 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "not": {
             "const": 0
-          }
+          },
+          "x-role": "message_id"
         },
         "code": {
           "type": "string",
@@ -8019,6 +8158,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -8051,7 +8191,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "robot_member_switch": {
           "type": "integer",
@@ -8079,6 +8220,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -8093,7 +8235,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         }
       },
       "required": [
@@ -8115,6 +8258,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -8129,7 +8273,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         }
       },
       "required": [
@@ -8149,6 +8294,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -8159,6 +8305,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": true,
+        "role": "member_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -8182,12 +8329,14 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "user_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "QQ 号"
+          "description": "QQ 号",
+          "x-role": "member_id"
         },
         "special_title": {
           "type": "string",
@@ -8212,6 +8361,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -8222,6 +8372,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "message_id",
         "type": "messageId",
         "required": true,
+        "role": "message_id",
         "schema": {
           "type": "integer",
           "not": {
@@ -8237,13 +8388,15 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "message_id": {
           "type": "integer",
           "not": {
             "const": 0
-          }
+          },
+          "x-role": "message_id"
         }
       },
       "required": [
@@ -8264,6 +8417,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -8287,7 +8441,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "enable": {
           "type": "boolean",
@@ -8356,6 +8511,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "message_id",
         "type": "messageId",
         "required": true,
+        "role": "message_id",
         "schema": {
           "type": "integer",
           "not": {
@@ -8390,7 +8546,8 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "not": {
             "const": 0
-          }
+          },
+          "x-role": "message_id"
         },
         "emoji_id": {
           "type": "string",
@@ -8724,6 +8881,7 @@ export const ACTIONS: CatalogAction[] = [
       },
       "additionalProperties": true
     },
+    "stream": true,
     "category": "流式接口"
   },
   {
@@ -9018,6 +9176,7 @@ export const ACTIONS: CatalogAction[] = [
       ],
       "additionalProperties": true
     },
+    "stream": true,
     "category": "流式接口"
   },
   {
@@ -9133,6 +9292,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -9192,7 +9352,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "file": {
           "type": "string",
@@ -9232,6 +9393,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -9273,7 +9435,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "群号"
+          "description": "群号",
+          "x-role": "group_id"
         },
         "album_id": {
           "type": "string",

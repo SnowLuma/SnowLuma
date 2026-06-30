@@ -167,7 +167,7 @@ describe('run raw escape hatch — original params as 3rd arg', () => {
 describe('toJsonSchema / inputSchema (for the MCP)', () => {
   it('emits a JSON Schema fragment per coercer', () => {
     expect(f.uint().toJsonSchema()).toEqual({ type: 'integer', minimum: 1 });
-    expect(f.messageId().toJsonSchema()).toEqual({ type: 'integer', not: { const: 0 } });
+    expect(f.messageId().toJsonSchema()).toEqual({ type: 'integer', not: { const: 0 }, 'x-role': 'message_id' });
     expect(f.int({ min: 0 }).default(1800).toJsonSchema()).toEqual({ type: 'integer', minimum: 0, default: 1800 });
     expect(f.string({ allowEmpty: false }).toJsonSchema()).toEqual({ type: 'string', minLength: 1 });
     expect(f.bool().toJsonSchema()).toEqual({ type: 'boolean' });
@@ -216,5 +216,45 @@ describe('describe — doc metadata for self-generated docs (D4)', () => {
     expect(names).toEqual(['group_id', 'user_id', 'duration']); // presets surfaced
     const duration = doc.params.find((p) => p.name === 'duration');
     expect(duration).toMatchObject({ type: 'int', required: false, default: 1800, desc: 'seconds; 0 unmutes' });
+  });
+
+  it('stamps semantic roles on preset-injected fields (group_id / member-like user_id)', () => {
+    const doc = spec.describe();
+    expect(doc.params.find((p) => p.name === 'group_id')?.role).toBe('group_id');
+    // In a group action the user_id is a member of that group → member_id role.
+    expect(doc.params.find((p) => p.name === 'user_id')?.role).toBe('member_id');
+    expect(doc.stream).toBeUndefined();
+  });
+});
+
+describe('FieldRole — semantic constructors and .role()', () => {
+  it('semantic constructors coerce like their primitive but carry a role', () => {
+    expect(f.groupId().doc).toMatchObject({ type: 'uint', role: 'group_id' });
+    expect(f.userId().doc).toMatchObject({ type: 'uint', role: 'user_id' });
+    expect(f.memberId().doc).toMatchObject({ type: 'uint', role: 'member_id' });
+    expect(f.image().doc).toMatchObject({ type: 'string', role: 'image' });
+    expect(f.duration().doc).toMatchObject({ type: 'int', role: 'duration' });
+    // Coercion is unchanged: a groupId still validates exactly like a uint.
+    const g = f.groupId().coerce('123', 'group_id');
+    expect(g.ok && g.value).toBe(123);
+    const bad = f.groupId().coerce('0', 'group_id');
+    expect(bad.ok).toBe(false);
+  });
+
+  it('.role() overrides/stamps a role and survives optional()/default()', () => {
+    expect(f.uint().role('group_id').doc.role).toBe('group_id');
+    expect(f.uint().role('group_id').optional().doc.role).toBe('group_id');
+    expect(f.string().role('file').default('').doc.role).toBe('file');
+  });
+
+  it("surfaces role through describe() params and toJsonSchema's x-role", () => {
+    const spec = defineAction({
+      name: 'demo',
+      params: { gid: f.groupId(), pic: f.image() },
+      run: () => okResponse(),
+    });
+    const doc = spec.describe();
+    expect(doc.params.find((p) => p.name === 'gid')?.role).toBe('group_id');
+    expect(f.groupId().toJsonSchema()).toMatchObject({ 'x-role': 'group_id' });
   });
 });
