@@ -4,7 +4,9 @@ import type {
   BackupImportResult,
   DebugActionDoc,
   DebugInvokeResult,
+  DebugStreamFrame,
   DebugStreamMessage,
+  DebugUploadResult,
   GlobalSettings,
   HookProcessInfo,
   LogEntry,
@@ -152,6 +154,21 @@ export interface ApiClient {
   debug: {
     actions(): Promise<{ actions: DebugActionDoc[]; categories: { category: string; count: number }[] }>;
     invoke(uin: string, action: string, params: Record<string, unknown>): Promise<DebugInvokeResult>;
+    /** Invoke a Stream API action (or any action) and receive every frame.
+     *  Resolves when the stream ends; pass a signal to cancel. */
+    invokeStream(
+      uin: string,
+      action: string,
+      params: Record<string, unknown>,
+      onFrame: (frame: DebugStreamFrame) => void,
+      signal?: AbortSignal,
+    ): Promise<void>;
+    /** Stream a browser file to a temp path on the server; returns the path to
+     *  feed a send action. `onProgress` reports 0..1 of bytes uploaded. */
+    upload(
+      file: File,
+      opts?: { filename?: string; onProgress?: (fraction: number) => void; signal?: AbortSignal },
+    ): Promise<DebugUploadResult>;
     /** Live merged SSE; returns an unsubscribe. */
     stream(onMessage: (m: DebugStreamMessage) => void, onStatus?: (s: StreamStatus) => void): () => void;
   };

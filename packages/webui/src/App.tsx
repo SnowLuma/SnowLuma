@@ -7,6 +7,8 @@ import { LoginPage } from '@/components/pages/login-page';
 import { ChangePasswordPage } from '@/components/pages/change-password-page';
 import { ConsentPage } from '@/components/pages/consent-page';
 import { ApiProvider, createApiClient, useApi, type ApiClient } from '@/lib/api';
+import { DebugTaskProvider } from '@/contexts/DebugTaskContext';
+import { TaskBadge } from '@/components/debug/task-badge';
 import type { AgreementsPayload } from '@/lib/api/types';
 import { appRouter } from '@/router';
 
@@ -132,7 +134,10 @@ function AuthBoundary() {
 
   return (
     <ApiProvider client={client}>
-      <TooltipProvider delayDuration={150}>{view}</TooltipProvider>
+      <DebugTaskProvider>
+        <TooltipProvider delayDuration={150}>{view}</TooltipProvider>
+        <TaskBadge />
+      </DebugTaskProvider>
     </ApiProvider>
   );
 }
