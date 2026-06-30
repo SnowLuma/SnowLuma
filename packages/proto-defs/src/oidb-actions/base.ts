@@ -109,7 +109,10 @@ export interface OidbRenameMember {
   body?:     pb<3, OidbRenameMemberBody>;
 }
 export interface OidbRenameGroupBody {
-  targetName?: pb<1, string>;
+  // The group name lives at tag 3, NOT tag 1 — tags 1/2 make the server reject
+  // 0x89a_15 with OIDB error 1006 (#173). Confirmed against Lagrange's
+  // OidbSvcTrpcTcp0x89A_15Body (ProtoMember(3) TargetName).
+  targetName?: pb<3, string>;
 }
 export interface OidbRenameGroup {
   groupUin?: pb<1, uint_32>;
