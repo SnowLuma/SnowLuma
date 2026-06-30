@@ -53,7 +53,7 @@ function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
   );
 }
 
-export function ActionTester({ accounts, docs }: { accounts: QQInfo[]; docs: DebugActionDoc[] }) {
+export function ActionTester({ accounts, docs, presetAction }: { accounts: QQInfo[]; docs: DebugActionDoc[]; presetAction?: { name: string; nonce: number } }) {
   const api = useApi();
   const tasks = useDebugTasks();
 
@@ -72,6 +72,10 @@ export function ActionTester({ accounts, docs }: { accounts: QQInfo[]; docs: Deb
 
   useEffect(() => { setHistory(loadHistory()); }, []);
   useEffect(() => { if (accounts[0] && !uin) setUin(accounts[0].uin); }, [accounts, uin]);
+  // Prefill from the API browser's 试一下 (nonce lets the same action re-trigger).
+  useEffect(() => {
+    if (presetAction) { setActionName(presetAction.name); setParamMode('form'); setResult(null); setFrames([]); setShowHistory(false); }
+  }, [presetAction]);
 
   const doc = useMemo(() => docs.find((d) => d.name === actionName), [docs, actionName]);
   const effectiveMode = paramMode === 'json' || !doc ? 'json' : 'form';

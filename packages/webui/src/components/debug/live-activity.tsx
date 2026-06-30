@@ -25,7 +25,7 @@ function IconBtn({ onClick, title, children }: { onClick: () => void; title: str
   );
 }
 
-export function StatusPill({ status }: { status: 'open' | 'reconnecting' | 'closed' }) {
+function StatusPill({ status }: { status: 'open' | 'reconnecting' | 'closed' }) {
   const map = {
     open: { dot: 'bg-emerald-500', label: '已连接', glow: 'shadow-[0_0_0_3px_rgb(16_185_129/0.15)]' },
     reconnecting: { dot: 'bg-amber-500', label: '重连中', glow: 'shadow-[0_0_0_3px_rgb(245_158_11/0.15)]' },
