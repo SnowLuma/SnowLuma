@@ -31,15 +31,6 @@ export interface PttTransInput {
   fileId?: number;
 }
 
-function hexToBytes(hex: string): Uint8Array {
-  const s = (hex || '').trim();
-  if (!s) return new Uint8Array(0);
-  const len = s.length >> 1;
-  const out = new Uint8Array(len);
-  for (let i = 0; i < len; i++) out[i] = parseInt(s.substr(i * 2, 2), 16);
-  return out;
-}
-
 // ─────────────── public types (re-exported from bridge.ts as before) ───
 
 export type StrangerStatus = NamespaceStrangerStatus;
@@ -131,10 +122,13 @@ export class ExtrasApi {
    * already-transcribed case). For a freshly-received voice the response is an
    * empty ack and the text is delivered later via the async Event 0x210
    * subType-61 push — callers should treat `''` as "pending" and wait for the
-   * `ptt_trans_result` event (correlated by msgId). Live-verified end to end.
+   * `ptt_trans_result` event (correlated by msgId).
    */
   async translatePttToText(input: PttTransInput): Promise<string> {
-    const md5 = hexToBytes(input.md5Hex);
+    // QQ NT sends the md5 as a 32-char lowercase HEX STRING, not the raw 16
+    // bytes (RE'd from wrapper.linux.node EncodeTroopPtt/EncodeC2CPtt: the md5
+    // field goes through a bytes→hex helper). Sending raw bytes → errCode -1079.
+    const md5 = input.md5Hex.toLowerCase();
     const req: PttTransReq = input.isGroup
       ? {
         type: 1,
