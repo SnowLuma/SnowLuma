@@ -1,0 +1,19 @@
+{
+  "plugin": {
+    "enabled": true,
+    "commandPrefix": "#pixiv",
+    "maxResults": 3,
+    "allowR18": false,
+    "enableForward": true,
+    "enableAnonymousForward": false,
+    "rateLimitSeconds": 15,
+    "blockedKeywords": "萝莉,未成年,幼女,乱伦,强奸"
+  },
+  "connection": {
+    "wsUrl": "ws://127.0.0.1:3001/",
+    "httpUrl": "http://127.0.0.1:3000/",
+    "accessToken": "",
+    "requestTimeoutMs": 30000,
+    "reconnect": true
+  }
+}

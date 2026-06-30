@@ -1,60 +1,136 @@
-<h1 align="center">
-  <img src=".github/logo.svg" width="100%" alt="SnowLuma" />
-</h1>
+# SnowLuma Pixiv 插件
 
-<p align="center">
-  <i>Next Remote Protocol Framework.</i>
-</p>
+> 原 [napcat-plugin-pixiv](https://github.com/ShiYuPIay/napcat-plugin-pixiv.git) 已全面适配 **SnowLuma** 框架（基于 `@snowluma/sdk` 的独立 OneBot v11 客户端），0 TypeScript 报错。
 
-<p align="center">
-  <a href="https://github.com/SnowLuma/SnowLuma/releases"><img alt="Release" src="https://img.shields.io/github/v/release/SnowLuma/SnowLuma?label=release&style=flat-square"></a>
-  <a href="https://github.com/SnowLuma/SnowLuma/actions"><img alt="Build" src="https://img.shields.io/github/actions/workflow/status/SnowLuma/SnowLuma/release.yml?branch=main&style=flat-square&label=build"></a>
-  <a href="https://www.npmjs.com/package/@snowluma/sdk"><img alt="NPM" src="https://img.shields.io/npm/v/%40snowluma%2Fsdk?style=flat-square&label=sdk&color=cb3837"></a>
-  <a href="https://github.com/SnowLuma/SnowLuma/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/SnowLuma/SnowLuma?style=flat-square"></a>
-</p>
+## 为什么需要适配？
 
-<p align="center">
-  <a href="https://github.com/SnowLuma/SnowLuma/releases">Releases</a> ·
-  <a href="https://github.com/SnowLuma/SnowLuma/issues">Issues</a> ·
-  <a href="https://qm.qq.com/q/g3UMLpWALe">QQ 群</a> ·
-  <a href="https://t.me/napcatqq">Telegram</a>
-</p>
+| | NapCat | SnowLuma |
+|---|---|---|
+| **架构** | 进程内插件加载器（`plugin_init` / `plugin_onmessage` 生命周期） | OneBot v11 实现，通过 HTTP / WebSocket 暴露能力 |
+| **调用方式** | `ctx.actions.call(action, params, adapterName, pluginManagerConfig)` | `@snowluma/sdk` 类型化客户端（`bot.sendGroupMessage` / `bot.raw` / `bot.sendForwardMessage`） |
+| **配置面板** | `ctx.NapCatConfig.boolean/text/number` + WebUI | 文件 `config.json` + 环境变量 |
+| **事件接入** | 框架回调 `plugin_onmessage(ctx, event)` | `bot.onMessage((event, ctx) => …)` 订阅 |
+| **运行模型** | 由 NapCat 加载 | 独立进程，连接到运行中的 SnowLuma 实例 |
 
----
+SnowLuma **没有** NapCat 那样的进程内插件加载器。因此适配方案是把原插件改造成一个**独立的 SnowLuma SDK 客户端应用**：它通过 WebSocket 连接到 SnowLuma 暴露的 OneBot 端点，订阅消息事件，再用类型化的 SDK 方法发送回复与合并转发。
 
-SnowLuma 是一个基于 TypeScript 的协议转换框架，旨在为 QQ 客户端提供 [OneBot v11](https://github.com/botuniverse/onebot-11) 标准接口，支持 WebSocket/HTTP 适配、多账号并行及 WebUI 管理。
+## 功能（与原插件一致）
 
-> ⚠️ **免责声明**：SnowLuma 是独立的第三方互操作项目，**与腾讯 / QQ 无任何隶属或授权关系**。本项目**仅供学习与技术研究**，请遵守《QQ 用户协议》及适用法律；软件按"现状"提供、不附带任何担保，使用风险自负。详见 [`EULA.md`](EULA.md)。
->
-> ⚠️ **Disclaimer**: SnowLuma is an independent, third-party interoperability project with **no affiliation with or endorsement by Tencent / QQ**, provided **for study and research only**, "as is" without warranty. Comply with the QQ User Agreement and applicable law; use at your own risk. See [`EULA.md`](EULA.md).
+- 关键词搜索：`#pixiv<关键词>`
+- 随机推荐：`#pixivrec` / `#pixiv推荐`
+- 日榜 Top10：`#pixiv日榜` / `!pixiv日榜`
+- 健康检查：`#pixivstatus`
+- 帮助说明：`#pixivhelp`
+- 合规提示：`#pixiv合规`
+- 多图合并转发：优先使用 `send_group_forward_msg`，失败自动回退 `send_forward_msg`
 
-## 特性
+## 环境要求
 
-- **OneBot v11 兼容**：支持文本、音视频、Markdown、JSON 等消息格式。
-- **高性能架构**：TypeScript 全栈，基于 pnpm monorepo 管理，核心逻辑分离。
-- **现代化管理**：内置 WebUI 面板，支持实时日志、密码热更、多账号管理。
-- **多适配器支持**：WebSocket (Server/Client)、HTTP (Server/Post)。
-- **数据持久化**：使用 SQLite 存储好友、群组等关系数据。
+- **Node.js ≥ 22**（`@snowluma/sdk` 要求）
+- 运行中的 **SnowLuma** 实例，且已启用 OneBot HTTP（`0.0.0.0:3000`）/ WebSocket（`0.0.0.0:3001`）适配器
+- 网络可访问 `https://api.lolicon.app` 与 `https://api.obfs.dev`
 
-## 快速开始
+## 安装
 
-1. 从 [Releases](https://github.com/SnowLuma/SnowLuma/releases) 下载最新发布包并解压。
-2. 运行 `./launcher.bat` (Windows) 或 `./launcher.sh` (Linux)。
-3. 访问 `http://localhost:5099` (初始账号 `admin`，密码见控制台输出)。
+```bash
+cd snowluma-plugin-pixiv
+npm install        # 或 bun install / pnpm install
+npm run build      # tsc 编译到 dist/
+```
 
-## 许可 / License
+## 配置
 
-SnowLuma 采用 **源码可见非商业许可（SnowLuma Source-Available Non-Commercial License）**，见 [`LICENSE`](LICENSE)。**这不是 OSI 开源许可**：源码公开供查看、学习与非商业自托管，但**禁止任何商业使用**（出售、转售、付费托管 / 代搭 / 代运营等），公开发布修改版须事先书面授权。随附的原生附加组件（`snowluma-*.node` 等）为专有组件，不在本许可范围内。二进制发行包另受 [`EULA.md`](EULA.md) 约束；商业授权请联系 motricseven@foxmail.com。参与贡献请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+复制示例配置并按需修改：
 
-SnowLuma is under a **source-available, non-commercial** license (see [`LICENSE`](LICENSE)) — **NOT** an OSI open-source license. The source is published for study and non-commercial self-hosting; **commercial use is prohibited** without prior written permission, and the bundled native addon (`snowluma-*.node`) is proprietary and not covered by this license.
+```bash
+cp config.example.json config.json
+```
 
-## 鸣谢
+```json
+{
+  "plugin": {
+    "enabled": true,
+    "commandPrefix": "#pixiv",
+    "maxResults": 3,
+    "allowR18": false,
+    "enableForward": true,
+    "enableAnonymousForward": false,
+    "rateLimitSeconds": 15,
+    "blockedKeywords": "萝莉,未成年,幼女,乱伦,强奸"
+  },
+  "connection": {
+    "wsUrl": "ws://127.0.0.1:3001/",
+    "httpUrl": "http://127.0.0.1:3000/",
+    "accessToken": "",
+    "requestTimeoutMs": 30000,
+    "reconnect": true
+  }
+}
+```
 
-参考了 [LagrangeV2](https://github.com/LagrangeDev/LagrangeV2) 的协议定义与 [NapCatQQ](https://github.com/NapNeko/NapCatQQ) 的实现思路。
+### 环境变量覆盖
 
----
+| 变量 | 说明 |
+|---|---|
+| `SNOWLUMA_WS_URL` | WebSocket 端点 |
+| `SNOWLUMA_HTTP_URL` | HTTP 端点（fallback） |
+| `SNOWLUMA_TOKEN` | OneBot access token |
+| `SNOWLUMA_REQUEST_TIMEOUT_MS` | 请求超时（ms） |
+| `SNOWLUMA_RECONNECT` | 是否自动重连 |
+| `SNOWLUMA_PIXIV_ENABLED` | 启用插件 |
+| `SNOWLUMA_PIXIV_COMMAND_PREFIX` | 指令前缀 |
+| `SNOWLUMA_PIXIV_MAX_RESULTS` | 最大结果数 |
+| `SNOWLUMA_PIXIV_ALLOW_R18` | 允许 R18 |
+| `SNOWLUMA_PIXIV_ENABLE_FORWARD` | 启用合并转发 |
+| `SNOWLUMA_PIXIV_RATE_LIMIT_SECONDS` | 限流秒数 |
+| `SNOWLUMA_PIXIV_BLOCKED_KEYWORDS` | 拦截关键词 |
+| `SNOWLUMA_PIXIV_LOG_LEVEL` | 日志级别（debug/info/warn/error） |
 
-<p align="center">
-<a href="https://github.com/SnowLuma/SnowLuma/graphs/contributors"><img src="https://contrib.rocks/image?repo=SnowLuma/SnowLuma" /></a>
-</p>
+## 运行
 
+```bash
+npm start          # node dist/index.js
+# 或
+npm run dev        # node --watch dist/index.js（文件变更自动重启）
+```
+
+## API 适配映射
+
+| 原 NapCat 调用 | SnowLuma SDK 适配 |
+|---|---|
+| `plugin_init(ctx)` | `main()` → `bot.connect()` |
+| `plugin_onmessage(ctx, event)` | `bot.onMessage((event) => handleMessage(bot, event))` |
+| `ctx.actions.call('send_msg', {message_type, group_id/user_id, message})` | `bot.sendGroupMessage(groupId, msg)` / `bot.sendPrivateMessage(userId, msg)` |
+| `ctx.actions.call('send_group_forward_msg', {group_id, messages, prompt, summary, source, news})` | `bot.sendForwardMessage({ group_id, messages, prompt, summary, source, news })` → 回退 `bot.raw('send_group_forward_msg', …)` → `bot.raw('send_forward_msg', …)` |
+| `ctx.actions.call('send_private_forward_msg', …)` | `bot.sendForwardMessage({ user_id, … })` → 同上回退链 |
+| `ctx.logger.info/warn/error/debug` | `createLogger()`（带级别与颜色） |
+| `ctx.NapCatConfig.*` 配置 Schema | `PLUGIN_CONFIG_FIELDS` + `config.json` + 环境变量 |
+| `ctx.pluginData.config` 持久化 | `savePluginConfig()` 写 `config.json` |
+| 消息段 `{type:'text',data:{text}}` / `{type:'image',data:{file}}` | `message.text()` / `message.image()`（类型化 MessageChain） |
+| 转发节点 `{type:'node',data:{user_id,nickname,content}}` | `message.node(userId, nickname, content)` |
+| `event.self_id` | `event.self_id`（OneBot 事件结构一致）+ `bot.getLoginInfo()` 兜底 |
+
+## 目录结构
+
+```
+snowluma-plugin-pixiv/
+├─ src/
+│  ├─ index.ts                    # 主入口：建客户端、订阅事件、连接
+│  ├─ config.ts                   # 配置加载/校验/持久化/环境变量覆盖
+│  ├─ logger.ts                   # 带级别的日志器
+│  ├─ types.ts                    # 共享类型
+│  ├─ core/
+│  │  └─ state.ts                 # 全局状态（配置/日志/客户端引用）
+│  ├─ handlers/
+│  │  └─ message-handler.ts       # 消息处理（核心适配逻辑）
+│  └─ services/
+│     └─ pixiv-service.ts         # Pixiv 第三方 API（与运行时无关）
+├─ config.example.json
+├─ package.json
+├─ tsconfig.json
+└─ README.md
+```
+
+## 许可证
+
+AGPL-3.0-only

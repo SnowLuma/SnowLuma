@@ -1,56 +1,46 @@
 {
-  "license": "SEE LICENSE IN LICENSE",
-  "name": "snowluma-monorepo",
-  "version": "1.10.4",
-  "description": "SnowLuma monorepo workspace (pnpm)",
-  "private": true,
+  "name": "snowluma-plugin-pixiv",
+  "version": "1.0.0",
+  "description": "Pixiv 搜索与推荐插件 — 已适配 SnowLuma（基于 @snowluma/sdk 的独立 OneBot v11 客户端）",
   "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "scripts": {
-    "build": "pnpm --filter @snowluma/core build",
-    "build:sdk": "pnpm --filter @snowluma/sdk build",
-    "build:webui": "pnpm --filter webui build",
-    "build:mcp": "pnpm --filter @snowluma/mcp build",
-    "build:all": "pnpm --filter @snowluma/core build:all && pnpm --filter @snowluma/sdk build && pnpm --filter @snowluma/mcp build && pnpm --filter webui build",
-    "dev": "pnpm --filter @snowluma/core dev",
-    "dev:mode": "cd dist && cross-env SNOWLUMA_DEV_MODE=1 SNOWLUMA_DEV_WEBUI=1 node index.mjs",
-    "dev:web": "pnpm --filter webui dev",
-    "test": "pnpm --filter @snowluma/core test",
-    "test:watch": "pnpm --filter @snowluma/core test:watch",
-    "test:common": "pnpm --filter @snowluma/common test",
-    "test:all": "pnpm -r --if-present test",
-    "coverage": "pnpm --filter @snowluma/common test -- --coverage",
-    "typecheck": "pnpm -r --if-present typecheck",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
-    "start": "node dist/index.mjs",
-    "bump": "node tools/bump-version.mjs",
-    "release": "node tools/release.mjs"
+    "build": "tsc",
+    "watch": "tsc -w",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/index.js",
+    "dev": "node --watch dist/index.js"
   },
-  "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "@vitest/coverage-istanbul": "4.1.4",
-    "@vitest/coverage-v8": "^4.1.4",
-    "cross-env": "^10.1.0",
-    "eslint": "^10.2.0",
-    "eslint-plugin-react-hooks": "^7.0.1",
-    "eslint-plugin-react-refresh": "^0.5.2",
-    "globals": "^17.5.0",
-    "jiti": "^2.6.1",
-    "typescript": "catalog:",
-    "typescript-eslint": "^8.58.2"
-  },
-  "pnpm": {
-    "peerDependencyRules": {
-      "allowedVersions": {
-        "eslint-plugin-react-hooks>eslint": "10"
-      }
-    },
-    "onlyBuiltDependencies": [
-      "better-sqlite3"
-    ]
-  },
-  "packageManager": "pnpm@10.28.0",
+  "keywords": [
+    "snowluma",
+    "onebot",
+    "onebot11",
+    "pixiv",
+    "插件",
+    "setu",
+    "illustration"
+  ],
+  "author": "希儿 (shiYuPIay) / SnowLuma 适配",
+  "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "@snowluma/sdk": "^1.10.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  },
+  "snowluma": {
+    "minSdkVersion": "1.10.0",
+    "transports": ["websocket", "http"],
+    "tags": ["图片", "搜索", "娱乐", "Pixiv"]
   }
 }
