@@ -3,6 +3,7 @@ import { EventEmitter } from 'events';
 import { HookSession } from '../src/hook-session';
 import type { ManualMapHandle } from '../src/injector';
 import type { QqHookClient, QqHookPacket } from '../src/qq-hook-client';
+import type { QqPortLoginInfo } from '../src/qq-port-probe';
 import type { PacketSink } from '@snowluma/common/protocol-types';
 
 const DUMMY_HANDLE: ManualMapHandle = { base: 0n, entry: 0n, exceptionTable: 0n, size: 0 };
@@ -42,6 +43,7 @@ function makeSession(opts: {
   pipeLive?: boolean;
   clientFailsConnect?: boolean;
   onPacket?: PacketSink;
+  probeLogin?: (pid: number) => Promise<QqPortLoginInfo | null>;
 } = {}) {
   const pid = opts.pid ?? 1234;
   let pipeLive = opts.pipeLive ?? false;
@@ -50,6 +52,9 @@ function makeSession(opts: {
     inject: vi.fn(() => ({ method: 'loadModuleManual' as const, handle: DUMMY_HANDLE })),
     unload: vi.fn(),
   };
+  // Default probe reports "not logged in" so the reconcile safety net is inert
+  // unless a test opts into a logged-in probe (never hits the real port scan).
+  const probeLogin = opts.probeLogin ?? (async () => ({ port: 0, uin: '', loggedIn: false }));
 
   const session = new HookSession(pid, {
     injector,
@@ -60,6 +65,7 @@ function makeSession(opts: {
       // Cast: FakeClient mirrors only the surface HookSession touches.
       return c as unknown as QqHookClient;
     },
+    probeLogin,
     pipeWatcher: { isPipeLive: () => pipeLive },
     onPacket: opts.onPacket,
   });
@@ -531,5 +537,138 @@ describe('HookSession — packet forwarding', () => {
     ctx.currentClient().firePacket({
       seq: 1, error: 0, cmd: 'foo', uin: '10001', body: Buffer.from([7]),
     });
+  });
+});
+
+describe('HookSession — login reconcile (Docker auto-login safety net)', () => {
+  it('reconciles login via the active probe when the pushed frame is missed', async () => {
+    // Probe reports logged-in; the FakeClient never fires a loginState frame
+    // (the missed-edge Docker case). The immediate reconcile probe must detect
+    // it and emit "login".
+    const ctx = makeSession({
+      pipeLive: true,
+      probeLogin: async () => ({ port: 4301, uin: '10001', loggedIn: true }),
+    });
+    const loginSpy = vi.fn();
+    ctx.session.on('login', loginSpy);
+
+    await ctx.session.load();
+    ctx.session.onPipeUp();
+    await flush();   // connect (not logged in via frame) → starts reconcile
+    await flush();   // immediate probe resolves → handleLoginState
+
+    expect(loginSpy).toHaveBeenCalledOnce();
+    expect(loginSpy.mock.calls[0]![0]).toBe('10001');
+    expect(ctx.session.status).toBe('online');
+    expect(ctx.session.uin).toBe('10001');
+  });
+
+  it('does not log in when the probe reports not-logged-in', async () => {
+    const ctx = makeSession({
+      pipeLive: true,
+      probeLogin: async () => ({ port: 0, uin: '', loggedIn: false }),
+    });
+    const loginSpy = vi.fn();
+    ctx.session.on('login', loginSpy);
+    await ctx.session.load();
+    ctx.session.onPipeUp();
+    await flush(); await flush();
+
+    expect(loginSpy).not.toHaveBeenCalled();
+    expect(ctx.session.status).toBe('loaded');
+  });
+
+  it('ignores a probe with a non-real uin (0)', async () => {
+    const ctx = makeSession({
+      pipeLive: true,
+      probeLogin: async () => ({ port: 4301, uin: '0', loggedIn: true }),
+    });
+    const loginSpy = vi.fn();
+    ctx.session.on('login', loginSpy);
+    await ctx.session.load();
+    ctx.session.onPipeUp();
+    await flush(); await flush();
+
+    expect(loginSpy).not.toHaveBeenCalled();
+  });
+
+  it('tolerates a throwing probe (best-effort, no crash/login)', async () => {
+    const ctx = makeSession({
+      pipeLive: true,
+      probeLogin: async () => { throw new Error('port scan failed'); },
+    });
+    const loginSpy = vi.fn();
+    ctx.session.on('login', loginSpy);
+    await ctx.session.load();
+    ctx.session.onPipeUp();
+    await flush(); await flush();
+
+    expect(loginSpy).not.toHaveBeenCalled();
+    expect(ctx.session.status).toBe('loaded');
+  });
+
+  it('detects a login that lands on a LATER interval probe', async () => {
+    vi.useFakeTimers();
+    try {
+      let loggedIn = false;
+      const ctx = makeSession({
+        pipeLive: true,
+        probeLogin: async () => ({ port: 4301, uin: '10001', loggedIn }),
+      });
+      const loginSpy = vi.fn();
+      ctx.session.on('login', loginSpy);
+
+      await ctx.session.load();
+      ctx.session.onPipeUp();
+      await vi.advanceTimersByTimeAsync(0);   // connect + immediate probe (not logged in yet)
+      expect(loginSpy).not.toHaveBeenCalled();
+
+      loggedIn = true;                          // QQ finishes auto-login
+      await vi.advanceTimersByTimeAsync(3000);  // next interval probe picks it up
+
+      expect(loginSpy).toHaveBeenCalledOnce();
+      expect(ctx.session.status).toBe('online');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not double-emit when the pushed frame logs in first', async () => {
+    // Pushed-frame login wins; a subsequent probe with the same uin must not
+    // re-emit (handleLoginState dedups), and the reconcile timer is stopped.
+    const probeLogin = vi.fn(async () => ({ port: 4301, uin: '10001', loggedIn: true }));
+    const ctx = makeSession({ pipeLive: true, probeLogin });
+    const loginSpy = vi.fn();
+    ctx.session.on('login', loginSpy);
+
+    await ctx.session.load();
+    ctx.session.onPipeUp();
+    await flush();
+    ctx.currentClient().fireLogin('10001'); // pushed-frame login first
+    await flush();
+
+    expect(loginSpy).toHaveBeenCalledOnce();
+    expect(ctx.session.status).toBe('online');
+  });
+});
+
+describe('HookSession — login reconcile does not stack concurrent probes', () => {
+  it('skips overlapping ticks while a slow probe is in flight', async () => {
+    vi.useFakeTimers();
+    try {
+      // A probe that never resolves — simulates a slow port scan spanning
+      // multiple intervals. The in-flight guard must call it only once.
+      const probeLogin = vi.fn(() => new Promise<never>(() => { /* pending */ }));
+      const ctx = makeSession({ pipeLive: true, probeLogin });
+
+      await ctx.session.load();
+      ctx.session.onPipeUp();
+      await vi.advanceTimersByTimeAsync(0);      // connect + immediate probe (starts, stays pending)
+      await vi.advanceTimersByTimeAsync(9000);   // 3 more interval ticks
+
+      expect(probeLogin).toHaveBeenCalledTimes(1); // not stacked
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
