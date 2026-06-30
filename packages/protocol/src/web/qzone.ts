@@ -370,6 +370,8 @@ interface RawPublishResponse {
   now?: number;
 }
 
+export type QzoneUgcRight = 1 | 4 | 16 | 64 | 128;
+
 /** Result of publishing a 说说. */
 export interface QzonePublishResult {
   [key: string]: JsonValue;
@@ -377,6 +379,31 @@ export interface QzonePublishResult {
   tid: string;
   /** Unix seconds the 说说 was published. */
   time: number;
+}
+
+const QZONE_UGC_RIGHTS = new Set<number>([1, 4, 16, 64, 128]);
+
+function normalizeQzoneUgcRight(ugcRight: number): QzoneUgcRight {
+  if (!QZONE_UGC_RIGHTS.has(ugcRight)) {
+    throw new Error('ugc_right must be one of 1, 4, 16, 64, 128');
+  }
+  return ugcRight as QzoneUgcRight;
+}
+
+function normalizeTargetUins(targetUins?: string): string {
+  const raw = (targetUins ?? '').trim();
+  if (!raw) return '';
+
+  const seen = new Set<string>();
+  for (const part of raw.split('|')) {
+    const uin = part.trim();
+    if (!uin) continue;
+    if (!/^\d+$/.test(uin)) {
+      throw new Error('target_uins must contain QQ numbers separated by |');
+    }
+    seen.add(uin);
+  }
+  return [...seen].join('|');
 }
 
 /**
@@ -399,6 +426,8 @@ export async function publishQzoneMsg(
   content: string,
   richType?: number,
   richval?: string,
+  ugcRight = 1,
+  targetUins?: string,
 ): Promise<QzonePublishResult> {
   if (!cookieObject || typeof cookieObject !== 'object') {
     throw new Error('cookieObject is required');
@@ -408,9 +437,15 @@ export async function publishQzoneMsg(
   }
   assertRichParams(richType, richval);
 
+  const right = normalizeQzoneUgcRight(ugcRight);
+  const effectiveTargetUins = right === 16 || right === 128 ? normalizeTargetUins(targetUins) : '';
+  if ((right === 16 || right === 128) && !effectiveTargetUins) {
+    throw new Error('target_uins is required when ugc_right is 16 or 128');
+  }
+
   const bkn = getBknFromCookie(cookieObject);
   const url = `https://h5.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_publish_v6?g_tk=${bkn}`;
-  const body = new URLSearchParams({
+  const bodyParams = new URLSearchParams({
     syn_tweet_verson: '1',
     paramstr: '1',
     pic_template: '',
@@ -421,14 +456,16 @@ export async function publishQzoneMsg(
     con: content,
     feedversion: '1',
     ver: '1',
-    ugc_right: '1',
+    ugc_right: String(right),
     to_sign: '0',
     who: '1',
     hostuin: hostUin,
     code_version: '1',
     format: 'json',
     qzreferrer: `https://user.qzone.qq.com/${hostUin}`,
-  }).toString();
+  });
+  if (effectiveTargetUins) bodyParams.set('allow_uins', effectiveTargetUins);
+  const body = bodyParams.toString();
 
   const text = await RequestUtil.HttpGetText(url, 'POST', body, {
     Cookie: cookieToString(cookieObject),

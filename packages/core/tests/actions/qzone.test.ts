@@ -74,7 +74,7 @@ describe('apis/qzone', () => {
     const pubSpy = vi.spyOn(qzoneWeb, 'publishQzoneMsg').mockResolvedValue({ tid: 'T', time: 1 });
     const out = await new QzoneApi(bridge as never).publish('hello');
     expect(getCookies).toHaveBeenCalledWith('qzone.qq.com');
-    expect(pubSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', 'hello', undefined, undefined);
+    expect(pubSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', 'hello', undefined, undefined, 1, undefined);
     expect(out).toEqual({ tid: 'T', time: 1 });
   });
 
@@ -85,7 +85,7 @@ describe('apis/qzone', () => {
     const richval = ',12345,abc,abc,22,800,600,,800,600';
     const out = await new QzoneApi(bridge as never).publish('look at this', 1, richval);
     expect(getCookies).toHaveBeenCalledWith('qzone.qq.com');
-    expect(pubSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', 'look at this', 1, richval);
+    expect(pubSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', 'look at this', 1, richval, 1, undefined);
     expect(out).toEqual({ tid: 'T2', time: 2 });
   });
 
@@ -96,8 +96,16 @@ describe('apis/qzone', () => {
     const richval = ',12345,a,a,22,800,600,,800,600\t,12346,b,b,22,1024,768,,1024,768';
     const out = await new QzoneApi(bridge as never).publish('two images', 1, richval);
     expect(getCookies).toHaveBeenCalledWith('qzone.qq.com');
-    expect(pubSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', 'two images', 1, richval);
+    expect(pubSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', 'two images', 1, richval, 1, undefined);
     expect(out).toEqual({ tid: 'T3', time: 3 });
+  });
+
+  it('publish threads qzone visibility params', async () => {
+    const getCookies = vi.fn(async () => ({ p_skey: 'PSK' }));
+    const bridge = mockBridge({ apis: { ...mockApiHub(), web: { getCookies } } as never });
+    const pubSpy = vi.spyOn(qzoneWeb, 'publishQzoneMsg').mockResolvedValue({ tid: 'T', time: 1 });
+    await new QzoneApi(bridge as never).publish('hello', undefined, undefined, 16, '10002|10003');
+    expect(pubSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', 'hello', undefined, undefined, 16, '10002|10003');
   });
 
   it('delete removes a feed by tid from the bot\'s own space', async () => {

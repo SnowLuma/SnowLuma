@@ -21,6 +21,8 @@ async function uploadQzoneImages(
   return parts.join('\t');
 }
 
+const QZONE_UGC_RIGHTS = new Set<number>([1, 4, 16, 64, 128]);
+
 export const actions = [
   // get_qzone_msg_list — 获取 QQ 空间说说列表。无 go-cqhttp 标准，自定义命名。
   // 默认取机器人自己的空间；传 target_uin 可查看指定账号（需有权限）。
@@ -120,19 +122,25 @@ export const actions = [
   // 注意：发说说为主动行为，高频会被 Qzone 风控，调用方需自行限流。
   defineAction({
     name: 'send_qzone_msg',
-    summary: '发表说说（QQ 空间，支持纯文字或带图；传 images 自动上传）',
+    summary: '发表说说（QQ 空间，支持纯文字或带图；传 images 自动上传；可设置查看权限）',
     params: {
       content: f.string({ allowEmpty: false }).describe('说说正文'),
       images: f.array(f.string({ allowEmpty: false })).describe('图片数组（可选），支持 file:// http:// base64://；自动上传').optional(),
+      ugc_right: f.int({ min: 1 }).describe('查看权限：1=所有人可见，4=好友可见，16=部分好友可见，64=仅自己可见，128=部分好友不可见').default(1),
+      target_uins: f.array(f.uint()).describe('权限作用 QQ 号数组；ugc_right=16 时表示可见名单，128 时表示不可见名单').optional(),
     },
+    rules: (r) => [
+      r.rule('ugc_right must be one of 1, 4, 16, 64, 128', (p) => QZONE_UGC_RIGHTS.has(p.ugc_right)),
+      r.rule('target_uins is required when ugc_right is 16 or 128', (p) => (p.ugc_right !== 16 && p.ugc_right !== 128) || !!p.target_uins?.length),
+    ],
     run: async (p, ctx) => {
       try {
         if (p.images && p.images.length > 0) {
           const richval = await uploadQzoneImages(ctx, p.images, (upload) => upload.richval);
-          const res = await ctx.bridge.apis.qzone.publish(p.content, 1, richval);
+          const res = await ctx.bridge.apis.qzone.publish(p.content, 1, richval, p.ugc_right, p.target_uins?.join('|'));
           return okResponse(res as unknown as JsonValue);
         }
-        const res = await ctx.bridge.apis.qzone.publish(p.content);
+        const res = await ctx.bridge.apis.qzone.publish(p.content, undefined, undefined, p.ugc_right, p.target_uins?.join('|'));
         return okResponse(res as unknown as JsonValue);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'failed to publish qzone msg';
