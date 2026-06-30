@@ -1639,8 +1639,8 @@ export const actions = [
     summary: '转存群文件',
     returns: '{ ok: true }',
     params: {
-      group_id: f.uint(),
-      file_id: f.string({ allowEmpty: false }),
+      group_id: f.groupId(),
+      file_id: f.fileId(),
     },
     run: async (p, ctx) => {
       await ctx.bridge.apis.groupFile.trans(p.group_id, p.file_id);

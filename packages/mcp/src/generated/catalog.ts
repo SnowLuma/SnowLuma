@@ -9105,6 +9105,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -9114,6 +9115,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "file_id",
         "type": "string",
         "required": true,
+        "role": "file_id",
         "schema": {
           "type": "string",
           "minLength": 1
@@ -9126,11 +9128,13 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "group_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "group_id"
         },
         "file_id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "x-role": "file_id"
         }
       },
       "required": [
