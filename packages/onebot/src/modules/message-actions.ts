@@ -583,6 +583,19 @@ export async function sendPrivateMessage(
   let allFileElements = elements.filter(e => e.type === 'file');
   let nonFileElements = elements.filter(e => e.type !== 'file');
 
+  // [#145] A video above QQ's ~100 MB video-resource cap (MAX_VIDEO_SIZE)
+  // uploads "successfully" but renders as 视频已过期 on the receiver — the
+  // server accepts the bytes yet never produces a valid video resource. The
+  // on-error fallback below can't catch it (the oversized upload doesn't
+  // throw), so route known-oversized videos to the file path up front.
+  {
+    const pre = splitVideoFileFallback(nonFileElements, false);
+    if (pre.fileEls.length > 0) {
+      allFileElements = [...allFileElements, ...pre.fileEls];
+      nonFileElements = pre.remaining;
+    }
+  }
+
   let lastReceipt: Awaited<ReturnType<typeof ref.bridge.apis.message.sendPrivate>> | undefined;
   if (nonFileElements.length > 0) {
     try {
@@ -689,6 +702,16 @@ export async function sendGroupMessage(
   //  b) has file_id from a prior upload_group_file → publish() only
   let allFileElements = elements.filter(e => e.type === 'file');
   let nonFileElements = elements.filter(e => e.type !== 'file');
+
+  // [#145] Route known-oversized videos (> MAX_VIDEO_SIZE) to the file path
+  // up front — they upload as a video without error but render expired.
+  {
+    const pre = splitVideoFileFallback(nonFileElements, false);
+    if (pre.fileEls.length > 0) {
+      allFileElements = [...allFileElements, ...pre.fileEls];
+      nonFileElements = pre.remaining;
+    }
+  }
 
   let lastReceipt: Awaited<ReturnType<typeof ref.bridge.apis.message.sendGroup>> | undefined;
   if (nonFileElements.length > 0) {

@@ -5,6 +5,9 @@ import {
 } from '@snowluma/protocol/oidb-services/extras/fetch-ai-voice-list';
 import { GetStrangerStatus, type StrangerStatus as NamespaceStrangerStatus } from '@snowluma/protocol/oidb-services/extras/get-stranger-status';
 import { GroupTodo } from '@snowluma/protocol/oidb-services/extras/group-todo';
+import { convertAudioBytes } from '@snowluma/protocol/highway/ffmpeg-addon';
+import { loadBinarySource } from '@snowluma/protocol/highway/utils';
+import { createLogger } from '@snowluma/common/logger';
 import type { PttTransReq, PttTransResp } from '@snowluma/proto-defs/ptt-trans';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { BridgeContext } from '../bridge-context';
@@ -28,15 +31,6 @@ export interface PttTransInput {
   fileId?: number;
 }
 
-function hexToBytes(hex: string): Uint8Array {
-  const s = (hex || '').trim();
-  if (!s) return new Uint8Array(0);
-  const len = s.length >> 1;
-  const out = new Uint8Array(len);
-  for (let i = 0; i < len; i++) out[i] = parseInt(s.substr(i * 2, 2), 16);
-  return out;
-}
-
 // ─────────────── public types (re-exported from bridge.ts as before) ───
 
 export type StrangerStatus = NamespaceStrangerStatus;
@@ -54,6 +48,8 @@ export interface AiVoiceItem {
   voiceDisplayName: string;
   voiceExampleUrl: string;
 }
+
+const log = createLogger('Bridge.Extras');
 
 export class ExtrasApi {
   constructor(private readonly ctx: BridgeContext) { }
@@ -126,10 +122,13 @@ export class ExtrasApi {
    * already-transcribed case). For a freshly-received voice the response is an
    * empty ack and the text is delivered later via the async Event 0x210
    * subType-61 push — callers should treat `''` as "pending" and wait for the
-   * `ptt_trans_result` event (correlated by msgId). Live-verified end to end.
+   * `ptt_trans_result` event (correlated by msgId).
    */
   async translatePttToText(input: PttTransInput): Promise<string> {
-    const md5 = hexToBytes(input.md5Hex);
+    // QQ NT sends the md5 as a 32-char lowercase HEX STRING, not the raw 16
+    // bytes (RE'd from wrapper.linux.node EncodeTroopPtt/EncodeC2CPtt: the md5
+    // field goes through a bytes→hex helper). Sending raw bytes → errCode -1079.
+    const md5 = input.md5Hex.toLowerCase();
     const req: PttTransReq = input.isGroup
       ? {
         type: 1,
@@ -154,7 +153,32 @@ export class ExtrasApi {
     }
     const resp = protobuf_decode<PttTransResp>(result.responseData);
     const item = input.isGroup ? resp?.groupResult : resp?.c2cResult;
-    if (item?.errCode) throw new Error(`ptt translate failed: error=${item.errCode}`);
+    if (item?.errCode) {
+      // Diagnostic (#165 备选): correlate QQ's errCode with the request fields we
+      // sourced from cache, to tell a server-side ASR failure apart from our own
+      // missing/zero field (md5/format/uuid). Behaviour unchanged — still throws.
+      log.warn(
+        'ptt translate errCode=%d isGroup=%s md5=%s format=%d uuid=%s dur=%d size=%d',
+        item.errCode, input.isGroup,
+        input.md5Hex ? `${input.md5Hex.length / 2}B` : 'EMPTY',
+        input.format, input.uuid ? 'set' : 'EMPTY', input.duration, input.size,
+      );
+      throw new Error(`ptt translate failed: error=${item.errCode}`);
+    }
     return item?.text ?? ''; // '' = transcribing async; caller awaits the push
+  }
+
+  /**
+   * Transcode a voice record (`get_record out_format`, #165). `source` is a
+   * URL / local path / `base64://…` (the record's download URL in practice);
+   * it is loaded then transcoded to `format` via the bundled SILK-capable
+   * ffmpeg addon. Returns base64 + size. Throws on unsupported format or a
+   * failed conversion.
+   */
+  async convertRecord(source: string, format: string): Promise<{ base64: string; size: number }> {
+    // Voices are tiny — cap the download well below loadBinarySource's 1 GiB
+    // default so a tampered/oversized source can't be pulled in.
+    const { bytes } = await loadBinarySource(source, 'record', 64 * 1024 * 1024);
+    return convertAudioBytes(bytes, format);
   }
 }

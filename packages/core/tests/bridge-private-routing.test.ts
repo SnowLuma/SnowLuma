@@ -136,8 +136,9 @@ describe('Bridge private media routing', () => {
     // expireTime is now+7d; just sanity-check it landed (non-zero, plausible)
     expect(fileExtra?.file?.expireTime).toBeGreaterThan(Math.floor(Date.now() / 1000));
 
-    // issue #157: the finalize (0xE37_800) must run, and its download routing
-    // must ride along in field6 — without it the recipient can't download.
+    // issue #157: when the 0xE37_800 finalize succeeds, its download routing
+    // rides along in field6 (best-effort enrichment on top of the always-
+    // present NotOnlineFile).
     expect(bridge.finalizeCmd).toBe('OidbSvcTrpcTcp.0xe37_800');
     expect(fileExtra?.field6?.field2).toMatchObject({
       fileUuid: 'uuid-abc-123',
@@ -156,5 +157,47 @@ describe('Bridge private media routing', () => {
     // stale go-cqhttp value the QQ-NT server doesn't recognise on the
     // c2c-file path.
     expect(request?.contentHead?.c2cCmd ?? 0).toBe(0);
+  });
+
+  it('c2c file send survives a failing 0xE37_800 finalize — sends without field6 (#157 best-effort)', async () => {
+    const { Bridge } = await import('../src/bridge/bridge');
+    const { IdentityService } = await import('@snowluma/protocol/identity-service');
+
+    class TestBridge extends Bridge {
+      capturedBody: Uint8Array | null = null;
+
+      override async resolveUserUid(uin: number): Promise<string> {
+        return uin === 10000 ? 'u_self' : `u_${uin}`;
+      }
+
+      override async sendRawPacket(cmd: string, body: Uint8Array): Promise<SendPacketResult> {
+        // Finalize fails (server error → OidbError). The send must NOT fail
+        // because of it.
+        if (cmd.includes('0xe37_800')) {
+          return { success: false, gotResponse: true, errorCode: 9999, errorMessage: 'finalize boom', responseData: Buffer.alloc(0) };
+        }
+        this.capturedBody = body;
+        return {
+          success: true, gotResponse: true, errorCode: 0, errorMessage: '',
+          responseData: Buffer.from(protobuf_encode<SendMessageResponse>({
+            result: 0, errMsg: '', privateSequence: 88, timestamp1: 1710000000,
+          })),
+        };
+      }
+    }
+    const bridge = new TestBridge(IdentityService.memory('10000'));
+
+    // Should resolve (not throw) despite the finalize error.
+    await bridge.apis.message.sendC2cFile(67890, 'u_peer_xyz', {
+      fileId: 'uuid-abc-123', fileName: 'doc.txt', fileSize: 1024,
+      fileMd5: new Uint8Array([1, 2, 3, 4]), fileHash: 'hash-xyz',
+    });
+
+    // PbSendMsg still went out, carrying the file but NO field6.
+    expect(bridge.capturedBody).toBeInstanceOf(Uint8Array);
+    const request = protobuf_decode<SendMessageRequest>(bridge.capturedBody as Uint8Array);
+    const fileExtra = protobuf_decode<FileExtra>(request!.messageBody!.msgContent as Uint8Array);
+    expect(fileExtra?.file?.fileUuid).toBe('uuid-abc-123');
+    expect(fileExtra?.field6 ?? undefined).toBeUndefined();
   });
 });

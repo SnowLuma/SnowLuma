@@ -51,16 +51,6 @@ export interface MediaSubFileUpload {
    *  Omit if the caller guarantees bytes always exist (e.g. video thumb
    *  always has FALLBACK_THUMB bytes). */
   fastOnlyError?: string;
-  /** When true and the server fast-paths THIS sub-file (returns no uKey)
-   *  even though we hold real bytes for it, `runNtv2Upload` re-issues the
-   *  whole OIDB request with `tryFastUploadCompleted: false` to force a
-   *  fresh full upload. Video sets this on the main file: group/c2c video
-   *  resources expire server-side, so a fast-path hit can reference a
-   *  stale object the receiver renders as "资源已过期". The thumb leaves
-   *  this off — a cached thumb is harmless and not worth re-pushing the
-   *  whole (potentially 100 MB) main video for. Forwarding paths carry no
-   *  bytes (`bytes.length === 0`), so this never fires for them. */
-  forceFullOnFastPath?: boolean;
 }
 
 export interface NtV2UploadParams {
@@ -195,24 +185,18 @@ export async function runNtv2Upload(params: NtV2UploadParams): Promise<NTV2Uploa
     return session;
   };
 
-  // Run whatever PUTs the given `upload` response asks for. Returns true
-  // when a sub-file flagged `forceFullOnFastPath` was fast-pathed by the
-  // server (no uKey) while we hold real bytes for it — the caller uses
-  // that to force a non-fast-upload retry.
-  const runPuts = async (upload: NTV2UploadRespBody): Promise<boolean> => {
+  // Run whatever PUTs the given `upload` response asks for.
+  const runPuts = async (upload: NTV2UploadRespBody): Promise<void> => {
     let didPut = false;
-    let staleFastPath = false;
     for (const sub of uploads) {
       const target = sub.source === 'top' ? upload : upload.subFileInfos?.[sub.source];
       const uKey = target?.uKey ?? '';
       // No uKey: the server fast-pathed this sub-file (or msgInfo is absent
-      // entirely). When we actually hold bytes for it, the server is
-      // reusing a cached resource — surface it, and flag a stale fast-path
-      // when the caller asked us to distrust it for this sub-file.
+      // entirely) — it already holds (or claims to hold) the resource, so
+      // there are no bytes to push for it.
       if (!uKey || !upload.msgInfo) {
         if (!uKey && upload.msgInfo && sub.bytes.length > 0) {
           log.debug('%s fast-upload hit for sub=%s (server reusing cached resource)', label, String(sub.source));
-          if (sub.forceFullOnFastPath) staleFastPath = true;
         }
         continue;
       }
@@ -241,26 +225,19 @@ export async function runNtv2Upload(params: NtV2UploadParams): Promise<NTV2Uploa
     if (!didPut) {
       log.debug('%s fast-upload hit (server already had bytes)', label);
     }
-    return staleFastPath;
   };
 
-  let upload = await requestUpload(true);
-  const staleFastPath = await runPuts(upload);
-
-  // A flagged sub-file (video main) was fast-pathed to a server resource
-  // that may have expired. Re-issue without fast-upload so the server
-  // allocates a fresh resource and demands the bytes, then redo the PUTs
-  // against that response — the returned `upload` (and its msgInfo) must
-  // be the one we actually pushed bytes to.
-  if (staleFastPath) {
-    log.debug('%s forcing full upload — fast-path resource may be stale/expired', label);
-    upload = await requestUpload(false);
-    const stillFastPathed = await runPuts(upload);
-    if (stillFastPathed) {
-      log.debug('%s server still fast-pathed after forcing full upload — resource may remain stale', label);
-    }
-  }
-
+  // NOTE: a previous attempt re-issued the request with
+  // `tryFastUploadCompleted: false` when the server fast-pathed the main video,
+  // on the theory it would force a fresh upload of a possibly-expired resource.
+  // Real-machine testing + kernel RE proved that ineffective — the server's
+  // fast-path is driven by md5-metadata existence and ignores the flag, and the
+  // QQ NT kernel itself does no validity check either (HandleRspUploadV3 trusts
+  // `fileExist` and reports success). An expired-but-still-indexed video
+  // resource is a platform-level limitation, not something the upload flow can
+  // refresh. See #145.
+  const upload = await requestUpload(true);
+  await runPuts(upload);
   return upload;
 }
 

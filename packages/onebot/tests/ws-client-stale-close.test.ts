@@ -70,7 +70,7 @@ import type { WsClientNetwork } from '../src/types';
 function ctx(): NetworkAdapterContext {
   return {
     uin: '10001',
-    api: { processRequest: async () => '' } as never,
+    api: { processStreamRequest: async () => {} } as never,
     buildLifecycleEvent: () => ({}),
     buildHeartbeatEvent: () => ({}),
   };

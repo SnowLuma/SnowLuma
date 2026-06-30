@@ -152,3 +152,64 @@ export async function encodeSilk(inputFile: string, tempDir: string): Promise<En
 export function defaultPttTempDir(): string {
   return path.join(os.tmpdir(), 'snowluma-ptt');
 }
+
+// ── audio transcode (get_record out_format, #165) ──
+// The addon is a custom ffmpeg build that bundles a SILK decoder, so it can
+// transcode a QQ voice (SILK/AMR) into a normal container in one convertFile
+// call — mirroring NapCat's FFmpegService.convertAudioFmt.
+
+/** Output formats accepted by `out_format` (mirrors NapCat's allowlist). */
+export const AUDIO_OUT_FORMATS = ['mp3', 'amr', 'wma', 'm4a', 'spx', 'ogg', 'wav', 'flac'] as const;
+export type AudioOutFormat = (typeof AUDIO_OUT_FORMATS)[number];
+export function isAudioOutFormat(s: string): s is AudioOutFormat {
+  return (AUDIO_OUT_FORMATS as readonly string[]).includes(s);
+}
+
+/** Minimal addon surface the transcode needs — lets tests inject a fake. */
+type AudioConvertAddon = Pick<FFmpegNativeAddon, 'convertFile'>;
+
+/** Default ceiling on the transcoded output read into memory for base64. SILK→
+ *  WAV/FLAC is a decompressing direction, so cap it even though real voices are
+ *  tiny. Generous; overridable via deps. */
+const DEFAULT_MAX_AUDIO_OUTPUT = 256 * 1024 * 1024; // 256 MiB
+
+/**
+ * Transcode raw audio bytes (a QQ voice SILK/AMR) to `format`, returning the
+ * result as base64 + byte size. Writes the input + output to temp files (the
+ * native addon is file-based), always cleaning them up. `deps` injects a fake
+ * addon / tmp dir for tests. Throws on an unsupported format or a failed
+ * conversion (e.g. the binary lacks SILK decode).
+ */
+export async function convertAudioBytes(
+  bytes: Uint8Array,
+  format: string,
+  deps: { addon?: AudioConvertAddon; tmpDir?: string; maxOutputBytes?: number } = {},
+): Promise<{ base64: string; size: number }> {
+  if (!isAudioOutFormat(format)) {
+    throw new Error(`unsupported out_format: ${format} (expected one of ${AUDIO_OUT_FORMATS.join(', ')})`);
+  }
+  const addon = deps.addon ?? getFFmpegAddon();
+  const maxOut = deps.maxOutputBytes ?? DEFAULT_MAX_AUDIO_OUTPUT;
+  const dir = deps.tmpDir ?? path.join(os.tmpdir(), 'snowluma-rec');
+  fs.mkdirSync(dir, { recursive: true });
+  const id = crypto.randomBytes(8).toString('hex');
+  const inPath = path.join(dir, `${id}.in`);
+  const outPath = path.join(dir, `${id}.${format}`);
+  try {
+    await fs.promises.writeFile(inPath, bytes);
+    const res = await addon.convertFile(inPath, outPath, format);
+    if (!res?.success || !fs.existsSync(outPath)) throw new Error('audio conversion failed');
+    // Bound the output before reading it into memory (decompressing direction).
+    const stat = await fs.promises.stat(outPath);
+    if (stat.size > maxOut) throw new Error(`converted audio too large: ${stat.size} > ${maxOut}`);
+    const out = await fs.promises.readFile(outPath);
+    return { base64: out.toString('base64'), size: out.length };
+  } finally {
+    // Await cleanup so no temp file lingers past the call (the bytes are
+    // already in memory by now). allSettled → a missing file never throws.
+    await Promise.allSettled([
+      fs.promises.rm(inPath, { force: true }),
+      fs.promises.rm(outPath, { force: true }),
+    ]);
+  }
+}

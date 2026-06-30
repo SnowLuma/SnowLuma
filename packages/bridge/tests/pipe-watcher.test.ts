@@ -192,4 +192,40 @@ describe('PipeWatcher', () => {
     expect(events).toEqual([['discovered', 1234], ['up', 1234]]);
     watcher.stop();
   });
+
+  it('UNKNOWN (null) enumeration keeps prior state — no false process-gone (issue #158)', async () => {
+    let result: HookProcessBaseInfo[] | null = [{ pid: 1234, name: 'qq', path: '' }];
+    let live = new Set<number>([1234]);
+    const watcher = new PipeWatcher({
+      listProcesses: () => result,
+      listLivePipes: async () => new Set(live),
+      intervalMs: 60_000,
+    });
+
+    await watcher.start();
+    expect(watcher.isProcessAlive(1234)).toBe(true);
+    expect(watcher.isPipeLive(1234)).toBe(true);
+
+    const events = captureEvents(watcher);
+
+    // Enumeration goes UNKNOWN (e.g. native /proc walk timed out during a QQ
+    // hot-update). Prior process + pipe state MUST be preserved — no teardown.
+    result = null;
+    await watcher.tickNow();
+    expect(events).toEqual([]);
+    expect(watcher.isProcessAlive(1234)).toBe(true);
+    expect(watcher.isPipeLive(1234)).toBe(true);
+
+    // Enumeration recovers with the same set → still no churn.
+    result = [{ pid: 1234, name: 'qq', path: '' }];
+    await watcher.tickNow();
+    expect(events).toEqual([]);
+
+    // A REAL disappearance (empty list, not null) still fires the teardown.
+    result = [];
+    live = new Set();
+    await watcher.tickNow();
+    expect(events).toEqual([['down', 1234], ['gone', 1234]]);
+    watcher.stop();
+  });
 });

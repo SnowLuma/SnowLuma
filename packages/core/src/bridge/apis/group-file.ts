@@ -100,8 +100,14 @@ function normalizeUploadFileName(name: string, fallback: string): string {
   return safeFallback || 'file.bin';
 }
 
+// QQ's "first 10 MB" checksum uses the magic limit 0x98A000 (10002432) —
+// NOT 10*1024*1024 and not 10^7. Using the wrong limit makes the server's
+// first-block verification fail for files larger than 0x98A000, so the
+// offline file uploads but never finalises as downloadable (#157).
+const MD5_HEAD_LIMIT = 10002432;
+
 function md5First10MB(bytes: Uint8Array): Uint8Array {
-  const limit = Math.min(bytes.length, 10 * 1024 * 1024);
+  const limit = Math.min(bytes.length, MD5_HEAD_LIMIT);
   return computeMd5(bytes.subarray(0, limit));
 }
 
@@ -177,7 +183,12 @@ function buildPrivateFileUploadExt(
     unknown2: 1,
     entry: {
       busiBuff: {
-        busId: 102,
+        // #157: NapCat/Lagrange (and the QQ client, confirmed by packet
+        // capture) emit a busiBuff with ONLY senderUin — no busId. A stale
+        // busId:102 here made the offline-file server accept the highway
+        // upload but never finalise it as downloadable once the file got
+        // big (>5 MiB): the receiver saw the file but every download failed.
+        // (The other half of that bug was the wrong md5-head limit above.)
         senderUin: BigInt(senderUin),
         receiverUin: 0n,
         groupCode: 0n,

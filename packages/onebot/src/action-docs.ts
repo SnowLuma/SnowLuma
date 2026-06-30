@@ -12,7 +12,7 @@
 // deferred product decision; this module produces format-agnostic data plus a
 // Markdown default. Point any renderer at `collectActionDocs()`.
 
-import type { ActionDoc, ActionSpec, Field } from './action-kit';
+import type { ActionDoc } from './action-kit';
 import { actions as infoActions } from './actions/info';
 import { actions as messageActions } from './actions/message';
 import { actions as friendActions } from './actions/friend';
@@ -23,8 +23,13 @@ import { actions as requestActions } from './actions/request';
 import { actions as extendedActions } from './actions/extended';
 import { actions as groupAlbumActions } from './actions/group-album';
 import { actions as qzoneActions } from './actions/qzone';
+import { actions as streamFileActions } from './actions/stream-file';
+import { actions as streamDownloadActions } from './actions/stream-download';
 
-type AnySpec = ActionSpec<Record<string, Field<unknown>>>;
+// The doc collector only ever calls `describe()`, so any spec carrying it
+// qualifies — this admits both `defineAction` (ActionSpec) and
+// `defineStreamAction` (StreamActionSpec) results without coupling to either.
+type AnySpec = { describe(): ActionDoc };
 
 // Source file = domain category. Each doc is tagged so the MCP / UI can group.
 const GROUPS: ReadonlyArray<{ category: string; specs: readonly AnySpec[] }> = [
@@ -38,6 +43,7 @@ const GROUPS: ReadonlyArray<{ category: string; specs: readonly AnySpec[] }> = [
   { category: '扩展', specs: extendedActions },
   { category: '群相册', specs: groupAlbumActions },
   { category: '空间', specs: qzoneActions },
+  { category: '流式接口', specs: [...streamFileActions, ...streamDownloadActions] },
 ];
 
 /** Every declarative action's doc (with category), sorted by name. */

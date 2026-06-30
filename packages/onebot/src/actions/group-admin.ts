@@ -16,7 +16,7 @@ export const actions = [
   groupAction({
     name: 'set_group_kick_members',
     summary: '批量踢出群成员',
-    params: { user_id: f.array(f.uint()).nonEmpty(), reject_add_request: f.bool().default(false) },
+    params: { user_id: f.array(f.memberId()).nonEmpty(), reject_add_request: f.bool().default(false) },
     run: async (p, ctx) => {
       await ctx.bridge.apis.groupAdmin.kickMembers(p.group_id, p.user_id, p.reject_add_request);
       return okResponse();
@@ -26,7 +26,7 @@ export const actions = [
   groupUserAction({
     name: 'set_group_ban',
     summary: '禁言群成员（duration=0 解除）',
-    params: { duration: f.int({ min: 0 }).default(1800) },
+    params: { duration: f.duration().default(1800) },
     run: async (p, ctx) => {
       await ctx.bridge.apis.groupAdmin.muteMember(p.group_id, p.user_id, p.duration);
       return okResponse();
@@ -118,7 +118,7 @@ export const actions = [
   groupAction({
     name: 'set_group_portrait',
     summary: '设置群头像',
-    params: { file: f.string({ allowEmpty: false }) },
+    params: { file: f.image() },
     run: async (p, ctx) => {
       try {
         await ctx.bridge.apis.profile.setGroupAvatar(p.group_id, p.file);

@@ -2,11 +2,12 @@ import type {
   MarkdownData,
   MentionExtraSend,
 } from '@snowluma/proto-defs/action';
-import type { Elem, GroupFileExtra, MarketFacePbReserve } from '@snowluma/proto-defs/element';
+import type { Elem, GroupFileExtra, MarketFacePbReserve, QFaceExtra, QSmallFaceExtra } from '@snowluma/proto-defs/element';
 import { protobuf_encode } from '@snowluma/proton';
 import { randomUUID } from 'crypto';
 import { deflateSync } from 'zlib';
 import type { BridgeContext } from './bridge-context';
+import { sysFaceStore } from './sys-face-store';
 import type { MessageElement } from './events';
 import { uploadImageMsgInfo } from './highway/image-upload';
 import { hexToBytes } from './highway/pipeline';
@@ -39,10 +40,45 @@ function makeTextElem(text: string): ProtoElem {
   };
 }
 
-function makeFaceElem(faceId: number): ProtoElem {
-  return {
-    face: { index: faceId },
-  };
+// QQ-NT splits face ids across three wire encodings. The legacy FaceElem only
+// renders classic small faces; newer "super" / animated faces sent that way are
+// silently remapped by the server (e.g. 424→168, issue #168). The split is
+// data-driven off the system-face catalog (0x9154_1, see sys-face-store):
+//   super (animated, aniSticker not pack (1,1)) → CommonElem 37 + QFaceExtra
+//   other id ≥ 260                              → CommonElem 33 + QSmallFaceExtra
+//   classic id < 260                            → legacy FaceElem
+function makeFaceElem(faceId: number, ctx?: SendContext): ProtoElem {
+  // Keep the catalog warm so subsequent super-face sends are classified even if
+  // this one raced ahead of the first fetch.
+  if (ctx) sysFaceStore.ensureWarm(ctx.bridge);
+
+  const wire = sysFaceStore.classify(faceId);
+  if (wire.kind === 'super') {
+    return {
+      commonElem: {
+        serviceType: 37,
+        pbElem: protobuf_encode<QFaceExtra>({
+          packId: wire.packId,
+          stickerId: wire.stickerId,
+          qsid: faceId,
+          sourceType: 1,
+          stickerType: wire.stickerType,
+          randomType: 1,
+        }),
+        businessType: 1,
+      },
+    };
+  }
+  if (wire.kind === 'small') {
+    return {
+      commonElem: {
+        serviceType: 33,
+        pbElem: protobuf_encode<QSmallFaceExtra>({ faceId, preview: '', preview2: '' }),
+        businessType: 1,
+      },
+    };
+  }
+  return { face: { index: faceId } };
 }
 
 function resolveMentionDisplay(ctx: SendContext | undefined, targetUin: number): string {
@@ -414,7 +450,7 @@ export async function buildSendElems(elements: MessageElement[], ctx?: SendConte
         break;
 
       case 'face':
-        if (elem.faceId !== undefined) result.push(makeFaceElem(elem.faceId));
+        if (elem.faceId !== undefined) result.push(makeFaceElem(elem.faceId, ctx));
         break;
 
       case 'mface':

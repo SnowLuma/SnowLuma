@@ -73,6 +73,16 @@ export class OneBotInstance {
   invokeAction(action: string, params: JsonObject): Promise<ApiResponse> {
     return this.apiHandler.handle(action, params);
   }
+  /** Drive an action through the streaming seam (debug tester, stream actions).
+   *  `rawRequest` is a `{action, params, echo?}` JSON string; `emit` receives
+   *  each frame as a JSON string. Non-stream actions emit a single frame. */
+  invokeStream(
+    rawRequest: string,
+    emit: (json: string) => void | Promise<void>,
+    isAlive?: () => boolean,
+  ): Promise<void> {
+    return this.apiHandler.processStreamRequest(rawRequest, emit, isAlive);
+  }
 
   constructor(uin: string, bridge: BridgeInterface, config: OneBotConfig, globalSettings: GlobalSettings) {
     this.uin = uin;

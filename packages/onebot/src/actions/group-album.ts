@@ -91,7 +91,7 @@ export const actions = [
     params: {
       album_id: f.string({ allowEmpty: false }),
       album_name: f.string({ allowEmpty: false }),
-      file: f.string({ allowEmpty: false }),
+      file: f.image(),
     },
     run: async (p, ctx) => {
       try {

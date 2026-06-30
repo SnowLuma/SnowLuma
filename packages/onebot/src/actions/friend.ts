@@ -46,7 +46,7 @@ export const actions = [
       },
       required: ['user_id', 'nickname', 'sex', 'age'],
     },
-    params: { user_id: f.uint().describe('QQ 号') },
+    params: { user_id: f.userId().describe('QQ 号') },
     run: async (p, ctx) => {
       const userId = p.user_id;
       if (ctx.getStrangerInfo) {
@@ -60,7 +60,7 @@ export const actions = [
   defineAction({
     name: 'delete_friend',
     summary: '删除好友',
-    params: { user_id: f.uint().describe('QQ 号'), block: f.bool().default(false) },
+    params: { user_id: f.userId().describe('QQ 号'), block: f.bool().default(false) },
     run: async (p, ctx) => {
       await ctx.bridge.apis.friend.delete(p.user_id, p.block);
       return okResponse();

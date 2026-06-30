@@ -80,6 +80,55 @@ export function parseQzoneJson<T>(text: string): T {
   return JSON.parse(s.slice(start, end + 1)) as T;
 }
 
+function assertRichParams(richType?: number, richval?: string): void {
+  const hasRichType = richType !== undefined;
+  const hasRichval = richval !== undefined && richval.trim() !== '';
+  if (hasRichType !== hasRichval) {
+    throw new Error('richType and richval must be provided together');
+  }
+  if (richType !== undefined && (!Number.isInteger(richType) || richType < 1)) {
+    throw new Error('richType must be a positive integer');
+  }
+}
+
+function normalizeQzoneImageBase64(input: string): string {
+  let text = input.trim();
+  if (/^base64:\/\//i.test(text)) {
+    text = text.slice(9).trim();
+  }
+  if (/^data:/i.test(text)) {
+    const comma = text.indexOf(',');
+    if (comma === -1) {
+      throw new Error('imageBase64 data URI is missing base64 payload');
+    }
+    text = text.slice(comma + 1);
+  }
+
+  const compact = text.replace(/ /g, '+').replace(/[\r\n\t]/g, '');
+  if (!compact) {
+    throw new Error('imageBase64 is required');
+  }
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(compact)) {
+    throw new Error('imageBase64 is not valid base64');
+  }
+  const firstPadding = compact.indexOf('=');
+  if (firstPadding !== -1 && /[^=]/.test(compact.slice(firstPadding))) {
+    throw new Error('imageBase64 is not valid base64');
+  }
+
+  const unpadded = compact.replace(/=+$/, '');
+  const remainder = unpadded.length % 4;
+  if (remainder === 1) {
+    throw new Error('imageBase64 is not valid base64');
+  }
+  const base64 = unpadded + '='.repeat((4 - remainder) % 4);
+  const bytes = Buffer.from(base64, 'base64');
+  if (bytes.length === 0) {
+    throw new Error('imageBase64 is empty');
+  }
+  return base64;
+}
+
 /** Pick the largest picture URL variant a feed picture offers. */
 function pickPicUrl(pic: RawPic): string | undefined {
   return pic.url3 || pic.url2 || pic.url1 || pic.smallurl || undefined;
@@ -331,9 +380,13 @@ export interface QzonePublishResult {
 }
 
 /**
- * Publish a text-only 说说 via taotao.qzone.qq.com's emotion_cgi_publish_v6
- * CGI (proxied through h5.qzone.qq.com). POSTs a form-urlencoded body with
+ * Publish a 说说 via taotao.qzone.qq.com's emotion_cgi_publish_v6 CGI
+ * (proxied through h5.qzone.qq.com). POSTs a form-urlencoded body with
  * `g_tk` in the query, on the bot's own space (`hostUin`).
+ *
+ * `richType` / `richval`: for image posts, set `richType=1` and pass the
+ * richval string(s) from {@link uploadQzoneImage} (multi-image: join with
+ * `\t`). Omit both for text-only posts.
  *
  * Errors PROPAGATE: a transport failure, a non-zero Qzone `code` (its error
  * envelope, e.g. content rejected / rate-limited), or a success body that
@@ -344,6 +397,8 @@ export async function publishQzoneMsg(
   cookieObject: Record<string, string>,
   hostUin: string,
   content: string,
+  richType?: number,
+  richval?: string,
 ): Promise<QzonePublishResult> {
   if (!cookieObject || typeof cookieObject !== 'object') {
     throw new Error('cookieObject is required');
@@ -351,6 +406,7 @@ export async function publishQzoneMsg(
   if (!content) {
     throw new Error('content is required');
   }
+  assertRichParams(richType, richval);
 
   const bkn = getBknFromCookie(cookieObject);
   const url = `https://h5.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_publish_v6?g_tk=${bkn}`;
@@ -358,8 +414,8 @@ export async function publishQzoneMsg(
     syn_tweet_verson: '1',
     paramstr: '1',
     pic_template: '',
-    richtype: '',
-    richval: '',
+    richtype: richType !== undefined ? String(richType) : '',
+    richval: richval ?? '',
     special_url: '',
     subrichtype: '',
     con: content,
@@ -546,6 +602,172 @@ export async function setQzoneLike(
   }
 }
 
+// ─────────────── 上传图片 (upload image) — cgi_upload_image ───────────────
+// Uploads an image to Qzone's hosting and returns metadata for use in
+// publish/comment. The image is POSTed as base64 to up.qzone.qq.com
+// (bypassing the h5 proxy — the upload CGI is NOT behind
+// h5.qzone.qq.com/proxy). Body is form-urlencoded with `base64=1` and the
+// base64 payload in `picfile`. Response is a JSONP wrapper (parsed with the
+// shared tolerant parser) carrying `albumid`, `lloc`, `height`, `width`,
+// `type`, and `url`. The `richval` (for publish's richval param) is
+// constructed as `,albumid,lloc,sloc,type,height,width,,height,width` — the
+// double height/width mirrors the PHP impl. WRITE OP — rate-limit (though
+// upload itself is not风控'd like publish, batching huge uploads is impolite).
+// Confirmed against php-qzone/qzone.class.php:97-172.
+
+interface RawUploadImageResponse {
+  code?: number;
+  subcode?: number;
+  message?: string;
+  data?: {
+    albumid?: string;
+    lloc?: string;
+    url?: string;
+    type?: number;
+    height?: number;
+    width?: number;
+  };
+}
+
+/** Result of uploading an image to Qzone. */
+export interface QzoneUploadImageResult {
+  [key: string]: JsonValue;
+  /** Richval string for publish's `richval` param (multi-image: join with `\t`). */
+  richval: string;
+  /** Direct URL to the uploaded image. */
+  url: string;
+  albumid: string;
+  lloc: string;
+  type: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Upload an image from a source (file:// / http:// / base64://) to Qzone
+ * hosting. Loads the image via {@link loadBinarySource}, converts to base64,
+ * and uploads via {@link uploadQzoneImage}.
+ *
+ * `source` supports:
+ * - `file://` local file path
+ * - `http://` or `https://` remote URL
+ * - `base64://` base64-encoded data (with or without data-URI prefix)
+ *
+ * Errors PROPAGATE from both the load step and the upload step.
+ */
+export async function uploadQzoneImageFromSource(
+  cookieObject: Record<string, string>,
+  hostUin: string,
+  source: string,
+): Promise<QzoneUploadImageResult> {
+  if (/^base64:\/\//i.test(source)) {
+    return uploadQzoneImage(cookieObject, hostUin, source);
+  }
+  // Import loadBinarySource at function level to avoid circular deps
+  const { loadBinarySource } = await import('../highway/utils');
+  const loaded = await loadBinarySource(source, 'qzone-image');
+  const base64 = Buffer.from(loaded.bytes).toString('base64');
+  return uploadQzoneImage(cookieObject, hostUin, base64);
+}
+
+/**
+ * Upload an image (as base64) to Qzone hosting via up.qzone.qq.com's
+ * cgi_upload_image CGI. Returns metadata including the `richval` string
+ * (for use in {@link publishQzoneMsg}'s richval param) and the direct URL.
+ * Multi-image publish: call this once per image and join the richval strings
+ * with `\t`.
+ *
+ * `imageBase64` is the raw base64-encoded image bytes; a data-URI prefix is
+ * tolerated and stripped. Errors PROPAGATE: invalid base64, a transport
+ * failure, a non-zero Qzone `code`/`subcode`, or a success body missing
+ * required fields all throw.
+ */
+export async function uploadQzoneImage(
+  cookieObject: Record<string, string>,
+  hostUin: string,
+  imageBase64: string,
+): Promise<QzoneUploadImageResult> {
+  if (!cookieObject || typeof cookieObject !== 'object') {
+    throw new Error('cookieObject is required');
+  }
+  if (!imageBase64) {
+    throw new Error('imageBase64 is required');
+  }
+  const base64 = normalizeQzoneImageBase64(imageBase64);
+
+  const skey = cookieObject['skey'] || '';
+  const pskey = cookieObject['p_skey'] || '';
+  const bkn = getBknFromCookie(cookieObject);
+
+  const url = `https://up.qzone.qq.com/cgi-bin/upload/cgi_upload_image?g_tk=${bkn}`;
+  const body = new URLSearchParams({
+    filename: 'filename',
+    uin: hostUin,
+    skey,
+    zzpaneluin: hostUin,
+    p_uin: hostUin,
+    p_skey: pskey,
+    uploadtype: '1',
+    albumtype: '7',
+    exttype: '0',
+    refer: 'shuoshuo',
+    output_type: 'jsonhtml',
+    charset: 'utf-8',
+    output_charset: 'utf-8',
+    upload_hd: '1',
+    hd_width: '2048',
+    hd_height: '10000',
+    hd_quality: '96',
+    backUrls: `http://upbak.photo.qzone.qq.com/cgi-bin/upload/cgi_upload_image,http://119.147.64.75/cgi-bin/upload/cgi_upload_image&url=https://up.qzone.qq.com/cgi-bin/upload/cgi_upload_image?g_tk=${bkn}`,
+    base64: '1',
+    jsonhtml_callback: 'callback',
+    picfile: base64,
+    qzreferrer: `https://user.qzone.qq.com/${hostUin}/main`,
+  }).toString();
+
+  const text = await RequestUtil.HttpGetText(url, 'POST', body, {
+    Cookie: cookieToString(cookieObject),
+    'Content-Type': 'application/x-www-form-urlencoded',
+  });
+
+  // Response is `<script>frameElement.callback(...JSON...);</script>` — slice
+  // from the first `{` to the last `}` (same as parseQzoneJson, but the
+  // wrapper shape differs slightly).
+  let jsonText = text.trim();
+  const callbackStart = jsonText.indexOf('callback');
+  if (callbackStart !== -1) {
+    jsonText = jsonText.slice(callbackStart);
+  }
+  const data = parseQzoneJson<RawUploadImageResponse>(jsonText);
+
+  if (typeof data.code === 'number' && data.code !== 0) {
+    log.warn('uploadQzoneImage: non-zero code (uin=%s) code=%d msg=%s', hostUin, data.code, data.message);
+    throw new Error(`qzone upload image failed: code=${data.code} ${data.message ?? ''}`.trim());
+  }
+  if (typeof data.subcode === 'number' && data.subcode !== 0) {
+    log.warn('uploadQzoneImage: non-zero subcode (uin=%s) subcode=%d msg=%s', hostUin, data.subcode, data.message);
+    throw new Error(`qzone upload image failed: subcode=${data.subcode} ${data.message ?? ''}`.trim());
+  }
+  if (!data.data || !data.data.albumid || !data.data.lloc || !data.data.url) {
+    log.warn('uploadQzoneImage: missing required fields in response (uin=%s)', hostUin);
+    throw new Error('上传图片失败:响应缺少必要字段');
+  }
+
+  const { albumid, lloc, url: imageUrl, type, height, width } = data.data;
+  const sloc = lloc; // lloc and sloc are identical in the wire format
+  const richval = `,${albumid},${lloc},${sloc},${type ?? 0},${height ?? 0},${width ?? 0},,${height ?? 0},${width ?? 0}`;
+
+  return {
+    richval,
+    url: imageUrl,
+    albumid,
+    lloc,
+    type: type ?? 0,
+    width: width ?? 0,
+    height: height ?? 0,
+  };
+}
+
 // ─────────────── 评论说说 (comment) — emotion_cgi_re_feeds ───────────────
 // Posts a comment on a 说说 owned by `hostUin`, as the bot (`selfUin`). Same
 // form-POST mechanics + param family (paramstr/richtype/richval) as
@@ -576,7 +798,15 @@ export interface QzoneCommentResult {
 
 /**
  * Comment on a 说说 (`tid`, owned by `hostUin`) as the bot (`selfUin`) via
- * taotao.qzone.qq.com's emotion_cgi_re_feeds CGI (proxied through h5.qzone).
+ * taotao.qzone.qq.com's emotion_cgi_re_feeds CGI (proxied through
+ * h5.qzone.qq.com, matching php-qzone's working request).
+ *
+ * `richType` / `richval`: for image comments, set `richType=1` and pass the
+ * direct image URL from {@link uploadQzoneImage}'s `url` field (NOT the
+ * richval string — comment uses the direct URL, unlike publish which uses
+ * richval). Multi-image comments use direct URLs joined with `\t`. Omit both
+ * for text-only comments.
+ *
  * Resolves with the new comment id (best-effort) on success; THROWS on a
  * transport failure or a non-zero Qzone `code`/`subcode` (e.g. comments
  * disabled, no permission, or auth failure).
@@ -587,6 +817,8 @@ export async function commentQzoneMsg(
   hostUin: string,
   tid: string,
   content: string,
+  richType?: number,
+  richval?: string,
 ): Promise<QzoneCommentResult> {
   if (!cookieObject || typeof cookieObject !== 'object') {
     throw new Error('cookieObject is required');
@@ -597,6 +829,7 @@ export async function commentQzoneMsg(
   if (!content) {
     throw new Error('content is required');
   }
+  assertRichParams(richType, richval);
 
   const bkn = getBknFromCookie(cookieObject);
   const url = `https://h5.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_re_feeds?g_tk=${bkn}`;
@@ -606,14 +839,14 @@ export async function commentQzoneMsg(
     inCharset: 'utf-8',
     outCharset: 'utf-8',
     hostUin,
-    format: 'fs',
+    format: 'json',
     ref: 'feeds',
     topicId: `${hostUin}_${tid}__1`,
     feedsType: '100',
     private: '0',
     paramstr: '1',
-    richtype: '',
-    richval: '',
+    richtype: richType !== undefined ? String(richType) : '',
+    richval: richval ?? '',
     isSignIn: '',
     uin: selfUin,
     content,

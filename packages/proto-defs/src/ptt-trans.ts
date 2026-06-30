@@ -1,4 +1,4 @@
-import type { pb, uint_32, uint_64, bytes } from '@snowluma/proton';
+import type { pb, uint_32, uint_64 } from '@snowluma/proton';
 
 /**
  * Voice-to-text (语音转文字) request/response protobufs for the
@@ -28,7 +28,11 @@ export interface C2CPttTransItem {
   size?: pb<6, uint_32>;        // element 45405 (bytes)
   format?: pb<7, uint_32>;      // element 45907 (voice codec)
   eventType?: pb<8, uint_32>;   // element 45921
-  md5?: pb<9, bytes>;           // element 45406 (raw 16-byte md5)
+  // QQ NT (EncodeC2CPtt) hex-encodes the md5 to a 32-char lowercase string
+  // before sending it (verified in wrapper.linux.node: field 9 = sub_7A02D80
+  // = bytes→hex). Sending the raw 16 bytes makes the server reject with
+  // errCode -1079. So this is a hex STRING, not bytes.
+  md5?: pb<9, string>;          // element 45406 (32-char lowercase hex)
 }
 
 export interface GroupPttTransItem {
@@ -36,7 +40,7 @@ export interface GroupPttTransItem {
   senderUin?: pb<2, uint_64>;
   groupUin?: pb<3, uint_64>;
   fileId?: pb<4, uint_32>;      // element 45903 (group ptt numeric file id)
-  md5?: pb<5, bytes>;           // element 45406
+  md5?: pb<5, string>;          // element 45406 (32-char lowercase hex, see C2C note)
   duration?: pb<6, uint_32>;    // element 45906
   size?: pb<7, uint_32>;        // element 45405
   format?: pb<8, uint_32>;      // element 45907

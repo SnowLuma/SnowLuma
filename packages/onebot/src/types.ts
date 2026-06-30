@@ -7,6 +7,13 @@ export interface ApiResponse {
   data: JsonValue;
   echo?: JsonValue;
   wording?: string;
+  /** Mirror of `wording` carried on Stream API frames — NapCat puts the
+   *  message text in BOTH `message` and `wording`, so clients reading either
+   *  key work. Only set on stream frames. */
+  message?: string;
+  /** Only set on Stream API frames — `'stream-action'`. Marks an envelope as
+   *  one frame of a multi-frame streaming response (NapCat Stream API wire). */
+  stream?: string;
 }
 
 export interface OneBotRequest {
