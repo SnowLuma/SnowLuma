@@ -5238,7 +5238,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "get_record",
     "aliases": [],
-    "summary": "获取语音信息",
+    "summary": "获取语音信息；传 out_format 则服务端转码并附带 base64",
     "readOnly": true,
     "params": [
       {
@@ -5260,6 +5260,33 @@ export const ACTIONS: CatalogAction[] = [
         },
         "default": "",
         "role": "file_id"
+      },
+      {
+        "name": "out_format",
+        "type": "enum",
+        "required": false,
+        "values": [
+          "mp3",
+          "amr",
+          "wma",
+          "m4a",
+          "spx",
+          "ogg",
+          "wav",
+          "flac"
+        ],
+        "schema": {
+          "enum": [
+            "mp3",
+            "amr",
+            "wma",
+            "m4a",
+            "spx",
+            "ogg",
+            "wav",
+            "flac"
+          ]
+        }
       }
     ],
     "invariants": [],
@@ -5275,6 +5302,18 @@ export const ACTIONS: CatalogAction[] = [
           "type": "string",
           "default": "",
           "x-role": "file_id"
+        },
+        "out_format": {
+          "enum": [
+            "mp3",
+            "amr",
+            "wma",
+            "m4a",
+            "spx",
+            "ogg",
+            "wav",
+            "flac"
+          ]
         }
       },
       "additionalProperties": true

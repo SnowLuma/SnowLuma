@@ -5,6 +5,8 @@ import {
 } from '@snowluma/protocol/oidb-services/extras/fetch-ai-voice-list';
 import { GetStrangerStatus, type StrangerStatus as NamespaceStrangerStatus } from '@snowluma/protocol/oidb-services/extras/get-stranger-status';
 import { GroupTodo } from '@snowluma/protocol/oidb-services/extras/group-todo';
+import { convertAudioBytes } from '@snowluma/protocol/highway/ffmpeg-addon';
+import { loadBinarySource } from '@snowluma/protocol/highway/utils';
 import type { PttTransReq, PttTransResp } from '@snowluma/proto-defs/ptt-trans';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { BridgeContext } from '../bridge-context';
@@ -156,5 +158,19 @@ export class ExtrasApi {
     const item = input.isGroup ? resp?.groupResult : resp?.c2cResult;
     if (item?.errCode) throw new Error(`ptt translate failed: error=${item.errCode}`);
     return item?.text ?? ''; // '' = transcribing async; caller awaits the push
+  }
+
+  /**
+   * Transcode a voice record (`get_record out_format`, #165). `source` is a
+   * URL / local path / `base64://…` (the record's download URL in practice);
+   * it is loaded then transcoded to `format` via the bundled SILK-capable
+   * ffmpeg addon. Returns base64 + size. Throws on unsupported format or a
+   * failed conversion.
+   */
+  async convertRecord(source: string, format: string): Promise<{ base64: string; size: number }> {
+    // Voices are tiny — cap the download well below loadBinarySource's 1 GiB
+    // default so a tampered/oversized source can't be pulled in.
+    const { bytes } = await loadBinarySource(source, 'record', 64 * 1024 * 1024);
+    return convertAudioBytes(bytes, format);
   }
 }

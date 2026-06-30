@@ -545,18 +545,32 @@ export const actions = [
 
   defineAction({
     name: 'get_record',
-    summary: '获取语音信息',
+    summary: '获取语音信息；传 out_format 则服务端转码并附带 base64',
     readOnly: true,
     params: {
       file: f.string().default('').role('record'),
       file_id: f.string().default('').role('file_id'),
+      // Optional server-side transcode (#165): SILK/AMR → the requested
+      // container, returned as `data.base64`. Absent ⇒ behaviour unchanged.
+      out_format: f.enum('mp3', 'amr', 'wma', 'm4a', 'spx', 'ogg', 'wav', 'flac').optional(),
     },
     run: async (p, ctx) => {
       const file = p.file || p.file_id;
       if (!file) return failedResponse(RETCODE.BAD_REQUEST, 'file is required');
       const info = await ctx.getRecordInfo(file);
-      if (info) return okResponse(info);
-      return failedResponse(RETCODE.ACTION_FAILED, 'record not found in cache');
+      if (!info) return failedResponse(RETCODE.ACTION_FAILED, 'record not found in cache');
+      if (!p.out_format) return okResponse(info);
+      // Transcode from the record's download URL (fall back to file field).
+      const source = String(info.url || info.file || '');
+      if (!source) return failedResponse(RETCODE.ACTION_FAILED, 'record has no downloadable source');
+      try {
+        // Keep the original record info (file_size stays the source size, like
+        // NapCat) and just attach the transcoded payload.
+        const { base64 } = await ctx.bridge.apis.extras.convertRecord(source, p.out_format);
+        return okResponse({ ...info, out_format: p.out_format, base64 });
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, `语音转码失败：${e instanceof Error ? e.message : String(e)}`);
+      }
     },
   }),
 
