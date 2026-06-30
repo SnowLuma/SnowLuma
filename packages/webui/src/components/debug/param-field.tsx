@@ -3,12 +3,15 @@
 // input as the floor. This is what kills "hand-write the JSON": a group_id
 // becomes a group picker, a member_id a member picker linked to the sibling
 // group_id, an image a FileSource, a bool a switch, an enum a select.
+import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { Picker } from '@/components/ui/picker';
 import { FaceGrid } from '@/components/ui/face-grid';
 import { FileSource } from '@/components/debug/file-source';
+import { Segmented } from '@/components/debug/segmented';
+import { MessageBuilder, toOneBot, type Seg } from '@/components/debug/message-builder';
 import { useFriends, useGroups, useGroupMembers } from '@/hooks/use-debug-contacts';
 import type { DebugActionParam, FieldRole } from '@/types';
 
@@ -98,15 +101,7 @@ export function ParamField({ param, value, onChange, uin, groupContext }: {
     );
   }
   if (param.type === 'message') {
-    // Phase 5 swaps in the visual message builder; until then, raw text/JSON.
-    return (
-      <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder='文本，或 OneBot 段数组 JSON：[{"type":"text","data":{"text":"hi"}}]'
-        className="min-h-20 w-full rounded-md border border-border bg-transparent px-3 py-2 font-mono text-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
-      />
-    );
+    return <MessageParamField value={value} onChange={onChange} uin={uin} groupContext={groupContext} />;
   }
   if (isNumericType(param.type)) {
     return <Input type="number" value={value} onChange={(e) => onChange(e.target.value)}
@@ -114,4 +109,36 @@ export function ParamField({ param, value, onChange, uin, groupContext }: {
   }
   return <Input value={value} onChange={(e) => onChange(e.target.value)}
     placeholder={param.desc || (param.default !== undefined ? `默认 ${JSON.stringify(param.default)}` : '')} />;
+}
+
+// Message param: the visual builder (keeps its own Seg[] model and emits the
+// serialized OneBot array as the string param value) with a raw-text escape
+// hatch. The builder is one-way (builder → value); switching to 原文 edits the
+// string directly — the tester's global JSON mode covers full raw editing.
+function MessageParamField({ value, onChange, uin, groupContext }: { value: string; onChange: (v: string) => void; uin: string; groupContext: string }) {
+  const [mode, setMode] = useState<'build' | 'raw'>('build');
+  const [segs, setSegs] = useState<Seg[]>([]);
+
+  const updateSegs = (next: Seg[]) => {
+    setSegs(next);
+    onChange(next.length ? JSON.stringify(toOneBot(next)) : '');
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex justify-end">
+        <Segmented value={mode} onChange={setMode} options={[{ value: 'build', label: '构建器' }, { value: 'raw', label: '原文' }]} />
+      </div>
+      {mode === 'build' ? (
+        <MessageBuilder segments={segs} onChange={updateSegs} uin={uin} groupId={groupContext} />
+      ) : (
+        <textarea
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder='文本，或 OneBot 段数组 JSON：[{"type":"text","data":{"text":"hi"}}]'
+          className="min-h-20 w-full rounded-md border border-border bg-transparent px-3 py-2 font-mono text-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+        />
+      )}
+    </div>
+  );
 }
