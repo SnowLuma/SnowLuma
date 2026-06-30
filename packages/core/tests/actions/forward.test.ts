@@ -151,3 +151,71 @@ describe('actions/forward', () => {
     expect(sendRawPacket).toHaveBeenCalledOnce();
   });
 });
+
+describe('actions/forward — sender name enrichment (#174)', () => {
+  function apiWith(contacts: { fetchGroupMemberList: any; fetchUserProfile: any }) {
+    return new ForwardApi({ apis: { contacts } } as any);
+  }
+
+  it('fills empty / "QQ用户" names via the group member list (L3), card preferred', async () => {
+    const fetchGroupMemberList = vi.fn(async () => [
+      { uin: 10001, nickname: 'AliceNick', card: 'AliceCard' },
+      { uin: 10002, nickname: 'BobNick', card: '' },
+    ]);
+    const fetchUserProfile = vi.fn(async (uin: number) => ({ uin, nickname: 'Stranger' }));
+    const api = apiWith({ fetchGroupMemberList, fetchUserProfile });
+
+    const nodes: any[] = [
+      { userUin: 10001, nickname: '', groupId: 700, messageType: 'group', elements: [] },
+      { userUin: 10002, nickname: 'QQ用户', groupId: 700, messageType: 'group', elements: [] },
+      { userUin: 10003, nickname: '', groupId: 700, messageType: 'group', elements: [] }, // not in list
+      { userUin: 10009, nickname: '', messageType: 'private', elements: [] },             // private
+      { userUin: 10005, nickname: 'KeepMe', groupId: 700, messageType: 'group', elements: [] },
+    ];
+    const changed = await (api as any).enrichSenders(nodes);
+
+    expect(changed).toBe(true);
+    expect(nodes[0].nickname).toBe('AliceCard');     // card preferred over nick
+    expect(nodes[0].senderCard).toBe('AliceCard');
+    expect(nodes[1].nickname).toBe('BobNick');       // card empty → nickname
+    expect(nodes[2].nickname).toBe('Stranger');      // not in member list → L4 profile
+    expect(nodes[3].nickname).toBe('Stranger');      // private node → L4 profile
+    expect(nodes[4].nickname).toBe('KeepMe');        // already named → untouched
+    expect(fetchGroupMemberList).toHaveBeenCalledTimes(1); // one fetch covers the whole group
+  });
+
+  it('is a no-op (no fetch) when every node already has a name', async () => {
+    const fetchGroupMemberList = vi.fn();
+    const fetchUserProfile = vi.fn();
+    const api = apiWith({ fetchGroupMemberList, fetchUserProfile });
+    const nodes: any[] = [{ userUin: 1, nickname: 'has-name', groupId: 7, messageType: 'group', elements: [] }];
+    expect(await (api as any).enrichSenders(nodes)).toBe(false);
+    expect(fetchGroupMemberList).not.toHaveBeenCalled();
+  });
+
+  it('keeps the placeholder and never throws when resolution fails', async () => {
+    const api = apiWith({
+      fetchGroupMemberList: vi.fn(async () => { throw new Error('net down'); }),
+      fetchUserProfile: vi.fn(async () => { throw new Error('net down'); }),
+    });
+    const nodes: any[] = [{ userUin: 10001, nickname: 'QQ用户', groupId: 700, messageType: 'group', elements: [] }];
+    await expect((api as any).enrichSenders(nodes)).resolves.toBe(false);
+    expect(nodes[0].nickname).toBe('QQ用户');
+  });
+
+  it('does NOT fan a member-list failure out to per-uin profile lookups (rate-limit guard)', async () => {
+    const fetchUserProfile = vi.fn(async (uin: number) => ({ uin, nickname: 'X' }));
+    const api = apiWith({
+      fetchGroupMemberList: vi.fn(async () => { throw new Error('net'); }),
+      fetchUserProfile,
+    });
+    // 5 distinct group senders whose member list errors → must keep placeholder,
+    // NOT trigger 5 profile calls.
+    const nodes: any[] = Array.from({ length: 5 }, (_, i) => ({
+      userUin: 20000 + i, nickname: '', groupId: 700, messageType: 'group', elements: [],
+    }));
+    expect(await (api as any).enrichSenders(nodes)).toBe(false);
+    expect(fetchUserProfile).not.toHaveBeenCalled();
+    expect(nodes.every((n) => n.nickname === '')).toBe(true);
+  });
+});
