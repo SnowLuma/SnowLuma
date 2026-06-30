@@ -91,6 +91,10 @@
     "./oidb-actions/ocr": {
       "types": "./src/oidb-actions/ocr.ts",
       "default": "./src/oidb-actions/ocr.ts"
+    },
+    "./oidb-actions/sys-faces": {
+      "types": "./src/oidb-actions/sys-faces.ts",
+      "default": "./src/oidb-actions/sys-faces.ts"
     }
   },
   "scripts": {
