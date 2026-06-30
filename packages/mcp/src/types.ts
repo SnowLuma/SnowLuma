@@ -11,6 +11,11 @@ export interface CatalogParam {
   default?: unknown;
   desc?: string;
   values?: ReadonlyArray<string | number>;
+  /** Semantic role (group_id / user_id / member_id / image / face_id / …),
+   *  orthogonal to `type`; drives smart-widget selection in the WebUI console.
+   *  Kept as a loose string here so the package stays decoupled from onebot's
+   *  FieldRole union. */
+  role?: string;
   /** JSON Schema fragment for this single field. */
   schema?: Record<string, unknown>;
 }
@@ -27,6 +32,9 @@ export interface CatalogAction {
    *  read/write tool routing: read-only → query_action, else → invoke_action.
    *  Classified at the source spec by what the action's `run` actually does. */
   readOnly: boolean;
+  /** True for Stream API actions (multi-frame transport). Absent ⇒ ordinary
+   *  single-response action. */
+  stream?: boolean;
   params: CatalogParam[];
   /** Cross-field invariants, e.g. "exactly one of: message_id | (group_id+user_id)". */
   invariants: string[];
