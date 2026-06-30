@@ -54,7 +54,7 @@ export const actions = [
     },
     summary: '获取 QQ 空间说说列表（默认机器人自己的空间）',
     params: {
-      target_uin: f.uint().describe('目标 QQ 号，省略则取机器人自己').optional(),
+      target_uin: f.userId().describe('目标 QQ 号，省略则取机器人自己').optional(),
       pos: f.int({ min: 0 }).describe('起始偏移').default(0),
       num: f.int({ min: 1, max: 100 }).describe('本页数量').default(20),
     },
@@ -167,8 +167,8 @@ export const actions = [
     summary: '给一条说说点赞（QQ 空间）',
     params: {
       tid: f.string({ allowEmpty: false }).describe('说说 tid'),
-      target_uin: f.uint().describe('说说所属 QQ 号，省略则为机器人自己').optional(),
-      abstime: f.int({ min: 0 }).describe('说说发表时间（unix 秒），传真实值更可靠').default(0),
+      target_uin: f.userId().describe('说说所属 QQ 号，省略则为机器人自己').optional(),
+      abstime: f.int({ min: 0 }).describe('说说发表时间（unix 秒），传真实值更可靠').default(0).role('timestamp'),
     },
     run: async (p, ctx) => {
       try {
@@ -188,8 +188,8 @@ export const actions = [
     summary: '取消对一条说说的点赞（QQ 空间；取消赞端点待真机核实）',
     params: {
       tid: f.string({ allowEmpty: false }).describe('说说 tid'),
-      target_uin: f.uint().describe('说说所属 QQ 号，省略则为机器人自己').optional(),
-      abstime: f.int({ min: 0 }).describe('说说发表时间（unix 秒），传真实值更可靠').default(0),
+      target_uin: f.userId().describe('说说所属 QQ 号，省略则为机器人自己').optional(),
+      abstime: f.int({ min: 0 }).describe('说说发表时间（unix 秒），传真实值更可靠').default(0).role('timestamp'),
     },
     run: async (p, ctx) => {
       try {
@@ -211,7 +211,7 @@ export const actions = [
     params: {
       tid: f.string({ allowEmpty: false }).describe('说说 tid'),
       content: f.string({ allowEmpty: false }).describe('评论内容'),
-      target_uin: f.uint().describe('说说所属 QQ 号，省略则为机器人自己').optional(),
+      target_uin: f.userId().describe('说说所属 QQ 号，省略则为机器人自己').optional(),
       images: f.array(f.string({ allowEmpty: false })).describe('图片数组（可选），支持 file:// http:// base64://；自动上传').optional(),
     },
     run: async (p, ctx) => {

@@ -47,8 +47,8 @@ export const actions = [
     params: {
       message: f.message(),
       message_type: f.string().optional(),
-      group_id: f.uint().optional(),
-      user_id: f.uint().optional(),
+      group_id: f.groupId().optional(),
+      user_id: f.userId().optional(),
       auto_escape: f.bool().default(false),
     },
     run: async (p, ctx) => {
@@ -67,7 +67,7 @@ export const actions = [
     name: 'send_private_msg',
     summary: '发送私聊消息',
     returns: '{ message_id: number }',
-    params: { user_id: f.uint(), message: f.message(), auto_escape: f.bool().default(false) },
+    params: { user_id: f.userId(), message: f.message(), auto_escape: f.bool().default(false) },
     run: async (p, ctx) => {
       const result = await ctx.sendPrivateMessage(p.user_id, p.message, p.auto_escape);
       return okResponse({ message_id: result.messageId });

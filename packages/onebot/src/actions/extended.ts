@@ -141,7 +141,7 @@ export const actions = [
     name: 'send_like',
     summary: '点赞',
     params: {
-      user_id: f.uint(),
+      user_id: f.userId(),
       // 原实现用 `asNumber(times) || 1`，present 0 会被当作缺省 1。
       times: f.int({ min: 0 }).default(1),
     },
@@ -155,8 +155,8 @@ export const actions = [
     name: 'friend_poke',
     summary: '好友拍一拍',
     params: {
-      user_id: f.uint(),
-      target_id: f.uint().optional(),
+      user_id: f.userId(),
+      target_id: f.userId().optional(),
     },
     run: async (p, ctx) => {
       await ctx.bridge.apis.interaction.sendPoke(false, p.user_id, p.target_id);
@@ -177,8 +177,8 @@ export const actions = [
     name: 'send_poke',
     summary: '拍一拍（群聊/私聊自动路由）',
     params: {
-      user_id: f.uint(),
-      group_id: f.uint().optional(),
+      user_id: f.userId(),
+      group_id: f.groupId().optional(),
     },
     run: async (p, ctx) => {
       if (p.group_id) {
@@ -233,7 +233,7 @@ export const actions = [
     name: 'set_group_reaction',
     summary: '群聊表情回应',
     params: {
-      group_id: f.uint().optional(),
+      group_id: f.groupId().optional(),
       message_id: f.messageId(),
       code: f.string({ allowEmpty: false }),
       is_set: f.bool().default(true),
@@ -272,7 +272,7 @@ export const actions = [
   defineAction({
     name: 'add_custom_face',
     summary: '添加收藏表情',
-    params: { file: f.string({ allowEmpty: false }) },
+    params: { file: f.image() },
     run: async (p, ctx) => {
       try {
         const emojiId = await ctx.bridge.apis.profile.addCustomFace(p.file);
@@ -339,7 +339,7 @@ export const actions = [
       // param-validation time (retcode 1400) before run() ever fires. Use a
       // plain signed int; `.default(0)` keeps absent/present-0 → "fetch latest"
       // (matches the original `asNumber(message_id) || 0`). `count` stays ≥0.
-      message_id: f.int().default(0),
+      message_id: f.int().default(0).role('message_id'),
       count: f.int({ min: 0 }).default(20),
     },
     run: async (p, ctx) => {
@@ -361,9 +361,9 @@ export const actions = [
       required: ['messages'],
     },
     params: {
-      user_id: f.uint(),
+      user_id: f.userId(),
       // Signed int32 hash, frequently negative — see get_group_msg_history.
-      message_id: f.int().default(0),
+      message_id: f.int().default(0).role('message_id'),
       count: f.int({ min: 0 }).default(20),
     },
     run: async (p, ctx) => {
@@ -378,7 +378,7 @@ export const actions = [
     summary: '标记群消息已读',
     params: {
       message_id: f.messageId(),
-      group_id: f.uint().optional(),
+      group_id: f.groupId().optional(),
     },
     run: async (p, ctx) => {
       const meta = ctx.getMessageMeta(p.message_id);
@@ -400,7 +400,7 @@ export const actions = [
     summary: '标记私聊消息已读',
     params: {
       message_id: f.messageId(),
-      user_id: f.uint().optional(),
+      user_id: f.userId().optional(),
     },
     run: async (p, ctx) => {
       const meta = ctx.getMessageMeta(p.message_id);
@@ -447,7 +447,7 @@ export const actions = [
     summary: '发送群公告',
     params: {
       content: f.string({ allowEmpty: false }),
-      image: f.string().default(''),
+      image: f.string().default('').role('image'),
       pinned: f.raw(),
       type: f.raw(),
       confirm_required: f.raw(),
@@ -490,7 +490,7 @@ export const actions = [
     params: {
       messages: f.message().optional(),
       message: f.message().optional(),
-      group_id: f.uint().optional(),
+      group_id: f.groupId().optional(),
     },
     run: async (p, ctx) => {
       const messages = p.messages ?? p.message;
@@ -514,7 +514,7 @@ export const actions = [
     params: {
       messages: f.message().optional(),
       message: f.message().optional(),
-      group_id: f.uint().optional(),
+      group_id: f.groupId().optional(),
     },
     run: async (p, ctx) => {
       const messages = p.messages ?? p.message;
@@ -531,8 +531,8 @@ export const actions = [
     summary: '获取图片信息',
     readOnly: true,
     params: {
-      file: f.string().default(''),
-      file_id: f.string().default(''),
+      file: f.string().default('').role('image'),
+      file_id: f.string().default('').role('file_id'),
     },
     run: async (p, ctx) => {
       const file = p.file || p.file_id;
@@ -548,8 +548,8 @@ export const actions = [
     summary: '获取语音信息',
     readOnly: true,
     params: {
-      file: f.string().default(''),
-      file_id: f.string().default(''),
+      file: f.string().default('').role('record'),
+      file_id: f.string().default('').role('file_id'),
     },
     run: async (p, ctx) => {
       const file = p.file || p.file_id;
@@ -574,7 +574,7 @@ export const actions = [
       required: ['text'],
     },
     params: {
-      message_id: f.string().default(''),
+      message_id: f.string().default('').role('message_id'),
     },
     // `raw` so message_id works whether the client sends a number or a string.
     run: async (_p, ctx, raw) => {
@@ -684,7 +684,7 @@ export const actions = [
     name: 'set_friend_remark',
     summary: '设置好友备注',
     params: {
-      user_id: f.uint(),
+      user_id: f.userId(),
       remark: f.string(),
     },
     run: async (p, ctx) => {
@@ -697,7 +697,7 @@ export const actions = [
     name: 'set_group_remark',
     summary: '设置群备注',
     params: {
-      group_id: f.uint(),
+      group_id: f.groupId(),
       remark: f.string(),
     },
     run: async (p, ctx) => {
@@ -822,7 +822,7 @@ export const actions = [
     name: 'set_diy_online_status',
     summary: '设置自定义在线状态',
     params: {
-      face_id: f.uint(),
+      face_id: f.faceId(),
       // 原实现用 `asNumber(face_type) || 1`，present 0 会被当作缺省 1。
       face_type: f.int({ min: 0 }).default(1),
       wording: f.string().default(''),
@@ -979,7 +979,7 @@ export const actions = [
     summary: '转发单条消息给好友',
     params: {
       message_id: f.messageId(),
-      user_id: f.uint(),
+      user_id: f.userId(),
     },
     run: async (p, ctx) => {
       try {
@@ -996,7 +996,7 @@ export const actions = [
     summary: '转发单条消息到群',
     params: {
       message_id: f.messageId(),
-      group_id: f.uint(),
+      group_id: f.groupId(),
     },
     run: async (p, ctx) => {
       try {
@@ -1044,7 +1044,7 @@ export const actions = [
     },
     params: {
       // 原实现 user_id 经 asNumber，无校验（0 也透传）。
-      user_id: f.int({ min: 0 }).default(0),
+      user_id: f.int({ min: 0 }).default(0).role('user_id'),
       start: f.int({ min: 0 }).default(0),
       count: f.int({ min: 0 }).default(10),
     },
@@ -1367,8 +1367,8 @@ export const actions = [
       required: ['arkMsg'],
     },
     params: {
-      user_id: f.uint().optional(),
-      group_id: f.uint().optional(),
+      user_id: f.userId().optional(),
+      group_id: f.groupId().optional(),
       phone_number: f.string().default(''),
     },
     run: async (p, ctx) => {
@@ -1398,8 +1398,8 @@ export const actions = [
       required: ['arkMsg'],
     },
     params: {
-      user_id: f.uint().optional(),
-      group_id: f.uint().optional(),
+      user_id: f.userId().optional(),
+      group_id: f.groupId().optional(),
       phone_number: f.string().default(''),
     },
     run: async (p, ctx) => {
@@ -1427,7 +1427,7 @@ export const actions = [
     readOnly: true,
     returns: '服务端生成的群推荐 Ark 卡片 JSON 字符串。',
     returnsSchema: { type: 'string', description: '群 Ark 卡片 JSON 字符串' },
-    params: { group_id: f.uint() },
+    params: { group_id: f.groupId() },
     run: async (p, ctx) => {
       try {
         return okResponse(await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id));
@@ -1442,7 +1442,7 @@ export const actions = [
     readOnly: true,
     returns: '服务端生成的群推荐 Ark 卡片 JSON 字符串。',
     returnsSchema: { type: 'string', description: '群 Ark 卡片 JSON 字符串' },
-    params: { group_id: f.uint() },
+    params: { group_id: f.groupId() },
     run: async (p, ctx) => {
       try {
         return okResponse(await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id));
@@ -1565,7 +1565,7 @@ export const actions = [
   defineAction({
     name: 'set_qq_avatar',
     summary: '设置 QQ 头像',
-    params: { file: f.string({ allowEmpty: false }) },
+    params: { file: f.image() },
     run: async (p, ctx) => {
       try {
         await ctx.bridge.apis.profile.setAvatar(p.file);
@@ -1580,7 +1580,7 @@ export const actions = [
     name: 'set_input_status',
     summary: '设置输入状态',
     params: {
-      user_id: f.uint(),
+      user_id: f.userId(),
       // event_type 可能为 0（取消输入状态）；缺省也按 0 处理（与旧 asNumber 行为一致）。
       event_type: f.int().default(0),
     },
@@ -1598,7 +1598,7 @@ export const actions = [
     name: 'get_group_info_ex',
     summary: '获取群信息（扩展）',
     readOnly: true,
-    params: { group_id: f.uint() },
+    params: { group_id: f.groupId() },
     run: async (p, ctx) => {
       if (ctx.getGroupInfo) {
         return okResponse(await ctx.getGroupInfo(p.group_id));
@@ -1611,7 +1611,7 @@ export const actions = [
     name: 'get_group_detail_info',
     summary: '获取群详细信息',
     readOnly: true,
-    params: { group_id: f.uint() },
+    params: { group_id: f.groupId() },
     run: async (p, ctx) => {
       if (ctx.getGroupInfo) {
         return okResponse(await ctx.getGroupInfo(p.group_id));
@@ -1644,8 +1644,8 @@ export const actions = [
     summary: '获取文件信息（仅图片/语音缓存；群文件请用 get_group_file_url）',
     readOnly: true,
     params: {
-      file_id: f.string().default(''),
-      file: f.string().default(''),
+      file_id: f.string().default('').role('file_id'),
+      file: f.string().default('').role('file'),
     },
     run: async (p, ctx) => {
       const fileId = p.file || p.file_id;
@@ -1712,7 +1712,7 @@ export const actions = [
       },
       required: ['status', 'ext_status'],
     },
-    params: { user_id: f.uint() },
+    params: { user_id: f.userId() },
     run: async (p, ctx) => {
       const status = await ctx.bridge.apis.extras.getStrangerStatus(p.user_id);
       if (!status) return failedResponse(RETCODE.ACTION_FAILED, 'failed to fetch user status');
@@ -1934,7 +1934,7 @@ export const actions = [
       },
       required: ['texts', 'language'],
     },
-    params: { image: f.string({ allowEmpty: false }) },
+    params: { image: f.image() },
     run: async (p, ctx) => {
       // A passed-in http(s) URL is used verbatim (NOT re-signed) — if it is a
       // stale CDN URL with an expired rkey the server fetch fails and surfaces
@@ -2022,7 +2022,7 @@ export const actions = [
     name: 'send_private_forward_msg',
     summary: '发送私聊合并转发',
     returns: '{ message_id, res_id, forward_id }',
-    params: { user_id: f.uint(), messages: f.message().optional(), message: f.message().optional() },
+    params: { user_id: f.userId(), messages: f.message().optional(), message: f.message().optional() },
     run: async (p, ctx, raw) => {
       const messages = p.messages ?? p.message;
       if (messages === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'message/messages is required');
@@ -2407,8 +2407,8 @@ export const actions = [
     returns: '{ message_id }',
     params: {
       fileset_id: f.string({ allowEmpty: false }),
-      user_id: f.uint().optional(),
-      group_id: f.uint().optional(),
+      user_id: f.userId().optional(),
+      group_id: f.groupId().optional(),
     },
     run: async (p, ctx) => {
       if (!p.user_id && !p.group_id) {

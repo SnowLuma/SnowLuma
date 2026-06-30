@@ -325,8 +325,8 @@ async function runDownload(
 // ─────────────────────────── action definitions ───────────────────────────
 
 const downloadParams = {
-  file: f.string().optional().describe('文件路径(限 stream 临时目录)/ http(s) URL'),
-  file_id: f.string().optional().describe('文件 ID(缓存的图片/语音 id)'),
+  file: f.string().optional().describe('文件路径(限 stream 临时目录)/ http(s) URL').role('file'),
+  file_id: f.string().optional().describe('文件 ID(缓存的图片/语音 id)').role('file_id'),
   chunk_size: f.int({ min: 1 }).optional().describe('分块大小(字节,默认 64KB)'),
 };
 

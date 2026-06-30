@@ -202,7 +202,8 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "type": "string"
         },
-        "default": ""
+        "default": "",
+        "role": "image"
       },
       {
         "name": "pinned",
@@ -239,7 +240,8 @@ export const ACTIONS: CatalogAction[] = [
         },
         "image": {
           "type": "string",
-          "default": ""
+          "default": "",
+          "x-role": "image"
         },
         "pinned": {},
         "type": {},
@@ -291,6 +293,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "file",
         "type": "string",
         "required": true,
+        "role": "image",
         "schema": {
           "type": "string",
           "minLength": 1
@@ -303,7 +306,8 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "file": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "x-role": "image"
         }
       },
       "required": [
@@ -659,6 +663,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "target_uin",
         "type": "uint",
         "required": false,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -696,7 +701,8 @@ export const ACTIONS: CatalogAction[] = [
         "target_uin": {
           "type": "integer",
           "minimum": 1,
-          "description": "说说所属 QQ 号，省略则为机器人自己"
+          "description": "说说所属 QQ 号，省略则为机器人自己",
+          "x-role": "user_id"
         },
         "images": {
           "type": "array",
@@ -1068,6 +1074,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": true,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -1091,7 +1098,8 @@ export const ACTIONS: CatalogAction[] = [
         "user_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "QQ 号"
+          "description": "QQ 号",
+          "x-role": "user_id"
         },
         "block": {
           "type": "boolean",
@@ -1126,6 +1134,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "file_id",
         "type": "string",
         "required": true,
+        "role": "file_id",
         "schema": {
           "type": "string",
           "minLength": 1
@@ -1144,7 +1153,8 @@ export const ACTIONS: CatalogAction[] = [
         },
         "file_id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "x-role": "file_id"
         }
       },
       "required": [
@@ -1474,7 +1484,8 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "type": "string"
         },
-        "desc": "文件路径(限 stream 临时目录)/ http(s) URL"
+        "desc": "文件路径(限 stream 临时目录)/ http(s) URL",
+        "role": "file"
       },
       {
         "name": "file_id",
@@ -1483,7 +1494,8 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "type": "string"
         },
-        "desc": "文件 ID(缓存的图片/语音 id)"
+        "desc": "文件 ID(缓存的图片/语音 id)",
+        "role": "file_id"
       },
       {
         "name": "chunk_size",
@@ -1502,11 +1514,13 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "file": {
           "type": "string",
-          "description": "文件路径(限 stream 临时目录)/ http(s) URL"
+          "description": "文件路径(限 stream 临时目录)/ http(s) URL",
+          "x-role": "file"
         },
         "file_id": {
           "type": "string",
-          "description": "文件 ID(缓存的图片/语音 id)"
+          "description": "文件 ID(缓存的图片/语音 id)",
+          "x-role": "file_id"
         },
         "chunk_size": {
           "type": "integer",
@@ -1533,7 +1547,8 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "type": "string"
         },
-        "desc": "文件路径(限 stream 临时目录)/ http(s) URL"
+        "desc": "文件路径(限 stream 临时目录)/ http(s) URL",
+        "role": "file"
       },
       {
         "name": "file_id",
@@ -1542,7 +1557,8 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "type": "string"
         },
-        "desc": "文件 ID(缓存的图片/语音 id)"
+        "desc": "文件 ID(缓存的图片/语音 id)",
+        "role": "file_id"
       },
       {
         "name": "chunk_size",
@@ -1561,11 +1577,13 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "file": {
           "type": "string",
-          "description": "文件路径(限 stream 临时目录)/ http(s) URL"
+          "description": "文件路径(限 stream 临时目录)/ http(s) URL",
+          "x-role": "file"
         },
         "file_id": {
           "type": "string",
-          "description": "文件 ID(缓存的图片/语音 id)"
+          "description": "文件 ID(缓存的图片/语音 id)",
+          "x-role": "file_id"
         },
         "chunk_size": {
           "type": "integer",
@@ -1592,7 +1610,8 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "type": "string"
         },
-        "desc": "文件路径(限 stream 临时目录)/ http(s) URL"
+        "desc": "文件路径(限 stream 临时目录)/ http(s) URL",
+        "role": "file"
       },
       {
         "name": "file_id",
@@ -1601,7 +1620,8 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "type": "string"
         },
-        "desc": "文件 ID(缓存的图片/语音 id)"
+        "desc": "文件 ID(缓存的图片/语音 id)",
+        "role": "file_id"
       },
       {
         "name": "chunk_size",
@@ -1620,11 +1640,13 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "file": {
           "type": "string",
-          "description": "文件路径(限 stream 临时目录)/ http(s) URL"
+          "description": "文件路径(限 stream 临时目录)/ http(s) URL",
+          "x-role": "file"
         },
         "file_id": {
           "type": "string",
-          "description": "文件 ID(缓存的图片/语音 id)"
+          "description": "文件 ID(缓存的图片/语音 id)",
+          "x-role": "file_id"
         },
         "chunk_size": {
           "type": "integer",
@@ -1913,7 +1935,8 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "type": "string"
         },
-        "default": ""
+        "default": "",
+        "role": "message_id"
       }
     ],
     "invariants": [],
@@ -1922,7 +1945,8 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "message_id": {
           "type": "string",
-          "default": ""
+          "default": "",
+          "x-role": "message_id"
         }
       },
       "additionalProperties": true
@@ -1951,6 +1975,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": true,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -1970,7 +1995,8 @@ export const ACTIONS: CatalogAction[] = [
         },
         "user_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "user_id"
         }
       },
       "required": [
@@ -2003,6 +2029,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -2022,7 +2049,8 @@ export const ACTIONS: CatalogAction[] = [
         },
         "group_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "group_id"
         }
       },
       "required": [
@@ -2043,6 +2071,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": true,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -2052,6 +2081,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "target_id",
         "type": "uint",
         "required": false,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -2064,11 +2094,13 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "user_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "user_id"
         },
         "target_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "user_id"
         }
       },
       "required": [
@@ -2626,7 +2658,8 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "type": "string"
         },
-        "default": ""
+        "default": "",
+        "role": "file_id"
       },
       {
         "name": "file",
@@ -2635,7 +2668,8 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "type": "string"
         },
-        "default": ""
+        "default": "",
+        "role": "file"
       }
     ],
     "invariants": [],
@@ -2644,11 +2678,13 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "file_id": {
           "type": "string",
-          "default": ""
+          "default": "",
+          "x-role": "file_id"
         },
         "file": {
           "type": "string",
-          "default": ""
+          "default": "",
+          "x-role": "file"
         }
       },
       "additionalProperties": true
@@ -2927,6 +2963,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": true,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -2939,7 +2976,8 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "type": "integer"
         },
-        "default": 0
+        "default": 0,
+        "role": "message_id"
       },
       {
         "name": "count",
@@ -2958,11 +2996,13 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "user_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "user_id"
         },
         "message_id": {
           "type": "integer",
-          "default": 0
+          "default": 0,
+          "x-role": "message_id"
         },
         "count": {
           "type": "integer",
@@ -3210,6 +3250,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -3222,7 +3263,8 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "group_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "group_id"
         }
       },
       "required": [
@@ -3330,6 +3372,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "file_id",
         "type": "string",
         "required": true,
+        "role": "file_id",
         "schema": {
           "type": "string",
           "minLength": 1
@@ -3354,7 +3397,8 @@ export const ACTIONS: CatalogAction[] = [
         },
         "file_id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "x-role": "file_id"
         },
         "busid": {}
       },
@@ -3808,6 +3852,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -3820,7 +3865,8 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "group_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "group_id"
         }
       },
       "required": [
@@ -4181,7 +4227,8 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "type": "integer"
         },
-        "default": 0
+        "default": 0,
+        "role": "message_id"
       },
       {
         "name": "count",
@@ -4206,7 +4253,8 @@ export const ACTIONS: CatalogAction[] = [
         },
         "message_id": {
           "type": "integer",
-          "default": 0
+          "default": 0,
+          "x-role": "message_id"
         },
         "count": {
           "type": "integer",
@@ -4482,7 +4530,8 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "type": "string"
         },
-        "default": ""
+        "default": "",
+        "role": "image"
       },
       {
         "name": "file_id",
@@ -4491,7 +4540,8 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "type": "string"
         },
-        "default": ""
+        "default": "",
+        "role": "file_id"
       }
     ],
     "invariants": [],
@@ -4500,11 +4550,13 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "file": {
           "type": "string",
-          "default": ""
+          "default": "",
+          "x-role": "image"
         },
         "file_id": {
           "type": "string",
-          "default": ""
+          "default": "",
+          "x-role": "file_id"
         }
       },
       "additionalProperties": true
@@ -4645,6 +4697,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": false,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -4654,6 +4707,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "file_id",
         "type": "string",
         "required": true,
+        "role": "file_id",
         "schema": {
           "type": "string",
           "minLength": 1
@@ -4675,11 +4729,13 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "user_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "user_id"
         },
         "file_id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "x-role": "file_id"
         },
         "file_hash": {
           "type": "string",
@@ -4775,7 +4831,8 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "minimum": 0
         },
-        "default": 0
+        "default": 0,
+        "role": "user_id"
       },
       {
         "name": "start",
@@ -4805,7 +4862,8 @@ export const ACTIONS: CatalogAction[] = [
         "user_id": {
           "type": "integer",
           "minimum": 0,
-          "default": 0
+          "default": 0,
+          "x-role": "user_id"
         },
         "start": {
           "type": "integer",
@@ -5082,6 +5140,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "target_uin",
         "type": "uint",
         "required": false,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -5119,7 +5178,8 @@ export const ACTIONS: CatalogAction[] = [
         "target_uin": {
           "type": "integer",
           "minimum": 1,
-          "description": "目标 QQ 号，省略则取机器人自己"
+          "description": "目标 QQ 号，省略则取机器人自己",
+          "x-role": "user_id"
         },
         "pos": {
           "type": "integer",
@@ -5188,7 +5248,8 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "type": "string"
         },
-        "default": ""
+        "default": "",
+        "role": "record"
       },
       {
         "name": "file_id",
@@ -5197,7 +5258,8 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "type": "string"
         },
-        "default": ""
+        "default": "",
+        "role": "file_id"
       }
     ],
     "invariants": [],
@@ -5206,11 +5268,13 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "file": {
           "type": "string",
-          "default": ""
+          "default": "",
+          "x-role": "record"
         },
         "file_id": {
           "type": "string",
-          "default": ""
+          "default": "",
+          "x-role": "file_id"
         }
       },
       "additionalProperties": true
@@ -5382,6 +5446,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": true,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -5396,7 +5461,8 @@ export const ACTIONS: CatalogAction[] = [
         "user_id": {
           "type": "integer",
           "minimum": 1,
-          "description": "QQ 号"
+          "description": "QQ 号",
+          "x-role": "user_id"
         }
       },
       "required": [
@@ -5530,6 +5596,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "target_uin",
         "type": "uint",
         "required": false,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -5545,7 +5612,8 @@ export const ACTIONS: CatalogAction[] = [
           "minimum": 0
         },
         "desc": "说说发表时间（unix 秒），传真实值更可靠",
-        "default": 0
+        "default": 0,
+        "role": "timestamp"
       }
     ],
     "invariants": [],
@@ -5560,13 +5628,15 @@ export const ACTIONS: CatalogAction[] = [
         "target_uin": {
           "type": "integer",
           "minimum": 1,
-          "description": "说说所属 QQ 号，省略则为机器人自己"
+          "description": "说说所属 QQ 号，省略则为机器人自己",
+          "x-role": "user_id"
         },
         "abstime": {
           "type": "integer",
           "minimum": 0,
           "description": "说说发表时间（unix 秒），传真实值更可靠",
-          "default": 0
+          "default": 0,
+          "x-role": "timestamp"
         }
       },
       "required": [
@@ -5612,6 +5682,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": false,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -5631,7 +5702,8 @@ export const ACTIONS: CatalogAction[] = [
         },
         "group_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "group_id"
         }
       },
       "required": [
@@ -5714,6 +5786,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": false,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -5733,7 +5806,8 @@ export const ACTIONS: CatalogAction[] = [
         },
         "user_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "user_id"
         }
       },
       "required": [
@@ -5841,6 +5915,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "file_id",
         "type": "string",
         "required": true,
+        "role": "file_id",
         "schema": {
           "type": "string",
           "minLength": 1
@@ -5877,7 +5952,8 @@ export const ACTIONS: CatalogAction[] = [
         },
         "file_id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "x-role": "file_id"
         },
         "parent_directory": {
           "type": "string",
@@ -5945,6 +6021,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": true,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -5957,7 +6034,8 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "user_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "user_id"
         }
       },
       "required": [
@@ -6036,6 +6114,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "image",
         "type": "string",
         "required": true,
+        "role": "image",
         "schema": {
           "type": "string",
           "minLength": 1
@@ -6048,7 +6127,8 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "image": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "x-role": "image"
         }
       },
       "required": [
@@ -6125,6 +6205,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "file_id",
         "type": "string",
         "required": true,
+        "role": "file_id",
         "schema": {
           "type": "string",
           "minLength": 1
@@ -6161,7 +6242,8 @@ export const ACTIONS: CatalogAction[] = [
         },
         "file_id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "x-role": "file_id"
         },
         "current_parent_directory": {
           "type": "string",
@@ -6312,6 +6394,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": false,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -6321,6 +6404,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": false,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -6342,11 +6426,13 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "user_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "user_id"
         },
         "group_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "group_id"
         },
         "phone_number": {
           "type": "string",
@@ -6377,6 +6463,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": false,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -6386,6 +6473,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": false,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -6402,11 +6490,13 @@ export const ACTIONS: CatalogAction[] = [
         },
         "user_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "user_id"
         },
         "group_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "group_id"
         }
       },
       "required": [
@@ -6549,6 +6639,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -6561,7 +6652,8 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "group_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "group_id"
         }
       },
       "required": [
@@ -6702,6 +6794,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": true,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -6724,7 +6817,8 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "user_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "user_id"
         },
         "times": {
           "type": "integer",
@@ -6766,6 +6860,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": false,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -6775,6 +6870,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": false,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -6802,11 +6898,13 @@ export const ACTIONS: CatalogAction[] = [
         },
         "group_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "group_id"
         },
         "user_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "user_id"
         },
         "auto_escape": {
           "type": "boolean",
@@ -6890,6 +6988,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": true,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -6899,6 +6998,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": false,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -6911,11 +7011,13 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "user_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "user_id"
         },
         "group_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "group_id"
         }
       },
       "required": [
@@ -6936,6 +7038,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": true,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -6964,7 +7067,8 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "user_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "user_id"
         },
         "messages": {
           "description": "OneBot message: string | segment[] | object"
@@ -6991,6 +7095,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": true,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -7020,7 +7125,8 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "user_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "user_id"
         },
         "message": {
           "description": "OneBot message: string | segment[] | object"
@@ -7101,11 +7207,12 @@ export const ACTIONS: CatalogAction[] = [
     "params": [
       {
         "name": "face_id",
-        "type": "uint",
+        "type": "int",
         "required": true,
+        "role": "face_id",
         "schema": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 0
         }
       },
       {
@@ -7134,7 +7241,8 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "face_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 0,
+          "x-role": "face_id"
         },
         "face_type": {
           "type": "integer",
@@ -7291,6 +7399,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": true,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -7311,7 +7420,8 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "user_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "user_id"
         },
         "remark": {
           "type": "string"
@@ -7649,6 +7759,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "duration",
         "type": "int",
         "required": false,
+        "role": "duration",
         "schema": {
           "type": "integer",
           "minimum": 0
@@ -7675,7 +7786,8 @@ export const ACTIONS: CatalogAction[] = [
         "duration": {
           "type": "integer",
           "minimum": 0,
-          "default": 1800
+          "default": 1800,
+          "x-role": "duration"
         }
       },
       "required": [
@@ -7845,7 +7957,8 @@ export const ACTIONS: CatalogAction[] = [
           "type": "array",
           "items": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "member_id"
           },
           "minItems": 1
         }
@@ -7874,7 +7987,8 @@ export const ACTIONS: CatalogAction[] = [
           "type": "array",
           "items": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "member_id"
           },
           "minItems": 1
         },
@@ -7997,6 +8111,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "file",
         "type": "string",
         "required": true,
+        "role": "image",
         "schema": {
           "type": "string",
           "minLength": 1
@@ -8015,7 +8130,8 @@ export const ACTIONS: CatalogAction[] = [
         },
         "file": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "x-role": "image"
         }
       },
       "required": [
@@ -8036,6 +8152,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": false,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -8078,7 +8195,8 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "group_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "group_id"
         },
         "message_id": {
           "type": "integer",
@@ -8114,6 +8232,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -8134,7 +8253,8 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "group_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "group_id"
         },
         "remark": {
           "type": "string"
@@ -8466,6 +8586,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": true,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -8487,7 +8608,8 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "user_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "user_id"
         },
         "event_type": {
           "type": "integer",
@@ -8642,6 +8764,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "file",
         "type": "string",
         "required": true,
+        "role": "image",
         "schema": {
           "type": "string",
           "minLength": 1
@@ -8654,7 +8777,8 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "file": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "x-role": "image"
         }
       },
       "required": [
@@ -8761,6 +8885,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": true,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -8773,7 +8898,8 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "group_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "group_id"
         }
       },
       "required": [
@@ -8806,6 +8932,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": false,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -8815,6 +8942,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": false,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -8836,11 +8964,13 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "user_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "user_id"
         },
         "group_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "group_id"
         },
         "phone_number": {
           "type": "string",
@@ -8957,6 +9087,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "target_uin",
         "type": "uint",
         "required": false,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -8972,7 +9103,8 @@ export const ACTIONS: CatalogAction[] = [
           "minimum": 0
         },
         "desc": "说说发表时间（unix 秒），传真实值更可靠",
-        "default": 0
+        "default": 0,
+        "role": "timestamp"
       }
     ],
     "invariants": [],
@@ -8987,13 +9119,15 @@ export const ACTIONS: CatalogAction[] = [
         "target_uin": {
           "type": "integer",
           "minimum": 1,
-          "description": "说说所属 QQ 号，省略则为机器人自己"
+          "description": "说说所属 QQ 号，省略则为机器人自己",
+          "x-role": "user_id"
         },
         "abstime": {
           "type": "integer",
           "minimum": 0,
           "description": "说说发表时间（unix 秒），传真实值更可靠",
-          "default": 0
+          "default": 0,
+          "x-role": "timestamp"
         }
       },
       "required": [
@@ -9205,6 +9339,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": false,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -9223,7 +9358,8 @@ export const ACTIONS: CatalogAction[] = [
         },
         "group_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "group_id"
         }
       },
       "additionalProperties": true
@@ -9256,6 +9392,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "group_id",
         "type": "uint",
         "required": false,
+        "role": "group_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -9274,7 +9411,8 @@ export const ACTIONS: CatalogAction[] = [
         },
         "group_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "group_id"
         }
       },
       "additionalProperties": true
@@ -9303,6 +9441,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "file",
         "type": "string",
         "required": true,
+        "role": "file",
         "schema": {
           "type": "string",
           "minLength": 1
@@ -9357,7 +9496,8 @@ export const ACTIONS: CatalogAction[] = [
         },
         "file": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "x-role": "file"
         },
         "name": {
           "type": "string",
@@ -9422,6 +9562,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "file",
         "type": "string",
         "required": true,
+        "role": "image",
         "schema": {
           "type": "string",
           "minLength": 1
@@ -9448,7 +9589,8 @@ export const ACTIONS: CatalogAction[] = [
         },
         "file": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "x-role": "image"
         }
       },
       "required": [
@@ -9472,6 +9614,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "user_id",
         "type": "uint",
         "required": true,
+        "role": "user_id",
         "schema": {
           "type": "integer",
           "minimum": 1
@@ -9481,6 +9624,7 @@ export const ACTIONS: CatalogAction[] = [
         "name": "file",
         "type": "string",
         "required": true,
+        "role": "file",
         "schema": {
           "type": "string",
           "minLength": 1
@@ -9511,11 +9655,13 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "user_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "x-role": "user_id"
         },
         "file": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "x-role": "file"
         },
         "name": {
           "type": "string",

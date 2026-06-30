@@ -26,7 +26,7 @@ export const actions = [
     // non-empty wins, else '/'. Both default '' so the `||` chain matches the
     // legacy `asString(folder) || asString(folder_id) || '/'`.
     params: {
-      file: f.string({ allowEmpty: false }),
+      file: f.file(),
       name: f.string().default(''),
       folder: f.string().default(''),
       folder_id: f.string().default(''),
@@ -44,8 +44,8 @@ export const actions = [
     summary: '上传私聊文件',
     returns: '{ file_id: string }',
     params: {
-      user_id: f.uint(),
-      file: f.string({ allowEmpty: false }),
+      user_id: f.userId(),
+      file: f.file(),
       name: f.string().default(''),
       upload_file: f.bool().default(true),
     },
@@ -67,7 +67,7 @@ export const actions = [
     },
     // busid is accepted but tolerant (see busidOr102): NapCat/LLBot ignore it,
     // so a present null/empty/non-numeric value must not 400 the request (#147).
-    params: { file_id: f.string({ allowEmpty: false }), busid: f.raw() },
+    params: { file_id: f.fileId(), busid: f.raw() },
     run: async (p, ctx) => {
       return okResponse({ url: await ctx.bridge.apis.groupFile.getUrl(p.group_id, p.file_id, busidOr102(p.busid)) });
     },
@@ -183,7 +183,7 @@ export const actions = [
   groupAction({
     name: 'delete_group_file',
     summary: '删除群文件',
-    params: { file_id: f.string({ allowEmpty: false }) },
+    params: { file_id: f.fileId() },
     run: async (p, ctx) => {
       await ctx.bridge.apis.groupFile.delete(p.group_id, p.file_id);
       return okResponse();
@@ -194,7 +194,7 @@ export const actions = [
     name: 'move_group_file',
     summary: '移动群文件',
     params: {
-      file_id: f.string({ allowEmpty: false }),
+      file_id: f.fileId(),
       parent_directory: f.string({ allowEmpty: false }),
       target_directory: f.string({ allowEmpty: false }),
     },
@@ -210,7 +210,7 @@ export const actions = [
     name: 'rename_group_file',
     summary: '重命名群文件',
     params: {
-      file_id: f.string({ allowEmpty: false }),
+      file_id: f.fileId(),
       current_parent_directory: f.string().default('/'),
       new_name: f.string({ allowEmpty: false }),
     },
@@ -276,8 +276,8 @@ export const actions = [
     // clients that only persist file_id, both user_id and file_hash are now
     // optional; file_hash falls through empty when absent. See issue #147.
     params: {
-      user_id: f.uint().optional(),
-      file_id: f.string({ allowEmpty: false }),
+      user_id: f.userId().optional(),
+      file_id: f.fileId(),
       file_hash: f.string().default(''),
     },
     run: async (p, ctx) => {

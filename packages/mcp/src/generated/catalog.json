@@ -199,7 +199,8 @@
           "schema": {
             "type": "string"
           },
-          "default": ""
+          "default": "",
+          "role": "image"
         },
         {
           "name": "pinned",
@@ -236,7 +237,8 @@
           },
           "image": {
             "type": "string",
-            "default": ""
+            "default": "",
+            "x-role": "image"
           },
           "pinned": {},
           "type": {},
@@ -288,6 +290,7 @@
           "name": "file",
           "type": "string",
           "required": true,
+          "role": "image",
           "schema": {
             "type": "string",
             "minLength": 1
@@ -300,7 +303,8 @@
         "properties": {
           "file": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "x-role": "image"
           }
         },
         "required": [
@@ -656,6 +660,7 @@
           "name": "target_uin",
           "type": "uint",
           "required": false,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -693,7 +698,8 @@
           "target_uin": {
             "type": "integer",
             "minimum": 1,
-            "description": "说说所属 QQ 号，省略则为机器人自己"
+            "description": "说说所属 QQ 号，省略则为机器人自己",
+            "x-role": "user_id"
           },
           "images": {
             "type": "array",
@@ -1065,6 +1071,7 @@
           "name": "user_id",
           "type": "uint",
           "required": true,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -1088,7 +1095,8 @@
           "user_id": {
             "type": "integer",
             "minimum": 1,
-            "description": "QQ 号"
+            "description": "QQ 号",
+            "x-role": "user_id"
           },
           "block": {
             "type": "boolean",
@@ -1123,6 +1131,7 @@
           "name": "file_id",
           "type": "string",
           "required": true,
+          "role": "file_id",
           "schema": {
             "type": "string",
             "minLength": 1
@@ -1141,7 +1150,8 @@
           },
           "file_id": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "x-role": "file_id"
           }
         },
         "required": [
@@ -1471,7 +1481,8 @@
           "schema": {
             "type": "string"
           },
-          "desc": "文件路径(限 stream 临时目录)/ http(s) URL"
+          "desc": "文件路径(限 stream 临时目录)/ http(s) URL",
+          "role": "file"
         },
         {
           "name": "file_id",
@@ -1480,7 +1491,8 @@
           "schema": {
             "type": "string"
           },
-          "desc": "文件 ID(缓存的图片/语音 id)"
+          "desc": "文件 ID(缓存的图片/语音 id)",
+          "role": "file_id"
         },
         {
           "name": "chunk_size",
@@ -1499,11 +1511,13 @@
         "properties": {
           "file": {
             "type": "string",
-            "description": "文件路径(限 stream 临时目录)/ http(s) URL"
+            "description": "文件路径(限 stream 临时目录)/ http(s) URL",
+            "x-role": "file"
           },
           "file_id": {
             "type": "string",
-            "description": "文件 ID(缓存的图片/语音 id)"
+            "description": "文件 ID(缓存的图片/语音 id)",
+            "x-role": "file_id"
           },
           "chunk_size": {
             "type": "integer",
@@ -1530,7 +1544,8 @@
           "schema": {
             "type": "string"
           },
-          "desc": "文件路径(限 stream 临时目录)/ http(s) URL"
+          "desc": "文件路径(限 stream 临时目录)/ http(s) URL",
+          "role": "file"
         },
         {
           "name": "file_id",
@@ -1539,7 +1554,8 @@
           "schema": {
             "type": "string"
           },
-          "desc": "文件 ID(缓存的图片/语音 id)"
+          "desc": "文件 ID(缓存的图片/语音 id)",
+          "role": "file_id"
         },
         {
           "name": "chunk_size",
@@ -1558,11 +1574,13 @@
         "properties": {
           "file": {
             "type": "string",
-            "description": "文件路径(限 stream 临时目录)/ http(s) URL"
+            "description": "文件路径(限 stream 临时目录)/ http(s) URL",
+            "x-role": "file"
           },
           "file_id": {
             "type": "string",
-            "description": "文件 ID(缓存的图片/语音 id)"
+            "description": "文件 ID(缓存的图片/语音 id)",
+            "x-role": "file_id"
           },
           "chunk_size": {
             "type": "integer",
@@ -1589,7 +1607,8 @@
           "schema": {
             "type": "string"
           },
-          "desc": "文件路径(限 stream 临时目录)/ http(s) URL"
+          "desc": "文件路径(限 stream 临时目录)/ http(s) URL",
+          "role": "file"
         },
         {
           "name": "file_id",
@@ -1598,7 +1617,8 @@
           "schema": {
             "type": "string"
           },
-          "desc": "文件 ID(缓存的图片/语音 id)"
+          "desc": "文件 ID(缓存的图片/语音 id)",
+          "role": "file_id"
         },
         {
           "name": "chunk_size",
@@ -1617,11 +1637,13 @@
         "properties": {
           "file": {
             "type": "string",
-            "description": "文件路径(限 stream 临时目录)/ http(s) URL"
+            "description": "文件路径(限 stream 临时目录)/ http(s) URL",
+            "x-role": "file"
           },
           "file_id": {
             "type": "string",
-            "description": "文件 ID(缓存的图片/语音 id)"
+            "description": "文件 ID(缓存的图片/语音 id)",
+            "x-role": "file_id"
           },
           "chunk_size": {
             "type": "integer",
@@ -1910,7 +1932,8 @@
           "schema": {
             "type": "string"
           },
-          "default": ""
+          "default": "",
+          "role": "message_id"
         }
       ],
       "invariants": [],
@@ -1919,7 +1942,8 @@
         "properties": {
           "message_id": {
             "type": "string",
-            "default": ""
+            "default": "",
+            "x-role": "message_id"
           }
         },
         "additionalProperties": true
@@ -1948,6 +1972,7 @@
           "name": "user_id",
           "type": "uint",
           "required": true,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -1967,7 +1992,8 @@
           },
           "user_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "user_id"
           }
         },
         "required": [
@@ -2000,6 +2026,7 @@
           "name": "group_id",
           "type": "uint",
           "required": true,
+          "role": "group_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -2019,7 +2046,8 @@
           },
           "group_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "group_id"
           }
         },
         "required": [
@@ -2040,6 +2068,7 @@
           "name": "user_id",
           "type": "uint",
           "required": true,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -2049,6 +2078,7 @@
           "name": "target_id",
           "type": "uint",
           "required": false,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -2061,11 +2091,13 @@
         "properties": {
           "user_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "user_id"
           },
           "target_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "user_id"
           }
         },
         "required": [
@@ -2623,7 +2655,8 @@
           "schema": {
             "type": "string"
           },
-          "default": ""
+          "default": "",
+          "role": "file_id"
         },
         {
           "name": "file",
@@ -2632,7 +2665,8 @@
           "schema": {
             "type": "string"
           },
-          "default": ""
+          "default": "",
+          "role": "file"
         }
       ],
       "invariants": [],
@@ -2641,11 +2675,13 @@
         "properties": {
           "file_id": {
             "type": "string",
-            "default": ""
+            "default": "",
+            "x-role": "file_id"
           },
           "file": {
             "type": "string",
-            "default": ""
+            "default": "",
+            "x-role": "file"
           }
         },
         "additionalProperties": true
@@ -2924,6 +2960,7 @@
           "name": "user_id",
           "type": "uint",
           "required": true,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -2936,7 +2973,8 @@
           "schema": {
             "type": "integer"
           },
-          "default": 0
+          "default": 0,
+          "role": "message_id"
         },
         {
           "name": "count",
@@ -2955,11 +2993,13 @@
         "properties": {
           "user_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "user_id"
           },
           "message_id": {
             "type": "integer",
-            "default": 0
+            "default": 0,
+            "x-role": "message_id"
           },
           "count": {
             "type": "integer",
@@ -3207,6 +3247,7 @@
           "name": "group_id",
           "type": "uint",
           "required": true,
+          "role": "group_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -3219,7 +3260,8 @@
         "properties": {
           "group_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "group_id"
           }
         },
         "required": [
@@ -3327,6 +3369,7 @@
           "name": "file_id",
           "type": "string",
           "required": true,
+          "role": "file_id",
           "schema": {
             "type": "string",
             "minLength": 1
@@ -3351,7 +3394,8 @@
           },
           "file_id": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "x-role": "file_id"
           },
           "busid": {}
         },
@@ -3805,6 +3849,7 @@
           "name": "group_id",
           "type": "uint",
           "required": true,
+          "role": "group_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -3817,7 +3862,8 @@
         "properties": {
           "group_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "group_id"
           }
         },
         "required": [
@@ -4178,7 +4224,8 @@
           "schema": {
             "type": "integer"
           },
-          "default": 0
+          "default": 0,
+          "role": "message_id"
         },
         {
           "name": "count",
@@ -4203,7 +4250,8 @@
           },
           "message_id": {
             "type": "integer",
-            "default": 0
+            "default": 0,
+            "x-role": "message_id"
           },
           "count": {
             "type": "integer",
@@ -4479,7 +4527,8 @@
           "schema": {
             "type": "string"
           },
-          "default": ""
+          "default": "",
+          "role": "image"
         },
         {
           "name": "file_id",
@@ -4488,7 +4537,8 @@
           "schema": {
             "type": "string"
           },
-          "default": ""
+          "default": "",
+          "role": "file_id"
         }
       ],
       "invariants": [],
@@ -4497,11 +4547,13 @@
         "properties": {
           "file": {
             "type": "string",
-            "default": ""
+            "default": "",
+            "x-role": "image"
           },
           "file_id": {
             "type": "string",
-            "default": ""
+            "default": "",
+            "x-role": "file_id"
           }
         },
         "additionalProperties": true
@@ -4642,6 +4694,7 @@
           "name": "user_id",
           "type": "uint",
           "required": false,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -4651,6 +4704,7 @@
           "name": "file_id",
           "type": "string",
           "required": true,
+          "role": "file_id",
           "schema": {
             "type": "string",
             "minLength": 1
@@ -4672,11 +4726,13 @@
         "properties": {
           "user_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "user_id"
           },
           "file_id": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "x-role": "file_id"
           },
           "file_hash": {
             "type": "string",
@@ -4772,7 +4828,8 @@
             "type": "integer",
             "minimum": 0
           },
-          "default": 0
+          "default": 0,
+          "role": "user_id"
         },
         {
           "name": "start",
@@ -4802,7 +4859,8 @@
           "user_id": {
             "type": "integer",
             "minimum": 0,
-            "default": 0
+            "default": 0,
+            "x-role": "user_id"
           },
           "start": {
             "type": "integer",
@@ -5079,6 +5137,7 @@
           "name": "target_uin",
           "type": "uint",
           "required": false,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -5116,7 +5175,8 @@
           "target_uin": {
             "type": "integer",
             "minimum": 1,
-            "description": "目标 QQ 号，省略则取机器人自己"
+            "description": "目标 QQ 号，省略则取机器人自己",
+            "x-role": "user_id"
           },
           "pos": {
             "type": "integer",
@@ -5185,7 +5245,8 @@
           "schema": {
             "type": "string"
           },
-          "default": ""
+          "default": "",
+          "role": "record"
         },
         {
           "name": "file_id",
@@ -5194,7 +5255,8 @@
           "schema": {
             "type": "string"
           },
-          "default": ""
+          "default": "",
+          "role": "file_id"
         }
       ],
       "invariants": [],
@@ -5203,11 +5265,13 @@
         "properties": {
           "file": {
             "type": "string",
-            "default": ""
+            "default": "",
+            "x-role": "record"
           },
           "file_id": {
             "type": "string",
-            "default": ""
+            "default": "",
+            "x-role": "file_id"
           }
         },
         "additionalProperties": true
@@ -5379,6 +5443,7 @@
           "name": "user_id",
           "type": "uint",
           "required": true,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -5393,7 +5458,8 @@
           "user_id": {
             "type": "integer",
             "minimum": 1,
-            "description": "QQ 号"
+            "description": "QQ 号",
+            "x-role": "user_id"
           }
         },
         "required": [
@@ -5527,6 +5593,7 @@
           "name": "target_uin",
           "type": "uint",
           "required": false,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -5542,7 +5609,8 @@
             "minimum": 0
           },
           "desc": "说说发表时间（unix 秒），传真实值更可靠",
-          "default": 0
+          "default": 0,
+          "role": "timestamp"
         }
       ],
       "invariants": [],
@@ -5557,13 +5625,15 @@
           "target_uin": {
             "type": "integer",
             "minimum": 1,
-            "description": "说说所属 QQ 号，省略则为机器人自己"
+            "description": "说说所属 QQ 号，省略则为机器人自己",
+            "x-role": "user_id"
           },
           "abstime": {
             "type": "integer",
             "minimum": 0,
             "description": "说说发表时间（unix 秒），传真实值更可靠",
-            "default": 0
+            "default": 0,
+            "x-role": "timestamp"
           }
         },
         "required": [
@@ -5609,6 +5679,7 @@
           "name": "group_id",
           "type": "uint",
           "required": false,
+          "role": "group_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -5628,7 +5699,8 @@
           },
           "group_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "group_id"
           }
         },
         "required": [
@@ -5711,6 +5783,7 @@
           "name": "user_id",
           "type": "uint",
           "required": false,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -5730,7 +5803,8 @@
           },
           "user_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "user_id"
           }
         },
         "required": [
@@ -5838,6 +5912,7 @@
           "name": "file_id",
           "type": "string",
           "required": true,
+          "role": "file_id",
           "schema": {
             "type": "string",
             "minLength": 1
@@ -5874,7 +5949,8 @@
           },
           "file_id": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "x-role": "file_id"
           },
           "parent_directory": {
             "type": "string",
@@ -5942,6 +6018,7 @@
           "name": "user_id",
           "type": "uint",
           "required": true,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -5954,7 +6031,8 @@
         "properties": {
           "user_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "user_id"
           }
         },
         "required": [
@@ -6033,6 +6111,7 @@
           "name": "image",
           "type": "string",
           "required": true,
+          "role": "image",
           "schema": {
             "type": "string",
             "minLength": 1
@@ -6045,7 +6124,8 @@
         "properties": {
           "image": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "x-role": "image"
           }
         },
         "required": [
@@ -6122,6 +6202,7 @@
           "name": "file_id",
           "type": "string",
           "required": true,
+          "role": "file_id",
           "schema": {
             "type": "string",
             "minLength": 1
@@ -6158,7 +6239,8 @@
           },
           "file_id": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "x-role": "file_id"
           },
           "current_parent_directory": {
             "type": "string",
@@ -6309,6 +6391,7 @@
           "name": "user_id",
           "type": "uint",
           "required": false,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -6318,6 +6401,7 @@
           "name": "group_id",
           "type": "uint",
           "required": false,
+          "role": "group_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -6339,11 +6423,13 @@
         "properties": {
           "user_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "user_id"
           },
           "group_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "group_id"
           },
           "phone_number": {
             "type": "string",
@@ -6374,6 +6460,7 @@
           "name": "user_id",
           "type": "uint",
           "required": false,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -6383,6 +6470,7 @@
           "name": "group_id",
           "type": "uint",
           "required": false,
+          "role": "group_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -6399,11 +6487,13 @@
           },
           "user_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "user_id"
           },
           "group_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "group_id"
           }
         },
         "required": [
@@ -6546,6 +6636,7 @@
           "name": "group_id",
           "type": "uint",
           "required": true,
+          "role": "group_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -6558,7 +6649,8 @@
         "properties": {
           "group_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "group_id"
           }
         },
         "required": [
@@ -6699,6 +6791,7 @@
           "name": "user_id",
           "type": "uint",
           "required": true,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -6721,7 +6814,8 @@
         "properties": {
           "user_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "user_id"
           },
           "times": {
             "type": "integer",
@@ -6763,6 +6857,7 @@
           "name": "group_id",
           "type": "uint",
           "required": false,
+          "role": "group_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -6772,6 +6867,7 @@
           "name": "user_id",
           "type": "uint",
           "required": false,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -6799,11 +6895,13 @@
           },
           "group_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "group_id"
           },
           "user_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "user_id"
           },
           "auto_escape": {
             "type": "boolean",
@@ -6887,6 +6985,7 @@
           "name": "user_id",
           "type": "uint",
           "required": true,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -6896,6 +6995,7 @@
           "name": "group_id",
           "type": "uint",
           "required": false,
+          "role": "group_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -6908,11 +7008,13 @@
         "properties": {
           "user_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "user_id"
           },
           "group_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "group_id"
           }
         },
         "required": [
@@ -6933,6 +7035,7 @@
           "name": "user_id",
           "type": "uint",
           "required": true,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -6961,7 +7064,8 @@
         "properties": {
           "user_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "user_id"
           },
           "messages": {
             "description": "OneBot message: string | segment[] | object"
@@ -6988,6 +7092,7 @@
           "name": "user_id",
           "type": "uint",
           "required": true,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -7017,7 +7122,8 @@
         "properties": {
           "user_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "user_id"
           },
           "message": {
             "description": "OneBot message: string | segment[] | object"
@@ -7098,11 +7204,12 @@
       "params": [
         {
           "name": "face_id",
-          "type": "uint",
+          "type": "int",
           "required": true,
+          "role": "face_id",
           "schema": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 0
           }
         },
         {
@@ -7131,7 +7238,8 @@
         "properties": {
           "face_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 0,
+            "x-role": "face_id"
           },
           "face_type": {
             "type": "integer",
@@ -7288,6 +7396,7 @@
           "name": "user_id",
           "type": "uint",
           "required": true,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -7308,7 +7417,8 @@
         "properties": {
           "user_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "user_id"
           },
           "remark": {
             "type": "string"
@@ -7646,6 +7756,7 @@
           "name": "duration",
           "type": "int",
           "required": false,
+          "role": "duration",
           "schema": {
             "type": "integer",
             "minimum": 0
@@ -7672,7 +7783,8 @@
           "duration": {
             "type": "integer",
             "minimum": 0,
-            "default": 1800
+            "default": 1800,
+            "x-role": "duration"
           }
         },
         "required": [
@@ -7842,7 +7954,8 @@
             "type": "array",
             "items": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 1,
+              "x-role": "member_id"
             },
             "minItems": 1
           }
@@ -7871,7 +7984,8 @@
             "type": "array",
             "items": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 1,
+              "x-role": "member_id"
             },
             "minItems": 1
           },
@@ -7994,6 +8108,7 @@
           "name": "file",
           "type": "string",
           "required": true,
+          "role": "image",
           "schema": {
             "type": "string",
             "minLength": 1
@@ -8012,7 +8127,8 @@
           },
           "file": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "x-role": "image"
           }
         },
         "required": [
@@ -8033,6 +8149,7 @@
           "name": "group_id",
           "type": "uint",
           "required": false,
+          "role": "group_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -8075,7 +8192,8 @@
         "properties": {
           "group_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "group_id"
           },
           "message_id": {
             "type": "integer",
@@ -8111,6 +8229,7 @@
           "name": "group_id",
           "type": "uint",
           "required": true,
+          "role": "group_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -8131,7 +8250,8 @@
         "properties": {
           "group_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "group_id"
           },
           "remark": {
             "type": "string"
@@ -8463,6 +8583,7 @@
           "name": "user_id",
           "type": "uint",
           "required": true,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -8484,7 +8605,8 @@
         "properties": {
           "user_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "user_id"
           },
           "event_type": {
             "type": "integer",
@@ -8639,6 +8761,7 @@
           "name": "file",
           "type": "string",
           "required": true,
+          "role": "image",
           "schema": {
             "type": "string",
             "minLength": 1
@@ -8651,7 +8774,8 @@
         "properties": {
           "file": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "x-role": "image"
           }
         },
         "required": [
@@ -8758,6 +8882,7 @@
           "name": "group_id",
           "type": "uint",
           "required": true,
+          "role": "group_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -8770,7 +8895,8 @@
         "properties": {
           "group_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "group_id"
           }
         },
         "required": [
@@ -8803,6 +8929,7 @@
           "name": "user_id",
           "type": "uint",
           "required": false,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -8812,6 +8939,7 @@
           "name": "group_id",
           "type": "uint",
           "required": false,
+          "role": "group_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -8833,11 +8961,13 @@
         "properties": {
           "user_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "user_id"
           },
           "group_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "group_id"
           },
           "phone_number": {
             "type": "string",
@@ -8954,6 +9084,7 @@
           "name": "target_uin",
           "type": "uint",
           "required": false,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -8969,7 +9100,8 @@
             "minimum": 0
           },
           "desc": "说说发表时间（unix 秒），传真实值更可靠",
-          "default": 0
+          "default": 0,
+          "role": "timestamp"
         }
       ],
       "invariants": [],
@@ -8984,13 +9116,15 @@
           "target_uin": {
             "type": "integer",
             "minimum": 1,
-            "description": "说说所属 QQ 号，省略则为机器人自己"
+            "description": "说说所属 QQ 号，省略则为机器人自己",
+            "x-role": "user_id"
           },
           "abstime": {
             "type": "integer",
             "minimum": 0,
             "description": "说说发表时间（unix 秒），传真实值更可靠",
-            "default": 0
+            "default": 0,
+            "x-role": "timestamp"
           }
         },
         "required": [
@@ -9202,6 +9336,7 @@
           "name": "group_id",
           "type": "uint",
           "required": false,
+          "role": "group_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -9220,7 +9355,8 @@
           },
           "group_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "group_id"
           }
         },
         "additionalProperties": true
@@ -9253,6 +9389,7 @@
           "name": "group_id",
           "type": "uint",
           "required": false,
+          "role": "group_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -9271,7 +9408,8 @@
           },
           "group_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "group_id"
           }
         },
         "additionalProperties": true
@@ -9300,6 +9438,7 @@
           "name": "file",
           "type": "string",
           "required": true,
+          "role": "file",
           "schema": {
             "type": "string",
             "minLength": 1
@@ -9354,7 +9493,8 @@
           },
           "file": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "x-role": "file"
           },
           "name": {
             "type": "string",
@@ -9419,6 +9559,7 @@
           "name": "file",
           "type": "string",
           "required": true,
+          "role": "image",
           "schema": {
             "type": "string",
             "minLength": 1
@@ -9445,7 +9586,8 @@
           },
           "file": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "x-role": "image"
           }
         },
         "required": [
@@ -9469,6 +9611,7 @@
           "name": "user_id",
           "type": "uint",
           "required": true,
+          "role": "user_id",
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -9478,6 +9621,7 @@
           "name": "file",
           "type": "string",
           "required": true,
+          "role": "file",
           "schema": {
             "type": "string",
             "minLength": 1
@@ -9508,11 +9652,13 @@
         "properties": {
           "user_id": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "x-role": "user_id"
           },
           "file": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "x-role": "file"
           },
           "name": {
             "type": "string",
