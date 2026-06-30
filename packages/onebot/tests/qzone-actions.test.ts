@@ -24,7 +24,7 @@ describe('qzone actions', () => {
     expect(res).toMatchObject({ status: 'ok', retcode: 0, data: { tid: 'T1', time: 1 } });
     expect(uploadImageFromSource).toHaveBeenNthCalledWith(1, 'file:///a.jpg');
     expect(uploadImageFromSource).toHaveBeenNthCalledWith(2, 'file:///b.jpg');
-    expect(publish).toHaveBeenCalledWith('hello', 1, 'RV1\tRV2');
+    expect(publish).toHaveBeenCalledWith('hello', 1, 'RV1\tRV2', 1, undefined);
   });
 
   it('comment_qzone uploads images and comments direct urls joined with tab', async () => {

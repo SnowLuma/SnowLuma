@@ -218,6 +218,8 @@ describe('qzone / publishQzoneMsg (HTTP layer)', () => {
     expect(form.get('con')).toBe('hello 世界 & friends');
     expect(form.get('hostuin')).toBe('10000');
     expect(form.get('who')).toBe('1');
+    expect(form.get('ugc_right')).toBe('1');
+    expect(form.has('allow_uins')).toBe(false);
     expect(form.get('format')).toBe('json');
     expect(form.get('qzreferrer')).toBe('https://user.qzone.qq.com/10000');
   });
@@ -235,6 +237,39 @@ describe('qzone / publishQzoneMsg (HTTP layer)', () => {
     expect(form.get('richval')).toBe(richval);
   });
 
+  it('threads publish permission fields for restricted visibility', async () => {
+    const spy = vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue(
+      '{"code":0,"t1_tid":"RIGHTTID","t1_time":"1700000000"}',
+    );
+
+    await expect(publishQzoneMsg(cookies, '10000', 'limited', undefined, undefined, 16, '10001 | 10002|10001')).resolves.toEqual({
+      tid: 'RIGHTTID',
+      time: 1700000000,
+    });
+
+    const [, , body] = spy.mock.calls[0]!;
+    const form = new URLSearchParams(body as string);
+    expect(form.get('ugc_right')).toBe('16');
+    expect(form.get('allow_uins')).toBe('10001|10002');
+    expect(form.get('who')).toBe('1');
+  });
+
+  it('ignores target_uins for non-restricted visibility', async () => {
+    const spy = vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue(
+      '{"code":0,"t1_tid":"FRIENDTID","t1_time":"1700000000"}',
+    );
+
+    await expect(publishQzoneMsg(cookies, '10000', 'friends', undefined, undefined, 4, 'not-a-uin')).resolves.toEqual({
+      tid: 'FRIENDTID',
+      time: 1700000000,
+    });
+
+    const [, , body] = spy.mock.calls[0]!;
+    const form = new URLSearchParams(body as string);
+    expect(form.get('ugc_right')).toBe('4');
+    expect(form.has('allow_uins')).toBe(false);
+  });
+
   it('falls back to tid/now for alternate client builds', async () => {
     vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"tid":"ALT","now":1700000001}');
     await expect(publishQzoneMsg(cookies, '10000', 'hi')).resolves.toEqual({ tid: 'ALT', time: 1700000001 });
@@ -250,6 +285,12 @@ describe('qzone / publishQzoneMsg (HTTP layer)', () => {
     const spy = vi.spyOn(RequestUtil, 'HttpGetText');
     await expect(publishQzoneMsg(cookies, '10000', 'hi', 1)).rejects.toThrow('richType and richval');
     await expect(publishQzoneMsg(cookies, '10000', 'hi', undefined, ',123')).rejects.toThrow('richType and richval');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('rejects restricted visibility without target_uins before any request', async () => {
+    const spy = vi.spyOn(RequestUtil, 'HttpGetText');
+    await expect(publishQzoneMsg(cookies, '10000', 'hi', undefined, undefined, 128)).rejects.toThrow('target_uins is required');
     expect(spy).not.toHaveBeenCalled();
   });
 
