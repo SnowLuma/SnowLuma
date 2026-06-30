@@ -2,7 +2,7 @@ import type {
   MarkdownData,
   MentionExtraSend,
 } from '@snowluma/proto-defs/action';
-import type { Elem, GroupFileExtra, MarketFacePbReserve } from '@snowluma/proto-defs/element';
+import type { Elem, GroupFileExtra, MarketFacePbReserve, QFaceExtra, QSmallFaceExtra } from '@snowluma/proto-defs/element';
 import { protobuf_encode } from '@snowluma/proton';
 import { randomUUID } from 'crypto';
 import { deflateSync } from 'zlib';
@@ -40,8 +40,43 @@ function makeTextElem(text: string): ProtoElem {
 }
 
 function makeFaceElem(faceId: number): ProtoElem {
+  // Classic system faces (IDs 0–259) — legacy FaceElem wire format.
+  if (faceId < 260) {
+    return { face: { index: faceId } };
+  }
+
+  // Animated sticker faces — dice (358) / RPS (359) — encoded through
+  // CommonElem serviceType 37 with QFaceExtra.
+  if (faceId === 358 || faceId === 359) {
+    return {
+      commonElem: {
+        serviceType: 37,
+        pbElem: protobuf_encode<QFaceExtra>({
+          qsid: faceId,
+          packId: '1',
+          stickerId: faceId === 358 ? '33' : '34',
+          sourceType: 1,
+          stickerType: 2,
+          randomType: 1,
+        }),
+        businessType: 1,
+      },
+    };
+  }
+
+  // Small faces (IDs >= 260) — the QQ server does not recognise these
+  // inside the legacy FaceElem and silently remaps them (e.g. 424→168).
+  // Encode through CommonElem serviceType 33 with QSmallFaceExtra.
   return {
-    face: { index: faceId },
+    commonElem: {
+      serviceType: 33,
+      pbElem: protobuf_encode<QSmallFaceExtra>({
+        faceId,
+        preview: '',
+        preview2: '',
+      }),
+      businessType: 1,
+    },
   };
 }
 
