@@ -6,7 +6,8 @@
 //   • 实时活动 — merged live SSE of events + action calls.
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { motion } from 'motion/react';
-import { Activity, Bug, ChevronRight, FlaskConical, Loader2, Pause, Play, RadioTower, Trash2 } from 'lucide-react';
+import { Activity, Bug, Check, ChevronRight, Copy, FlaskConical, Loader2, Pause, Play, RadioTower, Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
@@ -26,6 +27,23 @@ function coerceParam(type: string, raw: string): unknown {
   }
   if (type === 'bool' || type === 'boolean') return raw === 'true' || raw === '1';
   return raw;
+}
+
+function legacyCopyToClipboard(value: string): boolean {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = value;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const exec = (document as unknown as { execCommand(cmd: string): boolean }).execCommand;
+    const ok = exec.call(document, 'copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
 }
 
 // ── iOS-style segmented control with a sliding active pill ──
@@ -86,9 +104,12 @@ export function DebugPage() {
   const [rawJson, setRawJson] = useState('{}');
   const [invoking, setInvoking] = useState(false);
   const [result, setResult] = useState<DebugInvokeResult | { error: string } | null>(null);
+  const [resultCopied, setResultCopied] = useState(false);
+  const resultCopiedTimerRef = useRef<number | null>(null);
 
   const doc = useMemo(() => docs.find((d) => d.name === actionName), [docs, actionName]);
   const effectiveMode = paramMode === 'json' || !doc ? 'json' : 'form';
+  const resultText = useMemo(() => result ? JSON.stringify(result, null, 2) : '', [result]);
 
   useEffect(() => {
     void (async () => {
@@ -100,6 +121,10 @@ export function DebugPage() {
       } catch { /* surfaced lazily on invoke */ }
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => () => {
+    if (resultCopiedTimerRef.current != null) window.clearTimeout(resultCopiedTimerRef.current);
+  }, []);
 
   const invoke = async () => {
     if (!uin) { setResult({ error: '请选择账号' }); return; }
@@ -115,6 +140,11 @@ export function DebugPage() {
       }
     }
     setInvoking(true);
+    setResultCopied(false);
+    if (resultCopiedTimerRef.current != null) {
+      window.clearTimeout(resultCopiedTimerRef.current);
+      resultCopiedTimerRef.current = null;
+    }
     setResult(null);
     try { setResult(await api.debug.invoke(uin, actionName.trim(), params)); }
     catch (e) { setResult({ error: e instanceof Error ? e.message : '调用失败' }); }
@@ -122,6 +152,21 @@ export function DebugPage() {
   };
 
   const resultFailed = !!result && ('error' in result || result.status === 'failed');
+
+  const handleCopyResult = async () => {
+    if (!resultText) return;
+    try {
+      await navigator.clipboard.writeText(resultText);
+    } catch {
+      if (!legacyCopyToClipboard(resultText)) return;
+    }
+    setResultCopied(true);
+    if (resultCopiedTimerRef.current != null) window.clearTimeout(resultCopiedTimerRef.current);
+    resultCopiedTimerRef.current = window.setTimeout(() => {
+      setResultCopied(false);
+      resultCopiedTimerRef.current = null;
+    }, 1400);
+  };
 
   // ── live stream ──
   const [rows, setRows] = useState<StreamRow[]>([]);
@@ -235,12 +280,28 @@ export function DebugPage() {
 
           {result && (
             <div className="flex flex-col gap-1.5">
-              <span className={cn('text-xs font-medium', resultFailed ? 'text-destructive' : 'text-success')}>
-                {resultFailed ? '失败' : '成功'}
-              </span>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">执行结果</span>
+                  <span className={cn('text-xs font-medium', resultFailed ? 'text-destructive' : 'text-success')}>
+                    {resultFailed ? '失败' : '成功'}
+                  </span>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopyResult}
+                  className="h-8 rounded-lg"
+                  aria-label={resultCopied ? '执行结果已复制' : '复制执行结果'}
+                >
+                  {resultCopied ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+                  {resultCopied ? '已复制' : '复制执行结果'}
+                </Button>
+              </div>
               <pre className={cn('max-h-72 overflow-auto rounded-xl border border-border/60 bg-muted/30 p-4 font-mono text-[11.5px] leading-relaxed',
                 resultFailed && 'text-destructive')}>
-                {JSON.stringify(result, null, 2)}
+                {resultText}
               </pre>
             </div>
           )}
