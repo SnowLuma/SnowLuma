@@ -91,14 +91,19 @@ export function MessageComposer({ accounts }: { accounts: QQInfo[] }) {
 
         <div className="grid gap-4 sm:grid-cols-[auto_1fr]">
           <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted-foreground">账号</span>
+            {/* Fixed h-8 == the target column's segmented-control height, so both
+                label rows are exactly equal and the two selectors below share a
+                baseline (min-h-7 wasn't enough — the segmented is ~32px). */}
+            <div className="flex h-8 items-center">
+              <span className="text-xs font-medium text-muted-foreground">账号</span>
+            </div>
             <Select value={uin} onChange={(e) => setUin(e.target.value)} className="w-full sm:w-44">
               {accounts.length === 0 && <option value="">(无在线账号)</option>}
               {accounts.map((a) => <option key={a.uin} value={a.uin}>{a.nickname || a.uin}</option>)}
             </Select>
           </div>
           <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
+            <div className="flex h-8 items-center justify-between">
               <span className="text-xs font-medium text-muted-foreground">目标</span>
               <Segmented value={kind} onChange={(k) => { setKind(k); setTarget(''); }}
                 options={[{ value: 'group', label: '群聊' }, { value: 'friend', label: '私聊' }]} />

@@ -13,7 +13,6 @@ import { Picker } from '@/components/ui/picker';
 import { FaceGrid } from '@/components/ui/face-grid';
 import { FileSource } from '@/components/debug/file-source';
 import { useGroupMembers } from '@/hooks/use-debug-contacts';
-import { cn } from '@/lib/utils';
 
 // ── segment model ──
 // `_id` is a stable React key tied to a segment's identity (so editing one field
@@ -130,9 +129,12 @@ export function MessageBuilder({ segments, onChange, uin, groupId, depth = 0 }: 
   };
 
   return (
-    <div className={cn('flex flex-col gap-2', depth > 0 && 'rounded-xl border border-border/50 bg-muted/20 p-2')}>
+    // A bounded "compose canvas" at every level — so the empty hint reads as an
+    // intentional empty state inside a defined region rather than a stray
+    // centered line floating in the left-aligned form (Apple-HIG alignment).
+    <div className="flex flex-col gap-2 rounded-xl border border-border/50 bg-muted/20 p-2.5">
       {segments.length === 0 && (
-        <p className="py-2 text-center text-[12px] text-muted-foreground">空消息 — 在下方添加段</p>
+        <p className="py-4 text-center text-xs text-muted-foreground">空消息 — 点下方「添加段」开始</p>
       )}
 
       {segments.map((s, i) => (
