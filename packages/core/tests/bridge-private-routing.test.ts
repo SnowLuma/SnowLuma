@@ -10,10 +10,15 @@ vi.mock('@snowluma/protocol/element-builder', () => ({
   buildSendElems: vi.fn(async () => [{ text: { str: 'stub media elem' } }]),
 }));
 
+// Imported statically (not via `await import` inside each `it`) so the heavy
+// Bridge dependency-tree load happens once at file collection — not against a
+// single test's 5s timeout, which tipped over on slower CI runners. vi.mock is
+// hoisted above these by vitest, so element-builder is still mocked.
+import { Bridge } from '../src/bridge/bridge';
+import { IdentityService } from '@snowluma/protocol/identity-service';
+
 describe('Bridge private media routing', () => {
   it('includes resolved uid in the final c2c send request for media messages', async () => {
-    const { Bridge } = await import('../src/bridge/bridge');
-    const { IdentityService } = await import('@snowluma/protocol/identity-service');
 
     class TestBridge extends Bridge {
       capturedBody: Uint8Array | null = null;
@@ -61,8 +66,6 @@ describe('Bridge private media routing', () => {
     // BuildPacketBase` + `FileEntity.PackMessageContent`. Previous
     // implementation wrote c2c routing + richText.notOnlineFile +
     // c2cCmd=11 — the QQ-NT server rejected every c2c file send.
-    const { Bridge } = await import('../src/bridge/bridge');
-    const { IdentityService } = await import('@snowluma/protocol/identity-service');
 
     class TestBridge extends Bridge {
       capturedBody: Uint8Array | null = null;
@@ -160,8 +163,6 @@ describe('Bridge private media routing', () => {
   });
 
   it('c2c file send survives a failing 0xE37_800 finalize — sends without field6 (#157 best-effort)', async () => {
-    const { Bridge } = await import('../src/bridge/bridge');
-    const { IdentityService } = await import('@snowluma/protocol/identity-service');
 
     class TestBridge extends Bridge {
       capturedBody: Uint8Array | null = null;
