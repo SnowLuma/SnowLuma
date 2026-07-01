@@ -3,6 +3,7 @@ import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT } from '../message-id';
 import type { JsonObject } from '../types';
 import type { ConverterContext } from './index';
 import { applyMessageIdResolver, isSameActor } from './utils';
+import { notice } from './envelope';
 
 type GroupMemberJoin = Extract<QQEventVariant, { kind: 'group_member_join' }>;
 type GroupMemberLeave = Extract<QQEventVariant, { kind: 'group_member_leave' }>;
@@ -18,16 +19,13 @@ type FriendAdd = Extract<QQEventVariant, { kind: 'friend_add' }>;
 type GroupMsgEmojiLike = Extract<QQEventVariant, { kind: 'group_msg_emoji_like' }>;
 
 export function convertGroupMemberJoin(ctx: ConverterContext, event: GroupMemberJoin): JsonObject {
-  return {
-    time: event.time,
-    self_id: ctx.selfId,
-    post_type: 'notice',
+  return notice(ctx, event, {
     notice_type: 'group_increase',
     sub_type: isSameActor(event.operatorUin, event.operatorUid, event.userUin, event.userUid) ? 'approve' : 'invite',
     group_id: event.groupId,
     operator_id: event.operatorUin,
     user_id: event.userUin,
-  };
+  });
 }
 
 export function convertGroupMemberLeave(ctx: ConverterContext, event: GroupMemberLeave): JsonObject {
@@ -42,79 +40,61 @@ export function convertGroupMemberLeave(ctx: ConverterContext, event: GroupMembe
     default:
       subType = 'leave';
   }
-  return {
-    time: event.time,
-    self_id: ctx.selfId,
-    post_type: 'notice',
+  return notice(ctx, event, {
     notice_type: 'group_decrease',
     sub_type: subType,
     group_id: event.groupId,
     operator_id: event.operatorUin,
     user_id: event.userUin,
-  };
+  });
 }
 
 export function convertGroupMute(ctx: ConverterContext, event: GroupMute): JsonObject {
-  return {
-    time: event.time,
-    self_id: ctx.selfId,
-    post_type: 'notice',
+  return notice(ctx, event, {
     notice_type: 'group_ban',
     sub_type: event.duration > 0 ? 'ban' : 'lift_ban',
     group_id: event.groupId,
     operator_id: event.operatorUin,
     user_id: event.userUin,
     duration: event.duration,
-  };
+  });
 }
 
 export function convertGroupAdmin(ctx: ConverterContext, event: GroupAdmin): JsonObject {
-  return {
-    time: event.time,
-    self_id: ctx.selfId,
-    post_type: 'notice',
+  return notice(ctx, event, {
     notice_type: 'group_admin',
     sub_type: event.set ? 'set' : 'unset',
     group_id: event.groupId,
     user_id: event.userUin,
-  };
+  });
 }
 
 export function convertFriendRecall(ctx: ConverterContext, event: FriendRecall): JsonObject {
   const messageId = applyMessageIdResolver(
     ctx.messageIdResolver, false, event.userUin, event.msgSeq, PRIVATE_MESSAGE_EVENT,
   );
-  return {
-    time: event.time,
-    self_id: ctx.selfId,
-    post_type: 'notice',
+  return notice(ctx, event, {
     notice_type: 'friend_recall',
     user_id: event.userUin,
     message_id: messageId,
-  };
+  });
 }
 
 export function convertGroupRecall(ctx: ConverterContext, event: GroupRecall): JsonObject {
   const messageId = applyMessageIdResolver(
     ctx.messageIdResolver, true, event.groupId, event.msgSeq, GROUP_MESSAGE_EVENT,
   );
-  return {
-    time: event.time,
-    self_id: ctx.selfId,
-    post_type: 'notice',
+  return notice(ctx, event, {
     notice_type: 'group_recall',
     group_id: event.groupId,
     operator_id: event.operatorUin,
     user_id: event.authorUin,
     message_id: messageId,
-  };
+  });
 }
 
 export function convertFriendPoke(ctx: ConverterContext, event: FriendPoke): JsonObject {
-  return {
-    time: event.time,
-    self_id: ctx.selfId,
-    post_type: 'notice',
+  return notice(ctx, event, {
     notice_type: 'notify',
     sub_type: 'poke',
     user_id: event.userUin,
@@ -122,14 +102,11 @@ export function convertFriendPoke(ctx: ConverterContext, event: FriendPoke): Jso
     action: event.action,
     suffix: event.suffix,
     action_img_url: event.actionImgUrl,
-  };
+  });
 }
 
 export function convertGroupPoke(ctx: ConverterContext, event: GroupPoke): JsonObject {
-  return {
-    time: event.time,
-    self_id: ctx.selfId,
-    post_type: 'notice',
+  return notice(ctx, event, {
     notice_type: 'notify',
     sub_type: 'poke',
     group_id: event.groupId,
@@ -138,17 +115,14 @@ export function convertGroupPoke(ctx: ConverterContext, event: GroupPoke): JsonO
     action: event.action,
     suffix: event.suffix,
     action_img_url: event.actionImgUrl,
-  };
+  });
 }
 
 export function convertGroupEssence(ctx: ConverterContext, event: GroupEssence): JsonObject {
   const messageId = applyMessageIdResolver(
     ctx.messageIdResolver, true, event.groupId, event.msgSeq, GROUP_MESSAGE_EVENT,
   );
-  return {
-    time: event.time,
-    self_id: ctx.selfId,
-    post_type: 'notice',
+  return notice(ctx, event, {
     notice_type: 'essence',
     sub_type: event.set ? 'add' : 'delete',
     group_id: event.groupId,
@@ -158,14 +132,11 @@ export function convertGroupEssence(ctx: ConverterContext, event: GroupEssence):
     message_id: messageId,
     message_seq: event.msgSeq,
     random: event.random,
-  };
+  });
 }
 
 export function convertGroupFileUpload(ctx: ConverterContext, event: GroupFileUpload): JsonObject {
-  return {
-    time: event.time,
-    self_id: ctx.selfId,
-    post_type: 'notice',
+  return notice(ctx, event, {
     notice_type: 'group_upload',
     group_id: event.groupId,
     user_id: event.userUin,
@@ -175,27 +146,21 @@ export function convertGroupFileUpload(ctx: ConverterContext, event: GroupFileUp
       size: event.fileSize,
       busid: event.busId,
     },
-  };
+  });
 }
 
 export function convertFriendAdd(ctx: ConverterContext, event: FriendAdd): JsonObject {
-  return {
-    time: event.time,
-    self_id: ctx.selfId,
-    post_type: 'notice',
+  return notice(ctx, event, {
     notice_type: 'friend_add',
     user_id: event.userUin,
-  };
+  });
 }
 
 export function convertGroupMsgEmojiLike(ctx: ConverterContext, event: GroupMsgEmojiLike): JsonObject {
   const messageId = applyMessageIdResolver(
     ctx.messageIdResolver, true, event.groupId, event.msgSeq, GROUP_MESSAGE_EVENT,
   );
-  return {
-    time: event.time,
-    self_id: ctx.selfId,
-    post_type: 'notice',
+  return notice(ctx, event, {
     notice_type: 'group_msg_emoji_like',
     sub_type: event.isAdd ? 'add' : 'remove',
     group_id: event.groupId,
@@ -204,5 +169,5 @@ export function convertGroupMsgEmojiLike(ctx: ConverterContext, event: GroupMsgE
     message_id: messageId,
     message_seq: event.msgSeq,
     likes: [{ emoji_id: event.emojiId, count: event.count }],
-  };
+  });
 }
