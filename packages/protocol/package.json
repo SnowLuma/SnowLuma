@@ -32,6 +32,10 @@
       "types": "./src/element-builder.ts",
       "default": "./src/element-builder.ts"
     },
+    "./element-manifest": {
+      "types": "./src/element-manifest.ts",
+      "default": "./src/element-manifest.ts"
+    },
     "./bridge-oidb": {
       "types": "./src/bridge-oidb.ts",
       "default": "./src/bridge-oidb.ts"
