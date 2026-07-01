@@ -57,7 +57,7 @@ describe('qzone actions', () => {
       images: ['file:///a.jpg', 'file:///b.jpg'],
     });
 
-    expect(res).toMatchObject({ status: 'failed', retcode: 1200 });
+    expect(res).toMatchObject({ status: 'failed', retcode: 100 });
     expect(res.wording).toContain('第 2 张图片上传失败: network down');
     expect(publish).not.toHaveBeenCalled();
   });
