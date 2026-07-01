@@ -5,46 +5,50 @@ import {
   typesForDirection,
   INPUT_SUGAR_SEGMENTS,
 } from '@snowluma/protocol/element-manifest';
+import { ELEMENT_CODECS } from '../src/event-converter/element-codecs';
 
 // 对账测试（onebot 侧）—— 拿 element-manifest 核对「按 element.type 收敛」的两个
-// onebot 方向：
-//   S 收·转  to-segment.ts 的 `element.type === 'X'` 分支集合
-//   P 发·解  message-parser.ts 的 `case 'X'` 分支集合（剔除纯输入糖）
+// onebot 方向。阶段 2 起这两向已合入 ELEMENT_CODECS 表，故直接用**表的键**核对，
+// 比扫源码正则更硬：
+//   S 收·转  codec.toSegment    MessageElement → OneBot 段
+//   P 发·解  codec.fromSegment  OneBot 段 → MessageElement
 // protocol 侧的 D/W 由 protocol/tests/element-manifest.test.ts 核对（包边界所限）。
 //
-// 架构护栏：谁在这两处增删一种元素方向却没同步 element-manifest，测试当场报红。
-// 纯读源码、零运行时行为改动。
+// 架构护栏：谁在表里增删一个方向却没同步 element-manifest，测试当场报红。
 
-function readSrc(relFromTestDir: string): string {
-  const abs = fileURLToPath(new URL(relFromTestDir, import.meta.url));
-  const raw = readFileSync(abs, 'utf8');
-  return raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-}
-
-function extractTypes(src: string, pattern: RegExp): string[] {
-  const found = new Set<string>();
-  for (const m of src.matchAll(pattern)) found.add(m[1]!);
-  return [...found].sort();
+function codecTypesWith(dir: 'toSegment' | 'fromSegment'): string[] {
+  return Object.entries(ELEMENT_CODECS)
+    .filter(([, codec]) => typeof codec[dir] === 'function')
+    .map(([type]) => type)
+    .sort();
 }
 
 const sorted = (s: Iterable<string>): string[] => [...s].sort();
 
 describe('element-manifest 对账（onebot 侧：S 收·转 / P 发·解）', () => {
-  it('S：to-segment 的 element.type 分支 == 清单声明的 S=yes', () => {
-    const src = readSrc('../src/event-converter/to-segment.ts');
-    const handled = extractTypes(src, /element\.type\s*===\s*'([A-Za-z0-9_]+)'/g);
-    expect(handled).toEqual(sorted(typesForDirection('S')));
+  it('S：ELEMENT_CODECS 里有 toSegment 的类型 == 清单声明的 S=yes', () => {
+    expect(codecTypesWith('toSegment')).toEqual(sorted(typesForDirection('S')));
   });
 
-  it('P：message-parser 的 case 分支（剔除输入糖）== 清单声明的 P=yes', () => {
-    const src = readSrc('../src/message-parser.ts');
-    // 值域放宽到 `[A-Za-z0-9_]+`：见 protocol/tests/element-manifest.test.ts 同处说明。
-    const allCases = extractTypes(src, /case\s*'([A-Za-z0-9_]+)'\s*:/g);
-    const realElementCases = allCases.filter((t) => !INPUT_SUGAR_SEGMENTS.has(t));
-    expect(realElementCases).toEqual(sorted(typesForDirection('P')));
+  it('P：ELEMENT_CODECS 里有 fromSegment 的类型 == 清单声明的 P=yes', () => {
+    expect(codecTypesWith('fromSegment')).toEqual(sorted(typesForDirection('P')));
+  });
 
-    // 输入糖必须确实出现在 message-parser 里（否则白名单与代码脱节）。
-    const sugarPresent = allCases.filter((t) => INPUT_SUGAR_SEGMENTS.has(t)).sort();
+  it('输入糖仍由 message-parser 前置处理，未被静默丢弃', () => {
+    // 输入糖（骰子/分享/…）不进 codec 表，留在 message-parser 当前置 normalize。
+    // 用源码扫描锁住它们确实存在，防止将来重构时被悄悄删掉。
+    const abs = fileURLToPath(new URL('../src/message-parser.ts', import.meta.url));
+    const src = readFileSync(abs, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '');
+    const cases = new Set<string>();
+    for (const m of src.matchAll(/case\s*'([A-Za-z0-9_]+)'\s*:/g)) cases.add(m[1]!);
+
+    const sugarPresent = [...cases].filter((t) => INPUT_SUGAR_SEGMENTS.has(t)).sort();
     expect(sugarPresent).toEqual(sorted(INPUT_SUGAR_SEGMENTS));
+
+    // 且 message-parser 不再手写任何真实元素类型的 case（已全部下沉到 codec 表）。
+    const realLeftInParser = [...cases].filter((t) => !INPUT_SUGAR_SEGMENTS.has(t));
+    expect(realLeftInParser).toEqual([]);
   });
 });
