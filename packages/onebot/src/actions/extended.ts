@@ -110,12 +110,8 @@ async function groupTodoRun(
   if (!meta.isGroup || meta.targetId !== p.group_id) {
     return failedResponse(RETCODE.ACTION_FAILED, 'message does not belong to this group');
   }
-  try {
-    await op(p.group_id, BigInt(meta.sequence));
-    return okResponse();
-  } catch (err) {
-    return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-  }
+  await op(p.group_id, BigInt(meta.sequence));
+  return okResponse();
 }
 
 /** FlashTransferApi 返回的 FlashFileInfo → OneBot JSON 响应（plain object，JsonObject 兼容）。
@@ -259,12 +255,8 @@ export const actions = [
     summary: '删除收藏表情',
     params: { emoji_id: f.string({ allowEmpty: false }) },
     run: async (p, ctx) => {
-      try {
-        await ctx.bridge.apis.profile.deleteCustomFace(p.emoji_id);
-        return okResponse();
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      await ctx.bridge.apis.profile.deleteCustomFace(p.emoji_id);
+      return okResponse();
     },
   }),
 
@@ -274,12 +266,8 @@ export const actions = [
     summary: '添加收藏表情',
     params: { file: f.image() },
     run: async (p, ctx) => {
-      try {
-        const emojiId = await ctx.bridge.apis.profile.addCustomFace(p.file);
-        return okResponse({ emoji_id: emojiId });
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      const emojiId = await ctx.bridge.apis.profile.addCustomFace(p.file);
+      return okResponse({ emoji_id: emojiId });
     },
   }),
 
@@ -292,12 +280,8 @@ export const actions = [
       desc: f.string().default(''),
     },
     run: async (p, ctx) => {
-      try {
-        await ctx.bridge.apis.profile.modifyCustomFace(p.emoji_id, p.desc);
-        return okResponse();
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      await ctx.bridge.apis.profile.modifyCustomFace(p.emoji_id, p.desc);
+      return okResponse();
     },
   }),
 
@@ -311,12 +295,8 @@ export const actions = [
     summary: '收藏表情移到最前',
     params: { emoji_id: f.string({ allowEmpty: false }) },
     run: async (p, ctx) => {
-      try {
-        await ctx.bridge.apis.profile.moveCustomFaceToFront(p.emoji_id);
-        return okResponse();
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      await ctx.bridge.apis.profile.moveCustomFaceToFront(p.emoji_id);
+      return okResponse();
     },
   }),
 
@@ -453,19 +433,15 @@ export const actions = [
       confirm_required: f.raw(),
     },
     run: async (p, ctx) => {
-      try {
-        const options = {
-          image: p.image || undefined,
-          pinned: p.pinned !== undefined ? Number(p.pinned) : 0,
-          type: p.type !== undefined ? Number(p.type) : 1,
-          confirm_required: p.confirm_required !== undefined ? Number(p.confirm_required) : 1,
-        };
+      const options = {
+        image: p.image || undefined,
+        pinned: p.pinned !== undefined ? Number(p.pinned) : 0,
+        type: p.type !== undefined ? Number(p.type) : 1,
+        confirm_required: p.confirm_required !== undefined ? Number(p.confirm_required) : 1,
+      };
 
-        await ctx.bridge.apis.web.sendNotice(p.group_id, p.content, options);
-        return okResponse();
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      await ctx.bridge.apis.web.sendNotice(p.group_id, p.content, options);
+      return okResponse();
     },
   }),
 
@@ -474,12 +450,8 @@ export const actions = [
     summary: '获取群公告',
     readOnly: true,
     run: async (p, ctx) => {
-      try {
-        const notices = await ctx.bridge.apis.web.getNotice(p.group_id);
-        return okResponse(notices);
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      const notices = await ctx.bridge.apis.web.getNotice(p.group_id);
+      return okResponse(notices);
     },
   }),
 
@@ -594,11 +566,7 @@ export const actions = [
     run: async (_p, ctx, raw) => {
       const messageId = asNumber(raw.message_id);
       if (!messageId) return failedResponse(RETCODE.BAD_REQUEST, 'message_id is required');
-      try {
-        return okResponse(await ctx.fetchPttText(messageId));
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : '获取语音转文字结果失败');
-      }
+      return okResponse(await ctx.fetchPttText(messageId));
     },
   }),
 
@@ -617,12 +585,8 @@ export const actions = [
     },
     params: { domain: f.string().default('qun.qq.com') },
     run: async (p, ctx) => {
-      try {
-        const cookies = await ctx.bridge.apis.web.getCookiesStr(p.domain || 'qun.qq.com');
-        return okResponse({ cookies });
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      const cookies = await ctx.bridge.apis.web.getCookiesStr(p.domain || 'qun.qq.com');
+      return okResponse({ cookies });
     },
   }),
 
@@ -640,12 +604,8 @@ export const actions = [
     },
     params: {},
     run: async (_p, ctx) => {
-      try {
-        const token = await ctx.bridge.apis.web.getCsrfToken();
-        return okResponse({ token });
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      const token = await ctx.bridge.apis.web.getCsrfToken();
+      return okResponse({ token });
     },
   }),
 
@@ -665,12 +625,8 @@ export const actions = [
     },
     params: { domain: f.string().default('qun.qq.com') },
     run: async (p, ctx) => {
-      try {
-        const creds = await ctx.bridge.apis.web.getCredentials(p.domain || 'qun.qq.com');
-        return okResponse(creds);
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      const creds = await ctx.bridge.apis.web.getCredentials(p.domain || 'qun.qq.com');
+      return okResponse(creds);
     },
   }),
 
@@ -801,12 +757,8 @@ export const actions = [
       const nickname = p.nickname;
       const personalNote = p.personal_note;
 
-      try {
-        await ctx.bridge.apis.profile.setProfile(nickname, personalNote);
-        return okResponse();
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      await ctx.bridge.apis.profile.setProfile(nickname, personalNote);
+      return okResponse();
     },
   }),
 
@@ -820,12 +772,8 @@ export const actions = [
       battery_status: f.int({ min: 0 }).default(100),
     },
     run: async (p, ctx) => {
-      try {
-        await ctx.bridge.apis.profile.setOnlineStatus(p.status, p.ext_status, p.battery_status);
-        return okResponse();
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      await ctx.bridge.apis.profile.setOnlineStatus(p.status, p.ext_status, p.battery_status);
+      return okResponse();
     },
   }),
 
@@ -842,12 +790,8 @@ export const actions = [
       wording: f.string().default(''),
     },
     run: async (p, ctx) => {
-      try {
-        await ctx.bridge.apis.profile.setDiyOnlineStatus(p.face_id, p.wording, p.face_type);
-        return okResponse();
-      } catch (err) {
-        return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-      }
+      await ctx.bridge.apis.profile.setDiyOnlineStatus(p.face_id, p.wording, p.face_type);
+      return okResponse();
     },
   }),
 
@@ -979,12 +923,8 @@ export const actions = [
     summary: '获取群今日打卡列表',
     readOnly: true,
     run: async (p, ctx) => {
-      try {
-        const list = await ctx.bridge.apis.web.getSignedList(p.group_id);
-        return okResponse(list);
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
-      }
+      const list = await ctx.bridge.apis.web.getSignedList(p.group_id);
+      return okResponse(list);
     },
   }),
 
@@ -996,12 +936,8 @@ export const actions = [
       user_id: f.userId(),
     },
     run: async (p, ctx) => {
-      try {
-        const result = await ctx.forwardSingleMsg(p.message_id, { userId: p.user_id });
-        return okResponse({ message_id: result.messageId });
-      } catch (err) {
-        return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-      }
+      const result = await ctx.forwardSingleMsg(p.message_id, { userId: p.user_id });
+      return okResponse({ message_id: result.messageId });
     },
   }),
 
@@ -1013,12 +949,8 @@ export const actions = [
       group_id: f.groupId(),
     },
     run: async (p, ctx) => {
-      try {
-        const result = await ctx.forwardSingleMsg(p.message_id, { groupId: p.group_id });
-        return okResponse({ message_id: result.messageId });
-      } catch (err) {
-        return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-      }
+      const result = await ctx.forwardSingleMsg(p.message_id, { groupId: p.group_id });
+      return okResponse({ message_id: result.messageId });
     },
   }),
 
@@ -1063,12 +995,8 @@ export const actions = [
       count: f.int({ min: 0 }).default(10),
     },
     run: async (p, ctx) => {
-      try {
-        const data = await ctx.bridge.apis.profile.getLike(p.user_id, p.start, p.count);
-        return okResponse(data);
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      const data = await ctx.bridge.apis.profile.getLike(p.user_id, p.start, p.count);
+      return okResponse(data);
     },
   }),
 
@@ -1088,19 +1016,15 @@ export const actions = [
       return_type: f.string().default('url'),
     },
     run: async (p, ctx) => {
-      try {
-        const urls = await ctx.bridge.apis.profile.fetchCustomFace(p.count);
-        if (p.return_type === 'id') {
-          const emojiIds = urls.map((url) => {
-            const m = /\/qq_expression\/[^/]+\/([^/]+)\//.exec(url);
-            return m ? m[1] : '';
-          }).filter(Boolean);
-          return okResponse(emojiIds);
-        }
-        return okResponse(urls);
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
+      const urls = await ctx.bridge.apis.profile.fetchCustomFace(p.count);
+      if (p.return_type === 'id') {
+        const emojiIds = urls.map((url) => {
+          const m = /\/qq_expression\/[^/]+\/([^/]+)\//.exec(url);
+          return m ? m[1] : '';
+        }).filter(Boolean);
+        return okResponse(emojiIds);
       }
+      return okResponse(urls);
     },
   }),
 
@@ -1132,14 +1056,10 @@ export const actions = [
       emoji_id: f.string({ allowEmpty: false }),
     },
     run: async (p, ctx) => {
-      try {
-        const result = await ctx.fetchEmojiLikeUsers(p.message_id, p.emoji_id, 1000);
-        return okResponse({
-          emoji_like_list: result.users.map(u => ({ user_id: String(u.uin), nick_name: '' })),
-        });
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      const result = await ctx.fetchEmojiLikeUsers(p.message_id, p.emoji_id, 1000);
+      return okResponse({
+        emoji_like_list: result.users.map(u => ({ user_id: String(u.uin), nick_name: '' })),
+      });
     },
   }),
 
@@ -1179,22 +1099,18 @@ export const actions = [
       cookie: f.string().default(''),
     },
     run: async (p, ctx) => {
-      try {
-        const offset = p.cookie ? Number.parseInt(p.cookie, 10) || 0 : 0;
-        const result = await ctx.fetchEmojiLikeUsers(p.message_id, p.emojiId, p.count, offset);
-        const nextOffset = offset + result.users.length;
-        const isLastPage = nextOffset >= result.cachedCount;
-        return okResponse({
-          result: 0,
-          errMsg: '',
-          emojiLikesList: result.users.map(u => ({ tinyId: String(u.uin), nickName: '', headUrl: '' })),
-          cookie: isLastPage ? '' : String(nextOffset),
-          isLastPage,
-          isFirstPage: offset === 0,
-        });
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      const offset = p.cookie ? Number.parseInt(p.cookie, 10) || 0 : 0;
+      const result = await ctx.fetchEmojiLikeUsers(p.message_id, p.emojiId, p.count, offset);
+      const nextOffset = offset + result.users.length;
+      const isLastPage = nextOffset >= result.cachedCount;
+      return okResponse({
+        result: 0,
+        errMsg: '',
+        emojiLikesList: result.users.map(u => ({ tinyId: String(u.uin), nickName: '', headUrl: '' })),
+        cookie: isLastPage ? '' : String(nextOffset),
+        isLastPage,
+        isFirstPage: offset === 0,
+      });
     },
   }),
 
@@ -1312,12 +1228,8 @@ export const actions = [
       required: ['can_at_all', 'remain_at_all_count_for_group', 'remain_at_all_count_for_uin'],
     },
     run: async (p, ctx) => {
-      try {
-        const data = await ctx.bridge.apis.groupAdmin.getAtAllRemain(p.group_id);
-        return okResponse(data);
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      const data = await ctx.bridge.apis.groupAdmin.getAtAllRemain(p.group_id);
+      return okResponse(data);
     },
   }),
 
@@ -1327,12 +1239,8 @@ export const actions = [
     readOnly: true,
     params: {},
     run: async (_p, ctx) => {
-      try {
-        const data = await ctx.bridge.apis.profile.getUnidirectionalFriendList();
-        return okResponse(data);
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      const data = await ctx.bridge.apis.profile.getUnidirectionalFriendList();
+      return okResponse(data);
     },
   }),
 
@@ -1386,17 +1294,13 @@ export const actions = [
       phone_number: f.string().default(''),
     },
     run: async (p, ctx) => {
-      try {
-        if (p.group_id) {
-          return okResponse({ arkMsg: await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id) });
-        }
-        if (p.user_id) {
-          return okResponse({ arkMsg: await ctx.bridge.apis.contacts.getBuddyRecommendArk(p.user_id, p.phone_number) });
-        }
-        return failedResponse(RETCODE.BAD_REQUEST, 'user_id or group_id is required');
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      if (p.group_id) {
+        return okResponse({ arkMsg: await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id) });
       }
+      if (p.user_id) {
+        return okResponse({ arkMsg: await ctx.bridge.apis.contacts.getBuddyRecommendArk(p.user_id, p.phone_number) });
+      }
+      return failedResponse(RETCODE.BAD_REQUEST, 'user_id or group_id is required');
     },
   }),
   defineAction({
@@ -1417,17 +1321,13 @@ export const actions = [
       phone_number: f.string().default(''),
     },
     run: async (p, ctx) => {
-      try {
-        if (p.group_id) {
-          return okResponse({ arkMsg: await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id) });
-        }
-        if (p.user_id) {
-          return okResponse({ arkMsg: await ctx.bridge.apis.contacts.getBuddyRecommendArk(p.user_id, p.phone_number) });
-        }
-        return failedResponse(RETCODE.BAD_REQUEST, 'user_id or group_id is required');
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      if (p.group_id) {
+        return okResponse({ arkMsg: await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id) });
       }
+      if (p.user_id) {
+        return okResponse({ arkMsg: await ctx.bridge.apis.contacts.getBuddyRecommendArk(p.user_id, p.phone_number) });
+      }
+      return failedResponse(RETCODE.BAD_REQUEST, 'user_id or group_id is required');
     },
   }),
 
@@ -1443,11 +1343,7 @@ export const actions = [
     returnsSchema: { type: 'string', description: '群 Ark 卡片 JSON 字符串' },
     params: { group_id: f.groupId() },
     run: async (p, ctx) => {
-      try {
-        return okResponse(await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id));
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
-      }
+      return okResponse(await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id));
     },
   }),
   defineAction({
@@ -1458,11 +1354,7 @@ export const actions = [
     returnsSchema: { type: 'string', description: '群 Ark 卡片 JSON 字符串' },
     params: { group_id: f.groupId() },
     run: async (p, ctx) => {
-      try {
-        return okResponse(await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id));
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
-      }
+      return okResponse(await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id));
     },
   }),
 
@@ -1489,12 +1381,8 @@ export const actions = [
     },
     params: { count: f.int({ min: 0 }).default(50) },
     run: async (p, ctx) => {
-      try {
-        const list = await ctx.bridge.apis.friend.getDoubtRequests(p.count);
-        return okResponse(list);
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
-      }
+      const list = await ctx.bridge.apis.friend.getDoubtRequests(p.count);
+      return okResponse(list);
     },
   }),
   // set_doubt_friends_add_request — handle a 可疑好友申请 (0xd69_0). `flag` is
@@ -1511,16 +1399,12 @@ export const actions = [
     run: async (p, ctx) => {
       // approve → approvalDoubtBuddyReq (0xd69_0); reject → delDoubtBuddyReq
       // (also 0xd69_0, distinct body) — both RE'd from the binary.
-      try {
-        if (p.approve) {
-          await ctx.bridge.apis.friend.approveDoubtRequest(p.flag);
-        } else {
-          await ctx.bridge.apis.friend.rejectDoubtRequest(p.flag);
-        }
-        return okResponse();
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
+      if (p.approve) {
+        await ctx.bridge.apis.friend.approveDoubtRequest(p.flag);
+      } else {
+        await ctx.bridge.apis.friend.rejectDoubtRequest(p.flag);
       }
+      return okResponse();
     },
   }),
 
@@ -1530,14 +1414,10 @@ export const actions = [
     name: 'set_group_robot_add_option',
     summary: '设置群机器人加群选项',
     run: async (p, ctx) => {
-      try {
-        await ctx.bridge.apis.groupAdmin.setRobotAddOption(
-          p.group_id, p.robot_member_switch, p.robot_member_examine,
-        );
-        return okResponse();
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
-      }
+      await ctx.bridge.apis.groupAdmin.setRobotAddOption(
+        p.group_id, p.robot_member_switch, p.robot_member_examine,
+      );
+      return okResponse();
     },
     params: {
       robot_member_switch: f.int({ min: 0 }).optional(),
@@ -1581,12 +1461,8 @@ export const actions = [
     summary: '设置 QQ 头像',
     params: { file: f.image() },
     run: async (p, ctx) => {
-      try {
-        await ctx.bridge.apis.profile.setAvatar(p.file);
-        return okResponse();
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      await ctx.bridge.apis.profile.setAvatar(p.file);
+      return okResponse();
     },
   }),
 
@@ -1599,12 +1475,8 @@ export const actions = [
       event_type: f.int().default(0),
     },
     run: async (p, ctx) => {
-      try {
-        await ctx.bridge.apis.profile.setInputStatus(p.user_id, p.event_type);
-        return okResponse({});
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      await ctx.bridge.apis.profile.setInputStatus(p.user_id, p.event_type);
+      return okResponse({});
     },
   }),
 
@@ -1770,19 +1642,15 @@ export const actions = [
     },
     params: { chat_type: f.int({ min: 0 }).default(1) },
     run: async (p, ctx) => {
-      try {
-        const list = await ctx.bridge.apis.extras.fetchAiVoiceList(p.group_id, p.chat_type);
-        return okResponse(list.map((cat) => ({
-          type: cat.category,
-          characters: cat.voices.map((v) => ({
-            character_id: v.voiceId,
-            character_name: v.voiceDisplayName,
-            preview_url: v.voiceExampleUrl,
-          })),
-        })));
-      } catch (err) {
-        return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-      }
+      const list = await ctx.bridge.apis.extras.fetchAiVoiceList(p.group_id, p.chat_type);
+      return okResponse(list.map((cat) => ({
+        type: cat.category,
+        characters: cat.voices.map((v) => ({
+          character_id: v.voiceId,
+          character_name: v.voiceDisplayName,
+          preview_url: v.voiceExampleUrl,
+        })),
+      })));
     },
   }),
 
@@ -1795,13 +1663,9 @@ export const actions = [
       chat_type: f.int({ min: 0 }).default(1),
     },
     run: async (p, ctx) => {
-      try {
-        const node = await ctx.bridge.apis.extras.fetchAiVoice(p.group_id, p.character, p.text, p.chat_type);
-        const url = await ctx.bridge.apis.groupFile.getPttUrl(p.group_id, node);
-        return okResponse(url);
-      } catch (err) {
-        return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-      }
+      const node = await ctx.bridge.apis.extras.fetchAiVoice(p.group_id, p.character, p.text, p.chat_type);
+      const url = await ctx.bridge.apis.groupFile.getPttUrl(p.group_id, node);
+      return okResponse(url);
     },
   }),
 
@@ -1817,12 +1681,8 @@ export const actions = [
       chat_type: f.int({ min: 0 }).default(1),
     },
     run: async (p, ctx) => {
-      try {
-        await ctx.bridge.apis.extras.fetchAiVoice(p.group_id, p.character, p.text, p.chat_type);
-        return okResponse({ message_id: 0 });
-      } catch (err) {
-        return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-      }
+      await ctx.bridge.apis.extras.fetchAiVoice(p.group_id, p.character, p.text, p.chat_type);
+      return okResponse({ message_id: 0 });
     },
   }),
 
@@ -1831,27 +1691,23 @@ export const actions = [
     summary: '请求数据库解密密钥',
     params: { db_path: f.string({ allowEmpty: false }) },
     run: async (p, ctx) => {
-      try {
-        const buffer = Buffer.alloc(128);
-        const fileHandle = await readFile(p.db_path);
+      const buffer = Buffer.alloc(128);
+      const fileHandle = await readFile(p.db_path);
 
-        if (fileHandle.length < 0xaf) {
-          return failedResponse(RETCODE.ACTION_FAILED, 'Database file too short');
-        }
-
-        fileHandle.copy(buffer, 0, 0x2f, 0xaf);
-        const dbSalt = buffer.toString('utf8');
-
-        if (!/^[0-9a-fA-F]{128}$/.test(dbSalt)) {
-          return failedResponse(RETCODE.ACTION_FAILED, 'Invalid db_salt: not a valid 128-character hex string');
-        }
-
-        const dbKey = await ctx.bridge.apis.misc.getDecryptKey(dbSalt.toLowerCase());
-
-        return okResponse({ db_key: dbKey });
-      } catch (err) {
-        return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
+      if (fileHandle.length < 0xaf) {
+        return failedResponse(RETCODE.ACTION_FAILED, 'Database file too short');
       }
+
+      fileHandle.copy(buffer, 0, 0x2f, 0xaf);
+      const dbSalt = buffer.toString('utf8');
+
+      if (!/^[0-9a-fA-F]{128}$/.test(dbSalt)) {
+        return failedResponse(RETCODE.ACTION_FAILED, 'Invalid db_salt: not a valid 128-character hex string');
+      }
+
+      const dbKey = await ctx.bridge.apis.misc.getDecryptKey(dbSalt.toLowerCase());
+
+      return okResponse({ db_key: dbKey });
     },
   }),
 
@@ -1985,12 +1841,8 @@ export const actions = [
     run: async (p, ctx) => {
       const fid = p.fid || p.notice_id;
       if (!fid) return failedResponse(RETCODE.BAD_REQUEST, 'group_id and fid/notice_id are required');
-      try {
-        const success = await ctx.bridge.apis.web.deleteNotice(p.group_id, fid);
-        return success ? okResponse() : failedResponse(RETCODE.ACTION_FAILED, 'delete failed');
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      const success = await ctx.bridge.apis.web.deleteNotice(p.group_id, fid);
+      return success ? okResponse() : failedResponse(RETCODE.ACTION_FAILED, 'delete failed');
     },
   }),
 
@@ -2107,11 +1959,7 @@ export const actions = [
         buf = Buffer.from(base64, 'base64');
         if (buf.length > DOWNLOAD_FILE_MAX_BYTES) return failedResponse(RETCODE.BAD_REQUEST, `base64 payload too large: ${buf.length} > ${DOWNLOAD_FILE_MAX_BYTES} bytes`);
       } else {
-        try {
-          buf = await fetchDownloadFile(url, parseDownloadHeaders(raw.headers), DOWNLOAD_FILE_MAX_BYTES, DOWNLOAD_FILE_TIMEOUT_MS);
-        } catch (err) {
-          return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-        }
+        buf = await fetchDownloadFile(url, parseDownloadHeaders(raw.headers), DOWNLOAD_FILE_MAX_BYTES, DOWNLOAD_FILE_TIMEOUT_MS);
       }
       try {
         const safe = await saveDownloadBuffer(buf, name);
@@ -2139,12 +1987,8 @@ export const actions = [
       const rawWords = p.words;
       if (!Array.isArray(rawWords)) return failedResponse(RETCODE.BAD_REQUEST, 'invalid words array');
       const words = rawWords.map((w) => String(w));
-      try {
-        const translated = await ctx.bridge.apis.misc.translateEn2Zh(words);
-        return okResponse({ words: translated });
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      const translated = await ctx.bridge.apis.misc.translateEn2Zh(words);
+      return okResponse({ words: translated });
     },
   }),
 
@@ -2155,12 +1999,8 @@ export const actions = [
     run: async (p, ctx) => {
       const longNick = p.longNick || p.long_nick;
       if (typeof longNick !== 'string') return failedResponse(RETCODE.BAD_REQUEST, 'invalid longNick');
-      try {
-        await ctx.bridge.apis.profile.setSelfLongNick(longNick);
-        return okResponse({});
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      await ctx.bridge.apis.profile.setSelfLongNick(longNick);
+      return okResponse({});
     },
   }),
 
@@ -2175,12 +2015,8 @@ export const actions = [
       const desc = raw.desc || '';
       const picUrl = raw.picUrl || raw.pic_url || '';
       const jumpUrl = raw.jumpUrl || raw.jump_url || '';
-      try {
-        const data = await ctx.bridge.apis.misc.getMiniAppArk(String(type), String(title), String(desc), String(picUrl), String(jumpUrl));
-        return okResponse(data);
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      const data = await ctx.bridge.apis.misc.getMiniAppArk(String(type), String(title), String(desc), String(picUrl), String(jumpUrl));
+      return okResponse(data);
     },
   }),
 
@@ -2192,12 +2028,8 @@ export const actions = [
       const buttonId = raw.button_id;
       const callbackData = raw.callback_data || '';
       if (!buttonId) return failedResponse(RETCODE.BAD_REQUEST, 'missing required parameters');
-      try {
-        const data = await ctx.bridge.apis.misc.clickInlineKeyboardButton(p.group_id, p.bot_appid, String(buttonId), String(callbackData), p.msg_seq);
-        return okResponse(data);
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      const data = await ctx.bridge.apis.misc.clickInlineKeyboardButton(p.group_id, p.bot_appid, String(buttonId), String(callbackData), p.msg_seq);
+      return okResponse(data);
     },
   }),
 
@@ -2205,12 +2037,8 @@ export const actions = [
     name: ['set_group_sign', 'send_group_sign'],
     summary: '群签到',
     run: async (p, ctx) => {
-      try {
-        await ctx.bridge.apis.misc.sendGroupSign(p.group_id);
-        return okResponse({});
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      await ctx.bridge.apis.misc.sendGroupSign(p.group_id);
+      return okResponse({});
     },
   }),
 
@@ -2222,16 +2050,12 @@ export const actions = [
       if (!/^[0-9a-fA-F]*$/.test(p.data) || p.data.length % 2 !== 0) {
         return failedResponse(RETCODE.BAD_REQUEST, 'data must be a hex string of even length');
       }
-      try {
-        const body = hexToBytes(p.data);
-        const result = await ctx.bridge.sendRawPacket(p.cmd, body);
-        if (!result.success) return failedResponse(RETCODE.ACTION_FAILED, result.errorMessage || 'send failed');
-        if (!p.rsp) return okResponse(null);
-        const respHex = result.responseData ? bytesToHex(result.responseData) : '';
-        return okResponse(respHex);
-      } catch (err) {
-        return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-      }
+      const body = hexToBytes(p.data);
+      const result = await ctx.bridge.sendRawPacket(p.cmd, body);
+      if (!result.success) return failedResponse(RETCODE.ACTION_FAILED, result.errorMessage || 'send failed');
+      if (!p.rsp) return okResponse(null);
+      const respHex = result.responseData ? bytesToHex(result.responseData) : '';
+      return okResponse(respHex);
     },
   }),
 
@@ -2280,12 +2104,8 @@ export const actions = [
       } else {
         return failedResponse(RETCODE.BAD_REQUEST, 'files must be a string or string array');
       }
-      try {
-        const result = await ctx.bridge.apis.flashTransfer.createFlashTask(fileList, p.name, p.thumb_path);
-        return okResponse({ fileset_id: result.filesetId, task_id: result.filesetId });
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      const result = await ctx.bridge.apis.flashTransfer.createFlashTask(fileList, p.name, p.thumb_path);
+      return okResponse({ fileset_id: result.filesetId, task_id: result.filesetId });
     },
   }),
 
@@ -2294,12 +2114,8 @@ export const actions = [
     summary: '获取文件集信息',
     params: { fileset_id: f.string({ allowEmpty: false }) },
     run: async (p, ctx) => {
-      try {
-        const list = await ctx.bridge.apis.flashTransfer.getFilesetInfo(p.fileset_id);
-        return okResponse({ fileset_id: p.fileset_id, file_list: list.map(flashFileInfoToJson) });
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      const list = await ctx.bridge.apis.flashTransfer.getFilesetInfo(p.fileset_id);
+      return okResponse({ fileset_id: p.fileset_id, file_list: list.map(flashFileInfoToJson) });
     },
   }),
 
@@ -2308,12 +2124,8 @@ export const actions = [
     summary: '获取闪传文件列表',
     params: { fileset_id: f.string({ allowEmpty: false }) },
     run: async (p, ctx) => {
-      try {
-        const list = await ctx.bridge.apis.flashTransfer.getFlashFileList(p.fileset_id);
-        return okResponse(list.map(flashFileInfoToJson));
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      const list = await ctx.bridge.apis.flashTransfer.getFlashFileList(p.fileset_id);
+      return okResponse(list.map(flashFileInfoToJson));
     },
   }),
 
@@ -2322,12 +2134,8 @@ export const actions = [
     summary: '列出当前账号的所有闪传文件集',
     params: {},
     run: async (_p, ctx) => {
-      try {
-        const list = await ctx.bridge.apis.flashTransfer.listFilesets();
-        return okResponse(list.map(flashFileInfoToJson));
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      const list = await ctx.bridge.apis.flashTransfer.listFilesets();
+      return okResponse(list.map(flashFileInfoToJson));
     },
   }),
 
@@ -2340,12 +2148,8 @@ export const actions = [
       file_index: f.number().optional(),
     },
     run: async (p, ctx) => {
-      try {
-        const url = await ctx.bridge.apis.flashTransfer.getFlashFileUrl(p.fileset_id, p.file_index);
-        return okResponse({ url });
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      const url = await ctx.bridge.apis.flashTransfer.getFlashFileUrl(p.fileset_id, p.file_index);
+      return okResponse({ url });
     },
   }),
 
@@ -2354,12 +2158,8 @@ export const actions = [
     summary: '获取文件分享链接',
     params: { fileset_id: f.string({ allowEmpty: false }) },
     run: async (p, ctx) => {
-      try {
-        const url = await ctx.bridge.apis.flashTransfer.getShareLink(p.fileset_id);
-        return okResponse(url);
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      const url = await ctx.bridge.apis.flashTransfer.getShareLink(p.fileset_id);
+      return okResponse(url);
     },
   }),
 
@@ -2368,12 +2168,8 @@ export const actions = [
     summary: '删除闪传文件',
     params: { fileset_id: f.string({ allowEmpty: false }) },
     run: async (p, ctx) => {
-      try {
-        await ctx.bridge.apis.flashTransfer.deleteFlashFile(p.fileset_id);
-        return okResponse();
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      await ctx.bridge.apis.flashTransfer.deleteFlashFile(p.fileset_id);
+      return okResponse();
     },
   }),
 
@@ -2385,12 +2181,8 @@ export const actions = [
       new_name: f.string({ allowEmpty: false }),
     },
     run: async (p, ctx) => {
-      try {
-        await ctx.bridge.apis.flashTransfer.renameFlashFile(p.fileset_id, p.new_name);
-        return okResponse();
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, String(e));
-      }
+      await ctx.bridge.apis.flashTransfer.renameFlashFile(p.fileset_id, p.new_name);
+      return okResponse();
     },
   }),
 
@@ -2404,19 +2196,15 @@ export const actions = [
       file_index: f.number().optional(),
     },
     run: async (p, ctx) => {
-      try {
-        const target = await ctx.bridge.apis.flashTransfer.downloadFileset(p.fileset_id, {
-          fileName: p.file_name,
-          fileIndex: p.file_index,
-        });
-        return okResponse({
-          url: target.url,
-          file_name: target.fileName,
-          file_size: target.fileSize,
-        });
-      } catch (err) {
-        return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-      }
+      const target = await ctx.bridge.apis.flashTransfer.downloadFileset(p.fileset_id, {
+        fileName: p.file_name,
+        fileIndex: p.file_index,
+      });
+      return okResponse({
+        url: target.url,
+        file_name: target.fileName,
+        file_size: target.fileSize,
+      });
     },
   }),
 
@@ -2433,16 +2221,12 @@ export const actions = [
       if (!p.user_id && !p.group_id) {
         return failedResponse(RETCODE.BAD_REQUEST, 'user_id or group_id is required');
       }
-      try {
-        await ctx.bridge.apis.flashTransfer.sendFlashMsg(p.fileset_id, {
-          userId: p.user_id,
-          groupId: p.group_id,
-        });
-        // 0x93d7 响应无 message_id（分享 fileset，非传统消息），返回 0 兼容 OneBot 形状。
-        return okResponse({ message_id: 0 });
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
-      }
+      await ctx.bridge.apis.flashTransfer.sendFlashMsg(p.fileset_id, {
+        userId: p.user_id,
+        groupId: p.group_id,
+      });
+      // 0x93d7 响应无 message_id（分享 fileset，非传统消息），返回 0 兼容 OneBot 形状。
+      return okResponse({ message_id: 0 });
     },
   }),
 
@@ -2460,12 +2244,8 @@ export const actions = [
     },
     params: { share_code: f.string({ allowEmpty: false }) },
     run: async (p, ctx) => {
-      try {
-        const filesetId = await ctx.bridge.apis.flashTransfer.getFilesetIdByCode(p.share_code);
-        return okResponse({ fileset_id: filesetId });
-      } catch (e) {
-        return failedResponse(RETCODE.ACTION_FAILED, e instanceof Error ? e.message : String(e));
-      }
+      const filesetId = await ctx.bridge.apis.flashTransfer.getFilesetIdByCode(p.share_code);
+      return okResponse({ fileset_id: filesetId });
     },
   }),
 ];
