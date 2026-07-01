@@ -151,7 +151,9 @@ async function buildForwardPushBody(
   return {
     responseHead: {
       fromUin,
-      toUid: bridge.identity.selfUid ?? '',
+      // Resolve our own uid rather than ship an empty one — a blank toUid is a
+      // broken packet if this runs before warmup populated selfUid.
+      toUid: await resolveSelfUid(bridge),
       forward: {
         friendName: nickname,
       },
