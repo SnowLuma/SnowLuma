@@ -11,6 +11,7 @@
 // "无法检查更新" rather than nagging).
 
 import { createLogger } from '@snowluma/common/logger';
+import { createSingleFlightCache } from '@snowluma/common/single-flight-cache';
 
 const log = createLogger('Update');
 
@@ -79,8 +80,22 @@ export function compareVersions(a: string, b: string): number {
   return pa.pre < pb.pre ? -1 : 1;
 }
 
-let cache: UpdateCheckResult | null = null;
-let inflight: Promise<UpdateCheckResult> | null = null;
+// TTL + single-flight: cache good results for CACHE_TTL_MS (well under GitHub's
+// 60 req/hr limit) and collapse concurrent checks onto one fetch. Error results
+// are intentionally not cached (shouldCache) so the next check retries.
+const updateCache = createSingleFlightCache<string, UpdateCheckResult>({
+  ttlMs: CACHE_TTL_MS,
+  shouldCache: (r) => !r.error,
+  load: async (current) => {
+    const result = await fetchLatest(current);
+    if (result.error) {
+      log.debug('update check failed: %s', result.error);
+    } else if (result.hasUpdate) {
+      log.info('a newer release is available: v%s (running v%s)', result.latest, current);
+    }
+    return result;
+  },
+});
 
 async function fetchLatest(current: string): Promise<UpdateCheckResult> {
   const base: UpdateCheckResult = {
@@ -133,21 +148,7 @@ export async function getUpdateInfo(force = false): Promise<UpdateCheckResult> {
   if (!isEnabled()) {
     return { ...emptyResult(current), error: 'disabled' };
   }
-  if (!force && cache && Date.now() - cache.checkedAt < CACHE_TTL_MS) return cache;
-  if (inflight) return inflight;
-  inflight = (async () => {
-    const result = await fetchLatest(current);
-    if (result.error) {
-      log.debug('update check failed: %s', result.error);
-    } else {
-      cache = result; // only cache good results so transient errors retry
-      if (result.hasUpdate) log.info('a newer release is available: v%s (running v%s)', result.latest, current);
-    }
-    return result;
-  })().finally(() => {
-    inflight = null;
-  });
-  return inflight;
+  return updateCache.get(current, { force });
 }
 
 function emptyResult(current: string): UpdateCheckResult {

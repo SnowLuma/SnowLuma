@@ -20,6 +20,10 @@
       "types": "./src/coerce.ts",
       "default": "./src/coerce.ts"
     },
+    "./single-flight-cache": {
+      "types": "./src/single-flight-cache.ts",
+      "default": "./src/single-flight-cache.ts"
+    },
     "./hex": {
       "types": "./src/hex.ts",
       "default": "./src/hex.ts"

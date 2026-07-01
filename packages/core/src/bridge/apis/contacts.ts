@@ -8,6 +8,7 @@ import { FetchUserProfile } from '@snowluma/protocol/oidb-services/contacts/fetc
 import { FetchUserProfileByUid } from '@snowluma/protocol/oidb-services/contacts/fetch-user-profile-by-uid';
 import { GetBuddyRecommendArk } from '@snowluma/protocol/oidb-services/contacts/get-buddy-recommend-ark';
 import { GetGroupRecommendArk } from '@snowluma/protocol/oidb-services/contacts/get-group-recommend-ark';
+import { createSingleFlightCache, type SingleFlightCache } from '@snowluma/common/single-flight-cache';
 import type {
   FriendInfo,
   GroupMemberInfo,
@@ -55,16 +56,19 @@ const MEMBER_LIST_TTL_MS = 60_000;
 
 export class ContactsApi {
   /**
-   * Per-group inflight + last-fetch cache for `fetchGroupMemberList`.
-   * Keyed by groupId, lives for the lifetime of the Bridge.
+   * Per-group TTL + single-flight cache for `fetchGroupMemberList`, keyed by
+   * groupId, living for the lifetime of the Bridge.
    *
    * Without this, a busy OneBot client (e.g. MaiBot calling
    * `get_group_member_info` once per inbound message) triggers one
    * OIDB 0xfe7_3 per chat message — sustained >1k/h, which trips
    * Tencent risk-control and gets the account banned for 7 days.
    */
-  private memberListInflight = new Map<number, Promise<GroupMemberInfo[]>>();
-  private memberListLastFetch = new Map<number, { at: number; data: GroupMemberInfo[] }>();
+  private readonly memberListCache: SingleFlightCache<number, GroupMemberInfo[]> =
+    createSingleFlightCache({
+      ttlMs: MEMBER_LIST_TTL_MS,
+      load: (groupId) => this.fetchGroupMemberListUncached(groupId),
+    });
 
   constructor(private readonly ctx: BridgeContext) { }
 
@@ -139,28 +143,11 @@ export class ContactsApi {
     };
   }
 
-  async fetchGroupMemberList(
+  fetchGroupMemberList(
     groupId: number,
     options: { force?: boolean } = {},
   ): Promise<GroupMemberInfo[]> {
-    const now = Date.now();
-    const last = this.memberListLastFetch.get(groupId);
-    if (!options.force && last && now - last.at < MEMBER_LIST_TTL_MS) {
-      return last.data;
-    }
-    const inflight = this.memberListInflight.get(groupId);
-    if (inflight) return inflight;
-    const task = (async () => {
-      try {
-        const data = await this.fetchGroupMemberListUncached(groupId);
-        this.memberListLastFetch.set(groupId, { at: Date.now(), data });
-        return data;
-      } finally {
-        this.memberListInflight.delete(groupId);
-      }
-    })();
-    this.memberListInflight.set(groupId, task);
-    return task;
+    return this.memberListCache.get(groupId, { force: options.force });
   }
 
   private async fetchGroupMemberListUncached(groupId: number): Promise<GroupMemberInfo[]> {
