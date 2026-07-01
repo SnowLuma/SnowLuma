@@ -16,6 +16,7 @@ import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { useApi } from '@/lib/api';
+import { useFlashMessage } from '@/hooks/use-flash-message';
 import { cn } from '@/lib/utils';
 import type { SystemSettingsResponse } from '@/types';
 
@@ -24,7 +25,7 @@ export function SystemPanel() {
   const [data, setData] = useState<SystemSettingsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const { msg, flash, setMsg } = useFlashMessage(4000);
 
   // editable form state
   const [port, setPort] = useState('');
@@ -60,10 +61,6 @@ export function SystemPanel() {
   useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const overridden = (field: string) => data?.envOverrides.includes(field) ?? false;
-  const flash = (kind: 'ok' | 'err', text: string) => {
-    setMsg({ kind, text });
-    window.setTimeout(() => setMsg(null), 4000);
-  };
 
   const saveSettings = async () => {
     const portNum = Number(port);

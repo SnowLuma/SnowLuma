@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { useApi } from '@/lib/api';
+import { useFlashMessage } from '@/hooks/use-flash-message';
 import { useTheme } from '@/contexts/ThemeContext';
 import { cn } from '@/lib/utils';
 import type { NotificationChannel, NotificationsConfig } from '@/types';
@@ -41,9 +42,8 @@ export function NotificationsPanel() {
   const [loading, setLoading] = useState(true);
   const [dialog, setDialog] = useState<DialogState>({ open: false, index: null, seed: blankChannel([]) });
   const [testing, setTesting] = useState<string | null>(null);
-  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const { msg, flash, setMsg } = useFlashMessage();
   const saveTimer = useRef<number | null>(null);
-  const msgTimer = useRef<number | null>(null);
   const saveGen = useRef(0);
 
   useEffect(() => {
@@ -66,16 +66,9 @@ export function NotificationsPanel() {
   useEffect(
     () => () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
-      if (msgTimer.current) clearTimeout(msgTimer.current);
     },
     [],
   );
-
-  const flash = (kind: 'ok' | 'err', text: string) => {
-    setMsg({ kind, text });
-    if (msgTimer.current) clearTimeout(msgTimer.current);
-    msgTimer.current = window.setTimeout(() => setMsg(null), 2400);
-  };
 
   /** Apply locally + debounced auto-save. A generation guard reconciles with
    *  the server's normalized result only if no newer edit landed meanwhile. */
