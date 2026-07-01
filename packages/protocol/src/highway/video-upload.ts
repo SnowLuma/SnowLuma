@@ -18,6 +18,7 @@ import {
   loadBinarySource,
   resolveLocalFilePath,
 } from './utils';
+import { Sha1Stream } from './sha1-stream';
 
 const moduleLog = createLogger('Highway.Video');
 
@@ -35,6 +36,7 @@ export const GROUP_VIDEO_THUMB_CMD_ID = 1006;
 export const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
 const MAX_VIDEO_SIZE_HARD = 1536 * 1024 * 1024;
 const SHA1_STREAM_BLOCK_SIZE = 1024 * 1024;
+const SHA1_BLOCK_SIZE = 64;
 
 export function getVideoSourceSize(element: MessageElement): number | null {
   if (element.fileSize && element.fileSize > 0) return element.fileSize;
@@ -123,143 +125,26 @@ interface ThumbPayload {
 
 // ─────────────── 1MB-block sha1 (Highway main-video extend) ───────────────
 
-// Highway expects sha1 computed over each 1 MB block of the file, plus
-// the final overall sha1. This is a streaming implementation that doesn't
-// reuse Node's crypto because Node only exposes the final digest.
-
-class Sha1StreamState {
-  readonly blockSize = 64;
-  private readonly padding = Buffer.concat([Buffer.from([0x80]), Buffer.alloc(63)]);
-  private readonly state = new Uint32Array(5);
-  private readonly count = new Uint32Array(2);
-  private readonly buffer = Buffer.allocUnsafe(this.blockSize);
-  private readonly w = new Uint32Array(80);
-
-  constructor() {
-    this.reset();
-  }
-
-  private reset(): void {
-    this.state[0] = 0x67452301;
-    this.state[1] = 0xEFCDAB89;
-    this.state[2] = 0x98BADCFE;
-    this.state[3] = 0x10325476;
-    this.state[4] = 0xC3D2E1F0;
-    this.count[0] = 0;
-    this.count[1] = 0;
-    this.buffer.fill(0);
-  }
-
-  private rotateLeft(value: number, offset: number): number {
-    return ((value << offset) | (value >>> (32 - offset))) >>> 0;
-  }
-
-  private transform(chunk: Uint8Array, offset: number): void {
-    const view = new DataView(chunk.buffer, chunk.byteOffset + offset, this.blockSize);
-
-    for (let i = 0; i < 16; i++) {
-      this.w[i] = view.getUint32(i * 4, false);
-    }
-    for (let i = 16; i < 80; i++) {
-      this.w[i] = this.rotateLeft(this.w[i - 3] ^ this.w[i - 8] ^ this.w[i - 14] ^ this.w[i - 16], 1);
-    }
-
-    let a = this.state[0];
-    let b = this.state[1];
-    let c = this.state[2];
-    let d = this.state[3];
-    let e = this.state[4];
-
-    for (let i = 0; i < 80; i++) {
-      let temp: number;
-      if (i < 20) {
-        temp = ((b & c) | (~b & d)) + 0x5A827999;
-      } else if (i < 40) {
-        temp = (b ^ c ^ d) + 0x6ED9EBA1;
-      } else if (i < 60) {
-        temp = ((b & c) | (b & d) | (c & d)) + 0x8F1BBCDC;
-      } else {
-        temp = (b ^ c ^ d) + 0xCA62C1D6;
-      }
-      temp += (this.rotateLeft(a, 5) + e + this.w[i]) >>> 0;
-      e = d;
-      d = c;
-      c = this.rotateLeft(b, 30);
-      b = a;
-      a = temp >>> 0;
-    }
-
-    this.state[0] = (this.state[0] + a) >>> 0;
-    this.state[1] = (this.state[1] + b) >>> 0;
-    this.state[2] = (this.state[2] + c) >>> 0;
-    this.state[3] = (this.state[3] + d) >>> 0;
-    this.state[4] = (this.state[4] + e) >>> 0;
-  }
-
-  update(data: Uint8Array): void {
-    let index = (this.count[0] >>> 3) & 0x3F;
-    const dataLen = data.length;
-    this.count[0] = (this.count[0] + (dataLen << 3)) >>> 0;
-    if (this.count[0] < (dataLen << 3)) this.count[1] = (this.count[1] + 1) >>> 0;
-    this.count[1] = (this.count[1] + (dataLen >>> 29)) >>> 0;
-
-    const partLen = this.blockSize - index;
-    let i = 0;
-
-    if (dataLen >= partLen) {
-      this.buffer.set(data.subarray(0, partLen), index);
-      this.transform(this.buffer, 0);
-      for (i = partLen; i + this.blockSize <= dataLen; i += this.blockSize) {
-        this.transform(data, i);
-      }
-      index = 0;
-    }
-
-    if (i < dataLen) {
-      this.buffer.set(data.subarray(i, dataLen), index);
-    }
-  }
-
-  hash(bigEndian = true): Uint8Array {
-    const digest = Buffer.allocUnsafe(20);
-    for (let i = 0; i < 5; i++) {
-      if (bigEndian) digest.writeUInt32BE(this.state[i], i * 4);
-      else digest.writeUInt32LE(this.state[i], i * 4);
-    }
-    return new Uint8Array(digest);
-  }
-
-  final(): Uint8Array {
-    const bits = Buffer.allocUnsafe(8);
-    bits.writeUInt32BE(this.count[1], 0);
-    bits.writeUInt32BE(this.count[0], 4);
-
-    const index = (this.count[0] >>> 3) & 0x3F;
-    const padLen = index < 56 ? 56 - index : 120 - index;
-    this.update(this.padding.subarray(0, padLen));
-    this.update(bits);
-    return this.hash(true);
-  }
-}
-
-function computeVideoSha1Blocks(bytes: Uint8Array): Uint8Array[] {
-  const sha1 = new Sha1StreamState();
+// Highway expects the sha1 of each 1 MB block (intermediate un-finalized state,
+// little-endian) plus the overall sha1. Reuses the well-tested streaming
+// Sha1Stream for the block states and Node crypto for the overall digest (same
+// split as computeSha1StateV), replacing a ~110-line hand-rolled, untested
+// SHA1 duplicate.
+export function computeVideoSha1Blocks(bytes: Uint8Array): Uint8Array[] {
+  const sha1 = new Sha1Stream();
   const blocks: Uint8Array[] = [];
   let bytesRead = 0;
   let offset = 0;
-
-  while (offset + sha1.blockSize <= bytes.length) {
-    const block = bytes.subarray(offset, offset + sha1.blockSize);
-    sha1.update(block);
-    offset += sha1.blockSize;
-    bytesRead += sha1.blockSize;
+  while (offset + SHA1_BLOCK_SIZE <= bytes.length) {
+    sha1.update(bytes.subarray(offset, offset + SHA1_BLOCK_SIZE));
+    offset += SHA1_BLOCK_SIZE;
+    bytesRead += SHA1_BLOCK_SIZE;
     if (bytesRead % SHA1_STREAM_BLOCK_SIZE === 0) {
-      blocks.push(sha1.hash(false));
+      blocks.push(sha1.hash(true)); // little-endian intermediate state
     }
   }
-
-  if (offset < bytes.length) sha1.update(bytes.subarray(offset));
-  blocks.push(sha1.final());
+  // Overall SHA1 (finalized) via Node crypto — the reference impl.
+  blocks.push(new Uint8Array(crypto.createHash('sha1').update(Buffer.from(bytes)).digest()));
   return blocks;
 }
 
