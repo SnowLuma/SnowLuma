@@ -1,21 +1,11 @@
 import { renderParamsVerbose, summarizeParams } from '@snowluma/common/log-summary';
 import { createLogger, getLogLevel, nextRequestId, runWithRequestId, type Logger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
-import { register as registerExtended } from './actions/extended';
-import { register as registerFriend } from './actions/friend';
-import { register as registerGroupAdmin } from './actions/group-admin';
-import { register as registerGroupAlbum } from './actions/group-album';
-import { register as registerGroupFile } from './actions/group-file';
-import { register as registerGroupInfo } from './actions/group-info';
-import { register as registerInfo } from './actions/info';
-import { register as registerMessage } from './actions/message';
-import { register as registerQzone } from './actions/qzone';
-import { register as registerRequest } from './actions/request';
-import { register as registerStreamFile } from './actions/stream-file';
-import { register as registerStreamDownload } from './actions/stream-download';
+import { ALL_ACTIONS } from './actions';
+import { registerActions } from './action-kit';
 import type { ForwardPreviewMeta } from './modules/message-actions';
 import type { JsonObject, JsonValue, MessageMeta } from './types';
-import { RETCODE, failedResponse } from './types';
+import { RETCODE, failedResponse, okResponse } from './types';
 import { type StreamSink, wrapStreamFrame, wrapStreamTerminal } from './streaming';
 const moduleLog = createLogger('Bridge.Action');
 
@@ -112,18 +102,20 @@ export class ApiHandler {
 
   constructor(context: ApiActionContext, uin?: number) {
     this.log = typeof uin === 'number' && uin > 0 ? moduleLog.child({ uin }) : moduleLog;
-    registerInfo(this, context);
-    registerMessage(this, context);
-    registerFriend(this, context);
-    registerGroupInfo(this, context);
-    registerGroupAdmin(this, context);
-    registerGroupFile(this, context);
-    registerRequest(this, context);
-    registerExtended(this, context);
-    registerGroupAlbum(this, context);
-    registerQzone(this, context);
-    registerStreamFile(this, context);
-    registerStreamDownload(this, context);
+    registerActions(this, context, ALL_ACTIONS);
+
+    // The one non-ActionSpec handler: `.handle_quick_operation` needs the
+    // ApiHandler itself (to re-drive actions via executeQuickOperation), which
+    // ActionSpec.run's (params, ctx) signature can't supply — so it's the sole
+    // raw registration, kept here rather than in an action file's footer.
+    this.registerAction('.handle_quick_operation', async (params) => {
+      const opContext = params.context as JsonObject | undefined;
+      const operation = params.operation as Record<string, unknown> | undefined;
+      if (!opContext || !operation) return failedResponse(RETCODE.BAD_REQUEST, 'context and operation are required');
+      const { executeQuickOperation } = await import('./network/quick-operation');
+      await executeQuickOperation(opContext, operation, this);
+      return okResponse();
+    });
   }
 
   registerAction(action: string, handler: ActionHandler): void {

@@ -1,5 +1,4 @@
-import { defineAction, registerActions } from '../action-kit';
-import type { ApiActionContext, ApiHandler } from '../api-handler';
+import { defineAction } from '../action-kit';
 import { okResponse } from '../types';
 
 // 后续考虑移动到一个统一的地方构建，避免版本信息分散在各个模块中。
@@ -98,6 +97,3 @@ export const actions = [
   }),
 ];
 
-export function register(h: ApiHandler, ctx: ApiActionContext): void {
-  registerActions(h, ctx, actions);
-}

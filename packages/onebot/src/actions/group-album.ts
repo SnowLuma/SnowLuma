@@ -1,5 +1,4 @@
-import { groupAction, registerActions, f } from '../action-kit';
-import type { ApiActionContext, ApiHandler } from '../api-handler';
+import { groupAction, f } from '../action-kit';
 import type { JsonValue } from '../types';
 import { okResponse } from '../types';
 
@@ -168,6 +167,3 @@ export const actions = [
   }),
 ];
 
-export function register(h: ApiHandler, ctx: ApiActionContext): void {
-  registerActions(h, ctx, actions);
-}

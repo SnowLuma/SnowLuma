@@ -1,7 +1,7 @@
 import { createLogger } from '@snowluma/common/logger';
 import type { JsonObject, JsonValue } from '../types';
-import type { ApiHandler, ApiActionContext } from '../api-handler';
-import { defineAction, groupAction, registerActions, f } from '../action-kit';
+import type { ApiActionContext } from '../api-handler';
+import { defineAction, groupAction, f } from '../action-kit';
 import { RETCODE, failedResponse, okResponse } from '../types';
 
 const log = createLogger('OneBot');
@@ -119,6 +119,3 @@ export const actions = [
   }),
 ];
 
-export function register(h: ApiHandler, ctx: ApiActionContext): void {
-  registerActions(h, ctx, actions);
-}

@@ -1,5 +1,4 @@
-import { defineAction, groupAction, groupUserAction, registerActions, f } from '../action-kit';
-import type { ApiHandler, ApiActionContext } from '../api-handler';
+import { defineAction, groupAction, groupUserAction, f } from '../action-kit';
 import { asString } from '../api-handler';
 import { RETCODE, failedResponse, okResponse } from '../types';
 import { WebHonorType } from '@snowluma/protocol/web/group-honor';
@@ -179,6 +178,3 @@ export const actions = [
   }),
 ];
 
-export function register(h: ApiHandler, ctx: ApiActionContext): void {
-  registerActions(h, ctx, actions);
-}

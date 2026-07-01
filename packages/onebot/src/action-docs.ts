@@ -13,49 +13,18 @@
 // Markdown default. Point any renderer at `collectActionDocs()`.
 
 import type { ActionDoc } from './action-kit';
-import { actions as infoActions } from './actions/info';
-import { actions as messageActions } from './actions/message';
-import { actions as friendActions } from './actions/friend';
-import { actions as groupInfoActions } from './actions/group-info';
-import { actions as groupAdminActions } from './actions/group-admin';
-import { actions as groupFileActions } from './actions/group-file';
-import { actions as requestActions } from './actions/request';
-import { actions as extendedActions } from './actions/extended';
-import { actions as groupAlbumActions } from './actions/group-album';
-import { actions as qzoneActions } from './actions/qzone';
-import { actions as streamFileActions } from './actions/stream-file';
-import { actions as streamDownloadActions } from './actions/stream-download';
-
-// The doc collector only ever calls `describe()`, so any spec carrying it
-// qualifies — this admits both `defineAction` (ActionSpec) and
-// `defineStreamAction` (StreamActionSpec) results without coupling to either.
-type AnySpec = { describe(): ActionDoc };
-
-// Source file = domain category. Each doc is tagged so the MCP / UI can group.
-const GROUPS: ReadonlyArray<{ category: string; specs: readonly AnySpec[] }> = [
-  { category: '信息', specs: infoActions },
-  { category: '消息', specs: messageActions },
-  { category: '好友', specs: friendActions },
-  { category: '群信息', specs: groupInfoActions },
-  { category: '群管理', specs: groupAdminActions },
-  { category: '群文件', specs: groupFileActions },
-  { category: '请求', specs: requestActions },
-  { category: '扩展', specs: extendedActions },
-  { category: '群相册', specs: groupAlbumActions },
-  { category: '空间', specs: qzoneActions },
-  { category: '流式接口', specs: [...streamFileActions, ...streamDownloadActions] },
-];
+import { ACTION_GROUPS } from './actions';
 
 /** Every declarative action's doc (with category), sorted by name. */
 export function collectActionDocs(): ActionDoc[] {
-  return GROUPS
-    .flatMap(({ category, specs }) => specs.map((s) => ({ ...s.describe(), category })))
+  return ACTION_GROUPS
+    .flatMap(({ category, actions }) => actions.map((s) => ({ ...s.describe(), category })))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Distinct categories with action counts. */
 export function collectCategories(): Array<{ category: string; count: number }> {
-  return GROUPS.map(({ category, specs }) => ({ category, count: specs.length }));
+  return ACTION_GROUPS.map(({ category, actions }) => ({ category, count: actions.length }));
 }
 
 function paramRow(p: ActionDoc['params'][number]): string {

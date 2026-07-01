@@ -1,5 +1,4 @@
-import { defineAction, groupAction, registerActions, f } from '../action-kit';
-import type { ApiHandler, ApiActionContext } from '../api-handler';
+import { defineAction, groupAction, f } from '../action-kit';
 import { RETCODE, failedResponse, okResponse } from '../types';
 
 // NapCat/LLOneBot omit `busid` from their `get_group_file_url` schema entirely,
@@ -286,6 +285,3 @@ export const actions = [
   }),
 ];
 
-export function register(h: ApiHandler, ctx: ApiActionContext): void {
-  registerActions(h, ctx, actions);
-}

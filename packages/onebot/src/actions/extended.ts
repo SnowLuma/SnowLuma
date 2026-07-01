@@ -1,9 +1,9 @@
 import { readFile } from 'node:fs/promises';
-import type { ApiActionContext, ApiHandler } from '../api-handler';
+import type { ApiActionContext } from '../api-handler';
 import { asNumber, asString } from '../api-handler';
 import type { ForwardPreviewMeta } from '../modules/message-actions';
 import { JsonObject, RETCODE, failedResponse, okResponse } from '../types';
-import { defineAction, groupAction, groupUserAction, registerActions, f } from '../action-kit';
+import { defineAction, groupAction, groupUserAction, f } from '../action-kit';
 
 const DOWNLOAD_FILE_MAX_BYTES = 1024 * 1024 * 1024; // 1 GiB
 const DOWNLOAD_FILE_TIMEOUT_MS = 60_000;
@@ -2261,20 +2261,6 @@ async function fetchFilteredGroupRequests(ctx: ApiActionContext) {
   }
 }
 
-export function register(h: ApiHandler, ctx: ApiActionContext): void {
-  registerActions(h, ctx, actions);
-
-  // .handle_quick_operation 仍保留 legacy：它需要把 ApiHandler 本身 (h) 交给
-  // executeQuickOperation 去回灌动作，而 action-kit 的 run 只提供 (p, ctx, raw)、不含 h。
-  h.registerAction('.handle_quick_operation', async (params) => {
-    const context = params.context as JsonObject | undefined;
-    const operation = params.operation as Record<string, unknown> | undefined;
-    if (!context || !operation) return failedResponse(RETCODE.BAD_REQUEST, 'context and operation are required');
-    const { executeQuickOperation } = await import('../network/quick-operation');
-    await executeQuickOperation(context, operation, h);
-    return okResponse();
-  });
-}
 
 function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
