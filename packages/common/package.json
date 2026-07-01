@@ -24,6 +24,10 @@
       "types": "./src/single-flight-cache.ts",
       "default": "./src/single-flight-cache.ts"
     },
+    "./concurrency": {
+      "types": "./src/concurrency.ts",
+      "default": "./src/concurrency.ts"
+    },
     "./hex": {
       "types": "./src/hex.ts",
       "default": "./src/hex.ts"
