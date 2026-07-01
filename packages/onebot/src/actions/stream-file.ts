@@ -23,7 +23,7 @@ import fs from 'fs';
 import { createHash } from 'crypto';
 import { createLogger } from '@snowluma/common/logger';
 import { defineAction, defineStreamAction, f } from '../action-kit';
-import type { ApiActionContext, ApiHandler } from '../api-handler';
+import type { ApiActionContext } from '../api-handler';
 import { okResponse, type ApiResponse } from '../types';
 import { StreamStatus } from '../streaming';
 
@@ -360,10 +360,6 @@ const cleanStreamTempFile = defineAction({
 });
 
 export const actions = [uploadFileStream, cleanStreamTempFile];
-
-export function register(h: ApiHandler, ctx: ApiActionContext): void {
-  for (const a of actions) a.register(h, ctx);
-}
 
 // Exposed for tests.
 export const __test = { uploads, handleUpload, cleanDir, validateStreamId, STREAM_UPLOAD_DIR, MAX_CONCURRENT_STREAMS, MAX_CHUNKS };

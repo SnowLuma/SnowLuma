@@ -1,4 +1,5 @@
 import type { PacketInfo } from '@snowluma/common/protocol-types';
+import { mapWithConcurrency } from '@snowluma/common/concurrency';
 import type {
   LongMsgResult,
   RecvLongMsgReq,
@@ -150,7 +151,9 @@ async function buildForwardPushBody(
   return {
     responseHead: {
       fromUin,
-      toUid: bridge.identity.selfUid ?? '',
+      // Resolve our own uid rather than ship an empty one — a blank toUid is a
+      // broken packet if this runs before warmup populated selfUid.
+      toUid: await resolveSelfUid(bridge),
       forward: {
         friendName: nickname,
       },
@@ -676,14 +679,12 @@ export class ForwardApi {
       .slice(0, FORWARD_PROFILE_MAX);
     if (uins.length > 0) {
       const byUin = new Map<number, string>();
-      for (let i = 0; i < uins.length; i += FORWARD_PROFILE_CONCURRENCY) {
-        const batch = uins.slice(i, i + FORWARD_PROFILE_CONCURRENCY);
-        const results = await Promise.all(batch.map(async (uin): Promise<readonly [number, string]> => {
+      const results = await mapWithConcurrency(uins, FORWARD_PROFILE_CONCURRENCY,
+        async (uin): Promise<readonly [number, string]> => {
           try { return [uin, (await this.ctx.apis.contacts.fetchUserProfile(uin)).nickname] as const; }
           catch { return [uin, ''] as const; }
-        }));
-        for (const [uin, nick] of results) byUin.set(uin, nick);
-      }
+        });
+      for (const [uin, nick] of results) byUin.set(uin, nick);
       for (const n of residue) {
         if (!this.needsName(n)) continue;
         const nick = byUin.get(n.userUin);

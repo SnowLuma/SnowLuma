@@ -132,6 +132,19 @@ export interface OidbGroupFileResp {
   rename?:   pb<5, OidbGroupFileRetResp>;
   move?:     pb<6, OidbGroupFileRetResp>;
 }
+export interface OidbGroupTransFileReq {
+  groupUin?: pb<1, uint_64>;
+  appId?:    pb<2, uint_32>;
+  busId?:    pb<3, uint_32>;
+  fileId?:   pb<4, string>;
+}
+export interface OidbGroupTransFileResp {
+  retCode?:       pb<1, int_32>;
+  retMsg?:        pb<2, string>;
+  clientWording?: pb<3, string>;
+  saveBusId?:     pb<4, uint_32>;
+  saveFilePath?:  pb<5, string>;
+}
 export interface OidbGroupSendFileInfo {
   busiType?: pb<1, uint_32>;
   fileId?:   pb<2, string>;
@@ -145,7 +158,11 @@ export interface OidbGroupSendFileBody {
   info?:     pb<3, OidbGroupSendFileInfo>;
 }
 export interface OidbGroupSendFileReq {
+  transFile?: pb<1, OidbGroupTransFileReq>;
   body?: pb<5, OidbGroupSendFileBody>;
+}
+export interface OidbGroupSendFileResp {
+  transFile?: pb<1, OidbGroupTransFileResp>;
 }
 export interface OidbGroupFileCreateFolderReq {
   groupUin?:      pb<1, uint_32>;

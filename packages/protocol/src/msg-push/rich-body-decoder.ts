@@ -3,7 +3,9 @@ import { toHex, toHexUpper } from '@snowluma/common/hex';
 import type { MessageElement } from '../events';
 import type {
   Elem,
+  FileInfo,
   GroupFileExtra,
+  IndexNode,
   MentionExtra,
   MsgInfo,
   NotOnlineImage,
@@ -16,6 +18,38 @@ import { decompressData, makeImageUrl } from './helpers';
 type ElemDecoded = Elem;
 type RichTextDecoded = RichText;
 export type PushMsgBody = MessageBody;
+
+/**
+ * Build the `mediaNode` re-upload descriptor from an NTV2 IndexNode + FileInfo.
+ * Record and video decode to the byte-identical `{ fileUuid, storeId,
+ * uploadTime, ttl, subType, info:{…} }` shape — share one builder so the two
+ * never drift (add a field to one and forget the other).
+ */
+function buildMediaNode(idx: IndexNode, fi: FileInfo): MessageElement['mediaNode'] {
+  return {
+    fileUuid: idx.fileUuid,
+    storeId: idx.storeId,
+    uploadTime: idx.uploadTime,
+    ttl: idx.ttl,
+    subType: idx.subType,
+    info: {
+      fileSize: fi.fileSize,
+      fileHash: fi.fileHash,
+      fileSha1: fi.fileSha1,
+      fileName: fi.fileName,
+      width: fi.width,
+      height: fi.height,
+      time: fi.time,
+      original: fi.original,
+      type: {
+        type: fi.type?.type,
+        picFormat: fi.type?.picFormat,
+        videoFormat: fi.type?.videoFormat,
+        voiceFormat: fi.type?.voiceFormat,
+      },
+    },
+  };
+}
 
 export function decodeRichBody(body: PushMsgBody | undefined, isGroup: boolean): MessageElement[] {
   const elements: MessageElement[] = [];
@@ -418,29 +452,7 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
                 md5Hex: fi.fileHash ?? '',
                 sha1Hex: fi.fileSha1 ?? '',
                 voiceFormat: fi.type?.voiceFormat ?? 0,
-                mediaNode: {
-                  fileUuid: idx.fileUuid,
-                  storeId: idx.storeId,
-                  uploadTime: idx.uploadTime,
-                  ttl: idx.ttl,
-                  subType: idx.subType,
-                  info: {
-                    fileSize: fi.fileSize,
-                    fileHash: fi.fileHash,
-                    fileSha1: fi.fileSha1,
-                    fileName: fi.fileName,
-                    width: fi.width,
-                    height: fi.height,
-                    time: fi.time,
-                    original: fi.original,
-                    type: {
-                      type: fi.type?.type,
-                      picFormat: fi.type?.picFormat,
-                      videoFormat: fi.type?.videoFormat,
-                      voiceFormat: fi.type?.voiceFormat,
-                    },
-                  },
-                },
+                mediaNode: buildMediaNode(idx, fi),
               });
             } else if (bizType === 11 || bizType === 21) {
               // Video
@@ -454,29 +466,7 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
                 md5Hex: fi.fileHash ?? '',
                 sha1Hex: fi.fileSha1 ?? '',
                 videoFormat: fi.type?.videoFormat ?? 0,
-                mediaNode: {
-                  fileUuid: idx.fileUuid,
-                  storeId: idx.storeId,
-                  uploadTime: idx.uploadTime,
-                  ttl: idx.ttl,
-                  subType: idx.subType,
-                  info: {
-                    fileSize: fi.fileSize,
-                    fileHash: fi.fileHash,
-                    fileSha1: fi.fileSha1,
-                    fileName: fi.fileName,
-                    width: fi.width,
-                    height: fi.height,
-                    time: fi.time,
-                    original: fi.original,
-                    type: {
-                      type: fi.type?.type,
-                      picFormat: fi.type?.picFormat,
-                      videoFormat: fi.type?.videoFormat,
-                      voiceFormat: fi.type?.voiceFormat,
-                    },
-                  },
-                },
+                mediaNode: buildMediaNode(idx, fi),
               });
             }
           }

@@ -50,6 +50,7 @@ export function Picker({
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const suppressTriggerClick = useRef(false);
 
   const selected = options.find((o) => o.value === value);
 
@@ -124,7 +125,13 @@ export function Picker({
         aria-label={ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={open}
-        onClick={() => !disabled && setOpen((v) => !v)}
+        onClick={() => {
+          if (suppressTriggerClick.current) {
+            suppressTriggerClick.current = false;
+            return;
+          }
+          if (!disabled) setOpen((v) => !v);
+        }}
         className={cn(
           'flex h-9 w-full items-center gap-2 rounded-md border border-border bg-transparent px-3 text-sm outline-none transition-colors',
           'focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:border-ring disabled:opacity-50',
@@ -196,7 +203,11 @@ export function Picker({
                       role="option"
                       aria-selected={idx === active}
                       onMouseEnter={() => setActive(idx)}
-                      onClick={() => choose(idx)}
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        suppressTriggerClick.current = true;
+                        choose(idx);
+                      }}
                       className={cn(
                         'absolute left-0 right-0 flex cursor-pointer items-center gap-2.5 px-3',
                         idx === active ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50',

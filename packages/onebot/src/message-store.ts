@@ -1,7 +1,6 @@
-import fs from 'fs';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
-import path from 'path';
 import type { JsonObject, MessageMeta } from './types';
+import { openSqliteDb } from './sqlite-open';
 
 export class MessageStore {
   private readonly db: DatabaseSync;
@@ -15,14 +14,9 @@ export class MessageStore {
   private readonly stmtListEventsLatest: StatementSync;
 
   constructor(dbPath: string) {
-    const dir = path.dirname(dbPath);
-    fs.mkdirSync(dir, { recursive: true });
-
     // Replace .json extension with .db if present
     const finalPath = dbPath.replace(/\.json$/, '.db');
-    this.db = new DatabaseSync(finalPath);
-    this.db.exec('PRAGMA journal_mode = WAL');
-    this.db.exec('PRAGMA synchronous = NORMAL');
+    this.db = openSqliteDb(finalPath);
     this.initSchema();
 
     // Prepare once. Statements survive for the lifetime of the

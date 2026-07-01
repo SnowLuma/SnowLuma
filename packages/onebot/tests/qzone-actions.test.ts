@@ -24,7 +24,7 @@ describe('qzone actions', () => {
     expect(res).toMatchObject({ status: 'ok', retcode: 0, data: { tid: 'T1', time: 1 } });
     expect(uploadImageFromSource).toHaveBeenNthCalledWith(1, 'file:///a.jpg');
     expect(uploadImageFromSource).toHaveBeenNthCalledWith(2, 'file:///b.jpg');
-    expect(publish).toHaveBeenCalledWith('hello', 1, 'RV1\tRV2');
+    expect(publish).toHaveBeenCalledWith('hello', 1, 'RV1\tRV2', 1, undefined);
   });
 
   it('comment_qzone uploads images and comments direct urls joined with tab', async () => {
@@ -57,7 +57,7 @@ describe('qzone actions', () => {
       images: ['file:///a.jpg', 'file:///b.jpg'],
     });
 
-    expect(res).toMatchObject({ status: 'failed', retcode: 1200 });
+    expect(res).toMatchObject({ status: 'failed', retcode: 100 });
     expect(res.wording).toContain('第 2 张图片上传失败: network down');
     expect(publish).not.toHaveBeenCalled();
   });

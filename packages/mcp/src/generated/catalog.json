@@ -7183,7 +7183,7 @@
     {
       "name": "send_qzone_msg",
       "aliases": [],
-      "summary": "发表说说（QQ 空间，支持纯文字或带图；传 images 自动上传）",
+      "summary": "发表说说（QQ 空间，支持纯文字或带图；传 images 自动上传；可设置查看权限）",
       "readOnly": false,
       "params": [
         {
@@ -7208,9 +7208,36 @@
             }
           },
           "desc": "图片数组（可选），支持 file:// http:// base64://；自动上传"
+        },
+        {
+          "name": "ugc_right",
+          "type": "int",
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "desc": "查看权限：1=所有人可见，4=好友可见，16=部分好友可见，64=仅自己可见，128=部分好友不可见",
+          "default": 1
+        },
+        {
+          "name": "target_uins",
+          "type": "uint[]",
+          "required": false,
+          "schema": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "desc": "权限作用 QQ 号数组；ugc_right=16 时表示可见名单，128 时表示不可见名单"
         }
       ],
-      "invariants": [],
+      "invariants": [
+        "ugc_right must be one of 1, 4, 16, 64, 128",
+        "target_uins is required when ugc_right is 16 or 128"
+      ],
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -7226,6 +7253,20 @@
               "minLength": 1
             },
             "description": "图片数组（可选），支持 file:// http:// base64://；自动上传"
+          },
+          "ugc_right": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "查看权限：1=所有人可见，4=好友可见，16=部分好友可见，64=仅自己可见，128=部分好友不可见",
+            "default": 1
+          },
+          "target_uins": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "权限作用 QQ 号数组；ugc_right=16 时表示可见名单，128 时表示不可见名单"
           }
         },
         "required": [
@@ -9053,13 +9094,50 @@
     {
       "name": "trans_group_file",
       "aliases": [],
-      "summary": "转存群文件（未实现）",
+      "summary": "转存群文件",
+      "returns": "{ ok: true }",
       "readOnly": false,
-      "params": [],
+      "params": [
+        {
+          "name": "group_id",
+          "type": "uint",
+          "required": true,
+          "role": "group_id",
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        {
+          "name": "file_id",
+          "type": "string",
+          "required": true,
+          "role": "file_id",
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
       "invariants": [],
       "inputSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "minimum": 1,
+            "x-role": "group_id"
+          },
+          "file_id": {
+            "type": "string",
+            "minLength": 1,
+            "x-role": "file_id"
+          }
+        },
+        "required": [
+          "group_id",
+          "file_id"
+        ],
         "additionalProperties": true
       },
       "category": "扩展"

@@ -1,4 +1,5 @@
 import { createLogger } from '@snowluma/common/logger';
+import { isRealUin } from '@snowluma/common/uin';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -103,6 +104,38 @@ export function saveOneBotConfig(uin: string, config: OneBotConfig): void {
 
 function ensureConfigDir(): void {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
+}
+
+const PER_UIN_CONFIG = /^onebot_(\d+)\.json$/;
+
+/**
+ * Remove per-UIN config files whose UIN is not a real QQ account — leftovers
+ * from the phantom-account bug where the native hook reported a garbage
+ * (timestamp-shaped) UIN and a `onebot_<garbage>.json` got persisted (issue
+ * #162). Only files matching `onebot_<digits>.json` are considered, and only
+ * those failing isRealUin (i.e. 11+ digits) are deleted — legitimate accounts
+ * are never touched. Returns the deleted file names. Safe to call at startup.
+ */
+export function cleanupInvalidPerUinConfigs(): string[] {
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(CONFIG_DIR);
+  } catch {
+    return []; // config dir not created yet — nothing to clean
+  }
+  const removed: string[] = [];
+  for (const name of entries) {
+    const match = PER_UIN_CONFIG.exec(name);
+    if (!match || isRealUin(match[1])) continue;
+    try {
+      fs.unlinkSync(path.join(CONFIG_DIR, name));
+      removed.push(name);
+      log.warn('removed phantom per-UIN config (invalid UIN): %s', name);
+    } catch (err) {
+      log.warn('failed to remove phantom config %s: %s', name, err instanceof Error ? err.message : String(err));
+    }
+  }
+  return removed;
 }
 
 function toJsonObject(config: OneBotConfig): JsonObject {

@@ -1,6 +1,5 @@
-import fs from 'fs';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
-import path from 'path';
+import { openSqliteDb } from './sqlite-open';
 
 export class ReactionStore {
   private readonly db: DatabaseSync;
@@ -11,11 +10,7 @@ export class ReactionStore {
   private readonly stmtCountByEmoji: StatementSync;
 
   constructor(dbPath: string) {
-    const dir = path.dirname(dbPath);
-    fs.mkdirSync(dir, { recursive: true });
-    this.db = new DatabaseSync(dbPath);
-    this.db.exec('PRAGMA journal_mode = WAL');
-    this.db.exec('PRAGMA synchronous = NORMAL');
+    this.db = openSqliteDb(dbPath);
     this.initSchema();
 
     this.stmtUpsert = this.db.prepare(

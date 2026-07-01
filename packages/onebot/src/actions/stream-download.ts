@@ -23,7 +23,7 @@ import net from 'net';
 import dns from 'dns/promises';
 import { resolveLocalFilePath } from '@snowluma/protocol/highway/utils';
 import { defineStreamAction, f } from '../action-kit';
-import type { ApiActionContext, ApiHandler } from '../api-handler';
+import type { ApiActionContext } from '../api-handler';
 import { okResponse, type ApiResponse, type JsonObject, type JsonValue } from '../types';
 import { type StreamSink, StreamStatus } from '../streaming';
 import { STREAM_ROOT } from './stream-file';
@@ -369,10 +369,6 @@ const testDownloadStream = defineStreamAction({
 });
 
 export const actions = [downloadFileStream, downloadFileImageStream, downloadFileRecordStream, testDownloadStream];
-
-export function register(h: ApiHandler, ctx: ApiActionContext): void {
-  for (const a of actions) a.register(h, ctx);
-}
 
 // Exposed for tests.
 export const __test = { resolveDownload, isWithinStreamRoot, isPrivateIp, assertSafeUrl, streamChunks, runDownload };

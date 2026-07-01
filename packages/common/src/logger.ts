@@ -175,7 +175,7 @@ function render(level: LogLevel, options: LogOptions, args: unknown[], reqId?: n
   // Pad first, then color only the visible tag so escape codes don't eat
   // into the alignment width.
   const cUin = uinTag
-    ? ansi(COLOR_DIM, uinTag) + ' '.repeat(UIN_SLOT_WIDTH - uinTag.length)
+    ? ansi(COLOR_DIM, uinTag) + ' '.repeat(Math.max(0, UIN_SLOT_WIDTH - uinTag.length))
     : ' '.repeat(UIN_SLOT_WIDTH);
   const cScope = ansi(COLOR_SCOPE, `[${options.scope}]`);
   const cReq = reqTag ? `${ansi(COLOR_DIM, reqTag)} ` : '';

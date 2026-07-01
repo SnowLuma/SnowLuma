@@ -1,11 +1,18 @@
 import { createLogger, type Logger } from '@snowluma/common/logger';
 import type { PacketSink } from '@snowluma/common/protocol-types';
+import { isRealUin } from '@snowluma/common/uin';
 import { EventEmitter } from 'events';
 import { HookPacketClient } from './hook-packet-client';
 import type { HookInjectResult } from './injector';
 import type { QqHookClient, QqHookLoginState, QqHookPacket } from './qq-hook-client';
+import { probeQqLoginInfo, type QqPortLoginInfo } from './qq-port-probe';
 import { statusFor } from './hook-status';
 import type { HookProcessInfo, HookProcessStatus } from './types';
+
+/** How often to actively re-probe QQ's login state while connected but not yet
+ *  logged in — the safety net for a login the native hook never pushed (Docker
+ *  auto-login races/bypasses the pushed loginState frame). */
+const LOGIN_RECONCILE_INTERVAL_MS = 3000;
 
 export type HookSessionDeps = {
   injector: {
@@ -13,6 +20,10 @@ export type HookSessionDeps = {
     unload: (pid: number, handle: HookInjectResult['handle']) => void;
   };
   makeClient: (pid: number) => QqHookClient;
+  /** Active, pipe-independent login probe (reads QQ's ptlogin/deeplink ports).
+   *  Drives the login-reconcile safety net; injectable for tests. Defaults to
+   *  `probeQqLoginInfo`. */
+  probeLogin?: (pid: number) => Promise<QqPortLoginInfo | null>;
   /** Sync fast-path check used by load() to skip re-injection when a
    * prior SnowLuma run left a working pipe behind. `tickNow` forces a
    * fresh poll — used after unload to dodge the up-to-1500ms cache
@@ -50,6 +61,7 @@ export class HookSession extends EventEmitter {
 
   private readonly injector: HookSessionDeps['injector'];
   private readonly makeClient: HookSessionDeps['makeClient'];
+  private readonly probeLogin: (pid: number) => Promise<QqPortLoginInfo | null>;
   private readonly pipeWatcher: HookSessionDeps['pipeWatcher'];
   private readonly onPacket: PacketSink | null;
   private readonly log: Logger;
@@ -70,12 +82,15 @@ export class HookSession extends EventEmitter {
   private bound = false;
   private opChain: Promise<unknown> = Promise.resolve();
   private disposed = false;
+  private loginProbeTimer: ReturnType<typeof setInterval> | null = null;
+  private probing = false;
 
   constructor(pid: number, deps: HookSessionDeps) {
     super();
     this.pid = pid;
     this.injector = deps.injector;
     this.makeClient = deps.makeClient;
+    this.probeLogin = deps.probeLogin ?? probeQqLoginInfo;
     this.pipeWatcher = deps.pipeWatcher;
     this.onPacket = deps.onPacket ?? null;
     this.log = deps.log ?? createLogger('HookSession');
@@ -347,8 +362,15 @@ export class HookSession extends EventEmitter {
       // handleLoginState owns the connected+loggedIn → 'online' (+ login
       // emit) transition; defer to it so the status is set once. Otherwise
       // we're connected-but-not-logged-in → 'loaded'.
-      if (loginState.loggedIn) this.handleLoginState(loginState);
-      else this.applyStatus();
+      if (loginState.loggedIn) {
+        this.handleLoginState(loginState);
+      } else {
+        this.applyStatus();
+        // The native hook only PUSHES a loginState frame on the login edge;
+        // if QQ logged in before/around connect (Docker auto-login) that edge
+        // is missed and we'd wait forever. Actively re-probe until logged in.
+        this.startLoginReconcile();
+      }
       this.log.info('pipe connected: PID=%d', this.pid);
     } catch (error) {
       this._error = errMsg(error);
@@ -381,6 +403,7 @@ export class HookSession extends EventEmitter {
   }
 
   private tearDownClient(): void {
+    this.stopLoginReconcile();
     const client = this.client;
     if (client) {
       client.removeAllListeners();
@@ -398,6 +421,9 @@ export class HookSession extends EventEmitter {
     const previousUin = this._uin;
     this._uin = state.uin || state.uinNumber.toString();
     this.loggedIn = state.loggedIn && isRealUin(this._uin);
+    // However login was observed (pushed frame or the active probe), the
+    // safety net's job is done.
+    if (this.loggedIn) this.stopLoginReconcile();
 
     // Only the connected/logged-in states are ours to set here; when fully
     // down we leave the status the teardown path already settled.
@@ -414,6 +440,55 @@ export class HookSession extends EventEmitter {
 
     this.emit('login', this._uin, this.sender);
     this.log.success('login detected: PID=%d UIN=%s', this.pid, this._uin);
+  }
+
+  // ─────────────── login reconcile (Docker auto-login safety net) ───────────
+  // The hook's loginState frame is edge-triggered (pushed only when the native
+  // observes the login transition). When that edge is missed — QQ auto-logged
+  // in before connect, or a silent session-restore path the hook doesn't
+  // intercept — we'd sit at 'loaded'/'connecting' forever. So while connected
+  // but not logged in, actively re-probe QQ's own ports and synthesize the
+  // login once it reports a real uin. Idempotent with the pushed-frame path
+  // (handleLoginState's wasLoggedIn guard dedups the 'login' emit).
+
+  private startLoginReconcile(): void {
+    if (this.loginProbeTimer || this.disposed) return;
+    void this.probeLoginOnce(); // immediate — catch already-logged-in fast
+    this.loginProbeTimer = setInterval(() => void this.probeLoginOnce(), LOGIN_RECONCILE_INTERVAL_MS);
+    this.loginProbeTimer.unref?.();
+  }
+
+  private stopLoginReconcile(): void {
+    if (this.loginProbeTimer) {
+      clearInterval(this.loginProbeTimer);
+      this.loginProbeTimer = null;
+    }
+  }
+
+  private async probeLoginOnce(): Promise<void> {
+    // A port-scan probe can outlast the interval; skip overlapping ticks so a
+    // slow probe never stacks concurrent subprocess-spawning scans.
+    if (this.probing) return;
+    if (this.disposed || !this.connected || this.loggedIn) { this.stopLoginReconcile(); return; }
+    this.probing = true;
+    try {
+      let info: QqPortLoginInfo | null;
+      try {
+        info = await this.probeLogin(this.pid);
+      } catch {
+        return; // best-effort; the interval retries
+      }
+      // The await yielded — re-check we still want this before mutating state.
+      if (this.disposed || !this.connected || this.loggedIn) { this.stopLoginReconcile(); return; }
+      if (info?.loggedIn && isRealUin(info.uin)) {
+        this.log.info('login reconciled via active probe: PID=%d UIN=%s', this.pid, info.uin);
+        // isRealUin guarantees a pure non-empty digit string, so BigInt() here
+        // cannot throw (keep that contract if isRealUin's regex is ever changed).
+        this.handleLoginState({ loggedIn: true, uin: info.uin, uinNumber: BigInt(info.uin) });
+      }
+    } finally {
+      this.probing = false;
+    }
   }
 
   private handlePacket(packet: QqHookPacket): void {
@@ -442,11 +517,6 @@ export class HookSession extends EventEmitter {
     this._error = error;
     this.emit('status-changed', status, error);
   }
-}
-
-function isRealUin(uin: string): boolean {
-  if (!uin || uin === '0') return false;
-  return /^\d+$/.test(uin) && uin.length >= 5;
 }
 
 function errMsg(value: unknown): string {

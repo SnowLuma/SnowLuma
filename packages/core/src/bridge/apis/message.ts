@@ -15,6 +15,7 @@ import { fetchC2cMessageRange, fetchGroupMessageRange } from '@snowluma/protocol
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { createLogger } from '@snowluma/common/logger';
 import type { BridgeContext } from '../bridge-context';
+import { resolveSelfUid } from './shared';
 // `Bridge` is imported as a type only so we can narrow `ctx` back to
 // the concrete Bridge instance when passing it to `buildSendElems`
 // (which still takes `Bridge` because the highway upload helpers it
@@ -259,12 +260,7 @@ export class MessageApi {
 
     // Resolve our own uid — needed both for the 0xE37_800 finalize and the
     // `field6` download-routing the receiver reads.
-    let selfUid = this.ctx.identity.selfUid;
-    if (!selfUid) {
-      const selfUin = Number.parseInt(this.ctx.identity.uin ?? '', 10);
-      if (Number.isFinite(selfUin) && selfUin > 0) selfUid = await this.ctx.resolveUserUid(selfUin);
-    }
-    if (!selfUid) throw new Error('self uid unavailable for c2c file send');
+    const selfUid = await resolveSelfUid(this.ctx);
 
     // The file is already downloadable from the `NotOnlineFile` reference
     // alone — verified on a live account: a plain c2c file send (no field6)

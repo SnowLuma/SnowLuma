@@ -417,6 +417,43 @@ export async function setEssenceMessage(
  * inspect it through `/get_msg` can distinguish their own outbound
  * messages from incoming ones.
  */
+/**
+ * The shared "record a self-sent message" tail: derive the OneBot message id
+ * from (sequence, target, event), then cache both the meta and the self-sent
+ * copy. Centralizes the `isGroup ↔ eventName ↔ hashMessageIdInt32 event
+ * constant` coupling that was hand-paired in six send/forward paths — a
+ * mismatch there silently produced a wrong message_id or wrong event
+ * attribution. Returns the derived message id.
+ */
+async function finalizeSend(
+  ref: OneBotInstanceContext,
+  isGroup: boolean,
+  targetId: number,
+  receipt: { sequence: number; clientSequence: number; random: number; timestamp: number },
+  elements: MessageElement[],
+): Promise<number> {
+  const eventName = isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT;
+  const messageId = hashMessageIdInt32(receipt.sequence, targetId, eventName);
+  ref.cacheMessageMeta(messageId, {
+    isGroup,
+    targetId,
+    sequence: receipt.sequence,
+    eventName,
+    clientSequence: receipt.clientSequence,
+    random: receipt.random,
+    timestamp: receipt.timestamp,
+  });
+  await cacheSelfSentMessage(ref, {
+    isGroup,
+    sessionId: targetId,
+    messageId,
+    sequence: receipt.sequence,
+    timestamp: receipt.timestamp,
+    elements,
+  });
+  return messageId;
+}
+
 async function cacheSelfSentMessage(
   ref: OneBotInstanceContext,
   options: {
@@ -644,24 +681,7 @@ export async function sendPrivateMessage(
   }
   if (!lastReceipt) throw new Error('message is empty');
 
-  const messageId = hashMessageIdInt32(lastReceipt.sequence, userId, PRIVATE_MESSAGE_EVENT);
-  ref.cacheMessageMeta(messageId, {
-    isGroup: false,
-    targetId: userId,
-    sequence: lastReceipt.sequence,
-    eventName: PRIVATE_MESSAGE_EVENT,
-    clientSequence: lastReceipt.clientSequence,
-    random: lastReceipt.random,
-    timestamp: lastReceipt.timestamp,
-  });
-  await cacheSelfSentMessage(ref, {
-    isGroup: false,
-    sessionId: userId,
-    messageId,
-    sequence: lastReceipt.sequence,
-    timestamp: lastReceipt.timestamp,
-    elements,
-  });
+  const messageId = await finalizeSend(ref, false, userId, lastReceipt, elements);
 
   return { messageId };
 }
@@ -758,24 +778,7 @@ export async function sendGroupMessage(
   }
   if (!lastReceipt) throw new Error('message is empty');
 
-  const messageId = hashMessageIdInt32(lastReceipt.sequence, groupId, GROUP_MESSAGE_EVENT);
-  ref.cacheMessageMeta(messageId, {
-    isGroup: true,
-    targetId: groupId,
-    sequence: lastReceipt.sequence,
-    eventName: GROUP_MESSAGE_EVENT,
-    clientSequence: lastReceipt.clientSequence,
-    random: lastReceipt.random,
-    timestamp: lastReceipt.timestamp,
-  });
-  await cacheSelfSentMessage(ref, {
-    isGroup: true,
-    sessionId: groupId,
-    messageId,
-    sequence: lastReceipt.sequence,
-    timestamp: lastReceipt.timestamp,
-    elements,
-  });
+  const messageId = await finalizeSend(ref, true, groupId, lastReceipt, elements);
 
   return { messageId };
 }
@@ -801,25 +804,7 @@ export async function sendGroupForwardMessage(
   const forwardId = await ref.bridge.apis.forward.upload(nodes, groupId);
   const previewElement = buildForwardPreviewElement(forwardId, nodes, true, meta);
   const receipt = await ref.bridge.apis.message.sendGroup(groupId, [previewElement]);
-  const messageId = hashMessageIdInt32(receipt.sequence, groupId, GROUP_MESSAGE_EVENT);
-
-  ref.cacheMessageMeta(messageId, {
-    isGroup: true,
-    targetId: groupId,
-    sequence: receipt.sequence,
-    eventName: GROUP_MESSAGE_EVENT,
-    clientSequence: receipt.clientSequence,
-    random: receipt.random,
-    timestamp: receipt.timestamp,
-  });
-  await cacheSelfSentMessage(ref, {
-    isGroup: true,
-    sessionId: groupId,
-    messageId,
-    sequence: receipt.sequence,
-    timestamp: receipt.timestamp,
-    elements: [previewElement],
-  });
+  const messageId = await finalizeSend(ref, true, groupId, receipt, [previewElement]);
 
   return { messageId, forwardId };
 }
@@ -837,25 +822,7 @@ export async function sendPrivateForwardMessage(
   const forwardId = await ref.bridge.apis.forward.upload(nodes, undefined, userId);
   const previewElement = buildForwardPreviewElement(forwardId, nodes, false, meta);
   const receipt = await ref.bridge.apis.message.sendPrivate(userId, [previewElement]);
-  const messageId = hashMessageIdInt32(receipt.sequence, userId, PRIVATE_MESSAGE_EVENT);
-
-  ref.cacheMessageMeta(messageId, {
-    isGroup: false,
-    targetId: userId,
-    sequence: receipt.sequence,
-    eventName: PRIVATE_MESSAGE_EVENT,
-    clientSequence: receipt.clientSequence,
-    random: receipt.random,
-    timestamp: receipt.timestamp,
-  });
-  await cacheSelfSentMessage(ref, {
-    isGroup: false,
-    sessionId: userId,
-    messageId,
-    sequence: receipt.sequence,
-    timestamp: receipt.timestamp,
-    elements: [previewElement],
-  });
+  const messageId = await finalizeSend(ref, false, userId, receipt, [previewElement]);
 
   return { messageId, forwardId };
 }
@@ -904,44 +871,10 @@ export async function forwardSingleMessage(
   let messageIdOut: number;
   if (target.groupId) {
     receipt = await ref.bridge.apis.message.sendGroup(target.groupId, elements);
-    messageIdOut = hashMessageIdInt32(receipt.sequence, target.groupId, GROUP_MESSAGE_EVENT);
-    ref.cacheMessageMeta(messageIdOut, {
-      isGroup: true,
-      targetId: target.groupId,
-      sequence: receipt.sequence,
-      eventName: GROUP_MESSAGE_EVENT,
-      clientSequence: receipt.clientSequence,
-      random: receipt.random,
-      timestamp: receipt.timestamp,
-    });
-    await cacheSelfSentMessage(ref, {
-      isGroup: true,
-      sessionId: target.groupId,
-      messageId: messageIdOut,
-      sequence: receipt.sequence,
-      timestamp: receipt.timestamp,
-      elements,
-    });
+    messageIdOut = await finalizeSend(ref, true, target.groupId, receipt, elements);
   } else {
     receipt = await ref.bridge.apis.message.sendPrivate(target.userId!, elements);
-    messageIdOut = hashMessageIdInt32(receipt.sequence, target.userId!, PRIVATE_MESSAGE_EVENT);
-    ref.cacheMessageMeta(messageIdOut, {
-      isGroup: false,
-      targetId: target.userId!,
-      sequence: receipt.sequence,
-      eventName: PRIVATE_MESSAGE_EVENT,
-      clientSequence: receipt.clientSequence,
-      random: receipt.random,
-      timestamp: receipt.timestamp,
-    });
-    await cacheSelfSentMessage(ref, {
-      isGroup: false,
-      sessionId: target.userId!,
-      messageId: messageIdOut,
-      sequence: receipt.sequence,
-      timestamp: receipt.timestamp,
-      elements,
-    });
+    messageIdOut = await finalizeSend(ref, false, target.userId!, receipt, elements);
   }
 
   return { messageId: messageIdOut };

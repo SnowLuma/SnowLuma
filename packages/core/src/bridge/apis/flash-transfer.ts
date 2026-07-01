@@ -2,6 +2,7 @@
 // 复用 OIDB 基础设施（invokeOidb），协议层在 @snowluma/protocol/oidb-services/flash-transfer/。
 
 import type { BridgeContext } from '../bridge-context';
+import { resolveSelfUid } from './shared';
 import type { FlashFileEntry } from '@snowluma/proto-defs/oidb-actions/flash-transfer';
 import { GetFilesetDetail } from '@snowluma/protocol/oidb-services/flash-transfer/get-fileset-detail';
 import { ListFilesets } from '@snowluma/protocol/oidb-services/flash-transfer/list-filesets';
@@ -276,7 +277,9 @@ export class FlashTransferApi {
     const uploader = {
       uin: this.ctx.identity.uin,
       nickname: this.ctx.identity.nickname,
-      uid: this.ctx.identity.selfUid ?? '',
+      // Resolve our own uid rather than ship an empty one — a blank uploader
+      // uid drops the fileset if this runs before warmup populated selfUid.
+      uid: await resolveSelfUid(this.ctx),
     };
     // 读取所有文件，每个分配 fileUuid + 序号 + formatCode
     const items: { bytes: Uint8Array; fileName: string; fileUuid: string; fileIndex: number; formatCode: number }[] = [];

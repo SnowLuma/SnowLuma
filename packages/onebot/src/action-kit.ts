@@ -440,16 +440,24 @@ export interface ActionDoc {
 
 type Handler = (params: JsonObject) => Promise<ApiResponse>;
 
-export interface ActionSpec<S extends Spec> {
+/**
+ * The narrow shape both `ActionSpec` and `StreamActionSpec` share — enough to
+ * register a spec onto an `ApiHandler` and to collect its docs. The action
+ * registry barrel (`actions/index.ts`) is typed against this so it can hold
+ * both kinds in one flat list without coupling to either concrete generic.
+ */
+export interface RegisteredActionSpec {
+  describe(): ActionDoc;
+  register(h: ApiHandler, ctx: ApiActionContext): void;
+}
+
+export interface ActionSpec<S extends Spec> extends RegisteredActionSpec {
   readonly names: string[];
   readonly params: S;
   /** Pure: coerce + validate + cross-field, no ctx, no I/O. The test surface. */
   parse(raw: JsonObject): CoerceResult<InferParams<S>>;
   /** Bind ctx and produce the `(params) => ApiResponse` for `registerAction`. */
   toHandler(ctx: ApiActionContext): Handler;
-  /** Doc metadata (D4); a renderer walks this. */
-  describe(): ActionDoc;
-  register(h: ApiHandler, ctx: ApiActionContext): void;
 }
 
 interface ActionDef<S extends Spec> {
@@ -558,12 +566,10 @@ interface StreamActionDef<S extends Spec> {
   run: (p: InferParams<S>, ctx: ApiActionContext, raw: JsonObject, sink: StreamSink) => Promise<ApiResponse> | ApiResponse;
 }
 
-export interface StreamActionSpec<S extends Spec> {
+export interface StreamActionSpec<S extends Spec> extends RegisteredActionSpec {
   readonly names: string[];
   readonly params: S;
   parse(raw: JsonObject): CoerceResult<InferParams<S>>;
-  describe(): ActionDoc;
-  register(h: ApiHandler, ctx: ApiActionContext): void;
 }
 
 export function defineStreamAction<S extends Spec>(def: StreamActionDef<S>): StreamActionSpec<S> {
@@ -639,6 +645,6 @@ export function groupUserAction<S extends Spec>(
 
 /** Register many specs onto an ApiHandler. Coexists with legacy
  *  `h.registerAction(name, fn)` in the same `register(h, ctx)`. */
-export function registerActions(h: ApiHandler, ctx: ApiActionContext, specs: ReadonlyArray<ActionSpec<Spec>>): void {
+export function registerActions(h: ApiHandler, ctx: ApiActionContext, specs: ReadonlyArray<RegisteredActionSpec>): void {
   for (const spec of specs) spec.register(h, ctx);
 }

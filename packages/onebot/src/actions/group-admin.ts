@@ -1,6 +1,5 @@
-import { defineAction, groupAction, groupUserAction, registerActions, f } from '../action-kit';
-import type { ApiActionContext, ApiHandler } from '../api-handler';
-import { RETCODE, failedResponse, okResponse } from '../types';
+import { defineAction, groupAction, groupUserAction, f } from '../action-kit';
+import { okResponse } from '../types';
 
 export const actions = [
   groupUserAction({
@@ -120,16 +119,9 @@ export const actions = [
     summary: '设置群头像',
     params: { file: f.image() },
     run: async (p, ctx) => {
-      try {
-        await ctx.bridge.apis.profile.setGroupAvatar(p.group_id, p.file);
-        return okResponse();
-      } catch (err) {
-        return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-      }
+      await ctx.bridge.apis.profile.setGroupAvatar(p.group_id, p.file);
+      return okResponse();
     },
   }),
 ];
 
-export function register(h: ApiHandler, ctx: ApiActionContext): void {
-  registerActions(h, ctx, actions);
-}

@@ -23,6 +23,7 @@ import { MoveGroupFile } from '@snowluma/protocol/oidb-services/group-file/move-
 import { PublishGroupFile } from '@snowluma/protocol/oidb-services/group-file/publish-group-file';
 import { RenameGroupFile } from '@snowluma/protocol/oidb-services/group-file/rename-group-file';
 import { RenameGroupFolder } from '@snowluma/protocol/oidb-services/group-file/rename-group-folder';
+import { TransGroupFile, type TransGroupFileResult } from '@snowluma/protocol/oidb-services/group-file/trans-group-file';
 import { UploadGroupFileRequest } from '@snowluma/protocol/oidb-services/group-file/upload-group-file-request';
 import { UploadPrivateFileRequest } from '@snowluma/protocol/oidb-services/group-file/upload-private-file-request';
 import { ensureRetCodeZero } from '@snowluma/protocol/oidb-services/shared';
@@ -238,6 +239,11 @@ export class GroupFileApi {
     return PublishGroupFile.invoke(this.ctx, { groupId, fileId });
   }
 
+  trans(groupId: number, fileId: string): Promise<TransGroupFileResult> {
+    if (!fileId) throw new Error('trans requires fileId');
+    return TransGroupFile.invoke(this.ctx, { groupId, fileId });
+  }
+
   // ─────────────── count ───────────────
 
   getCount(groupId: number): Promise<{ fileCount: number; maxCount: number }> {
@@ -360,14 +366,7 @@ export class GroupFileApi {
     if (!loaded.bytes.length) throw new Error('private file is empty');
 
     const targetUid = await this.ctx.resolveUserUid(userId);
-    let selfUid = this.ctx.identity.selfUid;
-    if (!selfUid) {
-      const selfUin = toInt(this.ctx.identity.uin);
-      if (selfUin > 0) {
-        selfUid = await this.ctx.resolveUserUid(selfUin);
-      }
-    }
-    if (!selfUid) throw new Error('self uid is unavailable');
+    const selfUid = await resolveSelfUid(this.ctx);
 
     const senderUin = toInt(this.ctx.identity.uin);
     if (senderUin <= 0) throw new Error('invalid self uin for private file upload');

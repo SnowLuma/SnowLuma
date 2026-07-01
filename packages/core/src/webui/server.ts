@@ -23,6 +23,7 @@ import { buildBackup, planRestore, validateBackup } from './backup';
 import { collectActionDocs, collectCategories } from '@snowluma/onebot/action-docs';
 import { createFramePusher } from './debug-stream';
 import { buildStreamInvokeResponse, streamUploadToDisk } from './debug-tools';
+import { sseResponse } from './sse-response';
 import { bindStateStream } from './state-stream';
 import type { StateBus, StateResource } from './state-bus';
 import { startConnectionDiffLoop } from './connection-diff-loop';
@@ -100,9 +101,12 @@ export const SSE_TOKEN_QUERY_PATHS: ReadonlySet<string> = new Set([
 ]);
 const TOKEN_QUERY_ALLOWLIST = SSE_TOKEN_QUERY_PATHS;
 
-// uin = QQ number; 5–12 digits. Used to construct config file paths,
-// so we MUST refuse anything else (path traversal, NUL bytes, etc.).
-const UIN_REGEX = /^\d{5,12}$/;
+// uin = QQ number; 5–10 digits (real QQ UINs fit in uint32, max 4294967295).
+// Used to construct config file paths, so we MUST refuse anything else (path
+// traversal, NUL bytes, etc.) — and the 10-digit cap also rejects the garbage
+// timestamp-shaped UINs the native hook can emit (issue #162). Mirrors
+// isRealUin in @snowluma/common/uin.
+const UIN_REGEX = /^\d{5,10}$/;
 
 const avatarCache = new Map<string, { body: Uint8Array; contentType: string; expiresAt: number }>();
 
@@ -969,45 +973,21 @@ export async function initWebUI(
   // Live merged SSE of OneBot events + action calls across all accounts. Taps
   // are attached only while a client is connected (on-demand). A slow client is
   // dropped (not back-pressured onto the bot) with a periodic drop marker.
-  app.get('/api/debug/stream', (c) => {
-    const stream = new ReadableStream({
-      start(controller) {
-        const encoder = new TextEncoder();
-        let closed = false;
-        const offs: Array<() => void> = [];
-        let heartbeat: NodeJS.Timeout | undefined;
-        const teardown = () => {
-          if (closed) return;
-          closed = true;
-          if (heartbeat) clearInterval(heartbeat);
-          for (const off of offs) { try { off(); } catch { /* ignore */ } }
-          try { controller.close(); } catch { /* ignore */ }
-        };
-        const raw = (chunk: Uint8Array) => {
-          if (closed) return;
-          try { controller.enqueue(chunk); } catch { teardown(); }
-        };
-        // Drop-under-backpressure framing (unit-tested in debug-stream.ts).
-        const pushFrame = createFramePusher({
-          desiredSize: () => controller.desiredSize,
-          enqueue: raw,
-          encode: (s) => encoder.encode(s),
-        });
-        const send = (payload: unknown) => { if (!closed) pushFrame(payload); };
-        send({ kind: 'ready' });
-        for (const inst of oneBotManager.getInstances()) {
-          const uin = inst.uin;
-          offs.push(inst.subscribeDebugEvents((event) => send({ kind: 'event', uin, event })));
-          offs.push(inst.observeActions((rec) => send({ kind: 'action', uin, ...rec })));
-        }
-        heartbeat = setInterval(() => raw(encoder.encode(': heartbeat\n\n')), 15000);
-        c.req.raw.signal.addEventListener('abort', teardown);
-      },
+  app.get('/api/debug/stream', (c) => sseResponse(c, (ch) => {
+    // Drop-under-backpressure framing (unit-tested in debug-stream.ts).
+    const pushFrame = createFramePusher({
+      desiredSize: ch.desiredSize,
+      enqueue: ch.raw,
+      encode: ch.encode,
     });
-    return new Response(stream, {
-      headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' },
-    });
-  });
+    const send = (payload: unknown) => { if (!ch.isClosed()) pushFrame(payload); };
+    send({ kind: 'ready' });
+    for (const inst of oneBotManager.getInstances()) {
+      const uin = inst.uin;
+      ch.onClose(inst.subscribeDebugEvents((event) => send({ kind: 'event', uin, event })));
+      ch.onClose(inst.observeActions((rec) => send({ kind: 'action', uin, ...rec })));
+    }
+  }));
 
   app.get('/api/qq-list', (c) => {
     const instances = oneBotManager.getInstances();
@@ -1039,56 +1019,34 @@ export async function initWebUI(
       return c.text('state stream not configured', 503);
     }
     const liveBus = stateBus;
-    const stream = new ReadableStream({
-      start(controller) {
-        const encoder = new TextEncoder();
-        let closed = false;
-        let binding: { dispose(): void } | undefined;
-        let heartbeat: NodeJS.Timeout | undefined;
-        const teardown = () => {
-          if (closed) return;
-          closed = true;
-          if (heartbeat) clearInterval(heartbeat);
-          binding?.dispose();
-          try { controller.close(); } catch { /* ignore */ }
-        };
-        const raw = (chunk: Uint8Array) => {
-          if (closed) return;
-          try { controller.enqueue(chunk); } catch { teardown(); }
-        };
-        const pushFrame = createFramePusher({
-          desiredSize: () => controller.desiredSize,
-          enqueue: raw,
-          encode: (s) => encoder.encode(s),
-        });
-        const send = (payload: unknown) => { if (!closed) pushFrame(payload); };
-        send({ kind: 'ready' });
+    return sseResponse(c, (ch) => {
+      const pushFrame = createFramePusher({
+        desiredSize: ch.desiredSize,
+        enqueue: ch.raw,
+        encode: ch.encode,
+      });
+      const send = (payload: unknown) => { if (!ch.isClosed()) pushFrame(payload); };
+      send({ kind: 'ready' });
 
-        const handle = bindStateStream({
-          bus: liveBus,
-          snapshot: async (resource: StateResource): Promise<unknown> => {
-            if (resource === 'processes') {
-              if (!hookManager) return [];
-              return hookManager.listProcesses();
-            }
-            if (resource === 'qq-list') {
-              return oneBotManager.getInstances().map((inst) => ({ uin: inst.uin, nickname: inst.nickname }));
-            }
-            return oneBotManager.getConnectionStatuses();
-          },
-          send: (frame) => send(frame),
-          debounceMs: 50,
-        });
-        binding = handle;
-        // Prime with the initial snapshot; if the client never sees the
-        // bus publish (idle system) it still has the current state.
-        void handle.sendAllInitial();
-        heartbeat = setInterval(() => raw(encoder.encode(': heartbeat\n\n')), 15000);
-        c.req.raw.signal.addEventListener('abort', teardown);
-      },
-    });
-    return new Response(stream, {
-      headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' },
+      const handle = bindStateStream({
+        bus: liveBus,
+        snapshot: async (resource: StateResource): Promise<unknown> => {
+          if (resource === 'processes') {
+            if (!hookManager) return [];
+            return hookManager.listProcesses();
+          }
+          if (resource === 'qq-list') {
+            return oneBotManager.getInstances().map((inst) => ({ uin: inst.uin, nickname: inst.nickname }));
+          }
+          return oneBotManager.getConnectionStatuses();
+        },
+        send: (frame) => send(frame),
+        debounceMs: 50,
+      });
+      ch.onClose(() => handle.dispose());
+      // Prime with the initial snapshot; if the client never sees the
+      // bus publish (idle system) it still has the current state.
+      void handle.sendAllInitial();
     });
   });
 
@@ -1111,49 +1069,10 @@ export async function initWebUI(
     return c.json({ level: getLogLevel(), levels: [...LOG_LEVELS] });
   });
 
-  app.get('/api/logs/stream', (c) => {
-    const stream = new ReadableStream({
-      start(controller) {
-        const encoder = new TextEncoder();
-        let closed = false;
-        let unsubscribe: (() => void) | undefined;
-        let heartbeat: NodeJS.Timeout | undefined;
-        const teardown = () => {
-          if (closed) return;
-          closed = true;
-          if (heartbeat) clearInterval(heartbeat);
-          unsubscribe?.();
-          try { controller.close(); } catch { /* ignore */ }
-        };
-        const safeEnqueue = (chunk: Uint8Array) => {
-          if (closed) return;
-          try {
-            controller.enqueue(chunk);
-          } catch {
-            // The peer dropped between abort and the next enqueue —
-            // treat as end-of-stream so we don't leak listeners.
-            teardown();
-          }
-        };
-        const send = (event: unknown) => {
-          safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-        };
-        send({ type: 'ready' });
-        unsubscribe = subscribeLogs((entry) => send(entry));
-        heartbeat = setInterval(() => {
-          safeEnqueue(encoder.encode(': heartbeat\n\n'));
-        }, 15000);
-        c.req.raw.signal.addEventListener('abort', teardown);
-      },
-    });
-    return new Response(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      },
-    });
-  });
+  app.get('/api/logs/stream', (c) => sseResponse(c, (ch) => {
+    ch.send({ type: 'ready' });
+    ch.onClose(subscribeLogs((entry) => ch.send(entry)));
+  }));
 
   app.get('/api/processes', async (c) => {
     if (!hookManager) return c.json({ list: [] });

@@ -1,7 +1,7 @@
-import { defineAction, registerActions, f } from '../action-kit';
-import type { ApiActionContext, ApiHandler } from '../api-handler';
+import { defineAction, f } from '../action-kit';
+import type { ApiActionContext } from '../api-handler';
 import type { JsonValue } from '../types';
-import { RETCODE, failedResponse, okResponse } from '../types';
+import { okResponse } from '../types';
 
 async function uploadQzoneImages(
   ctx: ApiActionContext,
@@ -20,6 +20,8 @@ async function uploadQzoneImages(
   }
   return parts.join('\t');
 }
+
+const QZONE_UGC_RIGHTS = new Set<number>([1, 4, 16, 64, 128]);
 
 export const actions = [
   // get_qzone_msg_list — 获取 QQ 空间说说列表。无 go-cqhttp 标准，自定义命名。
@@ -59,13 +61,8 @@ export const actions = [
       num: f.int({ min: 1, max: 100 }).describe('本页数量').default(20),
     },
     run: async (p, ctx) => {
-      try {
-        const res = await ctx.bridge.apis.qzone.getMsgList(p.target_uin, p.pos, p.num);
-        return okResponse(res as unknown as JsonValue);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'failed to get qzone msg list';
-        return failedResponse(RETCODE.INTERNAL_ERROR, message);
-      }
+      const res = await ctx.bridge.apis.qzone.getMsgList(p.target_uin, p.pos, p.num);
+      return okResponse(res as unknown as JsonValue);
     },
   }),
 
@@ -104,13 +101,8 @@ export const actions = [
       count: f.int({ min: 1, max: 50 }).describe('本页数量').default(10),
     },
     run: async (p, ctx) => {
-      try {
-        const res = await ctx.bridge.apis.qzone.getFeeds(p.page_num, p.count);
-        return okResponse(res as unknown as JsonValue);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'failed to get qzone feeds';
-        return failedResponse(RETCODE.INTERNAL_ERROR, message);
-      }
+      const res = await ctx.bridge.apis.qzone.getFeeds(p.page_num, p.count);
+      return okResponse(res as unknown as JsonValue);
     },
   }),
 
@@ -120,24 +112,25 @@ export const actions = [
   // 注意：发说说为主动行为，高频会被 Qzone 风控，调用方需自行限流。
   defineAction({
     name: 'send_qzone_msg',
-    summary: '发表说说（QQ 空间，支持纯文字或带图；传 images 自动上传）',
+    summary: '发表说说（QQ 空间，支持纯文字或带图；传 images 自动上传；可设置查看权限）',
     params: {
       content: f.string({ allowEmpty: false }).describe('说说正文'),
       images: f.array(f.string({ allowEmpty: false })).describe('图片数组（可选），支持 file:// http:// base64://；自动上传').optional(),
+      ugc_right: f.int({ min: 1 }).describe('查看权限：1=所有人可见，4=好友可见，16=部分好友可见，64=仅自己可见，128=部分好友不可见').default(1),
+      target_uins: f.array(f.uint()).describe('权限作用 QQ 号数组；ugc_right=16 时表示可见名单，128 时表示不可见名单').optional(),
     },
+    rules: (r) => [
+      r.rule('ugc_right must be one of 1, 4, 16, 64, 128', (p) => QZONE_UGC_RIGHTS.has(p.ugc_right)),
+      r.rule('target_uins is required when ugc_right is 16 or 128', (p) => (p.ugc_right !== 16 && p.ugc_right !== 128) || !!p.target_uins?.length),
+    ],
     run: async (p, ctx) => {
-      try {
-        if (p.images && p.images.length > 0) {
-          const richval = await uploadQzoneImages(ctx, p.images, (upload) => upload.richval);
-          const res = await ctx.bridge.apis.qzone.publish(p.content, 1, richval);
-          return okResponse(res as unknown as JsonValue);
-        }
-        const res = await ctx.bridge.apis.qzone.publish(p.content);
+      if (p.images && p.images.length > 0) {
+        const richval = await uploadQzoneImages(ctx, p.images, (upload) => upload.richval);
+        const res = await ctx.bridge.apis.qzone.publish(p.content, 1, richval, p.ugc_right, p.target_uins?.join('|'));
         return okResponse(res as unknown as JsonValue);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'failed to publish qzone msg';
-        return failedResponse(RETCODE.INTERNAL_ERROR, message);
       }
+      const res = await ctx.bridge.apis.qzone.publish(p.content, undefined, undefined, p.ugc_right, p.target_uins?.join('|'));
+      return okResponse(res as unknown as JsonValue);
     },
   }),
 
@@ -149,13 +142,8 @@ export const actions = [
       tid: f.string({ allowEmpty: false }).describe('说说 tid（来自 get_qzone_msg_list / send_qzone_msg）'),
     },
     run: async (p, ctx) => {
-      try {
-        await ctx.bridge.apis.qzone.delete(p.tid);
-        return okResponse(null);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'failed to delete qzone msg';
-        return failedResponse(RETCODE.INTERNAL_ERROR, message);
-      }
+      await ctx.bridge.apis.qzone.delete(p.tid);
+      return okResponse(null);
     },
   }),
 
@@ -171,13 +159,8 @@ export const actions = [
       abstime: f.int({ min: 0 }).describe('说说发表时间（unix 秒），传真实值更可靠').default(0).role('timestamp'),
     },
     run: async (p, ctx) => {
-      try {
-        await ctx.bridge.apis.qzone.like(p.tid, p.target_uin, true, p.abstime);
-        return okResponse(null);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'failed to like qzone msg';
-        return failedResponse(RETCODE.INTERNAL_ERROR, message);
-      }
+      await ctx.bridge.apis.qzone.like(p.tid, p.target_uin, true, p.abstime);
+      return okResponse(null);
     },
   }),
 
@@ -192,13 +175,8 @@ export const actions = [
       abstime: f.int({ min: 0 }).describe('说说发表时间（unix 秒），传真实值更可靠').default(0).role('timestamp'),
     },
     run: async (p, ctx) => {
-      try {
-        await ctx.bridge.apis.qzone.like(p.tid, p.target_uin, false, p.abstime);
-        return okResponse(null);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'failed to unlike qzone msg';
-        return failedResponse(RETCODE.INTERNAL_ERROR, message);
-      }
+      await ctx.bridge.apis.qzone.like(p.tid, p.target_uin, false, p.abstime);
+      return okResponse(null);
     },
   }),
 
@@ -215,22 +193,14 @@ export const actions = [
       images: f.array(f.string({ allowEmpty: false })).describe('图片数组（可选），支持 file:// http:// base64://；自动上传').optional(),
     },
     run: async (p, ctx) => {
-      try {
-        if (p.images && p.images.length > 0) {
-          const richval = await uploadQzoneImages(ctx, p.images, (upload) => upload.url);
-          const res = await ctx.bridge.apis.qzone.comment(p.tid, p.content, p.target_uin, 1, richval);
-          return okResponse(res as unknown as JsonValue);
-        }
-        const res = await ctx.bridge.apis.qzone.comment(p.tid, p.content, p.target_uin);
+      if (p.images && p.images.length > 0) {
+        const richval = await uploadQzoneImages(ctx, p.images, (upload) => upload.url);
+        const res = await ctx.bridge.apis.qzone.comment(p.tid, p.content, p.target_uin, 1, richval);
         return okResponse(res as unknown as JsonValue);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'failed to comment qzone msg';
-        return failedResponse(RETCODE.INTERNAL_ERROR, message);
       }
+      const res = await ctx.bridge.apis.qzone.comment(p.tid, p.content, p.target_uin);
+      return okResponse(res as unknown as JsonValue);
     },
   }),
 ];
 
-export function register(h: ApiHandler, ctx: ApiActionContext): void {
-  registerActions(h, ctx, actions);
-}

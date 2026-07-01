@@ -1,7 +1,6 @@
-import { groupAction, registerActions, f } from '../action-kit';
-import type { ApiActionContext, ApiHandler } from '../api-handler';
+import { groupAction, f } from '../action-kit';
 import type { JsonValue } from '../types';
-import { RETCODE, failedResponse, okResponse } from '../types';
+import { okResponse } from '../types';
 
 export const actions = [
   groupAction({
@@ -23,13 +22,8 @@ export const actions = [
       },
     },
     run: async (p, ctx) => {
-      try {
-        const albumList = await ctx.bridge.apis.groupAlbum.list(p.group_id);
-        return okResponse(albumList);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'failed to get group album list';
-        return failedResponse(RETCODE.INTERNAL_ERROR, message);
-      }
+      const albumList = await ctx.bridge.apis.groupAlbum.list(p.group_id);
+      return okResponse(albumList);
     },
   }),
 
@@ -67,22 +61,17 @@ export const actions = [
       required: ['album_list', 'attach_info', 'has_more'],
     },
     run: async (p, ctx) => {
-      try {
-        const albumList = await ctx.bridge.apis.groupAlbum.list(p.group_id);
-        return okResponse({
-          album_list: albumList.map((a) => ({
-            album_id: a.id,
-            album_name: a.name,
-            create_time: a.createTime,
-            pic_num: a.picNum,
-          })),
-          attach_info: '',
-          has_more: false,
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'failed to get qun album list';
-        return failedResponse(RETCODE.INTERNAL_ERROR, message);
-      }
+      const albumList = await ctx.bridge.apis.groupAlbum.list(p.group_id);
+      return okResponse({
+        album_list: albumList.map((a) => ({
+          album_id: a.id,
+          album_name: a.name,
+          create_time: a.createTime,
+          pic_num: a.picNum,
+        })),
+        attach_info: '',
+        has_more: false,
+      });
     },
   }),
 
@@ -94,13 +83,8 @@ export const actions = [
       file: f.image(),
     },
     run: async (p, ctx) => {
-      try {
-        await ctx.bridge.apis.groupAlbum.upload(p.group_id, p.album_id, p.album_name, p.file);
-        return okResponse(null);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'failed to upload image to group album';
-        return failedResponse(RETCODE.INTERNAL_ERROR, message);
-      }
+      await ctx.bridge.apis.groupAlbum.upload(p.group_id, p.album_id, p.album_name, p.file);
+      return okResponse(null);
     },
   }),
 
@@ -125,13 +109,8 @@ export const actions = [
       attach_info: f.string().default(''),
     },
     run: async (p, ctx) => {
-      try {
-        const mediaList = await ctx.bridge.apis.groupAlbum.getMediaList(p.group_id, p.album_id, p.attach_info);
-        return okResponse(mediaList as unknown as JsonValue);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'failed to get group album media list';
-        return failedResponse(RETCODE.INTERNAL_ERROR, message);
-      }
+      const mediaList = await ctx.bridge.apis.groupAlbum.getMediaList(p.group_id, p.album_id, p.attach_info);
+      return okResponse(mediaList as unknown as JsonValue);
     },
   }),
 
@@ -143,13 +122,8 @@ export const actions = [
       content: f.string({ allowEmpty: false }),
     },
     run: async (p, ctx) => {
-      try {
-        const comment = await ctx.bridge.apis.groupAlbum.comment(p.group_id, p.album_id, p.lloc, p.content);
-        return okResponse(comment as unknown as JsonValue);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'failed to comment on album media';
-        return failedResponse(RETCODE.INTERNAL_ERROR, message);
-      }
+      const comment = await ctx.bridge.apis.groupAlbum.comment(p.group_id, p.album_id, p.lloc, p.content);
+      return okResponse(comment as unknown as JsonValue);
     },
   }),
 
@@ -161,13 +135,8 @@ export const actions = [
       lloc: f.string().optional(), // 可选参数（空串按未传处理）
     },
     run: async (p, ctx) => {
-      try {
-        const res = await ctx.bridge.apis.groupAlbum.like(p.group_id, p.album_id, p.batch_id, p.lloc || undefined, true);
-        return okResponse(res);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'failed to set like on album media';
-        return failedResponse(RETCODE.INTERNAL_ERROR, message);
-      }
+      const res = await ctx.bridge.apis.groupAlbum.like(p.group_id, p.album_id, p.batch_id, p.lloc || undefined, true);
+      return okResponse(res);
     },
   }),
 
@@ -180,13 +149,8 @@ export const actions = [
       lloc: f.string().optional(), // 可选参数（空串按未传处理）
     },
     run: async (p, ctx) => {
-      try {
-        const res = await ctx.bridge.apis.groupAlbum.like(p.group_id, p.album_id, p.batch_id, p.lloc || undefined, false);
-        return okResponse(res);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'failed to cancel like on album media';
-        return failedResponse(RETCODE.INTERNAL_ERROR, message);
-      }
+      const res = await ctx.bridge.apis.groupAlbum.like(p.group_id, p.album_id, p.batch_id, p.lloc || undefined, false);
+      return okResponse(res);
     },
   }),
 
@@ -197,17 +161,9 @@ export const actions = [
       lloc: f.string({ allowEmpty: false }),
     },
     run: async (p, ctx) => {
-      try {
-        const res = await ctx.bridge.apis.groupAlbum.delete(p.group_id, p.album_id, p.lloc);
-        return okResponse(res);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'failed to delete album media';
-        return failedResponse(RETCODE.INTERNAL_ERROR, message);
-      }
+      const res = await ctx.bridge.apis.groupAlbum.delete(p.group_id, p.album_id, p.lloc);
+      return okResponse(res);
     },
   }),
 ];
 
-export function register(h: ApiHandler, ctx: ApiActionContext): void {
-  registerActions(h, ctx, actions);
-}

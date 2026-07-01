@@ -4,39 +4,42 @@ import https from 'node:https';
 type RequestBody = string | Buffer | Uint8Array | Record<string, unknown> | undefined;
 
 export class RequestUtil {
-  static async HttpsGetCookies(url: string): Promise<{ [key: string]: string; }> {
+  // Collect Set-Cookie across the ptlogin2 jump's redirect chain. NEVER hangs:
+  // a per-request timeout + a redirect-depth cap guarantee termination, and any
+  // failed/slow hop resolves with the cookies gathered so far rather than
+  // throwing. This matters because the jump's final hop can target a host the
+  // deployment can't reach (e.g. a datacenter网络 that times out on
+  // qzone.qq.com) — without the ceiling that would hang every cookie-backed web
+  // action forever (the essential cookies are already set by the first hop).
+  static async HttpsGetCookies(url: string, depth = 0): Promise<{ [key: string]: string; }> {
     const client = url.startsWith('https') ? https : http;
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
+      const cookies: { [key: string]: string; } = {};
+      let settled = false;
+      const done = (extra?: { [key: string]: string; }) => {
+        if (settled) return;
+        settled = true;
+        resolve(extra ? { ...cookies, ...extra } : cookies);
+      };
       const req = client.get(url, (res) => {
-        const cookies: { [key: string]: string; } = {};
-
-        res.on('data', () => { }); // 必须消耗流
-        res.on('end', () => {
-          this.handleRedirect(res, url, cookies)
-            .then(resolve)
-            .catch(reject);
-        });
-
         if (res.headers['set-cookie']) {
           this.extractCookies(res.headers['set-cookie'], cookies);
         }
+        res.on('data', () => { }); // 必须消耗流
+        res.on('end', () => {
+          const location = res.headers.location;
+          if ((res.statusCode === 301 || res.statusCode === 302) && location && depth < 5) {
+            this.HttpsGetCookies(new URL(location, url).href, depth + 1)
+              .then((rc) => done(rc))
+              .catch(() => done());
+          } else {
+            done();
+          }
+        });
       });
-
-      req.on('error', (error: Error) => {
-        reject(error);
-      });
+      req.setTimeout(8000, () => { req.destroy(); done(); });
+      req.on('error', () => done());
     });
-  }
-
-  private static async handleRedirect(res: http.IncomingMessage, url: string, cookies: { [key: string]: string; }): Promise<{ [key: string]: string; }> {
-    if (res.statusCode === 301 || res.statusCode === 302) {
-      if (res.headers.location) {
-        const redirectUrl = new URL(res.headers.location, url);
-        const redirectCookies = await this.HttpsGetCookies(redirectUrl.href);
-        return { ...cookies, ...redirectCookies };
-      }
-    }
-    return cookies;
   }
 
   private static extractCookies(setCookieHeaders: string[], cookies: { [key: string]: string; }) {

@@ -12,6 +12,7 @@ import {
   type ProcessActionResult,
   type StateStreamEvent,
   type StateStreamOptions,
+  type StreamStatus,
   type TokenStore,
 } from './types';
 import { localStorageTokenStore } from './token-store';
@@ -363,49 +364,40 @@ class HttpApiClient implements ApiClient {
   }
 
   stateStream(options: StateStreamOptions): () => void {
-    if (!this.currentToken) { options.onStatus?.('closed'); return () => {}; }
-    const url = `/api/state/stream?token=${encodeURIComponent(this.currentToken)}`;
-    const source = new EventSource(url);
-    // EventSource auto-reconnects on transport drop: `onerror` fires once
-    // when the connection is lost and the browser is about to retry, so
-    // a single 'reconnecting' status is sufficient — no manual reconnect
-    // timer needed.
-    source.onopen = () => options.onStatus?.('open');
-    source.onerror = () => options.onStatus?.('reconnecting');
-    source.onmessage = (event) => {
-      try {
-        options.onEvent(JSON.parse(event.data) as StateStreamEvent);
-      } catch {
-        /* malformed frame — skip; the next one will arrive normally */
-      }
-    };
-    return () => { source.close(); options.onStatus?.('closed'); };
+    return this.openSseChannel<StateStreamEvent>('/api/state/stream', options.onEvent, options.onStatus);
   }
 
   // ---------- SSE ----------
 
-  private openLogStream(options: LogsStreamOptions): () => void {
-    if (!this.currentToken) {
-      options.onStatus?.('closed');
-      return () => {};
-    }
-    const url = `/api/logs/stream?token=${encodeURIComponent(this.currentToken)}`;
+  /**
+   * Open a token-authed SSE channel to `path`, dispatching each parsed frame to
+   * `onMessage` and surfacing transport state ('open' / 'reconnecting' /
+   * 'closed') via `onStatus`. EventSource auto-reconnects on drop — `onerror`
+   * fires once per loss, so a single 'reconnecting' is enough. A malformed
+   * frame (or a throw from `onMessage`) is swallowed; the next frame arrives
+   * normally. The returned disposer closes the source and reports 'closed'.
+   */
+  private openSseChannel<T>(
+    path: string,
+    onMessage: (data: T) => void,
+    onStatus?: (s: StreamStatus) => void,
+  ): () => void {
+    if (!this.currentToken) { onStatus?.('closed'); return () => {}; }
+    const url = `${path}?token=${encodeURIComponent(this.currentToken)}`;
     const source = new EventSource(url);
-    source.onopen = () => options.onStatus?.('open');
-    source.onerror = () => options.onStatus?.('reconnecting');
+    source.onopen = () => onStatus?.('open');
+    source.onerror = () => onStatus?.('reconnecting');
     source.onmessage = (event) => {
-      try {
-        const parsed = JSON.parse(event.data) as LogEntry | { type: string };
-        if ('type' in parsed) return; // control frame, not a log line
-        options.onLine(parsed);
-      } catch {
-        /* malformed frame, skip */
-      }
+      try { onMessage(JSON.parse(event.data) as T); } catch { /* malformed frame — skip */ }
     };
-    return () => {
-      source.close();
-      options.onStatus?.('closed');
-    };
+    return () => { source.close(); onStatus?.('closed'); };
+  }
+
+  private openLogStream(options: LogsStreamOptions): () => void {
+    return this.openSseChannel<LogEntry | { type: string }>('/api/logs/stream', (parsed) => {
+      if ('type' in parsed) return; // control frame, not a log line
+      options.onLine(parsed);
+    }, options.onStatus);
   }
 
   // Invoke a (stream) action and relay each `data: <json>\n\n` SSE frame. Uses
@@ -492,17 +484,9 @@ class HttpApiClient implements ApiClient {
 
   private openDebugStream(
     onMessage: (m: DebugStreamMessage) => void,
-    onStatus?: (s: import('./types').StreamStatus) => void,
+    onStatus?: (s: StreamStatus) => void,
   ): () => void {
-    if (!this.currentToken) { onStatus?.('closed'); return () => {}; }
-    const url = `/api/debug/stream?token=${encodeURIComponent(this.currentToken)}`;
-    const source = new EventSource(url);
-    source.onopen = () => onStatus?.('open');
-    source.onerror = () => onStatus?.('reconnecting');
-    source.onmessage = (event) => {
-      try { onMessage(JSON.parse(event.data) as DebugStreamMessage); } catch { /* skip malformed */ }
-    };
-    return () => { source.close(); onStatus?.('closed'); };
+    return this.openSseChannel<DebugStreamMessage>('/api/debug/stream', onMessage, onStatus);
   }
 }
 

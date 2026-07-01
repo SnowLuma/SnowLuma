@@ -49,37 +49,53 @@ export interface ConverterContext {
 
 // ─────────────── dispatcher ───────────────
 
+/** Converter for one event kind — receives the narrowed event for that kind. */
+type ConverterFor<K extends QQEventVariant['kind']> =
+  (ctx: ConverterContext, event: Extract<QQEventVariant, { kind: K }>) => JsonObject | Promise<JsonObject>;
+
+/**
+ * Every event kind → its converter (or `null` for kinds intentionally not
+ * surfaced to OneBot clients). The mapped type is TOTAL over the union, so a
+ * new `QQEventVariant` kind that forgets a converter is a compile error here —
+ * not a silent `null` at runtime.
+ */
+type ConverterRegistry = { [K in QQEventVariant['kind']]: ConverterFor<K> | null };
+
+const CONVERTERS: ConverterRegistry = {
+  // Messages.
+  friend_message: convertFriendMessage,
+  group_message: convertGroupMessage,
+  temp_message: convertTempMessage,
+  // Notices.
+  group_member_join: convertGroupMemberJoin,
+  group_member_leave: convertGroupMemberLeave,
+  group_mute: convertGroupMute,
+  group_admin: convertGroupAdmin,
+  friend_recall: convertFriendRecall,
+  group_recall: convertGroupRecall,
+  friend_poke: convertFriendPoke,
+  group_poke: convertGroupPoke,
+  group_essence: convertGroupEssence,
+  group_file_upload: convertGroupFileUpload,
+  friend_add: convertFriendAdd,
+  group_msg_emoji_like: convertGroupMsgEmojiLike,
+  // Requests.
+  friend_request: convertFriendRequest,
+  group_invite: convertGroupInvite,
+  // Internal-only: async voice-to-text result, correlated by a pending
+  // fetch_ptt_text; never emitted as an OneBot event.
+  ptt_trans_result: null,
+};
+
 export async function convertEvent(
   ctx: ConverterContext,
   event: QQEventVariant,
 ): Promise<JsonObject | null> {
-  switch (event.kind) {
-    // Messages.
-    case 'friend_message': return convertFriendMessage(ctx, event);
-    case 'group_message': return convertGroupMessage(ctx, event);
-    case 'temp_message': return convertTempMessage(ctx, event);
-
-    // Notices.
-    case 'group_member_join': return convertGroupMemberJoin(ctx, event);
-    case 'group_member_leave': return convertGroupMemberLeave(ctx, event);
-    case 'group_mute': return convertGroupMute(ctx, event);
-    case 'group_admin': return convertGroupAdmin(ctx, event);
-    case 'friend_recall': return convertFriendRecall(ctx, event);
-    case 'group_recall': return convertGroupRecall(ctx, event);
-    case 'friend_poke': return convertFriendPoke(ctx, event);
-    case 'group_poke': return convertGroupPoke(ctx, event);
-    case 'group_essence': return convertGroupEssence(ctx, event);
-    case 'group_file_upload': return convertGroupFileUpload(ctx, event);
-    case 'friend_add': return convertFriendAdd(ctx, event);
-    case 'group_msg_emoji_like': return convertGroupMsgEmojiLike(ctx, event);
-
-    // Requests.
-    case 'friend_request': return convertFriendRequest(ctx, event);
-    case 'group_invite': return convertGroupInvite(ctx, event);
-
-    default:
-      return null;
-  }
+  const converter = CONVERTERS[event.kind];
+  if (!converter) return null;
+  // The registry ties each key to its own event kind, but indexing by a
+  // runtime `event.kind` loses that correlation — one localized cast restores it.
+  return (converter as (ctx: ConverterContext, event: QQEventVariant) => JsonObject | Promise<JsonObject>)(ctx, event);
 }
 
 export async function elementsToOneBotSegments(

@@ -1,7 +1,6 @@
 import type { MessageElement } from '@snowluma/protocol/events';
-import fs from 'fs';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
-import path from 'path';
+import { openSqliteDb } from './sqlite-open';
 
 export interface CachedImage {
   file: string;
@@ -77,12 +76,7 @@ export class MediaStore {
   constructor(dbPath: string, maxEntriesPerType = DEFAULT_KEEP_ENTRIES) {
     this.maxEntriesPerType = Math.max(64, maxEntriesPerType);
 
-    const dir = path.dirname(dbPath);
-    fs.mkdirSync(dir, { recursive: true });
-
-    this.db = new DatabaseSync(dbPath);
-    this.db.exec('PRAGMA journal_mode = WAL');
-    this.db.exec('PRAGMA synchronous = NORMAL');
+    this.db = openSqliteDb(dbPath);
     this.initSchema();
 
     this.upsertEntry = this.db.prepare(

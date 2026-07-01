@@ -55,10 +55,17 @@ export class QzoneApi {
    * 发表说说，返回新说说的 tid。始终发到机器人自己的空间。
    * `richType` / `richval`: 带图说说时传 richType=1 和 richval 字符串
    * (多图用 `\t` 连接多个 richval)。纯文字说说省略这两个参数。
+   * `ugcRight` / `targetUins`: 查看权限及其作用名单（ugcRight=16/128 时必填）。
    */
-  async publish(content: string, richType?: number, richval?: string): Promise<QzonePublishResult> {
+  async publish(
+    content: string,
+    richType?: number,
+    richval?: string,
+    ugcRight = 1,
+    targetUins?: string,
+  ): Promise<QzonePublishResult> {
     const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
-    return publishQzoneMsg(cookieObject, this.ctx.identity.uin, content, richType, richval);
+    return publishQzoneMsg(cookieObject, this.ctx.identity.uin, content, richType, richval, ugcRight, targetUins);
   }
 
   /** 删除机器人自己空间的一条说说（按 tid）。 */
