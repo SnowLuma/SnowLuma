@@ -6,6 +6,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ApiHandler } from '../src/api-handler';
+import { OidbError } from '@snowluma/protocol/oidb-service';
 import { subscribeLogs, type LogEntry } from '@snowluma/common/logger';
 import { summarizeParams } from '@snowluma/common/log-summary';
 
@@ -106,6 +107,35 @@ describe('ApiHandler dispatch logging', () => {
     expect(warn!.message).toContain('kapow');
     // stack contains the test file path; just check that something stack-shaped is appended
     expect(warn!.message).toMatch(/at\s+/);
+  });
+
+  // The single error seam (ADR-0006 narrow seam): any throw from a handler
+  // maps to ONE policy here — ACTION_FAILED (100) + the error message —
+  // instead of each action hand-rolling its own inconsistent try/catch.
+  it('maps any handler throw to ACTION_FAILED (100) with the error message', async () => {
+    const handler = new ApiHandler(emptyContext(), 12345);
+    handler.registerAction('kaboom', async () => { throw new Error('permission denied'); });
+
+    const result = await handler.handle('kaboom', {});
+    expect(result).toMatchObject({ status: 'failed', retcode: 100, wording: 'permission denied' });
+  });
+
+  it('surfaces the OidbError code + server message through error.message (no special-casing)', async () => {
+    const handler = new ApiHandler(emptyContext(), 12345);
+    handler.registerAction('oidb_boom', async () => { throw new OidbError(34, 'no permission', 0x11ec, 2); });
+
+    const result = await handler.handle('oidb_boom', {});
+    expect(result).toMatchObject({ status: 'failed', retcode: 100 });
+    expect((result as { wording: string }).wording).toContain('34');
+    expect((result as { wording: string }).wording).toContain('no permission');
+  });
+
+  it('renders a non-Error throw via String()', async () => {
+    const handler = new ApiHandler(emptyContext(), 12345);
+    handler.registerAction('weird', async () => { throw 'just a string'; });
+
+    const result = await handler.handle('weird', {});
+    expect(result).toMatchObject({ status: 'failed', retcode: 100, wording: 'just a string' });
   });
 
   it('logs unknown actions at debug level', async () => {

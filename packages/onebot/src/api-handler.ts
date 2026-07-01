@@ -178,15 +178,23 @@ export class ApiHandler {
       response = await handler(params, sink);
       this.log.trace(() => [`${action} ⇒ ${response.status} (${Date.now() - startedAt}ms)`]);
     } catch (error) {
-      // Action failures are almost always param-shape problems coming
-      // from the OneBot client; warn (not error) is the right level so
-      // the log file stays a useful signal of real internal faults.
+      // Single error seam: any throw from a handler (bridge/OIDB business
+      // failure or an unexpected internal fault) maps here to one policy —
+      // ACTION_FAILED (100) + the error's message. Action `run` bodies
+      // shouldn't need to hand-roll their own try/catch → failedResponse:
+      // doing so only produced inconsistent retcodes (100 vs 1200) for the same
+      // kind of failure. The remaining per-action catches (qzone / group-album,
+      // still returning 1200) are being removed in a follow-up phase — until
+      // then their failures never reach this seam. `OidbError.message` already
+      // carries the QQ server code, so no special-casing is needed. warn (not
+      // error) keeps the log file a useful signal without drowning it in
+      // expected client-side failures.
       this.log.warn('%s failed: %s\n%s',
         action,
         error instanceof Error ? error.message : String(error),
         error instanceof Error ? (error.stack ?? '') : '');
-      const message = error instanceof Error ? error.message : 'internal error';
-      response = failedResponse(RETCODE.INTERNAL_ERROR, message);
+      const message = error instanceof Error ? error.message : String(error);
+      response = failedResponse(RETCODE.ACTION_FAILED, message);
     }
     this.notifyObservers(action, params, response, Date.now() - startedAt);
     return response;
