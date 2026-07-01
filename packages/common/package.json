@@ -55,6 +55,10 @@
     "./runtime": {
       "types": "./src/runtime.ts",
       "default": "./src/runtime.ts"
+    },
+    "./uin": {
+      "types": "./src/uin.ts",
+      "default": "./src/uin.ts"
     }
   },
   "scripts": {

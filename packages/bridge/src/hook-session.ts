@@ -1,5 +1,6 @@
 import { createLogger, type Logger } from '@snowluma/common/logger';
 import type { PacketSink } from '@snowluma/common/protocol-types';
+import { isRealUin } from '@snowluma/common/uin';
 import { EventEmitter } from 'events';
 import { HookPacketClient } from './hook-packet-client';
 import type { HookInjectResult } from './injector';
@@ -516,11 +517,6 @@ export class HookSession extends EventEmitter {
     this._error = error;
     this.emit('status-changed', status, error);
   }
-}
-
-function isRealUin(uin: string): boolean {
-  if (!uin || uin === '0') return false;
-  return /^\d+$/.test(uin) && uin.length >= 5;
 }
 
 function errMsg(value: unknown): string {

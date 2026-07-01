@@ -101,9 +101,12 @@ export const SSE_TOKEN_QUERY_PATHS: ReadonlySet<string> = new Set([
 ]);
 const TOKEN_QUERY_ALLOWLIST = SSE_TOKEN_QUERY_PATHS;
 
-// uin = QQ number; 5–12 digits. Used to construct config file paths,
-// so we MUST refuse anything else (path traversal, NUL bytes, etc.).
-const UIN_REGEX = /^\d{5,12}$/;
+// uin = QQ number; 5–10 digits (real QQ UINs fit in uint32, max 4294967295).
+// Used to construct config file paths, so we MUST refuse anything else (path
+// traversal, NUL bytes, etc.) — and the 10-digit cap also rejects the garbage
+// timestamp-shaped UINs the native hook can emit (issue #162). Mirrors
+// isRealUin in @snowluma/common/uin.
+const UIN_REGEX = /^\d{5,10}$/;
 
 const avatarCache = new Map<string, { body: Uint8Array; contentType: string; expiresAt: number }>();
 

@@ -1,6 +1,7 @@
 import { createLogger } from '@snowluma/common/logger';
 import type { PacketSender } from '@snowluma/common/packet-sender';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
+import { isRealUin } from '@snowluma/common/uin';
 import { IdentityService } from '@snowluma/protocol/identity-service';
 import { Bridge } from './bridge';
 
@@ -72,13 +73,8 @@ export class BridgeManager {
     }
   }
 
-  private static isRealUin(uin: string): boolean {
-    if (!uin || uin === '0') return false;
-    return /^\d+$/.test(uin) && uin.length >= 5;
-  }
-
   onHookLogin(pid: number, uin: string, packetClient: PacketSender): void {
-    if (!BridgeManager.isRealUin(uin)) return;
+    if (!isRealUin(uin)) return;
 
     this.pidPacketClients_.set(pid, packetClient);
 
@@ -94,7 +90,7 @@ export class BridgeManager {
   }
 
   onPacket(pkt: PacketInfo): void {
-    if (!pkt.uin || !BridgeManager.isRealUin(pkt.uin)) return;
+    if (!pkt.uin || !isRealUin(pkt.uin)) return;
     const uin = pkt.uin;
 
     // Ensure session exists
