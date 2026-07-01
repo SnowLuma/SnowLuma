@@ -36,6 +36,10 @@
       "types": "./src/element-manifest.ts",
       "default": "./src/element-manifest.ts"
     },
+    "./self-uid": {
+      "types": "./src/self-uid.ts",
+      "default": "./src/self-uid.ts"
+    },
     "./bridge-oidb": {
       "types": "./src/bridge-oidb.ts",
       "default": "./src/bridge-oidb.ts"

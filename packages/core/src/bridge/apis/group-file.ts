@@ -366,14 +366,7 @@ export class GroupFileApi {
     if (!loaded.bytes.length) throw new Error('private file is empty');
 
     const targetUid = await this.ctx.resolveUserUid(userId);
-    let selfUid = this.ctx.identity.selfUid;
-    if (!selfUid) {
-      const selfUin = toInt(this.ctx.identity.uin);
-      if (selfUin > 0) {
-        selfUid = await this.ctx.resolveUserUid(selfUin);
-      }
-    }
-    if (!selfUid) throw new Error('self uid is unavailable');
+    const selfUid = await resolveSelfUid(this.ctx);
 
     const senderUin = toInt(this.ctx.identity.uin);
     if (senderUin <= 0) throw new Error('invalid self uin for private file upload');

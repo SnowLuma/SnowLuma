@@ -8,6 +8,7 @@ import type { Oidb0x7edReq, Oidb0x7edResp } from '@snowluma/proto-defs/oidb-acti
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { BridgeContext } from '../../bridge-context';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
+import { resolveSelfUid } from '../../self-uid';
 
 export interface LikeInfo {
   [key: string]: import('@snowluma/common/json').JsonValue;
@@ -46,7 +47,7 @@ export namespace GetLike {
   export const serialize = async (ctx: Deps, p: Params): Promise<Oidb0x7edReq> => {
     const targetUid = p.userId
       ? await ctx.resolveUserUid(p.userId)
-      : await resolveSelf(ctx);
+      : await resolveSelfUid(ctx);
     if (!targetUid) throw new Error('target uid not found');
     return {
       targetUid,
@@ -88,16 +89,4 @@ export namespace GetLike {
 
   export const invoke = (deps: Deps, params: Params): Promise<LikeInfo> =>
     invokeOidb(deps, GetLike, params);
-}
-
-async function resolveSelf(deps: Pick<BridgeContext, 'identity' | 'resolveUserUid'>): Promise<string> {
-  // Mirrors `apis/shared.ts::resolveSelfUid` — kept inline here so the
-  // namespace is self-contained against just the BridgeContext slice.
-  const cached = deps.identity.selfUid;
-  if (cached) return cached;
-  const selfUin = Number(deps.identity.uin);
-  if (!Number.isFinite(selfUin) || selfUin <= 0) {
-    throw new Error('self uid is unavailable');
-  }
-  return deps.resolveUserUid(selfUin);
 }
