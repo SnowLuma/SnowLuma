@@ -8,7 +8,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { motion } from 'motion/react';
 import { AlertTriangle, FlaskConical, History, Loader2, Play, RotateCcw, ShieldCheck, Trash2, Zap } from 'lucide-react';
-import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Picker } from '@/components/ui/picker';
 import { JsonTree } from '@/components/ui/json-tree';
@@ -26,6 +25,10 @@ const cardCls = 'rounded-2xl border border-border/60 bg-card/80 shadow-[0_1px_2p
 // positives just add one extra click; false negatives skip a confirm — both low
 // stakes (the amber banner already warns that any write is real).
 const DESTRUCTIVE_RE = /(kick|ban|mute|recall|withdraw|delete|del_|dismiss|disband|leave|quit|remove|revoke)/i;
+
+function qqAvatarUrl(uin: string) {
+  return `/avatar/${encodeURIComponent(uin)}`;
+}
 
 function coerceParam(type: string, raw: string): unknown {
   if (raw === '') return undefined;
@@ -81,6 +84,18 @@ export function ActionTester({ accounts, docs, presetAction }: { accounts: QQInf
   const effectiveMode = paramMode === 'json' || !doc ? 'json' : 'form';
   const isStream = !!doc?.stream;
   const isDestructive = DESTRUCTIVE_RE.test(actionName);
+
+  const accountOptions = useMemo(
+    () => accounts.length === 0
+      ? [{ value: '', label: '(无在线账号)' }]
+      : accounts.map((a) => ({
+          value: a.uin,
+          label: a.nickname || a.uin,
+          sub: a.nickname ? a.uin : undefined,
+          avatar: qqAvatarUrl(a.uin),
+        })),
+    [accounts],
+  );
 
   const actionOptions = useMemo(
     () => docs.map((d) => ({ value: d.name, label: d.name, sub: d.summary })),
@@ -201,10 +216,15 @@ export function ActionTester({ accounts, docs, presetAction }: { accounts: QQInf
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="账号">
-            <Select value={uin} onChange={(e) => setUin(e.target.value)}>
-              {accounts.length === 0 && <option value="">(无在线账号)</option>}
-              {accounts.map((a) => <option key={a.uin} value={a.uin}>{a.nickname || a.uin}</option>)}
-            </Select>
+            <Picker
+              ariaLabel="选择账号"
+              value={uin}
+              onChange={setUin}
+              options={accountOptions}
+              placeholder="选择账号…"
+              validateRaw={() => false}
+              disabled={accounts.length === 0}
+            />
           </Field>
           <Field label="Action">
             <Picker
