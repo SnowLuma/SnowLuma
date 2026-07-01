@@ -80,6 +80,131 @@ export function parseQzoneJson<T>(text: string): T {
   return JSON.parse(s.slice(start, end + 1)) as T;
 }
 
+/**
+ * Parse the JavaScript OBJECT-LITERAL payload of a Qzone JSONP feeds response
+ * WITHOUT executing it. feeds3_html_more returns `_preloadCallback({ … })` where
+ * the `data` value uses unquoted keys, single-quoted strings, `\xNN` escapes and
+ * literal `undefined`s — it is meant to be eval'd by the browser callback, so
+ * JSON.parse chokes on it. We ran the alternatives to ground: no param combo
+ * (outputhtmlfeed/format) makes the CGI emit real JSON, and feeds are pure
+ * remote H5 (absent from the native client), so there is no cleaner endpoint.
+ * Rather than eval remote-controlled content (a `vm` sandbox is not a security
+ * boundary — a tampered body escapes it to RCE), we recursively DESCEND the
+ * literal as data: it can only ever produce a value, never run code.
+ *
+ * Handles the subset the CGI emits: objects (unquoted or quoted keys), arrays
+ * (incl. `undefined`/elided holes), single/double-quoted strings with JS escapes
+ * (`\xNN`, `\uNNNN`, `\/`, …), numbers and `true|false|null|undefined`.
+ * `__proto__` keys are dropped (no prototype pollution).
+ */
+function parseJsLiteral(src: string): unknown {
+  let i = 0;
+  const n = src.length;
+  const isWs = (c: string): boolean => c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f' || c === '\v';
+  const skipWs = (): void => { while (i < n && isWs(src[i]!)) i++; };
+
+  function parseString(quote: string): string {
+    i++; // opening quote
+    let out = '';
+    while (i < n) {
+      const c = src[i]!;
+      if (c === '\\') {
+        const e = src[i + 1];
+        if (e === 'x') { out += String.fromCharCode(parseInt(src.slice(i + 2, i + 4), 16)); i += 4; continue; }
+        if (e === 'u') { out += String.fromCharCode(parseInt(src.slice(i + 2, i + 6), 16)); i += 6; continue; }
+        const simple: Record<string, string> = { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f', v: '\v', '0': '\0' };
+        out += e !== undefined ? (simple[e] ?? e) : ''; // \/ → /, \' → ', unknown → the char
+        i += 2;
+        continue;
+      }
+      if (c === quote) { i++; return out; }
+      out += c;
+      i++;
+    }
+    throw new Error('unterminated string in qzone feeds payload');
+  }
+
+  function parseKey(): string {
+    skipWs();
+    const c = src[i];
+    if (c === '"' || c === "'") return parseString(c);
+    let s = '';
+    while (i < n && /[A-Za-z0-9_$]/.test(src[i]!)) { s += src[i]; i++; }
+    if (!s) throw new Error('expected object key in qzone feeds payload');
+    return s;
+  }
+
+  function parseObject(): Record<string, unknown> {
+    i++; // {
+    const obj: Record<string, unknown> = {};
+    skipWs();
+    if (src[i] === '}') { i++; return obj; }
+    for (;;) {
+      const key = parseKey();
+      skipWs();
+      if (src[i] !== ':') throw new Error('expected ":" in qzone feeds payload');
+      i++;
+      const value = parseValue();
+      if (key !== '__proto__') obj[key] = value;
+      skipWs();
+      const ch = src[i];
+      if (ch === ',') { i++; skipWs(); if (src[i] === '}') { i++; return obj; } continue; }
+      if (ch === '}') { i++; return obj; }
+      throw new Error('expected "," or "}" in qzone feeds payload');
+    }
+  }
+
+  function parseArray(): unknown[] {
+    i++; // [
+    const arr: unknown[] = [];
+    skipWs();
+    if (src[i] === ']') { i++; return arr; }
+    for (;;) {
+      arr.push(parseValue());
+      skipWs();
+      const ch = src[i];
+      if (ch === ',') { i++; skipWs(); if (src[i] === ']') { i++; return arr; } continue; }
+      if (ch === ']') { i++; return arr; }
+      throw new Error('expected "," or "]" in qzone feeds payload');
+    }
+  }
+
+  function parseValue(): unknown {
+    skipWs();
+    const c = src[i];
+    if (c === undefined) throw new Error('unexpected end of qzone feeds payload');
+    if (c === '{') return parseObject();
+    if (c === '[') return parseArray();
+    if (c === '"' || c === "'") return parseString(c);
+    let token = '';
+    while (i < n && !/[,}\]:\s]/.test(src[i]!)) { token += src[i]; i++; }
+    if (token === 'true') return true;
+    if (token === 'false') return false;
+    if (token === 'null') return null;
+    if (token === 'undefined') return undefined;
+    if (token !== '') { const num = Number(token); if (!Number.isNaN(num)) return num; }
+    throw new Error('unexpected token in qzone feeds payload: ' + token.slice(0, 20));
+  }
+
+  return parseValue();
+}
+
+/**
+ * Extract the object a Qzone feeds JSONP body hands to its callback, parsed as
+ * data (never executed — see {@link parseJsLiteral}). Slices from the first `{`
+ * (the callback argument) and parses one balanced value; trailing `);` is
+ * ignored. Throws if the payload is not an object.
+ */
+export function parseQzoneCallback<T>(text: string): T {
+  const start = text.indexOf('{');
+  if (start === -1) throw new Error('invalid feeds response from qzone api');
+  const value = parseJsLiteral(text.slice(start));
+  if (value === null || typeof value !== 'object') {
+    throw new Error('invalid feeds response from qzone api');
+  }
+  return value as T;
+}
+
 function assertRichParams(richType?: number, richval?: string): void {
   const hasRichType = richType !== undefined;
   const hasRichval = richval !== undefined && richval.trim() !== '';
@@ -194,6 +319,7 @@ export async function getQzoneMsgList(
   const text = await RequestUtil.HttpGetText(url, 'GET', '', {
     Cookie: cookieToString(cookieObject),
   });
+  log.trace('getQzoneMsgList raw body (uin=%s): %s', targetUin, text);
   const data = parseQzoneJson<RawMsgListResponse>(text);
 
   if (typeof data.code === 'number' && data.code !== 0) {
@@ -201,8 +327,8 @@ export async function getQzoneMsgList(
     throw new Error(`qzone msglist failed: code=${data.code} ${data.message ?? ''}`.trim());
   }
   if (!Array.isArray(data.msglist)) {
-    log.warn('getQzoneMsgList: no msglist in response (uin=%s) — likely auth/cookie failure', targetUin);
-    throw new Error('无法获取空间说说列表');
+    log.warn('getQzoneMsgList: no msglist in response (uin=%s) — likely auth/cookie failure or unverified response shape; body head=%s', targetUin, text.slice(0, 300));
+    throw new Error(`无法获取空间说说列表（响应结构异常）: ${text.slice(0, 200)}`);
   }
 
   return mapMsgList(data);
@@ -262,7 +388,8 @@ export interface QzoneFeedsResult {
 
 /** Pure transform from the raw feeds response into the OneBot list. */
 export function mapFeeds(data: RawFeedsResponse): QzoneFeedsResult {
-  const list = data.data?.data ?? [];
+  // The CGI pads the array with trailing `undefined`/null holes — drop them.
+  const list = (data.data?.data ?? []).filter((f): f is RawFeedItem => !!f);
   return {
     feeds: list.map((f) => ({
       uin: Number(f.uin ?? 0),
@@ -335,15 +462,18 @@ export async function getQzoneFeeds(
   const text = await RequestUtil.HttpGetText(url, 'GET', '', {
     Cookie: cookieToString(cookieObject),
   });
-  const data = parseQzoneJson<RawFeedsResponse>(text);
+  log.trace('getQzoneFeeds raw body (uin=%s): %s', selfUin, text);
+  // feeds3_html_more's payload is a JS object literal, not JSON — parse it as
+  // inert data (see parseQzoneCallback; never executed) rather than JSON.parse.
+  const data = parseQzoneCallback<RawFeedsResponse>(text);
 
   if (typeof data.code === 'number' && data.code !== 0) {
     log.warn('getQzoneFeeds: non-zero code (uin=%s) code=%d msg=%s', selfUin, data.code, data.message);
     throw new Error(`qzone feeds failed: code=${data.code} ${data.message ?? ''}`.trim());
   }
   if (!Array.isArray(data.data?.data)) {
-    log.warn('getQzoneFeeds: no data array in response (uin=%s) — likely auth/cookie failure', selfUin);
-    throw new Error('无法获取空间好友动态');
+    log.warn('getQzoneFeeds: no data array in response (uin=%s) — likely auth/cookie failure or unverified response shape; body head=%s', selfUin, text.slice(0, 300));
+    throw new Error(`无法获取空间好友动态（响应结构异常）: ${text.slice(0, 200)}`);
   }
 
   return mapFeeds(data);

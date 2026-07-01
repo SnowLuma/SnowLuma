@@ -175,17 +175,17 @@ describe('qzone / getQzoneFeeds (HTTP layer)', () => {
   });
 
   it('returns an empty list (not a throw) for a genuinely empty feed', async () => {
-    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"data":{"data":[],"hasmore":0}}');
+    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('_preloadCallback({"code":0,"data":{"data":[],"hasmore":0}});');
     await expect(getQzoneFeeds(cookies, '10000')).resolves.toEqual({ feeds: [], has_more: false });
   });
 
   it('throws on a non-zero qzone code', async () => {
-    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":-3000,"message":"need login"}');
+    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('_preloadCallback({"code":-3000,"message":"need login"});');
     await expect(getQzoneFeeds(cookies, '10000')).rejects.toThrow('code=-3000');
   });
 
   it('throws when the data array is absent (cookie failure), not an empty list', async () => {
-    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('{"code":0,"data":{}}');
+    vi.spyOn(RequestUtil, 'HttpGetText').mockResolvedValue('_preloadCallback({"code":0,"data":{}});');
     await expect(getQzoneFeeds(cookies, '10000')).rejects.toThrow('无法获取空间好友动态');
   });
 });
