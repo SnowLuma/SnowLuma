@@ -25,13 +25,14 @@ interface ProcessProbeDialogProps {
   processName: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onLoad?: () => void;
 }
 
 function qqAvatarUrl(uin: string) {
   return `/avatar/${encodeURIComponent(uin)}`;
 }
 
-export function ProcessProbeDialog({ pid, processName, open, onOpenChange }: ProcessProbeDialogProps) {
+export function ProcessProbeDialog({ pid, processName, open, onOpenChange, onLoad }: ProcessProbeDialogProps) {
   const api = useApi();
   const [loading, setLoading] = useState(false);
   const [info, setInfo] = useState<QqPortLoginInfo | null>(null);
@@ -127,6 +128,11 @@ export function ProcessProbeDialog({ pid, processName, open, onOpenChange }: Pro
             <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
               关闭
             </Button>
+            {!loading && info?.loggedIn && onLoad && (
+              <Button size="sm" onClick={onLoad}>
+                加载
+              </Button>
+            )}
             {!loading && (
               <Button size="sm" onClick={probe}>
                 <Eye className="size-3.5" /> 重新探测

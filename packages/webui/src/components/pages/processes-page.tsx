@@ -263,6 +263,12 @@ export function ProcessesPage() {
           processName={probeDialog.name}
           open={!!probeDialog}
           onOpenChange={(open) => !open && setProbeDialog(null)}
+          onLoad={() => {
+            if (probeDialog) {
+              void load(probeDialog.pid);
+              setProbeDialog(null);
+            }
+          }}
         />
       )}
     </div>
