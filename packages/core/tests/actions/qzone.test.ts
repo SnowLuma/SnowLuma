@@ -117,6 +117,16 @@ describe('apis/qzone', () => {
     expect(delSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', 'TID9');
   });
 
+  it('updateRight changes a feed\'s visibility on the bot\'s own space', async () => {
+    const getCookies = vi.fn(async () => ({ p_skey: 'PSK' }));
+    const bridge = mockBridge({ apis: { ...mockApiHub(), web: { getCookies } } as never });
+    const updSpy = vi.spyOn(qzoneWeb, 'updateQzoneMsgRight').mockResolvedValue({ ugc_right: 16 });
+    const out = await new QzoneApi(bridge as never).updateRight('TID9', 16, '10002|10003');
+    expect(getCookies).toHaveBeenCalledWith('qzone.qq.com');
+    expect(updSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', 'TID9', 16, '10002|10003');
+    expect(out).toEqual({ ugc_right: 16 });
+  });
+
   it('like defaults the feed owner to self and passes opUin=self + like flag', async () => {
     const getCookies = vi.fn(async () => ({ p_skey: 'PSK' }));
     const bridge = mockBridge({ apis: { ...mockApiHub(), web: { getCookies } } as never });
