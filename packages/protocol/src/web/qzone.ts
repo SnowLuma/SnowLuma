@@ -64,7 +64,8 @@ export interface QzoneMsgListResult {
 
 /**
  * Parse a Qzone CGI body that may be raw JSON or a JSONP callback wrapper
- * (`_Callback({...});` / `callback({...})`). We slice from the first `back({`
+ * (`_Callback({...});` / `callback({...})`). We first attempt to slice from
+ * the first `{` to the last `}`, when failed attempt from the first `back({`
  * to the last `})` and JSON.parse that — robust to either form without
  * pinning the callback name, which Qzone varies. Throws if no object body
  * is present (e.g. an HTML error page), which the caller turns into a
@@ -72,6 +73,15 @@ export interface QzoneMsgListResult {
  */
 export function parseQzoneJson<T>(text: string): T {
   const s = text.trim();
+  try {
+    const start = s.indexOf('{');
+    const end = s.lastIndexOf('}');
+    if (start !== -1 && end !== -1 && end > start) {
+      return JSON.parse(s.slice(start, end + 1)) as T;
+    }
+  } catch {
+
+  }
   const start = s.indexOf('back({');
   const end = s.lastIndexOf('})');
   if (start === -1 || end === -1 || end < start) {

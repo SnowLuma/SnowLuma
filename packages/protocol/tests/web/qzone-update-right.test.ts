@@ -18,7 +18,7 @@ describe('qzone / buildQzoneUpdatePayload', () => {
     );
     expect(body.get('tid')).toBe('T1');
     expect(body.get('con')).toBe('hello');
-    expect(body.get('richtype')).toBe('0');
+    expect(body.get('richtype')).toBe('');
     expect(body.get('richval')).toBe('');
     expect(body.get('pic_bo')).toBe('');
     expect(body.get('ugcright_id')).toBe('T1');
