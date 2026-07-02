@@ -147,6 +147,34 @@ export const actions = [
     },
   }),
 
+  // set_qzone_msg_right — 修改机器人自己空间一条已发说说的查看权限（按 tid）。
+  // 写操作；ugc_right/target_uins 语义与 send_qzone_msg 一致。
+  defineAction({
+    name: 'set_qzone_msg_right',
+    returns: '更新后的权限对象。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        ugc_right: { type: 'integer', description: '更新后的查看权限' },
+      },
+      required: ['ugc_right'],
+    },
+    summary: '修改一条已发说说的查看权限（QQ 空间，按 tid）',
+    params: {
+      tid: f.string({ allowEmpty: false }).describe('说说 tid（来自 get_qzone_msg_list / send_qzone_msg）'),
+      ugc_right: f.int({ min: 1 }).describe('查看权限：1=所有人可见，4=好友可见，16=部分好友可见，64=仅自己可见，128=部分好友不可见'),
+      target_uins: f.array(f.uint()).describe('权限作用 QQ 号数组；ugc_right=16 时表示可见名单，128 时表示不可见名单').optional(),
+    },
+    rules: (r) => [
+      r.rule('ugc_right must be one of 1, 4, 16, 64, 128', (p) => QZONE_UGC_RIGHTS.has(p.ugc_right)),
+      r.rule('target_uins is required when ugc_right is 16 or 128', (p) => (p.ugc_right !== 16 && p.ugc_right !== 128) || !!p.target_uins?.length),
+    ],
+    run: async (p, ctx) => {
+      const res = await ctx.bridge.apis.qzone.updateRight(p.tid, p.ugc_right, p.target_uins?.join('|'));
+      return okResponse(res as unknown as JsonValue);
+    },
+  }),
+
   // like_qzone — 给一条说说点赞。target_uin 省略=机器人自己空间；点赞好友说说传其 uin。
   // abstime=该说说的发表时间（unix 秒，来自 get_qzone_feeds/get_qzone_msg_list），
   // 传真实值更可靠；不传按 0。写操作；高频点赞会被 Qzone 风控，调用方需限流。

@@ -5,11 +5,13 @@ import {
   getQzoneMsgList,
   publishQzoneMsg,
   setQzoneLike,
+  updateQzoneMsgRight,
   uploadQzoneImageFromSource,
   type QzoneCommentResult,
   type QzoneFeedsResult,
   type QzoneMsgListResult,
   type QzonePublishResult,
+  type QzoneUpdateRightResult,
   type QzoneUploadImageResult,
 } from '@snowluma/protocol/web/qzone';
 import type { BridgeContext } from '../bridge-context';
@@ -72,6 +74,15 @@ export class QzoneApi {
   async delete(tid: string): Promise<void> {
     const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
     await deleteQzoneMsg(cookieObject, this.ctx.identity.uin, tid);
+  }
+
+  /**
+   * 修改机器人自己空间一条已发说说的查看权限（按 tid）。
+   * `ugcRight` / `targetUins` 含义同 publish（16/128 时 targetUins 必填）。
+   */
+  async updateRight(tid: string, ugcRight: number, targetUins?: string): Promise<QzoneUpdateRightResult> {
+    const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
+    return updateQzoneMsgRight(cookieObject, this.ctx.identity.uin, tid, ugcRight, targetUins);
   }
 
   /**

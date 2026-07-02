@@ -8904,6 +8904,93 @@
       "category": "扩展"
     },
     {
+      "name": "set_qzone_msg_right",
+      "aliases": [],
+      "summary": "修改一条已发说说的查看权限（QQ 空间，按 tid）",
+      "returns": "更新后的权限对象。",
+      "returnsSchema": {
+        "type": "object",
+        "properties": {
+          "ugc_right": {
+            "type": "integer",
+            "description": "更新后的查看权限"
+          }
+        },
+        "required": [
+          "ugc_right"
+        ]
+      },
+      "readOnly": false,
+      "params": [
+        {
+          "name": "tid",
+          "type": "string",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          },
+          "desc": "说说 tid（来自 get_qzone_msg_list / send_qzone_msg）"
+        },
+        {
+          "name": "ugc_right",
+          "type": "int",
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "desc": "查看权限：1=所有人可见，4=好友可见，16=部分好友可见，64=仅自己可见，128=部分好友不可见"
+        },
+        {
+          "name": "target_uins",
+          "type": "uint[]",
+          "required": false,
+          "schema": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "desc": "权限作用 QQ 号数组；ugc_right=16 时表示可见名单，128 时表示不可见名单"
+        }
+      ],
+      "invariants": [
+        "ugc_right must be one of 1, 4, 16, 64, 128",
+        "target_uins is required when ugc_right is 16 or 128"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tid": {
+            "type": "string",
+            "minLength": 1,
+            "description": "说说 tid（来自 get_qzone_msg_list / send_qzone_msg）"
+          },
+          "ugc_right": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "查看权限：1=所有人可见，4=好友可见，16=部分好友可见，64=仅自己可见，128=部分好友不可见"
+          },
+          "target_uins": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "权限作用 QQ 号数组；ugc_right=16 时表示可见名单，128 时表示不可见名单"
+          }
+        },
+        "required": [
+          "tid",
+          "ugc_right"
+        ],
+        "additionalProperties": true
+      },
+      "category": "空间"
+    },
+    {
       "name": "set_restart",
       "aliases": [],
       "summary": "重启（不支持）",
@@ -9834,7 +9921,7 @@
     },
     {
       "category": "空间",
-      "count": 7
+      "count": 8
     },
     {
       "category": "流式接口",
