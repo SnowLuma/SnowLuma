@@ -114,23 +114,29 @@ export function AppLayout() {
   // update we lost. So on dropped, kick a one-shot REST reconcile to
   // recover immediately instead of waiting up to 30s for the fallback.
   useEffect(() => {
-    const dispose = api.stateStream({
-      onEvent: (event) => {
-        if ('resource' in event) {
-          if (event.resource === 'processes') setProcessList(event.data);
-          else if (event.resource === 'qq-list') setQqList(event.data);
-          else if (event.resource === 'connections') setConnections(event.data);
-          return;
-        }
-        if ('kind' in event && event.kind === 'dropped') {
-          // Fire-and-forget; each refresh has its own try/catch.
-          void refreshQqList();
-          void refreshProcesses();
-          void refreshConnections();
-        }
-      },
-    });
-    return () => { dispose(); };
+    let dispose: (() => void) | null = null;
+    const start = () => {
+      dispose = api.stateStream({
+        onEvent: (event) => {
+          if ('resource' in event) {
+            if (event.resource === 'processes') setProcessList(event.data);
+            else if (event.resource === 'qq-list') setQqList(event.data);
+            else if (event.resource === 'connections') setConnections(event.data);
+            return;
+          }
+          if ('kind' in event && event.kind === 'dropped') {
+            void refreshQqList();
+            void refreshProcesses();
+            void refreshConnections();
+          }
+        },
+      });
+    };
+    const stop = () => { dispose?.(); dispose = null; };
+    const onVis = () => { if (document.hidden) stop(); else if (!dispose) start(); };
+    start();
+    document.addEventListener('visibilitychange', onVis);
+    return () => { stop(); document.removeEventListener('visibilitychange', onVis); };
   }, [api, refreshQqList, refreshProcesses, refreshConnections]);
 
   // Slow reconcile fallback for the SSE-covered resources. SSE drops can

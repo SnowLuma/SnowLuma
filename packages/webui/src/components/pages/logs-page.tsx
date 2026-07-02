@@ -101,6 +101,7 @@ export function LogsPage() {
   const [newKeyword, setNewKeyword] = useState('');
   const [newColor, setNewColor] = useState(HIGHLIGHT_COLORS[0].id);
   const endRef = useRef<HTMLDivElement | null>(null);
+  const scrollRaf = useRef(0);
 
   // maxLines is read through a ref so changing it doesn't re-subscribe the SSE.
   const maxLines = prefs.maxLines;
@@ -177,7 +178,11 @@ export function LogsPage() {
 
   useEffect(() => {
     if (!prefs.autoScroll) return;
-    endRef.current?.scrollIntoView({ block: 'end' });
+    cancelAnimationFrame(scrollRaf.current);
+    scrollRaf.current = requestAnimationFrame(() => {
+      endRef.current?.scrollIntoView({ block: 'end' });
+    });
+    return () => cancelAnimationFrame(scrollRaf.current);
   }, [logs, prefs.autoScroll]);
 
   const filtered = useMemo(() => {

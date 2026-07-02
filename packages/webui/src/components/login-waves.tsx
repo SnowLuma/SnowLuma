@@ -79,6 +79,7 @@ export function LoginWaves() {
   const svgRef = useRef<SVGSVGElement>(null);
 
   useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const host = hostRef.current;
     const svg = svgRef.current;
     if (!host || !svg) return;

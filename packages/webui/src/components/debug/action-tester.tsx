@@ -139,7 +139,7 @@ export function ActionTester({ accounts, docs, presetAction }: { accounts: QQInf
       try {
         await api.debug.invokeStream(uin, actionName.trim(), params, (frame) => {
           last = frame;
-          setFrames((prev) => (prev.length >= MAX_STREAM_FRAMES ? [...prev.slice(-(MAX_STREAM_FRAMES - 1)), frame] : [...prev, frame]));
+          setFrames((prev) => (prev.length >= MAX_STREAM_FRAMES ? (prev.shift(), [...prev, frame]) : [...prev, frame]));
           const d = frame.data as { type?: string; progress?: number; transferred?: number; total?: number } | undefined;
           if (d && typeof d.progress === 'number') tasks.update(taskId, { progress: d.progress });
           else if (d && typeof d.transferred === 'number' && typeof d.total === 'number' && d.total > 0) tasks.update(taskId, { progress: d.transferred / d.total });
