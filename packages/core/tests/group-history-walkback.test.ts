@@ -3,7 +3,7 @@
 // so this exercises the loop/cursor logic, not the wire decode (covered in
 // packages/protocol/tests/msg-push/fetch-group-history.test.ts).
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@snowluma/protocol/msg-push', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@snowluma/protocol/msg-push')>();
@@ -27,7 +27,22 @@ function gm(seq: number): any {
 const ctx = { identity: {}, sendRawPacket: vi.fn() } as any;
 
 describe('MessageApi.getGroupHistory walk-back', () => {
-  beforeEach(() => mockFetch.mockReset());
+  // The walk-back loop enforces a real ~300ms gap between each SsoGetGroupMsg
+  // send (a deliberate anti-flood throttle, unchanged in production). Fake the
+  // clock so the test exercises the loop/cursor logic instantly instead of
+  // waiting out 300ms × up-to-12 real sends.
+  beforeEach(() => {
+    mockFetch.mockReset();
+    vi.useFakeTimers();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  // Drives a throttled getGroupHistory to completion under fake timers: kick it
+  // off, flush the queued send-gap timers, then await the result.
+  async function runHistory<T>(promise: Promise<T>): Promise<T> {
+    await vi.runAllTimersAsync();
+    return promise;
+  }
 
   it('walks back across short-capped windows, dedups, returns newest `want` ascending', async () => {
     // Server caps every window to its newest 10 sequences → forces walk-back.
@@ -37,7 +52,7 @@ describe('MessageApi.getGroupHistory walk-back', () => {
       return out;
     });
 
-    const res = await new MessageApi(ctx).getGroupHistory(9999, 200, 50);
+    const res = await runHistory(new MessageApi(ctx).getGroupHistory(9999, 200, 50));
 
     expect(res).toHaveLength(50);
     expect(res[0].msgSeq).toBe(151); // newest 50 ending at 200 → 151..200
@@ -54,7 +69,7 @@ describe('MessageApi.getGroupHistory walk-back', () => {
       return out;
     });
 
-    const res = await new MessageApi(ctx).getGroupHistory(9999, 20, 100); // only seq 1..20 exist
+    const res = await runHistory(new MessageApi(ctx).getGroupHistory(9999, 20, 100)); // only seq 1..20 exist
     expect(res.map((m) => m.msgSeq)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
   });
 
@@ -65,7 +80,7 @@ describe('MessageApi.getGroupHistory walk-back', () => {
       return [gm(end)]; // one message per window → never reaches a large `want`
     });
 
-    const res = await new MessageApi(ctx).getGroupHistory(9999, 100_000, 9999);
+    const res = await runHistory(new MessageApi(ctx).getGroupHistory(9999, 100_000, 9999));
     expect(calls).toBeLessThanOrEqual(12);     // HISTORY_MAX_REQUESTS
     expect(res.length).toBeLessThanOrEqual(200); // HISTORY_MAX_COUNT
   });
