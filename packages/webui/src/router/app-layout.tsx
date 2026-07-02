@@ -142,16 +142,21 @@ export function AppLayout() {
     let cancelled = false;
     const reconcileMs = Math.max(pollInterval * 10, 10_000);
     const tick = async () => {
-      if (cancelled) return;
+      // Skip while the tab is hidden — SSE already carries live updates, and a
+      // backgrounded tab has no UI to refresh. Re-tick on becoming visible.
+      if (cancelled || document.hidden) return;
       await Promise.all([refreshQqList(), refreshProcesses(), refreshConnections()]);
     };
     // Initial tick primes the lists before the SSE handshake completes
     // (avoids a flash of empty state in the chrome).
     tick();
     const interval = setInterval(tick, reconcileMs);
+    const onVisible = () => { if (!document.hidden) void tick(); };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       cancelled = true;
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [pollInterval, refreshQqList, refreshProcesses, refreshConnections]);
 
@@ -164,14 +169,17 @@ export function AppLayout() {
     if (pollInterval <= 0) return;
     let cancelled = false;
     const tick = async () => {
-      if (cancelled) return;
+      if (cancelled || document.hidden) return;
       await refreshSystem();
     };
     tick();
     const interval = setInterval(tick, pollInterval);
+    const onVisible = () => { if (!document.hidden) void tick(); };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       cancelled = true;
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [pollInterval, refreshSystem]);
 
