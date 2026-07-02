@@ -103,8 +103,8 @@ export function LiveActivity() {
       (m) => {
         if (m.kind === 'ready' || pausedRef.current) return;
         setRows((prev) => {
-          prev.push({ id: idRef.current++, at: Date.now(), msg: m, search: JSON.stringify(m).toLowerCase() });
-          return prev.length > STREAM_CAP ? prev.slice(-STREAM_CAP) : prev;
+          const next = [{ id: idRef.current++, at: Date.now(), msg: m, search: JSON.stringify(m).toLowerCase() }, ...prev];
+          return next.length > STREAM_CAP ? next.slice(0, STREAM_CAP) : next;
         });
       },
       (s) => setStatus(s),
