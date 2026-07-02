@@ -25,6 +25,9 @@ const cardCls = 'rounded-2xl border border-border/60 bg-card/80 shadow-[0_1px_2p
 // positives just add one extra click; false negatives skip a confirm — both low
 // stakes (the amber banner already warns that any write is real).
 const DESTRUCTIVE_RE = /(kick|ban|mute|recall|withdraw|delete|del_|dismiss|disband|leave|quit|remove|revoke)/i;
+// Cap retained stream frames so a long-running / runaway stream can't grow the
+// array and DOM without bound. Generous enough to keep a full normal stream.
+const MAX_STREAM_FRAMES = 2000;
 
 function qqAvatarUrl(uin: string) {
   return `/avatar/${encodeURIComponent(uin)}`;
@@ -136,7 +139,7 @@ export function ActionTester({ accounts, docs, presetAction }: { accounts: QQInf
       try {
         await api.debug.invokeStream(uin, actionName.trim(), params, (frame) => {
           last = frame;
-          setFrames((prev) => [...prev, frame]);
+          setFrames((prev) => (prev.length >= MAX_STREAM_FRAMES ? [...prev.slice(-(MAX_STREAM_FRAMES - 1)), frame] : [...prev, frame]));
           const d = frame.data as { type?: string; progress?: number; transferred?: number; total?: number } | undefined;
           if (d && typeof d.progress === 'number') tasks.update(taskId, { progress: d.progress });
           else if (d && typeof d.transferred === 'number' && typeof d.total === 'number' && d.total > 0) tasks.update(taskId, { progress: d.transferred / d.total });

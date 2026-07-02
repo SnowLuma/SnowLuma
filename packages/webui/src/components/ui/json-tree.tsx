@@ -66,12 +66,18 @@ function Node({ k, value, depth, defaultOpen }: { k?: string; value: unknown; de
     );
   }
 
-  const entries = Array.isArray(value)
-    ? value.map((v, i) => [String(i), v] as const)
-    : Object.entries(value as Record<string, unknown>);
-  const openB = Array.isArray(value) ? '[' : '{';
-  const closeB = Array.isArray(value) ? ']' : '}';
-  const shown = open ? Math.min(entries.length, limit) : 0;
+  const isArr = Array.isArray(value);
+  const count = isArr ? (value as unknown[]).length : Object.keys(value as object).length;
+  const openB = isArr ? '[' : '{';
+  const closeB = isArr ? ']' : '}';
+  const shown = open ? Math.min(count, limit) : 0;
+  // Only materialise child entries when expanded — a deep tree has many
+  // collapsed nodes, and enumerating each on every render is wasted work.
+  const entries: ReadonlyArray<readonly [string, unknown]> = open
+    ? (isArr
+      ? (value as unknown[]).map((v, i) => [String(i), v] as const)
+      : Object.entries(value as Record<string, unknown>))
+    : [];
 
   return (
     <div>
@@ -84,21 +90,21 @@ function Node({ k, value, depth, defaultOpen }: { k?: string; value: unknown; de
         <ChevronRight className={cn('h-3 w-3 shrink-0 text-muted-foreground/60 transition-transform', open && 'rotate-90')} />
         {keyLabel}
         <Punct>{openB}</Punct>
-        {!open && <span className="text-muted-foreground/50">{entries.length}{Array.isArray(value) ? '' : ' keys'}<Punct>{closeB}</Punct></span>}
+        {!open && <span className="text-muted-foreground/50">{count}{isArr ? '' : ' keys'}<Punct>{closeB}</Punct></span>}
       </button>
       {open && (
         <>
           {entries.slice(0, shown).map(([ck, cv]) => (
             <Node key={ck} k={Array.isArray(value) ? undefined : ck} value={cv} depth={depth + 1} defaultOpen={depth < 1} />
           ))}
-          {entries.length > shown && (
+          {count > shown && (
             <button
               type="button"
               onClick={() => setLimit((l) => l + 500)}
               className="py-0.5 text-[11px] text-primary hover:underline"
               style={{ paddingLeft: `${depth * 0.9 + 1.1}rem` }}
             >
-              还有 {entries.length - shown} 项,点击展开…
+              还有 {count - shown} 项,点击展开…
             </button>
           )}
           <div style={{ paddingLeft: `${depth * 0.9 + 0.9}rem` }}><Punct>{closeB}</Punct></div>
@@ -110,9 +116,11 @@ function Node({ k, value, depth, defaultOpen }: { k?: string; value: unknown; de
 
 export function JsonTree({ data, className, maxHeight = '20rem' }: { data: unknown; className?: string; maxHeight?: string }) {
   const [copied, setCopied] = useState(false);
-  const text = (() => { try { return JSON.stringify(data, null, 2); } catch { return String(data); } })();
 
   const copy = async () => {
+    // Stringify lazily, only on an actual copy — not on every render (a large
+    // payload would otherwise re-serialise the whole tree each commit).
+    const text = (() => { try { return JSON.stringify(data, null, 2); } catch { return String(data); } })();
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);

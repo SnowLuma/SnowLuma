@@ -14,7 +14,7 @@ import type { DebugStreamMessage } from '@/types';
 const STREAM_CAP = 300;
 const cardCls = 'rounded-2xl border border-border/60 bg-card/80 shadow-[0_1px_2px_rgb(0_0_0/0.04),0_8px_24px_-12px_rgb(0_0_0/0.10)] backdrop-blur-sm';
 
-interface StreamRow { id: number; at: number; msg: Extract<DebugStreamMessage, { kind: 'event' | 'action' | 'dropped' }> }
+interface StreamRow { id: number; at: number; msg: Extract<DebugStreamMessage, { kind: 'event' | 'action' | 'dropped' }>; search: string }
 
 function IconBtn({ onClick, title, children }: { onClick: () => void; title: string; children: ReactNode }) {
   return (
@@ -103,7 +103,9 @@ export function LiveActivity() {
       (m) => {
         if (m.kind === 'ready' || pausedRef.current) return;
         setRows((prev) => {
-          const next = [{ id: idRef.current++, at: Date.now(), msg: m }, ...prev];
+          // Precompute the search haystack once at enqueue, so filtering never
+          // re-stringifies every row on each keystroke.
+          const next = [{ id: idRef.current++, at: Date.now(), msg: m, search: JSON.stringify(m).toLowerCase() }, ...prev];
           return next.length > STREAM_CAP ? next.slice(0, STREAM_CAP) : next;
         });
       },
@@ -119,7 +121,7 @@ export function LiveActivity() {
       if (!q) return true;
       if (r.msg.kind === 'dropped') return false;
       const { label } = rowLabel(r.msg);
-      return label.toLowerCase().includes(q) || r.msg.uin.includes(q) || JSON.stringify(r.msg).toLowerCase().includes(q);
+      return label.toLowerCase().includes(q) || r.msg.uin.includes(q) || r.search.includes(q);
     });
   }, [rows, kindFilter, query]);
 
