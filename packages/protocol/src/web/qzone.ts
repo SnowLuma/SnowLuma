@@ -1061,9 +1061,9 @@ export async function setQzoneBlack(
     Cookie: cookieToString(cookieObject),
     'Content-Type': 'application/x-www-form-urlencoded',
   });
-  // Response is callback-wrapped (frameElement.callback style) and may
-  // contain JS-object-literal syntax (unquoted keys) — use the JS-literal
-  // parser that handles both real JSON and non-JSON object literals.
+  // Response is callback-wrapped (frameElement.callback style) and may contain
+  // a small JS-object-literal fragment like `{name:"Ack"}`. Patch the known
+  // unquoted key, then parse via the tolerant JSON/JSONP extractor.
   let data: RawBlackActionResponse;
   try {
     data = parseQzoneJson<RawBlackActionResponse>(text.replace(/\{\s*name\s*:/, '{"name":'));
