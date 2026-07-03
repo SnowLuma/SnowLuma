@@ -1066,9 +1066,10 @@ export async function setQzoneBlack(
   // parser that handles both real JSON and non-JSON object literals.
   let data: RawBlackActionResponse;
   try {
-    data = parseQzoneJson<RawBlackActionResponse>(text.replace("{name", "{\"name\""));
+    data = parseQzoneJson<RawBlackActionResponse>(text.replace(/\{\s*name\s*:/, '{"name":'));
   } catch {
-    throw new Error(`qzone ${ban ? 'ban' : 'unban'} failed: ${text}`);
+    const snippet = text.trim().slice(0, 300);
+    throw new Error(`qzone ${ban ? 'ban' : 'unban'} failed: ${snippet}${text.length > 300 ? '…' : ''}`);
   }
 
   const verb = ban ? 'ban' : 'unban';
