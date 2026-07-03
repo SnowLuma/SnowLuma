@@ -4,6 +4,7 @@ import {
   getQzoneFeeds,
   getQzoneMsgList,
   publishQzoneMsg,
+  setQzoneBlack,
   setQzoneLike,
   updateQzoneMsgRight,
   uploadQzoneImageFromSource,
@@ -113,5 +114,15 @@ export class QzoneApi {
     const owner = targetUin && targetUin > 0 ? targetUin.toString() : selfUin;
     const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
     return commentQzoneMsg(cookieObject, selfUin, owner, tid, content, richType, richval);
+  }
+
+  /**
+   * 拉黑或解除拉黑某人（修改机器人自身 QQ 空间黑名单）。
+   * `ban=true` 拉黑，`ban=false` 解除拉黑。
+   */
+  async setBlack(targetUin: number, ban: boolean): Promise<void> {
+    const selfUin = this.ctx.identity.uin;
+    const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
+    await setQzoneBlack(cookieObject, selfUin, targetUin.toString(), ban);
   }
 }

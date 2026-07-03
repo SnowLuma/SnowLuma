@@ -64,30 +64,53 @@ export interface QzoneMsgListResult {
 
 /**
  * Parse a Qzone CGI body that may be raw JSON or a JSONP callback wrapper
- * (`_Callback({...});` / `callback({...})`). We first attempt to slice from
- * the first `{` to the last `}`, when failed attempt from the first `back({`
- * to the last `})` and JSON.parse that — robust to either form without
- * pinning the callback name, which Qzone varies. Throws if no object body
- * is present (e.g. an HTML error page), which the caller turns into a
- * failed response rather than a silent empty list.
+ * (`_Callback({...});` / `callback({...})`). Uses a layered fallback approach:
+ *
+ * 1. Try direct JSON.parse on the first `{` to last `}` slice.
+ * 2. Try `back({...})` pattern (the original approach).
+ * 3. Extract `back(...)` content, trim, then locate `{}` inside.
+ *
+ * This is robust to the various callback name variants Qzone uses.
+ * Throws if no object body is present (e.g. an HTML error page).
  */
 export function parseQzoneJson<T>(text: string): T {
   const s = text.trim();
+
+  // 1st: try direct JSON parse via {}
   try {
     const start = s.indexOf('{');
     const end = s.lastIndexOf('}');
     if (start !== -1 && end !== -1 && end > start) {
       return JSON.parse(s.slice(start, end + 1)) as T;
     }
-  } catch {
+  } catch { /* fallback */ }
 
-  }
-  const start = s.indexOf('back({');
-  const end = s.lastIndexOf('})');
-  if (start === -1 || end === -1 || end < start) {
+  // 2nd: try back({...}) as a whole
+  try {
+    const start = s.indexOf('back({');
+    const end = s.lastIndexOf('})');
+    if (start !== -1 && end !== -1 && end > start) {
+      return JSON.parse(s.slice(start + 5, end + 1)) as T;
+    }
+  } catch { /* fallback */ }
+
+  // 3rd: find last back(...); occurrence, then extract {} from within
+  const backStart = s.lastIndexOf('back(');
+  if (backStart === -1) {
     throw new Error('invalid response from qzone api');
   }
-  return JSON.parse(s.slice(start + 5, end + 1)) as T;
+  // find the nearest ');' after back( to delimit the callback invocation
+  const callEnd = s.indexOf(');', backStart);
+  if (callEnd === -1) {
+    throw new Error('invalid response from qzone api');
+  }
+  const inner = s.slice(backStart + 5, callEnd).trim();
+  const braceStart = inner.indexOf('{');
+  const braceEnd = inner.lastIndexOf('}');
+  if (braceStart === -1 || braceEnd === -1 || braceEnd < braceStart) {
+    throw new Error('invalid response from qzone api');
+  }
+  return JSON.parse(inner.slice(braceStart, braceEnd + 1)) as T;
 }
 
 /**
@@ -988,6 +1011,79 @@ export interface QzoneCommentResult {
  * transport failure or a non-zero Qzone `code`/`subcode` (e.g. comments
  * disabled, no permission, or auth failure).
  */
+// ─────────────── 拉黑/解拉黑 (ban/unban) — cgi_black_action_new ───────────────
+// Adds or removes a user from the bot's QQ-Zone blacklist. The CGI is
+// w.qzone.qq.com/cgi-bin/right/cgi_black_action_new (proxied through
+// h5.qzone.qq.com). POST form-urlencoded with `action=1` to ban,
+// `action=2` to unban. Response is a callback-wrapped body
+// (frameElement.callback style). Confirmed against
+// php-qzone/qzone.class.php:setQzoneRight. WRITE OP.
+
+interface RawBlackActionResponse {
+  code?: number;
+  subcode?: number;
+  message?: string;
+  msg?: string;
+}
+
+/**
+ * Ban (blacklist) or unban a user in the bot's QQ-Zone space via
+ * w.qzone.qq.com's cgi_black_action_new CGI (proxied through
+ * h5.qzone.qq.com). `ban=true` adds the target to the blacklist
+ * (action=1); `ban=false` removes them (action=2). Resolves on success;
+ * THROWS on a transport failure or a non-zero Qzone `subcode`.
+ * Confirmed against php-qzone/qzone.class.php:setQzoneRight.
+ */
+export async function setQzoneBlack(
+  cookieObject: Record<string, string>,
+  selfUin: string,
+  targetUin: string,
+  ban: boolean,
+): Promise<void> {
+  if (!cookieObject || typeof cookieObject !== 'object') {
+    throw new Error('cookieObject is required');
+  }
+  if (!targetUin) {
+    throw new Error('targetUin is required');
+  }
+
+  const bkn = getBknFromCookie(cookieObject);
+  const url = `https://h5.qzone.qq.com/proxy/domain/w.qzone.qq.com/cgi-bin/right/cgi_black_action_new?g_tk=${bkn}`;
+  const body = new URLSearchParams({
+    uin: selfUin,
+    act_uin: targetUin,
+    action: ban ? '1' : '2',
+    fupdate: '1',
+    qzreferrer: `https://user.qzone.qq.com/${selfUin}/main`,
+  }).toString();
+
+  const text = await RequestUtil.HttpGetText(url, 'POST', body, {
+    Cookie: cookieToString(cookieObject),
+    'Content-Type': 'application/x-www-form-urlencoded',
+  });
+  // Response is callback-wrapped (frameElement.callback style) and may
+  // contain JS-object-literal syntax (unquoted keys) — use the JS-literal
+  // parser that handles both real JSON and non-JSON object literals.
+  let data: RawBlackActionResponse;
+  try {
+    data = parseQzoneJson<RawBlackActionResponse>(text.replace("{name", "{\"name\""));
+  } catch {
+    throw new Error(`qzone ${ban ? 'ban' : 'unban'} failed: ${text}`);
+  }
+
+  const verb = ban ? 'ban' : 'unban';
+  if (typeof data.subcode === 'number' && data.subcode !== 0) {
+    const msg = data.message ?? data.msg ?? '';
+    log.warn('setQzoneBlack(%s): non-zero subcode (target=%s) subcode=%d msg=%s', verb, targetUin, data.subcode, msg);
+    throw new Error(`qzone ${verb} failed: subcode=${data.subcode} ${msg}`.trim());
+  }
+  if (typeof data.code === 'number' && data.code !== 0) {
+    const msg = data.message ?? data.msg ?? '';
+    log.warn('setQzoneBlack(%s): non-zero code (target=%s) code=%d msg=%s', verb, targetUin, data.code, msg);
+    throw new Error(`qzone ${verb} failed: code=${data.code} ${msg}`.trim());
+  }
+}
+
 export async function commentQzoneMsg(
   cookieObject: Record<string, string>,
   selfUin: string,

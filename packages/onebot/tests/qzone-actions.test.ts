@@ -89,4 +89,34 @@ describe('qzone actions', () => {
     expect(updateRight).not.toHaveBeenCalled();
   });
 
+  it('set_qzone_ban with enable=true calls setBlack with ban=true', async () => {
+    const setBlack = vi.fn().mockResolvedValue(undefined);
+    const handler = makeHandler({ setBlack });
+
+    const res = await handler.handle('set_qzone_ban', { user_id: 12345, enable: true });
+
+    expect(res).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(setBlack).toHaveBeenCalledWith(12345, true);
+  });
+
+  it('set_qzone_ban with enable=false calls setBlack with ban=false', async () => {
+    const setBlack = vi.fn().mockResolvedValue(undefined);
+    const handler = makeHandler({ setBlack });
+
+    const res = await handler.handle('set_qzone_ban', { user_id: 12345, enable: false });
+
+    expect(res).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(setBlack).toHaveBeenCalledWith(12345, false);
+  });
+
+  it('set_qzone_ban defaults enable to true', async () => {
+    const setBlack = vi.fn().mockResolvedValue(undefined);
+    const handler = makeHandler({ setBlack });
+
+    const res = await handler.handle('set_qzone_ban', { user_id: 12345 });
+
+    expect(res).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(setBlack).toHaveBeenCalledWith(12345, true);
+  });
+
 });

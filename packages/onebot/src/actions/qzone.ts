@@ -230,5 +230,20 @@ export const actions = [
       return okResponse(res as unknown as JsonValue);
     },
   }),
+
+  // set_qzone_ban — 拉黑/解除拉黑某人（修改机器人自身 QQ 空间黑名单）。写操作。
+  // enable=true 拉黑，enable=false 解除拉黑。
+  defineAction({
+    name: 'set_qzone_ban',
+    summary: '拉黑或解除拉黑某人（修改机器人自身 QQ 空间黑名单；enable=true 拉黑，false 解除）',
+    params: {
+      user_id: f.userId().describe('目标 QQ 号'),
+      enable: f.bool().describe('true 拉黑，false 解除拉黑').default(true),
+    },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.qzone.setBlack(p.user_id, p.enable);
+      return okResponse(null);
+    },
+  }),
 ];
 
