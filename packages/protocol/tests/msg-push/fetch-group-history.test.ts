@@ -119,6 +119,37 @@ describe('fetchGroupMessageRange / SsoGetGroupMsg', () => {
     expect(out[0]).toMatchObject({ senderUin: 222, elements: [{ type: 'text', text: 'hi' }] });
   });
 
+  it('drops QQ null roam records even when they carry a deleted placeholder (#254)', async () => {
+    const resp = protobuf_encode<SsoGetGroupMsgResponse>({
+      body: {
+        groupUin: 9999,
+        messages: [
+          {
+            responseHead: { fromUin: 0, grp: { groupUin: 9999 } },
+            contentHead: { msgType: 82, sequence: 110, timestamp: 0, msgId: 5110 },
+            body: { richText: { elems: [{ text: { str: '[已删除]' } }] } },
+          },
+          {
+            responseHead: { fromUin: 222, grp: { groupUin: 9999, memberName: 'Bob' } },
+            contentHead: { msgType: 82, sequence: 120, timestamp: 1700000120, msgId: 5120 },
+            body: { richText: { elems: [{ text: { str: 'hi' } }] } },
+          },
+        ],
+      },
+    });
+
+    const out = await fetchGroupMessageRange(
+      { sendRawPacket: async () => okResult(resp) },
+      identity,
+      10001,
+      9999,
+      100,
+      120,
+    );
+
+    expect(out.map((message) => message.msgSeq)).toEqual([120]);
+  });
+
   it('returns [] on a failed packet or out-of-range request', async () => {
     const failSender = { sendRawPacket: async () => ({ success: false, gotResponse: false } as SendPacketResult) };
     expect(await fetchGroupMessageRange(failSender, identity, 10001, 9999, 100, 120)).toEqual([]);

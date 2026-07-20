@@ -1,4 +1,5 @@
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
+import { createLogger } from '@snowluma/common/logger';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { SsoGetGroupMsg, SsoGetGroupMsgResponse } from '@snowluma/proto-defs/get-group-msg';
 import type { QQEventVariant } from '../events';
@@ -10,6 +11,8 @@ import { decodeGroupMessage } from './decoders/group-message';
 export const SSO_GET_GROUP_MSG_CMD = 'trpc.msg.register_proxy.RegisterProxy.SsoGetGroupMsg';
 
 type GroupMessage = Extract<QQEventVariant, { kind: 'group_message' }>;
+
+const log = createLogger('MsgPush.GroupHistory');
 
 interface RawSender {
   sendRawPacket(serviceCmd: string, body: Uint8Array, timeoutMs?: number): Promise<SendPacketResult>;
@@ -48,6 +51,22 @@ export async function fetchGroupMessageRange(
   for (const msg of messages) {
     const ctx = buildContextFromMessage(msg, selfUin, identity);
     if (!ctx) continue;
+    // QQ NT turns deleted/body-null roam entries into MsgType::kNull and its
+    // FilterBlankSeqsMsg pass removes them before exposing history to callers.
+    // SsoGetGroupMsg still carries a localized placeholder body for some of
+    // those entries (for example "[已删除]"), so the ordinary content-less
+    // filter below cannot recognize them. On the wire these null records have
+    // neither a sender nor a timestamp; require both structural absences rather
+    // than matching localized text so a real message is never language-filtered.
+    if (ctx.fromUin <= 0 && ctx.head.timestamp <= 0) {
+      log.debug(
+        'dropping QQ null roam record: group=%d seq=%d msgId=%d',
+        groupUin,
+        ctx.head.sequence,
+        ctx.head.msgId,
+      );
+      continue;
+    }
     for (const ev of decodeGroupMessage(ctx)) {
       if (ev.kind !== 'group_message' || ev.msgSeq <= 0) continue;
       // Drop content-less control pushes (the "[空消息]" phantom, #102) just as

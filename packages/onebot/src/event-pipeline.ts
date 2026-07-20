@@ -180,7 +180,7 @@ async function runConvertAndDispatch(ctx: OneBotInstanceContext, log: Logger, ev
       error instanceof Error ? (error.stack ?? error.message) : String(error),
     );
   }
-  ctx.dispatchEvent(converted);
+  ctx.dispatchEvent(converted, 'bridge');
   log.trace(() => [`recv ${event.kind} ⇒ ${String(converted.post_type ?? '?')} (${Date.now() - startedAt}ms)`]);
 }
 
@@ -190,6 +190,7 @@ function cacheGroupMessageMeta(ctx: OneBotInstanceContext, event: Extract<QQEven
     isGroup: true,
     targetId: event.groupId,
     sequence: event.msgSeq,
+    sequenceAuthoritative: true,
     eventName: GROUP_MESSAGE_EVENT,
     clientSequence: 0,
     random: event.msgId,
@@ -209,6 +210,7 @@ function cachePrivateMessageMeta(
     isGroup: false,
     targetId: sessionId,
     sequence: msgSeq,
+    sequenceAuthoritative: true,
     eventName: PRIVATE_MESSAGE_EVENT,
     clientSequence: 0,
     random,

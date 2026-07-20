@@ -188,6 +188,7 @@ export const ELEMENT_CODECS = {
     async fromSegment(data, options) {
       const id = intOr(data.id, 0);
       if (id === 0) return null;
+      const meta = options?.resolveReplyMeta?.(id) ?? null;
 
       if (options?.resolveReplySequence) {
         const resolved = options.resolveReplySequence(id);
@@ -199,17 +200,25 @@ export const ELEMENT_CODECS = {
           };
 
           // Try to get additional meta info for better reply display
-          if (options?.resolveReplyMeta) {
-            const meta = options.resolveReplyMeta(id);
-            if (meta) {
-              element.replySenderUin = meta.senderUin;
-              element.replyTime = meta.time;
-              element.replyRandom = meta.random;
-            }
+          if (meta) {
+            element.replySenderUin = meta.senderUin;
+            element.replyTime = meta.time;
+            element.replyRandom = meta.random;
           }
 
           return element;
         }
+      }
+
+      // The id is known locally, but it came from an OIDB-only/synthetic
+      // message and therefore has no QQ server sequence. Treating the opaque
+      // OneBot id as a direct sequence would publish a malformed reply.
+      if (meta?.sequenceAuthoritative === false) {
+        throw new MessageElementValidationError(
+          'INVALID_FIELD',
+          `reply target ${id} has no authoritative QQ sequence`,
+          'reply',
+        );
       }
 
       // Backward-compatible path: allow direct seq reply IDs.

@@ -3,6 +3,7 @@ import { MessageStore } from '../src/message-store';
 import { hashMessageIdInt32, GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT } from '../src/message-id';
 import fs from 'fs';
 import path from 'path';
+import { DatabaseSync } from 'node:sqlite';
 
 describe('MessageStore', () => {
   const testDbPath = path.join('data', 'test', 'messages-test.db');
@@ -39,6 +40,7 @@ describe('MessageStore', () => {
         isGroup: true,
         targetId: groupId,
         sequence,
+        sequenceAuthoritative: true,
         eventName: GROUP_MESSAGE_EVENT,
         clientSequence: 0,
         random: 0,
@@ -61,6 +63,7 @@ describe('MessageStore', () => {
         isGroup: false,
         targetId: senderUin,
         sequence,
+        sequenceAuthoritative: true,
         eventName: PRIVATE_MESSAGE_EVENT,
         clientSequence: 0,
         random: 0,
@@ -105,6 +108,7 @@ describe('MessageStore', () => {
         isGroup: true,
         targetId: sessionId,
         sequence,
+        sequenceAuthoritative: true,
         eventName: GROUP_MESSAGE_EVENT,
         clientSequence: 0,
         random: 0,
@@ -117,6 +121,7 @@ describe('MessageStore', () => {
         isGroup: false,
         targetId: sessionId,
         sequence,
+        sequenceAuthoritative: true,
         eventName: PRIVATE_MESSAGE_EVENT,
         clientSequence: 0,
         random: 0,
@@ -170,6 +175,7 @@ describe('MessageStore', () => {
         isGroup: true,
         targetId: 123456,
         sequence: 100,
+        sequenceAuthoritative: true,
         eventName: GROUP_MESSAGE_EVENT,
         clientSequence: 1,
         random: 12345,
@@ -217,6 +223,159 @@ describe('MessageStore', () => {
       const messages = store.listSessionEvents(true, groupId, 3, 3);
 
       expect(messages.map((message) => message.message_seq)).toEqual([1, 2, 3]);
+    });
+
+    it('excludes unconfirmed sequences from replies and history anchors (#254)', () => {
+      const groupId = 123456;
+      store.storeEvent(1, true, groupId, 9748, GROUP_MESSAGE_EVENT, {
+        post_type: 'message',
+        message_type: 'group',
+        group_id: groupId,
+        group_name: 'Test group',
+        message_id: 1,
+        message_seq: 9748,
+      });
+      store.storeEvent(2, true, groupId, 1799283572, GROUP_MESSAGE_EVENT, {
+        post_type: 'message_sent',
+        message_type: 'group',
+        group_id: groupId,
+        message_id: 2,
+        message_seq: 1799283572,
+        message: [{ type: 'file', data: { file: 'test.bin' } }],
+      }, { sequenceAuthoritative: false });
+
+      expect(store.findLatestAuthoritativeSequence(true, groupId)).toBe(9748);
+      expect(store.listSessionEvents(true, groupId).map((message) => message.message_seq)).toEqual([9748]);
+      expect(store.resolveReplySequence(true, groupId, 2)).toBeNull();
+      expect(store.findMeta(2)).toMatchObject({
+        sequence: 1799283572,
+        sequenceAuthoritative: false,
+      });
+    });
+
+    it('migrates legacy synthetic group-file and reply-backfill sequences (#254)', () => {
+      const groupId = 123456;
+      store.close();
+
+      const legacy = new DatabaseSync(testDbPath);
+      legacy.exec(`
+        DROP TABLE messages;
+        CREATE TABLE messages (
+          message_hash    INTEGER PRIMARY KEY,
+          is_group        INTEGER NOT NULL,
+          session_id      INTEGER NOT NULL,
+          sequence        INTEGER NOT NULL,
+          event_name      TEXT NOT NULL,
+          client_sequence INTEGER NOT NULL DEFAULT 0,
+          random          INTEGER NOT NULL DEFAULT 0,
+          timestamp       INTEGER NOT NULL DEFAULT 0,
+          data            TEXT
+        )
+      `);
+      const insert = legacy.prepare(`
+        INSERT INTO messages
+          (message_hash, is_group, session_id, sequence, event_name, client_sequence, random, timestamp, data)
+        VALUES (?, 1, ?, ?, ?, 0, ?, ?, ?)
+      `);
+      const insertPrivate = legacy.prepare(`
+        INSERT INTO messages
+          (message_hash, is_group, session_id, sequence, event_name, client_sequence, random, timestamp, data)
+        VALUES (?, 0, ?, ?, ?, 0, ?, ?, ?)
+      `);
+      insert.run(1, groupId, 9748, GROUP_MESSAGE_EVENT, 0, 1700000000, JSON.stringify({
+        time: 1700000000,
+        post_type: 'message',
+        message_type: 'group',
+        group_id: groupId,
+        message_id: 1,
+        message_seq: 9748,
+        user_id: 222,
+        message: [{ type: 'text', data: { text: 'real' } }],
+      }));
+      insert.run(2, groupId, 1799283572, GROUP_MESSAGE_EVENT, 1799283572, 1700000100, JSON.stringify({
+        time: 1700000100,
+        post_type: 'message_sent',
+        message_type: 'group',
+        group_id: groupId,
+        message_id: 2,
+        message_seq: 1799283572,
+        user_id: 10001,
+        message: [{ type: 'file', data: { file: 'test.bin' } }],
+      }));
+      insert.run(3, groupId, 1813530543, GROUP_MESSAGE_EVENT, 0, 1700000200, JSON.stringify({
+        time: 1700000200,
+        post_type: 'message',
+        message_type: 'group',
+        group_id: groupId,
+        message_id: 3,
+        message_seq: 1813530543,
+        user_id: 0,
+        message: [{ type: 'text', data: { text: '[引用消息]' } }],
+      }));
+      insert.run(4, groupId, 9732, GROUP_MESSAGE_EVENT, 0, 0, JSON.stringify({
+        time: 0,
+        post_type: 'message',
+        message_type: 'group',
+        group_id: groupId,
+        message_id: 4,
+        message_seq: 9732,
+        user_id: 0,
+        message: [{ type: 'text', data: { text: '[已删除]' } }],
+      }));
+      insert.run(5, groupId, 1813530544, GROUP_MESSAGE_EVENT, 0, 1700000300, JSON.stringify({
+        time: 1700000300,
+        post_type: 'message',
+        message_type: 'group',
+        group_id: groupId,
+        message_id: 5,
+        message_seq: 1813530544,
+        user_id: 800,
+        message: [{ type: 'text', data: { text: 'quoted inline content' } }],
+        sender: {
+          user_id: 800,
+          nickname: '',
+          card: '',
+          role: 'member',
+          sex: 'unknown',
+          age: 0,
+        },
+        anonymous: null,
+      }));
+      insertPrivate.run(6, 555, 800, PRIVATE_MESSAGE_EVENT, 1234, 1700000400, JSON.stringify({
+        time: 1700000400,
+        post_type: 'message',
+        message_type: 'private',
+        sub_type: 'friend',
+        message_id: 6,
+        message_seq: 800,
+        user_id: 555,
+        message: [{ type: 'text', data: { text: 'real private message' } }],
+        sender: { user_id: 555, nickname: 'Alice', sex: 'unknown', age: 0 },
+      }));
+      insertPrivate.run(7, 555, 1813530545, PRIVATE_MESSAGE_EVENT, 0, 1700000500, JSON.stringify({
+        time: 1700000500,
+        post_type: 'message',
+        message_type: 'private',
+        sub_type: 'friend',
+        message_id: 7,
+        message_seq: 1813530545,
+        user_id: 555,
+        message: [{ type: 'text', data: { text: 'quoted private content' } }],
+        sender: { user_id: 555, nickname: '', sex: 'unknown', age: 0 },
+      }));
+      legacy.close();
+
+      store = new MessageStore(testDbPath);
+
+      expect(store.findLatestAuthoritativeSequence(true, groupId)).toBe(9748);
+      expect(store.listSessionEvents(true, groupId).map((message) => message.message_seq)).toEqual([9748]);
+      expect(store.findMeta(2)).toMatchObject({ sequenceAuthoritative: false });
+      expect(store.findMeta(3)).toMatchObject({ sequenceAuthoritative: false });
+      expect(store.findMeta(4)).toMatchObject({ sequenceAuthoritative: false });
+      expect(store.findMeta(5)).toMatchObject({ sequenceAuthoritative: false });
+      expect(store.findLatestAuthoritativeSequence(false, 555)).toBe(800);
+      expect(store.findMeta(6)).toMatchObject({ sequenceAuthoritative: true });
+      expect(store.findMeta(7)).toMatchObject({ sequenceAuthoritative: false });
     });
   });
 

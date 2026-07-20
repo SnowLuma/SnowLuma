@@ -145,6 +145,7 @@ describe('registerEventPipeline', () => {
     expect(metaCalls[0].meta.isGroup).toBe(false);
     expect(metaCalls[0].meta.targetId).toBe(PEER_UIN);
     expect(metaCalls[0].meta.sequence).toBe(11);
+    expect(metaCalls[0].meta.sequenceAuthoritative).toBe(true);
     expect(metaCalls[0].meta.random).toBe(555);
 
     expect(dispatchCalls).toHaveLength(1);

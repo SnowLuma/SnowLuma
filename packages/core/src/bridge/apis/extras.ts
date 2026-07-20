@@ -8,6 +8,7 @@ import { GroupTodo } from '@snowluma/protocol/oidb-services/extras/group-todo';
 import { convertAudioBytes } from '@snowluma/protocol/highway/ffmpeg-addon';
 import { loadBinarySource } from '@snowluma/protocol/highway/utils';
 import { createLogger } from '@snowluma/common/logger';
+import type { QQEventVariant } from '@snowluma/protocol/events';
 import type { PttTransReq, PttTransResp } from '@snowluma/proto-defs/ptt-trans';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { BridgeContext } from '../bridge-context';
@@ -49,9 +50,41 @@ export interface AiVoiceItem {
   voiceExampleUrl: string;
 }
 
+export interface AiVoiceSendReceipt {
+  sequence: number;
+}
+
 const log = createLogger('Bridge.Extras');
+const AI_VOICE_RECEIPT_TIMEOUT_MS = 5_000;
+const AI_VOICE_CANDIDATE_LIMIT = 64;
+const AI_VOICE_CLAIM_LIMIT = 256;
+
+type GroupMessageEvent = Extract<QQEventVariant, { kind: 'group_message' }>;
+
+function normalizeMediaUuid(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function matchesAiVoiceEvent(node: MediaIndexNode, event: GroupMessageEvent): boolean {
+  const expectedUuid = normalizeMediaUuid(node.fileUuid);
+  if (!expectedUuid) return false;
+  for (const element of event.elements) {
+    if (element.type !== 'record') continue;
+    const actualUuid = normalizeMediaUuid(element.mediaNode?.fileUuid || element.fileId);
+    if (actualUuid === expectedUuid) return true;
+  }
+  return false;
+}
+
+function describeAiVoiceFingerprint(node: MediaIndexNode): string {
+  const uuid = normalizeMediaUuid(node.fileUuid);
+  if (uuid) return `uuid:${uuid.slice(-12)}`;
+  return 'missing';
+}
 
 export class ExtrasApi {
+  private readonly claimedAiVoiceReceiptKeys = new Set<string>();
+
   constructor(private readonly ctx: BridgeContext) { }
 
   // ─────────────── Group todo (0xF90) ───────────────
@@ -94,9 +127,11 @@ export class ExtrasApi {
    * the render is in-flight; we retry until a node materialises or the
    * cap is hit. napcat uses the same 30-retry budget.
    *
-   * The returned MediaIndexNode plugs directly into
+   * The returned node plugs directly into
    * `apis.groupFile.getPttUrl`, which already handles every other
-   * download-URL fetch in SnowLuma.
+   * download-URL fetch in SnowLuma. The synthesis response does not contain a
+   * reliable message sequence; callers that need one must use `sendAiVoice`,
+   * which correlates the subsequent self-message receipt.
    */
   async fetchAiVoice(
     groupId: number,
@@ -109,9 +144,119 @@ export class ExtrasApi {
     const sessionId = Math.floor(Math.random() * 0xFFFFFFFF) >>> 0;
     for (let i = 0; i < maxRetries; i++) {
       const node = await FetchAiVoice.invoke(this.ctx, { groupId, voiceId, text, chatType, sessionId });
-      if (node) return node as MediaIndexNode;
+      if (node) {
+        log.debug(
+          'AI voice synthesis completed group=%d media=%s polls=%d',
+          groupId,
+          describeAiVoiceFingerprint(node),
+          i + 1,
+        );
+        return node as MediaIndexNode;
+      }
     }
     throw new Error(`AI voice synthesis did not complete after ${maxRetries} polls`);
+  }
+
+  /**
+   * Publish an AI voice and wait for QQ's canonical self-message receipt.
+   *
+   * The 0x929B completion response carries the media node but, on live QQ,
+   * omits the group message sequence. Subscribe before publishing so an echo
+   * that wins the response race is buffered, then correlate by the exact media
+   * UUID. Never guess from content hashes or "the next voice in the group":
+   * concurrent requests can legitimately render byte-identical audio.
+   */
+  async sendAiVoice(
+    groupId: number,
+    voiceId: string,
+    text: string,
+    chatType: AiVoiceChatType | number,
+    receiptTimeoutMs = AI_VOICE_RECEIPT_TIMEOUT_MS,
+  ): Promise<AiVoiceSendReceipt> {
+    const candidates: GroupMessageEvent[] = [];
+    let candidatesOverflowed = false;
+    let expectedNode: MediaIndexNode | null = null;
+    let receiptSettled = false;
+    let resolveReceipt: ((event: GroupMessageEvent) => void) | null = null;
+    const receiptPromise = new Promise<GroupMessageEvent>((resolve) => {
+      resolveReceipt = resolve;
+    });
+
+    const claim = (event: GroupMessageEvent): boolean => {
+      if (receiptSettled) return false;
+      const key = `${event.groupId}:${event.msgSeq}:${event.msgId}`;
+      if (this.claimedAiVoiceReceiptKeys.has(key)) return false;
+      this.claimedAiVoiceReceiptKeys.add(key);
+      if (this.claimedAiVoiceReceiptKeys.size > AI_VOICE_CLAIM_LIMIT) {
+        const oldest = this.claimedAiVoiceReceiptKeys.values().next().value;
+        if (oldest !== undefined) this.claimedAiVoiceReceiptKeys.delete(oldest);
+      }
+      receiptSettled = true;
+      return true;
+    };
+
+    const accept = (event: GroupMessageEvent): void => {
+      if (event.groupId !== groupId || event.senderUin !== event.selfUin) return;
+      if (!event.elements.some(element => element.type === 'record')) return;
+      if (expectedNode && matchesAiVoiceEvent(expectedNode, event) && claim(event)) {
+        resolveReceipt?.(event);
+        return;
+      }
+      candidates.push(event);
+      if (candidates.length > AI_VOICE_CANDIDATE_LIMIT) {
+        candidates.shift();
+        candidatesOverflowed = true;
+      }
+    };
+
+    const unsubscribe = this.ctx.events.on('group_message', accept);
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    try {
+      const node = await this.fetchAiVoice(groupId, voiceId, text, chatType);
+      expectedNode = node;
+      const fingerprint = describeAiVoiceFingerprint(node);
+      if (fingerprint === 'missing') {
+        throw new Error('AI voice was published but QQ returned no exact media identifier for receipt correlation');
+      }
+
+      const buffered = candidates.find(event => matchesAiVoiceEvent(node, event) && claim(event));
+      if (!buffered && candidatesOverflowed) {
+        throw new Error(
+          `AI voice was published but receipt correlation overflowed after ${AI_VOICE_CANDIDATE_LIMIT} `
+          + `unmatched self voice messages (group=${groupId} media=${fingerprint})`,
+        );
+      }
+      const event = buffered ?? await Promise.race([
+        receiptPromise,
+        new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => {
+            reject(new Error(
+              `AI voice was published but no matching group-message receipt arrived within ${receiptTimeoutMs}ms `
+              + `(group=${groupId} media=${fingerprint})`,
+            ));
+          }, receiptTimeoutMs);
+          timeout.unref?.();
+        }),
+      ]);
+
+      if (!Number.isInteger(event.msgSeq) || event.msgSeq <= 0) {
+        throw new Error(`AI voice receipt carried invalid message sequence: ${event.msgSeq}`);
+      }
+
+      log.debug(
+        'AI voice receipt matched group=%d media=%s sequence=%d random=%d',
+        groupId,
+        fingerprint,
+        event.msgSeq,
+        event.msgId,
+      );
+      return {
+        sequence: event.msgSeq,
+      };
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      unsubscribe();
+    }
   }
 
   // ─────────────── Voice-to-text (pttTrans.Trans{C2C,Group}PttReq) ───────────────

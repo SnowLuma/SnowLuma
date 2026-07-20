@@ -63,6 +63,7 @@ describe('history direction plumbing', () => {
       isGroup: true,
       targetId: GROUP_ID,
       sequence: 500,
+      sequenceAuthoritative: true,
       eventName: GROUP_MESSAGE_EVENT,
       clientSequence: 0,
       random: 0,
@@ -91,6 +92,7 @@ describe('history direction plumbing', () => {
       isGroup: false,
       targetId: FRIEND_ID,
       sequence: 700,
+      sequenceAuthoritative: true,
       eventName: PRIVATE_MESSAGE_EVENT,
       clientSequence: 0,
       random: 0,
@@ -124,6 +126,15 @@ describe('history direction plumbing', () => {
       message_id: 1,
       message_seq: 900,
     });
+    messageStore.storeEvent(2, true, GROUP_ID, 1799283572, GROUP_MESSAGE_EVENT, {
+      post_type: 'message_sent',
+      message_type: 'group',
+      group_id: GROUP_ID,
+      message_id: 2,
+      message_seq: 1799283572,
+      user_id: SELF_ID,
+      message: [{ type: 'file', data: { file_id: 'gfid-local' } }],
+    }, { sequenceAuthoritative: false });
     const ref = {
       selfId: SELF_ID,
       bridge: {
@@ -136,6 +147,31 @@ describe('history direction plumbing', () => {
     const messages = await getGroupHistory(ref, GROUP_ID, 0, 20, false);
 
     expect(messages.map((message) => message.message_seq)).toEqual([899, 900]);
+    expect(fetchHistory).toHaveBeenCalledWith(GROUP_ID, 900, 20, SELF_ID, true);
+  });
+
+  it('does not use an explicitly requested local-only id as a server history anchor', async () => {
+    const fetchHistory = vi.fn(async () => [groupMessage(1799283572)]);
+    messageStore.storeEvent(2, true, GROUP_ID, 1799283572, GROUP_MESSAGE_EVENT, {
+      post_type: 'message_sent',
+      message_type: 'group',
+      group_id: GROUP_ID,
+      message_id: 2,
+      message_seq: 1799283572,
+      user_id: SELF_ID,
+      message: [{ type: 'file', data: { file_id: 'gfid-local' } }],
+    }, { sequenceAuthoritative: false });
+    const ref = {
+      selfId: SELF_ID,
+      bridge: {
+        apis: { message: { getGroupHistory: fetchHistory } },
+      },
+      messageStore,
+      converterCtx,
+    } as any;
+
+    await expect(getGroupHistory(ref, GROUP_ID, 2, 20, false)).resolves.toEqual([]);
+    expect(fetchHistory).not.toHaveBeenCalled();
   });
 
   it('rejects a private anchor from a different friend conversation', async () => {
@@ -144,6 +180,7 @@ describe('history direction plumbing', () => {
       isGroup: false,
       targetId: 987654321,
       sequence: 800,
+      sequenceAuthoritative: true,
       eventName: PRIVATE_MESSAGE_EVENT,
       clientSequence: 0,
       random: 0,

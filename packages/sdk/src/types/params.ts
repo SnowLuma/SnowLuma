@@ -297,6 +297,13 @@ export interface FetchCustomFaceParams extends JsonObject {
   count?: number;
 }
 
+export interface GetCollectionListParams extends JsonObject {
+  /** Collection category ID; 0 returns every category. */
+  category?: number;
+  /** Maximum number of collection items to return (1-500). */
+  count?: number;
+}
+
 export interface GetEmojiLikesParams extends MessageIdParams {
   emoji_id: string;
 }

@@ -17,8 +17,10 @@ export const actions = [
           name: { type: 'string', description: '相册名称' },
           picNum: { type: 'integer', description: '相册内照片数量' },
           createTime: { type: 'integer', description: '相册创建时间（unix 秒）' },
+          createuin: { type: 'string', description: '相册创建者 QQ 号' },
+          createnickname: { type: 'string', description: '相册创建者昵称（原始 Unicode）' },
         },
-        required: ['id', 'name', 'picNum', 'createTime'],
+        required: ['id', 'name', 'picNum', 'createTime', 'createuin', 'createnickname'],
       },
     },
     run: async (p, ctx) => {
@@ -27,17 +29,11 @@ export const actions = [
     },
   }),
 
-  // get_qun_album_list — NapCat-named/shaped variant of get_group_album_list.
-  // NapCat's own impl calls the kernel AlbumService (trpc, not statically
-  // recoverable); we instead reuse the qun_list_album_v2 web API (the same one
-  // get_group_album_list uses) and reshape into NapCat's
-  // {album_list, attach_info, has_more} envelope. The web endpoint fetches up
-  // to 1000 albums in one shot, so attach_info/has_more are ''/false (no cursor
-  // pagination); cover_url isn't returned by this endpoint.
+  // get_qun_album_list — NapCat-compatible view of QQ NT's AlbumService.
   groupAction({
     name: 'get_qun_album_list',
     readOnly: true,
-    returns: 'NapCat 风格的相册列表封套：{album_list, attach_info, has_more}（本实现 attach_info 恒为空串、has_more 恒为 false）。',
+    returns: 'NapCat 风格的相册列表封套：{album_list, attach_info, has_more}。',
     returnsSchema: {
       type: 'object',
       properties: {
@@ -48,30 +44,37 @@ export const actions = [
             type: 'object',
             properties: {
               album_id: { type: 'string', description: '相册 id' },
-              album_name: { type: 'string', description: '相册名称' },
-              create_time: { type: 'integer', description: '相册创建时间（unix 秒）' },
-              pic_num: { type: 'integer', description: '相册内照片数量' },
+              name: { type: 'string', description: '相册名称' },
+              create_time: { type: 'string', description: '相册创建时间（unix 秒）' },
+              upload_number: { type: 'string', description: '相册内媒体数量' },
+              creator: {
+                type: 'object',
+                description: '相册创建者信息',
+                properties: {
+                  uin: { type: 'string', description: '创建者 QQ 号' },
+                  uid: { type: 'string', description: '创建者 UID' },
+                  nick: { type: 'string', description: '创建者原始 Unicode 昵称' },
+                },
+              },
             },
-            required: ['album_id', 'album_name', 'create_time', 'pic_num'],
+            required: ['album_id', 'name', 'create_time', 'upload_number'],
           },
         },
-        attach_info: { type: 'string', description: '分页游标（本 web 实现一次取满，恒为空串）' },
-        has_more: { type: 'boolean', description: '是否还有更多（本 web 实现恒为 false）' },
+        attach_info: { type: 'string', description: '下一页分页游标' },
+        has_more: { type: 'boolean', description: '是否还有更多' },
       },
       required: ['album_list', 'attach_info', 'has_more'],
     },
+    params: {
+      attach_info: f.string().default(''),
+    },
     run: async (p, ctx) => {
-      const albumList = await ctx.bridge.apis.groupAlbum.list(p.group_id);
+      const result = await ctx.bridge.apis.groupAlbum.listQun(p.group_id, p.attach_info);
       return okResponse({
-        album_list: albumList.map((a) => ({
-          album_id: a.id,
-          album_name: a.name,
-          create_time: a.createTime,
-          pic_num: a.picNum,
-        })),
-        attach_info: '',
-        has_more: false,
-      });
+        album_list: result.albumList,
+        attach_info: result.attachInfo,
+        has_more: result.hasMore,
+      } as unknown as JsonValue);
     },
   }),
 
@@ -166,4 +169,3 @@ export const actions = [
     },
   }),
 ];
-

@@ -9,7 +9,8 @@ import type { OneBotInstanceContext } from '../instance-context';
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from '../message-id';
 import { MessageElementValidationError, parseMessage } from '../message-parser';
 import type { MessageStore } from '../message-store';
-import type { JsonArray, JsonObject, JsonValue, MessageMeta } from '../types';
+import { sameSelfSentMessage } from '../self-sent-event';
+import { hasAuthoritativeSequence, type JsonArray, type JsonObject, type JsonValue, type MessageMeta } from '../types';
 
 const log = createLogger('OneBot');
 
@@ -91,7 +92,7 @@ export async function getGroupMsgHistory(
   let anchorSequence: number | undefined;
   if (hasAnchor) {
     const meta = messageStore.findMeta(messageId as number);
-    if (!meta || !meta.isGroup || meta.targetId !== groupId || meta.sequence <= 0) return [];
+    if (!hasAuthoritativeSequence(meta) || !meta.isGroup || meta.targetId !== groupId) return [];
     anchorSequence = meta.sequence;
   }
 
@@ -119,7 +120,7 @@ export async function getFriendMsgHistory(
   let anchorSequence: number | undefined;
   if (hasAnchor) {
     const meta = messageStore.findMeta(messageId as number);
-    if (!meta || meta.isGroup || meta.targetId !== userId || meta.sequence <= 0) return [];
+    if (!hasAuthoritativeSequence(meta) || meta.isGroup || meta.targetId !== userId) return [];
     anchorSequence = meta.sequence;
   }
 
@@ -163,15 +164,20 @@ export async function getGroupHistory(
   let anchorSeq = 0;
   if (hasAnchor) {
     const meta = ref.messageStore.findMeta(messageId as number);
-    if (!meta || !meta.isGroup || meta.targetId !== groupId || meta.sequence <= 0) {
+    if (!hasAuthoritativeSequence(meta) || !meta.isGroup || meta.targetId !== groupId) {
       // Anchor we don't know — best effort from the local store.
       return getGroupMsgHistory(ref.messageStore, groupId, messageId, count, reverseOrder);
     }
     anchorSeq = meta.sequence;
   } else {
-    const latest = ref.messageStore.listSessionEvents(true, groupId, 1);
-    anchorSeq = latest.length ? toHistInt(latest[latest.length - 1].message_seq) : 0;
+    anchorSeq = ref.messageStore.findLatestAuthoritativeSequence(true, groupId) ?? 0;
   }
+  log.debug(
+    'group history anchor selected: group=%d source=%s anchorSeq=%d',
+    groupId,
+    hasAnchor ? 'message_id' : 'latest_authoritative',
+    anchorSeq,
+  );
 
   if (anchorSeq > 0) {
     try {
@@ -190,6 +196,12 @@ export async function getGroupHistory(
         out.push(sanitizeMessageEventForApi(json));   // sanitized for the API (matches the local path)
       }
       if (out.length > 0) return out;
+      log.debug(
+        'group history server fetch returned no usable messages: group=%d anchorSeq=%d count=%d; using local store',
+        groupId,
+        anchorSeq,
+        want,
+      );
     } catch (err) {
       log.warn(
         'group history server fetch failed: group=%d anchorSeq=%d count=%d reverseOrder=%s error=%s; using local store',
@@ -237,7 +249,7 @@ export async function getFriendHistory(
       : null;
     const belongsToPeer = meta?.targetId === userId
       || (meta?.targetId === ref.selfId && toHistInt(storedEvent?.target_id) === userId);
-    if (!meta || meta.isGroup || meta.sequence <= 0 || !belongsToPeer) {
+    if (!hasAuthoritativeSequence(meta) || meta.isGroup || !belongsToPeer) {
       return getFriendMsgHistory(ref.messageStore, userId, messageId, count, reverseOrder);
     }
     anchorSeq = meta.sequence;
@@ -245,9 +257,14 @@ export async function getFriendHistory(
     // Current rows are keyed by conversation peer, so the latest local anchor
     // covers both incoming and self-sent messages. Legacy sender-keyed rows are
     // repaired when they are fetched through an explicit anchor.
-    const latest = ref.messageStore.listSessionEvents(false, userId, 1);
-    anchorSeq = latest.length ? toHistInt(latest[latest.length - 1].message_seq) : 0;
+    anchorSeq = ref.messageStore.findLatestAuthoritativeSequence(false, userId) ?? 0;
   }
+  log.debug(
+    'friend history anchor selected: user=%d source=%s anchorSeq=%d',
+    userId,
+    hasAnchor ? 'message_id' : 'latest_authoritative',
+    anchorSeq,
+  );
 
   if (anchorSeq > 0) {
     try {
@@ -278,6 +295,12 @@ export async function getFriendHistory(
           out.push(sanitizeMessageEventForApi(json));
         }
         if (out.length > 0) return out;
+        log.debug(
+          'friend history server fetch returned no usable messages: user=%d anchorSeq=%d count=%d; using local store',
+          userId,
+          anchorSeq,
+          want,
+        );
       }
     } catch (err) {
       log.warn(
@@ -368,7 +391,18 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
       ) as JsonArray;
       const fallback = buildBackfillEvent(targetId, replySeq, quotedSender,
         reply.replyTime ?? 0, segments, ref.selfId, isGroup, session);
-      ref.messageStore.storeEvent(targetId, isGroup, session, replySeq, eventName, fallback);
+      // Inline quote metadata proves what was displayed, but not that replySeq
+      // still names a server-backed roam message. Keep it queryable via
+      // get_msg without letting it become a history/recall/reply anchor.
+      ref.messageStore.storeEvent(
+        targetId,
+        isGroup,
+        session,
+        replySeq,
+        eventName,
+        fallback,
+        { sequenceAuthoritative: false },
+      );
       return;
     } catch (err) {
       log.warn('reply-target backfill tier-2 failed (%s)', err instanceof Error ? err.message : String(err));
@@ -381,7 +415,15 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
   const placeholder = buildBackfillEvent(targetId, replySeq, quotedSender,
     reply?.replyTime ?? 0, [{ type: 'text', data: { text: '[引用消息]' } }],
     ref.selfId, isGroup, session);
-  ref.messageStore.storeEvent(targetId, isGroup, session, replySeq, eventName, placeholder);
+  ref.messageStore.storeEvent(
+    targetId,
+    isGroup,
+    session,
+    replySeq,
+    eventName,
+    placeholder,
+    { sequenceAuthoritative: false },
+  );
 }
 
 // Build a stored-message event for a backfilled reply target (Tier 2/3).
@@ -451,6 +493,9 @@ function toHistInt(value: unknown): number {
 }
 
 export async function deleteMessage(bridge: BridgeInterface, meta: MessageMeta): Promise<void> {
+  if (!hasAuthoritativeSequence(meta)) {
+    throw new Error('message has no authoritative QQ sequence and cannot be recalled');
+  }
   if (meta.isGroup) {
     await bridge.apis.message.recallGroup(meta.targetId, meta.sequence);
   } else {
@@ -472,6 +517,9 @@ export async function setEssenceMessage(
 ): Promise<void> {
   const meta = messageStore.findMeta(messageId);
   if (!meta || !meta.isGroup) throw new Error('message not found or not a group message');
+  if (!hasAuthoritativeSequence(meta)) {
+    throw new Error('message has no authoritative QQ sequence and cannot be marked as essence');
+  }
   await bridge.apis.interaction.setEssence(meta.targetId, meta.sequence, meta.random, enable);
 }
 
@@ -497,35 +545,58 @@ export async function setEssenceMessage(
  * copy. Centralizes the `isGroup ↔ eventName ↔ hashMessageIdInt32 event
  * constant` coupling that was hand-paired in six send/forward paths — a
  * mismatch there silently produced a wrong message_id or wrong event
- * attribution. Returns the derived message id.
+ * attribution. Returns the derived message id and, for an eligible plain C2C
+ * Action send, an event for the OneBot dispatch path when QQ has not already
+ * supplied the canonical echo.
  */
 async function finalizeSend(
   ref: OneBotInstanceContext,
   isGroup: boolean,
   targetId: number,
-  receipt: { sequence: number; clientSequence: number; random: number; timestamp: number },
+  receipt: {
+    messageId?: number;
+    sequence: number;
+    clientSequence: number;
+    random: number;
+    timestamp: number;
+  },
   elements: MessageElement[],
-): Promise<number> {
+  reportEcho = false,
+): Promise<MessageSendResult> {
   const eventName = isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT;
-  const messageId = hashMessageIdInt32(receipt.sequence, targetId, eventName);
+  const sequenceAuthoritative = Number.isInteger(receipt.sequence) && receipt.sequence > 0;
+  const opaqueMessageId = receipt.messageId ?? 0;
+  // Ordinary sends use QQ's real sequence so receive/send paths derive the same
+  // OneBot id. OIDB-only sends (notably group files) have no QQ sequence: keep
+  // their opaque local id separate instead of feeding a file hash into protocol
+  // operations as if it were a server sequence (#254).
+  const messageId = sequenceAuthoritative
+    ? hashMessageIdInt32(receipt.sequence, targetId, eventName)
+    : Number.isInteger(opaqueMessageId) && opaqueMessageId !== 0
+      ? opaqueMessageId
+      : hashMessageIdInt32(0, targetId, eventName);
   ref.cacheMessageMeta(messageId, {
     isGroup,
     targetId,
     sequence: receipt.sequence,
+    sequenceAuthoritative,
     eventName,
     clientSequence: receipt.clientSequence,
     random: receipt.random,
     timestamp: receipt.timestamp,
   });
-  await cacheSelfSentMessage(ref, {
+  const echoEvent = await cacheSelfSentMessage(ref, {
     isGroup,
     sessionId: targetId,
     messageId,
     sequence: receipt.sequence,
+    sequenceAuthoritative,
     timestamp: receipt.timestamp,
     elements,
   });
-  return messageId;
+  return reportEcho && echoEvent && sequenceAuthoritative && receipt.timestamp > 0
+    ? { messageId, echoEvent }
+    : { messageId };
 }
 
 async function cacheSelfSentMessage(
@@ -535,19 +606,27 @@ async function cacheSelfSentMessage(
     sessionId: number;       // groupId or peer userId
     messageId: number;
     sequence: number;
+    sequenceAuthoritative: boolean;
     timestamp: number;
     elements: MessageElement[];
   },
-): Promise<void> {
-  const { isGroup, sessionId, messageId, sequence, timestamp, elements } = options;
-  if (!Number.isInteger(messageId) || messageId === 0) return;
+): Promise<JsonObject | null> {
+  const {
+    isGroup,
+    sessionId,
+    messageId,
+    sequence,
+    sequenceAuthoritative,
+    timestamp,
+    elements,
+  } = options;
+  if (!Number.isInteger(messageId) || messageId === 0) return null;
 
-  // Defensive: tests mock `ref.messageStore` as `{ findEvent: ... } as any`
-  // without the full MessageStore surface. Production always has it. Bail
-  // quietly when the helper isn't there — the user-visible `cacheMessageMeta`
-  // already covers recall/delete; only `/get_msg` lookup degrades.
+  // Defensive: tests may mock `ref.messageStore` without the full MessageStore
+  // surface. Production always has it. Without storage, recall still works via
+  // cacheMessageMeta, but `/get_msg` and the synthetic event are unavailable.
   const storeEvent = (ref.messageStore as { storeEvent?: typeof ref.messageStore.storeEvent }).storeEvent;
-  if (typeof storeEvent !== 'function') return;
+  if (typeof storeEvent !== 'function') return null;
 
   try {
     // We deliberately pass no URL resolvers — for a synthetic self-sent
@@ -595,16 +674,32 @@ async function cacheSelfSentMessage(
       event.target_id = sessionId;
     }
 
-    // Store directly via messageStore (bypassing dispatchEvent — we
-    // don't want to broadcast this synthetic event over the WS bridge;
-    // the QQ server's own echo-back is the source of truth for that).
-    storeEvent.call(ref.messageStore, messageId, isGroup, sessionId, sequence, eventName, event);
+    // QQ can win the race between the send receipt and local event
+    // construction. Keep its richer canonical event and let the already-run
+    // bridge dispatch remain the single downstream notification.
+    const existing = ref.messageStore.findEvent(messageId);
+    if (existing && sameSelfSentMessage(existing, event)) return null;
+
+    // Persist before dispatch so `/get_msg` is immediately consistent for a
+    // client reacting to the synthetic message_sent notification.
+    storeEvent.call(
+      ref.messageStore,
+      messageId,
+      isGroup,
+      sessionId,
+      sequence,
+      eventName,
+      event,
+      { sequenceAuthoritative },
+    );
+    return event;
   } catch (err) {
-    // Never let event-cache failures sink the send call — recall + return
-    // value are what callers care about; /get_msg degrading to "not found"
-    // is the worst case here and matches the previous behaviour.
+    // Never turn a successful QQ send into a failed Action after the fact.
+    // The warning keeps the loss observable; `/get_msg` and the optional
+    // synthetic event degrade together while recall still uses cached meta.
     log.warn('[OneBot] failed to cache self-sent message %d: %s',
       messageId, err instanceof Error ? err.message : String(err));
+    return null;
   }
 }
 
@@ -653,6 +748,7 @@ export async function sendPrivateMessage(
           senderUin,
           time,
           random: meta?.random ?? 0,
+          sequenceAuthoritative: meta?.sequenceAuthoritative,
         };
       }
       const meta = ref.messageStore.findMeta(replyMessageId);
@@ -661,6 +757,7 @@ export async function sendPrivateMessage(
           senderUin: ref.selfId,
           time: meta.timestamp,
           random: meta.random,
+          sequenceAuthoritative: meta.sequenceAuthoritative,
         };
       }
       return null;
@@ -808,9 +905,11 @@ export async function sendPrivateMessage(
   }
   if (!lastReceipt) throw new Error('message is empty');
 
-  const messageId = await finalizeSend(ref, false, userId, lastReceipt, elements);
-
-  return { messageId };
+  // Dedicated C2C file sends may split one Action into several QQ messages.
+  // A single synthetic event would misrepresent that wire behaviour, so only
+  // report the one-batch friend path handled by sendPrivate().
+  const reportEcho = tempGroupId === undefined && allFileElements.length === 0;
+  return finalizeSend(ref, false, userId, lastReceipt, elements, reportEcho);
 }
 
 export async function sendGroupMessage(
@@ -824,6 +923,8 @@ export async function sendGroupMessage(
       return ref.messageStore.resolveReplySequence(true, groupId, replyMessageId);
     },
     resolveReplyMeta: (replyMessageId) => {
+      const meta = ref.messageStore.findMeta(replyMessageId);
+      if (!meta || !meta.isGroup || meta.targetId !== groupId) return null;
       const event = ref.messageStore.findEvent(replyMessageId);
       if (event) {
         return {
@@ -833,10 +934,16 @@ export async function sendGroupMessage(
           time: typeof event.time === 'number'
             ? event.time
             : parseInt(String(event.time || '0'), 10),
-          random: 0,
+          random: meta?.random ?? 0,
+          sequenceAuthoritative: meta?.sequenceAuthoritative,
         };
       }
-      return null;
+      return {
+        senderUin: ref.selfId,
+        time: meta.timestamp,
+        random: meta.random,
+        sequenceAuthoritative: meta.sequenceAuthoritative,
+      };
     },
     resolveMentionUid: (targetUin) => ref.bridge.resolveUserUid(targetUin, groupId),
     resolveContactArk: (contactType, contactId) => resolveContactArk(ref, contactType, contactId),
@@ -904,14 +1011,19 @@ export async function sendGroupMessage(
     if (!lastReceipt) {
       let h = 0;
       for (let i = 0; i < fileId.length; i++) h = ((h << 5) - h + fileId.charCodeAt(i)) | 0;
-      lastReceipt = { messageId: 0, sequence: h & 0x7FFFFFFF, clientSequence: 0, random: h & 0x7FFFFFFF, timestamp: Math.floor(Date.now() / 1000) };
+      const localSeed = h & 0x7FFFFFFF;
+      lastReceipt = {
+        messageId: hashMessageIdInt32(localSeed, groupId, GROUP_MESSAGE_EVENT),
+        sequence: 0,
+        clientSequence: 0,
+        random: localSeed,
+        timestamp: Math.floor(Date.now() / 1000),
+      };
     }
   }
   if (!lastReceipt) throw new Error('message is empty');
 
-  const messageId = await finalizeSend(ref, true, groupId, lastReceipt, elements);
-
-  return { messageId };
+  return finalizeSend(ref, true, groupId, lastReceipt, elements);
 }
 
 export interface ForwardPreviewMeta {
@@ -935,7 +1047,7 @@ export async function sendGroupForwardMessage(
   const forwardId = await ref.bridge.apis.forward.upload(nodes, groupId);
   const previewElement = buildForwardPreviewElement(forwardId, nodes, true, meta);
   const receipt = await ref.bridge.apis.message.sendGroup(groupId, [previewElement]);
-  const messageId = await finalizeSend(ref, true, groupId, receipt, [previewElement]);
+  const { messageId } = await finalizeSend(ref, true, groupId, receipt, [previewElement]);
 
   return { messageId, forwardId };
 }
@@ -953,7 +1065,7 @@ export async function sendPrivateForwardMessage(
   const forwardId = await ref.bridge.apis.forward.upload(nodes, undefined, userId);
   const previewElement = buildForwardPreviewElement(forwardId, nodes, false, meta);
   const receipt = await ref.bridge.apis.message.sendPrivate(userId, [previewElement]);
-  const messageId = await finalizeSend(ref, false, userId, receipt, [previewElement]);
+  const { messageId } = await finalizeSend(ref, false, userId, receipt, [previewElement]);
 
   return { messageId, forwardId };
 }
@@ -1002,10 +1114,10 @@ export async function forwardSingleMessage(
   let messageIdOut: number;
   if (target.groupId) {
     receipt = await ref.bridge.apis.message.sendGroup(target.groupId, elements);
-    messageIdOut = await finalizeSend(ref, true, target.groupId, receipt, elements);
+    ({ messageId: messageIdOut } = await finalizeSend(ref, true, target.groupId, receipt, elements));
   } else {
     receipt = await ref.bridge.apis.message.sendPrivate(target.userId!, elements);
-    messageIdOut = await finalizeSend(ref, false, target.userId!, receipt, elements);
+    ({ messageId: messageIdOut } = await finalizeSend(ref, false, target.userId!, receipt, elements));
   }
 
   return { messageId: messageIdOut };

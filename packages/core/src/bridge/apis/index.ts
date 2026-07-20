@@ -1,4 +1,5 @@
 import type { BridgeContext } from '../bridge-context';
+import { CollectionApi } from './collection';
 import { ContactsApi } from './contacts';
 import { ExtrasApi } from './extras';
 import { FlashTransferApi } from './flash-transfer';
@@ -15,6 +16,8 @@ import { QzoneApi } from './qzone';
 import { WebApi } from './web';
 
 export interface ApiHub {
+  /** Personal QQ collections: authenticated list retrieval and pagination. */
+  readonly collection: CollectionApi;
   /** Send/recall/markRead operations across c2c + group + c2c-file. */
   readonly message: MessageApi;
   /** Friend / group / member roster + user-profile + group-request-list + download-rkey. */
@@ -55,6 +58,7 @@ export interface ApiHub {
  */
 export function buildApiHub(ctx: BridgeContext): ApiHub {
   return {
+    collection: new CollectionApi(ctx),
     message: new MessageApi(ctx),
     contacts: new ContactsApi(ctx),
     groupAdmin: new GroupAdminApi(ctx),
@@ -76,6 +80,7 @@ export function buildApiHub(ctx: BridgeContext): ApiHub {
 // `import type { MessageApi } from '@snowluma/core/.../apis'` for
 // signature use. Concrete instances always come from `bridge.apis.*`.
 export { ContactsApi } from './contacts';
+export { CollectionApi } from './collection';
 export { ExtrasApi } from './extras';
 export { ForwardApi } from './forward';
 export { FriendApi } from './friend';
@@ -89,4 +94,3 @@ export { ProfileApi } from './profile';
 export { QzoneApi } from './qzone';
 export { FlashTransferApi, type FlashFileInfo } from './flash-transfer';
 export { WebApi } from './web';
-

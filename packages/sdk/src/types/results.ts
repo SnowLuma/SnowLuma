@@ -126,6 +126,55 @@ export interface OnlineClientsInfo {
   clients: OnlineClientInfo[];
 }
 
+export interface CollectionAuthorInfo extends JsonObject {
+  type: number;
+  numId: string;
+  strId: string;
+  groupId: string;
+  groupName: string;
+  uid: string;
+}
+
+export interface CollectionSummaryInfo extends JsonObject {
+  textSummary: JsonValue;
+  linkSummary: JsonValue;
+  gallerySummary: JsonValue;
+  audioSummary: JsonValue;
+  videoSummary: JsonValue;
+  fileSummary: JsonValue;
+  locationSummary: JsonValue;
+  richMediaSummary: JsonValue;
+}
+
+export interface CollectionItemInfo extends JsonObject {
+  cid: string;
+  type: number;
+  status: number;
+  author: CollectionAuthorInfo;
+  bid: number;
+  category: number;
+  createTime: string;
+  collectTime: string;
+  modifyTime: string;
+  sequence: string;
+  shareUrl: string;
+  customGroupId: number;
+  securityBeat: boolean;
+  summary: CollectionSummaryInfo;
+}
+
+export interface CollectionSearchListInfo extends JsonObject {
+  collectionItemList: CollectionItemInfo[];
+  hasMore: boolean;
+  bottomTimeStamp: string;
+}
+
+export interface CollectionListInfo extends JsonObject {
+  errCode: number;
+  errMsg: string;
+  collectionSearchList: CollectionSearchListInfo;
+}
+
 export interface UrlSafetyInfo {
   level: number;
 }
@@ -156,7 +205,7 @@ export interface UserOnlineStatus {
   ext_status: number;
 }
 
-// — send_group_ai_record 返回（合成是异步副作用，message_id 总为 0） —
+// — send_group_ai_record 返回 —
 export interface SendGroupAiRecordResult {
   message_id: number;
 }

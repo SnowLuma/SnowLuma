@@ -65,6 +65,7 @@ import type {
   NcGetUserStatusParams,
   GroupTodoParams,
   GetAiCharactersParams,
+  GetCollectionListParams,
   AiVoiceParams,
   DeleteGroupFolderParams,
   SendPacketParams,
@@ -97,6 +98,7 @@ import type {
   AiCharacterCategory,
   UserOnlineStatus,
   SendGroupAiRecordResult,
+  CollectionListInfo,
 } from './results';
 
 export type ActionData = JsonValue;
@@ -207,7 +209,7 @@ export interface SnowLumaActionMap {
   get_group_at_all_remain: { params: JsonObject; data: GroupAtAllRemainInfo };
   get_unidirectional_friend_list: { params: JsonObject; data: JsonArray };
   set_self_longnick: { params: JsonObject; data: EmptyData };
-  get_collection_list: { params: JsonObject; data: JsonArray };
+  get_collection_list: { params: GetCollectionListParams; data: CollectionListInfo };
   create_collection: { params: JsonObject; data: JsonValue };
   set_qq_avatar: { params: JsonObject; data: EmptyData };
   set_input_status: { params: JsonObject; data: EmptyData };

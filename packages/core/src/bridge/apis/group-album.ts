@@ -1,19 +1,101 @@
 import type { JsonObject, JsonValue } from '@snowluma/common/json';
+import { createLogger } from '@snowluma/common/logger';
 import type {
+  AlbumCreator,
   DeleteMediasRequest,
   DeleteMediasResponse,
   DoQunCommentRequest,
   DoQunCommentResponse,
   DoQunLikeRequest,
   DoQunLikeResponse,
+  GetAlbumListRequest,
+  GetAlbumListResponse,
+  GroupAlbumInfo as GroupAlbumInfoWire,
   GetMediaListRequest,
   GetMediaListResponse,
   MediaInfo,
 } from '@snowluma/proto-defs/oidb-actions/group-album';
-import { getGroupAlbumList, uploadImageToGroupAlbum } from '@snowluma/protocol/web/group-album';
+import { uploadImageToGroupAlbum } from '@snowluma/protocol/web/group-album';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { BridgeContext } from '../bridge-context';
 
+const log = createLogger('Bridge.GroupAlbum');
+const GET_ALBUM_LIST_CMD = 'QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetAlbumList';
+const GET_ALBUM_LIST_SEQ = 3331;
+
+function uint64ToString(value: bigint | undefined): string {
+  return (value ?? 0n).toString();
+}
+
+function uint64ToSafeNumber(value: bigint | undefined, fieldName: string): number {
+  const normalized = value ?? 0n;
+  if (normalized > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error(`group album ${fieldName} exceeds Number.MAX_SAFE_INTEGER: ${normalized}`);
+  }
+  return Number(normalized);
+}
+
+function normalizeAlbumCreator(creator: AlbumCreator | undefined): QunAlbumCreator | undefined {
+  if (!creator) return undefined;
+  return {
+    uid: creator.uid ?? '',
+    nick: creator.nick ?? '',
+    is_sweet: creator.isSweet ?? false,
+    is_special: creator.isSpecial ?? false,
+    is_super_like: creator.isSuperLike ?? false,
+    custom_id: creator.customId ?? '',
+    poly_id: creator.polyId ?? '',
+    portrait: creator.portrait ?? '',
+    can_follow: creator.canFollow ?? 0,
+    isfollowed: creator.isFollowed ?? 0,
+    uin: creator.uin ?? '',
+    ditto_uin: creator.dittoUin ?? '',
+  };
+}
+
+function normalizeQunAlbum(album: GroupAlbumInfoWire): QunAlbumInfo {
+  const normalized: QunAlbumInfo = {
+    album_id: album.albumId ?? '',
+    owner: album.owner ?? '',
+    name: album.name ?? '',
+    desc: album.description ?? '',
+    create_time: uint64ToString(album.createTime),
+    modify_time: uint64ToString(album.modifyTime),
+    last_upload_time: uint64ToString(album.lastUploadTime),
+    upload_number: uint64ToString(album.uploadNumber),
+    top_flag: uint64ToString(album.topFlag),
+    busi_type: album.busiType ?? 0,
+    status: album.status ?? 0,
+    allow_share: album.allowShare ?? false,
+    is_subscribe: album.isSubscribe ?? false,
+    bitmap: album.bitmap ?? '',
+    is_share_album: album.isShareAlbum ?? false,
+    qz_album_type: album.qzAlbumType ?? 0,
+    cover_type: album.coverType ?? 0,
+    default_desc: album.defaultDesc ?? '',
+    sort_type: album.sortType ?? 0,
+  };
+  const creator = normalizeAlbumCreator(album.creator);
+  if (creator) normalized.creator = creator;
+  return normalized;
+}
+
+function toLegacyAlbum(album: GroupAlbumInfoWire): GroupAlbumInfo {
+  const creator = normalizeAlbumCreator(album.creator);
+  return {
+    id: album.albumId ?? '',
+    name: album.name ?? '',
+    picNum: uint64ToSafeNumber(album.uploadNumber, 'upload_number'),
+    createTime: uint64ToSafeNumber(album.createTime, 'create_time'),
+    desc: album.description ?? '',
+    owner: album.owner ?? '',
+    createuin: creator?.uin || album.owner || creator?.uid || '',
+    // QQ NT's AlbumService returns this as a normal UTF-8 protobuf string.
+    // Unlike the legacy Qzone HTTP endpoint, it does not rewrite Unicode
+    // emoji into ambiguous [em]...[/em] tags.
+    createnickname: creator?.nick ?? '',
+  };
+}
 
 function convertBigIntToString(obj: unknown): JsonValue {
   if (obj === null || obj === undefined) return null;
@@ -33,13 +115,73 @@ function convertBigIntToString(obj: unknown): JsonValue {
 export class GroupAlbumApi {
   constructor(private readonly ctx: BridgeContext) { }
 
-  // 列出群相册（基于 qzone.qq.com 的 HTTP Cookie）。
+  private async fetchAlbumList(groupId: number, attachInfo: string): Promise<GroupAlbumWireResult> {
+    const traceId = `_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+    const body = protobuf_encode<GetAlbumListRequest>({
+      seq: GET_ALBUM_LIST_SEQ,
+      field2: new Uint8Array(0),
+      field3: new Uint8Array(0),
+      data: {
+        groupId: groupId.toString(),
+        attachInfo,
+      },
+      traceId,
+      extMap: [{ key: 'fc-appid', value: '100' }],
+    });
+
+    log.debug(
+      'get album list request: group=%d cursorChars=%d requestBytes=%d',
+      groupId,
+      attachInfo.length,
+      body.length,
+    );
+
+    const result = await this.ctx.sendRawPacket(GET_ALBUM_LIST_CMD, body, 15000);
+    if (!result.success || !result.gotResponse || !result.responseData) {
+      throw new Error(
+        `get group album list transport failed: ${result.errorMessage || `code ${result.errorCode}`}`,
+      );
+    }
+
+    const response = protobuf_decode<GetAlbumListResponse>(result.responseData);
+    const resultCode = response.result ?? 0;
+    if (resultCode !== 0) {
+      throw new Error(
+        `get group album list failed: result=${resultCode}, error=${response.errorText || 'unknown'}`,
+      );
+    }
+
+    const normalized: GroupAlbumWireResult = {
+      albumList: response.data?.albumList ?? [],
+      attachInfo: response.data?.attachInfo ?? '',
+      hasMore: response.data?.hasMore ?? false,
+    };
+
+    log.debug(
+      'get album list response: group=%d albums=%d hasMore=%s cursorChars=%d responseBytes=%d',
+      groupId,
+      normalized.albumList.length,
+      String(normalized.hasMore),
+      normalized.attachInfo.length,
+      result.responseData.length,
+    );
+    return normalized;
+  }
+
+  /** QQ NT AlbumService-backed list, including its pagination cursor. */
+  async listQun(groupId: number, attachInfo = ''): Promise<QunAlbumListResult> {
+    const result = await this.fetchAlbumList(groupId, attachInfo);
+    return {
+      albumList: result.albumList.map(normalizeQunAlbum),
+      attachInfo: result.attachInfo,
+      hasMore: result.hasMore,
+    };
+  }
+
+  // OneBot compatibility shape used by get_group_album_list.
   async list(groupId: number): Promise<GroupAlbumList> {
-    const groupCode = groupId.toString();
-    const uin = this.ctx.identity.uin;
-    const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
-    const albumData = await getGroupAlbumList(cookieObject, groupCode, uin);
-    return albumData?.album || [];
+    const result = await this.fetchAlbumList(groupId, '');
+    return result.albumList.map(toLegacyAlbum);
   }
 
   // 上传图片到现有相册（HTTP 分片上传）。
@@ -269,7 +411,69 @@ export interface GroupAlbumMediaResult {
   nextAttachInfo: string;
 }
 
-export type GroupAlbumList = NonNullable<Awaited<ReturnType<typeof getGroupAlbumList>>>['album'];
+interface GroupAlbumWireResult {
+  albumList: GroupAlbumInfoWire[];
+  attachInfo: string;
+  hasMore: boolean;
+}
+
+export interface GroupAlbumInfo {
+  id: string;
+  name: string;
+  picNum: number;
+  createTime: number;
+  desc: string;
+  owner: string;
+  createuin: string;
+  createnickname: string;
+  [key: string]: JsonValue;
+}
+
+export type GroupAlbumList = GroupAlbumInfo[];
+
+export interface QunAlbumCreator {
+  uid: string;
+  nick: string;
+  is_sweet: boolean;
+  is_special: boolean;
+  is_super_like: boolean;
+  custom_id: string;
+  poly_id: string;
+  portrait: string;
+  can_follow: number;
+  isfollowed: number;
+  uin: string;
+  ditto_uin: string;
+}
+
+export interface QunAlbumInfo {
+  album_id: string;
+  owner: string;
+  name: string;
+  desc: string;
+  create_time: string;
+  modify_time: string;
+  last_upload_time: string;
+  upload_number: string;
+  creator?: QunAlbumCreator;
+  top_flag: string;
+  busi_type: number;
+  status: number;
+  allow_share: boolean;
+  is_subscribe: boolean;
+  bitmap: string;
+  is_share_album: boolean;
+  qz_album_type: number;
+  cover_type: number;
+  default_desc: string;
+  sort_type: number;
+}
+
+export interface QunAlbumListResult {
+  albumList: QunAlbumInfo[];
+  attachInfo: string;
+  hasMore: boolean;
+}
 
 export interface GroupAlbumCommentResult {
   id: string;

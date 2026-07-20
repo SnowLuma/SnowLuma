@@ -29,6 +29,11 @@ import {
   type NetworkShutdownResult,
 } from './network';
 import { ReactionStore } from './reaction-store';
+import {
+  sameSelfSentMessage,
+  selfSentEventKey,
+  SELF_SENT_ECHO_WINDOW_MS,
+} from './self-sent-event';
 import type { ApiResponse, JsonObject, JsonValue, MessageMeta, OneBotConfig } from './types';
 
 const moduleLog = createLogger('Event');
@@ -51,6 +56,8 @@ export class OneBotInstance {
   private readonly startedAt = Date.now();
   /** Per-conversation last-reply timestamp for the `#sl` cooldown. */
   private readonly statusCommandCooldown = new Map<string, number>();
+  /** Action-side events awaiting a possible canonical QQ echo. */
+  private readonly pendingSelfSentEchoes = new Map<string, { event: JsonObject; expiresAt: number }>();
   private eventPipeline: EventPipelineHandle | null = null;
   private eventPipelineDrain: Promise<void> = Promise.resolve();
   private disposePromise: Promise<NetworkShutdownResult> | null = null;
@@ -137,7 +144,7 @@ export class OneBotInstance {
       config,
       musicSignUrl: globalSettings.musicSignUrl,
       cacheMessageMeta: (messageId, meta) => this.cacheMessageMeta(messageId, meta),
-      dispatchEvent: (event) => this.dispatchEvent(event),
+      dispatchEvent: (event, source = 'bridge') => this.dispatchEvent(event, source),
     };
     this.ctx = ctx;
 
@@ -271,15 +278,56 @@ export class OneBotInstance {
     return this.pids.size === 0;
   }
 
-  private dispatchEvent(event: JsonObject): void {
-    this.cacheMessageEvent(event);
-    this.logReceivedMessage(event);
-    // Built-in `#sl`: always cache + log first (a swallowed `#sl` is still
-    // observable locally); only forwarding to downstream adapters is gated.
-    if (this.handleStatusCommand(event)) return;
+  private dispatchEvent(event: JsonObject, source: 'bridge' | 'send' = 'bridge'): void {
+    if (source === 'bridge') {
+      this.cacheMessageEvent(event);
+      if (this.consumePendingSelfSentEcho(event)) {
+        this.log.trace(
+          'duplicate self-message echo suppressed message_id=%d message_seq=%d',
+          toInt(event.message_id),
+          toInt(event.message_seq),
+        );
+        return;
+      }
+    } else {
+      this.cacheMessageEvent(event);
+      this.rememberPendingSelfSentEcho(event);
+    }
+    // The send path already logged the real peer and payload. Logging its
+    // synthetic event here would produce a second, less accurate "received"
+    // line whose private user_id points at the bot itself.
+    if (source === 'bridge') this.logReceivedMessage(event);
+    // Built-in `#sl` only consumes events observed from QQ. Action-originated
+    // messages must not recursively trigger the command handler.
+    if (source === 'bridge' && this.handleStatusCommand(event)) return;
     void this.networkManager.emitEvent(event).catch((err) => {
       this.log.warn('emitEvent failed: %s', err instanceof Error ? (err.stack ?? err.message) : String(err));
     });
+  }
+
+  private rememberPendingSelfSentEcho(event: JsonObject): void {
+    const key = selfSentEventKey(event);
+    if (key === null) return;
+    const now = Date.now();
+    this.sweepPendingSelfSentEchoes(now);
+    this.pendingSelfSentEchoes.set(key, { event, expiresAt: now + SELF_SENT_ECHO_WINDOW_MS });
+  }
+
+  private consumePendingSelfSentEcho(event: JsonObject): boolean {
+    const key = selfSentEventKey(event);
+    if (key === null) return false;
+    const now = Date.now();
+    this.sweepPendingSelfSentEchoes(now);
+    const pending = this.pendingSelfSentEchoes.get(key);
+    if (!pending || !sameSelfSentMessage(pending.event, event)) return false;
+    this.pendingSelfSentEchoes.delete(key);
+    return true;
+  }
+
+  private sweepPendingSelfSentEchoes(now: number): void {
+    for (const [key, pending] of this.pendingSelfSentEchoes) {
+      if (pending.expiresAt <= now) this.pendingSelfSentEchoes.delete(key);
+    }
   }
 
   /**

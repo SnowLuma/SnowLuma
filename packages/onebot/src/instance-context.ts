@@ -1,7 +1,7 @@
 import type { Bridge } from '@snowluma/core/bridge';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import type { WebHonorType } from '@snowluma/protocol/web/group-honor';
-import type { ApiActionContext } from './api-handler';
+import type { ApiActionContext, MessageSendResult } from './api-handler';
 import type { ConverterContext } from './event-converter';
 import type { MediaStore } from './media-store';
 import type { MessageStore } from './message-store';
@@ -38,7 +38,7 @@ import {
 } from './modules/message-actions';
 import { handleGroupAddRequest } from './modules/request-actions';
 import type { ReactionStore } from './reaction-store';
-import type { JsonObject, MessageMeta, OneBotConfig } from './types';
+import { hasAuthoritativeSequence, type JsonObject, type MessageMeta, type OneBotConfig } from './types';
 
 export interface OneBotInstanceContext {
   uin: string;
@@ -53,11 +53,17 @@ export interface OneBotInstanceContext {
   config: OneBotConfig;
   musicSignUrl?: string;
   cacheMessageMeta(messageId: number, meta: MessageMeta): void;
-  dispatchEvent(event: JsonObject): void;
+  dispatchEvent(event: JsonObject, source?: 'bridge' | 'send'): void;
 }
 
 export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
   const { bridge, messageStore, mediaStore, reactionStore } = ref;
+
+  const reportSelfSent = async (result: Promise<MessageSendResult>) => {
+    const settled = await result;
+    if (settled.echoEvent) ref.dispatchEvent(settled.echoEvent, 'send');
+    return settled;
+  };
 
   return {
     bridge,
@@ -71,7 +77,10 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     ),
     canSendImage: () => true,
     canSendRecord: () => true,
-    sendPrivateMessage: (userId, message, autoEscape, tempGroupId) => sendPrivateMessage(ref, userId, message, autoEscape, tempGroupId),
+    sendPrivateMessage: (userId, message, autoEscape, tempGroupId) =>
+      tempGroupId === undefined
+        ? reportSelfSent(sendPrivateMessage(ref, userId, message, autoEscape))
+        : sendPrivateMessage(ref, userId, message, autoEscape, tempGroupId),
     sendGroupMessage: (groupId, message, autoEscape) => sendGroupMessage(ref, groupId, message, autoEscape),
     deleteMessage: (_messageId, meta) => deleteMessage(bridge, meta),
     getFriendList: () => getFriendList(bridge),
@@ -99,12 +108,14 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
       const meta = messageStore.findMeta(messageId);
       if (!meta) throw new Error('message not found');
       if (!meta.isGroup) throw new Error('emoji reactions are not supported on private messages');
+      if (!hasAuthoritativeSequence(meta)) throw new Error('message has no authoritative QQ sequence');
       await bridge.apis.interaction.setReaction(meta.targetId, meta.sequence, emojiId, set);
     },
     fetchEmojiLikeUsers: async (messageId, emojiId, count, offset = 0) => {
       const meta = messageStore.findMeta(messageId);
       if (!meta) throw new Error('message not found');
       if (!meta.isGroup) throw new Error('emoji reactions are not supported on private messages');
+      if (!hasAuthoritativeSequence(meta)) throw new Error('message has no authoritative QQ sequence');
       const raw = reactionStore.listUsers(meta.targetId, meta.sequence, emojiId, count, offset);
       const users = raw.map(r => ({ uin: r.operatorUin, uid: r.operatorUid, setAt: r.setAt }));
       const cachedCount = reactionStore.countUsers(meta.targetId, meta.sequence, emojiId);

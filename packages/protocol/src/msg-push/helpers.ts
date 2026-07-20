@@ -139,6 +139,15 @@ export function decodeNestedOperatorUid(bytes: Uint8Array, context: string): str
   return assertOperatorUid(uid, context, bytes);
 }
 
+const OPERATOR_INFO_FIELD_TAG = 0x0a;
+
+export function decodeGroupChangeOperatorUid(bytes: Uint8Array, context: string): string {
+  if (!bytes || bytes.length === 0) return '';
+  return bytes[0] === OPERATOR_INFO_FIELD_TAG
+    ? decodeNestedOperatorUid(bytes, context)
+    : decodeRawOperatorUid(bytes, context);
+}
+
 export function buildTemplateMap(params: Array<{ name?: string; value?: string }>): Map<string, string> {
   const map = new Map<string, string>();
   for (const p of params) {

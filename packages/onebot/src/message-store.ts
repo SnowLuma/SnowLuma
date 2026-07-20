@@ -1,10 +1,18 @@
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
+import { createLogger } from '@snowluma/common/logger';
 import type { JsonObject, MessageMeta } from './types';
 import { openSqliteDb } from './sqlite-open';
+
+const log = createLogger('OneBot.MessageStore');
 
 export interface ReadSessionTargets {
   groupIds: number[];
   privateUserIds: number[];
+}
+
+export interface StoreEventOptions {
+  /** False for locally reconstructed events whose sequence QQ never confirmed. */
+  sequenceAuthoritative?: boolean;
 }
 
 export class MessageStore {
@@ -18,6 +26,7 @@ export class MessageStore {
   private readonly stmtListEventsAnchored: StatementSync;
   private readonly stmtListEventsAnchoredForward: StatementSync;
   private readonly stmtListEventsLatest: StatementSync;
+  private readonly stmtFindLatestAuthoritativeSequence: StatementSync;
   private readonly stmtListIncomingC2CSessions: StatementSync;
 
   constructor(dbPath: string) {
@@ -30,12 +39,13 @@ export class MessageStore {
     // Database instance — `close()` finalizes them automatically.
     this.stmtStoreEvent = this.db.prepare(
       `INSERT INTO messages
-       (message_hash, is_group, session_id, sequence, event_name, client_sequence, random, timestamp, data)
-       VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)
+       (message_hash, is_group, session_id, sequence, sequence_authoritative, event_name, client_sequence, random, timestamp, data)
+       VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
        ON CONFLICT(message_hash) DO UPDATE SET
          is_group = excluded.is_group,
          session_id = excluded.session_id,
          sequence = excluded.sequence,
+         sequence_authoritative = excluded.sequence_authoritative,
          event_name = excluded.event_name,
          timestamp = excluded.timestamp,
          data = excluded.data`,
@@ -43,12 +53,13 @@ export class MessageStore {
 
     this.stmtStoreMeta = this.db.prepare(
       `INSERT INTO messages
-       (message_hash, is_group, session_id, sequence, event_name, client_sequence, random, timestamp)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       (message_hash, is_group, session_id, sequence, sequence_authoritative, event_name, client_sequence, random, timestamp)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(message_hash) DO UPDATE SET
          is_group = excluded.is_group,
          session_id = excluded.session_id,
          sequence = excluded.sequence,
+         sequence_authoritative = excluded.sequence_authoritative,
          event_name = excluded.event_name,
          client_sequence = excluded.client_sequence,
          random = excluded.random,
@@ -60,27 +71,28 @@ export class MessageStore {
     );
 
     this.stmtFindMeta = this.db.prepare(
-      'SELECT is_group, session_id, sequence, event_name, client_sequence, random, timestamp FROM messages WHERE message_hash = ?',
+      'SELECT is_group, session_id, sequence, sequence_authoritative, event_name, client_sequence, random, timestamp FROM messages WHERE message_hash = ?',
     );
 
     this.stmtResolveReplyGroup = this.db.prepare(
       `SELECT sequence
          FROM messages
-         WHERE is_group = 1 AND session_id = ? AND message_hash = ?
+         WHERE is_group = 1 AND session_id = ? AND message_hash = ? AND sequence_authoritative = 1
          LIMIT 1`,
     );
 
     this.stmtResolveReplyPrivate = this.db.prepare(
       `SELECT sequence
          FROM messages
-         WHERE is_group = 0 AND message_hash = ?
+         WHERE is_group = 0 AND message_hash = ? AND sequence_authoritative = 1
          LIMIT 1`,
     );
 
     this.stmtListEventsAnchored = this.db.prepare(
       `SELECT data
        FROM messages
-       WHERE is_group = ? AND session_id = ? AND data IS NOT NULL AND sequence <= ?
+       WHERE is_group = ? AND session_id = ? AND data IS NOT NULL
+         AND sequence_authoritative = 1 AND sequence > 0 AND sequence <= ?
        ORDER BY sequence DESC
        LIMIT ?`,
     );
@@ -88,7 +100,8 @@ export class MessageStore {
     this.stmtListEventsAnchoredForward = this.db.prepare(
       `SELECT data
        FROM messages
-       WHERE is_group = ? AND session_id = ? AND data IS NOT NULL AND sequence >= ?
+       WHERE is_group = ? AND session_id = ? AND data IS NOT NULL
+         AND sequence_authoritative = 1 AND sequence > 0 AND sequence >= ?
        ORDER BY sequence ASC
        LIMIT ?`,
     );
@@ -97,8 +110,17 @@ export class MessageStore {
       `SELECT data
        FROM messages
        WHERE is_group = ? AND session_id = ? AND data IS NOT NULL
+         AND sequence_authoritative = 1 AND sequence > 0
        ORDER BY sequence DESC
        LIMIT ?`,
+    );
+
+    this.stmtFindLatestAuthoritativeSequence = this.db.prepare(
+      `SELECT sequence
+       FROM messages
+       WHERE is_group = ? AND session_id = ? AND sequence_authoritative = 1 AND sequence > 0
+       ORDER BY sequence DESC
+       LIMIT 1`,
     );
 
     this.stmtListIncomingC2CSessions = this.db.prepare(
@@ -124,13 +146,23 @@ export class MessageStore {
     sessionId: number,
     sequence: number,
     eventName: string,
-    event: JsonObject
+    event: JsonObject,
+    options: StoreEventOptions = {},
   ): void {
     if (!isValidMessageId(messageId)) return;
     const json = JSON.stringify(event);
     const timestamp = toInt(event.time);
 
-    this.stmtStoreEvent.run(messageId, isGroup ? 1 : 0, sessionId, sequence, eventName, timestamp, json);
+    this.stmtStoreEvent.run(
+      messageId,
+      isGroup ? 1 : 0,
+      sessionId,
+      sequence,
+      options.sequenceAuthoritative === false ? 0 : 1,
+      eventName,
+      timestamp,
+      json,
+    );
   }
 
   storeMeta(messageId: number, meta: MessageMeta): void {
@@ -140,6 +172,7 @@ export class MessageStore {
       meta.isGroup ? 1 : 0,
       meta.targetId,
       meta.sequence,
+      meta.sequenceAuthoritative === false ? 0 : 1,
       meta.eventName,
       meta.clientSequence,
       meta.random,
@@ -166,6 +199,7 @@ export class MessageStore {
       is_group: number;
       session_id: number;
       sequence: number;
+      sequence_authoritative: number;
       event_name: string;
       client_sequence: number;
       random: number;
@@ -178,6 +212,7 @@ export class MessageStore {
       isGroup: row.is_group === 1,
       targetId: row.session_id,
       sequence: row.sequence,
+      sequenceAuthoritative: row.sequence_authoritative === 1,
       eventName: row.event_name,
       clientSequence: row.client_sequence,
       random: row.random,
@@ -240,6 +275,16 @@ export class MessageStore {
     return result;
   }
 
+  findLatestAuthoritativeSequence(isGroup: boolean, sessionId: number): number | null {
+    if (!Number.isInteger(sessionId) || sessionId <= 0) return null;
+    const row = this.stmtFindLatestAuthoritativeSequence.get(
+      isGroup ? 1 : 0,
+      sessionId,
+    ) as { sequence: number } | undefined;
+    if (!row || !Number.isInteger(row.sequence) || row.sequence <= 0) return null;
+    return row.sequence;
+  }
+
   /**
    * Build read-report targets from current groups plus genuine incoming C2C
    * sessions. `is_group = 0` alone is insufficient: group temp sessions use
@@ -277,6 +322,7 @@ export class MessageStore {
         is_group        INTEGER NOT NULL,
         session_id      INTEGER NOT NULL,
         sequence        INTEGER NOT NULL,
+        sequence_authoritative INTEGER NOT NULL DEFAULT 1,
         event_name      TEXT NOT NULL,
         client_sequence INTEGER NOT NULL DEFAULT 0,
         random          INTEGER NOT NULL DEFAULT 0,
@@ -284,7 +330,92 @@ export class MessageStore {
         data            TEXT
       )
     `);
+    this.migrateSequenceAuthority();
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_messages_session_seq ON messages(is_group, session_id, sequence)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_messages_session_authoritative_seq ON messages(is_group, session_id, sequence_authoritative, sequence)');
+  }
+
+  private migrateSequenceAuthority(): void {
+    const columns = this.db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>;
+    if (columns.some((column) => column.name === 'sequence_authoritative')) return;
+
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.exec(
+        'ALTER TABLE messages ADD COLUMN sequence_authoritative INTEGER NOT NULL DEFAULT 1',
+      );
+      const result = this.db.prepare(`
+        UPDATE messages
+        SET sequence_authoritative = 0
+        WHERE sequence > 0
+          AND data IS NOT NULL
+          AND CASE WHEN json_valid(data) THEN (
+            (
+              is_group = 1
+              AND (
+                (
+                  json_extract(data, '$.post_type') = 'message_sent'
+                  AND json_extract(data, '$.message_type') = 'group'
+                  AND random = sequence
+                  AND json_extract(data, '$.message[0].type') IN ('file', 'video')
+                )
+                OR
+                (
+                  json_extract(data, '$.post_type') = 'message'
+                  AND json_extract(data, '$.message_type') = 'group'
+                  AND json_type(data, '$.group_name') IS NULL
+                  AND json_type(data, '$.sender') = 'object'
+                  AND json_extract(data, '$.sender.user_id') = json_extract(data, '$.user_id')
+                  AND json_extract(data, '$.sender.nickname') = ''
+                  AND json_extract(data, '$.sender.card') = ''
+                  AND json_extract(data, '$.sender.role') = 'member'
+                  AND json_extract(data, '$.sender.sex') = 'unknown'
+                  AND json_extract(data, '$.sender.age') = 0
+                )
+                OR
+                (
+                  json_extract(data, '$.post_type') = 'message'
+                  AND json_extract(data, '$.message_type') = 'group'
+                  AND json_extract(data, '$.user_id') = 0
+                  AND json_extract(data, '$.time') = 0
+                )
+                OR
+                (
+                  json_extract(data, '$.post_type') = 'message'
+                  AND json_extract(data, '$.message_type') = 'group'
+                  AND json_extract(data, '$.user_id') = 0
+                  AND json_array_length(json_extract(data, '$.message')) = 1
+                  AND json_extract(data, '$.message[0].type') = 'text'
+                  AND json_extract(data, '$.message[0].data.text') = '[引用消息]'
+                )
+              )
+            )
+            OR
+            (
+              is_group = 0
+              AND random = 0
+              AND client_sequence = 0
+              AND json_extract(data, '$.post_type') = 'message'
+              AND json_extract(data, '$.message_type') = 'private'
+              AND json_extract(data, '$.sub_type') = 'friend'
+              AND json_type(data, '$.target_id') IS NULL
+              AND json_type(data, '$.sender') = 'object'
+              AND json_extract(data, '$.sender.user_id') = json_extract(data, '$.user_id')
+              AND json_extract(data, '$.sender.nickname') = ''
+              AND json_extract(data, '$.sender.sex') = 'unknown'
+              AND json_extract(data, '$.sender.age') = 0
+            )
+          ) ELSE 0 END
+      `).run();
+      this.db.exec('COMMIT');
+      log.info(
+        'message-store schema migrated: sequence authority added, synthetic rows marked=%d',
+        Number(result.changes),
+      );
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 }
 

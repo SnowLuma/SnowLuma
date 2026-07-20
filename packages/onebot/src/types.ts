@@ -122,10 +122,21 @@ export interface MessageMeta {
   isGroup: boolean;
   targetId: number;
   sequence: number;
+  /** Whether `sequence` was confirmed by QQ and is safe for protocol actions. */
+  sequenceAuthoritative: boolean;
   eventName: string;
   clientSequence: number;
   random: number;
   timestamp: number;
+}
+
+/** True only when a stored sequence can safely be sent back to QQ. */
+export function hasAuthoritativeSequence(
+  meta: MessageMeta | null | undefined,
+): meta is MessageMeta {
+  return meta?.sequenceAuthoritative === true
+    && Number.isInteger(meta.sequence)
+    && meta.sequence > 0;
 }
 
 export const RETCODE = {
@@ -152,4 +163,3 @@ export function failedResponse(retcode: number, wording: string): ApiResponse {
   };
 }
 export type { JsonArray, JsonObject, JsonPrimitive, JsonValue } from '@snowluma/common/json';
-

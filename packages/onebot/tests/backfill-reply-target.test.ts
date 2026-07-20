@@ -188,6 +188,7 @@ describe('backfillReplyTarget', () => {
     expect(store.storeEvent).toHaveBeenCalledWith(
       targetId, true, 700, 123, GROUP_MESSAGE_EVENT,
       expect.objectContaining({ message_id: targetId, message_type: 'group', user_id: 800 }),
+      { sequenceAuthoritative: false },
     );
   });
 
@@ -207,6 +208,7 @@ describe('backfillReplyTarget', () => {
     expect(store.storeEvent).toHaveBeenCalledWith(
       targetId, true, 700, 123, GROUP_MESSAGE_EVENT,
       expect.objectContaining({ message_id: targetId, message_type: 'group' }),
+      { sequenceAuthoritative: false },
     );
   });
 });

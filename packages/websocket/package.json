@@ -1,7 +1,7 @@
 {
   "license": "SEE LICENSE IN LICENSE",
   "name": "@snowluma/websocket",
-  "version": "1.12.6",
+  "version": "1.12.7",
   "private": true,
   "type": "module",
   "main": "./src/index.ts",

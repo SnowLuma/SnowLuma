@@ -21,6 +21,7 @@
 // imports below for any NTV2-named type.
 
 export type * from './action.js';
+export type * from './collection.js';
 export type * from './element.js';
 // NOTE: `highway.ts` intentionally NOT re-exported here — see note above.
 export type * from './longmsg.js';

@@ -1,9 +1,76 @@
-import type { pb, pb_repeated, int_32, uint_32, uint_64, bool, bytes } from '@snowluma/proton';
+import type { pb, pb_optional, pb_repeated, int_32, uint_32, uint_64, bool, bytes } from '@snowluma/proton';
 
 export interface ExtMapEntry {
   key?:   pb<1, string>;
   value?: pb<2, string>;
 }
+
+// QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetAlbumList
+//
+// Recovered from QQ NT's AlbumService codec.  The service uses the same
+// common request/response envelope as the other QunAlbum methods in this
+// file; the operation-specific request body only contains the group id and
+// the pagination cursor.
+export interface GetAlbumListReqData {
+  groupId?:    pb<1, string>;
+  attachInfo?: pb_optional<2, string>;
+}
+export interface GetAlbumListRequest {
+  seq?:     pb<1, int_32>;
+  field2?:  pb_optional<2, bytes>;
+  field3?:  pb_optional<3, bytes>;
+  data?:    pb<4, GetAlbumListReqData>;
+  traceId?: pb<5, string>;
+  extMap?:  pb_repeated<10, ExtMapEntry>;
+}
+export interface AlbumCreator {
+  uid?:         pb<1, string>;
+  nick?:        pb<2, string>;
+  isSweet?:     pb<5, bool>;
+  isSpecial?:   pb<6, bool>;
+  isSuperLike?: pb<7, bool>;
+  customId?:    pb<8, string>;
+  polyId?:      pb<9, string>;
+  portrait?:    pb<10, string>;
+  canFollow?:   pb<11, int_32>;
+  isFollowed?:  pb<12, int_32>;
+  uin?:         pb<13, string>;
+  dittoUin?:    pb<14, string>;
+}
+export interface GroupAlbumInfo {
+  albumId?:        pb<1, string>;
+  owner?:          pb<2, string>;
+  name?:           pb<3, string>;
+  description?:    pb<4, string>;
+  createTime?:     pb<5, uint_64>;
+  modifyTime?:     pb<6, uint_64>;
+  lastUploadTime?: pb<7, uint_64>;
+  uploadNumber?:   pb<8, uint_64>;
+  creator?:        pb<10, AlbumCreator>;
+  topFlag?:        pb<11, uint_64>;
+  busiType?:       pb<12, int_32>;
+  status?:         pb<13, int_32>;
+  allowShare?:     pb<15, bool>;
+  isSubscribe?:    pb<16, bool>;
+  bitmap?:         pb<17, string>;
+  isShareAlbum?:   pb<18, bool>;
+  qzAlbumType?:    pb<20, int_32>;
+  coverType?:      pb<23, int_32>;
+  defaultDesc?:    pb<26, string>;
+  sortType?:       pb<30, int_32>;
+}
+export interface GetAlbumListRspData {
+  albumList?:  pb_repeated<1, GroupAlbumInfo>;
+  attachInfo?: pb<2, string>;
+  hasMore?:    pb<3, bool>;
+}
+export interface GetAlbumListResponse {
+  seq?:       pb<1, int_32>;
+  result?:    pb<2, int_32>;
+  errorText?: pb<3, string>;
+  data?:      pb<4, GetAlbumListRspData>;
+}
+
 export interface ReqInfo {
   groupId?:  pb<1, string>;
   albumId?:  pb<2, string>;

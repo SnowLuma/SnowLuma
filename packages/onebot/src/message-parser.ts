@@ -15,7 +15,12 @@ export { MessageElementValidationError } from '@snowluma/protocol/element-manife
 
 export interface ParseMessageOptions {
   resolveReplySequence?: (replyMessageId: number) => number | null;
-  resolveReplyMeta?: (replyMessageId: number) => { senderUin: number; time: number; random: number } | null;
+  resolveReplyMeta?: (replyMessageId: number) => {
+    senderUin: number;
+    time: number;
+    random: number;
+    sequenceAuthoritative?: boolean;
+  } | null;
   resolveMentionUid?: (targetUin: number) => string | null | Promise<string | null>;
   resolveContactArk?: (contactType: string, contactId: number) => string | null | Promise<string | null>;
   musicSignUrl?: string;

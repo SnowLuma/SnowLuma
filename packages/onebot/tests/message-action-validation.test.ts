@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { BridgeInterface } from '../../src/bridge/bridge-interface';
 import { ApiHandler, type ApiActionContext } from '../src/api-handler';
 import type { OneBotInstanceContext } from '../src/instance-context';
-import { sendGroupMessage } from '../src/modules/message-actions';
+import { deleteMessage, sendGroupMessage, setEssenceMessage } from '../src/modules/message-actions';
+import type { MessageMeta } from '../src/types';
 
 function instanceContext(sendGroup: ReturnType<typeof vi.fn>): OneBotInstanceContext {
   const bridge = {
@@ -93,5 +94,35 @@ describe('outbound message validation at the Action boundary', () => {
       wording: 'message segment "json" field "data" must be a non-empty JSON string',
     });
     expect(bridgeSend).not.toHaveBeenCalled();
+  });
+});
+
+describe('server-sequence action validation', () => {
+  const localOnlyMeta: MessageMeta = {
+    isGroup: true,
+    targetId: 12345,
+    sequence: 0,
+    sequenceAuthoritative: false,
+    eventName: 'group_message',
+    clientSequence: 0,
+    random: 0,
+    timestamp: 0,
+  };
+
+  it('does not recall a message that has only a local id', async () => {
+    const recallGroup = vi.fn();
+    const bridge = { apis: { message: { recallGroup } } } as unknown as BridgeInterface;
+
+    await expect(deleteMessage(bridge, localOnlyMeta)).rejects.toThrow('no authoritative QQ sequence');
+    expect(recallGroup).not.toHaveBeenCalled();
+  });
+
+  it('does not mark a message that has only a local id as essence', async () => {
+    const setEssence = vi.fn();
+    const bridge = { apis: { interaction: { setEssence } } } as unknown as BridgeInterface;
+    const store = { findMeta: () => localOnlyMeta } as any;
+
+    await expect(setEssenceMessage(bridge, store, 1, true)).rejects.toThrow('no authoritative QQ sequence');
+    expect(setEssence).not.toHaveBeenCalled();
   });
 });

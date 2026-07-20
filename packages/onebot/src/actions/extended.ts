@@ -2,8 +2,9 @@ import { readFile } from 'node:fs/promises';
 import type { ApiActionContext } from '../api-handler';
 import { asNumber, asString } from '../api-handler';
 import type { ForwardPreviewMeta } from '../modules/message-actions';
-import { JsonObject, RETCODE, failedResponse, okResponse } from '../types';
+import { hasAuthoritativeSequence, RETCODE, failedResponse, okResponse, type JsonObject } from '../types';
 import { defineAction, groupAction, groupUserAction, f } from '../action-kit';
+import { GROUP_MESSAGE_EVENT, hashMessageIdInt32 } from '../message-id';
 
 const DOWNLOAD_FILE_MAX_BYTES = 1024 * 1024 * 1024; // 1 GiB
 const DOWNLOAD_FILE_TIMEOUT_MS = 60_000;
@@ -109,6 +110,9 @@ async function groupTodoRun(
   if (!meta) return failedResponse(RETCODE.ACTION_FAILED, 'message not found');
   if (!meta.isGroup || meta.targetId !== p.group_id) {
     return failedResponse(RETCODE.ACTION_FAILED, 'message does not belong to this group');
+  }
+  if (!hasAuthoritativeSequence(meta)) {
+    return failedResponse(RETCODE.ACTION_FAILED, 'message has no authoritative QQ sequence');
   }
   await op(p.group_id, BigInt(meta.sequence));
   return okResponse();
@@ -242,6 +246,10 @@ export const actions = [
 
       if (p.group_id && p.group_id !== meta.targetId) {
         return failedResponse(RETCODE.BAD_REQUEST, 'group_id does not match message session');
+      }
+
+      if (!hasAuthoritativeSequence(meta)) {
+        return failedResponse(RETCODE.ACTION_FAILED, 'message has no authoritative QQ sequence');
       }
 
       await ctx.bridge.apis.interaction.setReaction(meta.targetId, meta.sequence, p.code, p.is_set);
@@ -1515,13 +1523,102 @@ export const actions = [
 
   defineAction({
     name: 'get_collection_list',
-    summary: '获取收藏列表（占位）',
+    summary: '获取收藏列表',
     readOnly: true,
-    returns: '占位实现，恒返回空数组。',
-    returnsSchema: { type: 'array', description: '收藏列表（占位，恒空）' },
-    params: {},
-    run: async () => {
-      return okResponse([]);
+    returns: '返回收藏条目、是否还有更多数据及底部时间游标。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        errCode: { type: 'integer' },
+        errMsg: { type: 'string' },
+        collectionSearchList: {
+          type: 'object',
+          properties: {
+            collectionItemList: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  cid: { type: 'string' },
+                  type: { type: 'integer' },
+                  status: { type: 'integer' },
+                  author: {
+                    type: 'object',
+                    properties: {
+                      type: { type: 'integer' },
+                      numId: { type: 'string' },
+                      strId: { type: 'string' },
+                      groupId: { type: 'string' },
+                      groupName: { type: 'string' },
+                      uid: { type: 'string' },
+                    },
+                    required: ['type', 'numId', 'strId', 'groupId', 'groupName', 'uid'],
+                  },
+                  bid: { type: 'integer' },
+                  category: { type: 'integer' },
+                  createTime: { type: 'string' },
+                  collectTime: { type: 'string' },
+                  modifyTime: { type: 'string' },
+                  sequence: { type: 'string' },
+                  shareUrl: { type: 'string' },
+                  customGroupId: { type: 'integer' },
+                  securityBeat: { type: 'boolean' },
+                  summary: {
+                    type: 'object',
+                    properties: {
+                      textSummary: { type: ['object', 'null'] },
+                      linkSummary: { type: ['object', 'null'] },
+                      gallerySummary: { type: ['object', 'null'] },
+                      audioSummary: { type: ['object', 'null'] },
+                      videoSummary: { type: ['object', 'null'] },
+                      fileSummary: { type: ['object', 'null'] },
+                      locationSummary: { type: ['object', 'null'] },
+                      richMediaSummary: { type: ['object', 'null'] },
+                    },
+                    required: [
+                      'textSummary',
+                      'linkSummary',
+                      'gallerySummary',
+                      'audioSummary',
+                      'videoSummary',
+                      'fileSummary',
+                      'locationSummary',
+                      'richMediaSummary',
+                    ],
+                  },
+                },
+                required: [
+                  'cid',
+                  'type',
+                  'status',
+                  'author',
+                  'bid',
+                  'category',
+                  'createTime',
+                  'collectTime',
+                  'modifyTime',
+                  'sequence',
+                  'shareUrl',
+                  'customGroupId',
+                  'securityBeat',
+                  'summary',
+                ],
+              },
+            },
+            hasMore: { type: 'boolean' },
+            bottomTimeStamp: { type: 'string' },
+          },
+          required: ['collectionItemList', 'hasMore', 'bottomTimeStamp'],
+        },
+      },
+      required: ['errCode', 'errMsg', 'collectionSearchList'],
+    },
+    params: {
+      category: f.int({ min: 0 }).describe('收藏分类 ID；0 表示全部分类').default(0),
+      count: f.int({ min: 1, max: 500 }).describe('最多返回的收藏数量').default(50),
+    },
+    run: async (p, ctx) => {
+      return okResponse(await ctx.bridge.apis.collection.list(p.category, p.count));
     },
   }),
 
@@ -1757,20 +1854,25 @@ export const actions = [
     },
   }),
 
-  // NapCat 的 send_group_ai_record 是仅产生副作用的调用。
-  // 调用 fetchAiVoice 会把语音发布到群里。
-  // 返回的 message_id 始终为 0，因为 oidb 调用不会回显消息 ID。
   groupAction({
     name: 'send_group_ai_record',
     summary: '发送 AI 语音到群',
+    returns: '{ message_id }：已发送 AI 语音的 OneBot 消息 ID。',
     params: {
       character: f.string({ allowEmpty: false }),
       text: f.string({ allowEmpty: false }),
       chat_type: f.int({ min: 0 }).default(1),
     },
     run: async (p, ctx) => {
-      await ctx.bridge.apis.extras.fetchAiVoice(p.group_id, p.character, p.text, p.chat_type);
-      return okResponse({ message_id: 0 });
+      const receipt = await ctx.bridge.apis.extras.sendAiVoice(
+        p.group_id,
+        p.character,
+        p.text,
+        p.chat_type,
+      );
+      return okResponse({
+        message_id: hashMessageIdInt32(receipt.sequence, p.group_id, GROUP_MESSAGE_EVENT),
+      });
     },
   }),
 

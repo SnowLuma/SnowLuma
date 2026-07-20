@@ -1,7 +1,11 @@
 import { protobuf_decode } from '@snowluma/proton';
 import type { GroupMemberJoin, GroupMemberLeave } from '../../events';
 import type { GroupChange, SelfJoinInGroup } from '@snowluma/proto-defs/notify';
-import { decodeNestedOperatorUid, decodeRawOperatorUid, resolveUidToUin } from '../helpers';
+import {
+  decodeGroupChangeOperatorUid,
+  decodeNestedOperatorUid,
+  resolveUidToUin,
+} from '../helpers';
 import type { MsgPushDecoder } from '../registry';
 
 function joinTypeFromOperationType(raw: number): NonNullable<GroupMemberJoin['joinType']> {
@@ -18,7 +22,7 @@ export const decodeGroupMemberJoin: MsgPushDecoder = (ctx) => {
   if (!change) return [];
   const groupId = change.groupUin ?? 0;
   const userUid = change.memberUid ?? '';
-  const operatorUid = decodeRawOperatorUid(
+  const operatorUid = decodeGroupChangeOperatorUid(
     change.operatorBytes ?? new Uint8Array(0),
     'group member increase',
   );
@@ -74,11 +78,11 @@ export const decodeGroupMemberLeave: MsgPushDecoder = (ctx) => {
     operatorUin = userUin;
   } else {
     const operatorBytes = change.operatorBytes ?? new Uint8Array(0);
-    // QQ sends the operator as a raw UTF-8 UID for normal member changes.
-    // Only the bot-self-kicked variant (decreaseType=3) wraps it in OperatorInfo.
+    // Self-kick always uses OperatorInfo. Ordinary removals vary between a raw
+    // UTF-8 UID and the same envelope, so discriminate by its field-1 wire tag.
     operatorUid = dt === 3
       ? decodeNestedOperatorUid(operatorBytes, 'group member decrease type=3')
-      : decodeRawOperatorUid(operatorBytes, `group member decrease type=${dt}`);
+      : decodeGroupChangeOperatorUid(operatorBytes, `group member decrease type=${dt}`);
     operatorUin = resolveUidToUin(ctx.identity, groupId, operatorUid, 0);
   }
   const ev: GroupMemberLeave = {
