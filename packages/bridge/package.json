@@ -43,6 +43,14 @@
     "./types": {
       "types": "./src/types.ts",
       "default": "./src/types.ts"
+    },
+    "./protocol-host-client": {
+      "types": "./src/protocol-host-client.ts",
+      "default": "./src/protocol-host-client.ts"
+    },
+    "./protocol-session-manager": {
+      "types": "./src/protocol-session-manager.ts",
+      "default": "./src/protocol-session-manager.ts"
     }
   },
   "scripts": {

@@ -6,6 +6,11 @@ node_modules/
 **/node_modules/
 dist/
 **/dist/
+.cache/
+**/bin/
+**/obj/
+packages/runtime/native/snowluma-lagrange-host-*
+packages/runtime/native/Lagrange.Core.LICENSE
 .vscode/
 .idea/
 

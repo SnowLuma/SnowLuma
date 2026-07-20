@@ -1,16 +1,17 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { AlertCircle, CheckCircle2, Cpu, Eye, Loader2, RefreshCw, Unplug } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Cpu, Eye, Loader2, QrCode, RefreshCw, Unplug, Wifi } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { ProcessProbeDialog } from '@/components/process-probe-dialog';
 import { cn } from '@/lib/utils';
-import type { HookProcessInfo } from '@/types';
+import type { HookProcessInfo, ProtocolSessionInfo } from '@/types';
 import { useAppState } from '@/contexts/AppStateContext';
 import { useLayout } from '@/contexts/LayoutContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useApi } from '@/lib/api';
 
 const SORT_OPTIONS: { id: string; label: string }[] = [
   { id: 'pid', label: 'PID' },
@@ -32,6 +33,15 @@ const processStatusLabel: Record<HookProcessInfo['status'], string> = {
   disconnected: '已断开',
 };
 
+const protocolStatusLabel: Record<ProtocolSessionInfo['status'], string> = {
+  starting: '启动中',
+  waiting_scan: '等待扫码',
+  waiting_confirm: '等待确认',
+  online: '已在线',
+  error: '登录失败',
+  disconnected: '已断开',
+};
+
 function processBadgeVariant(status: HookProcessInfo['status']) {
   if (status === 'online') return 'success' as const;
   if (status === 'error') return 'destructive' as const;
@@ -48,12 +58,56 @@ function processBadgeVariant(status: HookProcessInfo['status']) {
  * regardless of which page is mounted.
  */
 export function ProcessesPage() {
+  const api = useApi();
   const { processList, processOps, refreshProcesses } = useAppState();
   const { statusOf, banner: processActionStatus, load, unload, refresh } = processOps;
   const { pages, setPages } = useLayout();
   const off = useTheme().appearance.disableMotion;
   const [confirm, setConfirm] = useState<{ kind: 'load' | 'unload'; pid: number; name: string } | null>(null);
   const [probeDialog, setProbeDialog] = useState<{ pid: number; name: string } | null>(null);
+  const [protocolSessions, setProtocolSessions] = useState<ProtocolSessionInfo[]>([]);
+  const [protocolBusy, setProtocolBusy] = useState(false);
+  const [protocolError, setProtocolError] = useState('');
+
+  const refreshProtocolSessions = useCallback(async () => {
+    try {
+      setProtocolSessions(await api.protocolSessions.list());
+    } catch (error) {
+      setProtocolError(error instanceof Error ? error.message : '无法读取协议登录状态');
+    }
+  }, [api]);
+
+  useEffect(() => {
+    void refreshProtocolSessions();
+    const timer = window.setInterval(() => void refreshProtocolSessions(), 1500);
+    return () => window.clearInterval(timer);
+  }, [refreshProtocolSessions]);
+
+  const startProtocolLogin = async () => {
+    setProtocolBusy(true);
+    setProtocolError('');
+    try {
+      await api.protocolSessions.start();
+      await refreshProtocolSessions();
+    } catch (error) {
+      setProtocolError(error instanceof Error ? error.message : '启动内置协议失败');
+    } finally {
+      setProtocolBusy(false);
+    }
+  };
+
+  const stopProtocolLogin = async (id: string) => {
+    setProtocolBusy(true);
+    setProtocolError('');
+    try {
+      await api.protocolSessions.stop(id);
+      await refreshProtocolSessions();
+    } catch (error) {
+      setProtocolError(error instanceof Error ? error.message : '停止内置协议失败');
+    } finally {
+      setProtocolBusy(false);
+    }
+  };
 
   const sortKey = pages.processesSort;
   const sorted = useMemo(() => {
@@ -66,6 +120,70 @@ export function ProcessesPage() {
 
   return (
     <div className="flex flex-col gap-6">
+      <Card>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+          <div className="min-w-0">
+            <CardTitle className="flex items-center gap-2"><QrCode className="size-5" /> 内置协议登录</CardTitle>
+            <CardDescription>无需在本机安装或启动 QQ，使用手机 QQ 扫码建立独立协议会话</CardDescription>
+          </div>
+          <Button onClick={() => void startProtocolLogin()} disabled={protocolBusy}>
+            {protocolBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Wifi className="size-3.5" />}
+            新建扫码登录
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {protocolError && (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {protocolError}
+            </div>
+          )}
+          {protocolSessions.length === 0 ? (
+            <div className="rounded-xl border border-dashed py-8 text-center text-sm text-muted-foreground">
+              尚未创建内置协议会话
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              {protocolSessions.map((session) => (
+                <div key={session.id} className="flex flex-col gap-4 rounded-xl border bg-card/50 p-4 sm:flex-row sm:items-center">
+                  {session.qrCodeDataUrl && session.status !== 'online' ? (
+                    <img
+                      src={session.qrCodeDataUrl}
+                      alt="QQ 登录二维码"
+                      className="size-40 shrink-0 rounded-lg border bg-white p-2"
+                    />
+                  ) : (
+                    <div className={cn(
+                      'flex size-16 shrink-0 items-center justify-center rounded-xl',
+                      session.status === 'online' ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground',
+                    )}>
+                      {session.status === 'online' ? <CheckCircle2 className="size-7" /> : <QrCode className="size-7" />}
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">{session.uin ? `QQ ${session.uin}` : '等待登录'}</span>
+                      <Badge variant={session.status === 'online' ? 'success' : session.status === 'error' ? 'destructive' : 'default'}>
+                        {protocolStatusLabel[session.status]}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {session.status === 'waiting_scan' && '请使用手机 QQ 扫描二维码'}
+                      {session.status === 'waiting_confirm' && '已扫码，请在手机 QQ 中确认登录'}
+                      {session.status === 'starting' && '正在连接 QQ 登录服务器'}
+                      {session.status === 'online' && '协议会话已接入 SnowLuma 与 OneBot'}
+                      {(session.status === 'error' || session.status === 'disconnected') && (session.error || '会话已断开')}
+                    </p>
+                    <p className="truncate font-mono text-meta text-muted-foreground/70">{session.id}</p>
+                  </div>
+                  <Button variant="outline" size="sm" disabled={protocolBusy} onClick={() => void stopProtocolLogin(session.id)}>
+                    停止
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
           <div className="min-w-0">

@@ -14,6 +14,7 @@ import type {
   NotificationDeliveryRecord,
   NotificationsConfig,
   OneBotConfig,
+  ProtocolSessionInfo,
   QQInfo,
   SystemInfo,
   SystemSettings,
@@ -147,6 +148,12 @@ export interface ApiClient {
     unload(pid: number): Promise<ProcessActionResult>;
     refresh(pid: number): Promise<ProcessActionResult>;
     probeLoginInfo(pid: number): Promise<unknown>;
+  };
+
+  protocolSessions: {
+    list(): Promise<ProtocolSessionInfo[]>;
+    start(): Promise<{ success: boolean; session: ProtocolSessionInfo }>;
+    stop(id: string): Promise<{ success: boolean }>;
   };
 
   // ---- OneBotInstance per-UIN config ----

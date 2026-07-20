@@ -1,6 +1,6 @@
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
-import type { HookManager, HookProcessInfo } from '@snowluma/bridge';
+import type { HookManager, HookProcessInfo, ProtocolSessionManager } from '@snowluma/bridge';
 import { createLogger, getLogLevel, getRecentLogs, LOG_LEVELS, setLogLevel, subscribeLogs } from '@snowluma/common/logger';
 import {
   loadOneBotConfig,
@@ -417,7 +417,13 @@ export async function initWebUI(
   oneBotManager: OneBotManager,
   hookManager?: HookManager,
   notificationManager?: NotificationManager,
-  listener: { host?: string; tlsEnabled?: boolean; trustProxy?: string; stateBus?: StateBus } = {},
+  listener: {
+    host?: string;
+    tlsEnabled?: boolean;
+    trustProxy?: string;
+    stateBus?: StateBus;
+    protocolSessionManager?: ProtocolSessionManager;
+  } = {},
 ): Promise<{ port: number }> {
   // Resolve the client IP for per-IP rate limiting from the configured
   // trust-proxy directive (runtime.json `trustProxy`, env-overridable via
@@ -1154,6 +1160,41 @@ export async function initWebUI(
     } catch (err) {
       return c.json({ list: [], message: err instanceof Error ? err.message : String(err) }, 500);
     }
+  });
+
+  app.get('/api/protocol/sessions', (c) => {
+    const manager = listener.protocolSessionManager;
+    if (!manager) return c.json({ list: [] });
+    return c.json({
+      list: manager.listSessions().map((session) => {
+        const image = manager.getQrCode(session.id);
+        return {
+          ...session,
+          qrCodeDataUrl: image ? `data:image/png;base64,${image.toString('base64')}` : '',
+        };
+      }),
+    });
+  });
+
+  app.post('/api/protocol/sessions', async (c) => {
+    const manager = listener.protocolSessionManager;
+    if (!manager) return c.json({ success: false, message: 'protocol manager is not available' }, 503);
+    try {
+      return c.json({ success: true, session: await manager.startSession() });
+    } catch (err) {
+      log.warn('start protocol session failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '启动内置协议失败，请检查服务器日志' }, 500);
+    }
+  });
+
+  app.delete('/api/protocol/sessions/:id', async (c) => {
+    const manager = listener.protocolSessionManager;
+    if (!manager) return c.json({ success: false, message: 'protocol manager is not available' }, 503);
+    const id = c.req.param('id');
+    if (!/^[a-zA-Z0-9-]{1,64}$/.test(id)) return c.json({ success: false, message: 'invalid session id' }, 400);
+    return await manager.stopSession(id)
+      ? c.json({ success: true })
+      : c.json({ success: false, message: 'session not found' }, 404);
   });
 
   // Per-process action handler. The three routes below differ only in

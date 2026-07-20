@@ -42,11 +42,21 @@ jobs:
           node-version: '22'
           cache: 'pnpm'
 
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Run native smoke tests
         run: pnpm test:native
+
+      - name: Build embedded QQ protocol host
+        env:
+          SNOWLUMA_TARGET: ${{ matrix.target }}
+        run: pnpm build:lagrange
 
       # Always builds the WebUI flavor — no separate "core-only" artifact.
       - name: Build project
