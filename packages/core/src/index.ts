@@ -7,6 +7,7 @@ import { cleanupInvalidPerUinConfigs } from '@snowluma/onebot/config';
 import { BridgeManager } from './bridge/manager';
 import { createNotificationManager } from './notifications/manager';
 import { createStateWiring } from './webui/state-wiring';
+import { createProtocolSessionManager } from './protocol-host';
 
 const runtimeConfig = loadRuntimeConfig();
 const log = createLogger('App');
@@ -51,6 +52,7 @@ async function main() {
     autoLoadOnDiscovery,
     onSessionsChanged: stateWiring.onSessionsChanged,
   });
+  const protocolSessionManager = createProtocolSessionManager(bridgeManager);
   if (autoLoadOnDiscovery) {
     log.info('hook auto-load enabled: every discovered QQ process will be injected');
   }
@@ -74,6 +76,7 @@ async function main() {
         tlsEnabled: runtimeConfig.webuiTls?.enabled,
         trustProxy: runtimeConfig.trustProxy,
         stateBus: stateWiring.bus,
+        protocolSessionManager,
       });
     } catch (err) {
       log.error('Failed to start WebUI: ', err);
@@ -101,6 +104,10 @@ async function main() {
     try { hookManager.dispose(); } catch (error) {
       exitCode = 1;
       log.error('hook shutdown failed: %s', error instanceof Error ? (error.stack ?? error.message) : String(error));
+    }
+    try { protocolSessionManager.dispose(); } catch (error) {
+      exitCode = 1;
+      log.error('protocol host shutdown failed: %s', error instanceof Error ? (error.stack ?? error.message) : String(error));
     }
     try { stateWiring.dispose(); } catch (error) {
       exitCode = 1;

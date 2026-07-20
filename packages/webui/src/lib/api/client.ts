@@ -1,4 +1,4 @@
-import type { AccountConnections, BackupBundle, BackupImportResult, DebugActionDoc, DebugInvokeResult, DebugStreamMessage, GlobalSettings, HookProcessInfo, LogEntry, LogLevel, NotificationDeliveryRecord, NotificationsConfig, QQInfo, SystemInfo, SystemSettingsPatch, SystemSettingsResponse, UiAppearance, UiConfig, UpdateInfo } from '@/types';
+import type { AccountConnections, BackupBundle, BackupImportResult, DebugActionDoc, DebugInvokeResult, DebugStreamMessage, GlobalSettings, HookProcessInfo, LogEntry, LogLevel, NotificationDeliveryRecord, NotificationsConfig, ProtocolSessionInfo, QQInfo, SystemInfo, SystemSettingsPatch, SystemSettingsResponse, UiAppearance, UiConfig, UpdateInfo } from '@/types';
 import type { PasswordRule } from '@/components/pages/change-password-page';
 import { normalizeOneBotConfig } from '@/lib/onebot-config';
 import {
@@ -51,6 +51,7 @@ class HttpApiClient implements ApiClient {
 
   // namespaced surfaces are bound up-front so callers can destructure
   readonly processes: ApiClient['processes'];
+  readonly protocolSessions: ApiClient['protocolSessions'];
   readonly config: ApiClient['config'];
   readonly logs: ApiClient['logs'];
   readonly update: ApiClient['update'];
@@ -72,6 +73,14 @@ class HttpApiClient implements ApiClient {
       unload: (pid) => this.postJson<ProcessActionResult>(`/api/processes/${pid}/unload`),
       refresh: (pid) => this.postJson<ProcessActionResult>(`/api/processes/${pid}/refresh`),
       probeLoginInfo: (pid) => this.getJson<{ info: unknown }>(`/api/processes/${pid}/probe-login`).then((d) => d.info ?? null),
+    };
+
+    this.protocolSessions = {
+      list: () => this.getJson<{ list: ProtocolSessionInfo[] }>('/api/protocol/sessions').then((d) => d.list ?? []),
+      start: () => this.postJson<{ success: boolean; session: ProtocolSessionInfo }>('/api/protocol/sessions'),
+      stop: (id) => this.fetchJson<{ success: boolean }>(`/api/protocol/sessions/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      }),
     };
 
     this.config = {

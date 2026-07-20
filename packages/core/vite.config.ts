@@ -52,6 +52,8 @@ const runtimeDistFiles = ['package.json',
 //   * `websocket-*.node`                   – RFC 6455 framing/mask addon (all platforms).
 const nativeFiles = [
   `websocket-${targetTriple}.node`,
+  `snowluma-lagrange-host-${targetTriple}${targetPlatform === 'win32' ? '.exe' : ''}`,
+  'Lagrange.Core.LICENSE',
   ...(targetPlatform === 'win32'
     ? [`snowluma-${targetTriple}.dll`, `snowluma-${targetTriple}.node`]
     : []),
@@ -86,7 +88,8 @@ if (missingNatives.length > 0) {
 // Legal docs are served by the WebUI consent gate; a missing one would silently
 // disable consent in the shipped build, so fail the build instead (mirrors the
 // native-binary guard above).
-const missingAgreements = ['EULA.md', 'PRIVACY.md'].filter(
+const legalDocuments = ['EULA.md', 'PRIVACY.md', 'THIRD_PARTY_NOTICES.md'];
+const missingAgreements = legalDocuments.filter(
   (f) => !fs.existsSync(path.resolve(repoRoot, f)),
 );
 if (missingAgreements.length > 0) {
@@ -124,7 +127,7 @@ const BaseConfigPlugin: PluginOption[] = [
       },
       // Legal docs served verbatim by the WebUI consent gate. Copied next to
       // the bundle so consent.ts's path probe finds them in a packaged deploy.
-      ...['EULA.md', 'PRIVACY.md'].map((file) => ({
+      ...legalDocuments.map((file) => ({
         src: toPosix(path.resolve(repoRoot, file)),
         dest: distDir,
         flatten: true,

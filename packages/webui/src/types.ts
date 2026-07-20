@@ -57,6 +57,15 @@ export interface HookProcessInfo {
   method: string;
 }
 
+export interface ProtocolSessionInfo {
+  id: string;
+  status: 'starting' | 'waiting_scan' | 'waiting_confirm' | 'online' | 'error' | 'disconnected';
+  uin: string;
+  qrCodeUrl: string;
+  qrCodeDataUrl: string;
+  error: string;
+}
+
 export type MessageFormat = 'array' | 'string';
 export type WsRole = 'Api' | 'Event' | 'Universal';
 

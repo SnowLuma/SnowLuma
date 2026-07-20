@@ -10,6 +10,7 @@
     "build:sdk": "pnpm --filter @snowluma/sdk build",
     "build:webui": "pnpm --filter webui build",
     "build:mcp": "pnpm --filter @snowluma/mcp build",
+    "build:lagrange": "node tools/build-lagrange-host.mjs",
     "build:all": "pnpm --filter @snowluma/core build:all && pnpm --filter @snowluma/sdk build && pnpm --filter @snowluma/mcp build && pnpm --filter webui build",
     "dev": "pnpm --filter @snowluma/core dev",
     "dev:mode": "cd dist && cross-env SNOWLUMA_DEV_MODE=1 SNOWLUMA_DEV_WEBUI=1 node index.mjs",

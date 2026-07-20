@@ -1,0 +1,35 @@
+diff --git a/Lagrange.Core/Events/EventArgs/BotRawPacketEvent.cs b/Lagrange.Core/Events/EventArgs/BotRawPacketEvent.cs
+new file mode 100644
+index 00000000..5d5e12a5
+--- /dev/null
++++ b/Lagrange.Core/Events/EventArgs/BotRawPacketEvent.cs
+@@ -0,0 +1,10 @@
++using Lagrange.Core.Common.Entity;
++
++namespace Lagrange.Core.Events.EventArgs;
++
++public sealed class BotRawPacketEvent(BotSsoPacket packet) : EventBase
++{
++    public BotSsoPacket Packet { get; } = packet;
++
++    public override string ToEventMessage() => $"[{nameof(BotRawPacketEvent)}] {Packet.Command}";
++}
+diff --git a/Lagrange.Core/Internal/Context/PacketContext.cs b/Lagrange.Core/Internal/Context/PacketContext.cs
+index 6b4d33d1..46519b04 100644
+--- a/Lagrange.Core/Internal/Context/PacketContext.cs
++++ b/Lagrange.Core/Internal/Context/PacketContext.cs
+@@ -1,5 +1,6 @@
+ ﻿using System.Collections.Concurrent;
+ using Lagrange.Core.Common;
+ using Lagrange.Core.Common.Entity;
++using Lagrange.Core.Events.EventArgs;
+ using Lagrange.Core.Internal.Packets.Struct;
+ using Lagrange.Core.Services;
+@@ -118,6 +119,7 @@ internal class PacketContext
+         }
+         else
+         {
++            _context.EventInvoker.PostEvent(new BotRawPacketEvent(sso));
+             Task.Run(() => _context.EventContext.HandleServerPacket(sso));
+         }
+     }
