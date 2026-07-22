@@ -5,9 +5,14 @@ import type {
   OidbBase,
   OidbFriend,
   OidbFriendCategory,
+  OidbRobotUinRangeResponse,
   OidbSvcTrpcTcp0xFD4_1Response,
+  OidbSvcTrpcTcp0xFE7_3Response,
 } from '@snowluma/proto-defs/oidb';
-import type { OidbFriendListRequest } from '@snowluma/proto-defs/oidb-actions/base';
+import type {
+  OidbFriendListRequest,
+  OidbRobotUinRangeRequest,
+} from '@snowluma/proto-defs/oidb-actions/base';
 
 import { ContactsApi } from '../../src/bridge/apis/contacts';
 
@@ -51,6 +56,30 @@ function packet(body: OidbSvcTrpcTcp0xFD4_1Response): SendPacketResult {
     errorMessage: '',
     responseData: Buffer.from(
       protobuf_encode<OidbBase<OidbSvcTrpcTcp0xFD4_1Response>>({ body }),
+    ),
+  };
+}
+
+function robotRangePacket(body: OidbRobotUinRangeResponse): SendPacketResult {
+  return {
+    success: true,
+    gotResponse: true,
+    errorCode: 0,
+    errorMessage: '',
+    responseData: Buffer.from(
+      protobuf_encode<OidbBase<OidbRobotUinRangeResponse>>({ body }),
+    ),
+  };
+}
+
+function memberListPacket(body: OidbSvcTrpcTcp0xFE7_3Response): SendPacketResult {
+  return {
+    success: true,
+    gotResponse: true,
+    errorCode: 0,
+    errorMessage: '',
+    responseData: Buffer.from(
+      protobuf_encode<OidbBase<OidbSvcTrpcTcp0xFE7_3Response>>({ body }),
     ),
   };
 }
@@ -158,5 +187,93 @@ describe('apis/contacts / categorized friend roster', () => {
 
     await expect(api.fetchFriendCategories())
       .rejects.toThrow('repeated friend-list cookie aa');
+  });
+});
+
+describe('apis/contacts / robot group-member classification', () => {
+  it('loads QQ robot ranges once and marks every fetched member', async () => {
+    const rememberGroupMembers = vi.fn();
+    const sendRawPacket = vi.fn(async (cmd: string, _data: Uint8Array): Promise<SendPacketResult> => {
+      if (cmd === 'OidbSvcTrpcTcp.0x496_0') {
+        return robotRangePacket({
+          robotConfig: {
+            version: 206,
+            ranges: [{ minUin: 3_889_000_000n, maxUin: 3_889_999_999n }],
+          },
+        });
+      }
+      if (cmd === 'OidbSvcTrpcTcp.0xfe7_3') {
+        return memberListPacket({
+          groupUin: 42,
+          members: [
+            { uin: { uid: 'u_robot', uin: 3_889_054_356 }, memberName: 'robot' },
+            { uin: { uid: 'u_person', uin: 1_234_567_890 }, memberName: 'person' },
+          ],
+        });
+      }
+      throw new Error(`unexpected command: ${cmd}`);
+    });
+    const api = new ContactsApi({
+      sendRawPacket,
+      identity: { uin: '10001', rememberGroupMembers },
+    } as any);
+
+    const first = await api.fetchGroupMemberList(42);
+    const second = await api.fetchGroupMemberList(42, { force: true });
+
+    expect(first).toEqual([
+      expect.objectContaining({ uin: 3_889_054_356, isRobot: true }),
+      expect.objectContaining({ uin: 1_234_567_890, isRobot: false }),
+    ]);
+    expect(second).toEqual(first);
+    expect(rememberGroupMembers).toHaveBeenCalledWith(42, first);
+    expect(sendRawPacket.mock.calls.map(([cmd]) => cmd).sort()).toEqual([
+      'OidbSvcTrpcTcp.0x496_0',
+      'OidbSvcTrpcTcp.0xfe7_3',
+      'OidbSvcTrpcTcp.0xfe7_3',
+    ]);
+    expect(sendRawPacket.mock.calls.filter(([cmd]) => cmd === 'OidbSvcTrpcTcp.0x496_0'))
+      .toHaveLength(1);
+
+    const rangeCall = sendRawPacket.mock.calls.find(([cmd]) => cmd === 'OidbSvcTrpcTcp.0x496_0')!;
+    const request = protobuf_decode<OidbBase<OidbRobotUinRangeRequest>>(rangeCall[1]);
+    expect(request.body).toMatchObject({ justFetchMsgConfig: 1, type: 1 });
+  });
+
+  it('propagates an invalid range snapshot and retries it on the next fetch', async () => {
+    let rangeAttempts = 0;
+    const sendRawPacket = vi.fn(async (cmd: string, _data: Uint8Array): Promise<SendPacketResult> => {
+      if (cmd === 'OidbSvcTrpcTcp.0x496_0') {
+        rangeAttempts += 1;
+        return rangeAttempts === 1
+          ? robotRangePacket({})
+          : robotRangePacket({
+            robotConfig: {
+              version: 206,
+              ranges: [{ minUin: 3_889_000_000n, maxUin: 3_889_999_999n }],
+            },
+          });
+      }
+      if (cmd === 'OidbSvcTrpcTcp.0xfe7_3') {
+        return memberListPacket({
+          groupUin: 42,
+          members: [{ uin: { uid: 'u_robot', uin: 3_889_054_356 }, memberName: 'robot' }],
+        });
+      }
+      throw new Error(`unexpected command: ${cmd}`);
+    });
+    const rememberGroupMembers = vi.fn();
+    const api = new ContactsApi({
+      sendRawPacket,
+      identity: { uin: '10001', rememberGroupMembers },
+    } as any);
+
+    await expect(api.fetchGroupMemberList(42))
+      .rejects.toThrow('0x496_0 response missing robot range config');
+    await expect(api.fetchGroupMemberList(42))
+      .resolves.toEqual([expect.objectContaining({ isRobot: true })]);
+
+    expect(rangeAttempts).toBe(2);
+    expect(rememberGroupMembers).toHaveBeenCalledOnce();
   });
 });

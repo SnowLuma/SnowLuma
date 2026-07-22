@@ -46,6 +46,9 @@ function makeFriendMessage(): FriendMessage {
     senderUin: PEER_UIN,
     senderNick: 'peer',
     msgSeq: 11,
+    ntMsgSeq: 11,
+    clientSeq: 1011,
+    sequenceAuthoritative: true,
     msgId: 555,
     elements: [{ type: 'text', text: 'hi' }],
   };
@@ -76,6 +79,7 @@ function makeTempMessage(): TempMessage {
     groupId: GROUP_ID,
     senderNick: 'peer',
     msgSeq: 33,
+    ntMsgSeq: 33,
     elements: [{ type: 'text', text: 'temp' }],
   };
 }
@@ -113,7 +117,7 @@ function makeContext(extra: Partial<OneBotInstanceContext> = {}): {
     uin: SELF_UIN,
     selfId: SELF_ID,
     bridge: fakeBridge as never,
-    messageStore: {} as never,
+    messageStore: { isPrivateMessageRecalled: () => false } as never,
     mediaStore: {} as never,
     reactionStore: {
       recordAdd: () => {},
@@ -146,6 +150,7 @@ describe('registerEventPipeline', () => {
     expect(metaCalls[0].meta.targetId).toBe(PEER_UIN);
     expect(metaCalls[0].meta.sequence).toBe(11);
     expect(metaCalls[0].meta.sequenceAuthoritative).toBe(true);
+    expect(metaCalls[0].meta.clientSequence).toBe(1011);
     expect(metaCalls[0].meta.random).toBe(555);
 
     expect(dispatchCalls).toHaveLength(1);
@@ -206,6 +211,32 @@ describe('registerEventPipeline', () => {
     expect(metaCalls).toHaveLength(0);
     expect(dispatchCalls).toHaveLength(1);
     expect(dispatchCalls[0].notice_type).toBe('group_increase');
+  });
+
+  it('removes a recalled private message and reports its original OneBot id', async () => {
+    const recordPrivateRecall = vi.fn(() => -7654321);
+    const { ctx, bus, dispatchCalls } = makeContext({
+      messageStore: { recordPrivateRecall } as never,
+    });
+    registerEventPipeline(ctx);
+
+    await bus.emit({
+      kind: 'friend_recall',
+      time: 1700000001,
+      selfUin: SELF_ID,
+      userUin: PEER_UIN,
+      msgSeq: 1011,
+      clientSeq: 1011,
+      recalledBySelf: false,
+    } as QQEventVariant);
+
+    expect(recordPrivateRecall).toHaveBeenCalledWith(PEER_UIN, 1011, false, 1700000001);
+    expect(dispatchCalls).toHaveLength(1);
+    expect(dispatchCalls[0]).toMatchObject({
+      notice_type: 'friend_recall',
+      user_id: PEER_UIN,
+      message_id: -7654321,
+    });
   });
 
   it('returns a lifecycle handle that fully unsubscribes', async () => {
@@ -303,6 +334,32 @@ describe('registerEventPipeline', () => {
       && entry.message.includes('kind=friend_message')
       && entry.message.includes(marker)
     ))).toBe(true);
+  });
+
+  it('suppresses a friend message recalled while reply backfill is in flight', async () => {
+    let markBackfillStarted!: () => void;
+    const backfillStarted = new Promise<void>((resolve) => { markBackfillStarted = resolve; });
+    let releaseBackfill!: () => void;
+    const backfillGate = new Promise<void>((resolve) => { releaseBackfill = resolve; });
+    vi.mocked(backfillReplyTarget).mockImplementationOnce(async () => {
+      markBackfillStarted();
+      await backfillGate;
+    });
+    const isPrivateMessageRecalled = vi.fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    const { ctx, bus, dispatchCalls } = makeContext({
+      messageStore: { isPrivateMessageRecalled } as never,
+    });
+    registerEventPipeline(ctx);
+
+    const emitting = bus.emit(makeFriendMessage());
+    await backfillStarted;
+    releaseBackfill();
+    await emitting;
+
+    expect(isPrivateMessageRecalled).toHaveBeenCalledTimes(2);
+    expect(dispatchCalls).toHaveLength(0);
   });
 
   it('dispatches a separate event for every kind in parallel', async () => {

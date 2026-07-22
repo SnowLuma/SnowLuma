@@ -1,12 +1,17 @@
 // When an incoming message quotes one SnowLuma's store doesn't have, the
 // receive pipeline fetches just that message from the server (group →
-// getGroupMessageBySeq, c2c → getC2cMessageBySeq, both rate-limited) and
+// getGroupMessageBySeq, c2c → timestamp roam lookup, both rate-limited) and
 // persists it under the SAME id the reply resolves to, so a consumer's get_msg
 // on the quote hits. These tests cover the gating + keying of that back-fill.
 
 import { describe, expect, it, vi } from 'vitest';
 import { backfillReplyTarget } from '../src/modules/message-actions';
-import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from '../src/message-id';
+import {
+  GROUP_MESSAGE_EVENT,
+  PRIVATE_MESSAGE_EVENT,
+  PRIVATE_SENT_MESSAGE_EVENT,
+  hashMessageIdInt32,
+} from '../src/message-id';
 
 const SELF = 10001;
 
@@ -21,6 +26,7 @@ const converterCtx = {
 function fakeStore(has = false) {
   return {
     findEvent: vi.fn(() => (has ? ({ message_id: 1 } as any) : null)),
+    storeMeta: vi.fn(),
     storeEvent: vi.fn(),
   };
 }
@@ -45,7 +51,9 @@ function fetchedGroupMessage(msgSeq: number) {
 function fetchedFriendMessage(msgSeq: number, senderUin: number) {
   return {
     kind: 'friend_message', time: 1700000000, selfUin: SELF, senderUin,
-    senderNick: 'orig', msgSeq, msgId: 1, elements: [{ type: 'text', text: 'quoted' }],
+    peerUin: senderUin === SELF ? 448671521 : senderUin,
+    senderNick: 'orig', msgSeq, ntMsgSeq: msgSeq + 1000, clientSeq: msgSeq,
+    sequenceAuthoritative: true, msgId: 1, elements: [{ type: 'text', text: 'quoted' }],
   } as any;
 }
 
@@ -70,14 +78,14 @@ describe('backfillReplyTarget', () => {
 
   it('c2c: resolves the friend uid, fetches, and stores under the peer session', async () => {
     const store = fakeStore(false);
-    const getC2cMessageBySeq = vi.fn(async () => fetchedFriendMessage(456, 448671521));
+    const getC2cLatestHistory = vi.fn(async () => [fetchedFriendMessage(456, 448671521)]);
     const resolveUserUid = vi.fn(async () => 'u_friend');
     const ref = {
       selfId: SELF, converterCtx, messageStore: store,
-      bridge: { apis: { message: { getC2cMessageBySeq } }, resolveUserUid },
+      bridge: { apis: { message: { getC2cLatestHistory } }, resolveUserUid },
     } as any;
     const event = {
-      kind: 'friend_message', time: 1, selfUin: SELF, senderUin: 448671521,
+      kind: 'friend_message', time: 1700000100, selfUin: SELF, senderUin: 448671521,
       senderNick: '', msgSeq: 999, msgId: 2,
       elements: [{ type: 'reply', replySeq: 456 }, { type: 'text', text: '同意' }],
     } as any;
@@ -85,11 +93,18 @@ describe('backfillReplyTarget', () => {
     await backfillReplyTarget(ref, event);
 
     expect(resolveUserUid).toHaveBeenCalledWith(448671521);
-    expect(getC2cMessageBySeq).toHaveBeenCalledWith('u_friend', 456, SELF);
+    expect(getC2cLatestHistory).toHaveBeenCalledWith('u_friend', 20, SELF, 1700000101);
     const targetId = hashMessageIdInt32(456, 448671521, PRIVATE_MESSAGE_EVENT);
+    expect(store.storeMeta).toHaveBeenCalledWith(targetId, expect.objectContaining({
+      sequence: 1456,
+      clientSequence: 456,
+      privateDirection: 'incoming',
+      sequenceAuthoritative: true,
+    }));
     expect(store.storeEvent).toHaveBeenCalledWith(
-      targetId, false, 448671521, 456, PRIVATE_MESSAGE_EVENT,
+      targetId, false, 448671521, 1456, PRIVATE_MESSAGE_EVENT,
       expect.objectContaining({ message_id: targetId, message_type: 'private' }),
+      { sequenceAuthoritative: true },
     );
   });
 
@@ -98,35 +113,37 @@ describe('backfillReplyTarget', () => {
     // user_id=self, but must still be findable under hash(seq, peer, private),
     // which is what the incoming reply resolves to.
     const store = fakeStore(false);
-    const getC2cMessageBySeq = vi.fn(async () => fetchedFriendMessage(456, SELF));
+    const getC2cLatestHistory = vi.fn(async () => [fetchedFriendMessage(456, SELF)]);
     const ref = {
       selfId: SELF, converterCtx, messageStore: store,
-      bridge: { apis: { message: { getC2cMessageBySeq } }, resolveUserUid: vi.fn(async () => 'u_friend') },
+      bridge: { apis: { message: { getC2cLatestHistory } }, resolveUserUid: vi.fn(async () => 'u_friend') },
     } as any;
     const event = {
-      kind: 'friend_message', time: 1, selfUin: SELF, senderUin: 448671521,
+      kind: 'friend_message', time: 1700000100, selfUin: SELF, senderUin: 448671521,
       senderNick: '', msgSeq: 999, msgId: 2,
-      elements: [{ type: 'reply', replySeq: 456 }],
+      elements: [{ type: 'reply', replySeq: 456, replySenderUin: SELF }],
     } as any;
 
     await backfillReplyTarget(ref, event);
 
-    const targetId = hashMessageIdInt32(456, 448671521, PRIVATE_MESSAGE_EVENT);
+    const targetId = hashMessageIdInt32(456, 448671521, PRIVATE_SENT_MESSAGE_EVENT);
     expect(store.storeEvent).toHaveBeenCalledWith(
-      targetId, false, 448671521, 456, PRIVATE_MESSAGE_EVENT, expect.objectContaining({ message_id: targetId }),
+      targetId, false, 448671521, 1456, PRIVATE_SENT_MESSAGE_EVENT,
+      expect.objectContaining({ message_id: targetId }),
+      { sequenceAuthoritative: true },
     );
   });
 
   it('c2c: a self-sent reply echo backfills under the conversation peer', async () => {
     const peerUin = 448671521;
     const store = fakeStore(false);
-    const getC2cMessageBySeq = vi.fn(async () => fetchedFriendMessage(456, peerUin));
+    const getC2cLatestHistory = vi.fn(async () => [fetchedFriendMessage(456, peerUin)]);
     const ref = {
       selfId: SELF, converterCtx, messageStore: store,
-      bridge: { apis: { message: { getC2cMessageBySeq } }, resolveUserUid: vi.fn(async () => 'u_friend') },
+      bridge: { apis: { message: { getC2cLatestHistory } }, resolveUserUid: vi.fn(async () => 'u_friend') },
     } as any;
     const event = {
-      kind: 'friend_message', time: 1, selfUin: SELF, senderUin: SELF, peerUin,
+      kind: 'friend_message', time: 1700000100, selfUin: SELF, senderUin: SELF, peerUin,
       senderNick: '', msgSeq: 999, msgId: 2,
       elements: [{ type: 'reply', replySeq: 456 }],
     } as any;
@@ -135,8 +152,9 @@ describe('backfillReplyTarget', () => {
 
     const targetId = hashMessageIdInt32(456, peerUin, PRIVATE_MESSAGE_EVENT);
     expect(store.storeEvent).toHaveBeenCalledWith(
-      targetId, false, peerUin, 456, PRIVATE_MESSAGE_EVENT,
+      targetId, false, peerUin, 1456, PRIVATE_MESSAGE_EVENT,
       expect.objectContaining({ message_id: targetId, message_type: 'private' }),
+      { sequenceAuthoritative: true },
     );
   });
 

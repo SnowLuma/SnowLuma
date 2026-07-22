@@ -17,6 +17,7 @@ import type {
   QQEventVariant,
   TempMessage,
 } from '@snowluma/protocol/events';
+import { PRIVATE_SENT_MESSAGE_EVENT } from '../src/message-id';
 
 const SELF_ID = 10001;
 const PEER_UIN = 22222;
@@ -355,6 +356,7 @@ describe('convertEvent — message elements (13 segment types)', () => {
     const segments = await elementsToOneBotSegments(
       [element], false, PEER_UIN,
       ctx.imageUrlResolver, ctx.mediaUrlResolver, ctx.messageIdResolver, ctx.mediaSegmentSink,
+      ctx.selfId,
     );
     return segments[0] as unknown as Segment;
   }
@@ -434,6 +436,28 @@ describe('convertEvent — message elements (13 segment types)', () => {
       { messageIdResolver: () => 9999 },
     );
     expect(seg).toEqual({ type: 'reply', data: { id: '9999' } });
+  });
+
+  it('reply: self-sent private targets use the outgoing lookup namespace', async () => {
+    const calls: unknown[][] = [];
+    const seg = await segment(
+      { type: 'reply', replySeq: 5, replySenderUin: SELF_ID, replyTime: 1234 },
+      {
+        messageIdResolver: (...args) => {
+          calls.push(args);
+          return 9999;
+        },
+      },
+    );
+
+    expect(seg).toEqual({ type: 'reply', data: { id: '9999' } });
+    expect(calls[0]).toEqual([
+      false,
+      PEER_UIN,
+      5,
+      PRIVATE_SENT_MESSAGE_EVENT,
+      1234,
+    ]);
   });
 
   it('reply: replySeq=0 -> id "0", no resolver call', async () => {

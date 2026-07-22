@@ -19,6 +19,7 @@ export async function elementsToJson(
   mediaUrlResolver?: MediaUrlResolver | null,
   messageIdResolver?: MessageIdResolver | null,
   mediaSegmentSink?: MediaSegmentSink | null,
+  selfId = 0,
 ): Promise<JsonArray> {
   const result: JsonArray = [];
   for (const element of elements) {
@@ -27,7 +28,7 @@ export async function elementsToJson(
     try {
       result.push(await elementToSegment(
         element, isGroup, sessionId,
-        imageUrlResolver, mediaUrlResolver, messageIdResolver, mediaSegmentSink,
+        imageUrlResolver, mediaUrlResolver, messageIdResolver, mediaSegmentSink, selfId,
       ));
     } catch (err) {
       log.warn('segment convert skipped type=%s (%s)', element.type,
@@ -45,6 +46,7 @@ async function elementToSegment(
   mediaUrlResolver?: MediaUrlResolver | null,
   messageIdResolver?: MessageIdResolver | null,
   mediaSegmentSink?: MediaSegmentSink | null,
+  selfId = 0,
 ): Promise<JsonObject> {
   // S 收·转：按 element.type 查 codec 表；缺条目则走 default 透传（保持原兜底）。
   const codec = getElementCodec(element.type);
@@ -56,6 +58,7 @@ async function elementToSegment(
       mediaUrlResolver,
       messageIdResolver,
       mediaSegmentSink,
+      selfId,
     });
   }
   log.warn('segment convert fallback type=%s reason=no receive-side codec', element.type);

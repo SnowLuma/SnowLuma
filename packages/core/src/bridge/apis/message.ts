@@ -12,9 +12,14 @@ import type {
   SsoReadedReportResp,
 } from '@snowluma/proto-defs/oidb-actions/base';
 import { buildSendElems } from '@snowluma/protocol/element-builder';
+import { assertWindowShakeSendPolicy } from '@snowluma/protocol/element-manifest';
 import { FinalizeOfflineFile } from '@snowluma/protocol/oidb-services/group-file/finalize-offline-file';
 import type { MessageElement, QQEventVariant } from '@snowluma/protocol/events';
-import { fetchC2cMessageRange, fetchGroupMessageRange } from '@snowluma/protocol/msg-push';
+import {
+  fetchC2cMessageRange,
+  fetchC2cRoamMessagePage,
+  fetchGroupMessageRange,
+} from '@snowluma/protocol/msg-push';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { createLogger } from '@snowluma/common/logger';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
@@ -152,6 +157,7 @@ async function walkBackHistory<T extends { msgSeq: number }>(
   endSeq: number,
   count: number,
   fetchWindow: (startSeq: number, endSeq: number) => Promise<T[]>,
+  sequenceOf: (event: T) => number = (event) => event.msgSeq,
 ): Promise<T[]> {
   if (!(endSeq > 0)) return [];
   const want = Math.min(Math.max(1, Math.trunc(count) || 0), HISTORY_MAX_COUNT);
@@ -165,15 +171,19 @@ async function walkBackHistory<T extends { msgSeq: number }>(
     if (batch.length > 0) {
       let minSeq = curEnd;
       for (const ev of batch) {
-        collected.set(ev.msgSeq, ev);
-        if (ev.msgSeq < minSeq) minSeq = ev.msgSeq;
+        const sequence = sequenceOf(ev);
+        if (!Number.isInteger(sequence) || sequence < start || sequence > curEnd) {
+          throw new Error(`history response sequence is outside requested range ${start}-${curEnd}`);
+        }
+        collected.set(sequence, ev);
+        if (sequence < minSeq) minSeq = sequence;
       }
       curEnd = minSeq - 1; // strictly below the oldest returned (covers short caps)
     } else {
       curEnd = start - 1; // empty window (recalled/absent seqs) — skip past it
     }
   }
-  const all = [...collected.values()].sort((a, b) => a.msgSeq - b.msgSeq);
+  const all = [...collected.values()].sort((a, b) => sequenceOf(a) - sequenceOf(b));
   return all.slice(-want); // newest `want`, oldest→newest
 }
 
@@ -186,6 +196,7 @@ async function walkForwardHistory<T extends { msgSeq: number }>(
   startSeq: number,
   count: number,
   fetchWindow: (startSeq: number, endSeq: number) => Promise<T[]>,
+  sequenceOf: (event: T) => number = (event) => event.msgSeq,
 ): Promise<T[]> {
   if (!(startSeq > 0) || startSeq > HISTORY_MAX_SEQUENCE) return [];
   const want = Math.min(Math.max(1, Math.trunc(count) || 0), HISTORY_MAX_COUNT);
@@ -195,13 +206,13 @@ async function walkForwardHistory<T extends { msgSeq: number }>(
   let curStart = startSeq;
   while (budget.remaining > 0 && collected.size < want && curStart <= HISTORY_MAX_SEQUENCE) {
     const end = Math.min(HISTORY_MAX_SEQUENCE, curStart + HISTORY_CHUNK_SEQ - 1);
-    const window = await fetchForwardWindow(curStart, end, budget, fetchWindow);
-    for (const event of window.messages) collected.set(event.msgSeq, event);
+    const window = await fetchForwardWindow(curStart, end, budget, fetchWindow, sequenceOf);
+    for (const event of window.messages) collected.set(sequenceOf(event), event);
     if (!window.complete || end === HISTORY_MAX_SEQUENCE) break;
     curStart = end + 1;
   }
 
-  const all = [...collected.values()].sort((a, b) => a.msgSeq - b.msgSeq);
+  const all = [...collected.values()].sort((a, b) => sequenceOf(a) - sequenceOf(b));
   return all.slice(0, want);
 }
 
@@ -222,6 +233,7 @@ async function fetchForwardWindow<T extends { msgSeq: number }>(
   endSeq: number,
   budget: { remaining: number },
   fetchWindow: (startSeq: number, endSeq: number) => Promise<T[]>,
+  sequenceOf: (event: T) => number,
 ): Promise<ForwardWindowResult<T>> {
   if (budget.remaining <= 0) return { messages: [], complete: false };
 
@@ -230,17 +242,24 @@ async function fetchForwardWindow<T extends { msgSeq: number }>(
   const batch = await fetchWindow(startSeq, endSeq);
   if (batch.length === 0) return { messages: [], complete: true };
 
-  const messages = [...new Map(batch.map((event) => [event.msgSeq, event])).values()]
-    .sort((a, b) => a.msgSeq - b.msgSeq);
+  const messages = [...new Map(batch.map((event) => [sequenceOf(event), event])).values()]
+    .sort((a, b) => sequenceOf(a) - sequenceOf(b));
   for (const message of messages) {
-    if (!Number.isInteger(message.msgSeq) || message.msgSeq < startSeq || message.msgSeq > endSeq) {
+    const sequence = sequenceOf(message);
+    if (!Number.isInteger(sequence) || sequence < startSeq || sequence > endSeq) {
       throw new Error(`history response sequence is outside requested range ${startSeq}-${endSeq}`);
     }
   }
-  const firstSequence = messages[0]!.msgSeq;
+  const firstSequence = sequenceOf(messages[0]!);
   if (firstSequence === startSeq) return { messages, complete: true };
 
-  const prefix = await fetchForwardWindow(startSeq, firstSequence - 1, budget, fetchWindow);
+  const prefix = await fetchForwardWindow(
+    startSeq,
+    firstSequence - 1,
+    budget,
+    fetchWindow,
+    sequenceOf,
+  );
   if (!prefix.complete) return prefix;
   return { messages: [...prefix.messages, ...messages], complete: true };
 }
@@ -262,7 +281,11 @@ export class MessageApi {
   async sendGroup(groupId: number, elements: MessageElement[]): Promise<SendMessageReceipt> {
     if (elements.length === 0) throw new Error('message is empty');
 
-    const protoElems = await buildSendElems(elements, { bridge: this.ctx as unknown as Bridge, groupId });
+    const protoElems = await buildSendElems(elements, {
+      bridge: this.ctx as unknown as Bridge,
+      groupId,
+      scene: 'group',
+    });
     const random = this.ctx.nextMessageRandom();
 
     const request = protobuf_encode<SendMessageRequest>({
@@ -311,6 +334,11 @@ export class MessageApi {
    */
   async sendPrivate(userUin: number, elements: MessageElement[]): Promise<SendMessageReceipt> {
     if (elements.length === 0) throw new Error('message is empty');
+    assertWindowShakeSendPolicy(
+      elements.filter((element) => element.type === 'poke').length,
+      elements.length,
+      'direct-private',
+    );
 
     let userUid = '';
     const hasMedia = elements.some(e => e.type === 'image' || e.type === 'record' || e.type === 'video');
@@ -318,7 +346,11 @@ export class MessageApi {
       userUid = await this.ctx.resolveUserUid(userUin);
     }
 
-    const protoElems = await buildSendElems(elements, { bridge: this.ctx as unknown as Bridge, userUid });
+    const protoElems = await buildSendElems(elements, {
+      bridge: this.ctx as unknown as Bridge,
+      userUid,
+      scene: 'direct-private',
+    });
     const random = this.ctx.nextMessageRandom();
     const clientSeq = this.ctx.nextClientSequence();
 
@@ -379,9 +411,18 @@ export class MessageApi {
     elements: MessageElement[],
   ): Promise<SendMessageReceipt> {
     if (elements.length === 0) throw new Error('message is empty');
+    assertWindowShakeSendPolicy(
+      elements.filter((element) => element.type === 'poke').length,
+      elements.length,
+      'group-temp',
+    );
 
     const userUid = await this.ctx.resolveUserUid(userUin);
-    const protoElems = await buildSendElems(elements, { bridge: this.ctx as unknown as Bridge, userUid });
+    const protoElems = await buildSendElems(elements, {
+      bridge: this.ctx as unknown as Bridge,
+      userUid,
+      scene: 'group-temp',
+    });
     const random = this.ctx.nextMessageRandom();
     const clientSeq = this.ctx.nextClientSequence();
 
@@ -825,9 +866,78 @@ export class MessageApi {
     if (!friendUid) return [];
     const fetchWindow = (start: number, end: number) =>
       fetchC2cMessageRange(this.ctx, this.ctx.identity, selfUin, friendUid, start, end);
+    const serverSequence = (message: FriendMessage) => message.ntMsgSeq ?? 0;
     return reverseOrder
-      ? walkBackHistory(anchorSeq, count, fetchWindow)
-      : walkForwardHistory(anchorSeq, count, fetchWindow);
+      ? walkBackHistory(anchorSeq, count, fetchWindow, serverSequence)
+      : walkForwardHistory(anchorSeq, count, fetchWindow, serverSequence);
+  }
+
+  /**
+   * Fetch the latest private history page without relying on a locally cached
+   * sequence. C2C field-5 sequences are sender-local, so only SsoGetRoamMsg's
+   * timestamp cursor can safely bootstrap an unanchored conversation.
+   */
+  async getC2cLatestHistory(
+    friendUid: string,
+    count: number,
+    selfUin = 0,
+    beforeTime = Math.floor(Date.now() / 1000) + 1,
+  ): Promise<FriendMessage[]> {
+    if (!friendUid) return [];
+    const want = Math.min(Math.max(1, Math.trunc(count) || 0), HISTORY_MAX_COUNT);
+    const collected = new Map<number, FriendMessage>();
+    let cursor = { time: beforeTime, random: 0 };
+    const seenCursors = new Set<string>([`${cursor.time}:${cursor.random}`]);
+    let reachedEnd = false;
+
+    for (let i = 0; i < HISTORY_MAX_REQUESTS && collected.size < want; i++) {
+      await throttleHistory();
+      const page = await fetchC2cRoamMessagePage(
+        this.ctx,
+        this.ctx.identity,
+        selfUin,
+        friendUid,
+        cursor.time,
+        want - collected.size,
+        cursor.random,
+      );
+      for (const message of page.messages) {
+        const sequence = message.ntMsgSeq ?? 0;
+        if (!Number.isSafeInteger(sequence) || sequence <= 0) {
+          throw new Error(`private roam history returned invalid NT sequence ${String(sequence)}`);
+        }
+        collected.set(sequence, message);
+      }
+
+      if (collected.size >= want) break;
+      if (page.cursor.time === 0 && page.cursor.random === 0) {
+        reachedEnd = true;
+        break;
+      }
+      const nextCursorKey = `${page.cursor.time}:${page.cursor.random}`;
+      if (seenCursors.has(nextCursorKey)) {
+        if (page.messages.length === 0) {
+          reachedEnd = true;
+          break;
+        }
+        throw new Error(
+          `private roam history cursor did not advance from ${cursor.time}/${cursor.random}`,
+        );
+      }
+      seenCursors.add(nextCursorKey);
+      cursor = page.cursor;
+    }
+
+    if (collected.size < want && !reachedEnd) {
+      throw new Error(
+        `private roam history request budget exhausted after ${HISTORY_MAX_REQUESTS} pages `
+        + `(requested=${want}, collected=${collected.size})`,
+      );
+    }
+
+    return [...collected.values()]
+      .sort((a, b) => (a.ntMsgSeq ?? 0) - (b.ntMsgSeq ?? 0) || a.time - b.time)
+      .slice(-want);
   }
 
   /**
@@ -848,16 +958,16 @@ export class MessageApi {
   }
 
   /**
-   * Fetch a single c2c message by its exact sequence — `SsoGetC2cMsg` over a
-   * 1-wide `[seq, seq]` range, through the same throttle gate. `friendUid` is the
-   * conversation peer. Returns the matching `friend_message`, or null.
+   * Fetch a single c2c message by its exact conversation-wide NT sequence —
+   * `SsoGetC2cMsg` over a 1-wide `[seq, seq]` range, through the same throttle
+   * gate. Sender-local reply/recall sequences must not be passed here.
    */
   async getC2cMessageBySeq(friendUid: string, seq: number, selfUin = 0): Promise<FriendMessage | null> {
     if (!friendUid || !(seq > 0)) return null;
     await throttleHistory();
     try {
       const batch = await fetchC2cMessageRange(this.ctx, this.ctx.identity, selfUin, friendUid, seq, seq);
-      return batch.find((m) => m.msgSeq === seq) ?? null;
+      return batch.find((m) => m.ntMsgSeq === seq) ?? null;
     } catch {
       return null;
     }

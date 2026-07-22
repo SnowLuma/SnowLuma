@@ -39,6 +39,7 @@ function makeGroupMember(uin: number, uid: string): GroupMemberInfo {
     uid,
     nickname: '',
     card: '',
+    isRobot: false,
     role: 'member',
     level: 0,
     title: '',
@@ -780,6 +781,8 @@ describe('parseMsgPush Event0x210 subType=139 (self-recall direction)', () => {
     expect(event.kind).toBe('friend_recall');
     expect(event.userUin).toBe(77777);
     expect(event.msgSeq).toBe(4242);
+    expect(event.clientSeq).toBe(4242);
+    expect(event.recalledBySelf).toBe(false);
   });
 
   it('subType 139 picks toUid as the peer (we recalled our msg sent to friend)', () => {
@@ -791,6 +794,7 @@ describe('parseMsgPush Event0x210 subType=139 (self-recall direction)', () => {
 
     expect(event.kind).toBe('friend_recall');
     expect(event.userUin).toBe(77777); // resolved from toUid (the friend), not fromUid (us)
+    expect(event.recalledBySelf).toBe(true);
   });
 });
 

@@ -51,12 +51,13 @@ function makeGroup(): QQGroupInfo {
   };
 }
 
-function makeMember(uin: number, uid: string, card = ''): GroupMemberInfo {
+function makeMember(uin: number, uid: string, card = '', isRobot = false): GroupMemberInfo {
   return {
     uin,
     uid,
     nickname: `nick-${uin}`,
     card,
+    isRobot,
     role: 'member',
     level: 1,
     title: '',
@@ -94,6 +95,82 @@ describe('IdentityService', () => {
 
       identity.close();
     }
+  });
+
+  it('persists group member robot classification across restarts', () => {
+    const dbPath = tempDbPath('persist-robot');
+
+    {
+      const identity = new IdentityService(SELF_UIN, dbPath);
+      identity.rememberGroups([makeGroup()]);
+      identity.rememberGroupMembers(GROUP_ID, [makeMember(33333, 'u_robot', '', true)]);
+      identity.close();
+    }
+
+    {
+      const identity = new IdentityService(SELF_UIN, dbPath);
+      expect(identity.findGroupMember(GROUP_ID, 33333)?.isRobot).toBe(true);
+      identity.close();
+    }
+  });
+
+  it('migrates legacy member caches without inventing a robot classification', () => {
+    const dbPath = tempDbPath('migrate-robot');
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const legacy = new DatabaseSync(dbPath);
+    legacy.exec(`
+      CREATE TABLE users (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        uid        TEXT UNIQUE,
+        uin        INTEGER UNIQUE,
+        nickname   TEXT NOT NULL DEFAULT '',
+        remark     TEXT NOT NULL DEFAULT '',
+        is_friend  INTEGER NOT NULL DEFAULT 0,
+        source     TEXT NOT NULL DEFAULT '',
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE groups (
+        group_id     INTEGER PRIMARY KEY,
+        group_name   TEXT NOT NULL DEFAULT '',
+        remark       TEXT NOT NULL DEFAULT '',
+        member_count INTEGER NOT NULL DEFAULT 0,
+        member_max   INTEGER NOT NULL DEFAULT 0,
+        active       INTEGER NOT NULL DEFAULT 1,
+        updated_at   INTEGER NOT NULL
+      );
+      CREATE TABLE group_members (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_id       INTEGER NOT NULL,
+        uid            TEXT,
+        uin            INTEGER,
+        nickname       TEXT NOT NULL DEFAULT '',
+        card           TEXT NOT NULL DEFAULT '',
+        role           TEXT NOT NULL DEFAULT 'member',
+        level          INTEGER NOT NULL DEFAULT 0,
+        title          TEXT NOT NULL DEFAULT '',
+        join_time      INTEGER NOT NULL DEFAULT 0,
+        last_sent_time INTEGER NOT NULL DEFAULT 0,
+        shut_up_time   INTEGER NOT NULL DEFAULT 0,
+        active         INTEGER NOT NULL DEFAULT 1,
+        updated_at     INTEGER NOT NULL,
+        UNIQUE(group_id, uid),
+        UNIQUE(group_id, uin)
+      );
+      INSERT INTO groups (group_id, group_name, updated_at)
+      VALUES (${GROUP_ID}, 'legacy-group', 1);
+      INSERT INTO group_members (group_id, uid, uin, nickname, updated_at)
+      VALUES (${GROUP_ID}, 'u_legacy', 33333, 'legacy-member', 1);
+    `);
+    legacy.close();
+
+    const identity = new IdentityService(SELF_UIN, dbPath);
+    expect(identity.findGroupMember(GROUP_ID, 33333)?.isRobot).toBeUndefined();
+    identity.close();
+
+    const migrated = new DatabaseSync(dbPath);
+    const columns = migrated.prepare('PRAGMA table_info(group_members)').all() as Array<{ name: string }>;
+    expect(columns.map((column) => column.name)).toContain('is_robot');
+    migrated.close();
   });
 
   it('keeps updateGroupMember changes after reopening the persistent cache', () => {

@@ -1324,13 +1324,39 @@ describe('extended-actions / TierB ③ share + doubt + robot-option', () => {
 });
 
 // ─── napcat-parity: get_qun_album_list (QQ NT AlbumService) ───
+describe('extended-actions / get_group_album_list', () => {
+  it('returns the cover and last-upload metadata from the core facade', async () => {
+    const albumList = [{
+      id: 'a1',
+      name: '相册一',
+      picNum: 5,
+      createTime: 1700000000,
+      desc: '',
+      owner: '10001',
+      createuin: '10001',
+      createnickname: '测试用户',
+      last_upload_time: 1700000123,
+      cover: { type: 1, image: null },
+    }];
+    const list = vi.fn(async () => albumList);
+    const bridge = fakeBridge({ apis: { groupAlbum: { list } } });
+
+    const res = await makeHandler(fakeCtx(bridge)).handle('get_group_album_list', { group_id: 12345 });
+
+    expect(list).toHaveBeenCalledWith(12345);
+    expect(res).toMatchObject({ status: 'ok', data: albumList });
+  });
+});
+
 describe('extended-actions / get_qun_album_list', () => {
   it('forwards the pagination cursor and returns the native AlbumService envelope', async () => {
     const albumList = [{
       album_id: 'a1',
       name: '相册一',
       create_time: '1700000000',
+      last_upload_time: '1700000123',
       upload_number: '5',
+      cover: { type: 1, image: null },
       creator: { uin: '10001', nick: '😂[em]e328514[/em]' },
     }];
     const listQun = vi.fn(async () => ({

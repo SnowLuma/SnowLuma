@@ -11,7 +11,10 @@ import type {
 import type { FileExtra, PushMsg, PushMsgBody } from '@snowluma/proto-defs/message';
 import { buildSendElems } from '@snowluma/protocol/element-builder';
 import type { ForwardNodePayload, MessageElement, MessageElementOf } from '@snowluma/protocol/events';
-import { MessageElementValidationError } from '@snowluma/protocol/element-manifest';
+import {
+  assertWindowShakeSendPolicy,
+  MessageElementValidationError,
+} from '@snowluma/protocol/element-manifest';
 import { parseMsgPush } from '@snowluma/protocol/msg-push';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { randomUUID } from 'crypto';
@@ -106,10 +109,10 @@ async function buildForwardPushBody(
   // long-msg upload service stores the bytes verbatim and the
   // receiver decodes them through the normal msg-push path.
   const sendCtx = groupId !== undefined
-    ? { bridge, groupId, forwardFake: true }
+    ? { bridge, groupId, forwardFake: true, scene: 'forward' as const }
     : userUid
-      ? { bridge, userUid, forwardFake: true }
-      : { bridge, forwardFake: true };
+      ? { bridge, userUid, forwardFake: true, scene: 'forward' as const }
+      : { bridge, forwardFake: true, scene: 'forward' as const };
   const elems = await buildSendElems(node.elements, sendCtx);
   const now = Math.floor(Date.now() / 1000);
   const random = Math.floor(Math.random() * 0x7fffffff) >>> 0;
@@ -282,10 +285,24 @@ function assertPrivateForwardFileCapacity(nodes: ForwardNodePayload[]): void {
   }
 }
 
+function assertNoWindowShakeInForward(nodes: ForwardNodePayload[]): void {
+  for (const node of nodes) {
+    assertWindowShakeSendPolicy(
+      node.elements.filter((element) => element.type === 'poke').length,
+      node.elements.length,
+      'forward',
+    );
+    if (node.innerForward) assertNoWindowShakeInForward(node.innerForward);
+  }
+}
+
 export class ForwardApi {
   constructor(private readonly ctx: BridgeContext) { }
 
   async upload(nodes: ForwardNodePayload[], groupId?: number, userId?: number): Promise<string> {
+    // Reject the complete recursive tree before identity resolution, media
+    // upload, or long-message upload. Window shake has no forward wire form.
+    assertNoWindowShakeInForward(nodes);
     // A c2c RichText owns exactly one msgContent/FileExtra payload. Validate
     // the entire recursive tree before any file/media/long-message upload so a
     // second file cannot be uploaded and then silently discarded.

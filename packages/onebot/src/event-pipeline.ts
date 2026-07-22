@@ -3,9 +3,15 @@ import { renderParamsVerbose } from '@snowluma/common/log-summary';
 import type { QQEventVariant } from '@snowluma/protocol/events';
 import { convertEvent } from './event-converter';
 import type { OneBotInstanceContext } from './instance-context';
-import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from './message-id';
+import {
+  GROUP_MESSAGE_EVENT,
+  PRIVATE_MESSAGE_EVENT,
+  hashMessageIdInt32,
+  privateMessageEventName,
+} from './message-id';
 import { backfillReplyTarget } from './modules/message-actions';
 import { deliverPttTransText, pttTransKey } from './modules/ptt-trans-waiter';
+import type { MessageMeta } from './types';
 
 const moduleLog = createLogger('Event');
 
@@ -61,13 +67,33 @@ export function registerEventPipeline(ctx: OneBotInstanceContext): EventPipeline
   );
   disposers.push(
     ctx.bridge.events.on('friend_message', (event) => track(event.kind, async () => {
-      cachePrivateMessageMeta(ctx, event.peerUin ?? event.senderUin, event.msgSeq, event.time, event.msgId);
+      cachePrivateMessageMeta(
+        ctx,
+        event.peerUin ?? event.senderUin,
+        event.msgSeq,
+        event.ntMsgSeq ?? 0,
+        event.clientSeq ?? event.msgSeq,
+        event.time,
+        event.msgId,
+        event.sequenceAuthoritative !== false,
+        event.senderUin === ctx.selfId ? 'outgoing' : 'incoming',
+      );
       await convertAndDispatch(ctx, log, event);
     })),
   );
   disposers.push(
     ctx.bridge.events.on('temp_message', (event) => track(event.kind, async () => {
-      cachePrivateMessageMeta(ctx, event.senderUin, event.msgSeq, event.time, 0);
+      cachePrivateMessageMeta(
+        ctx,
+        event.senderUin,
+        event.msgSeq,
+        event.ntMsgSeq ?? 0,
+        event.clientSeq ?? 0,
+        event.time,
+        0,
+        event.sequenceAuthoritative !== false,
+        undefined,
+      );
       // Record this group temp session so a later reply is limited to sessions
       // the peer opened.
       ctx.tempSessions.record(event.senderUin, event.groupId);
@@ -80,7 +106,26 @@ export function registerEventPipeline(ctx: OneBotInstanceContext): EventPipeline
         if (event.kind === 'group_msg_emoji_like') {
           cacheReaction(ctx, event);
         }
-        await convertAndDispatch(ctx, log, event);
+        let messageIdOverride: number | undefined;
+        if (event.kind === 'friend_recall') {
+          const clientSequence = event.clientSeq ?? event.msgSeq;
+          const recalled = ctx.messageStore.recordPrivateRecall(
+            event.userUin,
+            clientSequence,
+            event.recalledBySelf === true,
+            event.time,
+          );
+          if (recalled !== null) {
+            messageIdOverride = recalled;
+          } else {
+            log.debug(
+              'friend recall cache miss peer=%d clientSeq=%d',
+              event.userUin,
+              clientSequence,
+            );
+          }
+        }
+        await convertAndDispatch(ctx, log, event, messageIdOverride);
       })),
     );
   }
@@ -143,19 +188,31 @@ const NOTICE_KINDS = [
   'group_msg_emoji_like',
 ] as const satisfies readonly QQEventVariant['kind'][];
 
-async function convertAndDispatch(ctx: OneBotInstanceContext, log: Logger, event: QQEventVariant): Promise<void> {
+async function convertAndDispatch(
+  ctx: OneBotInstanceContext,
+  log: Logger,
+  event: QQEventVariant,
+  messageIdOverride?: number,
+): Promise<void> {
   // Inbound choke point — the receive-side mirror of the outbound api-handler.
   // Correlate the whole receive chain (decode → convert, incl. any rkey-fetch
   // packets the conversion triggers, → dispatch) under one [req#N]. Only pay
   // the AsyncLocalStorage wrap + id when trace is actually live.
   if (getLogLevel() !== 'trace') {
-    await runConvertAndDispatch(ctx, log, event);
+    await runConvertAndDispatch(ctx, log, event, messageIdOverride);
     return;
   }
-  await runWithRequestId(nextRequestId(), () => runConvertAndDispatch(ctx, log, event));
+  await runWithRequestId(nextRequestId(), () => (
+    runConvertAndDispatch(ctx, log, event, messageIdOverride)
+  ));
 }
 
-async function runConvertAndDispatch(ctx: OneBotInstanceContext, log: Logger, event: QQEventVariant): Promise<void> {
+async function runConvertAndDispatch(
+  ctx: OneBotInstanceContext,
+  log: Logger,
+  event: QQEventVariant,
+  messageIdOverride?: number,
+): Promise<void> {
   // Raw inbound event, memory-only (trace). Lazy → the deep render runs only
   // when trace is live.
   log.trace(() => [`recv ${event.kind} ⇐ %s`, renderParamsVerbose(event)]);
@@ -165,6 +222,10 @@ async function runConvertAndDispatch(ctx: OneBotInstanceContext, log: Logger, ev
     log.trace(() => [`recv ${event.kind} ⇒ dropped (${Date.now() - startedAt}ms)`]);
     return;
   }
+  if (messageIdOverride !== undefined && event.kind === 'friend_recall') {
+    converted.message_id = messageIdOverride;
+  }
+  if (event.kind === 'friend_message' && isFriendMessageRecalled(ctx, log, event)) return;
   // If this message quotes one we don't have, fetch + persist it first (gated +
   // throttled) so a consumer's get_msg on the quote resolves. No-op for the
   // common case (no reply, or the quoted message is already stored). Never let a
@@ -180,6 +241,9 @@ async function runConvertAndDispatch(ctx: OneBotInstanceContext, log: Logger, ev
       error instanceof Error ? (error.stack ?? error.message) : String(error),
     );
   }
+  // Backfill can await several network/media operations. Re-check immediately
+  // before dispatch so a recall that arrived during that gap wins the race.
+  if (event.kind === 'friend_message' && isFriendMessageRecalled(ctx, log, event)) return;
   ctx.dispatchEvent(converted, 'bridge');
   log.trace(() => [`recv ${event.kind} ⇒ ${String(converted.post_type ?? '?')} (${Date.now() - startedAt}ms)`]);
 }
@@ -201,21 +265,62 @@ function cacheGroupMessageMeta(ctx: OneBotInstanceContext, event: Extract<QQEven
 function cachePrivateMessageMeta(
   ctx: OneBotInstanceContext,
   sessionId: number,
-  msgSeq: number,
+  messageSequence: number,
+  serverSequence: number,
+  clientSequence: number,
   timestamp: number,
   random: number,
+  sequenceAuthoritative: boolean,
+  privateDirection: MessageMeta['privateDirection'],
 ): void {
-  const messageId = hashMessageIdInt32(msgSeq, sessionId, PRIVATE_MESSAGE_EVENT);
+  const isFriendMessage = privateDirection !== undefined;
+  const hasNtSequence = isFriendMessage
+    && sequenceAuthoritative
+    && serverSequence > 0;
+  const eventName = isFriendMessage
+    ? privateMessageEventName(privateDirection === 'outgoing', hasNtSequence)
+    : PRIVATE_MESSAGE_EVENT;
+  const messageId = hashMessageIdInt32(
+    hasNtSequence ? serverSequence : messageSequence,
+    sessionId,
+    eventName,
+  );
   ctx.cacheMessageMeta(messageId, {
     isGroup: false,
     targetId: sessionId,
-    sequence: msgSeq,
-    sequenceAuthoritative: true,
-    eventName: PRIVATE_MESSAGE_EVENT,
-    clientSequence: 0,
+    sequence: serverSequence,
+    sequenceAuthoritative: sequenceAuthoritative && serverSequence > 0,
+    eventName,
+    clientSequence,
+    privateDirection,
     random,
     timestamp,
   });
+}
+
+function isFriendMessageRecalled(
+  ctx: OneBotInstanceContext,
+  log: Logger,
+  event: Extract<QQEventVariant, { kind: 'friend_message' }>,
+): boolean {
+  const peerUin = event.peerUin ?? event.senderUin;
+  const clientSequence = event.clientSeq ?? event.msgSeq;
+  const sentBySelf = event.senderUin === ctx.selfId;
+  const recalled = ctx.messageStore.isPrivateMessageRecalled(
+    peerUin,
+    clientSequence,
+    sentBySelf,
+    event.time,
+  );
+  if (recalled) {
+    log.debug(
+      'friend message suppressed by recall tombstone peer=%d clientSeq=%d self=%s',
+      peerUin,
+      clientSequence,
+      String(sentBySelf),
+    );
+  }
+  return recalled;
 }
 
 function cacheReaction(

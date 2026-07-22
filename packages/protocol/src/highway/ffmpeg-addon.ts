@@ -4,7 +4,10 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { createLogger } from '@snowluma/common/logger';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const log = createLogger('Highway.Audio');
 
 export interface FFmpegVideoInfo {
   width: number;
@@ -180,6 +183,25 @@ type AudioConvertAddon = Pick<FFmpegNativeAddon, 'decodeAudioToFmt'>;
  *  WAV/FLAC is a decompressing direction, so cap it even though real voices are
  *  tiny. Generous; overridable via deps. */
 const DEFAULT_MAX_AUDIO_OUTPUT = 256 * 1024 * 1024; // 256 MiB
+const SILK_V3_SIGNATURE = Buffer.from('#!SILK_V3', 'ascii');
+
+/**
+ * QQ AI voices use the same SILK payload as ordinary QQ voices but may carry
+ * a 0x03 container marker. The bundled decoder accepts the ordinary 0x02
+ * marker, so normalize this exact, observed container variant at the shared
+ * transcode boundary. Copy before rewriting to preserve caller-owned bytes.
+ */
+function normalizeQqAiSilkContainer(bytes: Uint8Array): Uint8Array {
+  if (bytes.length < SILK_V3_SIGNATURE.length + 1 || bytes[0] !== 0x03) return bytes;
+  for (let index = 0; index < SILK_V3_SIGNATURE.length; index += 1) {
+    if (bytes[index + 1] !== SILK_V3_SIGNATURE[index]) return bytes;
+  }
+
+  const normalized = Uint8Array.from(bytes);
+  normalized[0] = 0x02;
+  log.debug('normalized QQ AI SILK container for audio transcoding');
+  return normalized;
+}
 
 /**
  * Transcode raw audio bytes (a QQ voice SILK/AMR) to `format`, returning the
@@ -205,7 +227,7 @@ export async function convertAudioBytes(
   const outPath = path.join(dir, `${id}.${format}`);
   let outcome: PromiseSettledResult<{ base64: string; size: number }>;
   try {
-    await fs.promises.writeFile(inPath, bytes);
+    await fs.promises.writeFile(inPath, normalizeQqAiSilkContainer(bytes));
     await addon.decodeAudioToFmt(inPath, outPath, format);
     if (!fs.existsSync(outPath)) throw new Error('audio conversion failed: no output file');
     // Bound the output before reading it into memory (decompressing direction).

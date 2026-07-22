@@ -82,6 +82,23 @@ describe('MessageStore', () => {
       expect(resolvedWithDifferentSession).toBe(sequence);
     });
 
+    it('uses the sender-local sequence for private replies, not the NT history sequence', () => {
+      const messageId = -123456789;
+      store.storeMeta(messageId, {
+        isGroup: false,
+        targetId: 111111,
+        sequence: 63214,
+        sequenceAuthoritative: true,
+        eventName: PRIVATE_MESSAGE_EVENT,
+        clientSequence: 32743,
+        privateDirection: 'incoming',
+        random: 88,
+        timestamp: 1700000000,
+      });
+
+      expect(store.resolveReplySequence(false, 111111, messageId)).toBe(32743);
+    });
+
     it('returns null for non-existent message', () => {
       const resolved = store.resolveReplySequence(true, 123456, 999999);
       expect(resolved).toBeNull();
@@ -192,6 +209,32 @@ describe('MessageStore', () => {
       const retrieved = store.findMeta(999999);
       expect(retrieved).toBeNull();
     });
+
+    it('does not promote a non-authoritative sequence when event data arrives later', () => {
+      const messageId = 54322;
+      store.storeMeta(messageId, {
+        isGroup: false,
+        targetId: 123456,
+        sequence: 0,
+        sequenceAuthoritative: false,
+        eventName: PRIVATE_MESSAGE_EVENT,
+        clientSequence: 88,
+        random: 12,
+        timestamp: 1700000000,
+      });
+      store.storeEvent(messageId, false, 123456, 88, PRIVATE_MESSAGE_EVENT, {
+        time: 1700000000,
+        post_type: 'message',
+        message_type: 'private',
+        message_id: messageId,
+        message_seq: 88,
+      });
+
+      expect(store.findMeta(messageId)).toMatchObject({
+        sequenceAuthoritative: false,
+        clientSequence: 88,
+      });
+    });
   });
 
   describe('listSessionEvents', () => {
@@ -260,6 +303,7 @@ describe('MessageStore', () => {
       const legacy = new DatabaseSync(testDbPath);
       legacy.exec(`
         DROP TABLE messages;
+        DROP TABLE message_store_migrations;
         CREATE TABLE messages (
           message_hash    INTEGER PRIMARY KEY,
           is_group        INTEGER NOT NULL,
@@ -363,6 +407,11 @@ describe('MessageStore', () => {
         message: [{ type: 'text', data: { text: 'quoted private content' } }],
         sender: { user_id: 555, nickname: '', sex: 'unknown', age: 0 },
       }));
+      legacy.prepare(`
+        INSERT INTO messages
+          (message_hash, is_group, session_id, sequence, event_name, client_sequence, random, timestamp, data)
+        VALUES (9, 0, 555, 850, ?, 4455, 99, 1700000550, NULL)
+      `).run(PRIVATE_MESSAGE_EVENT);
       legacy.close();
 
       store = new MessageStore(testDbPath);
@@ -373,9 +422,226 @@ describe('MessageStore', () => {
       expect(store.findMeta(3)).toMatchObject({ sequenceAuthoritative: false });
       expect(store.findMeta(4)).toMatchObject({ sequenceAuthoritative: false });
       expect(store.findMeta(5)).toMatchObject({ sequenceAuthoritative: false });
-      expect(store.findLatestAuthoritativeSequence(false, 555)).toBe(800);
-      expect(store.findMeta(6)).toMatchObject({ sequenceAuthoritative: true });
+      // Pre-fix observed/fetched private rows contain sender-local field-5
+      // sequences and may not become anchors. A send receipt with a retained
+      // client sequence is already authoritative and remains usable.
+      expect(store.findLatestAuthoritativeSequence(false, 555)).toBe(850);
+      expect(store.findMeta(6)).toMatchObject({ sequenceAuthoritative: false });
       expect(store.findMeta(7)).toMatchObject({ sequenceAuthoritative: false });
+      expect(store.findMeta(9)).toMatchObject({ sequenceAuthoritative: true });
+
+      store.storeMeta(8, {
+        isGroup: false,
+        targetId: 555,
+        sequence: 900,
+        sequenceAuthoritative: true,
+        eventName: PRIVATE_MESSAGE_EVENT,
+        clientSequence: 1240,
+        random: 88,
+        timestamp: 1700000600,
+      });
+      expect(store.findLatestAuthoritativeSequence(false, 555)).toBe(900);
+    });
+  });
+
+  describe('private recall invalidation', () => {
+    it('removes the recalled cached event by peer and client sequence', () => {
+      const messageId = -123456789;
+      const peerId = 555;
+      store.storeMeta(messageId, {
+        isGroup: false,
+        targetId: peerId,
+        sequence: 63214,
+        sequenceAuthoritative: true,
+        eventName: PRIVATE_MESSAGE_EVENT,
+        clientSequence: 32743,
+        random: 88,
+        timestamp: 1700000600,
+      });
+      store.storeEvent(messageId, false, peerId, 63214, PRIVATE_MESSAGE_EVENT, {
+        time: 1700000600,
+        post_type: 'message',
+        message_type: 'private',
+        sub_type: 'friend',
+        message_id: messageId,
+        message_seq: 63214,
+        user_id: peerId,
+        message: [{ type: 'text', data: { text: '77' } }],
+      });
+      const selfMessageId = -22334455;
+      store.storeMeta(selfMessageId, {
+        isGroup: false,
+        targetId: peerId,
+        sequence: 73214,
+        sequenceAuthoritative: true,
+        eventName: PRIVATE_MESSAGE_EVENT,
+        clientSequence: 32743,
+        random: 99,
+        timestamp: 1700000601,
+      });
+      store.storeEvent(selfMessageId, false, peerId, 73214, PRIVATE_MESSAGE_EVENT, {
+        time: 1700000601,
+        post_type: 'message_sent',
+        message_type: 'private',
+        sub_type: 'friend',
+        message_id: selfMessageId,
+        message_seq: 32743,
+        user_id: 10001,
+        target_id: peerId,
+        message: [{ type: 'text', data: { text: 'self' } }],
+      });
+
+      expect(store.recordPrivateRecall(peerId, 32743, false, 1700000700)).toBe(messageId);
+      expect(store.findEvent(messageId)).toBeNull();
+      expect(store.findMeta(messageId)).toBeNull();
+      expect(store.findEvent(selfMessageId)).not.toBeNull();
+      expect(store.recordPrivateRecall(peerId, 32743, false, 1700000700)).toBeNull();
+      expect(store.recordPrivateRecall(peerId, 32743, true, 1700000700)).toBe(selfMessageId);
+    });
+
+    it('prevents a recalled message from being stored after a meta-only race', () => {
+      const messageId = -123456789;
+      const peerId = 555;
+      store.storeMeta(messageId, {
+        isGroup: false,
+        targetId: peerId,
+        sequence: 63214,
+        sequenceAuthoritative: true,
+        eventName: PRIVATE_MESSAGE_EVENT,
+        clientSequence: 32743,
+        privateDirection: 'incoming',
+        random: 88,
+        timestamp: 1700000600,
+      });
+
+      expect(store.recordPrivateRecall(peerId, 32743, false, 1700000700)).toBe(messageId);
+      store.storeEvent(messageId, false, peerId, 63214, PRIVATE_MESSAGE_EVENT, {
+        time: 1700000600,
+        post_type: 'message',
+        message_type: 'private',
+        sub_type: 'friend',
+        message_id: messageId,
+        message_seq: 32743,
+        user_id: peerId,
+      });
+
+      expect(store.findEvent(messageId)).toBeNull();
+      expect(store.findMeta(messageId)).toBeNull();
+    });
+
+    it('prevents an outgoing self-sent event from reviving after its meta is recalled', () => {
+      const messageId = -22334455;
+      const peerId = 555;
+      store.storeMeta(messageId, {
+        isGroup: false,
+        targetId: peerId,
+        sequence: 73214,
+        sequenceAuthoritative: true,
+        eventName: PRIVATE_MESSAGE_EVENT,
+        clientSequence: 32743,
+        privateDirection: 'outgoing',
+        random: 99,
+        timestamp: 1700000600,
+      });
+
+      expect(store.recordPrivateRecall(peerId, 32743, true, 1700000700)).toBe(messageId);
+      store.storeEvent(messageId, false, peerId, 73214, PRIVATE_MESSAGE_EVENT, {
+        time: 1700000600,
+        post_type: 'message_sent',
+        message_type: 'private',
+        sub_type: 'friend',
+        message_id: messageId,
+        message_seq: 32743,
+        user_id: 10001,
+        target_id: peerId,
+      });
+
+      expect(store.findEvent(messageId)).toBeNull();
+      expect(store.findMeta(messageId)).toBeNull();
+    });
+
+    it('does not delete a later message that reused the recalled client sequence', () => {
+      const peerId = 555;
+      const clientSequence = 32743;
+      const oldMessageId = -123456789;
+      const futureMessageId = -22334455;
+      const storePrivate = (messageId: number, ntSequence: number, timestamp: number) => {
+        store.storeMeta(messageId, {
+          isGroup: false,
+          targetId: peerId,
+          sequence: ntSequence,
+          sequenceAuthoritative: true,
+          eventName: PRIVATE_MESSAGE_EVENT,
+          clientSequence,
+          privateDirection: 'incoming',
+          random: ntSequence,
+          timestamp,
+        });
+        store.storeEvent(messageId, false, peerId, ntSequence, PRIVATE_MESSAGE_EVENT, {
+          time: timestamp,
+          post_type: 'message',
+          message_type: 'private',
+          sub_type: 'friend',
+          message_id: messageId,
+          message_seq: clientSequence,
+          user_id: peerId,
+        });
+      };
+      storePrivate(oldMessageId, 63214, 600);
+      storePrivate(futureMessageId, 73214, 800);
+
+      expect(store.findPrivateMessageId(peerId, clientSequence, false, 700)).toBe(oldMessageId);
+      expect(store.recordPrivateRecall(peerId, clientSequence, false, 700)).toBe(oldMessageId);
+      expect(store.findEvent(oldMessageId)).toBeNull();
+      expect(store.findEvent(futureMessageId)).not.toBeNull();
+      expect(store.findPrivateMessageId(peerId, clientSequence, false)).toBe(futureMessageId);
+    });
+
+    it('keeps the opposite direction when sender-local sequences collide', () => {
+      const peerId = 555;
+      store.recordPrivateRecall(peerId, 32743, false, 1700000700);
+      store.storeEvent(-22334455, false, peerId, 73214, PRIVATE_MESSAGE_EVENT, {
+        time: 1700000601,
+        post_type: 'message_sent',
+        message_type: 'private',
+        sub_type: 'friend',
+        message_id: -22334455,
+        message_seq: 32743,
+        user_id: 10001,
+        target_id: peerId,
+      });
+
+      expect(store.findEvent(-22334455)).not.toBeNull();
+    });
+
+    it('rejects invalid recall identifiers instead of treating them as cache misses', () => {
+      expect(() => store.recordPrivateRecall(0, 32743, false, 1700000700))
+        .toThrow('invalid private recall peer');
+      expect(() => store.recordPrivateRecall(555, 0, false, 1700000700))
+        .toThrow('invalid private recall client sequence');
+    });
+  });
+
+  it('lets a real group event replace an older non-authoritative placeholder', () => {
+    const groupId = 123456;
+    store.storeEvent(123, true, groupId, 99, GROUP_MESSAGE_EVENT, {
+      post_type: 'message',
+      message_type: 'group',
+      group_id: groupId,
+      message_id: 123,
+      message_seq: 99,
+    }, { sequenceAuthoritative: false });
+    store.storeEvent(123, true, groupId, 100, GROUP_MESSAGE_EVENT, {
+      post_type: 'message',
+      message_type: 'group',
+      group_id: groupId,
+      message_id: 123,
+      message_seq: 100,
+    });
+
+    expect(store.findMeta(123)).toMatchObject({
+      sequence: 100,
+      sequenceAuthoritative: true,
     });
   });
 

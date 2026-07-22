@@ -602,23 +602,16 @@ describe('parseMessage', () => {
       expect(result[0].faceId).toBe(358);
     });
 
-    it('rejects shake/poke with a dedicated-Action hint', async () => {
+    it('parses poke and the legacy shake alias as window-shake elements', async () => {
+      await expect(parseMessage(
+        [{ type: 'poke', data: { type: 1 } }] as any,
+        false,
+      )).resolves.toEqual([{ type: 'poke', subType: 1 }]);
+
       await expect(parseMessage(
         [{ type: 'shake', data: {} }] as any,
         false,
-      )).rejects.toMatchObject({
-        code: 'UNSENDABLE_TYPE',
-        elementType: 'poke',
-        message: expect.stringContaining('dedicated poke Action'),
-      });
-
-      await expect(parseMessage(
-        [{ type: 'poke', data: { type: 7 } }] as any,
-        false,
-      )).rejects.toMatchObject({
-        code: 'UNSENDABLE_TYPE',
-        elementType: 'poke',
-      });
+      )).resolves.toEqual([{ type: 'poke', subType: 1 }]);
     });
 
     it('rejects anonymous because it has no executable send semantics', async () => {

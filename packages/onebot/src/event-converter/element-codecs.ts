@@ -13,6 +13,7 @@ import type {
   MessageIdResolver,
   MediaSegmentSink,
 } from './index';
+import { GROUP_MESSAGE_EVENT, privateMessageEventName } from '../message-id';
 import { resolveReplyId } from './utils';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -36,6 +37,7 @@ const log = createLogger('MsgParser');
 export interface ToSegmentContext {
   isGroup: boolean;
   sessionId: number;
+  selfId: number;
   imageUrlResolver?: ImageUrlResolver | null;
   mediaUrlResolver?: MediaUrlResolver | null;
   messageIdResolver?: MessageIdResolver | null;
@@ -182,7 +184,22 @@ export const ELEMENT_CODECS = {
 
   reply: {
     async toSegment(element, ctx) {
-      const id = resolveReplyId(ctx.isGroup, ctx.sessionId, element.replySeq ?? 0, ctx.messageIdResolver);
+      const sentBySelf = !ctx.isGroup
+        && ctx.selfId > 0
+        && element.replySenderUin === ctx.selfId;
+      const eventName = ctx.isGroup
+        ? GROUP_MESSAGE_EVENT
+        : privateMessageEventName(sentBySelf, false);
+      const id = resolveReplyId(
+        ctx.isGroup,
+        ctx.sessionId,
+        element.replySeq ?? 0,
+        ctx.messageIdResolver,
+        eventName,
+        element.replyTime && element.replyTime > 0
+          ? element.replyTime
+          : Number.MAX_SAFE_INTEGER,
+      );
       return { type: 'reply', data: { id: String(id) } };
     },
     async fromSegment(data, options) {

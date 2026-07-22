@@ -52,6 +52,10 @@ export interface ContentHead {
   sequence?:  pb<5, uint_32>;
   timestamp?: pb<6, uint_32>;
   field7?:    pb<7, uint_64>;
+  /** Conversation-wide C2C sequence. Unlike field 5, this advances across
+   *  messages sent by either participant and is the sequence accepted by
+   *  SsoGetC2cMsg. It is absent on group messages. */
+  ntMsgSeq?:  pb<11, uint_32>;
   newId?:     pb<12, uint_64>;
 }
 

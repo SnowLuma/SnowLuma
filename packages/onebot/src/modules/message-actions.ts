@@ -6,8 +6,16 @@ import type { MessageSendResult } from '../api-handler';
 import { convertEvent, elementsToOneBotSegments, type ConverterContext } from '../event-converter';
 import { segmentsToRawMessage } from '../helper/cq';
 import type { OneBotInstanceContext } from '../instance-context';
-import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from '../message-id';
-import { MessageElementValidationError, parseMessage } from '../message-parser';
+import {
+  GROUP_MESSAGE_EVENT,
+  hashMessageIdInt32,
+  privateMessageEventName,
+} from '../message-id';
+import {
+  assertWindowShakeMessageInput,
+  MessageElementValidationError,
+  parseMessage,
+} from '../message-parser';
 import type { MessageStore } from '../message-store';
 import { sameSelfSentMessage } from '../self-sent-event';
 import { hasAuthoritativeSequence, type JsonArray, type JsonObject, type JsonValue, type MessageMeta } from '../types';
@@ -219,11 +227,12 @@ export async function getGroupHistory(
 
 /**
  * Private (c2c) history — the same server-fetch + persist pattern as
- * {@link getGroupHistory}, but via `SsoGetC2cMsg` (peer = the friend's UID,
- * resolved from the uin). The anchor is the message_id's sequence (any side of
- * the conversation) or the latest observed inbound message. Direction applies
- * only to an explicit anchor; an unanchored request keeps latest-page behavior.
- * Falls back to the local store on unknown anchor / no uid / empty / error.
+ * {@link getGroupHistory}. Explicit anchors use `SsoGetC2cMsg`; unanchored
+ * latest-page requests use `SsoGetRoamMsg`, because C2C field-5 sequences are
+ * sender-local and cannot safely bootstrap a conversation. Falls back to the
+ * local store only when an explicit message id cannot supply a safe server
+ * anchor. Server and UID failures are surfaced instead of returning a partial
+ * local conversation as a successful response.
  */
 export async function getFriendHistory(
   ref: HistoryRef,
@@ -253,77 +262,81 @@ export async function getFriendHistory(
       return getFriendMsgHistory(ref.messageStore, userId, messageId, count, reverseOrder);
     }
     anchorSeq = meta.sequence;
-  } else {
-    // Current rows are keyed by conversation peer, so the latest local anchor
-    // covers both incoming and self-sent messages. Legacy sender-keyed rows are
-    // repaired when they are fetched through an explicit anchor.
-    anchorSeq = ref.messageStore.findLatestAuthoritativeSequence(false, userId) ?? 0;
   }
   log.debug(
-    'friend history anchor selected: user=%d source=%s anchorSeq=%d',
+    'friend history source selected: user=%d source=%s anchorSeq=%d',
     userId,
-    hasAnchor ? 'message_id' : 'latest_authoritative',
+    hasAnchor ? 'message_id' : 'roam',
     anchorSeq,
   );
 
-  if (anchorSeq > 0) {
-    try {
-      const friendUid = await ref.bridge.resolveUserUid(userId);
-      if (friendUid) {
-        const events = await ref.bridge.apis.message.getC2cHistory(
-          friendUid,
-          anchorSeq,
-          want,
-          ref.selfId,
-          effectiveReverseOrder,
-        );
-        const out: JsonObject[] = [];
-        for (const ev of events) {
-          // The action itself identifies the conversation even when an older
-          // QQ response omits ResponseHead.toUin on a self-sent row.
-          if (!ev.peerUin || ev.peerUin <= 0) ev.peerUin = userId;
-          const json = await convertEvent(ref.converterCtx, ev);
-          if (!json || json.message_type !== 'private') continue;
-          // Private history is scoped by the requested peer, while user_id is
-          // the sender and therefore equals selfId for outgoing messages.
-          // Preserve the peer explicitly so later local pagination can keep
-          // both sides of the conversation together.
-          if (json.post_type === 'message_sent' && toHistInt(json.target_id) === 0) {
-            json.target_id = userId;
-          }
-          persistHistoryEvent(ref.messageStore, json, userId);
-          out.push(sanitizeMessageEventForApi(json));
-        }
-        if (out.length > 0) return out;
-        log.debug(
-          'friend history server fetch returned no usable messages: user=%d anchorSeq=%d count=%d; using local store',
-          userId,
-          anchorSeq,
-          want,
-        );
-      }
-    } catch (err) {
-      log.warn(
-        'friend history server fetch failed: user=%d anchorSeq=%d count=%d reverseOrder=%s error=%s; using local store',
-        userId,
-        anchorSeq,
-        want,
-        String(effectiveReverseOrder),
-        err instanceof Error ? err.message : String(err),
-      );
-    }
+  const friendUid = await ref.bridge.resolveUserUid(userId);
+  if (!friendUid) {
+    throw new Error(`friend history cannot resolve uid for user ${userId}`);
   }
-
-  return getFriendMsgHistory(ref.messageStore, userId, messageId, count, reverseOrder);
+  const events = hasAnchor
+    ? await ref.bridge.apis.message.getC2cHistory(
+      friendUid,
+      anchorSeq,
+      want,
+      ref.selfId,
+      effectiveReverseOrder,
+    )
+    : await ref.bridge.apis.message.getC2cLatestHistory(friendUid, want, ref.selfId);
+  const out: JsonObject[] = [];
+  for (const ev of events) {
+    // The action itself identifies the conversation even when an older
+    // QQ response omits ResponseHead.toUin on a self-sent row.
+    if (!ev.peerUin || ev.peerUin <= 0) ev.peerUin = userId;
+    const clientSequence = ev.clientSeq ?? ev.msgSeq;
+    const sentBySelf = ev.senderUin === ref.selfId;
+    const json = await convertEvent(ref.converterCtx, ev);
+    if (!json || json.message_type !== 'private') continue;
+    // Conversion can await media resolution, so consult the tombstone only
+    // after it settles. From this check through persistence/return there is no
+    // async gap in which a recall could race past us.
+    if (ref.messageStore.isPrivateMessageRecalled(
+      userId,
+      clientSequence,
+      sentBySelf,
+      ev.time,
+    )) {
+      log.debug(
+        'friend history omitted recalled message: user=%d clientSeq=%d self=%s',
+        userId,
+        clientSequence,
+        String(sentBySelf),
+      );
+      continue;
+    }
+    // Private history is scoped by the requested peer, while user_id is
+    // the sender and therefore equals selfId for outgoing messages.
+    if (json.post_type === 'message_sent' && toHistInt(json.target_id) === 0) {
+      json.target_id = userId;
+    }
+    persistHistoryEvent(ref.messageStore, json, userId, ev);
+    out.push(sanitizeMessageEventForApi(json));
+  }
+  log.debug(
+    'friend history server fetch complete: user=%d source=%s anchorSeq=%d requested=%d returned=%d',
+    userId,
+    hasAnchor ? 'message_id' : 'roam',
+    anchorSeq,
+    want,
+    out.length,
+  );
+  return out;
 }
 
 /**
  * Back-fill the message a freshly-received reply points to, when the local store
  * doesn't have the full event (e.g. a message from before SnowLuma was running,
- * or one it never observed). Fetches just the quoted message from the server —
- * group via `SsoGetGroupMsg`, c2c via `SsoGetC2cMsg`, both through the shared
+ * or one it never observed). Fetches the quoted message from the server —
+ * group via `SsoGetGroupMsg`, C2C via timestamp roaming, both through the shared
  * history throttle gate — and persists it under the SAME id the reply resolves
- * to, so a subsequent `get_msg` (or quote lookup) hits.
+ * to, so a subsequent `get_msg` (or quote lookup) hits. Private replies carry
+ * the quoted sender's local sequence, so they are matched through a timestamp
+ * roam page rather than incorrectly used as an NT-sequence range anchor.
  *
  * No-op when: the event isn't a group/friend message, has no reply, the target
  * is already stored, the uid can't be resolved, the fetch returns nothing, or
@@ -347,15 +360,29 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
   const replySeq = reply?.replySeq ?? 0;
   if (replySeq <= 0) return;
 
-  const eventName = isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT;
-  const targetId = hashMessageIdInt32(replySeq, session, eventName);
+  const quotedSender = reply?.replySenderUin ?? (isGroup ? 0 : session);
+  const eventName = isGroup
+    ? GROUP_MESSAGE_EVENT
+    : privateMessageEventName(quotedSender === ref.selfId, false);
+  const resolvedId = ref.converterCtx.messageIdResolver?.(
+    isGroup,
+    session,
+    replySeq,
+    eventName,
+    reply?.replyTime && reply.replyTime > 0
+      ? reply.replyTime
+      : Number.MAX_SAFE_INTEGER,
+  );
+  const targetId = Number.isInteger(resolvedId) && resolvedId !== 0
+    ? resolvedId as number
+    : hashMessageIdInt32(replySeq, session, eventName);
   if (ref.messageStore.findEvent(targetId)) return; // Tier 0: already have the full event
 
   // Tier 1: fetch the quoted message from the server, keyed under the exact id
-  // the reply resolves to (replySeq is origSeqs[0] == the quoted message's own
-  // head.sequence, so this matches how it was/would be stored). A c2c message
-  // the bot itself sent converts with user_id=self but is still keyed under the
-  // reply's session (the peer), so get_msg(targetId) hits.
+  // the reply resolves to. Groups can query `replySeq` directly. C2C replies
+  // carry a sender-local client sequence, while SsoGetC2cMsg ranges use the
+  // conversation-wide NT sequence; use the quote time as a roam cursor and
+  // match both direction and client sequence instead.
   try {
     let fetched: GroupMessage | FriendMessage | null = null;
     if (isGroup) {
@@ -363,14 +390,57 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
     } else {
       const friendUid = await ref.bridge.resolveUserUid(session);
       if (friendUid) {
-        fetched = await ref.bridge.apis.message.getC2cMessageBySeq(friendUid, replySeq, ref.selfId);
+        const quoteTime = reply?.replyTime && reply.replyTime > 0
+          ? reply.replyTime
+          : event.time;
+        const beforeTime = Math.min(0xffff_ffff, Math.max(1, quoteTime + 1));
+        const candidates = await ref.bridge.apis.message.getC2cLatestHistory(
+          friendUid,
+          20,
+          ref.selfId,
+          beforeTime,
+        );
+        const quotedSentBySelf = quotedSender === ref.selfId;
+        fetched = [...candidates].reverse().find((candidate) => (
+          (candidate.clientSeq ?? candidate.msgSeq) === replySeq
+          && (candidate.senderUin === ref.selfId) === quotedSentBySelf
+          && (!reply?.replyTime || candidate.time <= reply.replyTime)
+        )) ?? null;
       }
     }
     if (fetched) {
       const json = await convertEvent(ref.converterCtx, fetched);
       if (json) {
         json.message_id = targetId;
-        ref.messageStore.storeEvent(targetId, isGroup, session, replySeq, eventName, json);
+        if (fetched.kind === 'group_message') {
+          ref.messageStore.storeEvent(targetId, true, session, replySeq, eventName, json);
+        } else {
+          const serverSequence = fetched.ntMsgSeq ?? 0;
+          const sequenceAuthoritative = fetched.sequenceAuthoritative !== false
+            && serverSequence > 0;
+          ref.messageStore.storeMeta(targetId, {
+            isGroup: false,
+            targetId: session,
+            sequence: serverSequence,
+            sequenceAuthoritative,
+            eventName,
+            clientSequence: fetched.clientSeq ?? fetched.msgSeq,
+            privateDirection: fetched.senderUin === ref.selfId
+              ? 'outgoing'
+              : 'incoming',
+            random: fetched.msgId,
+            timestamp: fetched.time,
+          });
+          ref.messageStore.storeEvent(
+            targetId,
+            false,
+            session,
+            serverSequence,
+            eventName,
+            json,
+            { sequenceAuthoritative },
+          );
+        }
         return;
       }
     }
@@ -381,13 +451,13 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
   // Tier 2: reconstruct from the quoted message's own elements, which the push
   // embeds in SrcMsg.elems — no server round-trip. Covers messages the server
   // won't return (expired, self-c2c, file-only) but whose content rode along.
-  const quotedSender = reply?.replySenderUin ?? (isGroup ? 0 : session);
   if (reply?.replyElements?.length) {
     try {
       const segments = await elementsToOneBotSegments(
         reply.replyElements, isGroup, session,
         ref.converterCtx.imageUrlResolver, ref.converterCtx.mediaUrlResolver,
         ref.converterCtx.messageIdResolver, ref.converterCtx.mediaSegmentSink,
+        ref.selfId,
       ) as JsonArray;
       const fallback = buildBackfillEvent(targetId, replySeq, quotedSender,
         reply.replyTime ?? 0, segments, ref.selfId, isGroup, session);
@@ -437,10 +507,11 @@ function buildBackfillEvent(
   isGroup: boolean,
   sessionId: number,
 ): JsonObject {
+  const sentBySelf = senderUin === selfId;
   const common = {
     time: timestamp || Math.floor(Date.now() / 1000),
     self_id: selfId,
-    post_type: 'message' as const,
+    post_type: sentBySelf ? 'message_sent' as const : 'message' as const,
     message_id: messageId,
     message_seq: msgSeq,
     message: segments,
@@ -458,29 +529,66 @@ function buildBackfillEvent(
       anonymous: null,
     };
   }
-  return {
+  const privateEvent: JsonObject = {
     ...common,
     message_type: 'private',
     sub_type: 'friend',
     user_id: senderUin,
     sender: { user_id: senderUin, nickname: '', sex: 'unknown', age: 0 },
   };
+  if (sentBySelf) privateEvent.target_id = sessionId;
+  return privateEvent;
 }
 
 // Persist a converted history event so reply / get_msg / future listing resolve
 // it. Private history callers provide the conversation peer because `user_id`
 // identifies the sender and equals the bot account on outgoing messages.
-function persistHistoryEvent(store: MessageStore, event: JsonObject, privatePeerId?: number): void {
+function persistHistoryEvent(
+  store: MessageStore,
+  event: JsonObject,
+  privatePeerId?: number,
+  source?: FriendMessage,
+): void {
   const messageId = toHistInt(event.message_id);
   if (messageId === 0) return;
   const isGroup = event.message_type === 'group';
   const sessionId = isGroup
     ? toHistInt(event.group_id)
     : (privatePeerId && privatePeerId > 0 ? privatePeerId : toHistInt(event.user_id));
-  const sequence = toHistInt(event.message_seq);
-  const eventName = isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT;
+  const messageSequence = toHistInt(event.message_seq);
+  const sequence = source?.ntMsgSeq ?? messageSequence;
+  const sequenceAuthoritative = source?.sequenceAuthoritative !== false && sequence > 0;
+  const isOutgoingPrivate = !isGroup && source?.senderUin === source?.selfUin;
+  const eventName = isGroup
+    ? GROUP_MESSAGE_EVENT
+    : source
+      ? privateMessageEventName(isOutgoingPrivate, sequenceAuthoritative)
+      : privateMessageEventName(event.post_type === 'message_sent', false);
   if (sessionId === 0) return;
-  store.storeEvent(messageId, isGroup, sessionId, sequence, eventName, event);
+  if (!isGroup && source) {
+    store.storeMeta(messageId, {
+      isGroup: false,
+      targetId: sessionId,
+      sequence,
+      sequenceAuthoritative,
+      eventName,
+      clientSequence: source.clientSeq ?? source.msgSeq,
+      privateDirection: source.senderUin === source.selfUin
+        ? 'outgoing'
+        : 'incoming',
+      random: source.msgId,
+      timestamp: source.time,
+    });
+  }
+  store.storeEvent(
+    messageId,
+    isGroup,
+    sessionId,
+    sequence,
+    eventName,
+    event,
+    { sequenceAuthoritative },
+  );
 }
 
 function toHistInt(value: unknown): number {
@@ -563,8 +671,10 @@ async function finalizeSend(
   elements: MessageElement[],
   reportEcho = false,
 ): Promise<MessageSendResult> {
-  const eventName = isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT;
   const sequenceAuthoritative = Number.isInteger(receipt.sequence) && receipt.sequence > 0;
+  const eventName = isGroup
+    ? GROUP_MESSAGE_EVENT
+    : privateMessageEventName(true, sequenceAuthoritative);
   const opaqueMessageId = receipt.messageId ?? 0;
   // Ordinary sends use QQ's real sequence so receive/send paths derive the same
   // OneBot id. OIDB-only sends (notably group files) have no QQ sequence: keep
@@ -574,7 +684,11 @@ async function finalizeSend(
     ? hashMessageIdInt32(receipt.sequence, targetId, eventName)
     : Number.isInteger(opaqueMessageId) && opaqueMessageId !== 0
       ? opaqueMessageId
-      : hashMessageIdInt32(0, targetId, eventName);
+      : hashMessageIdInt32(
+        isGroup ? 0 : receipt.clientSequence,
+        targetId,
+        eventName,
+      );
   ref.cacheMessageMeta(messageId, {
     isGroup,
     targetId,
@@ -582,6 +696,7 @@ async function finalizeSend(
     sequenceAuthoritative,
     eventName,
     clientSequence: receipt.clientSequence,
+    ...(isGroup ? {} : { privateDirection: 'outgoing' as const }),
     random: receipt.random,
     timestamp: receipt.timestamp,
   });
@@ -590,7 +705,9 @@ async function finalizeSend(
     sessionId: targetId,
     messageId,
     sequence: receipt.sequence,
+    messageSequence: isGroup ? receipt.sequence : receipt.clientSequence,
     sequenceAuthoritative,
+    eventName,
     timestamp: receipt.timestamp,
     elements,
   });
@@ -605,8 +722,12 @@ async function cacheSelfSentMessage(
     isGroup: boolean;
     sessionId: number;       // groupId or peer userId
     messageId: number;
+    /** QQ server/NT sequence used for protocol operations and history ordering. */
     sequence: number;
+    /** Public OneBot message_seq (sender-local client sequence for C2C). */
+    messageSequence: number;
     sequenceAuthoritative: boolean;
+    eventName: string;
     timestamp: number;
     elements: MessageElement[];
   },
@@ -616,7 +737,9 @@ async function cacheSelfSentMessage(
     sessionId,
     messageId,
     sequence,
+    messageSequence,
     sequenceAuthoritative,
+    eventName,
     timestamp,
     elements,
   } = options;
@@ -636,9 +759,17 @@ async function cacheSelfSentMessage(
     // resolver is async and bound to the receive pipeline; skipping it
     // means /get_msg returns the segment with the original `file` path
     // and an empty `url`, which is what Lagrange does too.
-    const segments = await elementsToOneBotSegments(elements, isGroup, sessionId) as JsonArray;
+    const segments = await elementsToOneBotSegments(
+      elements,
+      isGroup,
+      sessionId,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      ref.selfId,
+    ) as JsonArray;
     const raw = segmentsToRawMessage(segments);
-    const eventName = isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT;
     const selfId = ref.selfId;
 
     const event: JsonObject = {
@@ -648,7 +779,7 @@ async function cacheSelfSentMessage(
       message_type: isGroup ? 'group' : 'private',
       sub_type: isGroup ? 'normal' : 'friend',
       message_id: messageId,
-      message_seq: sequence,
+      message_seq: messageSequence,
       user_id: selfId,                                  // sender = self
       message: segments,
       raw_message: raw,
@@ -723,6 +854,11 @@ export async function sendPrivateMessage(
   if (tempGroupId !== undefined && !isTempReply) {
     throw new Error(`cannot send to user ${userId} in group ${tempGroupId}: no such temp session`);
   }
+  assertWindowShakeMessageInput(
+    message,
+    autoEscape,
+    tempGroupId === undefined ? 'direct-private' : 'group-temp',
+  );
   const elements = await parseMessage(message, autoEscape, {
     resolveReplySequence: (replyMessageId) => {
       return ref.messageStore.resolveReplySequence(false, userId, replyMessageId);
@@ -918,6 +1054,7 @@ export async function sendGroupMessage(
   message: JsonValue,
   autoEscape: boolean,
 ): Promise<MessageSendResult> {
+  assertWindowShakeMessageInput(message, autoEscape, 'group');
   const elements = await parseMessage(message, autoEscape, {
     resolveReplySequence: (replyMessageId) => {
       return ref.messageStore.resolveReplySequence(true, groupId, replyMessageId);
@@ -1323,7 +1460,7 @@ function logSentMessage(isGroup: boolean, targetId: number, elements: MessageEle
         parts.push('[转发消息]');
         break;
       case 'poke':
-        parts.push('[戳一戳]');
+        parts.push('[窗口抖动]');
         break;
       case 'file':
         // Avoid the misleading "[空消息]" the user previously saw when
@@ -1389,6 +1526,40 @@ function assertForwardNodeMetadataIsScalar(
       'node',
       field,
     );
+  }
+}
+
+function assertNoWindowShakeInForwardInput(
+  ref: OneBotInstanceContext,
+  messages: JsonValue,
+  depth = 0,
+): void {
+  if (!Array.isArray(messages) || depth >= MAX_FORWARD_DEPTH) return;
+  for (const item of messages) {
+    const segment = asJsonObject(item);
+    if (!segment) continue;
+    const nodeData = segment.type === 'node' ? asJsonObject(segment.data) : segment;
+    if (!nodeData) continue;
+
+    const messageId = parseForwardMessageId(nodeData.id ?? nodeData.message_id);
+    if (messageId !== 0) {
+      const event = ref.messageStore.findEvent(messageId);
+      if (event) {
+        assertWindowShakeMessageInput(
+          (event.message ?? event.raw_message ?? '') as JsonValue,
+          false,
+          'forward',
+        );
+      }
+      continue;
+    }
+
+    const content = (nodeData.content ?? nodeData.message ?? '') as JsonValue;
+    if (isNestedNodeArray(content)) {
+      assertNoWindowShakeInForwardInput(ref, content, depth + 1);
+    } else {
+      assertWindowShakeMessageInput(content, false, 'forward');
+    }
   }
 }
 
@@ -1483,6 +1654,11 @@ async function parseForwardNodes(
     assertForwardNodeMetadataIsScalar(segment, index);
     return { segment, nodeData: segment };
   });
+
+  // Scan the complete raw tree before parsing any earlier node. Some segment
+  // codecs perform identity lookups or HTTP signing, so discovering a later
+  // window-shake segment during the normal loop would already be too late.
+  assertNoWindowShakeInForwardInput(ref, messages, depth);
 
   const nodes: ForwardNodePayload[] = [];
   for (const { nodeData } of prepared) {
@@ -1615,7 +1791,7 @@ function elementPreview(element: MessageElement): string {
     case 'xml': return '[XML消息]';
     case 'markdown': return '[Markdown]';
     case 'forward': return '[聊天记录]';
-    case 'poke': return '[戳一戳]';
+    case 'poke': return '[窗口抖动]';
     default: return '';
   }
 }

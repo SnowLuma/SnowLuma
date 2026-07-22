@@ -173,6 +173,8 @@ function decodeFriendRecall(ctx: MsgPushContext): QQEventVariant[] {
     selfUin: ctx.selfUin,
     userUin: resolveUidToUin(ctx.identity, 0, peerUid, ctx.fromUin),
     msgSeq: recall.info.clientSequence ?? 0,
+    clientSeq: recall.info.clientSequence ?? 0,
+    recalledBySelf: isSelfRecall,
   };
   return [ev];
 }

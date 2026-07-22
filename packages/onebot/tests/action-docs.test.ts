@@ -37,6 +37,30 @@ describe('action-docs', () => {
     },
   );
 
+  it.each(['get_group_album_list', 'get_qun_album_list'])(
+    'documents album cover and last-upload metadata for %s',
+    (name) => {
+      const action = docs.find((d) => d.name === name);
+      const rootProperties = action?.returnsSchema?.properties as Record<string, any> | undefined;
+      const itemProperties = name === 'get_group_album_list'
+        ? (action?.returnsSchema?.items as any)?.properties
+        : rootProperties?.album_list?.items?.properties;
+
+      expect(itemProperties).toEqual(expect.objectContaining({
+        last_upload_time: expect.objectContaining({
+          type: name === 'get_group_album_list' ? 'integer' : 'string',
+        }),
+        cover: expect.objectContaining({ type: ['object', 'null'] }),
+      }));
+      expect(itemProperties.cover.properties.image.properties).toEqual(expect.objectContaining({
+        photoUrls: expect.objectContaining({ type: 'array' }),
+        defaultUrl: expect.objectContaining({ type: ['object', 'null'] }),
+        isGif: expect.objectContaining({ type: 'boolean' }),
+        hasRaw: expect.objectContaining({ type: 'boolean' }),
+      }));
+    },
+  );
+
   it('renders markdown with header + an action section', () => {
     const md = renderActionDocsMarkdown(docs);
     expect(md).toContain('# OneBot Actions');

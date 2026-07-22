@@ -22,9 +22,10 @@ export function applyMessageIdResolver(
   sessionId: number,
   sequence: number,
   eventName: string,
+  timestamp?: number,
 ): number {
   if (resolver) {
-    const resolved = resolver(isGroup, sessionId, sequence, eventName);
+    const resolved = resolver(isGroup, sessionId, sequence, eventName, timestamp);
     if (Number.isInteger(resolved) && resolved !== 0) return resolved;
   }
   const seq = Math.trunc(sequence);
@@ -36,13 +37,14 @@ export function resolveReplyId(
   sessionId: number,
   sequence: number,
   resolver?: MessageIdResolver | null,
+  eventName = isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT,
+  timestamp?: number,
 ): number {
   const seq = Math.trunc(sequence);
   if (seq === 0) return 0;
 
   if (resolver) {
-    const eventName = isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT;
-    const resolved = resolver(isGroup, sessionId, seq, eventName);
+    const resolved = resolver(isGroup, sessionId, seq, eventName, timestamp);
     if (Number.isInteger(resolved) && resolved !== 0) return resolved;
   }
 

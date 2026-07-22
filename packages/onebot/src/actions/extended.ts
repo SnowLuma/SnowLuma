@@ -339,7 +339,7 @@ export const actions = [
 
   defineAction({
     name: 'get_friend_msg_history',
-    summary: '获取好友消息历史',
+    summary: '获取好友消息历史（无锚点时从服务器获取最新双向记录）',
     readOnly: true,
     returns: '{ messages }：好友消息事件对象数组（每项为 OneBot 消息事件，内部字段不固定）。',
     returnsSchema: {
@@ -353,7 +353,7 @@ export const actions = [
       user_id: f.userId(),
       // Signed int32 hash, frequently negative — see get_group_msg_history.
       message_id: f.int().default(0).role('message_id'),
-      count: f.int({ min: 0 }).default(20),
+      count: f.int({ min: 0 }).default(20).describe('无锚点时从 QQ 服务器获取最新双向历史；服务器或身份解析失败时动作失败，不返回不完整的本地缓存'),
       reverse_order: f.bool().default(true).describe('仅在 message_id 非 0 时生效；true 返回锚点及更旧消息，false 返回锚点及更新消息'),
     },
     run: async (p, ctx) => {

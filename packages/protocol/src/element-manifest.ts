@@ -1,7 +1,7 @@
 /**
  * 消息元素「四向」对账清单 —— 单一权威。
  *
- * 一种消息元素（文字/图片/戳一戳/商城表情…）要在两个流向、共 4 处处理，散在
+ * 一种消息元素（文字/图片/窗口抖动/商城表情…）要在两个流向、共 4 处处理，散在
  * 不同文件、不同包。历史上这 4 处各写各的、没人对账，导致字段名对不上、漏写
  * 方向无人知（都走运行时兜底 `default`，悄悄失败）。
  *
@@ -36,6 +36,36 @@ export const ELEMENT_DIRECTIONS = ['D', 'S', 'P', 'W'] as const;
 export type ElementDirection = (typeof ELEMENT_DIRECTIONS)[number];
 
 export type DirectionSupport = 'yes' | 'no' | 'by-design-no';
+
+/** The outbound transport selected before any resolver, upload, or packet send. */
+export type OutboundMessageScene = 'direct-private' | 'group' | 'group-temp' | 'forward';
+
+/**
+ * Window shake is an action-like CommonElem, not ordinary message content.
+ * Keep its narrow send contract in the protocol package so every caller
+ * rejects unsupported destinations and mixed payloads before side effects.
+ */
+export function assertWindowShakeSendPolicy(
+  windowShakeCount: number,
+  segmentCount: number,
+  scene?: OutboundMessageScene,
+): void {
+  if (windowShakeCount === 0) return;
+  if (scene !== 'direct-private') {
+    throw new MessageElementValidationError(
+      'UNSENDABLE_TYPE',
+      'message element "poke" can only be sent in a direct private chat',
+      'poke',
+    );
+  }
+  if (windowShakeCount !== 1 || segmentCount !== 1) {
+    throw new MessageElementValidationError(
+      'UNSENDABLE_TYPE',
+      'message element "poke" must be the only segment in a private window-shake request',
+      'poke',
+    );
+  }
+}
 
 type ElementField<T extends MessageElementType> = Exclude<keyof MessageElementOf<T>, 'type'> & string;
 
@@ -138,10 +168,10 @@ export const ELEMENT_MANIFEST = {
     note: 'W 特殊：live-send 在 OneBot 层被拆走走独立上传管线，仅 forwardFake 时落 transElem(24)',
   },
   poke: {
-    directions: { D: 'yes', S: 'yes', P: 'yes', W: 'by-design-no' },
+    directions: { D: 'yes', S: 'yes', P: 'yes', W: 'yes' },
     fields: fieldsFor<'poke'>()(['subType']),
     requiredFields: ['subType'],
-    note: 'P 仅负责把 OneBot 段规范化为 subType；W 会明确拒绝，因为 QQ 不允许戳一戳作为消息元素发送。请使用独立 poke Action',
+    note: 'W 仅支持普通好友私聊窗口抖动；send_poke Action 仍表示拍一拍',
   },
   markdown: {
     directions: { D: 'no', S: 'no', P: 'yes', W: 'yes' },
@@ -429,11 +459,9 @@ export function assertValidMessageElement(
   const spec = ELEMENT_MANIFEST[type];
 
   if (direction && spec.directions[direction] !== 'yes') {
-    const hint = type === 'poke'
-      ? 'use the dedicated poke Action instead'
-      : type === 'flash_file'
-        ? 'use the send_flash_msg Action instead'
-        : `direction ${direction} is not supported`;
+    const hint = type === 'flash_file'
+      ? 'use the send_flash_msg Action instead'
+      : `direction ${direction} is not supported`;
     throwValidation('UNSENDABLE_TYPE', `message element "${type}" cannot be sent; ${hint}`, type);
   }
 
@@ -485,9 +513,9 @@ export function typesForDirection(dir: ElementDirection): Set<string> {
 
 /**
  * 发·解（P）侧还识别一批「纯 OneBot 输入词」：可执行的会塌缩成 json / face，
- * node 仅允许在 forward node list 的专用解析器中使用，shake / anonymous 因没有
- * 合法消息元素语义而返回 typed validation error。它们没有收侧对应，也没有专属
- * wire 形态，故不进本清单；对账 P 时须先从代码里剔除这些类型。
+ * node 仅允许在 forward node list 的专用解析器中使用，shake 会规范化为 poke，
+ * anonymous 因没有合法消息元素语义而返回 typed validation error。它们没有收侧
+ * 对应，也没有专属 wire 形态，故不进本清单；对账 P 时须先从代码里剔除这些类型。
  */
 export const INPUT_SUGAR_SEGMENTS: ReadonlySet<string> = new Set([
   'node', 'share', 'music', 'location', 'contact', 'rps', 'dice', 'shake', 'anonymous',

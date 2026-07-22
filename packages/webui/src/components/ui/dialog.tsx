@@ -26,8 +26,11 @@ DialogOverlay.displayName = 'DialogOverlay';
 
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { showClose?: boolean }
->(({ className, children, showClose = true, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
+    showClose?: boolean;
+    viewportClassName?: string;
+  }
+>(({ className, children, showClose = true, viewportClassName, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
@@ -44,7 +47,10 @@ const DialogContent = React.forwardRef<
       )}
       {...props}
     >
-      <div className="grid max-h-[calc(100dvh_-_2rem)] gap-4 overflow-y-auto overscroll-contain p-6">
+      <div className={cn(
+        'grid max-h-[calc(100dvh_-_2rem)] gap-4 overflow-y-auto overscroll-contain p-6',
+        viewportClassName,
+      )}>
         {children}
       </div>
       {showClose && (

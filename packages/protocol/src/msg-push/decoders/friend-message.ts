@@ -27,6 +27,7 @@ export const decodeFriendMessage: MsgPushDecoder = (ctx) => {
   const elements = decodeRichBody(ctx.body, false);
   const sentBySelf = ctx.fromUin > 0 && ctx.fromUin === ctx.selfUin;
   const peerUin = sentBySelf ? (ctx.responseHead?.toUin ?? 0) : ctx.fromUin;
+  const sequenceAuthoritative = ctx.head.ntMsgSeq > 0;
   // Stash the approval msgseq from a private group-invite card so a later
   // `set_group_add_request` can approve a bot self-invite (issue #125).
   for (const el of elements) {
@@ -43,6 +44,9 @@ export const decodeFriendMessage: MsgPushDecoder = (ctx) => {
     senderUid: ctx.fromUid,
     ...(peerUin > 0 ? { peerUin } : {}),
     msgSeq: ctx.head.sequence,
+    ntMsgSeq: ctx.head.ntMsgSeq,
+    clientSeq: ctx.head.sequence,
+    sequenceAuthoritative,
     msgId: ctx.head.msgId & 0x7FFFFFFF,
     elements,
     senderNick: '',

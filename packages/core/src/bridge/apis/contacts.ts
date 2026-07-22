@@ -4,6 +4,11 @@ import { FetchGroupDetail } from '@snowluma/protocol/oidb-services/contacts/fetc
 import { FetchGroupList } from '@snowluma/protocol/oidb-services/contacts/fetch-group-list';
 import { FetchGroupMemberListPage } from '@snowluma/protocol/oidb-services/contacts/fetch-group-member-list-page';
 import { FetchGroupRequests } from '@snowluma/protocol/oidb-services/contacts/fetch-group-requests';
+import {
+  FetchRobotUinRanges,
+  type RobotUinRange,
+  type RobotUinRangeSnapshot,
+} from '@snowluma/protocol/oidb-services/contacts/fetch-robot-uin-ranges';
 import { FetchUserProfile } from '@snowluma/protocol/oidb-services/contacts/fetch-user-profile';
 import { FetchUserProfileByUid } from '@snowluma/protocol/oidb-services/contacts/fetch-user-profile-by-uid';
 import { GetBuddyRecommendArk } from '@snowluma/protocol/oidb-services/contacts/get-buddy-recommend-ark';
@@ -74,6 +79,12 @@ export function permissionToRole(permission: number): string {
   }
 }
 
+export function isRobotUin(uin: number, ranges: readonly RobotUinRange[]): boolean {
+  return Number.isInteger(uin)
+    && uin > 0
+    && ranges.some(({ minUin, maxUin }) => uin >= minUin && uin <= maxUin);
+}
+
 const MEMBER_LIST_TTL_MS = 60_000;
 
 export class ContactsApi {
@@ -91,8 +102,37 @@ export class ContactsApi {
       ttlMs: MEMBER_LIST_TTL_MS,
       load: (groupId) => this.fetchGroupMemberListUncached(groupId),
     });
+  private robotUinRangesPromise_: Promise<RobotUinRangeSnapshot> | null = null;
 
   constructor(private readonly ctx: BridgeContext) { }
+
+  private fetchRobotUinRanges(groupId: number): Promise<RobotUinRangeSnapshot> {
+    if (this.robotUinRangesPromise_) return this.robotUinRangesPromise_;
+
+    const pending = FetchRobotUinRanges.invoke(this.ctx).then((snapshot) => {
+      log.info(
+        'loaded robot UIN ranges uin=%s version=%d count=%d',
+        this.ctx.identity.uin,
+        snapshot.version,
+        snapshot.ranges.length,
+      );
+      return snapshot;
+    });
+    this.robotUinRangesPromise_ = pending;
+
+    // A failed first load must be observable and retryable. Keep the rejection
+    // visible to the caller instead of converting every member to false.
+    void pending.catch((err: unknown) => {
+      if (this.robotUinRangesPromise_ === pending) this.robotUinRangesPromise_ = null;
+      log.error(
+        'failed to load robot UIN ranges: uin=%s group=%d err=%s',
+        this.ctx.identity.uin,
+        groupId,
+        err instanceof Error ? (err.stack ?? err.message) : String(err),
+      );
+    });
+    return pending;
+  }
 
   /** Server-built ARK share card (JSON string) recommending a friend. */
   getBuddyRecommendArk(userId: number, phoneNumber = ''): Promise<string> {
@@ -241,6 +281,10 @@ export class ContactsApi {
   }
 
   private async fetchGroupMemberListUncached(groupId: number): Promise<GroupMemberInfo[]> {
+    // QQ's native group service obtains the robot classification separately
+    // from 0xFE7_3. Start both reads together so the metadata adds no serial
+    // round trip to paginated member fetches.
+    const robotSnapshotPromise = this.fetchRobotUinRanges(groupId);
     const members: GroupMemberInfo[] = [];
     let token = '';
     do {
@@ -251,6 +295,7 @@ export class ContactsApi {
           uid: raw.uin?.uid ?? '',
           nickname: raw.memberName ?? '',
           card: raw.memberCard?.memberCard ?? '',
+          isRobot: false,
           role: permissionToRole(raw.permission ?? 0),
           level: raw.level?.level ?? 0,
           title: raw.specialTitle ?? '',
@@ -261,6 +306,11 @@ export class ContactsApi {
       }
       token = resp.token ?? '';
     } while (token);
+
+    const robotSnapshot = await robotSnapshotPromise;
+    for (const member of members) {
+      member.isRobot = isRobotUin(member.uin, robotSnapshot.ranges);
+    }
 
     this.ctx.identity.rememberGroupMembers(groupId, members);
     return members;

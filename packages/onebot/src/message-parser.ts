@@ -1,9 +1,11 @@
 import { createLogger } from '@snowluma/common/logger';
 import type { MessageElement } from '@snowluma/protocol/events';
 import {
+  assertWindowShakeSendPolicy,
   assertValidMessageElement,
   ELEMENT_MANIFEST,
   MessageElementValidationError,
+  type OutboundMessageScene,
 } from '@snowluma/protocol/element-manifest';
 import { parseFromCQString } from './helper/cq';
 import { getElementCodec, intOr } from './event-converter/element-codecs';
@@ -60,6 +62,47 @@ function isSegmentArray(val: unknown): val is MessageSegment[] {
       && typeof (item as { type?: unknown }).type === 'string'
       && (item as { type: string }).type.trim().length > 0,
   );
+}
+
+function outboundInputSegmentTypes(message: JsonValue, autoEscape: boolean): string[] {
+  if (typeof message === 'string') {
+    if (autoEscape) return ['text'];
+    const types: string[] = [];
+    let lastIndex = 0;
+    for (const match of message.matchAll(CQ_REGEX)) {
+      if (match.index! > lastIndex) types.push('text');
+      types.push((match[1] ?? '').toLowerCase());
+      lastIndex = match.index! + match[0].length;
+    }
+    if (lastIndex < message.length) types.push('text');
+    return types;
+  }
+  if (Array.isArray(message)) {
+    return message.flatMap((item) => {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) return [];
+      const type = (item as { type?: unknown }).type;
+      return typeof type === 'string' ? [type.toLowerCase()] : [];
+    });
+  }
+  if (typeof message === 'object' && message !== null) {
+    const type = (message as { type?: unknown }).type;
+    return typeof type === 'string' ? [type.toLowerCase()] : [];
+  }
+  return [];
+}
+
+/**
+ * Reject unsupported window-shake inputs before parsers can resolve identities,
+ * fetch cards, sign music, or perform any other externally visible work.
+ */
+export function assertWindowShakeMessageInput(
+  message: JsonValue,
+  autoEscape: boolean,
+  scene: OutboundMessageScene,
+): void {
+  const types = outboundInputSegmentTypes(message, autoEscape);
+  const shakeCount = types.filter((type) => type === 'poke' || type === 'shake').length;
+  assertWindowShakeSendPolicy(shakeCount, types.length, scene);
 }
 
 function invalidMessageShape(message: string): MessageElementValidationError {
@@ -141,7 +184,7 @@ export async function segmentToElement(type: string, data: Record<string, unknow
     assertScalarSegmentData(normalizedType, data);
   }
 
-  // 纯 OneBot 输入词：可执行的塌缩成 json/face；没有合法发送语义的 node / shake /
+  // 纯 OneBot 输入词：可执行的塌缩成 json/face/poke；没有合法发送语义的 node /
   // anonymous 在这里明确拒绝。它们无收侧对应、无专属 wire 形态，故不进 codec 表。
   // 真实元素（收发同名）走下方的 ELEMENT_CODECS。
   switch (normalizedType) {
@@ -289,8 +332,8 @@ export async function segmentToElement(type: string, data: Record<string, unknow
       return validatedOutboundElement({ type: 'face', faceId: 358 });
     }
     case 'shake': {
-      // Window shake normalizes to poke, then the W-direction guard returns the
-      // same explicit "use the dedicated poke Action" validation error.
+      // Legacy OneBot window-shake sugar. The destination guard later limits
+      // the normalized poke element to ordinary friend private messages.
       return validatedOutboundElement({ type: 'poke', subType: 1 });
     }
     case 'anonymous': {

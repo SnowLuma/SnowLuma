@@ -80,6 +80,7 @@ export const actions = [
           user_id: { type: 'integer', description: 'QQ 号' },
           nickname: { type: 'string', description: '昵称' },
           card: { type: 'string', description: '群名片' },
+          is_robot: { type: 'boolean', description: '是否为机器人' },
           sex: { type: 'string', enum: ['male', 'female', 'unknown'], description: '性别' },
           age: { type: 'integer', description: '年龄' },
           join_time: { type: 'integer', description: '入群时间戳（秒）' },
@@ -118,6 +119,7 @@ export const actions = [
         user_id: { type: 'integer', description: 'QQ 号' },
         nickname: { type: 'string', description: '昵称' },
         card: { type: 'string', description: '群名片' },
+        is_robot: { type: 'boolean', description: '是否为机器人' },
         sex: { type: 'string', enum: ['male', 'female', 'unknown'], description: '性别' },
         age: { type: 'integer', description: '年龄' },
         join_time: { type: 'integer', description: '入群时间戳（秒）' },
@@ -141,12 +143,14 @@ export const actions = [
         const info = await ctx.getGroupMemberInfo(groupId, userId, noCache);
         return okResponse(info ?? {
           group_id: groupId, user_id: userId, nickname: '', card: '',
+          is_robot: false,
           sex: 'unknown', age: 0, join_time: 0, last_sent_time: 0,
           level: '0', role: 'member', title: '',
         });
       }
       return okResponse({
         group_id: groupId, user_id: userId, nickname: '', card: '',
+        is_robot: false,
         sex: 'unknown', age: 0, join_time: 0, last_sent_time: 0,
         level: '0', role: 'member', title: '',
       });

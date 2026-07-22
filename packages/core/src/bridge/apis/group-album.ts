@@ -14,6 +14,7 @@ import type {
   GetMediaListRequest,
   GetMediaListResponse,
   MediaInfo,
+  UrlInfo,
 } from '@snowluma/proto-defs/oidb-actions/group-album';
 import { uploadImageToGroupAlbum } from '@snowluma/protocol/web/group-album';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
@@ -53,6 +54,35 @@ function normalizeAlbumCreator(creator: AlbumCreator | undefined): QunAlbumCreat
   };
 }
 
+function normalizeCoverUrl(url: UrlInfo | null | undefined): QunAlbumCoverUrl | null {
+  if (!url) return null;
+  return {
+    url: url.url ?? '',
+    width: url.width ?? 0,
+    height: url.height ?? 0,
+  };
+}
+
+function normalizeAlbumCover(cover: MediaInfo | undefined): QunAlbumCover | null {
+  if (!cover) return null;
+  const image = cover.image;
+  return {
+    type: cover.type ?? 0,
+    image: image ? {
+      name: image.name ?? '',
+      sloc: image.sloc ?? '',
+      lloc: image.lloc ?? '',
+      photoUrls: (image.photoUrls ?? []).map((photoUrl) => ({
+        spec: photoUrl.spec ?? 0,
+        url: normalizeCoverUrl(photoUrl.url),
+      })),
+      defaultUrl: normalizeCoverUrl(image.defaultUrl),
+      isGif: image.isGif ?? false,
+      hasRaw: image.hasRaw ?? false,
+    } : null,
+  };
+}
+
 function normalizeQunAlbum(album: GroupAlbumInfoWire): QunAlbumInfo {
   const normalized: QunAlbumInfo = {
     album_id: album.albumId ?? '',
@@ -63,6 +93,7 @@ function normalizeQunAlbum(album: GroupAlbumInfoWire): QunAlbumInfo {
     modify_time: uint64ToString(album.modifyTime),
     last_upload_time: uint64ToString(album.lastUploadTime),
     upload_number: uint64ToString(album.uploadNumber),
+    cover: normalizeAlbumCover(album.cover),
     top_flag: uint64ToString(album.topFlag),
     busi_type: album.busiType ?? 0,
     status: album.status ?? 0,
@@ -94,6 +125,8 @@ function toLegacyAlbum(album: GroupAlbumInfoWire): GroupAlbumInfo {
     // Unlike the legacy Qzone HTTP endpoint, it does not rewrite Unicode
     // emoji into ambiguous [em]...[/em] tags.
     createnickname: creator?.nick ?? '',
+    last_upload_time: uint64ToSafeNumber(album.lastUploadTime, 'last_upload_time'),
+    cover: normalizeAlbumCover(album.cover),
   };
 }
 
@@ -426,6 +459,8 @@ export interface GroupAlbumInfo {
   owner: string;
   createuin: string;
   createnickname: string;
+  last_upload_time: number;
+  cover: QunAlbumCover | null;
   [key: string]: JsonValue;
 }
 
@@ -446,6 +481,32 @@ export interface QunAlbumCreator {
   ditto_uin: string;
 }
 
+export interface QunAlbumCoverUrl extends JsonObject {
+  url: string;
+  width: number;
+  height: number;
+}
+
+export interface QunAlbumCoverPhotoUrl extends JsonObject {
+  spec: number;
+  url: QunAlbumCoverUrl | null;
+}
+
+export interface QunAlbumCoverImage extends JsonObject {
+  name: string;
+  sloc: string;
+  lloc: string;
+  photoUrls: QunAlbumCoverPhotoUrl[];
+  defaultUrl: QunAlbumCoverUrl | null;
+  isGif: boolean;
+  hasRaw: boolean;
+}
+
+export interface QunAlbumCover extends JsonObject {
+  type: number;
+  image: QunAlbumCoverImage | null;
+}
+
 export interface QunAlbumInfo {
   album_id: string;
   owner: string;
@@ -455,6 +516,7 @@ export interface QunAlbumInfo {
   modify_time: string;
   last_upload_time: string;
   upload_number: string;
+  cover: QunAlbumCover | null;
   creator?: QunAlbumCreator;
   top_flag: string;
   busi_type: number;

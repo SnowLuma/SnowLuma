@@ -149,7 +149,7 @@ export interface FileElement {
   sha1Hex?: string;
 }
 
-/** Receive-side representation only; sending uses the dedicated poke Action. */
+/** Window-shake element; outbound use is limited to ordinary friend C2C. */
 export interface PokeElement {
   type: 'poke';
   subType: number;
@@ -235,7 +235,14 @@ export interface FriendMessage extends QQEvent {
    *  index can preserve the exact C2C peer instead of re-resolving its UIN. */
   senderUid?: string;
   senderNick: string;
+  /** Sender-local sequence exposed as OneBot message_seq and used by replies. */
   msgSeq: number;
+  /** Bidirectional C2C sequence used for history/actions and canonical message ids. */
+  ntMsgSeq?: number;
+  /** Sender-local sequence used by private recall requests. */
+  clientSeq?: number;
+  /** False only when an older packet omitted ContentHead field 11. */
+  sequenceAuthoritative?: boolean;
   msgId: number;
   elements: MessageElement[];
 }
@@ -263,6 +270,9 @@ export interface TempMessage extends QQEvent {
   groupId: number;
   senderNick: string;
   msgSeq: number;
+  ntMsgSeq?: number;
+  clientSeq?: number;
+  sequenceAuthoritative?: boolean;
   elements: MessageElement[];
 }
 
@@ -314,7 +324,12 @@ export interface GroupAdminEvent extends QQEvent {
 export interface FriendRecall extends QQEvent {
   kind: 'friend_recall';
   userUin: number;
+  /** Legacy alias retained for converters; this is the sender-local sequence. */
   msgSeq: number;
+  /** Sender-local sequence carried by the recall protocol. */
+  clientSeq?: number;
+  /** True for subtype 139, where the logged-in account recalled its own send. */
+  recalledBySelf?: boolean;
 }
 
 export interface GroupRecallEvent extends QQEvent {

@@ -338,6 +338,15 @@ export interface OidbGroupMemberListRequest {
   body?:     pb<4, OidbGroupMemberListBody>;
   token?:    pb<15, string>;
 }
+// 0x496_0 — fetch QQ's versioned robot-UIN classification ranges.
+// Field names follow NodeIKernelRobotService.getRobotUinRange. QQ sends the
+// four scalar values directly (there is no nested `req` message on the wire).
+export interface OidbRobotUinRangeRequest {
+  justFetchMsgConfig?: pb<5, uint_32>;
+  type?:               pb<6, uint_32>;
+  version?:            pb_optional<7, uint_32>;
+  aioKeywordVersion?:  pb_optional<8, uint_32>;
+}
 export interface GroupRecallInfo {
   sequence?: pb<1, uint_32>;
   random?:   pb<2, uint_32>;

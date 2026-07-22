@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT } from '../src/message-id';
+import {
+  GROUP_MESSAGE_EVENT,
+  PRIVATE_MESSAGE_EVENT,
+  PRIVATE_NT_MESSAGE_EVENT,
+  hashMessageIdInt32,
+} from '../src/message-id';
 import { MessageStore } from '../src/message-store';
 import { getFriendHistory, getFriendMsgHistory, getGroupHistory } from '../src/modules/message-actions';
 
@@ -32,12 +37,15 @@ function groupMessage(sequence: number) {
   };
 }
 
-function friendMessage(sequence: number, senderUin: number) {
+function friendMessage(sequence: number, senderUin: number, clientSequence = sequence) {
   return {
     kind: 'friend_message' as const,
     senderUin,
     senderNick: senderUin === SELF_ID ? 'self' : 'friend',
-    msgSeq: sequence,
+    msgSeq: clientSequence,
+    ntMsgSeq: sequence,
+    clientSeq: clientSequence,
+    sequenceAuthoritative: true,
     msgId: sequence,
     time: sequence,
     selfUin: SELF_ID,
@@ -114,6 +122,144 @@ describe('history direction plumbing', () => {
     expect(messages.map((message) => message.message_seq)).toEqual([700, 701]);
     expect(messages[0]).toMatchObject({ user_id: SELF_ID, target_id: FRIEND_ID });
     expect(cached.map((message) => message.message_seq)).toEqual([700, 701]);
+  });
+
+  it('uses C2C roaming for an unanchored latest page and ignores a stale local sequence', async () => {
+    const fetchRangeHistory = vi.fn(async () => [friendMessage(99999, FRIEND_ID)]);
+    const fetchLatestHistory = vi.fn(async () => [
+      friendMessage(63213, FRIEND_ID, 32742),
+      friendMessage(63214, SELF_ID, 32743),
+    ]);
+    messageStore.storeMeta(-222222222, {
+      isGroup: false,
+      targetId: FRIEND_ID,
+      sequence: 99999,
+      sequenceAuthoritative: true,
+      eventName: PRIVATE_MESSAGE_EVENT,
+      clientSequence: 0,
+      random: 0,
+      timestamp: 1,
+    });
+    const ref = {
+      selfId: SELF_ID,
+      bridge: {
+        resolveUserUid: vi.fn(async () => 'u_friend'),
+        apis: {
+          message: {
+            getC2cHistory: fetchRangeHistory,
+            getC2cLatestHistory: fetchLatestHistory,
+          },
+        },
+      },
+      messageStore,
+      converterCtx,
+    } as any;
+
+    const messages = await getFriendHistory(ref, FRIEND_ID, undefined, 20);
+
+    expect(fetchLatestHistory).toHaveBeenCalledWith('u_friend', 20, SELF_ID);
+    expect(fetchRangeHistory).not.toHaveBeenCalled();
+    expect(messages.map((message) => ({
+      sender: message.user_id,
+      sequence: message.message_seq,
+    }))).toEqual([
+      { sender: FRIEND_ID, sequence: 32742 },
+      { sender: SELF_ID, sequence: 32743 },
+    ]);
+    expect(messageStore.findMeta(Number(messages[0]!.message_id))).toMatchObject({
+      sequence: 63213,
+      clientSequence: 32742,
+      sequenceAuthoritative: true,
+    });
+  });
+
+  it('uses the conversation-wide NT sequence when both directions share a client sequence', async () => {
+    const sharedClientSequence = 32742;
+    const fetchLatestHistory = vi.fn(async () => [
+      friendMessage(63213, FRIEND_ID, sharedClientSequence),
+      friendMessage(63214, SELF_ID, sharedClientSequence),
+    ]);
+    const productionConverterCtx = {
+      ...converterCtx,
+      messageIdResolver: (
+        _isGroup: boolean,
+        sessionId: number,
+        sequence: number,
+        eventName: string,
+      ) => hashMessageIdInt32(sequence, sessionId, eventName),
+    };
+    const ref = {
+      selfId: SELF_ID,
+      bridge: {
+        resolveUserUid: vi.fn(async () => 'u_friend'),
+        apis: { message: { getC2cLatestHistory: fetchLatestHistory } },
+      },
+      messageStore,
+      converterCtx: productionConverterCtx,
+    } as any;
+
+    const messages = await getFriendHistory(ref, FRIEND_ID, undefined, 20);
+    const ids = messages.map((message) => Number(message.message_id));
+
+    expect(messages.map((message) => message.message_seq)).toEqual([
+      sharedClientSequence,
+      sharedClientSequence,
+    ]);
+    expect(ids).toEqual([
+      hashMessageIdInt32(63213, FRIEND_ID, PRIVATE_NT_MESSAGE_EVENT),
+      hashMessageIdInt32(63214, FRIEND_ID, PRIVATE_NT_MESSAGE_EVENT),
+    ]);
+    expect(new Set(ids).size).toBe(2);
+    expect(ids.map((id) => messageStore.findEvent(id)?.message_id)).toEqual(ids);
+  });
+
+  it('does not return or re-cache a private message covered by a recall tombstone', async () => {
+    messageStore.recordPrivateRecall(FRIEND_ID, 32742, false, 1700000010);
+    const fetchLatestHistory = vi.fn(async () => [
+      friendMessage(63213, FRIEND_ID, 32742),
+      friendMessage(63214, SELF_ID, 32743),
+    ]);
+    const ref = {
+      selfId: SELF_ID,
+      bridge: {
+        resolveUserUid: vi.fn(async () => 'u_friend'),
+        apis: { message: { getC2cLatestHistory: fetchLatestHistory } },
+      },
+      messageStore,
+      converterCtx,
+    } as any;
+
+    const messages = await getFriendHistory(ref, FRIEND_ID, undefined, 20);
+
+    expect(messages.map((message) => message.message_seq)).toEqual([32743]);
+    expect(messageStore.listSessionEvents(false, FRIEND_ID, 20))
+      .toHaveLength(1);
+  });
+
+  it('surfaces an unanchored server failure instead of returning incomplete local history', async () => {
+    messageStore.storeEvent(1, false, FRIEND_ID, 12, PRIVATE_MESSAGE_EVENT, {
+      time: 12,
+      post_type: 'message',
+      message_type: 'private',
+      sub_type: 'friend',
+      message_id: 1,
+      message_seq: 12,
+      user_id: FRIEND_ID,
+    });
+    const ref = {
+      selfId: SELF_ID,
+      bridge: {
+        resolveUserUid: vi.fn(async () => 'u_friend'),
+        apis: {
+          message: { getC2cLatestHistory: vi.fn(async () => { throw new Error('roam unavailable'); }) },
+        },
+      },
+      messageStore,
+      converterCtx,
+    } as any;
+
+    await expect(getFriendHistory(ref, FRIEND_ID, undefined, 20))
+      .rejects.toThrow('roam unavailable');
   });
 
   it('keeps latest-page group requests backward-compatible without an anchor', async () => {

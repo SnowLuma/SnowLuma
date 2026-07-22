@@ -1,5 +1,5 @@
 import type { QQEventVariant } from '@snowluma/protocol/events';
-import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT } from '../message-id';
+import { GROUP_MESSAGE_EVENT, privateMessageEventName } from '../message-id';
 import type { JsonObject } from '../types';
 import type { ConverterContext } from './index';
 import { applyMessageIdResolver, isSameActor } from './utils';
@@ -80,7 +80,12 @@ export function convertGroupAdmin(ctx: ConverterContext, event: GroupAdmin): Jso
 
 export function convertFriendRecall(ctx: ConverterContext, event: FriendRecall): JsonObject {
   const messageId = applyMessageIdResolver(
-    ctx.messageIdResolver, false, event.userUin, event.msgSeq, PRIVATE_MESSAGE_EVENT,
+    ctx.messageIdResolver,
+    false,
+    event.userUin,
+    event.msgSeq,
+    privateMessageEventName(event.recalledBySelf === true, false),
+    event.time,
   );
   return notice(ctx, event, {
     notice_type: 'friend_recall',

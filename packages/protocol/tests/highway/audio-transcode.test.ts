@@ -1,5 +1,12 @@
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, promises as fsPromises, readdirSync, rmSync, writeFileSync } from 'fs';
+import {
+  mkdtempSync,
+  promises as fsPromises,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'fs';
 import os from 'os';
 import path from 'path';
 import { AUDIO_OUT_FORMATS, convertAudioBytes, isAudioOutFormat } from '@snowluma/protocol/highway/ffmpeg-addon';
@@ -31,6 +38,31 @@ describe('isAudioOutFormat / AUDIO_OUT_FORMATS', () => {
 });
 
 describe('convertAudioBytes', () => {
+  it('accepts the QQ AI SILK container without mutating the caller bytes', async () => {
+    const input = Buffer.concat([
+      Buffer.from([0x03]),
+      Buffer.from('#!SILK_V3', 'ascii'),
+      Buffer.from([0x04, 0x00, 0x11, 0x22, 0x33, 0x44]),
+    ]);
+    const originalInput = Buffer.from(input);
+    let stagedInput: Buffer | null = null;
+    const addon = {
+      decodeAudioToFmt: async (inputPath: string, outputPath: string, format: string) => {
+        stagedInput = readFileSync(inputPath);
+        writeFileSync(outputPath, Buffer.from('MP3DATA'));
+        return { result: true, sampleRate: 24_000, channels: 1, format };
+      },
+    };
+
+    await convertAudioBytes(input, 'mp3', { addon, tmpDir });
+
+    expect(stagedInput?.subarray(0, 10)).toEqual(
+      Buffer.concat([Buffer.from([0x02]), Buffer.from('#!SILK_V3', 'ascii')]),
+    );
+    expect(stagedInput?.subarray(10)).toEqual(input.subarray(10));
+    expect(input).toEqual(originalInput);
+  });
+
   it('transcodes and returns base64 + size of the addon output', async () => {
     const r = await convertAudioBytes(new Uint8Array([1, 2, 3]), 'wav', { addon: fakeOk, tmpDir });
     expect(Buffer.from(r.base64, 'base64').toString()).toBe('WAVDATA');

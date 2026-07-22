@@ -48,8 +48,6 @@ describe('element-manifest 对账（protocol 侧：D 收·解 / W 发·打包）
   it('W：element-builder 的 switch 分支 == 清单声明的 W=yes', () => {
     const src = readSrc('../src/element-builder.ts');
     const handled = extractTypes(src, /case\s*'([A-Za-z0-9_]+)'\s*:/g);
-    // poke 按设计不支持发送（QQ 限制），element-builder 必须没有 poke 分支。
-    expect(handled).not.toContain('poke');
     expect(handled).toEqual(sorted(typesForDirection('W')));
   });
 

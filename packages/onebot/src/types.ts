@@ -126,6 +126,8 @@ export interface MessageMeta {
   sequenceAuthoritative: boolean;
   eventName: string;
   clientSequence: number;
+  /** Sender direction for friend messages; absent for groups/temp/legacy rows. */
+  privateDirection?: 'incoming' | 'outgoing';
   random: number;
   timestamp: number;
 }

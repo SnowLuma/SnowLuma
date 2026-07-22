@@ -1,6 +1,10 @@
 import type { MessageElement, QQEventVariant } from '@snowluma/protocol/events';
 import { segmentsToRawMessage } from '../helper/cq';
-import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT } from '../message-id';
+import {
+  GROUP_MESSAGE_EVENT,
+  PRIVATE_MESSAGE_EVENT,
+  privateMessageEventName,
+} from '../message-id';
 import type { JsonObject } from '../types';
 import type { ConverterContext } from './index';
 import { elementsToJson } from './to-segment';
@@ -16,6 +20,7 @@ function toSegments(ctx: ConverterContext, elements: MessageElement[], isGroup: 
   return elementsToJson(
     elements, isGroup, sessionId,
     ctx.imageUrlResolver, ctx.mediaUrlResolver, ctx.messageIdResolver, ctx.mediaSegmentSink,
+    ctx.selfId,
   );
 }
 
@@ -34,8 +39,18 @@ async function convertPrivateMessage(
   const sessionId = event.kind === 'friend_message' && event.peerUin && event.peerUin > 0
     ? event.peerUin
     : event.senderUin;
+  // ContentHead field 5 (`msgSeq`) is sender-local in C2C and can collide in
+  // both directions. Friend history/pushes expose field 11 (`ntMsgSeq`), which
+  // is conversation-wide and therefore the canonical OneBot id input.
+  const ntSequence = event.kind === 'friend_message' ? (event.ntMsgSeq ?? 0) : 0;
+  const hasCanonicalNtSequence = ntSequence > 0
+    && event.sequenceAuthoritative !== false;
+  const messageIdSequence = hasCanonicalNtSequence ? ntSequence : event.msgSeq;
+  const eventName = event.kind === 'friend_message'
+    ? privateMessageEventName(isSelf, hasCanonicalNtSequence)
+    : PRIVATE_MESSAGE_EVENT;
   const messageId = applyMessageIdResolver(
-    ctx.messageIdResolver, false, sessionId, event.msgSeq, PRIVATE_MESSAGE_EVENT,
+    ctx.messageIdResolver, false, sessionId, messageIdSequence, eventName,
   );
   const segments = await toSegments(ctx, event.elements, false, sessionId);
   const sender: JsonObject = {

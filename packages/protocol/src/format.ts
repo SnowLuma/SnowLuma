@@ -124,7 +124,7 @@ function renderSegment(type: string, data: Record<string, unknown>): string {
     case 'xml': return '[XML]';
     case 'markdown': return '[Markdown]';
     case 'forward': return '[聊天记录]';
-    case 'poke': return '[戳一戳]';
+    case 'poke': return '[窗口抖动]';
     case 'flash_file': {
       const title = data.title ? String(data.title) : '';
       return title ? `[闪传文件:${truncate(title, 20)}]` : '[闪传文件]';

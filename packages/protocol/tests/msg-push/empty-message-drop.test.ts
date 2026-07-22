@@ -39,12 +39,13 @@ describe('parseMsgPush — empty message drop (#102)', () => {
   it('keeps a friend message that actually has content', () => {
     const out = parseMsgPush(pushPacket({
       responseHead: { fromUin: 10001, fromUid: 'u_x' },
-      contentHead: { msgType: 166, subType: 0, sequence: 100, timestamp: 1781540572, msgId: 1 },
+      contentHead: { msgType: 166, subType: 0, sequence: 32743, ntMsgSeq: 63214, timestamp: 1781540572, msgId: 1 },
       body: { richText: { elems: [{ text: { str: 'hi' } }] } },
     }), identity);
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({
-      kind: 'friend_message', senderUid: 'u_x', elements: [{ type: 'text', text: 'hi' }],
+      kind: 'friend_message', senderUid: 'u_x', msgSeq: 32743, ntMsgSeq: 63214, clientSeq: 32743,
+      elements: [{ type: 'text', text: 'hi' }],
     });
   });
 

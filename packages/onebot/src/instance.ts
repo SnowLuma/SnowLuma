@@ -12,7 +12,13 @@ import type { GlobalSettings } from './global-config';
 import { MediaIndexer } from './media-indexer';
 import { MediaStore } from './media-store';
 import { MediaUrlResolver } from './media-url-resolver';
-import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, hashMessageIdInt32 } from './message-id';
+import {
+  GROUP_MESSAGE_EVENT,
+  PRIVATE_MESSAGE_EVENT,
+  PRIVATE_SENT_MESSAGE_EVENT,
+  hashMessageIdInt32,
+  privateMessageEventName,
+} from './message-id';
 import { MessageStore } from './message-store';
 import { sendGroupMessage, sendPrivateMessage } from './modules/message-actions';
 import { buildStatusText, matchesStatusCommand, statusCooldownElapsed } from './modules/status-command';
@@ -127,8 +133,23 @@ export class OneBotInstance {
         this.rkeyCache.resolveImageUrl(this.bridge, element, isGroup),
       mediaUrlResolver: (element, isGroup, sessionId) =>
         mediaUrlResolver.resolve(element, isGroup, sessionId),
-      messageIdResolver: (isGroup, sessionId, sequence, eventName) =>
-        hashMessageIdInt32(sequence, sessionId, eventName || (isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT)),
+      messageIdResolver: (isGroup, sessionId, sequence, eventName, timestamp) => {
+        const resolvedEventName = eventName
+          || (isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT);
+        if (!isGroup
+          && timestamp !== undefined
+          && (resolvedEventName === PRIVATE_MESSAGE_EVENT
+            || resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT)) {
+          const storedId = this.messageStore.findPrivateMessageId(
+            sessionId,
+            sequence,
+            resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT,
+            timestamp,
+          );
+          if (storedId !== null) return storedId;
+        }
+        return hashMessageIdInt32(sequence, sessionId, resolvedEventName);
+      },
       mediaSegmentSink: (mediaType, element, data, isGroup, sessionId) =>
         mediaIndexer.remember(mediaType, element, data, isGroup, sessionId),
     };
@@ -495,7 +516,11 @@ export class OneBotInstance {
         ? (toInt(event.target_id) || toInt(event.user_id))
         : toInt(event.user_id);
     const sequence = toInt(event.message_seq);
-    const eventName = isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT;
+    const eventName = isGroup
+      ? GROUP_MESSAGE_EVENT
+      : event.sub_type === 'friend'
+        ? privateMessageEventName(event.post_type === 'message_sent', false)
+        : PRIVATE_MESSAGE_EVENT;
 
     if (sessionId === 0) return;
     this.messageStore.storeEvent(messageId, isGroup, sessionId, sequence, eventName, event);

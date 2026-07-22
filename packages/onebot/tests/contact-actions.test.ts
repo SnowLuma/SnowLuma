@@ -60,7 +60,11 @@ function fakeBridge(overrides: Record<string, any> = {}): BridgeInterface {
 
 /** Same Proxy trick for the IdentityService surface that contact-actions touches. */
 function fakeIdentity(overrides: Record<string, unknown> = {}): BridgeInterface['identity'] {
-  return new Proxy(overrides as any, {
+  const target = Object.create(Object.getPrototypeOf(overrides), {
+    uin: { value: '10001', enumerable: true },
+    ...Object.getOwnPropertyDescriptors(overrides),
+  });
+  return new Proxy(target as any, {
     get(target, prop) {
       if (prop in target) return target[prop];
       throw new Error(`fakeIdentity: '${String(prop)}' was not stubbed for this test`);
@@ -82,9 +86,10 @@ function makeGroup(groupId: number, groupName: string, members: GroupMemberInfo[
   };
 }
 
-function makeMember(uin: number, nickname: string, card = ''): GroupMemberInfo {
+function makeMember(uin: number, nickname: string, card = '', isRobot = false): GroupMemberInfo {
   return {
     uin, uid: `u_${uin}`, nickname, card,
+    isRobot,
     role: 'member', level: 1, title: '',
     joinTime: 0, lastSentTime: 0, shutUpTime: 0,
   };
@@ -323,13 +328,20 @@ describe('onebot/contact-actions / getGroupInfo', () => {
 
 describe('onebot/contact-actions / getGroupMemberList', () => {
   it('returns the fetched roster mapped to OneBot shape', async () => {
-    const members = [makeMember(11, 'alice', 'A'), makeMember(22, 'bob', 'B')];
+    const members = [makeMember(11, 'alice', 'A', true), makeMember(22, 'bob', 'B')];
     const bridge = fakeBridge({
       fetchGroupMemberList: vi.fn(async () => members),
     });
     const out = await getGroupMemberList(bridge, 800);
     expect(out).toHaveLength(2);
-    expect(out[0]).toMatchObject({ group_id: 800, user_id: 11, nickname: 'alice', card: 'A' });
+    expect(out[0]).toMatchObject({
+      group_id: 800,
+      user_id: 11,
+      nickname: 'alice',
+      card: 'A',
+      is_robot: true,
+    });
+    expect(out[1]).toMatchObject({ user_id: 22, is_robot: false });
   });
 
   it('falls back to the cached roster when fetch fails', async () => {
@@ -345,12 +357,25 @@ describe('onebot/contact-actions / getGroupMemberList', () => {
     expect(out[0]).toMatchObject({ user_id: 33, nickname: 'cached' });
   });
 
-  it('returns [] when no roster is known and fetch fails', async () => {
+  it('propagates fetch failure when no classified roster is known', async () => {
     const bridge = fakeBridge({
       fetchGroupMemberList: vi.fn(async () => { throw new Error('net'); }),
       identity: fakeIdentity({ findGroup: () => null }),
     });
-    expect(await getGroupMemberList(bridge, 999)).toEqual([]);
+    await expect(getGroupMemberList(bridge, 999)).rejects.toThrow('net');
+  });
+
+  it('rejects an unclassified cached roster instead of reporting false', async () => {
+    const member = { ...makeMember(34, 'unknown'), isRobot: undefined };
+    const bridge = fakeBridge({
+      fetchGroupMemberList: vi.fn(async () => { throw new Error('net'); }),
+      identity: fakeIdentity({
+        findGroup: (gid: number) => gid === 901 ? makeGroup(901, '', [member]) : null,
+      }),
+    });
+
+    await expect(getGroupMemberList(bridge, 901))
+      .rejects.toThrow('group member robot classification unavailable');
   });
 });
 
@@ -365,7 +390,7 @@ describe('onebot/contact-actions / getGroupMemberInfo', () => {
       }),
     });
     const out = await getGroupMemberInfo(bridge, 1000, 44);
-    expect(out).toMatchObject({ user_id: 44, nickname: 'dave', card: 'D' });
+    expect(out).toMatchObject({ user_id: 44, nickname: 'dave', card: 'D', is_robot: false });
     expect(bridge.apis.contacts.fetchGroupMemberList).not.toHaveBeenCalled();
   });
 
@@ -383,6 +408,40 @@ describe('onebot/contact-actions / getGroupMemberInfo', () => {
     const out = await getGroupMemberInfo(bridge, 1100, 55);
     expect(fetchGroupMemberList).toHaveBeenCalledOnce();
     expect(out).toMatchObject({ user_id: 55, nickname: 'eve' });
+  });
+
+  it('refreshes a persisted member whose robot classification is unknown', async () => {
+    let member: GroupMemberInfo = { ...makeMember(66, 'legacy'), isRobot: undefined };
+    const fetchGroupMemberList = vi.fn(async () => {
+      member = makeMember(66, 'legacy', '', true);
+      return [member];
+    });
+    const bridge = fakeBridge({
+      fetchGroupMemberList,
+      identity: fakeIdentity({
+        findGroupMember: (gid: number, uin: number) =>
+          gid === 1200 && uin === 66 ? member : null,
+      }),
+    });
+
+    const out = await getGroupMemberInfo(bridge, 1200, 66);
+
+    expect(fetchGroupMemberList).toHaveBeenCalledWith(1200, { force: false });
+    expect(out).toMatchObject({ user_id: 66, is_robot: true });
+  });
+
+  it('rejects when an unknown cached classification cannot be refreshed', async () => {
+    const member: GroupMemberInfo = { ...makeMember(77, 'unknown'), isRobot: undefined };
+    const bridge = fakeBridge({
+      fetchGroupMemberList: vi.fn(async () => { throw new Error('range unavailable'); }),
+      identity: fakeIdentity({
+        findGroupMember: (gid: number, uin: number) =>
+          gid === 1300 && uin === 77 ? member : null,
+      }),
+    });
+
+    await expect(getGroupMemberInfo(bridge, 1300, 77))
+      .rejects.toThrow('range unavailable');
   });
 });
 

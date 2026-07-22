@@ -160,6 +160,24 @@ export interface OidbSvcTrpcTcp0xFE7_3Response {
   token?:               pb<15, string>;
 }
 
+// OIDB 0x496_0 — dynamic robot UIN ranges. QQ's native
+// NodeIKernelRobotService uses this config when deciding whether a group
+// member is a robot; the ranges are server-versioned and must not be
+// hard-coded client-side.
+export interface OidbRobotUinRange {
+  minUin?: pb<1, uint_64>;
+  maxUin?: pb<2, uint_64>;
+}
+
+export interface OidbRobotUinRangeConfig {
+  version?: pb<1, uint_32>;
+  ranges?:  pb_repeated<2, OidbRobotUinRange>;
+}
+
+export interface OidbRobotUinRangeResponse {
+  robotConfig?: pb<5, OidbRobotUinRangeConfig>;
+}
+
 // OIDB.0x10C0 Group Request
 export interface OidbSvcTrpcTcp0x10C0ResponseUser {
   uid?:  pb<1, string>;

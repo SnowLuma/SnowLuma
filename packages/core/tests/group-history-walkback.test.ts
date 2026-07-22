@@ -6,14 +6,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@snowluma/protocol/msg-push', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@snowluma/protocol/msg-push')>();
-  return { ...actual, fetchGroupMessageRange: vi.fn(), fetchC2cMessageRange: vi.fn() };
+  return {
+    ...actual,
+    fetchGroupMessageRange: vi.fn(),
+    fetchC2cMessageRange: vi.fn(),
+    fetchC2cRoamMessagePage: vi.fn(),
+  };
 });
 
-import { fetchC2cMessageRange, fetchGroupMessageRange } from '@snowluma/protocol/msg-push';
+import {
+  fetchC2cMessageRange,
+  fetchC2cRoamMessagePage,
+  fetchGroupMessageRange,
+} from '@snowluma/protocol/msg-push';
 import { MessageApi } from '../src/bridge/apis/message';
 
 const mockFetch = vi.mocked(fetchGroupMessageRange);
 const mockC2cFetch = vi.mocked(fetchC2cMessageRange);
+const mockC2cRoamFetch = vi.mocked(fetchC2cRoamMessagePage);
 
 function gm(seq: number): any {
   return {
@@ -32,6 +42,7 @@ describe('MessageApi history pagination', () => {
   beforeEach(() => {
     mockFetch.mockReset();
     mockC2cFetch.mockReset();
+    mockC2cRoamFetch.mockReset();
     vi.useFakeTimers();
   });
   afterEach(() => vi.useRealTimers());
@@ -90,13 +101,110 @@ describe('MessageApi history pagination', () => {
   it('uses the same forward semantics for private history', async () => {
     mockC2cFetch.mockImplementation(async (_s, _id, _self, _uid, start, end) => {
       const out = [];
-      for (let s = start; s <= end; s++) out.push(gm(s));
+      for (let s = start; s <= end; s++) {
+        out.push({ ...gm(s + 10_000), kind: 'friend_message', ntMsgSeq: s });
+      }
       return out;
     });
 
     const res = await runHistory(new MessageApi(ctx).getC2cHistory('u_friend', 300, 3, 0, false));
 
-    expect(res.map((message) => message.msgSeq)).toEqual([300, 301, 302]);
+    expect(res.map((message) => message.ntMsgSeq)).toEqual([300, 301, 302]);
+  });
+
+  it('fetches the latest private page by timestamp without inventing a sequence anchor', async () => {
+    mockC2cRoamFetch.mockResolvedValue({
+      cursor: { time: 0, random: 0 },
+      messages: [
+        { ...gm(32742), kind: 'friend_message', ntMsgSeq: 63213, time: 1700000002 },
+        { ...gm(32743), kind: 'friend_message', ntMsgSeq: 63214, time: 1700000001 },
+      ],
+    } as any);
+
+    const result = await runHistory(
+      new MessageApi(ctx).getC2cLatestHistory('u_friend', 20, 10001, 1700000100),
+    );
+
+    expect(mockC2cRoamFetch).toHaveBeenCalledWith(
+      ctx,
+      ctx.identity,
+      10001,
+      'u_friend',
+      1700000100,
+      20,
+      0,
+    );
+    expect(result.map((message) => message.ntMsgSeq)).toEqual([63213, 63214]);
+    expect(mockC2cFetch).not.toHaveBeenCalled();
+  });
+
+  it('follows the private roam cursor until the requested count is filled', async () => {
+    mockC2cRoamFetch
+      .mockResolvedValueOnce({
+        cursor: { time: 1700000000, random: 7 },
+        messages: [
+          { ...gm(32744), kind: 'friend_message', ntMsgSeq: 63215, time: 1700000002 },
+        ],
+      } as any)
+      .mockResolvedValueOnce({
+        cursor: { time: 1699999900, random: 8 },
+        messages: [
+          { ...gm(32742), kind: 'friend_message', ntMsgSeq: 63213, time: 1700000000 },
+          { ...gm(32743), kind: 'friend_message', ntMsgSeq: 63214, time: 1700000001 },
+        ],
+      } as any);
+
+    const result = await runHistory(
+      new MessageApi(ctx).getC2cLatestHistory('u_friend', 3, 10001, 1700000100),
+    );
+
+    expect(mockC2cRoamFetch).toHaveBeenNthCalledWith(
+      1, ctx, ctx.identity, 10001, 'u_friend', 1700000100, 3, 0,
+    );
+    expect(mockC2cRoamFetch).toHaveBeenNthCalledWith(
+      2, ctx, ctx.identity, 10001, 'u_friend', 1700000000, 2, 7,
+    );
+    expect(result.map((message) => message.ntMsgSeq)).toEqual([63213, 63214, 63215]);
+  });
+
+  it('rejects a stalled private roam cursor instead of returning a partial page', async () => {
+    mockC2cRoamFetch.mockResolvedValue({
+      cursor: { time: 1700000100, random: 0 },
+      messages: [
+        { ...gm(32742), kind: 'friend_message', ntMsgSeq: 63213, time: 1700000000 },
+      ],
+    } as any);
+
+    const assertion = expect(
+      new MessageApi(ctx).getC2cLatestHistory('u_friend', 2, 10001, 1700000100),
+    ).rejects.toThrow('cursor did not advance');
+    await vi.runAllTimersAsync();
+    await assertion;
+  });
+
+  it('rejects a partial private page when the request budget is exhausted', async () => {
+    let page = 0;
+    mockC2cRoamFetch.mockImplementation(async () => {
+      page++;
+      return {
+        cursor: { time: 1700000100 - page, random: page },
+        messages: [
+          {
+            ...gm(32000 + page),
+            kind: 'friend_message',
+            ntMsgSeq: 63000 + page,
+            time: 1700000100 - page,
+          },
+        ],
+      } as any;
+    });
+
+    const assertion = expect(
+      new MessageApi(ctx).getC2cLatestHistory('u_friend', 20, 10001, 1700000200),
+    ).rejects.toThrow('request budget exhausted');
+    await vi.runAllTimersAsync();
+    await assertion;
+    expect(mockC2cRoamFetch).toHaveBeenCalledTimes(12);
   });
 
   it('stops forward pagination at the unsigned sequence ceiling', async () => {

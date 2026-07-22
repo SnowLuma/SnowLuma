@@ -75,6 +75,40 @@ describe('element-builder / rich card encoding', () => {
 });
 
 describe('element-builder / commonElem.businessType per scene', () => {
+  describe('private window shake', () => {
+    it('encodes poke type 1 as CommonElem service 2 with the verified payload', async () => {
+      const [elem] = await buildSendElems(
+        [{ type: 'poke', subType: 1 }],
+        { bridge: fakeBridge, userUid: 'u_peer', scene: 'direct-private' },
+      );
+
+      expect(commonElem(elem)).toMatchObject({
+        serviceType: 2,
+        businessType: 1,
+      });
+      expect(Array.from(commonElem(elem).pbElem)).toEqual([0x08, 0x01]);
+    });
+
+    it('rejects mixed window-shake content before uploading an earlier media segment', async () => {
+      vi.mocked(uploadImageMsgInfo).mockClear();
+
+      await expect(buildSendElems([
+        { type: 'image', url: 'file:///tmp/must-not-upload.png' },
+        { type: 'poke', subType: 1 },
+      ], {
+        bridge: fakeBridge,
+        userUid: 'u_peer',
+        scene: 'direct-private',
+      })).rejects.toMatchObject({
+        code: 'UNSENDABLE_TYPE',
+        elementType: 'poke',
+        message: expect.stringContaining('only segment'),
+      });
+
+      expect(uploadImageMsgInfo).not.toHaveBeenCalled();
+    });
+  });
+
   describe('image', () => {
     it('c2c → businessType 10', async () => {
       const [elem] = await buildSendElems(

@@ -26,7 +26,13 @@ import { SysMsgDedup } from './sysmsg-dedup';
 export { SysMsgDedup } from './sysmsg-dedup';
 
 export { SSO_GET_GROUP_MSG_CMD, fetchGroupMessageRange } from './fetch-group-history';
-export { SSO_GET_C2C_MSG_CMD, fetchC2cMessageRange } from './fetch-c2c-history';
+export {
+  SSO_GET_C2C_MSG_CMD,
+  SSO_GET_ROAM_MSG_CMD,
+  fetchC2cMessageRange,
+  fetchC2cRoamMessagePage,
+  type C2cRoamPage,
+} from './fetch-c2c-history';
 
 export const MSG_PUSH_CMD = 'trpc.msg.olpush.OlPushService.MsgPush';
 
@@ -90,6 +96,21 @@ function describeUndecodedBody(body: PushMsgBody | undefined): string {
   return `elems=[${parts.join('; ')}]${extras.length ? ` ${extras.join(' ')}` : ''}`;
 }
 
+function warnMissingC2cSequence(ev: QQEventVariant, fromUin: number): void {
+  if (
+    (ev.kind === 'friend_message' || ev.kind === 'temp_message')
+    && ev.sequenceAuthoritative === false
+  ) {
+    log.warn(
+      'c2c message omitted NT sequence; keeping non-authoritative client sequence (kind=%s from=%d clientSeq=%d time=%d)',
+      ev.kind,
+      fromUin,
+      ev.clientSeq ?? ev.msgSeq,
+      ev.time,
+    );
+  }
+}
+
 export function parseMsgPush(
   pkt: PacketInfo,
   identity: IdentityService,
@@ -111,7 +132,10 @@ export function parseMsgPush(
       }
       return false;
     }
-    if ((ev as { elements?: unknown[] }).elements?.length !== 0) return true;
+    if ((ev as { elements?: unknown[] }).elements?.length !== 0) {
+      warnMissingC2cSequence(ev, ctx.fromUin);
+      return true;
+    }
     // Empty-element message that's NOT a known control cmd. Drop it when the body
     // is genuinely empty (a content-less push we don't yet classify by c2cCmd).
     // If instead the body *had* content we just couldn't decode, keep the
@@ -121,6 +145,7 @@ export function parseMsgPush(
       log.warn('message had content but decoded to 0 elements — missing decoder? (kind=%s seq=%d from=%d msgType=%d/%d): %s',
         ev.kind, ctx.head.sequence, ctx.fromUin, ctx.head.msgType, ctx.head.subType,
         describeUndecodedBody(ctx.body));
+      warnMissingC2cSequence(ev, ctx.fromUin);
       return true;
     }
     return false;

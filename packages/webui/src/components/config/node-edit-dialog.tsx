@@ -92,8 +92,11 @@ export function NodeEditDialog<K extends NetworkKind>(props: NodeEditDialogProps
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
-        <DialogHeader>
+      <DialogContent
+        className="max-w-xl"
+        viewportClassName="grid max-h-[calc(100dvh_-_2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0"
+      >
+        <DialogHeader className="px-4 pb-4 pr-14 pt-5 sm:px-6 sm:pr-16 sm:pt-6">
           <div className="flex items-center gap-3">
             <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
               <Icon className="size-5" />
@@ -105,90 +108,93 @@ export function NodeEditDialog<K extends NetworkKind>(props: NodeEditDialogProps
           </div>
         </DialogHeader>
 
-        <div className="flex flex-col gap-5">
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0 }}
-            className="flex items-center justify-between gap-4 rounded-2xl border border-border/60 bg-card/60 px-4 py-3.5 shadow-[0_1px_2px_rgb(0_0_0/0.04)]"
-          >
-            <div className="min-w-0">
-              <Label className="text-sm font-medium text-foreground">启用</Label>
-              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                关闭后保存即可保留配置但不启动该节点
-              </p>
-            </div>
-            <ToggleSwitch
-              value={draft.enabled !== false}
-              onChange={(v) => patch({ enabled: v ? undefined : false } as Partial<AnyAdapter<K>>)}
-              ariaLabel="启用"
-            />
-          </motion.div>
-
-          <Section caption="连接" delay={0.05}>
-            <div className="flex flex-col gap-3 p-4">
-              <Field
-                label="名称"
-                placeholder="自定义"
-                value={draft.name}
-                onChange={(v) => patch({ name: v } as Partial<AnyAdapter<K>>)}
-                error={blankName ? '请填写名称' : duplicateName ? '名称与其它节点重复' : undefined}
+        <div className="min-h-0 overflow-y-auto overscroll-contain px-4 pb-5 sm:px-6">
+          <div className="flex flex-col gap-5">
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, delay: 0 }}
+              className="flex items-center justify-between gap-4 rounded-2xl border border-border/60 bg-card/60 px-4 py-3.5 shadow-[0_1px_2px_rgb(0_0_0/0.04)]"
+            >
+              <div className="min-w-0">
+                <Label className="text-sm font-medium text-foreground">启用</Label>
+                <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                  关闭后保存即可保留配置但不启动该节点
+                </p>
+              </div>
+              <ToggleSwitch
+                value={draft.enabled !== false}
+                onChange={(v) => patch({ enabled: v ? undefined : false } as Partial<AnyAdapter<K>>)}
+                ariaLabel="启用"
               />
-              <KindFields kind={kind} draft={draft} patch={patch} />
-            </div>
-          </Section>
+            </motion.div>
 
-          <Section caption="鉴权" delay={0.1}>
-            <div className="p-4">
-              <TokenField
-                label="授权 Token"
-                placeholder="不填则无密码"
-                value={draft.accessToken}
-                onChange={(v) => patch({ accessToken: v || undefined } as Partial<AnyAdapter<K>>)}
-              />
-            </div>
-          </Section>
-
-          <Section caption="行为" delay={0.15}>
-            <div className="divide-y divide-border/60">
-              <SettingRow label="消息格式" desc="数组为标准 OneBot 段，CQ 码为兼容字符串">
-                <DropdownSelect
-                  className="w-32"
-                  ariaLabel="消息格式"
-                  value={(draft.messageFormat ?? 'array') as MessageFormat}
-                  options={FORMAT_OPTIONS}
-                  onChange={(v) => patch({ messageFormat: v } as Partial<AnyAdapter<K>>)}
+            <Section caption="连接" delay={0.05}>
+              <div className="flex flex-col gap-3 p-4">
+                <Field
+                  label="名称"
+                  placeholder="自定义"
+                  value={draft.name}
+                  onChange={(v) => patch({ name: v } as Partial<AnyAdapter<K>>)}
+                  error={blankName ? '请填写名称' : duplicateName ? '名称与其它节点重复' : undefined}
                 />
-              </SettingRow>
+                <KindFields kind={kind} draft={draft} patch={patch} />
+              </div>
+            </Section>
 
-              {isWs && (
-                <SettingRow label="角色" desc="Universal 收发合一，Event / Api 分离">
+            <Section caption="鉴权" delay={0.1}>
+              <div className="p-4">
+                <TokenField
+                  label="授权 Token"
+                  placeholder="不填则无密码"
+                  value={draft.accessToken}
+                  onChange={(v) => patch({ accessToken: v || undefined } as Partial<AnyAdapter<K>>)}
+                />
+              </div>
+            </Section>
+
+            <Section caption="行为" delay={0.15}>
+              <div className="divide-y divide-border/60">
+                <SettingRow label="消息格式" desc="数组为标准 OneBot 段，CQ 码为兼容字符串">
                   <DropdownSelect
                     className="w-32"
-                    ariaLabel="角色"
-                    value={role}
-                    options={WS_ROLE_OPTIONS}
-                    onChange={(v) => patch({ role: v } as unknown as Partial<AnyAdapter<K>>)}
+                    ariaLabel="消息格式"
+                    value={(draft.messageFormat ?? 'array') as MessageFormat}
+                    options={FORMAT_OPTIONS}
+                    onChange={(v) => patch({ messageFormat: v } as Partial<AnyAdapter<K>>)}
                   />
                 </SettingRow>
-              )}
 
-              <SettingRow label="上报自身消息" desc="将机器人自己发送的消息也作为 message_sent 事件上报">
-                <ToggleSwitch
-                  value={!!draft.reportSelfMessage}
-                  onChange={(v) => patch({ reportSelfMessage: v } as Partial<AnyAdapter<K>>)}
-                  ariaLabel="上报自身消息"
-                />
-              </SettingRow>
-            </div>
-          </Section>
+                {isWs && (
+                  <SettingRow label="角色" desc="Universal 收发合一，Event / Api 分离">
+                    <DropdownSelect
+                      className="w-32"
+                      ariaLabel="角色"
+                      value={role}
+                      options={WS_ROLE_OPTIONS}
+                      onChange={(v) => patch({ role: v } as unknown as Partial<AnyAdapter<K>>)}
+                    />
+                  </SettingRow>
+                )}
+
+                <SettingRow label="上报自身消息" desc="将机器人自己发送的消息也作为 message_sent 事件上报">
+                  <ToggleSwitch
+                    value={!!draft.reportSelfMessage}
+                    onChange={(v) => patch({ reportSelfMessage: v } as Partial<AnyAdapter<K>>)}
+                    ariaLabel="上报自身消息"
+                  />
+                </SettingRow>
+              </div>
+            </Section>
+          </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+        <DialogFooter className="flex-row justify-end border-t border-border/60 bg-card px-4 py-3 sm:px-6 sm:py-4">
+          <Button className="flex-1 sm:flex-none" variant="outline" onClick={() => onOpenChange(false)}>
             取消
           </Button>
           <Button
+            className="flex-1 sm:flex-none"
             disabled={!canSave}
             onClick={() => {
               const cleaned = { ...draft, name: trimmedName } as AnyAdapter<K>;

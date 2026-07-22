@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { BridgeInterface } from '../../core/src/bridge/bridge-interface';
 import { OneBotInstance } from '../src/instance';
 import { buildApiContext, type OneBotInstanceContext } from '../src/instance-context';
-import { hashMessageIdInt32, PRIVATE_MESSAGE_EVENT } from '../src/message-id';
+import { hashMessageIdInt32, PRIVATE_NT_MESSAGE_EVENT } from '../src/message-id';
 import { TempSessionStore } from '../src/temp-session-store';
 import type { JsonObject, OneBotConfig } from '../src/types';
 
@@ -102,7 +102,7 @@ function privateSentEvent(overrides: JsonObject = {}): JsonObject {
     message_type: 'private',
     sub_type: 'friend',
     message_id: 987654,
-    message_seq: RECEIPT.sequence,
+    message_seq: RECEIPT.clientSequence,
     user_id: SELF_ID,
     target_id: PEER_ID,
     message: [{ type: 'text', data: { text: 'hello' } }],
@@ -130,7 +130,7 @@ describe('OneBot self-sent events', () => {
       self_id: SELF_ID,
       user_id: SELF_ID,
       target_id: PEER_ID,
-      message_seq: RECEIPT.sequence,
+      message_seq: RECEIPT.clientSequence,
     }), 'send');
   });
 
@@ -163,7 +163,7 @@ describe('OneBot self-sent events', () => {
 
   it('keeps an earlier QQ echo and does not report the later action event', async () => {
     const { ctx, dispatchEvent, events } = makeContext();
-    const messageId = hashMessageIdInt32(RECEIPT.sequence, PEER_ID, PRIVATE_MESSAGE_EVENT);
+    const messageId = hashMessageIdInt32(RECEIPT.sequence, PEER_ID, PRIVATE_NT_MESSAGE_EVENT);
     const qqEcho: JsonObject = {
       time: RECEIPT.timestamp,
       self_id: SELF_ID,
@@ -171,7 +171,7 @@ describe('OneBot self-sent events', () => {
       message_type: 'private',
       sub_type: 'friend',
       message_id: messageId,
-      message_seq: RECEIPT.sequence,
+      message_seq: RECEIPT.clientSequence,
       user_id: SELF_ID,
       target_id: PEER_ID,
       message: [{ type: 'text', data: { text: 'hello' } }],

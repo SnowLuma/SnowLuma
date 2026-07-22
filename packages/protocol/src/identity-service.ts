@@ -76,6 +76,7 @@ interface MemberInput {
   joinTime?: number;
   lastSentTime?: number;
   shutUpTime?: number;
+  isRobot?: boolean;
   active?: boolean;
 }
 
@@ -102,6 +103,7 @@ interface MemberRow {
   join_time: number;
   last_sent_time: number;
   shut_up_time: number;
+  is_robot: number | null;
   active: number;
 }
 
@@ -179,6 +181,7 @@ export class IdentityService {
     this.db.exec('PRAGMA journal_mode = WAL');
     this.db.exec('PRAGMA synchronous = NORMAL');
     this.initSchema();
+    this.migrateSchema();
     this.loadSnapshot();
   }
 
@@ -711,6 +714,7 @@ export class IdentityService {
         join_time      INTEGER NOT NULL DEFAULT 0,
         last_sent_time INTEGER NOT NULL DEFAULT 0,
         shut_up_time   INTEGER NOT NULL DEFAULT 0,
+        is_robot       INTEGER,
         active         INTEGER NOT NULL DEFAULT 1,
         updated_at     INTEGER NOT NULL,
         UNIQUE(group_id, uid),
@@ -723,6 +727,14 @@ export class IdentityService {
       CREATE INDEX IF NOT EXISTS idx_identity_group_members_group_uin
         ON group_members(group_id, uin);
     `);
+  }
+
+  private migrateSchema(): void {
+    const columns = this.db!.prepare('PRAGMA table_info(group_members)').all() as Array<{ name: string }>;
+    if (columns.some((column) => column.name === 'is_robot')) return;
+
+    this.db!.exec('ALTER TABLE group_members ADD COLUMN is_robot INTEGER');
+    this.log.info('identity schema migrated: added group_members.is_robot');
   }
 
   private loadSnapshot(): void {
@@ -766,7 +778,7 @@ export class IdentityService {
 
     const select = this.pstmt(
       `SELECT group_id, uid, uin, nickname, card, role, level, title,
-              join_time, last_sent_time, shut_up_time
+              join_time, last_sent_time, shut_up_time, is_robot
        FROM group_members
        WHERE group_id = ? AND active = 1`,
     );
@@ -783,6 +795,7 @@ export class IdentityService {
         join_time: number;
         last_sent_time: number;
         shut_up_time: number;
+        is_robot: number | null;
       }>;
       const members = rows.map(rowToMemberInfo);
       this.setGroupMembersInMemory(groupId, members);
@@ -904,6 +917,7 @@ export class IdentityService {
       joinTime: normalizeNonNegative(input.joinTime, primary?.join_time ?? 0),
       lastSentTime: normalizeNonNegative(input.lastSentTime, primary?.last_sent_time ?? 0),
       shutUpTime: normalizeNonNegative(input.shutUpTime, primary?.shut_up_time ?? 0),
+      isRobot: input.isRobot === undefined ? (primary?.is_robot ?? null) : input.isRobot ? 1 : 0,
       active: input.active === false ? 0 : input.active === true ? 1 : (primary?.active ?? 1),
       updatedAt: nowSeconds(),
     };
@@ -915,7 +929,7 @@ export class IdentityService {
       this.pstmt(
         `UPDATE group_members
          SET uid = ?, uin = ?, nickname = ?, card = ?, role = ?, level = ?, title = ?,
-             join_time = ?, last_sent_time = ?, shut_up_time = ?, active = ?, updated_at = ?
+             join_time = ?, last_sent_time = ?, shut_up_time = ?, is_robot = ?, active = ?, updated_at = ?
          WHERE id = ?`,
       ).run(
         merged.uid,
@@ -928,6 +942,7 @@ export class IdentityService {
         merged.joinTime,
         merged.lastSentTime,
         merged.shutUpTime,
+        merged.isRobot,
         merged.active,
         merged.updatedAt,
         primary.id,
@@ -938,8 +953,8 @@ export class IdentityService {
     this.pstmt(
       `INSERT INTO group_members
        (group_id, uid, uin, nickname, card, role, level, title,
-        join_time, last_sent_time, shut_up_time, active, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        join_time, last_sent_time, shut_up_time, is_robot, active, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       input.groupId,
       merged.uid,
@@ -952,6 +967,7 @@ export class IdentityService {
       merged.joinTime,
       merged.lastSentTime,
       merged.shutUpTime,
+      merged.isRobot,
       merged.active,
       merged.updatedAt,
     );
@@ -982,7 +998,7 @@ export class IdentityService {
     if (uid && uin !== null) {
       return this.pstmt(
         `SELECT id, group_id, uid, uin, nickname, card, role, level, title,
-                join_time, last_sent_time, shut_up_time, active
+                join_time, last_sent_time, shut_up_time, is_robot, active
          FROM group_members
          WHERE group_id = ? AND (uid = ? OR uin = ?)
          ORDER BY id`,
@@ -991,7 +1007,7 @@ export class IdentityService {
     if (uid) {
       return this.pstmt(
         `SELECT id, group_id, uid, uin, nickname, card, role, level, title,
-                join_time, last_sent_time, shut_up_time, active
+                join_time, last_sent_time, shut_up_time, is_robot, active
          FROM group_members
          WHERE group_id = ? AND uid = ?
          ORDER BY id`,
@@ -1000,7 +1016,7 @@ export class IdentityService {
     if (uin !== null) {
       return this.pstmt(
         `SELECT id, group_id, uid, uin, nickname, card, role, level, title,
-                join_time, last_sent_time, shut_up_time, active
+                join_time, last_sent_time, shut_up_time, is_robot, active
          FROM group_members
          WHERE group_id = ? AND uin = ?
          ORDER BY id`,
@@ -1187,6 +1203,7 @@ function rowToMemberInfo(row: {
   join_time: number;
   last_sent_time: number;
   shut_up_time: number;
+  is_robot: number | null;
 }): GroupMemberInfo {
   return {
     uid: row.uid ?? '',
@@ -1199,6 +1216,7 @@ function rowToMemberInfo(row: {
     joinTime: row.join_time,
     lastSentTime: row.last_sent_time,
     shutUpTime: row.shut_up_time,
+    isRobot: row.is_robot === null ? undefined : row.is_robot !== 0,
   };
 }
 

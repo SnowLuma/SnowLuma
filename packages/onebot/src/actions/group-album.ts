@@ -2,6 +2,50 @@ import { groupAction, f } from '../action-kit';
 import type { JsonValue } from '../types';
 import { okResponse } from '../types';
 
+const albumCoverUrlSchema = {
+  type: ['object', 'null'],
+  properties: {
+    url: { type: 'string', description: '封面地址' },
+    width: { type: 'integer', description: '封面宽度' },
+    height: { type: 'integer', description: '封面高度' },
+  },
+  required: ['url', 'width', 'height'],
+};
+
+const albumCoverSchema = {
+  type: ['object', 'null'],
+  description: '相册封面；没有封面时为 null',
+  properties: {
+    type: { type: 'integer', description: '封面媒体类型' },
+    image: {
+      type: ['object', 'null'],
+      description: '封面图片信息',
+      properties: {
+        name: { type: 'string', description: '图片名称' },
+        sloc: { type: 'string', description: '图片短定位标识' },
+        lloc: { type: 'string', description: '图片长定位标识' },
+        photoUrls: {
+          type: 'array',
+          description: '不同规格的封面地址',
+          items: {
+            type: 'object',
+            properties: {
+              spec: { type: 'integer', description: '图片规格' },
+              url: albumCoverUrlSchema,
+            },
+            required: ['spec', 'url'],
+          },
+        },
+        defaultUrl: albumCoverUrlSchema,
+        isGif: { type: 'boolean', description: '是否为动图' },
+        hasRaw: { type: 'boolean', description: '是否有原图' },
+      },
+      required: ['name', 'sloc', 'lloc', 'photoUrls', 'defaultUrl', 'isGif', 'hasRaw'],
+    },
+  },
+  required: ['type', 'image'],
+};
+
 export const actions = [
   groupAction({
     name: 'get_group_album_list',
@@ -17,10 +61,21 @@ export const actions = [
           name: { type: 'string', description: '相册名称' },
           picNum: { type: 'integer', description: '相册内照片数量' },
           createTime: { type: 'integer', description: '相册创建时间（unix 秒）' },
+          last_upload_time: { type: 'integer', description: '最后上传时间（unix 秒）' },
+          cover: albumCoverSchema,
           createuin: { type: 'string', description: '相册创建者 QQ 号' },
           createnickname: { type: 'string', description: '相册创建者昵称（原始 Unicode）' },
         },
-        required: ['id', 'name', 'picNum', 'createTime', 'createuin', 'createnickname'],
+        required: [
+          'id',
+          'name',
+          'picNum',
+          'createTime',
+          'last_upload_time',
+          'cover',
+          'createuin',
+          'createnickname',
+        ],
       },
     },
     run: async (p, ctx) => {
@@ -46,7 +101,9 @@ export const actions = [
               album_id: { type: 'string', description: '相册 id' },
               name: { type: 'string', description: '相册名称' },
               create_time: { type: 'string', description: '相册创建时间（unix 秒）' },
+              last_upload_time: { type: 'string', description: '最后上传时间（unix 秒）' },
               upload_number: { type: 'string', description: '相册内媒体数量' },
+              cover: albumCoverSchema,
               creator: {
                 type: 'object',
                 description: '相册创建者信息',
@@ -57,7 +114,14 @@ export const actions = [
                 },
               },
             },
-            required: ['album_id', 'name', 'create_time', 'upload_number'],
+            required: [
+              'album_id',
+              'name',
+              'create_time',
+              'last_upload_time',
+              'upload_number',
+              'cover',
+            ],
           },
         },
         attach_info: { type: 'string', description: '下一页分页游标' },
@@ -94,7 +158,7 @@ export const actions = [
   groupAction({
     name: 'get_group_album_media_list',
     readOnly: true,
-    returns: '相册媒体列表及下一页分页游标：{mediaList, nextAttachInfo}。',
+    returns: '相册图片/视频列表及下一页分页游标；视频项包含 id、url、cover、尺寸、时长和多规格地址。',
     returnsSchema: {
       type: 'object',
       properties: {

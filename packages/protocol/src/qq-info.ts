@@ -34,6 +34,8 @@ export interface GroupMemberInfo {
   uid: string;
   nickname: string;
   card: string;
+  /** Undefined until QQ's server-provided robot ranges classify this member. */
+  isRobot?: boolean;
   role: string;       // 'owner' | 'admin' | 'member'
   level: number;
   title: string;

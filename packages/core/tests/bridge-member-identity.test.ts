@@ -14,6 +14,7 @@ function makeGroupMember(uin: number, uid: string): GroupMemberInfo {
     uid,
     nickname: '',
     card: '',
+    isRobot: false,
     role: 'member',
     level: 0,
     title: '',

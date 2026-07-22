@@ -3247,7 +3247,7 @@
     {
       "name": "get_friend_msg_history",
       "aliases": [],
-      "summary": "获取好友消息历史",
+      "summary": "获取好友消息历史（无锚点时从服务器获取最新双向记录）",
       "returns": "{ messages }：好友消息事件对象数组（每项为 OneBot 消息事件，内部字段不固定）。",
       "returnsSchema": {
         "type": "object",
@@ -3294,7 +3294,8 @@
             "type": "integer",
             "minimum": 0
           },
-          "default": 20
+          "default": 20,
+          "desc": "无锚点时从 QQ 服务器获取最新双向历史；服务器或身份解析失败时动作失败，不返回不完整的本地缓存"
         },
         {
           "name": "reverse_order",
@@ -3324,6 +3325,7 @@
           "count": {
             "type": "integer",
             "minimum": 0,
+            "description": "无锚点时从 QQ 服务器获取最新双向历史；服务器或身份解析失败时动作失败，不返回不完整的本地缓存",
             "default": 20
           },
           "reverse_order": {
@@ -3433,6 +3435,132 @@
               "type": "integer",
               "description": "相册创建时间（unix 秒）"
             },
+            "last_upload_time": {
+              "type": "integer",
+              "description": "最后上传时间（unix 秒）"
+            },
+            "cover": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "description": "相册封面；没有封面时为 null",
+              "properties": {
+                "type": {
+                  "type": "integer",
+                  "description": "封面媒体类型"
+                },
+                "image": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "description": "封面图片信息",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "图片名称"
+                    },
+                    "sloc": {
+                      "type": "string",
+                      "description": "图片短定位标识"
+                    },
+                    "lloc": {
+                      "type": "string",
+                      "description": "图片长定位标识"
+                    },
+                    "photoUrls": {
+                      "type": "array",
+                      "description": "不同规格的封面地址",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "spec": {
+                            "type": "integer",
+                            "description": "图片规格"
+                          },
+                          "url": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "properties": {
+                              "url": {
+                                "type": "string",
+                                "description": "封面地址"
+                              },
+                              "width": {
+                                "type": "integer",
+                                "description": "封面宽度"
+                              },
+                              "height": {
+                                "type": "integer",
+                                "description": "封面高度"
+                              }
+                            },
+                            "required": [
+                              "url",
+                              "width",
+                              "height"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "spec",
+                          "url"
+                        ]
+                      }
+                    },
+                    "defaultUrl": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "description": "封面地址"
+                        },
+                        "width": {
+                          "type": "integer",
+                          "description": "封面宽度"
+                        },
+                        "height": {
+                          "type": "integer",
+                          "description": "封面高度"
+                        }
+                      },
+                      "required": [
+                        "url",
+                        "width",
+                        "height"
+                      ]
+                    },
+                    "isGif": {
+                      "type": "boolean",
+                      "description": "是否为动图"
+                    },
+                    "hasRaw": {
+                      "type": "boolean",
+                      "description": "是否有原图"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "sloc",
+                    "lloc",
+                    "photoUrls",
+                    "defaultUrl",
+                    "isGif",
+                    "hasRaw"
+                  ]
+                }
+              },
+              "required": [
+                "type",
+                "image"
+              ]
+            },
             "createuin": {
               "type": "string",
               "description": "相册创建者 QQ 号"
@@ -3447,6 +3575,8 @@
             "name",
             "picNum",
             "createTime",
+            "last_upload_time",
+            "cover",
             "createuin",
             "createnickname"
           ]
@@ -3487,7 +3617,7 @@
     {
       "name": "get_group_album_media_list",
       "aliases": [],
-      "returns": "相册媒体列表及下一页分页游标：{mediaList, nextAttachInfo}。",
+      "returns": "相册图片/视频列表及下一页分页游标；视频项包含 id、url、cover、尺寸、时长和多规格地址。",
       "returnsSchema": {
         "type": "object",
         "properties": {
@@ -4382,6 +4512,10 @@
             "type": "string",
             "description": "群名片"
           },
+          "is_robot": {
+            "type": "boolean",
+            "description": "是否为机器人"
+          },
           "sex": {
             "type": "string",
             "enum": [
@@ -4532,6 +4666,10 @@
             "card": {
               "type": "string",
               "description": "群名片"
+            },
+            "is_robot": {
+              "type": "boolean",
+              "description": "是否为机器人"
             },
             "sex": {
               "type": "string",
@@ -5512,9 +5650,135 @@
                   "type": "string",
                   "description": "相册创建时间（unix 秒）"
                 },
+                "last_upload_time": {
+                  "type": "string",
+                  "description": "最后上传时间（unix 秒）"
+                },
                 "upload_number": {
                   "type": "string",
                   "description": "相册内媒体数量"
+                },
+                "cover": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "description": "相册封面；没有封面时为 null",
+                  "properties": {
+                    "type": {
+                      "type": "integer",
+                      "description": "封面媒体类型"
+                    },
+                    "image": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "description": "封面图片信息",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "description": "图片名称"
+                        },
+                        "sloc": {
+                          "type": "string",
+                          "description": "图片短定位标识"
+                        },
+                        "lloc": {
+                          "type": "string",
+                          "description": "图片长定位标识"
+                        },
+                        "photoUrls": {
+                          "type": "array",
+                          "description": "不同规格的封面地址",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "spec": {
+                                "type": "integer",
+                                "description": "图片规格"
+                              },
+                              "url": {
+                                "type": [
+                                  "object",
+                                  "null"
+                                ],
+                                "properties": {
+                                  "url": {
+                                    "type": "string",
+                                    "description": "封面地址"
+                                  },
+                                  "width": {
+                                    "type": "integer",
+                                    "description": "封面宽度"
+                                  },
+                                  "height": {
+                                    "type": "integer",
+                                    "description": "封面高度"
+                                  }
+                                },
+                                "required": [
+                                  "url",
+                                  "width",
+                                  "height"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "spec",
+                              "url"
+                            ]
+                          }
+                        },
+                        "defaultUrl": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "properties": {
+                            "url": {
+                              "type": "string",
+                              "description": "封面地址"
+                            },
+                            "width": {
+                              "type": "integer",
+                              "description": "封面宽度"
+                            },
+                            "height": {
+                              "type": "integer",
+                              "description": "封面高度"
+                            }
+                          },
+                          "required": [
+                            "url",
+                            "width",
+                            "height"
+                          ]
+                        },
+                        "isGif": {
+                          "type": "boolean",
+                          "description": "是否为动图"
+                        },
+                        "hasRaw": {
+                          "type": "boolean",
+                          "description": "是否有原图"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "sloc",
+                        "lloc",
+                        "photoUrls",
+                        "defaultUrl",
+                        "isGif",
+                        "hasRaw"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "image"
+                  ]
                 },
                 "creator": {
                   "type": "object",
@@ -5539,7 +5803,9 @@
                 "album_id",
                 "name",
                 "create_time",
-                "upload_number"
+                "last_upload_time",
+                "upload_number",
+                "cover"
               ]
             }
           },

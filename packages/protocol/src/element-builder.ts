@@ -2,7 +2,7 @@ import type {
   MarkdownData,
   MentionExtraSend,
 } from '@snowluma/proto-defs/action';
-import type { Elem, GroupFileExtra, MarketFacePbReserve, QFaceExtra, QSmallFaceExtra } from '@snowluma/proto-defs/element';
+import type { Elem, GroupFileExtra, MarketFacePbReserve, PokeExtra, QFaceExtra, QSmallFaceExtra } from '@snowluma/proto-defs/element';
 import { protobuf_encode } from '@snowluma/proton';
 import { randomUUID } from 'crypto';
 import { deflateSync } from 'zlib';
@@ -10,8 +10,10 @@ import type { BridgeContext } from './bridge-context';
 import { sysFaceStore } from './sys-face-store';
 import type { MessageElement } from './events';
 import {
+  assertWindowShakeSendPolicy,
   assertValidMessageElements,
   MessageElementValidationError,
+  type OutboundMessageScene,
 } from './element-manifest';
 import { uploadImageMsgInfo } from './highway/image-upload';
 import { hexToBytes } from './highway/pipeline';
@@ -24,6 +26,8 @@ export interface SendContext {
   bridge: BridgeContext;
   groupId?: number;
   userUid?: string;
+  /** Explicit transport scene used by scene-limited message elements. */
+  scene?: OutboundMessageScene;
   /**
    * Set by the forward-message upload path. When `true`, file segments
    * are encoded as receive-side wire shapes (group → `transElem(24)`,
@@ -200,6 +204,17 @@ function makeMarkdownElem(element: MessageElement): ProtoElem {
       serviceType: 45,
       pbElem: data,
       businessType: 1,
+    },
+  };
+}
+
+function makePokeElem(element: MessageElement): ProtoElem {
+  const pokeType = element.subType;
+  return {
+    commonElem: {
+      serviceType: 2,
+      pbElem: protobuf_encode<PokeExtra>({ type: pokeType }),
+      businessType: pokeType,
     },
   };
 }
@@ -435,7 +450,7 @@ async function makeVideoElem(ctx: SendContext, element: MessageElement): Promise
 
 /**
  * Build proto Elem objects from an array of MessageElements.
- * Supports: text, face, mface, at, reply, json, xml, markdown, image, record, video, forward.
+ * Supports: text, face, mface, at, reply, json, xml, markdown, image, record, video, forward, poke.
  * Image, record and video elements trigger NTV2 highway upload via the SendContext.
  */
 export async function buildSendElems(elements: MessageElement[], ctx?: SendContext): Promise<ProtoElem[]> {
@@ -443,6 +458,11 @@ export async function buildSendElems(elements: MessageElement[], ctx?: SendConte
   // preserves all-or-nothing semantics: a malformed later segment cannot make
   // an earlier media segment perform side effects before the send is rejected.
   assertValidMessageElements(elements, 'W');
+  assertWindowShakeSendPolicy(
+    elements.filter((element) => element.type === 'poke').length,
+    elements.length,
+    ctx?.scene,
+  );
   for (const element of elements) {
     if ((element.type === 'image' || element.type === 'record' || element.type === 'video') && !ctx) {
       throw new MessageElementValidationError(
@@ -476,6 +496,10 @@ export async function buildSendElems(elements: MessageElement[], ctx?: SendConte
 
       case 'face':
         result.push(makeFaceElem(elem.faceId, ctx));
+        break;
+
+      case 'poke':
+        result.push(makePokeElem(elem));
         break;
 
       case 'mface':

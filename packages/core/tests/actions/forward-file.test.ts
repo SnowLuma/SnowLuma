@@ -70,6 +70,43 @@ function decodeLongMsgRequest(rawBytes: Uint8Array): LongMsgResult {
 }
 
 describe('actions/forward — file segment inside forward node', () => {
+  it('rejects a recursive window shake before identity resolution or upload', async () => {
+    buildSendElemsMock.mockClear();
+    const resolveUserUid = vi.fn();
+    const uploadPrivate = vi.fn();
+    const sendRawPacket = vi.fn();
+    const bridge = mockBridge({
+      resolveUserUid,
+      sendRawPacket: sendRawPacket as any,
+      apis: {
+        ...mockBridge().apis,
+        groupFile: {
+          ...mockBridge().apis.groupFile,
+          uploadPrivate,
+        },
+      },
+    });
+
+    await expect(new ForwardApi(bridge as any).upload([{
+      userUin: 10001,
+      nickname: 'alice',
+      elements: [{ type: 'image', url: 'base64://AQID' }],
+      innerForward: [{
+        userUin: 10002,
+        nickname: 'bob',
+        elements: [{ type: 'poke', subType: 1 }],
+      }],
+    }], undefined, 67890)).rejects.toMatchObject({
+      code: 'UNSENDABLE_TYPE',
+      elementType: 'poke',
+    });
+
+    expect(resolveUserUid).not.toHaveBeenCalled();
+    expect(uploadPrivate).not.toHaveBeenCalled();
+    expect(buildSendElemsMock).not.toHaveBeenCalled();
+    expect(sendRawPacket).not.toHaveBeenCalled();
+  });
+
   it('group forward sets forwardFake:true on the SendContext so transElem(24) is emitted', async () => {
     // Group case: the file element rides on elems[] as transElem(24).
     // The element-builder receives ctx.forwardFake=true so it knows to

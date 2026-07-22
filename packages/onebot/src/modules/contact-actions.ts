@@ -1,8 +1,10 @@
 import { mapWithConcurrency } from '@snowluma/common/concurrency';
+import { createLogger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import type { IdentityService } from '@snowluma/protocol/identity-service';
 import {
   formatGroupRequestFlag,
+  type GroupMemberInfo,
   type GroupRequestInfo,
   type UserProfileInfo,
 } from '@snowluma/protocol/qq-info';
@@ -10,6 +12,7 @@ import type { OneBotInstanceContext } from '../instance-context';
 import type { JsonObject } from '../types';
 
 const REQUESTER_PROFILE_CONCURRENCY = 4;
+const log = createLogger('OneBot.Contacts');
 
 export interface GroupSystemMessageQuery {
   groupId?: number;
@@ -22,11 +25,21 @@ export function getLoginInfo(ref: OneBotInstanceContext): { userId: number; nick
   return { userId, nickname };
 }
 
-async function refreshSingleGroupMembers(bridge: BridgeInterface, groupId: number): Promise<void> {
+async function fetchSingleGroupMembers(
+  bridge: BridgeInterface,
+  groupId: number,
+  force = false,
+): Promise<GroupMemberInfo[]> {
   try {
-    await bridge.apis.contacts.fetchGroupMemberList(groupId);
-  } catch {
-    // 需要打log以便排查问题，但不应当让调用者感知到这个失败。
+    return await bridge.apis.contacts.fetchGroupMemberList(groupId, { force });
+  } catch (err) {
+    log.warn(
+      'group member refresh failed: uin=%s group=%d err=%s',
+      bridge.identity.uin,
+      groupId,
+      err instanceof Error ? (err.stack ?? err.message) : String(err),
+    );
+    throw err;
   }
 }
 
@@ -156,15 +169,23 @@ export async function getGroupMemberList(
   noCache?: boolean,
 ): Promise<JsonObject[]> {
   if (noCache) {
-    await refreshSingleGroupMembers(bridge, groupId);
-    return getCachedGroupMembers(bridge.identity, groupId);
+    const members = await fetchSingleGroupMembers(bridge, groupId, true);
+    return members.map(m => formatGroupMember(groupId, m));
   }
 
   try {
     const members = await bridge.apis.contacts.fetchGroupMemberList(groupId);
     return members.map(m => formatGroupMember(groupId, m));
-  } catch {
-    return getCachedGroupMembers(bridge.identity, groupId);
+  } catch (err) {
+    log.warn(
+      'group member fetch failed, using classified cache: uin=%s group=%d err=%s',
+      bridge.identity.uin,
+      groupId,
+      err instanceof Error ? (err.stack ?? err.message) : String(err),
+    );
+    const cached = getCachedGroupMembers(bridge.identity, groupId);
+    if (cached.length === 0) throw err;
+    return cached;
   }
 }
 
@@ -174,8 +195,9 @@ export async function getGroupMemberInfo(
   userId: number,
   noCache?: boolean,
 ): Promise<JsonObject | null> {
-  if (noCache || !bridge.identity.findGroupMember(groupId, userId)) {
-    await refreshSingleGroupMembers(bridge, groupId);
+  const cached = bridge.identity.findGroupMember(groupId, userId);
+  if (noCache || !cached || cached.isRobot === undefined) {
+    await fetchSingleGroupMembers(bridge, groupId, noCache === true);
   }
   const m = bridge.identity.findGroupMember(groupId, userId);
   if (!m) return null;
@@ -339,22 +361,19 @@ function getCachedGroupMembers(identity: IdentityService, groupId: number): Json
 
 function formatGroupMember(
   groupId: number,
-  member: {
-    uin: number;
-    nickname: string;
-    card: string;
-    joinTime: number;
-    lastSentTime: number;
-    level: number;
-    role: string;
-    title: string;
-  },
+  member: GroupMemberInfo,
 ): JsonObject {
+  if (member.isRobot === undefined) {
+    throw new Error(
+      `group member robot classification unavailable: group=${groupId} member=${member.uin}`,
+    );
+  }
   return {
     group_id: groupId,
     user_id: member.uin,
     nickname: member.nickname,
     card: member.card,
+    is_robot: member.isRobot,
     sex: 'unknown',
     age: 0,
     join_time: member.joinTime,

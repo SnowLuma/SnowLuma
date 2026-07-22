@@ -86,4 +86,28 @@ describeBundledAddon('bundled native ffmpeg addon', () => {
     expect(duration).toBeGreaterThan(0.9);
     expect(duration).toBeLessThan(1.2);
   });
+
+  it('converts the QQ AI SILK container variant through the public transcode seam', async () => {
+    const addon = loadBundledAddon();
+    const wavPath = path.join(tmpDir, 'ai-input.wav');
+    const silkPath = path.join(tmpDir, 'ai-input.ntsilk');
+    writeFileSync(wavPath, makeMonoWav());
+    await addon.convertToNTSilkTct(wavPath, silkPath);
+
+    const aiSilk = readFileSync(silkPath);
+    expect(aiSilk.subarray(0, 10)).toEqual(
+      Buffer.concat([Buffer.from([0x02]), Buffer.from('#!SILK_V3', 'ascii')]),
+    );
+    aiSilk[0] = 0x03;
+
+    const result = await convertAudioBytes(aiSilk, 'mp3', { addon, tmpDir });
+    const mp3 = Buffer.from(result.base64, 'base64');
+    const outputPath = path.join(tmpDir, 'ai-output.mp3');
+    writeFileSync(outputPath, mp3);
+
+    expect(hasMp3Signature(mp3)).toBe(true);
+    const duration = await addon.getDuration(outputPath);
+    expect(duration).toBeGreaterThan(0.9);
+    expect(duration).toBeLessThan(1.2);
+  });
 });

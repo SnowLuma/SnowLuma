@@ -395,22 +395,13 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
       );
     }
 
-    // Reply / quote. For a c2c (friend) reply the canonical replied-to sequence
-    // is the srcMsg reserve's `friendSequence`, NOT `origSeqs[0]` — origSeqs
-    // carries the per-sender clientSequence, which doesn't match how the
-    // original message is keyed (by its server/private sequence), so resolving
-    // the reply (and get_msg on the quoted message) would miss. Mirrors
-    // Lagrange's `Sequence = reserve.FriendSequence ?? OrigSeqs[0]`
-    // (ForwardEntity.cs). Group replies keep origSeqs[0] (the shared group seq).
+    // Reply / quote. `origSeqs[0]` is the shared group sequence for groups and
+    // the quoted sender's local client sequence for C2C. The latter is not the
+    // conversation-wide NT sequence used by private history/message ids, so the
+    // OneBot layer resolves it with peer + sender direction + quote time.
     if (elem.srcMsg) {
-      // The reply resolves to srcMsg.origSeqs[0] — for BOTH group (shared group
-      // seq) and c2c. On-target capture (#114 / #124) proved origSeqs[0] equals
-      // the quoted message's head.sequence, i.e. the seq its message_id is
-      // hashed from. reserve.friendSequence is a small friend-relationship
-      // counter that does NOT match (e.g. 25 vs a head.sequence of 12707), so
-      // the earlier `friendSequence` override made reply.id != the quoted
-      // message_id: get_msg(reply_id) missed and a quoted File's content came
-      // back empty.
+      // On-target capture (#114 / #124) also proved reserve.friendSequence is a
+      // small friend-relationship counter, not either usable message sequence.
       const src = elem.srcMsg;
       const replySeq = src.origSeqs?.[0] ?? 0;
       if (replySeq > 0) {
