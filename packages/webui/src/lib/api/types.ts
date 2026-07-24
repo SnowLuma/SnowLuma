@@ -16,6 +16,11 @@ import type {
   OneBotConfig,
   QQInfo,
   SystemInfo,
+  LogStorageSettingsPatch,
+  StorageCleanupRequest,
+  StorageCleanupResponse,
+  StorageOverviewResponse,
+  StorageSettingsUpdateResponse,
   SystemSettings,
   SystemSettingsPatch,
   SystemSettingsResponse,
@@ -166,6 +171,13 @@ export interface ApiClient {
     exportBackup(includeCredentials: boolean): Promise<BackupBundle>;
     /** Validate + restore a bundle as one process-level transaction. */
     importBackup(backup: BackupBundle, restoreCredentials: boolean): Promise<BackupImportResult>;
+  };
+
+  // ---- managed storage (logs / stream temp / per-account databases) ----
+  storage: {
+    get(): Promise<StorageOverviewResponse>;
+    saveSettings(patch: LogStorageSettingsPatch): Promise<StorageSettingsUpdateResponse>;
+    cleanup(request: StorageCleanupRequest): Promise<StorageCleanupResponse>;
   };
 
   // ---- debug tools (action tester + live event/action stream) ----

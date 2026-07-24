@@ -114,10 +114,21 @@ describe('prepareRestorePlan — strict semantic preflight', () => {
       webuiHost: '0.0.0.0',
       webuiTls: { enabled: false },
       trustProxy: '',
+      logMaxTotalMb: 1024,
+      logRetainDays: 7,
+      logPerUin: false,
     });
     expect(prepared.migrated).toEqual([{
       name: 'runtime.json',
-      fields: ['$.hookAutoLoad', '$.trustProxy', '$.webuiHost', '$.webuiTls'],
+      fields: [
+        '$.hookAutoLoad',
+        '$.logMaxTotalMb',
+        '$.logPerUin',
+        '$.logRetainDays',
+        '$.trustProxy',
+        '$.webuiHost',
+        '$.webuiTls',
+      ],
     }]);
   });
 

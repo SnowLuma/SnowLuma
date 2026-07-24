@@ -91,6 +91,10 @@
     "./instance-rkey": {
       "types": "./src/instance-rkey.ts",
       "default": "./src/instance-rkey.ts"
+    },
+    "./stream-storage": {
+      "types": "./src/stream-storage.ts",
+      "default": "./src/stream-storage.ts"
     }
   },
   "scripts": {

@@ -12,7 +12,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createLogger, getLogLevel, setLogLevel, subscribeLogs, type LogEntry } from '@snowluma/common/logger';
-import { _resetFileTransportForTesting } from '@snowluma/common/log-file-transport';
+import {
+  _resetFileTransportForTesting,
+  configureFileTransport,
+} from '@snowluma/common/log-file-transport';
 
 let tmpDir: string;
 const ENV_KEYS = [
@@ -20,6 +23,7 @@ const ENV_KEYS = [
   'SNOWLUMA_LOG_PER_UIN',
   'SNOWLUMA_LOG_DIR',
   'SNOWLUMA_LOG_MAX_MB',
+  'SNOWLUMA_LOG_MAX_TOTAL_MB',
   'SNOWLUMA_LOG_RETAIN_DAYS',
   'SNOWLUMA_LOG_LEVEL',
   'NO_COLOR',
@@ -41,6 +45,7 @@ beforeEach(async () => {
     SNOWLUMA_LOG_FILE: '1',
     SNOWLUMA_LOG_PER_UIN: '1',
     SNOWLUMA_LOG_MAX_MB: '5',
+    SNOWLUMA_LOG_MAX_TOTAL_MB: '100',
     SNOWLUMA_LOG_RETAIN_DAYS: '7',
     NO_COLOR: '1',
   });
@@ -176,6 +181,24 @@ describe('createLogger', () => {
 
     const entries = fs.readdirSync(tmpDir);
     expect(entries).toHaveLength(0);
+  });
+
+  it('applies the runtime storage policy through the singleton before writing', async () => {
+    const status = await configureFileTransport({
+      maxTotalMb: 3,
+      retainDays: 0,
+      perUinEnabled: false,
+    });
+    expect(status).toMatchObject({
+      maxTotalBytes: 3 * 1024 * 1024,
+      retainDays: 0,
+      perUinEnabled: false,
+    });
+
+    createLogger('Bridge').child({ uin: 24680 }).info('runtime policy');
+    await _resetFileTransportForTesting();
+
+    expect(fs.existsSync(path.join(tmpDir, '24680'))).toBe(false);
   });
 });
 

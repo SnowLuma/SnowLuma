@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import {
   Accessibility, AlertTriangle, Bell, Bug, Check, Clock, Code2, Download, ExternalLink, Github, Image as ImageIcon,
   Info, KeyRound, Loader2, Monitor, Moon, Palette, PanelTop, Plus, RefreshCw, RotateCcw, Server, ShieldCheck,
-  SlidersHorizontal, Sparkles, Star, Sun, Tag, Upload, Trash2,
+  SlidersHorizontal, Sparkles, Star, Sun, Tag, Upload, Trash2, HardDrive,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -44,6 +44,7 @@ import { settingsRoute, type SettingsTab } from '@/router';
 import { NotificationsPanel } from '@/components/settings/notifications-panel';
 import { GlobalConfigPanel } from '@/components/settings/global-config-panel';
 import { SystemPanel } from '@/components/settings/system-panel';
+import { StoragePanel } from '@/components/settings/storage-panel';
 
 interface TabDef { key: SettingsTab; label: string; icon: typeof Sun }
 
@@ -64,6 +65,7 @@ const TAB_GROUPS: { title: string; tabs: TabDef[] }[] = [
     title: 'SnowLuma',
     tabs: [
       { key: 'globalConfig', label: '全局配置', icon: SlidersHorizontal },
+      { key: 'storage', label: '存储管理', icon: HardDrive },
       { key: 'notifications', label: '通知', icon: Bell },
     ],
   },
@@ -107,6 +109,7 @@ export function SettingsPage() {
           {tab === 'advanced' && <AdvancedPanel />}
           {tab === 'account' && <AccountPanel />}
           {tab === 'system' && <SystemPanel />}
+          {tab === 'storage' && <StoragePanel />}
           {tab === 'notifications' && <NotificationsPanel />}
           {tab === 'globalConfig' && <GlobalConfigPanel />}
           {tab === 'about' && <AboutPanel />}

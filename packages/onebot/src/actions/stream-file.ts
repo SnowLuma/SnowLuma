@@ -17,7 +17,6 @@
 // (no single-request OOM or disk/fd exhaustion); chunk indices are claimed
 // synchronously (no double-count race); state is namespaced per account.
 
-import os from 'os';
 import path from 'path';
 import fs from 'fs';
 import { createHash } from 'crypto';
@@ -26,12 +25,17 @@ import { defineAction, defineStreamAction, f } from '../action-kit';
 import type { ApiActionContext } from '../api-handler';
 import { okResponse, type ApiResponse } from '../types';
 import { StreamStatus } from '../streaming';
+import {
+  STREAM_DOWNLOAD_DIR,
+  STREAM_ROOT,
+  STREAM_UPLOAD_DIR,
+  clearInactiveStreamStorage,
+  registerActiveStreamItem,
+} from '../stream-storage';
 
 const log = createLogger('OneBot.Stream');
 
-export const STREAM_ROOT = path.join(os.tmpdir(), 'snowluma-stream');
-export const STREAM_UPLOAD_DIR = path.join(STREAM_ROOT, 'upload');
-export const STREAM_DOWNLOAD_DIR = path.join(STREAM_ROOT, 'download');
+export { STREAM_DOWNLOAD_DIR, STREAM_ROOT, STREAM_UPLOAD_DIR };
 
 const UPLOAD_TIMEOUT_MS = 10 * 60 * 1000;   // idle stream reaped after 10 min
 const DEFAULT_RETENTION_MS = 5 * 60 * 1000; // reassembled file auto-deleted after 5 min
@@ -95,6 +99,7 @@ interface UploadState {
   finalPath: string;
   fileRetention: number;
   timeoutId: NodeJS.Timeout;
+  releaseStorageActivity: () => void;
 }
 
 /** Process-wide. Key is account-namespaced so two accounts (same process) can't
@@ -111,11 +116,16 @@ function cleanupUpload(key: string, deleteFinal: boolean): void {
   const state = uploads.get(key);
   if (!state) return;
   clearTimeout(state.timeoutId);
-  try { fs.rmSync(state.tempDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  try { fs.rmSync(state.tempDir, { recursive: true, force: true }); } catch (error) {
+    log.warn('failed to delete stream upload chunks %s: %s', state.tempDir, errorMessage(error));
+  }
   if (deleteFinal) {
-    try { fs.rmSync(state.finalPath, { force: true }); } catch { /* best effort */ }
+    try { fs.rmSync(state.finalPath, { force: true }); } catch (error) {
+      log.warn('failed to delete stream upload file %s: %s', state.finalPath, errorMessage(error));
+    }
   }
   uploads.delete(key);
+  state.releaseStorageActivity();
 }
 
 function safeFilename(name: string | undefined, id: string): string {
@@ -142,6 +152,7 @@ function createUpload(p: UploadParams, account: string): UploadState {
   fs.mkdirSync(tempDir, { recursive: true });
 
   const key = account ? `${account}:${p.stream_id}` : p.stream_id;
+  const releaseStorageActivity = registerActiveStreamItem([tempDir, finalPath]);
   const state: UploadState = {
     id: p.stream_id,
     key,
@@ -156,6 +167,7 @@ function createUpload(p: UploadParams, account: string): UploadState {
     finalPath,
     fileRetention: p.file_retention,
     timeoutId: reapTimer(key),
+    releaseStorageActivity,
   };
   uploads.set(key, state);
   return state;
@@ -200,13 +212,17 @@ async function completeUpload(state: UploadState): Promise<ApiResponse> {
     await new Promise<void>((resolve, reject) => out.end((err?: Error | null) => (err ? reject(err) : resolve())));
   } catch (err) {
     out.destroy();
-    try { fs.rmSync(state.finalPath, { force: true }); } catch { /* best effort */ }
+    try { fs.rmSync(state.finalPath, { force: true }); } catch (error) {
+      log.warn('failed to delete incomplete stream file %s: %s', state.finalPath, errorMessage(error));
+    }
     throw err;
   }
 
   const sha256 = hash.digest('hex');
   if (state.expectedSha256 && sha256 !== state.expectedSha256) {
-    try { fs.rmSync(state.finalPath, { force: true }); } catch { /* best effort */ }
+    try { fs.rmSync(state.finalPath, { force: true }); } catch (error) {
+      log.warn('failed to delete invalid stream file %s: %s', state.finalPath, errorMessage(error));
+    }
     throw new StreamError(`sha256 mismatch (expected ${state.expectedSha256}, got ${sha256})`);
   }
 
@@ -337,7 +353,12 @@ const uploadFileStream = defineStreamAction({
 function cleanDir(dir: string): number {
   let removed = 0;
   let entries: string[];
-  try { entries = fs.readdirSync(dir); } catch { return 0; } // dir absent → nothing to clean
+  try {
+    entries = fs.readdirSync(dir);
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return 0;
+    throw error;
+  }
   for (const name of entries) {
     try { fs.rmSync(path.join(dir, name), { recursive: true, force: true }); removed++; } catch (err) {
       log.warn('failed to remove stream temp %s: %s', path.join(dir, name), err instanceof Error ? err.message : String(err));
@@ -352,14 +373,36 @@ const cleanStreamTempFile = defineAction({
   returns: '{ message, removed }',
   params: {},
   run: () => {
-    const removed = cleanDir(STREAM_UPLOAD_DIR) + cleanDir(STREAM_DOWNLOAD_DIR);
-    // Active uploads' chunk dirs may have been wiped — drop their state too.
-    for (const k of [...uploads.keys()]) cleanupUpload(k, false);
-    return okResponse({ message: 'success', removed });
+    const result = clearInactiveStreamStorage();
+    for (const failure of result.failures) {
+      log.warn('failed to remove stream temp %s: %s', failure.item, failure.message);
+    }
+    if (result.failures.length > 0) {
+      throw new StreamError(`failed to remove ${result.failures.length} stream temp item(s)`);
+    }
+    return okResponse({
+      message: 'success',
+      removed: result.deletedFiles,
+      freed_bytes: result.freedBytes,
+      skipped_active: result.skippedActiveItems,
+    });
   },
 });
 
 export const actions = [uploadFileStream, cleanStreamTempFile];
 
 // Exposed for tests.
-export const __test = { uploads, handleUpload, cleanDir, validateStreamId, STREAM_UPLOAD_DIR, MAX_CONCURRENT_STREAMS, MAX_CHUNKS };
+export const __test = {
+  uploads,
+  handleUpload,
+  cleanupUpload,
+  cleanDir,
+  validateStreamId,
+  STREAM_UPLOAD_DIR,
+  MAX_CONCURRENT_STREAMS,
+  MAX_CHUNKS,
+};
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
