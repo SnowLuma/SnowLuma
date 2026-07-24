@@ -1,0 +1,43 @@
+{
+  "mode": "snapshot",
+  "networks": {
+    "httpServers": [
+      {
+        "name": "http-default",
+        "accessToken": "ILN6Fu6OLHoU6yYag12JxwC1JywIwJmrEM2oL8us23E",
+        "messageFormat": "array",
+        "reportSelfMessage": false,
+        "host": "127.0.0.1",
+        "port": 3000,
+        "path": "/",
+        "enableWebSocket": false
+      }
+    ],
+    "httpClients": [],
+    "wsServers": [
+      {
+        "name": "ws-default",
+        "accessToken": "yzTP8WdT4H5JzZXEg80av2FJzMUTWRLYgtMj0zRLMR8",
+        "messageFormat": "array",
+        "reportSelfMessage": false,
+        "host": "127.0.0.1",
+        "port": 3001,
+        "path": "/",
+        "role": "Universal"
+      }
+    ],
+    "wsClients": []
+  },
+  "statusCommand": {
+    "enabled": true,
+    "swallow": false,
+    "cooldownSeconds": 5,
+    "trigger": "#sl"
+  },
+  "historySync": {
+    "enabled": false
+  },
+  "notifications": {
+    "channelIds": []
+  }
+}

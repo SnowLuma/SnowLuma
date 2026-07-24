@@ -1,0 +1,20 @@
+{
+	"mcpServers": {
+		"snowluma": {
+			"command": "npx",
+			"args": [
+				"-y",
+				"@snowluma/mcp"
+			],
+			"env": {
+				"SNOWLUMA_MCP_ENDPOINT": "http://127.0.0.1:3000/",
+				"SNOWLUMA_MCP_TOKEN": "715306@Dfhj",
+				"SNOWLUMA_MCP_MODE": "write"
+			},
+			"alwaysAllow": [
+				"list_categories",
+				"list_actions"
+			]
+		}
+	}
+}

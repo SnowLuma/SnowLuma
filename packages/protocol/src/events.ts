@@ -195,6 +195,19 @@ export interface FlashFileElement {
   thumbUrl?: string;
 }
 
+/** Red packet (红包) element — decoded from Elem field 24. */
+export interface RedPacketElement {
+  type: 'red_packet';
+  title?: string;        // 红包标题
+  greeting?: string;     // 祝福语
+  displayText?: string;  // 完整显示文本 "[QQ红包]test"
+  packetType?: number;   // protobuf 字段值（实测各类型均为 3，非类型标识）
+  redPacketType?: string; // 红包类型名："拼手气"/"普通"/"专属"/"口令"（由 field12 推导）
+  transferId?: string;   // 红包ID
+  authKey?: string;      // auth key
+  typeName?: string;     // "QQ红包"
+  }
+
 type MessageElementVariant =
   | TextElement
   | AtElement
@@ -211,7 +224,8 @@ type MessageElementVariant =
   | MarketFaceElement
   | FileElement
   | PokeElement
-  | FlashFileElement;
+  | FlashFileElement
+  | RedPacketElement;
 
 type UnionKeys<T> = T extends T ? keyof T : never;
 type StrictUnionMember<T, All> = T extends T

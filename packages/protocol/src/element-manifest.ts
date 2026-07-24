@@ -217,6 +217,12 @@ export const ELEMENT_MANIFEST = {
     requiredFields: ['filesetId'],
     note: '闪传文件：收侧解码 markdown commonElem（旧卡 JSON data.fileSetId，现网 extType=1/extInfo + open_fileset scheme，#199/#200/#358）；发送走 send_flash_msg，故 P/W 按设计不支持',
   },
+  red_packet: {
+    directions: { D: 'yes', S: 'yes', P: 'no', W: 'no' },
+    fields: fieldsFor<'red_packet'>()(['title', 'greeting', 'displayText', 'packetType', 'redPacketType', 'transferId', 'authKey', 'typeName']),
+    requiredFields: [],
+    note: '红包（Elem field 24）：仅收侧解码上报，不支持发送',
+  },
 } as const satisfies ManifestShape;
 
 export type ElementType = keyof typeof ELEMENT_MANIFEST;

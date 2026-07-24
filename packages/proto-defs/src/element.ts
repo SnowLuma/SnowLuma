@@ -298,7 +298,65 @@ export interface GeneralFlags {
   longTextResId?:   pb<7, string>;
 }
 
-//  Elem (union of all element types) 
+//  Red packet (红包) element — Elem field 24.
+//  Unlike normal richMsg (field 12) whose template1 is zlib-compressed
+//  JSON/XML, the red packet's payload is a nested protobuf message carrying
+//  the title, greeting, transferId, auth key, etc.
+
+export interface RedPacketInfo {
+  typeCode?:   pb<1, int_32>;    // 14235648 — red packet type code
+  field2?:     pb<2, int_32>;    // 4
+  title?:      pb<3, string>;    // "test" — red packet title
+  greeting?:   pb<4, string>;    // "赶紧点击拆开吧" — blessing text
+  typeName?:   pb<5, string>;    // "QQ红包"
+  field6?:     pb<6, bytes>;
+  field7?:     pb<7, bytes>;
+  displayText?: pb<8, string>;   // "[QQ红包]test"
+  color1?:     pb<9, int_32>;    // 16777215
+  color2?:     pb<10, int_32>;   // 16777215
+  subType?:    pb<11, string>;   // "3"
+  field12?:    pb<12, bytes>;
+  field13?:    pb<13, bytes>;
+  pagePath?:   pb<14, string>;   // "red?id=..."
+  field21?:    pb<21, bytes>;
+}
+
+export interface RedPacketSign {
+  field1?:  pb<1, int_32>;
+  field2?:  pb<2, bytes>;        // 32B signature
+  signHash?: pb<3, string>;      // "ea62c0718ec761cfcbc9a4d88e8ee1bc"
+}
+
+export interface RedPacketSkin {
+  field3?:  pb<3, int_32>;
+  skinInfo?: pb<5, string>;      // {"skin_type":"0"}
+  field7?:  pb<7, int_32>;
+  field8?:  pb<8, int_32>;
+}
+
+export interface RedPacketTemplate {
+  flag?:     pb<1, int_32>;
+  info?:     pb<3, RedPacketInfo>;
+  field4?:   pb<4, int_32>;
+  field5?:   pb<5, int_32>;
+  field6?:   pb<6, int_32>;
+  packetType?: pb<7, int_32>;    // 3 = 拼手气
+  field8?:   pb<8, int_32>;
+  transferId?: pb<9, string>;    // "10000319012607241400110867883700"
+  authKey?:  pb<10, string>;     // "d78bdd1942e2429cb4af0c4e3f4bc49da4"
+  field11?:  pb<11, int_32>;
+  field12?:  pb<12, int_32>;
+  sign?:     pb<17, RedPacketSign>;
+  digest?:   pb<18, string>;     // "a34955db5e4eda74521cce7655b2abe1"
+  field19?:  pb<19, int_32>;
+  skin?:     pb<21, RedPacketSkin>;
+}
+
+export interface RedPacketMsg {
+  template1?: pb<1, RedPacketTemplate>;
+}
+
+//  Elem (union of all element types)
 
 export interface Elem {
   text?:           pb<1, TextElem>;
@@ -312,6 +370,7 @@ export interface Elem {
   groupFile?:      pb<13, GroupFileElem>;
   extraInfo?:      pb<16, ExtraInfo>;
   videoFile?:      pb<19, VideoFile>;
+  redPacket?:      pb<24, RedPacketMsg>;
   generalFlags?:   pb<37, GeneralFlags>;
   srcMsg?:         pb<45, SrcMsg>;
   lightApp?:       pb<51, LightAppElem>;

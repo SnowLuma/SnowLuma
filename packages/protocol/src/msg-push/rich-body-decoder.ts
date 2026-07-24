@@ -37,7 +37,7 @@ const unknownElementLog = createLogger('MsgPush.UnknownElement');
 const DECODED_WIRE_FIELDS: ReadonlySet<string> = new Set([
   'text', 'face', 'notOnlineImage', 'transElem', 'marketFace', 'customFace',
   'richMsg', 'groupFile', 'videoFile', 'srcMsg', 'lightApp', 'commonElem',
-  'extraInfo', 'generalFlags',
+  'extraInfo', 'generalFlags', 'redPacket',
 ]);
 const METADATA_WIRE_FIELDS: ReadonlySet<string> = new Set(['extraInfo', 'generalFlags']);
 
@@ -508,6 +508,9 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
   // `[face name]请使用最新版手机QQ体验新功能`. Suppress only that proven wire
   // shape (#289); a sibling user-authored text has no such reserve and survives.
   let previousBigFace: QFaceExtra | null = null;
+  // Red packet (Elem field 24) suppresses the sibling degradation text
+  // "[QQ红包]请使用新版手机QQ查收红包。" — same structural rule as cards.
+  const hasRedPacket = elems.some((e) => Boolean(e.redPacket));
   // [#127] A QQ NT reply carries the replied sender as a structural auto-mention
   // (MentionExtra.type=2, uin=0) right after srcMsg, followed by a blank
   // separator text. Both are part of the reply wire shape, not user content —
@@ -632,7 +635,10 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
         } else {
           const text = t.str ?? '';
           // Drop the successfully decoded card/markdown compatibility sibling.
-          if (text && hasRichContent) continue;
+          // Red packets follow the same pattern: the degradation text
+          // "[QQ红包]请使用新版手机QQ查收红包。" is suppressed in favour of the
+          // decoded red_packet element.
+          if (text && (hasRichContent || hasRedPacket)) continue;
           if (text) result.push({ type: 'text', text });
         }
       }
@@ -781,6 +787,34 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
 
     // LightApp
     if (cards?.light?.element) result.push(cards.light.element);
+
+    // RedPacket (Elem field 24) — QQ红包
+    // template1.field12 经实测是稳定的红包类型标识（每类型2个样本验证）：
+    //   6=拼手气、4=普通、16=专属、12=口令。语音红包桌面端不支持。
+    if (elem.redPacket) {
+      const tpl = elem.redPacket.template1;
+      const info = tpl?.info;
+      if (info) {
+        const redPacketType: string | undefined =
+          tpl?.field12 === 6 ? '拼手气' :
+          tpl?.field12 === 4 ? '普通' :
+          tpl?.field12 === 16 ? '专属' :
+          tpl?.field12 === 12 ? '口令' :
+          undefined;
+        const me: MessageElementOf<'red_packet'> = {
+          type: 'red_packet',
+          ...(info.title != null && { title: info.title }),
+          ...(info.greeting != null && { greeting: info.greeting }),
+          ...(info.displayText != null && { displayText: info.displayText }),
+          ...(info.typeName != null && { typeName: info.typeName }),
+          ...(tpl?.packetType != null && { packetType: tpl.packetType }),
+          ...(redPacketType != null && { redPacketType }),
+          ...(tpl?.transferId != null && { transferId: tpl.transferId }),
+          ...(tpl?.authKey != null && { authKey: tpl.authKey }),
+        };
+        result.push(me);
+      }
+    }
 
     // CommonElem
     if (elem.commonElem) {

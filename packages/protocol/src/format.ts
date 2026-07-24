@@ -130,6 +130,12 @@ function renderSegment(type: string, data: Record<string, unknown>): string {
       const title = data.title ? String(data.title) : '';
       return title ? `[闪传文件:${truncate(title, 20)}]` : '[闪传文件]';
     }
+    case 'red_packet': {
+      const type = data.redPacketType ? String(data.redPacketType) : '';
+      const title = data.title ? String(data.title) : '';
+      const prefix = type ? `${type}红包` : '红包';
+      return title ? `[${prefix}:${truncate(title, 20)}]` : `[${prefix}]`;
+    }
     default: return `[${type}]`;
   }
 }

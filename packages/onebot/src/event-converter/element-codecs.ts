@@ -547,6 +547,16 @@ export const ELEMENT_CODECS = {
       };
     },
   },
+  red_packet: {
+    // S 收·转：下游适配器不识别 red_packet 段类型，降级为 text 段输出。
+    // 文本形如 [拼手气红包:标题]，无类型时退化为 [红包:标题]，无标题为 [QQ红包]。
+    async toSegment(element) {
+      const prefix = element.redPacketType ? `${element.redPacketType}红包` : '红包';
+      const title = element.title ?? '';
+      const text = title ? `[${prefix}:${title}]` : (element.redPacketType ? `[${prefix}]` : '[QQ红包]');
+      return { type: 'text', data: { text } };
+    },
+  },
 } satisfies ElementCodecMap;
 
 /**
