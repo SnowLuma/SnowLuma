@@ -323,7 +323,13 @@ export const f = {
         }
       }
       return ok(raw);
-    }, { type: 'message', required: true, schema: { description: 'OneBot message: string | segment[] | object' } });
+    }, {
+      type: 'message',
+      required: true,
+      schema: {
+        description: 'OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly "" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation.',
+      },
+    });
   },
   /** Homogeneous array; `.nonEmpty()` rejects []. */
   array<E>(el: Field<E>): Field<E[]> & { nonEmpty(): Field<E[]> } {

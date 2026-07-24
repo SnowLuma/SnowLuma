@@ -64,6 +64,10 @@ function isSegmentArray(val: unknown): val is MessageSegment[] {
   );
 }
 
+function normalizeSegmentType(type: string): string {
+  return type.toLowerCase();
+}
+
 function outboundInputSegmentTypes(message: JsonValue, autoEscape: boolean): string[] {
   if (typeof message === 'string') {
     if (autoEscape) return ['text'];
@@ -71,7 +75,7 @@ function outboundInputSegmentTypes(message: JsonValue, autoEscape: boolean): str
     let lastIndex = 0;
     for (const match of message.matchAll(CQ_REGEX)) {
       if (match.index! > lastIndex) types.push('text');
-      types.push((match[1] ?? '').toLowerCase());
+      types.push(normalizeSegmentType(match[1] ?? ''));
       lastIndex = match.index! + match[0].length;
     }
     if (lastIndex < message.length) types.push('text');
@@ -81,12 +85,12 @@ function outboundInputSegmentTypes(message: JsonValue, autoEscape: boolean): str
     return message.flatMap((item) => {
       if (typeof item !== 'object' || item === null || Array.isArray(item)) return [];
       const type = (item as { type?: unknown }).type;
-      return typeof type === 'string' ? [type.toLowerCase()] : [];
+      return typeof type === 'string' ? [normalizeSegmentType(type)] : [];
     });
   }
   if (typeof message === 'object' && message !== null) {
     const type = (message as { type?: unknown }).type;
-    return typeof type === 'string' ? [type.toLowerCase()] : [];
+    return typeof type === 'string' ? [normalizeSegmentType(type)] : [];
   }
   return [];
 }
@@ -173,7 +177,7 @@ function requireCoordinate(
 }
 
 export async function segmentToElement(type: string, data: Record<string, unknown>, options?: ParseMessageOptions): Promise<MessageElement | null> {
-  const normalizedType = type.toLowerCase();
+  const normalizedType = normalizeSegmentType(type);
 
   // Ordinary OneBot segment fields are scalar. Reject objects/arrays before
   // codecs can stringify them into "[object Object]" and alter caller intent.
@@ -408,6 +412,13 @@ export async function parseMessage(message: JsonValue, autoEscape: boolean, opti
     const elements: MessageElement[] = [];
     for (const seg of message) {
       const data = segmentPayload(seg);
+      // Some OneBot clients insert empty text between media as a separator.
+      // Only the exact empty string is a no-op; malformed and whitespace text
+      // must still pass through strict element validation.
+      if (normalizeSegmentType(seg.type) === 'text' && data.text === '') {
+        log.debug('ignored explicit empty text placeholder in message segment array');
+        continue;
+      }
       const elem = await segmentToElement(seg.type, data, options);
       if (elem) elements.push(elem);
     }

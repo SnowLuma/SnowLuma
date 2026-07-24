@@ -108,6 +108,98 @@ describe('apis/group-album', () => {
     }]);
   });
 
+  it('fetches every AlbumService page for the legacy album list action', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket
+      .mockResolvedValueOnce({
+        success: true,
+        gotResponse: true,
+        errorCode: 0,
+        errorMessage: '',
+        responseData: Buffer.from(protobuf_encode<GetAlbumListResponse>({
+          data: {
+            albumList: [{
+              albumId: 'album-1',
+              name: '第一页',
+              createTime: 1n,
+              uploadNumber: 1n,
+            }],
+            attachInfo: 'next-cursor',
+            hasMore: true,
+          },
+        })),
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        gotResponse: true,
+        errorCode: 0,
+        errorMessage: '',
+        responseData: Buffer.from(protobuf_encode<GetAlbumListResponse>({
+          data: {
+            albumList: [{
+              albumId: 'album-2',
+              name: '第二页',
+              createTime: 2n,
+              uploadNumber: 2n,
+            }],
+            hasMore: false,
+          },
+        })),
+      });
+
+    const result = await new GroupAlbumApi(bridge as never).list(12345);
+
+    expect(result.map((album) => album.id)).toEqual(['album-1', 'album-2']);
+    expect(bridge.sendRawPacket).toHaveBeenCalledTimes(2);
+    const secondRequest = protobuf_decode<GroupAlbumListRequestWireOracle>(
+      bridge.sendRawPacket.mock.calls[1]![1],
+    );
+    expect(secondRequest.data?.cursor).toBe('next-cursor');
+  });
+
+  it('rejects a legacy album page that claims more data without a cursor', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce({
+      success: true,
+      gotResponse: true,
+      errorCode: 0,
+      errorMessage: '',
+      responseData: Buffer.from(protobuf_encode<GetAlbumListResponse>({
+        data: {
+          albumList: [],
+          hasMore: true,
+        },
+      })),
+    });
+
+    await expect(new GroupAlbumApi(bridge as never).list(12345))
+      .rejects.toThrow('hasMore=true but cursor is empty');
+  });
+
+  it('rejects a repeated AlbumService cursor instead of looping or truncating', async () => {
+    const bridge = mockBridge();
+    const repeatedPage = {
+      success: true,
+      gotResponse: true,
+      errorCode: 0,
+      errorMessage: '',
+      responseData: Buffer.from(protobuf_encode<GetAlbumListResponse>({
+        data: {
+          albumList: [],
+          attachInfo: 'same-cursor',
+          hasMore: true,
+        },
+      })),
+    };
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(repeatedPage)
+      .mockResolvedValueOnce(repeatedPage);
+
+    await expect(new GroupAlbumApi(bridge as never).list(12345))
+      .rejects.toThrow('repeated cursor at page 2');
+    expect(bridge.sendRawPacket).toHaveBeenCalledTimes(2);
+  });
+
   it('returns the native AlbumService cursor and creator fields for get_qun_album_list', async () => {
     const bridge = mockBridge();
     bridge.sendRawPacket.mockResolvedValueOnce({

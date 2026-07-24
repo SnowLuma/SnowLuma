@@ -213,8 +213,42 @@ export class GroupAlbumApi {
 
   // OneBot compatibility shape used by get_group_album_list.
   async list(groupId: number): Promise<GroupAlbumList> {
-    const result = await this.fetchAlbumList(groupId, '');
-    return result.albumList.map(toLegacyAlbum);
+    const albumList: GroupAlbumList = [];
+    const seenCursors = new Set<string>();
+    let attachInfo = '';
+    let page = 0;
+
+    while (true) {
+      const result = await this.fetchAlbumList(groupId, attachInfo);
+      page += 1;
+      albumList.push(...result.albumList.map(toLegacyAlbum));
+
+      if (!result.hasMore) {
+        log.debug(
+          'get complete album list: group=%d pages=%d albums=%d',
+          groupId,
+          page,
+          albumList.length,
+        );
+        return albumList;
+      }
+
+      const nextAttachInfo = result.attachInfo;
+      if (!nextAttachInfo) {
+        throw new Error(
+          `get group album list pagination failed: group=${groupId} page=${page} `
+          + 'hasMore=true but cursor is empty',
+        );
+      }
+      if (seenCursors.has(nextAttachInfo)) {
+        throw new Error(
+          `get group album list pagination failed: group=${groupId} repeated cursor at page ${page}`,
+        );
+      }
+
+      seenCursors.add(nextAttachInfo);
+      attachInfo = nextAttachInfo;
+    }
   }
 
   // 上传图片到现有相册（HTTP 分片上传）。

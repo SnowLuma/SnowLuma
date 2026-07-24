@@ -1,4 +1,4 @@
-import type { AccountConnections, BackupBundle, BackupImportResult, DebugActionDoc, DebugInvokeResult, DebugStreamMessage, GlobalSettings, HookProcessInfo, LogEntry, LogLevel, NotificationDeliveryRecord, NotificationsConfig, QQInfo, SystemInfo, SystemSettingsPatch, SystemSettingsResponse, UiAppearance, UiConfig, UpdateInfo } from '@/types';
+import type { AccountConnections, BackupBundle, BackupImportResult, DebugActionDoc, DebugInvokeResult, DebugStreamMessage, GlobalSettings, HookProcessInfo, LogEntry, LogLevel, LogStorageSettingsPatch, NotificationDeliveryRecord, NotificationsConfig, QQInfo, StorageCleanupRequest, StorageCleanupResponse, StorageOverviewResponse, StorageSettingsUpdateResponse, SystemInfo, SystemSettingsPatch, SystemSettingsResponse, UiAppearance, UiConfig, UpdateInfo } from '@/types';
 import type { PasswordRule } from '@/components/pages/change-password-page';
 import { normalizeOneBotConfig } from '@/lib/onebot-config';
 import {
@@ -58,6 +58,7 @@ class HttpApiClient implements ApiClient {
   readonly notifications: ApiClient['notifications'];
   readonly globalConfig: ApiClient['globalConfig'];
   readonly systemSettings: ApiClient['systemSettings'];
+  readonly storage: ApiClient['storage'];
   readonly debug: ApiClient['debug'];
   readonly agreements: ApiClient['agreements'];
 
@@ -165,6 +166,30 @@ class HttpApiClient implements ApiClient {
         this.getJson<BackupBundle>(`/api/system/backup/export${includeCredentials ? '?credentials=1' : ''}`),
       importBackup: (backup: BackupBundle, restoreCredentials: boolean) =>
         this.postJson<BackupImportResult>('/api/system/backup/import', { backup, restoreCredentials }),
+    };
+
+    this.storage = {
+      get: () => this.getJson<StorageOverviewResponse>('/api/system/storage'),
+      saveSettings: (patch: LogStorageSettingsPatch) =>
+        this.postJson<StorageSettingsUpdateResponse>('/api/system/storage/settings', patch),
+      cleanup: async (request: StorageCleanupRequest) => {
+        const response = await this.request('/api/system/storage/cleanup', {
+          method: 'POST',
+          body: JSON.stringify(request),
+        });
+        const payload = await readJson<StorageCleanupResponse & ErrorPayload>(response);
+        // A cleanup can partially succeed and return HTTP 500 with the exact
+        // deleted/failed items. Preserve that result so the operator sees the
+        // real outcome instead of a generic exception.
+        if (!response.ok && !payload.cleanup) {
+          throw new ApiError(
+            response.status,
+            extractErrorMessage(payload, response.statusText || '清理失败'),
+            payload.code,
+          );
+        }
+        return payload;
+      },
     };
 
     this.debug = {

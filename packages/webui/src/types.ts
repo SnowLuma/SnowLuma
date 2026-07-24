@@ -173,6 +173,138 @@ export interface SystemSettingsResponse {
   restartRequiredToApply: boolean;
 }
 
+// Storage management under Settings → SnowLuma → 存储管理.
+export type LogStorageState = 'disabled' | 'healthy' | 'warning' | 'degraded';
+export interface LogStorageStatus {
+  state: LogStorageState;
+  totalBytes: number;
+  maxTotalBytes: number;
+  retainDays: number;
+  perUinEnabled: boolean;
+  fileCount: number;
+  activeFileCount: number;
+  droppedLines: number;
+  lastError?: string;
+}
+
+export interface LogStorageSettings {
+  logMaxTotalMb: number;
+  logRetainDays: number;
+  logPerUin: boolean;
+}
+export type LogStorageSettingsField = keyof LogStorageSettings;
+export type LogStorageSettingsPatch = Partial<LogStorageSettings>;
+export interface LogStorageSettingsState {
+  saved: LogStorageSettings;
+  effective: LogStorageSettings;
+  envOverrides: LogStorageSettingsField[];
+}
+
+export interface TemporaryStorageSnapshot {
+  totalBytes: number;
+  fileCount: number;
+  activeItemCount: number;
+}
+
+export interface AccountStorageSnapshot {
+  uin: string;
+  nickname?: string;
+  online: boolean;
+  messagesBytes: number;
+  mediaBytes: number;
+  reactionsBytes: number;
+  totalBytes: number;
+}
+
+export interface StorageSnapshot {
+  logs: LogStorageStatus;
+  temporary: TemporaryStorageSnapshot;
+  accounts: AccountStorageSnapshot[];
+  totals: {
+    logsBytes: number;
+    temporaryBytes: number;
+    accountDataBytes: number;
+    managedBytes: number;
+  };
+}
+
+export type AccountStorageCategory = 'messages' | 'media' | 'reactions';
+export type StorageCleanupScope = 'logs' | 'temporary' | 'account' | 'allAccounts';
+export interface LastStorageCleanup {
+  at: string;
+  scope: StorageCleanupScope;
+  accountScope: 'global' | 'single' | 'all';
+  category?: AccountStorageCategory;
+  uin?: string;
+  deletedFiles: number;
+  freedBytes: number;
+  failureCount: number;
+  skippedActiveItems?: number;
+  failures: StorageCleanupFailure[];
+}
+
+export interface StorageOverviewResponse {
+  settings: LogStorageSettingsState;
+  snapshot: StorageSnapshot;
+  lastCleanup: LastStorageCleanup | null;
+}
+
+export interface StorageSettingsUpdateResponse {
+  success: true;
+  settings: LogStorageSettingsState;
+  status: LogStorageStatus;
+  snapshot: StorageSnapshot;
+}
+
+export const ALL_ACCOUNTS_CONFIRMATION = '清理全部账号' as const;
+
+export type StorageCleanupRequest =
+  | { scope: 'logs' }
+  | { scope: 'temporary' }
+  | { scope: 'account'; category: AccountStorageCategory; uin: string }
+  | {
+    scope: 'allAccounts';
+    category: AccountStorageCategory;
+    confirmation: typeof ALL_ACCOUNTS_CONFIRMATION;
+  };
+
+export interface StorageCleanupFailure {
+  item?: string;
+  file?: string;
+  uin?: string;
+  message: string;
+}
+
+export type StorageCleanupResult =
+  | {
+    deletedFiles: number;
+    freedBytes: number;
+    failures: StorageCleanupFailure[];
+    status: LogStorageStatus;
+  }
+  | {
+    deletedFiles: number;
+    freedBytes: number;
+    skippedActiveItems: number;
+    failures: StorageCleanupFailure[];
+  }
+  | {
+    category: AccountStorageCategory;
+    uins: string[];
+    deletedFiles: number;
+    freedBytes: number;
+    failures: StorageCleanupFailure[];
+  };
+
+export interface StorageCleanupResponse {
+  success: boolean;
+  message?: string;
+  scope: StorageCleanupScope;
+  cleanup: StorageCleanupResult;
+  snapshot?: StorageSnapshot;
+  lastCleanup?: LastStorageCleanup;
+}
+
 // Debug tools (Wave A3; roles + streaming added in the console expansion).
 
 /** Semantic role of a param, mirrored from the backend's `FieldRole`. Drives

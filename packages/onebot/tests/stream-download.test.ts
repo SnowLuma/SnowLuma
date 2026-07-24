@@ -5,6 +5,8 @@ import path from 'path';
 import { ApiHandler, type ApiActionContext } from '../src/api-handler';
 import { __test } from '../src/actions/stream-download';
 import { STREAM_DOWNLOAD_DIR, __test as fileTest } from '../src/actions/stream-file';
+import { clearInactiveStreamStorage } from '../src/stream-storage';
+import type { StreamSink } from '../src/streaming';
 
 const parse = (frames: string[]) => frames.map((f) => JSON.parse(f) as Record<string, any>);
 
@@ -73,6 +75,49 @@ describe('download_file_stream (local, fenced)', () => {
     const frames: string[] = [];
     await h.processStreamRequest(JSON.stringify({ action: 'download_file_stream', params: { file: '/etc/passwd' } }), (j) => frames.push(j));
     expect(parse(frames).at(-1)).toMatchObject({ status: 'failed', data: { type: 'error' } });
+  });
+
+  it('protects a local stream file from cleanup while it is being downloaded', async () => {
+    fs.mkdirSync(STREAM_DOWNLOAD_DIR, { recursive: true });
+    const fp = path.join(STREAM_DOWNLOAD_DIR, 'active.bin');
+    fs.writeFileSync(fp, 'active download');
+
+    let unblock!: () => void;
+    let reachedFirstFrame!: () => void;
+    const blocked = new Promise<void>((resolve) => { unblock = resolve; });
+    const firstFrame = new Promise<void>((resolve) => { reachedFirstFrame = resolve; });
+    let sent = false;
+    const sink: StreamSink = {
+      send: async () => {
+        if (sent) return;
+        sent = true;
+        reachedFirstFrame();
+        await blocked;
+      },
+    };
+
+    const running = __test.runDownload(
+      fp,
+      65536,
+      {} as ApiActionContext,
+      sink,
+      'auto',
+    );
+    await firstFrame;
+
+    try {
+      const duringDownload = clearInactiveStreamStorage();
+      expect(duringDownload.skippedActiveItems).toBeGreaterThanOrEqual(1);
+      expect(duringDownload.failures).toEqual([]);
+      expect(fs.existsSync(fp)).toBe(true);
+    } finally {
+      unblock();
+      await running;
+    }
+    const afterDownload = clearInactiveStreamStorage();
+    expect(afterDownload.deletedFiles).toBeGreaterThanOrEqual(1);
+    expect(afterDownload.failures).toEqual([]);
+    expect(fs.existsSync(fp)).toBe(false);
   });
 });
 

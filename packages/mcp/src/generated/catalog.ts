@@ -7469,7 +7469,7 @@ export const ACTIONS: CatalogAction[] = [
         "type": "message",
         "required": false,
         "schema": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         }
       },
       {
@@ -7477,7 +7477,7 @@ export const ACTIONS: CatalogAction[] = [
         "type": "message",
         "required": false,
         "schema": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         }
       }
     ],
@@ -7486,10 +7486,10 @@ export const ACTIONS: CatalogAction[] = [
       "type": "object",
       "properties": {
         "messages": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         },
         "message": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         }
       },
       "additionalProperties": true
@@ -7638,7 +7638,7 @@ export const ACTIONS: CatalogAction[] = [
         "type": "message",
         "required": false,
         "schema": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         }
       },
       {
@@ -7646,7 +7646,7 @@ export const ACTIONS: CatalogAction[] = [
         "type": "message",
         "required": false,
         "schema": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         }
       }
     ],
@@ -7661,10 +7661,10 @@ export const ACTIONS: CatalogAction[] = [
           "x-role": "group_id"
         },
         "messages": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         },
         "message": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         }
       },
       "required": [
@@ -7697,7 +7697,7 @@ export const ACTIONS: CatalogAction[] = [
         "type": "message",
         "required": true,
         "schema": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         }
       },
       {
@@ -7721,7 +7721,7 @@ export const ACTIONS: CatalogAction[] = [
           "x-role": "group_id"
         },
         "message": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         },
         "auto_escape": {
           "type": "boolean",
@@ -7797,7 +7797,7 @@ export const ACTIONS: CatalogAction[] = [
         "type": "message",
         "required": true,
         "schema": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         }
       },
       {
@@ -7843,7 +7843,7 @@ export const ACTIONS: CatalogAction[] = [
       "type": "object",
       "properties": {
         "message": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         },
         "message_type": {
           "type": "string"
@@ -8001,7 +8001,7 @@ export const ACTIONS: CatalogAction[] = [
         "type": "message",
         "required": false,
         "schema": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         }
       },
       {
@@ -8009,7 +8009,7 @@ export const ACTIONS: CatalogAction[] = [
         "type": "message",
         "required": false,
         "schema": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         }
       }
     ],
@@ -8023,10 +8023,10 @@ export const ACTIONS: CatalogAction[] = [
           "x-role": "user_id"
         },
         "messages": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         },
         "message": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         }
       },
       "required": [
@@ -8058,7 +8058,7 @@ export const ACTIONS: CatalogAction[] = [
         "type": "message",
         "required": true,
         "schema": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         }
       },
       {
@@ -8090,7 +8090,7 @@ export const ACTIONS: CatalogAction[] = [
           "x-role": "user_id"
         },
         "message": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         },
         "group_id": {
           "type": "integer",
@@ -10531,7 +10531,7 @@ export const ACTIONS: CatalogAction[] = [
         "type": "message",
         "required": false,
         "schema": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         }
       },
       {
@@ -10539,7 +10539,7 @@ export const ACTIONS: CatalogAction[] = [
         "type": "message",
         "required": false,
         "schema": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         }
       },
       {
@@ -10558,10 +10558,10 @@ export const ACTIONS: CatalogAction[] = [
       "type": "object",
       "properties": {
         "messages": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         },
         "message": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         },
         "group_id": {
           "type": "integer",
@@ -10584,7 +10584,7 @@ export const ACTIONS: CatalogAction[] = [
         "type": "message",
         "required": false,
         "schema": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         }
       },
       {
@@ -10592,7 +10592,7 @@ export const ACTIONS: CatalogAction[] = [
         "type": "message",
         "required": false,
         "schema": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         }
       },
       {
@@ -10611,10 +10611,10 @@ export const ACTIONS: CatalogAction[] = [
       "type": "object",
       "properties": {
         "messages": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         },
         "message": {
-          "description": "OneBot message: string | segment[] | object"
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         },
         "group_id": {
           "type": "integer",

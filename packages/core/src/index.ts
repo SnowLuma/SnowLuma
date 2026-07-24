@@ -1,6 +1,12 @@
 import { HookManager } from '@snowluma/bridge';
+import { configureFileTransport } from '@snowluma/common/log-file-transport';
 import { closeLogger, createLogger } from '@snowluma/common/logger';
-import { loadRuntimeConfig } from '@snowluma/common/runtime';
+import {
+  DEFAULT_LOG_MAX_TOTAL_MB,
+  DEFAULT_LOG_PER_UIN,
+  DEFAULT_LOG_RETAIN_DAYS,
+  loadRuntimeConfig,
+} from '@snowluma/common/runtime';
 import { OneBotManager } from '@snowluma/onebot/manager';
 import { migrateGlobalSettings } from '@snowluma/onebot/global-config';
 import { cleanupInvalidPerUinConfigs } from '@snowluma/onebot/config';
@@ -28,6 +34,11 @@ process.on('uncaughtException', (error) => {
 });
 
 async function main() {
+  await configureFileTransport({
+    maxTotalMb: runtimeConfig.logMaxTotalMb ?? DEFAULT_LOG_MAX_TOTAL_MB,
+    retainDays: runtimeConfig.logRetainDays ?? DEFAULT_LOG_RETAIN_DAYS,
+    perUinEnabled: runtimeConfig.logPerUin ?? DEFAULT_LOG_PER_UIN,
+  });
   log.info('SnowLuma starting');
 
   // One-shot: lift a legacy per-UIN musicSignUrl into the global store before

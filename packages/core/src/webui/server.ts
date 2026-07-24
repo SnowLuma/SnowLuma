@@ -1,6 +1,11 @@
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import type { HookManager, HookProcessInfo } from '@snowluma/bridge';
+import {
+  clearManagedLogs,
+  configureFileTransport,
+  getLogStorageStatus,
+} from '@snowluma/common/log-file-transport';
 import { createLogger, getLogLevel, getRecentLogs, LOG_LEVELS, setLogLevel, subscribeLogs } from '@snowluma/common/logger';
 import {
   loadOneBotConfig,
@@ -9,6 +14,10 @@ import {
 } from '@snowluma/onebot/config';
 import { loadGlobalSettings, saveGlobalSettings } from '@snowluma/onebot/global-config';
 import type { OneBotManager } from '@snowluma/onebot/manager';
+import {
+  clearInactiveStreamStorage,
+  snapshotStreamStorage,
+} from '@snowluma/onebot/stream-storage';
 import type { OneBotConfig, JsonObject as OneBotJsonObject } from '@snowluma/onebot/types';
 import { readRuntimeConfig, updateRuntimeConfig, resolveRuntimeEnvOverrides } from '@snowluma/common/runtime';
 import { execSync } from 'child_process';
@@ -55,6 +64,9 @@ import {
 import { getUpdateInfo } from './update-check';
 import { loadNotificationsConfig, saveNotificationsConfig } from '../notifications/config';
 import type { NotificationManager } from '../notifications/manager';
+import { StorageManagementService } from './storage-management';
+import { registerStorageRoutes } from './storage-routes';
+import { LogStorageSettingsManager } from './storage-settings';
 
 const log = createLogger('WebUI');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -524,6 +536,27 @@ export async function initWebUI(
   }
 
   const app = new Hono();
+  const storageManagement = new StorageManagementService({
+    dataDir: 'data',
+    getLogStatus: getLogStorageStatus,
+    clearLogs: clearManagedLogs,
+    temporary: {
+      snapshot: snapshotStreamStorage,
+      clearInactive: clearInactiveStreamStorage,
+    },
+    // Connection statuses include active and still-retiring generations.
+    // A retiring instance may still hold SQLite handles after disappearing
+    // from getInstances(), so it must continue to block destructive cleanup.
+    listOnlineAccounts: () => oneBotManager.getConnectionStatuses()
+      .map((account) => ({ uin: account.uin, nickname: account.nickname })),
+  });
+  const logStorageSettings = new LogStorageSettingsManager({
+    readPersisted: readRuntimeConfig,
+    readEnvOverrides: () => resolveRuntimeEnvOverrides(process.env),
+    readEffective: getLogStorageStatus,
+    persist: updateRuntimeConfig,
+    apply: configureFileTransport,
+  });
 
   // ─── Anti-indexing ───────────────────────────────────────────────────────
   // The WebUI is an admin surface that has no business showing up in
@@ -887,6 +920,30 @@ export async function initWebUI(
       },
       restartRequiredToApply: true,
     });
+  });
+
+  registerStorageRoutes(app, {
+    storage: storageManagement,
+    settings: logStorageSettings,
+    audit: (event) => {
+      log.info(
+        'storage cleanup scope=%s accountScope=%s category=%s uin=%s deletedFiles=%d freedBytes=%d failures=%d',
+        event.scope,
+        event.accountScope,
+        event.category ?? '-',
+        event.uin ?? '-',
+        event.deletedFiles,
+        event.freedBytes,
+        event.failureCount,
+      );
+    },
+    reportError: (operation, error) => {
+      log.error(
+        '%s failed: %s',
+        operation,
+        error instanceof Error ? (error.stack ?? error.message) : String(error),
+      );
+    },
   });
 
   app.post('/api/system/tls/cert', async (c) => {

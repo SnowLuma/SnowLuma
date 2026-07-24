@@ -14,6 +14,7 @@ export default defineConfig({
   plugins: [protobufVitePlugin()],
   test: {
     include: ['tests/**/*.test.ts'],
+    setupFiles: ['./tests/setup.ts'],
     // Per-RoadMap-#5 bench files live in `bench/*.bench.ts`. Use the
     // vitest `--mode bench` (via `pnpm bench`) to pick them up; default
     // `test` runs leave them inert.

@@ -26,7 +26,7 @@ import { defineStreamAction, f } from '../action-kit';
 import type { ApiActionContext } from '../api-handler';
 import { okResponse, type ApiResponse, type JsonObject, type JsonValue } from '../types';
 import { type StreamSink, StreamStatus } from '../streaming';
-import { STREAM_ROOT } from './stream-file';
+import { STREAM_ROOT, registerActiveStreamItem } from '../stream-storage';
 
 const DEFAULT_CHUNK_BYTES = 64 * 1024;
 const MAX_CHUNK_REQUEST_BYTES = 16 * 1024 * 1024;     // cap the client-requested chunk size
@@ -145,6 +145,8 @@ interface DownloadSource {
   name: string;
   size: number; // 0 when unknown
   iterable: AsyncIterable<Uint8Array>;
+  /** Local stream-storage path that must be protected from cleanup while read. */
+  managedPath?: string;
   /** Force the underlying source closed (idle-timeout watchdog / abort). */
   abort?: () => void;
 }
@@ -228,7 +230,13 @@ async function resolveDownload(
       try { real = fs.realpathSync(local); } catch { /* keep lexical */ }
       if (!isWithinStreamRoot(real)) throw new DownloadError('local downloads are restricted to the stream temp directory');
       const rs = fs.createReadStream(real, { highWaterMark: chunkSize });
-      return { name: path.basename(real), size: st.size, iterable: rs, abort: () => rs.destroy() };
+      return {
+        name: path.basename(real),
+        size: st.size,
+        iterable: rs,
+        managedPath: real,
+        abort: () => rs.destroy(),
+      };
     }
   }
 
@@ -304,22 +312,35 @@ async function runDownload(
   if (chunkSize > MAX_CHUNK_REQUEST_BYTES) chunkSize = MAX_CHUNK_REQUEST_BYTES;
 
   const src = await resolveDownload(target, ctx, prefer, chunkSize);
-  await sink.send({
-    type: StreamStatus.Stream,
-    data_type: 'file_info',
-    file_name: src.name,
-    file_size: src.size,
-    chunk_size: chunkSize,
-  });
-  const { totalChunks, totalBytes } = await streamChunks(sink, src.iterable, src.size, 'file_chunk', src.abort);
-  return okResponse({
-    type: StreamStatus.Response,
-    data_type: 'file_complete',
-    file_name: src.name,
-    total_chunks: totalChunks,
-    total_bytes: totalBytes,
-    message: 'Download completed',
-  });
+  const releaseStorageActivity = src.managedPath
+    ? registerActiveStreamItem([src.managedPath])
+    : undefined;
+  try {
+    await sink.send({
+      type: StreamStatus.Stream,
+      data_type: 'file_info',
+      file_name: src.name,
+      file_size: src.size,
+      chunk_size: chunkSize,
+    });
+    const { totalChunks, totalBytes } = await streamChunks(
+      sink,
+      src.iterable,
+      src.size,
+      'file_chunk',
+      src.abort,
+    );
+    return okResponse({
+      type: StreamStatus.Response,
+      data_type: 'file_complete',
+      file_name: src.name,
+      total_chunks: totalChunks,
+      total_bytes: totalBytes,
+      message: 'Download completed',
+    });
+  } finally {
+    releaseStorageActivity?.();
+  }
 }
 
 // ─────────────────────────── action definitions ───────────────────────────

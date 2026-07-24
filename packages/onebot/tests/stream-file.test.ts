@@ -7,7 +7,7 @@ import { createHash } from 'crypto';
 import { ApiHandler, type ApiActionContext } from '../src/api-handler';
 import { __test, STREAM_UPLOAD_DIR } from '../src/actions/stream-file';
 
-const { handleUpload, cleanDir, uploads } = __test;
+const { handleUpload, cleanupUpload, cleanDir, uploads } = __test;
 type UP = Parameters<typeof handleUpload>[0];
 
 const b64 = (s: string | Buffer): string => Buffer.from(s).toString('base64');
@@ -23,8 +23,8 @@ function mk(p: Partial<UP> & { stream_id: string }): UP {
 }
 
 afterEach(() => {
+  for (const key of [...uploads.keys()]) cleanupUpload(key, true);
   cleanDir(STREAM_UPLOAD_DIR);
-  uploads.clear();
 });
 
 describe('upload_file_stream', () => {
@@ -180,5 +180,28 @@ describe('clean_stream_temp_file', () => {
     expect(fs.existsSync(f1)).toBe(false);
     expect(fs.existsSync(outside)).toBe(true);
     fs.rmSync(outside, { force: true });
+  });
+
+  it('preserves active uploads while removing inactive stream files', async () => {
+    const id = 'active-clean';
+    await handleUpload(mk({
+      stream_id: id,
+      total_chunks: 2,
+      chunk_index: 0,
+      chunk_data: b64('first'),
+    }));
+    const state = uploads.get(id)!;
+    const activeChunk = path.join(state.tempDir, '0.chunk');
+    const stale = path.join(STREAM_UPLOAD_DIR, 'stale.bin');
+    fs.writeFileSync(stale, 'stale');
+
+    const h = new ApiHandler({} as ApiActionContext);
+    const result = await h.handle('clean_stream_temp_file', {});
+
+    expect(result.status).toBe('ok');
+    expect(result.data).toMatchObject({ skipped_active: 1 });
+    expect(uploads.has(id)).toBe(true);
+    expect(fs.existsSync(activeChunk)).toBe(true);
+    expect(fs.existsSync(stale)).toBe(false);
   });
 });

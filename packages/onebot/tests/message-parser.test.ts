@@ -91,6 +91,83 @@ describe('parseMessage', () => {
       expect(result).toEqual([{ type: 'text', text: 'hello' }]);
     });
 
+    it('ignores explicit empty text placeholders between sendable segments (issue #273)', async () => {
+      const result = await parseMessage(
+        [
+          { type: 'image', data: { file: 'https://example.com/first.png' } },
+          { type: 'text', data: { text: '' } },
+          { type: 'image', data: { file: 'https://example.com/second.png' } },
+        ] as any,
+        false,
+      );
+
+      expect(result).toHaveLength(2);
+      expect(result).toMatchObject([
+        { type: 'image', url: 'https://example.com/first.png' },
+        { type: 'image', url: 'https://example.com/second.png' },
+      ]);
+    });
+
+    it('rejects a segment array containing only empty text placeholders', async () => {
+      await expect(parseMessage(
+        [
+          { type: 'text', data: { text: '' } },
+          { type: 'text', data: { text: '' } },
+        ] as any,
+        false,
+      )).rejects.toMatchObject({
+        code: 'MISSING_FIELD',
+        field: 'message',
+      });
+    });
+
+    it('keeps a single empty text segment invalid', async () => {
+      await expect(parseMessage(
+        { type: 'text', data: { text: '' } } as any,
+        false,
+      )).rejects.toMatchObject({
+        code: 'MISSING_FIELD',
+        elementType: 'text',
+      });
+    });
+
+    it('does not treat missing or null text fields as empty placeholders', async () => {
+      await expect(parseMessage(
+        [{ type: 'text', data: {} }] as any,
+        false,
+      )).rejects.toMatchObject({
+        code: 'MISSING_FIELD',
+        elementType: 'text',
+      });
+      await expect(parseMessage(
+        [{ type: 'text', data: { text: null } }] as any,
+        false,
+      )).rejects.toMatchObject({
+        code: 'MISSING_FIELD',
+        elementType: 'text',
+      });
+    });
+
+    it('does not treat whitespace-padded segment types as empty text placeholders', async () => {
+      await expect(parseMessage(
+        [
+          { type: 'image', data: { file: 'https://example.com/image.png' } },
+          { type: ' text ', data: { text: '' } },
+        ] as any,
+        false,
+      )).rejects.toMatchObject({
+        code: 'UNKNOWN_TYPE',
+        elementType: ' text ',
+      });
+    });
+
+    it('preserves whitespace-only text segments', async () => {
+      await expect(parseMessage(
+        [{ type: 'text', data: { text: ' ' } }] as any,
+        false,
+      )).resolves.toEqual([{ type: 'text', text: ' ' }]);
+    });
+
     it('rejects object-valued fields instead of stringifying caller input', async () => {
       await expect(parseMessage(
         [{ type: 'text', data: { text: { bad: true } } }] as any,

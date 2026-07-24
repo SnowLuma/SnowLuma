@@ -41,7 +41,7 @@ SnowLuma 将会话接入、协议解析、身份映射、OneBot 转换和网络�
 | OneBot 接入 | OneBot v11 动作与事件，支持 WebSocket 服务端 / 客户端及 HTTP 服务端 / 上报 |
 | 消息与媒体 | 文本、图片、语音、视频、文件、回复、提及、转发及 JSON / XML 卡片等常见消息元素 |
 | 多账号运行 | 每个 QQ 账号独立维护会话、身份映射、消息存储与网络适配器 |
-| WebUI 管理 | 账号状态、实时日志、连接配置、动作调试、密码管理与可定制总览 |
+| WebUI 管理 | 账号状态、实时日志、连接配置、动作调试、存储管理、密码管理与可定制总览 |
 | 开发者工具 | 提供 [`@snowluma/sdk`](packages/sdk/README.md) 与 [`@snowluma/mcp`](packages/mcp/README.md) |
 | 可观察错误 | 关键解析与执行失败会留下明确上下文，不以静默丢弃掩盖问题 |
 
@@ -85,6 +85,18 @@ SNOWLUMA_ACCEPT_PRIVACY=1
 两项必须同时设置，且环境变量确认不会写入持久化同意记录。设置变量即表示运营者已阅读并同意 [`EULA.md`](EULA.md) 与 [`PRIVACY.md`](PRIVACY.md)。
 
 </details>
+
+## 日志与存储管理
+
+WebUI 的“系统设置 → 存储管理”可查看受管数据占用、调整日志策略，并清理日志、非活动传输临时文件或离线账号的消息、媒体和表情回应数据库。清理范围固定，不包含配置、凭据或其他文件。
+
+| 设置 | 默认值 | 环境变量 |
+| --- | --- | --- |
+| 日志树总量上限 | 1024 MB | `SNOWLUMA_LOG_MAX_TOTAL_MB` |
+| 日志保留天数 | 7 天；`0` 表示关闭按日期清理 | `SNOWLUMA_LOG_RETAIN_DAYS` |
+| 按账号额外写日志 | 关闭 | `SNOWLUMA_LOG_PER_UIN` |
+
+环境变量优先于 `config/runtime.json`，对应字段会在 WebUI 中显示为锁定。`SNOWLUMA_LOG_MAX_MB` 仅控制单个日志分卷大小，不是日志树总量上限。
 
 ## 选择接入方式
 
