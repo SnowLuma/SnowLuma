@@ -286,12 +286,12 @@ describe('formatEvent', () => {
       .toBe('群戳 [Grp(1)] | [Alice(100)] -> [Bob(200)]');
   });
 
-  it('renders friend_poke without group context', () => {
+  it('renders friend_poke with its private peer and both endpoints', () => {
     expect(formatEvent(id, {
       kind: 'friend_poke',
-      userUin: 500, targetUin: 600,
+      peerUin: 500, senderUin: 600, targetUin: 500,
     } as QQEventVariant))
-      .toBe('戳一戳 [FriendA(500)] -> [FriendB(600)]');
+      .toBe('私聊戳 [FriendA(500)] | [FriendB(600)] -> [FriendA(500)]');
   });
 
   it('degrades to numeric IDs when nothing is cached', () => {

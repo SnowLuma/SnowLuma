@@ -277,7 +277,7 @@ export function formatEvent(identity: IdentityService, event: QQEventVariant): s
       case 'group_admin':
         return `管理 ${formatGroup(identity, event.groupId)} | ${formatUser(identity, event.groupId, event.userUin)} ${event.set ? '+' : '-'}管理员`;
       case 'friend_poke':
-        return `戳一戳 ${formatUser(identity, undefined, event.userUin)} -> ${formatUser(identity, undefined, event.targetUin)}`;
+        return `私聊戳 ${formatUser(identity, undefined, event.peerUin)} | ${formatUser(identity, undefined, event.senderUin)} -> ${formatUser(identity, undefined, event.targetUin)}`;
       case 'group_poke':
         return `群戳 ${formatGroup(identity, event.groupId)} | ${formatUser(identity, event.groupId, event.userUin)} -> ${formatUser(identity, event.groupId, event.targetUin)}`;
       case 'friend_request':

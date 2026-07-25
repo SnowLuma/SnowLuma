@@ -257,11 +257,32 @@ function decodeFriendPoke(ctx: MsgPushContext): QQEventVariant[] {
   const templates = buildTemplateMap(grayTip.msgTemplParam ?? []);
   const actor = findTemplateValue(templates, 'uin_str1');
   const target = findTemplateValue(templates, 'uin_str2');
+  const senderUin = resolveUidToUin(ctx.identity, 0, actor, parseU64OrZero(actor));
+  const routeFromUin = resolveUidToUin(ctx.identity, 0, ctx.fromUid, ctx.fromUin);
+  // The gray-tip template only identifies the two poke endpoints. The C2C
+  // routing head owns the conversation peer: outbound notices use `to`,
+  // while inbound notices use `from`, just like ordinary friend messages.
+  const sentBySelf = routeFromUin > 0 && routeFromUin === ctx.selfUin;
+  const peerUin = sentBySelf
+    ? resolveUidToUin(
+      ctx.identity,
+      0,
+      ctx.responseHead?.toUid ?? '',
+      ctx.responseHead?.toUin ?? 0,
+    )
+    : routeFromUin;
+  if (peerUin <= 0) {
+    throw new Error(
+      'friend poke conversation peer is missing '
+      + `(fromUin=${ctx.fromUin} toUin=${ctx.responseHead?.toUin ?? 0} sentBySelf=${sentBySelf})`,
+    );
+  }
   const ev: FriendPokeEvent = {
     kind: 'friend_poke',
     time: ctx.head.timestamp,
     selfUin: ctx.selfUin,
-    userUin: resolveUidToUin(ctx.identity, 0, actor, parseU64OrZero(actor)),
+    peerUin,
+    senderUin,
     targetUin: resolveUidToUin(ctx.identity, 0, target, parseU64OrZero(target)),
     action: findTemplateValue(templates, 'action_str', 'alt_str1'),
     suffix: findTemplateValue(templates, 'suffix_str'),

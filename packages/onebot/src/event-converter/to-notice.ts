@@ -111,7 +111,8 @@ export function convertFriendPoke(ctx: ConverterContext, event: FriendPoke): Jso
   return notice(ctx, event, {
     notice_type: 'notify',
     sub_type: 'poke',
-    user_id: event.userUin,
+    user_id: event.peerUin,
+    sender_id: event.senderUin,
     target_id: event.targetUin,
     action: event.action,
     suffix: event.suffix,
