@@ -3,6 +3,52 @@ import https from 'node:https';
 
 type RequestBody = string | Buffer | Uint8Array | Record<string, unknown> | undefined;
 
+export interface HttpResponseLimits {
+  /** Wall-clock deadline shared by the complete redirect chain. */
+  timeoutMs?: number;
+  /** Maximum response body size measured in bytes before decoding. */
+  maxResponseBytes?: number;
+}
+
+function validateLimit(name: keyof HttpResponseLimits, value: number | undefined): void {
+  const exceedsTimerRange = name === 'timeoutMs' && value !== undefined && value > 2_147_483_647;
+  if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0 || exceedsTimerRange)) {
+    throw new Error(`${name} must be a positive safe integer`);
+  }
+}
+
+interface HttpRequestContext {
+  url: string;
+  method: string;
+  data?: RequestBody;
+  headers: Record<string, string>;
+  isJsonRet: boolean;
+  isArgJson: boolean;
+  maxRedirects: number;
+  responseLimits: HttpResponseLimits;
+  deadlineAt?: number;
+}
+
+const SENSITIVE_REDIRECT_HEADERS = new Set([
+  'authorization',
+  'cookie',
+  'cookie2',
+  'host',
+  'proxy-authorization',
+]);
+
+function headersForRedirect(
+  headers: Record<string, string>,
+  source: URL,
+  target: URL,
+): Record<string, string> {
+  if (source.origin === target.origin) return headers;
+  return Object.fromEntries(
+    Object.entries(headers)
+      .filter(([name]) => !SENSITIVE_REDIRECT_HEADERS.has(name.toLowerCase())),
+  );
+}
+
 export class RequestUtil {
   // Collect Set-Cookie across the ptlogin2 jump's redirect chain. NEVER hangs:
   // a per-request timeout + a redirect-depth cap guarantee termination, and any
@@ -57,61 +103,198 @@ export class RequestUtil {
 
   static async HttpGetJson<T>(url: string, method: string = 'GET', data?: RequestBody, headers: {
     [key: string]: string;
-  } = {}, isJsonRet: boolean = true, isArgJson: boolean = true, maxRedirects: number = 5): Promise<T> {
-    const option = new URL(url);
-    const protocol = url.startsWith('https://') ? https : http;
+  } = {}, isJsonRet: boolean = true, isArgJson: boolean = true, maxRedirects: number = 5,
+  responseLimits: HttpResponseLimits = {}): Promise<T> {
+    validateLimit('timeoutMs', responseLimits.timeoutMs);
+    validateLimit('maxResponseBytes', responseLimits.maxResponseBytes);
+
+    return this.request<T>({
+      url,
+      method,
+      data,
+      headers,
+      isJsonRet,
+      isArgJson,
+      maxRedirects,
+      responseLimits,
+      deadlineAt: responseLimits.timeoutMs === undefined
+        ? undefined
+        : Date.now() + responseLimits.timeoutMs,
+    });
+  }
+
+  private static async request<T>(context: HttpRequestContext): Promise<T> {
+    const option = new URL(context.url);
+    const protocol = option.protocol === 'https:'
+      ? https
+      : option.protocol === 'http:'
+        ? http
+        : undefined;
+    if (!protocol) {
+      throw new Error(`unsupported request protocol: ${option.protocol}`);
+    }
+
+    const remainingTimeoutMs = context.deadlineAt === undefined
+      ? undefined
+      : context.deadlineAt - Date.now();
+    if (remainingTimeoutMs !== undefined && remainingTimeoutMs <= 0) {
+      throw new Error(`request timed out after ${context.responseLimits.timeoutMs} ms`);
+    }
+
     const options = {
       hostname: option.hostname,
       port: option.port,
       path: option.pathname + option.search,
-      method,
-      headers,
+      method: context.method,
+      headers: context.headers,
     };
 
     return new Promise((resolve, reject) => {
+      let settled = false;
+      let timeout: NodeJS.Timeout | undefined;
+      const clearDeadline = () => {
+        if (timeout !== undefined) clearTimeout(timeout);
+      };
+      const resolveOnce = (value: T) => {
+        if (settled) return;
+        settled = true;
+        clearDeadline();
+        resolve(value);
+      };
+      const rejectOnce = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        clearDeadline();
+        reject(error);
+      };
+      const handOff = (next: Promise<T>) => {
+        if (settled) return;
+        settled = true;
+        clearDeadline();
+        next.then(resolve).catch(reject);
+      };
+
       const req = protocol.request(options, (res: http.IncomingMessage) => {
+        const closeCurrent = () => {
+          res.destroy();
+          req.destroy();
+        };
+        res.once('error', (error: Error) => rejectOnce(error));
+
         if ((res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 307 || res.statusCode === 308) && res.headers.location) {
-          if (maxRedirects <= 0) {
-            reject(new Error('Too many redirects'));
+          if (context.maxRedirects <= 0) {
+            rejectOnce(new Error('Too many redirects'));
+            closeCurrent();
             return;
           }
-          const redirectUrl = new URL(res.headers.location, url).href;
-          this.HttpGetJson<T>(redirectUrl, method, data, headers, isJsonRet, isArgJson, maxRedirects - 1)
-            .then(resolve)
-            .catch(reject);
+
+          let redirectUrl: URL;
+          try {
+            redirectUrl = new URL(res.headers.location, option);
+          } catch (error) {
+            rejectOnce(new Error('invalid redirect location', { cause: error }));
+            closeCurrent();
+            return;
+          }
+          if (redirectUrl.protocol !== 'http:' && redirectUrl.protocol !== 'https:') {
+            rejectOnce(new Error(`unsupported redirect protocol: ${redirectUrl.protocol}`));
+            closeCurrent();
+            return;
+          }
+          if (option.origin !== redirectUrl.origin
+            && context.method.toUpperCase() !== 'GET'
+            && context.method.toUpperCase() !== 'HEAD') {
+            rejectOnce(new Error(
+              `cross-origin redirect cannot forward method ${context.method.toUpperCase()}`,
+            ));
+            closeCurrent();
+            return;
+          }
+
+          handOff(this.request<T>({
+            ...context,
+            url: redirectUrl.href,
+            headers: headersForRedirect(context.headers, option, redirectUrl),
+            maxRedirects: context.maxRedirects - 1,
+          }));
+          closeCurrent();
           return;
         }
 
-        let responseBody = '';
-        res.on('data', (chunk: string | Buffer) => { responseBody += chunk.toString(); });
+        if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
+          rejectOnce(new Error(`Unexpected status code: ${res.statusCode}`));
+          closeCurrent();
+          return;
+        }
+
+        const chunks: Buffer[] = [];
+        let responseBytes = 0;
+        res.on('data', (chunk: string | Buffer) => {
+          if (settled) return;
+          const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          responseBytes += bytes.length;
+          if (context.responseLimits.maxResponseBytes !== undefined
+            && responseBytes > context.responseLimits.maxResponseBytes) {
+            const error = new Error(
+              `response body exceeds ${context.responseLimits.maxResponseBytes} bytes`,
+            );
+            rejectOnce(error);
+            closeCurrent();
+            return;
+          }
+          chunks.push(bytes);
+        });
 
         res.on('end', () => {
+          if (settled) return;
+          const responseBody = Buffer.concat(chunks, responseBytes).toString();
           try {
-            if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-              if (isJsonRet) {
-                resolve(JSON.parse(responseBody) as T);
-              } else {
-                resolve(responseBody as T);
-              }
+            if (context.isJsonRet) {
+              resolveOnce(JSON.parse(responseBody) as T);
             } else {
-              reject(new Error(`Unexpected status code: ${res.statusCode}`));
+              resolveOnce(responseBody as T);
             }
           } catch (parseError: unknown) {
-            reject(new Error(parseError instanceof Error ? parseError.message : String(parseError)));
+            rejectOnce(new Error(parseError instanceof Error ? parseError.message : String(parseError)));
           }
         });
       });
 
-      req.on('error', (error: Error) => reject(error));
-      if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
-        req.write(isArgJson ? JSON.stringify(data) : data);
+      if (remainingTimeoutMs !== undefined) {
+        timeout = setTimeout(() => {
+          const error = new Error(
+            `request timed out after ${context.responseLimits.timeoutMs} ms`,
+          );
+          rejectOnce(error);
+          req.destroy();
+        }, remainingTimeoutMs);
+      }
+
+      req.on('error', (error: Error) => rejectOnce(error));
+      if (context.method === 'POST' || context.method === 'PUT' || context.method === 'PATCH') {
+        req.write(context.isArgJson ? JSON.stringify(context.data) : context.data);
       }
       req.end();
     });
   }
 
-  static async HttpGetText(url: string, method: string = 'GET', data?: RequestBody, headers: { [key: string]: string; } = {}) {
-    return this.HttpGetJson<string>(url, method, data, headers, false, false);
+  static async HttpGetText(
+    url: string,
+    method: string = 'GET',
+    data?: RequestBody,
+    headers: { [key: string]: string; } = {},
+    responseLimits: HttpResponseLimits = {},
+  ) {
+    return this.HttpGetJson<string>(
+      url,
+      method,
+      data,
+      headers,
+      false,
+      false,
+      5,
+      responseLimits,
+    );
   }
 }
 

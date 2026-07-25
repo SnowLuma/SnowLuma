@@ -79,8 +79,13 @@ const TRACE_DETAIL =
 const DRESS_UA =
   'Mozilla/5.0 (Linux; Android 13; 2109119BC Build/TKQ1.221114.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/121.0.6167.71 MQQBrowser/6.2 TBS/047925 Mobile Safari/537.36 V1_AND_SQ_9.2.66_13188_YYB_D QQ/9.2.66.33870 NetType/WIFI WebP/0.3.0 AppId/537339358';
 
+const DRESS_RESPONSE_LIMITS = {
+  timeoutMs: 10_000,
+  maxResponseBytes: 2 * 1024 * 1024,
+} as const;
+
 interface RawDressItem {
-  appId?: number;
+  appId: number;
   itemId?: number;
   name?: string;
   image?: string;
@@ -130,13 +135,15 @@ function parseAsyncData(html: string): unknown {
 }
 
 /** 运行时结构校验：不符合预期的一律抛 structure，绝不带着畸形数据继续。 */
-function validateAsyncData(data: unknown): RawAsyncData & { rawUsingList: RawDressItem[] } {
+function validateAsyncData(
+  data: unknown,
+): RawAsyncData & { targetUin: string; rawUsingList: RawDressItem[] } {
   if (data === null || typeof data !== 'object' || Array.isArray(data)) {
     throw new FriendDressError('structure', '__INITIAL_ASYNCDATA__ 顶层不是对象');
   }
   const d = data as Record<string, unknown>;
-  if (d['targetUin'] !== undefined && typeof d['targetUin'] !== 'string') {
-    throw new FriendDressError('structure', 'targetUin 不是字符串');
+  if (typeof d['targetUin'] !== 'string' || d['targetUin'].length === 0) {
+    throw new FriendDressError('structure', 'targetUin 缺失或不是非空字符串');
   }
   if (d['isSvip'] !== undefined && typeof d['isSvip'] !== 'boolean') {
     throw new FriendDressError('structure', 'isSvip 不是布尔值');
@@ -152,8 +159,8 @@ function validateAsyncData(data: unknown): RawAsyncData & { rawUsingList: RawDre
       throw new FriendDressError('structure', `rawUsingList[${i}] 不是对象`);
     }
     const r = item as Record<string, unknown>;
-    if (r['appId'] !== undefined && typeof r['appId'] !== 'number') {
-      throw new FriendDressError('structure', `rawUsingList[${i}].appId 不是数字`);
+    if (typeof r['appId'] !== 'number') {
+      throw new FriendDressError('structure', `rawUsingList[${i}].appId 缺失或不是数字`);
     }
     if (r['itemId'] !== undefined && typeof r['itemId'] !== 'number') {
       throw new FriendDressError('structure', `rawUsingList[${i}].itemId 不是数字`);
@@ -164,8 +171,28 @@ function validateAsyncData(data: unknown): RawAsyncData & { rawUsingList: RawDre
     if (r['image'] !== undefined && typeof r['image'] !== 'string') {
       throw new FriendDressError('structure', `rawUsingList[${i}].image 不是字符串`);
     }
+    if (r['extraappinfo'] !== undefined) {
+      if (r['extraappinfo'] === null
+        || typeof r['extraappinfo'] !== 'object'
+        || Array.isArray(r['extraappinfo'])) {
+        throw new FriendDressError('structure', `rawUsingList[${i}].extraappinfo 不是对象`);
+      }
+      const extraInfo = (r['extraappinfo'] as Record<string, unknown>)['extraInfo'];
+      if (extraInfo !== undefined) {
+        if (extraInfo === null || typeof extraInfo !== 'object' || Array.isArray(extraInfo)) {
+          throw new FriendDressError('structure', `rawUsingList[${i}].extraappinfo.extraInfo 不是对象`);
+        }
+        const immersiveMaterial = (extraInfo as Record<string, unknown>)['immersiveMaterial'];
+        if (immersiveMaterial !== undefined && typeof immersiveMaterial !== 'string') {
+          throw new FriendDressError(
+            'structure',
+            `rawUsingList[${i}].extraappinfo.extraInfo.immersiveMaterial 不是字符串`,
+          );
+        }
+      }
+    }
   });
-  return data as RawAsyncData & { rawUsingList: RawDressItem[] };
+  return data as RawAsyncData & { targetUin: string; rawUsingList: RawDressItem[] };
 }
 
 /**
@@ -177,13 +204,31 @@ function validateAsyncData(data: unknown): RawAsyncData & { rawUsingList: RawDre
 function resolveVideoUrl(r: RawDressItem): string {
   if (r.appId === 15) {
     const raw = r.extraappinfo?.extraInfo?.immersiveMaterial;
-    if (typeof raw !== 'string' || !raw) return '';
+    if (raw === undefined) return '';
+    let material: unknown;
     try {
-      const videoUrl = (JSON.parse(raw) as { videoUrl?: unknown }).videoUrl;
-      return typeof videoUrl === 'string' ? videoUrl : '';
-    } catch {
-      return '';
+      material = JSON.parse(raw) as unknown;
+    } catch (error) {
+      throw new FriendDressError(
+        'structure',
+        `装扮 appId=${r.appId} itemId=${r.itemId ?? 0} 的 immersiveMaterial 不是合法 JSON`,
+        { cause: error },
+      );
     }
+    if (material === null || typeof material !== 'object' || Array.isArray(material)) {
+      throw new FriendDressError(
+        'structure',
+        `装扮 appId=${r.appId} itemId=${r.itemId ?? 0} 的 immersiveMaterial 不是对象`,
+      );
+    }
+    const videoUrl = (material as Record<string, unknown>)['videoUrl'];
+    if (typeof videoUrl !== 'string' || videoUrl.length === 0) {
+      throw new FriendDressError(
+        'structure',
+        `装扮 appId=${r.appId} itemId=${r.itemId ?? 0} 的 immersiveMaterial.videoUrl 缺失或不是非空字符串`,
+      );
+    }
+    return videoUrl;
   }
   if (r.appId === 17 && r.image && /\/(?:web_)?image\.jpg$/.test(r.image)) {
     return r.image.replace(/\/(?:web_)?image\.jpg$/, '/media.mp4');
@@ -192,10 +237,9 @@ function resolveVideoUrl(r: RawDressItem): string {
 }
 
 function toItem(r: RawDressItem): WebFriendDressItem {
-  const appId = r.appId ?? 0;
   return {
-    app_id: appId,
-    kind: APP_KIND[appId] ?? `appId=${appId}`,
+    app_id: r.appId,
+    kind: APP_KIND[r.appId] ?? `appId=${r.appId}`,
     item_id: r.itemId ?? 0,
     name: r.name ?? '',
     preview_url: r.image ?? '',
@@ -220,22 +264,22 @@ export async function getFriendDressWebAPI(
       'User-Agent': DRESS_UA,
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'zh-CN,zh;q=0.9',
-    });
+    }, DRESS_RESPONSE_LIMITS);
   } catch (e) {
     throw new FriendDressError('network', `装扮页请求失败: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
   }
 
   const data = validateAsyncData(parseAsyncData(html));
-  if (data.targetUin !== undefined && data.targetUin !== targetUin) {
+  if (data.targetUin !== targetUin) {
     throw new FriendDressError('uin_mismatch', `装扮页返回账号 ${data.targetUin} 与请求账号 ${targetUin} 不一致`);
   }
 
   return {
-    target_uin: data.targetUin ?? targetUin,
+    target_uin: data.targetUin,
     is_svip: data.isSvip ?? false,
     avatar_url: data.avatarImage ?? '',
     items: data.rawUsingList
-      .filter((r) => !UNRESOLVABLE_APPS.has(r.appId ?? 0))
+      .filter((r) => !UNRESOLVABLE_APPS.has(r.appId))
       .map(toItem),
   };
 }

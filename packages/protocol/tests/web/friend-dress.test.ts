@@ -31,7 +31,7 @@ describe('friend-dress / real sample parsing', () => {
     const request = mockHtml(SAMPLE_HTML);
     await getFriendDressWebAPI(cookies, '10000');
 
-    const [url, method, , headers] = request.mock.calls[0]!;
+    const [url, method, , headers, limits] = request.mock.calls[0]!;
     expect(url).toContain('https://zb.vip.qq.com/v2/pages/aioDressPage?');
     expect(url).toContain('targetUin=10000');
     // traceDetail 是预编码的 base64 串，必须原样出现（不能被二次编码成 base64%2D…）。
@@ -41,6 +41,10 @@ describe('friend-dress / real sample parsing', () => {
       Cookie: 'uin=o10001; skey=SKEY; p_uin=o10001; p_skey=PSKEY',
     });
     expect((headers as Record<string, string>)['User-Agent']).toContain('QQ/');
+    expect(limits).toEqual({
+      timeoutMs: 10_000,
+      maxResponseBytes: 2 * 1024 * 1024,
+    });
   });
 
   it('parses the real page: svip, avatar, and only resolvable dress items', async () => {
@@ -107,23 +111,16 @@ describe('friend-dress / synthetic payloads', () => {
     expect(dress.items[0]!.preview_url).toBe('https://cdn.example/funCall/1/preview.png');
   });
 
-  it('extracts the card video from immersiveMaterial and survives broken JSON there', async () => {
+  it('extracts the card video from immersiveMaterial', async () => {
     mockHtml(wrapHtml({
       ...base,
-      rawUsingList: [
-        {
-          appId: 15, itemId: 1, name: 'a', image: 'https://cdn.example/a.jpg',
-          extraappinfo: { extraInfo: { immersiveMaterial: '{"videoUrl":"https://cdn.example/a.mp4"}' } },
-        },
-        {
-          appId: 15, itemId: 2, name: 'b', image: 'https://cdn.example/b.jpg',
-          extraappinfo: { extraInfo: { immersiveMaterial: '{not json' } },
-        },
-      ],
+      rawUsingList: [{
+        appId: 15, itemId: 1, name: 'a', image: 'https://cdn.example/a.jpg',
+        extraappinfo: { extraInfo: { immersiveMaterial: '{"videoUrl":"https://cdn.example/a.mp4"}' } },
+      }],
     }));
     const dress = await getFriendDressWebAPI(cookies, '10000');
     expect(dress.items[0]!.video_url).toBe('https://cdn.example/a.mp4');
-    expect(dress.items[1]!.video_url).toBe('');
   });
 
   it('labels unknown appIds without dropping them', async () => {
@@ -167,10 +164,46 @@ describe('friend-dress / error classification', () => {
     await expectKind('10000', 'parse');
   });
 
+  it('structure: malformed immersiveMaterial is not silently discarded', async () => {
+    mockHtml(wrapHtml({
+      targetUin: '10000',
+      rawUsingList: [{
+        appId: 15,
+        itemId: 2,
+        name: 'broken',
+        image: 'https://cdn.example/b.jpg',
+        extraappinfo: { extraInfo: { immersiveMaterial: '{not json' } },
+      }],
+    }));
+    const e = await expectKind('10000', 'structure');
+    expect(e.message).toContain('immersiveMaterial');
+  });
+
+  it.each([
+    ['not a string', { videoUrl: 'https://cdn.example/video.mp4' }],
+    ['an array', '[]'],
+    ['missing videoUrl', '{}'],
+    ['non-string videoUrl', '{"videoUrl":42}'],
+  ])('structure: immersiveMaterial %s is not silently discarded', async (_label, material) => {
+    mockHtml(wrapHtml({
+      targetUin: '10000',
+      rawUsingList: [{
+        appId: 15,
+        itemId: 2,
+        name: 'broken',
+        image: 'https://cdn.example/b.jpg',
+        extraappinfo: { extraInfo: { immersiveMaterial: material } },
+      }],
+    }));
+    const e = await expectKind('10000', 'structure');
+    expect(e.message).toContain('immersiveMaterial');
+  });
+
   it.each([
     ['rawUsingList missing', { targetUin: '10000' }],
     ['rawUsingList not an array', { targetUin: '10000', rawUsingList: 'nope' }],
     ['item not an object', { targetUin: '10000', rawUsingList: ['nope'] }],
+    ['item appId missing', { targetUin: '10000', rawUsingList: [{}] }],
     ['item appId not a number', { targetUin: '10000', rawUsingList: [{ appId: 'four' }] }],
     ['targetUin not a string', { targetUin: 10000, rawUsingList: [] }],
   ])('structure: %s', async (_label, payload) => {
@@ -185,9 +218,9 @@ describe('friend-dress / error classification', () => {
     expect(e.message).toContain('10000');
   });
 
-  it('tolerates a missing targetUin by echoing the requested uin', async () => {
+  it('structure: targetUin missing cannot prove which account owns the response', async () => {
     mockHtml(wrapHtml({ rawUsingList: [] }));
-    const dress = await getFriendDressWebAPI(cookies, '10000');
-    expect(dress.target_uin).toBe('10000');
+    const e = await expectKind('10000', 'structure');
+    expect(e.message).toContain('targetUin');
   });
 });
