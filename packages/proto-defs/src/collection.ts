@@ -140,25 +140,24 @@ export interface CollectionLocationSummary {
 }
 
 export interface CollectionLinkSummary {
-  title?: pb<1, string>;
-  description?: pb<2, string>;
-  url?: pb<3, string>;
-  picList?: pb_repeated<4, CollectionPictureInfo>;
-  contentType?: pb<5, uint_32>;
-  originalUri?: pb<6, string>;
-  publisher?: pb<7, string>;
-  version?: pb<8, uint_32>;
+  url?: pb<1, string>;
+  title?: pb<2, string>;
+  publisher?: pb<3, string>;
+  brief?: pb<4, string>;
+  picList?: pb_repeated<5, CollectionPictureInfo>;
+  contentType?: pb<6, uint_32>;
+  field7?: pb<7, string>;
 }
 
 export interface CollectionSummary {
   textSummary?: pb<1, CollectionTextSummary>;
-  richMediaSummary?: pb<2, CollectionRichMediaSummary>;
+  linkSummary?: pb<2, CollectionLinkSummary>;
   gallerySummary?: pb<3, CollectionGallerySummary>;
   audioSummary?: pb<4, CollectionAudioSummary>;
   videoSummary?: pb<5, CollectionVideoSummary>;
   fileSummary?: pb<6, CollectionFileSummary>;
   locationSummary?: pb<7, CollectionLocationSummary>;
-  linkSummary?: pb<8, CollectionLinkSummary>;
+  richMediaSummary?: pb<8, CollectionRichMediaSummary>;
 }
 
 export interface CollectionItem {

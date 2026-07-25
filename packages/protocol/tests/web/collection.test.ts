@@ -58,8 +58,36 @@ interface CollectionTextSummaryOracle {
   truncated?: pb<2, bool>;
 }
 
+interface CollectionPictureInfoOracle {
+  url?: pb<1, string>;
+  width?: pb<6, uint_32>;
+  height?: pb<7, uint_32>;
+}
+
+interface CollectionLinkSummaryOracle {
+  url?: pb<1, string>;
+  title?: pb<2, string>;
+  publisher?: pb<3, string>;
+  brief?: pb<4, string>;
+  picList?: pb_repeated<5, CollectionPictureInfoOracle>;
+  contentType?: pb<6, uint_32>;
+}
+
+interface CollectionRichMediaSummaryOracle {
+  title?: pb<1, string>;
+  subTitle?: pb<2, string>;
+  brief?: pb<3, string>;
+  picList?: pb_repeated<4, CollectionPictureInfoOracle>;
+  contentType?: pb<5, uint_32>;
+  originalUri?: pb<6, string>;
+  publisher?: pb<7, string>;
+  richMediaVersion?: pb<8, uint_32>;
+}
+
 interface CollectionSummaryOracle {
   textSummary?: pb<1, CollectionTextSummaryOracle>;
+  linkSummary?: pb<2, CollectionLinkSummaryOracle>;
+  richMediaSummary?: pb<8, CollectionRichMediaSummaryOracle>;
 }
 
 interface CollectionItemOracle {
@@ -256,6 +284,84 @@ describe('getCollectionList', () => {
       },
     });
     expect(transport).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps a type 2 link summary whose brief is a string without throwing', async () => {
+    // Regression: the old proto declared CollectionLinkSummary.picList at field 4,
+    // but the server puts the `brief` string there. Decoding a string as a message
+    // reads its first byte (0x43 = 'C') as a start-group tag and throws
+    // "protobuf unterminated group". The link summary now maps field 4 as brief.
+    const linkSummary: CollectionLinkSummaryOracle = {
+      url: 'https://example.invalid/article',
+      title: 'Example Article',
+      publisher: 'Example Publisher',
+      brief: 'Candy summary text that starts with a group-start byte',
+      picList: [{ url: 'https://example.invalid/cover.jpg', width: 1280, height: 720 }],
+      contentType: 1,
+    };
+
+    const result = await getCollectionList({
+      uin: '10001',
+      pskey: 'ticket-value',
+      transport: async () => successResponse([{
+        cid: 'cid-link',
+        type: 2,
+        author: { numId: 1n },
+        modifyTime: 1_200n,
+        summary: { linkSummary },
+      }], 1),
+    });
+
+    const item = result.collectionSearchList.collectionItemList[0];
+    expect(item.type).toBe(2);
+    expect(item.summary.linkSummary).toMatchObject({
+      url: 'https://example.invalid/article',
+      title: 'Example Article',
+      publisher: 'Example Publisher',
+      brief: 'Candy summary text that starts with a group-start byte',
+      picList: [{ url: 'https://example.invalid/cover.jpg', field6: 1280, field7: 720 }],
+      contentType: 1,
+    });
+    expect(item.summary.richMediaSummary).toBeNull();
+  });
+
+  it('maps a type 8 rich media summary at field 8', async () => {
+    const richMediaSummary: CollectionRichMediaSummaryOracle = {
+      title: 'Rich Media Title',
+      subTitle: 'Rich Media Subtitle',
+      brief: 'Rich media brief',
+      picList: [{ url: 'https://example.invalid/rich.jpg', width: 800, height: 600 }],
+      contentType: 2,
+      originalUri: 'https://example.invalid/original',
+      publisher: 'Rich Publisher',
+      richMediaVersion: 3,
+    };
+
+    const result = await getCollectionList({
+      uin: '10001',
+      pskey: 'ticket-value',
+      transport: async () => successResponse([{
+        cid: 'cid-rich',
+        type: 8,
+        author: { numId: 2n },
+        modifyTime: 1_300n,
+        summary: { richMediaSummary },
+      }], 1),
+    });
+
+    const item = result.collectionSearchList.collectionItemList[0];
+    expect(item.type).toBe(8);
+    expect(item.summary.richMediaSummary).toMatchObject({
+      title: 'Rich Media Title',
+      subTitle: 'Rich Media Subtitle',
+      brief: 'Rich media brief',
+      picList: [{ url: 'https://example.invalid/rich.jpg', field6: 800, field7: 600 }],
+      contentType: 2,
+      originalUri: 'https://example.invalid/original',
+      publisher: 'Rich Publisher',
+      richMediaVersion: 3,
+    });
+    expect(item.summary.linkSummary).toBeNull();
   });
 
   it('filters categories while following a strictly decreasing cursor', async () => {
