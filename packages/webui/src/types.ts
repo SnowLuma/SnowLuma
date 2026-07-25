@@ -108,9 +108,14 @@ export interface StatusCommandConfig {
   trigger: string;
 }
 
+export interface HistorySyncConfig {
+  enabled: boolean;
+}
+
 export interface OneBotConfig {
   networks: OneBotNetworks;
   statusCommand: StatusCommandConfig;
+  historySync: HistorySyncConfig;
   /** Per-account opt-in to global notification channels (by channel id). */
   notifications?: { channelIds: string[] };
 }

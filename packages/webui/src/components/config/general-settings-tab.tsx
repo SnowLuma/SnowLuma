@@ -22,6 +22,24 @@ export function GeneralSettingsTab({ config, onChange }: GeneralSettingsTabProps
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex items-start justify-between gap-3 rounded-lg border bg-card/40 p-4">
+        <div className="min-w-0">
+          <Label>登录时补齐云端历史记录</Label>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            下次账号登录或重启后生效。只静默写入本地消息库，不重放历史事件，也不改变 QQ 已读状态。
+            每次最多处理 3 个群和 3 个好友、每个会话 20 条，自动请求至少间隔 2 秒。
+          </p>
+        </div>
+        <ToggleSwitch
+          value={config.historySync.enabled}
+          onChange={(enabled) => onChange({
+            ...config,
+            historySync: { enabled },
+          })}
+          ariaLabel="登录时补齐云端历史记录"
+        />
+      </div>
+
       <div className="flex flex-col gap-4 rounded-lg border bg-card/40 p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
