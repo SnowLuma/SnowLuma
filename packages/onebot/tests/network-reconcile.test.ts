@@ -89,6 +89,7 @@ function emptyConfig(): OneBotConfig {
   return {
     networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
     statusCommand: { enabled: true, swallow: false, cooldownSeconds: 5, trigger: '#sl' },
+    historySync: { enabled: false },
     notifications: { channelIds: [] },
   };
 }

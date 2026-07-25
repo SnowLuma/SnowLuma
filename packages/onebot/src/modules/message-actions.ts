@@ -5,6 +5,7 @@ import { getVideoSourceSize, MAX_VIDEO_SIZE } from '@snowluma/protocol/highway/v
 import type { MessageSendResult } from '../api-handler';
 import { convertEvent, elementsToOneBotSegments, type ConverterContext } from '../event-converter';
 import { segmentsToRawMessage } from '../helper/cq';
+import { persistHistoryEvent, toHistoryInt } from '../history-persistence';
 import type { OneBotInstanceContext } from '../instance-context';
 import {
   GROUP_MESSAGE_EVENT,
@@ -257,7 +258,7 @@ export async function getFriendHistory(
       ? ref.messageStore.findEvent(messageId as number)
       : null;
     const belongsToPeer = meta?.targetId === userId
-      || (meta?.targetId === ref.selfId && toHistInt(storedEvent?.target_id) === userId);
+      || (meta?.targetId === ref.selfId && toHistoryInt(storedEvent?.target_id) === userId);
     if (!hasAuthoritativeSequence(meta) || meta.isGroup || !belongsToPeer) {
       return getFriendMsgHistory(ref.messageStore, userId, messageId, count, reverseOrder);
     }
@@ -311,7 +312,7 @@ export async function getFriendHistory(
     }
     // Private history is scoped by the requested peer, while user_id is
     // the sender and therefore equals selfId for outgoing messages.
-    if (json.post_type === 'message_sent' && toHistInt(json.target_id) === 0) {
+    if (json.post_type === 'message_sent' && toHistoryInt(json.target_id) === 0) {
       json.target_id = userId;
     }
     persistHistoryEvent(ref.messageStore, json, userId, ev);
@@ -538,66 +539,6 @@ function buildBackfillEvent(
   };
   if (sentBySelf) privateEvent.target_id = sessionId;
   return privateEvent;
-}
-
-// Persist a converted history event so reply / get_msg / future listing resolve
-// it. Private history callers provide the conversation peer because `user_id`
-// identifies the sender and equals the bot account on outgoing messages.
-function persistHistoryEvent(
-  store: MessageStore,
-  event: JsonObject,
-  privatePeerId?: number,
-  source?: FriendMessage,
-): void {
-  const messageId = toHistInt(event.message_id);
-  if (messageId === 0) return;
-  const isGroup = event.message_type === 'group';
-  const sessionId = isGroup
-    ? toHistInt(event.group_id)
-    : (privatePeerId && privatePeerId > 0 ? privatePeerId : toHistInt(event.user_id));
-  const messageSequence = toHistInt(event.message_seq);
-  const sequence = source?.ntMsgSeq ?? messageSequence;
-  const sequenceAuthoritative = source?.sequenceAuthoritative !== false && sequence > 0;
-  const isOutgoingPrivate = !isGroup && source?.senderUin === source?.selfUin;
-  const eventName = isGroup
-    ? GROUP_MESSAGE_EVENT
-    : source
-      ? privateMessageEventName(isOutgoingPrivate, sequenceAuthoritative)
-      : privateMessageEventName(event.post_type === 'message_sent', false);
-  if (sessionId === 0) return;
-  if (!isGroup && source) {
-    store.storeMeta(messageId, {
-      isGroup: false,
-      targetId: sessionId,
-      sequence,
-      sequenceAuthoritative,
-      eventName,
-      clientSequence: source.clientSeq ?? source.msgSeq,
-      privateDirection: source.senderUin === source.selfUin
-        ? 'outgoing'
-        : 'incoming',
-      random: source.msgId,
-      timestamp: source.time,
-    });
-  }
-  store.storeEvent(
-    messageId,
-    isGroup,
-    sessionId,
-    sequence,
-    eventName,
-    event,
-    { sequenceAuthoritative },
-  );
-}
-
-function toHistInt(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
-  if (typeof value === 'string' && value.trim()) {
-    const n = Number(value);
-    if (Number.isFinite(n)) return Math.trunc(n);
-  }
-  return 0;
 }
 
 export async function deleteMessage(bridge: BridgeInterface, meta: MessageMeta): Promise<void> {

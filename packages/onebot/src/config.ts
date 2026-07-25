@@ -67,6 +67,7 @@ export function makeDefaultOneBotConfig(): OneBotConfig {
       wsClients: [],
     },
     statusCommand: makeDefaultStatusCommand(),
+    historySync: { enabled: false },
     notifications: { channelIds: [] },
   };
 }
@@ -187,7 +188,7 @@ export function prepareOneBotConfigForRestore(
 }
 
 const RESTORE_TOP_LEVEL_KEYS = new Set([
-  'mode', 'networks', 'statusCommand', 'notifications', 'musicSignUrl',
+  'mode', 'networks', 'statusCommand', 'historySync', 'notifications', 'musicSignUrl',
   'httpServers', 'httpClients', 'httpPostEndpoints', 'wsServers', 'wsClients',
   'messageFormat', 'reportSelfMessage',
 ]);
@@ -237,6 +238,7 @@ function validateOneBotRestoreSource(value: JsonObject): void {
   }
 
   validateRestoreStatusCommand(value.statusCommand);
+  validateRestoreHistorySync(value.historySync);
   validateRestoreNotifications(value.notifications);
 
   const parsed = fromJson([value], false);
@@ -345,6 +347,15 @@ function validateRestoreNotifications(value: unknown): void {
   });
 }
 
+function validateRestoreHistorySync(value: unknown): void {
+  if (value === undefined) return;
+  if (!isObject(value)) invalid('$.historySync must be an object');
+  rejectUnknownKeys(value, new Set(['enabled']), '$.historySync');
+  if (value.enabled !== undefined && typeof value.enabled !== 'boolean') {
+    invalid('$.historySync.enabled must be a boolean');
+  }
+}
+
 function rejectUnknownKeys(value: JsonObject, allowed: ReadonlySet<string>, at: string): void {
   const unknown = Object.keys(value).find((key) => !allowed.has(key));
   if (unknown) invalid(`${at}.${unknown} is not supported`);
@@ -433,6 +444,11 @@ export function assertValidOneBotConfig(value: unknown): asserts value is OneBot
     /[\r\n]/.test(status.trigger)
   ) {
     invalid(`statusCommand.trigger must be non-empty, single-line, and <= ${STATUS_COMMAND_TRIGGER_MAX_LENGTH} characters`);
+  }
+
+  if (!isObject(value.historySync)) invalid('historySync must be an object');
+  if (typeof value.historySync.enabled !== 'boolean') {
+    invalid('historySync.enabled must be a boolean');
   }
 
   if (value.notifications !== undefined) {
@@ -612,6 +628,7 @@ function toJsonObject(config: OneBotConfig, mode: 'snapshot' | 'overlay'): JsonO
       cooldownSeconds: config.statusCommand.cooldownSeconds,
       trigger: config.statusCommand.trigger,
     },
+    historySync: { enabled: config.historySync.enabled },
     notifications: { channelIds: config.notifications?.channelIds ?? [] },
   };
 }
@@ -698,10 +715,26 @@ function fromJson(sources: JsonObject[], freshInstall: boolean): OneBotConfig {
   const config: OneBotConfig = {
     networks,
     statusCommand: parseStatusCommand(sources),
+    historySync: parseHistorySync(sources),
     notifications: parseNotifications(sources),
   };
   assertValidOneBotConfig(config);
   return config;
+}
+
+function parseHistorySync(sources: JsonObject[]): { enabled: boolean } {
+  let enabled = false;
+  for (const source of sources) {
+    if (!Object.prototype.hasOwnProperty.call(source, 'historySync')) continue;
+    const raw = source.historySync;
+    if (!isObject(raw)) invalid('historySync must be an object');
+    rejectUnknownKeys(raw, new Set(['enabled']), 'historySync');
+    if (typeof raw.enabled !== 'boolean') {
+      invalid('historySync.enabled must be a boolean');
+    }
+    enabled = raw.enabled;
+  }
+  return { enabled };
 }
 
 /** Last-write-wins merge of `notifications.channelIds` across config sources,

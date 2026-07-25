@@ -6,6 +6,7 @@ import {
   assertValidOneBotConfig,
   loadOneBotConfig,
   makeDefaultOneBotConfig,
+  prepareOneBotConfigForRestore,
   saveOneBotConfig,
   STATUS_COMMAND_TRIGGER_MAX_LENGTH,
 } from '../src/config';
@@ -31,6 +32,7 @@ describe('makeDefaultOneBotConfig', () => {
     expect(config.networks.wsServers[0].reportSelfMessage).toBe(false);
     expect(config.networks.wsClients).toEqual([]);
     expect(config.statusCommand).toEqual({ enabled: true, swallow: false, cooldownSeconds: 5, trigger: '#sl' });
+    expect(config.historySync).toEqual({ enabled: false });
     expect(config.notifications).toEqual({ channelIds: [] });
   });
 });
@@ -571,5 +573,66 @@ describe('OneBotConfig.notifications (per-UIN channel opt-in)', () => {
 
     const onDisk = JSON.parse(fs.readFileSync(path.join(tempDir, 'config', `onebot_${uin}.json`), 'utf8'));
     expect(onDisk.notifications).toEqual({ channelIds: ['discord', 'serverchan'] });
+  });
+});
+
+describe('OneBotConfig login history sync', () => {
+  let tempDir: string;
+  let prevCwd: string;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snowluma-onebot-history-sync-'));
+    prevCwd = process.cwd();
+    process.chdir(tempDir);
+  });
+
+  afterEach(() => {
+    process.chdir(prevCwd);
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('defaults old configurations to disabled', () => {
+    const config = loadOneBotConfig('30001');
+    expect(config.historySync).toEqual({ enabled: false });
+  });
+
+  it('round-trips the per-account opt-in', () => {
+    const config = makeDefaultOneBotConfig();
+    config.historySync.enabled = true;
+    saveOneBotConfig('30002', config);
+
+    expect(loadOneBotConfig('30002').historySync).toEqual({ enabled: true });
+    const onDisk = JSON.parse(
+      fs.readFileSync(path.join(tempDir, 'config', 'onebot_30002.json'), 'utf8'),
+    );
+    expect(onDisk.historySync).toEqual({ enabled: true });
+  });
+
+  it('rejects malformed history sync settings during save and restore', () => {
+    const malformed = makeDefaultOneBotConfig() as unknown as Record<string, unknown>;
+    malformed.historySync = { enabled: 'yes' };
+    expect(() => assertValidOneBotConfig(malformed)).toThrow(/historySync\.enabled/);
+
+    const source = {
+      networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
+      historySync: { enabled: true, interval: 1 },
+    };
+    expect(() => prepareOneBotConfigForRestore(source, 'per-uin'))
+      .toThrow(/\$\.historySync\.interval is not supported/);
+  });
+
+  it('rejects malformed on-disk settings instead of inheriting an enabled value', () => {
+    const dir = path.join(tempDir, 'config');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'onebot.json'), JSON.stringify({
+      historySync: { enabled: true },
+    }), 'utf8');
+    fs.writeFileSync(path.join(dir, 'onebot_30003.json'), JSON.stringify({
+      networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
+      historySync: { enabled: 'yes' },
+    }), 'utf8');
+
+    expect(() => loadOneBotConfig('30003'))
+      .toThrow(/historySync\.enabled must be a boolean/);
   });
 });

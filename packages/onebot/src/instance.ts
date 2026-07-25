@@ -22,6 +22,7 @@ import {
 import { MessageStore } from './message-store';
 import { sendGroupMessage, sendPrivateMessage } from './modules/message-actions';
 import { buildStatusText, matchesStatusCommand, statusCooldownElapsed } from './modules/status-command';
+import { loginHistorySyncCoordinator } from './history-sync';
 import {
   HttpPostAdapter,
   HttpServerAdapter,
@@ -70,6 +71,10 @@ export class OneBotInstance {
   private disposeRequested = false;
   private acceptingActions = true;
   private readonly inFlightActions = new Set<Promise<void>>();
+  private readonly historySyncAbortController = new AbortController();
+  private readonly historySyncEnabledAtStartup: boolean;
+  private historySyncStartRequested = false;
+  private historySyncTask: Promise<void> | null = null;
   private readonly storeCloseState = {
     message: false,
     media: false,
@@ -116,6 +121,7 @@ export class OneBotInstance {
   constructor(uin: string, bridge: BridgeInterface, config: OneBotConfig, globalSettings: GlobalSettings) {
     this.uin = uin;
     this.bridge = bridge;
+    this.historySyncEnabledAtStartup = config.historySync.enabled;
     const uinNum = Number.parseInt(uin, 10);
     this.log = Number.isFinite(uinNum) && uinNum > 0
       ? moduleLog.child({ uin: uinNum })
@@ -187,6 +193,40 @@ export class OneBotInstance {
     return this.networkReady;
   }
 
+  /**
+   * Start the optional login-time backfill once roster warmup has completed.
+   * The startup snapshot is intentional: hot config edits take effect on the
+   * next account lifecycle and never cause an unexpected QQ request.
+   */
+  startLoginHistorySync(): void {
+    if (this.historySyncStartRequested || this.disposeRequested) return;
+    this.historySyncStartRequested = true;
+    if (!this.historySyncEnabledAtStartup) {
+      this.log.debug('login history sync disabled for this account lifecycle');
+      return;
+    }
+
+    this.historySyncTask = loginHistorySyncCoordinator.schedule({
+      selfId: Number.parseInt(this.uin, 10) || 0,
+      bridge: this.bridge,
+      messageStore: this.messageStore,
+      converterCtx: this.converterCtx,
+    }, this.historySyncAbortController.signal).then(
+      () => undefined,
+      (error) => {
+        if (this.historySyncAbortController.signal.aborted) {
+          this.log.debug('login history sync cancelled: %s',
+            error instanceof Error ? error.message : String(error));
+          return;
+        }
+        this.log.error(
+          'login history sync failed: %s',
+          error instanceof Error ? (error.stack ?? error.message) : String(error),
+        );
+      },
+    );
+  }
+
   reloadConfig(config: OneBotConfig): Promise<NetworkReconcileResult> {
     if (this.disposeRequested) return Promise.reject(new Error(`OneBot instance UIN=${this.uin} is disposing`));
     const snapshot = structuredClone(config);
@@ -220,6 +260,9 @@ export class OneBotInstance {
     this.apiHandler.quiesce();
     this.online = false;
     this.stopHeartbeat();
+    this.historySyncAbortController?.abort(
+      new Error(`OneBot instance UIN=${this.uin} is disposing`),
+    );
     const pipeline = this.eventPipeline;
     if (pipeline) {
       pipeline.stop();
@@ -235,6 +278,7 @@ export class OneBotInstance {
       await Promise.all([
         Promise.all(this.inFlightActions),
         this.eventPipelineDrain,
+        this.historySyncTask ?? Promise.resolve(),
       ]);
       const shutdown = await this.networkManager.shutdown();
       if (!shutdown.closed) {
