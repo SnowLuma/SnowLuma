@@ -1,4 +1,5 @@
 import { createLogger } from '@snowluma/common/logger';
+import { WebSocketServer } from '@snowluma/websocket';
 import {
   createServer,
   type IncomingMessage,
@@ -11,24 +12,34 @@ import type { ApiResponse, HttpServerNetwork, JsonObject, JsonValue } from '../t
 import { type StreamSink, wrapStreamFrame, wrapStreamTerminal } from '../streaming';
 import { IOneBotNetworkAdapter, type AdapterStatus, type NetworkAdapterContext } from './adapter';
 import { isAuthorized, normalizePath } from './utils';
+import { WsServerConnections } from './ws-server-connections';
 
 const moduleLog = createLogger('OneBot.HTTP');
 
 export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> {
   private server: Server | null = null;
+  private webSocketServer: WebSocketServer | null = null;
   private listening = false;
   private closePromise: Promise<void> | null = null;
   private acceptingActions = false;
   private readonly inFlightActions = new Set<Promise<void>>();
+  private readonly webSocketConnections: WsServerConnections;
 
   constructor(name: string, config: HttpServerNetwork, ctx: NetworkAdapterContext) {
     super(name, config, ctx, moduleLog);
+    this.webSocketConnections = new WsServerConnections(name, config, ctx, this.log, {
+      frame: (event, options) => this.metaFrame(event, options),
+      bootstrap: (options) => this.bootstrapMetaFrames(options),
+    });
   }
 
   async open(): Promise<void> {
     if (this.isEnabled && this.listening) return;
     if (this.config.enabled === false) return;
     if (this.server) throw new Error(`HTTP adapter [${this.name}] still owns a previous server`);
+    if (this.webSocketServer) {
+      throw new Error(`HTTP adapter [${this.name}] still owns a previous WebSocket upgrade handler`);
+    }
     await this.startServer();
     this.isEnabled = true;
     this.clearApplyFailure();
@@ -36,15 +47,27 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
 
   async close(): Promise<void> {
     if (this.closePromise) return this.closePromise;
-    if (!this.isEnabled && !this.server && this.inFlightActions.size === 0) return;
+    if (
+      !this.isEnabled &&
+      !this.server &&
+      !this.webSocketServer &&
+      this.inFlightActions.size === 0 &&
+      !this.webSocketConnections.hasInFlightActions
+    ) return;
     const wasEnabled = this.isEnabled;
     const wasListening = this.listening;
     const wasAcceptingActions = this.acceptingActions;
+    const wasAcceptingWebSocketActions = this.webSocketConnections.isAcceptingActions;
     this.acceptingActions = false;
+    this.webSocketConnections.stopAccepting();
     this.isEnabled = false;
     this.listening = false;
     const server = this.server;
-    const release = server
+    const webSocketServer = this.webSocketServer;
+    const webSocketDrain = webSocketServer
+      ? this.webSocketConnections.closeConnections()
+      : Promise.resolve();
+    const releaseHttp = server
       ? new Promise<void>((resolve, reject) => {
         server.close((error) => {
           if (error && !isAlreadyClosedError(error)) reject(error);
@@ -52,17 +75,48 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
         });
       })
       : Promise.resolve();
-    const attempt = Promise.all([release, Promise.all(this.inFlightActions)]).then(() => undefined);
+    let httpReleased = false;
+    const attempt = (async () => {
+      // Close upgraded sockets so Node can release the owning HTTP listener,
+      // but keep the upgrade handler attached until that release succeeds.
+      // If HTTP close fails while the listener is still live, accepting can be
+      // restored on the same handler; no partially released resource is
+      // reported as healthy.
+      await Promise.all([
+        releaseHttp,
+        Promise.all(this.inFlightActions),
+        webSocketDrain,
+      ]);
+      httpReleased = true;
+      if (this.server === server) this.server = null;
+
+      if (webSocketServer) {
+        const releaseWebSocket = new Promise<void>((resolve, reject) => {
+          webSocketServer.close((error) => {
+            if (error && !isAlreadyClosedError(error)) reject(error);
+            else resolve();
+          });
+        });
+        await Promise.all([
+          releaseWebSocket,
+          this.webSocketConnections.closeConnections(),
+        ]);
+        if (this.webSocketServer === webSocketServer) this.webSocketServer = null;
+      }
+    })();
     this.closePromise = attempt;
     try {
       await attempt;
-      if (this.server === server) this.server = null;
     } catch (error) {
-      // A failed close callback cannot prove the listener was released. Keep
-      // ownership and live-state truth so shutdown/reconcile can retry it.
-      this.isEnabled = wasEnabled;
-      this.listening = wasListening;
-      this.acceptingActions = wasAcceptingActions;
+      if (!httpReleased && server?.listening === true) {
+        // A failed HTTP close callback cannot prove the listener was released.
+        // The upgrade handler is still attached, so the old ingress can accept
+        // fresh connections again while a later shutdown/reconcile retries.
+        this.isEnabled = wasEnabled;
+        this.listening = wasListening;
+        this.acceptingActions = wasAcceptingActions;
+        if (wasAcceptingWebSocketActions) this.webSocketConnections.startAccepting();
+      }
       throw error;
     } finally {
       this.closePromise = null;
@@ -72,14 +126,25 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
   override describeStatus(): AdapterStatus {
     if (!this.isEnabled) return { name: this.name, kind: 'httpServer', status: 'disabled', detail: '未启用' };
     if (!this.listening) return { name: this.name, kind: 'httpServer', status: 'down', detail: '未监听（端口被占用？）' };
-    return { name: this.name, kind: 'httpServer', status: 'ok', detail: '监听中' };
+    const detail = this.config.enableWebSocket === true
+      ? `监听中 · WebSocket ${this.webSocketConnections.connectionCount} 个客户端`
+      : '监听中';
+    return { name: this.name, kind: 'httpServer', status: 'ok', detail };
   }
 
   protected override bindingSignature(config: HttpServerNetwork): string {
-    return `${config.host ?? '0.0.0.0'}:${config.port}${normalizePath(config.path ?? '/')}`;
+    const webSocket = config.enableWebSocket === true ? 'ws' : 'http';
+    return `${config.host ?? '0.0.0.0'}:${config.port}${normalizePath(config.path ?? '/')}#${webSocket}`;
   }
 
-  onEvent(_event: JsonObject, _payload: DispatchPayload): void { /* no-op */ }
+  protected override onConfigReplaced(next: HttpServerNetwork): void {
+    this.webSocketConnections.updateConfig(next);
+  }
+
+  onEvent(_event: JsonObject, payload: DispatchPayload): void {
+    if (this.config.enableWebSocket !== true || !this.isEnabled) return;
+    this.webSocketConnections.onEvent(payload);
+  }
 
   private startServer(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -87,11 +152,35 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
         this.trackInboundAction(req, res);
       });
       this.server = server;
+      let webSocketServer: WebSocketServer | null = null;
+      try {
+        if (this.config.enableWebSocket === true) {
+          webSocketServer = new WebSocketServer({ server });
+          webSocketServer.on('connection', (socket, request) => {
+            this.webSocketConnections.accept(socket, request);
+          });
+          webSocketServer.on('error', (error: Error) => {
+            this.recordTransportFailure(error);
+            this.log.error(
+              '[%s] embedded WebSocket error: %s',
+              this.name,
+              error instanceof Error ? error.message : String(error),
+            );
+          });
+          this.webSocketServer = webSocketServer;
+        }
+      } catch (error) {
+        this.server = null;
+        this.recordTransportFailure(error);
+        reject(error);
+        return;
+      }
       let opening = true;
 
       server.once('listening', () => {
         opening = false;
         if (this.server !== server || this.closePromise) {
+          webSocketServer?.close();
           server.close();
           reject(new Error(`HTTP adapter [${this.name}] was closed while binding`));
           return;
@@ -99,12 +188,14 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
         this.listening = true;
         this.isEnabled = true;
         this.acceptingActions = true;
+        if (webSocketServer) this.webSocketConnections.startAccepting();
         this.log.success(
-          '[%s] listening %s:%d%s',
+          '[%s] listening %s:%d%s%s',
           this.name,
           this.config.host ?? '0.0.0.0',
           this.config.port,
           normalizePath(this.config.path ?? '/'),
+          webSocketServer ? ' with WebSocket' : '',
         );
         resolve();
       });
@@ -113,8 +204,13 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
           this.listening = false;
           this.isEnabled = false;
           this.acceptingActions = false;
+          this.webSocketConnections.stopAccepting();
           this.recordTransportFailure(error);
-          if (opening) this.server = null;
+          if (opening) {
+            this.server = null;
+            if (this.webSocketServer === webSocketServer) this.webSocketServer = null;
+            webSocketServer?.close();
+          }
         }
         this.log.error('[%s] server error: %s', this.name, error instanceof Error ? error.message : String(error));
         if (opening) {
@@ -128,6 +224,8 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
       } catch (error) {
         opening = false;
         if (this.server === server) this.server = null;
+        if (this.webSocketServer === webSocketServer) this.webSocketServer = null;
+        webSocketServer?.close();
         this.recordTransportFailure(error);
         reject(error);
       }

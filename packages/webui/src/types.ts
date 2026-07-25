@@ -72,6 +72,7 @@ export interface HttpServerNetwork extends NetworkBase {
   host?: string;
   port: number;
   path?: string;
+  enableWebSocket?: boolean;
 }
 
 export interface HttpClientNetwork extends NetworkBase {

@@ -43,6 +43,8 @@ export interface HttpServerNetwork extends NetworkBase {
   host?: string;
   port: number;
   path?: string;
+  /** Accept OneBot WebSocket clients on the same HTTP listener. */
+  enableWebSocket?: boolean;
 }
 
 export interface HttpClientNetwork extends NetworkBase {

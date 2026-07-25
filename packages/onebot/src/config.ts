@@ -48,6 +48,7 @@ export function makeDefaultOneBotConfig(): OneBotConfig {
         host: '0.0.0.0',
         port: 3000,
         path: '/',
+        enableWebSocket: false,
         accessToken: generateAccessToken(),
         messageFormat: 'array',
         reportSelfMessage: false,
@@ -254,6 +255,7 @@ function validateRestoreAdapterArray(value: unknown, kind: keyof OneBotNetworks,
     : kind === 'httpClients'
       ? ['url', 'timeoutMs']
       : ['url', 'role', 'reconnectIntervalMs'];
+  if (kind === 'httpServers') specific.push('enableWebSocket');
   if (kind === 'wsServers') specific.push('role');
   const allowed = new Set<string>([...RESTORE_BASE_ADAPTER_KEYS, ...specific]);
 
@@ -276,6 +278,9 @@ function validateRestoreAdapterArray(value: unknown, kind: keyof OneBotNetworks,
       if (port === null || port <= 0 || port > 65535) invalid(`${pathAt}.port must be an integer between 1 and 65535`);
       if (raw.host !== undefined && typeof raw.host !== 'string') invalid(`${pathAt}.host must be a string`);
       if (raw.path !== undefined && typeof raw.path !== 'string') invalid(`${pathAt}.path must be a string`);
+      if (kind === 'httpServers' && raw.enableWebSocket !== undefined && typeof raw.enableWebSocket !== 'boolean') {
+        invalid(`${pathAt}.enableWebSocket must be a boolean`);
+      }
     } else {
       if (raw.url !== undefined && typeof raw.url !== 'string') invalid(`${pathAt}.url must be a string`);
       if (raw.url === undefined && raw.enabled !== false) invalid(`${pathAt}.url is required while the adapter is enabled`);
@@ -370,6 +375,9 @@ export function assertValidOneBotConfig(value: unknown): asserts value is OneBot
   const serverBindings = new Map<string, string>();
   validateNetworkList(value.networks, 'httpServers', seen, (item, at) => {
     validateServer(item, at);
+    if (item.enableWebSocket !== undefined && typeof item.enableWebSocket !== 'boolean') {
+      invalid(`${at}.enableWebSocket must be a boolean`);
+    }
     validateServerBinding(item, at, serverBindings);
   });
   validateNetworkList(value.networks, 'httpClients', seen, (item, at) => {
@@ -625,6 +633,7 @@ function httpServerToJson(n: HttpServerNetwork): JsonObject {
   out.host = n.host ?? '0.0.0.0';
   out.port = n.port;
   out.path = n.path ?? '/';
+  out.enableWebSocket = n.enableWebSocket === true;
   return out;
 }
 
@@ -810,6 +819,9 @@ function parseBase(value: JsonObject, defaults: AdapterDefaults) {
 }
 
 function parseHttpServer(value: JsonObject, defaults: AdapterDefaults): HttpServerNetwork | null {
+  if (value.enableWebSocket !== undefined && typeof value.enableWebSocket !== 'boolean') {
+    invalid('http server enableWebSocket must be a boolean');
+  }
   const port = asNumber(value.port, 0);
   if (port <= 0) return null;
   return clean({
@@ -817,6 +829,7 @@ function parseHttpServer(value: JsonObject, defaults: AdapterDefaults): HttpServ
     host: asString(value.host, '0.0.0.0'),
     port,
     path: asString(value.path, '/'),
+    enableWebSocket: value.enableWebSocket === true,
   });
 }
 
