@@ -88,7 +88,14 @@ export { GroupAdminApi } from './group-admin';
 export { GroupAlbumApi } from './group-album';
 export { GroupFileApi } from './group-file';
 export { InteractionApi } from './interaction';
-export { MessageApi } from './message';
+export {
+  MessageApi,
+  LOGIN_HISTORY_SYNC_PROTOCOL_LIMITS,
+  type GroupHistorySyncState,
+  type HistorySyncPrivateTarget,
+  type HistorySyncState,
+  type PrivateHistorySyncState,
+} from './message';
 export { MiscApi } from './misc';
 export { ProfileApi } from './profile';
 export { QzoneApi } from './qzone';
