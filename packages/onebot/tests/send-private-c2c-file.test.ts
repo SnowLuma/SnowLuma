@@ -250,18 +250,27 @@ describe('send_private_msg with {type:"file"} segment', () => {
     expect(sendC2cFileMessage).not.toHaveBeenCalled();
   });
 
-  it('file segment with url (no file_id) auto-uploads via groupFile.uploadPrivate (not sendC2cFile)', async () => {
-    // uploadPrivate() internally calls sendC2cFile() — must NOT call it again.
+  it('file segment with url uploads without publishing, then sends once with the cached metadata', async () => {
     const uploadPrivate = vi.fn(async (_uid: number, _src: string, _name: string, _doUpload: boolean) =>
-      ({ fileId: 'auto-fid', fileHash: null }));
-    const sendC2cFileMessage = vi.fn();
+      ({ fileId: 'auto-fid', fileHash: 'auto-hash' }));
+    const sendC2cFileMessage = vi.fn(async () => goodReceipt);
     const bridge = fakeBridge({
       apis: {
         message: { sendPrivate: vi.fn(), sendC2cFile: sendC2cFileMessage },
         groupFile: { uploadPrivate },
       } as any,
       resolveUserUid: vi.fn(async () => 'u_peer'),
-      recallUploadedFile: vi.fn(() => undefined),
+      recallUploadedFile: vi.fn(() => ({
+        fileId: 'auto-fid',
+        scope: 'private',
+        userId: 67890,
+        fileName: 'audio.wav',
+        fileSize: 3,
+        fileMd5: new Uint8Array(16),
+        fileSha1: new Uint8Array(20),
+        fileHash: 'auto-hash',
+        rememberedAt: Date.now(),
+      })),
     } as any);
     const ctx = makeCtx(bridge);
 
@@ -275,7 +284,56 @@ describe('send_private_msg with {type:"file"} segment', () => {
     expect(src).toBe('/tmp/audio.wav');
     expect(name).toBe('audio.wav');
     expect(doUpload).toBe(true);
-    // sendC2cFile must NOT be called — uploadPrivate() handles it internally
-    expect(sendC2cFileMessage).not.toHaveBeenCalled();
+    expect(uploadPrivate).toHaveBeenCalledWith(67890, '/tmp/audio.wav', 'audio.wav', true, false);
+    expect(sendC2cFileMessage).toHaveBeenCalledOnce();
+    expect(sendC2cFileMessage).toHaveBeenCalledWith(67890, 'u_peer', expect.objectContaining({
+      fileId: 'auto-fid',
+      fileName: 'audio.wav',
+      fileSize: 3,
+      fileHash: 'auto-hash',
+    }));
+  });
+
+  it('surfaces a failed chat post after uploading a file source', async () => {
+    const uploadPrivate = vi.fn(async () => ({
+      fileId: 'uploaded-but-unsent',
+      fileHash: 'upload-hash',
+    }));
+    const sendC2cFile = vi.fn(async () => {
+      throw new Error('chat post rejected');
+    });
+    const bridge = fakeBridge({
+      apis: {
+        message: { sendPrivate: vi.fn(), sendC2cFile },
+        groupFile: { uploadPrivate },
+      } as any,
+      resolveUserUid: vi.fn(async () => 'u_peer'),
+      recallUploadedFile: vi.fn(() => ({
+        fileId: 'uploaded-but-unsent',
+        scope: 'private',
+        userId: 67890,
+        fileName: 'failed.txt',
+        fileSize: 3,
+        fileMd5: new Uint8Array(16),
+        fileSha1: new Uint8Array(20),
+        fileHash: 'upload-hash',
+        rememberedAt: Date.now(),
+      })),
+    } as any);
+    const ctx = makeCtx(bridge);
+
+    await expect(sendPrivateMessage(ctx, 67890, [{
+      type: 'file',
+      data: { file: 'base64://AQID', name: 'failed.txt' },
+    }] as any, false)).rejects.toThrow('chat post rejected');
+
+    expect(uploadPrivate).toHaveBeenCalledWith(
+      67890,
+      'base64://AQID',
+      'failed.txt',
+      true,
+      false,
+    );
+    expect(sendC2cFile).toHaveBeenCalledOnce();
   });
 });
