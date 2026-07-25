@@ -150,10 +150,69 @@ describe('fetchGroupMessageRange / SsoGetGroupMsg', () => {
     expect(out.map((message) => message.msgSeq)).toEqual([120]);
   });
 
-  it('returns [] on a failed packet or out-of-range request', async () => {
-    const failSender = { sendRawPacket: async () => ({ success: false, gotResponse: false } as SendPacketResult) };
-    expect(await fetchGroupMessageRange(failSender, identity, 10001, 9999, 100, 120)).toEqual([]);
+  it('keeps failed or empty transport responses observable', async () => {
+    const failSender = {
+      sendRawPacket: async () => ({
+        success: false,
+        gotResponse: false,
+        errorMessage: 'history unavailable',
+      } as SendPacketResult),
+    };
+    await expect(
+      fetchGroupMessageRange(failSender, identity, 10001, 9999, 100, 120),
+    ).rejects.toThrow('history unavailable');
 
+    const emptySender = {
+      sendRawPacket: async () => ({
+        success: true,
+        gotResponse: false,
+      } as SendPacketResult),
+    };
+    await expect(
+      fetchGroupMessageRange(emptySender, identity, 10001, 9999, 100, 120),
+    ).rejects.toThrow('response is empty');
+  });
+
+  it('rejects malformed history entries instead of silently omitting them', async () => {
+    const missingHead = protobuf_encode<SsoGetGroupMsgResponse>({
+      body: {
+        groupUin: 9999,
+        messages: [{
+          responseHead: { fromUin: 222, grp: { groupUin: 9999 } },
+          body: { richText: { elems: [{ text: { str: 'missing head' } }] } },
+        }],
+      },
+    });
+    await expect(fetchGroupMessageRange(
+      { sendRawPacket: async () => okResult(missingHead) },
+      identity,
+      10001,
+      9999,
+      100,
+      120,
+    )).rejects.toThrow(/message 0 has no content head.*group=9999 range=100-120/);
+
+    const invalidSequence = protobuf_encode<SsoGetGroupMsgResponse>({
+      body: {
+        groupUin: 9999,
+        messages: [{
+          responseHead: { fromUin: 222, grp: { groupUin: 9999 } },
+          contentHead: { msgType: 82, sequence: 0, timestamp: 1_700_000_000, msgId: 1 },
+          body: { richText: { elems: [{ text: { str: 'invalid sequence' } }] } },
+        }],
+      },
+    });
+    await expect(fetchGroupMessageRange(
+      { sendRawPacket: async () => okResult(invalidSequence) },
+      identity,
+      10001,
+      9999,
+      100,
+      120,
+    )).rejects.toThrow(/message 0 has invalid sequence 0.*group=9999 range=100-120/);
+  });
+
+  it('rejects an out-of-range request before sending', async () => {
     // start > end is rejected before any send
     let sent = false;
     const guardSender = { sendRawPacket: async () => { sent = true; return okResult(new Uint8Array()); } };
