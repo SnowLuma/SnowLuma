@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="HandheldFriendly" content="True" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="viewport"
+        content="width=device-width,initial-scale=1,minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <style type="text/css">
+        .dark {
+            background-color: #000;
+            min-height: 100vh;
+        }
+
+        body {
+            margin: 0px;
+        }
+    </style>
+    <script>
+        window._HTML_BEGIN_TIMESTAMP_ = Date.now();
+        window.inReloadingScriptNumber = 0;
+        window.hasReloadedScriptMap = {};
+        window.addEventListener(
+            "error",
+            function (event) {
+                var element = event.target;
+                var resourceUrl =
+                    element.tagName === "LINK" ? element.href : element.src;
+
+                if (!/^https:\/\/qqvip-web.cdn-go.cn/i.test(resourceUrl)) {
+                    return;
+                }
+
+                var proxiedUrl = resourceUrl.replace(
+                    /^https:\/\/qqvip-web.cdn-go.cn\//,
+                    "https://zb.vip.qq.com/proxy/domain/qqvip-web.cdn-go.cn/"
+                );
+
+                if (window.hasReloadedScriptMap[proxiedUrl]) {
+                    return;
+                }
+
+                switch (element.tagName) {
+                    case "IMG":
+                        element.src = proxiedUrl;
+                        break;
+                    case "LINK":
+                        element.href = proxiedUrl;
+                        break;
+                    case "SCRIPT":
+                        var newScript = document.createElement("script");
+                        newScript.src = proxiedUrl;
+                        newScript.async = element.async;
+                        newScript.defer = element.defer;
+                        newScript.crossOrigin = element.crossOrigin;
+                        if (element.getAttribute("data-vue-meta")) {
+                            newScript.setAttribute(
+                                "data-vue-meta",
+                                element.getAttribute("data-vue-meta")
+                            );
+                        }
+
+                        newScript.onload = function () {
+                            window.inReloadingScriptNumber--;
+
+                            if (window.inReloadingScriptNumber === 0) {
+                                var app =
+                                    window.rieApp.default || window.rieApp;
+                                window.rieVue2Runtime.Vue.default.config.devtools = false;
+                                window.rieVue2Runtime.init(app);
+                            }
+                        };
+                        window.inReloadingScriptNumber++;
+
+                        window.hasReloadedScriptMap[proxiedUrl] =
+                            "reloaded";
+                        element.parentNode.appendChild(newScript);
+                        break;
+                }
+            },
+            true
+        );
+    </script>
+
+<title>好友装扮</title>
+
+<link data-vue-meta="ssr" href="https://qqvip-web.cdn-go.cn/cdn/v1.7.3/legacy-style/gxh.vip.qq.com/storybook/src/css/vip-mall-global/global.css?_bid=5399" rel="stylesheet"><link data-vue-meta="ssr" href="https://qqvip-web.cdn-go.cn/cdn/v1.7.3/legacy-style/gxh.vip.qq.com/vipstyle/component/ui-tag-member-shop.css?_bid=5399" rel="stylesheet">
+<script data-vue-meta="ssr">window.shouldOpenTestEnv = false;</script><script data-vue-meta="ssr" crossOrigin="anonymous" src="https://tam.cdn-go.cn/aegis-sdk/latest/aegis.min.js?_bid=5234"></script><script data-vue-meta="ssr" type="text/javascript" defer>
+            window.QQGXH_ENV = "dev";
+            window.version = "dev";
+            /* eslint-disable */
+if (window.Aegis && !window.__aegis) {
+  var uinMatch = document.cookie.match(/uin=o(\d+)/);
+  var uin;
+  if (uinMatch.length === 2) {
+    uin = parseInt(uinMatch[1], 10);
+  }
+  var samplingReport = Math.random() < 0.1;
+  var appId = '';
+  if (window.location.pathname === '/mall/item-detail') {
+    var appIdRegExArray = window.location.href.match(/appid=(\d+)/i);
+    appId = appIdRegExArray ? appIdRegExArray[1] : '';
+  }
+  var qqversion = '9.3.5' || 'unknown';
+  var aegisConfig = {
+    id: '75w8vtQ8j2WjEb9bWd',
+    reportApiSpeed: samplingReport,
+    reportAssetSpeed: samplingReport,
+    version: window.version,
+    ext1: qqversion,
+    ext2: appId,
+    beforeRequest: function (data) {
+      var logMessage = data.logs.msg || '';
+      if (logMessage.indexOf('tianshu.qq.com') > -1 || logMessage.indexOf('h5.qzone.qq.com/report/action') > -1 || logMessage.indexOf('h.trace.qq.com') > -1 || logMessage.indexOf('report.qqweb.qq.com') > -1) {
+        return false;
+      }
+      if (logMessage.toLowerCase().indexOf('script error.') > -1 || logMessage.toLowerCase().indexOf('network error') > -1 || logMessage.toLowerCase().indexOf('request abort') > -1) {
+        return false;
+      }
+    }
+  };
+  if (uin) {
+    aegisConfig.uin = uin;
+  }
+  window.__aegis = new window.Aegis(aegisConfig);
+  function reportError() {
+    var Vue = window.rieVue2Runtime.Vue.default ? window.rieVue2Runtime.Vue.default : window.rieVue2Runtime.Vue;
+    if (Vue) {
+      Vue.config.errorHandler = function (error) {
+        console.error(error);
+        if (error instanceof Error) {
+          window.__aegis && window.__aegis.error(error);
+        }
+      };
+    }
+  }
+  document.addEventListener('DOMContentLoaded', reportError);
+}
+            </script><script data-vue-meta="ssr" crossOrigin="anonymous" src="https://qqvip-web.cdn-go.cn/mono/latest/vendors/qqmobile/qqapi.wk.js?_bid=5234" defer></script><script data-vue-meta="ssr" crossOrigin="anonymous" defer src="https://qqvip-web.cdn-go.cn/setup/latest/index.js"></script>
+<link rel="preload" href="https://qqvip-web.cdn-go.cn/qqgxh/latest//mall/ac38e282//client/mall/aio-dress/app.0246.css" as="style">
+<link rel="stylesheet" href="https://qqvip-web.cdn-go.cn/qqgxh/latest//mall/ac38e282//client/mall/aio-dress/app.0246.css">
+</head>
+<body>
+    <script data-vue-meta="ssr" type="text/javascript" data-pbody="true">
+                /* eslint-disable */
+(function () {
+  if (location.search.indexOf('bodyColor=transparent') > -1) {
+    document.body.style.backgroundColor = 'transparent';
+  } else {
+    var themeId = 0;
+    var themeRegex = navigator.userAgent.match(/QQTheme\/(\d+)/);
+    if (themeRegex) {
+      try {
+        themeId = parseInt(themeRegex[1], 10);
+      } catch (error) {}
+    }
+    if ([2920, 1102, 1103].indexOf(themeId) > -1) {
+      document.body.style.backgroundColor = '#000';
+    }
+  }
+})();
+                /* eslint-disable */
+// 修复页面元素因为rem错位问题的临时方案, 代码不经过转换，尽量保持兼容性。
+(function () {
+  function getZoomFactor() {
+    var zoomFactor = 1;
+    if (isIOS()) {
+      return zoomFactor;
+    }
+    var declaredHTMLFontSize = document.documentElement.style.fontSize;
+    if (!isSizeValid(declaredHTMLFontSize)) {
+      return zoomFactor;
+    }
+    declaredHTMLFontSize = pixelToNumber(declaredHTMLFontSize);
+    var actualHTMLFontSize = getActualFontSize();
+    if (!isSizeValid(actualHTMLFontSize)) {
+      return zoomFactor;
+    }
+    if (Math.abs(declaredHTMLFontSize - actualHTMLFontSize) < 0.2) {
+      return zoomFactor;
+    }
+    return declaredHTMLFontSize / actualHTMLFontSize;
+  }
+  function isIOS() {
+    return /iPhone|iPad/.test(navigator.userAgent);
+  }
+  ;
+  function pixelToNumber(pixel) {
+    return Number(pixel.replace('px', ''));
+  }
+  function isSizeValid(size) {
+    return /^\d+(\.\d+)?(px)?$/.test(size);
+  }
+  function getActualFontSize() {
+    var toolMan = document.createElement('div');
+    // offsetWidth会返回整数，直接设为1会丢失很大精度
+    toolMan.style.width = '10rem';
+    toolMan.style.position = 'absolute';
+    toolMan.style.left = '-10rem';
+    document.body.appendChild(toolMan);
+    var actualFontSize = toolMan.offsetWidth / 10;
+    toolMan.remove();
+    return actualFontSize;
+  }
+
+  // 设置设备当前应该使用的html font-size
+  function fixRem() {
+    // 设置默认二倍稿的宽高和默认设置html的font-size大小
+    var ALLOWED_MAX_ZOOM_FACTOR = 1.15;
+    var DEFAULT_FONT_SIZE = 100;
+    var DEFAULT_DEVICE_WIDTH = 750;
+    var DEFAULT_DEVICE_HEIGHT = 1334;
+    // 判断宽屏设备的最小高度
+    var MIN_DEVICE_HEIGHT = 610;
+
+    // 获取实际webview展示宽高
+    var html = document.querySelector('html');
+    var clientWidth = DEFAULT_DEVICE_WIDTH;
+    var clientHeight = DEFAULT_DEVICE_HEIGHT;
+    if (isIOS()) {
+      // ios中获取window.innerWidth和window.innerHeight有时候会不准确所以统一使用html.clientWidth
+      clientWidth = html.clientWidth || DEFAULT_DEVICE_WIDTH;
+      clientHeight = html.clientHeight || DEFAULT_DEVICE_HEIGHT;
+    } else {
+      clientWidth = window.innerWidth || html.clientWidth || DEFAULT_DEVICE_WIDTH;
+      clientHeight = window.innerHeight || html.clientHeight || DEFAULT_DEVICE_HEIGHT;
+    }
+
+    // 判断用户是否设置了系统缩放，导致实际设置的html font-size出现偏差，进行纠正
+    var zoomFactor = getZoomFactor();
+    var fixedHTMLFontSize = DEFAULT_FONT_SIZE * (clientWidth / DEFAULT_DEVICE_WIDTH) * zoomFactor;
+
+    /**
+     * 若满足一下条件之一，则视为宽屏设备
+     * 修正后的字体大小大于指定阈值并且高宽比小于1.4
+     * 屏幕高度大于610(避免因拉起输入框而误判)且屏幕高宽比小于1.2(经过对多款主流折叠屏手机分辨率计算得出)
+     */
+
+    const largeScreenList = [fixedHTMLFontSize > DEFAULT_FONT_SIZE * ALLOWED_MAX_ZOOM_FACTOR && clientHeight / clientWidth < 1.4, clientHeight > MIN_DEVICE_HEIGHT && clientHeight / clientWidth < 1.2];
+    if (largeScreenList.some(Boolean)) {
+      // 当为宽屏设备时，考虑用两侧留白的方式恢复成窄屏样式。由于设计侧给出的浮层经常会达到1.5倍屏宽高度，这里取2倍
+      var widthFactor = clientHeight / 2 / DEFAULT_DEVICE_WIDTH;
+      html.style.padding = '0 ' + (clientWidth - DEFAULT_DEVICE_WIDTH * widthFactor) / 2 + 'px';
+      fixedHTMLFontSize = DEFAULT_FONT_SIZE * widthFactor;
+    } else {
+      html.style.padding = '';
+    }
+    html.style.fontSize = fixedHTMLFontSize + 'px';
+  }
+  ;
+  window.addEventListener('load', fixRem);
+  window.addEventListener('resize', fixRem);
+  fixRem();
+})();
+            </script>
+    <!-- 加载数据上报 vip-tracker -->
+    <script src="https://qqvip-web.cdn-go.cn/vip-tracker/latest/index.js?_bid=5234" crossorigin="anonymous"
+        defer></script>
+    <!--这个注释是rie用来插入内容渲染的！！！不能删！！！！-->
+    <div data-server-rendered="true" class="need-status-bar-height" data-v-66e2fb9e><div vt-appid="DressVip" vt-pageid="3001190" vt-busi="{&quot;op_result&quot;:2}" class="page-wrapper" data-v-094eb20e data-v-66e2fb9e><div vt-mdid="101" vt-expose="1" class="head-container" data-v-7bfa11be data-v-094eb20e><div class="title-box" data-v-7bfa11be><div class="title" data-v-7bfa11be>好友正在用</div><!----></div><div vt-itemid="go_zhuanqu" vt-itemtype="4" class="svip-box" data-v-7bfa11be><img src="https://qqvip-web.cdn-go.cn/qqgxh/latest//mall/ac38e282//client/img/penguin.a3db.png" class="penguin" data-v-7bfa11be><div class="content-box" data-v-7bfa11be><div class="pattern" data-v-7bfa11be></div><div class="background" data-v-7bfa11be></div><div class="text-box" data-v-7bfa11be><span data-v-7bfa11be>他是尊贵的SVIP，免费用7000多款装扮</span><div class="arrow" data-v-7bfa11be></div></div></div></div><div class="item-list" data-v-7bfa11be><div class="item-preview" data-v-0e6539b8 data-v-7bfa11be><div vt-sbmdid="1" vt-expose="1" data-v-0e6539b8><div vt-itemid="2141485" vt-itemtype="3001001" class="image-box" data-v-0e6539b8><div class="cubebox-item" data-v-5b8ee750 data-v-0e6539b8><div class="ui-discount-info ui-hippy" style="display:none;" data-v-5b8ee750><span data-v-5b8ee750></span></div><div accessibilityLabel="在说什么呢装扮图片" class="ui-cube-box-bubble-cube cube-size-square" style="background-image:linear-gradient(46deg, rgba(239, 212, 186, .5) 0%,  rgba(239, 212, 186, .3) 100%);" data-v-0c9be67e data-v-5b8ee750><img src="https://tianquan.gtimg.cn/bubble/item/2141485/newPreview1.png" class="cube-size-square" data-v-0c9be67e><div class="cube-size-square cube-size-square-border" data-v-0c9be67e></div></div></div></div></div><div class="text-box" data-v-0e6539b8><div class="business-name" data-v-0e6539b8>
+            气泡
+        </div><div class="name" data-v-0e6539b8>在说什么呢</div></div><div vt-sbmdid="2" vt-expose="1" class="button-box" data-v-0e6539b8><div vt-itemid="2141485" vt-itemtype="3001001" class="button" data-v-0e6539b8>
+            用同款
+        </div></div></div><div class="item-preview" data-v-0e6539b8 data-v-7bfa11be><div vt-sbmdid="1" vt-expose="1" data-v-0e6539b8><div vt-itemid="201534" vt-itemtype="3001008" class="image-box" data-v-0e6539b8><div class="cubebox-item" data-v-5b8ee750 data-v-0e6539b8><div class="ui-discount-info ui-hippy" style="display:none;" data-v-5b8ee750><span data-v-5b8ee750></span></div><div accessibilityLabel="二次元少女装扮图片" class="ui-cube-box-card-cube cube-size-rectangle" data-v-5b8ee750><img src="https://tianquan.gtimg.cn/card/original/201534/templateThumb.jpg" class="cube-size-rectangle card-custom"><div class="cube-size-rectangle cube-size-rectangle-border"></div></div></div></div></div><div class="text-box" data-v-0e6539b8><div class="business-name" data-v-0e6539b8>
+            名片
+        </div><div class="name" data-v-0e6539b8>二次元少女</div></div><div vt-sbmdid="2" vt-expose="1" class="button-box" data-v-0e6539b8><div vt-itemid="201534" vt-itemtype="3001008" class="button" data-v-0e6539b8>
+            用同款
+        </div></div></div><div class="item-preview" data-v-0e6539b8 data-v-7bfa11be><div vt-sbmdid="1" vt-expose="1" data-v-0e6539b8><div vt-itemid="2000" vt-itemtype="3001112" class="image-box" data-v-0e6539b8><div class="cubebox-item" data-v-5b8ee750 data-v-0e6539b8><div class="ui-discount-info ui-hippy" style="display:none;" data-v-5b8ee750><span data-v-5b8ee750></span></div><div class="ui-cube-box-float-cube cube-size-square" style="background:linear-gradient(46deg, rgba(249, 200, 209, .5) 0%,  rgba(249, 200, 209, .3) 100%);" data-v-204c96fb data-v-5b8ee750><div class="cube-size-square custom-float" style="background-image:url(https://tianquan.gtimg.cn/colorScreen/item/2000/listImg.png);" data-v-204c96fb></div><div class="cube-size-square cube-size-square-border" data-v-204c96fb></div></div></div></div></div><div class="text-box" data-v-0e6539b8><div class="business-name" data-v-0e6539b8>
+            浮屏
+        </div><div class="name" data-v-0e6539b8>花瓣</div></div><div vt-sbmdid="2" vt-expose="1" class="button-box" data-v-0e6539b8><div vt-itemid="2000" vt-itemtype="3001112" class="button" data-v-0e6539b8>
+            用同款
+        </div></div></div><div class="item-preview" data-v-0e6539b8 data-v-7bfa11be><div vt-sbmdid="1" vt-expose="1" data-v-0e6539b8><div vt-itemid="2730" vt-itemtype="3001013" class="image-box" data-v-0e6539b8><div class="cubebox-item" data-v-5b8ee750 data-v-0e6539b8><div class="ui-discount-info ui-hippy" style="display:none;" data-v-5b8ee750><span data-v-5b8ee750></span></div><div class="ui-cube-box-background" data-v-4ee6ef0e data-v-5b8ee750><span class="ic-face" data-v-782808e6 data-v-4ee6ef0e><img src="https://tianquan.gtimg.cn/funcall/funCall/2730/web_image.jpg" data-v-782808e6></span></div></div></div></div><div class="text-box" data-v-0e6539b8><div class="business-name" data-v-0e6539b8>
+            来电
+        </div><div class="name" data-v-0e6539b8>岁月成碑</div></div><div vt-sbmdid="2" vt-expose="1" class="button-box" data-v-0e6539b8><div vt-itemid="2730" vt-itemtype="3001013" class="button" data-v-0e6539b8>
+            用同款
+        </div></div></div><div class="item-preview" data-v-0e6539b8 data-v-7bfa11be><div vt-sbmdid="1" vt-expose="1" data-v-0e6539b8><div vt-itemid="0" vt-itemtype="3001011" class="image-box" data-v-0e6539b8><div class="cubebox-item" data-v-5b8ee750 data-v-0e6539b8><div class="ui-discount-info ui-hippy" style="display:none;" data-v-5b8ee750><span data-v-5b8ee750></span></div><div accessibilityLabel="默认挂件装扮图片" class="ui-cube-box-widget-cube cube-size-square" style="background-image:linear-gradient(46deg, rgba(230, 230, 230, .5) 0%,  rgba(230, 230, 230, .3) 100%);" data-v-e853d2f4 data-v-5b8ee750><img src="https://q.qlogo.cn/g?b=qq&amp;nk=1707889225&amp;s=100&amp;timestamp=1784877299499" class="widget-face cube-size-square" style="border-radius:105px;" data-v-e853d2f4><img src="https://tianquan.gtimg.cn/faceAddon/item/0/new1.png" class="custom-widget cube-size-square square-img" data-v-e853d2f4><div class="cube-size-square cube-size-square-border" data-v-e853d2f4></div></div></div></div></div><div class="text-box" data-v-0e6539b8><div class="business-name" data-v-0e6539b8>
+            挂件
+        </div><div class="name" data-v-0e6539b8>默认挂件</div></div><div vt-sbmdid="2" vt-expose="1" class="button-box" data-v-0e6539b8><div vt-itemid="0" vt-itemtype="3001011" class="button stroke" data-v-0e6539b8>
+            去商城
+        </div></div></div><div class="item-preview" data-v-0e6539b8 data-v-7bfa11be><div vt-sbmdid="1" vt-expose="1" data-v-0e6539b8><div vt-itemid="0" vt-itemtype="3001017" class="image-box" data-v-0e6539b8><div class="cubebox-item" data-v-5b8ee750 data-v-0e6539b8><div class="ui-discount-info ui-hippy" style="display:none;" data-v-5b8ee750><span data-v-5b8ee750></span></div><div class="ui-cube-box-face-cube cube-size-square-small" style="background:linear-gradient(46deg, rgba(192, 234, 242, .5) 0%,  rgba(192, 234, 242, .3) 100%);" data-v-7e24d472 data-v-5b8ee750><img src="https://q.qlogo.cn/g?b=qq&amp;nk=10000&amp;s=100" resizeMode="cover" class="cube-size-square" data-v-7e24d472><div class="cube-size-square cube-size-square-border" data-v-7e24d472></div></div></div></div></div><div class="text-box" data-v-0e6539b8><div class="business-name" data-v-0e6539b8>
+            头像
+        </div><div class="name" data-v-0e6539b8>自定义头像</div></div><div vt-sbmdid="2" vt-expose="1" class="button-box" data-v-0e6539b8><div vt-itemid="0" vt-itemtype="3001017" class="button stroke" data-v-0e6539b8>
+            去商城
+        </div></div></div></div><div vt-itemid="unfold" vt-itemtype="4" class="show-all-box" data-v-7bfa11be><div class="text" data-v-7bfa11be>更多</div><div class="icon" data-v-7bfa11be></div></div></div><!----><!----><div vt-mdid="102" vt-expose="1" class="recommend-container" data-v-094eb20e><div class="title-box" data-v-094eb20e><div class="title" data-v-094eb20e>热门推荐</div><div vt-itemtype="4" vt-itemid="go_mall" class="button-text" data-v-094eb20e>
+                去商城
+            </div></div><div class="recommend-tabs" data-v-b5f95dfc data-v-094eb20e><div vt-itemid="tab" vt-itemtype="3001001" class="tab-item active" data-v-b5f95dfc>
+        气泡
+    </div><div vt-itemid="tab" vt-itemtype="3001021" class="tab-item" data-v-b5f95dfc>
+        字体
+    </div><div vt-itemid="tab" vt-itemtype="3001011" class="tab-item" data-v-b5f95dfc>
+        挂件
+    </div><div vt-itemid="tab" vt-itemtype="3001008" class="tab-item" data-v-b5f95dfc>
+        名片
+    </div><div vt-itemid="tab" vt-itemtype="3001041" class="tab-item" data-v-b5f95dfc>
+        主题
+    </div><div vt-itemid="tab" vt-itemtype="3001004" class="tab-item" data-v-b5f95dfc>
+        背景
+    </div><div vt-itemid="tab" vt-itemtype="3001017" class="tab-item" data-v-b5f95dfc>
+        头像
+    </div><div vt-itemid="tab" vt-itemtype="3001013" class="tab-item" data-v-b5f95dfc>
+        来电
+    </div></div><div class="recommend-list-void" data-v-094eb20e><img src="data:image/png;base64,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" class="void-img" data-v-094eb20e><div class="void-tips" data-v-094eb20e>
+                数据加载中
+            </div><!----></div></div><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADQAAAA0CAMAAADypuvZAAAAclBMVEUAAAAiIiIRERESEhITExMKCgoMDAz////8/Pz8/Pz+/v709PSJiYnv7+/Gxsb4+Pj8/Pz29vb7+/v8/Pzx8fH6+vrZ2dnu7u62trbd3d36+vr6+vr8/Pz6+vrm5ub19fWqqqr///9NTU3p6eljY2OxsbFeuYADAAAAIXRSTlMABQoGCA0Q8NLi4ZceeBW0sqaikoiDS0UtJXLDwZNqZBh6igpAAAABnklEQVRIx9XSa7OCIBAG4BZQ0LKLealOl4Pm//+LBzjjLLYqfO2dqQ/BM++y0+YrA+NXvGhvx1xqLdWxbuPIvpbaS15eIUjOmqS8rpsbtvhtrxUCYw3JA5bI/q4Xo/bzjCu9kjvMmodezXlGwUsHcgNirnkISfIsXupgzhw+ivCs+wie/MLEiDIG1XyKch0RKfwq3pIL/fvdkx9bjgp4TU3XUVV4VZwdZsyMOiICLhQxtomoXHCvSRLTd11PlGQ+okabXVOFCASjxiKqmMA3MUmMRURJJgBRhgeDvTYiqwY8Ux4Sk5UP1jjk1OCvHNFGsEKTGERSTbbXxKFmghIZg7JEIAKRVDHoZJ+EiO1i0MVNhztPtmF0MtO5JqySOpDsMv4fcBVFCD0TO50fYQdczTbBNeAC0581o1IsQsSSnVo2PztjTBFV6XZxttQNR5BTz2yOyMIYHI50XU4zNTvbg8MRZdmkTVaGkNmmi7csbaqDkuZ+diia1BEOywj4P8NYYswSGJlxCcYK8hqqTJsJcxGErNXZCPOhIly6+cr8AWSCpSyWFyd6AAAAAElFTkSuQmCC" class="up-top" style="display:none;" data-v-094eb20e><!----><!----><!----><div vt-mdid="101" data-v-094eb20e><div vt-itemid="mine" vt-itemtype="4" data-v-094eb20e></div><div vt-itemid="show_set" vt-itemtype="4" data-v-094eb20e></div></div></div></div>
+
+<script src="https://qqvip-web.cdn-go.cn/qqgxh/latest//mall/ac38e282//client/rie.vue2.runtime.b4d6.js" crossorigin="anonymous" defer></script><script src="https://qqvip-web.cdn-go.cn/qqgxh/latest//mall/ac38e282//client/mall/aio-dress/app.74a5.js" crossorigin="anonymous" defer></script>
+<script>window.__INITIAL_ASYNCDATA__={"isHost":false,"targetUin":"10000","rawUsingList":[{"images":[],"appId":2,"itemId":2141485,"name":"在说什么呢","feeType":49,"itemBgColor":"dbcab1","image":"https:\u002F\u002Ftianquan.gtimg.cn\u002Fbubble\u002Fitem\u002F2141485\u002FnewPreview1.png","extrainfo":{"price":300,"sourceId":"1112308884"},"extraappinfo":{"multOperationType":[],"extraInfo":{"extQualDay":"0","showGif":"0","bubbleGroup":"0","immersiveMaterial":"{\"zoomPointX\":57,\"zoomPointY\":56,\"color\":\"0xFF000000\",\"staticTopLeft\":\"https:\u002F\u002Ftianquan.gtimg.cn\u002Fimmersive\u002Fbubble\u002F2141485\u002Fstatic-top-left-v2.png\",\"staticTopRight\":\"https:\u002F\u002Ftianquan.gtimg.cn\u002Fimmersive\u002Fbubble\u002F2141485\u002Fstatic-top-right-v2.png\",\"staticBottomLeft\":\"https:\u002F\u002Ftianquan.gtimg.cn\u002Fimmersive\u002Fbubble\u002F2141485\u002Fstatic-bottom-left-v2.png\",\"staticBottomRight\":\"https:\u002F\u002Ftianquan.gtimg.cn\u002Fimmersive\u002Fbubble\u002F2141485\u002Fstatic-bottom-right-v2.png\",\"staticTopMiddle\":\"https:\u002F\u002Ftianquan.gtimg.cn\u002Fimmersive\u002Fbubble\u002F2141485\u002Fstatic-top-middle-v2.png\",\"staticLeftMiddle\":\"https:\u002F\u002Ftianquan.gtimg.cn\u002Fimmersive\u002Fbubble\u002F2141485\u002Fstatic-left-middle-v2.png\",\"staticBottomMiddle\":\"https:\u002F\u002Ftianquan.gtimg.cn\u002Fimmersive\u002Fbubble\u002F2141485\u002Fstatic-bottom-middle-v2.png\",\"staticRightMiddle\":\"https:\u002F\u002Ftianquan.gtimg.cn\u002Fimmersive\u002Fbubble\u002F2141485\u002Fstatic-right-middle-v2.png\",\"staticAllMiddle\":\"https:\u002F\u002Ftianquan.gtimg.cn\u002Fimmersive\u002Fbubble\u002F2141485\u002Fstatic-all-middle-v2.png\",\"staticAll\":\"https:\u002F\u002Ftianquan.gtimg.cn\u002Fimmersive\u002Fbubble\u002F2141485\u002Fstatic-all.png\"}","isKuikly":"1","bubbleType":"0","platformId":"0","isDiy":"0","isAiContent":"false","diyTextPos":"0","cornType":"0","isWithNotificationIcon":"0","vipLevel":"0","isLinkage":"0","showGifNew":"0"},"validDay":31}},{"images":[],"appId":15,"itemId":201534,"name":"二次元少女","feeType":5,"itemBgColor":"7c96c1","image":"https:\u002F\u002Ftianquan.gtimg.cn\u002Fcard\u002Foriginal\u002F201534\u002FtemplateThumb.jpg","extrainfo":{},"extraappinfo":{"multOperationType":[],"extraInfo":{"defaultColor":"2","isDiy":"0"}}},{"images":[],"appId":22,"itemId":2000,"name":"花瓣","feeType":5,"itemBgColor":"f7c8d0","image":"https:\u002F\u002Ftianquan.gtimg.cn\u002FcolorScreen\u002Fitem\u002F2000\u002FlistImg.png","extrainfo":{},"extraappinfo":{"multOperationType":[],"extraInfo":{}}},{"images":[],"appId":17,"itemId":2730,"name":"岁月成碑","feeType":5,"itemBgColor":"f9e7e5","image":"https:\u002F\u002Ftianquan.gtimg.cn\u002Ffuncall\u002FfunCall\u002F2730\u002Fweb_image.jpg","extrainfo":{},"extraappinfo":{"multOperationType":[],"extraInfo":{}}},{"images":[],"appId":4,"name":"默认挂件","feeType":1,"itemBgColor":"f2f2f2","image":"https:\u002F\u002Ftianquan.gtimg.cn\u002FfaceAddon\u002Fitem\u002F0\u002Fnew1.png","extrainfo":{},"isSetup":1,"extraappinfo":{"multOperationType":[],"extraInfo":{"isDiy":"0"}}},{"images":[],"appId":23,"name":"默认头像","feeType":1,"itemBgColor":"00cafc","image":"https:\u002F\u002Fq1.qlogo.cn\u002Fqhis\u002FFixtureAvatarHashRedactedxxxxxxxxxxxxxxxxxxxx\u002F","extrainfo":{},"isSetup":1,"extraappinfo":{"multOperationType":[],"extraInfo":{}}},{"images":[],"appId":47,"name":"拍了拍","feeType":1,"itemBgColor":"9da1b2","image":"https:\u002F\u002Ftianquan.gtimg.cn\u002Fnudgeeffect\u002Fitem\u002F0\u002Fpreview.png","extrainfo":{},"extraappinfo":{"multOperationType":[],"extraInfo":{}}}],"isSvip":true,"avatarImage":"https:\u002F\u002Fq.qlogo.cn\u002Fg?b=qq&nk=10000&s=100","usingList":[{"item":{"images":[],"appId":2,"itemId":2141485,"name":"在说什么呢","feeType":49,"itemBgColor":"dbcab1","image":"https:\u002F\u002Ftianquan.gtimg.cn\u002Fbubble\u002Fitem\u002F2141485\u002FnewPreview1.png","extrainfo":{"price":300,"sourceId":"1112308884"},"extraappinfo":{"multOperationType":[],"extraInfo":{"extQualDay":"0","showGif":"0","bubbleGroup":"0","immersiveMaterial":"{\"zoomPointX\":57,\"zoomPointY\":56,\"color\":\"0xFF000000\",\"staticTopLeft\":\"https:\u002F\u002Ftianquan.gtimg.cn\u002Fimmersive\u002Fbubble\u002F2141485\u002Fstatic-top-left-v2.png\",\"staticTopRight\":\"https:\u002F\u002Ftianquan.gtimg.cn\u002Fimmersive\u002Fbubble\u002F2141485\u002Fstatic-top-right-v2.png\",\"staticBottomLeft\":\"https:\u002F\u002Ftianquan.gtimg.cn\u002Fimmersive\u002Fbubble\u002F2141485\u002Fstatic-bottom-left-v2.png\",\"staticBottomRight\":\"https:\u002F\u002Ftianquan.gtimg.cn\u002Fimmersive\u002Fbubble\u002F2141485\u002Fstatic-bottom-right-v2.png\",\"staticTopMiddle\":\"https:\u002F\u002Ftianquan.gtimg.cn\u002Fimmersive\u002Fbubble\u002F2141485\u002Fstatic-top-middle-v2.png\",\"staticLeftMiddle\":\"https:\u002F\u002Ftianquan.gtimg.cn\u002Fimmersive\u002Fbubble\u002F2141485\u002Fstatic-left-middle-v2.png\",\"staticBottomMiddle\":\"https:\u002F\u002Ftianquan.gtimg.cn\u002Fimmersive\u002Fbubble\u002F2141485\u002Fstatic-bottom-middle-v2.png\",\"staticRightMiddle\":\"https:\u002F\u002Ftianquan.gtimg.cn\u002Fimmersive\u002Fbubble\u002F2141485\u002Fstatic-right-middle-v2.png\",\"staticAllMiddle\":\"https:\u002F\u002Ftianquan.gtimg.cn\u002Fimmersive\u002Fbubble\u002F2141485\u002Fstatic-all-middle-v2.png\",\"staticAll\":\"https:\u002F\u002Ftianquan.gtimg.cn\u002Fimmersive\u002Fbubble\u002F2141485\u002Fstatic-all.png\"}","isKuikly":"1","bubbleType":"0","platformId":"0","isDiy":"0","isAiContent":"false","diyTextPos":"0","cornType":"0","isWithNotificationIcon":"0","vipLevel":"0","isLinkage":"0","showGifNew":"0"},"validDay":31}},"scene":27,"buttonInfo":{"btnName":"用同款","btnStatus":0,"operationType":0}},{"item":{"images":[],"appId":15,"itemId":201534,"name":"二次元少女","feeType":5,"itemBgColor":"7c96c1","image":"https:\u002F\u002Ftianquan.gtimg.cn\u002Fcard\u002Foriginal\u002F201534\u002FtemplateThumb.jpg","extrainfo":{},"extraappinfo":{"multOperationType":[],"extraInfo":{"defaultColor":"2","isDiy":"0"}}},"scene":27,"buttonInfo":{"btnName":"用同款","btnStatus":0,"operationType":0}},{"item":{"images":[],"appId":22,"itemId":2000,"name":"花瓣","feeType":5,"itemBgColor":"f7c8d0","image":"https:\u002F\u002Ftianquan.gtimg.cn\u002FcolorScreen\u002Fitem\u002F2000\u002FlistImg.png","extrainfo":{},"extraappinfo":{"multOperationType":[],"extraInfo":{}}},"scene":27,"buttonInfo":{"btnName":"用同款","btnStatus":0,"operationType":0}},{"item":{"images":[],"appId":17,"itemId":2730,"name":"岁月成碑","feeType":5,"itemBgColor":"f9e7e5","image":"https:\u002F\u002Ftianquan.gtimg.cn\u002Ffuncall\u002FfunCall\u002F2730\u002Fweb_image.jpg","extrainfo":{},"extraappinfo":{"multOperationType":[],"extraInfo":{}}},"scene":27,"buttonInfo":{"btnName":"用同款","btnStatus":0,"operationType":0}},{"item":{"images":[],"appId":4,"name":"默认挂件","feeType":1,"itemBgColor":"f2f2f2","image":"https:\u002F\u002Ftianquan.gtimg.cn\u002FfaceAddon\u002Fitem\u002F0\u002Fnew1.png","extrainfo":{},"isSetup":1,"extraappinfo":{"multOperationType":[],"extraInfo":{"isDiy":"0"}},"itemId":0},"scene":27,"buttonInfo":{"btnName":"去商城","btnStatus":7,"operationType":4}},{"item":{"images":[],"appId":23,"name":"自定义头像","feeType":1,"itemBgColor":"00cafc","image":"https:\u002F\u002Fq.qlogo.cn\u002Fg?b=qq&nk=10000&s=100","extrainfo":{},"isSetup":1,"extraappinfo":{"multOperationType":[],"extraInfo":{}},"itemId":0},"scene":27,"buttonInfo":{"btnName":"去商城","btnStatus":7,"operationType":4}},{"item":{"images":[],"appId":47,"name":"拍了拍","feeType":1,"itemBgColor":"9da1b2","image":"https:\u002F\u002Ftianquan.gtimg.cn\u002Fnudgeeffect\u002Fitem\u002F0\u002Fpreview.png","extrainfo":{},"extraappinfo":{"multOperationType":[],"extraInfo":{}},"itemId":0},"scene":27,"buttonInfo":{"btnName":"用同款","btnStatus":0,"operationType":0}}],"suitListInfo":{"suits":[],"nextIndex":1,"isEnd":true,"switchState":false},"ipCollectionList":[]};(function(){var s;(s=document.currentScript||document.scripts[document.scripts.length-1]).parentNode.removeChild(s);}());</script>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var app = window.rieApp.default || window.rieApp;
+      window.rieVue2Runtime.Vue.default.config.devtools = false;
+      window.rieVue2Runtime.init(app);
+    });
+  </script>
+    <script>window._HTML_END_TIMESTAMP_ = Date.now();</script>
+    
+    </body>
+</html>
