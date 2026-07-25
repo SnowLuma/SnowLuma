@@ -82,7 +82,7 @@ export interface OidbDeleteFriendField2 {
 export interface OidbDeleteFriendField1 {
   targetUid?: pb<1, string>;
   field2?:    pb<2, OidbDeleteFriendField2>;
-  block?:     pb<3, bool>;
+  block?:     pb_optional<3, bool>;
   field4?:    pb<4, bool>;
 }
 export interface OidbDeleteFriend {
@@ -904,9 +904,21 @@ export interface OidbStrangerStatusReq {
   uin?: pb<1, uint_32>;
   key?: pb_repeated<3, OidbStrangerStatusKey>;
 }
+export interface OidbFriendRemarkTarget {
+  targetUid?: pb<7, string>;
+}
+export interface OidbSetFriendRemarkChange {
+  target?: pb<1, OidbFriendRemarkTarget>;
+  remark?: pb<2, string>;
+}
 export interface OidbSetFriendRemark {
-  targetUid?: pb<1, string>;
-  remark?:    pb<2, string>;
+  change?: pb<1, OidbSetFriendRemarkChange>;
+  // Current QQ explicitly emits scene=0 for an ordinary friend. Omitting
+  // the default changes the request shape used by StrangerRemarkSetWorker.
+  scene?:  pb_optional<2, uint_32>;
+}
+export interface OidbClearFriendRemark {
+  target?: pb<1, OidbFriendRemarkTarget>;
 }
 export interface OidbStrangerStatusRespStatus {
   key?:   pb<1, uint_32>;
