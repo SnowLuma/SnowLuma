@@ -16,7 +16,12 @@ import { QqHookClient } from './qq-hook-client';
 import { probeQqLoginInfo, type QqPortLoginInfo } from './qq-port-probe';
 import type { HookProcessInfo } from './types';
 
+const AUTO_LOAD_MAX_ATTEMPTS = 3;
 
+type AutoLoadAttempt = {
+  attempts: number;
+  inFlight: boolean;
+};
 
 /**
  * Sink that the hook layer calls back into when it observes a new login,
@@ -50,7 +55,9 @@ export type HookManagerDeps = {
   listProcesses?: () => HookProcessBaseInfo[];
   /** When true, every newly-discovered QQ process is auto-injected (fires
    * `loadProcess(pid)` from the watcher's 'process-discovered' handler).
-   * Failed loads are logged and leave the session in the 'error' state. */
+   * Failed loads are logged and leave the session in the 'error' state.
+   * A narrowly-classified early-process mapping race is retried on later
+   * watcher ticks with a fixed attempt limit. */
   autoLoadOnDiscovery?: boolean;
   /** Optional hook fired whenever the set of HookProcessInfo observable to
    * `listProcesses()` changes — new process discovered, process gone, or
@@ -72,6 +79,8 @@ export type HookManagerDeps = {
  *   - Forward session events ('login' / 'disconnected' / receive health) to BridgeManager.
  *   - Retry stuck-in-connecting sessions on every watcher tick (so a
  *     failed connect eventually recovers without a manual refresh).
+ *   - Retry the bounded early-process auto-load race without retrying
+ *     permanent injector errors.
  *
  * The native injector, native pipe-client, and native process/pipe
  * listings are all swappable dependencies so tests can run without a
@@ -95,6 +104,7 @@ export class HookManager {
   private readonly onSessionsChangedRaw?: () => void;
   private readonly log: Logger;
   private readonly sessions = new Map<number, HookSession>();
+  private readonly autoLoadAttempts = new Map<number, AutoLoadAttempt>();
   private readonly startPromise: Promise<void>;
 
   private disposed = false;
@@ -180,6 +190,7 @@ export class HookManager {
   async loadProcess(pid: number): Promise<HookProcessInfo> {
     this.assertValidPid(pid);
     await this.startPromise;
+    this.autoLoadAttempts.delete(pid);
     const session = this.ensureSession(pid);
     const info = await session.load();
     // Pull the next tick forward so a freshly-injected pipe gets noticed
@@ -191,6 +202,7 @@ export class HookManager {
   async unloadProcess(pid: number): Promise<HookProcessInfo> {
     this.assertValidPid(pid);
     await this.startPromise;
+    this.autoLoadAttempts.delete(pid);
     const session = this.ensureSession(pid);
     return session.unload();
   }
@@ -214,6 +226,7 @@ export class HookManager {
       session.dispose();
     }
     this.sessions.clear();
+    this.autoLoadAttempts.clear();
     this.enumerator?.dispose();
     if (this.ownsPipeWatcher) {
       this.pipeWatcher.dispose();
@@ -232,14 +245,13 @@ export class HookManager {
       // failures are already captured inside loadInternal and surfaced via
       // the session's status field.
       if (this.autoLoadOnDiscovery && shouldAutoLoadPid(info.pid, this.log)) {
-        void session.load().catch((err) => {
-          this.log.warn('auto-load failed: PID=%d err=%s', info.pid, errMsg(err));
-        });
+        this.runAutoLoad(session);
       }
       this.notifySessionsChanged();
     });
     this.pipeWatcher.on('process-gone', (pid: number) => {
       if (this.disposed) return;
+      this.autoLoadAttempts.delete(pid);
       const session = this.sessions.get(pid);
       if (session) session.notifyProcessGone();
       this.notifySessionsChanged();
@@ -271,11 +283,75 @@ export class HookManager {
     this.pipeWatcher.on('tick', () => {
       if (this.disposed) return;
       for (const session of this.sessions.values()) {
+        const autoLoad = this.autoLoadAttempts.get(session.pid);
+        if (autoLoad && !autoLoad.inFlight && session.status === 'error'
+          && isTransientLibcMappingError(session.error)) {
+          this.runAutoLoad(session, autoLoad);
+          continue;
+        }
         if ((session.status === 'connecting' || session.status === 'disconnected')
           && this.pipeWatcher.isPipeLive(session.pid)) {
           session.onPipeUp();
         }
       }
+    });
+  }
+
+  private runAutoLoad(session: HookSession, existing?: AutoLoadAttempt): void {
+    if (this.disposed || session.isDisposed) return;
+    const state = existing ?? { attempts: 0, inFlight: false };
+    if (state.inFlight || state.attempts >= AUTO_LOAD_MAX_ATTEMPTS) return;
+
+    state.attempts += 1;
+    state.inFlight = true;
+    this.autoLoadAttempts.set(session.pid, state);
+    const attempt = state.attempts;
+
+    void session.load().then((info) => {
+      if (this.autoLoadAttempts.get(session.pid) !== state) return;
+      state.inFlight = false;
+
+      if (info.status !== 'error') {
+        this.autoLoadAttempts.delete(session.pid);
+        if (attempt > 1) {
+          this.log.info(
+            'auto-load recovered: PID=%d attempt=%d/%d',
+            session.pid,
+            attempt,
+            AUTO_LOAD_MAX_ATTEMPTS,
+          );
+        }
+        return;
+      }
+
+      if (!isTransientLibcMappingError(info.error)) {
+        this.autoLoadAttempts.delete(session.pid);
+        return;
+      }
+
+      if (attempt >= AUTO_LOAD_MAX_ATTEMPTS) {
+        this.autoLoadAttempts.delete(session.pid);
+        this.log.warn(
+          'auto-load retry exhausted: PID=%d attempts=%d err=%s',
+          session.pid,
+          attempt,
+          info.error,
+        );
+        return;
+      }
+
+      this.log.warn(
+        'auto-load retry pending: PID=%d attempt=%d/%d err=%s',
+        session.pid,
+        attempt,
+        AUTO_LOAD_MAX_ATTEMPTS,
+        info.error,
+      );
+    }).catch((err) => {
+      if (this.autoLoadAttempts.get(session.pid) === state) {
+        this.autoLoadAttempts.delete(session.pid);
+      }
+      this.log.warn('auto-load failed: PID=%d err=%s', session.pid, errMsg(err));
     });
   }
 
@@ -339,6 +415,10 @@ function defaultProcessName(): string {
 
 function errMsg(value: unknown): string {
   return value instanceof Error ? value.message : String(value);
+}
+
+function isTransientLibcMappingError(error: string): boolean {
+  return /^target process does not map \S*\/libc\.so\.6 while resolving mmap$/.test(error);
 }
 
 /**
