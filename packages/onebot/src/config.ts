@@ -48,6 +48,7 @@ export function makeDefaultOneBotConfig(): OneBotConfig {
         host: '0.0.0.0',
         port: 3000,
         path: '/',
+        enableWebSocket: false,
         accessToken: generateAccessToken(),
         messageFormat: 'array',
         reportSelfMessage: false,
@@ -66,6 +67,7 @@ export function makeDefaultOneBotConfig(): OneBotConfig {
       wsClients: [],
     },
     statusCommand: makeDefaultStatusCommand(),
+    historySync: { enabled: false },
     notifications: { channelIds: [] },
   };
 }
@@ -186,7 +188,7 @@ export function prepareOneBotConfigForRestore(
 }
 
 const RESTORE_TOP_LEVEL_KEYS = new Set([
-  'mode', 'networks', 'statusCommand', 'notifications', 'musicSignUrl',
+  'mode', 'networks', 'statusCommand', 'historySync', 'notifications', 'musicSignUrl',
   'httpServers', 'httpClients', 'httpPostEndpoints', 'wsServers', 'wsClients',
   'messageFormat', 'reportSelfMessage',
 ]);
@@ -236,6 +238,7 @@ function validateOneBotRestoreSource(value: JsonObject): void {
   }
 
   validateRestoreStatusCommand(value.statusCommand);
+  validateRestoreHistorySync(value.historySync);
   validateRestoreNotifications(value.notifications);
 
   const parsed = fromJson([value], false);
@@ -254,6 +257,7 @@ function validateRestoreAdapterArray(value: unknown, kind: keyof OneBotNetworks,
     : kind === 'httpClients'
       ? ['url', 'timeoutMs']
       : ['url', 'role', 'reconnectIntervalMs'];
+  if (kind === 'httpServers') specific.push('enableWebSocket');
   if (kind === 'wsServers') specific.push('role');
   const allowed = new Set<string>([...RESTORE_BASE_ADAPTER_KEYS, ...specific]);
 
@@ -276,6 +280,9 @@ function validateRestoreAdapterArray(value: unknown, kind: keyof OneBotNetworks,
       if (port === null || port <= 0 || port > 65535) invalid(`${pathAt}.port must be an integer between 1 and 65535`);
       if (raw.host !== undefined && typeof raw.host !== 'string') invalid(`${pathAt}.host must be a string`);
       if (raw.path !== undefined && typeof raw.path !== 'string') invalid(`${pathAt}.path must be a string`);
+      if (kind === 'httpServers' && raw.enableWebSocket !== undefined && typeof raw.enableWebSocket !== 'boolean') {
+        invalid(`${pathAt}.enableWebSocket must be a boolean`);
+      }
     } else {
       if (raw.url !== undefined && typeof raw.url !== 'string') invalid(`${pathAt}.url must be a string`);
       if (raw.url === undefined && raw.enabled !== false) invalid(`${pathAt}.url is required while the adapter is enabled`);
@@ -340,6 +347,15 @@ function validateRestoreNotifications(value: unknown): void {
   });
 }
 
+function validateRestoreHistorySync(value: unknown): void {
+  if (value === undefined) return;
+  if (!isObject(value)) invalid('$.historySync must be an object');
+  rejectUnknownKeys(value, new Set(['enabled']), '$.historySync');
+  if (value.enabled !== undefined && typeof value.enabled !== 'boolean') {
+    invalid('$.historySync.enabled must be a boolean');
+  }
+}
+
 function rejectUnknownKeys(value: JsonObject, allowed: ReadonlySet<string>, at: string): void {
   const unknown = Object.keys(value).find((key) => !allowed.has(key));
   if (unknown) invalid(`${at}.${unknown} is not supported`);
@@ -370,6 +386,9 @@ export function assertValidOneBotConfig(value: unknown): asserts value is OneBot
   const serverBindings = new Map<string, string>();
   validateNetworkList(value.networks, 'httpServers', seen, (item, at) => {
     validateServer(item, at);
+    if (item.enableWebSocket !== undefined && typeof item.enableWebSocket !== 'boolean') {
+      invalid(`${at}.enableWebSocket must be a boolean`);
+    }
     validateServerBinding(item, at, serverBindings);
   });
   validateNetworkList(value.networks, 'httpClients', seen, (item, at) => {
@@ -425,6 +444,11 @@ export function assertValidOneBotConfig(value: unknown): asserts value is OneBot
     /[\r\n]/.test(status.trigger)
   ) {
     invalid(`statusCommand.trigger must be non-empty, single-line, and <= ${STATUS_COMMAND_TRIGGER_MAX_LENGTH} characters`);
+  }
+
+  if (!isObject(value.historySync)) invalid('historySync must be an object');
+  if (typeof value.historySync.enabled !== 'boolean') {
+    invalid('historySync.enabled must be a boolean');
   }
 
   if (value.notifications !== undefined) {
@@ -604,6 +628,7 @@ function toJsonObject(config: OneBotConfig, mode: 'snapshot' | 'overlay'): JsonO
       cooldownSeconds: config.statusCommand.cooldownSeconds,
       trigger: config.statusCommand.trigger,
     },
+    historySync: { enabled: config.historySync.enabled },
     notifications: { channelIds: config.notifications?.channelIds ?? [] },
   };
 }
@@ -625,6 +650,7 @@ function httpServerToJson(n: HttpServerNetwork): JsonObject {
   out.host = n.host ?? '0.0.0.0';
   out.port = n.port;
   out.path = n.path ?? '/';
+  out.enableWebSocket = n.enableWebSocket === true;
   return out;
 }
 
@@ -689,10 +715,26 @@ function fromJson(sources: JsonObject[], freshInstall: boolean): OneBotConfig {
   const config: OneBotConfig = {
     networks,
     statusCommand: parseStatusCommand(sources),
+    historySync: parseHistorySync(sources),
     notifications: parseNotifications(sources),
   };
   assertValidOneBotConfig(config);
   return config;
+}
+
+function parseHistorySync(sources: JsonObject[]): { enabled: boolean } {
+  let enabled = false;
+  for (const source of sources) {
+    if (!Object.prototype.hasOwnProperty.call(source, 'historySync')) continue;
+    const raw = source.historySync;
+    if (!isObject(raw)) invalid('historySync must be an object');
+    rejectUnknownKeys(raw, new Set(['enabled']), 'historySync');
+    if (typeof raw.enabled !== 'boolean') {
+      invalid('historySync.enabled must be a boolean');
+    }
+    enabled = raw.enabled;
+  }
+  return { enabled };
 }
 
 /** Last-write-wins merge of `notifications.channelIds` across config sources,
@@ -810,6 +852,9 @@ function parseBase(value: JsonObject, defaults: AdapterDefaults) {
 }
 
 function parseHttpServer(value: JsonObject, defaults: AdapterDefaults): HttpServerNetwork | null {
+  if (value.enableWebSocket !== undefined && typeof value.enableWebSocket !== 'boolean') {
+    invalid('http server enableWebSocket must be a boolean');
+  }
   const port = asNumber(value.port, 0);
   if (port <= 0) return null;
   return clean({
@@ -817,6 +862,7 @@ function parseHttpServer(value: JsonObject, defaults: AdapterDefaults): HttpServ
     host: asString(value.host, '0.0.0.0'),
     port,
     path: asString(value.path, '/'),
+    enableWebSocket: value.enableWebSocket === true,
   });
 }
 

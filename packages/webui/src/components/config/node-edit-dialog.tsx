@@ -88,6 +88,7 @@ export function NodeEditDialog<K extends NetworkKind>(props: NodeEditDialogProps
   const patch = (changes: Partial<AnyAdapter<K>>) => setDraft({ ...draft, ...changes } as AnyAdapter<K>);
 
   const isWs = kind === 'wsServers' || kind === 'wsClients';
+  const isHttpServer = kind === 'httpServers';
   const role = ((draft as WsServerNetwork | WsClientNetwork).role ?? 'Universal') as WsRole;
 
   return (
@@ -155,6 +156,16 @@ export function NodeEditDialog<K extends NetworkKind>(props: NodeEditDialogProps
 
             <Section caption="行为" delay={0.15}>
               <div className="divide-y divide-border/60">
+                {isHttpServer && (
+                  <SettingRow label="启用 WebSocket" desc="复用当前 HTTP 端口和授权 Token 接收 WebSocket 连接">
+                    <ToggleSwitch
+                      value={(draft as HttpServerNetwork).enableWebSocket === true}
+                      onChange={(v) => patch({ enableWebSocket: v } as unknown as Partial<AnyAdapter<K>>)}
+                      ariaLabel="启用 WebSocket"
+                    />
+                  </SettingRow>
+                )}
+
                 <SettingRow label="消息格式" desc="数组为标准 OneBot 段，CQ 码为兼容字符串">
                   <DropdownSelect
                     className="w-32"

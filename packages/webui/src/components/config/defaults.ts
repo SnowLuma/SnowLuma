@@ -44,13 +44,14 @@ const httpServersTab: NetworkTabDescriptor<'httpServers'> = {
   summarize: (it: HttpServerNetwork) => {
     const host = it.host?.trim() || '0.0.0.0';
     const path = (it.path?.trim() || '/').replace(/^\/?/, '/');
-    return `${host}:${it.port}${path}`;
+    return `${host}:${it.port}${path}${it.enableWebSocket === true ? ' · WebSocket' : ''}`;
   },
   defaultEntry: (suffix): HttpServerNetwork => ({
     name: `http-${suffix}`,
     host: '0.0.0.0',
     port: 3000,
     path: '/',
+    enableWebSocket: false,
     accessToken: genToken(),
     messageFormat: 'array',
     reportSelfMessage: false,

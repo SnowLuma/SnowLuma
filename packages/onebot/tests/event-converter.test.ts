@@ -253,16 +253,25 @@ describe('convertEvent — notice kinds', () => {
     expect(out!.message_id).toBe(99);
   });
 
-  it('friend_poke: notice/notify/poke with target_id + action fields', async () => {
+  it('friend_poke: identifies the private peer, sender, and target independently', async () => {
     const out = await convertEvent(bareCtx(), {
       kind: 'friend_poke', time: 1, selfUin: SELF_ID,
-      userUin: PEER_UIN, targetUin: SELF_ID,
+      peerUin: PEER_UIN, senderUin: SELF_ID, targetUin: SELF_ID,
       action: '戳了戳', suffix: '一下', actionImgUrl: 'http://x',
     } as QQEventVariant);
-    expect(out!.notice_type).toBe('notify');
-    expect(out!.sub_type).toBe('poke');
-    expect(out!.target_id).toBe(SELF_ID);
-    expect(out!.action).toBe('戳了戳');
+    expect(out).toEqual({
+      time: 1,
+      self_id: SELF_ID,
+      post_type: 'notice',
+      notice_type: 'notify',
+      sub_type: 'poke',
+      user_id: PEER_UIN,
+      sender_id: SELF_ID,
+      target_id: SELF_ID,
+      action: '戳了戳',
+      suffix: '一下',
+      action_img_url: 'http://x',
+    });
   });
 
   it('group_poke: same shape as friend_poke + group_id', async () => {

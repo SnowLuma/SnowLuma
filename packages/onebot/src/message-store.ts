@@ -15,6 +15,14 @@ export interface StoreEventOptions {
   sequenceAuthoritative?: boolean;
 }
 
+export interface StoreHistoryEventOptions extends StoreEventOptions {
+  /**
+   * Private history metadata that must become visible atomically with the
+   * event body. Group history does not require a separate metadata write.
+   */
+  meta?: MessageMeta;
+}
+
 export class MessageStore {
   private readonly db: DatabaseSync;
   private readonly stmtStoreEvent: StatementSync;
@@ -27,6 +35,7 @@ export class MessageStore {
   private readonly stmtListEventsAnchoredForward: StatementSync;
   private readonly stmtListEventsLatest: StatementSync;
   private readonly stmtFindLatestAuthoritativeSequence: StatementSync;
+  private readonly stmtFindLatestPersistedAuthoritativeSequence: StatementSync;
   private readonly stmtListIncomingC2CSessions: StatementSync;
   private readonly stmtFindPrivateRecall: StatementSync;
   private readonly stmtFindPrivateRecallTombstone: StatementSync;
@@ -135,6 +144,15 @@ export class MessageStore {
       `SELECT sequence
        FROM messages
        WHERE is_group = ? AND session_id = ? AND sequence_authoritative = 1 AND sequence > 0
+       ORDER BY sequence DESC
+       LIMIT 1`,
+    );
+
+    this.stmtFindLatestPersistedAuthoritativeSequence = this.db.prepare(
+      `SELECT sequence
+       FROM messages
+       WHERE is_group = ? AND session_id = ? AND data IS NOT NULL
+         AND sequence_authoritative = 1 AND sequence > 0
        ORDER BY sequence DESC
        LIMIT 1`,
     );
@@ -267,6 +285,55 @@ export class MessageStore {
       meta.random,
       meta.timestamp
     );
+  }
+
+  /**
+   * Store one fetched history event.
+   *
+   * Private history needs both metadata and the event body. Keep those writes
+   * in one transaction so a failed body write can never leave an authoritative
+   * sequence that makes a later login skip the missing message.
+   */
+  storeHistoryEvent(
+    messageId: number,
+    isGroup: boolean,
+    sessionId: number,
+    sequence: number,
+    eventName: string,
+    event: JsonObject,
+    options: StoreHistoryEventOptions = {},
+  ): void {
+    const { meta, ...eventOptions } = options;
+    if (!meta) {
+      this.storeEvent(
+        messageId,
+        isGroup,
+        sessionId,
+        sequence,
+        eventName,
+        event,
+        eventOptions,
+      );
+      return;
+    }
+
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.storeMeta(messageId, meta);
+      this.storeEvent(
+        messageId,
+        isGroup,
+        sessionId,
+        sequence,
+        eventName,
+        event,
+        eventOptions,
+      );
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   findEvent(messageId: number): JsonObject | null {
@@ -408,6 +475,24 @@ export class MessageStore {
   findLatestAuthoritativeSequence(isGroup: boolean, sessionId: number): number | null {
     if (!Number.isInteger(sessionId) || sessionId <= 0) return null;
     const row = this.stmtFindLatestAuthoritativeSequence.get(
+      isGroup ? 1 : 0,
+      sessionId,
+    ) as { sequence: number } | undefined;
+    if (!row || !Number.isInteger(row.sequence) || row.sequence <= 0) return null;
+    return row.sequence;
+  }
+
+  /**
+   * Return the latest server-confirmed sequence whose OneBot event body is
+   * actually present. Automatic history backfill must use this cursor so a
+   * metadata-only live row cannot hide a missing event body.
+   */
+  findLatestPersistedAuthoritativeSequence(
+    isGroup: boolean,
+    sessionId: number,
+  ): number | null {
+    if (!Number.isInteger(sessionId) || sessionId <= 0) return null;
+    const row = this.stmtFindLatestPersistedAuthoritativeSequence.get(
       isGroup ? 1 : 0,
       sessionId,
     ) as { sequence: number } | undefined;

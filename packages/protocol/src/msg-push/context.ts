@@ -30,6 +30,11 @@ export interface MsgPushContext {
   readonly body: PushMsgBody | undefined;
   readonly responseHead: PushMsgResponseHead | undefined;
   readonly identity: IdentityService;
+  /**
+   * Historical messages reuse the live decoder but must not replay
+   * live-only identity observations.
+   */
+  readonly isHistorical: boolean;
 }
 
 export function buildContext(pkt: PacketInfo, identity: IdentityService): MsgPushContext | null {
@@ -49,7 +54,7 @@ export function buildContext(pkt: PacketInfo, identity: IdentityService): MsgPus
     if (!isNaN(n)) selfUin = n;
   }
 
-  return buildContextFromMessage(push.message, selfUin, identity);
+  return buildContextFromMessage(push.message, selfUin, identity, false);
 }
 
 /**
@@ -63,6 +68,7 @@ export function buildContextFromMessage(
   msg: ProtoMessage,
   selfUin: number,
   identity: IdentityService,
+  isHistorical = true,
 ): MsgPushContext | null {
   if (!msg.contentHead) return null;
 
@@ -94,5 +100,6 @@ export function buildContextFromMessage(
     body: msg.body,
     responseHead: msg.responseHead,
     identity,
+    isHistorical,
   };
 }

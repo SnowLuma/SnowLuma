@@ -5,6 +5,7 @@ import { getVideoSourceSize, MAX_VIDEO_SIZE } from '@snowluma/protocol/highway/v
 import type { MessageSendResult } from '../api-handler';
 import { convertEvent, elementsToOneBotSegments, type ConverterContext } from '../event-converter';
 import { segmentsToRawMessage } from '../helper/cq';
+import { persistHistoryEvent, toHistoryInt } from '../history-persistence';
 import type { OneBotInstanceContext } from '../instance-context';
 import {
   GROUP_MESSAGE_EVENT,
@@ -257,7 +258,7 @@ export async function getFriendHistory(
       ? ref.messageStore.findEvent(messageId as number)
       : null;
     const belongsToPeer = meta?.targetId === userId
-      || (meta?.targetId === ref.selfId && toHistInt(storedEvent?.target_id) === userId);
+      || (meta?.targetId === ref.selfId && toHistoryInt(storedEvent?.target_id) === userId);
     if (!hasAuthoritativeSequence(meta) || meta.isGroup || !belongsToPeer) {
       return getFriendMsgHistory(ref.messageStore, userId, messageId, count, reverseOrder);
     }
@@ -311,7 +312,7 @@ export async function getFriendHistory(
     }
     // Private history is scoped by the requested peer, while user_id is
     // the sender and therefore equals selfId for outgoing messages.
-    if (json.post_type === 'message_sent' && toHistInt(json.target_id) === 0) {
+    if (json.post_type === 'message_sent' && toHistoryInt(json.target_id) === 0) {
       json.target_id = userId;
     }
     persistHistoryEvent(ref.messageStore, json, userId, ev);
@@ -538,66 +539,6 @@ function buildBackfillEvent(
   };
   if (sentBySelf) privateEvent.target_id = sessionId;
   return privateEvent;
-}
-
-// Persist a converted history event so reply / get_msg / future listing resolve
-// it. Private history callers provide the conversation peer because `user_id`
-// identifies the sender and equals the bot account on outgoing messages.
-function persistHistoryEvent(
-  store: MessageStore,
-  event: JsonObject,
-  privatePeerId?: number,
-  source?: FriendMessage,
-): void {
-  const messageId = toHistInt(event.message_id);
-  if (messageId === 0) return;
-  const isGroup = event.message_type === 'group';
-  const sessionId = isGroup
-    ? toHistInt(event.group_id)
-    : (privatePeerId && privatePeerId > 0 ? privatePeerId : toHistInt(event.user_id));
-  const messageSequence = toHistInt(event.message_seq);
-  const sequence = source?.ntMsgSeq ?? messageSequence;
-  const sequenceAuthoritative = source?.sequenceAuthoritative !== false && sequence > 0;
-  const isOutgoingPrivate = !isGroup && source?.senderUin === source?.selfUin;
-  const eventName = isGroup
-    ? GROUP_MESSAGE_EVENT
-    : source
-      ? privateMessageEventName(isOutgoingPrivate, sequenceAuthoritative)
-      : privateMessageEventName(event.post_type === 'message_sent', false);
-  if (sessionId === 0) return;
-  if (!isGroup && source) {
-    store.storeMeta(messageId, {
-      isGroup: false,
-      targetId: sessionId,
-      sequence,
-      sequenceAuthoritative,
-      eventName,
-      clientSequence: source.clientSeq ?? source.msgSeq,
-      privateDirection: source.senderUin === source.selfUin
-        ? 'outgoing'
-        : 'incoming',
-      random: source.msgId,
-      timestamp: source.time,
-    });
-  }
-  store.storeEvent(
-    messageId,
-    isGroup,
-    sessionId,
-    sequence,
-    eventName,
-    event,
-    { sequenceAuthoritative },
-  );
-}
-
-function toHistInt(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
-  if (typeof value === 'string' && value.trim()) {
-    const n = Number(value);
-    if (Number.isFinite(n)) return Math.trunc(n);
-  }
-  return 0;
 }
 
 export async function deleteMessage(bridge: BridgeInterface, meta: MessageMeta): Promise<void> {
@@ -848,6 +789,8 @@ export async function sendPrivateMessage(
   autoEscape: boolean,
   /** When set, reply into this group's temp session instead of friend c2c. */
   tempGroupId?: number,
+  /** Reports each actual friend message as soon as its authoritative receipt arrives. */
+  onSelfSent?: (event: JsonObject) => void,
 ): Promise<MessageSendResult> {
   // A temp-session reply is only allowed into a session the peer opened.
   const isTempReply = tempGroupId !== undefined && ref.tempSessions.has(userId, tempGroupId);
@@ -943,8 +886,9 @@ export async function sendPrivateMessage(
   // here — video/ARK/ptt already go through commonElem so the
   // element-builder handles them inline.
   // Two sub-paths:
-  //  a) has url/path but no file_id → uploadPrivate() which internally calls sendC2cFile()
-  //  b) has file_id from a prior upload_private_file → sendC2cFile() only
+  //  a) has url/path but no file_id → uploadPrivate() without publishing,
+  //     followed by sendC2cFile() so the Action retains the send receipt
+  //  b) has file_id from a prior upload_private_file → sendC2cFile() directly
   let allFileElements = elements.filter(e => e.type === 'file');
   let nonFileElements = elements.filter(e => e.type !== 'file');
   let fileTargetUid: string | null = null;
@@ -983,11 +927,29 @@ export async function sendPrivateMessage(
       ? ref.bridge.apis.message.sendGroupTempMessage(userId, tempGroupId, elems)
       : ref.bridge.apis.message.sendPrivate(userId, elems);
 
-  let lastReceipt: Awaited<ReturnType<typeof ref.bridge.apis.message.sendPrivate>> | undefined;
+  type PrivateReceipt = Awaited<ReturnType<typeof sendText>>;
+  let lastResult: MessageSendResult | undefined;
+  const finalizeBatch = async (
+    receipt: PrivateReceipt,
+    batchElements: MessageElement[],
+  ): Promise<void> => {
+    const result = await finalizeSend(
+      ref,
+      false,
+      userId,
+      receipt,
+      batchElements,
+      tempGroupId === undefined && onSelfSent !== undefined,
+    );
+    lastResult = result;
+    if (result.echoEvent) onSelfSent?.(result.echoEvent);
+  };
+
   if (nonFileElements.length > 0) {
     try {
-      lastReceipt = await sendText(nonFileElements);
+      const receipt = await sendText(nonFileElements);
       logSentMessage(false, userId, nonFileElements);
+      await finalizeBatch(receipt, nonFileElements);
     } catch (err) {
       // A temp-session reply can't fall back to the c2c file path (friend-only)
       // — surface the original error rather than mis-routing.
@@ -1003,8 +965,9 @@ export async function sendPrivateMessage(
       nonFileElements = remaining;
       if (fileEls.length > 0) await ensureFileTargetUid();
       if (nonFileElements.length > 0) {
-        lastReceipt = await ref.bridge.apis.message.sendPrivate(userId, nonFileElements);
+        const receipt = await ref.bridge.apis.message.sendPrivate(userId, nonFileElements);
         logSentMessage(false, userId, nonFileElements);
+        await finalizeBatch(receipt, nonFileElements);
       }
     }
   }
@@ -1015,21 +978,43 @@ export async function sendPrivateMessage(
     const userUid = await ensureFileTargetUid();
     for (const fileEl of allFileElements) {
       if (fileEl.url && !fileEl.fileId) {
-        // uploadPrivate() already calls sendC2cFile() internally — do NOT call it again.
         const name = fileEl.fileName || fileEl.url.split('/').pop() || 'file';
-        await ref.bridge.apis.groupFile.uploadPrivate(userId, fileEl.url, name, true);
-        logSentMessage(false, userId, [fileEl]);
-        if (!lastReceipt) {
-          lastReceipt = { messageId: 0, sequence: 0, clientSequence: 0, random: 0, timestamp: Math.floor(Date.now() / 1000) };
+        // Upload and publish are separate here so the Action keeps the real
+        // PbSendMsg receipt. Letting uploadPrivate publish internally discards
+        // that receipt, which makes a reliable message_sent event impossible
+        // and can turn a failed chat post into an apparently successful send.
+        const uploaded = await ref.bridge.apis.groupFile.uploadPrivate(
+          userId,
+          fileEl.url,
+          name,
+          true,
+          false,
+        );
+        if (!uploaded.fileId) {
+          throw new Error('private file upload returned no file_id');
         }
+        const cached = ref.bridge.recallUploadedFile(uploaded.fileId);
+        if (!cached || cached.scope !== 'private' || cached.userId !== userId) {
+          throw new Error(`private file upload metadata missing for file_id ${uploaded.fileId}`);
+        }
+        const receipt = await ref.bridge.apis.message.sendC2cFile(userId, userUid, {
+          fileId: uploaded.fileId,
+          fileName: cached.fileName,
+          fileSize: cached.fileSize,
+          fileMd5: cached.fileMd5,
+          fileHash: uploaded.fileHash ?? cached.fileHash,
+        });
+        logSentMessage(false, userId, [fileEl]);
+        await finalizeBatch(receipt, [fileEl]);
       } else if (fileEl.fileId) {
         const cached = ref.bridge.recallUploadedFile(fileEl.fileId);
         const fileMd5 = fileEl.md5Hex ? Buffer.from(fileEl.md5Hex, 'hex') : (cached?.fileMd5 ?? new Uint8Array(0));
         const fileSize = fileEl.fileSize ?? cached?.fileSize ?? 0;
         const fileName = fileEl.fileName ?? cached?.fileName ?? 'file';
         const fileHash = fileEl.fileHash ?? cached?.fileHash;
-        lastReceipt = await ref.bridge.apis.message.sendC2cFile(userId, userUid, { fileId: fileEl.fileId, fileName, fileSize, fileMd5, fileHash });
+        const receipt = await ref.bridge.apis.message.sendC2cFile(userId, userUid, { fileId: fileEl.fileId, fileName, fileSize, fileMd5, fileHash });
         logSentMessage(false, userId, [fileEl]);
+        await finalizeBatch(receipt, [fileEl]);
       } else {
         throw new MessageElementValidationError(
           'MISSING_FIELD',
@@ -1039,13 +1024,8 @@ export async function sendPrivateMessage(
       }
     }
   }
-  if (!lastReceipt) throw new Error('message is empty');
-
-  // Dedicated C2C file sends may split one Action into several QQ messages.
-  // A single synthetic event would misrepresent that wire behaviour, so only
-  // report the one-batch friend path handled by sendPrivate().
-  const reportEcho = tempGroupId === undefined && allFileElements.length === 0;
-  return finalizeSend(ref, false, userId, lastReceipt, elements, reportEcho);
+  if (!lastResult) throw new Error('message is empty');
+  return { messageId: lastResult.messageId };
 }
 
 export async function sendGroupMessage(

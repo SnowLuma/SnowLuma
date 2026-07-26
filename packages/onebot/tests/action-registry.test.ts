@@ -90,9 +90,9 @@ describe('compileActionRegistry namespace conflicts', () => {
 });
 
 describe('compiled production Action registry', () => {
-  it('preserves all 179 canonical Action docs', () => {
-    expect(ACTION_REGISTRY.actions).toHaveLength(179);
-    expect(collectActionDocs()).toHaveLength(179);
+  it('preserves all 180 canonical Action docs', () => {
+    expect(ACTION_REGISTRY.actions).toHaveLength(180);
+    expect(collectActionDocs()).toHaveLength(180);
   });
 
   it('resolves every executable name to exactly one canonical doc', () => {

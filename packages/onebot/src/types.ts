@@ -43,6 +43,8 @@ export interface HttpServerNetwork extends NetworkBase {
   host?: string;
   port: number;
   path?: string;
+  /** Accept OneBot WebSocket clients on the same HTTP listener. */
+  enableWebSocket?: boolean;
 }
 
 export interface HttpClientNetwork extends NetworkBase {
@@ -107,11 +109,19 @@ export interface RKeyConfig {
   fallbackServers: string[];
 }
 
+/** Conservative, login-scoped cloud history backfill. */
+export interface HistorySyncConfig {
+  /** Disabled by default. Changes take effect on the next account lifecycle. */
+  enabled: boolean;
+}
+
 /** Per-UIN OneBot configuration. */
 export interface OneBotConfig {
   networks: OneBotNetworks;
   /** Built-in `#sl` status command settings. Always present after normalization. */
   statusCommand: StatusCommandConfig;
+  /** Silent login-time history backfill. Always present after normalization. */
+  historySync: HistorySyncConfig;
   /** Which GLOBAL notification channels this account opts into (channel ids are
    *  validated slugs; channels themselves live in config/notifications.json).
    *  Always present after normalization. */

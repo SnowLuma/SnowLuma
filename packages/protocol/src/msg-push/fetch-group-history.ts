@@ -7,6 +7,7 @@ import type { IdentityService } from '../identity-service';
 import { isBlankMessage } from './blank-filter';
 import { buildContextFromMessage } from './context';
 import { decodeGroupMessage } from './decoders/group-message';
+import { requirePacketResponse } from './packet-response';
 
 export const SSO_GET_GROUP_MSG_CMD = 'trpc.msg.register_proxy.RegisterProxy.SsoGetGroupMsg';
 
@@ -42,15 +43,21 @@ export async function fetchGroupMessageRange(
   });
 
   const res = await sender.sendRawPacket(SSO_GET_GROUP_MSG_CMD, req);
-  if (!res.success || !res.gotResponse || !res.responseData) return [];
-
-  const decoded = protobuf_decode<SsoGetGroupMsgResponse>(res.responseData);
+  const decoded = protobuf_decode<SsoGetGroupMsgResponse>(
+    requirePacketResponse(res, 'SsoGetGroupMsg'),
+  );
   const messages = decoded?.body?.messages ?? [];
 
   const out: GroupMessage[] = [];
-  for (const msg of messages) {
+  for (let index = 0; index < messages.length; index += 1) {
+    const msg = messages[index];
     const ctx = buildContextFromMessage(msg, selfUin, identity);
-    if (!ctx) continue;
+    if (!ctx) {
+      throw new Error(
+        `SsoGetGroupMsg response message ${index} has no content head `
+        + `(group=${groupUin} range=${startSeq}-${endSeq})`,
+      );
+    }
     // QQ NT turns deleted/body-null roam entries into MsgType::kNull and its
     // FilterBlankSeqsMsg pass removes them before exposing history to callers.
     // SsoGetGroupMsg still carries a localized placeholder body for some of
@@ -68,7 +75,24 @@ export async function fetchGroupMessageRange(
       continue;
     }
     for (const ev of decodeGroupMessage(ctx)) {
-      if (ev.kind !== 'group_message' || ev.msgSeq <= 0) continue;
+      if (ev.kind !== 'group_message') {
+        throw new Error(
+          `SsoGetGroupMsg response message ${index} decoded as ${ev.kind} `
+          + `(group=${groupUin} range=${startSeq}-${endSeq})`,
+        );
+      }
+      if (!Number.isSafeInteger(ev.msgSeq) || ev.msgSeq <= 0) {
+        throw new Error(
+          `SsoGetGroupMsg response message ${index} has invalid sequence ${String(ev.msgSeq)} `
+          + `(group=${groupUin} range=${startSeq}-${endSeq})`,
+        );
+      }
+      if (ev.groupId !== groupUin) {
+        throw new Error(
+          `SsoGetGroupMsg response message ${index} belongs to group ${ev.groupId} `
+          + `(expected=${groupUin} range=${startSeq}-${endSeq})`,
+        );
+      }
       // Drop content-less control pushes (the "[空消息]" phantom, #102) just as
       // QQ NT does on its group roam/history fetch — keep history parity with live.
       if (isBlankMessage(ev.elements, ctx.body)) continue;

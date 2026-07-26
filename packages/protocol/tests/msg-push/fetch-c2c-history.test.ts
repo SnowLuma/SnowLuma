@@ -2,6 +2,7 @@
 // tags) and the fetched private-history decode path (each returned PushMsgBody
 // re-uses the regular friend decoder).
 
+import { deflateSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
@@ -11,7 +12,10 @@ import type {
   SsoGetRoamMsg,
   SsoGetRoamMsgResponse,
 } from '@snowluma/proto-defs/get-c2c-msg';
+import type { PushMsgBody } from '@snowluma/proto-defs/message';
 import type { IdentityService } from '../../src/identity-service';
+import { buildContextFromMessage } from '../../src/msg-push/context';
+import { decodeFriendMessage } from '../../src/msg-push/decoders/friend-message';
 import {
   SSO_GET_C2C_MSG_CMD,
   SSO_GET_ROAM_MSG_CMD,
@@ -23,6 +27,28 @@ const identity = { findFriend: () => undefined } as unknown as IdentityService;
 
 function okResult(data: Uint8Array): SendPacketResult {
   return { success: true, gotResponse: true, responseData: data } as SendPacketResult;
+}
+
+function inviteCardMessage(sequence: number): PushMsgBody {
+  const json = JSON.stringify({
+    app: 'com.tencent.qun.invite',
+    jumpUrl: `mqqapi://group/invite_join?groupcode=12345&msgseq=${sequence}`,
+  });
+  const compressed = deflateSync(Buffer.from(json));
+  const data = new Uint8Array(compressed.length + 1);
+  data[0] = 1;
+  data.set(compressed, 1);
+  return {
+    responseHead: { fromUin: 222, forward: { friendName: 'Bob' } },
+    contentHead: {
+      msgType: 166,
+      sequence,
+      ntMsgSeq: sequence,
+      timestamp: 1_700_000_000 + sequence,
+      msgId: sequence,
+    },
+    body: { richText: { elems: [{ lightApp: { data } }] } },
+  };
 }
 
 describe('fetchC2cMessageRange / SsoGetC2cMsg', () => {
@@ -128,6 +154,55 @@ describe('fetchC2cMessageRange / SsoGetC2cMsg', () => {
     expect(await fetchC2cMessageRange(guardSender, identity, 10001, '', 100, 120)).toEqual([]); // empty uid
     expect(await fetchC2cMessageRange(guardSender, identity, 10001, 'u_x', 200, 100)).toEqual([]); // start > end
     expect(sent).toBe(false);
+  });
+
+  it('rejects a response attributed to a different private peer', async () => {
+    const response = protobuf_encode<SsoGetC2cMsgResponse>({
+      friendUid: 'u_other',
+      messages: [],
+    });
+    await expect(fetchC2cMessageRange(
+      { sendRawPacket: async () => okResult(response) },
+      identity,
+      10001,
+      'u_friend',
+      100,
+      120,
+    )).rejects.toThrow('friend uid mismatch');
+  });
+
+  it('does not replay live-only invite observations from older history', async () => {
+    const remembered: Array<[number, number]> = [];
+    const observingIdentity = {
+      findFriend: () => undefined,
+      rememberGroupInviteCardSequence: (groupUin: number, sequence: number) => {
+        remembered.push([groupUin, sequence]);
+      },
+    } as unknown as IdentityService;
+
+    const live = buildContextFromMessage(
+      inviteCardMessage(222),
+      10001,
+      observingIdentity,
+      false,
+    );
+    expect(live).not.toBeNull();
+    decodeFriendMessage(live!);
+
+    const historyResponse = protobuf_encode<SsoGetC2cMsgResponse>({
+      friendUid: 'u_friend',
+      messages: [inviteCardMessage(111)],
+    });
+    await fetchC2cMessageRange(
+      { sendRawPacket: async () => okResult(historyResponse) },
+      observingIdentity,
+      10001,
+      'u_friend',
+      100,
+      120,
+    );
+
+    expect(remembered).toEqual([[12345, 222]]);
   });
 });
 

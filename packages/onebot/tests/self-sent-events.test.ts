@@ -15,23 +15,51 @@ const RECEIPT = {
   random: 123456,
   timestamp: 1_700_000_000,
 };
+type Receipt = typeof RECEIPT;
 
-function makeContext(receipt = RECEIPT): {
+function makeContext(receiptOrReceipts: Receipt | Receipt[] = RECEIPT): {
   ctx: OneBotInstanceContext;
   dispatchEvent: ReturnType<typeof vi.fn<(event: JsonObject) => void>>;
   events: Map<number, JsonObject>;
 } {
+  const receipts = Array.isArray(receiptOrReceipts) ? receiptOrReceipts : [receiptOrReceipts];
+  let receiptIndex = 0;
+  const nextReceipt = () => {
+    const receipt = receipts[receiptIndex++];
+    if (!receipt) throw new Error('unexpected extra private send');
+    return receipt;
+  };
   const events = new Map<number, JsonObject>();
   const dispatchEvent = vi.fn<(event: JsonObject) => void>();
   const bridge = {
     identity: { nickname: 'SnowLuma' },
     apis: {
       message: {
-        sendPrivate: vi.fn(async () => receipt),
-        sendGroupTempMessage: vi.fn(async () => receipt),
+        sendPrivate: vi.fn(async () => nextReceipt()),
+        sendGroupTempMessage: vi.fn(async () => nextReceipt()),
+        sendC2cFile: vi.fn(async () => nextReceipt()),
+      },
+      groupFile: {
+        uploadPrivate: vi.fn(async () => ({
+          fileId: 'uploaded-file-uuid',
+          fileHash: 'uploaded-file-hash',
+        })),
       },
     },
     resolveUserUid: vi.fn(async () => 'u_peer'),
+    recallUploadedFile: vi.fn((fileId: string) => fileId === 'uploaded-file-uuid'
+      ? {
+        fileId,
+        scope: 'private',
+        userId: PEER_ID,
+        fileName: 'inline.txt',
+        fileSize: 3,
+        fileMd5: new Uint8Array(16),
+        fileSha1: new Uint8Array(20),
+        fileHash: 'uploaded-file-hash',
+        rememberedAt: Date.now(),
+      }
+      : undefined),
   } as unknown as BridgeInterface;
 
   const ctx = {
@@ -132,6 +160,149 @@ describe('OneBot self-sent events', () => {
       target_id: PEER_ID,
       message_seq: RECEIPT.clientSequence,
     }), 'send');
+  });
+
+  it('reports a private file sent through an action', async () => {
+    const { ctx, dispatchEvent } = makeContext();
+    const api = buildApiContext(ctx);
+
+    const result = await api.sendPrivateMessage(PEER_ID, [{
+      type: 'file',
+      data: {
+        file_id: 'file-uuid',
+        name: 'report.txt',
+        size: 128,
+        md5: '00112233445566778899aabbccddeeff',
+      },
+    }], false);
+
+    expect(result.messageId).not.toBe(0);
+    expect(dispatchEvent).toHaveBeenCalledOnce();
+    expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
+      post_type: 'message_sent',
+      message_type: 'private',
+      self_id: SELF_ID,
+      user_id: SELF_ID,
+      target_id: PEER_ID,
+      message: [expect.objectContaining({
+        type: 'file',
+        data: expect.objectContaining({
+          file_id: 'file-uuid',
+          file: 'report.txt',
+          file_size: 128,
+        }),
+      })],
+    }), 'send');
+  });
+
+  it('reports a private file uploaded and sent through an action', async () => {
+    const { ctx, dispatchEvent } = makeContext();
+    const api = buildApiContext(ctx);
+
+    await api.sendPrivateMessage(PEER_ID, [{
+      type: 'file',
+      data: {
+        file: 'base64://AQID',
+        name: 'inline.txt',
+      },
+    }], false);
+
+    expect(dispatchEvent).toHaveBeenCalledOnce();
+    expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
+      post_type: 'message_sent',
+      message_type: 'private',
+      target_id: PEER_ID,
+      message: [expect.objectContaining({
+        type: 'file',
+        data: expect.objectContaining({
+          file: 'inline.txt',
+          url: 'base64://AQID',
+        }),
+      })],
+    }), 'send');
+  });
+
+  it('reports each QQ message produced by a mixed private action', async () => {
+    const fileReceipt: Receipt = {
+      messageId: 654321,
+      sequence: 88,
+      clientSequence: 10,
+      random: 654321,
+      timestamp: RECEIPT.timestamp + 1,
+    };
+    const { ctx, dispatchEvent } = makeContext([RECEIPT, fileReceipt]);
+    const api = buildApiContext(ctx);
+
+    const result = await api.sendPrivateMessage(PEER_ID, [
+      { type: 'text', data: { text: 'attachment:' } },
+      {
+        type: 'file',
+        data: {
+          file_id: 'mixed-file-uuid',
+          name: 'mixed.txt',
+          size: 64,
+          md5: '00112233445566778899aabbccddeeff',
+        },
+      },
+    ], false);
+
+    expect(dispatchEvent).toHaveBeenCalledTimes(2);
+    expect(dispatchEvent.mock.calls[0]?.[0]).toMatchObject({
+      post_type: 'message_sent',
+      message_seq: RECEIPT.clientSequence,
+      message: [{ type: 'text', data: { text: 'attachment:' } }],
+    });
+    expect(dispatchEvent.mock.calls[1]?.[0]).toMatchObject({
+      post_type: 'message_sent',
+      message_seq: fileReceipt.clientSequence,
+      message: [{
+        type: 'file',
+        data: expect.objectContaining({ file_id: 'mixed-file-uuid' }),
+      }],
+    });
+    expect(result.messageId).toBe(hashMessageIdInt32(
+      fileReceipt.sequence,
+      PEER_ID,
+      PRIVATE_NT_MESSAGE_EVENT,
+    ));
+  });
+
+  it('reports each file in a multi-file private action separately', async () => {
+    const secondReceipt: Receipt = {
+      messageId: 654321,
+      sequence: 88,
+      clientSequence: 10,
+      random: 654321,
+      timestamp: RECEIPT.timestamp + 1,
+    };
+    const { ctx, dispatchEvent } = makeContext([RECEIPT, secondReceipt]);
+    const api = buildApiContext(ctx);
+
+    await api.sendPrivateMessage(PEER_ID, [
+      {
+        type: 'file',
+        data: {
+          file_id: 'first-file',
+          name: 'first.txt',
+          size: 1,
+          md5: '00112233445566778899aabbccddeeff',
+        },
+      },
+      {
+        type: 'file',
+        data: {
+          file_id: 'second-file',
+          name: 'second.txt',
+          size: 2,
+          md5: 'ffeeddccbbaa00998877665544332211',
+        },
+      },
+    ], false);
+
+    expect(dispatchEvent).toHaveBeenCalledTimes(2);
+    expect(dispatchEvent.mock.calls.map(([event]) =>
+      ((event.message as JsonObject[])[0]?.data as JsonObject)?.file_id,
+    )).toEqual(['first-file', 'second-file']);
   });
 
   it('does not report a later QQ echo after the action event', () => {

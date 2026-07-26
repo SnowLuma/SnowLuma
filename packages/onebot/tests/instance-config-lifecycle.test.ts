@@ -7,6 +7,7 @@ function config(trigger: string): OneBotConfig {
   return {
     networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
     statusCommand: { enabled: true, swallow: false, cooldownSeconds: 5, trigger },
+    historySync: { enabled: false },
     notifications: { channelIds: [] },
   };
 }

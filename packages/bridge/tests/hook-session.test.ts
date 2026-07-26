@@ -4,6 +4,7 @@ import { HookSession } from '../src/hook-session';
 import type { ManualMapHandle } from '../src/injector';
 import type { QqHookClient, QqHookPacket } from '../src/qq-hook-client';
 import type { QqPortLoginInfo } from '../src/qq-port-probe';
+import type { PacketSender } from '@snowluma/common/packet-sender';
 import type { PacketSink } from '@snowluma/common/protocol-types';
 
 const DUMMY_HANDLE: ManualMapHandle = { base: 0n, entry: 0n, exceptionTable: 0n, size: 0 };
@@ -14,6 +15,7 @@ class FakeClient extends EventEmitter {
   isClosed = false;
   isLoggedIn = false;
   shouldFailConnect = false;
+  readonly sentPackets: Array<{ serviceCmd: string; body: Buffer }> = [];
   private loginState = { loggedIn: false, uin: '0', uinNumber: 0n };
 
   async connectAll(_opts: { recv: boolean }): Promise<void> {
@@ -21,6 +23,20 @@ class FakeClient extends EventEmitter {
     if (this.isClosed) throw new Error('client is closed');
   }
   getLoginState() { return { ...this.loginState }; }
+  reconcileLoginState(state: { loggedIn: boolean; uin: string; uinNumber: bigint }): void {
+    this.isLoggedIn = state.loggedIn;
+    this.loginState = { ...state };
+    this.emit('loginState', { ...this.loginState });
+  }
+  async send(serviceCmd: string, body: Buffer) {
+    this.sentPackets.push({ serviceCmd, body: Buffer.from(body) });
+    return {
+      requestId: this.sentPackets.length,
+      error: 0,
+      message: '',
+      body: Buffer.from('reply'),
+    };
+  }
   close(): void {
     if (this.isClosed) return;
     this.isClosed = true;
@@ -28,9 +44,7 @@ class FakeClient extends EventEmitter {
   }
 
   fireLogin(uin: string): void {
-    this.isLoggedIn = true;
-    this.loginState = { loggedIn: true, uin, uinNumber: BigInt(uin) };
-    this.emit('loginState', { ...this.loginState });
+    this.reconcileLoginState({ loggedIn: true, uin, uinNumber: BigInt(uin) });
   }
 
   firePacket(packet: QqHookPacket): void {
@@ -541,6 +555,35 @@ describe('HookSession — packet forwarding', () => {
 });
 
 describe('HookSession — login reconcile (Docker auto-login safety net)', () => {
+  it('keeps the packet sender usable when login is reconciled by the active probe', async () => {
+    const ctx = makeSession({
+      pipeLive: true,
+      probeLogin: async () => ({ port: 4301, uin: '10001', loggedIn: true }),
+    });
+    let sender: PacketSender | undefined;
+    ctx.session.on('login', (_uin: string, nextSender: PacketSender) => {
+      sender = nextSender;
+    });
+
+    await ctx.session.load();
+    ctx.session.onPipeUp();
+    await flush();
+    await flush();
+
+    expect(sender).toBeDefined();
+    const result = await sender!.sendPacket('Test.LoginReady', Buffer.from('request'));
+
+    expect(result).toMatchObject({
+      success: true,
+      gotResponse: true,
+      errorCode: 0,
+      responseData: Buffer.from('reply'),
+    });
+    expect(ctx.currentClient().sentPackets).toEqual([
+      { serviceCmd: 'Test.LoginReady', body: Buffer.from('request') },
+    ]);
+  });
+
   it('reconciles login via the active probe when the pushed frame is missed', async () => {
     // Probe reports logged-in; the FakeClient never fires a loginState frame
     // (the missed-edge Docker case). The immediate reconcile probe must detect

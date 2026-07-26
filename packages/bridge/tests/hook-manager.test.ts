@@ -105,6 +105,66 @@ describe('HookManager.autoLoadOnDiscovery', () => {
 
     ctx.manager.dispose();
   });
+
+  it('retries a transient libc mapping failure on the next watcher tick', async () => {
+    const ctx = makeManager({ autoLoadOnDiscovery: true, processes: [4242] });
+    ctx.inject.mockImplementationOnce(() => {
+      throw new Error(
+        'target process does not map /lib/x86_64-linux-gnu/libc.so.6 while resolving mmap',
+      );
+    });
+
+    await ctx.pipeWatcher.start();
+    await flush();
+    await flush();
+    expect(ctx.inject).toHaveBeenCalledTimes(1);
+
+    await ctx.pipeWatcher.tickNow();
+    await flush();
+    await flush();
+    expect(ctx.inject).toHaveBeenCalledTimes(2);
+    expect(ctx.inject).toHaveBeenLastCalledWith(4242);
+
+    ctx.manager.dispose();
+  });
+
+  it('does not retry permanent auto-load errors', async () => {
+    const ctx = makeManager({ autoLoadOnDiscovery: true, processes: [4242] });
+    ctx.inject.mockImplementation(() => { throw new Error('ptrace denied'); });
+
+    await ctx.pipeWatcher.start();
+    await flush();
+    await flush();
+
+    await ctx.pipeWatcher.tickNow();
+    await flush();
+    await flush();
+    expect(ctx.inject).toHaveBeenCalledTimes(1);
+
+    ctx.manager.dispose();
+  });
+
+  it('stops retrying a transient libc mapping failure after three attempts', async () => {
+    const ctx = makeManager({ autoLoadOnDiscovery: true, processes: [4242] });
+    ctx.inject.mockImplementation(() => {
+      throw new Error(
+        'target process does not map /lib/x86_64-linux-gnu/libc.so.6 while resolving mmap',
+      );
+    });
+
+    await ctx.pipeWatcher.start();
+    await flush();
+    await flush();
+
+    for (let tick = 0; tick < 4; tick += 1) {
+      await ctx.pipeWatcher.tickNow();
+      await flush();
+      await flush();
+    }
+    expect(ctx.inject).toHaveBeenCalledTimes(3);
+
+    ctx.manager.dispose();
+  });
 });
 
 // `shouldAutoLoadPid` reads /proc/<pid>/cmdline directly, so we point

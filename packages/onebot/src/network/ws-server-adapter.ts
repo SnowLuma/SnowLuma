@@ -1,44 +1,25 @@
-import { WebSocket, WebSocketServer } from '@snowluma/websocket';
-import type { IncomingMessage } from 'http';
+import { WebSocketServer } from '@snowluma/websocket';
 import { createLogger } from '@snowluma/common/logger';
-import {
-  pickDispatchJson,
-  resolveReportOptions,
-  type DispatchPayload,
-  type EventReportOptions,
-} from '../event-filter';
-import type { JsonObject, WsRole, WsServerNetwork } from '../types';
+import type { DispatchPayload } from '../event-filter';
+import type { JsonObject, WsServerNetwork } from '../types';
 import { IOneBotNetworkAdapter, type AdapterStatus, type NetworkAdapterContext } from './adapter';
-import { isAuthorized, normalizePath, parseRequestPath, rawDataToString, safeClose, safeSend, safeSendAsync, startHeartbeat } from './utils';
+import { normalizePath } from './utils';
+import { WsServerConnections } from './ws-server-connections';
 
 const moduleLog = createLogger('OneBot.WS-Server');
-// Transport keepalive for each attached client, symmetric with the ws-client
-// adapter: ping every 30s, reap a client only after 2 consecutive pings go
-// unanswered — ~90s of total silence (see startHeartbeat for the +1-interval
-// timing). Any inbound frame resets the counter — see issue #208.
-const HEARTBEAT_INTERVAL_MS = 30_000;
-const HEARTBEAT_MAX_MISSED = 2;
-const HEARTBEAT_DEAD_AFTER_S = (HEARTBEAT_INTERVAL_MS * (HEARTBEAT_MAX_MISSED + 1)) / 1000;
-
-interface ForwardConn {
-  socket: WebSocket;
-  role: WsRole;
-  options: EventReportOptions;
-  stopHeartbeat: () => void;
-}
 
 export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
   private wss: WebSocketServer | null = null;
   private listening = false;
   private closePromise: Promise<void> | null = null;
-  private acceptingActions = false;
-  private readonly inFlightActions = new Set<Promise<void>>();
-  private connections = new Map<WebSocket, ForwardConn>();
-  private options: EventReportOptions;
+  private readonly connections: WsServerConnections;
 
   constructor(name: string, config: WsServerNetwork, ctx: NetworkAdapterContext) {
     super(name, config, ctx, moduleLog);
-    this.options = resolveReportOptions(config);
+    this.connections = new WsServerConnections(name, config, ctx, this.log, {
+      frame: (event, options) => this.metaFrame(event, options),
+      bootstrap: (options) => this.bootstrapMetaFrames(options),
+    });
   }
 
   async open(): Promise<void> {
@@ -52,27 +33,19 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
 
   async close(): Promise<void> {
     if (this.closePromise) return this.closePromise;
-    if (!this.isEnabled && this.connections.size === 0 && !this.wss && this.inFlightActions.size === 0) return;
+    if (
+      !this.isEnabled &&
+      this.connections.connectionCount === 0 &&
+      !this.wss &&
+      !this.connections.hasInFlightActions
+    ) return;
     const wasEnabled = this.isEnabled;
     const wasListening = this.listening;
-    const wasAcceptingActions = this.acceptingActions;
-    this.acceptingActions = false;
-    // Final lifecycle broadcast before tearing down so attached event clients
-    // see the disable transition.
-    const lifecycle = this.ctx.buildLifecycleEvent('disable');
-    for (const conn of this.connections.values()) {
-      if (conn.role === 'Api') continue;
-      const frame = this.metaFrame(lifecycle, conn.options);
-      if (frame) safeSend(conn.socket, frame);
-    }
+    const wasAcceptingActions = this.connections.isAcceptingActions;
 
     this.isEnabled = false;
     this.listening = false;
-    for (const conn of this.connections.values()) {
-      conn.stopHeartbeat();
-      safeClose(conn.socket);
-    }
-    this.connections.clear();
+    const connectionDrain = this.connections.closeConnections();
     const wss = this.wss;
     const releaseResult: Promise<{ error?: Error }> = wss
       ? new Promise<{ error?: Error }>((resolve) => {
@@ -80,7 +53,7 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
       })
       : Promise.resolve({});
     const attempt = (async () => {
-      await Promise.all(this.inFlightActions);
+      await connectionDrain;
       const release = await releaseResult;
       if (release.error) throw release.error;
     })();
@@ -93,7 +66,7 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
       // reference and active binding state so a later shutdown can retry.
       this.isEnabled = wasEnabled;
       this.listening = wasListening;
-      this.acceptingActions = wasAcceptingActions;
+      if (wasAcceptingActions) this.connections.startAccepting();
       throw error;
     } finally {
       this.closePromise = null;
@@ -103,7 +76,12 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
   override describeStatus(): AdapterStatus {
     if (!this.isEnabled) return { name: this.name, kind: 'wsServer', status: 'disabled', detail: '未启用' };
     if (!this.listening) return { name: this.name, kind: 'wsServer', status: 'down', detail: '未监听（端口被占用？）' };
-    return { name: this.name, kind: 'wsServer', status: 'ok', detail: `${this.connections.size} 个客户端` };
+    return {
+      name: this.name,
+      kind: 'wsServer',
+      status: 'ok',
+      detail: `${this.connections.connectionCount} 个客户端`,
+    };
   }
 
   protected override bindingSignature(config: WsServerNetwork): string {
@@ -111,18 +89,12 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
   }
 
   protected override onConfigReplaced(next: WsServerNetwork): void {
-    this.options = resolveReportOptions(next);
-    for (const conn of this.connections.values()) conn.options = this.options;
+    this.connections.updateConfig(next);
   }
 
   onEvent(_event: JsonObject, payload: DispatchPayload): void {
-    if (!this.isEnabled || this.connections.size === 0) return;
-    for (const conn of this.connections.values()) {
-      if (conn.role !== 'Event' && conn.role !== 'Universal') continue;
-      const json = pickDispatchJson(payload, conn.options);
-      if (json === null) continue;
-      safeSend(conn.socket, json);
-    }
+    if (!this.isEnabled) return;
+    this.connections.onEvent(payload);
   }
 
   private startServer(): Promise<void> {
@@ -151,7 +123,7 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
         }
         this.listening = true;
         this.isEnabled = true;
-        this.acceptingActions = true;
+        this.connections.startAccepting();
         this.log.success(
           '[%s] listening %s:%d%s',
           this.name,
@@ -166,7 +138,7 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
         if (this.wss === wss) {
           this.listening = false;
           this.isEnabled = false;
-          this.acceptingActions = false;
+          this.connections.stopAccepting();
           this.recordTransportFailure(error);
           if (opening) this.wss = null;
         }
@@ -177,97 +149,21 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
         }
       });
 
-      wss.on('connection', (socket: WebSocket, request: IncomingMessage) => this.onConnection(socket, request));
+      wss.on('connection', (socket, request) => this.connections.accept(socket, request));
     });
   }
 
-  private onConnection(socket: WebSocket, request: IncomingMessage): void {
-    if (!this.acceptingActions || this.ctx.api.isAcceptingActions === false) {
-      safeClose(socket, 1012, 'server closing');
-      return;
-    }
-    if (!isAuthorized(request, this.config.accessToken ?? '')) {
-      safeClose(socket, 1008, 'invalid access token');
-      return;
-    }
-
-    const role = this.config.role ?? classifyForwardRole(request);
-    const stopHeartbeat = startHeartbeat(
-      socket,
-      { intervalMs: HEARTBEAT_INTERVAL_MS, maxMissed: HEARTBEAT_MAX_MISSED },
-      () => {
-        this.log.warn('[%s] client silent for ~%ds, terminating half-open connection', this.name, HEARTBEAT_DEAD_AFTER_S);
-        socket.terminate(); // → 'close' → connections.delete; the client reconnects on its own
-      },
-    );
-    const conn: ForwardConn = { socket, role, options: this.options, stopHeartbeat };
-    this.connections.set(socket, conn);
-
-    socket.on('message', (raw: Buffer) => {
-      this.trackInboundAction(() => this.handleApiMessage(socket, role, raw));
-    });
-    socket.on('close', () => {
-      stopHeartbeat();
-      this.connections.delete(socket);
-    });
-    socket.on('error', (err: Error) => {
-      this.log.warn('[%s] socket error: %s', this.name, err instanceof Error ? err.message : String(err));
-    });
-
-    if (role === 'Event' || role === 'Universal') {
-      this.sendBootstrapMetaEvents(socket);
-    }
+  /** Kept as the adapter-level lifecycle test seam. */
+  protected get acceptingActions(): boolean {
+    return this.connections.isAcceptingActions;
   }
 
-  private async handleApiMessage(socket: WebSocket, role: WsRole, raw: Buffer | string): Promise<void> {
-    if (role !== 'Api' && role !== 'Universal') return;
-    const text = rawDataToString(raw);
-    if (!text) return;
-    // Stream API (#163) emits multiple frames per request; processStreamRequest
-    // sends one frame for a normal action and N for a streaming one. The async
-    // send applies backpressure (awaits flush); the liveness check aborts a
-    // streaming action once the client goes away.
-    await this.ctx.api.processStreamRequest(
-      text,
-      (frame) => safeSendAsync(socket, frame),
-      () => socket.readyState === 1,
-    );
-  }
-
-  private trackInboundAction(start: () => Promise<void>): void {
-    if (!this.acceptingActions || this.ctx.api.isAcceptingActions === false) {
-      this.log.warn('[%s] rejected inbound action while adapter is closing', this.name);
-      return;
-    }
-    let action: Promise<void>;
-    try {
-      action = start();
-    } catch (error) {
-      this.log.error('[%s] inbound action start failed: %s', this.name, error instanceof Error ? (error.stack ?? error.message) : String(error));
-      return;
-    }
-    const tracked = action.then(
-      () => undefined,
-      (error) => {
-        this.log.error('[%s] inbound action failed: %s', this.name, error instanceof Error ? (error.stack ?? error.message) : String(error));
-      },
-    );
-    this.inFlightActions.add(tracked);
-    void tracked.then(() => { this.inFlightActions.delete(tracked); });
-  }
-
-  private sendBootstrapMetaEvents(socket: WebSocket): void {
-    for (const frame of this.bootstrapMetaFrames(this.options)) safeSend(socket, frame);
+  /** Kept as the adapter-level lifecycle test seam. */
+  protected trackInboundAction(start: () => Promise<void>): void {
+    this.connections.trackInboundAction(start);
   }
 }
 
 function isAlreadyClosedError(error: Error): boolean {
   return (error as NodeJS.ErrnoException).code === 'ERR_SERVER_NOT_RUNNING';
-}
-
-function classifyForwardRole(request: IncomingMessage): WsRole {
-  const path = parseRequestPath(request.url ?? '/');
-  if (path.endsWith('/api')) return 'Api';
-  if (path.endsWith('/event')) return 'Event';
-  return 'Universal';
 }

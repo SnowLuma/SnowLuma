@@ -13,6 +13,7 @@ import type { IdentityService } from '../identity-service';
 import { isBlankMessage, isC2cControlPush } from './blank-filter';
 import { buildContextFromMessage } from './context';
 import { decodeFriendMessage } from './decoders/friend-message';
+import { requirePacketResponse } from './packet-response';
 
 export const SSO_GET_C2C_MSG_CMD = 'trpc.msg.register_proxy.RegisterProxy.SsoGetC2cMsg';
 export const SSO_GET_ROAM_MSG_CMD = 'trpc.msg.register_proxy.RegisterProxy.SsoGetRoamMsg';
@@ -28,16 +29,6 @@ interface RawSender {
 export interface C2cRoamPage {
   messages: FriendMessage[];
   cursor: { time: number; random: number };
-}
-
-function requirePacketResponse(result: SendPacketResult, command: string): Uint8Array {
-  if (!result.success) {
-    throw new Error(`${command} transport failed: ${result.errorMessage || 'unknown transport error'}`);
-  }
-  if (!result.gotResponse || !result.responseData || result.responseData.length === 0) {
-    throw new Error(`${command} response is empty`);
-  }
-  return result.responseData;
 }
 
 function decodeC2cMessages(
@@ -95,6 +86,9 @@ export async function fetchC2cMessageRange(
   const decoded = protobuf_decode<SsoGetC2cMsgResponse>(
     requirePacketResponse(res, 'SsoGetC2cMsg'),
   );
+  if (decoded.friendUid && decoded.friendUid !== friendUid) {
+    throw new Error(`SsoGetC2cMsg response friend uid mismatch: ${decoded.friendUid}`);
+  }
   const messages = decoded?.messages ?? [];
   const out = decodeC2cMessages(messages, identity, selfUin, 'SsoGetC2cMsg');
   out.sort((a, b) => (a.ntMsgSeq ?? 0) - (b.ntMsgSeq ?? 0));

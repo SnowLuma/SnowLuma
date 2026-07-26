@@ -235,6 +235,56 @@ describe('MessageStore', () => {
         clientSequence: 88,
       });
     });
+
+    it('rolls back private history metadata when storing the event body fails', () => {
+      const messageId = -987654321;
+      const peerId = 555;
+      const database = new DatabaseSync(testDbPath);
+      database.exec(`
+        CREATE TRIGGER reject_history_event_body
+        BEFORE UPDATE OF data ON messages
+        WHEN NEW.message_hash = ${messageId} AND NEW.data IS NOT NULL
+        BEGIN
+          SELECT RAISE(ABORT, 'history event body rejected');
+        END
+      `);
+      database.close();
+
+      expect(() => store.storeHistoryEvent(
+        messageId,
+        false,
+        peerId,
+        850,
+        PRIVATE_MESSAGE_EVENT,
+        {
+          time: 1_700_000_000,
+          post_type: 'message',
+          message_type: 'private',
+          sub_type: 'friend',
+          user_id: peerId,
+          message_id: messageId,
+          message_seq: 50,
+        },
+        {
+          sequenceAuthoritative: true,
+          meta: {
+            isGroup: false,
+            targetId: peerId,
+            sequence: 850,
+            sequenceAuthoritative: true,
+            eventName: PRIVATE_MESSAGE_EVENT,
+            clientSequence: 50,
+            privateDirection: 'incoming',
+            random: 42,
+            timestamp: 1_700_000_000,
+          },
+        },
+      )).toThrow(/history event body rejected/);
+
+      expect(store.findMeta(messageId)).toBeNull();
+      expect(store.findEvent(messageId)).toBeNull();
+      expect(store.findLatestAuthoritativeSequence(false, peerId)).toBeNull();
+    });
   });
 
   describe('listSessionEvents', () => {

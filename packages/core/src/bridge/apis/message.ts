@@ -34,10 +34,16 @@ import { resolveSelfUid } from './shared';
 // At runtime `ctx` IS the Bridge instance that constructed this
 // MessageApi — `buildApiHub(ctx)` passes the Bridge itself.
 import type { Bridge, SendMessageReceipt } from '../bridge';
+import { HistoryRequestGate } from './history-request-gate';
 
 const SEND_MSG_CMD = 'MessageSvc.PbSendMsg';
 const READ_REPORT_CMD = 'trpc.msg.msg_svc.MsgService.SsoReadedReport';
 const READ_REPORT_BATCH_SIZE = 100;
+export const LOGIN_HISTORY_SYNC_PROTOCOL_LIMITS = {
+  maxTargetsPerKind: READ_REPORT_BATCH_SIZE,
+  maxMessagesPerSession: 20,
+  minimumGapMs: 2_000,
+} as const;
 
 const log = createLogger('Bridge.Message');
 
@@ -68,6 +74,28 @@ interface C2CReadTarget {
   uid: string;
 }
 
+export interface HistorySyncPrivateTarget {
+  userId: number;
+  uid: string;
+}
+
+export interface GroupHistorySyncState {
+  groupId: number;
+  readSeq: number;
+  latestSeq: number;
+}
+
+export interface PrivateHistorySyncState extends HistorySyncPrivateTarget {
+  readSeq: number;
+  latestSeq: number;
+  lastMsgTime: number;
+}
+
+export interface HistorySyncState {
+  groups: GroupHistorySyncState[];
+  privateUsers: PrivateHistorySyncState[];
+}
+
 interface ReadResponseItem {
   resultCode?: number;
   errorMessage?: string;
@@ -85,6 +113,45 @@ function uniqueSessionIds(ids: readonly number[], label: string): number[] {
       result.push(id);
     }
   }
+  return result;
+}
+
+function uniqueHistorySyncPrivateTargets(
+  targets: readonly HistorySyncPrivateTarget[],
+): HistorySyncPrivateTarget[] {
+  const result: HistorySyncPrivateTarget[] = [];
+  const userToUid = new Map<number, string>();
+  const uidToUser = new Map<string, number>();
+
+  for (const target of targets) {
+    if (!Number.isSafeInteger(target.userId) || target.userId <= 0) {
+      throw new Error(`invalid private history sync target ${String(target.userId)}`);
+    }
+    if (typeof target.uid !== 'string' || target.uid.trim().length === 0) {
+      throw new Error(`private history sync target ${target.userId} has no uid`);
+    }
+
+    const uid = target.uid.trim();
+    const knownUid = userToUid.get(target.userId);
+    if (knownUid !== undefined) {
+      if (knownUid !== uid) {
+        throw new Error(
+          `private history sync target ${target.userId} maps to conflicting uids`,
+        );
+      }
+      continue;
+    }
+
+    const knownUser = uidToUser.get(uid);
+    if (knownUser !== undefined && knownUser !== target.userId) {
+      throw new Error(`private history sync uid ${uid} maps to conflicting users`);
+    }
+
+    userToUid.set(target.userId, uid);
+    uidToUser.set(uid, target.userId);
+    result.push({ userId: target.userId, uid });
+  }
+
   return result;
 }
 
@@ -119,6 +186,30 @@ function requirePositiveSequence(value: bigint | null | undefined, label: string
   return sequence;
 }
 
+function readSafeSequence(value: bigint | null | undefined, label: string): number {
+  const sequence = readUnsignedSequence(value, label);
+  if (sequence > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error(`${label} exceeds the safe integer range`);
+  }
+  return Number(sequence);
+}
+
+function validateHistorySyncRange(startSeq: number, endSeq: number, label: string): void {
+  if (!Number.isSafeInteger(startSeq) || startSeq <= 0) {
+    throw new Error(`${label} start sequence is invalid: ${String(startSeq)}`);
+  }
+  if (!Number.isSafeInteger(endSeq) || endSeq < startSeq || endSeq > HISTORY_MAX_SEQUENCE) {
+    throw new Error(`${label} end sequence is invalid: ${String(endSeq)}`);
+  }
+  const slots = endSeq - startSeq + 1;
+  if (slots > LOGIN_HISTORY_SYNC_PROTOCOL_LIMITS.maxMessagesPerSession) {
+    throw new Error(
+      `${label} may request at most `
+      + `${LOGIN_HISTORY_SYNC_PROTOCOL_LIMITS.maxMessagesPerSession} sequence slots`,
+    );
+  }
+}
+
 type GroupMessage = Extract<QQEventVariant, { kind: 'group_message' }>;
 type FriendMessage = Extract<QQEventVariant, { kind: 'friend_message' }>;
 
@@ -130,21 +221,10 @@ const HISTORY_MAX_REQUESTS = 12;    // bound the walk-back loop
 const HISTORY_MIN_GAP_MS = 300;     // minimum spacing between SsoGetGroupMsg sends
 const HISTORY_MAX_SEQUENCE = 0xffff_ffff; // sequence fields are protobuf uint32
 
-// Serialized throttle gate: chains so concurrent callers queue, and enforces
-// at least HISTORY_MIN_GAP_MS between actual sends (the first send isn't
-// penalized). Process-wide — shared across all groups AND accounts in this
-// process — so no client can make us flood the server regardless of fan-out.
-let historyLastSendAt = 0;
-let historyGate: Promise<void> = Promise.resolve();
-function throttleHistory(): Promise<void> {
-  const run = historyGate.then(async () => {
-    const wait = historyLastSendAt + HISTORY_MIN_GAP_MS - Date.now();
-    if (wait > 0) await new Promise<void>((resolve) => setTimeout(resolve, wait));
-    historyLastSendAt = Date.now();
-  });
-  historyGate = run.catch(() => undefined);
-  return run;
-}
+// Process-wide across every account and every history caller. Automatic login
+// sync requests use a stricter gap; the gate preserves that gap even when a
+// normal history action is queued immediately before or after them.
+const historyRequestGate = new HistoryRequestGate();
 
 /**
  * Shared walk-back loop for group + c2c history: pull HISTORY_CHUNK_SEQ-wide
@@ -166,8 +246,10 @@ async function walkBackHistory<T extends { msgSeq: number }>(
   let curEnd = endSeq;
   for (let i = 0; i < HISTORY_MAX_REQUESTS && collected.size < want && curEnd >= 1; i++) {
     const start = Math.max(1, curEnd - HISTORY_CHUNK_SEQ + 1);
-    await throttleHistory();
-    const batch = await fetchWindow(start, curEnd);
+    const batch = await historyRequestGate.run(
+      HISTORY_MIN_GAP_MS,
+      () => fetchWindow(start, curEnd),
+    );
     if (batch.length > 0) {
       let minSeq = curEnd;
       for (const ev of batch) {
@@ -238,8 +320,10 @@ async function fetchForwardWindow<T extends { msgSeq: number }>(
   if (budget.remaining <= 0) return { messages: [], complete: false };
 
   budget.remaining--;
-  await throttleHistory();
-  const batch = await fetchWindow(startSeq, endSeq);
+  const batch = await historyRequestGate.run(
+    HISTORY_MIN_GAP_MS,
+    () => fetchWindow(startSeq, endSeq),
+  );
   if (batch.length === 0) return { messages: [], complete: true };
 
   const messages = [...new Map(batch.map((event) => [sequenceOf(event), event])).values()]
@@ -703,7 +787,12 @@ export class MessageApi {
     log.debug('mark-read complete: groups=%d c2c=%d', groups.length, c2cTargets.length);
   }
 
-  private async sendReadReport(request: SsoReadedReportReq, label: string): Promise<SsoReadedReportResp> {
+  private async sendReadReport(
+    request: SsoReadedReportReq,
+    label: string,
+    minimumGapMs = HISTORY_MIN_GAP_MS,
+    signal?: AbortSignal,
+  ): Promise<SsoReadedReportResp> {
     log.debug(
       '%s send: groups=%d c2c=%d',
       label,
@@ -711,7 +800,11 @@ export class MessageApi {
       request.c2cList?.length ?? 0,
     );
     const payload = protobuf_encode<SsoReadedReportReq>(request);
-    const result = await this.ctx.sendRawPacket(READ_REPORT_CMD, payload);
+    const result = await historyRequestGate.run(
+      minimumGapMs,
+      () => this.ctx.sendRawPacket(READ_REPORT_CMD, payload),
+      signal,
+    );
     const response = decodeReadReportResponse(result, label);
     log.debug(
       '%s response: groups=%d c2c=%d',
@@ -720,6 +813,99 @@ export class MessageApi {
       response.c2cList?.length ?? 0,
     );
     return response;
+  }
+
+  /**
+   * Read the server's current read/latest cursors without advancing any read
+   * marker. The zero-valued report fields are omitted on the wire by protobuf,
+   * matching QQ NT's read-only probe. Automatic login sync is deliberately
+   * limited to one probe with at most 100 group and 100 private targets.
+   */
+  async probeHistorySyncState(
+    groupIds: readonly number[],
+    privateTargets: readonly HistorySyncPrivateTarget[],
+    signal?: AbortSignal,
+  ): Promise<HistorySyncState> {
+    const groups = uniqueSessionIds(groupIds, 'group');
+    const privateUsers = uniqueHistorySyncPrivateTargets(privateTargets);
+    const maxTargets = LOGIN_HISTORY_SYNC_PROTOCOL_LIMITS.maxTargetsPerKind;
+
+    if (groups.length > maxTargets) {
+      throw new Error(`history sync probe accepts at most ${maxTargets} group targets`);
+    }
+    if (privateUsers.length > maxTargets) {
+      throw new Error(`history sync probe accepts at most ${maxTargets} private targets`);
+    }
+    if (groups.length === 0 && privateUsers.length === 0) {
+      return { groups: [], privateUsers: [] };
+    }
+
+    const label = 'login history sync probe';
+    const response = await this.sendReadReport({
+      groupList: groups.map(groupId => ({ groupUin: BigInt(groupId), lastReadSeq: 0n })),
+      c2cList: privateUsers.map(target => ({
+        uid: target.uid,
+        lastReadTime: 0n,
+        lastReadSeq: 0n,
+      })),
+    }, label, LOGIN_HISTORY_SYNC_PROTOCOL_LIMITS.minimumGapMs, signal);
+
+    const groupState = groups.map((groupId, index): GroupHistorySyncState => {
+      const item = this.groupReadResponse(response, groupId, index, label);
+      const readSeq = readSafeSequence(
+        item.readSeq,
+        `${label} group ${groupId} read sequence`,
+      );
+      const latestSeq = readSafeSequence(
+        item.latestSeq,
+        `${label} group ${groupId} latest sequence`,
+      );
+      if (latestSeq < readSeq) {
+        throw new Error(
+          `${label} group ${groupId} latest sequence ${latestSeq} `
+          + `is before read sequence ${readSeq}`,
+        );
+      }
+      return { groupId, readSeq, latestSeq };
+    });
+
+    const privateState = privateUsers.map((target, index): PrivateHistorySyncState => {
+      const item = this.c2cReadResponse(response, target, index, label);
+      const targetUin = readSafeSequence(
+        item.targetUin,
+        `${label} private user ${target.userId} target uin`,
+      );
+      if (targetUin !== 0 && targetUin !== target.userId) {
+        throw new Error(
+          `${label} private user ${target.userId} response target ${targetUin} does not match`,
+        );
+      }
+      const readSeq = readSafeSequence(
+        item.readSeq,
+        `${label} private user ${target.userId} read sequence`,
+      );
+      const latestSeq = readSafeSequence(
+        item.latestSeq,
+        `${label} private user ${target.userId} latest sequence`,
+      );
+      if (latestSeq < readSeq) {
+        throw new Error(
+          `${label} private user ${target.userId} latest sequence ${latestSeq} `
+          + `is before read sequence ${readSeq}`,
+        );
+      }
+      return {
+        ...target,
+        readSeq,
+        latestSeq,
+        lastMsgTime: readSafeSequence(
+          item.lastMsgTime,
+          `${label} private user ${target.userId} last message time`,
+        ),
+      };
+    });
+
+    return { groups: groupState, privateUsers: privateState };
   }
 
   private groupReadResponse(
@@ -852,6 +1038,43 @@ export class MessageApi {
   }
 
   /**
+   * Fetch exactly one bounded group-history window for automatic login sync.
+   * Unlike the public history action this method never paginates or retries.
+   */
+  async getGroupHistorySyncPage(
+    groupUin: number,
+    startSeq: number,
+    endSeq: number,
+    selfUin = 0,
+    signal?: AbortSignal,
+  ): Promise<GroupMessage[]> {
+    if (!Number.isSafeInteger(groupUin) || groupUin <= 0) {
+      throw new Error(`group history sync target is invalid: ${String(groupUin)}`);
+    }
+    validateHistorySyncRange(startSeq, endSeq, `group ${groupUin} history sync`);
+
+    const messages = await historyRequestGate.run(
+      LOGIN_HISTORY_SYNC_PROTOCOL_LIMITS.minimumGapMs,
+      () => fetchGroupMessageRange(
+        this.ctx,
+        this.ctx.identity,
+        selfUin,
+        groupUin,
+        startSeq,
+        endSeq,
+      ),
+      signal,
+    );
+    return this.validateHistorySyncPage(
+      messages,
+      message => message.msgSeq,
+      startSeq,
+      endSeq,
+      `group ${groupUin} history sync`,
+    );
+  }
+
+  /**
    * Fetch real private history from the server (`SsoGetC2cMsg`), including the
    * anchor in the requested direction. It shares the group variant's throttle
    * and data-volume guards. Returns decoded events oldest→newest.
@@ -873,6 +1096,90 @@ export class MessageApi {
   }
 
   /**
+   * Fetch exactly one bounded private-history sequence window for automatic
+   * login sync. Sender-local message-head sequences are not valid here.
+   */
+  async getC2cHistorySyncPage(
+    friendUid: string,
+    startSeq: number,
+    endSeq: number,
+    selfUin = 0,
+    signal?: AbortSignal,
+  ): Promise<FriendMessage[]> {
+    if (!friendUid.trim()) throw new Error('private history sync uid is required');
+    validateHistorySyncRange(startSeq, endSeq, `private ${friendUid} history sync`);
+
+    const messages = await historyRequestGate.run(
+      LOGIN_HISTORY_SYNC_PROTOCOL_LIMITS.minimumGapMs,
+      () => fetchC2cMessageRange(
+        this.ctx,
+        this.ctx.identity,
+        selfUin,
+        friendUid,
+        startSeq,
+        endSeq,
+      ),
+      signal,
+    );
+    return this.validateHistorySyncPage(
+      messages,
+      message => message.ntMsgSeq ?? 0,
+      startSeq,
+      endSeq,
+      `private ${friendUid} history sync`,
+    );
+  }
+
+  /**
+   * Fetch one latest private roaming page for a session without a local
+   * authoritative sequence. No cursor loop or retry is permitted.
+   */
+  async getC2cLatestHistorySyncPage(
+    friendUid: string,
+    count: number,
+    selfUin = 0,
+    beforeTime = Math.floor(Date.now() / 1000) + 1,
+    signal?: AbortSignal,
+  ): Promise<FriendMessage[]> {
+    if (!friendUid.trim()) throw new Error('private history sync uid is required');
+    const maxMessages = LOGIN_HISTORY_SYNC_PROTOCOL_LIMITS.maxMessagesPerSession;
+    if (!Number.isSafeInteger(count) || count < 1 || count > maxMessages) {
+      throw new Error(`private history sync may request at most ${maxMessages} messages`);
+    }
+
+    const page = await historyRequestGate.run(
+      LOGIN_HISTORY_SYNC_PROTOCOL_LIMITS.minimumGapMs,
+      () => fetchC2cRoamMessagePage(
+        this.ctx,
+        this.ctx.identity,
+        selfUin,
+        friendUid,
+        beforeTime,
+        count,
+        0,
+      ),
+      signal,
+    );
+    const messages = [...new Map(page.messages.map((message) => {
+      const sequence = message.ntMsgSeq ?? 0;
+      if (!Number.isSafeInteger(sequence) || sequence <= 0) {
+        throw new Error(
+          `private ${friendUid} history sync returned invalid NT sequence ${String(sequence)}`,
+        );
+      }
+      return [sequence, message] as const;
+    })).values()]
+      .sort((a, b) => (a.ntMsgSeq ?? 0) - (b.ntMsgSeq ?? 0) || a.time - b.time);
+    if (messages.length > count) {
+      throw new Error(
+        `private ${friendUid} history sync returned ${messages.length} messages `
+        + `for a ${count}-message request`,
+      );
+    }
+    return messages;
+  }
+
+  /**
    * Fetch the latest private history page without relying on a locally cached
    * sequence. C2C field-5 sequences are sender-local, so only SsoGetRoamMsg's
    * timestamp cursor can safely bootstrap an unanchored conversation.
@@ -891,15 +1198,17 @@ export class MessageApi {
     let reachedEnd = false;
 
     for (let i = 0; i < HISTORY_MAX_REQUESTS && collected.size < want; i++) {
-      await throttleHistory();
-      const page = await fetchC2cRoamMessagePage(
-        this.ctx,
-        this.ctx.identity,
-        selfUin,
-        friendUid,
-        cursor.time,
-        want - collected.size,
-        cursor.random,
+      const page = await historyRequestGate.run(
+        HISTORY_MIN_GAP_MS,
+        () => fetchC2cRoamMessagePage(
+          this.ctx,
+          this.ctx.identity,
+          selfUin,
+          friendUid,
+          cursor.time,
+          want - collected.size,
+          cursor.random,
+        ),
       );
       for (const message of page.messages) {
         const sequence = message.ntMsgSeq ?? 0;
@@ -948,9 +1257,18 @@ export class MessageApi {
    */
   async getGroupMessageBySeq(groupUin: number, seq: number, selfUin = 0): Promise<GroupMessage | null> {
     if (!(groupUin > 0) || !(seq > 0)) return null;
-    await throttleHistory();
     try {
-      const batch = await fetchGroupMessageRange(this.ctx, this.ctx.identity, selfUin, groupUin, seq, seq);
+      const batch = await historyRequestGate.run(
+        HISTORY_MIN_GAP_MS,
+        () => fetchGroupMessageRange(
+          this.ctx,
+          this.ctx.identity,
+          selfUin,
+          groupUin,
+          seq,
+          seq,
+        ),
+      );
       return batch.find((m) => m.msgSeq === seq) ?? null;
     } catch {
       return null;
@@ -964,12 +1282,46 @@ export class MessageApi {
    */
   async getC2cMessageBySeq(friendUid: string, seq: number, selfUin = 0): Promise<FriendMessage | null> {
     if (!friendUid || !(seq > 0)) return null;
-    await throttleHistory();
     try {
-      const batch = await fetchC2cMessageRange(this.ctx, this.ctx.identity, selfUin, friendUid, seq, seq);
+      const batch = await historyRequestGate.run(
+        HISTORY_MIN_GAP_MS,
+        () => fetchC2cMessageRange(
+          this.ctx,
+          this.ctx.identity,
+          selfUin,
+          friendUid,
+          seq,
+          seq,
+        ),
+      );
       return batch.find((m) => m.ntMsgSeq === seq) ?? null;
     } catch {
       return null;
     }
+  }
+
+  private validateHistorySyncPage<T>(
+    messages: readonly T[],
+    sequenceOf: (message: T) => number,
+    startSeq: number,
+    endSeq: number,
+    label: string,
+  ): T[] {
+    const bySequence = new Map<number, T>();
+    for (const message of messages) {
+      const sequence = sequenceOf(message);
+      if (
+        !Number.isSafeInteger(sequence)
+        || sequence < startSeq
+        || sequence > endSeq
+      ) {
+        throw new Error(
+          `${label} returned sequence ${String(sequence)} outside `
+          + `requested range ${startSeq}-${endSeq}`,
+        );
+      }
+      bySequence.set(sequence, message);
+    }
+    return [...bySequence.values()].sort((a, b) => sequenceOf(a) - sequenceOf(b));
   }
 }

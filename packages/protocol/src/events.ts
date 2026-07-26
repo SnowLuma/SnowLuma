@@ -360,7 +360,10 @@ export interface GroupInviteEvent extends QQEvent {
 
 export interface FriendPokeEvent extends QQEvent {
   kind: 'friend_poke';
-  userUin: number;
+  /** The other participant whose private conversation contains this notice. */
+  peerUin: number;
+  /** The account that performed the poke, which may be the logged-in account. */
+  senderUin: number;
   targetUin: number;
   action: string;
   suffix: string;

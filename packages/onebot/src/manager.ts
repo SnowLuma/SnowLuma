@@ -194,9 +194,28 @@ export class OneBotManager {
       if (result.applied) log.info('network startup applied: UIN=%s adapters=%d', uin, result.statuses.length);
       else log.warn('network startup degraded: UIN=%s failures=%d', uin, result.errors.length);
     }));
-    warmUpBridgeState(uin, bridge).catch((err) => {
-      log.warn('warmup error for UIN %s: %s', uin, err instanceof Error ? (err.stack ?? err.message) : String(err));
-    });
+    void warmUpBridgeState(uin, bridge).then(
+      (warmup) => {
+        if (warmup.friendsLoaded && warmup.groupsLoaded) {
+          instance.startLoginHistorySync();
+          return;
+        }
+        log.warn(
+          'login history sync skipped because roster warmup was incomplete: '
+          + 'UIN=%s friendsLoaded=%s groupsLoaded=%s',
+          uin,
+          String(warmup.friendsLoaded),
+          String(warmup.groupsLoaded),
+        );
+      },
+      (err) => {
+        log.warn(
+          'warmup error for UIN %s: %s',
+          uin,
+          err instanceof Error ? (err.stack ?? err.message) : String(err),
+        );
+      },
+    );
   }
 
   private onSessionClosed(uin: string): void {
@@ -279,9 +298,18 @@ export class OneBotManager {
 
 }
 
-async function warmUpBridgeState(uin: string, bridge: BridgeInterface): Promise<void> {
+interface BridgeWarmupResult {
+  friendsLoaded: boolean;
+  groupsLoaded: boolean;
+}
+
+async function warmUpBridgeState(
+  uin: string,
+  bridge: BridgeInterface,
+): Promise<BridgeWarmupResult> {
   const selfUin = parseInt(uin, 10) || 0;
   let selfResolved = false;
+  let friendsLoaded = false;
 
   // Step 1: Fetch friend list + derive self profile when QQ happens to
   // include self in the response. Some accounts / versions omit self,
@@ -289,6 +317,7 @@ async function warmUpBridgeState(uin: string, bridge: BridgeInterface): Promise<
   // explicit fallback.
   try {
     const friends = await bridge.apis.contacts.fetchFriendList();
+    friendsLoaded = true;
     log.info('friends loaded: UIN=%s count=%d', uin, friends.length);
 
     for (const f of friends) {
@@ -327,8 +356,10 @@ async function warmUpBridgeState(uin: string, bridge: BridgeInterface): Promise<
 
   // Step 2: Fetch group list
   let groups: { groupId: number }[] = [];
+  let groupsLoaded = false;
   try {
     groups = await bridge.apis.contacts.fetchGroupList();
+    groupsLoaded = true;
     log.info('groups loaded: UIN=%s count=%d', uin, groups.length);
   } catch (e) {
     log.warn('failed to load groups for UIN %s: %s', uin, e instanceof Error ? e.message : String(e));
@@ -360,4 +391,5 @@ async function warmUpBridgeState(uin: string, bridge: BridgeInterface): Promise<
     loadedMemberCount,
     failedGroupCount,
   );
+  return { friendsLoaded, groupsLoaded };
 }

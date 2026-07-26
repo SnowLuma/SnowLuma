@@ -374,6 +374,19 @@ export class QqHookClient extends EventEmitter {
     return { ...this.loginState };
   }
 
+  /**
+   * Reconcile a login edge that the native hook could not replay after the
+   * pipe connected. The client remains the single source of truth so packet
+   * sending, login waiters, and HookSession all observe the same transition.
+   */
+  reconcileLoginState(state: QqHookLoginState): void {
+    this.applyLoginState({
+      loggedIn: state.loggedIn,
+      uin: state.uin || state.uinNumber.toString(),
+      uinNumber: state.uinNumber,
+    });
+  }
+
   async waitForLogin({ timeoutMs = 0 } = {}): Promise<QqHookLoginState> {
     await this.connect();
     if (this.loginState.loggedIn) {
@@ -750,8 +763,11 @@ export class QqHookClient extends EventEmitter {
     const loggedIn = flaggedLoggedIn || statusLoggedIn;
     const uinNumber = BigInt(frame.value0);
     const uin = frame.msg || uinNumber.toString();
+    this.applyLoginState({ loggedIn, uin, uinNumber });
+  }
+
+  private applyLoginState(next: QqHookLoginState): void {
     const previous = this.loginState;
-    const next = { loggedIn, uin, uinNumber };
     this.loginState = next;
     this.emit('loginState', next);
     if (previous.loggedIn !== next.loggedIn || previous.uin !== next.uin) {

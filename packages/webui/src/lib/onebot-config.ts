@@ -63,6 +63,14 @@ export function normalizeOneBotConfig(raw: unknown): OneBotConfig {
       wsClients: list(nets.wsClients) as unknown as OneBotConfig['networks']['wsClients'],
     },
     statusCommand: normalizeStatusCommand(cfg.statusCommand),
+    historySync: {
+      enabled: (
+        typeof cfg.historySync === 'object'
+        && cfg.historySync !== null
+        && !Array.isArray(cfg.historySync)
+        && (cfg.historySync as Record<string, unknown>).enabled === true
+      ),
+    },
     notifications: normalizeNotifications(cfg.notifications),
   };
 }

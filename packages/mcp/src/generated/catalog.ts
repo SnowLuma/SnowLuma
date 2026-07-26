@@ -62,6 +62,43 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "_get_friend_dress",
+    "aliases": [],
+    "summary": "获取指定 QQ 号正在使用的个性装扮（挂件/名片/来电/输入状态等）",
+    "returns": "装扮信息；目标未使用任何可查询装扮时 items 为空数组。网络失败、未登录态/风控、页面改版、返回账号与请求不一致时返回失败并附具体原因",
+    "readOnly": true,
+    "params": [
+      {
+        "name": "user_id",
+        "type": "uint",
+        "required": true,
+        "role": "user_id",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "目标 QQ 号"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "目标 QQ 号",
+          "x-role": "user_id"
+        }
+      },
+      "required": [
+        "user_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "_get_group_notice",
     "aliases": [],
     "summary": "获取群公告",
@@ -10920,7 +10957,7 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "扩展",
-    "count": 109
+    "count": 110
   },
   {
     "category": "群相册",

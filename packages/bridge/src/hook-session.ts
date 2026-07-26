@@ -507,7 +507,14 @@ export class HookSession extends EventEmitter {
         this.log.info('login reconciled via active probe: PID=%d UIN=%s', this.pid, info.uin);
         // isRealUin guarantees a pure non-empty digit string, so BigInt() here
         // cannot throw (keep that contract if isRealUin's regex is ever changed).
-        this.handleLoginState({ loggedIn: true, uin: info.uin, uinNumber: BigInt(info.uin) });
+        // Reconcile through QqHookClient instead of mutating HookSession alone:
+        // packet sending and login waiters must observe the same state before
+        // the login event starts Bridge / OneBot initialization.
+        this.client!.reconcileLoginState({
+          loggedIn: true,
+          uin: info.uin,
+          uinNumber: BigInt(info.uin),
+        });
       }
     } finally {
       this.probing = false;

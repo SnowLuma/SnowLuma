@@ -1,5 +1,6 @@
-// 0xB6E_2 — set the remark (备注) shown for a friend in the bot's
-// own roster. Doesn't affect what the friend sees.
+// 0x912E_0 — set the remark (备注) shown for a friend in the bot's
+// own roster. Current QQ routes ordinary friend remarks through
+// StrangerRemarkSetWorker with scene=0.
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase, OidbEmpty } from '@snowluma/proto-defs/oidb';
@@ -8,8 +9,8 @@ import { invokeOidb, type OidbSender } from '../../oidb-service';
 import type { BridgeContext } from '../../bridge-context';
 
 export namespace SetFriendRemark {
-  export const command = 0xB6E;
-  export const subCommand = 2;
+  export const command = 0x912E;
+  export const subCommand = 0;
 
   export interface Params {
     userId: number;
@@ -19,8 +20,11 @@ export namespace SetFriendRemark {
   export type Deps = OidbSender & Pick<BridgeContext, 'resolveUserUid'>;
 
   export const serialize = async (ctx: Deps, p: Params): Promise<OidbSetFriendRemark> => ({
-    targetUid: await ctx.resolveUserUid(p.userId),
-    remark: p.remark,
+    change: {
+      target: { targetUid: await ctx.resolveUserUid(p.userId) },
+      remark: p.remark,
+    },
+    scene: 0,
   });
 
   export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
