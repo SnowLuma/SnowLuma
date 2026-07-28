@@ -21,13 +21,16 @@ import type { MsgPushHead } from './context';
  * LLOneBot) receive events *after* this dedup; SnowLuma reads the raw OlPush
  * *before* it, so we replicate it here.
  *
- * We dedup at the push level (drop the whole duplicate, like NT) using the
- * fields already on the head plus `fromUin` for peer scoping (a stand-in for
- * peerUid — `msg_seq` can be per-conversation, so the peer keeps two groups'
- * pushes from colliding; `random`/`msgId` makes the collision astronomically
- * unlikely anyway). A push with no server identity (`sequence` or `msgId` 0) is
- * never deduped — without a real per-message id we cannot distinguish a true
- * duplicate from two distinct events, and dropping then would be a regression.
+ * We dedup at the push level (drop the whole duplicate, like NT) using
+ * `sequence` + `msgId` and `fromUin` for peer scoping (a stand-in for peerUid —
+ * `msg_seq` can be per-conversation, so the peer keeps two groups' pushes from
+ * colliding; `random`/`msgId` makes the collision astronomically unlikely
+ * anyway). `msgType` and `subType` are deliberately absent: they are not part
+ * of QQ NT's global key, and one server system message may arrive through
+ * different outer package types (#266). A push with no server identity
+ * (`sequence` or `msgId` 0) is never deduped — without a real per-message id we
+ * cannot distinguish a true duplicate from two distinct events, and dropping
+ * then would be a regression.
  */
 export class SysMsgDedup {
   private readonly seen = new Set<string>();
@@ -45,9 +48,9 @@ export class SysMsgDedup {
    * Returns true if a system push with this identity was already seen (caller
    * should drop it); otherwise records it and returns false.
    */
-  seenDuplicate(head: Pick<MsgPushHead, 'msgType' | 'subType' | 'sequence' | 'msgId'>, fromUin: number): boolean {
+  seenDuplicate(head: Pick<MsgPushHead, 'sequence' | 'msgId'>, fromUin: number): boolean {
     if (head.sequence === 0 || head.msgId === 0) return false;
-    const key = `${head.msgType}:${head.subType}:${fromUin}:${head.sequence}:${head.msgId}`;
+    const key = `${fromUin}:${head.sequence}:${head.msgId}`;
     if (this.seen.has(key)) return true;
     const evicted = this.ring[this.cursor];
     if (evicted !== undefined) this.seen.delete(evicted);

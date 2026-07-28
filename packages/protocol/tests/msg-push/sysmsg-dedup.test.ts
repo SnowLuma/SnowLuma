@@ -53,21 +53,28 @@ function onlineDevicesPush(deviceName: string): PacketInfo {
 }
 
 describe('SysMsgDedup', () => {
-  it('flags the second push with the same (msgType, subType, fromUin, seq, msgId)', () => {
+  it('flags the second push with the same (peer, seq, msgId)', () => {
     const d = new SysMsgDedup();
     const head = { msgType: 33, subType: 0, sequence: 500, msgId: 12345 };
     expect(d.seenDuplicate(head, 700)).toBe(false);
     expect(d.seenDuplicate(head, 700)).toBe(true);
   });
 
-  it('treats a different seq, msgId, type, or peer as a distinct push', () => {
+  it('treats a different seq, msgId, or peer as a distinct push', () => {
     const d = new SysMsgDedup();
     const base = { msgType: 33, subType: 0, sequence: 500, msgId: 12345 };
     expect(d.seenDuplicate(base, 700)).toBe(false);
     expect(d.seenDuplicate({ ...base, sequence: 501 }, 700)).toBe(false);
     expect(d.seenDuplicate({ ...base, msgId: 99999 }, 700)).toBe(false);
-    expect(d.seenDuplicate({ ...base, msgType: 34 }, 700)).toBe(false);
     expect(d.seenDuplicate(base, 701)).toBe(false);
+  });
+
+  it('[#266] follows QQ NT and dedups one identity across outer package types', () => {
+    const d = new SysMsgDedup();
+    const first = { msgType: 33, subType: 0, sequence: 500, msgId: 12345 };
+    const alternateWrapper = { msgType: 528, subType: 99, sequence: 500, msgId: 12345 };
+    expect(d.seenDuplicate(first, 700)).toBe(false);
+    expect(d.seenDuplicate(alternateWrapper, 700)).toBe(true);
   });
 
   it('never dedups a push with no server identity (seq or msgId 0)', () => {
