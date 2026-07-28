@@ -21,9 +21,16 @@ import { decodeGroupMessage } from './decoders/group-message';
 import { decodeTempMessage } from './decoders/temp-message';
 import { PkgType } from './enums';
 import { MsgPushRegistry } from './registry';
-import { SysMsgDedup } from './sysmsg-dedup';
+import {
+  deriveSysMsgDedupIdentity,
+  SysMsgDedup,
+} from './sysmsg-dedup';
 
-export { SysMsgDedup } from './sysmsg-dedup';
+export {
+  deriveSysMsgDedupIdentity,
+  SysMsgDedup,
+} from './sysmsg-dedup';
+export type { SysMsgDedupIdentity } from './sysmsg-dedup';
 
 export { SSO_GET_GROUP_MSG_CMD, fetchGroupMessageRange } from './fetch-group-history';
 export {
@@ -61,13 +68,6 @@ const log = createLogger('MsgPush');
 // confusing "[空消息]".
 const MESSAGE_KINDS = new Set<QQEventVariant['kind']>([
   'friend_message', 'group_message', 'temp_message',
-]);
-
-// Replacement snapshots describe the complete current state. They are
-// idempotent, but not duplicate events: a later snapshot may legitimately
-// reuse the enclosing system-message identity while carrying new state.
-const STATE_SNAPSHOT_KINDS = new Set<QQEventVariant['kind']>([
-  'online_devices_changed',
 ]);
 
 /**
@@ -118,6 +118,28 @@ export function parseMsgPush(
 ): QQEventVariant[] {
   const ctx = buildContext(pkt, identity);
   if (!ctx) return [];
+
+  // #137/#266: mirror QQ NT `sys_msg_mgr.cc::ProcessRecvSysMsg` before
+  // dispatch. Its static routing table is the scope boundary: listed routes
+  // use the native global key, while unlisted routes fail open. Running this
+  // before registry decode also covers native system packets whose outer type
+  // SnowLuma otherwise interprets as a chat message or does not decode at all.
+  if (dedup) {
+    const dedupIdentity = deriveSysMsgDedupIdentity(ctx);
+    if (dedupIdentity && dedup.seenDuplicate(dedupIdentity)) {
+      log.debug(
+        'dropped duplicate system push (peer=%s chatType=%d seq=%d msgType=%d/%d msgId=%d)',
+        dedupIdentity.peerUid,
+        dedupIdentity.chatType,
+        ctx.head.sequence,
+        ctx.head.msgType,
+        ctx.head.subType,
+        ctx.head.msgId,
+      );
+      return [];
+    }
+  }
+
   const events = registry.decode(ctx);
   const out = events.filter((ev) => {
     if (!MESSAGE_KINDS.has(ev.kind)) return true;
@@ -151,25 +173,5 @@ export function parseMsgPush(
     return false;
   });
 
-  // #137: mirror QQ NT `sys_msg_mgr.cc::ProcessRecvSysMsg` global-key dedup.
-  // The server pushes some system notices twice (e.g. inviting an official
-  // robot → two `group_member_increase`); the kernel drops the duplicate by
-  // (peer, seq, random) before any listener sees it, but we read the raw
-  // OlPush, so we replicate the drop. Scoped to system pushes only — chat
-  // messages have their own NT dedup path and the forward re-parse re-runs
-  // this without a tracker. A push that decodes to a message kind, or to
-  // nothing, is never deduped here.
-  if (
-    dedup
-    && out.length > 0
-    && out.every((ev) => !MESSAGE_KINDS.has(ev.kind))
-    && out.every((ev) => !STATE_SNAPSHOT_KINDS.has(ev.kind))
-  ) {
-    if (dedup.seenDuplicate(ctx.head, ctx.fromUin)) {
-      log.debug('dropped duplicate system push (kinds=%s seq=%d from=%d msgType=%d msgId=%d)',
-        out.map((ev) => ev.kind).join(','), ctx.head.sequence, ctx.fromUin, ctx.head.msgType, ctx.head.msgId);
-      return [];
-    }
-  }
   return out;
 }
