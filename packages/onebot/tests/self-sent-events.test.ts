@@ -45,6 +45,9 @@ function makeContext(receiptOrReceipts: Receipt | Receipt[] = RECEIPT): {
           fileHash: 'uploaded-file-hash',
         })),
       },
+      forward: {
+        upload: vi.fn(async () => 'forward-res-id'),
+      },
     },
     resolveUserUid: vi.fn(async () => 'u_peer'),
     recallUploadedFile: vi.fn((fileId: string) => fileId === 'uploaded-file-uuid'
@@ -160,6 +163,76 @@ describe('OneBot self-sent events', () => {
       target_id: PEER_ID,
       message_seq: RECEIPT.clientSequence,
     }), 'send');
+  });
+
+  it('[#288] reports a private forward built through an action', async () => {
+    const { ctx, dispatchEvent } = makeContext();
+    const api = buildApiContext(ctx);
+
+    const result = await api.sendPrivateForwardMsg(PEER_ID, [{
+      type: 'node',
+      data: {
+        user_id: SELF_ID,
+        nickname: 'SnowLuma',
+        content: [{ type: 'text', data: { text: 'forwarded' } }],
+      },
+    }]);
+
+    expect(result.messageId).not.toBe(0);
+    expect(dispatchEvent).toHaveBeenCalledOnce();
+    expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
+      post_type: 'message_sent',
+      message_type: 'private',
+      self_id: SELF_ID,
+      user_id: SELF_ID,
+      target_id: PEER_ID,
+      message_seq: RECEIPT.clientSequence,
+      message: [expect.objectContaining({
+        type: 'forward',
+      })],
+    }), 'send');
+  });
+
+  it('[#288] reports a cached message forwarded to a friend through an action', async () => {
+    const { ctx, dispatchEvent, events } = makeContext();
+    const sourceMessageId = 55;
+    events.set(sourceMessageId, {
+      message_id: sourceMessageId,
+      message_type: 'private',
+      user_id: PEER_ID,
+      message: [{ type: 'text', data: { text: 'forward me' } }],
+    });
+    const api = buildApiContext(ctx);
+
+    const result = await api.forwardSingleMsg(sourceMessageId, { userId: PEER_ID });
+
+    expect(result.messageId).not.toBe(0);
+    expect(dispatchEvent).toHaveBeenCalledOnce();
+    expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
+      post_type: 'message_sent',
+      message_type: 'private',
+      self_id: SELF_ID,
+      user_id: SELF_ID,
+      target_id: PEER_ID,
+      message_seq: RECEIPT.clientSequence,
+      message: [{ type: 'text', data: { text: 'forward me' } }],
+    }), 'send');
+  });
+
+  it('[#288] does not report a private forward without a reliable sequence', async () => {
+    const { ctx, dispatchEvent, events } = makeContext({ ...RECEIPT, sequence: 0 });
+    const sourceMessageId = 56;
+    events.set(sourceMessageId, {
+      message_id: sourceMessageId,
+      message_type: 'private',
+      user_id: PEER_ID,
+      message: [{ type: 'text', data: { text: 'forward me' } }],
+    });
+    const api = buildApiContext(ctx);
+
+    await api.forwardSingleMsg(sourceMessageId, { userId: PEER_ID });
+
+    expect(dispatchEvent).not.toHaveBeenCalled();
   });
 
   it('reports a private file sent through an action', async () => {

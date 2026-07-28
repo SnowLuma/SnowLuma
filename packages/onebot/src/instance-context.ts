@@ -98,10 +98,23 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     handleGetGroupSystemMsg: (query) => getGroupSystemMessages(bridge, query),
     getDownloadRKeys: () => getDownloadRKeys(bridge),
     sendGroupForwardMsg: (groupId, messages, meta) => sendGroupForwardMessage(ref, groupId, messages, meta),
-    sendPrivateForwardMsg: (userId, messages, meta) => sendPrivateForwardMessage(ref, userId, messages, meta),
+    sendPrivateForwardMsg: (userId, messages, meta) => sendPrivateForwardMessage(
+      ref,
+      userId,
+      messages,
+      meta,
+      (event) => ref.dispatchEvent(event, 'send'),
+    ),
     sendForwardMsg: (messages, groupId) => uploadForwardMessage(ref, messages, groupId),
     getForwardMsg: (resId) => getForwardMessage(ref, resId),
-    forwardSingleMsg: (messageId, target) => forwardSingleMessage(ref, messageId, target),
+    forwardSingleMsg: (messageId, target) => forwardSingleMessage(
+      ref,
+      messageId,
+      target,
+      target.userId !== undefined
+        ? (event) => ref.dispatchEvent(event, 'send')
+        : undefined,
+    ),
     setEssenceMsg: (messageId) => setEssenceMessage(bridge, messageStore, messageId, true),
     deleteEssenceMsg: (messageId) => setEssenceMessage(bridge, messageStore, messageId, false),
     setMsgEmojiLike: async (messageId, emojiId, set) => {
