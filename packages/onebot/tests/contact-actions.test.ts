@@ -101,9 +101,10 @@ function makeProfile(
   sex: 'male' | 'female' | 'unknown' = 'unknown',
   age = 0,
   sign = '',
+  remark = '',
 ): UserProfileInfo {
   return {
-    uin, uid: `u_${uin}`, nickname, remark: '', qid: '', sex, age, sign, avatar: '',
+    uin, uid: `u_${uin}`, nickname, remark, qid: '', sex, age, sign, avatar: '',
   };
 }
 
@@ -448,7 +449,14 @@ describe('onebot/contact-actions / getGroupMemberInfo', () => {
 describe('onebot/contact-actions / getStrangerInfo', () => {
   it('returns a fetched profile', async () => {
     const bridge = fakeBridge({
-      fetchUserProfile: vi.fn(async () => makeProfile(55555, 'Eve', 'female', 25, 'Stay curious')),
+      fetchUserProfile: vi.fn(async () => makeProfile(
+        55555,
+        'Eve',
+        'female',
+        25,
+        'Stay curious',
+        'Teammate',
+      )),
     });
     const out = await getStrangerInfo(bridge, 55555);
     expect(out).toMatchObject({
@@ -456,6 +464,7 @@ describe('onebot/contact-actions / getStrangerInfo', () => {
       nickname: 'Eve',
       sex: 'female',
       age: 25,
+      remark: 'Teammate',
       long_nick: 'Stay curious',
     });
   });
@@ -465,13 +474,16 @@ describe('onebot/contact-actions / getStrangerInfo', () => {
       fetchUserProfile: vi.fn(async () => { throw new Error('net'); }),
       identity: fakeIdentity({
         findUserProfile: (uin: number) =>
-          uin === 66666 ? makeProfile(66666, 'Frank', 'male', 30, 'Cached signature') : null,
+          uin === 66666
+            ? makeProfile(66666, 'Frank', 'male', 30, 'Cached signature', 'Cached remark')
+            : null,
       }),
     });
     const out = await getStrangerInfo(bridge, 66666);
     expect(out).toMatchObject({
       user_id: 66666,
       nickname: 'Frank',
+      remark: 'Cached remark',
       long_nick: 'Cached signature',
     });
   });

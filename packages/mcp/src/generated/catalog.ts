@@ -6387,7 +6387,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_stranger_info",
     "aliases": [],
     "summary": "获取陌生人信息",
-    "returns": "陌生人资料：QQ 号、昵称、性别、年龄与个性签名，命中资料时另含等级。",
+    "returns": "用户资料：QQ 号、昵称、好友备注、性别、年龄与个性签名，命中资料时另含等级。",
     "returnsSchema": {
       "type": "object",
       "properties": {
@@ -6398,6 +6398,10 @@ export const ACTIONS: CatalogAction[] = [
         "nickname": {
           "type": "string",
           "description": "昵称"
+        },
+        "remark": {
+          "type": "string",
+          "description": "好友备注；非好友或未设置时为空字符串"
         },
         "sex": {
           "type": "string",
@@ -6423,6 +6427,7 @@ export const ACTIONS: CatalogAction[] = [
       "required": [
         "user_id",
         "nickname",
+        "remark",
         "sex",
         "age",
         "long_nick"

@@ -248,6 +248,7 @@ export async function getStrangerInfo(
     return {
       user_id: p.uin,
       nickname: p.nickname,
+      remark: p.remark,
       sex: p.sex,
       age: p.age,
       long_nick: p.sign,
@@ -260,6 +261,7 @@ export async function getStrangerInfo(
     return {
       user_id: p.uin,
       nickname: p.nickname,
+      remark: p.remark,
       sex: p.sex,
       age: p.age,
       long_nick: p.sign,
