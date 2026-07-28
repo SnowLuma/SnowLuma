@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Eye, Loader2, User, UserX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -37,31 +37,48 @@ export function ProcessProbeDialog({ pid, processName, open, onOpenChange, onLoa
   const [loading, setLoading] = useState(false);
   const [info, setInfo] = useState<QqPortLoginInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const activeProbe = useRef<AbortController | null>(null);
 
   const probe = useCallback(async () => {
+    activeProbe.current?.abort();
+    const controller = new AbortController();
+    activeProbe.current = controller;
     setLoading(true);
     setError(null);
     setInfo(null);
     try {
-      const result = await api.processes.probeLoginInfo(pid);
+      const result = await api.processes.probeLoginInfo(pid, controller.signal);
+      if (activeProbe.current !== controller) return;
       setInfo(result as QqPortLoginInfo | null);
       if (!result) {
         setError('未检测到登录信息（端口 9210-9219 无响应）');
       }
     } catch (err) {
+      if (activeProbe.current !== controller || controller.signal.aborted) return;
       setError(err instanceof Error ? err.message : '探测失败');
     } finally {
-      setLoading(false);
+      if (activeProbe.current === controller) {
+        activeProbe.current = null;
+        setLoading(false);
+      }
     }
   }, [api.processes, pid]);
 
   useEffect(() => {
     if (open) {
-      probe();
+      void probe();
     } else {
+      activeProbe.current?.abort();
+      activeProbe.current = null;
+      setLoading(false);
       setInfo(null);
       setError(null);
     }
+
+    return () => {
+      activeProbe.current?.abort();
+      activeProbe.current = null;
+    };
   }, [open, probe]);
 
   return (

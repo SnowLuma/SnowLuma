@@ -43,9 +43,10 @@ describe('storage API client', () => {
 
     const client = createApiClient({ tokenStore });
     await expect(client.storage.get()).resolves.toEqual(payload);
-    expect(fetchMock).toHaveBeenCalledWith('/api/system/storage', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/system/storage', expect.objectContaining({
       headers: { Authorization: 'Bearer test-token' },
-    });
+      signal: expect.any(AbortSignal),
+    }));
   });
 
   it('posts a partial log-settings patch', async () => {
@@ -64,14 +65,15 @@ describe('storage API client', () => {
     const client = createApiClient({ tokenStore });
     await client.storage.saveSettings({ logRetainDays: 0 });
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/system/storage/settings', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/system/storage/settings', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({ logRetainDays: 0 }),
       headers: {
         Authorization: 'Bearer test-token',
         'Content-Type': 'application/json',
       },
-    });
+      signal: expect.any(AbortSignal),
+    }));
   });
 
   it('returns a structured partial cleanup result from an HTTP 500 response', async () => {

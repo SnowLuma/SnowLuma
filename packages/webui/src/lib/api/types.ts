@@ -151,7 +151,7 @@ export interface ApiClient {
     load(pid: number): Promise<ProcessActionResult>;
     unload(pid: number): Promise<ProcessActionResult>;
     refresh(pid: number): Promise<ProcessActionResult>;
-    probeLoginInfo(pid: number): Promise<unknown>;
+    probeLoginInfo(pid: number, signal?: AbortSignal): Promise<unknown>;
   };
 
   // ---- OneBotInstance per-UIN config ----

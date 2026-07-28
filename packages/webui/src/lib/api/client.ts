@@ -18,6 +18,7 @@ import {
 import { localStorageTokenStore } from './token-store';
 
 const DEFAULT_TOKEN_KEY = 'snowluma_token';
+const REQUEST_TIMEOUT_MS = 30_000;
 
 interface ErrorPayload {
   message?: string;
@@ -72,7 +73,10 @@ class HttpApiClient implements ApiClient {
       load: (pid) => this.postJson<ProcessActionResult>(`/api/processes/${pid}/load`),
       unload: (pid) => this.postJson<ProcessActionResult>(`/api/processes/${pid}/unload`),
       refresh: (pid) => this.postJson<ProcessActionResult>(`/api/processes/${pid}/refresh`),
-      probeLoginInfo: (pid) => this.getJson<{ info: unknown }>(`/api/processes/${pid}/probe-login`).then((d) => d.info ?? null),
+      probeLoginInfo: (pid, signal) => this.fetchJson<{ info: unknown }>(
+        `/api/processes/${pid}/probe-login`,
+        { signal },
+      ).then((d) => d.info ?? null),
     };
 
     this.config = {
@@ -211,7 +215,7 @@ class HttpApiClient implements ApiClient {
       getPublic: async () => {
         // Pre-auth path: a plain fetch with no bearer. Used by the login page
         // to theme itself before the operator has signed in.
-        const res = await fetch('/api/ui/public');
+        const res = await this.fetchWithDeadline('/api/ui/public');
         if (!res.ok) throw new ApiError(res.status, '无法获取外观配置');
         const data = await readJson<{ appearance: UiAppearance }>(res);
         return data.appearance;
@@ -303,12 +307,36 @@ class HttpApiClient implements ApiClient {
     };
     if (this.currentToken) headers['Authorization'] = `Bearer ${this.currentToken}`;
     if (init.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
-    const res = await fetch(url, { ...init, headers });
+
+    const res = await this.fetchWithDeadline(url, { ...init, headers });
     if (res.status === 401) {
       this.setToken(null);
       this.onUnauthorized?.();
     }
     return res;
+  }
+
+  private async fetchWithDeadline(
+    url: string,
+    init: RequestInit = {},
+  ): Promise<Response> {
+    const deadline = new AbortController();
+    const onCallerAbort = () => deadline.abort(init.signal?.reason);
+    if (init.signal?.aborted) onCallerAbort();
+    else init.signal?.addEventListener('abort', onCallerAbort, { once: true });
+    const timer = setTimeout(() => deadline.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, { ...init, signal: deadline.signal });
+      return res;
+    } catch (error) {
+      if (deadline.signal.aborted && !init.signal?.aborted) {
+        throw new ApiError(408, '请求超时，请重试', 'REQUEST_TIMEOUT');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      init.signal?.removeEventListener('abort', onCallerAbort);
+    }
   }
 
   /** Like request(), but throws ApiError on non-2xx and parses JSON. */
@@ -349,7 +377,7 @@ class HttpApiClient implements ApiClient {
     // Login deliberately bypasses fetchJson/onUnauthorized so a bad password
     // doesn't trigger a global sign-out side effect.
     try {
-      const res = await fetch('/api/login', {
+      const res = await this.fetchWithDeadline('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password }),
