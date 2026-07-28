@@ -116,6 +116,33 @@ describe('HookSession — load', () => {
     expect(info.status).toBe('connecting');
   });
 
+  it('keeps loading pending until asynchronous component loading completes', async () => {
+    let finishLoading!: (result: { method: 'loadModuleManual'; handle: ManualMapHandle }) => void;
+    const loading = new Promise<{ method: 'loadModuleManual'; handle: ManualMapHandle }>(resolve => {
+      finishLoading = resolve;
+    });
+    const injector = {
+      inject: vi.fn(() => loading),
+      unload: vi.fn(),
+    };
+    const session = new HookSession(1234, {
+      injector,
+      makeClient: () => new FakeClient() as unknown as QqHookClient,
+      pipeWatcher: { isPipeLive: () => false },
+    });
+
+    const load = session.load();
+    await flush();
+
+    expect(session.status).toBe('loading');
+    finishLoading({ method: 'loadModuleManual', handle: DUMMY_HANDLE });
+    await expect(load).resolves.toMatchObject({
+      status: 'connecting',
+      method: 'loadModuleManual',
+      injected: true,
+    });
+  });
+
   it('inject failure → status error, error message captured', async () => {
     const injector = {
       inject: vi.fn(() => { throw new Error('inject boom'); }),
@@ -129,6 +156,37 @@ describe('HookSession — load', () => {
     const info = await session.load();
     expect(info.status).toBe('error');
     expect(info.error).toBe('inject boom');
+  });
+
+  it('can retry after asynchronous component loading fails', async () => {
+    const injector = {
+      inject: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('component loading timed out'))
+        .mockResolvedValueOnce({
+          method: 'loadModuleManual' as const,
+          handle: DUMMY_HANDLE,
+        }),
+      unload: vi.fn(),
+    };
+    const session = new HookSession(1234, {
+      injector,
+      makeClient: () => new FakeClient() as unknown as QqHookClient,
+      pipeWatcher: { isPipeLive: () => false },
+    });
+
+    await expect(session.load()).resolves.toMatchObject({
+      status: 'error',
+      error: 'component loading timed out',
+      injected: false,
+    });
+    await expect(session.load()).resolves.toMatchObject({
+      status: 'connecting',
+      method: 'loadModuleManual',
+      injected: true,
+      error: '',
+    });
+    expect(injector.inject).toHaveBeenCalledTimes(2);
   });
 });
 

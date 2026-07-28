@@ -24,7 +24,7 @@ const RECEIVE_STALE_CONFIRM_MS = 15_000;
 
 export type HookSessionDeps = {
   injector: {
-    inject: (pid: number) => HookInjectResult;
+    inject: (pid: number) => HookInjectResult | Promise<HookInjectResult>;
     unload: (pid: number, handle: HookInjectResult['handle']) => void;
   };
   makeClient: (pid: number) => QqHookClient;
@@ -232,7 +232,7 @@ export class HookSession extends EventEmitter {
           this._method = this._method || 'reconnect';
           this.log.info('PID=%d already has SnowLuma pipe; will reconnect', this.pid);
         } else {
-          this.injectResult = this.injector.inject(this.pid);
+          this.injectResult = await this.injector.inject(this.pid);
           this.injected = true;
           this._method = this.injectResult.method;
         }

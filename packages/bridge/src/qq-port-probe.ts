@@ -1,3 +1,4 @@
+import { createLogger } from '@snowluma/common/logger';
 import { exec } from 'child_process';
 import net from 'net';
 import http from 'http';
@@ -5,11 +6,15 @@ import https from 'https';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);
+const log = createLogger('LoginProbe');
 
 const PORT_RANGE_START = 9210;
 const PORT_RANGE_END = 9219;
 const PROBE_TIMEOUT_MS = 1000;
 const CONNECTION_TIMEOUT_MS = 500;
+const COMMAND_TIMEOUT_MS = 1500;
+const OVERALL_PROBE_TIMEOUT_MS = 5000;
+const EXEC_OPTIONS = { timeout: COMMAND_TIMEOUT_MS, killSignal: 'SIGKILL' as const };
 // QQ's Ptlogin quick-login ports plus its main process mean a single
 // logged-in client surfaces roughly this many processes. When no usable
 // probe port is found, a count BELOW this implies the target PID is still at
@@ -200,10 +205,13 @@ async function tryPtloginMethod(port: number): Promise<QqPortLoginInfo | 'fallba
 async function getQqProcessCount(): Promise<number> {
   try {
     if (process.platform === 'win32') {
-      const { stdout } = await execAsync('tasklist /fi "imagename eq QQ.exe" /nh');
+      const { stdout } = await execAsync(
+        'tasklist /fi "imagename eq QQ.exe" /nh',
+        EXEC_OPTIONS,
+      );
       return stdout.toLowerCase().split('\n').filter(line => line.includes('qq.exe')).length;
     } else {
-      const { stdout } = await execAsync('pgrep -c qq');
+      const { stdout } = await execAsync('pgrep -c qq', EXEC_OPTIONS);
       return parseInt(stdout.trim(), 10) || 0;
     }
   } catch {
@@ -213,10 +221,10 @@ async function getQqProcessCount(): Promise<number> {
   }
 }
 
-async function getProcessPorts(pid: number): Promise<number[]> {
+async function getProcessPorts(pid: number): Promise<number[] | null> {
   try {
     if (process.platform === 'win32') {
-      const { stdout } = await execAsync(`netstat -ano | findstr ${pid}`);
+      const { stdout } = await execAsync('netstat -ano', EXEC_OPTIONS);
       const ports = new Set<number>();
       const lines = stdout.split('\n');
       for (const line of lines) {
@@ -232,10 +240,11 @@ async function getProcessPorts(pid: number): Promise<number[]> {
       }
       return Array.from(ports);
     } else {
-      const { stdout } = await execAsync(`ss -tlnp | grep pid=${pid}`);
+      const { stdout } = await execAsync('ss -tlnp', EXEC_OPTIONS);
       const ports = new Set<number>();
       const lines = stdout.split('\n');
       for (const line of lines) {
+        if (!line.includes(`pid=${pid},`) && !line.includes(`pid=${pid})`)) continue;
         const match = line.match(/:(\d+)\s/);
         if (match) {
           ports.add(Number(match[1]));
@@ -244,13 +253,13 @@ async function getProcessPorts(pid: number): Promise<number[]> {
       return Array.from(ports);
     }
   } catch {
-    return [];
+    return null;
   }
 }
 
-
-export async function probeQqLoginInfo(pid: number): Promise<QqPortLoginInfo | null> {
+async function probeQqLoginInfoInternal(pid: number): Promise<QqPortLoginInfo | null> {
   const ports = await getProcessPorts(pid);
+  if (ports === null) return null;
 
   if (ports.length === 0) {
     const totalPids = await getQqProcessCount();
@@ -297,4 +306,22 @@ export async function probeQqLoginInfo(pid: number): Promise<QqPortLoginInfo | n
   }
 
   return null;
+}
+
+export async function probeQqLoginInfo(pid: number): Promise<QqPortLoginInfo | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+  const timeout = new Promise<null>(resolve => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      resolve(null);
+    }, OVERALL_PROBE_TIMEOUT_MS);
+  });
+  try {
+    const result = await Promise.race([probeQqLoginInfoInternal(pid), timeout]);
+    if (timedOut) log.warn('login check timed out: PID=%d', pid);
+    return result;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
