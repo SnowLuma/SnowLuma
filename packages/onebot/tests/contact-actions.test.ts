@@ -488,10 +488,30 @@ describe('onebot/contact-actions / getStrangerInfo', () => {
     });
   });
 
+  it('falls back to the friend roster when only a cached friend remark is available', async () => {
+    const bridge = fakeBridge({
+      fetchUserProfile: vi.fn(async () => { throw new Error('net'); }),
+      identity: fakeIdentity({
+        findUserProfile: () => null,
+        findFriend: (uin: number) =>
+          uin === 77777 ? makeFriend(77777, 'Grace', 'Project lead') : null,
+      }),
+    });
+
+    expect(await getStrangerInfo(bridge, 77777)).toEqual({
+      user_id: 77777,
+      nickname: 'Grace',
+      remark: 'Project lead',
+      sex: 'unknown',
+      age: 0,
+      long_nick: '',
+    });
+  });
+
   it('returns null when neither fetch nor cache produces a profile', async () => {
     const bridge = fakeBridge({
       fetchUserProfile: vi.fn(async () => { throw new Error('net'); }),
-      identity: fakeIdentity({ findUserProfile: () => null }),
+      identity: fakeIdentity({ findUserProfile: () => null, findFriend: () => null }),
     });
     expect(await getStrangerInfo(bridge, 99999)).toBeNull();
   });

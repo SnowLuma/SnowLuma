@@ -257,16 +257,28 @@ export async function getStrangerInfo(
     };
   } catch {
     const p = bridge.identity.findUserProfile(userId);
-    if (!p) return null;
+    if (p) {
+      return {
+        user_id: p.uin,
+        nickname: p.nickname,
+        remark: p.remark || bridge.identity.findFriend(userId)?.remark || '',
+        sex: p.sex,
+        age: p.age,
+        long_nick: p.sign,
+        qq_level: p.level,
+        level: p.level,
+      };
+    }
+
+    const friend = bridge.identity.findFriend(userId);
+    if (!friend) return null;
     return {
-      user_id: p.uin,
-      nickname: p.nickname,
-      remark: p.remark,
-      sex: p.sex,
-      age: p.age,
-      long_nick: p.sign,
-      qq_level: p.level,
-      level: p.level,
+      user_id: friend.uin,
+      nickname: friend.nickname,
+      remark: friend.remark,
+      sex: 'unknown',
+      age: 0,
+      long_nick: '',
     };
   }
 }
