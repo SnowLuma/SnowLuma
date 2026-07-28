@@ -252,6 +252,54 @@ describe('decodeRichBody / market face', () => {
 });
 
 describe('decodeRichBody / decoded element contract', () => {
+  it('[#291] prefers a decoded C2C media record over the empty legacy PTT placeholder', () => {
+    const fileHash = '469e23ff66ae3ebbf4c78d616e0df18b';
+    const fileSha1 = 'a00c7fbe3bfa92773ae17a2f6d381375810972e2';
+    const encoded = protobuf_encode<MessageBody>({
+      richText: {
+        elems: [{
+          commonElem: {
+            serviceType: 48,
+            businessType: 22,
+            pbElem: protobuf_encode<MsgInfo>({
+              msgInfoBody: [{
+                index: {
+                  fileUuid: 'voice-uuid',
+                  storeId: 1,
+                  uploadTime: 1785116936,
+                  ttl: 604800,
+                  info: {
+                    fileName: `${fileHash}.amr`,
+                    fileSize: 2015,
+                    fileHash,
+                    fileSha1,
+                    time: 1,
+                    type: { type: 3, voiceFormat: 1 },
+                  },
+                },
+              }],
+            }),
+          },
+        }],
+        ptt: {},
+      },
+    });
+
+    const out = decodeRichBody(protobuf_decode<MessageBody>(encoded), false);
+
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      type: 'record',
+      fileName: `${fileHash}.amr`,
+      fileId: 'voice-uuid',
+      fileSize: 2015,
+      duration: 1,
+      voiceFormat: 1,
+      md5Hex: fileHash,
+      sha1Hex: fileSha1,
+    });
+  });
+
   it('omits an absent PTT fingerprint instead of emitting an invalid empty hash', () => {
     const body: MessageBody = {
       richText: {

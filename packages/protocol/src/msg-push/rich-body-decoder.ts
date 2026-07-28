@@ -870,8 +870,14 @@ function extractRichtextExtras(
   elements: MessageElement[],
   isGroup = false
 ): void {
-  // Ptt (voice)
-  if (rt.ptt) {
+  // QQ's PTT codec selects either the NTV2 CommonElem representation or the
+  // legacy RichText.ptt representation. Some C2C pushes still carry an empty
+  // legacy placeholder beside a complete NTV2 record; decoding both produces a
+  // second, unusable voice segment (#291).
+  const hasNtv2Record = elements.some((element) => element.type === 'record');
+
+  // Ptt (legacy voice)
+  if (rt.ptt && !hasNtv2Record) {
     const p = rt.ptt;
     const md5Hex = p.fileMd5 && p.fileMd5.length > 0 ? toHexUpper(p.fileMd5) : undefined;
     const me: MessageElementOf<'record'> = {
