@@ -101,6 +101,7 @@ WebUI 的“系统设置 → 存储管理”可查看受管数据占用、调整
 | 日志树总量上限 | 1024 MB | `SNOWLUMA_LOG_MAX_TOTAL_MB` |
 | 日志保留天数 | 7 天；`0` 表示关闭按日期清理 | `SNOWLUMA_LOG_RETAIN_DAYS` |
 | 按账号额外写日志 | 关闭 | `SNOWLUMA_LOG_PER_UIN` |
+| 文件日志级别 | debug | `SNOWLUMA_LOG_FILE_LEVEL` |
 
 环境变量优先于 `config/runtime.json`，对应字段会在 WebUI 中显示为锁定。`SNOWLUMA_LOG_MAX_MB` 仅控制单个日志分卷大小，不是日志树总量上限。
 

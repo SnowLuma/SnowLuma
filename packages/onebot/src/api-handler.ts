@@ -262,8 +262,8 @@ export class ApiHandler {
     params: JsonObject,
     sink?: StreamSink,
   ): Promise<import('./types').ApiResponse> {
-    // Terse breadcrumb to the log file (debug, always persisted): lets the
-    // operator grep "what did the bot get asked to do" in post-mortems.
+    // Terse breadcrumb to the log file (debug, which is written to disk under the default
+    // file level): lets the operator grep "what did the bot get asked to do" in post-mortems.
     this.log.debug('%s params=%s', action, summarizeParams(params));
     // Full request shape, memory-only (trace). Lazy producer → the deep render
     // only runs when trace is live.
