@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useApi } from '@/lib/api';
@@ -219,6 +219,37 @@ export function AppLayout() {
     session.onLogoutComplete();
   }, [api, session]);
 
+  const migrationNotice = useMemo(() => {
+    const active = connections.filter((account) => {
+      const phase = account.databaseMigration?.phase;
+      return phase && phase !== 'complete';
+    });
+    if (active.length === 0) return null;
+    const preparing = active.filter((account) => account.databaseMigration?.phase === 'preparing').length;
+    const migrating = active.filter((account) => account.databaseMigration?.phase === 'migrating').length;
+    const failedUsable = active.filter((account) => (
+      account.databaseMigration?.phase === 'failed' && account.databaseMigration.usable
+    )).length;
+    const failedUnavailable = active.filter((account) => (
+      account.databaseMigration?.phase === 'failed' && !account.databaseMigration.usable
+    )).length;
+    const parts = [
+      ...(preparing > 0 ? [`${preparing} 个账号正在准备数据库，暂不可用`] : []),
+      ...(migrating > 0 ? [`${migrating} 个账号正在后台迁移，功能可用`] : []),
+      ...(failedUsable > 0 ? [`${failedUsable} 个可用账号迁移失败，将自动重试`] : []),
+      ...(failedUnavailable > 0 ? [`${failedUnavailable} 个账号数据库准备失败，暂不可用并将自动重试`] : []),
+    ];
+    return (
+      <div
+        role="status"
+        className="border-b border-warning/25 bg-warning/10 px-4 py-2.5 text-sm text-warning-foreground sm:px-6 lg:px-8"
+      >
+        <span className="font-medium">账号数据库状态：</span>
+        {parts.join('；')}。请查看概览详情。
+      </div>
+    );
+  }, [connections]);
+
   return (
     <AppStateProvider
       value={{
@@ -240,7 +271,7 @@ export function AppLayout() {
       <LayoutProvider>
         <KioskProvider>
           <DefaultRouteRedirect />
-          <MainLayout status={session.status} onLogout={handleLogout}>
+          <MainLayout status={session.status} onLogout={handleLogout} notice={migrationNotice}>
             {/* Routes use `lazyRouteComponent` (router/index.tsx) for
                 code-splitting, which suspends until the chunk is fetched.
                 The chrome (sidebar / top bar) stays mounted across this

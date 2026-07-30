@@ -15,7 +15,14 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn, formatBytes, formatUptime } from '@/lib/utils';
 import type { AppPath } from '@/router';
-import type { AdapterStatus, AdapterStatusLevel, LogEntry, LogLevel, UiLayoutItem } from '@/types';
+import type {
+  AccountDatabaseMigration,
+  AdapterStatus,
+  AdapterStatusLevel,
+  LogEntry,
+  LogLevel,
+  UiLayoutItem,
+} from '@/types';
 import { useApi } from '@/lib/api';
 import { useAppState } from '@/contexts/AppStateContext';
 import { useSession } from '@/contexts/SessionContext';
@@ -875,9 +882,10 @@ function ConnectionsBlock({ config }: { config: ConnectionsConfig }) {
                   <span className="text-sm font-semibold">{acc.nickname || acc.uin}</span>
                   <span className="font-mono text-meta text-muted-foreground tabular-nums">{acc.uin}</span>
                 </div>
-                {acc.adapters.length === 0 ? (
-                  <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">未配置任何协议端点</p>
-                ) : (
+                {acc.databaseMigration && acc.databaseMigration.phase !== 'complete' && (
+                  <DatabaseMigrationProgress migration={acc.databaseMigration} />
+                )}
+                {acc.adapters.length > 0 ? (
                   <div className="flex flex-col gap-1.5">
                     {acc.adapters.map((adp) => (
                       <div key={adp.name} className="flex items-center gap-2 rounded-xl border bg-card/40 px-3 py-2">
@@ -899,7 +907,9 @@ function ConnectionsBlock({ config }: { config: ConnectionsConfig }) {
                       </div>
                     ))}
                   </div>
-                )}
+                ) : acc.databaseMigration?.usable !== false ? (
+                  <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">未配置任何协议端点</p>
+                ) : null}
               </div>
             ))}
           </div>
@@ -907,6 +917,53 @@ function ConnectionsBlock({ config }: { config: ConnectionsConfig }) {
       </CardContent>
     </Card>
   );
+}
+
+function DatabaseMigrationProgress({ migration }: { migration: AccountDatabaseMigration }) {
+  const percentage = migration.progress === null
+    ? null
+    : Math.round(migration.progress * 100);
+  const title = migration.phase === 'preparing'
+    ? '正在准备数据库，账号暂不可用'
+    : migration.phase === 'failed'
+      ? (migration.usable ? '历史数据迁移失败，账号功能可用' : '数据库准备失败，账号暂不可用')
+      : '正在后台迁移历史数据，账号功能可用';
+  const eta = formatMigrationEta(migration.estimatedRemainingSeconds);
+
+  return (
+    <div className={cn(
+      'rounded-xl border px-3 py-2.5',
+      migration.phase === 'failed'
+        ? 'border-destructive/25 bg-destructive/5'
+        : 'border-warning/25 bg-warning/5',
+    )}>
+      <div className="flex items-center justify-between gap-3 text-xs">
+        <span className="font-medium">{title}</span>
+        {percentage !== null && <span className="tabular-nums">{percentage}%</span>}
+      </div>
+      {percentage !== null && <Progress className="mt-2 h-1.5" value={percentage} />}
+      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-meta text-muted-foreground">
+        {migration.total !== null && (
+          <span className="tabular-nums">
+            已处理 {migration.processed.toLocaleString()} / {migration.total.toLocaleString()} 条
+          </span>
+        )}
+        {migration.phase !== 'failed' && <span>{eta}</span>}
+        {migration.phase === 'failed' && migration.error && <span>{migration.error}</span>}
+      </div>
+    </div>
+  );
+}
+
+function formatMigrationEta(seconds: number | null): string {
+  if (seconds === null) return '剩余时间估算中';
+  if (seconds <= 0) return '即将完成';
+  if (seconds < 60) return `预计剩余 ${seconds} 秒`;
+  const minutes = Math.ceil(seconds / 60);
+  if (minutes < 60) return `预计剩余 ${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return `预计剩余 ${hours} 小时${remainder > 0 ? ` ${remainder} 分钟` : ''}`;
 }
 
 // ─────────────── static widgets (note / link / account) ───────────────

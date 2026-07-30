@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StateBus } from '../src/webui/state-bus';
 import { startConnectionDiffLoop } from '../src/webui/connection-diff-loop';
+import { comparableConnectionSnapshot } from '../src/webui/connection-snapshot';
 
 describe('startConnectionDiffLoop', () => {
   beforeEach(() => { vi.useFakeTimers(); });
@@ -68,6 +69,64 @@ describe('startConnectionDiffLoop', () => {
     handle.dispose();
   });
 
+  it('the connection projector ignores adapter detail changes', () => {
+    const baseline = [{
+      uin: '1',
+      nickname: 'account',
+      adapters: [{
+        name: 'webhook',
+        kind: 'httpClient',
+        status: 'ok',
+        detail: '上次推送 14:00:00',
+      }],
+    }];
+    const changed = [{
+      uin: '1',
+      nickname: 'account',
+      adapters: [{
+        name: 'webhook',
+        kind: 'httpClient',
+        status: 'ok',
+        detail: '上次推送 14:00:01',
+      }],
+    }];
+
+    expect(comparableConnectionSnapshot(changed))
+      .toEqual(comparableConnectionSnapshot(baseline));
+  });
+
+  it('publishes when database migration progress changes', () => {
+    const bus = new StateBus();
+    const seen: string[] = [];
+    bus.subscribe((resource) => seen.push(resource));
+    let processed = 100;
+    const handle = startConnectionDiffLoop({
+      bus,
+      getSnapshot: () => [{
+        uin: '1',
+        nickname: 'account',
+        adapters: [],
+        databaseMigration: {
+          phase: 'migrating',
+          usable: true,
+          processed,
+          total: 1000,
+          progress: processed / 1000,
+          estimatedRemainingSeconds: 90,
+        },
+      }],
+      pickComparable: comparableConnectionSnapshot,
+      intervalMs: 500,
+    });
+
+    vi.advanceTimersByTime(500);
+    processed = 200;
+    vi.advanceTimersByTime(500);
+
+    expect(seen).toEqual(['connections']);
+    handle.dispose();
+  });
+
   it('dispose() stops further ticks, no publish even after a change', () => {
     const bus = new StateBus();
     const seen: string[] = [];
@@ -103,9 +162,9 @@ describe('startConnectionDiffLoop', () => {
           uin: acc.uin,
           adapters: Array.isArray(acc.adapters)
             ? acc.adapters.map((a: unknown) => {
-                const o = a as { name?: string; kind?: string; status?: string };
-                return { name: o.name, kind: o.kind, status: o.status };
-              })
+              const o = a as { name?: string; kind?: string; status?: string };
+              return { name: o.name, kind: o.kind, status: o.status };
+            })
             : acc.adapters,
         }));
       },

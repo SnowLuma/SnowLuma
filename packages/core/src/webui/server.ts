@@ -49,6 +49,7 @@ import { sseResponse } from './sse-response';
 import { bindStateStream } from './state-stream';
 import type { StateBus, StateResource } from './state-bus';
 import { startConnectionDiffLoop } from './connection-diff-loop';
+import { comparableConnectionSnapshot } from './connection-snapshot';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
 import { findAvailablePort } from './port';
 import {
@@ -467,22 +468,7 @@ export async function initWebUI(
     startConnectionDiffLoop({
       bus: listener.stateBus,
       getSnapshot: () => oneBotManager.getConnectionStatuses(),
-      pickComparable: (snap) => {
-        if (!Array.isArray(snap)) return snap;
-        return (snap as Array<{ uin: string; nickname?: string; adapters?: unknown[] }>).map((acc) => ({
-          uin: acc.uin,
-          nickname: acc.nickname,
-          // Empty fallback when `adapters` is not an array — never the
-          // raw value, which could re-introduce volatile fields verbatim
-          // if the snapshot shape ever drifts.
-          adapters: Array.isArray(acc.adapters)
-            ? acc.adapters.map((a: unknown) => {
-              const o = a as { name?: string; kind?: string; status?: string; lastErrorAt?: number };
-              return { name: o.name, kind: o.kind, status: o.status, lastErrorAt: o.lastErrorAt };
-            })
-            : [],
-        }));
-      },
+      pickComparable: comparableConnectionSnapshot,
       intervalMs: 500,
     });
   }

@@ -38,10 +38,21 @@ export interface AdapterStatus {
   lastErrorAt?: number;
 }
 
+export interface AccountDatabaseMigration {
+  phase: 'preparing' | 'migrating' | 'complete' | 'failed';
+  usable: boolean;
+  processed: number;
+  total: number | null;
+  progress: number | null;
+  estimatedRemainingSeconds: number | null;
+  error?: string;
+}
+
 export interface AccountConnections {
   uin: string;
   nickname: string;
   adapters: AdapterStatus[];
+  databaseMigration?: AccountDatabaseMigration;
 }
 
 export interface HookProcessInfo {
