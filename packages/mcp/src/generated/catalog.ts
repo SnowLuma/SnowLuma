@@ -4349,6 +4349,10 @@ export const ACTIONS: CatalogAction[] = [
           "type": "string",
           "description": "群名"
         },
+        "group_remark": {
+          "type": "string",
+          "description": "当前账号设置的群备注"
+        },
         "member_count": {
           "type": "integer",
           "description": "当前成员数"
@@ -4373,6 +4377,7 @@ export const ACTIONS: CatalogAction[] = [
       "required": [
         "group_id",
         "group_name",
+        "group_remark",
         "member_count",
         "max_member_count"
       ]
@@ -4474,6 +4479,10 @@ export const ACTIONS: CatalogAction[] = [
             "type": "string",
             "description": "群名"
           },
+          "group_remark": {
+            "type": "string",
+            "description": "当前账号设置的群备注"
+          },
           "member_count": {
             "type": "integer",
             "description": "当前成员数"
@@ -4498,6 +4507,7 @@ export const ACTIONS: CatalogAction[] = [
         "required": [
           "group_id",
           "group_name",
+          "group_remark",
           "member_count",
           "max_member_count"
         ]
@@ -8484,6 +8494,75 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "set_friends_category",
+    "aliases": [],
+    "summary": "移动好友到指定分组",
+    "returns": "成功时返回空数据。",
+    "readOnly": false,
+    "params": [
+      {
+        "name": "uin",
+        "type": "uint",
+        "required": true,
+        "role": "user_id",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "要移动的好友 QQ 号"
+      },
+      {
+        "name": "categoryId",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "desc": "目标分组 ID"
+      },
+      {
+        "name": "categoryName",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "目标分组名称（必须唯一且完全匹配）"
+      }
+    ],
+    "invariants": [
+      "exactly one of: categoryId | categoryName"
+    ],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "uin": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "要移动的好友 QQ 号",
+          "x-role": "user_id"
+        },
+        "categoryId": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "目标分组 ID"
+        },
+        "categoryName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "目标分组名称（必须唯一且完全匹配）"
+        }
+      },
+      "required": [
+        "uin"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
+  },
+  {
     "name": "set_group_add_option",
     "aliases": [],
     "summary": "设置加群选项",
@@ -10962,7 +11041,7 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "扩展",
-    "count": 110
+    "count": 111
   },
   {
     "category": "群相册",
