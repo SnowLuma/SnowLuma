@@ -53,7 +53,11 @@ export interface OneBotInstanceContext {
   config: OneBotConfig;
   musicSignUrl?: string;
   cacheMessageMeta(messageId: number, meta: MessageMeta): void;
-  dispatchEvent(event: JsonObject, source?: 'bridge' | 'send'): void;
+  dispatchEvent(
+    event: JsonObject,
+    source?: 'bridge' | 'send',
+    startedAt?: number,
+  ): void;
 }
 
 export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {

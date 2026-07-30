@@ -1,4 +1,4 @@
-import { createLogger, getLogLevel, nextRequestId, runWithRequestId, type Logger } from '@snowluma/common/logger';
+import { createLogger, runWithTraceRequest, type Logger } from '@snowluma/common/logger';
 import { renderParamsVerbose } from '@snowluma/common/log-summary';
 import type { QQEventVariant } from '@snowluma/protocol/events';
 import { convertEvent } from './event-converter';
@@ -34,39 +34,55 @@ export function registerEventPipeline(ctx: OneBotInstanceContext): EventPipeline
   let accepting = true;
 
   const track = (
-    kind: QQEventVariant['kind'],
-    start: () => void | Promise<void>,
+    event: QQEventVariant,
+    start: (state: EventTraceState) => void | Promise<void>,
   ): Promise<void> => {
     if (!accepting) return Promise.resolve();
-    let operation: Promise<void>;
-    try {
-      operation = Promise.resolve(start());
-    } catch (error) {
-      operation = Promise.reject(error);
-    }
-    const tracked = operation.then(
-      () => undefined,
-      (error) => {
-        log.error(
-          'event pipeline handler failed kind=%s: %s',
-          kind,
-          error instanceof Error ? (error.stack ?? error.message) : String(error),
-        );
-      },
-    );
-    inFlight.add(tracked);
-    void tracked.then(() => { inFlight.delete(tracked); });
-    return tracked;
+    return runWithTraceRequest(() => {
+      const state: EventTraceState = {
+        startedAt: Date.now(),
+        handedOff: false,
+        terminalEmitted: false,
+      };
+      log.trace(() => [
+        'event_input kind=%s event=%s',
+        event.kind,
+        renderParamsVerbose(event),
+      ]);
+
+      let operation: Promise<void>;
+      try {
+        operation = Promise.resolve(start(state));
+      } catch (error) {
+        operation = Promise.reject(error);
+      }
+      const tracked = operation.then(
+        () => undefined,
+        (error) => {
+          if (!state.handedOff && !state.terminalEmitted) {
+            traceEventTerminal(log, event.kind, state, 'failed', 'pipeline_threw', error);
+          }
+          log.error(
+            'event pipeline handler failed kind=%s: %s',
+            event.kind,
+            error instanceof Error ? (error.stack ?? error.message) : String(error),
+          );
+        },
+      );
+      inFlight.add(tracked);
+      void tracked.then(() => { inFlight.delete(tracked); });
+      return tracked;
+    });
   };
 
   disposers.push(
-    ctx.bridge.events.on('group_message', (event) => track(event.kind, async () => {
+    ctx.bridge.events.on('group_message', (event) => track(event, async (state) => {
       cacheGroupMessageMeta(ctx, event);
-      await convertAndDispatch(ctx, log, event);
+      await convertAndDispatch(ctx, log, event, state);
     })),
   );
   disposers.push(
-    ctx.bridge.events.on('friend_message', (event) => track(event.kind, async () => {
+    ctx.bridge.events.on('friend_message', (event) => track(event, async (state) => {
       cachePrivateMessageMeta(
         ctx,
         event.peerUin ?? event.senderUin,
@@ -78,11 +94,11 @@ export function registerEventPipeline(ctx: OneBotInstanceContext): EventPipeline
         event.sequenceAuthoritative !== false,
         event.senderUin === ctx.selfId ? 'outgoing' : 'incoming',
       );
-      await convertAndDispatch(ctx, log, event);
+      await convertAndDispatch(ctx, log, event, state);
     })),
   );
   disposers.push(
-    ctx.bridge.events.on('temp_message', (event) => track(event.kind, async () => {
+    ctx.bridge.events.on('temp_message', (event) => track(event, async (state) => {
       cachePrivateMessageMeta(
         ctx,
         event.senderUin,
@@ -97,12 +113,12 @@ export function registerEventPipeline(ctx: OneBotInstanceContext): EventPipeline
       // Record this group temp session so a later reply is limited to sessions
       // the peer opened.
       ctx.tempSessions.record(event.senderUin, event.groupId);
-      await convertAndDispatch(ctx, log, event);
+      await convertAndDispatch(ctx, log, event, state);
     })),
   );
   for (const kind of NOTICE_KINDS) {
     disposers.push(
-      ctx.bridge.events.on(kind, (event) => track(event.kind, async () => {
+      ctx.bridge.events.on(kind, (event) => track(event, async (state) => {
         if (event.kind === 'group_msg_emoji_like') {
           cacheReaction(ctx, event);
         }
@@ -125,15 +141,16 @@ export function registerEventPipeline(ctx: OneBotInstanceContext): EventPipeline
             );
           }
         }
-        await convertAndDispatch(ctx, log, event, messageIdOverride);
+        await convertAndDispatch(ctx, log, event, state, messageIdOverride);
       })),
     );
   }
   // Internal-only: voice-to-text result push. Not converted to a OneBot event —
   // it just unblocks the fetch_ptt_text call waiting on this msgId.
   disposers.push(
-    ctx.bridge.events.on('ptt_trans_result', (event) => track(event.kind, () => {
+    ctx.bridge.events.on('ptt_trans_result', (event) => track(event, (state) => {
       deliverPttTransText(pttTransKey(event.selfUin, event.msgId), event.text);
+      traceEventTerminal(log, event.kind, state, 'internal', 'waiter_notified');
     })),
   );
 
@@ -188,44 +205,53 @@ const NOTICE_KINDS = [
   'group_msg_emoji_like',
 ] as const satisfies readonly QQEventVariant['kind'][];
 
+interface EventTraceState {
+  startedAt: number;
+  handedOff: boolean;
+  terminalEmitted: boolean;
+}
+
+type PipelineEventOutcome = 'dropped' | 'failed' | 'internal';
+type PipelineEventReason =
+  | 'converter_returned_null'
+  | 'converter_threw'
+  | 'pipeline_threw'
+  | 'recalled_before_backfill'
+  | 'recalled_after_backfill'
+  | 'waiter_notified';
+
 async function convertAndDispatch(
   ctx: OneBotInstanceContext,
   log: Logger,
   event: QQEventVariant,
+  state: EventTraceState,
   messageIdOverride?: number,
 ): Promise<void> {
-  // Inbound choke point — the receive-side mirror of the outbound api-handler.
-  // Correlate the whole receive chain (decode → convert, incl. any rkey-fetch
-  // packets the conversion triggers, → dispatch) under one [req#N]. Only pay
-  // the AsyncLocalStorage wrap + id when trace is actually live.
-  if (getLogLevel() !== 'trace') {
-    await runConvertAndDispatch(ctx, log, event, messageIdOverride);
-    return;
+  let converted;
+  try {
+    converted = await convertEvent(ctx.converterCtx, event);
+  } catch (error) {
+    traceEventTerminal(log, event.kind, state, 'failed', 'converter_threw', error);
+    throw error;
   }
-  await runWithRequestId(nextRequestId(), () => (
-    runConvertAndDispatch(ctx, log, event, messageIdOverride)
-  ));
-}
 
-async function runConvertAndDispatch(
-  ctx: OneBotInstanceContext,
-  log: Logger,
-  event: QQEventVariant,
-  messageIdOverride?: number,
-): Promise<void> {
-  // Raw inbound event, memory-only (trace). Lazy → the deep render runs only
-  // when trace is live.
-  log.trace(() => [`recv ${event.kind} ⇐ %s`, renderParamsVerbose(event)]);
-  const startedAt = Date.now();
-  const converted = await convertEvent(ctx.converterCtx, event);
   if (!converted) {
-    log.trace(() => [`recv ${event.kind} ⇒ dropped (${Date.now() - startedAt}ms)`]);
+    traceEventTerminal(log, event.kind, state, 'dropped', 'converter_returned_null');
     return;
   }
   if (messageIdOverride !== undefined && event.kind === 'friend_recall') {
     converted.message_id = messageIdOverride;
   }
-  if (event.kind === 'friend_message' && isFriendMessageRecalled(ctx, log, event)) return;
+  log.trace(() => [
+    'event_converted kind=%s event=%s',
+    event.kind,
+    renderParamsVerbose(converted),
+  ]);
+
+  if (event.kind === 'friend_message' && isFriendMessageRecalled(ctx, log, event)) {
+    traceEventTerminal(log, event.kind, state, 'dropped', 'recalled_before_backfill');
+    return;
+  }
   // If this message quotes one we don't have, fetch + persist it first (gated +
   // throttled) so a consumer's get_msg on the quote resolves. No-op for the
   // common case (no reply, or the quoted message is already stored). Never let a
@@ -240,12 +266,43 @@ async function runConvertAndDispatch(
       event.kind,
       error instanceof Error ? (error.stack ?? error.message) : String(error),
     );
+    log.trace(() => [
+      'event_branch kind=%s reason=reply_backfill_failed error=%s',
+      event.kind,
+      error instanceof Error ? (error.stack ?? error.message) : String(error),
+    ]);
   }
   // Backfill can await several network/media operations. Re-check immediately
   // before dispatch so a recall that arrived during that gap wins the race.
-  if (event.kind === 'friend_message' && isFriendMessageRecalled(ctx, log, event)) return;
-  ctx.dispatchEvent(converted, 'bridge');
-  log.trace(() => [`recv ${event.kind} ⇒ ${String(converted.post_type ?? '?')} (${Date.now() - startedAt}ms)`]);
+  if (event.kind === 'friend_message' && isFriendMessageRecalled(ctx, log, event)) {
+    traceEventTerminal(log, event.kind, state, 'dropped', 'recalled_after_backfill');
+    return;
+  }
+
+  ctx.dispatchEvent(converted, 'bridge', state.startedAt);
+  state.handedOff = true;
+}
+
+function traceEventTerminal(
+  log: Logger,
+  kind: QQEventVariant['kind'],
+  state: EventTraceState,
+  outcome: PipelineEventOutcome,
+  reason: PipelineEventReason,
+  error?: unknown,
+): void {
+  if (state.terminalEmitted) return;
+  state.terminalEmitted = true;
+  log.trace(() => [
+    'event_terminal kind=%s outcome=%s reason=%s ms=%d%s',
+    kind,
+    outcome,
+    reason,
+    Date.now() - state.startedAt,
+    error === undefined
+      ? ''
+      : ` error=${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+  ]);
 }
 
 function cacheGroupMessageMeta(ctx: OneBotInstanceContext, event: Extract<QQEventVariant, { kind: 'group_message' }>): void {

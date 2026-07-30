@@ -1,4 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  getLogLevel,
+  runWithRequestId,
+  setLogLevel,
+  subscribeLogs,
+  type LogEntry,
+} from '@snowluma/common/logger';
 import { createHmac } from 'crypto';
 import { buildDispatchPayload } from '../src/event-filter';
 import { HttpPostAdapter } from '../src/network/http-post-adapter';
@@ -40,6 +47,44 @@ describe('HttpPostAdapter event ownership', () => {
     finishFetch();
     await posting;
     expect(completed).toBe(true);
+  });
+
+  it.each([
+    ['accepted', () => Promise.resolve(new Response(null, { status: 204 })), 204],
+    ['rejected', () => Promise.resolve(new Response(null, { status: 503 })), 503],
+    ['transport_failed', () => Promise.reject(new Error('network down')), undefined],
+  ] as const)('traces a truthful %s terminal', async (outcome, fetchImpl, status) => {
+    const previousLevel = getLogLevel();
+    const entries: LogEntry[] = [];
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    setLogLevel('trace');
+    vi.stubGlobal('fetch', vi.fn(fetchImpl));
+    try {
+      const config: HttpClientNetwork = {
+        name: 'post',
+        url: 'http://127.0.0.1:5700/events',
+        messageFormat: 'array',
+        reportSelfMessage: false,
+      };
+      const adapter = new HttpPostAdapter('post', config, CTX);
+      adapter.open();
+      const event: JsonObject = { post_type: 'notice', notice_type: 'trace' };
+
+      await runWithRequestId(7100, () => adapter.onEvent(event, buildDispatchPayload(event)));
+
+      const terminals = entries.filter((entry) => (
+        entry.scope === 'OneBot.POST'
+        && entry.level === 'trace'
+        && entry.req === 7100
+        && entry.message.startsWith('http_report_terminal')
+      ));
+      expect(terminals).toHaveLength(1);
+      expect(terminals[0]?.message).toContain(`target=post outcome=${outcome}`);
+      if (status !== undefined) expect(terminals[0]?.message).toContain(`status=${status}`);
+    } finally {
+      unsubscribe();
+      setLogLevel(previousLevel);
+    }
   });
 
   it('uses one coherent config epoch when reload races HMAC computation', async () => {

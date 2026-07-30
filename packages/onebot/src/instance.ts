@@ -171,7 +171,7 @@ export class OneBotInstance {
       config,
       musicSignUrl: globalSettings.musicSignUrl,
       cacheMessageMeta: (messageId, meta) => this.cacheMessageMeta(messageId, meta),
-      dispatchEvent: (event, source = 'bridge') => this.dispatchEvent(event, source),
+      dispatchEvent: (event, source = 'bridge', startedAt) => this.dispatchEvent(event, source, startedAt),
     };
     this.ctx = ctx;
 
@@ -343,7 +343,11 @@ export class OneBotInstance {
     return this.pids.size === 0;
   }
 
-  private dispatchEvent(event: JsonObject, source: 'bridge' | 'send' = 'bridge'): void {
+  private dispatchEvent(
+    event: JsonObject,
+    source: 'bridge' | 'send' = 'bridge',
+    startedAt = Date.now(),
+  ): void {
     if (source === 'bridge') {
       this.cacheMessageEvent(event);
       if (this.consumePendingSelfSentEcho(event)) {
@@ -352,6 +356,7 @@ export class OneBotInstance {
           toInt(event.message_id),
           toInt(event.message_seq),
         );
+        this.traceEventHandoffTerminal(event, startedAt, 'suppressed', 'duplicate_self_echo');
         return;
       }
     } else {
@@ -364,10 +369,29 @@ export class OneBotInstance {
     if (source === 'bridge') this.logReceivedMessage(event);
     // Built-in `#sl` only consumes events observed from QQ. Action-originated
     // messages must not recursively trigger the command handler.
-    if (source === 'bridge' && this.handleStatusCommand(event)) return;
+    if (source === 'bridge' && this.handleStatusCommand(event)) {
+      this.traceEventHandoffTerminal(event, startedAt, 'suppressed', 'status_command');
+      return;
+    }
+    this.traceEventHandoffTerminal(event, startedAt, 'reporting_started');
     void this.networkManager.emitEvent(event).catch((err) => {
       this.log.warn('emitEvent failed: %s', err instanceof Error ? (err.stack ?? err.message) : String(err));
     });
+  }
+
+  private traceEventHandoffTerminal(
+    event: JsonObject,
+    startedAt: number,
+    outcome: 'suppressed' | 'reporting_started',
+    reason?: 'duplicate_self_echo' | 'status_command',
+  ): void {
+    this.log.trace(() => [
+      'event_terminal post_type=%s outcome=%s%s ms=%d',
+      String(event.post_type ?? '?'),
+      outcome,
+      reason === undefined ? '' : ` reason=${reason}`,
+      Date.now() - startedAt,
+    ]);
   }
 
   private rememberPendingSelfSentEcho(event: JsonObject): void {

@@ -9,7 +9,12 @@ import {
 import type { ApiHandler } from '../api-handler';
 import type { DispatchPayload } from '../event-filter';
 import type { ApiResponse, HttpServerNetwork, JsonObject, JsonValue } from '../types';
-import { type StreamSink, wrapStreamFrame, wrapStreamTerminal } from '../streaming';
+import {
+  StreamTransportClosedError,
+  type StreamSink,
+  wrapStreamFrame,
+  wrapStreamTerminal,
+} from '../streaming';
 import { IOneBotNetworkAdapter, type AdapterStatus, type NetworkAdapterContext } from './adapter';
 import { isAuthorized, normalizePath } from './utils';
 import { WsServerConnections } from './ws-server-connections';
@@ -233,6 +238,14 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
   }
 
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const apiQuiescedAtIngress = this.ctx.api.isAcceptingActions === false;
+    if (apiQuiescedAtIngress) {
+      writeJson(res, 503, serverClosingResponse());
+    }
+    const respond = (statusCode: number, data: unknown): void => {
+      if (apiQuiescedAtIngress) return;
+      writeJson(res, statusCode, data);
+    };
     const expectedPath = normalizePath(this.config.path ?? '/');
     const accessToken = this.config.accessToken ?? '';
     const parsedUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
@@ -245,17 +258,17 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
     } else if (incomingPath.startsWith(ep)) {
       action = incomingPath.substring(ep.length);
     } else {
-      writeJson(res, 404, { status: 'failed', retcode: 1404, data: null, wording: 'not found' });
+      respond(404, { status: 'failed', retcode: 1404, data: null, wording: 'not found' });
       return;
     }
 
     if (!isAuthorized(req, accessToken)) {
-      writeJson(res, 401, { status: 'failed', retcode: 1401, data: null, wording: 'unauthorized' });
+      respond(401, { status: 'failed', retcode: 1401, data: null, wording: 'unauthorized' });
       return;
     }
 
     if (req.method === 'GET' && !action) {
-      writeJson(res, 200, { status: 'ok', retcode: 0, data: { online: true } });
+      respond(200, { status: 'ok', retcode: 0, data: { online: true } });
       return;
     }
 
@@ -306,7 +319,7 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
               }
             } catch {
               if (contentType.includes('application/json')) {
-                writeJson(res, 400, { status: 'failed', retcode: 1400, data: null, wording: 'bad request: invalid json' });
+                respond(400, { status: 'failed', retcode: 1400, data: null, wording: 'bad request: invalid json' });
                 return;
               }
               // 无 content-type，JSON 失败则 fallback 到 urlencoded
@@ -328,17 +341,28 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
               }
             }
           } else {
-            writeJson(res, 400, { status: 'failed', retcode: 1400, data: null, wording: `bad request: unsupported content-type: ${contentType}` });
+            respond(400, { status: 'failed', retcode: 1400, data: null, wording: `bad request: unsupported content-type: ${contentType}` });
             return;
           }
         }
       } else {
-        writeJson(res, 405, { status: 'failed', retcode: 1400, data: null, wording: 'method not allowed' });
+        respond(405, { status: 'failed', retcode: 1400, data: null, wording: 'method not allowed' });
         return;
       }
 
       if (!action) {
-        writeJson(res, 400, { status: 'failed', retcode: 1400, data: null, wording: 'bad request: missing action' });
+        respond(400, { status: 'failed', retcode: 1400, data: null, wording: 'bad request: missing action' });
+        return;
+      }
+
+      if (apiQuiescedAtIngress) {
+        const response = serverClosingResponse();
+        this.ctx.api.traceQuiescedAction(
+          action,
+          params as JsonObject,
+          response,
+        );
+        respond(503, response);
         return;
       }
 
@@ -353,16 +377,26 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
       if (echo !== undefined) {
         response.echo = echo as JsonValue;
       }
-      writeJson(res, 200, response);
+      respond(200, response);
     } catch (error) {
       const wording = error instanceof Error ? error.message : 'internal error';
-      writeJson(res, 500, { status: 'failed', retcode: 1200, data: null, wording });
+      respond(500, { status: 'failed', retcode: 1200, data: null, wording });
     }
   }
 
   private trackInboundAction(req: IncomingMessage, res: ServerResponse): void {
-    if (!this.acceptingActions || this.ctx.api.isAcceptingActions === false) {
-      writeJson(res, 503, { status: 'failed', retcode: 1200, data: null, wording: 'server closing' });
+    if (!this.acceptingActions) {
+      writeJson(res, 503, serverClosingResponse());
+      return;
+    }
+    if (this.ctx.api.isAcceptingActions === false) {
+      void this.handleRequest(req, res).catch((error) => {
+        this.log.warn(
+          '[%s] quiesced inbound action trace failed: %s',
+          this.name,
+          error instanceof Error ? (error.stack ?? error.message) : String(error),
+        );
+      });
       return;
     }
     let action: Promise<void>;
@@ -382,6 +416,15 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
     this.inFlightActions.add(tracked);
     void tracked.then(() => { this.inFlightActions.delete(tracked); });
   }
+}
+
+function serverClosingResponse(): ApiResponse {
+  return {
+    status: 'failed',
+    retcode: 1200,
+    data: null,
+    wording: 'server closing',
+  };
 }
 
 function isAlreadyClosedError(error: Error): boolean {
@@ -431,13 +474,21 @@ async function streamHttpResponse(
 ): Promise<void> {
   res.statusCode = 200;
   const writeFrame = (frame: ApiResponse): Promise<void> =>
-    new Promise((resolve) => {
-      if (res.writableEnded || res.destroyed) { resolve(); return; }
-      res.write(JSON.stringify(frame) + '\r\n\r\n', () => resolve());
+    new Promise((resolve, reject) => {
+      if (res.writableEnded || res.destroyed) {
+        reject(new StreamTransportClosedError('stream client disconnected'));
+        return;
+      }
+      res.write(JSON.stringify(frame) + '\r\n\r\n', (error) => {
+        if (error) {
+          reject(new StreamTransportClosedError('stream client disconnected'));
+          return;
+        }
+        resolve();
+      });
     });
   const sink: StreamSink = {
     send: async (frame) => {
-      if (res.writableEnded || res.destroyed) throw new Error('stream client disconnected');
       await writeFrame(wrapStreamFrame(frame, echo));
     },
   };

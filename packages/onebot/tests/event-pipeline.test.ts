@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getRecentLogs } from '@snowluma/common/logger';
+import {
+  getLogLevel,
+  getRecentLogs,
+  nextRequestId,
+  runWithRequestId,
+  setLogLevel,
+  subscribeLogs,
+  type LogEntry,
+} from '@snowluma/common/logger';
 import { BridgeEventBus } from '@snowluma/protocol/event-bus';
 
 // Wrap convertEvent in a vi.fn that delegates to the real impl by
@@ -100,6 +108,11 @@ function makeContext(extra: Partial<OneBotInstanceContext> = {}): {
   bus: BridgeEventBus;
   metaCalls: Array<{ id: number; meta: MessageMeta }>;
   dispatchCalls: JsonObject[];
+  dispatchArgs: Array<{
+    event: JsonObject;
+    source: 'bridge' | 'send' | undefined;
+    startedAt: number | undefined;
+  }>;
 } {
   const bus = new BridgeEventBus();
   const fakeBridge: FakeBridge = { events: bus };
@@ -112,6 +125,11 @@ function makeContext(extra: Partial<OneBotInstanceContext> = {}): {
   };
   const metaCalls: Array<{ id: number; meta: MessageMeta }> = [];
   const dispatchCalls: JsonObject[] = [];
+  const dispatchArgs: Array<{
+    event: JsonObject;
+    source: 'bridge' | 'send' | undefined;
+    startedAt: number | undefined;
+  }> = [];
 
   const ctx: OneBotInstanceContext = {
     uin: SELF_UIN,
@@ -131,11 +149,14 @@ function makeContext(extra: Partial<OneBotInstanceContext> = {}): {
     converterCtx,
     config: { networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] } } as never,
     cacheMessageMeta: (id, meta) => { metaCalls.push({ id, meta }); },
-    dispatchEvent: (event) => { dispatchCalls.push(event); },
+    dispatchEvent: (event, source, startedAt) => {
+      dispatchCalls.push(event);
+      dispatchArgs.push({ event, source, startedAt });
+    },
     ...extra,
   };
 
-  return { ctx, bus, metaCalls, dispatchCalls };
+  return { ctx, bus, metaCalls, dispatchCalls, dispatchArgs };
 }
 
 describe('registerEventPipeline', () => {
@@ -381,5 +402,138 @@ describe('registerEventPipeline', () => {
 
     await bus.emit(makeFriendMessage());
     expect(dispatchCalls).toHaveLength(0);
+  });
+
+  it('traces complete input and conversion under one request before handoff', async () => {
+    const previousLevel = getLogLevel();
+    const entries: LogEntry[] = [];
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    setLogLevel('trace');
+    try {
+      const marker = 'complete-event-' + 'x'.repeat(200);
+      const { ctx, bus, dispatchArgs } = makeContext();
+      registerEventPipeline(ctx);
+
+      await bus.emit({
+        ...makeFriendMessage(),
+        senderNick: marker,
+        elements: [{ type: 'text', text: marker }],
+      });
+
+      const lifecycle = entries.filter((entry) => (
+        entry.scope === 'Event'
+        && entry.level === 'trace'
+        && (entry.message.startsWith('event_input kind=friend_message')
+          || entry.message.startsWith('event_converted kind=friend_message'))
+      ));
+      expect(lifecycle).toHaveLength(2);
+      expect(lifecycle[0]?.message).toContain(marker);
+      expect(lifecycle[1]?.message).toContain(marker);
+      expect(new Set(lifecycle.map((entry) => entry.req)).size).toBe(1);
+      expect(lifecycle[0]?.req).toBeTypeOf('number');
+      expect(dispatchArgs[0]).toMatchObject({ source: 'bridge' });
+      expect(dispatchArgs[0]?.startedAt).toBeTypeOf('number');
+      expect(entries.some((entry) => (
+        entry.scope === 'Event'
+        && entry.message.startsWith('event_terminal kind=friend_message')
+      ))).toBe(false);
+    } finally {
+      unsubscribe();
+      setLogLevel(previousLevel);
+    }
+  });
+
+  it('classifies converter null, converter throw, recall, backfill failure, and internal consumption', async () => {
+    const previousLevel = getLogLevel();
+    const entries: LogEntry[] = [];
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    setLogLevel('trace');
+    try {
+      vi.mocked(convertEvent).mockResolvedValueOnce(null);
+      const nullCase = makeContext();
+      registerEventPipeline(nullCase.ctx);
+      await nullCase.bus.emit(makeFriendMessage());
+
+      vi.mocked(convertEvent).mockRejectedValueOnce(new Error('converter exploded'));
+      const throwCase = makeContext();
+      registerEventPipeline(throwCase.ctx);
+      await throwCase.bus.emit(makeFriendMessage());
+
+      const recalledCase = makeContext({
+        messageStore: { isPrivateMessageRecalled: () => true } as never,
+      });
+      registerEventPipeline(recalledCase.ctx);
+      await recalledCase.bus.emit(makeFriendMessage());
+
+      vi.mocked(backfillReplyTarget).mockRejectedValueOnce(new Error('backfill exploded'));
+      const branchCase = makeContext();
+      registerEventPipeline(branchCase.ctx);
+      await branchCase.bus.emit(makeFriendMessage());
+
+      const internalCase = makeContext();
+      registerEventPipeline(internalCase.ctx);
+      await internalCase.bus.emit({
+        kind: 'ptt_trans_result',
+        time: 1700000000,
+        selfUin: SELF_ID,
+        msgId: 99,
+        text: 'done',
+      });
+
+      const terminals = entries
+        .filter((entry) => entry.scope === 'Event' && entry.message.startsWith('event_terminal'))
+        .map((entry) => entry.message);
+      expect(terminals).toEqual(expect.arrayContaining([
+        expect.stringContaining('outcome=dropped reason=converter_returned_null'),
+        expect.stringContaining('outcome=failed reason=converter_threw'),
+        expect.stringContaining('outcome=dropped reason=recalled_before_backfill'),
+        expect.stringContaining('outcome=internal reason=waiter_notified'),
+      ]));
+      expect(entries.some((entry) => (
+        entry.scope === 'Event'
+        && entry.message.includes('event_branch kind=friend_message reason=reply_backfill_failed')
+        && entry.message.includes('backfill exploded')
+      ))).toBe(true);
+      expect(branchCase.dispatchCalls).toHaveLength(1);
+      expect(terminals.filter((message) => message.includes('converter exploded'))).toHaveLength(1);
+    } finally {
+      unsubscribe();
+      setLogLevel(previousLevel);
+    }
+  });
+
+  it('reuses an ambient request, separates top-level events, and allocates none while TRACE is disabled', async () => {
+    const previousLevel = getLogLevel();
+    const entries: LogEntry[] = [];
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      setLogLevel('trace');
+      const { ctx, bus } = makeContext();
+      registerEventPipeline(ctx);
+      await runWithRequestId(515151, () => bus.emit(makeFriendMessage()));
+      expect(entries.filter((entry) => (
+        entry.scope === 'Event'
+        && entry.level === 'trace'
+        && entry.message.includes('kind=friend_message')
+      )).every((entry) => entry.req === 515151)).toBe(true);
+
+      entries.length = 0;
+      await bus.emit(makeFriendMessage());
+      await bus.emit(makeFriendMessage());
+      const inputs = entries.filter((entry) => (
+        entry.scope === 'Event'
+        && entry.message.startsWith('event_input kind=friend_message')
+      ));
+      expect(inputs).toHaveLength(2);
+      expect(inputs[0]?.req).not.toBe(inputs[1]?.req);
+
+      setLogLevel('info');
+      const before = nextRequestId();
+      await bus.emit(makeFriendMessage());
+      expect(nextRequestId()).toBe(before + 1);
+    } finally {
+      unsubscribe();
+      setLogLevel(previousLevel);
+    }
   });
 });

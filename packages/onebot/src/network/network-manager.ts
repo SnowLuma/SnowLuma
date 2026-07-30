@@ -250,20 +250,34 @@ export class OneBotNetworkManager {
         try { cb(event); } catch (error) { log.warn('debug subscriber error: %s', errMessage(error)); }
       }
     }
-    if (!this.hasActiveAdapters()) return;
-    const payload = buildDispatchPayload(event);
-    const tasks: Promise<unknown>[] = [];
-    for (const { adapter } of this.adapters.values()) {
-      if (!adapter.isActive) continue;
-      tasks.push(
-        Promise.resolve()
-          .then(() => adapter.onEvent(event, payload))
-          .catch((error) => {
-            log.warn('adapter [%s] onEvent error: %s', adapter.name, errMessage(error));
-          }),
-      );
+
+    const active = [...this.adapters.values()]
+      .map(({ adapter }) => adapter)
+      .filter((adapter) => adapter.isActive);
+    if (active.length === 0) {
+      log.trace('report_terminal outcome=no_active_targets');
+      return;
     }
+    log.trace(() => [
+      'report_targets targets=%s',
+      JSON.stringify(active.map((adapter) => adapter.name)),
+    ]);
+
+    const payload = buildDispatchPayload(event);
+    const tasks = active.map((adapter) => (
+      Promise.resolve()
+        .then(() => adapter.onEvent(event, payload))
+        .catch((error) => {
+          log.warn('adapter [%s] onEvent error: %s', adapter.name, errMessage(error));
+          log.trace(() => [
+            'report_target_failed target=%s error=%s',
+            adapter.name,
+            error instanceof Error ? (error.stack ?? error.message) : String(error),
+          ]);
+        })
+    ));
     await Promise.allSettled(tasks);
+    log.trace('report_terminal outcome=settled');
   }
 
   private async reconcileNow(desired: DesiredNetworkAdapter[]): Promise<NetworkReconcileResult> {

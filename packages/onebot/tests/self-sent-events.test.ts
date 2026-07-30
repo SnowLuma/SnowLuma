@@ -1,4 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
+import {
+  createLogger,
+  getLogLevel,
+  runWithRequestId,
+  setLogLevel,
+  subscribeLogs,
+  type LogEntry,
+} from '@snowluma/common/logger';
 import type { BridgeInterface } from '../../core/src/bridge/bridge-interface';
 import { OneBotInstance } from '../src/instance';
 import { buildApiContext, type OneBotInstanceContext } from '../src/instance-context';
@@ -97,7 +105,10 @@ interface InstanceHarness {
   stored: Map<number, JsonObject>;
 }
 
-function makeInstanceHarness(): InstanceHarness {
+function makeInstanceHarness(options: {
+  statusCommand?: { enabled: boolean; swallow: boolean; cooldownSeconds: number; trigger: string };
+  logger?: ReturnType<typeof createLogger>;
+} = {}): InstanceHarness {
   const stored = new Map<number, JsonObject>();
   const emitEvent = vi.fn(async (_event: JsonObject) => {});
   const instance = Object.create(OneBotInstance.prototype) as OneBotInstance;
@@ -105,10 +116,11 @@ function makeInstanceHarness(): InstanceHarness {
     bridge: { identity: {} },
     ctx: {
       config: {
-        statusCommand: { enabled: false, swallow: false, cooldownSeconds: 5, trigger: '#sl' },
+        statusCommand: options.statusCommand
+          ?? { enabled: false, swallow: false, cooldownSeconds: 5, trigger: '#sl' },
       },
     },
-    log: { success: vi.fn(), trace: vi.fn(), warn: vi.fn() },
+    log: options.logger ?? { success: vi.fn(), trace: vi.fn(), warn: vi.fn() },
     messageStore: {
       findEvent: (messageId: number) => stored.get(messageId) ?? null,
       storeEvent: (messageId: number, _isGroup: boolean, _sessionId: number, _sequence: number, _eventName: string, event: JsonObject) => {
@@ -116,7 +128,9 @@ function makeInstanceHarness(): InstanceHarness {
       },
     },
     networkManager: { emitEvent },
-    statusCommandCooldown: new Map(),
+    acceptingActions: true,
+    uin: String(SELF_ID),
+    statusCommandCooldown: new Map([['p:20002', Date.now()]]),
     pendingSelfSentEchoes: new Map(),
   });
   const dispatch = (instance as unknown as {
@@ -392,6 +406,56 @@ describe('OneBot self-sent events', () => {
 
     expect(emitEvent).toHaveBeenCalledOnce();
     expect(stored.get(987654)?.raw_message).toBe('canonical echo');
+  });
+
+  it('records one truthful handoff terminal for reporting, duplicate suppression, and status suppression', () => {
+    const previousLevel = getLogLevel();
+    const entries: LogEntry[] = [];
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    setLogLevel('trace');
+    try {
+      const logger = createLogger('Event').child({ uin: SELF_ID });
+      const reporting = makeInstanceHarness({ logger });
+      runWithRequestId(6001, () => reporting.dispatch(privateSentEvent(), 'send'));
+      expect(reporting.emitEvent).toHaveBeenCalledOnce();
+
+      const duplicate = makeInstanceHarness({ logger });
+      runWithRequestId(6002, () => {
+        duplicate.dispatch(privateSentEvent(), 'send');
+        duplicate.dispatch(privateSentEvent({ raw_message: 'canonical' }), 'bridge');
+      });
+      expect(duplicate.emitEvent).toHaveBeenCalledOnce();
+
+      const status = makeInstanceHarness({
+        logger,
+        statusCommand: { enabled: true, swallow: true, cooldownSeconds: 5, trigger: '#sl' },
+      });
+      runWithRequestId(6003, () => status.dispatch(privateSentEvent({
+        post_type: 'message',
+        user_id: PEER_ID,
+        target_id: undefined,
+        raw_message: '#sl',
+        message: [{ type: 'text', data: { text: '#sl' } }],
+      }), 'bridge'));
+      expect(status.emitEvent).not.toHaveBeenCalled();
+
+      const terminals = entries.filter((entry) => (
+        entry.scope === 'Event'
+        && entry.level === 'trace'
+        && entry.message.startsWith('event_terminal')
+      ));
+      expect(terminals.filter((entry) => entry.req === 6001)).toHaveLength(1);
+      expect(terminals.find((entry) => entry.req === 6001)?.message).toContain('outcome=reporting_started');
+      expect(terminals.filter((entry) => entry.req === 6002)).toHaveLength(2);
+      expect(terminals.find((entry) => (
+        entry.req === 6002 && entry.message.includes('reason=duplicate_self_echo')
+      ))?.message).toContain('outcome=suppressed');
+      expect(terminals.filter((entry) => entry.req === 6003)).toHaveLength(1);
+      expect(terminals[terminals.length - 1]?.message).toContain('outcome=suppressed reason=status_command');
+    } finally {
+      unsubscribe();
+      setLogLevel(previousLevel);
+    }
   });
 
   it('does not dispatch an event for a receipt without a reliable sequence', async () => {

@@ -126,6 +126,32 @@ describe('WsClientAdapter — stale-socket close guard (issue #97)', () => {
     expect(closed).toBe(true);
   });
 
+  it('records and drops a valid action after API quiesce', async () => {
+    const processStreamRequest = vi.fn(async () => {});
+    const traceQuiescedStreamRequest = vi.fn();
+    const quiescedCtx: NetworkAdapterContext = {
+      ...ctx(),
+      api: {
+        isAcceptingActions: false,
+        processStreamRequest,
+        traceQuiescedStreamRequest,
+      } as never,
+    };
+    const adapter = new WsClientAdapter('ws', cfg(), quiescedCtx);
+    adapter.open();
+    const socket = instances[0];
+    const raw = Buffer.from(JSON.stringify({
+      action: 'get_status',
+      params: { detail: 'complete' },
+    }));
+
+    socket.emit('message', raw);
+
+    expect(traceQuiescedStreamRequest).toHaveBeenCalledWith(raw.toString('utf8'));
+    expect(processStreamRequest).not.toHaveBeenCalled();
+    await adapter.close();
+  });
+
   it('ignores the close event from a socket replaced by a hot reload', async () => {
     vi.useFakeTimers();
     try {
