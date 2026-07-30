@@ -93,6 +93,47 @@ describe('ApiHandler dispatch logging', () => {
     expect(entry!.message).toContain('message=[len=3]');
   });
 
+  it('logs the parsed emoji-like offset without exposing its cookie cursor', async () => {
+    const handler = createCompiledTestHandler(emptyContext(), [
+      testAction('fetch_emoji_like', async () => ({ status: 'ok', retcode: 0, data: null })),
+    ], 12345);
+
+    await handler.handle('fetch_emoji_like', {
+      message_id: 1,
+      emojiId: '66',
+      cookie: '40',
+    });
+
+    const entry = captured.find((e) => e.scope === 'Bridge.Action' && e.level === 'debug');
+    expect(entry?.message).toContain('emoji_like_offset=40');
+    expect(entry?.message).not.toContain('cookie=');
+  });
+
+  it('keeps malformed emoji-like cookies redacted instead of parsing prefixes', async () => {
+    const handler = createCompiledTestHandler(emptyContext(), [
+      testAction('fetch_emoji_like', async () => ({ status: 'ok', retcode: 0, data: null })),
+    ], 12345);
+
+    await handler.handle('fetch_emoji_like', { cookie: '123.session=secret' });
+
+    const entry = captured.find((e) => e.scope === 'Bridge.Action' && e.level === 'debug');
+    expect(entry?.message).toContain('cookie=***');
+    expect(entry?.message).not.toContain('emoji_like_offset=');
+    expect(entry?.message).not.toContain('session=secret');
+  });
+
+  it('keeps cookie parameters redacted for every other action', async () => {
+    const handler = createCompiledTestHandler(emptyContext(), [
+      testAction('other_action', async () => ({ status: 'ok', retcode: 0, data: null })),
+    ], 12345);
+
+    await handler.handle('other_action', { cookie: '40' });
+
+    const entry = captured.find((e) => e.scope === 'Bridge.Action' && e.level === 'debug');
+    expect(entry?.message).toContain('cookie=***');
+    expect(entry?.message).not.toContain('cookie=40');
+  });
+
   it('emits a warn line with the error stack when the handler throws', async () => {
     const handler = createCompiledTestHandler(emptyContext(), [
       testAction('boom', async () => { throw new Error('kapow'); }),

@@ -1,7 +1,8 @@
 import { format } from 'util';
 import { getFileTransport } from './log-file-transport';
+import { redactLogMessage } from './log-summary';
 import { sanitizeLogLine } from './log-sanitize';
-import { currentRequestId } from './request-context';
+import { currentRequestId, nextRequestId, runWithRequestId } from './request-context';
 
 type LogLevel = 'trace' | 'debug' | 'info' | 'success' | 'warn' | 'error';
 type FileLogLevel = Exclude<LogLevel, 'trace'>;
@@ -181,8 +182,7 @@ function currentTime(): string {
   return `${hh}:${mm}:${ss}`;
 }
 
-function render(level: LogLevel, options: LogOptions, args: unknown[], reqId?: number): string {
-  const message = format(...args);
+function render(level: LogLevel, options: LogOptions, message: string, reqId?: number): string {
   const ts = currentTime();
   const label = LEVEL_LABEL[level].padEnd(5, ' ');
   const uinTag = options.uin !== undefined ? `[${options.uin}]` : '';
@@ -209,12 +209,13 @@ function emit(
   level: LogLevel,
   options: LogOptions,
   args: unknown[],
-  forceFile = false,
+  forceInitialCredentials = false,
 ): void {
   // Console / subscriber and file filters are independent. If no destination
   // accepts the record, stop before formatting or building a LogEntry.
-  const passesConsole = forceFile || shouldLog(level);
-  const passesFile = level !== 'trace' && (forceFile || shouldLogToFile(level));
+  const passesConsole = forceInitialCredentials || shouldLog(level);
+  const passesFile = level !== 'trace'
+    && (forceInitialCredentials || shouldLogToFile(level));
   if (!passesConsole && !passesFile) return;
 
   // `trace` is the high-volume full-chain diagnostic stream, intentionally
@@ -232,8 +233,11 @@ function emit(
   }
 
   const reqId = currentRequestId();
-  const message = format(...realArgs);
-  const line = render(level, options, realArgs, reqId);
+  const formattedMessage = format(...realArgs);
+  const message = level === 'trace' || forceInitialCredentials
+    ? formattedMessage
+    : redactLogMessage(formattedMessage);
+  const line = render(level, options, message, reqId);
   const entry: LogEntry = {
     id: nextLogId++,
     time: new Date().toISOString(),
@@ -341,6 +345,15 @@ export function createLogger(scope: string): Logger {
   return makeLogger({ scope });
 }
 
+export function renderTraceBytes(body: Uint8Array): string {
+  return Buffer.from(body.buffer, body.byteOffset, body.byteLength).toString('hex');
+}
+
+export function runWithTraceRequest<T>(fn: () => T): T {
+  if (currentRequestId() !== undefined || currentLevel !== 'trace') return fn();
+  return runWithRequestId(nextRequestId(), fn);
+}
+
 export function logInitialWebuiCredentials(password: string): void {
   emit(
     'info',
@@ -350,7 +363,7 @@ export function logInitialWebuiCredentials(password: string): void {
   );
 }
 
-// Request-correlation helpers live alongside the logger since `[req#N]`
-// stamping is a logging concern. Re-exported here so callers import the
-// whole logging surface from one place.
-export { nextRequestId, runWithRequestId, currentRequestId } from './request-context';
+// Request-correlation primitives remain available for callers that already own
+// an explicit request id. New semantic entrypoints should prefer
+// runWithTraceRequest() so disabled TRACE does not allocate one.
+export { nextRequestId, runWithRequestId, currentRequestId };

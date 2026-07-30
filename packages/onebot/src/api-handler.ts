@@ -16,6 +16,23 @@ import { RETCODE, failedResponse, okResponse } from './types';
 import { type StreamSink, wrapStreamFrame, wrapStreamTerminal } from './streaming';
 const moduleLog = createLogger('Bridge.Action');
 
+function summarizeActionParams(action: string, params: JsonObject): string {
+  if (action !== 'fetch_emoji_like') return summarizeParams(params);
+
+  const safeParams: JsonObject = { ...params };
+  const cursor = params.cookie;
+  if (typeof cursor !== 'string' || !/^\d+$/.test(cursor)) {
+    return summarizeParams(safeParams);
+  }
+
+  const offset = Number(cursor);
+  if (!Number.isSafeInteger(offset)) return summarizeParams(safeParams);
+
+  delete safeParams.cookie;
+  safeParams.emoji_like_offset = offset;
+  return summarizeParams(safeParams);
+}
+
 
 export interface MessageSendResult {
   messageId: number;
@@ -264,7 +281,7 @@ export class ApiHandler {
   ): Promise<import('./types').ApiResponse> {
     // Terse breadcrumb to the log file (debug, which is written to disk under the default
     // file level): lets the operator grep "what did the bot get asked to do" in post-mortems.
-    this.log.debug('%s params=%s', action, summarizeParams(params));
+    this.log.debug('%s params=%s', action, summarizeActionParams(action, params));
     // Full request shape, memory-only (trace). Lazy producer → the deep render
     // only runs when trace is live.
     this.log.trace(() => [`${action} ⇐ %s`, renderParamsVerbose(params)]);

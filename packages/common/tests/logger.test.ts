@@ -176,13 +176,98 @@ describe('file output gating', () => {
     expect(fileWriteSpy).not.toHaveBeenCalled();
   });
 
-  it('keeps trace out of files at every file threshold', async () => {
+  it('keeps trace out of files in an explicit file-threshold check', async () => {
     const fresh = await loadLoggerForFileLevel('debug');
     fresh.setLogLevel('trace');
 
     fresh.createLogger('Test').trace('full chain');
 
     expect(fileWriteSpy).not.toHaveBeenCalled();
+  });
+
+  it('redacts authentication assignments from ordinary logs but not TRACE', async () => {
+    const fresh = await loadLoggerForFileLevel('debug');
+    fresh.setLogLevel('trace');
+    const entries: LogEntry[] = [];
+    const unsubscribe = fresh.subscribeLogs((entry) => entries.push(entry));
+    const log = fresh.createLogger('Test');
+
+    log.info(
+      'password=%s Authorization: Bearer %s Cookie=%s token=%s safe=%s',
+      'ordinary-password',
+      'ordinary-authorization',
+      'ordinary-cookie',
+      'ordinary-token',
+      'visible',
+    );
+    log.trace(
+      'password=%s Authorization: Bearer %s Cookie=%s token=%s',
+      'trace-password',
+      'trace-authorization',
+      'trace-cookie',
+      'trace-token',
+    );
+    log.info(
+      `json={"authorization":"Basic json-auth"} object={ 'api-key': 'api-secret' } Authorization: Basic header-auth Cookie=session=cookie-secret; Path=/; HttpOnly`,
+    );
+    log.info(
+      'headers.authorization=Basic dotted-auth request.token=dotted-token '
+        + 'GET /callback?access_token=query-secret&x=1 '
+        + 'url=https://host/?api_key=url-secret',
+    );
+    log.info(
+      'Authorization: Digest username="alice", response="digest-secret"\n'
+        + 'authorization=AWS4-HMAC-SHA256 Credential=AKID, Signature=aws-secret',
+    );
+    log.info(
+      'authToken=camel-auth idToken=camel-id clientSecret=camel-client '
+        + `json={"userPassword":"camel-password"}`,
+    );
+    log.info('_token=underscore-secret --password=cli-secret 2faToken=two-factor-secret');
+    log.info('Authorization: *** marker-secret');
+    log.trace(
+      `json={"authorization":"Basic trace-json-auth"} Authorization: Basic trace-header-auth Cookie=session=trace-cookie; Path=/`,
+    );
+    unsubscribe();
+
+    const ordinaryEntries = entries.filter((entry) => entry.level === 'info');
+    const ordinary = ordinaryEntries.map((entry) => entry.message).join('\n');
+    expect(ordinary).toContain('password=***');
+    expect(ordinary).toContain('Authorization: ***');
+    expect(ordinary).toContain('Cookie=***');
+    expect(ordinary).toContain('token=***');
+    expect(ordinary).toContain('headers.authorization=***');
+    expect(ordinary).toContain('request.token=***');
+    expect(ordinary).toContain('/callback?access_token=***&x=1');
+    expect(ordinary).toContain('https://host/?api_key=***');
+    expect(ordinary).toContain('Authorization: ***\nauthorization=***');
+    expect(ordinary).toContain('authToken=***');
+    expect(ordinary).toContain('idToken=***');
+    expect(ordinary).toContain('clientSecret=***');
+    expect(ordinary).toContain(`json={"userPassword":***}`);
+    expect(ordinary).toContain('_token=***');
+    expect(ordinary).toContain('--password=***');
+    expect(ordinary).toContain('2faToken=***');
+    expect(ordinary).toContain('Authorization: ***');
+    expect(ordinary).toContain('safe=visible');
+    expect(ordinary).not.toMatch(
+      /ordinary-password|ordinary-authorization|ordinary-cookie|ordinary-token|json-auth|api-secret|header-auth|cookie-secret|dotted-auth|dotted-token|query-secret|url-secret|digest-secret|AKID|aws-secret|camel-auth|camel-id|camel-client|camel-password|underscore-secret|cli-secret|two-factor-secret|marker-secret/,
+    );
+
+    const trace = entries.filter((entry) => entry.level === 'trace')
+      .map((entry) => entry.message)
+      .join('\n');
+    expect(trace).toContain('trace-password');
+    expect(trace).toContain('trace-authorization');
+    expect(trace).toContain('trace-cookie');
+    expect(trace).toContain('trace-token');
+    expect(trace).toContain('trace-json-auth');
+    expect(trace).toContain('trace-header-auth');
+
+    const persisted = fileWriteSpy.mock.calls.map(([line]) => String(line)).join('\n');
+    expect(persisted).not.toMatch(
+      /ordinary-password|ordinary-authorization|ordinary-cookie|ordinary-token|json-auth|api-secret|header-auth|cookie-secret|dotted-auth|dotted-token|query-secret|url-secret|digest-secret|AKID|aws-secret|trace-password|trace-json-auth/,
+    );
   });
 
   it('keeps bootstrap notices visible and persisted above configured thresholds', async () => {
