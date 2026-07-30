@@ -202,7 +202,7 @@ describe('onebot/contact-actions / getGroupFiles', () => {
 
 describe('onebot/contact-actions / getGroupList', () => {
   it('triggers fetch when the in-memory roster is empty', async () => {
-    const fetched = [makeGroup(100, 'Group A')];
+    const fetched = [{ ...makeGroup(100, 'Group A'), remark: '工作群' }];
     // `groups` starts empty; the fetch callback flips it to mimic
     // bridge.apis.contacts.fetchGroupList writing back through identity.rememberGroups.
     let groups: QQGroupInfo[] = [];
@@ -216,6 +216,7 @@ describe('onebot/contact-actions / getGroupList', () => {
     expect(bridge.apis.contacts.fetchGroupList).toHaveBeenCalledOnce();
     expect(out).toEqual([{
       group_id: 100, group_name: 'Group A',
+      group_remark: '工作群',
       member_count: 0, max_member_count: 500,
       group_create_time: 0, group_level: 0, group_memo: '',
     }]);
@@ -254,14 +255,18 @@ describe('onebot/contact-actions / getGroupList', () => {
 
 describe('onebot/contact-actions / getGroupInfo', () => {
   it('returns the cached group without refreshing when group is known and noCache is false', async () => {
-    const cached = makeGroup(500, 'Group E');
+    const cached = { ...makeGroup(500, 'Group E'), remark: '常用群' };
     const findGroup = vi.fn((groupId: number) => groupId === 500 ? cached : null);
     const bridge = fakeBridge({
       fetchGroupList: vi.fn(async () => []),
       identity: fakeIdentity({ findGroup }),
     });
     const out = await getGroupInfo(bridge, 500);
-    expect(out).toMatchObject({ group_id: 500, group_name: 'Group E' });
+    expect(out).toMatchObject({
+      group_id: 500,
+      group_name: 'Group E',
+      group_remark: '常用群',
+    });
     expect(bridge.apis.contacts.fetchGroupList).not.toHaveBeenCalled();
   });
 
@@ -297,7 +302,11 @@ describe('onebot/contact-actions / getGroupInfo', () => {
     });
     const out = await getGroupInfo(bridge, 7100);
     expect(fetchGroupDetail).toHaveBeenCalledWith(7100);
-    expect(out).toMatchObject({ group_id: 7100, group_name: '邀请来的群' });
+    expect(out).toMatchObject({
+      group_id: 7100,
+      group_name: '邀请来的群',
+      group_remark: '',
+    });
   });
 
   it('caches the non-member lookup — a second call within TTL does not re-fetch', async () => {

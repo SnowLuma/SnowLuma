@@ -16,13 +16,14 @@ export const actions = [
         properties: {
           group_id: { type: 'integer', description: '群号' },
           group_name: { type: 'string', description: '群名' },
+          group_remark: { type: 'string', description: '当前账号设置的群备注' },
           member_count: { type: 'integer', description: '当前成员数' },
           max_member_count: { type: 'integer', description: '成员上限' },
           group_create_time: { type: 'integer', description: '建群时间戳（秒）' },
           group_level: { type: 'integer', description: '群等级（列表批量场景恒 0，详见 get_group_info）' },
           group_memo: { type: 'string', description: '群简介 / 公告预览' },
         },
-        required: ['group_id', 'group_name', 'member_count', 'max_member_count'],
+        required: ['group_id', 'group_name', 'group_remark', 'member_count', 'max_member_count'],
       },
     },
     params: { no_cache: f.bool().default(false) },
@@ -45,19 +46,29 @@ export const actions = [
       properties: {
         group_id: { type: 'integer', description: '群号' },
         group_name: { type: 'string', description: '群名' },
+        group_remark: { type: 'string', description: '当前账号设置的群备注' },
         member_count: { type: 'integer', description: '当前成员数' },
         max_member_count: { type: 'integer', description: '成员上限' },
         group_create_time: { type: 'integer', description: '建群时间戳（秒）' },
         group_level: { type: 'integer', description: '群等级' },
         group_memo: { type: 'string', description: '群简介 / 公告预览' },
       },
-      required: ['group_id', 'group_name', 'member_count', 'max_member_count'],
+      required: ['group_id', 'group_name', 'group_remark', 'member_count', 'max_member_count'],
     },
     params: { no_cache: f.bool().default(false) },
     run: async (p, ctx) => {
       const groupId = p.group_id;
       const noCache = p.no_cache;
-      const fallback = { group_id: groupId, group_name: '', member_count: 0, max_member_count: 0, group_create_time: 0, group_level: 0, group_memo: '' };
+      const fallback = {
+        group_id: groupId,
+        group_name: '',
+        group_remark: '',
+        member_count: 0,
+        max_member_count: 0,
+        group_create_time: 0,
+        group_level: 0,
+        group_memo: '',
+      };
       if (ctx.getGroupInfo) {
         const info = await ctx.getGroupInfo(groupId, noCache);
         return okResponse(info ?? fallback);
