@@ -114,14 +114,32 @@ function resolveMinLevel(): LogLevel {
   return 'info';
 }
 
+const _rawFileLevel = (process.env.SNOWLUMA_LOG_FILE_LEVEL ?? '').toLowerCase();
+
+function resolveFileMinLevel(): LogLevel {
+  if (_rawFileLevel === 'trace') return 'debug';
+  if (_rawFileLevel === 'debug' || _rawFileLevel === 'info' || _rawFileLevel === 'success' ||
+      _rawFileLevel === 'warn' || _rawFileLevel === 'error') {
+    return _rawFileLevel;
+  }
+  return 'debug';
+}
+
 // Mutable — seeded from SNOWLUMA_LOG_LEVEL at module load, but
 // setLogLevel() lets WebUI / SDK callers flip it without a restart.
-// Only governs console + ring buffer + subscribers; the file
-// transport always sees debug-and-up regardless.
+// Only governs console + ring buffer + subscribers;
+// the file transport level is seeded independently from
+// SNOWLUMA_LOG_FILE_LEVEL (default debug)
+// and is not affected by setLogLevel().
 let currentLevel: LogLevel = resolveMinLevel();
+let currentFileLevel: LogLevel = resolveFileMinLevel();
 
 function shouldLog(level: LogLevel): boolean {
   return LEVEL_WEIGHT[level] >= LEVEL_WEIGHT[currentLevel];
+}
+
+function shouldLogToFile(level: LogLevel): boolean {
+  return LEVEL_WEIGHT[level] >= LEVEL_WEIGHT[currentFileLevel];
 }
 
 export const LOG_LEVELS: readonly LogLevel[] = ['trace', 'debug', 'info', 'success', 'warn', 'error'];
@@ -130,11 +148,11 @@ export function getLogLevel(): LogLevel {
   return currentLevel;
 }
 
-/**
- * Change the console / subscriber level at runtime. Invalid input is
- * a no-op (returns false). File transport is unaffected — it always
- * sees every level so post-mortems remain useful.
- */
+
+// Change the console / subscriber level at runtime.
+// Invalid input is a no-op (returns false).
+// Does not affect the file transport log level.
+
 export function setLogLevel(level: string): boolean {
   const lower = String(level).toLowerCase();
   if (!LOG_LEVELS.includes(lower as LogLevel)) return false;
@@ -184,15 +202,15 @@ function render(level: LogLevel, options: LogOptions, args: unknown[], reqId?: n
 }
 
 function emit(level: LogLevel, options: LogOptions, args: unknown[]): void {
-  // Console / subscriber level filter. File output is debug-and-up always;
-  // see log-file-transport.ts.
+  // Console / subscriber level filter.
+  // File output is gated independently by currentFileLevel.
   const passesConsole = shouldLog(level);
 
-  // `trace` never touches disk and is the high-volume full-chain stream. When
-  // it won't reach the console/memory buffer either (level not dialed to
-  // trace), bail BEFORE format/render AND before evaluating any lazy producer
-  // — this is what keeps full-chain tracing ~free at the default level even
-  // with hundreds of groups.
+  // `trace` is the high-volume full-chain diagnostic stream, intentionally
+  // excluded from disk to avoid I/O saturation. When console is not dialed
+  // to trace, the early return below skips format/render/disk entirely.
+  // Set SNOWLUMA_LOG_LEVEL=trace to inspect trace output in console/memory;
+  // trace never reaches disk regardless.
   if (level === 'trace' && !passesConsole) return;
 
   // Lazy trace form: `log.trace(() => ['…', deepRender(x)])`. The producer
@@ -230,11 +248,11 @@ function emit(level: LogLevel, options: LogOptions, args: unknown[]): void {
     stream.write(line.replace(/[\x00-\x08\x0B-\x1A\x1C-\x1F\x7F]/g, '') + '\n');
   }
 
-  // File transport sees debug-and-up for post-mortem value; `trace` is
-  // memory / WebUI only (omitted here to avoid huge on-disk volume). ANSI
-  // stripping happens inside the transport. UIN routes the line to its
-  // per-account sub-file in addition to the shared one.
-  if (level !== 'trace') getFileTransport().write(line, options.uin);
+  // File transport sees levels >= currentFileLevel (SNOWLUMA_LOG_FILE_LEVEL,
+  // default debug). `trace` is memory / WebUI only (omitted here to avoid huge
+  // on-disk volume). ANSI stripping happens inside the transport. UIN routes
+  // the line to its per-account sub-file in addition to the shared one.
+  if (level !== 'trace' && shouldLogToFile(level)) getFileTransport().write(line, options.uin);
 }
 
 /**
@@ -314,3 +332,13 @@ export function createLogger(scope: string): Logger {
 // stamping is a logging concern. Re-exported here so callers import the
 // whole logging surface from one place.
 export { nextRequestId, runWithRequestId, currentRequestId } from './request-context';
+
+// Warn once at module load if SNOWLUMA_LOG_FILE_LEVEL was set to 'trace'
+// (trace is intentionally excluded from disk for I/O reasons — see emit()).
+if (_rawFileLevel === 'trace') {
+  emit('warn', { scope: 'logger' }, [
+    'SNOWLUMA_LOG_FILE_LEVEL=trace is not supported — ' +
+    'trace is never written to disk. File level clamped to debug.',
+  ]);
+}
+
