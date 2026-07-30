@@ -116,8 +116,42 @@ export function parseMsgPush(
   identity: IdentityService,
   dedup?: SysMsgDedup,
 ): QQEventVariant[] {
+  return parseMsgPushInternal(
+    pkt,
+    identity,
+    dedup,
+    false,
+  );
+}
+
+export function parseMsgPushOrThrow(
+  pkt: PacketInfo,
+  identity: IdentityService,
+  dedup?: SysMsgDedup,
+): QQEventVariant[] {
+  return parseMsgPushInternal(
+    pkt,
+    identity,
+    dedup,
+    true,
+  );
+}
+
+function parseMsgPushInternal(
+  pkt: PacketInfo,
+  identity: IdentityService,
+  dedup: SysMsgDedup | undefined,
+  throwDecoderErrors: boolean,
+): QQEventVariant[] {
   const ctx = buildContext(pkt, identity);
-  if (!ctx) return [];
+  if (!ctx) {
+    log.trace(() => [
+      'packet_branch serviceCmd=%j seqId=%d branch=push_context_invalid',
+      pkt.serviceCmd,
+      pkt.seqId,
+    ]);
+    return [];
+  }
 
   // #137/#266: mirror QQ NT `sys_msg_mgr.cc::ProcessRecvSysMsg` before
   // dispatch. Its static routing table is the scope boundary: listed routes
@@ -127,6 +161,15 @@ export function parseMsgPush(
   if (dedup) {
     const dedupIdentity = deriveSysMsgDedupIdentity(ctx);
     if (dedupIdentity && dedup.seenDuplicate(dedupIdentity)) {
+      log.trace(() => [
+        'packet_branch serviceCmd=%j seqId=%d branch=duplicate_system_push peer=%j chatType=%d messageSeq=%d messageRandom=%d',
+        pkt.serviceCmd,
+        pkt.seqId,
+        dedupIdentity.peerUid,
+        dedupIdentity.chatType,
+        dedupIdentity.sequence,
+        dedupIdentity.random,
+      ]);
       log.debug(
         'dropped duplicate system push (peer=%s chatType=%d seq=%d msgType=%d/%d msgId=%d)',
         dedupIdentity.peerUid,
@@ -140,13 +183,24 @@ export function parseMsgPush(
     }
   }
 
-  const events = registry.decode(ctx);
+  const events = throwDecoderErrors
+    ? registry.decodeOrThrow(ctx)
+    : registry.decode(ctx);
   const out = events.filter((ev) => {
     if (!MESSAGE_KINDS.has(ev.kind)) return true;
     // C2C control/system signal (#102): QQ NT routes these via OnRecvSysMsg and
     // never shows them as a bubble. Drop by (msgType, c2cCmd) regardless of body
     // — the precise discriminator, the group-invite "[空消息]" phantom being one.
     if (isC2cControlPush(ctx.head)) {
+      log.trace(() => [
+        'packet_branch serviceCmd=%j seqId=%d branch=c2c_control_push msgType=%d subType=%d c2cCmd=%d messageSeq=%d',
+        pkt.serviceCmd,
+        pkt.seqId,
+        ctx.head.msgType,
+        ctx.head.subType,
+        ctx.head.c2cCmd,
+        ctx.head.sequence,
+      ]);
       const elemCount = (ev as { elements?: unknown[] }).elements?.length ?? 0;
       if (elemCount > 0) {
         log.debug('dropped c2c control push that carried %d element(s) (kind=%s seq=%d from=%d msgType=%d cmd=%d)',
@@ -170,6 +224,14 @@ export function parseMsgPush(
       warnMissingC2cSequence(ev, ctx.fromUin);
       return true;
     }
+    log.trace(() => [
+      'packet_branch serviceCmd=%j seqId=%d branch=empty_message msgType=%d subType=%d messageSeq=%d',
+      pkt.serviceCmd,
+      pkt.seqId,
+      ctx.head.msgType,
+      ctx.head.subType,
+      ctx.head.sequence,
+    ]);
     return false;
   });
 

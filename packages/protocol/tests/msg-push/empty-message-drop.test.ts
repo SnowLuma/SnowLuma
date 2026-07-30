@@ -5,14 +5,25 @@
 // is genuinely empty*, while still keeping (and warning about) a message that
 // carried content we merely failed to decode.
 
-import { describe, expect, it } from 'vitest';
+import {
+  getLogLevel,
+  setLogLevel,
+  subscribeLogs,
+  type LogEntry,
+} from '@snowluma/common/logger';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import { protobuf_encode } from '@snowluma/proton';
 import type { PushMsg, PushMsgBody } from '@snowluma/proto-defs/message';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { IdentityService } from '../../src/identity-service';
 import { parseMsgPush } from '../../src/msg-push';
 
 const identity = { findFriend: () => undefined } as unknown as IdentityService;
+const previousLogLevel = getLogLevel();
+
+afterEach(() => {
+  setLogLevel(previousLogLevel);
+});
 
 function pushPacket(message: PushMsgBody): PacketInfo {
   return {
@@ -26,14 +37,55 @@ function pushPacket(message: PushMsgBody): PacketInfo {
   };
 }
 
+function traceMessages(entries: LogEntry[]): string[] {
+  return entries
+    .filter((entry) => entry.level === 'trace')
+    .map((entry) => entry.message);
+}
+
 describe('parseMsgPush — empty message drop (#102)', () => {
-  it('drops a genuinely empty friend message (group-invite phantom)', () => {
-    const out = parseMsgPush(pushPacket({
-      responseHead: { fromUin: 10001, fromUid: 'u_x' },
-      contentHead: { msgType: 166, subType: 0, sequence: 59962, timestamp: 1781540572, msgId: 1963990184 },
-      body: { richText: { elems: [] } },
-    }), identity);
-    expect(out).toEqual([]);
+  it('records an invalid push context before returning no events', () => {
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      const pkt = pushPacket({
+        responseHead: { fromUin: 10001, fromUid: 'u_x' },
+      });
+
+      expect(parseMsgPush(pkt, identity)).toEqual([]);
+      expect(traceMessages(entries)).toContain(
+        'packet_branch serviceCmd="trpc.msg.olpush.OlPushService.MsgPush" seqId=0 branch=push_context_invalid',
+      );
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('records the precise branch when dropping a genuinely empty message', () => {
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      const out = parseMsgPush(pushPacket({
+        responseHead: { fromUin: 10001, fromUid: 'u_x' },
+        contentHead: {
+          msgType: 166,
+          subType: 0,
+          sequence: 59962,
+          timestamp: 1781540572,
+          msgId: 1963990184,
+        },
+        body: { richText: { elems: [] } },
+      }), identity);
+
+      expect(out).toEqual([]);
+      expect(traceMessages(entries)).toContain(
+        'packet_branch serviceCmd="trpc.msg.olpush.OlPushService.MsgPush" seqId=0 branch=empty_message msgType=166 subType=0 messageSeq=59962',
+      );
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('keeps a friend message that actually has content', () => {
@@ -49,15 +101,33 @@ describe('parseMsgPush — empty message drop (#102)', () => {
     });
   });
 
-  it('drops a C2C control push by (msgType, c2cCmd) even when it carries content', () => {
+  it('records the precise branch for a C2C control push with content', () => {
     // 166 + c2c_cmd ∈ {1,73,75,129,131,133,135,192} is a control/system signal
     // QQ NT routes via OnRecvSysMsg, never a bubble — drop regardless of body.
-    const out = parseMsgPush(pushPacket({
-      responseHead: { fromUin: 10001, fromUid: 'u_x' },
-      contentHead: { msgType: 166, subType: 0, c2cCmd: 75, sequence: 200, timestamp: 1781540572, msgId: 3 },
-      body: { richText: { elems: [{ text: { str: 'noise' } }] } },
-    }), identity);
-    expect(out).toEqual([]);
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      const out = parseMsgPush(pushPacket({
+        responseHead: { fromUin: 10001, fromUid: 'u_x' },
+        contentHead: {
+          msgType: 166,
+          subType: 0,
+          c2cCmd: 75,
+          sequence: 200,
+          timestamp: 1781540572,
+          msgId: 3,
+        },
+        body: { richText: { elems: [{ text: { str: 'noise' } }] } },
+      }), identity);
+
+      expect(out).toEqual([]);
+      expect(traceMessages(entries)).toContain(
+        'packet_branch serviceCmd="trpc.msg.olpush.OlPushService.MsgPush" seqId=0 branch=c2c_control_push msgType=166 subType=0 c2cCmd=75 messageSeq=200',
+      );
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('keeps a normal 166 message whose c2cCmd is not a control command', () => {

@@ -1,4 +1,8 @@
-import { createLogger } from '@snowluma/common/logger';
+import {
+  createLogger,
+  renderTraceBytes,
+  runWithTraceRequest,
+} from '@snowluma/common/logger';
 import type { PacketSender } from '@snowluma/common/packet-sender';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import { isRealUin } from '@snowluma/common/uin';
@@ -13,6 +17,7 @@ interface QQSession {
 }
 
 const log = createLogger('Bridge');
+const packetLog = createLogger('Bridge.Packet');
 
 export class BridgeManager {
   private sessions_ = new Map<string, QQSession>();
@@ -89,25 +94,97 @@ export class BridgeManager {
   }
 
   onPacket(pkt: PacketInfo): void {
-    if (!pkt.uin || !isRealUin(pkt.uin)) return;
+    runWithTraceRequest(() => this.onPacketInContext(pkt));
+  }
+
+  private onPacketInContext(pkt: PacketInfo): void {
+    const startedAt = Date.now();
+    packetLog.trace(() => [
+      'packet_push serviceCmd=%j seqId=%d retCode=%d fromClient=%s pid=%d uin=%j length=%d body=%s',
+      pkt.serviceCmd,
+      pkt.seqId,
+      pkt.retCode,
+      pkt.fromClient,
+      pkt.pid,
+      pkt.uin,
+      pkt.body.byteLength,
+      renderTraceBytes(pkt.body),
+    ]);
+    if (!pkt.uin || !isRealUin(pkt.uin)) {
+      packetLog.trace(() => [
+        'packet_terminal serviceCmd=%j seqId=%d outcome=dropped reason=invalid_uin events=0 dispatched=0 elapsedMs=%d',
+        pkt.serviceCmd,
+        pkt.seqId,
+        Date.now() - startedAt,
+      ]);
+      return;
+    }
     const uin = pkt.uin;
 
-    // A packet may be the first trustworthy observation that a live PID moved
-    // to another UIN. Apply the exact same ownership transition as login so a
-    // PID can never remain attached to two Bridges.
-    const client = pkt.pid > 0 ? this.packetClientForPid(pkt.pid) : null;
-    const { session, created } = client
-      ? this.bindPid(pkt.pid, uin, client, 'packet')
-      : this.ensureSession(uin);
+    let completion: Promise<void>;
+    let handedToPipeline = false;
+    try {
+      // A packet may be the first trustworthy observation that a live PID moved
+      // to another UIN. Apply the exact same ownership transition as login so a
+      // PID can never remain attached to two Bridges.
+      const client = pkt.pid > 0 ? this.packetClientForPid(pkt.pid) : null;
+      const { session, created } = client
+        ? this.bindPid(pkt.pid, uin, client, 'packet')
+        : this.ensureSession(uin);
 
-    // Notify session started on first real packet
-    if (created) {
-      log.debug('session started: UIN=%s', uin);
-      this.fireSessionStarted(uin, session.bridge);
+      // Notify session started on first real packet
+      if (created) {
+        log.debug('session started: UIN=%s', uin);
+        this.fireSessionStarted(uin, session.bridge);
+      }
+
+      // Dispatch packet to bridge. The pipeline preserves synchronous parsing and
+      // dispatch; its promise only marks completion of any async enrichment.
+      handedToPipeline = true;
+      completion = session.bridge.onPacket(pkt);
+    } catch (error) {
+      this.tracePacketFailure(
+        pkt,
+        startedAt,
+        handedToPipeline
+          ? 'pipeline_failed'
+          : 'routing_failed',
+        error,
+      );
+      throw error;
     }
+    void completion.catch((error) => {
+      this.tracePacketFailure(
+        pkt,
+        startedAt,
+        'pipeline_failed',
+        error,
+      );
+    });
+  }
 
-    // Dispatch packet to bridge
-    session.bridge.onPacket(pkt);
+  private tracePacketFailure(
+    pkt: PacketInfo,
+    startedAt: number,
+    reason: 'routing_failed' | 'pipeline_failed',
+    error: unknown,
+  ): void {
+    packetLog.trace(() => [
+      'packet_terminal serviceCmd=%j seqId=%d outcome=failed reason=%s error=%j events=0 dispatched=0 elapsedMs=%d',
+      pkt.serviceCmd,
+      pkt.seqId,
+      reason,
+      error instanceof Error ? error.message : String(error),
+      Date.now() - startedAt,
+    ]);
+    log.error(
+      'packet %s failed for %s: %s',
+      reason === 'routing_failed'
+        ? 'routing'
+        : 'pipeline',
+      pkt.serviceCmd,
+      error instanceof Error ? (error.stack ?? error.message) : String(error),
+    );
   }
 
   /** Bind PID + sender as one state transition. If the PID changed accounts,

@@ -3,17 +3,112 @@ import { mkdtemp, rm, writeFile } from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { Duplex } from 'stream';
+import {
+  getLogLevel,
+  runWithRequestId,
+  setLogLevel,
+  subscribeLogs,
+  type LogEntry,
+} from '@snowluma/common/logger';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { listLiveLinuxPipePids, QqHookClient } from '../src/qq-hook-client';
+import {
+  HEADER_SIZE,
+  listLiveLinuxPipePids,
+  PIPE_MAGIC,
+  PIPE_VERSION,
+  PipeOp,
+  QqHookClient,
+} from '../src/qq-hook-client';
 
 let tmpDir: string | null = null;
+const previousLogLevel = getLogLevel();
 
 async function makeRuntimeDir(): Promise<string> {
   tmpDir = await mkdtemp(path.join(os.tmpdir(), 'snowluma-hook-'));
   return tmpDir;
 }
 
+function pipeFrame({
+  op,
+  requestId = 0,
+  status = 0,
+  value0 = 0n,
+  cmd = '',
+  message = '',
+  body = Buffer.alloc(0),
+}: {
+  op: PipeOp;
+  requestId?: number;
+  status?: number;
+  value0?: bigint;
+  cmd?: string;
+  message?: string;
+  body?: Buffer;
+}): Buffer {
+  const cmdBytes = Buffer.from(cmd);
+  const messageBytes = Buffer.from(message);
+  const header = Buffer.alloc(HEADER_SIZE);
+  header.writeUInt32LE(PIPE_MAGIC, 0);
+  header.writeUInt16LE(PIPE_VERSION, 4);
+  header.writeUInt16LE(op, 6);
+  header.writeUInt32LE(requestId, 8);
+  header.writeInt32LE(status, 12);
+  header.writeUInt32LE(cmdBytes.length, 20);
+  header.writeUInt32LE(messageBytes.length, 24);
+  header.writeUInt32LE(body.length, 28);
+  header.writeBigUInt64LE(value0, 32);
+  return Buffer.concat([header, cmdBytes, messageBytes, body]);
+}
+
+function readSendFrame(payload: Buffer): {
+  requestId: number;
+  cmd: string;
+  body: Buffer;
+} {
+  const cmdLength = payload.readUInt32LE(20);
+  const messageLength = payload.readUInt32LE(24);
+  const bodyLength = payload.readUInt32LE(28);
+  const cmdStart = HEADER_SIZE;
+  const bodyStart = cmdStart + cmdLength + messageLength;
+  return {
+    requestId: payload.readUInt32LE(8),
+    cmd: payload.subarray(cmdStart, cmdStart + cmdLength).toString(),
+    body: Buffer.from(payload.subarray(bodyStart, bodyStart + bodyLength)),
+  };
+}
+
+function mockControlPipe(
+  pid: number,
+  onWrite: (socket: net.Socket, payload: Buffer) => void,
+): ReturnType<typeof vi.spyOn> {
+  return vi.spyOn(net, 'createConnection').mockImplementation((() => {
+    const socket = new Duplex({
+      read() { /* peer data is injected with emit('data') */ },
+      write(chunk, _encoding, callback) {
+        onWrite(socket, Buffer.from(chunk));
+        callback();
+      },
+    }) as net.Socket;
+    queueMicrotask(() => {
+      socket.emit('connect');
+      queueMicrotask(() => socket.emit('data', pipeFrame({
+        op: PipeOp.hello,
+        value0: BigInt(pid),
+      })));
+    });
+    return socket;
+  }) as typeof net.createConnection);
+}
+
+function traceMessages(entries: LogEntry[]): string[] {
+  return entries
+    .filter((entry) => entry.level === 'trace' && entry.scope === 'QQHook.Packet')
+    .map((entry) => entry.message);
+}
+
 afterEach(async () => {
+  setLogLevel(previousLogLevel);
+  vi.restoreAllMocks();
   if (!tmpDir) return;
   await rm(tmpDir, { recursive: true, force: true });
   tmpDir = null;
@@ -42,6 +137,309 @@ describe('listLiveLinuxPipePids', () => {
 
     expect([...pids]).toEqual([56]);
     expect(probe).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('QqHookClient — packet TRACE', () => {
+  it('records complete request and reply bodies with the real pipe request id', async () => {
+    const pid = 778810;
+    const requestBody = Buffer.from([
+      0x00, 0xff, ...Array.from({ length: 160 }, (_, index) => index & 0xff),
+    ]);
+    const replyBody = Buffer.from([0xff, 0x00, 0x7f]);
+    const entries: LogEntry[] = [];
+    const writes: Buffer[] = [];
+    let traceCountAtWrite = 0;
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    const connection = mockControlPipe(pid, (socket, payload) => {
+      const frame = readSendFrame(payload);
+      writes.push(payload);
+      traceCountAtWrite = traceMessages(entries).length;
+      queueMicrotask(() => {
+        socket.emit('data', pipeFrame({ op: PipeOp.sendAck, requestId: frame.requestId }));
+        socket.emit('data', pipeFrame({
+          op: PipeOp.sendReply,
+          requestId: frame.requestId,
+          status: 27,
+          message: 'fixture reply',
+          body: replyBody,
+        }));
+      });
+    });
+    const client = new QqHookClient(pid);
+    try {
+      const reply = await runWithRequestId(
+        4101,
+        () => client.sendAndWait('OidbSvcTrpcTcp.0x1234_1', requestBody),
+      );
+
+      const sent = readSendFrame(writes[0]);
+      expect(sent).toMatchObject({
+        requestId: 1,
+        cmd: 'OidbSvcTrpcTcp.0x1234_1',
+        body: requestBody,
+      });
+      expect(reply).toMatchObject({
+        requestId: 1,
+        error: 27,
+        message: 'fixture reply',
+        body: replyBody,
+      });
+      expect(traceCountAtWrite).toBe(1);
+      expect(entries.filter((entry) => entry.scope === 'QQHook.Packet'))
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({
+            req: 4101,
+            message: `packet_send serviceCmd="OidbSvcTrpcTcp.0x1234_1" requestId=1 length=${requestBody.length} body=${requestBody.toString('hex')}`,
+          }),
+          expect.objectContaining({
+            req: 4101,
+            message: `packet_recv serviceCmd="OidbSvcTrpcTcp.0x1234_1" requestId=1 error=27 message="fixture reply" length=${replyBody.length} body=${replyBody.toString('hex')}`,
+          }),
+          expect.objectContaining({
+            req: 4101,
+            message: expect.stringMatching(/^packet_terminal serviceCmd="OidbSvcTrpcTcp\.0x1234_1" requestId=1 outcome=failed reason=reply_error error=27 elapsedMs=\d+$/),
+          }),
+        ]));
+      for (const message of traceMessages(entries)) expect(message).not.toContain('...');
+    } finally {
+      unsubscribe();
+      client.close();
+      connection.mockRestore();
+    }
+  });
+
+  it('records empty request and reply bodies exactly', async () => {
+    const pid = 778811;
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    const connection = mockControlPipe(pid, (socket, payload) => {
+      const { requestId } = readSendFrame(payload);
+      queueMicrotask(() => {
+        socket.emit('data', pipeFrame({ op: PipeOp.sendAck, requestId }));
+        socket.emit('data', pipeFrame({ op: PipeOp.sendReply, requestId }));
+      });
+    });
+    const client = new QqHookClient(pid);
+    try {
+      await client.sendAndWait('Empty.Command', Buffer.alloc(0));
+
+      expect(traceMessages(entries)).toEqual([
+        'packet_send serviceCmd="Empty.Command" requestId=1 length=0 body=',
+        'packet_recv serviceCmd="Empty.Command" requestId=1 error=0 message="" length=0 body=',
+        expect.stringMatching(/^packet_terminal serviceCmd="Empty\.Command" requestId=1 outcome=ok reason=reply_received error=0 elapsedMs=\d+$/),
+      ]);
+    } finally {
+      unsubscribe();
+      client.close();
+      connection.mockRestore();
+    }
+  });
+
+  it('records no-reply acknowledgement as the terminal outcome', async () => {
+    const pid = 778812;
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    const connection = mockControlPipe(pid, (socket, payload) => {
+      const { requestId } = readSendFrame(payload);
+      queueMicrotask(() => {
+        socket.emit('data', pipeFrame({ op: PipeOp.sendAck, requestId }));
+      });
+    });
+    const client = new QqHookClient(pid);
+    try {
+      await client.sendNoReply('NoReply.Command', Buffer.from([0x00, 0xff]));
+
+      expect(traceMessages(entries)).toEqual([
+        'packet_send serviceCmd="NoReply.Command" requestId=1 length=2 body=00ff',
+        expect.stringMatching(/^packet_terminal serviceCmd="NoReply\.Command" requestId=1 outcome=ok reason=ack_received elapsedMs=\d+$/),
+      ]);
+    } finally {
+      unsubscribe();
+      client.close();
+      connection.mockRestore();
+    }
+  });
+
+  it('records reply timeout and transport failure with their real request ids', async () => {
+    vi.useFakeTimers();
+    const pid = 778813;
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    let writeCount = 0;
+    const connection = mockControlPipe(pid, (socket, payload) => {
+      const { requestId } = readSendFrame(payload);
+      writeCount += 1;
+      if (writeCount === 1) {
+        queueMicrotask(() => {
+          socket.emit('data', pipeFrame({ op: PipeOp.sendAck, requestId }));
+        });
+        return;
+      }
+      queueMicrotask(() => socket.destroy());
+    });
+    const client = new QqHookClient(pid);
+    client.on('error', () => { /* expected transport failure */ });
+    try {
+      const timedOut = client.sendAndWait('Timeout.Command', Buffer.from([0xff]), {
+        ackTimeoutMs: 50,
+        replyTimeoutMs: 50,
+      });
+      const timedOutOutcome = timedOut.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await vi.advanceTimersByTimeAsync(50);
+      const timeoutError = await timedOutOutcome;
+      expect(timeoutError).toBeInstanceOf(Error);
+      expect((timeoutError as Error).message).toBe('send reply 1 timed out after 50 ms');
+
+      const failed = client.sendAndWait('Closed.Command', Buffer.from([0x00]), {
+        ackTimeoutMs: 50,
+        replyTimeoutMs: 50,
+      });
+      await expect(failed).rejects.toThrow('control pipe closed');
+
+      expect(traceMessages(entries)).toEqual(expect.arrayContaining([
+        expect.stringMatching(/^packet_terminal serviceCmd="Timeout\.Command" requestId=1 outcome=timeout reason=reply_timeout error="send reply 1 timed out after 50 ms" elapsedMs=\d+$/),
+        expect.stringMatching(/^packet_terminal serviceCmd="Closed\.Command" requestId=2 outcome=failed reason=transport_failure error="control pipe closed" elapsedMs=\d+$/),
+      ]));
+    } finally {
+      unsubscribe();
+      client.close();
+      connection.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('classifies acknowledgement timeout and pipe request failure', async () => {
+    vi.useFakeTimers();
+    const pid = 778815;
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    let writeCount = 0;
+    const connection = mockControlPipe(pid, (socket, payload) => {
+      const { requestId } = readSendFrame(payload);
+      writeCount += 1;
+      if (writeCount === 2) {
+        queueMicrotask(() => socket.emit('data', pipeFrame({
+          op: PipeOp.error,
+          requestId,
+          status: 12,
+          message: 'send ack 2 timed out after 25 ms',
+        })));
+      }
+    });
+    const client = new QqHookClient(pid);
+    try {
+      const timedOut = client.sendNoReply('Ack.Timeout', Buffer.from([0x00]), {
+        ackTimeoutMs: 25,
+      });
+      const timedOutOutcome = timedOut.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await vi.advanceTimersByTimeAsync(25);
+      expect(await timedOutOutcome).toMatchObject({
+        message: 'send ack 1 timed out after 25 ms',
+      });
+
+      await expect(client.sendAndWait(
+        'Pipe.Error',
+        Buffer.from([0xff]),
+      )).rejects.toThrow('send ack 2 timed out after 25 ms');
+
+      expect(traceMessages(entries)).toEqual(expect.arrayContaining([
+        expect.stringMatching(/^packet_terminal serviceCmd="Ack\.Timeout" requestId=1 outcome=timeout reason=ack_timeout error="send ack 1 timed out after 25 ms" elapsedMs=\d+$/),
+        expect.stringMatching(/^packet_terminal serviceCmd="Pipe\.Error" requestId=2 outcome=failed reason=request_failed error="send ack 2 timed out after 25 ms" elapsedMs=\d+$/),
+      ]));
+    } finally {
+      unsubscribe();
+      client.close();
+      connection.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps concurrent packet records atomic with distinct real request ids', async () => {
+    const pid = 778816;
+    const entries: LogEntry[] = [];
+    const writes: Array<ReturnType<typeof readSendFrame>> = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    const connection = mockControlPipe(pid, (socket, payload) => {
+      writes.push(readSendFrame(payload));
+      if (writes.length !== 2) return;
+      queueMicrotask(() => {
+        for (const frame of [...writes].reverse()) {
+          socket.emit('data', pipeFrame({
+            op: PipeOp.sendAck,
+            requestId: frame.requestId,
+          }));
+          socket.emit('data', pipeFrame({
+            op: PipeOp.sendReply,
+            requestId: frame.requestId,
+            body: Buffer.from(frame.body).reverse(),
+          }));
+        }
+      });
+    });
+    const client = new QqHookClient(pid);
+    const firstBody = Buffer.from([0x00, 0xff]);
+    const secondBody = Buffer.from(
+      Array.from({ length: 160 }, (_, index) => index & 0xff),
+    );
+    try {
+      const [first, second] = await Promise.all([
+        client.sendAndWait('First\nCommand', firstBody),
+        client.sendAndWait('Second.Command', secondBody),
+      ]);
+
+      expect([first.requestId, second.requestId]).toEqual([1, 2]);
+      expect(writes.map((frame) => frame.requestId)).toEqual([1, 2]);
+      const messages = traceMessages(entries);
+      expect(messages).toHaveLength(6);
+      expect(messages.every((message) => !message.includes('\n'))).toBe(true);
+      expect(messages).toEqual(expect.arrayContaining([
+        `packet_send serviceCmd="First\\nCommand" requestId=1 length=2 body=${firstBody.toString('hex')}`,
+        `packet_recv serviceCmd="First\\nCommand" requestId=1 error=0 message="" length=2 body=${Buffer.from(firstBody).reverse().toString('hex')}`,
+        `packet_send serviceCmd="Second.Command" requestId=2 length=${secondBody.length} body=${secondBody.toString('hex')}`,
+        `packet_recv serviceCmd="Second.Command" requestId=2 error=0 message="" length=${secondBody.length} body=${Buffer.from(secondBody).reverse().toString('hex')}`,
+      ]));
+      expect(messages.filter((message) => message.startsWith('packet_terminal'))).toHaveLength(2);
+    } finally {
+      unsubscribe();
+      client.close();
+      connection.mockRestore();
+    }
+  });
+
+  it('does not evaluate packet TRACE producers while TRACE is disabled', async () => {
+    const pid = 778814;
+    setLogLevel('debug');
+    const byteLength = vi.spyOn(Buffer.prototype, 'toString');
+    const connection = mockControlPipe(pid, (socket, payload) => {
+      const { requestId } = readSendFrame(payload);
+      queueMicrotask(() => {
+        socket.emit('data', pipeFrame({ op: PipeOp.sendAck, requestId }));
+        socket.emit('data', pipeFrame({ op: PipeOp.sendReply, requestId }));
+      });
+    });
+    const client = new QqHookClient(pid);
+    try {
+      await client.sendAndWait('Disabled.Command', Buffer.from([0x00, 0xff]));
+
+      expect(byteLength).not.toHaveBeenCalledWith('hex');
+    } finally {
+      client.close();
+      connection.mockRestore();
+      byteLength.mockRestore();
+    }
   });
 });
 

@@ -3,7 +3,11 @@ import type { PacketSender, SendPacketResult } from '@snowluma/common/packet-sen
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import { BridgeEventBus } from '@snowluma/protocol/event-bus';
 import { IdentityService } from '@snowluma/protocol/identity-service';
-import { MSG_PUSH_CMD, parseMsgPush, SysMsgDedup } from '@snowluma/protocol/msg-push';
+import {
+  MSG_PUSH_CMD,
+  parseMsgPushOrThrow,
+  SysMsgDedup,
+} from '@snowluma/protocol/msg-push';
 import { KICK_NT_CMD, parseKickNT } from '@snowluma/protocol/kick-nt';
 import { IncomingPacketPipeline, type CmdParser } from '@snowluma/protocol/packet-pipeline';
 import type { OnlineDeviceInfo } from '@snowluma/protocol/events';
@@ -94,7 +98,14 @@ export class Bridge implements BridgeInterface {
         return null;
       },
     });
-    this.pipeline.registerCmd(MSG_PUSH_CMD, (pkt, identity) => parseMsgPush(pkt, identity, this.sysMsgDedup_));
+    this.pipeline.registerCmd(
+      MSG_PUSH_CMD,
+      (pkt, identity) => parseMsgPushOrThrow(
+        pkt,
+        identity,
+        this.sysMsgDedup_,
+      ),
+    );
     this.pipeline.registerCmd(KICK_NT_CMD, parseKickNT);
     this.events.on('online_devices_changed', (event) => {
       const snapshot = event.devices.map((device) => Object.freeze({ ...device }));
@@ -215,8 +226,8 @@ export class Bridge implements BridgeInterface {
   getOnlineClients(): readonly Readonly<OnlineDeviceInfo>[] | null {
     return this.onlineClients_;
   }
-  onPacket(pkt: PacketInfo): void {
-    this.pipeline.process(pkt);
+  onPacket(pkt: PacketInfo): Promise<void> {
+    return this.pipeline.process(pkt);
   }
 
   private async refreshMemberCache(groupId: number, refreshGroupList: boolean, forceMemberList: boolean): Promise<boolean> {

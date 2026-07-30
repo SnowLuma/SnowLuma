@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { createLogger, renderTraceBytes } from '@snowluma/common/logger';
 import { readdirSync, promises as fs } from 'fs';
 import net from 'net';
 import os from 'os';
@@ -10,6 +11,7 @@ export const HEADER_SIZE = 40;
 export const DEFAULT_ACK_TIMEOUT_MS = 5000;
 export const DEFAULT_REPLY_TIMEOUT_MS = 30000;
 const DEFAULT_PIPE_PROBE_TIMEOUT_MS = 250;
+const packetLog = createLogger('QQHook.Packet');
 
 export enum PipeOp {
   hello = 1,
@@ -225,11 +227,21 @@ function createDeferred<T>(): Deferred<T> {
   return { promise, resolve, reject };
 }
 
+class OperationTimeoutError extends Error {
+  constructor(
+    readonly label: string,
+    timeoutMs: number,
+  ) {
+    super(`${label} timed out after ${timeoutMs} ms`);
+    this.name = 'OperationTimeoutError';
+  }
+}
+
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   if (!timeoutMs || timeoutMs <= 0) return promise;
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error(`${label} timed out after ${timeoutMs} ms`));
+      reject(new OperationTimeoutError(label, timeoutMs));
     }, timeoutMs);
     promise.then(
       value => {
@@ -241,6 +253,25 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
         reject(error);
       });
   });
+}
+
+class HookPipeRequestError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'HookPipeRequestError';
+  }
+}
+
+function packetFailureReason(
+  error: unknown,
+  requestId: number,
+): 'ack_timeout' | 'reply_timeout' | 'request_failed' | 'transport_failure' {
+  if (error instanceof HookPipeRequestError) return 'request_failed';
+  if (error instanceof OperationTimeoutError) {
+    if (error.label === `send ack ${requestId}`) return 'ack_timeout';
+    if (error.label === `send reply ${requestId}`) return 'reply_timeout';
+  }
+  return 'transport_failure';
 }
 
 function encodeFrame({
@@ -516,13 +547,22 @@ export class QqHookClient extends EventEmitter {
     }
     this.nextRequestId = (requestId + 1) >>> 0;
     if (this.nextRequestId === 0) this.nextRequestId = 1;
+    const startedAt = Date.now();
+    const bodyBytes = toBuffer(body);
     const payload = encodeFrame({
       op: PipeOp.sendRequest,
       requestId,
       flags: wantReply ? PipeFlagWantReply : 0,
       cmd,
-      body,
+      body: bodyBytes,
     });
+    packetLog.trace(() => [
+      'packet_send serviceCmd=%j requestId=%d length=%d body=%s',
+      cmd,
+      requestId,
+      bodyBytes.length,
+      renderTraceBytes(bodyBytes),
+    ]);
 
     const ackDeferred = createDeferred<{ requestId: number; wantReply: boolean }>();
     // Always attach a handler so a rejection can never become "unhandled" (which
@@ -548,15 +588,50 @@ export class QqHookClient extends EventEmitter {
       await this.writeControl(payload);
       await withTimeout(ackDeferred.promise, ackTimeoutMs, `send ack ${requestId}`);
       if (!wantReply) {
+        packetLog.trace(() => [
+          'packet_terminal serviceCmd=%j requestId=%d outcome=ok reason=ack_received elapsedMs=%d',
+          cmd,
+          requestId,
+          Date.now() - startedAt,
+        ]);
         return { requestId };
       }
-      return await withTimeout(
+      const reply = await withTimeout(
         replyDeferred!.promise,
         replyTimeoutMs,
         `send reply ${requestId}`);
+      packetLog.trace(() => [
+        'packet_recv serviceCmd=%j requestId=%d error=%d message=%j length=%d body=%s',
+        cmd,
+        requestId,
+        reply.error,
+        reply.message,
+        reply.body.length,
+        renderTraceBytes(reply.body),
+      ]);
+      packetLog.trace(() => [
+        'packet_terminal serviceCmd=%j requestId=%d outcome=%s reason=%s error=%d elapsedMs=%d',
+        cmd,
+        requestId,
+        reply.error === 0 ? 'ok' : 'failed',
+        reply.error === 0 ? 'reply_received' : 'reply_error',
+        reply.error,
+        Date.now() - startedAt,
+      ]);
+      return reply;
     } catch (error) {
       this.pendingAcks.delete(requestId);
       this.pendingReplies.delete(requestId);
+      const reason = packetFailureReason(error, requestId);
+      packetLog.trace(() => [
+        'packet_terminal serviceCmd=%j requestId=%d outcome=%s reason=%s error=%j elapsedMs=%d',
+        cmd,
+        requestId,
+        reason.endsWith('_timeout') ? 'timeout' : 'failed',
+        reason,
+        error instanceof Error ? error.message : String(error),
+        Date.now() - startedAt,
+      ]);
       throw error;
     }
   }
@@ -808,7 +883,7 @@ export class QqHookClient extends EventEmitter {
       return;
     }
     if (frame.op === PipeOp.error) {
-      const error = new Error(frame.msg || `pipe error ${frame.status}`);
+      const error = new HookPipeRequestError(frame.msg || `pipe error ${frame.status}`);
       const ack = this.pendingAcks.get(frame.requestId);
       if (ack) {
         this.pendingAcks.delete(frame.requestId);

@@ -9,6 +9,12 @@
 // message table, but only when given a dedup tracker (the live path). Ordinary
 // chat routes remain outside that table even when their outer msgType matches.
 
+import {
+  getLogLevel,
+  setLogLevel,
+  subscribeLogs,
+  type LogEntry,
+} from '@snowluma/common/logger';
 import { describe, expect, it } from 'vitest';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import { protobuf_encode } from '@snowluma/proton';
@@ -209,6 +215,34 @@ describe('parseMsgPush — system-push dedup (#137)', () => {
 
     const second = parseMsgPush(push(), identity, dedup);
     expect(second).toEqual([]);
+  });
+
+  it('traces the actual duplicate branch before returning zero events', () => {
+    const previousLevel = getLogLevel();
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      const dedup = new SysMsgDedup();
+      const push = () => memberIncreasePush({
+        groupId: 700,
+        memberUin: 2854207029,
+        sequence: 800,
+        msgId: 555,
+      });
+      expect(parseMsgPush(push(), identity, dedup)).toHaveLength(1);
+      expect(parseMsgPush(push(), identity, dedup)).toEqual([]);
+
+      expect(entries.filter((entry) => entry.scope === 'MsgPush' && entry.level === 'trace'))
+        .toEqual([
+          expect.objectContaining({
+            message: 'packet_branch serviceCmd="trpc.msg.olpush.OlPushService.MsgPush" seqId=0 branch=duplicate_system_push peer="700" chatType=2 messageSeq=800 messageRandom=555',
+          }),
+        ]);
+    } finally {
+      unsubscribe();
+      setLogLevel(previousLevel);
+    }
   });
 
   it('keeps both pushes when no dedup tracker is supplied (forward re-parse path)', () => {
