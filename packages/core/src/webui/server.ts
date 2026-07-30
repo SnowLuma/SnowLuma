@@ -6,7 +6,15 @@ import {
   configureFileTransport,
   getLogStorageStatus,
 } from '@snowluma/common/log-file-transport';
-import { createLogger, getLogLevel, getRecentLogs, LOG_LEVELS, setLogLevel, subscribeLogs } from '@snowluma/common/logger';
+import {
+  createLogger,
+  getLogLevel,
+  getRecentLogs,
+  logInitialWebuiCredentials,
+  LOG_LEVELS,
+  setLogLevel,
+  subscribeLogs,
+} from '@snowluma/common/logger';
 import {
   loadOneBotConfig,
   OneBotConfigValidationError,
@@ -489,7 +497,7 @@ export async function initWebUI(
     log.info('  若跳过初始改密，下次启动将自动生成新的随机密码。');
     log.info('  Log in and change the password now; it will not be shown again.');
     log.info('────────────────────────────────────────────────────────────────');
-    log.info('initial credentials: user=admin password=%s', initialPassword);
+    logInitialWebuiCredentials(initialPassword);
     log.info('════════════════════════════════════════════════════════════════');
   } else if (auth.mustChangePassword()) {
     log.warn('password change is still required');

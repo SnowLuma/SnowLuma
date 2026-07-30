@@ -1,21 +1,25 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { externalFileLevel, externalLogLevel, fileWriteSpy } = vi.hoisted(() => {
+  const savedFileLevel = process.env.SNOWLUMA_LOG_FILE_LEVEL;
+  const savedLogLevel = process.env.SNOWLUMA_LOG_LEVEL;
+  delete process.env.SNOWLUMA_LOG_FILE_LEVEL;
+  delete process.env.SNOWLUMA_LOG_LEVEL;
+  return {
+    externalFileLevel: savedFileLevel,
+    externalLogLevel: savedLogLevel,
+    fileWriteSpy: vi.fn(),
+  };
+});
 
 // Capture file transport writes via a spy so tests can assert on what reaches
-// the file. vi.hoisted() runs before vi.mock() so the spy is available inside
-// the factory (which is hoisted by vitest).
-const { fileWriteSpy } = vi.hoisted(() => ({
-  fileWriteSpy: vi.fn(),
-}));
-
+// the file.
 vi.mock('../src/log-file-transport', () => ({
   getFileTransport: () => ({ write: fileWriteSpy, close: async () => {} }),
 }));
 
 import {
   createLogger,
-  getLogLevel,
-  getRecentLogs,
-  setLogLevel,
   subscribeLogs,
   type LogEntry,
 } from '../src/logger';
@@ -70,167 +74,136 @@ describe('logger UIN slot padding', () => {
 });
 
 // ─── Independent file-level filtering ─────────────────────────────────────
-// The file transport level is set independently from the console level via
-// SNOWLUMA_LOG_FILE_LEVEL (default debug). These tests verify that the
-// correct levels reach or skip the file transport under default settings.
+
+const SAVED_FILE_LEVEL = externalFileLevel;
+
+async function loadLoggerForFileLevel(level?: string) {
+  if (level === undefined) delete process.env.SNOWLUMA_LOG_FILE_LEVEL;
+  else process.env.SNOWLUMA_LOG_FILE_LEVEL = level;
+  vi.resetModules();
+  fileWriteSpy.mockClear();
+  return import('../src/logger');
+}
+
+afterEach(() => {
+  if (SAVED_FILE_LEVEL === undefined) delete process.env.SNOWLUMA_LOG_FILE_LEVEL;
+  else process.env.SNOWLUMA_LOG_FILE_LEVEL = SAVED_FILE_LEVEL;
+  vi.resetModules();
+  fileWriteSpy.mockClear();
+});
+
+afterAll(() => {
+  if (SAVED_FILE_LEVEL === undefined) delete process.env.SNOWLUMA_LOG_FILE_LEVEL;
+  else process.env.SNOWLUMA_LOG_FILE_LEVEL = SAVED_FILE_LEVEL;
+  if (externalLogLevel === undefined) delete process.env.SNOWLUMA_LOG_LEVEL;
+  else process.env.SNOWLUMA_LOG_LEVEL = externalLogLevel;
+});
 
 describe('file output gating', () => {
-  beforeEach(() => {
-    fileWriteSpy.mockClear();
+  const cases = [
+    { level: undefined, expected: ['debug', 'info', 'success', 'warn', 'error'] },
+    { level: 'debug', expected: ['debug', 'info', 'success', 'warn', 'error'] },
+    { level: 'info', expected: ['info', 'success', 'warn', 'error'] },
+    { level: 'success', expected: ['success', 'warn', 'error'] },
+    { level: 'warn', expected: ['warn', 'error'] },
+    { level: 'error', expected: ['error'] },
+  ] as const;
+
+  for (const testCase of cases) {
+    it(`writes exactly the enabled levels for ${testCase.level ?? 'the default'}`, async () => {
+      const fresh = await loadLoggerForFileLevel(testCase.level);
+      const log = fresh.createLogger('Test');
+
+      fresh.setLogLevel('trace');
+      log.trace('trace');
+      log.debug('debug');
+      log.info('info');
+      log.success('success');
+      log.warn('warn');
+      log.error('error');
+
+      const messages = fileWriteSpy.mock.calls.map(([line]) => String(line).split('] ').at(-1));
+      expect(messages).toEqual(testCase.expected);
+    });
+  }
+
+  it('accepts surrounding whitespace and mixed case', async () => {
+    const fresh = await loadLoggerForFileLevel(' INFO ');
+    const log = fresh.createLogger('Test');
+
+    log.debug('debug');
+    log.info('info');
+
+    expect(fileWriteSpy).toHaveBeenCalledTimes(1);
+    expect(fileWriteSpy).toHaveBeenCalledWith(expect.stringContaining('info'), undefined);
   });
 
-  it('writes debug to file under the default file level', () => {
-    createLogger('Test').debug('breadcrumb');
+  it.each(['trace', 'verbose', 'erorr'])(
+    'rejects unsupported file level %s at startup',
+    async (level) => {
+      await expect(loadLoggerForFileLevel(level)).rejects.toThrow(
+        'SNOWLUMA_LOG_FILE_LEVEL must be one of: debug, info, success, warn, error',
+      );
+      expect(fileWriteSpy).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not let the runtime console level change file output', async () => {
+    const fresh = await loadLoggerForFileLevel('info');
+    const log = fresh.createLogger('Test');
+
+    fresh.setLogLevel('error');
+    log.info('persisted-info');
+    fresh.setLogLevel('trace');
+    log.debug('filtered-debug');
+
     expect(fileWriteSpy).toHaveBeenCalledTimes(1);
     expect(fileWriteSpy).toHaveBeenCalledWith(
-      expect.stringContaining('breadcrumb'),
+      expect.stringContaining('persisted-info'),
       undefined,
     );
   });
 
-  it('writes info to file under the default file level', () => {
-    createLogger('Test').info('item');
-    expect(fileWriteSpy).toHaveBeenCalledTimes(1);
-  });
+  it('skips rendering when both console and file filters reject a record', async () => {
+    const fresh = await loadLoggerForFileLevel('error');
+    fresh.setLogLevel('error');
+    const rendered = vi.fn(() => 'expensive');
+    const value = { [Symbol.toPrimitive]: rendered };
 
-  it('writes success to file under the default file level', () => {
-    createLogger('Test').success('ok');
-    expect(fileWriteSpy).toHaveBeenCalledTimes(1);
-  });
+    fresh.createLogger('Test').debug('value=%s', value);
 
-  it('writes warn to file under the default file level', () => {
-    createLogger('Test').warn('heads-up');
-    expect(fileWriteSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('writes error to file under the default file level', () => {
-    createLogger('Test').error('problem');
-    expect(fileWriteSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('never writes trace to file regardless of level settings', () => {
-    // trace does not pass the console gate at the default log level (info),
-    // so emit() short-circuits before reaching the file-write decision.
-    // Even if console were set to trace, the hard guard at the end of emit()
-    // would still block the file write — this test just confirms no write
-    // under default conditions.
-    createLogger('Test').trace('full chain');
+    expect(rendered).not.toHaveBeenCalled();
     expect(fileWriteSpy).not.toHaveBeenCalled();
   });
-});
 
-// ─── setLogLevel vs file output ────────────────────────────────────────────
-// setLogLevel() only changes the console / subscriber level. The file output
-// level is independent and should not be affected.
+  it('keeps trace out of files at every file threshold', async () => {
+    const fresh = await loadLoggerForFileLevel('debug');
+    fresh.setLogLevel('trace');
 
-describe('setLogLevel does not affect file output', () => {
-  let savedLevel: ReturnType<typeof getLogLevel>;
+    fresh.createLogger('Test').trace('full chain');
 
-  beforeEach(() => {
-    fileWriteSpy.mockClear();
-    savedLevel = getLogLevel();
+    expect(fileWriteSpy).not.toHaveBeenCalled();
   });
 
-  afterEach(() => {
-    setLogLevel(savedLevel);
-  });
+  it('keeps bootstrap notices visible and persisted above configured thresholds', async () => {
+    const fresh = await loadLoggerForFileLevel('error');
+    fresh.setLogLevel('error');
+    const entries: LogEntry[] = [];
+    const unsubscribe = fresh.subscribeLogs((entry) => entries.push(entry));
 
-  it('still writes debug to file after raising console to warn', () => {
-    setLogLevel('warn');
-    createLogger('Test').debug('breadcrumb');
-    // File level is still debug → debug reaches file even though console
-    // (now at warn) skips it.
+    fresh.logInitialWebuiCredentials('secret');
+    unsubscribe();
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      level: 'info',
+      scope: 'WebUI',
+      message: 'initial credentials: user=admin password=secret',
+    });
     expect(fileWriteSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('still writes info to file after raising console to error', () => {
-    setLogLevel('error');
-    createLogger('Test').info('item');
-    // File level still debug → info passes shouldLogToFile.
-    expect(fileWriteSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('still writes to file even when console is dialled down to trace', () => {
-    setLogLevel('trace');
-    createLogger('Test').debug('reachable');
-    // Console lets everything through at trace; file still at debug.
-    expect(fileWriteSpy).toHaveBeenCalledTimes(1);
-  });
-});
-
-// ─── SNOWLUMA_LOG_FILE_LEVEL=trace warning ─────────────────────────────────
-// When the environment variable is set to 'trace' at startup, the logger emits
-// a one-time warning via its own infrastructure (no raw stderr.write). The
-// real file level is clamped to debug regardless.
-
-describe('SNOWLUMA_LOG_FILE_LEVEL=trace warning', () => {
-  const SAVED = process.env.SNOWLUMA_LOG_FILE_LEVEL;
-
-  afterEach(async () => {
-    // Restore the env and reset module cache so the next test gets a clean
-    // logger with the real env value.
-    if (SAVED === undefined) delete process.env.SNOWLUMA_LOG_FILE_LEVEL;
-    else process.env.SNOWLUMA_LOG_FILE_LEVEL = SAVED;
-    vi.resetModules();
-  });
-
-  it('emits a single warn entry at module load with scope logger', async () => {
-    process.env.SNOWLUMA_LOG_FILE_LEVEL = 'trace';
-    vi.resetModules();
-
-    // Dynamic import gives us a fresh logger module that sees the trace env
-    // var during resolveFileMinLevel() — the warning fires inside emit()
-    // at the bottom of the module body.
-    const fresh = await import('../src/logger');
-
-    const warnLogs = fresh
-      .getRecentLogs()
-      .filter((e: { level: string }) => e.level === 'warn');
-
-    // The module-init warning + no other warn entries should be in the ring.
-    expect(warnLogs).toHaveLength(1);
-    expect(warnLogs[0]!.scope).toBe('logger');
-    expect(warnLogs[0]!.message).toContain(
-      'SNOWLUMA_LOG_FILE_LEVEL=trace is not supported',
+    expect(fileWriteSpy).toHaveBeenCalledWith(
+      expect.stringContaining('initial credentials: user=admin password=secret'),
+      undefined,
     );
-    expect(warnLogs[0]!.message).toContain('clamped to debug');
-
-    fresh.closeLogger();
-  });
-
-  it('emits no warning when the env var is not trace', async () => {
-    delete process.env.SNOWLUMA_LOG_FILE_LEVEL;
-    vi.resetModules();
-
-    const fresh = await import('../src/logger');
-
-    const warnLogs = fresh
-      .getRecentLogs()
-      .filter((e: { level: string }) => e.level === 'warn');
-
-    const traceWarnings = warnLogs.filter(
-      (e: { scope: string }) => e.scope === 'logger',
-    );
-    expect(traceWarnings).toHaveLength(0);
-
-    fresh.closeLogger();
-  });
-
-  it('emits no warning for info', async () => {
-    process.env.SNOWLUMA_LOG_FILE_LEVEL = 'info';
-    vi.resetModules();
-
-    const fresh = await import('../src/logger');
-
-    const warnLogs = fresh
-      .getRecentLogs()
-      .filter((e: { level: string }) => e.level === 'warn');
-
-    const traceWarnings = warnLogs.filter(
-      (e: { scope: string }) => e.scope === 'logger',
-    );
-    expect(traceWarnings).toHaveLength(0);
-
-    fresh.closeLogger();
   });
 });

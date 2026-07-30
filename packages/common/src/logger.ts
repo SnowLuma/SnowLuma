@@ -4,6 +4,7 @@ import { sanitizeLogLine } from './log-sanitize';
 import { currentRequestId } from './request-context';
 
 type LogLevel = 'trace' | 'debug' | 'info' | 'success' | 'warn' | 'error';
+type FileLogLevel = Exclude<LogLevel, 'trace'>;
 
 export interface LogEntry {
   id: number;
@@ -114,15 +115,18 @@ function resolveMinLevel(): LogLevel {
   return 'info';
 }
 
-const _rawFileLevel = (process.env.SNOWLUMA_LOG_FILE_LEVEL ?? '').toLowerCase();
+function resolveFileMinLevel(): FileLogLevel {
+  const raw = process.env.SNOWLUMA_LOG_FILE_LEVEL;
+  if (raw === undefined || raw.trim() === '') return 'debug';
 
-function resolveFileMinLevel(): LogLevel {
-  if (_rawFileLevel === 'trace') return 'debug';
-  if (_rawFileLevel === 'debug' || _rawFileLevel === 'info' || _rawFileLevel === 'success' ||
-      _rawFileLevel === 'warn' || _rawFileLevel === 'error') {
-    return _rawFileLevel;
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === 'debug' || normalized === 'info' || normalized === 'success' ||
+      normalized === 'warn' || normalized === 'error') {
+    return normalized;
   }
-  return 'debug';
+  throw new TypeError(
+    'SNOWLUMA_LOG_FILE_LEVEL must be one of: debug, info, success, warn, error',
+  );
 }
 
 // Mutable — seeded from SNOWLUMA_LOG_LEVEL at module load, but
@@ -132,7 +136,7 @@ function resolveFileMinLevel(): LogLevel {
 // SNOWLUMA_LOG_FILE_LEVEL (default debug)
 // and is not affected by setLogLevel().
 let currentLevel: LogLevel = resolveMinLevel();
-let currentFileLevel: LogLevel = resolveFileMinLevel();
+const currentFileLevel: FileLogLevel = resolveFileMinLevel();
 
 function shouldLog(level: LogLevel): boolean {
   return LEVEL_WEIGHT[level] >= LEVEL_WEIGHT[currentLevel];
@@ -201,10 +205,17 @@ function render(level: LogLevel, options: LogOptions, args: unknown[], reqId?: n
   return `${cTs} ${cLabel} ${cUin} ${cScope} ${cReq}${message}`;
 }
 
-function emit(level: LogLevel, options: LogOptions, args: unknown[]): void {
-  // Console / subscriber level filter.
-  // File output is gated independently by currentFileLevel.
-  const passesConsole = shouldLog(level);
+function emit(
+  level: LogLevel,
+  options: LogOptions,
+  args: unknown[],
+  forceFile = false,
+): void {
+  // Console / subscriber and file filters are independent. If no destination
+  // accepts the record, stop before formatting or building a LogEntry.
+  const passesConsole = forceFile || shouldLog(level);
+  const passesFile = level !== 'trace' && (forceFile || shouldLogToFile(level));
+  if (!passesConsole && !passesFile) return;
 
   // `trace` is the high-volume full-chain diagnostic stream, intentionally
   // excluded from disk to avoid I/O saturation. When console is not dialed
@@ -252,7 +263,9 @@ function emit(level: LogLevel, options: LogOptions, args: unknown[]): void {
   // default debug). `trace` is memory / WebUI only (omitted here to avoid huge
   // on-disk volume). ANSI stripping happens inside the transport. UIN routes
   // the line to its per-account sub-file in addition to the shared one.
-  if (level !== 'trace' && shouldLogToFile(level)) getFileTransport().write(line, options.uin);
+  if (passesFile) {
+    getFileTransport().write(line, options.uin);
+  }
 }
 
 /**
@@ -328,17 +341,16 @@ export function createLogger(scope: string): Logger {
   return makeLogger({ scope });
 }
 
+export function logInitialWebuiCredentials(password: string): void {
+  emit(
+    'info',
+    { scope: 'WebUI' },
+    ['initial credentials: user=admin password=%s', password],
+    true,
+  );
+}
+
 // Request-correlation helpers live alongside the logger since `[req#N]`
 // stamping is a logging concern. Re-exported here so callers import the
 // whole logging surface from one place.
 export { nextRequestId, runWithRequestId, currentRequestId } from './request-context';
-
-// Warn once at module load if SNOWLUMA_LOG_FILE_LEVEL was set to 'trace'
-// (trace is intentionally excluded from disk for I/O reasons — see emit()).
-if (_rawFileLevel === 'trace') {
-  emit('warn', { scope: 'logger' }, [
-    'SNOWLUMA_LOG_FILE_LEVEL=trace is not supported — ' +
-    'trace is never written to disk. File level clamped to debug.',
-  ]);
-}
-
