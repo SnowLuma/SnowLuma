@@ -2,6 +2,10 @@ import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import { createLogger } from '@snowluma/common/logger';
 import type { JsonObject, MessageMeta } from './types';
 import { openSqliteDb } from './sqlite-open';
+import {
+  createMessageStoreIndexes,
+  prepareMessageStoreSchema,
+} from './message-store-migration';
 
 const log = createLogger('OneBot.MessageStore');
 
@@ -52,8 +56,8 @@ export class MessageStore {
     // Database instance — `close()` finalizes them automatically.
     this.stmtStoreEvent = this.db.prepare(
       `INSERT INTO messages
-       (message_hash, is_group, session_id, sequence, sequence_authoritative, event_name, client_sequence, private_direction, random, timestamp, data)
-       VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0, ?, ?)
+       (message_hash, is_group, session_id, sequence, sequence_authoritative, event_name, client_sequence, private_direction, random, timestamp, data, classification_version)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0, ?, ?, 1)
        ON CONFLICT(message_hash) DO UPDATE SET
          is_group = excluded.is_group,
          session_id = excluded.session_id,
@@ -68,13 +72,17 @@ export class MessageStore {
            ELSE messages.private_direction
          END,
          timestamp = excluded.timestamp,
-         data = excluded.data`,
+         data = excluded.data,
+         classification_version = CASE
+           WHEN excluded.is_group = 1 THEN excluded.classification_version
+           ELSE messages.classification_version
+         END`,
     );
 
     this.stmtStoreMeta = this.db.prepare(
       `INSERT INTO messages
-       (message_hash, is_group, session_id, sequence, sequence_authoritative, event_name, client_sequence, private_direction, random, timestamp)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       (message_hash, is_group, session_id, sequence, sequence_authoritative, event_name, client_sequence, private_direction, random, timestamp, classification_version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
        ON CONFLICT(message_hash) DO UPDATE SET
          is_group = excluded.is_group,
          session_id = excluded.session_id,
@@ -84,7 +92,8 @@ export class MessageStore {
          client_sequence = excluded.client_sequence,
          private_direction = excluded.private_direction,
          random = excluded.random,
-         timestamp = excluded.timestamp`,
+         timestamp = excluded.timestamp,
+         classification_version = excluded.classification_version`,
     );
 
     this.stmtFindEvent = this.db.prepare(
@@ -603,6 +612,11 @@ export class MessageStore {
   }
 
   private initSchema(): void {
+    const messagesTableExists = this.db.prepare(`
+      SELECT 1 AS present
+      FROM sqlite_schema
+      WHERE type = 'table' AND name = 'messages'
+    `).get() !== undefined;
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS messages (
         message_hash    INTEGER PRIMARY KEY,
@@ -615,12 +629,11 @@ export class MessageStore {
         private_direction INTEGER NOT NULL DEFAULT -1,
         random          INTEGER NOT NULL DEFAULT 0,
         timestamp       INTEGER NOT NULL DEFAULT 0,
-        data            TEXT
+        data            TEXT,
+        classification_version INTEGER NOT NULL DEFAULT 1
       )
     `);
-    this.migrateSequenceAuthority();
-    this.migratePrivateDirection();
-    this.migratePrivateNtSequences();
+    prepareMessageStoreSchema(this.db);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS private_recall_tombstones (
         session_id       INTEGER NOT NULL,
@@ -630,167 +643,8 @@ export class MessageStore {
         PRIMARY KEY (session_id, client_sequence, private_direction)
       )
     `);
-    this.db.exec('CREATE INDEX IF NOT EXISTS idx_messages_session_seq ON messages(is_group, session_id, sequence)');
-    this.db.exec('CREATE INDEX IF NOT EXISTS idx_messages_session_authoritative_seq ON messages(is_group, session_id, sequence_authoritative, sequence)');
-    this.db.exec('CREATE INDEX IF NOT EXISTS idx_messages_private_client_seq ON messages(is_group, session_id, client_sequence)');
-    this.db.exec('CREATE INDEX IF NOT EXISTS idx_messages_private_client_direction ON messages(is_group, session_id, client_sequence, private_direction)');
-  }
-
-  private migratePrivateDirection(): void {
-    const columns = this.db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>;
-    if (columns.some((column) => column.name === 'private_direction')) return;
-
-    this.db.exec('BEGIN IMMEDIATE');
-    try {
-      this.db.exec(
-        'ALTER TABLE messages ADD COLUMN private_direction INTEGER NOT NULL DEFAULT -1',
-      );
-      this.db.exec(`
-        UPDATE messages
-        SET private_direction = CASE json_extract(data, '$.post_type')
-          WHEN 'message' THEN 0
-          WHEN 'message_sent' THEN 1
-          ELSE -1
-        END
-        WHERE is_group = 0
-          AND data IS NOT NULL
-          AND json_valid(data)
-          AND json_extract(data, '$.message_type') = 'private'
-          AND json_extract(data, '$.sub_type') = 'friend'
-      `);
-      this.db.exec('COMMIT');
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      throw error;
-    }
-  }
-
-  private migratePrivateNtSequences(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS message_store_migrations (
-        name       TEXT PRIMARY KEY,
-        applied_at INTEGER NOT NULL
-      )
-    `);
-
-    const migration = 'private-nt-sequence-v1';
-    this.db.exec('BEGIN IMMEDIATE');
-    try {
-      const applied = this.db.prepare(
-        'SELECT 1 AS applied FROM message_store_migrations WHERE name = ?',
-      ).get(migration) as { applied: number } | undefined;
-      if (applied) {
-        this.db.exec('COMMIT');
-        return;
-      }
-
-      // Pre-fix observed/fetched private rows did not retain client_sequence;
-      // their `sequence` came from ContentHead field 5 and is sender-local.
-      // Action-sent rows do retain client_sequence and their send receipt
-      // carries QQ's private server sequence, so those remain usable.
-      const result = this.db.prepare(`
-        UPDATE messages
-        SET sequence_authoritative = 0
-        WHERE is_group = 0
-          AND sequence_authoritative = 1
-          AND client_sequence = 0
-      `).run();
-      this.db.prepare(
-        'INSERT INTO message_store_migrations (name, applied_at) VALUES (?, ?)',
-      ).run(migration, Math.floor(Date.now() / 1000));
-      this.db.exec('COMMIT');
-      if (Number(result.changes) > 0) {
-        log.info(
-          'message-store schema migrated: legacy private sequences invalidated=%d',
-          Number(result.changes),
-        );
-      }
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      throw error;
-    }
-  }
-
-  private migrateSequenceAuthority(): void {
-    const columns = this.db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>;
-    if (columns.some((column) => column.name === 'sequence_authoritative')) return;
-
-    this.db.exec('BEGIN IMMEDIATE');
-    try {
-      this.db.exec(
-        'ALTER TABLE messages ADD COLUMN sequence_authoritative INTEGER NOT NULL DEFAULT 1',
-      );
-      const result = this.db.prepare(`
-        UPDATE messages
-        SET sequence_authoritative = 0
-        WHERE sequence > 0
-          AND data IS NOT NULL
-          AND CASE WHEN json_valid(data) THEN (
-            (
-              is_group = 1
-              AND (
-                (
-                  json_extract(data, '$.post_type') = 'message_sent'
-                  AND json_extract(data, '$.message_type') = 'group'
-                  AND random = sequence
-                  AND json_extract(data, '$.message[0].type') IN ('file', 'video')
-                )
-                OR
-                (
-                  json_extract(data, '$.post_type') = 'message'
-                  AND json_extract(data, '$.message_type') = 'group'
-                  AND json_type(data, '$.group_name') IS NULL
-                  AND json_type(data, '$.sender') = 'object'
-                  AND json_extract(data, '$.sender.user_id') = json_extract(data, '$.user_id')
-                  AND json_extract(data, '$.sender.nickname') = ''
-                  AND json_extract(data, '$.sender.card') = ''
-                  AND json_extract(data, '$.sender.role') = 'member'
-                  AND json_extract(data, '$.sender.sex') = 'unknown'
-                  AND json_extract(data, '$.sender.age') = 0
-                )
-                OR
-                (
-                  json_extract(data, '$.post_type') = 'message'
-                  AND json_extract(data, '$.message_type') = 'group'
-                  AND json_extract(data, '$.user_id') = 0
-                  AND json_extract(data, '$.time') = 0
-                )
-                OR
-                (
-                  json_extract(data, '$.post_type') = 'message'
-                  AND json_extract(data, '$.message_type') = 'group'
-                  AND json_extract(data, '$.user_id') = 0
-                  AND json_array_length(json_extract(data, '$.message')) = 1
-                  AND json_extract(data, '$.message[0].type') = 'text'
-                  AND json_extract(data, '$.message[0].data.text') = '[引用消息]'
-                )
-              )
-            )
-            OR
-            (
-              is_group = 0
-              AND random = 0
-              AND client_sequence = 0
-              AND json_extract(data, '$.post_type') = 'message'
-              AND json_extract(data, '$.message_type') = 'private'
-              AND json_extract(data, '$.sub_type') = 'friend'
-              AND json_type(data, '$.target_id') IS NULL
-              AND json_type(data, '$.sender') = 'object'
-              AND json_extract(data, '$.sender.user_id') = json_extract(data, '$.user_id')
-              AND json_extract(data, '$.sender.nickname') = ''
-              AND json_extract(data, '$.sender.sex') = 'unknown'
-              AND json_extract(data, '$.sender.age') = 0
-            )
-          ) ELSE 0 END
-      `).run();
-      this.db.exec('COMMIT');
-      log.info(
-        'message-store schema migrated: sequence authority added, synthetic rows marked=%d',
-        Number(result.changes),
-      );
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      throw error;
+    if (!messagesTableExists) {
+      createMessageStoreIndexes(this.db);
     }
   }
 }

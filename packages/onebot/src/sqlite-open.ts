@@ -17,5 +17,6 @@ export function openSqliteDb(dbPath: string): DatabaseSync {
   const db = new DatabaseSync(dbPath);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA synchronous = NORMAL');
+  db.exec('PRAGMA busy_timeout = 1000');
   return db;
 }
