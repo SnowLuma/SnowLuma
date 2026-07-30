@@ -4,6 +4,11 @@ import type { BridgeManager } from '@snowluma/core/manager';
 import { loadOneBotConfig } from './config';
 import { loadGlobalSettings } from './global-config';
 import { OneBotInstance } from './instance';
+import type { MessageStoreMigrationStatus } from './message-store-migration';
+import {
+  createMessageStoreMigrationTask,
+  estimateRemainingSeconds,
+} from './message-store-migration-task';
 import type { AdapterStatus, NetworkApplyError } from './network';
 import type { OneBotConfig } from './types';
 
@@ -17,11 +22,44 @@ class InstanceLifecycleError extends Error {
   }
 }
 
+export interface AccountDatabaseMigration {
+  phase: 'preparing' | 'migrating' | 'complete' | 'failed';
+  usable: boolean;
+  processed: number;
+  total: number | null;
+  progress: number | null;
+  estimatedRemainingSeconds: number | null;
+  error?: string;
+}
+
+export interface DatabaseMigrationCallbacks {
+  onReady(): void;
+  onProgress(status: MessageStoreMigrationStatus, elapsedMs: number): void;
+  onFailed(error: unknown): void;
+}
+
+export interface DatabaseMigrationTask {
+  start(callbacks: DatabaseMigrationCallbacks): void;
+  beginMigration(): void;
+  cancel(): void;
+}
+
+export interface OneBotManagerOptions {
+  createDatabaseMigrationTask?: (uin: string) => DatabaseMigrationTask;
+  createInstance?: (
+    uin: string,
+    bridge: BridgeInterface,
+    config: OneBotConfig,
+    globalSettings: ReturnType<typeof loadGlobalSettings>,
+  ) => OneBotInstance;
+}
+
 /** Per-account OneBot connection health, surfaced to the WebUI dashboard. */
 export interface AccountConnections {
   uin: string;
   nickname: string;
   adapters: AdapterStatus[];
+  databaseMigration?: AccountDatabaseMigration;
 }
 
 export interface ConfigApplyResult {
@@ -41,8 +79,31 @@ export class OneBotManager {
     instances?: Set<OneBotInstance>;
   }> = [];
   private readonly pendingStarts = new Map<string, { bridge: BridgeInterface; cancelled: boolean }>();
+  private readonly databaseMigrations = new Map<string, {
+    bridge: BridgeInterface;
+    task: DatabaseMigrationTask;
+    state: AccountDatabaseMigration;
+    ready: boolean;
+    cancelled: boolean;
+    rowsPerSecond: number | null;
+    retryTimer: NodeJS.Timeout | null;
+  }>();
+  private readonly createDatabaseMigrationTask: (uin: string) => DatabaseMigrationTask;
+  private readonly createInstance: NonNullable<OneBotManagerOptions['createInstance']>;
   private disposePromise: Promise<void> | null = null;
   private disposed = false;
+
+  constructor(options: OneBotManagerOptions = {}) {
+    this.createDatabaseMigrationTask = options.createDatabaseMigrationTask
+      ?? createMessageStoreMigrationTask;
+    this.createInstance = options.createInstance
+      ?? ((uin, bridge, config, globalSettings) => new OneBotInstance(
+        uin,
+        bridge,
+        config,
+        globalSettings,
+      ));
+  }
 
   bind(bridgeManager: BridgeManager): void {
     bridgeManager.addSessionStartedListener((uin, bridge) => {
@@ -69,11 +130,25 @@ export class OneBotManager {
     for (const instance of this.retiringInstances) {
       if (!visible.includes(instance)) visible.push(instance);
     }
-    return visible.map((i) => ({
-      uin: i.uin,
-      nickname: i.nickname,
-      adapters: i.getConnectionStatuses(),
+    const connections = visible.map((instance) => ({
+      uin: instance.uin,
+      nickname: instance.nickname,
+      adapters: instance.getConnectionStatuses(),
+      ...(this.databaseMigrations.get(instance.uin)?.state
+        ? { databaseMigration: this.databaseMigrations.get(instance.uin)?.state }
+        : {}),
     }));
+    const activeUins = new Set(this.instances.keys());
+    for (const [uin, migration] of this.databaseMigrations) {
+      if (activeUins.has(uin)) continue;
+      connections.push({
+        uin,
+        nickname: migration.bridge.identity?.nickname || uin,
+        adapters: [],
+        databaseMigration: migration.state,
+      });
+    }
+    return connections;
   }
 
   async reloadConfig(uin: string, config: OneBotConfig): Promise<ConfigApplyResult> {
@@ -107,6 +182,12 @@ export class OneBotManager {
   dispose(): Promise<void> {
     if (this.disposePromise) return this.disposePromise;
     this.disposed = true;
+    for (const migration of this.databaseMigrations.values()) {
+      migration.cancelled = true;
+      if (migration.retryTimer) clearTimeout(migration.retryTimer);
+      migration.task.cancel();
+    }
+    this.databaseMigrations.clear();
     for (const instance of this.instances.values()) this.retiringInstances.add(instance);
     // Quiesce every live generation before awaiting older startup/shutdown
     // work. A deferred lifecycle operation must not leave Action ingress open
@@ -173,14 +254,95 @@ export class OneBotManager {
       return;
     }
 
-    this.startSession(uin, bridge);
+    this.prepareDatabase(uin, bridge);
+  }
+
+  private prepareDatabase(uin: string, bridge: BridgeInterface): void {
+    if (this.disposed || this.instances.has(uin) || this.databaseMigrations.has(uin)) return;
+    const migration = {
+      bridge,
+      task: this.createDatabaseMigrationTask(uin),
+      state: preparingMigrationState(),
+      ready: false,
+      cancelled: false,
+      rowsPerSecond: null as number | null,
+      retryTimer: null as NodeJS.Timeout | null,
+    };
+    this.databaseMigrations.set(uin, migration);
+    const startTask = (): void => {
+      const handleFailure = (): void => {
+        if (migration.cancelled || this.databaseMigrations.get(uin) !== migration) return;
+        migration.state = {
+          ...migration.state,
+          phase: 'failed',
+          usable: migration.ready,
+          estimatedRemainingSeconds: null,
+          error: '数据库迁移失败，将自动重试',
+        };
+        log.error('database migration failed: UIN=%s', uin);
+        migration.task.cancel();
+        if (migration.retryTimer) return;
+        migration.retryTimer = setTimeout(() => {
+          migration.retryTimer = null;
+          if (migration.cancelled || this.databaseMigrations.get(uin) !== migration) return;
+          migration.task = this.createDatabaseMigrationTask(uin);
+          migration.state = migration.ready
+            ? { ...migration.state, phase: 'migrating', usable: true, error: undefined }
+            : preparingMigrationState();
+          startTask();
+        }, 5_000);
+        migration.retryTimer.unref?.();
+      };
+      try {
+        migration.task.start({
+          onReady: () => {
+            if (migration.cancelled || this.databaseMigrations.get(uin) !== migration) return;
+            try {
+              this.startSession(uin, bridge);
+            } catch {
+              handleFailure();
+              return;
+            }
+            migration.ready = true;
+            migration.state = {
+              ...migration.state,
+              phase: 'migrating',
+              usable: true,
+              error: undefined,
+            };
+            try {
+              migration.task.beginMigration();
+            } catch {
+              handleFailure();
+            }
+          },
+          onProgress: (status, elapsedMs) => {
+            if (migration.cancelled || this.databaseMigrations.get(uin) !== migration) return;
+            const previousProcessed = migration.state.processed;
+            const processedDelta = Math.max(0, status.processed - previousProcessed);
+            if (processedDelta > 0 && elapsedMs > 0) {
+              const observed = processedDelta / (elapsedMs / 1000);
+              migration.rowsPerSecond = migration.rowsPerSecond === null
+                ? observed
+                : (migration.rowsPerSecond * 0.7) + (observed * 0.3);
+            }
+            migration.state = migrationPublicState(status, migration.rowsPerSecond);
+            if (status.phase === 'complete') migration.task.cancel();
+          },
+          onFailed: handleFailure,
+        });
+      } catch {
+        handleFailure();
+      }
+    };
+    startTask();
   }
 
   private startSession(uin: string, bridge: BridgeInterface): void {
     if (this.disposed || this.instances.has(uin)) return;
 
     const config = loadOneBotConfig(uin, { persistDefaults: true });
-    const instance = new OneBotInstance(uin, bridge, config, loadGlobalSettings());
+    const instance = this.createInstance(uin, bridge, config, loadGlobalSettings());
 
     const activePid = bridge.activePid;
     if (activePid !== null) {
@@ -219,6 +381,13 @@ export class OneBotManager {
   }
 
   private onSessionClosed(uin: string): void {
+    const migration = this.databaseMigrations.get(uin);
+    if (migration) {
+      migration.cancelled = true;
+      if (migration.retryTimer) clearTimeout(migration.retryTimer);
+      migration.task.cancel();
+      this.databaseMigrations.delete(uin);
+    }
     const instance = this.instances.get(uin);
     if (!instance) {
       const pending = this.pendingStarts.get(uin);
@@ -261,7 +430,7 @@ export class OneBotManager {
     if (this.pendingStarts.get(uin) !== pending) return;
     this.pendingStarts.delete(uin);
     if (pending.cancelled || this.disposed) return;
-    this.startSession(uin, pending.bridge);
+    this.prepareDatabase(uin, pending.bridge);
   }
 
   private trackLifecycle(
@@ -296,6 +465,34 @@ export class OneBotManager {
     }
   }
 
+}
+
+function preparingMigrationState(): AccountDatabaseMigration {
+  return {
+    phase: 'preparing',
+    usable: false,
+    processed: 0,
+    total: null,
+    progress: null,
+    estimatedRemainingSeconds: null,
+  };
+}
+
+function migrationPublicState(
+  status: MessageStoreMigrationStatus,
+  rowsPerSecond: number | null,
+): AccountDatabaseMigration {
+  const progress = status.total === 0
+    ? 1
+    : Math.min(1, status.processed / status.total);
+  return {
+    phase: status.phase,
+    usable: true,
+    processed: status.processed,
+    total: status.total,
+    progress,
+    estimatedRemainingSeconds: estimateRemainingSeconds(status, rowsPerSecond),
+  };
 }
 
 interface BridgeWarmupResult {

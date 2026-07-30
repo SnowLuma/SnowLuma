@@ -60,6 +60,10 @@
       "types": "./src/message-store.ts",
       "default": "./src/message-store.ts"
     },
+    "./message-store-migration-worker": {
+      "types": "./src/message-store-migration-worker.ts",
+      "default": "./src/message-store-migration-worker.ts"
+    },
     "./media-store": {
       "types": "./src/media-store.ts",
       "default": "./src/media-store.ts"
