@@ -1189,6 +1189,26 @@ export const actions = [
     },
   }),
 
+  defineAction({
+    name: 'set_friends_category',
+    summary: '移动好友到指定分组',
+    returns: '成功时返回空数据。',
+    params: {
+      uin: f.userId().describe('要移动的好友 QQ 号'),
+      categoryId: f.int({ min: 0 }).optional().describe('目标分组 ID'),
+      categoryName: f.string({ allowEmpty: false }).optional().describe('目标分组名称（必须唯一且完全匹配）'),
+    },
+    rules: (rules) => [rules.exactlyOneOf('categoryId', 'categoryName')],
+    run: async (params, ctx) => {
+      await ctx.bridge.apis.contacts.setFriendCategory({
+        uin: params.uin,
+        categoryId: params.categoryId,
+        categoryName: params.categoryName,
+      });
+      return okResponse();
+    },
+  }),
+
   // get_recent_contact — 最近会话列表（占位）。QQ 原生该接口是内核本地快照
   // （getRecentContactListSnapShot），返回带 peerName/remark/lastestMsg 等丰富
   // 元信息；SnowLuma 既无对应 SSO/packet wire，自有 message store 也只覆盖

@@ -13,6 +13,7 @@ import { FetchUserProfile } from '@snowluma/protocol/oidb-services/contacts/fetc
 import { FetchUserProfileByUid } from '@snowluma/protocol/oidb-services/contacts/fetch-user-profile-by-uid';
 import { GetBuddyRecommendArk } from '@snowluma/protocol/oidb-services/contacts/get-buddy-recommend-ark';
 import { GetGroupRecommendArk } from '@snowluma/protocol/oidb-services/contacts/get-group-recommend-ark';
+import { SetFriendCategory } from '@snowluma/protocol/oidb-services/contacts/set-friend-category';
 import { toHex } from '@snowluma/common/hex';
 import { createLogger } from '@snowluma/common/logger';
 import { createSingleFlightCache, type SingleFlightCache } from '@snowluma/common/single-flight-cache';
@@ -58,6 +59,12 @@ interface FriendCategoryMeta {
 interface FriendRoster {
   entries: FriendRosterEntry[];
   categories: FriendCategoryMeta[];
+}
+
+export interface SetFriendCategoryParams {
+  uin: number;
+  categoryId?: number;
+  categoryName?: string;
 }
 
 export function buildFriendProperties(raw: FriendPropertySource): Map<number, string> {
@@ -223,6 +230,52 @@ export class ContactsApi {
       }
       return { ...category, friends };
     });
+  }
+
+  async setFriendCategory(params: SetFriendCategoryParams): Promise<void> {
+    const selectorCount = Number(params.categoryId !== undefined)
+      + Number(params.categoryName !== undefined);
+    if (selectorCount !== 1) {
+      throw new Error('exactly one of categoryId or categoryName is required');
+    }
+    const categories = await this.fetchFriendCategories();
+    const friendCategory = categories.find(category =>
+      category.friends.some(friend => friend.uin === params.uin));
+    const friend = friendCategory?.friends.find(entry => entry.uin === params.uin);
+    if (!friend) {
+      throw new Error(`friend ${params.uin} is not in the live roster`);
+    }
+    if (!friend.uid) {
+      throw new Error(`friend ${params.uin} has no UID in the live roster`);
+    }
+
+    let target: FriendCategoryInfo | undefined;
+    if (params.categoryId !== undefined) {
+      target = categories.find(category => category.categoryId === params.categoryId);
+      if (!target) {
+        throw new Error(`friend category ${params.categoryId} does not exist`);
+      }
+    } else {
+      const matches = categories.filter(category => category.categoryName === params.categoryName);
+      if (matches.length === 0) {
+        throw new Error(`friend category name "${params.categoryName}" does not exist`);
+      }
+      if (matches.length > 1) {
+        throw new Error(`friend category name "${params.categoryName}" is ambiguous`);
+      }
+      target = matches[0]!;
+    }
+
+    await SetFriendCategory.invoke(this.ctx, {
+      uid: friend.uid,
+      categoryId: target.categoryId,
+    });
+    log.info(
+      'friend category updated: uin=%s friend=%d category=%d',
+      this.ctx.identity.uin,
+      params.uin,
+      target.categoryId,
+    );
   }
 
   async fetchGroupList(): Promise<QQGroupInfo[]> {

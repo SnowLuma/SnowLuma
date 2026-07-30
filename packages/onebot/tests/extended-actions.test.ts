@@ -38,6 +38,7 @@ function fakeMeta(overrides: Partial<MessageMeta> = {}): MessageMeta {
 const APIS_ROUTING: Record<string, [string, string]> = {
   fetchFriendList: ['contacts', 'fetchFriendList'],
   fetchFriendCategories: ['contacts', 'fetchFriendCategories'],
+  setFriendCategory: ['contacts', 'setFriendCategory'],
   fetchGroupList: ['contacts', 'fetchGroupList'],
   fetchGroupMemberList: ['contacts', 'fetchGroupMemberList'],
   fetchUserProfile: ['contacts', 'fetchUserProfile'],
@@ -261,6 +262,72 @@ describe('extended-actions / get_friends_with_category', () => {
       status: 'failed',
       retcode: 100,
       wording: 'repeated friend-list cookie aa',
+    });
+  });
+});
+
+describe('extended-actions / set_friends_category', () => {
+  it('moves a friend by category ID', async () => {
+    const setFriendCategory = vi.fn(async () => undefined);
+    const bridge = fakeBridge({ setFriendCategory });
+
+    const response = await makeHandler(fakeCtx(bridge))
+      .handle('set_friends_category', { uin: 10001, categoryId: 7 });
+
+    expect(response).toMatchObject({ status: 'ok', retcode: 0, data: null });
+    expect(setFriendCategory).toHaveBeenCalledWith({
+      uin: 10001,
+      categoryId: 7,
+      categoryName: undefined,
+    });
+  });
+
+  it('moves a friend by an exact category name', async () => {
+    const setFriendCategory = vi.fn(async () => undefined);
+    const bridge = fakeBridge({ setFriendCategory });
+
+    const response = await makeHandler(fakeCtx(bridge))
+      .handle('set_friends_category', { uin: 10001, categoryName: 'Work' });
+
+    expect(response).toMatchObject({ status: 'ok', retcode: 0, data: null });
+    expect(setFriendCategory).toHaveBeenCalledWith({
+      uin: 10001,
+      categoryId: undefined,
+      categoryName: 'Work',
+    });
+  });
+
+  it('rejects missing or conflicting category selectors before calling QQ', async () => {
+    const setFriendCategory = vi.fn(async () => undefined);
+    const bridge = fakeBridge({ setFriendCategory });
+    const handler = makeHandler(fakeCtx(bridge));
+
+    const missing = await handler.handle('set_friends_category', { uin: 10001 });
+    const conflicting = await handler.handle('set_friends_category', {
+      uin: 10001,
+      categoryId: 7,
+      categoryName: 'Work',
+    });
+
+    expect(missing).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(conflicting).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(setFriendCategory).not.toHaveBeenCalled();
+  });
+
+  it('surfaces roster or server failures instead of reporting success', async () => {
+    const bridge = fakeBridge({
+      setFriendCategory: vi.fn(async () => {
+        throw new Error('friend 10001 is not in the live roster');
+      }),
+    });
+
+    const response = await makeHandler(fakeCtx(bridge))
+      .handle('set_friends_category', { uin: 10001, categoryId: 7 });
+
+    expect(response).toMatchObject({
+      status: 'failed',
+      retcode: 100,
+      wording: 'friend 10001 is not in the live roster',
     });
   });
 });

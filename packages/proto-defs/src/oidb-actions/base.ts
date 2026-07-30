@@ -69,6 +69,11 @@ export interface OidbFriendRequestAction {
   accept?:    pb<1, uint_32>;
   targetUid?: pb<2, string>;
 }
+/** 0x1255_0 — move one friend into a numbered category. */
+export interface OidbSetFriendCategoryRequest {
+  uid?:        pb<1, string>;
+  categoryId?: pb<2, uint_32>;
+}
 export interface OidbDeleteFriendField2Field3 {
   field1?: pb<1, uint_32>;
   field2?: pb<2, uint_32>;
