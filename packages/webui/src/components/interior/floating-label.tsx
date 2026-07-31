@@ -191,7 +191,7 @@ export function FloatingLabelInput({
     <div className={`w-full ${className}`}>
       <div className="relative pt-[20px]">
         <div
-          className={`relative h-10 rounded-[10px] border-2 transition-[background-color,border-color,box-shadow] duration-150 ${
+          className={`relative h-11 rounded-[10px] border-2 transition-[background-color,border-color,box-shadow] duration-150 sm:h-10 ${
             invalid
               ? "border-destructive bg-background"
               : focused
@@ -228,7 +228,7 @@ export function FloatingLabelInput({
               fieldProps.onChange(event);
               onChange?.(event.currentTarget.value, event);
             }}
-            className={`absolute inset-0 h-full w-full rounded-[9px] bg-transparent px-3 py-0 text-[13px] leading-[20px] text-foreground outline-none focus-visible:outline-none disabled:cursor-not-allowed ${
+            className={`absolute inset-0 h-full w-full rounded-[9px] bg-transparent px-3 py-0 text-base leading-5 text-foreground outline-none focus-visible:outline-none disabled:cursor-not-allowed sm:text-[13px] ${
               endAdornment ? "pr-16" : ""
             }`}
           />
@@ -249,7 +249,7 @@ export function FloatingLabelInput({
           }}
           transition={move}
           style={{ originX: 0, originY: 0, willChange: "transform" }}
-          className={`absolute left-3 top-[32px] block cursor-text select-none text-[13px] leading-[16px] ${
+          className={`absolute left-3 top-[32px] block cursor-text select-none text-base leading-5 sm:text-[13px] sm:leading-[16px] ${
             invalid
               ? "text-destructive"
               : raised

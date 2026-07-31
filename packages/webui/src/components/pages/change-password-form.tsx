@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import {
 import { PasswordVisibilityIcon } from '@/components/ui/password-visibility-icon';
 import { actionErrorMessage, useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { cn } from '@/lib/utils';
 
 export interface PasswordRule {
   id: string;
@@ -28,6 +29,8 @@ const EMPTY_RULES: readonly PasswordRule[] = [
 const STRENGTH_LABELS = ['未输入', '很弱', '较弱', '一般', '良好', '强'] as const;
 
 export interface ChangePasswordFormProps {
+  /** Selects whether the form changes credentials or only rehearses validation. */
+  mode?: 'change' | 'rehearsal';
   /**
    * When provided, the "current password" field is omitted entirely and this
    * value is used as the old password.
@@ -51,9 +54,16 @@ export interface ChangePasswordFormProps {
   /** Disambiguates input ids if two instances ever mount at once. */
   idPrefix?: string;
   submitLabel?: string;
+  className?: string;
+  renderActions?: (state: {
+    canSubmit: boolean;
+    submitting: boolean;
+    submitLabel: string;
+  }) => ReactNode;
 }
 
 export function ChangePasswordForm({
+  mode = 'change',
   knownOldPassword,
   checkStrength,
   submit,
@@ -61,8 +71,11 @@ export function ChangePasswordForm({
   onCancel,
   idPrefix = 'cpw',
   submitLabel = '保存新密码',
+  className,
+  renderActions,
 }: ChangePasswordFormProps) {
-  const carriesOld = knownOldPassword !== undefined;
+  const rehearsing = mode === 'rehearsal';
+  const carriesOld = rehearsing || knownOldPassword !== undefined;
   const { runAction } = useActionFeedback();
   const { appearance } = useTheme();
   const reduceMotion = appearance.reduceMotion || appearance.disableMotion;
@@ -85,7 +98,7 @@ export function ChangePasswordForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  const effectiveOld = carriesOld ? (knownOldPassword as string) : oldPassword;
+  const effectiveOld = rehearsing ? '' : carriesOld ? (knownOldPassword as string) : oldPassword;
   const checkedCurrentPassword = strengthResult.password === newPassword;
   const valid = checkedCurrentPassword && strengthResult.valid;
   const strengthError = strengthFailure?.password === newPassword
@@ -106,7 +119,11 @@ export function ChangePasswordForm({
   );
   const confirmMatches = newPassword.length > 0 && newPassword === confirmPassword;
   const canSubmit =
-    !submitting && effectiveOld.length > 0 && valid && confirmMatches && effectiveOld !== newPassword;
+    !submitting
+    && (rehearsing || effectiveOld.length > 0)
+    && valid
+    && confirmMatches
+    && (rehearsing || effectiveOld !== newPassword);
 
   // Debounce the strength check so we don't slam the API on every keystroke.
   useEffect(() => {
@@ -145,11 +162,11 @@ export function ChangePasswordForm({
     try {
       const res = await runAction(
         {
-          title: '正在更新访问密码',
-          detail: '正在保存新密码并使其他会话失效',
-          successTitle: '访问密码已更新',
-          successDetail: '其他会话已失效',
-          errorTitle: '访问密码更新失败',
+          title: rehearsing ? '正在验证密码设置步骤' : '正在更新访问密码',
+          detail: rehearsing ? '演练内容不会保存' : '正在保存新密码并使其他会话失效',
+          successTitle: rehearsing ? '密码设置演练已完成' : '访问密码已更新',
+          successDetail: rehearsing ? '未修改真实访问密码' : '其他会话已失效',
+          errorTitle: rehearsing ? '密码设置演练失败' : '访问密码更新失败',
           resultError: (result) => result.success ? null : result.message || '修改失败',
         },
         () => submit(effectiveOld, newPassword),
@@ -167,7 +184,7 @@ export function ChangePasswordForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+    <form onSubmit={handleSubmit} className={cn('flex flex-col gap-3', className)}>
       {!carriesOld && (
         <InlineValidation
           id={`${idPrefix}-old`}
@@ -206,7 +223,7 @@ export function ChangePasswordForm({
           validationKey={effectiveOld}
           validate={(value) => {
             if (value.length === 0) return '请输入新密码';
-            if (value === effectiveOld) return '新密码不能与当前密码相同';
+            if (!rehearsing && value === effectiveOld) return '新密码不能与当前密码相同';
             return null;
           }}
           showValidIcon={false}
@@ -277,22 +294,24 @@ export function ChangePasswordForm({
         )}
       </AnimatePresence>
 
-      <div className="flex items-center gap-2 pt-1">
-        {onCancel && (
-          <Button type="button" variant="ghost" onClick={onCancel} className="h-10">
-            取消
-          </Button>
-        )}
-        <Button type="submit" disabled={!canSubmit} className="ml-auto h-10">
-          {submitting ? (
-            <>
-              <Loader2 className="size-4 animate-spin" /> 提交中…
-            </>
-          ) : (
-            submitLabel
+      {renderActions ? renderActions({ canSubmit, submitting, submitLabel }) : (
+        <div className="flex items-center gap-2 pt-1">
+          {onCancel && (
+            <Button type="button" variant="ghost" onClick={onCancel} className="h-10">
+              取消
+            </Button>
           )}
-        </Button>
-      </div>
+          <Button type="submit" disabled={!canSubmit} className="ml-auto h-10">
+            {submitting ? (
+              <>
+                <Loader2 className="size-4 animate-spin" /> 提交中…
+              </>
+            ) : (
+              submitLabel
+            )}
+          </Button>
+        </div>
+      )}
     </form>
   );
 }
@@ -311,7 +330,7 @@ function PasswordVisibilityButton({
       type="button"
       onClick={onToggle}
       aria-label={visible ? '隐藏密码' : '显示密码'}
-      className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+      className="flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary sm:size-7"
     >
       <PasswordVisibilityIcon visible={visible} reduceMotion={reduceMotion} />
     </button>

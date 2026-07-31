@@ -1,9 +1,13 @@
 import { useState, type ReactNode } from 'react';
-import { Check, ScrollText, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Check, Loader2, ScrollText, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { SegmentedControl } from '@/components/interior/segmented-control';
-import { WizardSteps, type WizardStep } from '@/components/interior/wizard-steps';
+import {
+  useWizardNavigation,
+  WizardSteps,
+  type WizardStep,
+} from '@/components/interior/wizard-steps';
 import { ChangePasswordForm, type PasswordRule } from '@/components/pages/change-password-form';
 import {
   advanceOnboardingStep,
@@ -28,6 +32,7 @@ interface OnboardingWizardPageProps {
   needsConsent: boolean;
   mustChangePassword: boolean;
   knownOldPassword?: string;
+  passwordMode?: 'change' | 'rehearsal';
   onAccept: () => Promise<{ success: boolean; message?: string }>;
   onConsentComplete: () => void;
   onDecline: () => void;
@@ -52,6 +57,7 @@ export function OnboardingWizardPage({
   needsConsent,
   mustChangePassword,
   knownOldPassword,
+  passwordMode = 'change',
   onAccept,
   onConsentComplete,
   onDecline,
@@ -85,6 +91,8 @@ export function OnboardingWizardPage({
         label: '阅读并同意协议',
         canSkip: false,
         hideAdvance: true,
+        hideBack: true,
+        scrollMode: 'content',
         content: (
           <AgreementStep
             documents={documents}
@@ -104,9 +112,11 @@ export function OnboardingWizardPage({
       label: '设置访问密码',
       canSkip: false,
       hideAdvance: true,
+      hideBack: true,
       content: (
         <PasswordStep
           knownOldPassword={knownOldPassword}
+          mode={passwordMode}
           checkStrength={checkStrength}
           submit={submitPassword}
           onComplete={() => {
@@ -133,7 +143,7 @@ export function OnboardingWizardPage({
   if (total === 0) return null;
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-x-hidden bg-background px-4 py-6">
+    <div className="relative min-h-dvh overflow-x-clip bg-background antialiased">
       <div
         className="pointer-events-none absolute inset-0"
         style={{
@@ -141,28 +151,29 @@ export function OnboardingWizardPage({
             'radial-gradient(80% 60% at 50% 0%, color-mix(in oklab, var(--primary) 18%, transparent) 0%, transparent 70%)',
         }}
       />
-      <div className="absolute right-4 top-4">
+      <div className="absolute right-4 top-4 z-20 sm:right-6 sm:top-6">
         <ThemeToggle />
       </div>
-      <main className="relative z-10 w-full max-w-3xl">
-        <div className="mb-5">
-          <p className="text-xs font-medium text-primary">SnowLuma WebUI</p>
-          <h1 className="mt-1 text-xl font-semibold tracking-tight">完成首次使用设置</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+      <main className="relative z-10 mx-auto flex h-dvh min-h-0 w-full max-w-5xl flex-col overflow-hidden px-4 pb-4 pt-14 sm:px-6 sm:pb-5 sm:pt-4">
+        <header className="mx-auto mb-2 w-full max-w-2xl shrink-0 text-center">
+          <p className="text-xs font-semibold tracking-wide text-primary">SnowLuma WebUI</p>
+          <h1 className="mt-1 text-balance text-2xl font-semibold tracking-tight sm:text-3xl">完成首次使用设置</h1>
+          <p className="mx-auto mt-1 max-w-xl text-pretty text-sm leading-relaxed text-muted-foreground">
             按顺序完成必要步骤后即可进入控制台。
           </p>
-        </div>
+        </header>
         <WizardSteps
           steps={steps}
           index={index}
           onIndexChange={setIndex}
           onComplete={onComplete}
-          height={520}
           label="首次使用设置步骤"
           backLabel="上一步"
           nextLabel="下一步"
           finishLabel="完成"
           skipLabel="跳过"
+          spacious
+          fill
         />
       </main>
     </div>
@@ -208,21 +219,21 @@ function AgreementStep({
   };
 
   return (
-    <div className="flex min-h-full flex-col">
-      <div className="flex items-start gap-3">
-        <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex items-start gap-3 sm:gap-4">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20 sm:size-12 sm:rounded-2xl">
           <ScrollText className="size-5 text-primary" />
         </div>
         <div className="min-w-0">
-          <h2 className="text-base font-semibold">请阅读并同意以下协议</h2>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          <h2 className="text-balance text-lg font-semibold tracking-tight sm:text-xl">请阅读并同意以下协议</h2>
+          <p className="mt-0.5 max-w-2xl text-pretty text-xs leading-relaxed text-muted-foreground sm:mt-1 sm:text-sm">
             同意一次后无需重复确认；仅当协议内容更新时才会再次请求确认。
           </p>
         </div>
       </div>
 
       {documents.length > 1 ? (
-        <div className="mt-4 max-w-full overflow-x-auto">
+        <div className="mt-3 max-w-full overflow-x-auto pb-1 sm:mt-4">
           <SegmentedControl
             label="协议文档"
             value={activeId}
@@ -238,19 +249,25 @@ function AgreementStep({
       ) : null}
 
       {active && (active.declaredVersion || active.effectiveDate) ? (
-        <p className="mt-2 text-meta text-muted-foreground">
+        <p className="mt-1.5 px-0.5 text-meta leading-relaxed text-muted-foreground">
           {active.declaredVersion ? `版本 / Version ${active.declaredVersion}` : ''}
           {active.declaredVersion && active.effectiveDate ? ' · ' : ''}
           {active.effectiveDate ? `生效 / Effective ${active.effectiveDate}` : ''}
         </p>
       ) : null}
 
-      <div className="mt-3 min-h-48 flex-1 overflow-y-auto rounded-lg border border-border bg-background/60 p-4">
-        {active ? (
-          <Markdown content={active.text} />
-        ) : (
-          <p className="text-sm text-muted-foreground">未能加载协议文本，请刷新页面重试。</p>
-        )}
+      <div
+        tabIndex={0}
+        aria-label={active?.title ? `${active.title}正文` : '协议正文'}
+        className="mt-3 min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-2xl border border-border/80 bg-background/55 p-3 outline-none shadow-[inset_0_1px_2px_rgb(0_0_0/0.06)] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30 sm:p-5"
+      >
+        <div className="mx-auto max-w-3xl">
+          {active ? (
+            <Markdown content={active.text} />
+          ) : (
+            <p className="text-sm text-muted-foreground">未能加载协议文本，请刷新页面重试。</p>
+          )}
+        </div>
       </div>
 
       <button
@@ -258,7 +275,7 @@ function AgreementStep({
         onClick={() => setAgreed((current) => !current)}
         aria-pressed={agreed}
         className={cn(
-          'mt-3 flex w-full items-center gap-3 rounded-lg border px-3.5 py-2.5 text-left transition-colors',
+          'mt-3 flex min-h-11 w-full items-center gap-3 rounded-xl border px-3.5 py-2.5 text-start outline-none transition-[background-color,border-color,box-shadow] duration-150 focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:min-h-12 sm:px-4 sm:py-3',
           agreed
             ? 'border-primary/60 bg-primary/5'
             : 'border-border hover:border-primary/40 hover:bg-accent/40',
@@ -274,20 +291,20 @@ function AgreementStep({
         >
           {agreed ? <Check className="size-3.5" strokeWidth={3} /> : null}
         </span>
-        <span className="text-sm font-medium">我已阅读并同意《用户协议》与《隐私政策》</span>
+        <span className="text-sm font-medium leading-relaxed">我已阅读并同意《用户协议》与《隐私政策》</span>
       </button>
 
       {error ? <p role="alert" className="mt-2 text-xs text-destructive">{error}</p> : null}
 
-      <div className="mt-3 flex items-center justify-between gap-2">
-        <span className="text-micro text-muted-foreground/70">
+      <div className="mt-3 flex items-center gap-3 sm:justify-between">
+        <span className="hidden text-micro text-muted-foreground/70 sm:inline">
           agreements {version.slice(0, 8)}
         </span>
-        <div className="flex gap-2">
-          <Button type="button" variant="ghost" onClick={onDecline} disabled={submitting}>
+        <div className="grid w-full grid-cols-2 gap-3 sm:ml-auto sm:flex sm:w-auto sm:items-center">
+          <Button type="button" variant="outline" onClick={onDecline} disabled={submitting} className="h-11 w-full sm:w-auto">
             不同意并退出
           </Button>
-          <Button type="button" onClick={() => { void accept(); }} disabled={!agreed || submitting}>
+          <Button type="button" onClick={() => { void accept(); }} disabled={!agreed || submitting} className="h-11 w-full sm:min-w-36 sm:w-auto">
             <ShieldCheck className="size-4" />
             {submitting ? '提交中…' : '同意并继续'}
           </Button>
@@ -299,11 +316,13 @@ function AgreementStep({
 
 function PasswordStep({
   knownOldPassword,
+  mode,
   checkStrength,
   submit,
   onComplete,
 }: {
   knownOldPassword?: string;
+  mode: 'change' | 'rehearsal';
   checkStrength: (password: string) => Promise<{ rules: PasswordRule[]; valid: boolean }>;
   submit: (
     oldPassword: string,
@@ -311,26 +330,46 @@ function PasswordStep({
   ) => Promise<{ success: boolean; message?: string }>;
   onComplete: () => void;
 }) {
+  const { back } = useWizardNavigation();
+
   return (
-    <div className="mx-auto flex w-full max-w-lg flex-col">
-      <div className="mb-5 flex items-start gap-3">
-        <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20">
+    <div className="mx-auto flex min-h-full w-full max-w-xl flex-col justify-center py-2 sm:py-5">
+      <div className="mb-8 flex items-start gap-4">
+        <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20">
           <ShieldAlert className="size-5 text-primary" />
         </div>
         <div className="min-w-0">
-          <h2 className="text-base font-semibold">设置新的访问密码</h2>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            将首次启动生成的临时密码替换为符合要求的强密码。
+          <h2 className="text-balance text-lg font-semibold tracking-tight sm:text-xl">设置新的访问密码</h2>
+          <p className="mt-1 text-pretty text-sm leading-relaxed text-muted-foreground">
+            {mode === 'rehearsal'
+              ? '验证密码设置步骤的界面与规则；本次演练不会保存输入内容。'
+              : '将首次启动生成的临时密码替换为符合要求的强密码。'}
           </p>
         </div>
       </div>
       <ChangePasswordForm
         knownOldPassword={knownOldPassword}
+        mode={mode}
         checkStrength={checkStrength}
         submit={submit}
         onSuccess={onComplete}
         idPrefix="onboarding-cpw"
-        submitLabel="保存并完成"
+        submitLabel={mode === 'rehearsal' ? '完成演练' : '保存并完成'}
+        className="gap-5"
+        renderActions={({ canSubmit, submitting, submitLabel }) => (
+          <div className="grid gap-3 pt-2 sm:flex sm:items-center">
+            <Button type="button" variant="outline" onClick={back} disabled={submitting} className="h-11 w-full sm:w-auto">
+              上一步
+            </Button>
+            <Button type="submit" disabled={!canSubmit} className="h-11 w-full sm:ml-auto sm:min-w-36 sm:w-auto">
+              {submitting ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" /> 提交中…
+                </>
+              ) : submitLabel}
+            </Button>
+          </div>
+        )}
       />
     </div>
   );

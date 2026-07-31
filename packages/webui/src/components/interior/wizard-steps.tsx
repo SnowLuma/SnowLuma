@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent, ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 const EASE = [0.23, 1, 0.32, 1] as const;
@@ -94,7 +94,27 @@ export type WizardStep = {
   canSkip?: boolean;
   onSkip?: () => void;
   hideAdvance?: boolean;
+  hideBack?: boolean;
+  scrollMode?: "panel" | "content";
 };
+
+export type WizardNavigationControls = {
+  back: () => void;
+  next: () => void;
+  goTo: (index: number) => void;
+  index: number;
+  total: number;
+  isFirst: boolean;
+  isLast: boolean;
+};
+
+const WizardNavigationContext = createContext<WizardNavigationControls | null>(null);
+
+export function useWizardNavigation(): WizardNavigationControls {
+  const controls = useContext(WizardNavigationContext);
+  if (!controls) throw new Error("useWizardNavigation must be used inside <WizardSteps>");
+  return controls;
+}
 
 export type WizardStepsProps = {
   steps: WizardStep[];
@@ -103,7 +123,7 @@ export type WizardStepsProps = {
   onIndexChange?: (index: number, direction: WizardDirection) => void;
   onComplete?: () => void;
   complete?: boolean;
-  height?: number;
+  height?: CSSProperties["height"];
   backLabel?: string;
   nextLabel?: string;
   finishLabel?: string;
@@ -112,6 +132,8 @@ export type WizardStepsProps = {
   completeHint?: string;
   label?: string;
   className?: string;
+  spacious?: boolean;
+  fill?: boolean;
 };
 
 export function WizardSteps({
@@ -130,6 +152,8 @@ export function WizardSteps({
   completeHint = "Step back to change anything",
   label = "Steps",
   className = "",
+  spacious = false,
+  fill = false,
 }: WizardStepsProps) {
   const wizard = useWizard({
     total: steps.length,
@@ -206,13 +230,32 @@ export function WizardSteps({
   if (!step) return null;
 
   const position = `Step ${at + 1} of ${total}: ${step.label}`;
+  const navigation = {
+    back: () => {
+      intent.current = "panel";
+      back();
+    },
+    next: () => {
+      if (!isLast) intent.current = "panel";
+      next();
+    },
+    goTo,
+    index: at,
+    total,
+    isFirst,
+    isLast,
+  } satisfies WizardNavigationControls;
+  const showBack = !isFirst && !step.hideBack;
+  const showSkip = Boolean(step.canSkip);
+  const showAdvance = !complete && !step.hideAdvance;
+  const showNavigation = showBack || showSkip || showAdvance;
 
   return (
-    <div className={`w-full ${className}`}>
+    <div className={`${fill ? "flex min-h-0 flex-1 flex-col" : ""} w-full ${className}`}>
       <p aria-live="polite" className="sr-only">{position}</p>
       <span
         aria-hidden
-        className="mb-2 grid select-none text-[13px] font-medium text-foreground"
+        className={`${spacious ? "mb-1 text-sm" : "mb-2 text-[13px]"} grid select-none font-medium text-foreground`}
       >
         {steps.map((candidate, stepIndex) => (
           <motion.span
@@ -229,7 +272,7 @@ export function WizardSteps({
       <ol
         ref={listRef}
         aria-label={label}
-        className="mb-4 flex list-none items-center gap-1 p-0"
+        className={`${spacious ? "mb-3 gap-2" : "mb-4 gap-1"} flex list-none items-center p-0`}
       >
         {steps.map((candidate, stepIndex) => {
           const done = complete || stepIndex < at;
@@ -279,7 +322,7 @@ export function WizardSteps({
                     intent.current = "list";
                     goTo(stepIndex);
                   }}
-                  className="rounded-[8px] outline-none focus-visible:shadow-[0_0_0_1.5px_var(--ring)]"
+                  className="relative rounded-[8px] outline-none after:absolute after:-inset-2 after:content-[''] focus-visible:shadow-[0_0_0_1.5px_var(--ring)]"
                 >
                   {tile}
                 </button>
@@ -314,8 +357,12 @@ export function WizardSteps({
         tabIndex={-1}
         role="group"
         aria-label={position}
-        style={{ height }}
-        className="relative overflow-hidden rounded-[11px] border border-border bg-card shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus-visible:border-ring"
+        style={{ height: fill ? undefined : height }}
+        className={`${fill ? "min-h-0 flex-1" : ""} relative overflow-hidden border border-border bg-card outline-none transition-[border-color,box-shadow] duration-150 focus-visible:border-ring ${
+          spacious
+            ? "rounded-[24px] shadow-[0_0_0_1px_rgb(255_255_255/0.02),0_18px_50px_rgb(0_0_0/0.12)]"
+            : "rounded-[11px] shadow-sm"
+        }`}
       >
         <AnimatePresence initial={false} custom={direction}>
           <motion.div
@@ -327,7 +374,9 @@ export function WizardSteps({
             exit="exit"
             transition={panelTransition}
             style={{ scrollbarGutter: "stable" }}
-            className="absolute inset-0 overflow-y-auto overscroll-contain p-4 text-[13.5px] leading-relaxed text-foreground"
+            className={`absolute inset-0 overscroll-contain text-foreground ${
+              step.scrollMode === "content" ? "overflow-hidden" : "overflow-y-auto"
+            } ${spacious ? "p-4 text-sm leading-relaxed sm:p-5 lg:p-6" : "p-4 text-[13.5px] leading-relaxed"}`}
           >
             {complete ? (
               <div className="flex h-full flex-col items-center justify-center gap-1.5">
@@ -335,14 +384,16 @@ export function WizardSteps({
                 <p className="text-[12.5px] text-muted-foreground">{completeHint}</p>
               </div>
             ) : (
-              step.content
+              <WizardNavigationContext.Provider value={navigation}>
+                {step.content}
+              </WizardNavigationContext.Provider>
             )}
           </motion.div>
         </AnimatePresence>
       </div>
-      <div className="mt-3 flex h-9 items-center gap-3">
+      {showNavigation ? <div className={`${spacious ? "mt-4 h-11" : "mt-3 h-9"} flex items-center gap-3`}>
         <AnimatePresence initial={false}>
-          {isFirst ? null : (
+          {showBack ? (
             <motion.button
               key="back"
               type="button"
@@ -354,16 +405,15 @@ export function WizardSteps({
               }}
               transition={reduced ? { duration: 0 } : { duration: 0.16, ease: EASE }}
               onClick={() => {
-                intent.current = "panel";
-                back();
+                navigation.back();
               }}
-              className="h-9 rounded-[9px] border border-border bg-background px-3 text-[13px] font-medium text-foreground outline-none transition-[border-color,box-shadow] duration-150 hover:border-foreground/20 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+              className={`${spacious ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"} rounded-[9px] border border-border bg-background font-medium text-foreground outline-none transition-[border-color,box-shadow] duration-150 hover:border-foreground/20 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40`}
             >
               {backLabel}
             </motion.button>
-          )}
+          ) : null}
         </AnimatePresence>
-        {step.canSkip ? (
+        {showSkip ? (
           <motion.button
             key={`skip-${step.id}`}
             type="button"
@@ -379,20 +429,19 @@ export function WizardSteps({
               if (!isLast) intent.current = "panel";
               next();
             }}
-            className="h-9 rounded-[9px] px-3 text-[13px] font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40"
+            className={`${spacious ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"} rounded-[9px] font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40`}
           >
             {skipLabel}
           </motion.button>
         ) : null}
         <AnimatePresence initial={false}>
-          {complete || step.hideAdvance ? null : (
+          {showAdvance ? (
             <motion.button
               key="advance"
               type="button"
               aria-label={isLast ? finishLabel : nextLabel}
               onClick={() => {
-                if (!isLast) intent.current = "panel";
-                next();
+                navigation.next();
               }}
               initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -404,7 +453,7 @@ export function WizardSteps({
                   : { duration: 0.14, ease: EXIT_EASE },
               }}
               transition={reduced ? { duration: 0 } : CROSSFADE}
-              className="ml-auto grid h-9 place-items-center rounded-[9px] bg-foreground px-3.5 text-[13px] font-medium text-background outline-none focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)]"
+              className={`${spacious ? "h-11 px-4 text-sm" : "h-9 px-3.5 text-[13px]"} ml-auto grid place-items-center rounded-[9px] bg-foreground font-medium text-background outline-none focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)]`}
             >
               <span aria-hidden className="invisible col-start-1 row-start-1">
                 {finishLabel.length > nextLabel.length ? finishLabel : nextLabel}
@@ -428,9 +477,9 @@ export function WizardSteps({
                 {finishLabel}
               </motion.span>
             </motion.button>
-          )}
+          ) : null}
         </AnimatePresence>
-      </div>
+      </div> : null}
     </div>
   );
 }
