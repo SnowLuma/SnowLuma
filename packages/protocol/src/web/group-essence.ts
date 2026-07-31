@@ -1,18 +1,40 @@
-import type { JsonObject } from '@snowluma/common/json';
 import { createLogger } from '@snowluma/common/logger';
 import { RequestUtil, cookieToString, getBknFromCookie } from './request-util';
 
 const log = createLogger('Bridge.Web');
+const MAX_ESSENCE_PAGES = 20;
 
-// 定义接口返回类型
+export interface GroupEssenceContent {
+  msg_type: number;
+  text?: string;
+  face_index?: number;
+  image_url?: string;
+  file_thumbnail_url?: string;
+}
+
+export interface GroupEssenceMessage {
+  group_code: string;
+  msg_seq: number;
+  msg_random: number;
+  sender_uin: string;
+  sender_nick: string;
+  sender_time: number;
+  add_digest_uin: string;
+  add_digest_nick: string;
+  add_digest_time: number;
+  msg_content: GroupEssenceContent[];
+  can_be_removed: boolean;
+}
+
 export interface GroupEssenceMsgRet {
   retcode: number;
+  retmsg?: string;
   data: {
     is_end: boolean;
-    msg_list: JsonObject[]; // 具体结构视需要补充
-    [key: string]: JsonObject[] | boolean | string | number | null;
+    msg_list: Array<GroupEssenceMessage | null>;
+    group_role?: number;
+    config_page_url?: string;
   };
-  [key: string]: JsonObject | JsonObject[] | boolean | string | number | null;
 }
 
 
@@ -24,7 +46,7 @@ export async function getGroupEssenceMsg(
   groupCode: string,
   pageStart: number = 0,
   pageLimit: number = 50
-): Promise<GroupEssenceMsgRet | undefined> {
+): Promise<GroupEssenceMsgRet> {
   const bkn = getBknFromCookie(cookieObject);
 
   const url = `https://qun.qq.com/cgi-bin/group_digest/digest_list?${new URLSearchParams({
@@ -41,11 +63,21 @@ export async function getGroupEssenceMsg(
       '',
       { Cookie: cookieToString(cookieObject) }
     );
-    return ret.retcode === 0 ? ret : undefined;
+    if (ret.retcode !== 0) {
+      throw new Error(
+        `group essence request failed with retcode ${ret.retcode}: ${ret.retmsg ?? 'unknown error'}`,
+      );
+    }
+    if (!ret.data
+      || typeof ret.data.is_end !== 'boolean'
+      || !Array.isArray(ret.data.msg_list)) {
+      throw new Error('invalid group essence response: data.is_end or data.msg_list is missing');
+    }
+    return ret;
   } catch (e) {
     log.warn('getGroupEssenceMsg failed (group=%s page=%d/%d): %s',
       groupCode, pageStart, pageLimit, e instanceof Error ? (e.stack ?? e.message) : String(e));
-    return undefined;
+    throw e;
   }
 }
 
@@ -58,15 +90,15 @@ export async function getGroupEssenceMsgAll(
 ): Promise<GroupEssenceMsgRet[]> {
   const ret: GroupEssenceMsgRet[] = [];
 
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < MAX_ESSENCE_PAGES; i++) {
     const data = await getGroupEssenceMsg(cookieObject, groupCode, i, 50);
-
-    if (!data) break;
 
     ret.push(data);
 
-    if (data.data?.is_end) break;
+    if (data.data.is_end) return ret;
   }
 
-  return ret;
+  throw new Error(
+    `group essence pagination exceeded ${MAX_ESSENCE_PAGES} pages for group ${groupCode}`,
+  );
 }

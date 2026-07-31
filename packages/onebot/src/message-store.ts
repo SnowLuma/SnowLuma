@@ -296,6 +296,40 @@ export class MessageStore {
     );
   }
 
+  storeMetas(entries: ReadonlyArray<{ messageId: number; meta: MessageMeta }>): void {
+    if (entries.length === 0) return;
+
+    this.runInImmediateTransaction(() => {
+      for (const { messageId, meta } of entries) {
+        this.storeMeta(messageId, meta);
+      }
+    });
+  }
+
+  private runInImmediateTransaction<T>(work: () => T): T {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const result = work();
+      this.db.exec('COMMIT');
+      return result;
+    } catch (error) {
+      try {
+        this.db.exec('ROLLBACK');
+      } catch (rollbackError) {
+        const originalMessage = error instanceof Error ? error.message : String(error);
+        const rollbackMessage = rollbackError instanceof Error
+          ? rollbackError.message
+          : String(rollbackError);
+        throw new AggregateError(
+          [error, rollbackError],
+          `${originalMessage}; rollback also failed: ${rollbackMessage}`,
+          { cause: error },
+        );
+      }
+      throw error;
+    }
+  }
+
   /**
    * Store one fetched history event.
    *
@@ -326,8 +360,7 @@ export class MessageStore {
       return;
     }
 
-    this.db.exec('BEGIN IMMEDIATE');
-    try {
+    this.runInImmediateTransaction(() => {
       this.storeMeta(messageId, meta);
       this.storeEvent(
         messageId,
@@ -338,11 +371,7 @@ export class MessageStore {
         event,
         eventOptions,
       );
-      this.db.exec('COMMIT');
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      throw error;
-    }
+    });
   }
 
   findEvent(messageId: number): JsonObject | null {
@@ -524,8 +553,7 @@ export class MessageStore {
     validatePrivateRecallKey(sessionId, clientSequence, recalledAt);
     const direction = recalledBySelf ? 1 : 0;
 
-    this.db.exec('BEGIN IMMEDIATE');
-    try {
+    const removedMessageId = this.runInImmediateTransaction(() => {
       this.stmtUpsertPrivateRecallTombstone.run(
         sessionId,
         clientSequence,
@@ -538,10 +566,7 @@ export class MessageStore {
         direction,
         recalledAt,
       ) as { message_hash: number } | undefined;
-      if (!row) {
-        this.db.exec('COMMIT');
-        return null;
-      }
+      if (!row) return null;
       if (!isValidMessageId(row.message_hash)) {
         throw new Error(`private recall matched invalid message id ${String(row.message_hash)}`);
       }
@@ -551,19 +576,19 @@ export class MessageStore {
           `private recall cache deletion lost row message=${row.message_hash} peer=${sessionId} clientSeq=${clientSequence}`,
         );
       }
-      this.db.exec('COMMIT');
+      return row.message_hash;
+    });
+
+    if (removedMessageId !== null) {
       log.debug(
         'private recall removed cached message: peer=%d clientSeq=%d self=%s messageId=%d',
         sessionId,
         clientSequence,
         String(recalledBySelf),
-        row.message_hash,
+        removedMessageId,
       );
-      return row.message_hash;
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      throw error;
     }
+    return removedMessageId;
   }
 
   isPrivateMessageRecalled(

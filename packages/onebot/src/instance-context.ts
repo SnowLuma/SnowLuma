@@ -70,6 +70,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
     isOnline: () => true,
     getMessage: (messageId) => messageStore.findEvent(messageId),
     getMessageMeta: (messageId) => messageStore.findMeta(messageId),
+    cacheMessageMetas: (entries) => messageStore.storeMetas(entries),
     listReadSessions: () => messageStore.listReadSessions(
       bridge.identity.groups.map(group => group.groupId),
     ),

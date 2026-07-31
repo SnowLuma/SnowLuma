@@ -8,7 +8,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ApiHandler, type ApiActionContext } from '../src/api-handler';
 import type { BridgeInterface } from '../../src/bridge/bridge-interface';
 import type { GroupRequestInfo } from '@snowluma/protocol/qq-info';
-import type { MessageMeta } from '../src/types';
+import type { GroupEssenceMessage } from '@snowluma/protocol/web/group-essence';
+import type { JsonObject, MessageMeta } from '../src/types';
 import { GROUP_MESSAGE_EVENT, hashMessageIdInt32 } from '../src/message-id';
 
 function fakeMeta(overrides: Partial<MessageMeta> = {}): MessageMeta {
@@ -105,6 +106,7 @@ function fakeCtx(bridge: BridgeInterface, overrides: Partial<ApiActionContext> =
     bridge,
     getMessageMeta: () => null,
     getMessage: () => null,
+    cacheMessageMetas: () => undefined,
     listReadSessions: () => ({ groupIds: [], privateUserIds: [] }),
     getLoginInfo: () => ({ userId: 1, nickname: '' }),
     isOnline: () => true,
@@ -123,6 +125,25 @@ function fakeCtx(bridge: BridgeInterface, overrides: Partial<ApiActionContext> =
 
 function makeHandler(ctx: ApiActionContext): ApiHandler {
   return new ApiHandler(ctx);
+}
+
+function fakeEssenceMessage(
+  overrides: Partial<GroupEssenceMessage> = {},
+): GroupEssenceMessage {
+  return {
+    group_code: '123456789',
+    msg_seq: 31415,
+    msg_random: 271828,
+    sender_uin: '10001',
+    sender_nick: 'Alice',
+    sender_time: 1700000000,
+    add_digest_uin: '10002',
+    add_digest_nick: 'Bob',
+    add_digest_time: 1700000100,
+    msg_content: [{ msg_type: 1, text: 'hello essence' }],
+    can_be_removed: true,
+    ...overrides,
+  };
 }
 
 describe('extended-actions / set_self_longnick', () => {
@@ -223,6 +244,303 @@ describe('extended-actions / group notice options', () => {
 
     expect(response).toMatchObject({ status: 'failed', retcode: 1400 });
     expect(sendNotice).not.toHaveBeenCalled();
+  });
+});
+
+describe('extended-actions / get_essence_msg_list', () => {
+  it('projects QQ digest entries into the OneBot essence contract', async () => {
+    const getEssenceAll = vi.fn(async () => [{
+      retcode: 0,
+      data: {
+        is_end: true,
+        msg_list: [fakeEssenceMessage()],
+      },
+    }]);
+    const bridge = fakeBridge({ apis: { web: { getEssenceAll } } });
+
+    const response = await makeHandler(fakeCtx(bridge))
+      .handle('get_essence_msg_list', { group_id: 123456789 });
+
+    expect(response).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(response.data).toEqual([{
+      msg_seq: 31415,
+      msg_random: 271828,
+      sender_id: 10001,
+      sender_nick: 'Alice',
+      sender_time: 1700000000,
+      operator_id: 10002,
+      operator_nick: 'Bob',
+      operator_time: 1700000100,
+      message_id: -1566581579,
+      content: [{ type: 'text', data: { text: 'hello essence' } }],
+    }]);
+  });
+
+  it('converts every documented digest content type into OneBot segments', async () => {
+    const getEssenceAll = vi.fn(async () => [{
+      retcode: 0,
+      data: {
+        is_end: true,
+        msg_list: [fakeEssenceMessage({
+          msg_content: [
+            { msg_type: 2, face_index: 66 },
+            { msg_type: 3, image_url: 'https://example.test/image.jpg' },
+            { msg_type: 4, file_thumbnail_url: 'https://example.test/video.jpg' },
+          ],
+        })],
+      },
+    }]);
+    const bridge = fakeBridge({ apis: { web: { getEssenceAll } } });
+
+    const response = await makeHandler(fakeCtx(bridge))
+      .handle('get_essence_msg_list', { group_id: 123456789 });
+
+    expect(response).toMatchObject({ status: 'ok', retcode: 0 });
+    expect((response.data as JsonObject[])[0]?.content).toEqual([
+      { type: 'face', data: { id: '66' } },
+      { type: 'image', data: { file: '', url: 'https://example.test/image.jpg' } },
+      { type: 'video', data: { file: '', url: 'https://example.test/video.jpg' } },
+    ]);
+  });
+
+  it('makes the returned message_id usable for removing the essence mark', async () => {
+    const getEssenceAll = vi.fn(async () => [{
+      retcode: 0,
+      data: {
+        is_end: true,
+        msg_list: [fakeEssenceMessage()],
+      },
+    }]);
+    const bridge = fakeBridge({ apis: { web: { getEssenceAll } } });
+    const cached = new Map<number, MessageMeta>();
+    const removeEssence = vi.fn(async (
+      groupId: number,
+      sequence: number,
+      random: number,
+      enabled: boolean,
+    ) => {
+      expect({ groupId, sequence, random, enabled }).toEqual({
+        groupId: 123456789,
+        sequence: 31415,
+        random: 271828,
+        enabled: false,
+      });
+    });
+    const ctx = fakeCtx(bridge, {
+      getMessageMeta: (messageId) => cached.get(messageId) ?? null,
+      cacheMessageMetas: (entries) => {
+        for (const { messageId, meta } of entries) cached.set(messageId, meta);
+      },
+      deleteEssenceMsg: async (messageId) => {
+        const meta = cached.get(messageId);
+        if (!meta) throw new Error('message not found');
+        await removeEssence(meta.targetId, meta.sequence, meta.random, false);
+      },
+    });
+    const handler = makeHandler(ctx);
+
+    const listResponse = await handler.handle('get_essence_msg_list', {
+      group_id: 123456789,
+    });
+    const removeResponse = await handler.handle('delete_essence_msg', {
+      message_id: -1566581579,
+    });
+
+    expect(listResponse).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(removeResponse).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(removeEssence).toHaveBeenCalledOnce();
+  });
+
+  it('ignores the null placeholder returned for an empty digest list', async () => {
+    const getEssenceAll = vi.fn(async () => [{
+      retcode: 0,
+      data: { is_end: true, msg_list: [null] },
+    }]);
+    const bridge = fakeBridge({ apis: { web: { getEssenceAll } } });
+
+    const response = await makeHandler(fakeCtx(bridge))
+      .handle('get_essence_msg_list', { group_id: 123456789 });
+
+    expect(response).toMatchObject({ status: 'ok', retcode: 0, data: [] });
+  });
+
+  it('surfaces paginated fetch failures without caching partial data', async () => {
+    const getEssenceAll = vi.fn(async () => {
+      throw new Error('second page failed');
+    });
+    const bridge = fakeBridge({ apis: { web: { getEssenceAll } } });
+    const cacheMessageMetas = vi.fn();
+
+    const response = await makeHandler(fakeCtx(bridge, { cacheMessageMetas }))
+      .handle('get_essence_msg_list', { group_id: 123456789 });
+
+    expect(response).toMatchObject({
+      status: 'failed',
+      retcode: 100,
+      wording: expect.stringContaining('second page failed'),
+    });
+    expect(cacheMessageMetas).not.toHaveBeenCalled();
+  });
+
+  it('fails explicitly when QQ returns an unknown digest content type', async () => {
+    const getEssenceAll = vi.fn(async () => [{
+      retcode: 0,
+      data: {
+        is_end: true,
+        msg_list: [fakeEssenceMessage({
+          msg_content: [{ msg_type: 99 }],
+        })],
+      },
+    }]);
+    const bridge = fakeBridge({ apis: { web: { getEssenceAll } } });
+
+    const response = await makeHandler(fakeCtx(bridge))
+      .handle('get_essence_msg_list', { group_id: 123456789 });
+
+    expect(response).toMatchObject({
+      status: 'failed',
+      retcode: 100,
+      wording: expect.stringContaining('unsupported group essence content type: 99'),
+    });
+  });
+
+  it('does not cache message metadata when projection fails', async () => {
+    const getEssenceAll = vi.fn(async () => [{
+      retcode: 0,
+      data: {
+        is_end: true,
+        msg_list: [fakeEssenceMessage({
+          add_digest_uin: 'not-a-uin',
+        })],
+      },
+    }]);
+    const bridge = fakeBridge({ apis: { web: { getEssenceAll } } });
+    const cacheMessageMetas = vi.fn();
+
+    const response = await makeHandler(fakeCtx(bridge, { cacheMessageMetas }))
+      .handle('get_essence_msg_list', { group_id: 123456789 });
+
+    expect(response).toMatchObject({ status: 'failed', retcode: 100 });
+    expect(cacheMessageMetas).not.toHaveBeenCalled();
+  });
+
+  it('does not cache earlier entries when a later projection fails', async () => {
+    const getEssenceAll = vi.fn(async () => [{
+      retcode: 0,
+      data: {
+        is_end: true,
+        msg_list: [
+          fakeEssenceMessage(),
+          fakeEssenceMessage({
+            msg_seq: 31416,
+            msg_content: [{ msg_type: 99 }],
+          }),
+        ],
+      },
+    }]);
+    const bridge = fakeBridge({ apis: { web: { getEssenceAll } } });
+    const cacheMessageMetas = vi.fn();
+
+    const response = await makeHandler(fakeCtx(bridge, { cacheMessageMetas }))
+      .handle('get_essence_msg_list', { group_id: 123456789 });
+
+    expect(response).toMatchObject({ status: 'failed', retcode: 100 });
+    expect(cacheMessageMetas).not.toHaveBeenCalled();
+  });
+
+  it('rejects entries returned for a different group', async () => {
+    const getEssenceAll = vi.fn(async () => [{
+      retcode: 0,
+      data: {
+        is_end: true,
+        msg_list: [fakeEssenceMessage({ group_code: '987654321' })],
+      },
+    }]);
+    const bridge = fakeBridge({ apis: { web: { getEssenceAll } } });
+    const cacheMessageMetas = vi.fn();
+
+    const response = await makeHandler(fakeCtx(bridge, { cacheMessageMetas }))
+      .handle('get_essence_msg_list', { group_id: 123456789 });
+
+    expect(response).toMatchObject({
+      status: 'failed',
+      retcode: 100,
+      wording: expect.stringContaining('group_code does not match requested group'),
+    });
+    expect(cacheMessageMetas).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-positive message sequences', async () => {
+    const getEssenceAll = vi.fn(async () => [{
+      retcode: 0,
+      data: {
+        is_end: true,
+        msg_list: [fakeEssenceMessage({ msg_seq: 0 })],
+      },
+    }]);
+    const bridge = fakeBridge({ apis: { web: { getEssenceAll } } });
+    const cacheMessageMetas = vi.fn();
+
+    const response = await makeHandler(fakeCtx(bridge, { cacheMessageMetas }))
+      .handle('get_essence_msg_list', { group_id: 123456789 });
+
+    expect(response).toMatchObject({
+      status: 'failed',
+      retcode: 100,
+      wording: expect.stringContaining('msg_seq must be positive'),
+    });
+    expect(cacheMessageMetas).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ msg_type: 1 }, 'msg_content.text'],
+    [{ msg_type: 2 }, 'msg_content.face_index'],
+    [{ msg_type: 3 }, 'msg_content.image_url'],
+    [{ msg_type: 4 }, 'msg_content.file_thumbnail_url'],
+  ])('rejects digest content missing its required field: %s', async (content, field) => {
+    const getEssenceAll = vi.fn(async () => [{
+      retcode: 0,
+      data: {
+        is_end: true,
+        msg_list: [fakeEssenceMessage({
+          msg_content: [content],
+        })],
+      },
+    }]);
+    const bridge = fakeBridge({ apis: { web: { getEssenceAll } } });
+    const cacheMessageMetas = vi.fn();
+
+    const response = await makeHandler(fakeCtx(bridge, { cacheMessageMetas }))
+      .handle('get_essence_msg_list', { group_id: 123456789 });
+
+    expect(response).toMatchObject({
+      status: 'failed',
+      retcode: 100,
+      wording: expect.stringContaining(field),
+    });
+    expect(cacheMessageMetas).not.toHaveBeenCalled();
+  });
+
+  it('rejects blank numeric fields instead of coercing them to zero', async () => {
+    const getEssenceAll = vi.fn(async () => [{
+      retcode: 0,
+      data: {
+        is_end: true,
+        msg_list: [fakeEssenceMessage({ sender_uin: ' ' })],
+      },
+    }]);
+    const bridge = fakeBridge({ apis: { web: { getEssenceAll } } });
+    const cacheMessageMetas = vi.fn();
+
+    const response = await makeHandler(fakeCtx(bridge, { cacheMessageMetas }))
+      .handle('get_essence_msg_list', { group_id: 123456789 });
+
+    expect(response).toMatchObject({
+      status: 'failed',
+      retcode: 100,
+      wording: expect.stringContaining('sender_uin'),
+    });
+    expect(cacheMessageMetas).not.toHaveBeenCalled();
   });
 });
 

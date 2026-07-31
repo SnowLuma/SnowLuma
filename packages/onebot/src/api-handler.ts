@@ -45,22 +45,15 @@ export interface MessageSendResult {
   echoEvent?: JsonObject;
 }
 
-export interface GroupEssenceMsgRet {
-  retcode: number;
-  data: {
-    is_end: boolean;
-    msg_list: JsonObject[];
-    [key: string]: JsonValue;
-  };
-  [key: string]: JsonValue;
-}
-
 export interface ApiActionContext {
   bridge: BridgeInterface;
   getLoginInfo: () => { userId: number; nickname: string };
   isOnline: () => boolean;
   getMessage: (messageId: number) => JsonObject | null;
   getMessageMeta: (messageId: number) => MessageMeta | null;
+  cacheMessageMetas: (
+    entries: ReadonlyArray<{ messageId: number; meta: MessageMeta }>,
+  ) => void;
   listReadSessions: () => ReadSessionTargets;
   sendPrivateMessage: (userId: number, message: JsonValue, autoEscape: boolean, tempGroupId?: number) => Promise<MessageSendResult>;
   sendGroupMessage: (groupId: number, message: JsonValue, autoEscape: boolean) => Promise<MessageSendResult>;

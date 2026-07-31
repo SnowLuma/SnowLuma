@@ -214,6 +214,83 @@ describe('MessageStore', () => {
       expect(retrieved).toBeNull();
     });
 
+    it('rolls back the full metadata batch when a later write fails', () => {
+      const firstMessageId = 54323;
+      const rejectedMessageId = 54324;
+      const database = new DatabaseSync(testDbPath);
+      database.exec(`
+        CREATE TRIGGER reject_second_message_meta
+        BEFORE INSERT ON messages
+        WHEN NEW.message_hash = ${rejectedMessageId}
+        BEGIN
+          SELECT RAISE(ABORT, 'second message meta rejected');
+        END
+      `);
+      database.close();
+
+      expect(() => store.storeMetas([
+        {
+          messageId: firstMessageId,
+          meta: {
+            isGroup: true,
+            targetId: 123456,
+            sequence: 101,
+            sequenceAuthoritative: true,
+            eventName: GROUP_MESSAGE_EVENT,
+            clientSequence: 0,
+            random: 1001,
+            timestamp: 1700000001,
+          },
+        },
+        {
+          messageId: rejectedMessageId,
+          meta: {
+            isGroup: true,
+            targetId: 123456,
+            sequence: 102,
+            sequenceAuthoritative: true,
+            eventName: GROUP_MESSAGE_EVENT,
+            clientSequence: 0,
+            random: 1002,
+            timestamp: 1700000002,
+          },
+        },
+      ])).toThrow(/second message meta rejected/);
+
+      expect(store.findMeta(firstMessageId)).toBeNull();
+      expect(store.findMeta(rejectedMessageId)).toBeNull();
+    });
+
+    it('preserves the write error when SQLite already rolled back the transaction', () => {
+      const rejectedMessageId = 54325;
+      const database = new DatabaseSync(testDbPath);
+      database.exec(`
+        CREATE TRIGGER force_metadata_transaction_rollback
+        BEFORE INSERT ON messages
+        WHEN NEW.message_hash = ${rejectedMessageId}
+        BEGIN
+          SELECT RAISE(ROLLBACK, 'metadata transaction forced rollback');
+        END
+      `);
+      database.close();
+
+      expect(() => store.storeMetas([{
+        messageId: rejectedMessageId,
+        meta: {
+          isGroup: true,
+          targetId: 123456,
+          sequence: 103,
+          sequenceAuthoritative: true,
+          eventName: GROUP_MESSAGE_EVENT,
+          clientSequence: 0,
+          random: 1003,
+          timestamp: 1700000003,
+        },
+      }])).toThrow(/metadata transaction forced rollback.*rollback also failed/);
+
+      expect(store.findMeta(rejectedMessageId)).toBeNull();
+    });
+
     it('does not promote a non-authoritative sequence when event data arrives later', () => {
       const messageId = 54322;
       store.storeMeta(messageId, {
