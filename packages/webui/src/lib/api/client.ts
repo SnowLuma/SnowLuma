@@ -143,6 +143,21 @@ class HttpApiClient implements ApiClient {
         return data.list ?? [];
       },
       stream: (options) => this.openLogStream(options),
+      exportTrace: async () => {
+        const res = await this.request('/api/logs/export/trace');
+        if (!res.ok) {
+          const payload = await readJson<ErrorPayload>(res);
+          throw new ApiError(
+            res.status,
+            extractErrorMessage(payload, res.statusText || '导出失败'),
+            payload.code,
+          );
+        }
+        const disposition = res.headers.get('Content-Disposition') ?? '';
+        const filename = disposition.match(/filename="([^"]+)"/)?.[1]
+          ?? 'snowluma-trace.log';
+        return { text: await res.text(), filename };
+      },
       getLevel: () => this.getJson<{ level: LogLevel; levels: LogLevel[] }>(`/api/logs/level`),
       setLevel: (level) =>
         this.postJson<{ level: LogLevel; levels: LogLevel[] }>(`/api/logs/level`, { level }),

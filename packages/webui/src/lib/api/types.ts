@@ -249,6 +249,8 @@ export interface ApiClient {
     list(limit?: number): Promise<LogEntry[]>;
     /** Subscribe to the SSE log stream. Returns a disposer. */
     stream(options: LogsStreamOptions): () => void;
+    /** Download the complete server-side snapshot of retained normal and TRACE records. */
+    exportTrace(): Promise<{ text: string; filename: string }>;
     /** Current console / subscriber level. File logging level is set via
      *  SNOWLUMA_LOG_FILE_LEVEL (default: debug), independent of this method. */
     getLevel(): Promise<{ level: LogLevel; levels: LogLevel[] }>;

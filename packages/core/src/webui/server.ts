@@ -9,6 +9,7 @@ import {
 import {
   createLogger,
   getLogLevel,
+  getLogSnapshot,
   getRecentLogs,
   logInitialWebuiCredentials,
   LOG_LEVELS,
@@ -71,7 +72,8 @@ import {
   sniffImageMime,
   writeBackgroundImage,
 } from './ui-config';
-import { getUpdateInfo } from './update-check';
+import { currentVersion, getUpdateInfo } from './update-check';
+import { buildFullTraceDownload } from './log-export';
 import { loadNotificationsConfig, saveNotificationsConfig } from '../notifications/config';
 import type { NotificationManager } from '../notifications/manager';
 import { StorageManagementService } from './storage-management';
@@ -1181,6 +1183,22 @@ export async function initWebUI(
   app.get('/api/logs', (c) => {
     const limit = Number(c.req.query('limit') ?? 300);
     return c.json({ list: getRecentLogs(limit) });
+  });
+
+  app.get('/api/logs/export/trace', (c) => {
+    const exportedAt = new Date().toISOString();
+    const download = buildFullTraceDownload(getLogSnapshot(), {
+      version: currentVersion(),
+      operatingSystem: os.platform(),
+      architecture: os.arch(),
+      nodeVersion: process.version,
+      logLevel: getLogLevel(),
+      exportedAt,
+    });
+    for (const [name, value] of Object.entries(download.headers)) {
+      c.header(name, value);
+    }
+    return c.body(download.body);
   });
 
   app.get('/api/logs/level', (c) => {

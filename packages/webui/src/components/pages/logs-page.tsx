@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { sanitizeLogLine } from '@snowluma/common/log-sanitize';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowDownToLine, Download, Filter, Highlighter, Inbox, Pause, Plus, RefreshCw, Search, SearchX, SlidersHorizontal, Trash2, WrapText, X } from 'lucide-react';
+import { ArrowDownToLine, Download, Filter, Highlighter, Inbox, Pause, Plus, RefreshCw, Search, SearchX, SlidersHorizontal, Trash2, TriangleAlert, WrapText, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,10 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import type { LogEntry, LogLevel, LogsPreset, UiHighlightRule } from '@/types';
 import { useApi } from '@/lib/api';
+import {
+  selectServerLogLevel,
+  TRACE_CONFIRMATION_WARNINGS,
+} from '@/lib/server-log-level';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLayout } from '@/contexts/LayoutContext';
 
@@ -106,6 +110,8 @@ export function LogsPage() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [serverLevel, setServerLevel] = useState<LogLevel | null>(null);
   const [levelBusy, setLevelBusy] = useState(false);
+  const [confirmTrace, setConfirmTrace] = useState(false);
+  const [traceExportBusy, setTraceExportBusy] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const [newKeyword, setNewKeyword] = useState('');
   const [newColor, setNewColor] = useState(HIGHLIGHT_COLORS[0].id);
@@ -142,7 +148,7 @@ export function LogsPage() {
     });
   }, [api]);
 
-  const changeServerLevel = useCallback(async (lv: LogLevel) => {
+  const applyServerLevel = useCallback(async (lv: LogLevel) => {
     if (lv === serverLevel || levelBusy) return;
     setLevelBusy(true);
     try {
@@ -154,6 +160,16 @@ export function LogsPage() {
       setLevelBusy(false);
     }
   }, [api, serverLevel, levelBusy]);
+
+  const changeServerLevel = useCallback((lv: LogLevel) => {
+    if (levelBusy) return;
+    selectServerLogLevel({
+      currentLevel: serverLevel,
+      nextLevel: lv,
+      applyLevel: (level) => void applyServerLevel(level),
+      requestTraceConfirmation: () => setConfirmTrace(true),
+    });
+  }, [applyServerLevel, levelBusy, serverLevel]);
 
   useEffect(() => {
     // Batch incoming lines: buffer in a ref and flush on a ~80ms timer instead
@@ -331,6 +347,25 @@ export function LogsPage() {
     URL.revokeObjectURL(url);
   }, [filtered]);
 
+  const exportFullTrace = useCallback(async () => {
+    if (traceExportBusy) return;
+    setTraceExportBusy(true);
+    try {
+      const { text, filename } = await api.logs.exportTrace();
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('exportTrace', err);
+    } finally {
+      setTraceExportBusy(false);
+    }
+  }, [api, traceExportBusy]);
+
   const addHighlight = () => {
     const kw = newKeyword.trim();
     if (!kw) return;
@@ -424,11 +459,32 @@ export function LogsPage() {
           <ToolButton label="导出当前视图" onClick={exportLogs} disabled={filtered.length === 0}>
             <Download />
           </ToolButton>
+          <ToolButton label="导出完整 TRACE" onClick={() => void exportFullTrace()} disabled={traceExportBusy}>
+            <ArrowDownToLine />
+          </ToolButton>
           <ToolButton label="清空视图" danger onClick={() => setConfirmClear(true)}>
             <Trash2 />
           </ToolButton>
         </div>
       </CardHeader>
+
+      {serverLevel === 'trace' && (
+        <div className="mx-5 mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2.5 text-destructive">
+          <div className="flex min-w-0 items-center gap-2">
+            <TriangleAlert className="size-4 shrink-0" />
+            <span className="text-xs font-semibold">TRACE 已开启：正在记录大量、可能未经脱敏的数据</span>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={levelBusy}
+            onClick={() => void applyServerLevel('info')}
+            className="h-7 rounded-lg border-destructive/40 bg-card text-destructive hover:bg-destructive/10 hover:text-destructive"
+          >
+            恢复 INFO
+          </Button>
+        </div>
+      )}
 
       {/* ── Level filter (segmented, always visible) ────────────── */}
       <div className="flex items-center gap-2 px-5 pb-3">
@@ -679,6 +735,25 @@ export function LogsPage() {
           </ScrollArea>
         </div>
       </CardContent>
+
+      <ConfirmDialog
+        open={confirmTrace}
+        onOpenChange={setConfirmTrace}
+        title="开启 TRACE 日志？"
+        description={(
+          <div className="space-y-2">
+            <p>开启前请确认：</p>
+            <ul className="list-disc space-y-1 pl-5">
+              {TRACE_CONFIRMATION_WARNINGS.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        confirmText="开启 TRACE"
+        destructive
+        onConfirm={() => applyServerLevel('trace')}
+      />
 
       <ConfirmDialog
         open={confirmClear}

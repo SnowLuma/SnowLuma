@@ -46,7 +46,7 @@ interface GithubRelease {
   published_at?: string;
 }
 
-function currentVersion(): string {
+export function currentVersion(): string {
   return typeof __APP_VERSION__ === 'string' && __APP_VERSION__ ? __APP_VERSION__ : '0.0.0';
 }
 

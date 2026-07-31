@@ -270,6 +270,25 @@ describe('file output gating', () => {
     );
   });
 
+  it('returns the complete retained normal and TRACE snapshot in record order', async () => {
+    const fresh = await loadLoggerForFileLevel('debug');
+    const log = fresh.createLogger('Export');
+    fresh.setLogLevel('trace');
+
+    log.info('normal-before');
+    log.trace('trace-hex=001122aabbcc');
+    log.warn('normal-after');
+
+    expect(fresh.getRecentLogs(1).map((entry) => entry.message)).toEqual([
+      'normal-after',
+    ]);
+    expect(fresh.getLogSnapshot().map((entry) => entry.message)).toEqual([
+      'normal-before',
+      'trace-hex=001122aabbcc',
+      'normal-after',
+    ]);
+  });
+
   it('keeps bootstrap notices visible and persisted above configured thresholds', async () => {
     const fresh = await loadLoggerForFileLevel('error');
     fresh.setLogLevel('error');

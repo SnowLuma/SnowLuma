@@ -287,15 +287,19 @@ export function closeLogger(): Promise<void> {
   return getFileTransport().close();
 }
 
-export function getRecentLogs(limit = 300): LogEntry[] {
-  const n = Math.max(1, Math.trunc(limit));
-  // Merge the normal + trace rings by id (ids are monotonic, so id order is
-  // chronological). The trace ring is empty unless trace level is/was active,
-  // so the common case is just the normal ring with no sort.
-  const merged = traceRing.size > 0
+function mergeLogRings(): LogEntry[] {
+  return traceRing.size > 0
     ? [...logRing.toArray(), ...traceRing.toArray()].sort((a, b) => a.id - b.id)
     : logRing.toArray();
-  return merged.slice(-n);
+}
+
+export function getLogSnapshot(): LogEntry[] {
+  return mergeLogRings();
+}
+
+export function getRecentLogs(limit = 300): LogEntry[] {
+  const n = Math.max(1, Math.trunc(limit));
+  return mergeLogRings().slice(-n);
 }
 
 export function subscribeLogs(callback: (entry: LogEntry) => void): () => void {
