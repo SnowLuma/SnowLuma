@@ -691,6 +691,21 @@ export class IncomingPacketPipeline {
           source: 'friend_request',
         });
         break;
+      case 'friend_remark_changed': {
+        const rosterUpdated = this.deps.identity.updateFriendRemark(
+          event.userUid,
+          event.userUin,
+          event.remark,
+        );
+        this.log.debug(
+          'friend remark synchronized (uid=%s uin=%d length=%d rosterUpdated=%s)',
+          event.userUid,
+          event.userUin,
+          event.remark.length,
+          rosterUpdated,
+        );
+        break;
+      }
       case 'group_invite': {
         // Defensive: never cache a uid→uin mapping where uin equals
         // the group's own uin — that's the pollution signature the

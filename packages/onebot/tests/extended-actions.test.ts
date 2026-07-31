@@ -185,6 +185,27 @@ describe('extended-actions / set_self_longnick', () => {
   });
 });
 
+describe('extended-actions / set_friend_remark', () => {
+  it('reports a confirmed server rejection instead of returning success', async () => {
+    const setFriendRemark = vi.fn(async () => {
+      throw new Error('friend remark was rejected');
+    });
+    const bridge = fakeBridge({ setFriendRemark });
+
+    const response = await makeHandler(fakeCtx(bridge)).handle('set_friend_remark', {
+      user_id: 10001,
+      remark: 'best-friend',
+    });
+
+    expect(setFriendRemark).toHaveBeenCalledWith(10001, 'best-friend');
+    expect(response).toMatchObject({
+      status: 'failed',
+      retcode: 100,
+      wording: 'friend remark was rejected',
+    });
+  });
+});
+
 describe('extended-actions / group notice options', () => {
   it('coerces and forwards every supported announcement option', async () => {
     const sendNotice = vi.fn(async () => ({ ec: 0 }));

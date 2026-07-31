@@ -12,6 +12,24 @@ export interface OperatorInfo {
   operatorField?: pb<1, OperatorField1>;
 }
 
+export interface FriendRemarkChangedTarget {
+  uin?: pb<3, uint_64>;
+  uid?: pb<7, string>;
+}
+
+export interface FriendRemarkChangedValue {
+  target?: pb<1, FriendRemarkChangedTarget>;
+  remark?: pb<2, string>;
+}
+
+/** Event0x210 / subType 364 — server-authoritative friend remark update. */
+export interface FriendRemarkChangedNotify {
+  change?:     pb<1, FriendRemarkChangedValue>;
+  updateTime?: pb<3, uint_32>;
+  nickname?:   pb<4, string>;
+  changeType?: pb<5, uint_32>;
+}
+
 export interface GroupChange {
   groupUin?:      pb<1, uint_32>;
   flag?:          pb<2, uint_32>;

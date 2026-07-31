@@ -80,6 +80,18 @@ function makeTempMessage(senderUin: number): TempMessage {
 }
 
 describe('convertEvent — message kinds', () => {
+  it('keeps friend remark synchronization internal', async () => {
+    const out = await convertEvent(bareCtx(), {
+      kind: 'friend_remark_changed',
+      time: 1700000000,
+      selfUin: SELF_ID,
+      userUid: 'u_friend',
+      userUin: PEER_UIN,
+      remark: 'new remark',
+    });
+    expect(out).toBeNull();
+  });
+
   it('friend_message peer → post_type "message", sub_type "friend"', async () => {
     const out = await convertEvent(bareCtx(), makeFriendMessage(PEER_UIN));
     expect(out).not.toBeNull();

@@ -322,6 +322,56 @@ export class IdentityService {
     this.runWrite('group member update', () => this.transaction(() => this.upsertGroupMember(persisted)));
   }
 
+  /** Apply the server-authoritative friend/stranger remark synchronization push. */
+  updateFriendRemark(uid: string, uin: number, remark: string): boolean {
+    this.beginObservation('friend remark update');
+    const normalizedUid = normalizeUid(uid);
+    const normalizedUin = normalizeUin(uin);
+    if (!normalizedUid && normalizedUin === null) {
+      throw new Error('friend remark update is missing both UID and UIN');
+    }
+
+    const byUid = normalizedUid
+      ? this.friends_.find((friend) => friend.uid === normalizedUid) ?? null
+      : null;
+    const byUin = normalizedUin !== null
+      ? this.friends_.find((friend) => friend.uin === normalizedUin) ?? null
+      : null;
+    if (byUid && byUin && byUid !== byUin) {
+      throw new Error(`friend remark update identity mismatch: uid=${normalizedUid} uin=${normalizedUin}`);
+    }
+
+    const friend = byUid ?? byUin;
+    if (friend && normalizedUid && friend.uid && friend.uid !== normalizedUid) {
+      throw new Error(`friend remark update UID mismatch for uin=${friend.uin}`);
+    }
+    if (friend && normalizedUin !== null && friend.uin !== normalizedUin) {
+      throw new Error(`friend remark update UIN mismatch for uid=${friend.uid}`);
+    }
+
+    const observedUid = normalizedUid || friend?.uid || '';
+    const observedUin = normalizedUin ?? friend?.uin ?? 0;
+    if (friend) {
+      const index = this.friends_.indexOf(friend);
+      this.friends_[index] = { ...friend, remark };
+    }
+    const profile = observedUin > 0 ? this.userProfiles_.get(observedUin) : undefined;
+    if (profile) this.userProfiles_.set(observedUin, { ...profile, remark });
+    this.rememberUidUin(observedUid, observedUin);
+
+    const persisted: UserInput = {
+      uid: observedUid || undefined,
+      uin: observedUin > 0 ? observedUin : undefined,
+      remark,
+      isFriend: friend ? true : undefined,
+    };
+    this.runWrite(
+      'friend remark update',
+      () => this.transaction(() => this.upsertUser(persisted)),
+    );
+    return friend !== null;
+  }
+
   // ─── ID translation ───
 
   /**
@@ -816,7 +866,7 @@ export class IdentityService {
       uid: uid || primary?.uid || null,
       uin: uin ?? primary?.uin ?? null,
       nickname: mergeOptionalText(input.nickname, primary?.nickname ?? ''),
-      remark: mergeOptionalText(input.remark, primary?.remark ?? ''),
+      remark: mergeOptionalExactText(input.remark, primary?.remark ?? ''),
       isFriend: input.isFriend === true ? 1 : (primary?.is_friend ?? 0),
       source: mergeOptionalText(input.source, primary?.source ?? ''),
       updatedAt: nowSeconds(),
@@ -1245,6 +1295,10 @@ function normalizeText(value: unknown): string {
 
 function mergeOptionalText(value: unknown, fallback: string): string {
   return value === undefined ? fallback : normalizeText(value);
+}
+
+function mergeOptionalExactText(value: unknown, fallback: string): string {
+  return value === undefined ? fallback : (typeof value === 'string' ? value : '');
 }
 
 function normalizeNonNegative(value: unknown, fallback: number): number {

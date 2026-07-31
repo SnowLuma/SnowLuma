@@ -105,6 +105,8 @@ const CONVERTERS: ConverterRegistry = {
   ptt_trans_result: null,
   // Internal-only cache snapshot consumed by Bridge.getOnlineClients().
   online_devices_changed: null,
+  // Internal-only identity synchronization from another QQ client.
+  friend_remark_changed: null,
 };
 
 export async function convertEvent(

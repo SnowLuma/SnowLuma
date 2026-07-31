@@ -526,6 +526,18 @@ export interface OnlineDevicesChangedEvent extends QQEvent {
   devices: OnlineDeviceInfo[];
 }
 
+/**
+ * A friend or stranger remark changed on another client (Event 0x210 /
+ * subType 364). Internal-only: the packet pipeline consumes this event to
+ * keep the identity cache synchronized; it is not forwarded to OneBot.
+ */
+export interface FriendRemarkChangedEvent extends QQEvent {
+  kind: 'friend_remark_changed';
+  userUid: string;
+  userUin: number;
+  remark: string;
+}
+
 export type QQEventVariant =
   | FriendMessage
   | GroupMessage
@@ -551,4 +563,5 @@ export type QQEventVariant =
   | GroupTitleChangeEvent
   | FriendProfileLikeEvent
   | OnlineDevicesChangedEvent
+  | FriendRemarkChangedEvent
   | BotOfflineEvent;

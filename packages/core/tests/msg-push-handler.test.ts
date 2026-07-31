@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { protobuf_encode } from '@snowluma/proton';
 import { parseMsgPush, MSG_PUSH_CMD } from '@snowluma/protocol/msg-push';
 import { IdentityService } from '@snowluma/protocol/identity-service';
+import { IncomingPacketPipeline } from '@snowluma/protocol/packet-pipeline';
+import { BridgeEventBus } from '@snowluma/protocol/event-bus';
 import type { GroupMemberInfo, QQGroupInfo } from '@snowluma/protocol/qq-info';
 // Proton's call-site analyzer keys off the literal type identifier
 // printed in `protobuf_encode<X>` — it walks imports by *original*
@@ -15,7 +17,7 @@ import type { GroupMemberInfo, QQGroupInfo } from '@snowluma/protocol/qq-info';
 import type {
   GroupChange, NewFriend, FriendRecall, OperatorInfo, SelfJoinInGroup, GroupAdmin,
   InputStatusNotify, NotifyMessageBody, GroupNameChange, GroupSpecialTitleChange,
-  OnlineDeviceNotify, ProfileLikeTip,
+  OnlineDeviceNotify, ProfileLikeTip, FriendRemarkChangedNotify,
 } from '@snowluma/proto-defs/notify';
 import type { PushMsg } from '@snowluma/proto-defs/message';
 import type {
@@ -437,6 +439,70 @@ describe('parseMsgPush Event0x210 subType=179/226 (NewFriend → friend_add)', (
     ) as FriendAddEvent[];
     expect(event.kind).toBe('friend_add');
     expect(event.userUin).toBe(22222); // the packet's fromUin
+  });
+});
+
+describe('parseMsgPush Event0x210 subType=364 (friend remark synchronization)', () => {
+  function makeFriendRemarkPacket(
+    uid: string,
+    uin: number,
+    remark: string,
+  ): PacketInfo {
+    const content = protobuf_encode<FriendRemarkChangedNotify>({
+      change: {
+        target: { uid, uin: BigInt(uin) },
+        remark,
+      },
+      updateTime: 1710000000,
+      nickname: 'Alice',
+      changeType: 1,
+    });
+    return makeEvent0x210PacketAny(364, content);
+  }
+
+  it('decodes a pure internal synchronization event', () => {
+    const identity = makeIdentity();
+    identity.rememberFriends([{
+      uin: 22222,
+      uid: 'u_friend',
+      nickname: 'Alice',
+      remark: 'old-remark',
+    }]);
+
+    expect(parseMsgPush(
+      makeFriendRemarkPacket('u_friend', 22222, 'new-remark'),
+      identity,
+    )).toEqual([{
+      kind: 'friend_remark_changed',
+      time: 1710000000,
+      selfUin: Number(SELF_UIN),
+      userUid: 'u_friend',
+      userUin: 22222,
+      remark: 'new-remark',
+    }]);
+    expect(identity.findFriend(22222)?.remark).toBe('old-remark');
+  });
+
+  it('applies the synchronization at the packet-pipeline boundary', async () => {
+    const identity = makeIdentity();
+    identity.rememberFriends([{
+      uin: 22222,
+      uid: 'u_friend',
+      nickname: 'Alice',
+      remark: 'old-remark',
+    }]);
+    const pipeline = new IncomingPacketPipeline({
+      identity,
+      events: new BridgeEventBus(),
+      refreshMemberCache: vi.fn(async () => false),
+      resolveStrangerProfile: vi.fn(async () => null),
+      resolveGroupJoinRequest: vi.fn(async () => null),
+    });
+    pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
+
+    await pipeline.process(makeFriendRemarkPacket('u_friend', 22222, 'new-remark'));
+
+    expect(identity.findFriend(22222)?.remark).toBe('new-remark');
   });
 });
 

@@ -90,6 +90,8 @@ export enum Event0x210SubType {
    * does not issue a separate network request.
    */
   OnlineDevicesNotice = 349,
+  /** Server-authoritative friend/stranger remark synchronization push. */
+  FriendRemarkChangedNotice = 364,
   /**
    * Group-app state push (troop shortcut bar / discussion app).
    *

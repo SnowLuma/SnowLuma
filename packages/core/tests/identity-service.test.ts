@@ -214,6 +214,71 @@ describe('IdentityService', () => {
     }
   });
 
+  it('keeps friend remark updates after reopening the persistent cache', () => {
+    const dbPath = tempDbPath('update-friend-remark');
+
+    {
+      const identity = new IdentityService(SELF_UIN, dbPath);
+      identity.rememberFriends([{
+        uin: 22222,
+        uid: 'u_friend',
+        nickname: 'friend',
+        remark: 'old-remark',
+      }]);
+
+      expect(identity.updateFriendRemark('u_friend', 22222, 'new-remark')).toBe(true);
+      expect(identity.findFriend(22222)?.remark).toBe('new-remark');
+      identity.close();
+    }
+
+    {
+      const identity = new IdentityService(SELF_UIN, dbPath);
+      expect(identity.findFriend(22222)?.remark).toBe('new-remark');
+      identity.close();
+    }
+  });
+
+  it.each([
+    ['empty', ''],
+    ['whitespace-only', '   '],
+    ['surrounding-whitespace', '  padded remark  '],
+  ])('preserves %s friend remarks exactly after reopening', (_label, remark) => {
+    const dbPath = tempDbPath('exact-friend-remark');
+
+    {
+      const identity = new IdentityService(SELF_UIN, dbPath);
+      identity.rememberFriends([{
+        uin: 22222,
+        uid: 'u_friend',
+        nickname: 'friend',
+        remark: 'old-remark',
+      }]);
+
+      expect(identity.updateFriendRemark('u_friend', 22222, remark)).toBe(true);
+      expect(identity.findFriend(22222)?.remark).toBe(remark);
+      identity.close();
+    }
+
+    {
+      const identity = new IdentityService(SELF_UIN, dbPath);
+      expect(identity.findFriend(22222)?.remark).toBe(remark);
+      identity.close();
+    }
+  });
+
+  it('rejects conflicting friend identities before mutating the roster', () => {
+    const identity = IdentityService.memory(SELF_UIN);
+    identity.rememberFriends([
+      { uin: 22222, uid: 'u_first', nickname: 'first', remark: 'first-remark' },
+      { uin: 33333, uid: 'u_second', nickname: 'second', remark: 'second-remark' },
+    ]);
+
+    expect(() => identity.updateFriendRemark('u_first', 33333, 'wrong'))
+      .toThrow(/identity mismatch/);
+    expect(identity.findFriend(22222)?.remark).toBe('first-remark');
+    expect(identity.findFriend(33333)?.remark).toBe('second-remark');
+  });
+
   it('keeps a failed observation in memory, reports degraded, and retries to healthy', async () => {
     vi.useFakeTimers();
     const dbPath = tempDbPath('retry-recovery');
