@@ -22,7 +22,7 @@ export interface AppStateValue {
   refreshSystem: () => void;
   refreshConnections: () => void;
   /** Re-run the update check; `force` bypasses the server-side cache. */
-  refreshUpdate: (force?: boolean) => Promise<void>;
+  refreshUpdate: (force?: boolean) => Promise<UpdateInfo | null>;
   /** Triggered from the topbar logout button. */
   onLogout: () => void;
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import { useApi, type ProcessActionResult } from '@/lib/api';
 
 export type HookProcessOpKind = 'load' | 'unload' | 'refresh';
@@ -60,6 +61,7 @@ export function useHookProcessOps(
   opts: { onAfterOp?: () => Promise<void> | void } = {},
 ): UseHookProcessOpsResult {
   const api = useApi();
+  const { runAction } = useActionFeedback();
   const [byPid, setByPid] = useState<Map<number, HookProcessOpKind>>(() => new Map());
   const [banner, setBanner] = useState('');
   const [unloadFailedAlert, setUnloadFailedAlert] = useState<UnloadFailedAlert | null>(null);
@@ -107,7 +109,23 @@ export function useHookProcessOps(
       const messages = KIND_MESSAGES[kind];
       setBanner(messages.start(pid));
       try {
-        const result = await action();
+        const result = await runAction(
+          {
+            title: messages.start(pid),
+            detail: `PID ${pid}`,
+            successTitle: messages.ok(pid),
+            successDetail: `PID ${pid}`,
+            errorTitle: `${kind === 'load' ? '加载' : kind === 'unload' ? '卸载' : '刷新'}失败`,
+            resultError: (outcome) => (
+              kind === 'unload'
+              && outcome.process?.status === 'connecting'
+              && outcome.process.error
+                ? outcome.process.error
+                : null
+            ),
+          },
+          action,
+        );
         if (kind === 'unload' && result.process?.status === 'connecting' && result.process.error) {
           setUnloadFailedAlert({ pid, error: result.process.error });
           setBanner(`进程 ${pid} 卸载失败`);
@@ -124,7 +142,7 @@ export function useHookProcessOps(
         scheduleBannerClear();
       }
     },
-    [setKind, scheduleBannerClear],
+    [setKind, scheduleBannerClear, runAction],
   );
 
   const load = useCallback(

@@ -15,6 +15,8 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import { useApi } from '@/lib/api';
 import { useFlashMessage } from '@/hooks/use-flash-message';
 import { cn } from '@/lib/utils';
@@ -22,6 +24,7 @@ import type { SystemSettingsResponse } from '@/types';
 
 export function SystemPanel() {
   const api = useApi();
+  const { runAction } = useActionFeedback();
   const [data, setData] = useState<SystemSettingsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -41,6 +44,8 @@ export function SystemPanel() {
   // backup / restore
   const [exportCreds, setExportCreds] = useState(false);
   const [restoreCreds, setRestoreCreds] = useState(false);
+  const [confirmDeleteCert, setConfirmDeleteCert] = useState(false);
+  const [pendingBackup, setPendingBackup] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = async (): Promise<boolean> => {
@@ -72,7 +77,16 @@ export function SystemPanel() {
     }
     setSaving(true);
     try {
-      await api.systemSettings.save({ webuiPort: portNum, webuiHost: host.trim(), trustProxy, tlsEnabled });
+      await runAction(
+        {
+          title: '正在更新服务设置',
+          detail: `${host.trim()}:${portNum}`,
+          successTitle: '服务设置已更新',
+          successDetail: '重启 SnowLuma 后生效',
+          errorTitle: '服务设置更新失败',
+        },
+        () => api.systemSettings.save({ webuiPort: portNum, webuiHost: host.trim(), trustProxy, tlsEnabled }),
+      );
       await load();
       flash('ok', '已保存，重启 SnowLuma 后生效');
     } catch (e) {
@@ -86,7 +100,16 @@ export function SystemPanel() {
     if (!certPem.trim() || !keyPem.trim()) { flash('err', '请同时填入证书与私钥'); return; }
     setSaving(true);
     try {
-      await api.systemSettings.uploadCert(certPem, keyPem);
+      await runAction(
+        {
+          title: '正在更新 TLS 证书',
+          detail: '正在校验证书与私钥',
+          successTitle: 'TLS 证书已更新',
+          successDetail: '重启 SnowLuma 后生效',
+          errorTitle: 'TLS 证书更新失败',
+        },
+        () => api.systemSettings.uploadCert(certPem, keyPem),
+      );
       setCertPem(''); setKeyPem('');
       setEditingCert(false);
       await load();
@@ -101,12 +124,21 @@ export function SystemPanel() {
   const deleteCert = async () => {
     setSaving(true);
     try {
-      await api.systemSettings.deleteCert();
+      await runAction(
+        {
+          title: '正在删除 TLS 证书',
+          detail: '正在移除服务器上的证书与私钥',
+          successTitle: 'TLS 证书已删除',
+          errorTitle: 'TLS 证书删除失败',
+        },
+        () => api.systemSettings.deleteCert(),
+      );
       setEditingCert(false);
       await load();
       flash('ok', '证书已删除');
     } catch (e) {
       flash('err', e instanceof Error ? e.message : '删除失败');
+      throw e;
     } finally {
       setSaving(false);
     }
@@ -115,7 +147,15 @@ export function SystemPanel() {
   const exportBackup = async () => {
     setSaving(true);
     try {
-      const bundle = await api.systemSettings.exportBackup(exportCreds);
+      const bundle = await runAction(
+        {
+          title: '正在导出配置备份',
+          detail: exportCreds ? '包含敏感配置' : '不包含敏感配置',
+          successTitle: '配置备份已导出',
+          errorTitle: '配置备份导出失败',
+        },
+        () => api.systemSettings.exportBackup(exportCreds),
+      );
       const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -136,8 +176,21 @@ export function SystemPanel() {
     try {
       const text = await file.text();
       let parsed: Record<string, unknown>;
-      try { parsed = JSON.parse(text); } catch { flash('err', '文件不是有效的 JSON'); return; }
-      const res = await api.systemSettings.importBackup(parsed, restoreCreds);
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        throw new Error('文件不是有效的 JSON');
+      }
+      const res = await runAction(
+        {
+          title: '正在恢复配置备份',
+          detail: file.name,
+          successTitle: '配置备份已恢复',
+          successDetail: '恢复结果已写入服务器',
+          errorTitle: '配置备份恢复失败',
+        },
+        () => api.systemSettings.importBackup(parsed, restoreCreds),
+      );
       const parts = res.restored.length ? [`已恢复 ${res.restored.length} 项`] : ['没有可恢复的配置'];
       if (res.skipped.length) parts.push(`跳过 ${res.skipped.length} 项（敏感配置，含 OneBot 配置）`);
       if (res.migrated.length) parts.push(`兼容转换 ${res.migrated.length} 项`);
@@ -151,6 +204,7 @@ export function SystemPanel() {
       const message = e instanceof Error ? e.message : '恢复失败';
       const refreshed = await load();
       flash('err', refreshed ? message : `${message}；界面状态刷新失败，请手动刷新页面`);
+      throw e;
     } finally {
       setSaving(false);
       if (fileRef.current) fileRef.current.value = '';
@@ -237,7 +291,7 @@ export function SystemPanel() {
                 <Button variant="outline" onClick={() => setEditingCert(true)} className="gap-1.5">
                   <Pencil className="h-4 w-4" /> 更改证书
                 </Button>
-                <Button variant="outline" onClick={deleteCert} disabled={saving} className="gap-1.5">
+                <Button variant="outline" onClick={() => setConfirmDeleteCert(true)} disabled={saving} className="gap-1.5">
                   <Trash2 className="h-4 w-4" /> 删除证书
                 </Button>
               </div>
@@ -306,7 +360,11 @@ export function SystemPanel() {
               type="file"
               accept="application/json,.json"
               className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) void importBackup(f); }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) setPendingBackup(file);
+                e.target.value = '';
+              }}
             />
             <div>
               <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={saving} className="gap-1.5">
@@ -317,6 +375,36 @@ export function SystemPanel() {
           </div>
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={confirmDeleteCert}
+        onOpenChange={setConfirmDeleteCert}
+        title="删除 TLS 证书？"
+        description="将移除服务器上的证书与私钥。若 HTTPS 仍处于启用状态，下次启动将无法继续使用当前证书。"
+        confirmText="删除证书"
+        destructive
+        onConfirm={deleteCert}
+      />
+
+      <ConfirmDialog
+        open={pendingBackup !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingBackup(null);
+        }}
+        title="恢复配置备份？"
+        description={
+          pendingBackup
+            ? `将从 ${pendingBackup.name} 覆盖当前系统配置${restoreCreds ? '，包括敏感配置、TLS 私钥与 OneBot 配置' : ''}。成功后需要重启 SnowLuma。`
+            : ''
+        }
+        confirmText="确认恢复"
+        destructive
+        onConfirm={async () => {
+          if (!pendingBackup) return;
+          await importBackup(pendingBackup);
+          setPendingBackup(null);
+        }}
+      />
     </motion.div>
   );
 }

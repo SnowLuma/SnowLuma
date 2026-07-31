@@ -121,6 +121,11 @@ export function TopBar({
         description="登出后将清除当前会话令牌，您需要重新输入访问密码才能进入控制台。"
         confirmText="登出"
         destructive
+        activity={{
+          title: '正在退出登录',
+          successTitle: '已退出登录',
+          errorTitle: '退出登录失败',
+        }}
         onConfirm={onLogout}
       />
     </header>

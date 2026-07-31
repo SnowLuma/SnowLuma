@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
+import { useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import { useApi } from '@/lib/api';
 import { useFlashMessage } from '@/hooks/use-flash-message';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -38,6 +39,7 @@ interface DialogState {
 
 export function NotificationsPanel() {
   const api = useApi();
+  const { runAction } = useActionFeedback();
   const [config, setConfig] = useState<NotificationsConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [dialog, setDialog] = useState<DialogState>({ open: false, index: null, seed: blankChannel([]) });
@@ -72,13 +74,27 @@ export function NotificationsPanel() {
 
   /** Apply locally + debounced auto-save. A generation guard reconciles with
    *  the server's normalized result only if no newer edit landed meanwhile. */
-  const commit = (next: NotificationsConfig) => {
+  const commit = (
+    next: NotificationsConfig,
+    copy: { title: string; successTitle: string } = {
+      title: '正在更新通知配置',
+      successTitle: '通知配置已更新',
+    },
+  ) => {
     setConfig(next);
     const gen = ++saveGen.current;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
-      void api.notifications
-        .saveConfig(next)
+      void runAction(
+        {
+          title: copy.title,
+          detail: '正在同步通知渠道设置',
+          successTitle: copy.successTitle,
+          successDetail: '通知配置已同步',
+          errorTitle: '通知配置更新失败',
+        },
+        () => api.notifications.saveConfig(next),
+      )
         .then((result) => {
           // Only the latest save reconciles + confirms; a superseded in-flight
           // save stays silent (its successor will confirm).
@@ -86,7 +102,10 @@ export function NotificationsPanel() {
           setConfig(result);
           flash('ok', '已保存');
         })
-        .catch(() => flash('err', '保存失败，请检查服务器日志'));
+        .catch((error) => {
+          console.error('save notifications config failed', error);
+          flash('err', '保存失败，请检查服务器日志');
+        });
     }, 350);
   };
 
@@ -99,14 +118,26 @@ export function NotificationsPanel() {
   }
 
   const channels = config.channels;
-  const setChannels = (next: NotificationChannel[]) => commit({ ...config, channels: next });
+  const setChannels = (
+    next: NotificationChannel[],
+    copy?: { title: string; successTitle: string },
+  ) => commit({ ...config, channels: next }, copy);
   const otherIds = (index: number | null) => channels.filter((_, i) => i !== index).map((c) => c.id);
 
   const openCreate = () => setDialog({ open: true, index: null, seed: blankChannel(channels) });
   const openEdit = (i: number) => setDialog({ open: true, index: i, seed: channels[i] });
   const submitChannel = (ch: NotificationChannel) => {
-    if (dialog.index == null) setChannels([...channels, ch]);
-    else setChannels(channels.map((c, idx) => (idx === dialog.index ? ch : c)));
+    if (dialog.index == null) {
+      setChannels(
+        [...channels, ch],
+        { title: '正在新增通知渠道', successTitle: '通知渠道已新增' },
+      );
+    } else {
+      setChannels(
+        channels.map((c, idx) => (idx === dialog.index ? ch : c)),
+        { title: '正在更新通知渠道', successTitle: '通知渠道已更新' },
+      );
+    }
   };
 
   const test = async (id: string) => {
@@ -117,10 +148,23 @@ export function NotificationsPanel() {
       saveTimer.current = null;
     }
     try {
-      await api.notifications.saveConfig(config);
-      const res = await api.notifications.test(id);
+      const res = await runAction(
+        {
+          title: '正在测试通知渠道',
+          detail: id,
+          successTitle: '测试通知已发送',
+          successDetail: id,
+          errorTitle: '通知渠道测试失败',
+          resultError: (result) => result.success ? null : result.message || '测试发送失败',
+        },
+        async () => {
+          await api.notifications.saveConfig(config);
+          return api.notifications.test(id);
+        },
+      );
       flash(res.success ? 'ok' : 'err', res.message ?? (res.success ? '测试发送成功' : '测试发送失败'));
-    } catch {
+    } catch (error) {
+      console.error('test notification channel failed', error);
       flash('err', '测试请求失败');
     } finally {
       setTesting(null);
@@ -182,10 +226,16 @@ export function NotificationsPanel() {
                 key={ch.id}
                 channel={ch}
                 testing={testing === ch.id}
-                onToggle={(v) => setChannels(channels.map((c, idx) => (idx === i ? { ...c, enabled: v } : c)))}
+                onToggle={(v) => setChannels(
+                  channels.map((c, idx) => (idx === i ? { ...c, enabled: v } : c)),
+                  { title: '正在更新通知渠道', successTitle: '通知渠道已更新' },
+                )}
                 onTest={() => void test(ch.id)}
                 onEdit={() => openEdit(i)}
-                onDelete={() => setChannels(channels.filter((_, idx) => idx !== i))}
+                onDelete={() => setChannels(
+                  channels.filter((_, idx) => idx !== i),
+                  { title: '正在删除通知渠道', successTitle: '通知渠道已删除' },
+                )}
               />
             ))}
           </div>

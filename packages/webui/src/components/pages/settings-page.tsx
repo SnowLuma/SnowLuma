@@ -33,6 +33,7 @@ import {
   type TimeFormat,
 } from '@/contexts/ThemeContext';
 import { DEFAULT_LAYOUT, DEFAULT_PAGES, reconcileLayoutItems, useLayout } from '@/contexts/LayoutContext';
+import { useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import { NAV_ITEMS } from '@/components/layout/sidebar';
 import { TOPBAR_CATALOGUE } from '@/components/layout/top-bar';
 import { ChangePasswordDialog } from '@/components/change-password-dialog';
@@ -956,18 +957,28 @@ function validateCss(css: string): string | null {
 
 function AdvancedPanel() {
   const { appearance, setAppearance } = useTheme();
+  const { runAction } = useActionFeedback();
   const cssRef = useRef<HTMLTextAreaElement>(null);
   const [cssWarn, setCssWarn] = useState<string | null>(null);
   const api = useApi();
   const fileRef = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [pendingImport, setPendingImport] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
 
   const onExport = async () => {
     setMsg(null);
     try {
-      const config = await api.ui.get();
+      const config = await runAction(
+        {
+          title: '正在导出界面配置',
+          detail: '外观、布局与自定义 CSS',
+          successTitle: '界面配置已导出',
+          errorTitle: '界面配置导出失败',
+        },
+        () => api.ui.get(),
+      );
       const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -975,7 +986,8 @@ function AdvancedPanel() {
       a.download = 'snowluma-ui-config.json';
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
+    } catch (error) {
+      console.error('export UI config failed', error);
       setMsg({ kind: 'err', text: '导出失败' });
     }
   };
@@ -988,28 +1000,59 @@ function AdvancedPanel() {
       setMsg({ kind: 'err', text: '导入失败：文件过大（上限 256KB）' });
       return;
     }
+    setPendingImport(file);
+  };
+
+  const importUiConfig = async (file: File) => {
     setMsg(null);
     setBusy(true);
     try {
       const parsed = JSON.parse(await file.text()) as unknown;
       if (typeof parsed !== 'object' || parsed === null) throw new Error('shape');
-      await api.ui.save(parsed as Parameters<typeof api.ui.save>[0]);
+      await runAction(
+        {
+          title: '正在导入界面配置',
+          detail: file.name,
+          successTitle: '界面配置已导入',
+          successDetail: '即将重新载入界面',
+          errorTitle: '界面配置导入失败',
+          surviveReload: true,
+        },
+        () => api.ui.save(parsed as Parameters<typeof api.ui.save>[0]),
+      );
       // The server normalized it; reload so appearance + layout both re-read.
       window.location.reload();
-    } catch {
+    } catch (error) {
       setBusy(false);
-      setMsg({ kind: 'err', text: '导入失败：不是有效的配置 JSON' });
+      setMsg({
+        kind: 'err',
+        text: error instanceof SyntaxError || (error instanceof Error && error.message === 'shape')
+          ? '导入失败：不是有效的配置 JSON'
+          : `导入失败：${error instanceof Error ? error.message : '未知错误'}`,
+      });
+      throw error;
     }
   };
 
   const doReset = async () => {
     setBusy(true);
     try {
-      await api.ui.save({ appearance: DEFAULT_APPEARANCE, layout: DEFAULT_LAYOUT, pages: DEFAULT_PAGES });
+      await runAction(
+        {
+          title: '正在重置界面配置',
+          detail: '恢复外观、布局、导航与自定义 CSS',
+          successTitle: '界面配置已重置',
+          successDetail: '即将重新载入界面',
+          errorTitle: '界面配置重置失败',
+          surviveReload: true,
+        },
+        () => api.ui.save({ appearance: DEFAULT_APPEARANCE, layout: DEFAULT_LAYOUT, pages: DEFAULT_PAGES }),
+      );
       window.location.reload();
-    } catch {
+    } catch (error) {
       setBusy(false);
       setMsg({ kind: 'err', text: '重置失败' });
+      throw error;
     }
   };
 
@@ -1114,7 +1157,26 @@ function AdvancedPanel() {
         title="重置全部界面配置"
         description="将外观、仪表盘布局、导航与自定义 CSS 全部恢复为默认。此操作不可撤销。"
         confirmText="重置"
+        destructive
         onConfirm={doReset}
+      />
+
+      <ConfirmDialog
+        open={pendingImport !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingImport(null);
+        }}
+        title="导入并覆盖界面配置？"
+        description={pendingImport
+          ? `将使用 ${pendingImport.name} 覆盖当前外观、布局、导航与自定义 CSS，随后重新载入界面。`
+          : ''}
+        confirmText="确认导入"
+        destructive
+        onConfirm={async () => {
+          if (!pendingImport) return;
+          await importUiConfig(pendingImport);
+          setPendingImport(null);
+        }}
       />
     </div>
   );
@@ -1126,6 +1188,7 @@ function AccountPanel() {
   const { onLogout } = useAppState();
   const [showChangePwd, setShowChangePwd] = useState(false);
   const [pwdSavedAt, setPwdSavedAt] = useState<number | null>(null);
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   return (
     <Group title="账号安全" icon={ShieldCheck} description="WebUI 仅有 admin 一个账号，密码以 scrypt 哈希持久化到 config/webui.json。">
@@ -1140,10 +1203,25 @@ function AccountPanel() {
         </Button>
       </SettingRow>
       <SettingRow label="退出登录" hint="立即清除当前浏览器的会话令牌。">
-        <Button variant="ghost" size="sm" onClick={onLogout} className="text-destructive hover:text-destructive">
+        <Button variant="ghost" size="sm" onClick={() => setConfirmLogout(true)} className="text-destructive hover:text-destructive">
           退出登录
         </Button>
       </SettingRow>
+
+      <ConfirmDialog
+        open={confirmLogout}
+        onOpenChange={setConfirmLogout}
+        title="确认退出登录？"
+        description="退出后将清除当前会话令牌，需要重新输入访问密码才能进入控制台。"
+        confirmText="退出登录"
+        destructive
+        activity={{
+          title: '正在退出登录',
+          successTitle: '已退出登录',
+          errorTitle: '退出登录失败',
+        }}
+        onConfirm={onLogout}
+      />
 
       <ChangePasswordDialog
         open={showChangePwd}
@@ -1173,11 +1251,36 @@ function assetHint(latest: string, platform?: string, arch?: string): string | n
 // GitHub release; SnowLuma never downloads or applies anything itself.
 function UpdateGroup() {
   const { updateInfo, refreshUpdate, systemInfo } = useAppState();
+  const { runAction } = useActionFeedback();
   const [checking, setChecking] = useState(false);
 
   const onCheck = async () => {
     setChecking(true);
-    try { await refreshUpdate(true); } finally { setChecking(false); }
+    try {
+      await runAction(
+        {
+          title: '正在检查更新',
+          detail: `当前版本 v${__APP_VERSION__}`,
+          successTitle: '更新检查完成',
+          successDetail: (result) => (
+            result?.hasUpdate && result.latest
+              ? `发现新版本 v${result.latest}`
+              : '当前已是最新版本'
+          ),
+          errorTitle: '更新检查失败',
+          resultError: (result) => {
+            if (!result) return '更新检查未返回结果';
+            if (result.error === 'disabled') return '更新检查已关闭';
+            return result.error || null;
+          },
+        },
+        () => refreshUpdate(true),
+      );
+    } catch (error) {
+      console.error('manual update check failed', error);
+    } finally {
+      setChecking(false);
+    }
   };
 
   const disabledCheck = updateInfo?.error === 'disabled';

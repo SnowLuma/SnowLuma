@@ -11,16 +11,24 @@ import { DebugTaskProvider } from '@/contexts/DebugTaskContext';
 import { TaskBadge } from '@/components/debug/task-badge';
 import { AdaptivePointer } from '@/components/ui/adaptive-pointer';
 import { GlobalContextMenu } from '@/components/ui/global-context-menu';
+import {
+  ActionFeedbackProvider,
+  ActionFeedbackViewport,
+  useActionFeedback,
+} from '@/contexts/ActionFeedbackContext';
 import type { AgreementsPayload } from '@/lib/api/types';
 import { appRouter } from '@/router';
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AdaptivePointer />
-      <GlobalContextMenu />
-      <AuthBoundary />
-    </ThemeProvider>
+    <ActionFeedbackProvider>
+      <ThemeProvider>
+        <ActionFeedbackViewport />
+        <AdaptivePointer />
+        <GlobalContextMenu />
+        <AuthBoundary />
+      </ThemeProvider>
+    </ActionFeedbackProvider>
   );
 }
 
@@ -191,14 +199,25 @@ function Splash({ children }: { children: React.ReactNode }) {
 
 function LoginGate({ onAuthed }: { onAuthed: (mustChange: boolean, password: string) => void }) {
   const api = useApi();
+  const { runAction } = useActionFeedback();
   const handleLogin = useCallback(
     async (password: string) => {
-      const result = await api.login(password);
+      const result = await runAction(
+        {
+          title: '正在登录',
+          detail: '正在验证 WebUI 访问密码',
+          successTitle: '登录成功',
+          successDetail: '正在进入控制台',
+          errorTitle: '登录失败',
+          resultError: (login) => login.ok ? null : login.message,
+        },
+        () => api.login(password),
+      );
       if (!result.ok) return { success: false, error: result.message };
       onAuthed(result.mustChangePassword, password);
       return { success: true };
     },
-    [api, onAuthed],
+    [api, onAuthed, runAction],
   );
   return <LoginPage onLogin={handleLogin} />;
 }
@@ -215,13 +234,23 @@ function ConsentGate({
   onDecline: () => void;
 }) {
   const api = useApi();
+  const { runAction } = useActionFeedback();
   return (
     <ConsentPage
       documents={payload.documents}
       version={payload.version}
       onDecline={onDecline}
       onAccept={async () => {
-        const result = await api.agreements.recordConsent(payload.version);
+        const result = await runAction(
+          {
+            title: '正在记录协议确认',
+            detail: `协议版本 ${payload.version.slice(0, 8)}`,
+            successTitle: '协议确认已记录',
+            errorTitle: '协议确认失败',
+            resultError: (consent) => consent.success ? null : consent.message,
+          },
+          () => api.agreements.recordConsent(payload.version),
+        );
         if (result.success) {
           onAccepted();
           return { success: true };

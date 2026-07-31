@@ -94,9 +94,13 @@ export function AppLayout() {
 
   const refreshUpdate = useCallback(async (force = false) => {
     try {
-      setUpdateInfo(await api.update.check(force));
+      const next = await api.update.check(force);
+      setUpdateInfo(next);
+      return next;
     } catch (e) {
       console.error('update-check', e);
+      if (force) throw e;
+      return null;
     }
   }, [api]);
 

@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import { useApi } from '@/lib/api';
 import { defaultOverviewGrid, defaultOverviewMobile, migrateOverviewBlocks } from '@/lib/dashboard-layout';
 import type { UiLayout, UiLayoutItem, UiPages } from '@/types';
@@ -104,6 +105,7 @@ const LayoutContext = createContext<LayoutContextValue | null>(null);
 
 export function LayoutProvider({ children }: { children: ReactNode }) {
   const api = useApi();
+  const { runAction } = useActionFeedback();
   const [layout, setLayout] = useState<UiLayout>(DEFAULT_LAYOUT);
   const [pages, setPagesState] = useState<UiPages>(DEFAULT_PAGES);
   const [ready, setReady] = useState(false);
@@ -155,11 +157,15 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   useEffect(() => () => {
     if (saveTimer.current) {
       clearTimeout(saveTimer.current);
-      void api.ui.save({ layout: layoutRef.current }).catch(() => { /* best-effort */ });
+      void api.ui.save({ layout: layoutRef.current }).catch((error) => {
+        console.error('layout unmount flush failed', error);
+      });
     }
     if (pagesTimer.current) {
       clearTimeout(pagesTimer.current);
-      void api.ui.save({ pages: pagesRef.current }).catch(() => { /* best-effort */ });
+      void api.ui.save({ pages: pagesRef.current }).catch((error) => {
+        console.error('page preferences unmount flush failed', error);
+      });
     }
   }, [api]);
 
@@ -170,9 +176,19 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       saveTimer.current = null; // mark not-pending so the unmount flush can't double-fire
-      void api.ui.save({ layout: next }).catch(() => { /* best-effort */ });
+      void runAction(
+        {
+          title: '正在更新界面布局',
+          detail: '正在同步仪表盘与导航布局',
+          successTitle: '界面布局已更新',
+          errorTitle: '界面布局更新失败',
+        },
+        () => api.ui.save({ layout: next }),
+      ).catch((error) => {
+        console.error('persist layout failed', error);
+      });
     }, 300);
-  }, [api]);
+  }, [api, runAction]);
 
   const setOverviewBlocks = useCallback((items: UiLayoutItem[]) => {
     persist({ ...layoutRef.current, overviewBlocks: items });
@@ -207,9 +223,19 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
     if (pagesTimer.current) clearTimeout(pagesTimer.current);
     pagesTimer.current = setTimeout(() => {
       pagesTimer.current = null;
-      void api.ui.save({ pages: next }).catch(() => { /* best-effort */ });
+      void runAction(
+        {
+          title: '正在更新页面设置',
+          detail: '正在同步当前页面偏好',
+          successTitle: '页面设置已更新',
+          errorTitle: '页面设置更新失败',
+        },
+        () => api.ui.save({ pages: next }),
+      ).catch((error) => {
+        console.error('persist page preferences failed', error);
+      });
     }, 300);
-  }, [api]);
+  }, [api, runAction]);
 
   const value = useMemo<LayoutContextValue>(() => ({
     overviewBlocks: layout.overviewBlocks,

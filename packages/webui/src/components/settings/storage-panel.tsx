@@ -18,16 +18,9 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { Badge, type BadgeProps } from '@/components/ui/badge';
+  Badge,
+  type BadgeProps,
+} from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -35,6 +28,7 @@ import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import { useFlashMessage } from '@/hooks/use-flash-message';
 import { useApi } from '@/lib/api';
 import {
@@ -53,6 +47,7 @@ import {
   type LogStorageSettings,
   type LogStorageSettingsField,
   type StorageCleanupRequest,
+  type StorageCleanupResponse,
   type StorageOverviewResponse,
 } from '@/types';
 
@@ -90,6 +85,7 @@ interface PendingCleanup {
 
 export function StoragePanel() {
   const api = useApi();
+  const { runAction } = useActionFeedback();
   const [data, setData] = useState<StorageOverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -159,13 +155,21 @@ export function StoragePanel() {
       data.settings.envOverrides,
     );
     if (Object.keys(patch).length === 0) {
-      flash('ok', '没有需要保存的更改');
       return;
     }
 
     setSaving(true);
     try {
-      const result = await api.storage.saveSettings(patch);
+      const result = await runAction(
+        {
+          title: '正在更新日志策略',
+          detail: '正在保存并应用存储限制',
+          successTitle: '日志策略已更新',
+          successDetail: '新策略已立即生效',
+          errorTitle: '日志策略更新失败',
+        },
+        () => api.storage.saveSettings(patch),
+      );
       applyOverview({
         settings: result.settings,
         snapshot: result.snapshot,
@@ -185,7 +189,17 @@ export function StoragePanel() {
     const key = cleanupKey(request);
     setOperation(key);
     try {
-      const result = await api.storage.cleanup(request);
+      const result = await runAction(
+        {
+          title: '正在清理存储数据',
+          detail: cleanupLabel(request),
+          successTitle: '存储数据清理完成',
+          successDetail: cleanupResultSummary,
+          errorTitle: '存储数据清理失败',
+          resultError: (outcome) => outcome.success ? null : cleanupResultSummary(outcome),
+        },
+        () => api.storage.cleanup(request),
+      );
       if (result.snapshot) {
         setData((previous) => previous
           ? {
@@ -197,17 +211,7 @@ export function StoragePanel() {
       } else {
         await load();
       }
-      const summary = [
-        `删除 ${result.cleanup.deletedFiles} 个文件`,
-        `释放 ${formatBytes(result.cleanup.freedBytes)}`,
-      ];
-      if ('skippedActiveItems' in result.cleanup && result.cleanup.skippedActiveItems > 0) {
-        summary.push(`跳过 ${result.cleanup.skippedActiveItems} 个活动传输`);
-      }
-      if (result.cleanup.failures.length > 0) {
-        summary.push(`${result.cleanup.failures.length} 项失败`);
-      }
-      flash(result.success ? 'ok' : 'err', summary.join('，'));
+      flash(result.success ? 'ok' : 'err', cleanupResultSummary(result));
       return result.success;
     } catch (error) {
       flash('err', error instanceof Error ? error.message : '清理失败');
@@ -741,23 +745,20 @@ function AllAccountsCleanupDialog({
     onOpenChange(false);
   };
   return (
-    <AlertDialog
+    <ConfirmDialog
       open={open}
       onOpenChange={(nextOpen) => {
         if (!nextOpen && !busy) close();
       }}
-    >
-      <AlertDialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md overflow-y-auto p-5 sm:p-6">
-        <AlertDialogHeader>
-          <AlertDialogTitle>
-            清理全部账号的{category ? CATEGORY_INFO[category].label : '数据'}？
-          </AlertDialogTitle>
-          <AlertDialogDescription className="leading-relaxed">
-            该操作会删除所有离线账号的对应数据库及边车文件，无法撤销。请输入
-            <strong className="mx-1 text-foreground">{ALL_ACCOUNTS_CONFIRMATION}</strong>
-            继续。
-          </AlertDialogDescription>
-        </AlertDialogHeader>
+      title={`清理全部账号的${category ? CATEGORY_INFO[category].label : '数据'}？`}
+      description={
+        <>
+          该操作会删除所有离线账号的对应数据库及边车文件，无法撤销。请输入
+          <strong className="mx-1 text-foreground">{ALL_ACCOUNTS_CONFIRMATION}</strong>
+          继续。
+        </>
+      }
+      content={(
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="all-account-cleanup-confirmation">确认短语</Label>
           <Input
@@ -769,25 +770,16 @@ function AllAccountsCleanupDialog({
             disabled={busy}
           />
         </div>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={busy} onClick={() => setConfirmation('')}>
-            取消
-          </AlertDialogCancel>
-          <AlertDialogAction
-            disabled={!isAllAccountsConfirmation(confirmation) || busy || !category}
-            onClick={(event) => {
-              event.preventDefault();
-              if (!category || !isAllAccountsConfirmation(confirmation)) return;
-              void onConfirm(category);
-            }}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-          >
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-            确认清理
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+      )}
+      confirmText="确认清理"
+      destructive
+      confirmDisabled={!isAllAccountsConfirmation(confirmation) || busy || !category}
+      onConfirm={async () => {
+        if (!category || !isAllAccountsConfirmation(confirmation)) return;
+        await onConfirm(category);
+        setConfirmation('');
+      }}
+    />
   );
 }
 
@@ -795,6 +787,27 @@ function cleanupKey(request: StorageCleanupRequest): string {
   if (request.scope === 'account') return `account:${request.uin}:${request.category}`;
   if (request.scope === 'allAccounts') return `allAccounts:${request.category}`;
   return request.scope;
+}
+
+function cleanupLabel(request: StorageCleanupRequest): string {
+  if (request.scope === 'logs') return '全部日志';
+  if (request.scope === 'temporary') return '非活动文件传输临时数据';
+  const label = CATEGORY_INFO[request.category].label;
+  return request.scope === 'allAccounts' ? `全部账号的${label}` : `账号 ${request.uin} 的${label}`;
+}
+
+function cleanupResultSummary(result: StorageCleanupResponse): string {
+  const summary = [
+    `删除 ${result.cleanup.deletedFiles} 个文件`,
+    `释放 ${formatBytes(result.cleanup.freedBytes)}`,
+  ];
+  if ('skippedActiveItems' in result.cleanup && result.cleanup.skippedActiveItems > 0) {
+    summary.push(`跳过 ${result.cleanup.skippedActiveItems} 个活动传输`);
+  }
+  if (result.cleanup.failures.length > 0) {
+    summary.push(`${result.cleanup.failures.length} 项失败`);
+  }
+  return summary.join('，');
 }
 
 function toneBadgeVariant(tone: StorageTone): BadgeProps['variant'] {

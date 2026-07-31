@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import type { OneBotConfig, QQInfo } from '@/types';
 import { useApi } from '@/lib/api';
 
@@ -50,6 +51,7 @@ export function useOneBotInstanceConfig(
   options: UseOneBotInstanceConfigOptions,
 ): UseOneBotInstanceConfig {
   const api = useApi();
+  const { runAction } = useActionFeedback();
   const { selectedUin, onSelectedUinChange } = options;
   const [config, setConfigState] = useState<OneBotConfig | null>(null);
   const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
@@ -152,8 +154,35 @@ export function useOneBotInstanceConfig(
     setSaveStatus('保存中...');
     setSaveStatusTone('saving');
     try {
-      const result = await api.config.save(uin, target);
+      const result = await runAction(
+        {
+          title: '正在保存账号配置',
+          detail: `账号 ${uin}`,
+          successTitle: '账号配置已更新',
+          successDetail: (saved) => (
+            !saved.online
+              ? '配置已保存，将在账号下次连接时应用'
+              : saved.applied
+                ? '配置已保存并完成热重载'
+                : '配置已保存'
+          ),
+          errorTitle: '账号配置更新失败',
+          resultError: (saved) => {
+            if (!saved.saved) return saved.message || '服务器未确认配置已保存';
+            if (saved.online && !saved.applied) {
+              return `配置已保存，但热重载失败${saved.errors[0]?.message ? `：${saved.errors[0].message}` : ''}`;
+            }
+            return null;
+          },
+        },
+        () => api.config.save(uin, target),
+      );
       if (selectedUinRef.current !== uin || saveGenerationRef.current !== generation) return;
+      if (!result.saved) {
+        setSaveStatus(`保存失败：${result.message || '服务器未确认配置已保存'}`);
+        setSaveStatusTone('error');
+        return;
+      }
       setSavedSnapshot(JSON.stringify(result.config));
       if (editRevisionRef.current === editRevision) {
         setConfigState(result.config);
@@ -182,7 +211,7 @@ export function useOneBotInstanceConfig(
         scheduleStatusClear(uin, generation);
       }
     }
-  }, [api, selectedUin, config, scheduleStatusClear]);
+  }, [api, selectedUin, config, scheduleStatusClear, runAction]);
 
   return {
     selectedUin,

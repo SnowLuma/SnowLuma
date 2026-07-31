@@ -18,6 +18,7 @@ import {
 } from '@/lib/server-log-level';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLayout } from '@/contexts/LayoutContext';
+import { useActionFeedback } from '@/contexts/ActionFeedbackContext';
 
 // Dedicated log-level text tokens (see index.css): the app accent colors are
 // too light as small text on the light canvas (WCAG AA fails), so these hit
@@ -100,6 +101,7 @@ function ToolButton({ label, onClick, children, active, danger, disabled }: Tool
 
 export function LogsPage() {
   const api = useApi();
+  const { runAction } = useActionFeedback();
   const { formatClock, appearance } = useTheme();
   const { pages, setPages } = useLayout();
   const prefs = pages.logs;
@@ -152,14 +154,23 @@ export function LogsPage() {
     if (lv === serverLevel || levelBusy) return;
     setLevelBusy(true);
     try {
-      const { level } = await api.logs.setLevel(lv);
+      const { level } = await runAction(
+        {
+          title: '正在更新服务端日志级别',
+          detail: `切换为 ${lv.toUpperCase()}`,
+          successTitle: '日志级别已更新',
+          successDetail: `${lv.toUpperCase()} 已生效`,
+          errorTitle: '日志级别更新失败',
+        },
+        () => api.logs.setLevel(lv),
+      );
       setServerLevel(level);
     } catch (err) {
       console.error('setLevel', err);
     } finally {
       setLevelBusy(false);
     }
-  }, [api, serverLevel, levelBusy]);
+  }, [api, serverLevel, levelBusy, runAction]);
 
   const changeServerLevel = useCallback((lv: LogLevel) => {
     if (levelBusy) return;
@@ -351,7 +362,15 @@ export function LogsPage() {
     if (traceExportBusy) return;
     setTraceExportBusy(true);
     try {
-      const { text, filename } = await api.logs.exportTrace();
+      const { text, filename } = await runAction(
+        {
+          title: '正在导出完整 TRACE',
+          detail: '正在读取服务端 TRACE 文件',
+          successTitle: '完整 TRACE 已导出',
+          errorTitle: 'TRACE 导出失败',
+        },
+        () => api.logs.exportTrace(),
+      );
       const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -364,7 +383,7 @@ export function LogsPage() {
     } finally {
       setTraceExportBusy(false);
     }
-  }, [api, traceExportBusy]);
+  }, [api, traceExportBusy, runAction]);
 
   const addHighlight = () => {
     const kw = newKeyword.trim();
@@ -762,6 +781,11 @@ export function LogsPage() {
         description="此操作仅清空浏览器视图中的日志，不会影响服务端的日志缓冲区。"
         confirmText="清空"
         destructive
+        activity={{
+          title: '正在清空日志视图',
+          successTitle: '日志视图已清空',
+          errorTitle: '日志视图清空失败',
+        }}
         onConfirm={() => setLogs([])}
       />
     </Card>

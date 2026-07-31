@@ -10,6 +10,7 @@ import { AlertTriangle, KeyRound, Loader2, Music, Plus, RefreshCw, Trash2 } from
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import { useApi } from '@/lib/api';
 import { useFlashMessage } from '@/hooks/use-flash-message';
 import { cn } from '@/lib/utils';
@@ -28,6 +29,7 @@ function isHttpUrl(value: string): boolean {
 
 export function GlobalConfigPanel() {
   const api = useApi();
+  const { runAction } = useActionFeedback();
   const [config, setConfig] = useState<GlobalSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -61,23 +63,41 @@ export function GlobalConfigPanel() {
   /** Apply locally + debounced auto-save. Deliberately does NOT reconcile the
    *  inputs from the server's normalized response (it would wipe a half-typed
    *  URL); a generation guard just confirms the latest save. */
-  const commit = (next: GlobalSettings) => {
+  const commit = (
+    next: GlobalSettings,
+    feedback: false | { title: string; successTitle: string } = {
+      title: '正在更新全局配置',
+      successTitle: '全局配置已更新',
+    },
+  ) => {
     setConfig(next);
     const gen = ++saveGen.current;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
-      void api.globalConfig
-        .save(next)
+      const dropped = next.rkey.fallbackServers.some((s) => s.trim() && !isHttpUrl(s.trim()))
+        || (next.musicSignUrl.trim().length > 0 && !isHttpUrl(next.musicSignUrl.trim()));
+      const save = feedback === false
+        ? api.globalConfig.save(next)
+        : runAction(
+          {
+            title: feedback.title,
+            detail: '正在同步 config/snowluma.json',
+            successTitle: feedback.successTitle,
+            successDetail: dropped ? '已保存，无效项已忽略' : '配置已同步',
+            errorTitle: '全局配置更新失败',
+          },
+          () => api.globalConfig.save(next),
+        );
+      void save
         .then(() => {
           if (saveGen.current !== gen) return;
           // The server drops invalid (non-http) entries; say so rather than a
           // bare "已保存" next to a still-visible rejected value.
-          const dropped = next.rkey.fallbackServers.some((s) => s.trim() && !isHttpUrl(s.trim()))
-            || (next.musicSignUrl.trim().length > 0 && !isHttpUrl(next.musicSignUrl.trim()));
           flash('ok', dropped ? '已保存（无效项已忽略）' : '已保存');
         })
-        .catch(() => {
+        .catch((error) => {
           if (saveGen.current !== gen) return;
+          console.error('save global config failed', error);
           flash('err', '保存失败，请检查服务器日志');
         });
     }, 500);
@@ -104,7 +124,8 @@ export function GlobalConfigPanel() {
   }
 
   const servers = config.rkey.fallbackServers;
-  const setServers = (next: string[]) => commit({ ...config, rkey: { fallbackServers: next } });
+  const setServers = (next: string[]) =>
+    commit({ ...config, rkey: { fallbackServers: next } }, false);
 
   return (
     <div className="flex flex-col gap-4">
@@ -123,7 +144,11 @@ export function GlobalConfigPanel() {
         <div className="flex flex-col gap-2 border-t pt-3">
           <div className="flex items-center justify-between">
             <Label>rkey 回退服务器</Label>
-            <Button variant="outline" size="sm" onClick={() => setServers([...servers, ''])}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setServers([...servers, ''])}
+            >
               <Plus className="size-3.5" /> 添加
             </Button>
           </div>
