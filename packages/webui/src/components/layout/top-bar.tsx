@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { LogOut, Menu, Monitor } from 'lucide-react';
+import { LogOut, Monitor } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useRouterState } from '@tanstack/react-router';
+import { IconMorph } from '@/components/interior/icon-morph';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -20,14 +21,16 @@ export const TOPBAR_CATALOGUE: { id: string; label: string }[] = [
 
 interface TopBarProps {
   status: string;
-  onOpenMobile: () => void;
+  mobileOpen: boolean;
+  onMobileOpenChange: (open: boolean) => void;
   onLogout: () => void;
   isMobile: boolean;
 }
 
 export function TopBar({
   status,
-  onOpenMobile,
+  mobileOpen,
+  onMobileOpenChange,
   onLogout,
   isMobile,
 }: TopBarProps) {
@@ -53,9 +56,14 @@ export function TopBar({
           sidebar auto-expands on hover/focus, and its boundary with the content
           is a soft surface-tone shift, not a hard border. */}
       {isMobile && (
-        <Button variant="ghost" size="icon-sm" onClick={onOpenMobile} aria-label="打开菜单" className="topbar-control">
-          <Menu className="size-4" />
-        </Button>
+        <IconMorph
+          preset="menu-close"
+          labels={['打开菜单', '关闭菜单']}
+          semantics="expanded"
+          active={mobileOpen}
+          onActiveChange={(index) => onMobileOpenChange(index === 1)}
+          className="ui-button ui-button-icon topbar-control cursor-pointer border-0 bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 dark:border-0 dark:bg-transparent dark:text-foreground dark:focus-visible:ring-ring/40"
+        />
       )}
 
       {/* Page title */}

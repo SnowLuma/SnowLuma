@@ -118,7 +118,8 @@ export function MainLayout({ status, onLogout, notice, children }: MainLayoutPro
         {!kiosk && (
           <TopBar
             status={status}
-            onOpenMobile={() => setMobileOpen(true)}
+            mobileOpen={mobileOpen}
+            onMobileOpenChange={setMobileOpen}
             onLogout={onLogout}
             isMobile={isMobile}
           />
