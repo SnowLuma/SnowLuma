@@ -90,7 +90,7 @@
     }
   },
   "scripts": {
-    "test": "vitest run",
+    "test": "vitest run --exclude=\"tests/native/**\"",
     "test:native": "vitest run tests/native",
     "bench": "vitest bench --run",
     "typecheck": "tsc --noEmit"

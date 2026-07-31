@@ -130,6 +130,8 @@ pnpm test
 pnpm run build:all
 ```
 
+`pnpm test` 会运行所有声明了常规测试的 workspace；`pnpm test:all` 是兼容别名，`pnpm test:core` 只运行 Core 测试。原生模块测试需单独运行 `pnpm test:native`。`pnpm coverage` 会生成各常规测试 workspace 的覆盖率报告，但不设置覆盖率阻断阈值。
+
 - 先读 [`CONTEXT.md`](CONTEXT.md) 了解模块边界与项目词汇。
 - 提交代码前阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md) 与 [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)。
 - 开发方向与已完成事项见 [`RoadMap.md`](RoadMap.md)。
