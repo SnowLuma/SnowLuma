@@ -82,18 +82,30 @@ function essenceContentToSegment(content: GroupEssenceContent): JsonObject {
           url: essenceString(content.image_url, 'msg_content.image_url', false),
         },
       };
-    case 4:
+    case 4: {
+      const fileName = essenceString(content.file_name, 'msg_content.file_name', false);
+      const fileId = essenceString(content.file_id, 'msg_content.file_id', false);
+      const fileSize = essenceNonNegativeNumber(
+        content.file_size,
+        'msg_content.file_size',
+      );
+      const busId = essenceNonNegativeNumber(
+        content.file_bus_id,
+        'msg_content.file_bus_id',
+      );
       return {
-        type: 'video',
+        type: 'file',
         data: {
-          file: '',
-          url: essenceString(
-            content.file_thumbnail_url,
-            'msg_content.file_thumbnail_url',
-            false,
-          ),
+          file: fileName,
+          file_id: fileId,
+          file_size: fileSize,
+          name: fileName,
+          id: fileId,
+          size: fileSize,
+          busid: busId,
         },
       };
+    }
     default:
       throw new Error(`unsupported group essence content type: ${content.msg_type}`);
   }

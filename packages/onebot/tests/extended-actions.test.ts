@@ -277,6 +277,21 @@ describe('extended-actions / get_essence_msg_list', () => {
   });
 
   it('converts every documented digest content type into OneBot segments', async () => {
+    const plainFile = {
+      msg_type: 4,
+      file_name: 'notes.txt',
+      file_bus_id: 102,
+      file_id: 'plain-file-id',
+      file_size: '1234',
+    };
+    const previewableFile = {
+      msg_type: 4,
+      file_name: 'clip.mp4',
+      file_bus_id: 102,
+      file_id: 'video-file-id',
+      file_thumbnail_url: 'https://example.test/video.jpg',
+      file_size: '5678',
+    };
     const getEssenceAll = vi.fn(async () => [{
       retcode: 0,
       data: {
@@ -285,7 +300,8 @@ describe('extended-actions / get_essence_msg_list', () => {
           msg_content: [
             { msg_type: 2, face_index: 66 },
             { msg_type: 3, image_url: 'https://example.test/image.jpg' },
-            { msg_type: 4, file_thumbnail_url: 'https://example.test/video.jpg' },
+            plainFile,
+            previewableFile,
           ],
         })],
       },
@@ -299,7 +315,30 @@ describe('extended-actions / get_essence_msg_list', () => {
     expect((response.data as JsonObject[])[0]?.content).toEqual([
       { type: 'face', data: { id: '66' } },
       { type: 'image', data: { file: '', url: 'https://example.test/image.jpg' } },
-      { type: 'video', data: { file: '', url: 'https://example.test/video.jpg' } },
+      {
+        type: 'file',
+        data: {
+          file: 'notes.txt',
+          file_id: 'plain-file-id',
+          file_size: 1234,
+          name: 'notes.txt',
+          id: 'plain-file-id',
+          size: 1234,
+          busid: 102,
+        },
+      },
+      {
+        type: 'file',
+        data: {
+          file: 'clip.mp4',
+          file_id: 'video-file-id',
+          file_size: 5678,
+          name: 'clip.mp4',
+          id: 'video-file-id',
+          size: 5678,
+          busid: 102,
+        },
+      },
     ]);
   });
 
@@ -496,7 +535,30 @@ describe('extended-actions / get_essence_msg_list', () => {
     [{ msg_type: 1 }, 'msg_content.text'],
     [{ msg_type: 2 }, 'msg_content.face_index'],
     [{ msg_type: 3 }, 'msg_content.image_url'],
-    [{ msg_type: 4 }, 'msg_content.file_thumbnail_url'],
+    [{
+      msg_type: 4,
+      file_bus_id: 102,
+      file_id: 'file-id',
+      file_size: '1',
+    }, 'msg_content.file_name'],
+    [{
+      msg_type: 4,
+      file_name: 'file.txt',
+      file_bus_id: 102,
+      file_size: '1',
+    }, 'msg_content.file_id'],
+    [{
+      msg_type: 4,
+      file_name: 'file.txt',
+      file_bus_id: 102,
+      file_id: 'file-id',
+    }, 'msg_content.file_size'],
+    [{
+      msg_type: 4,
+      file_name: 'file.txt',
+      file_id: 'file-id',
+      file_size: '1',
+    }, 'msg_content.file_bus_id'],
   ])('rejects digest content missing its required field: %s', async (content, field) => {
     const getEssenceAll = vi.fn(async () => [{
       retcode: 0,
@@ -505,6 +567,43 @@ describe('extended-actions / get_essence_msg_list', () => {
         msg_list: [fakeEssenceMessage({
           msg_content: [content],
         })],
+      },
+    }]);
+    const bridge = fakeBridge({ apis: { web: { getEssenceAll } } });
+    const cacheMessageMetas = vi.fn();
+
+    const response = await makeHandler(fakeCtx(bridge, { cacheMessageMetas }))
+      .handle('get_essence_msg_list', { group_id: 123456789 });
+
+    expect(response).toMatchObject({
+      status: 'failed',
+      retcode: 100,
+      wording: expect.stringContaining(field),
+    });
+    expect(cacheMessageMetas).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{
+      msg_type: 4,
+      file_name: 'file.txt',
+      file_bus_id: 102,
+      file_id: 'file-id',
+      file_size: '-1',
+    }, 'msg_content.file_size'],
+    [{
+      msg_type: 4,
+      file_name: 'file.txt',
+      file_bus_id: 'not-a-number',
+      file_id: 'file-id',
+      file_size: '1',
+    }, 'msg_content.file_bus_id'],
+  ])('rejects digest content with an invalid file field: %s', async (content, field) => {
+    const getEssenceAll = vi.fn(async () => [{
+      retcode: 0,
+      data: {
+        is_end: true,
+        msg_list: [fakeEssenceMessage({ msg_content: [content] })],
       },
     }]);
     const bridge = fakeBridge({ apis: { web: { getEssenceAll } } });
