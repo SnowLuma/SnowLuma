@@ -58,6 +58,7 @@ import { bindStateStream } from './state-stream';
 import type { StateBus, StateResource } from './state-bus';
 import { startConnectionDiffLoop } from './connection-diff-loop';
 import { comparableConnectionSnapshot } from './connection-snapshot';
+import { traceAuthenticatedWebuiMutation } from './mutation-trace';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
 import { findAvailablePort } from './port';
 import {
@@ -607,7 +608,10 @@ export async function initWebUI(
     }
 
     c.set('sessionToken' as never, token);
-    await next();
+    c.res = await traceAuthenticatedWebuiMutation(c.req.raw, async () => {
+      await next();
+      return c.res;
+    });
   });
 
   // Periodic janitor — keeps sessionTokens / loginAttempts from growing

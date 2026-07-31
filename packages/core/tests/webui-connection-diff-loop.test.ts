@@ -1,11 +1,22 @@
+import {
+  getLogLevel,
+  setLogLevel,
+  subscribeLogs,
+  type LogEntry,
+} from '@snowluma/common/logger';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StateBus } from '../src/webui/state-bus';
 import { startConnectionDiffLoop } from '../src/webui/connection-diff-loop';
 import { comparableConnectionSnapshot } from '../src/webui/connection-snapshot';
 
+const previousLogLevel = getLogLevel();
+
 describe('startConnectionDiffLoop', () => {
   beforeEach(() => { vi.useFakeTimers(); });
-  afterEach(() => { vi.useRealTimers(); });
+  afterEach(() => {
+    setLogLevel(previousLogLevel);
+    vi.useRealTimers();
+  });
 
   it('does NOT publish when the snapshot is stable tick after tick', () => {
     const bus = new StateBus();
@@ -20,6 +31,108 @@ describe('startConnectionDiffLoop', () => {
     vi.advanceTimersByTime(2_000); // 4 ticks
     expect(seen).toEqual([]);
     handle.dispose();
+  });
+
+  it('traces only changed snapshot publication under one semantic context', () => {
+    const bus = new StateBus();
+    const entries: LogEntry[] = [];
+    let snap: unknown = [{ uin: '1', adapters: [] }];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    const handle = startConnectionDiffLoop({
+      bus,
+      getSnapshot: () => snap,
+      intervalMs: 500,
+    });
+    try {
+      vi.advanceTimersByTime(500);
+      vi.advanceTimersByTime(1_500);
+      expect(entries.filter((entry) => entry.scope === 'WebUI.Connections')).toEqual([]);
+
+      snap = [{ uin: '1', adapters: [{ kind: 'ws', status: 'connected' }] }];
+      vi.advanceTimersByTime(500);
+      vi.advanceTimersByTime(1_000);
+
+      const trace = entries.filter((entry) =>
+        entry.level === 'trace' && entry.scope === 'WebUI.Connections');
+      expect(trace.map((entry) => entry.message)).toEqual([
+        'connection_diff_start snapshot=[{uin:"1",adapters:[{kind:"ws",status:"connected"}]}]',
+        'connection_diff_branch branch=publish resource=connections',
+        expect.stringMatching(/^connection_diff_terminal outcome=completed reason=published elapsedMs=\d+$/),
+      ]);
+      expect(trace.map((entry) => entry.req)).toEqual([
+        expect.any(Number),
+        trace[0]!.req,
+        trace[0]!.req,
+      ]);
+    } finally {
+      handle.dispose();
+      unsubscribe();
+    }
+  });
+
+  it('routes snapshot and projector failures through the common logger without repeated noise', () => {
+    const bus = new StateBus();
+    const entries: LogEntry[] = [];
+    const getSnapshot = vi.fn(() => { throw new Error('snapshot boom'); });
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    const snapshotHandle = startConnectionDiffLoop({
+      bus,
+      getSnapshot,
+      intervalMs: 500,
+    });
+    try {
+      vi.advanceTimersByTime(2_000);
+      expect(entries.filter((entry) =>
+        entry.scope === 'WebUI.Connections'
+        && entry.message.includes('reason=snapshot_failed'))).toHaveLength(1);
+    } finally {
+      snapshotHandle.dispose();
+    }
+
+    const projectorHandle = startConnectionDiffLoop({
+      bus,
+      getSnapshot: () => [{ uin: '1' }],
+      pickComparable: () => { throw new Error('projector boom'); },
+      intervalMs: 500,
+    });
+    try {
+      vi.advanceTimersByTime(2_000);
+      const failures = entries.filter((entry) =>
+        entry.scope === 'WebUI.Connections'
+        && entry.message.includes('reason=projector_failed'));
+      expect(failures).toHaveLength(1);
+      expect(failures[0]!.message).toMatch(
+        /^connection_diff_terminal outcome=failed reason=projector_failed error="projector boom" elapsedMs=\d+$/,
+      );
+    } finally {
+      projectorHandle.dispose();
+      unsubscribe();
+    }
+  });
+
+  it('keeps one-shot projector failures visible when TRACE is disabled', () => {
+    const bus = new StateBus();
+    const entries: LogEntry[] = [];
+    setLogLevel('info');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    const handle = startConnectionDiffLoop({
+      bus,
+      getSnapshot: () => [{ uin: '1' }],
+      pickComparable: () => { throw new Error('projector boom'); },
+      intervalMs: 500,
+    });
+    try {
+      vi.advanceTimersByTime(2_000);
+      expect(entries.filter((entry) =>
+        entry.level === 'error'
+        && entry.scope === 'WebUI.Connections'
+        && entry.message.includes('projector boom'))).toHaveLength(1);
+    } finally {
+      handle.dispose();
+      unsubscribe();
+    }
   });
 
   it('first tick baselines the snapshot (no publish); only the second tick with a different value publishes', () => {

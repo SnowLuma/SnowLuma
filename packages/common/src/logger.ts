@@ -2,7 +2,12 @@ import { format } from 'util';
 import { getFileTransport } from './log-file-transport';
 import { redactLogMessage } from './log-summary';
 import { sanitizeLogLine } from './log-sanitize';
-import { currentRequestId, nextRequestId, runWithRequestId } from './request-context';
+import {
+  currentRequestId,
+  nextRequestId,
+  runWithoutRequestContext,
+  runWithRequestId,
+} from './request-context';
 
 type LogLevel = 'trace' | 'debug' | 'info' | 'success' | 'warn' | 'error';
 type FileLogLevel = Exclude<LogLevel, 'trace'>;
@@ -366,4 +371,4 @@ export function logInitialWebuiCredentials(password: string): void {
 // Request-correlation primitives remain available for callers that already own
 // an explicit request id. New semantic entrypoints should prefer
 // runWithTraceRequest() so disabled TRACE does not allocate one.
-export { nextRequestId, runWithRequestId, currentRequestId };
+export { nextRequestId, runWithoutRequestContext, runWithRequestId, currentRequestId };

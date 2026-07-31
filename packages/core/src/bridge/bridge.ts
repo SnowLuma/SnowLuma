@@ -1,4 +1,8 @@
-import { createLogger } from '@snowluma/common/logger';
+import {
+  createLogger,
+  renderTraceBytes,
+  runWithTraceRequest,
+} from '@snowluma/common/logger';
 import type { PacketSender, SendPacketResult } from '@snowluma/common/packet-sender';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import { BridgeEventBus } from '@snowluma/protocol/event-bus';
@@ -20,6 +24,7 @@ import {
 import type { BridgeInterface } from './bridge-interface';
 
 const log = createLogger('Bridge');
+const runtimeLog = createLogger('Bridge.Runtime');
 
 export class Bridge implements BridgeInterface {
   readonly identity: IdentityService;
@@ -166,10 +171,20 @@ export class Bridge implements BridgeInterface {
   /** Atomically attach a process and make its sender the active sender.
    *  Set insertion order is the recency order used for fallback. */
   bindPid(pid: number, client: PacketSender): void {
+    const previousPid = this.packetClientPid_;
+    const previousClient = this.packetClient_;
     this.attachPid(pid);
     this.packetClientsByPid_.set(pid, client);
     this.packetClient_ = client;
     this.packetClientPid_ = pid;
+    if (previousPid !== pid || previousClient !== client) {
+      runtimeLog.trace(
+        'bridge_sender_fact event=selected uin=%j pid=%d previousPid=%j',
+        this.identity.uin,
+        pid,
+        previousPid,
+      );
+    }
   }
 
   /** @internal BridgeManager lookup used when an incoming packet is the first
@@ -263,11 +278,32 @@ export class Bridge implements BridgeInterface {
   }
   async sendRawPacket(serviceCmd: string, body: Uint8Array, timeoutMs = 15000): Promise<SendPacketResult> {
     if (!this.packetClient_) {
-      log.warn('packet %s dropped: no packet sender attached', serviceCmd);
-      return {
-        success: false, gotResponse: false, errorCode: -1,
-        errorMessage: 'no packet sender attached', responseData: null,
-      };
+      return runWithTraceRequest(() => {
+        const startedAt = Date.now();
+        runtimeLog.trace(() => [
+          'bridge_send_start serviceCmd=%j uin=%j activePid=%j timeoutMs=%d length=%d body=%s',
+          serviceCmd,
+          this.identity.uin,
+          this.activePid,
+          timeoutMs,
+          body.byteLength,
+          renderTraceBytes(body),
+        ]);
+        log.warn('packet %s dropped: no packet sender attached', serviceCmd);
+        runtimeLog.trace(() => [
+          'bridge_send_terminal serviceCmd=%j uin=%j activePid=%j outcome=dropped reason=no_sender length=%d body=%s elapsedMs=%d',
+          serviceCmd,
+          this.identity.uin,
+          this.activePid,
+          body.byteLength,
+          renderTraceBytes(body),
+          Date.now() - startedAt,
+        ]);
+        return {
+          success: false, gotResponse: false, errorCode: -1,
+          errorMessage: 'no packet sender attached', responseData: null,
+        };
+      });
     }
     const startedAt = Date.now();
     const result = await this.packetClient_.sendPacket(serviceCmd, Buffer.from(body), timeoutMs);
@@ -297,6 +333,12 @@ export class Bridge implements BridgeInterface {
 
       this.packetClient_ = fallback;
       this.packetClientPid_ = fallbackPid;
+      runtimeLog.trace(
+        'bridge_sender_fact event=fallback uin=%j detachedPid=%d fallbackPid=%d',
+        this.identity.uin,
+        detachedPid,
+        fallbackPid,
+      );
       log.debug(
         'packet sender fallback: UIN=%s detached PID=%d fallback PID=%d',
         this.identity.uin,

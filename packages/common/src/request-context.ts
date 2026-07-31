@@ -4,7 +4,7 @@ interface RequestStore {
   id: number;
 }
 
-const storage = new AsyncLocalStorage<RequestStore>();
+const storage = new AsyncLocalStorage<RequestStore | undefined>();
 let counter = 0;
 
 /**
@@ -27,6 +27,11 @@ export function nextRequestId(): number {
  */
 export function runWithRequestId<T>(id: number, fn: () => T): T {
   return storage.run({ id }, fn);
+}
+
+/** Run `fn` without inheriting an ambient request id. */
+export function runWithoutRequestContext<T>(fn: () => T): T {
+  return storage.run(undefined, fn);
 }
 
 /** The request id bound to the current async context, or undefined outside one. */

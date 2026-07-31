@@ -1,4 +1,10 @@
-import { createLogger, type Logger } from '@snowluma/common/logger';
+import {
+  createLogger,
+  runWithoutRequestContext,
+  runWithTraceRequest,
+  type Logger,
+} from '@snowluma/common/logger';
+import { renderParamsVerbose } from '@snowluma/common/log-summary';
 import type { PacketSink } from '@snowluma/common/protocol-types';
 import { isRealUin } from '@snowluma/common/uin';
 import { EventEmitter } from 'events';
@@ -142,15 +148,15 @@ export class HookSession extends EventEmitter {
   // ─────────────── user-facing commands ───────────────
 
   load(): Promise<HookProcessInfo> {
-    return this.serialize(() => this.loadInternal());
+    return this.traceCommand('load', () => this.loadInternal());
   }
 
   unload(): Promise<HookProcessInfo> {
-    return this.serialize(() => this.unloadInternal());
+    return this.traceCommand('unload', () => this.unloadInternal());
   }
 
   refresh(): Promise<HookProcessInfo> {
-    return this.serialize(() => this.refreshInternal());
+    return this.traceCommand('refresh', () => this.refreshInternal());
   }
 
   // ─────────────── watcher-driven events (called by manager) ───────────────
@@ -180,16 +186,42 @@ export class HookSession extends EventEmitter {
     if (this.disposed) return;
     void this.serialize(async () => {
       if (this.disposed) return;
-      const wasLoggedIn = this.loggedIn;
-      this.tearDownClient();
-      this.injected = false;
-      this.injectResult = null;
-      this._method = '';
-      this.setStatus('available', '');
-      if (wasLoggedIn) this.emit('disconnected', true);
-      this.disposed = true;
-      this.emit('disposed');
-      this.removeAllListeners();
+      runWithTraceRequest(() => {
+        const startedAt = Date.now();
+        const wasLoggedIn = this.loggedIn;
+        this.log.trace(() => [
+          'hook_session_process_start pid=%d event=process_gone state=%s',
+          this.pid,
+          renderParamsVerbose(this.toInfo()),
+        ]);
+        this.tearDownClient();
+        this.injected = false;
+        this.injectResult = null;
+        this._method = '';
+        this.setStatus('available', '');
+        try {
+          if (wasLoggedIn) this.emit('disconnected', true);
+          this.disposed = true;
+          this.emit('disposed');
+          this.log.trace(() => [
+            'hook_session_process_terminal pid=%d outcome=completed reason=process_gone wasLoggedIn=%s state=%s elapsedMs=%d',
+            this.pid,
+            wasLoggedIn,
+            renderParamsVerbose(this.toInfo()),
+            Date.now() - startedAt,
+          ]);
+          this.removeAllListeners();
+        } catch (error) {
+          this.log.trace(() => [
+            'hook_session_process_terminal pid=%d outcome=failed reason=listener_failed error=%j state=%s elapsedMs=%d',
+            this.pid,
+            errMsg(error),
+            renderParamsVerbose(this.toInfo()),
+            Date.now() - startedAt,
+          ]);
+          throw error;
+        }
+      });
     }).catch(err => this.log.warn('notifyProcessGone failed: PID=%d err=%s', this.pid, errMsg(err)));
   }
 
@@ -201,6 +233,58 @@ export class HookSession extends EventEmitter {
   }
 
   // ─────────────── per-session serialization ───────────────
+
+  private traceCommand(
+    operation: 'load' | 'unload' | 'refresh',
+    command: () => Promise<HookProcessInfo>,
+  ): Promise<HookProcessInfo> {
+    return runWithTraceRequest(async () => {
+      const startedAt = Date.now();
+      this.log.trace(() => [
+        'hook_session_start pid=%d operation=%s state=%s',
+        this.pid,
+        operation,
+        renderParamsVerbose(this.toInfo()),
+      ]);
+      try {
+        const info = await this.serialize(command);
+        const outcome = info.status === 'error'
+          || (operation === 'unload' && info.status !== 'available')
+          ? 'failed'
+          : 'completed';
+        let reason: string;
+        if (operation === 'unload' && info.status === 'connecting') {
+          reason = 'unload_verification_failed';
+        } else if (outcome === 'failed') {
+          reason = `${operation}_failed`;
+        } else {
+          reason = `${operation}_settled`;
+        }
+        this.log.trace(() => [
+          'hook_session_terminal pid=%d operation=%s outcome=%s reason=%s%s state=%s elapsedMs=%d',
+          this.pid,
+          operation,
+          outcome,
+          reason,
+          info.error ? ` error=${JSON.stringify(info.error)}` : '',
+          renderParamsVerbose(info),
+          Date.now() - startedAt,
+        ]);
+        return info;
+      } catch (error) {
+        this.log.trace(() => [
+          'hook_session_terminal pid=%d operation=%s outcome=failed reason=%s error=%j state=%s elapsedMs=%d',
+          this.pid,
+          operation,
+          `${operation}_threw`,
+          errMsg(error),
+          renderParamsVerbose(this.toInfo()),
+          Date.now() - startedAt,
+        ]);
+        throw error;
+      }
+    });
+  }
 
   private serialize<T>(op: () => Promise<T>): Promise<T> {
     const previous = this.opChain;
@@ -230,11 +314,25 @@ export class HookSession extends EventEmitter {
         if (this.pipeWatcher.isPipeLive(this.pid)) {
           this.injected = true;
           this._method = this._method || 'reconnect';
+          this.log.trace(
+            'hook_session_branch pid=%d operation=load branch=existing_pipe method=%j',
+            this.pid,
+            this._method,
+          );
           this.log.info('PID=%d already has SnowLuma pipe; will reconnect', this.pid);
         } else {
+          this.log.trace(
+            'hook_session_branch pid=%d operation=load branch=inject_begin',
+            this.pid,
+          );
           this.injectResult = await this.injector.inject(this.pid);
           this.injected = true;
           this._method = this.injectResult.method;
+          this.log.trace(
+            'hook_session_branch pid=%d operation=load branch=inject_completed method=%j',
+            this.pid,
+            this._method,
+          );
         }
       }
       this.applyStatus();
@@ -348,52 +446,99 @@ export class HookSession extends EventEmitter {
       if (this.injected) this.applyStatus(this.loggedIn, this._error);
       return;
     }
-    const wasLoggedIn = this.loggedIn;
-    this.tearDownClient();
-    this.applyStatus(wasLoggedIn);
-    if (wasLoggedIn) this.emit('disconnected', true);
+    runWithTraceRequest(() => {
+      const startedAt = Date.now();
+      const wasLoggedIn = this.loggedIn;
+      this.log.trace(() => [
+        'hook_session_disconnect_start pid=%d reason=pipe_down state=%s',
+        this.pid,
+        renderParamsVerbose(this.toInfo()),
+      ]);
+      this.tearDownClient();
+      this.applyStatus(wasLoggedIn);
+      try {
+        if (wasLoggedIn) this.emit('disconnected', true);
+        this.log.trace(() => [
+          'hook_session_disconnect_terminal pid=%d outcome=completed reason=pipe_down wasLoggedIn=%s state=%s elapsedMs=%d',
+          this.pid,
+          wasLoggedIn,
+          renderParamsVerbose(this.toInfo()),
+          Date.now() - startedAt,
+        ]);
+      } catch (error) {
+        this.log.trace(() => [
+          'hook_session_disconnect_terminal pid=%d outcome=failed reason=listener_failed error=%j state=%s elapsedMs=%d',
+          this.pid,
+          errMsg(error),
+          renderParamsVerbose(this.toInfo()),
+          Date.now() - startedAt,
+        ]);
+        throw error;
+      }
+    });
   }
 
   // ─────────────── client plumbing ───────────────
 
   private async attemptConnect(): Promise<void> {
     if (this.connected) return;
-    if (this.client?.isClosed) this.tearDownClient();
-    if (!this.client) {
-      this.client = this.makeClient(this.pid);
-      this.sender = new HookPacketClient(this.client);
-      this.bound = false;
-    }
-    if (!this.bound) {
-      this.bindClient(this.client);
-      this.bound = true;
-    }
-
-    const client = this.client;
-    try {
-      await client.connectAll({ recv: true });
-      this.connected = true;
-      const loginState = client.getLoginState();
-      // handleLoginState owns the connected+loggedIn → 'online' (+ login
-      // emit) transition; defer to it so the status is set once. Otherwise
-      // we're connected-but-not-logged-in → 'loaded'.
-      if (loginState.loggedIn) {
-        this.handleLoginState(loginState);
-      } else {
-        this.applyStatus();
-        // The native hook only PUSHES a loginState frame on the login edge;
-        // if QQ logged in before/around connect (Docker auto-login) that edge
-        // is missed and we'd wait forever. Actively re-probe until logged in.
-        this.startLoginReconcile();
+    return runWithTraceRequest(async () => {
+      const startedAt = Date.now();
+      this.log.trace(() => [
+        'hook_session_connect_start pid=%d state=%s',
+        this.pid,
+        renderParamsVerbose(this.toInfo()),
+      ]);
+      if (this.client?.isClosed) this.tearDownClient();
+      if (!this.client) {
+        this.client = this.makeClient(this.pid);
+        this.sender = new HookPacketClient(this.client);
+        this.bound = false;
       }
-      this.log.info('pipe connected: PID=%d', this.pid);
-    } catch (error) {
-      this._error = errMsg(error);
-      // Drop the client so the next attempt builds a fresh socket pair.
-      // A failed connect was never logged in → 'connecting' (or 'available').
-      this.tearDownClient();
-      this.applyStatus(false, this._error);
-    }
+      if (!this.bound) {
+        this.bindClient(this.client);
+        this.bound = true;
+      }
+
+      const client = this.client;
+      try {
+        await client.connectAll({ recv: true });
+        this.connected = true;
+        const loginState = client.getLoginState();
+        // handleLoginState owns the connected+loggedIn → 'online' (+ login
+        // emit) transition; defer to it so the status is set once. Otherwise
+        // we're connected-but-not-logged-in → 'loaded'.
+        if (loginState.loggedIn) {
+          this.handleLoginState(loginState);
+        } else {
+          this.applyStatus();
+          // The native hook only PUSHES a loginState frame on the login edge;
+          // if QQ logged in before/around connect (Docker auto-login) that edge
+          // is missed and we'd wait forever. Actively re-probe until logged in.
+          runWithoutRequestContext(() => this.startLoginReconcile());
+        }
+        this.log.info('pipe connected: PID=%d', this.pid);
+        this.log.trace(() => [
+          'hook_session_connect_terminal pid=%d outcome=completed reason=connect_settled state=%s elapsedMs=%d',
+          this.pid,
+          renderParamsVerbose(this.toInfo()),
+          Date.now() - startedAt,
+        ]);
+      } catch (error) {
+        this._error = errMsg(error);
+        // Drop the client so the next attempt builds a fresh socket pair.
+        // A failed connect was never logged in → 'connecting' (or 'available').
+        this.tearDownClient();
+        this.applyStatus(false, this._error);
+        this.log.trace(() => [
+          'hook_session_connect_terminal pid=%d outcome=failed reason=connect_failed error=%j state=%s elapsedMs=%d',
+          this.pid,
+          this._error,
+          renderParamsVerbose(this.toInfo()),
+          Date.now() - startedAt,
+        ]);
+      }
+    });
   }
 
   private bindClient(client: QqHookClient): void {
@@ -461,8 +606,36 @@ export class HookSession extends EventEmitter {
     if (!this.loggedIn || !this.sender) return;
     if (wasLoggedIn && previousUin === this._uin) return;
 
-    this.emit('login', this._uin, this.sender);
-    this.log.success('login detected: PID=%d UIN=%s', this.pid, this._uin);
+    runWithTraceRequest(() => {
+      const startedAt = Date.now();
+      this.log.trace(
+        'hook_session_login_start pid=%d previousUin=%j uin=%j',
+        this.pid,
+        previousUin,
+        this._uin,
+      );
+      try {
+        this.emit('login', this._uin, this.sender!);
+        this.log.success('login detected: PID=%d UIN=%s', this.pid, this._uin);
+        this.log.trace(() => [
+          'hook_session_login_terminal pid=%d outcome=completed reason=login_detected previousUin=%j uin=%j state=%s elapsedMs=%d',
+          this.pid,
+          previousUin,
+          this._uin,
+          renderParamsVerbose(this.toInfo()),
+          Date.now() - startedAt,
+        ]);
+      } catch (error) {
+        this.log.trace(() => [
+          'hook_session_login_terminal pid=%d outcome=failed reason=listener_failed error=%j state=%s elapsedMs=%d',
+          this.pid,
+          errMsg(error),
+          renderParamsVerbose(this.toInfo()),
+          Date.now() - startedAt,
+        ]);
+        throw error;
+      }
+    });
   }
 
   // ─────────────── login reconcile (Docker auto-login safety net) ───────────

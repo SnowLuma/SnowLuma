@@ -18,6 +18,7 @@ interface QQSession {
 
 const log = createLogger('Bridge');
 const packetLog = createLogger('Bridge.Packet');
+const runtimeLog = createLogger('Bridge.Runtime');
 
 export class BridgeManager {
   private sessions_ = new Map<string, QQSession>();
@@ -62,7 +63,42 @@ export class BridgeManager {
     const uin = this.pidToUin_.get(pid);
     if (!uin) return;
 
-    this.detachPidFromSession(pid, uin);
+    runWithTraceRequest(() => {
+      const startedAt = Date.now();
+      runtimeLog.trace(
+        'bridge_detach_start pid=%d uin=%j',
+        pid,
+        uin,
+      );
+      try {
+        const closed = this.detachPidFromSession(pid, uin);
+        const activePid = this.sessions_.get(uin)?.bridge.activePid ?? null;
+        if (closed) {
+          runtimeLog.trace(
+            'bridge_detach_branch pid=%d uin=%j branch=session_closed',
+            pid,
+            uin,
+          );
+        }
+        runtimeLog.trace(
+          'bridge_detach_terminal pid=%d uin=%j outcome=completed reason=%s activePid=%j elapsedMs=%d',
+          pid,
+          uin,
+          closed ? 'session_closed' : 'pid_detached',
+          activePid,
+          Date.now() - startedAt,
+        );
+      } catch (error) {
+        runtimeLog.trace(
+          'bridge_detach_terminal pid=%d uin=%j outcome=failed reason=invariant_violation error=%j elapsedMs=%d',
+          pid,
+          uin,
+          error instanceof Error ? error.message : String(error),
+          Date.now() - startedAt,
+        );
+        throw error;
+      }
+    });
   }
 
   onPidReceiveHealthChanged(pid: number, healthy: boolean): void {
@@ -85,12 +121,65 @@ export class BridgeManager {
   onHookLogin(pid: number, uin: string, packetClient: PacketSender): void {
     if (!isRealUin(uin)) return;
 
-    const { session, created } = this.bindPid(pid, uin, packetClient, 'login');
+    runWithTraceRequest(() => {
+      const startedAt = Date.now();
+      const previousUin = this.pidToUin_.get(pid) ?? null;
+      runtimeLog.trace(
+        'bridge_binding_start pid=%d uin=%j source=login previousUin=%j',
+        pid,
+        uin,
+        previousUin,
+      );
 
-    if (created) {
-      log.debug('session started: UIN=%s', uin);
-      this.fireSessionStarted(uin, session.bridge);
-    }
+      try {
+        const { session, created } = this.bindPid(pid, uin, packetClient, 'login');
+        if (previousUin && previousUin !== uin) {
+          runtimeLog.trace(
+            'bridge_binding_branch pid=%d uin=%j branch=account_rebind previousUin=%j',
+            pid,
+            uin,
+            previousUin,
+          );
+          const previousSession = this.sessions_.get(previousUin);
+          runtimeLog.trace(
+            'bridge_binding_branch pid=%d uin=%j branch=%s previousUin=%j activePid=%j',
+            pid,
+            uin,
+            previousSession ? 'previous_session_retained' : 'previous_session_closed',
+            previousUin,
+            previousSession?.bridge.activePid ?? null,
+          );
+        }
+
+        if (created) {
+          runtimeLog.trace(
+            'bridge_binding_branch pid=%d uin=%j branch=session_created',
+            pid,
+            uin,
+          );
+          log.debug('session started: UIN=%s', uin);
+          this.fireSessionStarted(uin, session.bridge);
+        }
+        runtimeLog.trace(
+          'bridge_binding_terminal pid=%d uin=%j source=login outcome=completed reason=%s created=%s activePid=%j elapsedMs=%d',
+          pid,
+          uin,
+          previousUin && previousUin !== uin ? 'rebound' : 'bound',
+          created,
+          session.bridge.activePid,
+          Date.now() - startedAt,
+        );
+      } catch (error) {
+        runtimeLog.trace(
+          'bridge_binding_terminal pid=%d uin=%j source=login outcome=failed reason=binding_failed error=%j elapsedMs=%d',
+          pid,
+          uin,
+          error instanceof Error ? error.message : String(error),
+          Date.now() - startedAt,
+        );
+        throw error;
+      }
+    });
   }
 
   onPacket(pkt: PacketInfo): void {
@@ -233,7 +322,7 @@ export class BridgeManager {
     throw new Error(message);
   }
 
-  private detachPidFromSession(pid: number, uin: string): void {
+  private detachPidFromSession(pid: number, uin: string): boolean {
     const mappedUin = this.pidToUin_.get(pid);
     if (mappedUin !== uin) {
       const message = `BridgeManager invariant violated: PID=${pid} detach expected UIN=${uin}, mapped UIN=${mappedUin ?? 'none'}`;
@@ -263,13 +352,14 @@ export class BridgeManager {
     // invariant is known to hold, so a fail-fast error preserves the evidence.
     this.pidToUin_.delete(pid);
     session.bridge.detachPid(pid);
-    if (!session.bridge.empty) return;
+    if (!session.bridge.empty) return false;
 
     this.sessions_.delete(uin);
     log.debug('session closed: UIN=%s', uin);
     // Fire before dispose() so listeners can still read bridge.identity.
     this.fireSessionClosed(uin, session.bridge);
     session.bridge.dispose();
+    return true;
   }
 
   private ensureSession(uin: string): { session: QQSession; created: boolean } {

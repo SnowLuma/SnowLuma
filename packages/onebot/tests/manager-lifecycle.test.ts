@@ -1,3 +1,4 @@
+import { currentRequestId, runWithRequestId } from '@snowluma/common/logger';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -44,6 +45,50 @@ describe('database migration estimates', () => {
 });
 
 describe('OneBotManager database preparation', () => {
+  it('detaches migration and network startup from the login operation', () => {
+    let callbacks!: DatabaseMigrationCallbacks;
+    const observedRequestIds: Array<number | undefined> = [];
+    const task: DatabaseMigrationTask = {
+      beginMigration: vi.fn(() => observedRequestIds.push(currentRequestId())),
+      cancel: vi.fn(),
+      start: vi.fn((next) => {
+        observedRequestIds.push(currentRequestId());
+        callbacks = next;
+      }),
+    };
+    const instance = {
+      ...fakeInstance('10001', async () => undefined),
+      waitUntilNetworkReady: vi.fn(() => {
+        observedRequestIds.push(currentRequestId());
+        return new Promise(() => undefined);
+      }),
+      startLoginHistorySync: vi.fn(),
+    } as unknown as OneBotInstance;
+    const manager = new OneBotManager({
+      createDatabaseMigrationTask: () => task,
+      createInstance: () => {
+        observedRequestIds.push(currentRequestId());
+        return instance;
+      },
+    });
+    let startListener!: (uin: string, bridge: never) => void;
+    manager.bind({
+      addSessionStartedListener: (listener) => { startListener = listener; },
+      addSessionClosedListener: vi.fn(),
+    } as never);
+    const bridge = {
+      activePid: null,
+      identity: { nickname: 'test' },
+      fetchFriends: vi.fn(() => new Promise(() => undefined)),
+      fetchGroups: vi.fn(() => new Promise(() => undefined)),
+    };
+
+    runWithRequestId(5201, () => startListener('10001', bridge as never));
+    callbacks.onReady();
+
+    expect(observedRequestIds).toEqual([undefined, undefined, undefined, undefined]);
+  });
+
   it('surfaces preparation as unavailable and ignores a stale completion after logout', async () => {
     let callbacks!: DatabaseMigrationCallbacks;
     const cancel = vi.fn();

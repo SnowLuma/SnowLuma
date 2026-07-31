@@ -1,4 +1,4 @@
-import { createLogger } from '@snowluma/common/logger';
+import { createLogger, runWithoutRequestContext } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import type { BridgeManager } from '@snowluma/core/manager';
 import { loadOneBotConfig } from './config';
@@ -107,7 +107,7 @@ export class OneBotManager {
 
   bind(bridgeManager: BridgeManager): void {
     bridgeManager.addSessionStartedListener((uin, bridge) => {
-      this.onSessionStarted(uin, bridge);
+      runWithoutRequestContext(() => this.onSessionStarted(uin, bridge));
     });
 
     bridgeManager.addSessionClosedListener((uin) => {
@@ -155,7 +155,7 @@ export class OneBotManager {
     const instance = this.instances.get(uin);
     if (!instance) return { online: false, applied: false, errors: [], adapters: [] };
 
-    const result = await instance.reloadConfig(config);
+    const result = await runWithoutRequestContext(() => instance.reloadConfig(config));
     if (result.applied) {
       log.info('configuration applied: UIN=%s adapters=%d', uin, result.statuses.length);
     } else {

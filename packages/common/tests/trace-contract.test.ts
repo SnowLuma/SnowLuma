@@ -5,6 +5,7 @@ import {
   getLogLevel,
   nextRequestId,
   renderTraceBytes,
+  runWithoutRequestContext,
   runWithRequestId,
   runWithTraceRequest,
   setLogLevel,
@@ -85,6 +86,20 @@ describe('TRACE diagnostics contract', () => {
     expect(observed.inner).toBe(observed.outer);
     expect(observed.outer).toBe(before + 1);
     expect(after).toBe(before + 2);
+    expect(currentRequestId()).toBeUndefined();
+  });
+
+  it('detaches long-lived resources from the current request context', async () => {
+    await runWithRequestId(4243, async () => {
+      expect(currentRequestId()).toBe(4243);
+      const detached = await runWithoutRequestContext(async () => {
+        expect(currentRequestId()).toBeUndefined();
+        await Promise.resolve();
+        return currentRequestId();
+      });
+      expect(detached).toBeUndefined();
+      expect(currentRequestId()).toBe(4243);
+    });
     expect(currentRequestId()).toBeUndefined();
   });
 

@@ -1,4 +1,9 @@
-import { createLogger, type Logger } from '@snowluma/common/logger';
+import {
+  createLogger,
+  runWithTraceRequest,
+  type Logger,
+} from '@snowluma/common/logger';
+import { renderParamsVerbose } from '@snowluma/common/log-summary';
 import type { PacketSender } from '@snowluma/common/packet-sender';
 import type { PacketInfo, PacketSink } from '@snowluma/common/protocol-types';
 import fs from 'fs';
@@ -238,23 +243,38 @@ export class HookManager {
   private bindWatcher(): void {
     this.pipeWatcher.on('process-discovered', (info: HookProcessBaseInfo) => {
       if (this.disposed) return;
-      const session = this.ensureSession(info.pid);
-      session.attachProcessInfo(info);
-      // Headless/Docker deployments enable autoLoadOnDiscovery so QQ gets
-      // injected without a human clicking "Load" in WebUI. Fire-and-forget:
-      // failures are already captured inside loadInternal and surfaced via
-      // the session's status field.
-      if (this.autoLoadOnDiscovery && shouldAutoLoadPid(info.pid, this.log)) {
-        this.runAutoLoad(session);
-      }
-      this.notifySessionsChanged();
+      runWithTraceRequest(() => {
+        const session = this.ensureSession(info.pid);
+        session.attachProcessInfo(info);
+        this.log.trace(() => [
+          'hook_manager_fact event=process_discovered pid=%d info=%s autoLoad=%s',
+          info.pid,
+          renderParamsVerbose(info),
+          this.autoLoadOnDiscovery,
+        ]);
+        // Headless/Docker deployments enable autoLoadOnDiscovery so QQ gets
+        // injected without a human clicking "Load" in WebUI. Fire-and-forget:
+        // failures are already captured inside loadInternal and surfaced via
+        // the session's status field.
+        if (this.autoLoadOnDiscovery && shouldAutoLoadPid(info.pid, this.log)) {
+          this.runAutoLoad(session);
+        }
+        this.notifySessionsChanged();
+      });
     });
     this.pipeWatcher.on('process-gone', (pid: number) => {
       if (this.disposed) return;
-      this.autoLoadAttempts.delete(pid);
-      const session = this.sessions.get(pid);
-      if (session) session.notifyProcessGone();
-      this.notifySessionsChanged();
+      runWithTraceRequest(() => {
+        this.autoLoadAttempts.delete(pid);
+        const session = this.sessions.get(pid);
+        this.log.trace(
+          'hook_manager_fact event=process_gone pid=%d tracked=%s',
+          pid,
+          session !== undefined,
+        );
+        if (session) session.notifyProcessGone();
+        this.notifySessionsChanged();
+      });
     });
     this.pipeWatcher.on('pipe-up', (pid: number) => {
       if (this.disposed) return;
@@ -307,51 +327,106 @@ export class HookManager {
     this.autoLoadAttempts.set(session.pid, state);
     const attempt = state.attempts;
 
-    void session.load().then((info) => {
-      if (this.autoLoadAttempts.get(session.pid) !== state) return;
-      state.inFlight = false;
-
-      if (info.status !== 'error') {
-        this.autoLoadAttempts.delete(session.pid);
-        if (attempt > 1) {
-          this.log.info(
-            'auto-load recovered: PID=%d attempt=%d/%d',
-            session.pid,
-            attempt,
-            AUTO_LOAD_MAX_ATTEMPTS,
-          );
-        }
-        return;
-      }
-
-      if (!isTransientLibcMappingError(info.error)) {
-        this.autoLoadAttempts.delete(session.pid);
-        return;
-      }
-
-      if (attempt >= AUTO_LOAD_MAX_ATTEMPTS) {
-        this.autoLoadAttempts.delete(session.pid);
-        this.log.warn(
-          'auto-load retry exhausted: PID=%d attempts=%d err=%s',
-          session.pid,
-          attempt,
-          info.error,
-        );
-        return;
-      }
-
-      this.log.warn(
-        'auto-load retry pending: PID=%d attempt=%d/%d err=%s',
+    void runWithTraceRequest(async () => {
+      const startedAt = Date.now();
+      this.log.trace(
+        'hook_autoload_start pid=%d attempt=%d maxAttempts=%d',
         session.pid,
         attempt,
         AUTO_LOAD_MAX_ATTEMPTS,
-        info.error,
       );
-    }).catch((err) => {
-      if (this.autoLoadAttempts.get(session.pid) === state) {
-        this.autoLoadAttempts.delete(session.pid);
+      try {
+        const info = await session.load();
+        if (this.autoLoadAttempts.get(session.pid) !== state) {
+          this.log.trace(
+            'hook_autoload_terminal pid=%d attempt=%d outcome=dropped reason=superseded elapsedMs=%d',
+            session.pid,
+            attempt,
+            Date.now() - startedAt,
+          );
+          return;
+        }
+        state.inFlight = false;
+
+        if (info.status !== 'error') {
+          this.autoLoadAttempts.delete(session.pid);
+          const reason = attempt > 1 ? 'recovered' : 'loaded';
+          this.log.trace(() => [
+            'hook_autoload_terminal pid=%d attempt=%d outcome=completed reason=%s state=%s elapsedMs=%d',
+            session.pid,
+            attempt,
+            reason,
+            renderParamsVerbose(info),
+            Date.now() - startedAt,
+          ]);
+          if (attempt > 1) {
+            this.log.info(
+              'auto-load recovered: PID=%d attempt=%d/%d',
+              session.pid,
+              attempt,
+              AUTO_LOAD_MAX_ATTEMPTS,
+            );
+          }
+          return;
+        }
+
+        if (!isTransientLibcMappingError(info.error)) {
+          this.autoLoadAttempts.delete(session.pid);
+          this.log.trace(
+            'hook_autoload_terminal pid=%d attempt=%d outcome=failed reason=permanent_failure error=%j elapsedMs=%d',
+            session.pid,
+            attempt,
+            info.error,
+            Date.now() - startedAt,
+          );
+          return;
+        }
+
+        if (attempt >= AUTO_LOAD_MAX_ATTEMPTS) {
+          this.autoLoadAttempts.delete(session.pid);
+          this.log.trace(
+            'hook_autoload_terminal pid=%d attempt=%d outcome=failed reason=retry_exhausted error=%j elapsedMs=%d',
+            session.pid,
+            attempt,
+            info.error,
+            Date.now() - startedAt,
+          );
+          this.log.warn(
+            'auto-load retry exhausted: PID=%d attempts=%d err=%s',
+            session.pid,
+            attempt,
+            info.error,
+          );
+          return;
+        }
+
+        this.log.trace(
+          'hook_autoload_terminal pid=%d attempt=%d outcome=failed reason=retry_pending error=%j elapsedMs=%d',
+          session.pid,
+          attempt,
+          info.error,
+          Date.now() - startedAt,
+        );
+        this.log.warn(
+          'auto-load retry pending: PID=%d attempt=%d/%d err=%s',
+          session.pid,
+          attempt,
+          AUTO_LOAD_MAX_ATTEMPTS,
+          info.error,
+        );
+      } catch (err) {
+        if (this.autoLoadAttempts.get(session.pid) === state) {
+          this.autoLoadAttempts.delete(session.pid);
+        }
+        this.log.trace(
+          'hook_autoload_terminal pid=%d attempt=%d outcome=failed reason=unexpected_failure error=%j elapsedMs=%d',
+          session.pid,
+          attempt,
+          errMsg(err),
+          Date.now() - startedAt,
+        );
+        this.log.warn('auto-load failed: PID=%d err=%s', session.pid, errMsg(err));
       }
-      this.log.warn('auto-load failed: PID=%d err=%s', session.pid, errMsg(err));
     });
   }
 

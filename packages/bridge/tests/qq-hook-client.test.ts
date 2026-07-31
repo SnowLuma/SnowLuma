@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import { Duplex } from 'stream';
 import {
+  currentRequestId,
   getLogLevel,
   runWithRequestId,
   setLogLevel,
@@ -106,6 +107,12 @@ function traceMessages(entries: LogEntry[]): string[] {
     .map((entry) => entry.message);
 }
 
+function runtimeTrace(entries: LogEntry[]): LogEntry[] {
+  return entries.filter(
+    (entry) => entry.level === 'trace' && entry.scope === 'QQHook.Runtime',
+  );
+}
+
 afterEach(async () => {
   setLogLevel(previousLogLevel);
   vi.restoreAllMocks();
@@ -137,6 +144,136 @@ describe('listLiveLinuxPipePids', () => {
 
     expect([...pids]).toEqual([56]);
     expect(probe).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('QqHookClient — runtime TRACE', () => {
+  it('records control and receive pipe hello lifecycles under the parent request', async () => {
+    const pid = 778820;
+    const entries: LogEntry[] = [];
+    let connectionIndex = 0;
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    const createConnection = vi.spyOn(net, 'createConnection').mockImplementation((() => {
+      const kind = connectionIndex === 0 ? 'control' : 'recv';
+      connectionIndex += 1;
+      const socket = new Duplex({
+        read() { /* peer data is injected with emit('data') */ },
+      }) as net.Socket;
+      queueMicrotask(() => {
+        socket.emit('connect');
+        queueMicrotask(() => socket.emit('data', pipeFrame({
+          op: PipeOp.hello,
+          value0: BigInt(pid),
+          message: `${kind}-fixture`,
+        })));
+      });
+      return socket;
+    }) as typeof net.createConnection);
+    const client = new QqHookClient(pid);
+    try {
+      await runWithRequestId(4201, () => client.connectAll());
+
+      const trace = runtimeTrace(entries);
+      expect(trace).toHaveLength(6);
+      expect(trace.every((entry) => entry.req === 4201)).toBe(true);
+      expect(trace.map((entry) => entry.message)).toEqual([
+        expect.stringMatching(/^hook_pipe_start pid=778820 kind=control pipeName=.*$/),
+        expect.stringMatching(/^hook_pipe_branch pid=778820 kind=control branch=socket_connected$/),
+        expect.stringMatching(/^hook_pipe_terminal pid=778820 kind=control outcome=completed reason=hello_received hello=\{pipeName:"control-fixture",pid:778820,recvPipe:false\} elapsedMs=\d+$/),
+        expect.stringMatching(/^hook_pipe_start pid=778820 kind=recv pipeName=.*$/),
+        expect.stringMatching(/^hook_pipe_branch pid=778820 kind=recv branch=socket_connected$/),
+        expect.stringMatching(/^hook_pipe_terminal pid=778820 kind=recv outcome=completed reason=hello_received hello=\{pipeName:"recv-fixture",pid:778820,recvPipe:true\} elapsedMs=\d+$/),
+      ]);
+    } finally {
+      unsubscribe();
+      client.close();
+      createConnection.mockRestore();
+    }
+  });
+
+  it('records a pre-request connection failure without a pipe request id', async () => {
+    const pid = 778821;
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    const createConnection = vi.spyOn(net, 'createConnection').mockImplementation((() => {
+      const socket = new Duplex({ read() { /* no peer */ } }) as net.Socket;
+      queueMicrotask(() => socket.emit('error', new Error('fixture connect failure')));
+      return socket;
+    }) as typeof net.createConnection);
+    const client = new QqHookClient(pid);
+    try {
+      await expect(client.connect()).rejects.toThrow('fixture connect failure');
+
+      const trace = runtimeTrace(entries);
+      expect(trace).toHaveLength(2);
+      expect(trace.every((entry) => entry.req !== undefined)).toBe(true);
+      expect(trace[0]!.req).toBe(trace[1]!.req);
+      expect(trace.map((entry) => entry.message)).toEqual([
+        expect.stringMatching(/^hook_pipe_start pid=778821 kind=control pipeName=.*$/),
+        expect.stringMatching(/^hook_pipe_terminal pid=778821 kind=control outcome=failed reason=connect_failed error="fixture connect failure" elapsedMs=\d+$/),
+      ]);
+      expect(trace.map((entry) => entry.message).join('\n')).not.toContain('requestId=');
+    } finally {
+      unsubscribe();
+      client.close();
+      createConnection.mockRestore();
+    }
+  });
+
+  it('assigns fresh request contexts to material login and close events only', async () => {
+    const pid = 778822;
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    const connection = mockControlPipe(pid, () => { /* no packet writes */ });
+    const client = new QqHookClient(pid);
+    const eventRequestIds: Array<{ event: 'login' | 'close'; req: number | undefined }> = [];
+    client.on('loginState', () => {
+      eventRequestIds.push({ event: 'login', req: currentRequestId() });
+    });
+    client.on('close', () => {
+      eventRequestIds.push({ event: 'close', req: currentRequestId() });
+    });
+    try {
+      await runWithRequestId(4202, () => client.connect());
+      const controlSocket = connection.mock.results[0]!.value as net.Socket;
+      controlSocket.emit('data', pipeFrame({
+        op: PipeOp.loginState,
+        status: 1,
+        value0: 123456n,
+        message: '123456',
+      }));
+      controlSocket.emit('data', pipeFrame({
+        op: PipeOp.loginState,
+        status: 1,
+        value0: 123456n,
+        message: '123456',
+      }));
+      controlSocket.destroy();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      const facts = runtimeTrace(entries).filter(
+        (entry) => entry.message.startsWith('hook_runtime_fact pid=778822 '),
+      );
+      expect(facts).toHaveLength(2);
+      expect(facts.every((entry) => entry.req !== undefined)).toBe(true);
+      expect(facts[0]!.req).not.toBe(facts[1]!.req);
+      expect(facts.map((entry) => entry.message)).toEqual([
+        'hook_runtime_fact pid=778822 event=login_state_changed previousLoggedIn=false previousUin="0" loggedIn=true uin="123456"',
+        'hook_runtime_fact pid=778822 event=pipe_closed kind=control loggedIn=true uin="123456"',
+      ]);
+      expect(eventRequestIds).toEqual([
+        { event: 'login', req: facts[0]!.req },
+        { event: 'login', req: undefined },
+        { event: 'close', req: facts[1]!.req },
+      ]);
+    } finally {
+      unsubscribe();
+      client.close();
+      connection.mockRestore();
+    }
   });
 });
 

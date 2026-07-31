@@ -28,6 +28,12 @@ function makeSender() {
   };
 }
 
+function runtimeTrace(entries: LogEntry[]): LogEntry[] {
+  return entries.filter(
+    (entry) => entry.level === 'trace' && entry.scope === 'Bridge.Runtime',
+  );
+}
+
 function packet(pid: number, uin: string): PacketInfo {
   return {
     pid,
@@ -49,6 +55,78 @@ describe('BridgeManager PID ownership', () => {
   afterEach(() => {
     setLogLevel(previousLogLevel);
     vi.restoreAllMocks();
+  });
+
+  it('traces binding, account replacement, detach, and session closure under semantic contexts', () => {
+    const manager = new BridgeManager();
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      manager.onHookLogin(101, '10001', makeSender().client);
+      manager.onHookLogin(202, '10001', makeSender().client);
+      manager.onHookLogin(101, '20002', makeSender().client);
+      manager.onPidDisconnected(202);
+      manager.onPidDisconnected(101);
+      manager.onPidDisconnected(101);
+
+      const trace = runtimeTrace(entries).filter((entry) =>
+        entry.message.startsWith('bridge_binding_')
+        || entry.message.startsWith('bridge_detach_'));
+      expect(trace.map((entry) => entry.message)).toEqual([
+        'bridge_binding_start pid=101 uin="10001" source=login previousUin=null',
+        'bridge_binding_branch pid=101 uin="10001" branch=session_created',
+        expect.stringMatching(/^bridge_binding_terminal pid=101 uin="10001" source=login outcome=completed reason=bound created=true activePid=101 elapsedMs=\d+$/),
+        'bridge_binding_start pid=202 uin="10001" source=login previousUin=null',
+        expect.stringMatching(/^bridge_binding_terminal pid=202 uin="10001" source=login outcome=completed reason=bound created=false activePid=202 elapsedMs=\d+$/),
+        'bridge_binding_start pid=101 uin="20002" source=login previousUin="10001"',
+        'bridge_binding_branch pid=101 uin="20002" branch=account_rebind previousUin="10001"',
+        'bridge_binding_branch pid=101 uin="20002" branch=previous_session_retained previousUin="10001" activePid=202',
+        'bridge_binding_branch pid=101 uin="20002" branch=session_created',
+        expect.stringMatching(/^bridge_binding_terminal pid=101 uin="20002" source=login outcome=completed reason=rebound created=true activePid=101 elapsedMs=\d+$/),
+        'bridge_detach_start pid=202 uin="10001"',
+        'bridge_detach_branch pid=202 uin="10001" branch=session_closed',
+        expect.stringMatching(/^bridge_detach_terminal pid=202 uin="10001" outcome=completed reason=session_closed activePid=null elapsedMs=\d+$/),
+        'bridge_detach_start pid=101 uin="20002"',
+        'bridge_detach_branch pid=101 uin="20002" branch=session_closed',
+        expect.stringMatching(/^bridge_detach_terminal pid=101 uin="20002" outcome=completed reason=session_closed activePid=null elapsedMs=\d+$/),
+      ]);
+
+      const starts = trace.filter((entry) => entry.message.includes('_start '));
+      const terminals = trace.filter((entry) => entry.message.includes('_terminal '));
+      expect(starts).toHaveLength(5);
+      expect(terminals).toHaveLength(5);
+      for (const start of starts) {
+        expect(terminals.some((terminal) => terminal.req === start.req)).toBe(true);
+      }
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('records ownership invariant failures as the unique detach terminal', () => {
+    const manager = new BridgeManager();
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      manager.onHookLogin(101, '10001', makeSender().client);
+      manager.getSession('10001')!.bridge.detachPid(101);
+      expect(() => manager.onPidDisconnected(101)).toThrowError(
+        'BridgeManager invariant violated: PID=101 is mapped to UIN=10001, but Bridge does not own the PID',
+      );
+
+      const detach = runtimeTrace(entries).filter(
+        (entry) => entry.message.startsWith('bridge_detach_'),
+      );
+      expect(detach.map((entry) => entry.message)).toEqual([
+        'bridge_detach_start pid=101 uin="10001"',
+        expect.stringMatching(/^bridge_detach_terminal pid=101 uin="10001" outcome=failed reason=invariant_violation error="BridgeManager invariant violated: PID=101 is mapped to UIN=10001, but Bridge does not own the PID" elapsedMs=\d+$/),
+      ]);
+      expect(detach[0]!.req).toBe(detach[1]!.req);
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('records complete incoming packet bytes under one top-level TRACE request', async () => {
@@ -228,6 +306,43 @@ describe('BridgeManager PID ownership', () => {
         errorCode: -1,
         errorMessage: 'no packet sender attached',
       });
+  });
+
+  it('traces material sender selection, fallback, and no-sender drops without polling noise', async () => {
+    const manager = new BridgeManager();
+    const first = makeSender();
+    const second = makeSender();
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      manager.onHookLogin(101, '10001', first.client);
+      manager.onHookLogin(202, '10001', second.client);
+      manager.onPacket(packet(202, '10001'));
+      manager.onPidDisconnected(202);
+      const bridge = manager.getSession('10001')!.bridge;
+      manager.onPidDisconnected(101);
+      await bridge.sendRawPacket('Test.NoSender', new Uint8Array([0x00, 0xff]));
+
+      const sender = runtimeTrace(entries).filter((entry) =>
+        entry.message.startsWith('bridge_sender_fact ')
+        || entry.message.startsWith('bridge_send_'));
+      expect(sender.map((entry) => entry.message)).toEqual([
+        'bridge_sender_fact event=selected uin="10001" pid=101 previousPid=null',
+        'bridge_sender_fact event=selected uin="10001" pid=202 previousPid=101',
+        'bridge_sender_fact event=fallback uin="10001" detachedPid=202 fallbackPid=101',
+        'bridge_send_start serviceCmd="Test.NoSender" uin="10001" activePid=null timeoutMs=15000 length=2 body=00ff',
+        expect.stringMatching(/^bridge_send_terminal serviceCmd="Test\.NoSender" uin="10001" activePid=null outcome=dropped reason=no_sender length=2 body=00ff elapsedMs=\d+$/),
+      ]);
+      expect(sender[2]!.req).toBe(
+        runtimeTrace(entries).find((entry) =>
+          entry.message.startsWith('bridge_detach_start pid=202 '))!.req,
+      );
+      expect(sender[3]!.req).toEqual(expect.any(Number));
+      expect(sender[4]!.req).toBe(sender[3]!.req);
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('reports an account healthy while any attached PID still receives packets', () => {

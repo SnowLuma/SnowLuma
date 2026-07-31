@@ -11,7 +11,14 @@
  * something update.
  */
 
+import {
+  createLogger,
+  runWithTraceRequest,
+} from '@snowluma/common/logger';
+import { renderParamsVerbose } from '@snowluma/common/log-summary';
 import type { StateBus } from './state-bus';
+
+const log = createLogger('WebUI.Connections');
 
 export interface ConnectionDiffLoopOptions {
   bus: StateBus;
@@ -43,6 +50,7 @@ export function startConnectionDiffLoop(opts: ConnectionDiffLoopOptions): Connec
   // a shape regression would otherwise wedge the baseline silently — no
   // publishes, no log, no symptom besides "the dashboard's connections
   // card stops updating". Surface it ONCE so the failure is visible.
+  let warnedSnapshotThrew = false;
   let warnedProjectorThrew = false;
 
   const tick = (): void => {
@@ -50,7 +58,19 @@ export function startConnectionDiffLoop(opts: ConnectionDiffLoopOptions): Connec
     let snap: unknown;
     try {
       snap = opts.getSnapshot();
-    } catch {
+    } catch (err) {
+      if (!warnedSnapshotThrew) {
+        warnedSnapshotThrew = true;
+        runWithTraceRequest(() => {
+          const startedAt = Date.now();
+          log.trace('connection_diff_start phase=snapshot_read');
+          log.trace(
+            'connection_diff_terminal outcome=failed reason=snapshot_failed error=%j elapsedMs=%d',
+            err instanceof Error ? err.message : String(err),
+            Date.now() - startedAt,
+          );
+        });
+      }
       // Snapshot read failed (e.g. mid-shutdown). Skip this tick; the
       // next one will retry. Don't reset the baseline so we don't
       // spuriously republish when the snapshot starts working again.
@@ -65,10 +85,22 @@ export function startConnectionDiffLoop(opts: ConnectionDiffLoopOptions): Connec
       // so an operator can find it without re-running the loop locally.
       if (!warnedProjectorThrew) {
         warnedProjectorThrew = true;
-        // Static logger import avoided to keep the loop self-contained;
-        // stderr is good enough for a once-per-process latch.
-        // eslint-disable-next-line no-console
-        console.error('[connection-diff-loop] pickComparable threw — connections SSE diff will wedge until restart:', err);
+        log.error(
+          'connection snapshot projector failed; updates may be stale: %s',
+          err instanceof Error ? err.message : String(err),
+        );
+        runWithTraceRequest(() => {
+          const startedAt = Date.now();
+          log.trace(() => [
+            'connection_diff_start phase=project snapshot=%s',
+            renderParamsVerbose(snap),
+          ]);
+          log.trace(
+            'connection_diff_terminal outcome=failed reason=projector_failed error=%j elapsedMs=%d',
+            err instanceof Error ? err.message : String(err),
+            Date.now() - startedAt,
+          );
+        });
       }
       return;
     }
@@ -84,7 +116,19 @@ export function startConnectionDiffLoop(opts: ConnectionDiffLoopOptions): Connec
     }
     if (serialized === lastSerialized) return;
     lastSerialized = serialized;
-    opts.bus.publish('connections');
+    runWithTraceRequest(() => {
+      const startedAt = Date.now();
+      log.trace(() => [
+        'connection_diff_start snapshot=%s',
+        renderParamsVerbose(snap),
+      ]);
+      log.trace('connection_diff_branch branch=publish resource=connections');
+      opts.bus.publish('connections');
+      log.trace(
+        'connection_diff_terminal outcome=completed reason=published elapsedMs=%d',
+        Date.now() - startedAt,
+      );
+    });
   };
 
   const timer = setInterval(tick, intervalMs);

@@ -19,6 +19,7 @@ import { mkdir, readdir, rm, stat } from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { randomBytes } from 'crypto';
+import { traceWebuiMutationRequestChunk } from './mutation-trace';
 
 /** Temp dir for browser→server uploads. Siblings the Stream API's temp root but
  *  kept distinct so the two cleanup stories don't entangle. */
@@ -38,7 +39,7 @@ export function safeUploadName(raw: string | undefined): string {
   // `../` / absolute prefix is discarded regardless of host platform.
   const base = path.basename(String(raw ?? '').replace(/\\/g, '/'));
   const cleaned = base
-    .replace(/[^\w.\-]+/g, '_') // collapse anything exotic to underscore
+    .replace(/[^\w.-]+/g, '_') // collapse anything exotic to underscore
     .replace(/^\.+/, '')        // no leading dots (no hidden / '..' names)
     .slice(0, 120);
   return cleaned || 'file';
@@ -88,7 +89,9 @@ export async function streamUploadToDisk(
       const { done, value } = await Promise.race([errored, reader.read()]);
       if (done) break;
       if (!value || value.byteLength === 0) continue;
+      const offset = size;
       size += value.byteLength;
+      traceWebuiMutationRequestChunk(value, offset);
       if (size > maxBytes) throw new Error('上传超出大小上限');
       // Respect the write stream's backpressure (but never hang on an error).
       if (!out.write(value)) {
