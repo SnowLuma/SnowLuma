@@ -11,6 +11,13 @@ status, OneBot configuration, logs, storage, and server settings.
   automatically after a visible countdown.
 - Routine, high-frequency adjustments should not generate a notice for every
   intermediate edit.
+- Data-backed surfaces use the Interior Skeleton Swap defaults (120 ms delay,
+  380 ms minimum visibility) so fast local responses do not flash a placeholder.
+  Submission, upload, and other explicit operation progress keeps its spinner.
+- Variable-height content must release the skeleton's reserved box after it is
+  ready; do not introduce a second scrolling region inside the page.
+- The mobile navigation menu uses a controlled Icon Morph whose visual state
+  follows the actual drawer state.
 - Failures must remain visible in the affected control and in the operation
   result; do not convert failed responses into successful feedback.
 - Password change flows use floating labels and inline validation consistently.

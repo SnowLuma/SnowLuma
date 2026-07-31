@@ -38,6 +38,7 @@ import { NAV_ITEMS } from '@/components/layout/sidebar';
 import { TOPBAR_CATALOGUE } from '@/components/layout/top-bar';
 import { ChangePasswordDialog } from '@/components/change-password-dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { SkeletonSwap } from '@/components/interior/skeleton-swap';
 import { useApi } from '@/lib/api';
 import { useAppState } from '@/contexts/AppStateContext';
 import { cn } from '@/lib/utils';
@@ -739,6 +740,7 @@ function FontField({
   const listId = useId();
   const [fonts, setFonts] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [fontLoadError, setFontLoadError] = useState<string | null>(null);
   const canQuery = typeof (window as FontQueryWindow).queryLocalFonts === 'function';
   const isCustom = value === FONT_CUSTOM_ID;
 
@@ -747,16 +749,17 @@ function FontField({
     { value: FONT_CUSTOM_ID, label: '自定义' },
   ];
 
-  // Lazily enumerate local fonts the first time the field is focused. A denied
-  // permission (or any failure) just leaves the plain text box — no error UI.
+  // Lazily enumerate local fonts the first time the field is focused.
   const loadFonts = async () => {
     if (fonts !== null || loading || !canQuery) return;
     setLoading(true);
+    setFontLoadError(null);
     try {
       const arr = await (window as FontQueryWindow).queryLocalFonts!();
       setFonts(Array.from(new Set(arr.map((f) => f.family))).sort((x, y) => x.localeCompare(y)));
-    } catch {
-      setFonts([]);
+    } catch (error) {
+      console.error('Failed to enumerate local fonts', error);
+      setFontLoadError('无法读取本机字体，请检查浏览器权限后重试。');
     } finally {
       setLoading(false);
     }
@@ -784,11 +787,32 @@ function FontField({
               {fonts.map((f) => <option key={f} value={f} />)}
             </datalist>
           )}
-          <p className="text-xs leading-snug text-muted-foreground">
-            {canQuery
-              ? '可输入字体名称，或聚焦后从已安装字体中选择；找不到时回退到系统字体。'
-              : '输入已安装的字体名称（可写多个，用逗号分隔）；找不到时回退到系统字体。'}
-          </p>
+          <SkeletonSwap
+            ready={!loading}
+            reserve={28}
+            lines={1}
+            label="本机字体"
+            className={!loading ? 'skeleton-swap-fluid' : ''}
+          >
+            {fontLoadError ? (
+              <div className="flex items-center gap-2 text-xs leading-snug text-destructive">
+                <span>{fontLoadError}</span>
+                <button
+                  type="button"
+                  className="shrink-0 font-medium underline underline-offset-2"
+                  onClick={() => void loadFonts()}
+                >
+                  重试
+                </button>
+              </div>
+            ) : (
+              <p className="text-xs leading-snug text-muted-foreground">
+                {canQuery
+                  ? '可输入字体名称，或聚焦后从已安装字体中选择；找不到时回退到系统字体。'
+                  : '输入已安装的字体名称（可写多个，用逗号分隔）；找不到时回退到系统字体。'}
+              </p>
+            )}
+          </SkeletonSwap>
         </div>
       )}
     </div>
@@ -1250,7 +1274,7 @@ function assetHint(latest: string, platform?: string, arch?: string): string | n
 // Advisory software update, shown as a grouped list. Read-only: links to the
 // GitHub release; SnowLuma never downloads or applies anything itself.
 function UpdateGroup() {
-  const { updateInfo, refreshUpdate, systemInfo } = useAppState();
+  const { updateInfo, refreshUpdate, systemInfo, resources } = useAppState();
   const { runAction } = useActionFeedback();
   const [checking, setChecking] = useState(false);
 
@@ -1286,7 +1310,8 @@ function UpdateGroup() {
   const disabledCheck = updateInfo?.error === 'disabled';
 
   let status: ReactNode;
-  if (!updateInfo) status = <span className="text-muted-foreground">正在检查…</span>;
+  if (!updateInfo && resources.updateInfo.error) status = <span className="text-muted-foreground">无法检查</span>;
+  else if (!updateInfo) status = null;
   else if (disabledCheck) status = <span className="text-muted-foreground">检查已关闭</span>;
   else if (updateInfo.error) status = <span className="text-muted-foreground">无法检查</span>;
   else if (updateInfo.hasUpdate && updateInfo.latest) status = <span className="font-medium text-primary">发现新版本</span>;
@@ -1337,7 +1362,17 @@ function UpdateGroup() {
       </SettingRow>
       <SettingRow label="检查更新">
         <div className="flex items-center gap-2.5 text-[12px]">
-          {status}
+          <SkeletonSwap
+            ready={resources.updateInfo.ready}
+            reserve={24}
+            lines={1}
+            lineHeight={24}
+            barHeight={8}
+            label="更新状态"
+            className={resources.updateInfo.ready ? 'skeleton-swap-fluid min-h-6 min-w-24' : 'w-24'}
+          >
+            {resources.updateInfo.ready ? status : null}
+          </SkeletonSwap>
           {!disabledCheck && (
             <Button variant="outline" size="sm" onClick={onCheck} disabled={checking}>
               {checking ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}

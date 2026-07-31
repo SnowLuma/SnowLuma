@@ -7,7 +7,8 @@
 // the raw-value input so the picker never traps you.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ChevronDown, Loader2, RefreshCw, Search } from 'lucide-react';
+import { ChevronDown, RefreshCw, Search } from 'lucide-react';
+import { SkeletonSwap } from '@/components/interior/skeleton-swap';
 import { cn } from '@/lib/utils';
 
 export interface PickerOption {
@@ -51,6 +52,7 @@ export function Picker({
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const suppressTriggerClick = useRef(false);
+  const waitingForOptions = Boolean(loading && options.length === 0);
 
   const selected = options.find((o) => o.value === value);
 
@@ -177,59 +179,66 @@ export function Picker({
               )}
             </div>
 
-            {loading && options.length === 0 ? (
-              <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> 加载中…
-              </div>
-            ) : error ? (
-              <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-                <p className="text-destructive">{error}</p>
-                <p className="mt-1">可直接在上方输入号码后回车使用</p>
-              </div>
-            ) : totalRows === 0 ? (
-              <div className="px-3 py-6 text-center text-xs text-muted-foreground">无匹配项{query && '；输入完整号码可直接使用'}</div>
-            ) : (
-              <div
-                ref={listRef}
-                role="listbox"
-                onScroll={(e) => setScrollTop((e.target as HTMLDivElement).scrollTop)}
-                className="overflow-auto"
-                style={{ height: viewH }}
-              >
-                <div style={{ height: totalRows * ROW_H, position: 'relative' }}>
-                  {rows.map(({ idx, opt }) => (
-                    <div
-                      key={opt ? opt.value : `__raw-${idx}`}
-                      role="option"
-                      aria-selected={idx === active}
-                      onMouseEnter={() => setActive(idx)}
-                      onPointerDown={(e) => {
-                        e.preventDefault();
-                        suppressTriggerClick.current = true;
-                        choose(idx);
-                      }}
-                      className={cn(
-                        'absolute left-0 right-0 flex cursor-pointer items-center gap-2.5 px-3',
-                        idx === active ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50',
-                      )}
-                      style={{ top: idx * ROW_H, height: ROW_H }}
-                    >
-                      {opt ? (
-                        <>
-                          {opt.avatar
-                            ? <img src={opt.avatar} alt="" className="media-outline h-7 w-7 shrink-0 rounded-full" />
-                            : <span className="media-outline h-7 w-7 shrink-0 rounded-full bg-muted" />}
-                          <span className="min-w-0 flex-1 truncate text-sm">{opt.label}</span>
-                          {opt.sub && <span className="shrink-0 font-mono text-meta text-muted-foreground tabular-nums">{opt.sub}</span>}
-                        </>
-                      ) : (
-                        <span className="text-sm">使用 <span className="font-mono text-primary">{rawRow}</span></span>
-                      )}
+            <SkeletonSwap
+              ready={!waitingForOptions}
+              lines={4}
+              lineHeight={28}
+              reserve={112}
+              label={ariaLabel}
+              className={waitingForOptions ? 'mx-3 my-2' : 'skeleton-swap-fluid'}
+            >
+              {!waitingForOptions ? (
+                error ? (
+                  <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                    <p className="text-destructive">{error}</p>
+                    <p className="mt-1">可直接在上方输入号码后回车使用</p>
+                  </div>
+                ) : totalRows === 0 ? (
+                  <div className="px-3 py-6 text-center text-xs text-muted-foreground">无匹配项{query && '；输入完整号码可直接使用'}</div>
+                ) : (
+                  <div
+                    ref={listRef}
+                    role="listbox"
+                    onScroll={(e) => setScrollTop((e.target as HTMLDivElement).scrollTop)}
+                    className="overflow-auto"
+                    style={{ height: viewH }}
+                  >
+                    <div style={{ height: totalRows * ROW_H, position: 'relative' }}>
+                      {rows.map(({ idx, opt }) => (
+                        <div
+                          key={opt ? opt.value : `__raw-${idx}`}
+                          role="option"
+                          aria-selected={idx === active}
+                          onMouseEnter={() => setActive(idx)}
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            suppressTriggerClick.current = true;
+                            choose(idx);
+                          }}
+                          className={cn(
+                            'absolute left-0 right-0 flex cursor-pointer items-center gap-2.5 px-3',
+                            idx === active ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50',
+                          )}
+                          style={{ top: idx * ROW_H, height: ROW_H }}
+                        >
+                          {opt ? (
+                            <>
+                              {opt.avatar
+                                ? <img src={opt.avatar} alt="" className="media-outline h-7 w-7 shrink-0 rounded-full" />
+                                : <span className="media-outline h-7 w-7 shrink-0 rounded-full bg-muted" />}
+                              <span className="min-w-0 flex-1 truncate text-sm">{opt.label}</span>
+                              {opt.sub && <span className="shrink-0 font-mono text-meta text-muted-foreground tabular-nums">{opt.sub}</span>}
+                            </>
+                          ) : (
+                            <span className="text-sm">使用 <span className="font-mono text-primary">{rawRow}</span></span>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
+                  </div>
+                )
+              ) : null}
+            </SkeletonSwap>
           </motion.div>
         )}
       </AnimatePresence>

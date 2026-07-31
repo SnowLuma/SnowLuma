@@ -28,6 +28,7 @@ import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { SkeletonSwap } from '@/components/interior/skeleton-swap';
 import { useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import { useFlashMessage } from '@/hooks/use-flash-message';
 import { useApi } from '@/lib/api';
@@ -107,12 +108,16 @@ export function StoragePanel() {
   };
 
   const load = async (showSpinner = false): Promise<boolean> => {
-    if (showSpinner) setRefreshing(true);
+    if (showSpinner) {
+      if (data === null) setLoading(true);
+      else setRefreshing(true);
+    }
     try {
       const overview = await api.storage.get();
       applyOverview(overview);
       return true;
     } catch (error) {
+      console.error('load storage overview failed', error);
       setMsg({
         kind: 'err',
         text: error instanceof Error ? error.message : '加载存储信息失败',
@@ -222,26 +227,28 @@ export function StoragePanel() {
     }
   };
 
-  if (loading) {
+  if (loading || !data) {
     return (
-      <div className="flex items-center gap-2 px-1 py-8 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
-        加载存储信息…
-      </div>
-    );
-  }
-
-  if (!data) {
-    return (
-      <Card>
-        <CardContent className="flex flex-col items-start gap-3 pt-5">
-          <p className="text-sm text-muted-foreground">存储信息暂时不可用。</p>
-          <Button variant="outline" onClick={() => void load(true)}>
-            <RefreshCw className="size-4" />
-            重试
-          </Button>
-        </CardContent>
-      </Card>
+      <SkeletonSwap
+        ready={!loading}
+        lines={7}
+        lineHeight={26}
+        reserve={182}
+        label="存储信息"
+        className={!loading ? 'skeleton-swap-fluid min-h-[182px]' : ''}
+      >
+        {!loading && !data ? (
+          <Card>
+            <CardContent className="flex flex-col items-start gap-3 pt-5">
+              <p className="text-sm text-muted-foreground">存储信息暂时不可用。</p>
+              <Button variant="outline" onClick={() => void load(true)}>
+                <RefreshCw className="size-4" />
+                重试
+              </Button>
+            </CardContent>
+          </Card>
+        ) : null}
+      </SkeletonSwap>
     );
   }
 
@@ -259,310 +266,319 @@ export function StoragePanel() {
   ) as Record<AccountStorageCategory, number>;
 
   return (
-    <div className="flex flex-col gap-5">
-      {msg && (
-        <div
-          role="status"
-          className={cn(
-            'rounded-lg px-3 py-2 text-xs',
-            msg.kind === 'ok'
-              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-              : 'bg-red-500/10 text-red-700 dark:text-red-300',
-          )}
-        >
-          {msg.text}
-        </div>
-      )}
-
-      <Card>
-        <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <HardDrive className="size-4" />
-              存储概览
-            </CardTitle>
-            <CardDescription className="mt-1">
-              只统计 SnowLuma 管理的日志、账号数据库和文件传输临时数据。
-            </CardDescription>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void load(true)}
-            disabled={refreshing || saving || operation !== null}
-            className="shrink-0"
-          >
-            <RefreshCw className={cn('size-4', refreshing && 'animate-spin')} />
-            刷新
-          </Button>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-5">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Metric label="受管数据总量" value={formatBytes(snapshot.totals.managedBytes)} />
-            <Metric label="日志" value={formatBytes(snapshot.totals.logsBytes)} />
-            <Metric label="账号数据库" value={formatBytes(snapshot.totals.accountDataBytes)} />
-            <Metric label="传输临时数据" value={formatBytes(snapshot.totals.temporaryBytes)} />
-          </div>
-
-          <div className="rounded-lg bg-muted/35 p-3">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-sm font-medium">日志容量</p>
-                <p className="mt-0.5 text-xs tabular-nums text-muted-foreground">
-                  {formatBytes(snapshot.logs.totalBytes)} / {formatBytes(snapshot.logs.maxTotalBytes)}
-                </p>
-              </div>
-              <Badge variant={toneBadgeVariant(logPresentation.tone)}>
-                {logPresentation.label}
-              </Badge>
-            </div>
-            <Progress
-              value={logPresentation.percent}
-              aria-label="日志容量使用率"
-              indicatorClassName={toneProgressClass(logPresentation.tone)}
-            />
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-              <span>{snapshot.logs.fileCount} 个文件</span>
-              <span>{snapshot.logs.activeFileCount} 个活动文件</span>
-              <span>丢弃 {snapshot.logs.droppedLines} 行磁盘日志</span>
-            </div>
-            {snapshot.logs.lastError && (
-              <div className="mt-3 flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-                <span className="break-words">{snapshot.logs.lastError}</span>
-              </div>
+    <SkeletonSwap
+      ready
+      lines={7}
+      lineHeight={26}
+      reserve={182}
+      label="存储信息"
+      className="skeleton-swap-fluid min-h-[182px]"
+    >
+      <div className="flex flex-col gap-5">
+        {msg && (
+          <div
+            role="status"
+            className={cn(
+              'rounded-lg px-3 py-2 text-xs',
+              msg.kind === 'ok'
+                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                : 'bg-red-500/10 text-red-700 dark:text-red-300',
             )}
+          >
+            {msg.text}
           </div>
+        )}
 
-          {data.lastCleanup && <LastCleanupSummary cleanup={data.lastCleanup} />}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <FileClock className="size-4" />
-            日志策略
-          </CardTitle>
-          <CardDescription>
-            总量上限始终生效；保留天数设为 0 时仅按总量淘汰。保存后立即应用。
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="storage-log-max" className="flex flex-wrap items-center gap-1">
-                日志总量上限（MB）
-                <EnvironmentBadge locked={isLocked('logMaxTotalMb')} />
-              </Label>
-              <Input
-                id="storage-log-max"
-                type="number"
-                min={1}
-                step={1}
-                inputMode="numeric"
-                value={maxTotalMb}
-                onChange={(event) => setMaxTotalMb(event.target.value)}
-                disabled={isLocked('logMaxTotalMb') || saving || operation !== null}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="storage-log-days" className="flex flex-wrap items-center gap-1">
-                保留天数
-                <EnvironmentBadge locked={isLocked('logRetainDays')} />
-              </Label>
-              <Input
-                id="storage-log-days"
-                type="number"
-                min={0}
-                step={1}
-                inputMode="numeric"
-                value={retainDays}
-                onChange={(event) => setRetainDays(event.target.value)}
-                disabled={isLocked('logRetainDays') || saving || operation !== null}
-              />
-            </div>
-          </div>
-
-          <div className="flex min-h-11 items-center justify-between gap-4 rounded-lg bg-muted/35 px-3 py-2">
+        <Card>
+          <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
-              <p className="flex flex-wrap items-center gap-1 text-sm font-medium">
-                按账号额外写入日志
-                <EnvironmentBadge locked={isLocked('logPerUin')} />
-              </p>
-              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                开启后，同一条带账号上下文的日志还会写入账号子目录，占用会增加。
-              </p>
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <HardDrive className="size-4" />
+              存储概览
+              </CardTitle>
+              <CardDescription className="mt-1">
+              只统计 SnowLuma 管理的日志、账号数据库和文件传输临时数据。
+              </CardDescription>
             </div>
-            <ToggleSwitch
-              value={perUin}
-              onChange={setPerUin}
-              ariaLabel="按账号额外写入日志"
-              disabled={isLocked('logPerUin') || saving || operation !== null}
-            />
-          </div>
-
-          <div>
             <Button
-              onClick={() => void saveSettings()}
-              disabled={
-                saving
-                || operation !== null
-                || data.settings.envOverrides.length === 3
-              }
+              variant="outline"
+              size="sm"
+              onClick={() => void load(true)}
+              disabled={refreshing || saving || operation !== null}
+              className="shrink-0"
             >
-              {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-              保存并应用
+              <RefreshCw className={cn('size-4', refreshing && 'animate-spin')} />
+            刷新
             </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <Trash2 className="size-4" />
-            全局数据清理
-          </CardTitle>
-          <CardDescription>
-            日志清理会轮转活动文件；临时数据清理会自动跳过正在进行的上传和下载。
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="divide-y divide-border/60 p-0">
-          <CleanupRow
-            icon={FileClock}
-            title="日志"
-            description={`${snapshot.logs.fileCount} 个文件 · ${formatBytes(snapshot.logs.totalBytes)}`}
-            busy={operation === 'logs'}
-            disabled={saving || operation !== null}
-            onClick={() => setPendingCleanup({
-              request: { scope: 'logs' },
-              title: '清理全部日志？',
-              description: 'SnowLuma 会先轮转活动日志，再删除旧日志，只保留新建的空文件。',
-            })}
-          />
-          <CleanupRow
-            icon={Activity}
-            title="文件传输临时数据"
-            description={`${snapshot.temporary.fileCount} 个文件 · ${formatBytes(snapshot.temporary.totalBytes)} · ${snapshot.temporary.activeItemCount} 个活动传输`}
-            busy={operation === 'temporary'}
-            disabled={saving || operation !== null}
-            onClick={() => setPendingCleanup({
-              request: { scope: 'temporary' },
-              title: '清理非活动临时数据？',
-              description: '正在上传或下载的项目会保留，其余 SnowLuma 文件传输临时数据将被删除。',
-            })}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <Database className="size-4" />
-            账号数据
-          </CardTitle>
-          <CardDescription>
-            仅清理选中的数据库分类。账号必须离线，配置、凭据和聊天内容导出不在此页面提供。
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          {snapshot.accounts.length === 0 ? (
-            <div className="rounded-lg bg-muted/35 px-4 py-6 text-center text-sm text-muted-foreground">
-              尚未发现账号数据库。
+          </CardHeader>
+          <CardContent className="flex flex-col gap-5">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <Metric label="受管数据总量" value={formatBytes(snapshot.totals.managedBytes)} />
+              <Metric label="日志" value={formatBytes(snapshot.totals.logsBytes)} />
+              <Metric label="账号数据库" value={formatBytes(snapshot.totals.accountDataBytes)} />
+              <Metric label="传输临时数据" value={formatBytes(snapshot.totals.temporaryBytes)} />
             </div>
-          ) : (
-            snapshot.accounts.map((account) => (
-              <AccountStorageCard
-                key={account.uin}
-                account={account}
-                operation={operation}
-                saving={saving}
-                onRequest={(category) => {
-                  const info = CATEGORY_INFO[category];
-                  setPendingCleanup({
-                    request: { scope: 'account', category, uin: account.uin },
-                    title: `清理 ${account.nickname || account.uin} 的${info.label}？`,
-                    description: `将删除账号 ${account.uin} 的${info.label}数据库及其边车文件，其他分类和配置不受影响。`,
-                  });
-                }}
-              />
-            ))
-          )}
 
-          {snapshot.accounts.length > 0 && (
             <div className="rounded-lg bg-muted/35 p-3">
-              <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <p className="flex items-center gap-2 text-sm font-medium">
-                    <Users className="size-4" />
-                    全部账号
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {onlineCount > 0
-                      ? `${onlineCount} 个账号仍在线，全部账号清理暂不可用`
-                      : '选择一个分类，并在弹窗中输入确认短语'}
+                  <p className="text-sm font-medium">日志容量</p>
+                  <p className="mt-0.5 text-xs tabular-nums text-muted-foreground">
+                    {formatBytes(snapshot.logs.totalBytes)} / {formatBytes(snapshot.logs.maxTotalBytes)}
                   </p>
                 </div>
+                <Badge variant={toneBadgeVariant(logPresentation.tone)}>
+                  {logPresentation.label}
+                </Badge>
               </div>
-              <div className="grid gap-2 sm:grid-cols-3">
-                {CATEGORIES.map((category) => (
-                  <Button
-                    key={category}
-                    variant="outline"
-                    onClick={() => setAllAccountsCategory(category)}
-                    disabled={
-                      operation !== null
+              <Progress
+                value={logPresentation.percent}
+                aria-label="日志容量使用率"
+                indicatorClassName={toneProgressClass(logPresentation.tone)}
+              />
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span>{snapshot.logs.fileCount} 个文件</span>
+                <span>{snapshot.logs.activeFileCount} 个活动文件</span>
+                <span>丢弃 {snapshot.logs.droppedLines} 行磁盘日志</span>
+              </div>
+              {snapshot.logs.lastError && (
+                <div className="mt-3 flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                  <span className="break-words">{snapshot.logs.lastError}</span>
+                </div>
+              )}
+            </div>
+
+            {data.lastCleanup && <LastCleanupSummary cleanup={data.lastCleanup} />}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <FileClock className="size-4" />
+            日志策略
+            </CardTitle>
+            <CardDescription>
+            总量上限始终生效；保留天数设为 0 时仅按总量淘汰。保存后立即应用。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="storage-log-max" className="flex flex-wrap items-center gap-1">
+                日志总量上限（MB）
+                  <EnvironmentBadge locked={isLocked('logMaxTotalMb')} />
+                </Label>
+                <Input
+                  id="storage-log-max"
+                  type="number"
+                  min={1}
+                  step={1}
+                  inputMode="numeric"
+                  value={maxTotalMb}
+                  onChange={(event) => setMaxTotalMb(event.target.value)}
+                  disabled={isLocked('logMaxTotalMb') || saving || operation !== null}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="storage-log-days" className="flex flex-wrap items-center gap-1">
+                保留天数
+                  <EnvironmentBadge locked={isLocked('logRetainDays')} />
+                </Label>
+                <Input
+                  id="storage-log-days"
+                  type="number"
+                  min={0}
+                  step={1}
+                  inputMode="numeric"
+                  value={retainDays}
+                  onChange={(event) => setRetainDays(event.target.value)}
+                  disabled={isLocked('logRetainDays') || saving || operation !== null}
+                />
+              </div>
+            </div>
+
+            <div className="flex min-h-11 items-center justify-between gap-4 rounded-lg bg-muted/35 px-3 py-2">
+              <div className="min-w-0">
+                <p className="flex flex-wrap items-center gap-1 text-sm font-medium">
+                按账号额外写入日志
+                  <EnvironmentBadge locked={isLocked('logPerUin')} />
+                </p>
+                <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                开启后，同一条带账号上下文的日志还会写入账号子目录，占用会增加。
+                </p>
+              </div>
+              <ToggleSwitch
+                value={perUin}
+                onChange={setPerUin}
+                ariaLabel="按账号额外写入日志"
+                disabled={isLocked('logPerUin') || saving || operation !== null}
+              />
+            </div>
+
+            <div>
+              <Button
+                onClick={() => void saveSettings()}
+                disabled={
+                  saving
+                || operation !== null
+                || data.settings.envOverrides.length === 3
+                }
+              >
+                {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+              保存并应用
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Trash2 className="size-4" />
+            全局数据清理
+            </CardTitle>
+            <CardDescription>
+            日志清理会轮转活动文件；临时数据清理会自动跳过正在进行的上传和下载。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="divide-y divide-border/60 p-0">
+            <CleanupRow
+              icon={FileClock}
+              title="日志"
+              description={`${snapshot.logs.fileCount} 个文件 · ${formatBytes(snapshot.logs.totalBytes)}`}
+              busy={operation === 'logs'}
+              disabled={saving || operation !== null}
+              onClick={() => setPendingCleanup({
+                request: { scope: 'logs' },
+                title: '清理全部日志？',
+                description: 'SnowLuma 会先轮转活动日志，再删除旧日志，只保留新建的空文件。',
+              })}
+            />
+            <CleanupRow
+              icon={Activity}
+              title="文件传输临时数据"
+              description={`${snapshot.temporary.fileCount} 个文件 · ${formatBytes(snapshot.temporary.totalBytes)} · ${snapshot.temporary.activeItemCount} 个活动传输`}
+              busy={operation === 'temporary'}
+              disabled={saving || operation !== null}
+              onClick={() => setPendingCleanup({
+                request: { scope: 'temporary' },
+                title: '清理非活动临时数据？',
+                description: '正在上传或下载的项目会保留，其余 SnowLuma 文件传输临时数据将被删除。',
+              })}
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Database className="size-4" />
+            账号数据
+            </CardTitle>
+            <CardDescription>
+            仅清理选中的数据库分类。账号必须离线，配置、凭据和聊天内容导出不在此页面提供。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {snapshot.accounts.length === 0 ? (
+              <div className="rounded-lg bg-muted/35 px-4 py-6 text-center text-sm text-muted-foreground">
+              尚未发现账号数据库。
+              </div>
+            ) : (
+              snapshot.accounts.map((account) => (
+                <AccountStorageCard
+                  key={account.uin}
+                  account={account}
+                  operation={operation}
+                  saving={saving}
+                  onRequest={(category) => {
+                    const info = CATEGORY_INFO[category];
+                    setPendingCleanup({
+                      request: { scope: 'account', category, uin: account.uin },
+                      title: `清理 ${account.nickname || account.uin} 的${info.label}？`,
+                      description: `将删除账号 ${account.uin} 的${info.label}数据库及其边车文件，其他分类和配置不受影响。`,
+                    });
+                  }}
+                />
+              ))
+            )}
+
+            {snapshot.accounts.length > 0 && (
+              <div className="rounded-lg bg-muted/35 p-3">
+                <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="flex items-center gap-2 text-sm font-medium">
+                      <Users className="size-4" />
+                    全部账号
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {onlineCount > 0
+                        ? `${onlineCount} 个账号仍在线，全部账号清理暂不可用`
+                        : '选择一个分类，并在弹窗中输入确认短语'}
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {CATEGORIES.map((category) => (
+                    <Button
+                      key={category}
+                      variant="outline"
+                      onClick={() => setAllAccountsCategory(category)}
+                      disabled={
+                        operation !== null
                       || saving
                       || onlineCount > 0
                       || allCategoryBytes[category] === 0
-                    }
-                    className="justify-between"
-                  >
-                    <span>清理全部{CATEGORY_INFO[category].label}</span>
-                    <span className="text-xs tabular-nums text-muted-foreground">
-                      {formatBytes(allCategoryBytes[category])}
-                    </span>
-                  </Button>
-                ))}
+                      }
+                      className="justify-between"
+                    >
+                      <span>清理全部{CATEGORY_INFO[category].label}</span>
+                      <span className="text-xs tabular-nums text-muted-foreground">
+                        {formatBytes(allCategoryBytes[category])}
+                      </span>
+                    </Button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            )}
+          </CardContent>
+        </Card>
 
-      <ConfirmDialog
-        open={pendingCleanup !== null}
-        onOpenChange={(open) => {
-          if (!open && operation === null) setPendingCleanup(null);
-        }}
-        title={pendingCleanup?.title ?? ''}
-        description={pendingCleanup?.description}
-        confirmText="确认清理"
-        destructive
-        onConfirm={async () => {
-          if (!pendingCleanup) return;
-          await runCleanup(pendingCleanup.request);
-          setPendingCleanup(null);
-        }}
-      />
+        <ConfirmDialog
+          open={pendingCleanup !== null}
+          onOpenChange={(open) => {
+            if (!open && operation === null) setPendingCleanup(null);
+          }}
+          title={pendingCleanup?.title ?? ''}
+          description={pendingCleanup?.description}
+          confirmText="确认清理"
+          destructive
+          onConfirm={async () => {
+            if (!pendingCleanup) return;
+            await runCleanup(pendingCleanup.request);
+            setPendingCleanup(null);
+          }}
+        />
 
-      <AllAccountsCleanupDialog
-        category={allAccountsCategory}
-        busy={operation?.startsWith('allAccounts:') ?? false}
-        onOpenChange={(open) => {
-          if (!open && operation === null) setAllAccountsCategory(null);
-        }}
-        onConfirm={async (category) => {
-          await runCleanup({
-            scope: 'allAccounts',
-            category,
-            confirmation: ALL_ACCOUNTS_CONFIRMATION,
-          });
-          setAllAccountsCategory(null);
-        }}
-      />
-    </div>
+        <AllAccountsCleanupDialog
+          category={allAccountsCategory}
+          busy={operation?.startsWith('allAccounts:') ?? false}
+          onOpenChange={(open) => {
+            if (!open && operation === null) setAllAccountsCategory(null);
+          }}
+          onConfirm={async (category) => {
+            await runCleanup({
+              scope: 'allAccounts',
+              category,
+              confirmation: ALL_ACCOUNTS_CONFIRMATION,
+            });
+            setAllAccountsCategory(null);
+          }}
+        />
+      </div>
+    </SkeletonSwap>
   );
 }
 

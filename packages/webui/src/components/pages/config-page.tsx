@@ -10,10 +10,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Check, Loader2, MousePointerClick, Plus, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { ScrollableTabList } from '@/components/ui/tabs';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { SkeletonSwap } from '@/components/interior/skeleton-swap';
 import { cn } from '@/lib/utils';
 import type {
   AdapterStatus,
@@ -41,9 +41,19 @@ type DialogState =
 //   index: null → create with `seed`, otherwise edit the item at that position.
 
 export function ConfigPage() {
-  const { qqList, connections, selectedUin, setSelectedUin } = useAppState();
+  const {
+    qqList,
+    connections,
+    selectedUin,
+    setSelectedUin,
+    resources,
+    refreshQqList,
+  } = useAppState();
   const {
     config,
+    loading,
+    loadError,
+    reload,
     setConfig,
     dirty,
     requestSwitchUin,
@@ -57,7 +67,6 @@ export function ConfigPage() {
     selectedUin,
     onSelectedUinChange: setSelectedUin,
   });
-
   const { pages, setPages } = useLayout();
   const [activeTab, setActiveTabState] = useState<TabKey>(() => {
     const t = pages.configTab;
@@ -169,99 +178,136 @@ export function ConfigPage() {
   };
 
   return (
-    <div className="flex gap-4">
-      <AccountSidebar
-        accounts={qqList}
-        selectedUin={selectedUin}
-        onSelect={requestSwitchUin}
-        collapsed={sidebarCollapsed}
-        onToggleCollapsed={() => setSidebarCollapsed((v) => !v)}
-      />
-
-      <div className="min-w-0 flex-1">
-        {!selectedUin ? (
-          <EmptyState />
-        ) : !config ? (
-          <LoadingSkeleton />
+    <SkeletonSwap
+      ready={resources.qqList.ready}
+      lines={7}
+      lineHeight={28}
+      barHeight={11}
+      reserve={196}
+      label="账号列表"
+      className={resources.qqList.ready ? 'skeleton-swap-fluid min-h-[196px]' : ''}
+    >
+      {resources.qqList.ready ? (
+        resources.qqList.error && qqList.length === 0 ? (
+          <ConfigLoadError message={resources.qqList.error} onRetry={refreshQqList} />
         ) : (
-          <div className="flex flex-col gap-4">
-            <HeaderBar
-              selectedUin={selectedUin}
-              dirty={dirty}
-              saveStatus={saveStatus}
-              saveStatusTone={saveStatusTone}
-              onSave={immediateSave}
-              activeTab={activeTab}
-              onCreate={
-                activeTab !== 'general' ? () => openCreate(activeTab as NetworkKind) : undefined
-              }
-            />
+          <div className="flex flex-col gap-3">
+            {resources.qqList.error && (
+              <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {resources.qqList.error}；当前显示上次成功读取的账号列表。
+              </div>
+            )}
+            <div className="flex gap-4">
+              <AccountSidebar
+                accounts={qqList}
+                selectedUin={selectedUin}
+                onSelect={requestSwitchUin}
+                collapsed={sidebarCollapsed}
+                onToggleCollapsed={() => setSidebarCollapsed((v) => !v)}
+              />
 
-            <TabStrip
-              activeTab={activeTab}
-              onChange={setActiveTab}
-              counts={countMap(config.networks)}
-            />
+              <div className="min-w-0 flex-1">
+                {!selectedUin ? (
+                  <EmptyState />
+                ) : (
+                  <SkeletonSwap
+                    ready={!loading}
+                    lines={7}
+                    lineHeight={28}
+                    barHeight={11}
+                    reserve={196}
+                    label="账号配置"
+                    className={!loading ? 'skeleton-swap-fluid min-h-[196px]' : 'w-full'}
+                  >
+                    {!loading ? (
+                      loadError || !config ? (
+                        <ConfigLoadError message={loadError ?? '账号配置不可用'} onRetry={reload} />
+                      ) : (
+                        <div className="flex flex-col gap-4">
+                          <HeaderBar
+                            selectedUin={selectedUin}
+                            dirty={dirty}
+                            saveStatus={saveStatus}
+                            saveStatusTone={saveStatusTone}
+                            onSave={immediateSave}
+                            activeTab={activeTab}
+                            onCreate={
+                              activeTab !== 'general' ? () => openCreate(activeTab as NetworkKind) : undefined
+                            }
+                          />
 
-            <div
-              id={`config-panel-${activeTab}`}
-              role="tabpanel"
-              aria-labelledby={`config-tab-${activeTab}`}
-            >
-              {activeTab === 'general' ? (
-                <GeneralSettingsTab config={config} onChange={setConfig} />
-              ) : (
-                <NetworkTabView
-                  kind={activeTab}
-                  config={config}
-                  statusByName={liveStatusByName}
-                  onCreateClick={() => openCreate(activeTab)}
-                  onEdit={(idx) => openEdit(activeTab, idx)}
-                  onDelete={(idx) => handleDelete(activeTab, idx)}
-                  onToggleEnabled={(idx, v) => handleToggleEnabled(activeTab, idx, v)}
+                          <TabStrip
+                            activeTab={activeTab}
+                            onChange={setActiveTab}
+                            counts={countMap(config.networks)}
+                          />
+
+                          <div
+                            id={`config-panel-${activeTab}`}
+                            role="tabpanel"
+                            aria-labelledby={`config-tab-${activeTab}`}
+                          >
+                            {activeTab === 'general' ? (
+                              <GeneralSettingsTab config={config} onChange={setConfig} />
+                            ) : (
+                              <NetworkTabView
+                                kind={activeTab}
+                                config={config}
+                                statusByName={liveStatusByName}
+                                onCreateClick={() => openCreate(activeTab)}
+                                onEdit={(idx) => openEdit(activeTab, idx)}
+                                onDelete={(idx) => handleDelete(activeTab, idx)}
+                                onToggleEnabled={(idx, v) => handleToggleEnabled(activeTab, idx, v)}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      )
+                    ) : null}
+                  </SkeletonSwap>
+                )}
+              </div>
+
+              {/* Single dialog covers create + edit across all 4 kinds. */}
+              {dialog.open && config && (
+                <NodeEditDialog
+                  open={dialog.open}
+                  onOpenChange={(open) => !open && setDialog({ open: false })}
+                  kind={dialog.kind}
+                  initial={dialog.seed}
+                  isEdit={dialog.index != null}
+                  otherNames={otherNames(config.networks, dialog.kind, dialog.index)}
+                  onSubmit={(item) => {
+                    if (dialog.index == null) handleCreate(dialog.kind, item);
+                    else handleEdit(dialog.kind, dialog.index, item);
+                  }}
                 />
               )}
+
+              <ConfirmDialog
+                open={pendingSwitchUin != null}
+                onOpenChange={(open) => !open && cancelSwitch()}
+                title="放弃未保存的修改？"
+                description={
+                  <>
+                    <p>
+                      当前会话 <code className="font-mono">{selectedUin}</code> 还有未保存的修改。
+                    </p>
+                    <p className="mt-2">
+                      切换到 <code className="font-mono">{pendingSwitchAccount?.uin ?? pendingSwitchUin}</code>
+                      {pendingSwitchAccount?.nickname ? `（${pendingSwitchAccount.nickname}）` : ''} 会丢弃这些修改。
+                    </p>
+                  </>
+                }
+                confirmText="放弃并切换"
+                destructive
+                onConfirm={confirmSwitch}
+              />
             </div>
           </div>
-        )}
-      </div>
-
-      {/* Single dialog covers create + edit across all 4 kinds. */}
-      {dialog.open && config && (
-        <NodeEditDialog
-          open={dialog.open}
-          onOpenChange={(open) => !open && setDialog({ open: false })}
-          kind={dialog.kind}
-          initial={dialog.seed}
-          isEdit={dialog.index != null}
-          otherNames={otherNames(config.networks, dialog.kind, dialog.index)}
-          onSubmit={(item) => {
-            if (dialog.index == null) handleCreate(dialog.kind, item);
-            else handleEdit(dialog.kind, dialog.index, item);
-          }}
-        />
-      )}
-
-      <ConfirmDialog
-        open={pendingSwitchUin != null}
-        onOpenChange={(open) => !open && cancelSwitch()}
-        title="放弃未保存的修改？"
-        description={
-          <>
-            <p>
-              当前会话 <code className="font-mono">{selectedUin}</code> 还有未保存的修改。
-            </p>
-            <p className="mt-2">
-              切换到 <code className="font-mono">{pendingSwitchAccount?.uin ?? pendingSwitchUin}</code>
-              {pendingSwitchAccount?.nickname ? `（${pendingSwitchAccount.nickname}）` : ''} 会丢弃这些修改。
-            </p>
-          </>
-        }
-        confirmText="放弃并切换"
-        destructive
-        onConfirm={confirmSwitch}
-      />
-    </div>
+        )
+      ) : null}
+    </SkeletonSwap>
   );
 }
 
@@ -494,13 +540,13 @@ function EmptyState() {
   );
 }
 
-function LoadingSkeleton() {
+function ConfigLoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <div className="space-y-3">
-      <Skeleton className="h-9 w-48" />
-      <Skeleton className="h-10" />
-      <Skeleton className="h-20" />
-      <Skeleton className="h-20" />
+    <div className="flex h-64 flex-col items-center justify-center gap-3 rounded-xl border border-dashed text-muted-foreground">
+      <p className="max-w-md text-center text-sm text-destructive">{message}</p>
+      <Button variant="outline" size="sm" onClick={onRetry}>
+        重试
+      </Button>
     </div>
   );
 }

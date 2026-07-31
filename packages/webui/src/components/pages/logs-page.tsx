@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { SkeletonSwap } from '@/components/interior/skeleton-swap';
 import { cn } from '@/lib/utils';
 import type { LogEntry, LogLevel, LogsPreset, UiHighlightRule } from '@/types';
 import { useApi } from '@/lib/api';
@@ -107,10 +108,14 @@ export function LogsPage() {
   const prefs = pages.logs;
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [logsReady, setLogsReady] = useState(false);
+  const [logsError, setLogsError] = useState<string | null>(null);
   const [streamStatus, setStreamStatus] = useState('连接中');
   const [filter, setFilter] = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
   const [serverLevel, setServerLevel] = useState<LogLevel | null>(null);
+  const [serverLevelReady, setServerLevelReady] = useState(false);
+  const [serverLevelError, setServerLevelError] = useState<string | null>(null);
   const [levelBusy, setLevelBusy] = useState(false);
   const [confirmTrace, setConfirmTrace] = useState(false);
   const [traceExportBusy, setTraceExportBusy] = useState(false);
@@ -133,22 +138,38 @@ export function LogsPage() {
   const enabled = useMemo(() => new Set(prefs.visibleLevels as LogLevel[]), [prefs.visibleLevels]);
 
   const loadLogs = useCallback(async () => {
+    setLogsError(null);
     try {
       // Backfill is capped at the server's ring-buffer size (1000); `maxLines`
       // can exceed that, but only the live SSE stream grows the view past 1000.
       setLogs(await api.logs.list(Math.min(1000, maxLinesRef.current)));
     } catch (e) {
       console.error('logs', e);
+      setLogsError(e instanceof Error ? e.message : '加载日志失败');
+    } finally {
+      setLogsReady(true);
     }
   }, [api]);
 
   useEffect(() => { void loadLogs(); }, [loadLogs]);
 
-  useEffect(() => {
-    api.logs.getLevel().then(({ level }) => setServerLevel(level)).catch((err) => {
-      console.error('getLevel', err);
-    });
+  const loadServerLevel = useCallback(async () => {
+    setServerLevelReady(false);
+    setServerLevelError(null);
+    try {
+      const { level } = await api.logs.getLevel();
+      setServerLevel(level);
+    } catch (error) {
+      console.error('get server log level failed', error);
+      setServerLevelError(error instanceof Error ? error.message : '加载服务端日志级别失败');
+    } finally {
+      setServerLevelReady(true);
+    }
   }, [api]);
+
+  useEffect(() => {
+    void loadServerLevel();
+  }, [loadServerLevel]);
 
   const applyServerLevel = useCallback(async (lv: LogLevel) => {
     if (lv === serverLevel || levelBusy) return;
@@ -587,29 +608,50 @@ export function LogsPage() {
                   <span className="text-xs font-medium text-foreground">服务端日志级别</span>
                   <span className="text-xs text-muted-foreground">· 普通日志仅影响控制台 / 实时流；首次登录凭据始终可见；文件等级由环境变量决定，默认为 debug</span>
                 </div>
-                <div className="inline-flex flex-wrap gap-1 rounded-lg bg-muted/60 p-1">
-                  {LEVELS.map((lv) => {
-                    const active = serverLevel === lv;
-                    return (
-                      <button
-                        key={lv}
-                        type="button"
-                        onClick={() => void changeServerLevel(lv)}
-                        disabled={levelBusy || serverLevel === null}
-                        aria-pressed={active}
-                        className={cn(
-                          'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-[background-color,color,box-shadow,opacity] duration-150 ease-out cursor-pointer disabled:cursor-not-allowed disabled:opacity-50',
-                          active
-                            ? cn('bg-card shadow-sm ring-1 ring-border/60', levelClass[lv])
-                            : 'text-muted-foreground/70 hover:text-foreground',
-                        )}
-                      >
-                        <span className={cn('size-1.5 rounded-full', active ? 'bg-current' : 'bg-muted-foreground/30')} />
-                        {lv.toUpperCase()}
-                      </button>
-                    );
-                  })}
-                </div>
+                <SkeletonSwap
+                  ready={serverLevelReady}
+                  reserve={34}
+                  lines={1}
+                  lineHeight={34}
+                  barHeight={8}
+                  label="服务端日志级别"
+                  className={serverLevelReady ? 'skeleton-swap-fluid min-h-[34px]' : 'w-72 max-w-full'}
+                >
+                  {serverLevelReady ? (
+                    serverLevelError ? (
+                      <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-destructive">
+                        <span>{serverLevelError}</span>
+                        <Button variant="outline" size="sm" onClick={() => void loadServerLevel()}>
+                          重试
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="inline-flex flex-wrap gap-1 rounded-lg bg-muted/60 p-1">
+                        {LEVELS.map((lv) => {
+                          const active = serverLevel === lv;
+                          return (
+                            <button
+                              key={lv}
+                              type="button"
+                              onClick={() => void changeServerLevel(lv)}
+                              disabled={levelBusy || serverLevel === null}
+                              aria-pressed={active}
+                              className={cn(
+                                'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-[background-color,color,box-shadow,opacity] duration-150 ease-out cursor-pointer disabled:cursor-not-allowed disabled:opacity-50',
+                                active
+                                  ? cn('bg-card shadow-sm ring-1 ring-border/60', levelClass[lv])
+                                  : 'text-muted-foreground/70 hover:text-foreground',
+                              )}
+                            >
+                              <span className={cn('size-1.5 rounded-full', active ? 'bg-current' : 'bg-muted-foreground/30')} />
+                              {lv.toUpperCase()}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )
+                  ) : null}
+                </SkeletonSwap>
               </div>
 
               {/* Highlight rules */}
@@ -674,7 +716,7 @@ export function LogsPage() {
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-muted/20">
           {/* Column header lives OUTSIDE the scroll viewport so the virtualizer's
               scroll element contains only the rows (no sticky-offset math). */}
-          {filtered.length > 0 && (
+          {logsReady && filtered.length > 0 && (
             <div className="hidden items-center gap-3 border-b border-border/60 bg-card/60 px-3 py-2 font-mono text-micro font-medium uppercase tracking-wider text-muted-foreground/70 sm:flex">
               <span className="w-[104px] shrink-0">时间</span>
               <span className="w-[76px] shrink-0">级别</span>
@@ -682,75 +724,100 @@ export function LogsPage() {
               <span className="flex-1">消息</span>
             </div>
           )}
+          {logsReady && logsError && logs.length > 0 && (
+            <div role="alert" className="border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {logsError}；当前显示已读取和实时接收的日志。
+            </div>
+          )}
           <ScrollArea viewportRef={scrollRef} className="min-h-0 flex-1" viewportClassName={cn('[&>div]:!block', maskCls)}>
-            <div className="font-mono text-xs">
-              {filtered.length === 0 ? (
-                <div className="flex min-h-60 flex-col items-center justify-center gap-3 px-4 py-10 text-center font-sans text-muted-foreground">
-                  {logs.length === 0 ? (
-                    <>
-                      <Inbox className="size-9 opacity-30" />
-                      <span className="text-sm">暂无日志</span>
-                    </>
+            <SkeletonSwap
+              ready={logsReady}
+              reserve={240}
+              lines={8}
+              lineHeight={30}
+              barHeight={10}
+              label="运行日志"
+              className={logsReady ? 'skeleton-swap-fluid min-h-60' : ''}
+            >
+              {logsReady ? (
+                <div className="font-mono text-xs">
+                  {logsError && logs.length === 0 ? (
+                    <div role="alert" className="flex min-h-60 flex-col items-center justify-center gap-3 px-4 py-10 text-center font-sans text-destructive">
+                      <TriangleAlert className="size-9 opacity-70" />
+                      <span className="text-sm">{logsError}</span>
+                      <Button variant="outline" size="sm" onClick={() => void loadLogs()} className="rounded-lg">
+                        <RefreshCw className="size-3.5" /> 重试
+                      </Button>
+                    </div>
+                  ) : filtered.length === 0 ? (
+                    <div className="flex min-h-60 flex-col items-center justify-center gap-3 px-4 py-10 text-center font-sans text-muted-foreground">
+                      {logs.length === 0 ? (
+                        <>
+                          <Inbox className="size-9 opacity-30" />
+                          <span className="text-sm">暂无日志</span>
+                        </>
+                      ) : (
+                        <>
+                          <SearchX className="size-9 opacity-30" />
+                          <span className="text-sm">没有符合筛选条件的日志</span>
+                          <Button variant="outline" size="sm" onClick={clearFilters} className="rounded-lg">清除筛选</Button>
+                        </>
+                      )}
+                    </div>
                   ) : (
-                    <>
-                      <SearchX className="size-9 opacity-30" />
-                      <span className="text-sm">没有符合筛选条件的日志</span>
-                      <Button variant="outline" size="sm" onClick={clearFilters} className="rounded-lg">清除筛选</Button>
-                    </>
+                    <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
+                      {rowVirtualizer.getVirtualItems().map((vRow) => {
+                        const log = filtered[vRow.index];
+                        if (!log) return null; // guard a transient count/measurement skew
+                        const hl = matchHighlight(log.message, prefs.highlightRules);
+                        // Entrance is decided entirely by animatingRef (populated in
+                        // the flush from real arrivals, pruned at 260ms), so it fires
+                        // on the first paint, never replays on scroll-into-view, and
+                        // is immune to filter/idle churn. Outer = positioning +
+                        // measurement (its translateY); inner = visual row + the
+                        // transform-based entrance, kept separate so they never collide.
+                        const entering = animatingRef.current.has(log.id);
+                        return (
+                          <div
+                            key={log.id}
+                            data-index={vRow.index}
+                            ref={rowVirtualizer.measureElement}
+                            className="absolute left-0 top-0 w-full"
+                            style={{ transform: `translateY(${vRow.start}px)` }}
+                          >
+                            <div
+                              className={cn(
+                                'flex flex-col gap-0.5 border-b border-border/30 px-3 py-1.5 transition-colors hover:bg-accent/40 sm:flex-row sm:items-start sm:gap-3 sm:py-1',
+                                entering && 'log-row-in',
+                              )}
+                              style={hl ? { boxShadow: `inset 3px 0 0 ${hl}`, backgroundColor: `color-mix(in oklab, ${hl} 8%, transparent)` } : undefined}
+                            >
+                              <div className="flex items-center gap-3 sm:contents">
+                                <span className="w-[104px] shrink-0 tabular-nums text-muted-foreground">{formatClock(log.time)}</span>
+                                <span className={cn('flex w-[76px] shrink-0 items-center gap-1.5 font-semibold', levelClass[log.level])}>
+                                  <span className="size-1.5 shrink-0 rounded-full bg-current" />
+                                  {log.level.toUpperCase()}
+                                </span>
+                                <span className="min-w-0 flex-1 truncate text-muted-foreground sm:w-28 sm:flex-none sm:shrink-0">[{log.scope}]</span>
+                              </div>
+                              <span
+                                className={cn('min-w-0 flex-1 leading-5', prefs.wrap ? 'whitespace-pre-wrap break-all' : 'truncate')}
+                                title={prefs.wrap ? undefined : log.message}
+                              >
+                                {log.req !== undefined && (
+                                  <span className="mr-1.5 rounded bg-primary/10 px-1 text-micro text-primary tabular-nums" title="请求关联号">#{log.req}</span>
+                                )}
+                                {log.message}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
-              ) : (
-                <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
-                  {rowVirtualizer.getVirtualItems().map((vRow) => {
-                    const log = filtered[vRow.index];
-                    if (!log) return null; // guard a transient count/measurement skew
-                    const hl = matchHighlight(log.message, prefs.highlightRules);
-                    // Entrance is decided entirely by animatingRef (populated in
-                    // the flush from real arrivals, pruned at 260ms), so it fires
-                    // on the first paint, never replays on scroll-into-view, and
-                    // is immune to filter/idle churn. Outer = positioning +
-                    // measurement (its translateY); inner = visual row + the
-                    // transform-based entrance, kept separate so they never collide.
-                    const entering = animatingRef.current.has(log.id);
-                    return (
-                      <div
-                        key={log.id}
-                        data-index={vRow.index}
-                        ref={rowVirtualizer.measureElement}
-                        className="absolute left-0 top-0 w-full"
-                        style={{ transform: `translateY(${vRow.start}px)` }}
-                      >
-                        <div
-                          className={cn(
-                            'flex flex-col gap-0.5 border-b border-border/30 px-3 py-1.5 transition-colors hover:bg-accent/40 sm:flex-row sm:items-start sm:gap-3 sm:py-1',
-                            entering && 'log-row-in',
-                          )}
-                          style={hl ? { boxShadow: `inset 3px 0 0 ${hl}`, backgroundColor: `color-mix(in oklab, ${hl} 8%, transparent)` } : undefined}
-                        >
-                          <div className="flex items-center gap-3 sm:contents">
-                            <span className="w-[104px] shrink-0 tabular-nums text-muted-foreground">{formatClock(log.time)}</span>
-                            <span className={cn('flex w-[76px] shrink-0 items-center gap-1.5 font-semibold', levelClass[log.level])}>
-                              <span className="size-1.5 shrink-0 rounded-full bg-current" />
-                              {log.level.toUpperCase()}
-                            </span>
-                            <span className="min-w-0 flex-1 truncate text-muted-foreground sm:w-28 sm:flex-none sm:shrink-0">[{log.scope}]</span>
-                          </div>
-                          <span
-                            className={cn('min-w-0 flex-1 leading-5', prefs.wrap ? 'whitespace-pre-wrap break-all' : 'truncate')}
-                            title={prefs.wrap ? undefined : log.message}
-                          >
-                            {log.req !== undefined && (
-                              <span className="mr-1.5 rounded bg-primary/10 px-1 text-micro text-primary tabular-nums" title="请求关联号">#{log.req}</span>
-                            )}
-                            {log.message}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+              ) : null}
+            </SkeletonSwap>
           </ScrollArea>
         </div>
       </CardContent>

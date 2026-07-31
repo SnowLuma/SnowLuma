@@ -219,6 +219,19 @@
     box-shadow: var(--shadow-card);
   }
 
+  /* Skeleton Swap reserves a fixed box by default. Data panels that can grow
+     after the swap keep the original timing/motion but release that box once
+     real content is present, so the component never becomes an inner scroller. */
+  .skeleton-swap-fluid {
+    height: auto !important;
+    overflow-y: visible !important;
+  }
+
+  .skeleton-swap-fill {
+    height: 100% !important;
+    overflow-y: visible !important;
+  }
+
   /* Triangles and forward-pointing glyphs carry more visual mass on the left.
      A one-pixel optical correction centers them without changing hit areas. */
   .optical-forward {

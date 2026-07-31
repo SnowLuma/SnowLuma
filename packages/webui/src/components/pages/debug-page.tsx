@@ -11,6 +11,7 @@ import { ActionTester } from '@/components/debug/action-tester';
 import { MessageComposer } from '@/components/debug/message-composer';
 import { LiveActivity } from '@/components/debug/live-activity';
 import { ApiBrowser } from '@/components/debug/api-browser';
+import { SkeletonSwap } from '@/components/interior/skeleton-swap';
 import { useApi } from '@/lib/api';
 import type { DebugActionDoc, QQInfo } from '@/types';
 
@@ -20,6 +21,8 @@ export function DebugPage() {
   const api = useApi();
   const [accounts, setAccounts] = useState<QQInfo[]>([]);
   const [docs, setDocs] = useState<DebugActionDoc[]>([]);
+  const [ready, setReady] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('tester');
   const [preset, setPreset] = useState<{ name: string; nonce: number } | undefined>();
 
@@ -29,7 +32,12 @@ export function DebugPage() {
         const [qq, acts] = await Promise.all([api.qqList(), api.debug.actions()]);
         setAccounts(qq);
         setDocs(acts.actions);
-      } catch { /* surfaced lazily on invoke */ }
+      } catch (error) {
+        console.error('load debug tools', error);
+        setLoadError(error instanceof Error ? error.message : '加载开发者工具失败');
+      } finally {
+        setReady(true);
+      }
     })();
   }, [api]);
 
@@ -66,15 +74,35 @@ export function DebugPage() {
         />
       </motion.header>
 
-      {/* Tester / compose / activity stay MOUNTED and toggle via CSS so the
-          live feed's SSE never drops (it must capture events fired from other
-          tabs) and in-progress params/messages survive a peek at another tab.
-          ApiBrowser has no state worth preserving and is heavy (~520 rows), so
-          it mounts on demand. */}
-      <div className={cn(tab !== 'tester' && 'hidden')}><ActionTester accounts={accounts} docs={docs} presetAction={preset} /></div>
-      <div className={cn(tab !== 'compose' && 'hidden')}><MessageComposer accounts={accounts} /></div>
-      <div className={cn(tab !== 'activity' && 'hidden')}><LiveActivity /></div>
-      {tab === 'api' && <ApiBrowser docs={docs} onTry={tryAction} />}
+      {loadError && (
+        <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {loadError}
+        </div>
+      )}
+
+      <SkeletonSwap
+        ready={ready}
+        reserve={224}
+        lines={8}
+        lineHeight={28}
+        barHeight={11}
+        label="开发者工具数据"
+        className={ready ? 'skeleton-swap-fluid' : ''}
+      >
+        {ready ? (
+          <>
+            {/* Tester / compose / activity stay MOUNTED and toggle via CSS so the
+                live feed's SSE never drops (it must capture events fired from other
+                tabs) and in-progress params/messages survive a peek at another tab.
+                ApiBrowser has no state worth preserving and is heavy (~520 rows), so
+                it mounts on demand. */}
+            <div className={cn(tab !== 'tester' && 'hidden')}><ActionTester accounts={accounts} docs={docs} presetAction={preset} /></div>
+            <div className={cn(tab !== 'compose' && 'hidden')}><MessageComposer accounts={accounts} /></div>
+            <div className={cn(tab !== 'activity' && 'hidden')}><LiveActivity /></div>
+            {tab === 'api' && <ApiBrowser docs={docs} onTry={tryAction} />}
+          </>
+        ) : null}
+      </SkeletonSwap>
     </div>
   );
 }
