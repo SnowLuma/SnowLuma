@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   animate,
   motion,
@@ -16,7 +16,6 @@ const SEG =
 export type SegmentedOption = {
   value: string;
   label: string;
-  content?: ReactNode;
   disabled?: boolean;
 };
 
@@ -138,7 +137,7 @@ export function SegmentedControl({
                   : "text-muted-foreground"
             }`}
           >
-            {option.content ?? option.label}
+            {option.label}
           </span>
         ))}
 
@@ -159,7 +158,7 @@ export function SegmentedControl({
             >
               {options.map((option) => (
                 <span key={option.value} className={`${SEG} text-background`}>
-                  {option.content ?? option.label}
+                  {option.label}
                 </span>
               ))}
             </div>

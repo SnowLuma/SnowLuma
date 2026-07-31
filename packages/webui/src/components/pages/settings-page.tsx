@@ -28,7 +28,6 @@ import {
   type DarkIntensity,
   type Density,
   type FontSpec,
-  type Palette as PaletteId,
   type SidebarStyle,
   type ThemeMode,
   type TimeFormat,
@@ -396,29 +395,33 @@ function AppearancePanel() {
     <div className="flex flex-col gap-5">
       <Group title="主题" icon={Sun} description="配色方案、明暗模式与深色风格。所有改动立即生效并保存到服务器，跨设备同步。">
         <SettingRow label="配色方案" hint="“默认”跟随下方明暗模式；Catppuccin 为整套配色，会自行决定明暗。" layout="stack">
-          <div className="max-w-full overflow-x-auto pb-1">
-            <SegmentedControl
-              label="配色方案"
-              value={a.palette}
-              onValueChange={(palette) => setAppearance({ palette: palette as PaletteId })}
-              className="min-w-max"
-              options={PALETTE_OPTIONS.map((p) => ({
-                value: p.id,
-                label: p.label,
-                content: (
-                  <span className="flex w-[5.5rem] flex-col items-center gap-1.5">
-                    <span className="flex h-11 w-full items-center justify-center rounded-lg" style={{ backgroundColor: p.preview.bg }}>
-                      <span className="flex gap-1 rounded-md px-1.5 py-1 shadow-sm" style={{ backgroundColor: p.preview.surface }}>
-                        {p.preview.dots.map((dot, dotIndex) => (
-                          <span key={dotIndex} className="size-1.5 rounded-full" style={{ backgroundColor: dot }} />
-                        ))}
-                      </span>
+          <div className="flex flex-wrap gap-2.5" role="radiogroup" aria-label="配色方案">
+            {PALETTE_OPTIONS.map((p) => {
+              const active = a.palette === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  aria-label={p.label}
+                  onClick={() => setAppearance({ palette: p.id })}
+                  className={cn(
+                    'flex w-[5.5rem] flex-col items-center gap-1.5 rounded-xl border p-1.5 transition-[border-color,box-shadow] duration-150 ease-out cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40',
+                    active ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-foreground/30',
+                  )}
+                >
+                  <span className="flex h-11 w-full items-center justify-center rounded-lg" style={{ backgroundColor: p.preview.bg }}>
+                    <span className="flex gap-1 rounded-md px-1.5 py-1 shadow-sm" style={{ backgroundColor: p.preview.surface }}>
+                      {p.preview.dots.map((d, i) => (
+                        <span key={i} className="size-1.5 rounded-full" style={{ backgroundColor: d }} />
+                      ))}
                     </span>
-                    <span className="text-xs font-medium">{p.label}</span>
                   </span>
-                ),
-              }))}
-            />
+                  <span className="text-xs font-medium">{p.label}</span>
+                </button>
+              );
+            })}
           </div>
         </SettingRow>
         <SettingRow label="显示模式" hint={paletteFixed ? '当前由 Catppuccin 配色决定明暗。' : undefined}>
