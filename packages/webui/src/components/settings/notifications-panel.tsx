@@ -61,7 +61,7 @@ export function NotificationsPanel() {
     return () => {
       cancelled = true;
     };
-  }, [api]);
+  }, [api, setMsg]);
 
   useEffect(
     () => () => {

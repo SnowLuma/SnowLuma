@@ -396,51 +396,51 @@ export class GroupFileApi {
     // md510MCheckSum in the same single pass.
     const staged = await stageSourceToDisk(source, FILE_UPLOAD_MAX_BYTES);
     try {
-    if (staged.fileSize === 0) throw new Error('private file is empty');
+      if (staged.fileSize === 0) throw new Error('private file is empty');
 
-    const targetUid = await this.ctx.resolveUserUid(userId);
-    const selfUid = await resolveSelfUid(this.ctx);
+      const targetUid = await this.ctx.resolveUserUid(userId);
+      const selfUid = await resolveSelfUid(this.ctx);
 
-    const senderUin = toInt(this.ctx.identity.uin);
-    if (senderUin <= 0) throw new Error('invalid self uin for private file upload');
+      const senderUin = toInt(this.ctx.identity.uin);
+      if (senderUin <= 0) throw new Error('invalid self uin for private file upload');
 
-    const fileName = normalizeUploadFileName(name, staged.fileName);
-    const guardStat = await fsp.stat(staged.filePath); // mutation-guard baseline
-    const hashes = await hashFileStreaming(staged.filePath, { headLimit: MD5_HEAD_LIMIT });
+      const fileName = normalizeUploadFileName(name, staged.fileName);
+      const guardStat = await fsp.stat(staged.filePath); // mutation-guard baseline
+      const hashes = await hashFileStreaming(staged.filePath, { headLimit: MD5_HEAD_LIMIT });
 
-    const upload = await UploadPrivateFileRequest.invoke(this.ctx, {
-      senderUid: selfUid,
-      receiverUid: targetUid,
-      fileName,
-      fileSize: staged.fileSize,
-      fileSha1: hashes.sha1,
-      fileMd5: hashes.md5,
-      md510MCheckSum: hashes.headMd5!,
-    });
-    ensureRetCodeZero('private file upload', upload.retCode, upload.retMsg, undefined);
+      const upload = await UploadPrivateFileRequest.invoke(this.ctx, {
+        senderUid: selfUid,
+        receiverUid: targetUid,
+        fileName,
+        fileSize: staged.fileSize,
+        fileSha1: hashes.sha1,
+        fileMd5: hashes.md5,
+        md510MCheckSum: hashes.headMd5!,
+      });
+      ensureRetCodeZero('private file upload', upload.retCode, upload.retMsg, undefined);
 
-    const fileId = typeof upload.uuid === 'string' && upload.uuid ? upload.uuid : null;
-    const fileHash = typeof upload.fileAddon === 'string' && upload.fileAddon ? upload.fileAddon : null;
-    if (!fileId) throw new Error('private file upload response missing file_id');
+      const fileId = typeof upload.uuid === 'string' && upload.uuid ? upload.uuid : null;
+      const fileHash = typeof upload.fileAddon === 'string' && upload.fileAddon ? upload.fileAddon : null;
+      if (!fileId) throw new Error('private file upload response missing file_id');
 
-    // Cache the metadata so a later `send_private_msg` carrying just
-    // `{type:'file', file_id}` can resurrect the full c2c-file packet
-    // (NotOnlineFile { fileSize, fileMd5, fileName, fileHash }). Without
-    // this the recipient sees a 0-byte file because the OneBot send path
-    // has no way to recover those fields from the file_id alone.
-    this.ctx.rememberUploadedFile({
-      fileId,
-      scope: 'private',
-      userId,
-      fileName,
-      fileSize: staged.fileSize,
-      fileMd5: hashes.md5,
-      fileSha1: hashes.sha1,
-      fileHash: fileHash ?? '',
-      rememberedAt: Date.now(),
-    });
+      // Cache the metadata so a later `send_private_msg` carrying just
+      // `{type:'file', file_id}` can resurrect the full c2c-file packet
+      // (NotOnlineFile { fileSize, fileMd5, fileName, fileHash }). Without
+      // this the recipient sees a 0-byte file because the OneBot send path
+      // has no way to recover those fields from the file_id alone.
+      this.ctx.rememberUploadedFile({
+        fileId,
+        scope: 'private',
+        userId,
+        fileName,
+        fileSize: staged.fileSize,
+        fileMd5: hashes.md5,
+        fileSha1: hashes.sha1,
+        fileHash: fileHash ?? '',
+        rememberedAt: Date.now(),
+      });
 
-    if (!upload.boolFileExist && uploadFile) {
+      if (!upload.boolFileExist && uploadFile) {
       // Host selection.
       //
       // Current QQ-NT server rollout has stopped populating the legacy
@@ -462,93 +462,93 @@ export class GroupFileApi {
       // uploadDns), so we fall through to those after rtpMediaPlatform.
       // Pair an HTTPS-flavored host with `uploadHttpsPort` if that's
       // what we picked.
-      const rtpFirst = (Array.isArray(upload.rtpMediaPlatformUploadAddress)
+        const rtpFirst = (Array.isArray(upload.rtpMediaPlatformUploadAddress)
         && upload.rtpMediaPlatformUploadAddress[0])
-        ? upload.rtpMediaPlatformUploadAddress[0] : null;
-      const rtpInIP = rtpFirst && typeof rtpFirst.inIP === 'number' && rtpFirst.inIP !== 0
-        ? int32ToIpv4Dotted(rtpFirst.inIP) : '';
-      const rtpInPort = rtpFirst && typeof rtpFirst.inPort === 'number'
-        ? rtpFirst.inPort : 0;
-      const ipListFirst = (Array.isArray(upload.uploadIpList) && upload.uploadIpList[0])
-        ? upload.uploadIpList[0] : '';
-      const uploadHost = (rtpInIP)
+          ? upload.rtpMediaPlatformUploadAddress[0] : null;
+        const rtpInIP = rtpFirst && typeof rtpFirst.inIP === 'number' && rtpFirst.inIP !== 0
+          ? int32ToIpv4Dotted(rtpFirst.inIP) : '';
+        const rtpInPort = rtpFirst && typeof rtpFirst.inPort === 'number'
+          ? rtpFirst.inPort : 0;
+        const ipListFirst = (Array.isArray(upload.uploadIpList) && upload.uploadIpList[0])
+          ? upload.uploadIpList[0] : '';
+        const uploadHost = (rtpInIP)
         || (typeof upload.uploadIp === 'string' && upload.uploadIp)
         || (typeof upload.uploadDomain === 'string' && upload.uploadDomain)
         || (ipListFirst)
         || (typeof upload.uploadHttpsDomain === 'string' && upload.uploadHttpsDomain)
         || (typeof upload.uploadDns === 'string' && upload.uploadDns)
         || '';
-      const httpsHostUsed = !rtpInIP && !upload.uploadIp && !upload.uploadDomain && !ipListFirst
+        const httpsHostUsed = !rtpInIP && !upload.uploadIp && !upload.uploadDomain && !ipListFirst
         && typeof upload.uploadHttpsDomain === 'string' && !!upload.uploadHttpsDomain;
-      const uploadPort = rtpInIP && rtpInPort > 0
-        ? rtpInPort
-        : httpsHostUsed && toInt(upload.uploadHttpsPort) > 0
-          ? toInt(upload.uploadHttpsPort)
-          : toInt(upload.uploadPort);
-      if (!uploadHost || uploadPort <= 0) {
-        const rtpDump = Array.isArray(upload.rtpMediaPlatformUploadAddress)
-          ? JSON.stringify(upload.rtpMediaPlatformUploadAddress.map((e) => ({
-            outIP: e.outIP, outPort: e.outPort, inIP: e.inIP, inPort: e.inPort,
-            iPType: e.iPType,
-          })))
-          : '[]';
-        log.warn(
-          'private file upload host missing — rtp=%s ip=%s domain=%s ipList=%s httpsDomain=%s dns=%s lanip=%s port=%s httpsPort=%s',
-          rtpDump,
-          upload.uploadIp ?? '', upload.uploadDomain ?? '',
-          JSON.stringify(upload.uploadIpList ?? []),
-          upload.uploadHttpsDomain ?? '', upload.uploadDns ?? '',
-          upload.uploadLanip ?? '', upload.uploadPort ?? 0,
-          upload.uploadHttpsPort ?? 0,
-        );
-        throw new Error('private file upload host is invalid');
-      }
+        const uploadPort = rtpInIP && rtpInPort > 0
+          ? rtpInPort
+          : httpsHostUsed && toInt(upload.uploadHttpsPort) > 0
+            ? toInt(upload.uploadHttpsPort)
+            : toInt(upload.uploadPort);
+        if (!uploadHost || uploadPort <= 0) {
+          const rtpDump = Array.isArray(upload.rtpMediaPlatformUploadAddress)
+            ? JSON.stringify(upload.rtpMediaPlatformUploadAddress.map((e) => ({
+              outIP: e.outIP, outPort: e.outPort, inIP: e.inIP, inPort: e.inPort,
+              iPType: e.iPType,
+            })))
+            : '[]';
+          log.warn(
+            'private file upload host missing — rtp=%s ip=%s domain=%s ipList=%s httpsDomain=%s dns=%s lanip=%s port=%s httpsPort=%s',
+            rtpDump,
+            upload.uploadIp ?? '', upload.uploadDomain ?? '',
+            JSON.stringify(upload.uploadIpList ?? []),
+            upload.uploadHttpsDomain ?? '', upload.uploadDns ?? '',
+            upload.uploadLanip ?? '', upload.uploadPort ?? 0,
+            upload.uploadHttpsPort ?? 0,
+          );
+          throw new Error('private file upload host is invalid');
+        }
 
-      const ext = buildPrivateFileUploadExt(
-        senderUin,
-        fileName,
-        staged.fileSize,
-        hashes.md5,
-        hashes.sha1,
-        fileId,
-        upload.mediaPlatformUploadKey instanceof Uint8Array
-          ? upload.mediaPlatformUploadKey
-          : (upload.uploadKey instanceof Uint8Array ? upload.uploadKey : new Uint8Array(0)),
-        uploadHost,
-        uploadPort,
-      );
-
-      // Fail cleanly if the source changed since hashing, then stream the PUT
-      // from disk. Session BEFORE opening the handle so uploadHighwayHttp (the
-      // handle's owner) is the next call and always closes it.
-      await assertUnchanged(staged.filePath, guardStat);
-      const session = await fetchHighwaySession(bridge);
-      const chunkSource = await FileChunkSource.open(staged.filePath, staged.fileSize);
-      await uploadHighwayHttp(bridge, session, 95, chunkSource, hashes.md5, ext);
-    }
-
-    // Stage 3: publish the file as a c2c chat message. C2C files use
-    // `RichText.notOnlineFile` (parallel to `elems`), so we go through
-    // the dedicated `sendC2cFile` on MessageApi instead of `sendPrivate`
-    // which only knows about elems[]. NapCat does the same atomic
-    // upload+send dance — without it the file sits on the server and
-    // the recipient sees nothing.
-    if (publishFile) {
-      try {
-        await this.ctx.apis.message.sendC2cFile(userId, targetUid, {
-          fileId,
+        const ext = buildPrivateFileUploadExt(
+          senderUin,
           fileName,
-          fileSize: staged.fileSize,
-          fileMd5: hashes.md5,
-          fileHash: fileHash ?? '',
-        });
-      } catch (err) {
-        log.warn('private file uploaded (fileId=%s) but chat post failed: %s',
-          fileId, err instanceof Error ? err.message : String(err));
-      }
-    }
+          staged.fileSize,
+          hashes.md5,
+          hashes.sha1,
+          fileId,
+          upload.mediaPlatformUploadKey instanceof Uint8Array
+            ? upload.mediaPlatformUploadKey
+            : (upload.uploadKey instanceof Uint8Array ? upload.uploadKey : new Uint8Array(0)),
+          uploadHost,
+          uploadPort,
+        );
 
-    return { fileId, fileHash };
+        // Fail cleanly if the source changed since hashing, then stream the PUT
+        // from disk. Session BEFORE opening the handle so uploadHighwayHttp (the
+        // handle's owner) is the next call and always closes it.
+        await assertUnchanged(staged.filePath, guardStat);
+        const session = await fetchHighwaySession(bridge);
+        const chunkSource = await FileChunkSource.open(staged.filePath, staged.fileSize);
+        await uploadHighwayHttp(bridge, session, 95, chunkSource, hashes.md5, ext);
+      }
+
+      // Stage 3: publish the file as a c2c chat message. C2C files use
+      // `RichText.notOnlineFile` (parallel to `elems`), so we go through
+      // the dedicated `sendC2cFile` on MessageApi instead of `sendPrivate`
+      // which only knows about elems[]. NapCat does the same atomic
+      // upload+send dance — without it the file sits on the server and
+      // the recipient sees nothing.
+      if (publishFile) {
+        try {
+          await this.ctx.apis.message.sendC2cFile(userId, targetUid, {
+            fileId,
+            fileName,
+            fileSize: staged.fileSize,
+            fileMd5: hashes.md5,
+            fileHash: fileHash ?? '',
+          });
+        } catch (err) {
+          log.warn('private file uploaded (fileId=%s) but chat post failed: %s',
+            fileId, err instanceof Error ? err.message : String(err));
+        }
+      }
+
+      return { fileId, fileHash };
     } finally {
       await staged.cleanup();
     }
