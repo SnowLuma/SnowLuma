@@ -11,6 +11,7 @@ import { AlertTriangle, FlaskConical, History, Loader2, Play, RotateCcw, ShieldC
 import { Textarea } from '@/components/ui/textarea';
 import { Picker } from '@/components/ui/picker';
 import { JsonTree } from '@/components/ui/json-tree';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { ParamField } from '@/components/debug/param-field';
 import { Segmented } from '@/components/debug/segmented';
 import { useApi } from '@/lib/api';
@@ -363,43 +364,21 @@ export function ActionTester({ accounts, docs, presetAction }: { accounts: QQInf
         )}
       </motion.section>
 
-      {confirmOpen && (
-        <ConfirmDestructive
-          action={actionName}
-          uin={uin}
-          onCancel={() => setConfirmOpen(false)}
-          onConfirm={() => { setConfirmOpen(false); void runInvoke(); }}
-        />
-      )}
-    </div>
-  );
-}
-
-function ConfirmDestructive({ action, uin, onCancel, onConfirm }: { action: string; uin: string; onCancel: () => void; onConfirm: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onCancel]);
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={onCancel}>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }}
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-2xl border border-border/60 bg-card p-5 shadow-xl"
-      >
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-destructive/12 text-destructive"><AlertTriangle className="h-5 w-5" /></div>
-          <h3 className="text-base font-semibold">确认执行破坏性操作</h3>
-        </div>
-        <p className="mt-3 text-sm text-muted-foreground">
-          即将以账号 <code className="font-mono text-foreground">{uin}</code> 执行 <code className="font-mono text-foreground">{action}</code>,该操作会<strong className="text-foreground">真实生效且通常不可撤销</strong>。确认继续?
-        </p>
-        <div className="mt-5 flex justify-end gap-2">
-          <button type="button" onClick={onCancel} className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted">取消</button>
-          <button type="button" onClick={onConfirm} className="rounded-lg bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground hover:bg-destructive/90">确认执行</button>
-        </div>
-      </motion.div>
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="确认执行破坏性操作"
+        description={(
+          <>
+            即将以账号 <code className="font-mono text-foreground">{uin}</code> 执行{' '}
+            <code className="font-mono text-foreground">{actionName}</code>，该操作会
+            <strong className="text-foreground">真实生效且通常不可撤销</strong>。确认继续？
+          </>
+        )}
+        confirmText="确认执行"
+        destructive
+        onConfirm={runInvoke}
+      />
     </div>
   );
 }

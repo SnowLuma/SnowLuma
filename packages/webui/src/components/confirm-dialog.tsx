@@ -1,21 +1,11 @@
-import { useState, type ReactNode } from 'react';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { buttonVariants } from '@/components/ui/button';
+import { useRef, useState, type ReactNode } from 'react';
+import { Modal } from '@/components/interior/modal';
+import { Button } from '@/components/ui/button';
 import {
   actionErrorMessage,
   useActionFeedback,
   type ActionFeedbackOptions,
 } from '@/contexts/ActionFeedbackContext';
-import { cn } from '@/lib/utils';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -47,6 +37,7 @@ export function ConfirmDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { runAction } = useActionFeedback();
+  const cancelRef = useRef<HTMLButtonElement>(null);
 
   const handleConfirm = async () => {
     setBusy(true);
@@ -74,36 +65,40 @@ export function ConfirmDialog({
   };
 
   return (
-    <AlertDialog open={open} onOpenChange={handleOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          {description && (
-            <AlertDialogDescription asChild>
-              <div>{description}</div>
-            </AlertDialogDescription>
-          )}
-        </AlertDialogHeader>
+    <Modal
+      open={open}
+      onClose={() => handleOpenChange(false)}
+      title={title}
+      description={description}
+      showClose={false}
+      closeOnBackdrop={!busy}
+      closeOnEscape={!busy}
+      initialFocusRef={cancelRef}
+      maxWidth={512}
+      footer={(
+        <>
+          <Button ref={cancelRef} type="button" variant="outline" disabled={busy} onClick={() => handleOpenChange(false)}>
+            {cancelText}
+          </Button>
+          <Button
+            type="button"
+            variant={destructive ? 'destructive' : 'default'}
+            onClick={() => { void handleConfirm(); }}
+            disabled={busy || confirmDisabled}
+          >
+            {busy ? '处理中…' : confirmText}
+          </Button>
+        </>
+      )}
+    >
+      <div className="flex flex-col gap-4">
         {error && (
           <div role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {error}
           </div>
         )}
         {content}
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={busy}>{cancelText}</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={(e) => {
-              e.preventDefault();
-              void handleConfirm();
-            }}
-            className={cn(destructive && buttonVariants({ variant: 'destructive' }))}
-            disabled={busy || confirmDisabled}
-          >
-            {busy ? '处理中…' : confirmText}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+      </div>
+    </Modal>
   );
 }

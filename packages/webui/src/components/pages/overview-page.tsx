@@ -13,6 +13,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { SkeletonSwap } from '@/components/interior/skeleton-swap';
+import { Modal } from '@/components/interior/modal';
 import { cn, formatBytes, formatUptime } from '@/lib/utils';
 import type { AppPath } from '@/router';
 import type {
@@ -36,7 +37,6 @@ import {
   type AccountConfig, type AlertsConfig, type ConnectionsConfig, type HostConfig,
   type LinkConfig, type NoteConfig, type SessionsConfig,
 } from '@/lib/dashboard-layout';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DashboardGrid, WIDGET_DRAG_TYPE, type GridCoord } from '@/components/pages/dashboard-grid';
 import {
   AccountConfigForm, AlertsConfigForm, ConnectionsConfigForm, HostConfigForm,
@@ -212,11 +212,14 @@ export function OverviewPage() {
         />
       )}
 
-      <Dialog open={!!configId} onOpenChange={(o) => { if (!o) setConfigId(null); }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{configBlock ? `${widgetLabel(configBlock.id)} · 设置` : '设置'}</DialogTitle>
-          </DialogHeader>
+      <Modal
+        open={!!configId}
+        onClose={() => setConfigId(null)}
+        title={configBlock ? `${widgetLabel(configBlock.id)} · 设置` : '设置'}
+        closeLabel="关闭卡片设置弹窗"
+        maxWidth={384}
+      >
+        <div className="flex flex-col gap-4">
           {configBlock?.id === 'alerts' && <AlertsConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('alerts', c)} />}
           {configBlock?.id === 'sessions' && <SessionsConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('sessions', c)} />}
           {configBlock?.id === 'host' && <HostConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('host', c)} />}
@@ -224,8 +227,8 @@ export function OverviewPage() {
           {configBlock?.id === 'note' && <NoteConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('note', c)} />}
           {configBlock?.id === 'link' && <LinkConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('link', c)} />}
           {configBlock?.id === 'account' && <AccountConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('account', c)} />}
-        </DialogContent>
-      </Dialog>
+        </div>
+      </Modal>
     </div>
   );
 }

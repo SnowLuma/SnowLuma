@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { ArrowRight, KeyRound, Sparkles } from 'lucide-react';
+import { Modal } from '@/components/interior/modal';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { PasswordVisibilityIcon } from '@/components/ui/password-visibility-icon';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -175,15 +175,15 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         </motion.button>
       </motion.div>
 
-      <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
-        <DialogContent className="max-w-sm rounded-2xl">
-          <DialogHeader>
-            <DialogTitle>界面有点卡顿？</DialogTitle>
-            <DialogDescription>
-              登录页背景是一个跟随鼠标的动态线条效果，在部分设备上可能比较吃性能。可以在这里关掉它——该开关仅作用于本设备的登录页，与系统的动效设置相互独立。
-            </DialogDescription>
-          </DialogHeader>
-
+      <Modal
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        title="界面有点卡顿？"
+        description="登录页背景是一个跟随鼠标的动态线条效果，在部分设备上可能比较吃性能。可以在这里关掉它——该开关仅作用于本设备的登录页，与系统的动效设置相互独立。"
+        closeLabel="关闭性能设置弹窗"
+        maxWidth={384}
+      >
+        <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-4 rounded-xl border bg-muted/30 px-4 py-3">
             <div className="min-w-0">
               <p className="text-sm font-medium">登录页动态背景</p>
@@ -195,8 +195,8 @@ export function LoginPage({ onLogin }: LoginPageProps) {
           <p className="text-xs leading-relaxed text-muted-foreground">
             登录后，你还可以在「系统设置 → 无障碍」里进一步「减弱动效」或「关闭全部动效」。
           </p>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </Modal>
     </div>
   );
 }
