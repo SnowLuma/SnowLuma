@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { MotionConfig } from 'motion/react';
-import { useActionFeedback } from '@/contexts/ActionFeedbackContext';
+import { actionErrorMessage, useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import type { Palette, ThemeMode, UiAppearance, UiBackground } from '@/types';
 
 // Re-export the appearance value types so consumers (settings page etc.) can
@@ -635,7 +635,7 @@ function getSystemTheme(): 'light' | 'dark' {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const { runAction } = useActionFeedback();
+  const { runAction, startAction } = useActionFeedback();
   const [appearance, setAppearanceState] = useState<UiAppearance>(readCache);
   const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(getSystemTheme);
   const [ready, setReady] = useState(false);
@@ -719,20 +719,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     writeCache(next);
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      void runAction(
-        {
-          title: '正在更新外观',
-          detail: '正在同步界面设置',
-          successTitle: '外观已更新',
-          successDetail: '界面设置已同步',
-          errorTitle: '外观更新失败',
-        },
-        () => persistAppearance(next),
-      ).catch((error) => {
+      saveTimer.current = null;
+      void persistAppearance(next).catch((error) => {
         console.error('persist appearance failed', error);
+        startAction({ title: '外观同步失败' })
+          .fail(`当前修改未保存：${actionErrorMessage(error)}`);
       });
     }, 400);
-  }, [runAction]);
+  }, [startAction]);
 
   const setAppearance = useCallback((patch: AppearancePatch) => {
     const prev = appearanceRef.current;
