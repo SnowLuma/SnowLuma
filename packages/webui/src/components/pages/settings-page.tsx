@@ -2,7 +2,7 @@ import { createContext, useContext, useId, useRef, useState, type ComponentProps
 import { motion } from 'motion/react';
 import {
   Accessibility, AlertTriangle, Bell, Bug, Check, Clock, Code2, Download, ExternalLink, Github, Image as ImageIcon,
-  Info, KeyRound, Loader2, Monitor, Moon, Palette, PanelTop, Plus, RefreshCw, RotateCcw, Server, ShieldCheck,
+  Info, KeyRound, Loader2, Monitor, Moon, MousePointer2, Palette, PanelTop, Plus, RefreshCw, RotateCcw, Server, ShieldCheck,
   SlidersHorizontal, Sparkles, Star, Sun, Tag, Upload, Trash2, HardDrive,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -28,6 +28,7 @@ import {
   type DarkIntensity,
   type Density,
   type FontSpec,
+  type Palette as PaletteId,
   type SidebarStyle,
   type ThemeMode,
   type TimeFormat,
@@ -39,6 +40,7 @@ import { TOPBAR_CATALOGUE } from '@/components/layout/top-bar';
 import { ChangePasswordDialog } from '@/components/change-password-dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { SkeletonSwap } from '@/components/interior/skeleton-swap';
+import { SegmentedControl } from '@/components/interior/segmented-control';
 import { useApi } from '@/lib/api';
 import { useAppState } from '@/contexts/AppStateContext';
 import { cn } from '@/lib/utils';
@@ -181,42 +183,29 @@ interface Opt<T> { value: T; label: string; icon?: typeof Sun }
 
 // Associates a SettingRow's visible label with the control inside it (so the
 // segmented radiogroup gets an accessible name without prop-threading).
-const RowLabelContext = createContext<string | undefined>(undefined);
+const RowLabelContext = createContext<{ id: string; label: string } | undefined>(undefined);
 
 // iOS/macOS segmented control: a recessed track with a raised pill on the
 // selected segment. Single-select → exposed as a radiogroup. Wraps gracefully.
 function Segmented<T extends string | number>({
   value, options, onChange, disabled,
 }: { value: T; options: Opt<T>[]; onChange: (v: T) => void; disabled?: boolean }) {
-  const labelledBy = useContext(RowLabelContext);
+  const rowLabel = useContext(RowLabelContext);
   return (
-    <div
-      role="radiogroup"
-      aria-labelledby={labelledBy}
-      aria-disabled={disabled || undefined}
-      className={cn('inline-flex flex-wrap items-center gap-1 rounded-lg bg-muted/60 p-1', disabled && 'opacity-50')}
-    >
-      {options.map((opt) => {
-        const active = value === opt.value;
-        const Icon = opt.icon;
-        return (
-          <button
-            key={String(opt.value)}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            disabled={disabled}
-            onClick={() => onChange(opt.value)}
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-[background-color,color,box-shadow] duration-150 ease-out cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:cursor-not-allowed',
-              active ? 'bg-card font-semibold text-foreground shadow-sm ring-1 ring-border' : 'font-medium text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {Icon && <Icon className="size-4" />}
-            {opt.label}
-          </button>
-        );
-      })}
+    <div aria-labelledby={rowLabel?.id} aria-disabled={disabled || undefined} className={cn('max-w-full overflow-x-auto', disabled && 'opacity-50')}>
+      <SegmentedControl
+        label={rowLabel?.label ?? '选项'}
+        value={String(value)}
+        options={options.map((option) => ({
+          value: String(option.value),
+          label: option.label,
+          disabled,
+        }))}
+        onValueChange={(next) => {
+          const option = options.find((candidate) => String(candidate.value) === next);
+          if (option) onChange(option.value);
+        }}
+      />
     </div>
   );
 }
@@ -237,7 +226,7 @@ function SettingRow({
       {hint && <p className="mt-0.5 text-[12px] leading-snug text-muted-foreground">{hint}</p>}
     </div>
   );
-  const control = <RowLabelContext.Provider value={labelId}>{children}</RowLabelContext.Provider>;
+  const control = <RowLabelContext.Provider value={{ id: labelId, label }}>{children}</RowLabelContext.Provider>;
   if (layout === 'stack') {
     return <div className="flex flex-col gap-3 px-5 py-4">{head}{control}</div>;
   }
@@ -407,33 +396,29 @@ function AppearancePanel() {
     <div className="flex flex-col gap-5">
       <Group title="主题" icon={Sun} description="配色方案、明暗模式与深色风格。所有改动立即生效并保存到服务器，跨设备同步。">
         <SettingRow label="配色方案" hint="“默认”跟随下方明暗模式；Catppuccin 为整套配色，会自行决定明暗。" layout="stack">
-          <div className="flex flex-wrap gap-2.5" role="radiogroup" aria-label="配色方案">
-            {PALETTE_OPTIONS.map((p) => {
-              const active = a.palette === p.id;
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  aria-label={p.label}
-                  onClick={() => setAppearance({ palette: p.id })}
-                  className={cn(
-                    'flex w-[5.5rem] flex-col items-center gap-1.5 rounded-xl border p-1.5 transition-[border-color,box-shadow] duration-150 ease-out cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40',
-                    active ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-foreground/30',
-                  )}
-                >
-                  <span className="flex h-11 w-full items-center justify-center rounded-lg" style={{ backgroundColor: p.preview.bg }}>
-                    <span className="flex gap-1 rounded-md px-1.5 py-1 shadow-sm" style={{ backgroundColor: p.preview.surface }}>
-                      {p.preview.dots.map((d, i) => (
-                        <span key={i} className="size-1.5 rounded-full" style={{ backgroundColor: d }} />
-                      ))}
+          <div className="max-w-full overflow-x-auto pb-1">
+            <SegmentedControl
+              label="配色方案"
+              value={a.palette}
+              onValueChange={(palette) => setAppearance({ palette: palette as PaletteId })}
+              className="min-w-max"
+              options={PALETTE_OPTIONS.map((p) => ({
+                value: p.id,
+                label: p.label,
+                content: (
+                  <span className="flex w-[5.5rem] flex-col items-center gap-1.5">
+                    <span className="flex h-11 w-full items-center justify-center rounded-lg" style={{ backgroundColor: p.preview.bg }}>
+                      <span className="flex gap-1 rounded-md px-1.5 py-1 shadow-sm" style={{ backgroundColor: p.preview.surface }}>
+                        {p.preview.dots.map((dot, dotIndex) => (
+                          <span key={dotIndex} className="size-1.5 rounded-full" style={{ backgroundColor: dot }} />
+                        ))}
+                      </span>
                     </span>
+                    <span className="text-xs font-medium">{p.label}</span>
                   </span>
-                  <span className="text-xs font-medium">{p.label}</span>
-                </button>
-              );
-            })}
+                ),
+              }))}
+            />
           </div>
         </SettingRow>
         <SettingRow label="显示模式" hint={paletteFixed ? '当前由 Catppuccin 配色决定明暗。' : undefined}>
@@ -543,12 +528,22 @@ function AppearancePanel() {
 
       <TopbarPanel />
 
-      <Group title="交互与无障碍" icon={Accessibility} description="光标、右键菜单、动效、对比度与侧栏行为。">
-        <SettingRow label="自定义光标与右键菜单" hint="默认关闭；开启后使用主题化光标与 SnowLuma 右键菜单，关闭后立即恢复浏览器原生行为。" layout="inline">
+      <Group title="右键菜单" icon={MousePointer2} description="控制网页内右键操作的呈现方式。">
+        <SettingRow label="自定义右键菜单" hint="默认开启；关闭后立即恢复浏览器原生右键菜单。" layout="inline">
+          <ToggleSwitch
+            value={a.customContextMenu}
+            onChange={(customContextMenu) => setAppearance({ customContextMenu })}
+            ariaLabel="自定义右键菜单"
+          />
+        </SettingRow>
+      </Group>
+
+      <Group title="交互与无障碍" icon={Accessibility} description="光标、动效、对比度与侧栏行为。">
+        <SettingRow label="自定义光标" hint="默认关闭；开启后使用主题化自适应光标。" layout="inline">
           <ToggleSwitch
             value={a.customPointerSystem}
             onChange={(customPointerSystem) => setAppearance({ customPointerSystem })}
-            ariaLabel="自定义光标与右键菜单"
+            ariaLabel="自定义光标"
           />
         </SettingRow>
         <SettingRow label="减弱动效" hint="弱化页面切换、弹簧等装饰性动画（保留轻微淡入），对低端设备与晕动敏感者更友好。" layout="inline">

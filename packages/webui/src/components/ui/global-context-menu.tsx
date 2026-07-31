@@ -1,6 +1,4 @@
 import * as React from 'react';
-import { createPortal } from 'react-dom';
-import { AnimatePresence, motion } from 'motion/react';
 import {
   ArrowLeft,
   ClipboardPaste,
@@ -13,6 +11,7 @@ import {
   TextSelect,
   type LucideIcon,
 } from 'lucide-react';
+import { ContextMenuSurface } from '@/components/interior/context-menu';
 import { useTheme } from '@/contexts/ThemeContext';
 
 type TextEditor = HTMLInputElement | HTMLTextAreaElement | HTMLElement;
@@ -315,7 +314,7 @@ function buildActionGroups(snapshot: ContextSnapshot): MenuAction[][] {
 
 export function GlobalContextMenu() {
   const { appearance } = useTheme();
-  const enabled = appearance.customPointerSystem;
+  const enabled = appearance.customContextMenu;
   const [menu, setMenu] = React.useState<MenuState | null>(null);
   const [position, setPosition] = React.useState({ x: -9999, y: -9999, ready: false });
   const [busyAction, setBusyAction] = React.useState<string | null>(null);
@@ -448,26 +447,24 @@ export function GlobalContextMenu() {
     }
   };
 
-  return createPortal(
-    <AnimatePresence initial={false}>
-      {enabled && menu && (
-        <motion.div
-          key={menu.id}
-          ref={menuRef}
-          role="menu"
-          aria-label="右键菜单"
-          className="global-context-menu"
-          style={{
-            left: position.x,
-            top: position.y,
-            visibility: position.ready ? 'visible' : 'hidden',
-            transformOrigin: `${menu.x > window.innerWidth / 2 ? 'right' : 'left'} ${menu.y > window.innerHeight / 2 ? 'bottom' : 'top'}`,
-          }}
-          initial={{ opacity: 0, scale: 0.96, y: -4 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.98, y: -2, transition: { duration: 0.12, ease: 'easeIn' } }}
-          transition={{ type: 'spring', duration: 0.3, bounce: 0 }}
-        >
+  return (
+    <ContextMenuSurface
+      openKey={enabled && menu ? menu.id : null}
+      menuRef={menuRef}
+      label="右键菜单"
+      placement={{
+        left: position.x,
+        top: position.y,
+        width: Math.min(224, Math.max(160, window.innerWidth - 16)),
+        maxHeight: Math.max(42, window.innerHeight - 16),
+        transformOrigin: menu
+          ? `${clamp(menu.x - position.x, 0, 224)}px ${clamp(menu.y - position.y, 0, window.innerHeight)}px`
+          : '0 0',
+        visible: position.ready,
+      }}
+    >
+      {enabled && menu ? (
+        <>
           {groups.map((group, groupIndex) => (
             <React.Fragment key={group.map((action) => action.id).join(':')}>
               {groupIndex > 0 && <div className="global-context-menu-separator" role="separator" />}
@@ -502,9 +499,8 @@ export function GlobalContextMenu() {
               {error}
             </div>
           )}
-        </motion.div>
-      )}
-    </AnimatePresence>,
-    document.body,
+        </>
+      ) : null}
+    </ContextMenuSurface>
   );
 }

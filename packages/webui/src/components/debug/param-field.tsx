@@ -5,7 +5,7 @@
 // group_id, an image a FileSource, a bool a switch, an enum a select.
 import { useState } from 'react';
 import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
+import { Dropdown } from '@/components/interior/dropdown';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { Picker } from '@/components/ui/picker';
 import { FaceGrid } from '@/components/ui/face-grid';
@@ -84,13 +84,20 @@ export function ParamField({ param, value, onChange, uin, groupContext }: {
   // ── type-driven widgets ──
   if (param.values && param.values.length > 0) {
     return (
-      // Always render the empty option so a controlled <select value=""> has a
-      // matching option (otherwise the browser shows the first value while state
-      // stays '' — a "looks selected but sends nothing" trap for required enums).
-      <Select value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">{param.required ? '（请选择）' : '（默认）'}</option>
-        {param.values.map((v) => <option key={String(v)} value={String(v)}>{String(v)}</option>)}
-      </Select>
+      <Dropdown
+        value={value}
+        onChange={onChange}
+        label={param.name}
+        placeholder={param.required ? '（请选择）' : '（默认）'}
+        items={[
+          { value: '', label: param.required ? '（请选择）' : '（默认）' },
+          ...param.values.map((nextValue) => ({
+            value: String(nextValue),
+            label: String(nextValue),
+          })),
+        ]}
+        className="w-full"
+      />
     );
   }
   if (param.type === 'bool' || param.type === 'boolean') {

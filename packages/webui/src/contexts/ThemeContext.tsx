@@ -112,6 +112,7 @@ export const DEFAULT_APPEARANCE: UiAppearance = {
   reduceMotion: false,
   disableMotion: false,
   customPointerSystem: false,
+  customContextMenu: true,
   highContrast: false,
   sidebarPinned: false,
   timeFormat: '24h',
@@ -484,6 +485,17 @@ function authToken(): string | null {
   try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
 }
 
+function withAppearanceDefaults(value: Partial<UiAppearance>): UiAppearance {
+  return {
+    ...DEFAULT_APPEARANCE,
+    ...value,
+    background: {
+      ...DEFAULT_APPEARANCE.background,
+      ...value.background,
+    },
+  };
+}
+
 async function fetchAppearance(): Promise<UiAppearance | null> {
   const token = authToken();
   try {
@@ -492,15 +504,15 @@ async function fetchAppearance(): Promise<UiAppearance | null> {
     if (token) {
       const res = await fetch('/api/ui', { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) {
-        const data = (await res.json()) as { config?: { appearance?: UiAppearance } };
-        if (data.config?.appearance) return data.config.appearance;
+        const data = (await res.json()) as { config?: { appearance?: Partial<UiAppearance> } };
+        if (data.config?.appearance) return withAppearanceDefaults(data.config.appearance);
       }
       // 401/expired → fall through to the public subset.
     }
     const res = await fetch('/api/ui/public');
     if (!res.ok) return null;
-    const data = (await res.json()) as { appearance?: UiAppearance };
-    return data.appearance ?? null;
+    const data = (await res.json()) as { appearance?: Partial<UiAppearance> };
+    return data.appearance ? withAppearanceDefaults(data.appearance) : null;
   } catch {
     return null;
   }
@@ -593,7 +605,7 @@ function readCache(): UiAppearance {
     const parsed = JSON.parse(raw) as Partial<UiAppearance>;
     // Shallow merge over defaults so a cache written by an older build still
     // yields a complete object (the server is the real validator).
-    return { ...DEFAULT_APPEARANCE, ...parsed, background: { ...DEFAULT_APPEARANCE.background, ...parsed.background } };
+    return withAppearanceDefaults(parsed);
   } catch {
     return DEFAULT_APPEARANCE;
   }
