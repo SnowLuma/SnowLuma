@@ -1,11 +1,4 @@
-# Run the full workspace test suite on every pull request.
-#
-# The repo previously had no PR test gate, so broken tests could land on `dev`
-# unnoticed — and did (protocol's oidb-service rejection path, plus an external
-# contributor PR). This gates every PR on the whole suite.
-#
-# The root validation commands are the same ones contributors run locally.
-# Keep this workflow as the executable source of truth for pull requests.
+# Run the root validation commands on every pull request.
 name: CI
 
 on:
@@ -38,24 +31,81 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Type check all packages
-        run: pnpm typecheck
-
-      - name: Lint managed source files
-        run: pnpm lint
-
       - name: Run all package tests
         run: pnpm test
-
-      - name: Build release inputs
-        run: pnpm run build:all
 
       # The MCP test suite regenerates the action catalog (catalog.ts + the
       # catalog.json the docs site consumes). Fail if the committed snapshot
       # drifted from the live specs — keeps the API docs from going stale.
       - name: Verify generated action catalog is up to date
         run: |
-          if ! git diff --exit-code -- packages/mcp/src/generated; then
+          catalog_status="$(git status --porcelain=v1 --untracked-files=all -- packages/mcp/src/generated)"
+          if [ -n "$catalog_status" ]; then
+            git diff -- packages/mcp/src/generated
+            printf '%s\n' "$catalog_status"
             echo '::error::Generated action catalog is stale. Run `pnpm --filter @snowluma/mcp gen` and commit packages/mcp/src/generated/.' >&2
             exit 1
           fi
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.28.0
+          run_install: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.node-version'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check all packages
+        run: pnpm typecheck
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.28.0
+          run_install: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.node-version'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build release inputs
+        run: pnpm run build:all
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.28.0
+          run_install: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.node-version'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint managed source files
+        run: pnpm lint
