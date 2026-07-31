@@ -74,6 +74,7 @@ export async function getGroupList(
   return bridge.identity.groups.map(g => ({
     group_id: g.groupId,
     group_name: g.groupName,
+    group_remark: g.remark,
     member_count: g.memberCount,
     max_member_count: g.memberMax,
     // #197: create_time + memo come free from the list; group_level is only in
@@ -128,6 +129,7 @@ export async function getGroupInfo(
     return {
       group_id: g.groupId,
       group_name: g.groupName,
+      group_remark: g.remark,
       member_count: g.memberCount,
       max_member_count: g.memberMax,
       group_create_time: g.createTime ?? 0,
@@ -148,6 +150,7 @@ export async function getGroupInfo(
       const info: JsonObject = {
         group_id: detail.groupId,
         group_name: detail.groupName,
+        group_remark: detail.remark,
         member_count: detail.memberCount,
         max_member_count: detail.memberMax,
         group_create_time: detail.createTime ?? 0,
@@ -248,6 +251,7 @@ export async function getStrangerInfo(
     return {
       user_id: p.uin,
       nickname: p.nickname,
+      remark: p.remark,
       sex: p.sex,
       age: p.age,
       long_nick: p.sign,
@@ -256,15 +260,28 @@ export async function getStrangerInfo(
     };
   } catch {
     const p = bridge.identity.findUserProfile(userId);
-    if (!p) return null;
+    if (p) {
+      return {
+        user_id: p.uin,
+        nickname: p.nickname,
+        remark: p.remark || bridge.identity.findFriend(userId)?.remark || '',
+        sex: p.sex,
+        age: p.age,
+        long_nick: p.sign,
+        qq_level: p.level,
+        level: p.level,
+      };
+    }
+
+    const friend = bridge.identity.findFriend(userId);
+    if (!friend) return null;
     return {
-      user_id: p.uin,
-      nickname: p.nickname,
-      sex: p.sex,
-      age: p.age,
-      long_nick: p.sign,
-      qq_level: p.level,
-      level: p.level,
+      user_id: friend.uin,
+      nickname: friend.nickname,
+      remark: friend.remark,
+      sex: 'unknown',
+      age: 0,
+      long_nick: '',
     };
   }
 }

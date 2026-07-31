@@ -5,21 +5,39 @@ import os from 'os';
 import path from 'path';
 import { HookManager, shouldAutoLoadPid } from '../src/hook-manager';
 import { PipeWatcher } from '../src/pipe-watcher';
-import type { ManualMapHandle } from '../src/injector';
+import type { HookInjectResult, ManualMapHandle } from '../src/injector';
 import type { BridgeManagerSink } from '../src/hook-manager';
 import type { QqHookClient } from '../src/qq-hook-client';
-import { createLogger } from '@snowluma/common/logger';
+import {
+  createLogger,
+  getLogLevel,
+  setLogLevel,
+  subscribeLogs,
+  type LogEntry,
+} from '@snowluma/common/logger';
 
 const DUMMY_HANDLE: ManualMapHandle = { base: 0n, entry: 0n, exceptionTable: 0n, size: 0 };
 const flush = () => new Promise<void>(r => setImmediate(r));
+const previousLogLevel = getLogLevel();
+
+function managerTrace(entries: LogEntry[]): LogEntry[] {
+  return entries.filter(
+    (entry) => entry.level === 'trace' && entry.scope === 'Hook',
+  );
+}
 
 function makeManager(opts: {
   autoLoadOnDiscovery?: boolean;
   processes?: number[];
+  onSessionsChanged?: () => void;
+  inject?: (pid: number) => HookInjectResult | Promise<HookInjectResult>;
 }) {
   let pids = opts.processes ?? [];
   const live = new Set<number>();
-  const inject = vi.fn(() => ({ method: 'loadModuleManual' as const, handle: DUMMY_HANDLE }));
+  const inject = vi.fn(opts.inject ?? (() => ({
+    method: 'loadModuleManual' as const,
+    handle: DUMMY_HANDLE,
+  })));
   const unload = vi.fn();
   const pipeWatcher = new PipeWatcher({
     listProcesses: () => pids.map(pid => ({ pid, name: 'qq', path: '' })),
@@ -48,6 +66,7 @@ function makeManager(opts: {
     injector: { inject, unload },
     makeClient,
     autoLoadOnDiscovery: opts.autoLoadOnDiscovery,
+    onSessionsChanged: opts.onSessionsChanged,
     listProcesses: () => pids.map(pid => ({ pid, name: 'qq', path: '' })),
   });
   return {
@@ -57,6 +76,173 @@ function makeManager(opts: {
     setProcesses: (next: number[]) => { pids = next; },
   };
 }
+
+afterEach(() => {
+  setLogLevel(previousLogLevel);
+});
+
+describe('HookManager runtime TRACE', () => {
+  it('records discovery and process-gone facts while unchanged ticks stay silent', async () => {
+    const entries: LogEntry[] = [];
+    const sessionsChanged = vi.fn();
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    const ctx = makeManager({
+      autoLoadOnDiscovery: false,
+      processes: [],
+      onSessionsChanged: sessionsChanged,
+    });
+    try {
+      await ctx.pipeWatcher.start();
+      const baseline = managerTrace(entries).length;
+      await ctx.pipeWatcher.tickNow();
+      await ctx.pipeWatcher.tickNow();
+      expect(managerTrace(entries)).toHaveLength(baseline);
+
+      ctx.setProcesses([4242]);
+      await ctx.pipeWatcher.tickNow();
+      ctx.setProcesses([]);
+      await ctx.pipeWatcher.tickNow();
+      await flush();
+
+      const facts = managerTrace(entries).filter(
+        (entry) => entry.message.startsWith('hook_manager_fact '),
+      );
+      expect(facts.map((entry) => entry.message)).toEqual([
+        expect.stringContaining('hook_manager_fact event=process_discovered pid=4242'),
+        'hook_manager_fact event=process_gone pid=4242 tracked=true',
+      ]);
+      expect(facts.every((entry) => entry.req !== undefined)).toBe(true);
+    } finally {
+      unsubscribe();
+      ctx.manager.dispose();
+    }
+  });
+
+  it('records bounded transient retries and recovery as separate attempts', async () => {
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    const ctx = makeManager({ autoLoadOnDiscovery: true, processes: [4242] });
+    ctx.inject
+      .mockImplementationOnce(() => {
+        throw new Error(
+          'target process does not map /lib/x86_64-linux-gnu/libc.so.6 while resolving mmap',
+        );
+      })
+      .mockImplementationOnce(() => ({
+        method: 'loadModuleManual' as const,
+        handle: DUMMY_HANDLE,
+      }));
+    try {
+      await ctx.pipeWatcher.start();
+      await flush();
+      await flush();
+      await ctx.pipeWatcher.tickNow();
+      await flush();
+      await flush();
+
+      const attempts = managerTrace(entries).filter(
+        (entry) => entry.message.startsWith('hook_autoload_'),
+      );
+      expect(attempts.map((entry) => entry.message)).toEqual([
+        'hook_autoload_start pid=4242 attempt=1 maxAttempts=3',
+        expect.stringMatching(/^hook_autoload_terminal pid=4242 attempt=1 outcome=failed reason=retry_pending error=.*elapsedMs=\d+$/),
+        'hook_autoload_start pid=4242 attempt=2 maxAttempts=3',
+        expect.stringMatching(/^hook_autoload_terminal pid=4242 attempt=2 outcome=completed reason=recovered state=.*elapsedMs=\d+$/),
+      ]);
+      expect(attempts[0]!.req).toBe(attempts[1]!.req);
+      expect(attempts[2]!.req).toBe(attempts[3]!.req);
+      expect(attempts[0]!.req).not.toBe(attempts[2]!.req);
+    } finally {
+      unsubscribe();
+      ctx.manager.dispose();
+    }
+  });
+
+  it('ends an in-flight auto-load as dropped when a manual load supersedes it', async () => {
+    const entries: LogEntry[] = [];
+    let resolveInjection!: (result: HookInjectResult) => void;
+    const injection = new Promise<HookInjectResult>((resolve) => {
+      resolveInjection = resolve;
+    });
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    const ctx = makeManager({
+      autoLoadOnDiscovery: true,
+      processes: [4242],
+      inject: () => injection,
+    });
+    try {
+      await ctx.pipeWatcher.start();
+      await flush();
+      const manualLoad = ctx.manager.loadProcess(4242);
+      resolveInjection({ method: 'loadModuleManual', handle: DUMMY_HANDLE });
+      await manualLoad;
+      await flush();
+
+      const attempts = managerTrace(entries).filter(
+        (entry) => entry.message.startsWith('hook_autoload_'),
+      );
+      expect(attempts.map((entry) => entry.message)).toEqual([
+        'hook_autoload_start pid=4242 attempt=1 maxAttempts=3',
+        expect.stringMatching(
+          /^hook_autoload_terminal pid=4242 attempt=1 outcome=dropped reason=superseded elapsedMs=\d+$/,
+        ),
+      ]);
+      expect(attempts[0]!.req).toBe(attempts[1]!.req);
+    } finally {
+      unsubscribe();
+      ctx.manager.dispose();
+    }
+  });
+
+  it.each([
+    {
+      name: 'permanent failure',
+      error: 'ptrace denied',
+      ticks: 1,
+      attempts: 1,
+      reason: 'permanent_failure',
+    },
+    {
+      name: 'retry exhaustion',
+      error: 'target process does not map /lib/libc.so.6 while resolving mmap',
+      ticks: 4,
+      attempts: 3,
+      reason: 'retry_exhausted',
+    },
+  ])('records $name terminal', async ({ error, ticks, attempts, reason }) => {
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    const ctx = makeManager({ autoLoadOnDiscovery: true, processes: [4242] });
+    ctx.inject.mockImplementation(() => { throw new Error(error); });
+    try {
+      await ctx.pipeWatcher.start();
+      await flush();
+      await flush();
+      for (let tick = 0; tick < ticks; tick += 1) {
+        await ctx.pipeWatcher.tickNow();
+        await flush();
+        await flush();
+      }
+
+      const starts = managerTrace(entries).filter(
+        (entry) => entry.message.startsWith('hook_autoload_start '),
+      );
+      const terminals = managerTrace(entries).filter(
+        (entry) => entry.message.startsWith('hook_autoload_terminal '),
+      );
+      expect(starts).toHaveLength(attempts);
+      expect(terminals).toHaveLength(attempts);
+      expect(terminals.at(-1)!.message).toContain(`reason=${reason}`);
+    } finally {
+      unsubscribe();
+      ctx.manager.dispose();
+    }
+  });
+});
 
 describe('HookManager.autoLoadOnDiscovery', () => {
   it('does NOT inject on process-discovered when flag is off', async () => {

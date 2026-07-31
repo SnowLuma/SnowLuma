@@ -1,14 +1,156 @@
 import { readFile } from 'node:fs/promises';
 import { FriendDressError } from '@snowluma/protocol/web/friend-dress';
+import type {
+  GroupEssenceContent,
+  GroupEssenceMessage,
+} from '@snowluma/protocol/web/group-essence';
 import type { ApiActionContext } from '../api-handler';
 import { asNumber, asString } from '../api-handler';
 import type { ForwardPreviewMeta } from '../modules/message-actions';
-import { hasAuthoritativeSequence, RETCODE, failedResponse, okResponse, type JsonObject } from '../types';
+import {
+  hasAuthoritativeSequence,
+  RETCODE,
+  failedResponse,
+  okResponse,
+  type JsonObject,
+  type MessageMeta,
+} from '../types';
 import { defineAction, groupAction, groupUserAction, f } from '../action-kit';
 import { GROUP_MESSAGE_EVENT, hashMessageIdInt32 } from '../message-id';
 
 const DOWNLOAD_FILE_MAX_BYTES = 1024 * 1024 * 1024; // 1 GiB
 const DOWNLOAD_FILE_TIMEOUT_MS = 60_000;
+
+function essenceNumber(value: unknown, field: string): number {
+  if (typeof value !== 'number'
+    && (typeof value !== 'string' || !/^-?\d+$/.test(value))) {
+    throw new Error(`invalid group essence field ${field}: ${String(value)}`);
+  }
+
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`invalid group essence field ${field}: ${String(value)}`);
+  }
+  return parsed;
+}
+
+function essencePositiveNumber(value: unknown, field: string): number {
+  const parsed = essenceNumber(value, field);
+  if (parsed <= 0) {
+    throw new Error(`group essence field ${field} must be positive: ${parsed}`);
+  }
+  return parsed;
+}
+
+function essenceNonNegativeNumber(value: unknown, field: string): number {
+  const parsed = essenceNumber(value, field);
+  if (parsed < 0) {
+    throw new Error(`group essence field ${field} must not be negative: ${parsed}`);
+  }
+  return parsed;
+}
+
+function essenceString(value: unknown, field: string, allowEmpty: boolean): string {
+  if (typeof value !== 'string' || (!allowEmpty && value.trim().length === 0)) {
+    throw new Error(`invalid group essence field ${field}: ${String(value)}`);
+  }
+  return value;
+}
+
+function essenceContentToSegment(content: GroupEssenceContent): JsonObject {
+  switch (content.msg_type) {
+    case 1:
+      return {
+        type: 'text',
+        data: { text: essenceString(content.text, 'msg_content.text', true) },
+      };
+    case 2:
+      return {
+        type: 'face',
+        data: {
+          id: String(essenceNonNegativeNumber(
+            content.face_index,
+            'msg_content.face_index',
+          )),
+        },
+      };
+    case 3:
+      return {
+        type: 'image',
+        data: {
+          file: '',
+          url: essenceString(content.image_url, 'msg_content.image_url', false),
+        },
+      };
+    case 4:
+      return {
+        type: 'video',
+        data: {
+          file: '',
+          url: essenceString(
+            content.file_thumbnail_url,
+            'msg_content.file_thumbnail_url',
+            false,
+          ),
+        },
+      };
+    default:
+      throw new Error(`unsupported group essence content type: ${content.msg_type}`);
+  }
+}
+
+function projectEssenceMessage(
+  message: GroupEssenceMessage,
+  groupId: number,
+): { messageId: number; meta: MessageMeta; result: JsonObject } {
+  const messageGroupId = essencePositiveNumber(message.group_code, 'group_code');
+  if (messageGroupId !== groupId) {
+    throw new Error(
+      `group essence field group_code does not match requested group: ${messageGroupId} !== ${groupId}`,
+    );
+  }
+
+  const sequence = essencePositiveNumber(message.msg_seq, 'msg_seq');
+  const random = essenceNonNegativeNumber(message.msg_random, 'msg_random');
+  const timestamp = essenceNonNegativeNumber(message.sender_time, 'sender_time');
+  const senderId = essencePositiveNumber(message.sender_uin, 'sender_uin');
+  const operatorId = essencePositiveNumber(message.add_digest_uin, 'add_digest_uin');
+  const operatorTime = essenceNonNegativeNumber(message.add_digest_time, 'add_digest_time');
+  const senderNick = essenceString(message.sender_nick, 'sender_nick', true);
+  const operatorNick = essenceString(message.add_digest_nick, 'add_digest_nick', true);
+  if (!Array.isArray(message.msg_content)) {
+    throw new Error(`invalid group essence field msg_content: ${String(message.msg_content)}`);
+  }
+  const content = message.msg_content.map(essenceContentToSegment);
+  const messageId = hashMessageIdInt32(sequence, groupId, GROUP_MESSAGE_EVENT);
+  const meta: MessageMeta = {
+    isGroup: true,
+    targetId: groupId,
+    sequence,
+    sequenceAuthoritative: true,
+    eventName: GROUP_MESSAGE_EVENT,
+    clientSequence: 0,
+    random,
+    timestamp,
+  };
+
+  return {
+    messageId,
+    meta,
+    result: {
+      msg_seq: sequence,
+      msg_random: random,
+      sender_id: senderId,
+      sender_nick: senderNick,
+      sender_time: timestamp,
+      operator_id: operatorId,
+      operator_nick: operatorNick,
+      operator_time: operatorTime,
+      message_id: messageId,
+      content,
+    },
+  };
+}
 
 async function fetchDownloadFile(
   url: string,
@@ -220,9 +362,17 @@ export const actions = [
       try {
         const essenceDataAll = await ctx.bridge.apis.web.getEssenceAll(p.group_id);
 
-        const allMsgs = essenceDataAll.flatMap((res) => res.data?.msg_list || []);
+        const projections = essenceDataAll
+          .flatMap((res) => res.data.msg_list)
+          .filter((message): message is GroupEssenceMessage => message !== null)
+          .map((message) => projectEssenceMessage(message, p.group_id));
 
-        return okResponse(allMsgs);
+        ctx.cacheMessageMetas(projections.map(({ messageId, meta }) => ({
+          messageId,
+          meta,
+        })));
+
+        return okResponse(projections.map(({ result }) => result));
       } catch (e) {
         return failedResponse(RETCODE.ACTION_FAILED, `获取精华消息失败: ${e}`);
       }
@@ -1186,6 +1336,26 @@ export const actions = [
           remark: friend.remark,
         })),
       })));
+    },
+  }),
+
+  defineAction({
+    name: 'set_friends_category',
+    summary: '移动好友到指定分组',
+    returns: '成功时返回空数据。',
+    params: {
+      uin: f.userId().describe('要移动的好友 QQ 号'),
+      categoryId: f.int({ min: 0 }).optional().describe('目标分组 ID'),
+      categoryName: f.string({ allowEmpty: false }).optional().describe('目标分组名称（必须唯一且完全匹配）'),
+    },
+    rules: (rules) => [rules.exactlyOneOf('categoryId', 'categoryName')],
+    run: async (params, ctx) => {
+      await ctx.bridge.apis.contacts.setFriendCategory({
+        uin: params.uin,
+        categoryId: params.categoryId,
+        categoryName: params.categoryName,
+      });
+      return okResponse();
     },
   }),
 

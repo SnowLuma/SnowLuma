@@ -6,7 +6,16 @@ import {
   configureFileTransport,
   getLogStorageStatus,
 } from '@snowluma/common/log-file-transport';
-import { createLogger, getLogLevel, getRecentLogs, LOG_LEVELS, setLogLevel, subscribeLogs } from '@snowluma/common/logger';
+import {
+  createLogger,
+  getLogLevel,
+  getLogSnapshot,
+  getRecentLogs,
+  logInitialWebuiCredentials,
+  LOG_LEVELS,
+  setLogLevel,
+  subscribeLogs,
+} from '@snowluma/common/logger';
 import {
   loadOneBotConfig,
   OneBotConfigValidationError,
@@ -49,6 +58,8 @@ import { sseResponse } from './sse-response';
 import { bindStateStream } from './state-stream';
 import type { StateBus, StateResource } from './state-bus';
 import { startConnectionDiffLoop } from './connection-diff-loop';
+import { comparableConnectionSnapshot } from './connection-snapshot';
+import { traceAuthenticatedWebuiMutation } from './mutation-trace';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
 import { findAvailablePort } from './port';
 import {
@@ -61,7 +72,8 @@ import {
   sniffImageMime,
   writeBackgroundImage,
 } from './ui-config';
-import { getUpdateInfo } from './update-check';
+import { currentVersion, getUpdateInfo } from './update-check';
+import { buildFullTraceDownload } from './log-export';
 import { loadNotificationsConfig, saveNotificationsConfig } from '../notifications/config';
 import type { NotificationManager } from '../notifications/manager';
 import { StorageManagementService } from './storage-management';
@@ -467,22 +479,7 @@ export async function initWebUI(
     startConnectionDiffLoop({
       bus: listener.stateBus,
       getSnapshot: () => oneBotManager.getConnectionStatuses(),
-      pickComparable: (snap) => {
-        if (!Array.isArray(snap)) return snap;
-        return (snap as Array<{ uin: string; nickname?: string; adapters?: unknown[] }>).map((acc) => ({
-          uin: acc.uin,
-          nickname: acc.nickname,
-          // Empty fallback when `adapters` is not an array — never the
-          // raw value, which could re-introduce volatile fields verbatim
-          // if the snapshot shape ever drifts.
-          adapters: Array.isArray(acc.adapters)
-            ? acc.adapters.map((a: unknown) => {
-              const o = a as { name?: string; kind?: string; status?: string; lastErrorAt?: number };
-              return { name: o.name, kind: o.kind, status: o.status, lastErrorAt: o.lastErrorAt };
-            })
-            : [],
-        }));
-      },
+      pickComparable: comparableConnectionSnapshot,
       intervalMs: 500,
     });
   }
@@ -503,7 +500,7 @@ export async function initWebUI(
     log.info('  若跳过初始改密，下次启动将自动生成新的随机密码。');
     log.info('  Log in and change the password now; it will not be shown again.');
     log.info('────────────────────────────────────────────────────────────────');
-    log.info('initial credentials: user=admin password=%s', initialPassword);
+    logInitialWebuiCredentials(initialPassword);
     log.info('════════════════════════════════════════════════════════════════');
   } else if (auth.mustChangePassword()) {
     log.warn('password change is still required');
@@ -613,7 +610,10 @@ export async function initWebUI(
     }
 
     c.set('sessionToken' as never, token);
-    await next();
+    c.res = await traceAuthenticatedWebuiMutation(c.req.raw, async () => {
+      await next();
+      return c.res;
+    });
   });
 
   // Periodic janitor — keeps sessionTokens / loginAttempts from growing
@@ -1183,6 +1183,22 @@ export async function initWebUI(
   app.get('/api/logs', (c) => {
     const limit = Number(c.req.query('limit') ?? 300);
     return c.json({ list: getRecentLogs(limit) });
+  });
+
+  app.get('/api/logs/export/trace', (c) => {
+    const exportedAt = new Date().toISOString();
+    const download = buildFullTraceDownload(getLogSnapshot(), {
+      version: currentVersion(),
+      operatingSystem: os.platform(),
+      architecture: os.arch(),
+      nodeVersion: process.version,
+      logLevel: getLogLevel(),
+      exportedAt,
+    });
+    for (const [name, value] of Object.entries(download.headers)) {
+      c.header(name, value);
+    }
+    return c.body(download.body);
   });
 
   app.get('/api/logs/level', (c) => {

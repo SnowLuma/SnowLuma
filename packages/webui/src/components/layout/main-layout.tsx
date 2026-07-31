@@ -15,10 +15,11 @@ import { cn } from '@/lib/utils';
 interface MainLayoutProps {
   status: string;
   onLogout: () => void;
+  notice?: ReactNode;
   children: ReactNode;
 }
 
-export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
+export function MainLayout({ status, onLogout, notice, children }: MainLayoutProps) {
   const isMobile = !useMediaQuery('(min-width: 768px)');
   const { appearance } = useTheme();
   const customBg = appearance.background.type !== 'none';
@@ -117,11 +118,14 @@ export function MainLayout({ status, onLogout, children }: MainLayoutProps) {
         {!kiosk && (
           <TopBar
             status={status}
-            onOpenMobile={() => setMobileOpen(true)}
+            mobileOpen={mobileOpen}
+            onMobileOpenChange={setMobileOpen}
             onLogout={onLogout}
             isMobile={isMobile}
           />
         )}
+
+        {!kiosk && notice}
 
         <main className={cn('flex min-h-0 flex-1 flex-col')}>
           <ScrollArea className="flex-1 min-h-0" viewportClassName="[&>div]:!block">

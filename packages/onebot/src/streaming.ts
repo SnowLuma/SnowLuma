@@ -39,6 +39,13 @@ export interface StreamSink {
   send(frame: JsonValue): Promise<void>;
 }
 
+export class StreamTransportClosedError extends Error {
+  constructor(message = 'stream transport closed') {
+    super(message);
+    this.name = 'StreamTransportClosedError';
+  }
+}
+
 /** Fallback sink for when a stream action is invoked over a transport that
  *  can't stream (or by a plain client): intermediate frames are dropped, the
  *  terminal response is still returned normally. */

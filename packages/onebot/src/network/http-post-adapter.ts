@@ -80,29 +80,57 @@ export class HttpPostAdapter extends IOneBotNetworkAdapter<HttpClientNetwork> {
     }
 
     const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const startedAt = Date.now();
+    let response: Response;
     try {
-      const response = await fetch(config.url, {
+      response = await fetch(config.url, {
         method: 'POST',
         headers,
         body: payload,
         signal: AbortSignal.timeout(timeoutMs),
       });
-      if (response.ok) {
-        this.lastDelivery = { at: Date.now(), ok: true };
-        const contentType = response.headers.get('content-type') ?? '';
-        if (contentType.includes('application/json')) {
-          const body = await response.text();
-          if (body.trim()) {
-            await this.handleQuickOperation(event, body);
-          }
-        }
-      } else {
-        this.lastDelivery = { at: Date.now(), ok: false };
-        this.log.warn('[%s] POST %s returned %d', this.name, config.url, response.status);
-      }
     } catch (error) {
       this.lastDelivery = { at: Date.now(), ok: false };
       this.log.warn('[%s] POST %s failed: %s', this.name, config.url, error instanceof Error ? error.message : String(error));
+      this.log.trace(() => [
+        'http_report_terminal target=%s outcome=transport_failed ms=%d error=%s',
+        this.name,
+        Date.now() - startedAt,
+        error instanceof Error ? (error.stack ?? error.message) : String(error),
+      ]);
+      return;
+    }
+
+    if (!response.ok) {
+      this.lastDelivery = { at: Date.now(), ok: false };
+      this.log.warn('[%s] POST %s returned %d', this.name, config.url, response.status);
+      this.log.trace(
+        'http_report_terminal target=%s outcome=rejected status=%d ms=%d',
+        this.name,
+        response.status,
+        Date.now() - startedAt,
+      );
+      return;
+    }
+
+    this.lastDelivery = { at: Date.now(), ok: true };
+    this.log.trace(
+      'http_report_terminal target=%s outcome=accepted status=%d ms=%d',
+      this.name,
+      response.status,
+      Date.now() - startedAt,
+    );
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!contentType.includes('application/json')) return;
+    try {
+      const body = await response.text();
+      if (body.trim()) await this.handleQuickOperation(event, body);
+    } catch (error) {
+      this.log.warn(
+        '[%s] quick operation response read failed: %s',
+        this.name,
+        error instanceof Error ? error.message : String(error),
+      );
     }
   }
 

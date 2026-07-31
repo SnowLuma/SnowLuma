@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { HookSession } from '../src/hook-session';
 import type { ManualMapHandle } from '../src/injector';
@@ -6,6 +6,24 @@ import type { QqHookClient, QqHookPacket } from '../src/qq-hook-client';
 import type { QqPortLoginInfo } from '../src/qq-port-probe';
 import type { PacketSender } from '@snowluma/common/packet-sender';
 import type { PacketSink } from '@snowluma/common/protocol-types';
+import {
+  getLogLevel,
+  setLogLevel,
+  subscribeLogs,
+  type LogEntry,
+} from '@snowluma/common/logger';
+
+const previousLogLevel = getLogLevel();
+
+function sessionTrace(entries: LogEntry[]): LogEntry[] {
+  return entries.filter(
+    (entry) => entry.level === 'trace' && entry.scope === 'HookSession',
+  );
+}
+
+afterEach(() => {
+  setLogLevel(previousLogLevel);
+});
 
 const DUMMY_HANDLE: ManualMapHandle = { base: 0n, entry: 0n, exceptionTable: 0n, size: 0 };
 
@@ -95,6 +113,185 @@ function makeSession(opts: {
 
 const flush = () => new Promise<void>(r => setImmediate(r));
 
+describe('HookSession — runtime TRACE', () => {
+  it('records injection and existing-pipe load branches with unique terminals', async () => {
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      const injected = makeSession({ pid: 7101, pipeLive: false });
+      const reconnect = makeSession({ pid: 7102, pipeLive: true });
+      await injected.session.load();
+      await reconnect.session.load();
+
+      const messages = sessionTrace(entries).map((entry) => entry.message);
+      expect(messages).toEqual(expect.arrayContaining([
+        expect.stringContaining('hook_session_start pid=7101 operation=load'),
+        'hook_session_branch pid=7101 operation=load branch=inject_begin',
+        'hook_session_branch pid=7101 operation=load branch=inject_completed method="loadModuleManual"',
+        expect.stringMatching(/^hook_session_terminal pid=7101 operation=load outcome=completed reason=load_settled state=.*elapsedMs=\d+$/),
+        expect.stringContaining('hook_session_start pid=7102 operation=load'),
+        'hook_session_branch pid=7102 operation=load branch=existing_pipe method="reconnect"',
+        expect.stringMatching(/^hook_session_terminal pid=7102 operation=load outcome=completed reason=load_settled state=.*elapsedMs=\d+$/),
+      ]));
+      for (const pid of [7101, 7102]) {
+        expect(messages.filter(
+          (message) => message.startsWith(`hook_session_terminal pid=${pid} operation=load `),
+        )).toHaveLength(1);
+      }
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('records load and connection failures with truthful settled state', async () => {
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      const injector = {
+        inject: vi.fn(() => { throw new Error('fixture inject failure'); }),
+        unload: vi.fn(),
+      };
+      const failedLoad = new HookSession(7103, {
+        injector,
+        makeClient: () => new FakeClient() as unknown as QqHookClient,
+        pipeWatcher: { isPipeLive: () => false },
+      });
+      await failedLoad.load();
+
+      const failedConnect = makeSession({
+        pid: 7104,
+        pipeLive: true,
+        clientFailsConnect: true,
+      });
+      await failedConnect.session.load();
+      failedConnect.session.onPipeUp();
+      await flush();
+
+      const messages = sessionTrace(entries).map((entry) => entry.message);
+      expect(messages).toEqual(expect.arrayContaining([
+        expect.stringMatching(/^hook_session_terminal pid=7103 operation=load outcome=failed reason=load_failed error="fixture inject failure" state=.*elapsedMs=\d+$/),
+        expect.stringContaining('hook_session_connect_start pid=7104'),
+        expect.stringMatching(/^hook_session_connect_terminal pid=7104 outcome=failed reason=connect_failed error="connect failed" state=.*elapsedMs=\d+$/),
+      ]));
+      expect(messages.filter(
+        (message) => message.startsWith('hook_session_connect_terminal pid=7104 '),
+      )).toHaveLength(1);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('records login, disconnect, and process-gone only when state changes', async () => {
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    const ctx = makeSession({ pid: 7105, pipeLive: true });
+    try {
+      await ctx.session.load();
+      ctx.session.onPipeUp();
+      await flush();
+      ctx.currentClient().fireLogin('10001');
+      ctx.currentClient().fireLogin('10001');
+      ctx.session.onPipeDown();
+      await flush();
+      ctx.session.onPipeDown();
+      await flush();
+      ctx.session.notifyProcessGone();
+      await flush();
+
+      const messages = sessionTrace(entries).map((entry) => entry.message);
+      expect(messages.filter(
+        (message) => message.startsWith('hook_session_login_terminal pid=7105 '),
+      )).toHaveLength(1);
+      expect(messages.filter(
+        (message) => message.startsWith('hook_session_disconnect_terminal pid=7105 '),
+      )).toHaveLength(1);
+      expect(messages.filter(
+        (message) => message.startsWith('hook_session_process_terminal pid=7105 '),
+      )).toHaveLength(1);
+      expect(messages).toEqual(expect.arrayContaining([
+        expect.stringMatching(/^hook_session_login_terminal pid=7105 outcome=completed reason=login_detected previousUin="0" uin="10001" state=.*elapsedMs=\d+$/),
+        expect.stringMatching(/^hook_session_disconnect_terminal pid=7105 outcome=completed reason=pipe_down wasLoggedIn=true state=.*elapsedMs=\d+$/),
+        expect.stringMatching(/^hook_session_process_terminal pid=7105 outcome=completed reason=process_gone wasLoggedIn=false state=.*elapsedMs=\d+$/),
+      ]));
+    } finally {
+      unsubscribe();
+      ctx.session.dispose();
+    }
+  });
+
+  it('records failed terminals when lifecycle listeners throw', async () => {
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    const login = makeSession({ pid: 7107, pipeLive: true });
+    const disconnect = makeSession({ pid: 7108, pipeLive: true });
+    const processGone = makeSession({ pid: 7109, pipeLive: true });
+    try {
+      await login.session.load();
+      login.session.onPipeUp();
+      await flush();
+      login.session.on('login', () => { throw new Error('login listener boom'); });
+      expect(() => login.currentClient().fireLogin('10001')).toThrow('login listener boom');
+
+      await disconnect.session.load();
+      disconnect.session.onPipeUp();
+      await flush();
+      disconnect.currentClient().fireLogin('10002');
+      disconnect.session.on('disconnected', () => { throw new Error('disconnect listener boom'); });
+      disconnect.session.onPipeDown();
+      await flush();
+
+      processGone.session.on('disposed', () => { throw new Error('dispose listener boom'); });
+      processGone.session.notifyProcessGone();
+      await flush();
+
+      const messages = sessionTrace(entries).map((entry) => entry.message);
+      expect(messages.filter((message) =>
+        message.startsWith('hook_session_login_terminal pid=7107 '))).toEqual([
+        expect.stringMatching(/^hook_session_login_terminal pid=7107 outcome=failed reason=listener_failed error="login listener boom" state=.*elapsedMs=\d+$/),
+      ]);
+      expect(messages.filter((message) =>
+        message.startsWith('hook_session_disconnect_terminal pid=7108 '))).toEqual([
+        expect.stringMatching(/^hook_session_disconnect_terminal pid=7108 outcome=failed reason=listener_failed error="disconnect listener boom" state=.*elapsedMs=\d+$/),
+      ]);
+      expect(messages.filter((message) =>
+        message.startsWith('hook_session_process_terminal pid=7109 '))).toEqual([
+        expect.stringMatching(/^hook_session_process_terminal pid=7109 outcome=failed reason=listener_failed error="dispose listener boom" state=.*elapsedMs=\d+$/),
+      ]);
+    } finally {
+      unsubscribe();
+      login.session.dispose();
+      disconnect.session.dispose();
+      processGone.session.dispose();
+    }
+  });
+
+  it('records unload verification failure as a failed terminal', async () => {
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    const ctx = makeSession({ pid: 7106, pipeLive: false });
+    try {
+      await ctx.session.load();
+      ctx.setPipeLive(true);
+      await ctx.session.unload();
+
+      const terminals = sessionTrace(entries).filter(
+        (entry) => entry.message.startsWith('hook_session_terminal pid=7106 operation=unload '),
+      );
+      expect(terminals).toHaveLength(1);
+      expect(terminals[0]!.message).toMatch(
+        /^hook_session_terminal pid=7106 operation=unload outcome=failed reason=unload_verification_failed error=.*state=.*elapsedMs=\d+$/,
+      );
+    } finally {
+      unsubscribe();
+    }
+  });
+});
+
 describe('HookSession — load', () => {
   it('with no live pipe: injects, status → connecting, method from inject result', async () => {
     const { session, injector } = makeSession({ pipeLive: false });
@@ -116,6 +313,33 @@ describe('HookSession — load', () => {
     expect(info.status).toBe('connecting');
   });
 
+  it('keeps loading pending until asynchronous component loading completes', async () => {
+    let finishLoading!: (result: { method: 'loadModuleManual'; handle: ManualMapHandle }) => void;
+    const loading = new Promise<{ method: 'loadModuleManual'; handle: ManualMapHandle }>(resolve => {
+      finishLoading = resolve;
+    });
+    const injector = {
+      inject: vi.fn(() => loading),
+      unload: vi.fn(),
+    };
+    const session = new HookSession(1234, {
+      injector,
+      makeClient: () => new FakeClient() as unknown as QqHookClient,
+      pipeWatcher: { isPipeLive: () => false },
+    });
+
+    const load = session.load();
+    await flush();
+
+    expect(session.status).toBe('loading');
+    finishLoading({ method: 'loadModuleManual', handle: DUMMY_HANDLE });
+    await expect(load).resolves.toMatchObject({
+      status: 'connecting',
+      method: 'loadModuleManual',
+      injected: true,
+    });
+  });
+
   it('inject failure → status error, error message captured', async () => {
     const injector = {
       inject: vi.fn(() => { throw new Error('inject boom'); }),
@@ -129,6 +353,37 @@ describe('HookSession — load', () => {
     const info = await session.load();
     expect(info.status).toBe('error');
     expect(info.error).toBe('inject boom');
+  });
+
+  it('can retry after asynchronous component loading fails', async () => {
+    const injector = {
+      inject: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('component loading timed out'))
+        .mockResolvedValueOnce({
+          method: 'loadModuleManual' as const,
+          handle: DUMMY_HANDLE,
+        }),
+      unload: vi.fn(),
+    };
+    const session = new HookSession(1234, {
+      injector,
+      makeClient: () => new FakeClient() as unknown as QqHookClient,
+      pipeWatcher: { isPipeLive: () => false },
+    });
+
+    await expect(session.load()).resolves.toMatchObject({
+      status: 'error',
+      error: 'component loading timed out',
+      injected: false,
+    });
+    await expect(session.load()).resolves.toMatchObject({
+      status: 'connecting',
+      method: 'loadModuleManual',
+      injected: true,
+      error: '',
+    });
+    expect(injector.inject).toHaveBeenCalledTimes(2);
   });
 });
 

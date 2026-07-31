@@ -10,30 +10,37 @@ import {
 import { OneBotManager } from '@snowluma/onebot/manager';
 import { migrateGlobalSettings } from '@snowluma/onebot/global-config';
 import { cleanupInvalidPerUinConfigs } from '@snowluma/onebot/config';
+import {
+  isMessageStoreMigrationWorkerData,
+  runMessageStoreMigrationWorker,
+} from '@snowluma/onebot/message-store-migration-worker';
+import { workerData } from 'node:worker_threads';
 import { BridgeManager } from './bridge/manager';
 import { createNotificationManager } from './notifications/manager';
 import { createStateWiring } from './webui/state-wiring';
 
-const runtimeConfig = loadRuntimeConfig();
 const log = createLogger('App');
 
-// Last-resort process guards. This is a long-running daemon: a hooked QQ pipe
-// can drop at any moment, and a stray rejection on a detached callback (or a
-// throw that escapes one) must NOT take the whole process down — otherwise
-// Docker restarts it (dropping every session) and a bare Windows run just dies
-// ("connection pipe closed", bot offline). Log and keep serving; the bridge's
-// own watcher reconnects the dropped pipe. Targeted handlers still cover the
-// known paths (e.g. the hook-client send deferreds) — these only catch what
-// slips through, and surface its stack so the real source can be fixed.
-process.on('unhandledRejection', (reason) => {
-  log.error('unhandledRejection (kept alive): %s',
-    reason instanceof Error ? (reason.stack ?? reason.message) : String(reason));
-});
-process.on('uncaughtException', (error) => {
-  log.error('uncaughtException (kept alive): %s', error.stack ?? error.message);
-});
+function installProcessGuards(): void {
+  // Last-resort process guards. This is a long-running daemon: a hooked QQ pipe
+  // can drop at any moment, and a stray rejection on a detached callback (or a
+  // throw that escapes one) must NOT take the whole process down — otherwise
+  // Docker restarts it (dropping every session) and a bare Windows run just dies
+  // ("connection pipe closed", bot offline). Log and keep serving; the bridge's
+  // own watcher reconnects the dropped pipe. Targeted handlers still cover the
+  // known paths (e.g. the hook-client send deferreds) — these only catch what
+  // slips through, and surface its stack so the real source can be fixed.
+  process.on('unhandledRejection', (reason) => {
+    log.error('unhandledRejection (kept alive): %s',
+      reason instanceof Error ? (reason.stack ?? reason.message) : String(reason));
+  });
+  process.on('uncaughtException', (error) => {
+    log.error('uncaughtException (kept alive): %s', error.stack ?? error.message);
+  });
+}
 
 async function main() {
+  const runtimeConfig = loadRuntimeConfig();
   await configureFileTransport({
     maxTotalMb: runtimeConfig.logMaxTotalMb ?? DEFAULT_LOG_MAX_TOTAL_MB,
     retainDays: runtimeConfig.logRetainDays ?? DEFAULT_LOG_RETAIN_DAYS,
@@ -134,8 +141,15 @@ function resolveAutoLoad(fromConfig: boolean | undefined): boolean {
   return fromConfig === true;
 }
 
-main().catch(async (error) => {
-  log.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
-  await closeLogger();
-  process.exit(1);
-});
+if (isMessageStoreMigrationWorkerData(workerData)) {
+  runMessageStoreMigrationWorker(workerData).catch(() => {
+    process.exitCode = 1;
+  });
+} else {
+  installProcessGuards();
+  main().catch(async (error) => {
+    log.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
+    await closeLogger();
+    process.exit(1);
+  });
+}

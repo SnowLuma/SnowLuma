@@ -5,8 +5,14 @@
 // The OIDB response is built with real protobuf encoding so we exercise
 // the actual decode path inside the pipeline.
 
+import {
+  getLogLevel,
+  setLogLevel,
+  subscribeLogs,
+  type LogEntry,
+} from '@snowluma/common/logger';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@snowluma/protocol/highway', () => ({
   fetchHighwaySession: vi.fn(async () => ({ sessionId: 'fake-session' })),
@@ -27,6 +33,12 @@ import {
   runNtv2Upload,
   type MediaSubFileUpload,
 } from '@snowluma/protocol/highway/pipeline';
+
+const previousLogLevel = getLogLevel();
+
+function highwayTrace(entries: LogEntry[]): LogEntry[] {
+  return entries.filter((entry) => entry.level === 'trace' && entry.scope === 'Highway');
+}
 
 interface FakeUploadResponse {
   upload?: {
@@ -108,6 +120,122 @@ describe('pipeline — runNtv2Upload', () => {
     vi.mocked(highway.buildHighwayExtend).mockClear();
   });
 
+  afterEach(() => {
+    setLogLevel(previousLogLevel);
+  });
+
+  it('records fast-upload selection and one completed media terminal', async () => {
+    const bridge = makeBridge({
+      responseData: encodeOidbResponse({
+        upload: { msgInfo: { msgInfoBody: [], extBizInfo: {} } },
+      }),
+    });
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      await runNtv2Upload(baseParams({
+        bridge,
+        label: 'image',
+        uploads: [{
+          source: 'top',
+          cmdId: 1003,
+          bytes: new Uint8Array([0xDE, 0xAD]),
+          md5: new Uint8Array([0x00, 0xFF]),
+          sha1: new Uint8Array([0x10, 0x20]),
+        }],
+      }));
+      const trace = highwayTrace(entries);
+      expect(trace.every((entry) => entry.req !== undefined && entry.req === trace[0]!.req)).toBe(true);
+      const messages = trace.map((entry) => entry.message);
+      expect(messages).toEqual(expect.arrayContaining([
+        expect.stringMatching(/^highway_media_start label="image" .*businessType=1 .*source:"top",cmdId:1003,size:2,storage:"buffer",md5:00ff,sha1:\[1020\]/),
+        expect.stringContaining('branch=fast_upload'),
+        expect.stringMatching(/^highway_media_terminal label="image" outcome=completed reason=fast_upload .*elapsedMs=\d+$/),
+      ]));
+      expect(messages.join('\n')).not.toContain('dead');
+      expect(messages.filter((message) => message.startsWith('highway_media_terminal '))).toHaveLength(1);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('records required PUT and one failed media terminal', async () => {
+    const bridge = makeBridge({
+      responseData: encodeOidbResponse({
+        upload: {
+          uKey: 'ukey-secret',
+          msgInfo: { msgInfoBody: [], extBizInfo: {} },
+        },
+      }),
+    });
+    vi.mocked(highway.uploadHighwayHttp).mockRejectedValueOnce(
+      new Error('fixture PUT failed'),
+    );
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      await expect(runNtv2Upload(baseParams({
+        bridge,
+        label: 'video',
+        uploads: [{
+          source: 'top',
+          cmdId: 1001,
+          bytes: new Uint8Array([1]),
+          md5: new Uint8Array([2]),
+          sha1: new Uint8Array([3]),
+        }],
+      }))).rejects.toThrow('fixture PUT failed');
+      const messages = highwayTrace(entries).map((entry) => entry.message);
+      expect(messages).toEqual(expect.arrayContaining([
+        expect.stringContaining('branch=put_required source="top" cmdId=1001 size=1'),
+        expect.stringContaining('uKey="ukey-secret"'),
+        expect.stringContaining('outcome=failed reason=put_failed'),
+      ]));
+      expect(messages.filter((message) => message.startsWith('highway_media_terminal '))).toHaveLength(1);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('records OIDB rejection as one failed media terminal', async () => {
+    const bridge = makeBridge({
+      responseData: encodeOidbResponse({}, { errorCode: 42, errorMsg: 'boom' }),
+    });
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      await expect(runNtv2Upload(baseParams({ bridge, label: 'image' })))
+        .rejects.toThrow('OIDB error 42');
+      const terminals = highwayTrace(entries)
+        .filter((entry) => entry.message.startsWith('highway_media_terminal '));
+      expect(terminals).toHaveLength(1);
+      expect(terminals[0]!.message).toContain('outcome=failed reason=oidb_rejected');
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('classifies a thrown OIDB transport call as request_failed', async () => {
+    const bridge = makeBridge();
+    bridge.sendRawPacket.mockRejectedValueOnce(new Error('fixture OIDB pipe failure'));
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      await expect(runNtv2Upload(baseParams({ bridge, label: 'image' })))
+        .rejects.toThrow('fixture OIDB pipe failure');
+      const terminals = highwayTrace(entries)
+        .filter((entry) => entry.message.startsWith('highway_media_terminal '));
+      expect(terminals).toHaveLength(1);
+      expect(terminals[0]!.message).toContain('outcome=failed reason=request_failed');
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it('builds an NTV2 request body and dispatches to the configured serviceCmd', async () => {
     const bridge = makeBridge({
       responseData: encodeOidbResponse({ upload: { msgInfo: { msgInfoBody: [], extBizInfo: {} } } }),
@@ -153,6 +281,25 @@ describe('pipeline — runNtv2Upload', () => {
     const upload = await runNtv2Upload(baseParams({ bridge }));
     expect(upload.uKey).toBe('fake-ukey');
     expect(upload.msgInfo?.msgInfoBody).toHaveLength(1);
+  });
+
+  it('rejects a successful envelope that is missing msgInfo with one failed terminal', async () => {
+    const bridge = makeBridge({
+      responseData: encodeOidbResponse({ upload: { uKey: 'fake-ukey' } }),
+    });
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      await expect(runNtv2Upload(baseParams({ bridge, label: 'image' })))
+        .rejects.toThrow(/upload response missing msgInfo/);
+      const terminals = highwayTrace(entries).filter((entry) =>
+        entry.message.startsWith('highway_media_terminal '));
+      expect(terminals).toHaveLength(1);
+      expect(terminals[0]!.message).toContain('outcome=failed reason=response_invalid');
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('throws on transport failure', async () => {

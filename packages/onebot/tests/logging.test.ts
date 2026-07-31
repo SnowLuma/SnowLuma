@@ -21,24 +21,23 @@ describe('renderParamsVerbose', () => {
     expect(out).toContain('"456"');
   });
 
-  it('truncates long strings (e.g. base64) with a size marker', () => {
+  it('preserves long strings such as inline base64 data', () => {
     const big = 'A'.repeat(5000);
     const out = renderParamsVerbose({ file: `base64://${big}` });
-    expect(out).toContain('base64://');
-    expect(out).toContain('…<'); // truncation marker
-    expect(out).toContain('B>');
-    expect(out.length).toBeLessThan(2000); // bounded by the total budget
+    expect(out).toContain(`file:"base64://${big}"`);
+    expect(out).not.toMatch(/…<\d+B>|\.\.\./);
   });
 
-  it('redacts sensitive keys at any depth', () => {
+  it('keeps sensitive fields visible in explicit TRACE diagnostics', () => {
     const out = renderParamsVerbose({
       access_token: 'super-secret-value',
       nested: { password: 'hunter2', SECRET: 'x', ok: 'visible' },
     });
-    expect(out).not.toContain('super-secret-value');
-    expect(out).not.toContain('hunter2');
-    expect(out).toContain('"***"');
-    expect(out).toContain('"visible"'); // non-sensitive keys still rendered
+    expect(out).toContain('super-secret-value');
+    expect(out).toContain('hunter2');
+    expect(out).toContain('SECRET:"x"');
+    expect(out).not.toContain('"***"');
+    expect(out).toContain('"visible"');
   });
 
   it('handles circular references without throwing', () => {

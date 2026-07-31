@@ -146,6 +146,14 @@ export class WsServerConnections {
       // handshake necessarily reaches the peer. Ignore any frame arriving in
       // that interval so old credentials cannot start another Action.
       if (!this.connections.has(socket)) return;
+      if (this.ctx.api.isAcceptingActions === false) {
+        this.log.warn('[%s] rejected inbound action after instance quiesce', this.name);
+        if (role === 'Api' || role === 'Universal') {
+          const text = rawDataToString(raw);
+          if (text) this.ctx.api.traceQuiescedStreamRequest(text);
+        }
+        return;
+      }
       this.trackInboundAction(() => this.handleApiMessage(socket, role, raw));
     });
     socket.on('close', () => {
@@ -203,7 +211,10 @@ export class WsServerConnections {
   }
 
   trackInboundAction(start: () => Promise<void>): void {
-    if (!this.acceptingActions || this.ctx.api.isAcceptingActions === false) {
+    if (
+      !this.acceptingActions
+      || this.ctx.api.isAcceptingActions === false
+    ) {
       this.log.warn('[%s] rejected inbound action while adapter is closing', this.name);
       return;
     }

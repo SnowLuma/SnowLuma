@@ -1,5 +1,5 @@
 import type { AccountConnections, BackupBundle, BackupImportResult, DebugActionDoc, DebugInvokeResult, DebugStreamMessage, GlobalSettings, HookProcessInfo, LogEntry, LogLevel, LogStorageSettingsPatch, NotificationDeliveryRecord, NotificationsConfig, QQInfo, StorageCleanupRequest, StorageCleanupResponse, StorageOverviewResponse, StorageSettingsUpdateResponse, SystemInfo, SystemSettingsPatch, SystemSettingsResponse, UiAppearance, UiConfig, UpdateInfo } from '@/types';
-import type { PasswordRule } from '@/components/pages/change-password-page';
+import type { PasswordRule } from '@/components/pages/change-password-form';
 import { normalizeOneBotConfig } from '@/lib/onebot-config';
 import {
   type AgreementsPayload,
@@ -18,6 +18,7 @@ import {
 import { localStorageTokenStore } from './token-store';
 
 const DEFAULT_TOKEN_KEY = 'snowluma_token';
+const REQUEST_TIMEOUT_MS = 30_000;
 
 interface ErrorPayload {
   message?: string;
@@ -72,7 +73,10 @@ class HttpApiClient implements ApiClient {
       load: (pid) => this.postJson<ProcessActionResult>(`/api/processes/${pid}/load`),
       unload: (pid) => this.postJson<ProcessActionResult>(`/api/processes/${pid}/unload`),
       refresh: (pid) => this.postJson<ProcessActionResult>(`/api/processes/${pid}/refresh`),
-      probeLoginInfo: (pid) => this.getJson<{ info: unknown }>(`/api/processes/${pid}/probe-login`).then((d) => d.info ?? null),
+      probeLoginInfo: (pid, signal) => this.fetchJson<{ info: unknown }>(
+        `/api/processes/${pid}/probe-login`,
+        { signal },
+      ).then((d) => d.info ?? null),
     };
 
     this.config = {
@@ -139,6 +143,21 @@ class HttpApiClient implements ApiClient {
         return data.list ?? [];
       },
       stream: (options) => this.openLogStream(options),
+      exportTrace: async () => {
+        const res = await this.request('/api/logs/export/trace');
+        if (!res.ok) {
+          const payload = await readJson<ErrorPayload>(res);
+          throw new ApiError(
+            res.status,
+            extractErrorMessage(payload, res.statusText || '导出失败'),
+            payload.code,
+          );
+        }
+        const disposition = res.headers.get('Content-Disposition') ?? '';
+        const filename = disposition.match(/filename="([^"]+)"/)?.[1]
+          ?? 'snowluma-trace.log';
+        return { text: await res.text(), filename };
+      },
       getLevel: () => this.getJson<{ level: LogLevel; levels: LogLevel[] }>(`/api/logs/level`),
       setLevel: (level) =>
         this.postJson<{ level: LogLevel; levels: LogLevel[] }>(`/api/logs/level`, { level }),
@@ -211,7 +230,7 @@ class HttpApiClient implements ApiClient {
       getPublic: async () => {
         // Pre-auth path: a plain fetch with no bearer. Used by the login page
         // to theme itself before the operator has signed in.
-        const res = await fetch('/api/ui/public');
+        const res = await this.fetchWithDeadline('/api/ui/public');
         if (!res.ok) throw new ApiError(res.status, '无法获取外观配置');
         const data = await readJson<{ appearance: UiAppearance }>(res);
         return data.appearance;
@@ -303,12 +322,36 @@ class HttpApiClient implements ApiClient {
     };
     if (this.currentToken) headers['Authorization'] = `Bearer ${this.currentToken}`;
     if (init.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
-    const res = await fetch(url, { ...init, headers });
+
+    const res = await this.fetchWithDeadline(url, { ...init, headers });
     if (res.status === 401) {
       this.setToken(null);
       this.onUnauthorized?.();
     }
     return res;
+  }
+
+  private async fetchWithDeadline(
+    url: string,
+    init: RequestInit = {},
+  ): Promise<Response> {
+    const deadline = new AbortController();
+    const onCallerAbort = () => deadline.abort(init.signal?.reason);
+    if (init.signal?.aborted) onCallerAbort();
+    else init.signal?.addEventListener('abort', onCallerAbort, { once: true });
+    const timer = setTimeout(() => deadline.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, { ...init, signal: deadline.signal });
+      return res;
+    } catch (error) {
+      if (deadline.signal.aborted && !init.signal?.aborted) {
+        throw new ApiError(408, '请求超时，请重试', 'REQUEST_TIMEOUT');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      init.signal?.removeEventListener('abort', onCallerAbort);
+    }
   }
 
   /** Like request(), but throws ApiError on non-2xx and parses JSON. */
@@ -349,7 +392,7 @@ class HttpApiClient implements ApiClient {
     // Login deliberately bypasses fetchJson/onUnauthorized so a bad password
     // doesn't trigger a global sign-out side effect.
     try {
-      const res = await fetch('/api/login', {
+      const res = await this.fetchWithDeadline('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password }),
@@ -395,15 +438,14 @@ class HttpApiClient implements ApiClient {
   }
 
   async checkPasswordStrength(password: string): Promise<{ rules: PasswordRule[]; valid: boolean }> {
-    try {
-      const data = await this.postJson<{ rules?: PasswordRule[]; valid?: boolean }>(
-        '/api/auth/check-strength',
-        { password },
-      );
-      return { rules: data.rules ?? [], valid: !!data.valid };
-    } catch {
-      return { rules: [], valid: false };
+    const data = await this.postJson<{ rules?: PasswordRule[]; valid?: boolean }>(
+      '/api/auth/check-strength',
+      { password },
+    );
+    if (!Array.isArray(data.rules) || typeof data.valid !== 'boolean') {
+      throw new ApiError(502, '密码强度接口返回了无效响应');
     }
+    return { rules: data.rules, valid: data.valid };
   }
 
   async changePassword(oldPassword: string, newPassword: string): Promise<ChangePasswordResult> {

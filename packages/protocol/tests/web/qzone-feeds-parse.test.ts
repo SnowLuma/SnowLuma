@@ -33,7 +33,6 @@ describe('qzone feeds JS-literal parsing (issue #182)', () => {
 
   it('mapFeeds drops the undefined hole and normalises the feed', () => {
     const data = parseQzoneCallback(SAMPLE);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = mapFeeds(data as any);
     expect(result.feeds).toHaveLength(1);
     const f = result.feeds[0]!;
@@ -59,7 +58,6 @@ describe('qzone feeds JS-literal parsing (issue #182)', () => {
 
   it('does not pollute Object.prototype via a __proto__ key', () => {
     parseQzoneCallback('_preloadCallback({"__proto__":{"polluted":1},"code":0})');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(({} as any).polluted).toBeUndefined();
   });
 

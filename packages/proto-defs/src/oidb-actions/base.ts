@@ -62,12 +62,25 @@ export interface OidbKickMember {
   rejectAddRequest?: pb<4, bool>;
   reason?:           pb<5, string>;
 }
+// 0x8A0_1 response body. Cross-checked against Lagrange.Core's
+// OidbSvcTrpcTcp0x8A0_1Response and the current QQ kick result contract:
+// transport/envelope success does not imply the member was removed; a
+// command-level refusal is returned in errorMsg.
+export interface OidbKickMemberResponse {
+  groupUin?: pb<1, uint_32>;
+  errorMsg?: pb<2, string>;
+}
 export interface OidbLeaveGroup {
   groupUin?: pb<1, uint_32>;
 }
 export interface OidbFriendRequestAction {
   accept?:    pb<1, uint_32>;
   targetUid?: pb<2, string>;
+}
+/** 0x1255_0 — move one friend into a numbered category. */
+export interface OidbSetFriendCategoryRequest {
+  uid?:        pb<1, string>;
+  categoryId?: pb<2, uint_32>;
 }
 export interface OidbDeleteFriendField2Field3 {
   field1?: pb<1, uint_32>;

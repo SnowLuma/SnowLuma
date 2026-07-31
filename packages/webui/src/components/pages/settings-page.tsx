@@ -2,7 +2,7 @@ import { createContext, useContext, useId, useRef, useState, type ComponentProps
 import { motion } from 'motion/react';
 import {
   Accessibility, AlertTriangle, Bell, Bug, Check, Clock, Code2, Download, ExternalLink, Github, Image as ImageIcon,
-  Info, KeyRound, Loader2, Monitor, Moon, Palette, PanelTop, Plus, RefreshCw, RotateCcw, Server, ShieldCheck,
+  Info, KeyRound, Loader2, Monitor, Moon, MousePointer2, Palette, PanelTop, Plus, RefreshCw, RotateCcw, Server, ShieldCheck,
   SlidersHorizontal, Sparkles, Star, Sun, Tag, Upload, Trash2, HardDrive,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -33,10 +33,13 @@ import {
   type TimeFormat,
 } from '@/contexts/ThemeContext';
 import { DEFAULT_LAYOUT, DEFAULT_PAGES, reconcileLayoutItems, useLayout } from '@/contexts/LayoutContext';
+import { useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import { NAV_ITEMS } from '@/components/layout/sidebar';
 import { TOPBAR_CATALOGUE } from '@/components/layout/top-bar';
 import { ChangePasswordDialog } from '@/components/change-password-dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { SkeletonSwap } from '@/components/interior/skeleton-swap';
+import { SegmentedControl } from '@/components/interior/segmented-control';
 import { useApi } from '@/lib/api';
 import { useAppState } from '@/contexts/AppStateContext';
 import { cn } from '@/lib/utils';
@@ -179,42 +182,29 @@ interface Opt<T> { value: T; label: string; icon?: typeof Sun }
 
 // Associates a SettingRow's visible label with the control inside it (so the
 // segmented radiogroup gets an accessible name without prop-threading).
-const RowLabelContext = createContext<string | undefined>(undefined);
+const RowLabelContext = createContext<{ id: string; label: string } | undefined>(undefined);
 
 // iOS/macOS segmented control: a recessed track with a raised pill on the
 // selected segment. Single-select → exposed as a radiogroup. Wraps gracefully.
 function Segmented<T extends string | number>({
   value, options, onChange, disabled,
 }: { value: T; options: Opt<T>[]; onChange: (v: T) => void; disabled?: boolean }) {
-  const labelledBy = useContext(RowLabelContext);
+  const rowLabel = useContext(RowLabelContext);
   return (
-    <div
-      role="radiogroup"
-      aria-labelledby={labelledBy}
-      aria-disabled={disabled || undefined}
-      className={cn('inline-flex flex-wrap items-center gap-1 rounded-lg bg-muted/60 p-1', disabled && 'opacity-50')}
-    >
-      {options.map((opt) => {
-        const active = value === opt.value;
-        const Icon = opt.icon;
-        return (
-          <button
-            key={String(opt.value)}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            disabled={disabled}
-            onClick={() => onChange(opt.value)}
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-[background-color,color,box-shadow] duration-150 ease-out cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:cursor-not-allowed',
-              active ? 'bg-card font-semibold text-foreground shadow-sm ring-1 ring-border' : 'font-medium text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {Icon && <Icon className="size-4" />}
-            {opt.label}
-          </button>
-        );
-      })}
+    <div aria-labelledby={rowLabel?.id} aria-disabled={disabled || undefined} className={cn('max-w-full overflow-x-auto', disabled && 'opacity-50')}>
+      <SegmentedControl
+        label={rowLabel?.label ?? '选项'}
+        value={String(value)}
+        options={options.map((option) => ({
+          value: String(option.value),
+          label: option.label,
+          disabled,
+        }))}
+        onValueChange={(next) => {
+          const option = options.find((candidate) => String(candidate.value) === next);
+          if (option) onChange(option.value);
+        }}
+      />
     </div>
   );
 }
@@ -235,7 +225,7 @@ function SettingRow({
       {hint && <p className="mt-0.5 text-[12px] leading-snug text-muted-foreground">{hint}</p>}
     </div>
   );
-  const control = <RowLabelContext.Provider value={labelId}>{children}</RowLabelContext.Provider>;
+  const control = <RowLabelContext.Provider value={{ id: labelId, label }}>{children}</RowLabelContext.Provider>;
   if (layout === 'stack') {
     return <div className="flex flex-col gap-3 px-5 py-4">{head}{control}</div>;
   }
@@ -541,12 +531,22 @@ function AppearancePanel() {
 
       <TopbarPanel />
 
-      <Group title="交互与无障碍" icon={Accessibility} description="光标、右键菜单、动效、对比度与侧栏行为。">
-        <SettingRow label="自定义光标与右键菜单" hint="默认关闭；开启后使用主题化光标与 SnowLuma 右键菜单，关闭后立即恢复浏览器原生行为。" layout="inline">
+      <Group title="右键菜单" icon={MousePointer2} description="控制网页内右键操作的呈现方式。">
+        <SettingRow label="自定义右键菜单" hint="默认开启；关闭后立即恢复浏览器原生右键菜单。" layout="inline">
+          <ToggleSwitch
+            value={a.customContextMenu}
+            onChange={(customContextMenu) => setAppearance({ customContextMenu })}
+            ariaLabel="自定义右键菜单"
+          />
+        </SettingRow>
+      </Group>
+
+      <Group title="交互与无障碍" icon={Accessibility} description="光标、动效、对比度与侧栏行为。">
+        <SettingRow label="自定义光标" hint="默认关闭；开启后使用主题化自适应光标。" layout="inline">
           <ToggleSwitch
             value={a.customPointerSystem}
             onChange={(customPointerSystem) => setAppearance({ customPointerSystem })}
-            ariaLabel="自定义光标与右键菜单"
+            ariaLabel="自定义光标"
           />
         </SettingRow>
         <SettingRow label="减弱动效" hint="弱化页面切换、弹簧等装饰性动画（保留轻微淡入），对低端设备与晕动敏感者更友好。" layout="inline">
@@ -738,6 +738,7 @@ function FontField({
   const listId = useId();
   const [fonts, setFonts] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [fontLoadError, setFontLoadError] = useState<string | null>(null);
   const canQuery = typeof (window as FontQueryWindow).queryLocalFonts === 'function';
   const isCustom = value === FONT_CUSTOM_ID;
 
@@ -746,16 +747,17 @@ function FontField({
     { value: FONT_CUSTOM_ID, label: '自定义' },
   ];
 
-  // Lazily enumerate local fonts the first time the field is focused. A denied
-  // permission (or any failure) just leaves the plain text box — no error UI.
+  // Lazily enumerate local fonts the first time the field is focused.
   const loadFonts = async () => {
     if (fonts !== null || loading || !canQuery) return;
     setLoading(true);
+    setFontLoadError(null);
     try {
       const arr = await (window as FontQueryWindow).queryLocalFonts!();
       setFonts(Array.from(new Set(arr.map((f) => f.family))).sort((x, y) => x.localeCompare(y)));
-    } catch {
-      setFonts([]);
+    } catch (error) {
+      console.error('Failed to enumerate local fonts', error);
+      setFontLoadError('无法读取本机字体，请检查浏览器权限后重试。');
     } finally {
       setLoading(false);
     }
@@ -783,11 +785,32 @@ function FontField({
               {fonts.map((f) => <option key={f} value={f} />)}
             </datalist>
           )}
-          <p className="text-xs leading-snug text-muted-foreground">
-            {canQuery
-              ? '可输入字体名称，或聚焦后从已安装字体中选择；找不到时回退到系统字体。'
-              : '输入已安装的字体名称（可写多个，用逗号分隔）；找不到时回退到系统字体。'}
-          </p>
+          <SkeletonSwap
+            ready={!loading}
+            reserve={28}
+            lines={1}
+            label="本机字体"
+            className={!loading ? 'skeleton-swap-fluid' : ''}
+          >
+            {fontLoadError ? (
+              <div className="flex items-center gap-2 text-xs leading-snug text-destructive">
+                <span>{fontLoadError}</span>
+                <button
+                  type="button"
+                  className="shrink-0 font-medium underline underline-offset-2"
+                  onClick={() => void loadFonts()}
+                >
+                  重试
+                </button>
+              </div>
+            ) : (
+              <p className="text-xs leading-snug text-muted-foreground">
+                {canQuery
+                  ? '可输入字体名称，或聚焦后从已安装字体中选择；找不到时回退到系统字体。'
+                  : '输入已安装的字体名称（可写多个，用逗号分隔）；找不到时回退到系统字体。'}
+              </p>
+            )}
+          </SkeletonSwap>
         </div>
       )}
     </div>
@@ -956,18 +979,28 @@ function validateCss(css: string): string | null {
 
 function AdvancedPanel() {
   const { appearance, setAppearance } = useTheme();
+  const { runAction } = useActionFeedback();
   const cssRef = useRef<HTMLTextAreaElement>(null);
   const [cssWarn, setCssWarn] = useState<string | null>(null);
   const api = useApi();
   const fileRef = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [pendingImport, setPendingImport] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
 
   const onExport = async () => {
     setMsg(null);
     try {
-      const config = await api.ui.get();
+      const config = await runAction(
+        {
+          title: '正在导出界面配置',
+          detail: '外观、布局与自定义 CSS',
+          successTitle: '界面配置已导出',
+          errorTitle: '界面配置导出失败',
+        },
+        () => api.ui.get(),
+      );
       const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -975,7 +1008,8 @@ function AdvancedPanel() {
       a.download = 'snowluma-ui-config.json';
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
+    } catch (error) {
+      console.error('export UI config failed', error);
       setMsg({ kind: 'err', text: '导出失败' });
     }
   };
@@ -988,28 +1022,59 @@ function AdvancedPanel() {
       setMsg({ kind: 'err', text: '导入失败：文件过大（上限 256KB）' });
       return;
     }
+    setPendingImport(file);
+  };
+
+  const importUiConfig = async (file: File) => {
     setMsg(null);
     setBusy(true);
     try {
       const parsed = JSON.parse(await file.text()) as unknown;
       if (typeof parsed !== 'object' || parsed === null) throw new Error('shape');
-      await api.ui.save(parsed as Parameters<typeof api.ui.save>[0]);
+      await runAction(
+        {
+          title: '正在导入界面配置',
+          detail: file.name,
+          successTitle: '界面配置已导入',
+          successDetail: '即将重新载入界面',
+          errorTitle: '界面配置导入失败',
+          surviveReload: true,
+        },
+        () => api.ui.save(parsed as Parameters<typeof api.ui.save>[0]),
+      );
       // The server normalized it; reload so appearance + layout both re-read.
       window.location.reload();
-    } catch {
+    } catch (error) {
       setBusy(false);
-      setMsg({ kind: 'err', text: '导入失败：不是有效的配置 JSON' });
+      setMsg({
+        kind: 'err',
+        text: error instanceof SyntaxError || (error instanceof Error && error.message === 'shape')
+          ? '导入失败：不是有效的配置 JSON'
+          : `导入失败：${error instanceof Error ? error.message : '未知错误'}`,
+      });
+      throw error;
     }
   };
 
   const doReset = async () => {
     setBusy(true);
     try {
-      await api.ui.save({ appearance: DEFAULT_APPEARANCE, layout: DEFAULT_LAYOUT, pages: DEFAULT_PAGES });
+      await runAction(
+        {
+          title: '正在重置界面配置',
+          detail: '恢复外观、布局、导航与自定义 CSS',
+          successTitle: '界面配置已重置',
+          successDetail: '即将重新载入界面',
+          errorTitle: '界面配置重置失败',
+          surviveReload: true,
+        },
+        () => api.ui.save({ appearance: DEFAULT_APPEARANCE, layout: DEFAULT_LAYOUT, pages: DEFAULT_PAGES }),
+      );
       window.location.reload();
-    } catch {
+    } catch (error) {
       setBusy(false);
       setMsg({ kind: 'err', text: '重置失败' });
+      throw error;
     }
   };
 
@@ -1114,7 +1179,26 @@ function AdvancedPanel() {
         title="重置全部界面配置"
         description="将外观、仪表盘布局、导航与自定义 CSS 全部恢复为默认。此操作不可撤销。"
         confirmText="重置"
+        destructive
         onConfirm={doReset}
+      />
+
+      <ConfirmDialog
+        open={pendingImport !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingImport(null);
+        }}
+        title="导入并覆盖界面配置？"
+        description={pendingImport
+          ? `将使用 ${pendingImport.name} 覆盖当前外观、布局、导航与自定义 CSS，随后重新载入界面。`
+          : ''}
+        confirmText="确认导入"
+        destructive
+        onConfirm={async () => {
+          if (!pendingImport) return;
+          await importUiConfig(pendingImport);
+          setPendingImport(null);
+        }}
       />
     </div>
   );
@@ -1126,6 +1210,7 @@ function AccountPanel() {
   const { onLogout } = useAppState();
   const [showChangePwd, setShowChangePwd] = useState(false);
   const [pwdSavedAt, setPwdSavedAt] = useState<number | null>(null);
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   return (
     <Group title="账号安全" icon={ShieldCheck} description="WebUI 仅有 admin 一个账号，密码以 scrypt 哈希持久化到 config/webui.json。">
@@ -1140,10 +1225,25 @@ function AccountPanel() {
         </Button>
       </SettingRow>
       <SettingRow label="退出登录" hint="立即清除当前浏览器的会话令牌。">
-        <Button variant="ghost" size="sm" onClick={onLogout} className="text-destructive hover:text-destructive">
+        <Button variant="ghost" size="sm" onClick={() => setConfirmLogout(true)} className="text-destructive hover:text-destructive">
           退出登录
         </Button>
       </SettingRow>
+
+      <ConfirmDialog
+        open={confirmLogout}
+        onOpenChange={setConfirmLogout}
+        title="确认退出登录？"
+        description="退出后将清除当前会话令牌，需要重新输入访问密码才能进入控制台。"
+        confirmText="退出登录"
+        destructive
+        activity={{
+          title: '正在退出登录',
+          successTitle: '已退出登录',
+          errorTitle: '退出登录失败',
+        }}
+        onConfirm={onLogout}
+      />
 
       <ChangePasswordDialog
         open={showChangePwd}
@@ -1172,18 +1272,44 @@ function assetHint(latest: string, platform?: string, arch?: string): string | n
 // Advisory software update, shown as a grouped list. Read-only: links to the
 // GitHub release; SnowLuma never downloads or applies anything itself.
 function UpdateGroup() {
-  const { updateInfo, refreshUpdate, systemInfo } = useAppState();
+  const { updateInfo, refreshUpdate, systemInfo, resources } = useAppState();
+  const { runAction } = useActionFeedback();
   const [checking, setChecking] = useState(false);
 
   const onCheck = async () => {
     setChecking(true);
-    try { await refreshUpdate(true); } finally { setChecking(false); }
+    try {
+      await runAction(
+        {
+          title: '正在检查更新',
+          detail: `当前版本 v${__APP_VERSION__}`,
+          successTitle: '更新检查完成',
+          successDetail: (result) => (
+            result?.hasUpdate && result.latest
+              ? `发现新版本 v${result.latest}`
+              : '当前已是最新版本'
+          ),
+          errorTitle: '更新检查失败',
+          resultError: (result) => {
+            if (!result) return '更新检查未返回结果';
+            if (result.error === 'disabled') return '更新检查已关闭';
+            return result.error || null;
+          },
+        },
+        () => refreshUpdate(true),
+      );
+    } catch (error) {
+      console.error('manual update check failed', error);
+    } finally {
+      setChecking(false);
+    }
   };
 
   const disabledCheck = updateInfo?.error === 'disabled';
 
   let status: ReactNode;
-  if (!updateInfo) status = <span className="text-muted-foreground">正在检查…</span>;
+  if (!updateInfo && resources.updateInfo.error) status = <span className="text-muted-foreground">无法检查</span>;
+  else if (!updateInfo) status = null;
   else if (disabledCheck) status = <span className="text-muted-foreground">检查已关闭</span>;
   else if (updateInfo.error) status = <span className="text-muted-foreground">无法检查</span>;
   else if (updateInfo.hasUpdate && updateInfo.latest) status = <span className="font-medium text-primary">发现新版本</span>;
@@ -1234,7 +1360,17 @@ function UpdateGroup() {
       </SettingRow>
       <SettingRow label="检查更新">
         <div className="flex items-center gap-2.5 text-[12px]">
-          {status}
+          <SkeletonSwap
+            ready={resources.updateInfo.ready}
+            reserve={24}
+            lines={1}
+            lineHeight={24}
+            barHeight={8}
+            label="更新状态"
+            className={resources.updateInfo.ready ? 'skeleton-swap-fluid min-h-6 min-w-24' : 'w-24'}
+          >
+            {resources.updateInfo.ready ? status : null}
+          </SkeletonSwap>
           {!disabledCheck && (
             <Button variant="outline" size="sm" onClick={onCheck} disabled={checking}>
               {checking ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}

@@ -103,6 +103,11 @@ export interface SetGroupSpecialTitleParams extends GroupIdParams {
   special_title?: string;
 }
 
+export type SetFriendsCategoryParams = JsonObject & (
+  | { uin: number; categoryId: number; categoryName?: never }
+  | { uin: number; categoryId?: never; categoryName: string }
+);
+
 export interface UploadGroupFileParams extends GroupIdParams {
   file: string;
   name?: string;

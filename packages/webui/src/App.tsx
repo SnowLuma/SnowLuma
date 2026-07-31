@@ -1,26 +1,45 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RouterProvider } from '@tanstack/react-router';
+import { AlertTriangle, LogOut, RefreshCw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { SessionProvider } from '@/contexts/SessionContext';
 import { LoginPage } from '@/components/pages/login-page';
-import { ChangePasswordPage } from '@/components/pages/change-password-page';
-import { ConsentPage } from '@/components/pages/consent-page';
+import {
+  OnboardingWizardPage,
+  type AdditionalOnboardingStep,
+} from '@/components/pages/onboarding-wizard-page';
+import { SkeletonSwap, useSkeletonSwap } from '@/components/interior/skeleton-swap';
 import { ApiProvider, createApiClient, useApi, type ApiClient } from '@/lib/api';
 import { DebugTaskProvider } from '@/contexts/DebugTaskContext';
 import { TaskBadge } from '@/components/debug/task-badge';
 import { AdaptivePointer } from '@/components/ui/adaptive-pointer';
 import { GlobalContextMenu } from '@/components/ui/global-context-menu';
+import {
+  actionErrorMessage,
+  ActionFeedbackProvider,
+  ActionFeedbackViewport,
+  useActionFeedback,
+} from '@/contexts/ActionFeedbackContext';
 import type { AgreementsPayload } from '@/lib/api/types';
 import { appRouter } from '@/router';
 
-export default function App() {
+interface AppProps {
+  onboardingSteps?: AdditionalOnboardingStep[];
+}
+
+export default function App({ onboardingSteps = [] }: AppProps) {
   return (
-    <ThemeProvider>
-      <AdaptivePointer />
-      <GlobalContextMenu />
-      <AuthBoundary />
-    </ThemeProvider>
+    <ActionFeedbackProvider>
+      <ThemeProvider>
+        <ActionFeedbackViewport />
+        <AdaptivePointer />
+        <GlobalContextMenu />
+        <AuthBoundary onboardingSteps={onboardingSteps} />
+      </ThemeProvider>
+    </ActionFeedbackProvider>
   );
 }
 
@@ -42,7 +61,7 @@ function consumeUrlToken(): string | null {
   }
 }
 
-function AuthBoundary() {
+function AuthBoundary({ onboardingSteps }: { onboardingSteps: AdditionalOnboardingStep[] }) {
   const [authChecked, setAuthChecked] = useState(false);
   const [authed, setAuthed] = useState(false);
   const [mustChange, setMustChange] = useState(false);
@@ -50,12 +69,16 @@ function AuthBoundary() {
   // Agreement consent gate, shown after login but BEFORE the forced password
   // change. `agreements === null` while the post-auth fetch is in flight.
   const [agreements, setAgreements] = useState<AgreementsPayload | null>(null);
+  const [agreementsError, setAgreementsError] = useState<string | null>(null);
   const [needsConsent, setNeedsConsent] = useState(false);
+  const [onboardingFinished, setOnboardingFinished] = useState(false);
   // The password from *this* session's login, carried into the forced
   // change-password gate so it doesn't have to render an old-password field
   // (which browsers autofill, misleading users on upgrade). Stays undefined
   // for a returning session that's already authed but still must change.
   const [loginPassword, setLoginPassword] = useState<string | undefined>(undefined);
+  const authLoading = !authChecked || (authed && agreements === null && agreementsError === null);
+  const { showSkeleton: showAuthSkeleton } = useSkeletonSwap({ ready: !authLoading });
 
   const client = useMemo<ApiClient>(
     () =>
@@ -69,14 +92,15 @@ function AuthBoundary() {
   );
 
   const refreshAgreements = useCallback(async () => {
+    setAgreements(null);
+    setAgreementsError(null);
     try {
       const payload = await client.agreements.get();
       setAgreements(payload);
       setNeedsConsent(payload.consentRequired);
-    } catch {
-      // Fail open on a fetch error so a transient hiccup can't wedge the gate.
-      setAgreements({ version: '', consentRequired: false, documents: [] });
-      setNeedsConsent(false);
+    } catch (error) {
+      console.error('agreement status load failed', error);
+      setAgreementsError(actionErrorMessage(error));
     }
   }, [client]);
 
@@ -118,7 +142,9 @@ function AuthBoundary() {
     setStatus('未连接');
     setMustChange(false);
     setAgreements(null);
+    setAgreementsError(null);
     setNeedsConsent(false);
+    setOnboardingFinished(false);
     setLoginPassword(undefined);
   }, []);
 
@@ -128,8 +154,8 @@ function AuthBoundary() {
   }, [client, handleLoggedOut]);
 
   let view: React.ReactNode;
-  if (!authChecked) {
-    view = <Splash>初始化中…</Splash>;
+  if (authLoading || showAuthSkeleton) {
+    view = <Splash>{authChecked ? '加载中…' : '初始化中…'}</Splash>;
   } else if (!authed) {
     view = (
       <LoginGate
@@ -138,29 +164,35 @@ function AuthBoundary() {
           setStatus('已连接');
           setMustChange(needsChange);
           setLoginPassword(password);
+          setOnboardingFinished(false);
           void refreshAgreements();
         }}
       />
     );
-  } else if (agreements === null) {
-    view = <Splash>加载中…</Splash>;
-  } else if (needsConsent) {
+  } else if (agreementsError) {
     view = (
-      <ConsentGate
-        payload={agreements}
-        onAccepted={() => setNeedsConsent(false)}
-        onStale={refreshAgreements}
-        onDecline={handleDecline}
+      <AgreementLoadFailure
+        detail={agreementsError}
+        onRetry={() => { void refreshAgreements(); }}
+        onLogout={() => { void handleDecline(); }}
       />
     );
-  } else if (mustChange) {
+  } else if (!onboardingFinished && (needsConsent || mustChange || onboardingSteps.length > 0) && agreements) {
     view = (
-      <ForcedChangePasswordGate
+      <OnboardingGate
+        payload={agreements}
+        needsConsent={needsConsent}
+        mustChangePassword={mustChange}
+        additionalSteps={onboardingSteps}
         knownOldPassword={loginPassword}
-        onSuccess={() => {
+        onConsentComplete={() => setNeedsConsent(false)}
+        onPasswordComplete={() => {
           setMustChange(false);
           setLoginPassword(undefined);
         }}
+        onComplete={() => setOnboardingFinished(true)}
+        onStale={refreshAgreements}
+        onDecline={handleDecline}
       />
     );
   } else {
@@ -181,49 +213,140 @@ function AuthBoundary() {
   );
 }
 
+function AgreementLoadFailure({
+  detail,
+  onRetry,
+  onLogout,
+}: {
+  detail: string;
+  onRetry: () => void;
+  onLogout: () => void;
+}) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
+      <Card className="w-full max-w-lg border-destructive/30">
+        <CardContent className="p-7 sm:p-9">
+          <div className="flex items-start gap-3">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+              <AlertTriangle className="size-5" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-base font-semibold">协议状态加载失败</h1>
+              <p role="alert" className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+                无法确认当前用户协议与隐私政策状态。为避免绕过必要确认，控制台暂不放行。
+              </p>
+              <p className="mt-2 break-words text-xs text-destructive">{detail}</p>
+            </div>
+          </div>
+          <div className="mt-6 flex flex-wrap justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={onLogout}>
+              <LogOut className="size-4" />
+              退出登录
+            </Button>
+            <Button type="button" onClick={onRetry}>
+              <RefreshCw className="size-4" />
+              重新加载
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function Splash({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
-      {children}
+      <SkeletonSwap
+        ready={false}
+        lines={3}
+        lineHeight={24}
+        reserve={72}
+        label={typeof children === 'string' ? children : 'WebUI'}
+        className="w-64 max-w-[70vw]"
+      >
+        {null}
+      </SkeletonSwap>
     </div>
   );
 }
 
 function LoginGate({ onAuthed }: { onAuthed: (mustChange: boolean, password: string) => void }) {
   const api = useApi();
+  const { runAction } = useActionFeedback();
   const handleLogin = useCallback(
     async (password: string) => {
-      const result = await api.login(password);
+      const result = await runAction(
+        {
+          title: '正在登录',
+          detail: '正在验证 WebUI 访问密码',
+          successTitle: '登录成功',
+          successDetail: '正在进入控制台',
+          errorTitle: '登录失败',
+          resultError: (login) => login.ok ? null : login.message,
+        },
+        () => api.login(password),
+      );
       if (!result.ok) return { success: false, error: result.message };
       onAuthed(result.mustChangePassword, password);
       return { success: true };
     },
-    [api, onAuthed],
+    [api, onAuthed, runAction],
   );
   return <LoginPage onLogin={handleLogin} />;
 }
 
-function ConsentGate({
+function OnboardingGate({
   payload,
-  onAccepted,
+  needsConsent,
+  mustChangePassword,
+  knownOldPassword,
+  onConsentComplete,
+  onPasswordComplete,
+  onComplete,
+  additionalSteps,
   onStale,
   onDecline,
 }: {
   payload: AgreementsPayload;
-  onAccepted: () => void;
+  needsConsent: boolean;
+  mustChangePassword: boolean;
+  knownOldPassword?: string;
+  onConsentComplete: () => void;
+  onPasswordComplete: () => void;
+  onComplete: () => void;
+  additionalSteps: AdditionalOnboardingStep[];
   onStale: () => void;
   onDecline: () => void;
 }) {
   const api = useApi();
+  const { runAction } = useActionFeedback();
   return (
-    <ConsentPage
+    <OnboardingWizardPage
       documents={payload.documents}
-      version={payload.version}
+      agreementVersion={payload.version}
+      needsConsent={needsConsent}
+      mustChangePassword={mustChangePassword}
+      knownOldPassword={knownOldPassword}
       onDecline={onDecline}
+      onConsentComplete={onConsentComplete}
+      onPasswordComplete={onPasswordComplete}
+      onComplete={onComplete}
+      additionalSteps={additionalSteps}
+      checkStrength={(password) => api.checkPasswordStrength(password)}
+      submitPassword={(oldPassword, newPassword) => api.changePassword(oldPassword, newPassword)}
       onAccept={async () => {
-        const result = await api.agreements.recordConsent(payload.version);
+        const result = await runAction(
+          {
+            title: '正在记录协议确认',
+            detail: `协议版本 ${payload.version.slice(0, 8)}`,
+            successTitle: '协议确认已记录',
+            errorTitle: '协议确认失败',
+            resultError: (consent) => consent.success ? null : consent.message,
+          },
+          () => api.agreements.recordConsent(payload.version),
+        );
         if (result.success) {
-          onAccepted();
           return { success: true };
         }
         // 409: the agreement text changed under us — re-fetch and re-prompt.
@@ -233,24 +356,6 @@ function ConsentGate({
         }
         return { success: false, message: result.message ?? '提交失败，请重试' };
       }}
-    />
-  );
-}
-
-function ForcedChangePasswordGate({
-  knownOldPassword,
-  onSuccess,
-}: {
-  knownOldPassword?: string;
-  onSuccess: () => void;
-}) {
-  const api = useApi();
-  return (
-    <ChangePasswordPage
-      knownOldPassword={knownOldPassword}
-      checkStrength={(p) => api.checkPasswordStrength(p)}
-      submit={(o, n) => api.changePassword(o, n)}
-      onSuccess={onSuccess}
     />
   );
 }

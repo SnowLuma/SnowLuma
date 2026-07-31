@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { MessageStore } from '../src/message-store';
+import {
+  MessageStoreMigrator,
+  prepareMessageStoreDatabase,
+} from '../src/message-store-migration';
 import { hashMessageIdInt32, GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT } from '../src/message-id';
 import fs from 'fs';
 import path from 'path';
@@ -210,6 +214,83 @@ describe('MessageStore', () => {
       expect(retrieved).toBeNull();
     });
 
+    it('rolls back the full metadata batch when a later write fails', () => {
+      const firstMessageId = 54323;
+      const rejectedMessageId = 54324;
+      const database = new DatabaseSync(testDbPath);
+      database.exec(`
+        CREATE TRIGGER reject_second_message_meta
+        BEFORE INSERT ON messages
+        WHEN NEW.message_hash = ${rejectedMessageId}
+        BEGIN
+          SELECT RAISE(ABORT, 'second message meta rejected');
+        END
+      `);
+      database.close();
+
+      expect(() => store.storeMetas([
+        {
+          messageId: firstMessageId,
+          meta: {
+            isGroup: true,
+            targetId: 123456,
+            sequence: 101,
+            sequenceAuthoritative: true,
+            eventName: GROUP_MESSAGE_EVENT,
+            clientSequence: 0,
+            random: 1001,
+            timestamp: 1700000001,
+          },
+        },
+        {
+          messageId: rejectedMessageId,
+          meta: {
+            isGroup: true,
+            targetId: 123456,
+            sequence: 102,
+            sequenceAuthoritative: true,
+            eventName: GROUP_MESSAGE_EVENT,
+            clientSequence: 0,
+            random: 1002,
+            timestamp: 1700000002,
+          },
+        },
+      ])).toThrow(/second message meta rejected/);
+
+      expect(store.findMeta(firstMessageId)).toBeNull();
+      expect(store.findMeta(rejectedMessageId)).toBeNull();
+    });
+
+    it('preserves the write error when SQLite already rolled back the transaction', () => {
+      const rejectedMessageId = 54325;
+      const database = new DatabaseSync(testDbPath);
+      database.exec(`
+        CREATE TRIGGER force_metadata_transaction_rollback
+        BEFORE INSERT ON messages
+        WHEN NEW.message_hash = ${rejectedMessageId}
+        BEGIN
+          SELECT RAISE(ROLLBACK, 'metadata transaction forced rollback');
+        END
+      `);
+      database.close();
+
+      expect(() => store.storeMetas([{
+        messageId: rejectedMessageId,
+        meta: {
+          isGroup: true,
+          targetId: 123456,
+          sequence: 103,
+          sequenceAuthoritative: true,
+          eventName: GROUP_MESSAGE_EVENT,
+          clientSequence: 0,
+          random: 1003,
+          timestamp: 1700000003,
+        },
+      }])).toThrow(/metadata transaction forced rollback.*rollback also failed/);
+
+      expect(store.findMeta(rejectedMessageId)).toBeNull();
+    });
+
     it('does not promote a non-authoritative sequence when event data arrives later', () => {
       const messageId = 54322;
       store.storeMeta(messageId, {
@@ -353,7 +434,6 @@ describe('MessageStore', () => {
       const legacy = new DatabaseSync(testDbPath);
       legacy.exec(`
         DROP TABLE messages;
-        DROP TABLE message_store_migrations;
         CREATE TABLE messages (
           message_hash    INTEGER PRIMARY KEY,
           is_group        INTEGER NOT NULL,
@@ -465,6 +545,49 @@ describe('MessageStore', () => {
       legacy.close();
 
       store = new MessageStore(testDbPath);
+      const migrator = new MessageStoreMigrator(testDbPath);
+
+      expect(migrator.getStatus()).toMatchObject({
+        phase: 'migrating',
+        processed: 0,
+        total: 8,
+      });
+      expect(store.findMeta(2)).toMatchObject({ sequenceAuthoritative: true });
+
+      expect(migrator.runBatch(3)).toMatchObject({
+        phase: 'migrating',
+        processed: 3,
+        total: 8,
+      });
+      store.storeMeta(-100, {
+        isGroup: true,
+        targetId: groupId,
+        sequence: 9700,
+        sequenceAuthoritative: true,
+        eventName: GROUP_MESSAGE_EVENT,
+        clientSequence: 0,
+        random: 0,
+        timestamp: 1700000600,
+      });
+      migrator.close();
+
+      const resumedMigrator = new MessageStoreMigrator(testDbPath);
+      expect(resumedMigrator.getStatus()).toMatchObject({
+        phase: 'migrating',
+        processed: 3,
+        total: 8,
+      });
+      expect(resumedMigrator.runBatch(3)).toMatchObject({
+        phase: 'migrating',
+        processed: 6,
+        total: 8,
+      });
+      expect(resumedMigrator.runBatch(3)).toMatchObject({
+        phase: 'complete',
+        processed: 8,
+        total: 8,
+      });
+      resumedMigrator.close();
 
       expect(store.findLatestAuthoritativeSequence(true, groupId)).toBe(9748);
       expect(store.listSessionEvents(true, groupId).map((message) => message.message_seq)).toEqual([9748]);
@@ -479,6 +602,10 @@ describe('MessageStore', () => {
       expect(store.findMeta(6)).toMatchObject({ sequenceAuthoritative: false });
       expect(store.findMeta(7)).toMatchObject({ sequenceAuthoritative: false });
       expect(store.findMeta(9)).toMatchObject({ sequenceAuthoritative: true });
+      expect(store.findMeta(-100)).toMatchObject({
+        sequence: 9700,
+        sequenceAuthoritative: true,
+      });
 
       store.storeMeta(8, {
         isGroup: false,
@@ -491,6 +618,74 @@ describe('MessageStore', () => {
         timestamp: 1700000600,
       });
       expect(store.findLatestAuthoritativeSequence(false, 555)).toBe(900);
+    });
+
+    it('resumes classification when an older schema upgrade stopped between steps', () => {
+      store.close();
+      const legacy = new DatabaseSync(testDbPath);
+      legacy.exec(`
+        DROP TABLE messages;
+        CREATE TABLE messages (
+          message_hash INTEGER PRIMARY KEY,
+          is_group INTEGER NOT NULL,
+          session_id INTEGER NOT NULL,
+          sequence INTEGER NOT NULL,
+          sequence_authoritative INTEGER NOT NULL DEFAULT 1,
+          event_name TEXT NOT NULL,
+          client_sequence INTEGER NOT NULL DEFAULT 0,
+          private_direction INTEGER NOT NULL DEFAULT -1,
+          random INTEGER NOT NULL DEFAULT 0,
+          timestamp INTEGER NOT NULL DEFAULT 0,
+          data TEXT
+        );
+        CREATE TABLE message_store_migrations (
+          name TEXT PRIMARY KEY,
+          applied_at INTEGER NOT NULL
+        );
+        INSERT INTO messages
+          (message_hash, is_group, session_id, sequence, sequence_authoritative,
+           event_name, client_sequence, private_direction, random, timestamp, data)
+        VALUES
+          (1, 0, 555, 800, 1, '${PRIVATE_MESSAGE_EVENT}', 0, 0, 0, 1700000000,
+           '{"post_type":"message","message_type":"private","sub_type":"friend"}')
+      `);
+      legacy.close();
+
+      store = new MessageStore(testDbPath);
+      const migrator = new MessageStoreMigrator(testDbPath);
+      expect(migrator.getStatus()).toEqual({
+        phase: 'migrating',
+        processed: 0,
+        total: 1,
+      });
+      expect(migrator.runBatch(10)).toEqual({
+        phase: 'complete',
+        processed: 1,
+        total: 1,
+      });
+      migrator.close();
+      expect(store.findMeta(1)).toMatchObject({ sequenceAuthoritative: false });
+    });
+
+    it('creates the normal indexes when background preparation creates the database', () => {
+      store.close();
+      fs.unlinkSync(testDbPath);
+
+      prepareMessageStoreDatabase(testDbPath);
+      const database = new DatabaseSync(testDbPath);
+      const indexes = database.prepare(`
+        SELECT name FROM sqlite_schema
+        WHERE type = 'index' AND tbl_name = 'messages'
+      `).all() as Array<{ name: string }>;
+      database.close();
+
+      expect(indexes.map(({ name }) => name).sort()).toEqual([
+        'idx_messages_private_client_direction',
+        'idx_messages_private_client_seq',
+        'idx_messages_session_authoritative_seq',
+        'idx_messages_session_seq',
+      ]);
+      store = new MessageStore(testDbPath);
     });
   });
 

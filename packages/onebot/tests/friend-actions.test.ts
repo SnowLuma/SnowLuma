@@ -15,6 +15,7 @@ describe('get_stranger_info action', () => {
       data: {
         user_id: 123456,
         nickname: '',
+        remark: '',
         sex: 'unknown',
         age: 0,
         long_nick: '',
@@ -22,15 +23,17 @@ describe('get_stranger_info action', () => {
     });
   });
 
-  it('documents long_nick as a required string response field', () => {
+  it('documents remark and long_nick as required string response fields', () => {
     const schema = getStrangerInfo.describe().returnsSchema;
 
     expect(schema).toMatchObject({
       type: 'object',
       properties: {
+        remark: { type: 'string', description: '好友备注；非好友或未设置时为空字符串' },
         long_nick: { type: 'string', description: '个性签名' },
       },
     });
+    expect(schema?.required).toContain('remark');
     expect(schema?.required).toContain('long_nick');
   });
 });

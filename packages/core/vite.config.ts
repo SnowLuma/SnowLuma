@@ -43,7 +43,7 @@ const [targetPlatform, targetArch] = targetTriple.split('-');
 
 // Runtime scaffolding files copied into dist/. Windows and Linux use different
 // launchers, while both targets ship their matching QQ integration binaries.
-const runtimeDistFiles = ['package.json',
+const runtimeDistFiles = ['package.json', 'check-node-version.cjs',
   targetPlatform === 'win32' ? 'launcher.bat' : 'launcher.sh',
 ];
 

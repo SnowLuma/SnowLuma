@@ -1,9 +1,16 @@
 import { format } from 'util';
 import { getFileTransport } from './log-file-transport';
+import { redactLogMessage } from './log-summary';
 import { sanitizeLogLine } from './log-sanitize';
-import { currentRequestId } from './request-context';
+import {
+  currentRequestId,
+  nextRequestId,
+  runWithoutRequestContext,
+  runWithRequestId,
+} from './request-context';
 
 type LogLevel = 'trace' | 'debug' | 'info' | 'success' | 'warn' | 'error';
+type FileLogLevel = Exclude<LogLevel, 'trace'>;
 
 export interface LogEntry {
   id: number;
@@ -114,14 +121,35 @@ function resolveMinLevel(): LogLevel {
   return 'info';
 }
 
+function resolveFileMinLevel(): FileLogLevel {
+  const raw = process.env.SNOWLUMA_LOG_FILE_LEVEL;
+  if (raw === undefined || raw.trim() === '') return 'debug';
+
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === 'debug' || normalized === 'info' || normalized === 'success' ||
+      normalized === 'warn' || normalized === 'error') {
+    return normalized;
+  }
+  throw new TypeError(
+    'SNOWLUMA_LOG_FILE_LEVEL must be one of: debug, info, success, warn, error',
+  );
+}
+
 // Mutable — seeded from SNOWLUMA_LOG_LEVEL at module load, but
 // setLogLevel() lets WebUI / SDK callers flip it without a restart.
-// Only governs console + ring buffer + subscribers; the file
-// transport always sees debug-and-up regardless.
+// Only governs console + ring buffer + subscribers;
+// the file transport level is seeded independently from
+// SNOWLUMA_LOG_FILE_LEVEL (default debug)
+// and is not affected by setLogLevel().
 let currentLevel: LogLevel = resolveMinLevel();
+const currentFileLevel: FileLogLevel = resolveFileMinLevel();
 
 function shouldLog(level: LogLevel): boolean {
   return LEVEL_WEIGHT[level] >= LEVEL_WEIGHT[currentLevel];
+}
+
+function shouldLogToFile(level: LogLevel): boolean {
+  return LEVEL_WEIGHT[level] >= LEVEL_WEIGHT[currentFileLevel];
 }
 
 export const LOG_LEVELS: readonly LogLevel[] = ['trace', 'debug', 'info', 'success', 'warn', 'error'];
@@ -130,11 +158,11 @@ export function getLogLevel(): LogLevel {
   return currentLevel;
 }
 
-/**
- * Change the console / subscriber level at runtime. Invalid input is
- * a no-op (returns false). File transport is unaffected — it always
- * sees every level so post-mortems remain useful.
- */
+
+// Change the console / subscriber level at runtime.
+// Invalid input is a no-op (returns false).
+// Does not affect the file transport log level.
+
 export function setLogLevel(level: string): boolean {
   const lower = String(level).toLowerCase();
   if (!LOG_LEVELS.includes(lower as LogLevel)) return false;
@@ -159,8 +187,7 @@ function currentTime(): string {
   return `${hh}:${mm}:${ss}`;
 }
 
-function render(level: LogLevel, options: LogOptions, args: unknown[], reqId?: number): string {
-  const message = format(...args);
+function render(level: LogLevel, options: LogOptions, message: string, reqId?: number): string {
   const ts = currentTime();
   const label = LEVEL_LABEL[level].padEnd(5, ' ');
   const uinTag = options.uin !== undefined ? `[${options.uin}]` : '';
@@ -183,16 +210,24 @@ function render(level: LogLevel, options: LogOptions, args: unknown[], reqId?: n
   return `${cTs} ${cLabel} ${cUin} ${cScope} ${cReq}${message}`;
 }
 
-function emit(level: LogLevel, options: LogOptions, args: unknown[]): void {
-  // Console / subscriber level filter. File output is debug-and-up always;
-  // see log-file-transport.ts.
-  const passesConsole = shouldLog(level);
+function emit(
+  level: LogLevel,
+  options: LogOptions,
+  args: unknown[],
+  forceInitialCredentials = false,
+): void {
+  // Console / subscriber and file filters are independent. If no destination
+  // accepts the record, stop before formatting or building a LogEntry.
+  const passesConsole = forceInitialCredentials || shouldLog(level);
+  const passesFile = level !== 'trace'
+    && (forceInitialCredentials || shouldLogToFile(level));
+  if (!passesConsole && !passesFile) return;
 
-  // `trace` never touches disk and is the high-volume full-chain stream. When
-  // it won't reach the console/memory buffer either (level not dialed to
-  // trace), bail BEFORE format/render AND before evaluating any lazy producer
-  // — this is what keeps full-chain tracing ~free at the default level even
-  // with hundreds of groups.
+  // `trace` is the high-volume full-chain diagnostic stream, intentionally
+  // excluded from disk to avoid I/O saturation. When console is not dialed
+  // to trace, the early return below skips format/render/disk entirely.
+  // Set SNOWLUMA_LOG_LEVEL=trace to inspect trace output in console/memory;
+  // trace never reaches disk regardless.
   if (level === 'trace' && !passesConsole) return;
 
   // Lazy trace form: `log.trace(() => ['…', deepRender(x)])`. The producer
@@ -203,8 +238,11 @@ function emit(level: LogLevel, options: LogOptions, args: unknown[]): void {
   }
 
   const reqId = currentRequestId();
-  const message = format(...realArgs);
-  const line = render(level, options, realArgs, reqId);
+  const formattedMessage = format(...realArgs);
+  const message = level === 'trace' || forceInitialCredentials
+    ? formattedMessage
+    : redactLogMessage(formattedMessage);
+  const line = render(level, options, message, reqId);
   const entry: LogEntry = {
     id: nextLogId++,
     time: new Date().toISOString(),
@@ -230,11 +268,13 @@ function emit(level: LogLevel, options: LogOptions, args: unknown[]): void {
     stream.write(line.replace(/[\x00-\x08\x0B-\x1A\x1C-\x1F\x7F]/g, '') + '\n');
   }
 
-  // File transport sees debug-and-up for post-mortem value; `trace` is
-  // memory / WebUI only (omitted here to avoid huge on-disk volume). ANSI
-  // stripping happens inside the transport. UIN routes the line to its
-  // per-account sub-file in addition to the shared one.
-  if (level !== 'trace') getFileTransport().write(line, options.uin);
+  // File transport sees levels >= currentFileLevel (SNOWLUMA_LOG_FILE_LEVEL,
+  // default debug). `trace` is memory / WebUI only (omitted here to avoid huge
+  // on-disk volume). ANSI stripping happens inside the transport. UIN routes
+  // the line to its per-account sub-file in addition to the shared one.
+  if (passesFile) {
+    getFileTransport().write(line, options.uin);
+  }
 }
 
 /**
@@ -247,15 +287,19 @@ export function closeLogger(): Promise<void> {
   return getFileTransport().close();
 }
 
-export function getRecentLogs(limit = 300): LogEntry[] {
-  const n = Math.max(1, Math.trunc(limit));
-  // Merge the normal + trace rings by id (ids are monotonic, so id order is
-  // chronological). The trace ring is empty unless trace level is/was active,
-  // so the common case is just the normal ring with no sort.
-  const merged = traceRing.size > 0
+function mergeLogRings(): LogEntry[] {
+  return traceRing.size > 0
     ? [...logRing.toArray(), ...traceRing.toArray()].sort((a, b) => a.id - b.id)
     : logRing.toArray();
-  return merged.slice(-n);
+}
+
+export function getLogSnapshot(): LogEntry[] {
+  return mergeLogRings();
+}
+
+export function getRecentLogs(limit = 300): LogEntry[] {
+  const n = Math.max(1, Math.trunc(limit));
+  return mergeLogRings().slice(-n);
 }
 
 export function subscribeLogs(callback: (entry: LogEntry) => void): () => void {
@@ -310,7 +354,25 @@ export function createLogger(scope: string): Logger {
   return makeLogger({ scope });
 }
 
-// Request-correlation helpers live alongside the logger since `[req#N]`
-// stamping is a logging concern. Re-exported here so callers import the
-// whole logging surface from one place.
-export { nextRequestId, runWithRequestId, currentRequestId } from './request-context';
+export function renderTraceBytes(body: Uint8Array): string {
+  return Buffer.from(body.buffer, body.byteOffset, body.byteLength).toString('hex');
+}
+
+export function runWithTraceRequest<T>(fn: () => T): T {
+  if (currentRequestId() !== undefined || currentLevel !== 'trace') return fn();
+  return runWithRequestId(nextRequestId(), fn);
+}
+
+export function logInitialWebuiCredentials(password: string): void {
+  emit(
+    'info',
+    { scope: 'WebUI' },
+    ['initial credentials: user=admin password=%s', password],
+    true,
+  );
+}
+
+// Request-correlation primitives remain available for callers that already own
+// an explicit request id. New semantic entrypoints should prefer
+// runWithTraceRequest() so disabled TRACE does not allocate one.
+export { nextRequestId, runWithoutRequestContext, runWithRequestId, currentRequestId };

@@ -1,73 +1,37 @@
-# React + TypeScript + Vite
+# SnowLuma WebUI
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+SnowLuma's browser console is a Vite + React application for managing runtime
+status, OneBot configuration, logs, storage, and server settings.
 
-Currently, two official plugins are available:
+## Interaction conventions
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Destructive actions and second confirmations stay in modal dialogs.
+- Operations that may take time show a bottom-right running state.
+- Completed and failed operations use bottom-right result notices that close
+  automatically after a visible countdown.
+- Routine, high-frequency adjustments should not generate a notice for every
+  intermediate edit.
+- Data-backed surfaces use the Interior Skeleton Swap defaults (120 ms delay,
+  380 ms minimum visibility) so fast local responses do not flash a placeholder.
+  Submission, upload, and other explicit operation progress keeps its spinner.
+- Variable-height content must release the skeleton's reserved box after it is
+  ready; do not introduce a second scrolling region inside the page.
+- The mobile navigation menu uses a controlled Icon Morph whose visual state
+  follows the actual drawer state.
+- Failures must remain visible in the affected control and in the operation
+  result; do not convert failed responses into successful feedback.
+- Password change flows use floating labels and inline validation consistently.
+- Password strength details appear only while the new-password field has focus
+  and leave with the same motion language when focus moves away.
 
-## React Compiler
+## Local development
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+From the repository root:
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+pnpm --filter webui dev
+pnpm --filter webui typecheck
+pnpm --filter webui lint
+pnpm --filter webui test
+pnpm --filter webui build
 ```

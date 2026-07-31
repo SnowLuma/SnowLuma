@@ -18,7 +18,13 @@ import { buildSendElems } from '../../src/element-builder';
 import { assertValidMessageElement } from '../../src/element-manifest';
 import type { MessageElement } from '../../src/events';
 import type { MessageBody } from '@snowluma/proto-defs/message';
-import type { Elem, MsgInfo, QFaceExtra, SrcMsgPbReserve } from '@snowluma/proto-defs/element';
+import type {
+  Elem,
+  MsgInfo,
+  QFaceExtra,
+  SrcMsgPbReserve,
+  TextElem,
+} from '@snowluma/proto-defs/element';
 
 function lightAppBytes(json: unknown): Uint8Array {
   const buf = deflateSync(Buffer.from(JSON.stringify(json), 'utf8'));
@@ -252,6 +258,54 @@ describe('decodeRichBody / market face', () => {
 });
 
 describe('decodeRichBody / decoded element contract', () => {
+  it('[#291] prefers a decoded C2C media record over the empty legacy PTT placeholder', () => {
+    const fileHash = '469e23ff66ae3ebbf4c78d616e0df18b';
+    const fileSha1 = 'a00c7fbe3bfa92773ae17a2f6d381375810972e2';
+    const encoded = protobuf_encode<MessageBody>({
+      richText: {
+        elems: [{
+          commonElem: {
+            serviceType: 48,
+            businessType: 22,
+            pbElem: protobuf_encode<MsgInfo>({
+              msgInfoBody: [{
+                index: {
+                  fileUuid: 'voice-uuid',
+                  storeId: 1,
+                  uploadTime: 1785116936,
+                  ttl: 604800,
+                  info: {
+                    fileName: `${fileHash}.amr`,
+                    fileSize: 2015,
+                    fileHash,
+                    fileSha1,
+                    time: 1,
+                    type: { type: 3, voiceFormat: 1 },
+                  },
+                },
+              }],
+            }),
+          },
+        }],
+        ptt: {},
+      },
+    });
+
+    const out = decodeRichBody(protobuf_decode<MessageBody>(encoded), false);
+
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      type: 'record',
+      fileName: `${fileHash}.amr`,
+      fileId: 'voice-uuid',
+      fileSize: 2015,
+      duration: 1,
+      voiceFormat: 1,
+      md5Hex: fileHash,
+      sha1Hex: fileSha1,
+    });
+  });
+
   it('omits an absent PTT fingerprint instead of emitting an invalid empty hash', () => {
     const body: MessageBody = {
       richText: {
@@ -481,7 +535,43 @@ describe('decodeRichBody / unknown wire element observability', () => {
     expect(decodeRichBody(body, true)).toEqual([{ type: 'text', text: 'keep next' }]);
   });
 
-  it('does not consume sibling text after a decoded big face', () => {
+  it('[#289] drops a big-face compatibility text identified by its nested Text reserve', () => {
+    const compatibilityReserve = protobuf_encode<TextElem>({
+      str: '[打call]请使用最新版手机QQ体验新功能',
+    });
+    // Issue #289 logged field 1 as bytes=51: one length byte plus the
+    // 50-byte UTF-8 compatibility string (the protobuf field key is separate).
+    expect(compatibilityReserve).toHaveLength(52);
+
+    const body: MessageBody = {
+      richText: {
+        elems: [
+          {
+            commonElem: {
+              serviceType: 37,
+              businessType: 1,
+              pbElem: protobuf_encode<QFaceExtra>({
+                qsid: 311,
+                text: '/打call',
+              }),
+            },
+          } as any,
+          {
+            text: {
+              str: '/打call',
+              pbReserve: compatibilityReserve,
+            },
+          } as any,
+        ],
+      },
+    };
+
+    expect(decodeRichBody(body, true)).toEqual([
+      { type: 'face', faceId: 311 },
+    ]);
+  });
+
+  it('does not consume sibling user text after a decoded big face', () => {
     const body: MessageBody = {
       richText: {
         elems: [
@@ -489,17 +579,126 @@ describe('decodeRichBody / unknown wire element observability', () => {
             commonElem: {
               serviceType: 37,
               businessType: 0,
-              pbElem: protobuf_encode<QFaceExtra>({ qsid: 321 }),
+              pbElem: protobuf_encode<QFaceExtra>({ qsid: 321, text: '/same text' }),
             },
           } as any,
-          { text: { str: 'keep after face' } } as any,
+          { text: { str: '/same text' } } as any,
         ],
       },
     };
 
     expect(decodeRichBody(body, true)).toEqual([
       { type: 'face', faceId: 321 },
-      { type: 'text', text: 'keep after face' },
+      { type: 'text', text: '/same text' },
+    ]);
+  });
+
+  it('[#289] preserves compatibility text when the big face has no valid face id', () => {
+    const body: MessageBody = {
+      richText: {
+        elems: [
+          {
+            commonElem: {
+              serviceType: 37,
+              businessType: 1,
+              pbElem: protobuf_encode<QFaceExtra>({ text: '/打call' }),
+            },
+          } as any,
+          {
+            text: {
+              str: '/打call',
+              pbReserve: protobuf_encode<TextElem>({
+                str: '[打call]请使用最新版手机QQ体验新功能',
+              }),
+            },
+          } as any,
+        ],
+      },
+    };
+
+    expect(decodeRichBody(body, true)).toEqual([
+      { type: 'text', text: '/打call' },
+    ]);
+  });
+
+  it('[#289] suppresses only compatibility text and decodes other fields in the same element', () => {
+    const compatibilityReserve = protobuf_encode<TextElem>({
+      str: '[打call]请使用最新版手机QQ体验新功能',
+    });
+    const body: MessageBody = {
+      richText: {
+        elems: [
+          {
+            commonElem: {
+              serviceType: 37,
+              businessType: 1,
+              pbElem: protobuf_encode<QFaceExtra>({ qsid: 311, text: '/打call' }),
+            },
+          } as any,
+          {
+            text: { str: '/打call', pbReserve: compatibilityReserve },
+            face: { index: 14 },
+          } as any,
+        ],
+      },
+    };
+
+    expect(decodeRichBody(body, true)).toEqual([
+      { type: 'face', faceId: 311 },
+      { type: 'face', faceId: 14 },
+    ]);
+  });
+
+  it('[#289] preserves text when the nested reserve has extra wire fields', () => {
+    const canonical = protobuf_encode<TextElem>({
+      str: '[打call]请使用最新版手机QQ体验新功能',
+    });
+    const nonCanonical = Uint8Array.from([...canonical, 0x12, 0x00]);
+    const body: MessageBody = {
+      richText: {
+        elems: [
+          {
+            commonElem: {
+              serviceType: 37,
+              businessType: 1,
+              pbElem: protobuf_encode<QFaceExtra>({ qsid: 311, text: '/打call' }),
+            },
+          } as any,
+          { text: { str: '/打call', pbReserve: nonCanonical } } as any,
+        ],
+      },
+    };
+
+    expect(decodeRichBody(body, true)).toEqual([
+      { type: 'face', faceId: 311 },
+      { type: 'text', text: '/打call' },
+    ]);
+  });
+
+  it('[#289] preserves sibling text when its nested reserve is not QQ compatibility text', () => {
+    const body: MessageBody = {
+      richText: {
+        elems: [
+          {
+            commonElem: {
+              serviceType: 37,
+              businessType: 1,
+              pbElem: protobuf_encode<QFaceExtra>({ qsid: 311, text: '/打call' }),
+            },
+          } as any,
+          {
+            text: {
+              str: '/打call',
+              pbReserve: protobuf_encode<TextElem>({ str: '[打call]ordinary metadata' }),
+            },
+          } as any,
+        ],
+      },
+    };
+
+    expect(decodeRichBody(body, true)).toEqual([
+      { type: 'face', faceId: 311 },
+      { type: 'text', text: '/打call' },
     ]);
   });
 

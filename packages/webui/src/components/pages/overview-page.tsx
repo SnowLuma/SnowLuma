@@ -12,10 +12,18 @@ import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Skeleton } from '@/components/ui/skeleton';
+import { SkeletonSwap } from '@/components/interior/skeleton-swap';
+import { Modal } from '@/components/interior/modal';
 import { cn, formatBytes, formatUptime } from '@/lib/utils';
 import type { AppPath } from '@/router';
-import type { AdapterStatus, AdapterStatusLevel, LogEntry, LogLevel, UiLayoutItem } from '@/types';
+import type {
+  AccountDatabaseMigration,
+  AdapterStatus,
+  AdapterStatusLevel,
+  LogEntry,
+  LogLevel,
+  UiLayoutItem,
+} from '@/types';
 import { useApi } from '@/lib/api';
 import { useAppState } from '@/contexts/AppStateContext';
 import { useSession } from '@/contexts/SessionContext';
@@ -29,7 +37,6 @@ import {
   type AccountConfig, type AlertsConfig, type ConnectionsConfig, type HostConfig,
   type LinkConfig, type NoteConfig, type SessionsConfig,
 } from '@/lib/dashboard-layout';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DashboardGrid, WIDGET_DRAG_TYPE, type GridCoord } from '@/components/pages/dashboard-grid';
 import {
   AccountConfigForm, AlertsConfigForm, ConnectionsConfigForm, HostConfigForm,
@@ -57,7 +64,7 @@ function renderWidget(block: UiLayoutItem): ReactNode {
 }
 
 export function OverviewPage() {
-  const { qqList, processList } = useAppState();
+  const { qqList, processList, resources } = useAppState();
   const {
     overviewBlocks, setOverviewBlocks, overviewMobile, setOverviewMobile,
     resetLayout, editing, setEditing,
@@ -146,7 +153,7 @@ export function OverviewPage() {
       )}
 
       {/* First-run nudge — always shown (not a grid widget) so it can't be hidden. */}
-      {qqList.length === 0 && (
+      {resources.qqList.ready && !resources.qqList.error && qqList.length === 0 && (
         <motion.div initial={off ? false : { opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
           <Link
             to="/processes"
@@ -205,11 +212,14 @@ export function OverviewPage() {
         />
       )}
 
-      <Dialog open={!!configId} onOpenChange={(o) => { if (!o) setConfigId(null); }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{configBlock ? `${widgetLabel(configBlock.id)} · 设置` : '设置'}</DialogTitle>
-          </DialogHeader>
+      <Modal
+        open={!!configId}
+        onClose={() => setConfigId(null)}
+        title={configBlock ? `${widgetLabel(configBlock.id)} · 设置` : '设置'}
+        closeLabel="关闭卡片设置弹窗"
+        maxWidth={384}
+      >
+        <div className="flex flex-col gap-4">
           {configBlock?.id === 'alerts' && <AlertsConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('alerts', c)} />}
           {configBlock?.id === 'sessions' && <SessionsConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('sessions', c)} />}
           {configBlock?.id === 'host' && <HostConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('host', c)} />}
@@ -217,8 +227,8 @@ export function OverviewPage() {
           {configBlock?.id === 'note' && <NoteConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('note', c)} />}
           {configBlock?.id === 'link' && <LinkConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('link', c)} />}
           {configBlock?.id === 'account' && <AccountConfigForm config={configBlock.config} onChange={(c) => setBlockConfig('account', c)} />}
-        </DialogContent>
-      </Dialog>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -468,7 +478,7 @@ function shortDistro(distro: string): string {
 }
 
 function StatTile({
-  icon, label, value, subtext, details, accent = false, to,
+  icon, label, value, subtext, details, accent = false, to, ready = true,
 }: {
   icon: ReactNode;
   label: string;
@@ -477,6 +487,7 @@ function StatTile({
   details?: string;
   accent?: boolean;
   to?: AppPath;
+  ready?: boolean;
 }) {
   const copy = (
     <>
@@ -495,10 +506,32 @@ function StatTile({
       >
         {icon}
       </div>
-      {details ? (
-        <StatTileDetails label={label} details={details}>{copy}</StatTileDetails>
+      {details && ready ? (
+        <StatTileDetails label={label} details={details}>
+          <SkeletonSwap
+            ready={ready}
+            reserve={52}
+            lines={3}
+            lineHeight={17}
+            barHeight={8}
+            label={label}
+            className="skeleton-swap-fluid"
+          >
+            {copy}
+          </SkeletonSwap>
+        </StatTileDetails>
       ) : (
-        <div className="min-w-0 flex-1">{copy}</div>
+        <SkeletonSwap
+          ready={ready}
+          reserve={52}
+          lines={3}
+          lineHeight={17}
+          barHeight={8}
+          label={label}
+          className={ready ? 'skeleton-swap-fluid min-w-0 flex-1' : 'min-w-0 flex-1'}
+        >
+          {ready ? copy : null}
+        </SkeletonSwap>
       )}
       {to && <ArrowRight className="optical-forward size-4 shrink-0 text-muted-foreground/60" />}
     </CardContent>
@@ -514,7 +547,7 @@ function StatTile({
 }
 
 function StatTileWidget({ id }: { id: string }) {
-  const { qqList, processList, systemInfo } = useAppState();
+  const { qqList, processList, systemInfo, resources } = useAppState();
   const { status } = useSession();
   const online = status === '已连接';
 
@@ -534,8 +567,11 @@ function StatTileWidget({ id }: { id: string }) {
         <StatTile
           icon={<Users className="size-5" />}
           label="在线账号"
-          value={qqList.length}
-          subtext={`已接入 ${qqList.length} 个会话`}
+          ready={resources.qqList.ready}
+          value={resources.qqList.error && qqList.length === 0 ? '—' : qqList.length}
+          subtext={resources.qqList.error
+            ? qqList.length > 0 ? '更新失败，显示上次数据' : '加载失败'
+            : `已接入 ${qqList.length} 个会话`}
         />
       );
     case 'stat:processes': {
@@ -545,19 +581,25 @@ function StatTileWidget({ id }: { id: string }) {
         <StatTile
           icon={<PlugZap className="size-5" />}
           label="进程注入"
-          value={`${onlineProcs} 在线`}
-          subtext={`${processList.length} 进程 · ${loadableProcs} 可注入`}
+          ready={resources.processList.ready}
+          value={resources.processList.error && processList.length === 0 ? '—' : `${onlineProcs} 在线`}
+          subtext={resources.processList.error
+            ? processList.length > 0 ? '更新失败，显示上次数据' : '加载失败'
+            : `${processList.length} 进程 · ${loadableProcs} 可注入`}
           to="/processes"
         />
       );
     }
     case 'stat:host': {
       const value = systemInfo?.hostname ?? '—';
-      const subtext = systemInfo ? `${shortDistro(systemInfo.distro)} · ${systemInfo.archLabel}` : '加载中';
+      const subtext = systemInfo
+        ? `${shortDistro(systemInfo.distro)} · ${systemInfo.archLabel}`
+        : resources.systemInfo.error ? '加载失败' : '加载中';
       return (
         <StatTile
           icon={<Server className="size-5" />}
           label="主机名"
+          ready={resources.systemInfo.ready}
           value={value}
           subtext={subtext}
           details={systemInfo
@@ -573,6 +615,7 @@ function StatTileWidget({ id }: { id: string }) {
         <StatTile
           icon={<MonitorCog className="size-5" />}
           label="系统运行"
+          ready={resources.systemInfo.ready}
           value={systemUptime}
           subtext={processUptime ? `进程 ${processUptime}` : undefined}
           details={processUptime
@@ -591,7 +634,7 @@ function StatTileWidget({ id }: { id: string }) {
 const HOST_GRID_COLS: Record<number, string> = { 1: 'lg:grid-cols-1', 2: 'lg:grid-cols-2', 3: 'lg:grid-cols-3' };
 
 function HostBlock({ config }: { config: HostConfig }) {
-  const { systemInfo, refreshSystem } = useAppState();
+  const { systemInfo, refreshSystem, resources } = useAppState();
   const panelCount = [config.cpu, config.memory, config.runtime].filter(Boolean).length;
   return (
     <Card className="flex h-full flex-col">
@@ -600,8 +643,10 @@ function HostBlock({ config }: { config: HostConfig }) {
           <CardTitle>主机资源</CardTitle>
           <CardDescription>
             {systemInfo
-              ? `${systemInfo.cpu.model.trim()} · ${systemInfo.cpu.cores} 核 · Node ${systemInfo.nodeVersion}`
-              : '正在采集主机信息…'}
+              ? `${systemInfo.cpu.model.trim()} · ${systemInfo.cpu.cores} 核 · Node ${systemInfo.nodeVersion}${
+                resources.systemInfo.error ? ' · 更新失败，显示上次数据' : ''
+              }`
+              : resources.systemInfo.error ?? '正在采集主机信息…'}
           </CardDescription>
         </div>
         <Button variant="outline" size="sm" onClick={refreshSystem}>
@@ -624,34 +669,50 @@ function HostBlock({ config }: { config: HostConfig }) {
                 {systemInfo ? `${systemInfo.cpu.average.toFixed(1)}%` : '—'}
               </span>
             </div>
-            <Progress value={systemInfo?.cpu.average ?? 0} />
-            <p className="mt-2 text-meta text-muted-foreground tabular-nums">
-              负载: {systemInfo ? systemInfo.cpu.loadAvg.map((v) => v.toFixed(2)).join(' / ') : '—'}
-            </p>
-            {systemInfo && systemInfo.cpu.perCore.length > 0 && (
-              <div
-                className="mt-3 grid"
-                style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(34px, 1fr))', gap: 3 }}
-              >
-                {systemInfo.cpu.perCore.map((p, i) => (
-                  <div
-                    key={i}
-                    title={`Core ${i}: ${p.toFixed(1)}%`}
-                    className="grid aspect-square place-items-center rounded-md transition-[background] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
-                    style={{
-                      background: `color-mix(in oklab, var(--primary) ${Math.min(100, Math.max(0, p)).toFixed(1)}%, color-mix(in oklab, var(--muted) 80%, transparent))`,
-                    }}
-                  >
-                    <span
-                      className="text-micro leading-none tabular-nums"
-                      style={{ color: 'color-mix(in oklab, var(--foreground) 55%, transparent)' }}
+            <SkeletonSwap
+              ready={resources.systemInfo.ready}
+              reserve={112}
+              lines={4}
+              lineHeight={28}
+              barHeight={9}
+              label="CPU 使用率"
+              className="skeleton-swap-fluid min-h-[112px]"
+            >
+              {systemInfo ? (
+                <>
+                  <Progress value={systemInfo.cpu.average} />
+                  <p className="mt-2 text-meta text-muted-foreground tabular-nums">
+                    负载: {systemInfo.cpu.loadAvg.map((v) => v.toFixed(2)).join(' / ')}
+                  </p>
+                  {systemInfo.cpu.perCore.length > 0 && (
+                    <div
+                      className="mt-3 grid"
+                      style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(34px, 1fr))', gap: 3 }}
                     >
-                      {i}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
+                      {systemInfo.cpu.perCore.map((p, i) => (
+                        <div
+                          key={i}
+                          title={`Core ${i}: ${p.toFixed(1)}%`}
+                          className="grid aspect-square place-items-center rounded-md transition-[background] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
+                          style={{
+                            background: `color-mix(in oklab, var(--primary) ${Math.min(100, Math.max(0, p)).toFixed(1)}%, color-mix(in oklab, var(--muted) 80%, transparent))`,
+                          }}
+                        >
+                          <span
+                            className="text-micro leading-none tabular-nums"
+                            style={{ color: 'color-mix(in oklab, var(--foreground) 55%, transparent)' }}
+                          >
+                            {i}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : resources.systemInfo.error ? (
+                <p role="alert" className="text-xs text-destructive">{resources.systemInfo.error}</p>
+              ) : null}
+            </SkeletonSwap>
           </div>
         )}
         {/* Memory */}
@@ -666,39 +727,51 @@ function HostBlock({ config }: { config: HostConfig }) {
                 {systemInfo ? `${systemInfo.memory.usagePercent.toFixed(1)}%` : '—'}
               </span>
             </div>
-            {systemInfo ? (() => {
-              const m = systemInfo.memory;
-              const rss = Math.min(systemInfo.runtime.rss, m.used);
-              const other = Math.max(0, m.used - rss);
-              const segs = [
-                { key: 'proc', label: '本进程', bytes: rss, grow: (rss / m.total) * 100, color: 'var(--primary)' },
-                { key: 'other', label: '其他已用', bytes: other, grow: (other / m.total) * 100, color: 'color-mix(in oklab, var(--primary) 45%, transparent)' },
-                { key: 'free', label: '空闲', bytes: m.free, grow: (m.free / m.total) * 100, color: 'color-mix(in oklab, var(--muted) 85%, transparent)' },
-              ];
-              return (
-                <>
-                  <div className="mt-1.5 flex h-3 gap-0.5">
-                    {segs.map((seg) => (
-                      <span
-                        key={seg.key}
-                        className="rounded-[3px]"
-                        style={{ flexGrow: seg.grow, minWidth: 2, background: seg.color }}
-                        title={`${seg.label} ${formatBytes(seg.bytes)}`}
-                      />
-                    ))}
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-x-3.5 gap-y-1 text-meta text-muted-foreground">
-                    {segs.map((seg) => (
-                      <span key={seg.key} className="inline-flex items-center gap-1.5">
-                        <i className="size-2 rounded-[2px]" style={{ background: seg.color }} />
-                        {seg.label}
-                        <b className="font-semibold text-foreground tabular-nums">{formatBytes(seg.bytes)}</b>
-                      </span>
-                    ))}
-                  </div>
-                </>
-              );
-            })() : <Progress value={0} />}
+            <SkeletonSwap
+              ready={resources.systemInfo.ready}
+              reserve={72}
+              lines={3}
+              lineHeight={24}
+              barHeight={9}
+              label="内存使用"
+              className="skeleton-swap-fluid min-h-[72px]"
+            >
+              {systemInfo ? (() => {
+                const m = systemInfo.memory;
+                const rss = Math.min(systemInfo.runtime.rss, m.used);
+                const other = Math.max(0, m.used - rss);
+                const segs = [
+                  { key: 'proc', label: '本进程', bytes: rss, grow: (rss / m.total) * 100, color: 'var(--primary)' },
+                  { key: 'other', label: '其他已用', bytes: other, grow: (other / m.total) * 100, color: 'color-mix(in oklab, var(--primary) 45%, transparent)' },
+                  { key: 'free', label: '空闲', bytes: m.free, grow: (m.free / m.total) * 100, color: 'color-mix(in oklab, var(--muted) 85%, transparent)' },
+                ];
+                return (
+                  <>
+                    <div className="mt-1.5 flex h-3 gap-0.5">
+                      {segs.map((seg) => (
+                        <span
+                          key={seg.key}
+                          className="rounded-[3px]"
+                          style={{ flexGrow: seg.grow, minWidth: 2, background: seg.color }}
+                          title={`${seg.label} ${formatBytes(seg.bytes)}`}
+                        />
+                      ))}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-x-3.5 gap-y-1 text-meta text-muted-foreground">
+                      {segs.map((seg) => (
+                        <span key={seg.key} className="inline-flex items-center gap-1.5">
+                          <i className="size-2 rounded-[2px]" style={{ background: seg.color }} />
+                          {seg.label}
+                          <b className="font-semibold text-foreground tabular-nums">{formatBytes(seg.bytes)}</b>
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                );
+              })() : resources.systemInfo.error ? (
+                <p role="alert" className="text-xs text-destructive">{resources.systemInfo.error}</p>
+              ) : null}
+            </SkeletonSwap>
           </div>
         )}
         {/* Runtime */}
@@ -713,29 +786,36 @@ function HostBlock({ config }: { config: HostConfig }) {
                 {systemInfo ? `PID ${systemInfo.runtime.pid}` : '—'}
               </span>
             </div>
-            {!systemInfo ? (
-              <div className="space-y-2">
-                <Skeleton className="h-4 w-3/4" />
-                <Skeleton className="h-4 w-1/2" />
-              </div>
-            ) : (
-              <div className="space-y-1.5 text-xs">
-                <div className="flex items-center justify-between rounded-md bg-background/60 px-2 py-1.5">
-                  <span className="text-muted-foreground">RSS</span>
-                  <span className="font-medium tabular-nums">{formatBytes(systemInfo.runtime.rss)}</span>
+            <SkeletonSwap
+              ready={resources.systemInfo.ready}
+              reserve={88}
+              lines={3}
+              lineHeight={29}
+              barHeight={9}
+              label="运行进程"
+              className={resources.systemInfo.ready ? 'skeleton-swap-fluid min-h-[88px]' : ''}
+            >
+              {systemInfo ? (
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between rounded-md bg-background/60 px-2 py-1.5">
+                    <span className="text-muted-foreground">RSS</span>
+                    <span className="font-medium tabular-nums">{formatBytes(systemInfo.runtime.rss)}</span>
+                  </div>
+                  <div className="flex items-center justify-between rounded-md bg-background/60 px-2 py-1.5">
+                    <span className="text-muted-foreground">堆内存</span>
+                    <span className="font-medium tabular-nums">
+                      {formatBytes(systemInfo.runtime.heapUsed)} / {formatBytes(systemInfo.runtime.heapTotal)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between rounded-md bg-background/60 px-2 py-1.5">
+                    <span className="text-muted-foreground">外部内存</span>
+                    <span className="font-medium tabular-nums">{formatBytes(systemInfo.runtime.external)}</span>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between rounded-md bg-background/60 px-2 py-1.5">
-                  <span className="text-muted-foreground">堆内存</span>
-                  <span className="font-medium tabular-nums">
-                    {formatBytes(systemInfo.runtime.heapUsed)} / {formatBytes(systemInfo.runtime.heapTotal)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between rounded-md bg-background/60 px-2 py-1.5">
-                  <span className="text-muted-foreground">外部内存</span>
-                  <span className="font-medium tabular-nums">{formatBytes(systemInfo.runtime.external)}</span>
-                </div>
-              </div>
-            )}
+              ) : resources.systemInfo.error ? (
+                <p role="alert" className="text-xs text-destructive">{resources.systemInfo.error}</p>
+              ) : null}
+            </SkeletonSwap>
           </div>
         )}
       </CardContent>
@@ -746,7 +826,7 @@ function HostBlock({ config }: { config: HostConfig }) {
 // ─────────────── online sessions ───────────────
 
 function SessionsBlock({ config }: { config: SessionsConfig }) {
-  const { qqList } = useAppState();
+  const { qqList, resources } = useAppState();
   const off = useTheme().appearance.disableMotion;
   const list = useMemo(() => {
     const f = config.filter.trim().toLowerCase();
@@ -768,37 +848,60 @@ function SessionsBlock({ config }: { config: SessionsConfig }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="min-h-0 flex-1">
-        {list.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-10 text-muted-foreground">
-            <Users className="size-8 opacity-40" strokeWidth={1.5} />
-            <p className="text-sm">{qqList.length === 0 ? '暂无在线会话' : '无匹配的会话'}</p>
-          </div>
-        ) : (
-          <ScrollArea className="h-full" viewportClassName="[&>div]:!block">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-              {list.map((q, idx) => (
-                <motion.div
-                  key={q.uin}
-                  initial={off ? false : { opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={off ? { duration: 0 } : { delay: 0.03 + idx * 0.04, duration: 0.22 }}
-                  whileHover={off ? undefined : { y: -2 }}
-                  className="flex items-center gap-3 rounded-xl border bg-card/40 p-3"
-                >
-                  <Avatar size={40}>
-                    <AvatarImage src={qqAvatarUrl(q.uin)} alt={q.nickname || q.uin} />
-                    <AvatarFallback>{(q.nickname || q.uin).slice(0, 2)}</AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold">{q.nickname}</div>
-                    <div className="truncate font-mono text-meta text-muted-foreground tabular-nums">{q.uin}</div>
+        <SkeletonSwap
+          ready={resources.qqList.ready}
+          reserve={120}
+          lines={5}
+          lineHeight={24}
+          barHeight={9}
+          label="在线会话"
+          className={resources.qqList.ready ? 'skeleton-swap-fluid min-h-[120px]' : ''}
+        >
+          {resources.qqList.ready ? (
+            resources.qqList.error && qqList.length === 0 ? (
+              <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-8 text-center text-sm text-destructive">
+                {resources.qqList.error}
+              </p>
+            ) : list.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-10 text-muted-foreground">
+                <Users className="size-8 opacity-40" strokeWidth={1.5} />
+                <p className="text-sm">{qqList.length === 0 ? '暂无在线会话' : '无匹配的会话'}</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {resources.qqList.error && (
+                  <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                    {resources.qqList.error}；当前显示上次成功读取的在线会话。
+                  </p>
+                )}
+                <ScrollArea className="h-full" viewportClassName="[&>div]:!block">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                    {list.map((q, idx) => (
+                      <motion.div
+                        key={q.uin}
+                        initial={off ? false : { opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={off ? { duration: 0 } : { delay: 0.03 + idx * 0.04, duration: 0.22 }}
+                        whileHover={off ? undefined : { y: -2 }}
+                        className="flex items-center gap-3 rounded-xl border bg-card/40 p-3"
+                      >
+                        <Avatar size={40}>
+                          <AvatarImage src={qqAvatarUrl(q.uin)} alt={q.nickname || q.uin} />
+                          <AvatarFallback>{(q.nickname || q.uin).slice(0, 2)}</AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-semibold">{q.nickname}</div>
+                          <div className="truncate font-mono text-meta text-muted-foreground tabular-nums">{q.uin}</div>
+                        </div>
+                        <span className="size-2 shrink-0 animate-pulse rounded-full bg-success shadow-[0_0_8px_color-mix(in_oklab,var(--success)_60%,transparent)]" />
+                      </motion.div>
+                    ))}
                   </div>
-                  <span className="size-2 shrink-0 animate-pulse rounded-full bg-success shadow-[0_0_8px_color-mix(in_oklab,var(--success)_60%,transparent)]" />
-                </motion.div>
-              ))}
-            </div>
-          </ScrollArea>
-        )}
+                </ScrollArea>
+              </div>
+            )
+          ) : null}
+        </SkeletonSwap>
       </CardContent>
     </Card>
   );
@@ -830,7 +933,7 @@ const CONN_STATUS_RANK: Record<AdapterStatusLevel, number> = {
 };
 
 function ConnectionsBlock({ config }: { config: ConnectionsConfig }) {
-  const { connections } = useAppState();
+  const { connections, resources } = useAppState();
   const list = useMemo(() => {
     const f = config.filter.trim().toLowerCase();
     // Optionally drop healthy adapters, then accounts left with none.
@@ -862,51 +965,122 @@ function ConnectionsBlock({ config }: { config: ConnectionsConfig }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="min-h-0 flex-1 overflow-auto">
-        {list.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-10 text-muted-foreground">
-            <Cable className="size-8 opacity-40" strokeWidth={1.5} />
-            <p className="text-sm">{filtered ? '无匹配的连接' : '暂无已接入的账号实例'}</p>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-4">
-            {list.map((acc) => (
-              <div key={acc.uin} className="flex flex-col gap-2">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-sm font-semibold">{acc.nickname || acc.uin}</span>
-                  <span className="font-mono text-meta text-muted-foreground tabular-nums">{acc.uin}</span>
-                </div>
-                {acc.adapters.length === 0 ? (
-                  <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">未配置任何协议端点</p>
-                ) : (
-                  <div className="flex flex-col gap-1.5">
-                    {acc.adapters.map((adp) => (
-                      <div key={adp.name} className="flex items-center gap-2 rounded-xl border bg-card/40 px-3 py-2">
-                        <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-micro font-medium', CONN_STATUS_STYLE[adp.status])}>
-                          {CONN_STATUS_LABEL[adp.status]}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className="truncate text-sm font-medium">{adp.name}</span>
-                            <span className="shrink-0 text-micro text-muted-foreground">{ADAPTER_KIND_LABEL[adp.kind]}</span>
-                          </div>
-                          <div className="truncate text-meta text-muted-foreground">{adp.detail}</div>
-                          {adp.lastError && adp.lastErrorAt && (
-                            <div className="truncate text-xs text-destructive/80">
-                              {new Date(adp.lastErrorAt).toLocaleString()} · {adp.lastError}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+        <SkeletonSwap
+          ready={resources.connections.ready}
+          reserve={120}
+          lines={5}
+          lineHeight={24}
+          barHeight={9}
+          label="OneBot 连接"
+          className={resources.connections.ready ? 'skeleton-swap-fluid min-h-[120px]' : ''}
+        >
+          {resources.connections.ready ? (
+            resources.connections.error && connections.length === 0 ? (
+              <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-8 text-center text-sm text-destructive">
+                {resources.connections.error}
+              </p>
+            ) : list.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-10 text-muted-foreground">
+                <Cable className="size-8 opacity-40" strokeWidth={1.5} />
+                <p className="text-sm">{filtered ? '无匹配的连接' : '暂无已接入的账号实例'}</p>
               </div>
-            ))}
-          </div>
-        )}
+            ) : (
+              <div className="flex flex-col gap-4">
+                {resources.connections.error && (
+                  <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                    {resources.connections.error}；当前显示上次成功读取的连接状态。
+                  </p>
+                )}
+                {list.map((acc) => (
+                  <div key={acc.uin} className="flex flex-col gap-2">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-sm font-semibold">{acc.nickname || acc.uin}</span>
+                      <span className="font-mono text-meta text-muted-foreground tabular-nums">{acc.uin}</span>
+                    </div>
+                    {acc.databaseMigration && acc.databaseMigration.phase !== 'complete' && (
+                      <DatabaseMigrationProgress migration={acc.databaseMigration} />
+                    )}
+                    {acc.adapters.length > 0 ? (
+                      <div className="flex flex-col gap-1.5">
+                        {acc.adapters.map((adp) => (
+                          <div key={adp.name} className="flex items-center gap-2 rounded-xl border bg-card/40 px-3 py-2">
+                            <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-micro font-medium', CONN_STATUS_STYLE[adp.status])}>
+                              {CONN_STATUS_LABEL[adp.status]}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="truncate text-sm font-medium">{adp.name}</span>
+                                <span className="shrink-0 text-micro text-muted-foreground">{ADAPTER_KIND_LABEL[adp.kind]}</span>
+                              </div>
+                              <div className="truncate text-meta text-muted-foreground">{adp.detail}</div>
+                              {adp.lastError && adp.lastErrorAt && (
+                                <div className="truncate text-xs text-destructive/80">
+                                  {new Date(adp.lastErrorAt).toLocaleString()} · {adp.lastError}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : acc.databaseMigration?.usable !== false ? (
+                      <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">未配置任何协议端点</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )
+          ) : null}
+        </SkeletonSwap>
       </CardContent>
     </Card>
   );
+}
+
+function DatabaseMigrationProgress({ migration }: { migration: AccountDatabaseMigration }) {
+  const percentage = migration.progress === null
+    ? null
+    : Math.round(migration.progress * 100);
+  const title = migration.phase === 'preparing'
+    ? '正在准备数据库，账号暂不可用'
+    : migration.phase === 'failed'
+      ? (migration.usable ? '历史数据迁移失败，账号功能可用' : '数据库准备失败，账号暂不可用')
+      : '正在后台迁移历史数据，账号功能可用';
+  const eta = formatMigrationEta(migration.estimatedRemainingSeconds);
+
+  return (
+    <div className={cn(
+      'rounded-xl border px-3 py-2.5',
+      migration.phase === 'failed'
+        ? 'border-destructive/25 bg-destructive/5'
+        : 'border-warning/25 bg-warning/5',
+    )}>
+      <div className="flex items-center justify-between gap-3 text-xs">
+        <span className="font-medium">{title}</span>
+        {percentage !== null && <span className="tabular-nums">{percentage}%</span>}
+      </div>
+      {percentage !== null && <Progress className="mt-2 h-1.5" value={percentage} />}
+      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-meta text-muted-foreground">
+        {migration.total !== null && (
+          <span className="tabular-nums">
+            已处理 {migration.processed.toLocaleString()} / {migration.total.toLocaleString()} 条
+          </span>
+        )}
+        {migration.phase !== 'failed' && <span>{eta}</span>}
+        {migration.phase === 'failed' && migration.error && <span>{migration.error}</span>}
+      </div>
+    </div>
+  );
+}
+
+function formatMigrationEta(seconds: number | null): string {
+  if (seconds === null) return '剩余时间估算中';
+  if (seconds <= 0) return '即将完成';
+  if (seconds < 60) return `预计剩余 ${seconds} 秒`;
+  const minutes = Math.ceil(seconds / 60);
+  if (minutes < 60) return `预计剩余 ${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return `预计剩余 ${hours} 小时${remainder > 0 ? ` ${remainder} 分钟` : ''}`;
 }
 
 // ─────────────── static widgets (note / link / account) ───────────────
@@ -956,7 +1130,7 @@ function LinkWidget({ config }: { config: LinkConfig }) {
 }
 
 function AccountWidget({ config }: { config: AccountConfig }) {
-  const { qqList } = useAppState();
+  const { qqList, resources } = useAppState();
   const acct = qqList.find((q) => q.uin === config.uin);
   if (!config.uin) {
     return (
@@ -970,20 +1144,34 @@ function AccountWidget({ config }: { config: AccountConfig }) {
   }
   return (
     <Card className="h-full overflow-hidden">
-      <CardContent className="flex h-full items-center gap-3 p-4">
-        <Avatar size={40}>
-          <AvatarImage src={qqAvatarUrl(config.uin)} alt={acct?.nickname || config.uin} />
-          <AvatarFallback>{(acct?.nickname || config.uin).slice(0, 2)}</AvatarFallback>
-        </Avatar>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold">{acct?.nickname || '未接入账号'}</p>
-          <p className="truncate font-mono text-meta text-muted-foreground tabular-nums">{config.uin}</p>
-        </div>
-        <span
-          title={acct ? '在线' : '未接入'}
-          className={cn('size-2 shrink-0 rounded-full', acct ? 'bg-success' : 'bg-muted-foreground/40')}
-        />
-      </CardContent>
+      <SkeletonSwap
+        ready={resources.qqList.ready}
+        reserve={72}
+        lines={3}
+        lineHeight={24}
+        barHeight={9}
+        label="账号状态"
+        className="skeleton-swap-fill"
+      >
+        {resources.qqList.ready ? (
+          <CardContent className="flex h-full items-center gap-3 p-4">
+            <Avatar size={40}>
+              <AvatarImage src={qqAvatarUrl(config.uin)} alt={acct?.nickname || config.uin} />
+              <AvatarFallback>{(acct?.nickname || config.uin).slice(0, 2)}</AvatarFallback>
+            </Avatar>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold">
+                {resources.qqList.error ? '账号状态加载失败' : acct?.nickname || '未接入账号'}
+              </p>
+              <p className="truncate font-mono text-meta text-muted-foreground tabular-nums">{config.uin}</p>
+            </div>
+            <span
+              title={acct ? '在线' : resources.qqList.error ? '状态未知' : '未接入'}
+              className={cn('size-2 shrink-0 rounded-full', acct ? 'bg-success' : 'bg-muted-foreground/40')}
+            />
+          </CardContent>
+        ) : null}
+      </SkeletonSwap>
     </Card>
   );
 }
@@ -1005,24 +1193,32 @@ const ALERT_LEVEL_CLASS: Record<LogLevel, string> = {
 function RecentAlertsCard({ config }: { config: AlertsConfig }) {
   const api = useApi();
   const { formatClock } = useTheme();
-  const [alerts, setAlerts] = useState<LogEntry[]>([]);
+  const [alerts, setAlerts] = useState<LogEntry[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const { count } = config;
   const levelsKey = config.levels.join(',');
 
   useEffect(() => {
     const levels = new Set(levelsKey.split(',') as LogLevel[]);
     let active = true;
+    setAlerts(null);
+    setLoadError(null);
     api.logs
       .list(Math.max(200, count * 4))
       .then((list) => {
         if (!active) return;
         setAlerts(list.filter((l) => levels.has(l.level)).slice(-count));
       })
-      .catch(() => { /* ignore */ });
+      .catch((error) => {
+        if (!active) return;
+        console.error('load recent alerts failed', error);
+        setLoadError(error instanceof Error ? error.message : '加载最近告警失败');
+        setAlerts((previous) => previous ?? []);
+      });
     const stop = api.logs.stream({
       onLine: (entry) => {
         if (!levels.has(entry.level)) return;
-        setAlerts((prev) => [...prev.filter((a) => a.id !== entry.id), entry].slice(-count));
+        setAlerts((prev) => [...(prev ?? []).filter((a) => a.id !== entry.id), entry].slice(-count));
       },
     });
     return () => { active = false; stop(); };
@@ -1042,24 +1238,45 @@ function RecentAlertsCard({ config }: { config: AlertsConfig }) {
         </Link>
       </CardHeader>
       <CardContent className="min-h-0 flex-1 overflow-auto">
-        {alerts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-10 text-muted-foreground">
-            <Bell className="size-8 opacity-40" strokeWidth={1.5} />
-            <p className="text-sm">暂无告警</p>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-1 font-mono text-meta">
-            {alerts.map((a) => (
-              <div key={a.id} className="flex gap-2 rounded px-2 py-1 hover:bg-accent/30">
-                <span className="shrink-0 text-muted-foreground tabular-nums">{formatClock(a.time)}</span>
-                <span className={cn('shrink-0 font-semibold', ALERT_LEVEL_CLASS[a.level])}>
-                  {a.level.toUpperCase()}
-                </span>
-                <span className="min-w-0 flex-1 truncate" title={a.message}>[{a.scope}] {a.message}</span>
+        <SkeletonSwap
+          ready={alerts !== null}
+          reserve={120}
+          lines={5}
+          lineHeight={24}
+          barHeight={9}
+          label="最近告警"
+          className={alerts !== null ? 'skeleton-swap-fluid min-h-[120px]' : ''}
+        >
+          {alerts !== null ? (
+            loadError && alerts.length === 0 ? (
+              <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-8 text-center text-sm text-destructive">
+                {loadError}
+              </p>
+            ) : alerts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-10 text-muted-foreground">
+                <Bell className="size-8 opacity-40" strokeWidth={1.5} />
+                <p className="text-sm">暂无告警</p>
               </div>
-            ))}
-          </div>
-        )}
+            ) : (
+              <div className="flex flex-col gap-1 font-mono text-meta">
+                {loadError && (
+                  <p role="alert" className="mb-1 rounded-lg border border-destructive/30 bg-destructive/10 px-2 py-1.5 font-sans text-xs text-destructive">
+                    {loadError}；当前显示已收到的实时告警。
+                  </p>
+                )}
+                {alerts.map((a) => (
+                  <div key={a.id} className="flex gap-2 rounded px-2 py-1 hover:bg-accent/30">
+                    <span className="shrink-0 text-muted-foreground tabular-nums">{formatClock(a.time)}</span>
+                    <span className={cn('shrink-0 font-semibold', ALERT_LEVEL_CLASS[a.level])}>
+                      {a.level.toUpperCase()}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate" title={a.message}>[{a.scope}] {a.message}</span>
+                  </div>
+                ))}
+              </div>
+            )
+          ) : null}
+        </SkeletonSwap>
       </CardContent>
     </Card>
   );

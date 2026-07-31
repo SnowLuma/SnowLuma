@@ -1,5 +1,5 @@
 import { renderParamsVerbose, summarizeParams } from '@snowluma/common/log-summary';
-import { createLogger, getLogLevel, nextRequestId, runWithRequestId, type Logger } from '@snowluma/common/logger';
+import { createLogger, runWithTraceRequest, type Logger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import { MessageElementValidationError } from '@snowluma/protocol/element-manifest';
 import {
@@ -13,8 +13,30 @@ import type { ForwardPreviewMeta } from './modules/message-actions';
 import type { ReadSessionTargets } from './message-store';
 import type { JsonObject, JsonValue, MessageMeta } from './types';
 import { RETCODE, failedResponse, okResponse } from './types';
-import { type StreamSink, wrapStreamFrame, wrapStreamTerminal } from './streaming';
+import {
+  StreamTransportClosedError,
+  type StreamSink,
+  wrapStreamFrame,
+  wrapStreamTerminal,
+} from './streaming';
 const moduleLog = createLogger('Bridge.Action');
+
+function summarizeActionParams(action: string, params: JsonObject): string {
+  if (action !== 'fetch_emoji_like') return summarizeParams(params);
+
+  const safeParams: JsonObject = { ...params };
+  const cursor = params.cookie;
+  if (typeof cursor !== 'string' || !/^\d+$/.test(cursor)) {
+    return summarizeParams(safeParams);
+  }
+
+  const offset = Number(cursor);
+  if (!Number.isSafeInteger(offset)) return summarizeParams(safeParams);
+
+  delete safeParams.cookie;
+  safeParams.emoji_like_offset = offset;
+  return summarizeParams(safeParams);
+}
 
 
 export interface MessageSendResult {
@@ -23,22 +45,15 @@ export interface MessageSendResult {
   echoEvent?: JsonObject;
 }
 
-export interface GroupEssenceMsgRet {
-  retcode: number;
-  data: {
-    is_end: boolean;
-    msg_list: JsonObject[];
-    [key: string]: JsonValue;
-  };
-  [key: string]: JsonValue;
-}
-
 export interface ApiActionContext {
   bridge: BridgeInterface;
   getLoginInfo: () => { userId: number; nickname: string };
   isOnline: () => boolean;
   getMessage: (messageId: number) => JsonObject | null;
   getMessageMeta: (messageId: number) => MessageMeta | null;
+  cacheMessageMetas: (
+    entries: ReadonlyArray<{ messageId: number; meta: MessageMeta }>,
+  ) => void;
   listReadSessions: () => ReadSessionTargets;
   sendPrivateMessage: (userId: number, message: JsonValue, autoEscape: boolean, tempGroupId?: number) => Promise<MessageSendResult>;
   sendGroupMessage: (groupId: number, message: JsonValue, autoEscape: boolean) => Promise<MessageSendResult>;
@@ -234,46 +249,91 @@ export class ApiHandler {
   }
 
   async handle(action: string, params: JsonObject, sink?: StreamSink): Promise<import('./types').ApiResponse> {
+    return runWithTraceRequest(() => this.handleInContext(action, params, sink));
+  }
+
+  traceQuiescedAction(
+    action: string,
+    params: JsonObject,
+    response: import('./types').ApiResponse,
+  ): void {
+    if (this.acceptingActions) return;
+    runWithTraceRequest(() => {
+      const startedAt = Date.now();
+      this.traceActionInput(action, params);
+      this.traceActionTerminal(action, response, startedAt, 'failed', 'quiesced');
+    });
+  }
+
+  traceQuiescedStreamRequest(rawRequest: string): void {
+    const request = parseStreamRequest(rawRequest);
+    if (!request) return;
+    this.traceQuiescedAction(
+      request.action,
+      request.params,
+      failedResponse(RETCODE.ACTION_FAILED, 'OneBot instance is shutting down'),
+    );
+  }
+
+  private async handleInContext(
+    action: string,
+    params: JsonObject,
+    sink?: StreamSink,
+  ): Promise<import('./types').ApiResponse> {
+    const startedAt = Date.now();
+    this.traceActionInput(action, params);
+
     if (!this.acceptingActions) {
       const response = failedResponse(RETCODE.ACTION_FAILED, 'OneBot instance is shutting down');
       this.log.warn('rejected Action %s after instance quiesce', action);
+      this.traceActionTerminal(action, response, startedAt, 'failed', 'quiesced');
       this.notifyObservers(action, params, response, 0);
       return response;
     }
+
     const registered = this.handlers.get(action);
     if (!registered) {
+      const response = failedResponse(RETCODE.UNKNOWN_ACTION, 'unknown action');
       this.log.debug('unknown action %s', action);
-      return failedResponse(RETCODE.UNKNOWN_ACTION, 'unknown action');
+      this.traceActionTerminal(action, response, startedAt, 'failed', 'unknown_action');
+      return response;
     }
 
-    // Correlate the whole request — entry, every outbound packet it triggers,
-    // and the exit — under one `[req#N]` tag via AsyncLocalStorage. Only pay
-    // the wrap + id allocation when trace is actually live, so the default
-    // path stays allocation-free.
-    if (getLogLevel() !== 'trace') {
-      return this.runAction(action, registered.handler, params, sink);
-    }
-    return runWithRequestId(nextRequestId(), () => this.runAction(action, registered.handler, params, sink));
+    return this.runAction(action, registered.handler, params, sink, startedAt);
   }
 
   private async runAction(
     action: string,
     handler: ActionHandler,
     params: JsonObject,
-    sink?: StreamSink,
+    sink: StreamSink | undefined,
+    startedAt: number,
   ): Promise<import('./types').ApiResponse> {
-    // Terse breadcrumb to the log file (debug, always persisted): lets the
-    // operator grep "what did the bot get asked to do" in post-mortems.
-    this.log.debug('%s params=%s', action, summarizeParams(params));
-    // Full request shape, memory-only (trace). Lazy producer → the deep render
-    // only runs when trace is live.
-    this.log.trace(() => [`${action} ⇐ %s`, renderParamsVerbose(params)]);
+    // Terse breadcrumb to the log file (debug, which is written to disk under the default
+    // file level): lets the operator grep "what did the bot get asked to do" in post-mortems.
+    this.log.debug('%s params=%s', action, summarizeActionParams(action, params));
 
-    const startedAt = Date.now();
     let response: import('./types').ApiResponse;
+    let outcome: 'ok' | 'failed' | 'cancelled';
+    let reason: 'response_returned' | 'handler_threw' | 'transport_closed';
     try {
-      response = await handler(params, sink);
-      this.log.trace(() => [`${action} ⇒ ${response.status} (${Date.now() - startedAt}ms)`]);
+      response = await handler(
+        params,
+        sink
+          ? {
+            send: async (frame) => {
+              this.log.trace(() => [
+                'action_stream_frame action=%s frame=%s',
+                action,
+                renderParamsVerbose(frame),
+              ]);
+              await sink.send(frame);
+            },
+          }
+          : undefined,
+      );
+      outcome = response.status === 'ok' ? 'ok' : 'failed';
+      reason = 'response_returned';
     } catch (error) {
       // Single error seam: typed message-contract failures are caller errors
       // and therefore map to BAD_REQUEST. Bridge/OIDB business failures and
@@ -292,9 +352,40 @@ export class ApiHandler {
         ? RETCODE.BAD_REQUEST
         : RETCODE.ACTION_FAILED;
       response = failedResponse(retcode, message);
+      outcome = error instanceof StreamTransportClosedError ? 'cancelled' : 'failed';
+      reason = error instanceof StreamTransportClosedError ? 'transport_closed' : 'handler_threw';
     }
+    this.traceActionTerminal(action, response, startedAt, outcome, reason);
     this.notifyObservers(action, params, response, Date.now() - startedAt);
     return response;
+  }
+
+  private traceActionInput(
+    action: string,
+    params: JsonObject,
+  ): void {
+    this.log.trace(() => [
+      'action_input action=%s params=%s',
+      action,
+      renderParamsVerbose(params),
+    ]);
+  }
+
+  private traceActionTerminal(
+    action: string,
+    response: import('./types').ApiResponse,
+    startedAt: number,
+    outcome: 'ok' | 'failed' | 'cancelled',
+    reason: 'response_returned' | 'handler_threw' | 'transport_closed' | 'unknown_action' | 'quiesced',
+  ): void {
+    this.log.trace(() => [
+      'action_terminal action=%s outcome=%s reason=%s ms=%d response=%s',
+      action,
+      outcome,
+      reason,
+      Date.now() - startedAt,
+      renderParamsVerbose(response),
+    ]);
   }
 
   private notifyObservers(
@@ -328,21 +419,9 @@ export class ApiHandler {
     );
     if (!rawRequest.trim()) { await bad(); return; }
 
-    let action: string;
-    let params: JsonObject;
-    let echo: JsonValue | undefined;
-    try {
-      const parsed = JSON.parse(rawRequest) as unknown;
-      if (!isJsonObject(parsed)) { await bad(); return; }
-      const a = asString(parsed.action);
-      if (!a) { await bad(); return; }
-      action = a;
-      params = isJsonObject(parsed.params) ? parsed.params : {};
-      echo = parsed.echo !== undefined ? toJsonValue(parsed.echo) : undefined;
-    } catch {
-      await bad();
-      return;
-    }
+    const request = parseStreamRequest(rawRequest);
+    if (!request) { await bad(); return; }
+    const { action, params, echo } = request;
 
     if (!this.isStreamAction(action)) {
       const response = await this.handle(action, params);
@@ -353,12 +432,35 @@ export class ApiHandler {
 
     const sink: StreamSink = {
       send: async (frame) => {
-        if (isAlive && !isAlive()) throw new Error('stream transport closed');
+        if (isAlive && !isAlive()) throw new StreamTransportClosedError();
         await emit(JSON.stringify(wrapStreamFrame(frame, echo)));
       },
     };
     const response = await this.handle(action, params, sink);
     await emit(JSON.stringify(wrapStreamTerminal(response, echo)));
+  }
+}
+
+interface StreamRequest {
+  action: string;
+  params: JsonObject;
+  echo: JsonValue | undefined;
+}
+
+function parseStreamRequest(rawRequest: string): StreamRequest | null {
+  if (!rawRequest.trim()) return null;
+  try {
+    const parsed = JSON.parse(rawRequest) as unknown;
+    if (!isJsonObject(parsed)) return null;
+    const action = asString(parsed.action);
+    if (!action) return null;
+    return {
+      action,
+      params: isJsonObject(parsed.params) ? parsed.params : {},
+      echo: parsed.echo !== undefined ? toJsonValue(parsed.echo) : undefined,
+    };
+  } catch {
+    return null;
   }
 }
 

@@ -3,15 +3,8 @@
 // The channel id is the stable key per-account opt-ins reference, so it's
 // editable only on create and locked on edit.
 import { useState } from 'react';
+import { Modal } from '@/components/interior/modal';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -64,68 +57,15 @@ export function NotificationChannelDialog(props: NotificationChannelDialogProps)
   const urlError = urlBlank ? '请填写 Webhook URL' : urlBad ? '必须是 http(s) 地址' : undefined;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
-        <DialogHeader>
-          <DialogTitle>{isEdit ? '编辑渠道' : '新建渠道'}</DialogTitle>
-          <DialogDescription>账号上线 / 下线时向该 Webhook POST 一条渲染后的通知。</DialogDescription>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field
-              label="渠道 ID"
-              placeholder="dingtalk"
-              value={draft.id}
-              disabled={isEdit}
-              hint={isEdit ? '创建后不可更改' : '账号据此勾选；字母/数字/. _ -'}
-              error={idError}
-              onChange={(v) => patch({ id: v })}
-            />
-            <Field
-              label="显示名"
-              placeholder="钉钉群机器人"
-              value={draft.name}
-              onChange={(v) => patch({ name: v })}
-            />
-          </div>
-
-          <Field
-            label="Webhook URL"
-            type="url"
-            placeholder="https://oapi.dingtalk.com/robot/send?access_token=…"
-            value={draft.url}
-            error={urlError}
-            onChange={(v) => patch({ url: v })}
-          />
-
-          <div className="flex flex-col gap-1.5">
-            <Label>Body 模板</Label>
-            <Textarea
-              value={draft.bodyTemplate}
-              rows={3}
-              spellCheck={false}
-              onChange={(e) => patch({ bodyTemplate: e.target.value })}
-              className="font-mono text-xs leading-relaxed"
-            />
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              变量：<code className="font-mono">{'{uin}'}</code> <code className="font-mono">{'{nickname}'}</code>{' '}
-              <code className="font-mono">{'{event}'}</code>（offline/online） <code className="font-mono">{'{time}'}</code>
-            </p>
-          </div>
-
-          <div className="flex items-center justify-between rounded-lg border bg-card/40 p-3">
-            <div className="min-w-0">
-              <Label className="text-sm">启用</Label>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                关闭后保留配置但不推送；账号侧对应开关会被锁定并关闭。
-              </p>
-            </div>
-            <ToggleSwitch value={draft.enabled} onChange={(v) => patch({ enabled: v })} ariaLabel="启用渠道" />
-          </div>
-        </div>
-
-        <DialogFooter>
+    <Modal
+      open={open}
+      onClose={() => onOpenChange(false)}
+      title={isEdit ? '编辑渠道' : '新建渠道'}
+      description="账号上线 / 下线时向该 Webhook POST 一条渲染后的通知。"
+      closeLabel="关闭渠道编辑弹窗"
+      maxWidth={576}
+      footer={(
+        <>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             取消
           </Button>
@@ -138,9 +78,63 @@ export function NotificationChannelDialog(props: NotificationChannelDialogProps)
           >
             {isEdit ? '保存修改' : '创建渠道'}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </>
+      )}
+    >
+      <div className="flex flex-col gap-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            label="渠道 ID"
+            placeholder="dingtalk"
+            value={draft.id}
+            disabled={isEdit}
+            hint={isEdit ? '创建后不可更改' : '账号据此勾选；字母/数字/. _ -'}
+            error={idError}
+            onChange={(v) => patch({ id: v })}
+          />
+          <Field
+            label="显示名"
+            placeholder="钉钉群机器人"
+            value={draft.name}
+            onChange={(v) => patch({ name: v })}
+          />
+        </div>
+
+        <Field
+          label="Webhook URL"
+          type="url"
+          placeholder="https://oapi.dingtalk.com/robot/send?access_token=…"
+          value={draft.url}
+          error={urlError}
+          onChange={(v) => patch({ url: v })}
+        />
+
+        <div className="flex flex-col gap-1.5">
+          <Label>Body 模板</Label>
+          <Textarea
+            value={draft.bodyTemplate}
+            rows={3}
+            spellCheck={false}
+            onChange={(e) => patch({ bodyTemplate: e.target.value })}
+            className="font-mono text-xs leading-relaxed"
+          />
+          <p className="text-xs leading-relaxed text-muted-foreground">
+              变量：<code className="font-mono">{'{uin}'}</code> <code className="font-mono">{'{nickname}'}</code>{' '}
+            <code className="font-mono">{'{event}'}</code>（offline/online） <code className="font-mono">{'{time}'}</code>
+          </p>
+        </div>
+
+        <div className="flex items-center justify-between rounded-lg border bg-card/40 p-3">
+          <div className="min-w-0">
+            <Label className="text-sm">启用</Label>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                关闭后保留配置但不推送；账号侧对应开关会被锁定并关闭。
+            </p>
+          </div>
+          <ToggleSwitch value={draft.enabled} onChange={(v) => patch({ enabled: v })} ariaLabel="启用渠道" />
+        </div>
+      </div>
+    </Modal>
   );
 }
 

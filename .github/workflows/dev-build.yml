@@ -78,7 +78,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version-file: '.node-version'
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -121,7 +121,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version-file: '.node-version'
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -145,7 +145,7 @@ jobs:
 
       # Naming convention:
       #   SnowLuma-dev-<arch>.zip|tar.gz        – zero-install (node bundled)
-      #   SnowLuma-dev-<arch>-lite.zip|tar.gz   – user provides Node >= 22
+      #   SnowLuma-dev-<arch>-lite.zip|tar.gz   – user provides Node 22.13+ (23.x requires 23.4+)
       - name: Package (windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh

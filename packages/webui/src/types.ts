@@ -38,10 +38,21 @@ export interface AdapterStatus {
   lastErrorAt?: number;
 }
 
+export interface AccountDatabaseMigration {
+  phase: 'preparing' | 'migrating' | 'complete' | 'failed';
+  usable: boolean;
+  processed: number;
+  total: number | null;
+  progress: number | null;
+  estimatedRemainingSeconds: number | null;
+  error?: string;
+}
+
 export interface AccountConnections {
   uin: string;
   nickname: string;
   adapters: AdapterStatus[];
+  databaseMigration?: AccountDatabaseMigration;
 }
 
 export interface HookProcessInfo {
@@ -501,8 +512,10 @@ export interface UiAppearance {
   density: Density;
   reduceMotion: boolean;
   disableMotion: boolean;
-  /** Master switch for the adaptive cursor and custom context menu. */
+  /** Use SnowLuma's adaptive cursor. */
   customPointerSystem: boolean;
+  /** Replace the browser context menu with SnowLuma's context menu. */
+  customContextMenu: boolean;
   highContrast: boolean;
   /** Pin the sidebar permanently expanded, opting out of the hover-expand rail. */
   sidebarPinned: boolean;

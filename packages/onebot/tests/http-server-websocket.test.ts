@@ -130,6 +130,48 @@ describe('HttpServerAdapter — optional WebSocket transport', () => {
     });
   });
 
+  it('records and drops a valid WebSocket action after API quiesce', async () => {
+    const ctx = context();
+    const api = ctx.api as unknown as {
+      isAcceptingActions: boolean;
+      processStreamRequest: ReturnType<typeof vi.fn>;
+      traceQuiescedStreamRequest: ReturnType<typeof vi.fn>;
+    };
+    api.traceQuiescedStreamRequest = vi.fn();
+    const config = {
+      name: 'quiesced-websocket',
+      host: '127.0.0.1',
+      port: 0,
+      path: '/',
+      enabled: true,
+      enableWebSocket: true,
+      messageFormat: 'array',
+      reportSelfMessage: false,
+    } satisfies HttpServerNetwork;
+    adapter = new HttpServerAdapter(config.name, config, ctx);
+    await adapter.open();
+    const address = (adapter as unknown as { server: http.Server }).server.address() as AddressInfo;
+    socket = new WebSocket(`ws://127.0.0.1:${String(address.port)}/api`);
+    await waitForOpen(socket);
+    const received = vi.fn();
+    socket.on('message', received);
+    api.isAcceptingActions = false;
+    const raw = JSON.stringify({
+      action: 'get_status',
+      params: { detail: 'complete' },
+      echo: 'dropped',
+    });
+
+    socket.send(raw);
+
+    await vi.waitFor(() => {
+      expect(api.traceQuiescedStreamRequest).toHaveBeenCalledWith(raw);
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(api.processStreamRequest).not.toHaveBeenCalled();
+    expect(received).not.toHaveBeenCalled();
+  });
+
   it('disconnects authenticated sockets when the shared token changes without rebinding HTTP', async () => {
     const config = {
       name: 'rotating-token',

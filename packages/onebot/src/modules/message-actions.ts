@@ -1174,6 +1174,7 @@ export async function sendPrivateForwardMessage(
   userId: number,
   messages: JsonValue,
   meta?: ForwardPreviewMeta,
+  onSelfSent?: (event: JsonObject) => void,
 ): Promise<{ messageId: number; forwardId: string }> {
   const nodes = await parseForwardNodes(ref, messages, { userId });
   // userId is plumbed through so inner image/record/video can be uploaded
@@ -1182,9 +1183,17 @@ export async function sendPrivateForwardMessage(
   const forwardId = await ref.bridge.apis.forward.upload(nodes, undefined, userId);
   const previewElement = buildForwardPreviewElement(forwardId, nodes, false, meta);
   const receipt = await ref.bridge.apis.message.sendPrivate(userId, [previewElement]);
-  const { messageId } = await finalizeSend(ref, false, userId, receipt, [previewElement]);
+  const result = await finalizeSend(
+    ref,
+    false,
+    userId,
+    receipt,
+    [previewElement],
+    onSelfSent !== undefined,
+  );
+  if (result.echoEvent) onSelfSent?.(result.echoEvent);
 
-  return { messageId, forwardId };
+  return { messageId: result.messageId, forwardId };
 }
 
 export async function uploadForwardMessage(
@@ -1213,6 +1222,7 @@ export async function forwardSingleMessage(
   ref: OneBotInstanceContext,
   messageId: number,
   target: { groupId?: number; userId?: number },
+  onSelfSent?: (event: JsonObject) => void,
 ): Promise<{ messageId: number }> {
   if (!target.groupId && !target.userId) {
     throw new Error('forward target group_id or user_id is required');
@@ -1234,7 +1244,16 @@ export async function forwardSingleMessage(
     ({ messageId: messageIdOut } = await finalizeSend(ref, true, target.groupId, receipt, elements));
   } else {
     receipt = await ref.bridge.apis.message.sendPrivate(target.userId!, elements);
-    ({ messageId: messageIdOut } = await finalizeSend(ref, false, target.userId!, receipt, elements));
+    const result = await finalizeSend(
+      ref,
+      false,
+      target.userId!,
+      receipt,
+      elements,
+      onSelfSent !== undefined,
+    );
+    messageIdOut = result.messageId;
+    if (result.echoEvent) onSelfSent?.(result.echoEvent);
   }
 
   return { messageId: messageIdOut };

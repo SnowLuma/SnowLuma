@@ -1,4 +1,4 @@
-import { protobuf_decode, protobuf_getUnknownFieldMetadata } from '@snowluma/proton';
+import { protobuf_decode, protobuf_encode, protobuf_getUnknownFieldMetadata } from '@snowluma/proton';
 import { toHex, toHexUpper } from '@snowluma/common/hex';
 import { createLogger } from '@snowluma/common/logger';
 import type { MessageElement, MessageElementOf } from '../events';
@@ -12,6 +12,7 @@ import type {
   NotOnlineImage,
   QFaceExtra,
   QSmallFaceExtra,
+  TextElem,
 } from '@snowluma/proto-defs/element';
 import type { MarkdownData } from '@snowluma/proto-defs/action';
 import type { FileExtra, MessageBody, PushMsgBody as PushMsgBodyFull, RichText } from '@snowluma/proto-defs/message';
@@ -202,6 +203,20 @@ function decodeCardsOnce(elems: ElemDecoded[]): Map<ElemDecoded, DecodedCards> {
   return decoded;
 }
 
+function decodeBigFacesOnce(elems: ElemDecoded[]): Map<ElemDecoded, QFaceExtra | null> {
+  const decoded = new Map<ElemDecoded, QFaceExtra | null>();
+  for (const elem of elems) {
+    const ce = elem.commonElem;
+    if (ce?.serviceType !== 37 || !ce.pbElem) continue;
+    decoded.set(elem, decodeProtobufPayload(
+      'commonElem.bigFace',
+      ce.pbElem,
+      () => protobuf_decode<QFaceExtra>(ce.pbElem!),
+    ));
+  }
+  return decoded;
+}
+
 function logUnknownWireMetadata(
   value: unknown,
   path: string,
@@ -276,6 +291,29 @@ function decodeProtobufPayload<T>(
     );
     return null;
   }
+}
+
+const BIG_FACE_COMPAT_SUFFIX = ']请使用最新版手机QQ体验新功能';
+
+function isValidBigFace(extra: QFaceExtra | null | undefined): extra is QFaceExtra & { qsid: number } {
+  return extra?.qsid !== undefined && Number.isSafeInteger(extra.qsid) && extra.qsid >= 0;
+}
+
+function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function isBigFaceCompatibilityText(extra: QFaceExtra, text: TextElem): boolean {
+  const faceText = extra.text ?? '';
+  const reserveData = text.pbReserve;
+  if (!faceText.startsWith('/') || faceText.length === 1 || text.str !== faceText || !reserveData?.length) {
+    return false;
+  }
+
+  const expected = protobuf_encode<TextElem>({
+    str: `[${faceText.slice(1)}${BIG_FACE_COMPAT_SUFFIX}`,
+  });
+  return bytesEqual(reserveData, expected);
 }
 
 type FingerprintElement =
@@ -366,9 +404,16 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
   // compatibility text. Field presence alone is insufficient: a malformed
   // card must fail open and preserve its otherwise-valid text sibling.
   const decodedCards = decodeCardsOnce(elems);
+  const decodedBigFaces = decodeBigFacesOnce(elems);
   const hasCard = [...decodedCards.values()].some((cards) => (
     Boolean(cards.rich?.element || cards.light?.element)
   ));
+  // QQ NT serializes a service-37 big face as the CommonElem followed by a
+  // compatibility TextElem. The latter repeats QFaceExtra.text in `str`, while
+  // field 12 contains a nested TextElem whose `str` is
+  // `[face name]请使用最新版手机QQ体验新功能`. Suppress only that proven wire
+  // shape (#289); a sibling user-authored text has no such reserve and survives.
+  let previousBigFace: QFaceExtra | null = null;
   // [#127] A QQ NT reply carries the replied sender as a structural auto-mention
   // (MentionExtra.type=2, uin=0) right after srcMsg, followed by a blank
   // separator text. Both are part of the reply wire shape, not user content —
@@ -379,6 +424,9 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
 
   for (const elem of elems) {
     const resultCountBeforeElement = result.length;
+    const precedingBigFace = previousBigFace;
+    const decodedBigFace = decodedBigFaces.get(elem);
+    previousBigFace = isValidBigFace(decodedBigFace) ? decodedBigFace : null;
     logUnknownWireMetadata(elem, 'elem');
 
     // Proton materializes every schema key with a null/default value, so key
@@ -449,45 +497,51 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
     // Text (with possible @ detection)
     if (elem.text) {
       const t = elem.text;
-      let mention: MentionExtra | null = null;
-      if (t.pbReserve && t.pbReserve.length > 0) {
-        mention = decodeProtobufPayload(
-          'text.pbReserve',
-          t.pbReserve,
-          () => protobuf_decode<MentionExtra>(t.pbReserve!),
-        );
-      }
-      const hasAttr6 = t.attr6Buf && t.attr6Buf.length > 11;
-      const hasMention = mention && (mention.type === 1 || mention.type === 2);
+      const suppressBigFaceCompatibilityText = precedingBigFace
+        ? isBigFaceCompatibilityText(precedingBigFace, t)
+        : false;
 
-      // [#127] drop the reply's structural auto-mention (type=2, uin=0) and the
-      // blank separator text right after it; keep real @s (non-zero uin).
-      if (sawReply && mention && mention.type === 2 && (mention.uin ?? 0) === 0) {
-        dropNextBlankText = true;
-        continue;
-      }
-      if (dropNextBlankText) {
-        dropNextBlankText = false;
-        if (!hasMention && (t.str ?? '').trim() === '') continue;
-      }
+      if (!suppressBigFaceCompatibilityText) {
+        let mention: MentionExtra | null = null;
+        if (t.pbReserve && t.pbReserve.length > 0) {
+          mention = decodeProtobufPayload(
+            'text.pbReserve',
+            t.pbReserve,
+            () => protobuf_decode<MentionExtra>(t.pbReserve!),
+          );
+        }
+        const hasAttr6 = t.attr6Buf && t.attr6Buf.length > 11;
+        const hasMention = mention && (mention.type === 1 || mention.type === 2);
 
-      if (hasAttr6 || hasMention) {
-        const me: MessageElement = { type: 'at', targetUin: 0, text: t.str ?? '' };
-        if (hasAttr6) {
-          const buf = t.attr6Buf!;
-          me.targetUin = ((buf[7] << 24) | (buf[8] << 16) | (buf[9] << 8) | buf[10]) >>> 0;
+        // [#127] drop the reply's structural auto-mention (type=2, uin=0) and the
+        // blank separator text right after it; keep real @s (non-zero uin).
+        if (sawReply && mention && mention.type === 2 && (mention.uin ?? 0) === 0) {
+          dropNextBlankText = true;
+          continue;
         }
-        if (hasMention && mention) {
-          me.uid = mention.uid ?? '';
-          if (!me.targetUin) me.targetUin = mention.uin ?? 0;
+        if (dropNextBlankText) {
+          dropNextBlankText = false;
+          if (!hasMention && (t.str ?? '').trim() === '') continue;
         }
-        result.push(me);
-      } else {
-        const text = t.str ?? '';
-        // [#146] drop QQ's ark-compat fallback text — structurally, like the
-        // kernel codec: a card message collapses to just the card element.
-        if (text && hasCard) continue;
-        if (text) result.push({ type: 'text', text });
+
+        if (hasAttr6 || hasMention) {
+          const me: MessageElement = { type: 'at', targetUin: 0, text: t.str ?? '' };
+          if (hasAttr6) {
+            const buf = t.attr6Buf!;
+            me.targetUin = ((buf[7] << 24) | (buf[8] << 16) | (buf[9] << 8) | buf[10]) >>> 0;
+          }
+          if (hasMention && mention) {
+            me.uid = mention.uid ?? '';
+            if (!me.targetUin) me.targetUin = mention.uin ?? 0;
+          }
+          result.push(me);
+        } else {
+          const text = t.str ?? '';
+          // [#146] drop QQ's ark-compat fallback text — structurally, like the
+          // kernel codec: a card message collapses to just the card element.
+          if (text && hasCard) continue;
+          if (text) result.push({ type: 'text', text });
+        }
       }
     }
 
@@ -754,13 +808,11 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
         const faceId = extra?.faceId ?? 0;
         if (Number.isSafeInteger(faceId) && faceId >= 0) result.push({ type: 'face', faceId });
       } else if (svcType === 37 && ce.pbElem) {
-        // Big face
-        const extra = decodeProtobufPayload(
-          'commonElem.bigFace',
-          ce.pbElem,
-          () => protobuf_decode<QFaceExtra>(ce.pbElem!),
-        );
-        if (extra?.qsid !== undefined && Number.isSafeInteger(extra.qsid) && extra.qsid >= 0) {
+        // Big face. Payloads are decoded before iteration so the immediately
+        // following compatibility TextElem can be classified without decoding
+        // this protobuf twice.
+        const extra = decodedBigFaces.get(elem);
+        if (isValidBigFace(extra)) {
           result.push({ type: 'face', faceId: extra.qsid });
         }
       } else if (svcType === 45 && ce.pbElem && ce.pbElem.length > 0) {
@@ -870,8 +922,14 @@ function extractRichtextExtras(
   elements: MessageElement[],
   isGroup = false
 ): void {
-  // Ptt (voice)
-  if (rt.ptt) {
+  // QQ's PTT codec selects either the NTV2 CommonElem representation or the
+  // legacy RichText.ptt representation. Some C2C pushes still carry an empty
+  // legacy placeholder beside a complete NTV2 record; decoding both produces a
+  // second, unusable voice segment (#291).
+  const hasNtv2Record = elements.some((element) => element.type === 'record');
+
+  // Ptt (legacy voice)
+  if (rt.ptt && !hasNtv2Record) {
     const p = rt.ptt;
     const md5Hex = p.fileMd5 && p.fileMd5.length > 0 ? toHexUpper(p.fileMd5) : undefined;
     const me: MessageElementOf<'record'> = {

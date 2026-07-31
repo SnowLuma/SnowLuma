@@ -9,7 +9,45 @@ permissions:
   contents: write
 
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.28.0
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: '.node-version'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run all package tests
+        run: pnpm test
+
+      - name: Type check all packages
+        run: pnpm typecheck
+
+      - name: Verify generated action catalog is up to date
+        run: |
+          catalog_status="$(git status --porcelain=v1 --untracked-files=all -- packages/mcp/src/generated)"
+          if [ -n "$catalog_status" ]; then
+            git diff -- packages/mcp/src/generated
+            printf '%s\n' "$catalog_status"
+            echo '::error::Generated action catalog is stale. Run `pnpm --filter @snowluma/mcp gen` and commit packages/mcp/src/generated/.' >&2
+            exit 1
+          fi
+
   build:
+    needs: preflight
     strategy:
       fail-fast: false
       matrix:
@@ -39,7 +77,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version-file: '.node-version'
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -60,7 +98,7 @@ jobs:
 
       # Naming convention:
       #   SnowLuma-<tag>-<arch>.zip|tar.gz        – zero-install (node bundled)
-      #   SnowLuma-<tag>-<arch>-lite.zip|tar.gz   – user provides Node >= 22
+      #   SnowLuma-<tag>-<arch>-lite.zip|tar.gz   – user provides Node 22.13+ (23.x requires 23.4+)
       - name: Package (windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -127,7 +165,7 @@ jobs:
 
           ## 选择下载
 
-          | 平台 | 完整版（内置 Node.js，推荐） | Lite（需 Node.js 22+） |
+          | 平台 | 完整版（内置 Node.js，推荐） | Lite（Node.js 22.13+；23 系需 23.4+） |
           | --- | --- | --- |
           | Windows x64 | \`SnowLuma-${tag}-win-x64.zip\` | \`SnowLuma-${tag}-win-x64-lite.zip\` |
           | Linux x64 | \`SnowLuma-${tag}-linux-x64.tar.gz\` | \`SnowLuma-${tag}-linux-x64-lite.tar.gz\` |

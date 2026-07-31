@@ -8,7 +8,12 @@ import type {
   ReqDataHighwayHead,
   RespDataHighwayHead,
 } from '@snowluma/proto-defs/highway';
-import { createLogger } from '@snowluma/common/logger';
+import {
+  createLogger,
+  getLogLevel,
+  renderTraceBytes,
+  runWithTraceRequest,
+} from '@snowluma/common/logger';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import net from 'net';
 import { promises as fsp } from 'fs';
@@ -52,47 +57,109 @@ function ipv4ToString(value: number): string {
   return `${value & 0xFF}.${(value >> 8) & 0xFF}.${(value >> 16) & 0xFF}.${(value >> 24) & 0xFF}`;
 }
 
-export async function fetchHighwaySession(bridge: BridgeContext): Promise<HighwaySession> {
-  const request = protobuf_encode<HttpConn0x6FF501Request>({
-    httpConn: {
-      field1: 0, field2: 0, field3: 16, field4: 1, field6: 3,
-      serviceTypes: [1, 5, 10, 21],
-      field9: 2, field10: 9, field11: 8, ver: '1.0.1',
-    },
-  });
+type HighwayPutFailureReason =
+  | 'control_decode_failed'
+  | 'server_rejected'
+  | 'source_close_failed'
+  | 'source_read_failed'
+  | 'transport_exhausted';
 
-  const result = await bridge.sendRawPacket('HttpConn.0x6ff_501', request);
-  if (!result.success || !result.gotResponse || !result.responseData) {
-    throw new Error(result.errorMessage || 'HttpConn request failed');
+interface HighwayPutTraceState {
+  startedAt: number;
+  uploadedBytes: number;
+  connectCount: number;
+  failureReason?: HighwayPutFailureReason;
+  error?: unknown;
+}
+
+class HighwayResponseReadError extends Error {
+  constructor(message: string, readonly responseBody?: Uint8Array) {
+    super(message);
+    this.name = 'HighwayResponseReadError';
   }
+}
 
-  const resp = protobuf_decode<HttpConn0x6FF501Response>(result.responseData);
-  if (!resp?.httpConn) throw new Error('HttpConn response body missing');
-  if (!resp.httpConn.sigSession || (resp.httpConn.sigSession as Uint8Array).length === 0) {
-    throw new Error('HttpConn response missing sig_session');
-  }
+function highwayErrorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
-  const session: HighwaySession = {
-    sigSession: resp.httpConn.sigSession as Uint8Array,
-    sessionKey: (resp.httpConn.sessionKey as Uint8Array) ?? new Uint8Array(0),
-    host: 'htdata3.qq.com',
-    port: 80,
-  };
+export function fetchHighwaySession(bridge: BridgeContext): Promise<HighwaySession> {
+  const startedAt = Date.now();
+  return runWithTraceRequest(async () => {
+    const request = protobuf_encode<HttpConn0x6FF501Request>({
+      httpConn: {
+        field1: 0, field2: 0, field3: 16, field4: 1, field6: 3,
+        serviceTypes: [1, 5, 10, 21],
+        field9: 2, field10: 9, field11: 8, ver: '1.0.1',
+      },
+    });
+    log.trace(
+      'highway_session_start serviceCmd=%j requestBytes=%d',
+      'HttpConn.0x6ff_501',
+      request.byteLength,
+    );
 
-  for (const si of resp.httpConn.serverInfos ?? []) {
-    if ((si.serviceType ?? 0) !== 1 || !si.serverAddrs?.length) continue;
-    for (const addr of si.serverAddrs) {
-      const ip = addr.ip ?? 0;
-      const port = addr.port ?? 0;
-      if (ip && port) {
-        session.host = ipv4ToString(ip);
-        session.port = port;
+    let failureReason = 'request_failed';
+    try {
+      const result = await bridge.sendRawPacket('HttpConn.0x6ff_501', request);
+      log.trace(
+        'highway_session_branch branch=control_response success=%s gotResponse=%s errorCode=%d errorMessage=%j responseBytes=%d',
+        result.success,
+        result.gotResponse,
+        result.errorCode,
+        result.errorMessage ?? '',
+        result.responseData?.byteLength ?? 0,
+      );
+      if (!result.success || !result.gotResponse || !result.responseData) {
+        throw new Error(result.errorMessage || 'HttpConn request failed');
       }
-    }
-  }
 
-  log.trace('session %s:%d sig=%dB', session.host, session.port, (session.sigSession as Uint8Array).length);
-  return session;
+      failureReason = 'response_decode_failed';
+      const resp = protobuf_decode<HttpConn0x6FF501Response>(result.responseData);
+      failureReason = 'response_invalid';
+      if (!resp?.httpConn) throw new Error('HttpConn response body missing');
+      if (!resp.httpConn.sigSession || (resp.httpConn.sigSession as Uint8Array).length === 0) {
+        throw new Error('HttpConn response missing sig_session');
+      }
+
+      const session: HighwaySession = {
+        sigSession: resp.httpConn.sigSession as Uint8Array,
+        sessionKey: (resp.httpConn.sessionKey as Uint8Array) ?? new Uint8Array(0),
+        host: 'htdata3.qq.com',
+        port: 80,
+      };
+
+      for (const si of resp.httpConn.serverInfos ?? []) {
+        if ((si.serviceType ?? 0) !== 1 || !si.serverAddrs?.length) continue;
+        for (const addr of si.serverAddrs) {
+          const ip = addr.ip ?? 0;
+          const port = addr.port ?? 0;
+          if (ip && port) {
+            session.host = ipv4ToString(ip);
+            session.port = port;
+          }
+        }
+      }
+
+      log.trace(
+        'highway_session_terminal outcome=completed reason=session_ready host=%j port=%d sigBytes=%d sessionKeyBytes=%d elapsedMs=%d',
+        session.host,
+        session.port,
+        session.sigSession.byteLength,
+        session.sessionKey.byteLength,
+        Date.now() - startedAt,
+      );
+      return session;
+    } catch (error) {
+      log.trace(() => [
+        'highway_session_terminal outcome=failed reason=%s error=%j elapsedMs=%d',
+        failureReason,
+        highwayErrorText(error),
+        Date.now() - startedAt,
+      ]);
+      throw error;
+    }
+  });
 }
 
 function makeHighwayHead(
@@ -192,12 +259,21 @@ function readHttpResponseBody(socket: net.Socket): Promise<Uint8Array> {
     let totalNeeded = 0;
     let settled = false;
 
+    const partialResponseBody = (): Uint8Array | undefined => {
+      if (headerEnd < 0 || getLogLevel() !== 'trace') return undefined;
+      const buf = Buffer.concat(chunks);
+      return new Uint8Array(buf.subarray(headerEnd));
+    };
+
     // Reset on every inbound chunk; fire if the peer goes silent mid-response.
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
     const armIdle = () => {
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(
-        () => finish(() => reject(new Error('highway response read timeout (peer idle)'))),
+        () => finish(() => reject(new HighwayResponseReadError(
+          'highway response read timeout (peer idle)',
+          partialResponseBody(),
+        ))),
         HIGHWAY_READ_IDLE_MS,
       );
     };
@@ -232,7 +308,12 @@ function readHttpResponseBody(socket: net.Socket): Promise<Uint8Array> {
         finish(() => resolve(new Uint8Array(buf.subarray(headerEnd, totalNeeded))));
       }
     };
-    const onError = (err: Error) => finish(() => reject(err));
+    const onError = (err: Error) => finish(() => {
+      const responseBody = partialResponseBody();
+      reject(responseBody === undefined
+        ? err
+        : new HighwayResponseReadError(err.message, responseBody));
+    });
     const onClose = () => finish(() => {
       const buf = Buffer.concat(chunks);
       // A fully-received body would already have resolved in onData; reaching
@@ -251,9 +332,12 @@ function readHttpResponseBody(socket: net.Socket): Promise<Uint8Array> {
       if (headerEnd >= 0 && contentLength === 0) {
         resolve(new Uint8Array(buf.subarray(headerEnd)));
       } else {
-        reject(new Error(
+        reject(new HighwayResponseReadError(
           `connection closed before full response (received=${buf.length}B, ` +
           `headerSeen=${headerEnd >= 0}${headerEnd >= 0 ? `, need=${totalNeeded}` : ''})`,
+          headerEnd >= 0 && getLogLevel() === 'trace'
+            ? new Uint8Array(buf.subarray(headerEnd))
+            : undefined,
         ));
       }
     });
@@ -332,9 +416,64 @@ export class FileChunkSource implements ChunkSource {
   close(): Promise<void> { return this.fh.close(); }
 }
 
-export async function uploadHighwayHttp(
+export function uploadHighwayHttp(
   bridge: BridgeContext, session: HighwaySession, commandId: number,
   source: ChunkSource, fileMd5: Uint8Array, extend: Uint8Array,
+): Promise<void> {
+  const state: HighwayPutTraceState = {
+    startedAt: Date.now(),
+    uploadedBytes: 0,
+    connectCount: 0,
+  };
+  return runWithTraceRequest(async () => {
+    log.trace(() => [
+      'highway_put_start cmdId=%d uin=%j host=%j port=%d totalBytes=%d fileMd5=%s extendBytes=%d',
+      commandId,
+      bridge.identity.uin,
+      session.host,
+      session.port,
+      source.size,
+      renderTraceBytes(fileMd5),
+      extend.byteLength,
+    ]);
+    try {
+      await uploadHighwayHttpOperation(
+        bridge,
+        session,
+        commandId,
+        source,
+        fileMd5,
+        extend,
+        state,
+      );
+      log.trace(
+        'highway_put_terminal cmdId=%d outcome=completed reason=upload_complete totalBytes=%d uploadedBytes=%d connections=%d elapsedMs=%d',
+        commandId,
+        source.size,
+        state.uploadedBytes,
+        state.connectCount,
+        Date.now() - state.startedAt,
+      );
+    } catch (error) {
+      log.trace(() => [
+        'highway_put_terminal cmdId=%d outcome=failed reason=%s totalBytes=%d uploadedBytes=%d connections=%d error=%j elapsedMs=%d',
+        commandId,
+        state.failureReason ?? 'unexpected_failure',
+        source.size,
+        state.uploadedBytes,
+        state.connectCount,
+        highwayErrorText(state.error ?? error),
+        Date.now() - state.startedAt,
+      ]);
+      throw error;
+    }
+  });
+}
+
+async function uploadHighwayHttpOperation(
+  bridge: BridgeContext, session: HighwaySession, commandId: number,
+  source: ChunkSource, fileMd5: Uint8Array, extend: Uint8Array,
+  trace: HighwayPutTraceState,
 ): Promise<void> {
   const pathStr = `/cgi-bin/httpconn?htcmd=0x6FF0087&uin=${bridge.identity.uin}`;
   const totalSize = source.size;
@@ -367,6 +506,7 @@ export async function uploadHighwayHttp(
   // disk (FileChunkSource); either way one chunk is read/held at a time. We
   // own the source and close it exactly once in the `finally` below.
   let succeeded = false;
+  let sourceCloseFailure: { error: unknown } | undefined;
   let socket: net.Socket | null = null;
   let connectCount = 0;
   const dropSocket = (): void => {
@@ -376,12 +516,27 @@ export async function uploadHighwayHttp(
     let offset = 0;
     while (offset < totalSize) {
       const chunkSize = Math.min(HIGHWAY_BLOCK_SIZE, totalSize - offset);
-      const chunk = await source.read(offset, chunkSize);
+      let chunk: Uint8Array;
+      try {
+        chunk = await source.read(offset, chunkSize);
+      } catch (error) {
+        trace.failureReason = 'source_read_failed';
+        trace.error = error;
+        throw error;
+      }
+      log.trace('highway_put_branch branch=chunk_read offset=%d bytes=%d', offset, chunkSize);
       const chunkMd5 = computeMd5(chunk);
       const head = makeHighwayHead(
         bridge.identity.uin, commandId, totalSize, offset, chunkSize,
         chunkMd5, fileMd5, session.sigSession, extend,
       );
+      log.trace(() => [
+        'highway_put_branch branch=chunk_control_request offset=%d bytes=%d headBytes=%d headHex=%s',
+        offset,
+        chunkSize,
+        head.byteLength,
+        renderTraceBytes(head),
+      ]);
       const frame = packHighwayFrame(head, chunk);
 
       // Send this block, reusing the live connection when there is one. On any
@@ -394,27 +549,84 @@ export async function uploadHighwayHttp(
           if (!socket) {
             socket = await tcpConnect(session.host, session.port);
             connectCount += 1;
+            trace.connectCount = connectCount;
+            log.trace(
+              'highway_put_branch branch=%s offset=%d attempt=%d connection=%d',
+              connectCount === 1 ? 'connect' : 'reconnect',
+              offset,
+              attempt,
+              connectCount,
+            );
           }
+          log.trace(
+            'highway_put_branch branch=chunk_attempt offset=%d bytes=%d attempt=%d connection=%d',
+            offset,
+            chunkSize,
+            attempt,
+            connectCount,
+          );
           responseBody = await httpPostFrame(socket, session.host, pathStr, frame);
           break;
         } catch (err) {
+          if (err instanceof HighwayResponseReadError && err.responseBody) {
+            log.trace(() => [
+              'highway_put_branch branch=chunk_control_response_partial offset=%d attempt=%d responseBytes=%d responseHex=%s',
+              offset,
+              attempt,
+              err.responseBody!.byteLength,
+              renderTraceBytes(err.responseBody!),
+            ]);
+          }
           dropSocket();
           if (attempt >= HIGHWAY_MAX_CHUNK_ATTEMPTS) {
-            throw new Error(
+            trace.failureReason = 'transport_exhausted';
+            const exhausted = new Error(
               `highway upload transport failed after ${attempt} attempts ` +
               `(cmdId=${commandId} chunk=${chunkSize}/${totalSize} offset=${offset}): ${String(err)}`,
             );
+            trace.error = exhausted;
+            throw exhausted;
           }
-          log.trace('chunk offset=%d attempt %d failed (%s), reconnecting', offset, attempt, String(err));
+          log.trace(
+            'highway_put_branch branch=chunk_retry offset=%d bytes=%d attempt=%d error=%j',
+            offset,
+            chunkSize,
+            attempt,
+            highwayErrorText(err),
+          );
           await sleepMs(HIGHWAY_RETRY_BASE_MS * attempt);
         }
       }
 
       // Unreachable: the retry loop only exits via break (responseBody set) or
       // throw — the guard just narrows the type for the compiler.
-      if (!responseBody) throw new Error('highway upload: missing response');
-      const { head: respHead } = unpackHighwayFrame(responseBody);
-      const resp = protobuf_decode<RespDataHighwayHead>(respHead);
+      if (!responseBody) {
+        trace.failureReason = 'transport_exhausted';
+        trace.error = new Error('highway upload: missing response');
+        throw trace.error;
+      }
+      log.trace(() => [
+        'highway_put_branch branch=chunk_control_response offset=%d bytes=%d responseBytes=%d responseHex=%s',
+        offset,
+        chunkSize,
+        responseBody.byteLength,
+        renderTraceBytes(responseBody),
+      ]);
+      let resp: RespDataHighwayHead;
+      try {
+        const { head: respHead } = unpackHighwayFrame(responseBody);
+        resp = protobuf_decode<RespDataHighwayHead>(respHead);
+        log.trace(
+          'highway_put_branch branch=chunk_control_decoded offset=%d errorCode=%d segRetCode=%d',
+          offset,
+          resp?.errorCode ?? 0,
+          resp?.msgSegHead?.retCode ?? 0,
+        );
+      } catch (error) {
+        trace.failureReason = 'control_decode_failed';
+        trace.error = error;
+        throw error;
+      }
       if (resp?.errorCode && resp.errorCode !== 0) {
         // Surface every diagnostic the highway response carries so
         // user reports of `error_code=921` and friends include the
@@ -424,12 +636,14 @@ export async function uploadHighwayHttp(
         // limit.
         const segRetCode = resp.msgSegHead?.retCode ?? 0;
         const fileMd5Hex = Buffer.from(fileMd5).toString('hex');
-        throw new Error(
+        trace.failureReason = 'server_rejected';
+        trace.error = new Error(
           `highway upload error_code=${resp.errorCode}` +
           ` (cmdId=${commandId} chunk=${chunkSize}/${totalSize}` +
           ` offset=${offset} segRetCode=${segRetCode}` +
           ` fileMd5=${fileMd5Hex.slice(0, 16)}…)`,
         );
+        throw trace.error;
       }
 
       // If the peer half-closed after sending its response, the socket can no
@@ -440,7 +654,12 @@ export async function uploadHighwayHttp(
       }
 
       offset += chunkSize;
-      log.trace('uploaded %d/%d bytes', offset, totalSize);
+      trace.uploadedBytes = offset;
+      log.trace(
+        'highway_put_branch branch=chunk_completed offset=%d totalBytes=%d',
+        offset,
+        totalSize,
+      );
     }
     succeeded = true;
     if (totalSize > 0) {
@@ -454,7 +673,14 @@ export async function uploadHighwayHttp(
     try {
       await source.close();
     } catch (closeErr) {
-      if (succeeded) throw closeErr;
+      if (succeeded) {
+        sourceCloseFailure = { error: closeErr };
+      }
     }
+  }
+  if (sourceCloseFailure) {
+    trace.failureReason = 'source_close_failed';
+    trace.error = sourceCloseFailure.error;
+    throw sourceCloseFailure.error;
   }
 }

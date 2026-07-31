@@ -1,3 +1,4 @@
+import { currentRequestId, runWithRequestId } from '@snowluma/common/logger';
 import { describe, expect, it, vi } from 'vitest';
 import { OneBotManager } from '../src/manager';
 import type { OneBotConfig } from '../src/types';
@@ -33,5 +34,24 @@ describe('OneBotManager config apply value ownership', () => {
     expect(seen).toEqual([a, b]);
     expect(instance.reloadConfig).toHaveBeenNthCalledWith(1, a);
     expect(instance.reloadConfig).toHaveBeenNthCalledWith(2, b);
+  });
+
+  it('does not attach a caller operation to reconfigured network resources', async () => {
+    const manager = new OneBotManager();
+    const observedRequestIds: Array<number | undefined> = [];
+    let observeDeferred!: () => void;
+    const instance = {
+      reloadConfig: vi.fn(async () => {
+        observedRequestIds.push(currentRequestId());
+        observeDeferred = () => observedRequestIds.push(currentRequestId());
+        return { applied: true, errors: [], statuses: [] };
+      }),
+    };
+    (manager as unknown as { instances: Map<string, unknown> }).instances.set('10001', instance);
+
+    await runWithRequestId(5101, () => manager.reloadConfig('10001', config('#reload')));
+    observeDeferred();
+
+    expect(observedRequestIds).toEqual([undefined, undefined]);
   });
 });

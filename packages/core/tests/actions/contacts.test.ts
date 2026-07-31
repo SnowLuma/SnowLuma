@@ -3,6 +3,7 @@ import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 import type {
   OidbBase,
+  OidbEmpty,
   OidbFriend,
   OidbFriendCategory,
   OidbRobotUinRangeResponse,
@@ -12,6 +13,7 @@ import type {
 import type {
   OidbFriendListRequest,
   OidbRobotUinRangeRequest,
+  OidbSetFriendCategoryRequest,
 } from '@snowluma/proto-defs/oidb-actions/base';
 
 import { ContactsApi } from '../../src/bridge/apis/contacts';
@@ -102,6 +104,33 @@ function apiForPages(pages: OidbSvcTrpcTcp0xFD4_1Response[]) {
   return { api, sendRawPacket, rememberFriends };
 }
 
+function apiForCategoryChange(roster: OidbSvcTrpcTcp0xFD4_1Response) {
+  const sendRawPacket = vi.fn(async (
+    command: string,
+    _body: Uint8Array,
+  ): Promise<SendPacketResult> => {
+    if (command === 'OidbSvcTrpcTcp.0xfd4_1') return packet(roster);
+    if (command === 'OidbSvcTrpcTcp.0x1255_0') {
+      return {
+        success: true,
+        gotResponse: true,
+        errorCode: 0,
+        errorMessage: '',
+        responseData: Buffer.from(protobuf_encode<OidbBase<OidbEmpty>>({
+          command: 0x1255,
+          subCommand: 0,
+        })),
+      };
+    }
+    throw new Error(`unexpected command: ${command}`);
+  });
+  const api = new ContactsApi({
+    sendRawPacket,
+    identity: { uin: '10001', rememberFriends: vi.fn() },
+  } as any);
+  return { api, sendRawPacket };
+}
+
 describe('apis/contacts / categorized friend roster', () => {
   it('keeps fetchFriendList flat while traversing cookie pages', async () => {
     const cookie = Uint8Array.from([0x01]);
@@ -187,6 +216,95 @@ describe('apis/contacts / categorized friend roster', () => {
 
     await expect(api.fetchFriendCategories())
       .rejects.toThrow('repeated friend-list cookie aa');
+  });
+
+  it('moves a live friend to a category selected by ID', async () => {
+    const { api, sendRawPacket } = apiForCategoryChange({
+      friends: [friend(10001, 0, 'u_friend', 'Alice')],
+      categories: [
+        category(0, '我的好友', 1, 0),
+        category(7, 'Work', 0, 1),
+      ],
+    });
+
+    await api.setFriendCategory({ uin: 10001, categoryId: 7 });
+
+    expect(sendRawPacket).toHaveBeenCalledTimes(2);
+    const [command, bytes] = sendRawPacket.mock.calls[1]!;
+    expect(command).toBe('OidbSvcTrpcTcp.0x1255_0');
+    const envelope = protobuf_decode<OidbBase<OidbSetFriendCategoryRequest>>(bytes);
+    expect(envelope.body).toEqual({ uid: 'u_friend', categoryId: 7 });
+  });
+
+  it('resolves an exact unique category name before moving the friend', async () => {
+    const { api, sendRawPacket } = apiForCategoryChange({
+      friends: [friend(10001, 0, 'u_friend', 'Alice')],
+      categories: [
+        category(0, '我的好友', 1, 0),
+        category(7, 'Work', 0, 1),
+      ],
+    });
+
+    await api.setFriendCategory({ uin: 10001, categoryName: 'Work' });
+
+    const envelope = protobuf_decode<OidbBase<OidbSetFriendCategoryRequest>>(
+      sendRawPacket.mock.calls[1]![1],
+    );
+    expect(envelope.body).toEqual({ uid: 'u_friend', categoryId: 7 });
+  });
+
+  it('rejects unknown friends and categories without sending a mutation', async () => {
+    const unknownFriend = apiForCategoryChange({
+      friends: [friend(10001, 0, 'u_friend', 'Alice')],
+      categories: [category(0, '我的好友', 1, 0)],
+    });
+    await expect(unknownFriend.api.setFriendCategory({
+      uin: 10002,
+      categoryId: 0,
+    })).rejects.toThrow('friend 10002 is not in the live roster');
+    expect(unknownFriend.sendRawPacket).toHaveBeenCalledTimes(1);
+
+    const unknownCategory = apiForCategoryChange({
+      friends: [friend(10001, 0, 'u_friend', 'Alice')],
+      categories: [category(0, '我的好友', 1, 0)],
+    });
+    await expect(unknownCategory.api.setFriendCategory({
+      uin: 10001,
+      categoryId: 7,
+    })).rejects.toThrow('friend category 7 does not exist');
+    expect(unknownCategory.sendRawPacket).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects duplicate category names instead of selecting one arbitrarily', async () => {
+    const { api, sendRawPacket } = apiForCategoryChange({
+      friends: [friend(10001, 0, 'u_friend', 'Alice')],
+      categories: [
+        category(0, 'Work', 1, 0),
+        category(7, 'Work', 0, 1),
+      ],
+    });
+
+    await expect(api.setFriendCategory({
+      uin: 10001,
+      categoryName: 'Work',
+    })).rejects.toThrow('friend category name "Work" is ambiguous');
+    expect(sendRawPacket).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects missing or conflicting selectors before reading the roster', async () => {
+    const { api, sendRawPacket } = apiForCategoryChange({
+      friends: [],
+      categories: [],
+    });
+
+    await expect(api.setFriendCategory({ uin: 10001 }))
+      .rejects.toThrow('exactly one of categoryId or categoryName is required');
+    await expect(api.setFriendCategory({
+      uin: 10001,
+      categoryId: 7,
+      categoryName: 'Work',
+    })).rejects.toThrow('exactly one of categoryId or categoryName is required');
+    expect(sendRawPacket).not.toHaveBeenCalled();
   });
 });
 

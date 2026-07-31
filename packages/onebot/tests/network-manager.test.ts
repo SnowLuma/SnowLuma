@@ -1,4 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import {
+  getLogLevel,
+  runWithRequestId,
+  setLogLevel,
+  subscribeLogs,
+  type LogEntry,
+} from '@snowluma/common/logger';
 import { IOneBotNetworkAdapter, NetworkReloadType, OneBotNetworkManager, type AdapterStatus } from '../src/network';
 import type { NetworkAdapterContext } from '../src/network';
 import type { JsonObject, NetworkBase } from '../src/types';
@@ -137,6 +144,46 @@ describe('OneBotNetworkManager', () => {
     expect(ok.events).toHaveLength(1);
     // The bad adapter logged the throw but didn't crash the manager.
     expect(bad.events).toHaveLength(1);
+  });
+
+  it('traces active targets, isolated failures, settlement, and no-target conclusion', async () => {
+    const previousLevel = getLogLevel();
+    const entries: LogEntry[] = [];
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    setLogLevel('trace');
+    try {
+      const mgr = new OneBotNetworkManager();
+      const ok = makeAdapter('ok-target');
+      const bad = makeAdapter('bad-target', { failOnEvent: true });
+      mgr.register(ok);
+      mgr.register(bad);
+      await mgr.openAll();
+
+      await runWithRequestId(7001, () => mgr.emitEvent(SAMPLE_EVENT));
+      const report = entries.filter((entry) => (
+        entry.scope === 'OneBot.Network'
+        && entry.level === 'trace'
+        && entry.req === 7001
+      ));
+      expect(report.find((entry) => entry.message.startsWith('report_targets'))?.message)
+        .toContain('["ok-target","bad-target"]');
+      expect(report.find((entry) => entry.message.startsWith('report_target_failed'))?.message)
+        .toContain('target=bad-target');
+      expect(report.filter((entry) => entry.message === 'report_terminal outcome=settled'))
+        .toHaveLength(1);
+
+      entries.length = 0;
+      const empty = new OneBotNetworkManager();
+      await runWithRequestId(7002, () => empty.emitEvent(SAMPLE_EVENT));
+      expect(entries.filter((entry) => (
+        entry.scope === 'OneBot.Network'
+        && entry.req === 7002
+        && entry.message === 'report_terminal outcome=no_active_targets'
+      ))).toHaveLength(1);
+    } finally {
+      unsubscribe();
+      setLogLevel(previousLevel);
+    }
   });
 
   it('rejects duplicate registration instead of detaching the old close', async () => {

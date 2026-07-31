@@ -6,8 +6,9 @@
 // can still commit it as a raw value. Loading / error / empty states degrade to
 // the raw-value input so the picker never traps you.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
-import { ChevronDown, Loader2, RefreshCw, Search } from 'lucide-react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { RefreshCw, Search } from 'lucide-react';
+import { SkeletonSwap } from '@/components/interior/skeleton-swap';
 import { cn } from '@/lib/utils';
 
 export interface PickerOption {
@@ -38,11 +39,18 @@ interface PickerProps {
 const ROW_H = 44; // px — fixed row height drives the windowing math
 const OVERSCAN = 6;
 const PANEL_MAX = 264; // px of scroll viewport
+const EASE = [0.23, 1, 0.32, 1] as const;
+const EXIT = [0.4, 0, 1, 1] as const;
+const NUDGE = { type: 'spring', stiffness: 700, damping: 46, mass: 0.5 } as const;
+const SLIDE = { type: 'spring', stiffness: 700, damping: 46, mass: 0.5 } as const;
+const OPEN = { type: 'spring', stiffness: 620, damping: 38, mass: 0.6 } as const;
+const NONE = { duration: 0 } as const;
 
 export function Picker({
   value, onChange, options, loading, error, onRefresh,
   placeholder = '选择…', validateRaw, ariaLabel, className, disabled,
 }: PickerProps) {
+  const reduced = useReducedMotion();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [scrollTop, setScrollTop] = useState(0);
@@ -51,6 +59,7 @@ export function Picker({
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const suppressTriggerClick = useRef(false);
+  const waitingForOptions = Boolean(loading && options.length === 0);
 
   const selected = options.find((o) => o.value === value);
 
@@ -143,17 +152,39 @@ export function Picker({
           {selected ? selected.label : value || placeholder}
           {selected?.sub && <span className="ml-1.5 text-xs text-muted-foreground tabular-nums">{selected.sub}</span>}
         </span>
-        <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
+        <motion.svg
+          aria-hidden
+          viewBox="0 0 12 12"
+          className="size-3 shrink-0 text-muted-foreground"
+          initial={false}
+          animate={{ rotate: open ? 180 : 0 }}
+          transition={reduced ? NONE : NUDGE}
+        >
+          <path
+            d="M3 4.75 6 7.75 9 4.75"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </motion.svg>
       </button>
 
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: -4, scale: 0.98 }}
+            initial={reduced ? { opacity: 0 } : { opacity: 0, scale: 0.94, y: -8 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -4, scale: 0.98 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 38 }}
-            className="absolute z-50 mt-1.5 w-full overflow-hidden rounded-xl border border-border/60 bg-popover shadow-lg ring-1 ring-black/5"
+            exit={{
+              opacity: 0,
+              scale: 0.97,
+              y: -6,
+              transition: reduced ? NONE : { duration: 0.12, ease: EXIT },
+            }}
+            transition={reduced ? NONE : { ...OPEN, opacity: { duration: 0.12, ease: EASE } }}
+            style={{ transformOrigin: 'top left' }}
+            className="absolute z-50 mt-1.5 w-full overflow-hidden rounded-[11px] border border-border bg-popover shadow-[0_1px_2px_rgb(0_0_0/0.06),0_16px_36px_-18px_rgb(0_0_0/0.5)]"
           >
             <div className="flex items-center gap-2 border-b border-border/60 px-2.5 py-2">
               <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -177,59 +208,77 @@ export function Picker({
               )}
             </div>
 
-            {loading && options.length === 0 ? (
-              <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> 加载中…
-              </div>
-            ) : error ? (
-              <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-                <p className="text-destructive">{error}</p>
-                <p className="mt-1">可直接在上方输入号码后回车使用</p>
-              </div>
-            ) : totalRows === 0 ? (
-              <div className="px-3 py-6 text-center text-xs text-muted-foreground">无匹配项{query && '；输入完整号码可直接使用'}</div>
-            ) : (
-              <div
-                ref={listRef}
-                role="listbox"
-                onScroll={(e) => setScrollTop((e.target as HTMLDivElement).scrollTop)}
-                className="overflow-auto"
-                style={{ height: viewH }}
-              >
-                <div style={{ height: totalRows * ROW_H, position: 'relative' }}>
-                  {rows.map(({ idx, opt }) => (
-                    <div
-                      key={opt ? opt.value : `__raw-${idx}`}
-                      role="option"
-                      aria-selected={idx === active}
-                      onMouseEnter={() => setActive(idx)}
-                      onPointerDown={(e) => {
-                        e.preventDefault();
-                        suppressTriggerClick.current = true;
-                        choose(idx);
-                      }}
-                      className={cn(
-                        'absolute left-0 right-0 flex cursor-pointer items-center gap-2.5 px-3',
-                        idx === active ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50',
-                      )}
-                      style={{ top: idx * ROW_H, height: ROW_H }}
-                    >
-                      {opt ? (
-                        <>
-                          {opt.avatar
-                            ? <img src={opt.avatar} alt="" className="media-outline h-7 w-7 shrink-0 rounded-full" />
-                            : <span className="media-outline h-7 w-7 shrink-0 rounded-full bg-muted" />}
-                          <span className="min-w-0 flex-1 truncate text-sm">{opt.label}</span>
-                          {opt.sub && <span className="shrink-0 font-mono text-meta text-muted-foreground tabular-nums">{opt.sub}</span>}
-                        </>
-                      ) : (
-                        <span className="text-sm">使用 <span className="font-mono text-primary">{rawRow}</span></span>
-                      )}
+            <SkeletonSwap
+              ready={!waitingForOptions}
+              lines={4}
+              lineHeight={28}
+              reserve={112}
+              label={ariaLabel}
+              className={waitingForOptions ? 'mx-3 my-2' : 'skeleton-swap-fluid'}
+            >
+              {!waitingForOptions ? (
+                error ? (
+                  <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                    <p className="text-destructive">{error}</p>
+                    <p className="mt-1">可直接在上方输入号码后回车使用</p>
+                  </div>
+                ) : totalRows === 0 ? (
+                  <div className="px-3 py-6 text-center text-xs text-muted-foreground">无匹配项{query && '；输入完整号码可直接使用'}</div>
+                ) : (
+                  <div
+                    ref={listRef}
+                    role="listbox"
+                    onScroll={(e) => setScrollTop((e.target as HTMLDivElement).scrollTop)}
+                    className="overflow-auto"
+                    style={{ height: viewH }}
+                  >
+                    <div style={{ height: totalRows * ROW_H, position: 'relative' }}>
+                      <motion.span
+                        aria-hidden
+                        className="pointer-events-none absolute inset-x-0 top-0 rounded-[7px] bg-accent"
+                        style={{ height: ROW_H }}
+                        initial={false}
+                        animate={{
+                          y: active * ROW_H,
+                          opacity: totalRows > 0 ? 1 : 0,
+                        }}
+                        transition={reduced ? NONE : { ...SLIDE, opacity: { duration: 0.1, ease: EASE } }}
+                      />
+                      {rows.map(({ idx, opt }) => (
+                        <div
+                          key={opt ? opt.value : `__raw-${idx}`}
+                          role="option"
+                          aria-selected={idx === active}
+                          onMouseEnter={() => setActive(idx)}
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            suppressTriggerClick.current = true;
+                            choose(idx);
+                          }}
+                          className={cn(
+                            'absolute left-0 right-0 z-[1] flex cursor-pointer items-center gap-2.5 px-3',
+                            idx === active ? 'text-accent-foreground' : 'hover:bg-accent/50',
+                          )}
+                          style={{ top: idx * ROW_H, height: ROW_H }}
+                        >
+                          {opt ? (
+                            <>
+                              {opt.avatar
+                                ? <img src={opt.avatar} alt="" className="media-outline h-7 w-7 shrink-0 rounded-full" />
+                                : <span className="media-outline h-7 w-7 shrink-0 rounded-full bg-muted" />}
+                              <span className="min-w-0 flex-1 truncate text-sm">{opt.label}</span>
+                              {opt.sub && <span className="shrink-0 font-mono text-meta text-muted-foreground tabular-nums">{opt.sub}</span>}
+                            </>
+                          ) : (
+                            <span className="text-sm">使用 <span className="font-mono text-primary">{rawRow}</span></span>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
+                  </div>
+                )
+              ) : null}
+            </SkeletonSwap>
           </motion.div>
         )}
       </AnimatePresence>

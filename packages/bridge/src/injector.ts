@@ -15,7 +15,7 @@ export interface ManualMapHandle {
 
 interface NativeHookAddon {
   getAllMainProcess(): number[];
-  loadModuleManual(pid: number, dylibPath: string): ManualMapHandle;
+  loadModuleManual(pid: number, dylibPath: string): ManualMapHandle | Promise<ManualMapHandle>;
   unloadModuleManual(pid: number, handle: ManualMapHandle): void;
 }
 
@@ -119,7 +119,7 @@ export function listHookProcesses(): HookProcessBaseInfo[] {
     .map(pid => ({ pid, name: defaultProcessName(), path: '' }));
 }
 
-export function injectHookProcess(pid: number): HookInjectResult {
+export async function injectHookProcess(pid: number): Promise<HookInjectResult> {
   const addon = getNativeHookAddon();
   if (!addon) {
     throw new Error(getNativeHookLoadError() ?? 'hook native addon is not available');
@@ -129,7 +129,7 @@ export function injectHookProcess(pid: number): HookInjectResult {
   if (!dllPath) {
     throw new Error(`No hook ${injectableExt} found for ${process.platform}-${process.arch}`);
   }
-  return { method: 'loadModuleManual', handle: addon.loadModuleManual(pid, dllPath) };
+  return { method: 'loadModuleManual', handle: await addon.loadModuleManual(pid, dllPath) };
 }
 
 export function unloadHookProcess(pid: number, handle: ManualMapHandle): void {

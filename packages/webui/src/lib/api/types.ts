@@ -28,7 +28,7 @@ import type {
   UiConfig,
   UpdateInfo,
 } from '@/types';
-import type { PasswordRule } from '@/components/pages/change-password-page';
+import type { PasswordRule } from '@/components/pages/change-password-form';
 
 export class ApiError extends Error {
   status: number;
@@ -151,7 +151,7 @@ export interface ApiClient {
     load(pid: number): Promise<ProcessActionResult>;
     unload(pid: number): Promise<ProcessActionResult>;
     refresh(pid: number): Promise<ProcessActionResult>;
-    probeLoginInfo(pid: number): Promise<unknown>;
+    probeLoginInfo(pid: number, signal?: AbortSignal): Promise<unknown>;
   };
 
   // ---- OneBotInstance per-UIN config ----
@@ -249,7 +249,10 @@ export interface ApiClient {
     list(limit?: number): Promise<LogEntry[]>;
     /** Subscribe to the SSE log stream. Returns a disposer. */
     stream(options: LogsStreamOptions): () => void;
-    /** Current console / subscriber level. File output is always debug. */
+    /** Download the complete server-side snapshot of retained normal and TRACE records. */
+    exportTrace(): Promise<{ text: string; filename: string }>;
+    /** Current console / subscriber level. File logging level is set via
+     *  SNOWLUMA_LOG_FILE_LEVEL (default: debug), independent of this method. */
     getLevel(): Promise<{ level: LogLevel; levels: LogLevel[] }>;
     /** Change the console / subscriber level at runtime. No restart needed. */
     setLevel(level: LogLevel): Promise<{ level: LogLevel; levels: LogLevel[] }>;

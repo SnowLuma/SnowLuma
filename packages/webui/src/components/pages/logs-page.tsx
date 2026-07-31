@@ -2,18 +2,24 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { sanitizeLogLine } from '@snowluma/common/log-sanitize';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowDownToLine, Download, Filter, Highlighter, Inbox, Pause, Plus, RefreshCw, Search, SearchX, SlidersHorizontal, Trash2, WrapText, X } from 'lucide-react';
+import { ArrowDownToLine, Download, Filter, Highlighter, Inbox, Pause, Plus, RefreshCw, Search, SearchX, SlidersHorizontal, Trash2, TriangleAlert, WrapText, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { SkeletonSwap } from '@/components/interior/skeleton-swap';
 import { cn } from '@/lib/utils';
 import type { LogEntry, LogLevel, LogsPreset, UiHighlightRule } from '@/types';
 import { useApi } from '@/lib/api';
+import {
+  selectServerLogLevel,
+  TRACE_CONFIRMATION_WARNINGS,
+} from '@/lib/server-log-level';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLayout } from '@/contexts/LayoutContext';
+import { useActionFeedback } from '@/contexts/ActionFeedbackContext';
 
 // Dedicated log-level text tokens (see index.css): the app accent colors are
 // too light as small text on the light canvas (WCAG AA fails), so these hit
@@ -96,16 +102,23 @@ function ToolButton({ label, onClick, children, active, danger, disabled }: Tool
 
 export function LogsPage() {
   const api = useApi();
+  const { runAction } = useActionFeedback();
   const { formatClock, appearance } = useTheme();
   const { pages, setPages } = useLayout();
   const prefs = pages.logs;
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [logsReady, setLogsReady] = useState(false);
+  const [logsError, setLogsError] = useState<string | null>(null);
   const [streamStatus, setStreamStatus] = useState('连接中');
   const [filter, setFilter] = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
   const [serverLevel, setServerLevel] = useState<LogLevel | null>(null);
+  const [serverLevelReady, setServerLevelReady] = useState(false);
+  const [serverLevelError, setServerLevelError] = useState<string | null>(null);
   const [levelBusy, setLevelBusy] = useState(false);
+  const [confirmTrace, setConfirmTrace] = useState(false);
+  const [traceExportBusy, setTraceExportBusy] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const [newKeyword, setNewKeyword] = useState('');
   const [newColor, setNewColor] = useState(HIGHLIGHT_COLORS[0].id);
@@ -125,35 +138,70 @@ export function LogsPage() {
   const enabled = useMemo(() => new Set(prefs.visibleLevels as LogLevel[]), [prefs.visibleLevels]);
 
   const loadLogs = useCallback(async () => {
+    setLogsError(null);
     try {
       // Backfill is capped at the server's ring-buffer size (1000); `maxLines`
       // can exceed that, but only the live SSE stream grows the view past 1000.
       setLogs(await api.logs.list(Math.min(1000, maxLinesRef.current)));
     } catch (e) {
       console.error('logs', e);
+      setLogsError(e instanceof Error ? e.message : '加载日志失败');
+    } finally {
+      setLogsReady(true);
     }
   }, [api]);
 
   useEffect(() => { void loadLogs(); }, [loadLogs]);
 
-  useEffect(() => {
-    api.logs.getLevel().then(({ level }) => setServerLevel(level)).catch((err) => {
-      console.error('getLevel', err);
-    });
+  const loadServerLevel = useCallback(async () => {
+    setServerLevelReady(false);
+    setServerLevelError(null);
+    try {
+      const { level } = await api.logs.getLevel();
+      setServerLevel(level);
+    } catch (error) {
+      console.error('get server log level failed', error);
+      setServerLevelError(error instanceof Error ? error.message : '加载服务端日志级别失败');
+    } finally {
+      setServerLevelReady(true);
+    }
   }, [api]);
 
-  const changeServerLevel = useCallback(async (lv: LogLevel) => {
+  useEffect(() => {
+    void loadServerLevel();
+  }, [loadServerLevel]);
+
+  const applyServerLevel = useCallback(async (lv: LogLevel) => {
     if (lv === serverLevel || levelBusy) return;
     setLevelBusy(true);
     try {
-      const { level } = await api.logs.setLevel(lv);
+      const { level } = await runAction(
+        {
+          title: '正在更新服务端日志级别',
+          detail: `切换为 ${lv.toUpperCase()}`,
+          successTitle: '日志级别已更新',
+          successDetail: `${lv.toUpperCase()} 已生效`,
+          errorTitle: '日志级别更新失败',
+        },
+        () => api.logs.setLevel(lv),
+      );
       setServerLevel(level);
     } catch (err) {
       console.error('setLevel', err);
     } finally {
       setLevelBusy(false);
     }
-  }, [api, serverLevel, levelBusy]);
+  }, [api, serverLevel, levelBusy, runAction]);
+
+  const changeServerLevel = useCallback((lv: LogLevel) => {
+    if (levelBusy) return;
+    selectServerLogLevel({
+      currentLevel: serverLevel,
+      nextLevel: lv,
+      applyLevel: (level) => void applyServerLevel(level),
+      requestTraceConfirmation: () => setConfirmTrace(true),
+    });
+  }, [applyServerLevel, levelBusy, serverLevel]);
 
   useEffect(() => {
     // Batch incoming lines: buffer in a ref and flush on a ~80ms timer instead
@@ -331,6 +379,33 @@ export function LogsPage() {
     URL.revokeObjectURL(url);
   }, [filtered]);
 
+  const exportFullTrace = useCallback(async () => {
+    if (traceExportBusy) return;
+    setTraceExportBusy(true);
+    try {
+      const { text, filename } = await runAction(
+        {
+          title: '正在导出完整 TRACE',
+          detail: '正在读取服务端 TRACE 文件',
+          successTitle: '完整 TRACE 已导出',
+          errorTitle: 'TRACE 导出失败',
+        },
+        () => api.logs.exportTrace(),
+      );
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('exportTrace', err);
+    } finally {
+      setTraceExportBusy(false);
+    }
+  }, [api, traceExportBusy, runAction]);
+
   const addHighlight = () => {
     const kw = newKeyword.trim();
     if (!kw) return;
@@ -424,11 +499,32 @@ export function LogsPage() {
           <ToolButton label="导出当前视图" onClick={exportLogs} disabled={filtered.length === 0}>
             <Download />
           </ToolButton>
+          <ToolButton label="导出完整 TRACE" onClick={() => void exportFullTrace()} disabled={traceExportBusy}>
+            <ArrowDownToLine />
+          </ToolButton>
           <ToolButton label="清空视图" danger onClick={() => setConfirmClear(true)}>
             <Trash2 />
           </ToolButton>
         </div>
       </CardHeader>
+
+      {serverLevel === 'trace' && (
+        <div className="mx-5 mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2.5 text-destructive">
+          <div className="flex min-w-0 items-center gap-2">
+            <TriangleAlert className="size-4 shrink-0" />
+            <span className="text-xs font-semibold">TRACE 已开启：正在记录大量、可能未经脱敏的数据</span>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={levelBusy}
+            onClick={() => void applyServerLevel('info')}
+            className="h-7 rounded-lg border-destructive/40 bg-card text-destructive hover:bg-destructive/10 hover:text-destructive"
+          >
+            恢复 INFO
+          </Button>
+        </div>
+      )}
 
       {/* ── Level filter (segmented, always visible) ────────────── */}
       <div className="flex items-center gap-2 px-5 pb-3">
@@ -510,31 +606,52 @@ export function LogsPage() {
               <div>
                 <div className="mb-2 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                   <span className="text-xs font-medium text-foreground">服务端日志级别</span>
-                  <span className="text-xs text-muted-foreground">· 仅影响控制台 / 实时流，文件始终落盘 debug</span>
+                  <span className="text-xs text-muted-foreground">· 普通日志仅影响控制台 / 实时流；首次登录凭据始终可见；文件等级由环境变量决定，默认为 debug</span>
                 </div>
-                <div className="inline-flex flex-wrap gap-1 rounded-lg bg-muted/60 p-1">
-                  {LEVELS.map((lv) => {
-                    const active = serverLevel === lv;
-                    return (
-                      <button
-                        key={lv}
-                        type="button"
-                        onClick={() => void changeServerLevel(lv)}
-                        disabled={levelBusy || serverLevel === null}
-                        aria-pressed={active}
-                        className={cn(
-                          'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-[background-color,color,box-shadow,opacity] duration-150 ease-out cursor-pointer disabled:cursor-not-allowed disabled:opacity-50',
-                          active
-                            ? cn('bg-card shadow-sm ring-1 ring-border/60', levelClass[lv])
-                            : 'text-muted-foreground/70 hover:text-foreground',
-                        )}
-                      >
-                        <span className={cn('size-1.5 rounded-full', active ? 'bg-current' : 'bg-muted-foreground/30')} />
-                        {lv.toUpperCase()}
-                      </button>
-                    );
-                  })}
-                </div>
+                <SkeletonSwap
+                  ready={serverLevelReady}
+                  reserve={34}
+                  lines={1}
+                  lineHeight={34}
+                  barHeight={8}
+                  label="服务端日志级别"
+                  className={serverLevelReady ? 'skeleton-swap-fluid min-h-[34px]' : 'w-72 max-w-full'}
+                >
+                  {serverLevelReady ? (
+                    serverLevelError ? (
+                      <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-destructive">
+                        <span>{serverLevelError}</span>
+                        <Button variant="outline" size="sm" onClick={() => void loadServerLevel()}>
+                          重试
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="inline-flex flex-wrap gap-1 rounded-lg bg-muted/60 p-1">
+                        {LEVELS.map((lv) => {
+                          const active = serverLevel === lv;
+                          return (
+                            <button
+                              key={lv}
+                              type="button"
+                              onClick={() => void changeServerLevel(lv)}
+                              disabled={levelBusy || serverLevel === null}
+                              aria-pressed={active}
+                              className={cn(
+                                'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-[background-color,color,box-shadow,opacity] duration-150 ease-out cursor-pointer disabled:cursor-not-allowed disabled:opacity-50',
+                                active
+                                  ? cn('bg-card shadow-sm ring-1 ring-border/60', levelClass[lv])
+                                  : 'text-muted-foreground/70 hover:text-foreground',
+                              )}
+                            >
+                              <span className={cn('size-1.5 rounded-full', active ? 'bg-current' : 'bg-muted-foreground/30')} />
+                              {lv.toUpperCase()}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )
+                  ) : null}
+                </SkeletonSwap>
               </div>
 
               {/* Highlight rules */}
@@ -599,7 +716,7 @@ export function LogsPage() {
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-muted/20">
           {/* Column header lives OUTSIDE the scroll viewport so the virtualizer's
               scroll element contains only the rows (no sticky-offset math). */}
-          {filtered.length > 0 && (
+          {logsReady && filtered.length > 0 && (
             <div className="hidden items-center gap-3 border-b border-border/60 bg-card/60 px-3 py-2 font-mono text-micro font-medium uppercase tracking-wider text-muted-foreground/70 sm:flex">
               <span className="w-[104px] shrink-0">时间</span>
               <span className="w-[76px] shrink-0">级别</span>
@@ -607,78 +724,122 @@ export function LogsPage() {
               <span className="flex-1">消息</span>
             </div>
           )}
+          {logsReady && logsError && logs.length > 0 && (
+            <div role="alert" className="border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {logsError}；当前显示已读取和实时接收的日志。
+            </div>
+          )}
           <ScrollArea viewportRef={scrollRef} className="min-h-0 flex-1" viewportClassName={cn('[&>div]:!block', maskCls)}>
-            <div className="font-mono text-xs">
-              {filtered.length === 0 ? (
-                <div className="flex min-h-60 flex-col items-center justify-center gap-3 px-4 py-10 text-center font-sans text-muted-foreground">
-                  {logs.length === 0 ? (
-                    <>
-                      <Inbox className="size-9 opacity-30" />
-                      <span className="text-sm">暂无日志</span>
-                    </>
+            <SkeletonSwap
+              ready={logsReady}
+              reserve={240}
+              lines={8}
+              lineHeight={30}
+              barHeight={10}
+              label="运行日志"
+              className={logsReady ? 'skeleton-swap-fluid min-h-60' : ''}
+            >
+              {logsReady ? (
+                <div className="font-mono text-xs">
+                  {logsError && logs.length === 0 ? (
+                    <div role="alert" className="flex min-h-60 flex-col items-center justify-center gap-3 px-4 py-10 text-center font-sans text-destructive">
+                      <TriangleAlert className="size-9 opacity-70" />
+                      <span className="text-sm">{logsError}</span>
+                      <Button variant="outline" size="sm" onClick={() => void loadLogs()} className="rounded-lg">
+                        <RefreshCw className="size-3.5" /> 重试
+                      </Button>
+                    </div>
+                  ) : filtered.length === 0 ? (
+                    <div className="flex min-h-60 flex-col items-center justify-center gap-3 px-4 py-10 text-center font-sans text-muted-foreground">
+                      {logs.length === 0 ? (
+                        <>
+                          <Inbox className="size-9 opacity-30" />
+                          <span className="text-sm">暂无日志</span>
+                        </>
+                      ) : (
+                        <>
+                          <SearchX className="size-9 opacity-30" />
+                          <span className="text-sm">没有符合筛选条件的日志</span>
+                          <Button variant="outline" size="sm" onClick={clearFilters} className="rounded-lg">清除筛选</Button>
+                        </>
+                      )}
+                    </div>
                   ) : (
-                    <>
-                      <SearchX className="size-9 opacity-30" />
-                      <span className="text-sm">没有符合筛选条件的日志</span>
-                      <Button variant="outline" size="sm" onClick={clearFilters} className="rounded-lg">清除筛选</Button>
-                    </>
+                    <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
+                      {rowVirtualizer.getVirtualItems().map((vRow) => {
+                        const log = filtered[vRow.index];
+                        if (!log) return null; // guard a transient count/measurement skew
+                        const hl = matchHighlight(log.message, prefs.highlightRules);
+                        // Entrance is decided entirely by animatingRef (populated in
+                        // the flush from real arrivals, pruned at 260ms), so it fires
+                        // on the first paint, never replays on scroll-into-view, and
+                        // is immune to filter/idle churn. Outer = positioning +
+                        // measurement (its translateY); inner = visual row + the
+                        // transform-based entrance, kept separate so they never collide.
+                        const entering = animatingRef.current.has(log.id);
+                        return (
+                          <div
+                            key={log.id}
+                            data-index={vRow.index}
+                            ref={rowVirtualizer.measureElement}
+                            className="absolute left-0 top-0 w-full"
+                            style={{ transform: `translateY(${vRow.start}px)` }}
+                          >
+                            <div
+                              className={cn(
+                                'flex flex-col gap-0.5 border-b border-border/30 px-3 py-1.5 transition-colors hover:bg-accent/40 sm:flex-row sm:items-start sm:gap-3 sm:py-1',
+                                entering && 'log-row-in',
+                              )}
+                              style={hl ? { boxShadow: `inset 3px 0 0 ${hl}`, backgroundColor: `color-mix(in oklab, ${hl} 8%, transparent)` } : undefined}
+                            >
+                              <div className="flex items-center gap-3 sm:contents">
+                                <span className="w-[104px] shrink-0 tabular-nums text-muted-foreground">{formatClock(log.time)}</span>
+                                <span className={cn('flex w-[76px] shrink-0 items-center gap-1.5 font-semibold', levelClass[log.level])}>
+                                  <span className="size-1.5 shrink-0 rounded-full bg-current" />
+                                  {log.level.toUpperCase()}
+                                </span>
+                                <span className="min-w-0 flex-1 truncate text-muted-foreground sm:w-28 sm:flex-none sm:shrink-0">[{log.scope}]</span>
+                              </div>
+                              <span
+                                className={cn('min-w-0 flex-1 leading-5', prefs.wrap ? 'whitespace-pre-wrap break-all' : 'truncate')}
+                                title={prefs.wrap ? undefined : log.message}
+                              >
+                                {log.req !== undefined && (
+                                  <span className="mr-1.5 rounded bg-primary/10 px-1 text-micro text-primary tabular-nums" title="请求关联号">#{log.req}</span>
+                                )}
+                                {log.message}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
-              ) : (
-                <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
-                  {rowVirtualizer.getVirtualItems().map((vRow) => {
-                    const log = filtered[vRow.index];
-                    if (!log) return null; // guard a transient count/measurement skew
-                    const hl = matchHighlight(log.message, prefs.highlightRules);
-                    // Entrance is decided entirely by animatingRef (populated in
-                    // the flush from real arrivals, pruned at 260ms), so it fires
-                    // on the first paint, never replays on scroll-into-view, and
-                    // is immune to filter/idle churn. Outer = positioning +
-                    // measurement (its translateY); inner = visual row + the
-                    // transform-based entrance, kept separate so they never collide.
-                    const entering = animatingRef.current.has(log.id);
-                    return (
-                      <div
-                        key={log.id}
-                        data-index={vRow.index}
-                        ref={rowVirtualizer.measureElement}
-                        className="absolute left-0 top-0 w-full"
-                        style={{ transform: `translateY(${vRow.start}px)` }}
-                      >
-                        <div
-                          className={cn(
-                            'flex flex-col gap-0.5 border-b border-border/30 px-3 py-1.5 transition-colors hover:bg-accent/40 sm:flex-row sm:items-start sm:gap-3 sm:py-1',
-                            entering && 'log-row-in',
-                          )}
-                          style={hl ? { boxShadow: `inset 3px 0 0 ${hl}`, backgroundColor: `color-mix(in oklab, ${hl} 8%, transparent)` } : undefined}
-                        >
-                          <div className="flex items-center gap-3 sm:contents">
-                            <span className="w-[104px] shrink-0 tabular-nums text-muted-foreground">{formatClock(log.time)}</span>
-                            <span className={cn('flex w-[76px] shrink-0 items-center gap-1.5 font-semibold', levelClass[log.level])}>
-                              <span className="size-1.5 shrink-0 rounded-full bg-current" />
-                              {log.level.toUpperCase()}
-                            </span>
-                            <span className="min-w-0 flex-1 truncate text-muted-foreground sm:w-28 sm:flex-none sm:shrink-0">[{log.scope}]</span>
-                          </div>
-                          <span
-                            className={cn('min-w-0 flex-1 leading-5', prefs.wrap ? 'whitespace-pre-wrap break-all' : 'truncate')}
-                            title={prefs.wrap ? undefined : log.message}
-                          >
-                            {log.req !== undefined && (
-                              <span className="mr-1.5 rounded bg-primary/10 px-1 text-micro text-primary tabular-nums" title="请求关联号">#{log.req}</span>
-                            )}
-                            {log.message}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+              ) : null}
+            </SkeletonSwap>
           </ScrollArea>
         </div>
       </CardContent>
+
+      <ConfirmDialog
+        open={confirmTrace}
+        onOpenChange={setConfirmTrace}
+        title="开启 TRACE 日志？"
+        description={(
+          <div className="space-y-2">
+            <p>开启前请确认：</p>
+            <ul className="list-disc space-y-1 pl-5">
+              {TRACE_CONFIRMATION_WARNINGS.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        confirmText="开启 TRACE"
+        destructive
+        onConfirm={() => applyServerLevel('trace')}
+      />
 
       <ConfirmDialog
         open={confirmClear}
@@ -687,6 +848,11 @@ export function LogsPage() {
         description="此操作仅清空浏览器视图中的日志，不会影响服务端的日志缓冲区。"
         confirmText="清空"
         destructive
+        activity={{
+          title: '正在清空日志视图',
+          successTitle: '日志视图已清空',
+          errorTitle: '日志视图清空失败',
+        }}
         onConfirm={() => setLogs([])}
       />
     </Card>

@@ -55,15 +55,18 @@ export namespace RequestDbKey {
         success: true,
         dbKey: key,
       };
-    } catch (error: any) {
-      const code = error?.code ?? -1;
+    } catch (error: unknown) {
+      const failure = typeof error === 'object' && error !== null
+        ? error as { code?: number; serverMsg?: string; message?: string }
+        : {};
+      const code = failure.code ?? -1;
 
       return {
         success: false,
         errorCode: code,
         errorMsg: code === 1006
-          ? "数据库不匹配！检查数据库是否属于当前帐号"
-          : (error?.serverMsg || error?.message || "网络或包结构解析失败"),
+          ? '数据库不匹配！检查数据库是否属于当前帐号'
+          : (failure.serverMsg || failure.message || '网络或包结构解析失败'),
       };
     }
   };

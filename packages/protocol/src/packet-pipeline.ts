@@ -8,6 +8,7 @@ import { formatGroupRequestFlag, type GroupRequestInfo } from './qq-info';
 
 const moduleLog = createLogger('Bridge');
 const moduleEventLog = createLogger('Event');
+const modulePacketLog = createLogger('Protocol.Packet');
 
 // Notice kinds that get logged as a warning (operationally important
 // state changes that an operator probably wants to see at default
@@ -24,6 +25,17 @@ const WARN_EVENT_KINDS = new Set([
 type GroupMemberIdentityEvent = Extract<QQEventVariant, { kind: 'group_member_join' | 'group_member_leave' }>;
 
 export type CmdParser = (pkt: PacketInfo, identity: IdentityService) => QQEventVariant[];
+
+class EnrichedDispatchError extends Error {
+  constructor(readonly originalError: unknown) {
+    super(
+      originalError instanceof Error
+        ? originalError.message
+        : String(originalError),
+    );
+    this.name = 'EnrichedDispatchError';
+  }
+}
 
 export interface PacketPipelineDeps {
   identity: IdentityService;
@@ -68,6 +80,7 @@ export class IncomingPacketPipeline {
   private memberRefreshTasks_ = new Map<number, Promise<void>>();
   private readonly log: Logger;
   private readonly eventLog: Logger;
+  private readonly packetLog: Logger;
 
   constructor(private readonly deps: PacketPipelineDeps) {
     // Tag every line we emit with this Bridge's UIN so per-account file
@@ -77,6 +90,7 @@ export class IncomingPacketPipeline {
     const bind = Number.isFinite(uinNum) && uinNum > 0 ? { uin: uinNum } : null;
     this.log = bind ? moduleLog.child(bind) : moduleLog;
     this.eventLog = bind ? moduleEventLog.child(bind) : moduleEventLog;
+    this.packetLog = bind ? modulePacketLog.child(bind) : modulePacketLog;
   }
 
   registerCmd(cmd: string, parser: CmdParser): void {
@@ -89,37 +103,254 @@ export class IncomingPacketPipeline {
     return this.cmdHandlers_.has(cmd);
   }
 
-  process(pkt: PacketInfo): void {
+  process(pkt: PacketInfo): Promise<void> {
+    const startedAt = Date.now();
     const handlers = this.cmdHandlers_.get(pkt.serviceCmd);
-    if (!handlers) return;
+    if (!handlers) {
+      this.packetLog.trace(() => [
+        'packet_branch serviceCmd=%j seqId=%d branch=parser_unregistered',
+        pkt.serviceCmd,
+        pkt.seqId,
+      ]);
+      this.packetLog.trace(() => [
+        'packet_terminal serviceCmd=%j seqId=%d outcome=dropped reason=parser_unregistered events=0 dispatched=0 elapsedMs=%d',
+        pkt.serviceCmd,
+        pkt.seqId,
+        Date.now() - startedAt,
+      ]);
+      return Promise.resolve();
+    }
 
-    for (const handler of handlers) {
+    let eventCount = 0;
+    let dispatched = 0;
+    let parserErrors = 0;
+    let dispatchErrors = 0;
+    let enrichmentFailures = 0;
+    const enrichmentTasks: Promise<void>[] = [];
+
+    handlers.forEach((handler, index) => {
+      const parser = index + 1;
       try {
         const events = handler(pkt, this.deps.identity);
+        if (events.length === 0) {
+          this.packetLog.trace(() => [
+            'packet_branch serviceCmd=%j seqId=%d parser=%d branch=parser_zero_events',
+            pkt.serviceCmd,
+            pkt.seqId,
+            parser,
+          ]);
+          return;
+        }
+        eventCount += events.length;
+        this.packetLog.trace(() => [
+          'packet_branch serviceCmd=%j seqId=%d parser=%d branch=parser_events events=%d',
+          pkt.serviceCmd,
+          pkt.seqId,
+          parser,
+          events.length,
+        ]);
         for (const event of events) {
           if (this.needsPreDispatchIdentityRefresh(event)) {
-            void this.dispatchAfterIdentityRefresh(event).catch((err) => {
-              this.log.warn('dispatchAfterIdentityRefresh failed: %s',
-                err instanceof Error ? (err.stack ?? err.message) : String(err));
-            });
+            this.traceEnrichmentStarted(pkt, event, 'identity_refresh');
+            const task = this.dispatchAfterIdentityRefresh(pkt, event)
+              .then((count) => { dispatched += count; })
+              .catch((error) => {
+                if (error instanceof EnrichedDispatchError) {
+                  dispatchErrors += 1;
+                  this.traceDispatchFailure(
+                    pkt,
+                    event,
+                    error.originalError,
+                  );
+                } else {
+                  enrichmentFailures += 1;
+                  this.traceEnrichmentFailure(pkt, event, 'identity_refresh', error);
+                }
+                this.log.warn('dispatchAfterIdentityRefresh failed: %s',
+                  error instanceof Error ? (error.stack ?? error.message) : String(error));
+              });
+            enrichmentTasks.push(task);
           } else if (this.needsGroupInviteEnrich(event)) {
-            void this.dispatchGroupInvite(event).catch((err) => {
-              this.log.warn('dispatchGroupInvite failed: %s',
-                err instanceof Error ? (err.stack ?? err.message) : String(err));
-            });
+            this.traceEnrichmentStarted(pkt, event, 'group_invite');
+            const task = this.dispatchGroupInvite(pkt, event)
+              .then((count) => { dispatched += count; })
+              .catch((error) => {
+                if (error instanceof EnrichedDispatchError) {
+                  dispatchErrors += 1;
+                  this.traceDispatchFailure(
+                    pkt,
+                    event,
+                    error.originalError,
+                  );
+                } else {
+                  enrichmentFailures += 1;
+                  this.traceEnrichmentFailure(pkt, event, 'group_invite', error);
+                }
+                this.log.warn('dispatchGroupInvite failed: %s',
+                  error instanceof Error ? (error.stack ?? error.message) : String(error));
+              });
+            enrichmentTasks.push(task);
           } else {
-            // Snapshot the sender's cached group card BEFORE dispatch — the
-            // side-effects inside finishDispatch self-heal (overwrite) it, so we
-            // must read it first to detect a real change and surface group_card.
-            const cardBefore = this.groupCardBefore(event);
-            this.finishDispatch(event);
-            this.emitGroupCardChange(event, cardBefore);
+            try {
+              dispatched += this.dispatchEvent(pkt, event, 'sync');
+            } catch (error) {
+              dispatchErrors += 1;
+              this.traceDispatchFailure(
+                pkt,
+                event,
+                error,
+              );
+              this.log.error('dispatch error for %s event=%s: %s',
+                pkt.serviceCmd, event.kind,
+                error instanceof Error ? (error.stack ?? error.message) : String(error));
+              break;
+            }
           }
         }
-      } catch (e) {
-        this.log.error('handler error for %s: %s', pkt.serviceCmd, e instanceof Error ? (e.stack ?? e.message) : String(e));
+      } catch (error) {
+        parserErrors += 1;
+        this.packetLog.trace(() => [
+          'packet_branch serviceCmd=%j seqId=%d parser=%d branch=parser_exception error=%j',
+          pkt.serviceCmd,
+          pkt.seqId,
+          parser,
+          error instanceof Error ? error.message : String(error),
+        ]);
+        this.log.error('handler error for %s: %s', pkt.serviceCmd,
+          error instanceof Error ? (error.stack ?? error.message) : String(error));
       }
+    });
+
+    const finish = (): void => {
+      if (enrichmentFailures > 0 || dispatchErrors > 0) {
+        this.packetLog.trace(() => [
+          'packet_terminal serviceCmd=%j seqId=%d outcome=failed reason=%s events=%d dispatched=%d parserErrors=%d dispatchErrors=%d elapsedMs=%d',
+          pkt.serviceCmd,
+          pkt.seqId,
+          enrichmentFailures > 0 ? 'enrichment_failed' : 'dispatch_exception',
+          eventCount,
+          dispatched,
+          parserErrors,
+          dispatchErrors,
+          Date.now() - startedAt,
+        ]);
+        return;
+      }
+      if (parserErrors > 0) {
+        this.packetLog.trace(() => [
+          'packet_terminal serviceCmd=%j seqId=%d outcome=failed reason=parser_exception events=%d dispatched=%d parserErrors=%d elapsedMs=%d',
+          pkt.serviceCmd,
+          pkt.seqId,
+          eventCount,
+          dispatched,
+          parserErrors,
+          Date.now() - startedAt,
+        ]);
+        return;
+      }
+      if (dispatched > 0) {
+        this.packetLog.trace(() => [
+          'packet_terminal serviceCmd=%j seqId=%d outcome=completed reason=dispatch_complete events=%d dispatched=%d parserErrors=%d elapsedMs=%d',
+          pkt.serviceCmd,
+          pkt.seqId,
+          eventCount,
+          dispatched,
+          parserErrors,
+          Date.now() - startedAt,
+        ]);
+        return;
+      }
+      this.packetLog.trace(() => [
+        'packet_terminal serviceCmd=%j seqId=%d outcome=%s reason=%s events=%d dispatched=0 parserErrors=%d elapsedMs=%d',
+        pkt.serviceCmd,
+        pkt.seqId,
+        parserErrors > 0 ? 'failed' : 'dropped',
+        parserErrors > 0 ? 'parser_exception' : 'no_events',
+        eventCount,
+        parserErrors,
+        Date.now() - startedAt,
+      ]);
+    };
+
+    if (enrichmentTasks.length === 0) {
+      finish();
+      return Promise.resolve();
     }
+    return Promise.all(enrichmentTasks).then(finish);
+  }
+
+  private traceEnrichmentStarted(
+    pkt: PacketInfo,
+    event: QQEventVariant,
+    enrichment: 'identity_refresh' | 'group_invite',
+  ): void {
+    this.packetLog.trace(() => [
+      'packet_branch serviceCmd=%j seqId=%d branch=enrichment_started eventKind=%j enrichment=%j',
+      pkt.serviceCmd,
+      pkt.seqId,
+      event.kind,
+      enrichment,
+    ]);
+  }
+
+  private traceEnrichmentFailure(
+    pkt: PacketInfo,
+    event: QQEventVariant,
+    enrichment: 'identity_refresh' | 'group_invite',
+    error: unknown,
+  ): void {
+    this.packetLog.trace(() => [
+      'packet_branch serviceCmd=%j seqId=%d branch=enrichment_failed eventKind=%j enrichment=%j error=%j',
+      pkt.serviceCmd,
+      pkt.seqId,
+      event.kind,
+      enrichment,
+      error instanceof Error ? error.message : String(error),
+    ]);
+  }
+
+  private traceDispatchFailure(
+    pkt: PacketInfo,
+    event: QQEventVariant,
+    error: unknown,
+  ): void {
+    this.packetLog.trace(() => [
+      'packet_branch serviceCmd=%j seqId=%d branch=dispatch_exception eventKind=%j error=%j',
+      pkt.serviceCmd,
+      pkt.seqId,
+      event.kind,
+      error instanceof Error ? error.message : String(error),
+    ]);
+  }
+
+  private traceDispatch(
+    pkt: PacketInfo,
+    eventKind: QQEventVariant['kind'],
+    mode: 'sync' | 'enriched' | 'derived',
+  ): void {
+    this.packetLog.trace(() => [
+      'packet_branch serviceCmd=%j seqId=%d branch=dispatch eventKind=%j mode=%s',
+      pkt.serviceCmd,
+      pkt.seqId,
+      eventKind,
+      mode,
+    ]);
+  }
+
+  private dispatchEvent(
+    pkt: PacketInfo,
+    event: QQEventVariant,
+    mode: 'sync' | 'enriched',
+    alreadyRefreshed = false,
+  ): number {
+    // Snapshot the sender's cached group card BEFORE dispatch — the side-effects
+    // inside finishDispatch self-heal it, so the old value must be read first.
+    const cardBefore = this.groupCardBefore(event);
+    this.finishDispatch(event, alreadyRefreshed);
+    this.traceDispatch(pkt, event.kind, mode);
+    if (!this.emitGroupCardChange(event, cardBefore)) return 1;
+    this.traceDispatch(pkt, 'group_card_change', 'derived');
+    return 2;
   }
 
   private emit(event: QQEventVariant): void {
@@ -139,10 +370,10 @@ export class IncomingPacketPipeline {
    *  mirrors NapCat's `parseCardChangedEvent`. Requires a non-empty prior card
    *  (`cardBefore`) that differs from a non-empty new one, so a cold/unknown
    *  cache never fabricates a change on first contact. */
-  private emitGroupCardChange(event: QQEventVariant, cardBefore: string | undefined): void {
-    if (event.kind !== 'group_message') return;
+  private emitGroupCardChange(event: QQEventVariant, cardBefore: string | undefined): boolean {
+    if (event.kind !== 'group_message') return false;
     const cardNew = event.senderCard ?? '';
-    if (!cardBefore || !cardNew || cardBefore === cardNew) return;
+    if (!cardBefore || !cardNew || cardBefore === cardNew) return false;
     this.finishDispatch({
       kind: 'group_card_change',
       time: event.time,
@@ -152,6 +383,7 @@ export class IncomingPacketPipeline {
       cardNew,
       cardOld: cardBefore,
     });
+    return true;
   }
 
   /**
@@ -192,19 +424,36 @@ export class IncomingPacketPipeline {
     return event.kind === 'group_invite' && !!event.fromUid;
   }
 
-  private async dispatchAfterIdentityRefresh(event: Extract<QQEventVariant, { kind: 'group_member_join' }>): Promise<void> {
+  private async dispatchAfterIdentityRefresh(
+    pkt: PacketInfo,
+    event: Extract<QQEventVariant, { kind: 'group_member_join' }>,
+  ): Promise<number> {
     let refreshed = false;
     try {
       refreshed = await this.prepareGroupMemberJoinIdentity(event);
     } catch (e) {
+      this.packetLog.trace(() => [
+        'packet_branch serviceCmd=%j seqId=%d branch=enrichment_degraded eventKind=%j enrichment="identity_refresh" error=%j',
+        pkt.serviceCmd,
+        pkt.seqId,
+        event.kind,
+        e instanceof Error ? e.message : String(e),
+      ]);
       this.log.warn('failed to resolve group member join identity: group=%d uid=%s err=%s',
         event.groupId, event.userUid ?? '', e instanceof Error ? e.message : String(e));
     }
 
-    this.finishDispatch(event, refreshed);
+    try {
+      return this.dispatchEvent(pkt, event, 'enriched', refreshed);
+    } catch (error) {
+      throw new EnrichedDispatchError(error);
+    }
   }
 
-  private async dispatchGroupInvite(event: Extract<QQEventVariant, { kind: 'group_invite' }>): Promise<void> {
+  private async dispatchGroupInvite(
+    pkt: PacketInfo,
+    event: Extract<QQEventVariant, { kind: 'group_invite' }>,
+  ): Promise<number> {
     const uid = event.fromUid;
     if (uid) {
       // Record the requester's identity up-front (synchronously), mirroring the
@@ -245,6 +494,13 @@ export class IncomingPacketPipeline {
             source: 'group_request',
           });
         } else if (profileR.status === 'rejected') {
+          this.packetLog.trace(() => [
+            'packet_branch serviceCmd=%j seqId=%d branch=enrichment_degraded eventKind=%j enrichment="stranger_profile" error=%j',
+            pkt.serviceCmd,
+            pkt.seqId,
+            event.kind,
+            profileR.reason instanceof Error ? profileR.reason.message : String(profileR.reason),
+          ]);
           this.log.warn('failed to resolve stranger profile: uid=%s err=%s',
             uid, profileR.reason instanceof Error ? profileR.reason.message : String(profileR.reason));
         }
@@ -282,13 +538,24 @@ export class IncomingPacketPipeline {
           }
         }
       } else if (requestR.status === 'rejected') {
+        this.packetLog.trace(() => [
+          'packet_branch serviceCmd=%j seqId=%d branch=enrichment_degraded eventKind=%j enrichment="group_join_request" error=%j',
+          pkt.serviceCmd,
+          pkt.seqId,
+          event.kind,
+          requestR.reason instanceof Error ? requestR.reason.message : String(requestR.reason),
+        ]);
         this.log.warn('failed to resolve group join request: groupId=%d uid=%s err=%s',
           event.groupId, uid,
           requestR.reason instanceof Error ? requestR.reason.message : String(requestR.reason));
       }
     }
 
-    this.finishDispatch(event);
+    try {
+      return this.dispatchEvent(pkt, event, 'enriched');
+    } catch (error) {
+      throw new EnrichedDispatchError(error);
+    }
   }
 
   private async prepareGroupMemberJoinIdentity(event: Extract<QQEventVariant, { kind: 'group_member_join' }>): Promise<boolean> {

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { MotionConfig } from 'motion/react';
+import { actionErrorMessage, useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import type { Palette, ThemeMode, UiAppearance, UiBackground } from '@/types';
 
 // Re-export the appearance value types so consumers (settings page etc.) can
@@ -111,6 +112,7 @@ export const DEFAULT_APPEARANCE: UiAppearance = {
   reduceMotion: false,
   disableMotion: false,
   customPointerSystem: false,
+  customContextMenu: true,
   highContrast: false,
   sidebarPinned: false,
   timeFormat: '24h',
@@ -483,6 +485,17 @@ function authToken(): string | null {
   try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
 }
 
+function withAppearanceDefaults(value: Partial<UiAppearance>): UiAppearance {
+  return {
+    ...DEFAULT_APPEARANCE,
+    ...value,
+    background: {
+      ...DEFAULT_APPEARANCE.background,
+      ...value.background,
+    },
+  };
+}
+
 async function fetchAppearance(): Promise<UiAppearance | null> {
   const token = authToken();
   try {
@@ -491,15 +504,15 @@ async function fetchAppearance(): Promise<UiAppearance | null> {
     if (token) {
       const res = await fetch('/api/ui', { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) {
-        const data = (await res.json()) as { config?: { appearance?: UiAppearance } };
-        if (data.config?.appearance) return data.config.appearance;
+        const data = (await res.json()) as { config?: { appearance?: Partial<UiAppearance> } };
+        if (data.config?.appearance) return withAppearanceDefaults(data.config.appearance);
       }
       // 401/expired → fall through to the public subset.
     }
     const res = await fetch('/api/ui/public');
     if (!res.ok) return null;
-    const data = (await res.json()) as { appearance?: UiAppearance };
-    return data.appearance ?? null;
+    const data = (await res.json()) as { appearance?: Partial<UiAppearance> };
+    return data.appearance ? withAppearanceDefaults(data.appearance) : null;
   } catch {
     return null;
   }
@@ -524,15 +537,15 @@ function isSafeMode(): boolean {
 async function persistAppearance(appearance: UiAppearance): Promise<void> {
   const token = authToken();
   if (!token) return; // pre-auth: local cache only (no settings UI exists there anyway)
-  try {
-    await fetch('/api/ui', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      // Section-level save: only `appearance`; the server preserves `layout`.
-      body: JSON.stringify({ appearance }),
-    });
-  } catch {
-    /* best-effort — the local cache already holds the change */
+  const response = await fetch('/api/ui', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    // Section-level save: only `appearance`; the server preserves `layout`.
+    body: JSON.stringify({ appearance }),
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as { message?: string; error?: string };
+    throw new Error(payload.message || payload.error || `外观保存失败（HTTP ${response.status}）`);
   }
 }
 
@@ -592,7 +605,7 @@ function readCache(): UiAppearance {
     const parsed = JSON.parse(raw) as Partial<UiAppearance>;
     // Shallow merge over defaults so a cache written by an older build still
     // yields a complete object (the server is the real validator).
-    return { ...DEFAULT_APPEARANCE, ...parsed, background: { ...DEFAULT_APPEARANCE.background, ...parsed.background } };
+    return withAppearanceDefaults(parsed);
   } catch {
     return DEFAULT_APPEARANCE;
   }
@@ -634,6 +647,7 @@ function getSystemTheme(): 'light' | 'dark' {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
+  const { runAction, startAction } = useActionFeedback();
   const [appearance, setAppearanceState] = useState<UiAppearance>(readCache);
   const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(getSystemTheme);
   const [ready, setReady] = useState(false);
@@ -671,7 +685,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         // clobber a look already set from another device.
         if (legacy && server && isPristine(server)) {
           next = { ...server, ...legacy, background: server.background };
-          void persistAppearance(next);
+          void persistAppearance(next).catch((error) => {
+            console.error('appearance migration save failed', error);
+          });
         }
       }
 
@@ -714,8 +730,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setAppearanceState(next);
     writeCache(next);
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => void persistAppearance(next), 400);
-  }, []);
+    saveTimer.current = setTimeout(() => {
+      saveTimer.current = null;
+      void persistAppearance(next).catch((error) => {
+        console.error('persist appearance failed', error);
+        startAction({ title: '外观同步失败' })
+          .fail(`当前修改未保存：${actionErrorMessage(error)}`);
+      });
+    }, 400);
+  }, [startAction]);
 
   const setAppearance = useCallback((patch: AppearancePatch) => {
     const prev = appearanceRef.current;
@@ -732,30 +755,48 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   }, [commit]);
 
-  const uploadBackground = useMemo(() => async (file: File) => {
-    const token = authToken();
-    if (!token) throw new Error('未登录');
-    const form = new FormData();
-    form.append('file', file);
-    const res = await fetch('/api/ui/background', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
-    if (!res.ok) {
-      const e = (await res.json().catch(() => ({}))) as { message?: string };
-      throw new Error(e.message || '上传失败');
-    }
-    const data = (await res.json()) as { config?: { appearance?: UiAppearance } };
-    const ap = data.config?.appearance;
-    if (ap) { appearanceRef.current = ap; setAppearanceState(ap); writeCache(ap); }
-  }, []);
+  const uploadBackground = useMemo(() => async (file: File) => runAction(
+    {
+      title: '正在上传背景',
+      detail: file.name,
+      successTitle: '背景已更新',
+      successDetail: file.name,
+      errorTitle: '背景上传失败',
+    },
+    async () => {
+      const token = authToken();
+      if (!token) throw new Error('未登录');
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch('/api/ui/background', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
+      if (!res.ok) {
+        const e = (await res.json().catch(() => ({}))) as { message?: string };
+        throw new Error(e.message || '上传失败');
+      }
+      const data = (await res.json()) as { config?: { appearance?: UiAppearance } };
+      const ap = data.config?.appearance;
+      if (ap) { appearanceRef.current = ap; setAppearanceState(ap); writeCache(ap); }
+    },
+  ), [runAction]);
 
-  const removeBackground = useMemo(() => async () => {
-    const token = authToken();
-    if (!token) throw new Error('未登录');
-    const res = await fetch('/api/ui/background', { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
-    if (!res.ok) throw new Error('删除失败');
-    const data = (await res.json()) as { config?: { appearance?: UiAppearance } };
-    const ap = data.config?.appearance;
-    if (ap) { appearanceRef.current = ap; setAppearanceState(ap); writeCache(ap); }
-  }, []);
+  const removeBackground = useMemo(() => async () => runAction(
+    {
+      title: '正在删除背景',
+      detail: '移除已上传的壁纸',
+      successTitle: '背景已删除',
+      successDetail: '已恢复为无壁纸状态',
+      errorTitle: '背景删除失败',
+    },
+    async () => {
+      const token = authToken();
+      if (!token) throw new Error('未登录');
+      const res = await fetch('/api/ui/background', { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('删除失败');
+      const data = (await res.json()) as { config?: { appearance?: UiAppearance } };
+      const ap = data.config?.appearance;
+      if (ap) { appearanceRef.current = ap; setAppearanceState(ap); writeCache(ap); }
+    },
+  ), [runAction]);
 
   const formatClock = useMemo(() => (input: string | number | Date) => {
     const d = input instanceof Date ? input : new Date(input);

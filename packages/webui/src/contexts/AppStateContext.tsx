@@ -2,6 +2,19 @@ import { createContext, useContext, type ReactNode } from 'react';
 import type { AccountConnections, HookProcessInfo, QQInfo, SystemInfo, UpdateInfo } from '@/types';
 import type { HookProcessOps } from '@/hooks/use-hook-process-ops';
 
+export interface ResourceLoadState {
+  ready: boolean;
+  error: string | null;
+}
+
+export interface AppResourceState {
+  qqList: ResourceLoadState;
+  processList: ResourceLoadState;
+  systemInfo: ResourceLoadState;
+  connections: ResourceLoadState;
+  updateInfo: ResourceLoadState;
+}
+
 /**
  * Live mutable state owned by AppLayout and shared with the child route
  * components rendered inside its `<Outlet />`. Pages used to receive these
@@ -15,14 +28,17 @@ export interface AppStateValue {
   connections: AccountConnections[];
   /** Advisory update-availability info; null until the first check resolves. */
   updateInfo: UpdateInfo | null;
+  /** Distinguishes an empty result from an unresolved or failed initial read. */
+  resources: AppResourceState;
   selectedUin: string | null;
   setSelectedUin: (uin: string | null) => void;
   processOps: HookProcessOps;
+  refreshQqList: () => void;
   refreshProcesses: () => void;
   refreshSystem: () => void;
   refreshConnections: () => void;
   /** Re-run the update check; `force` bypasses the server-side cache. */
-  refreshUpdate: (force?: boolean) => Promise<void>;
+  refreshUpdate: (force?: boolean) => Promise<UpdateInfo | null>;
   /** Triggered from the topbar logout button. */
   onLogout: () => void;
 }

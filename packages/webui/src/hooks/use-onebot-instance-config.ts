@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import type { OneBotConfig, QQInfo } from '@/types';
 import { useApi } from '@/lib/api';
 
@@ -12,6 +13,9 @@ export interface UseOneBotInstanceConfig {
   selectedUin: string | null;
   /** Loaded config for the current UIN. Null while loading or before a selection. */
   config: OneBotConfig | null;
+  loading: boolean;
+  loadError: string | null;
+  reload: () => void;
   setConfig: (next: OneBotConfig) => void;
   /** True if the in-memory config diverges from the last server-confirmed snapshot. */
   dirty: boolean;
@@ -50,8 +54,13 @@ export function useOneBotInstanceConfig(
   options: UseOneBotInstanceConfigOptions,
 ): UseOneBotInstanceConfig {
   const api = useApi();
+  const { runAction } = useActionFeedback();
   const { selectedUin, onSelectedUinChange } = options;
   const [config, setConfigState] = useState<OneBotConfig | null>(null);
+  const [loadedUin, setLoadedUin] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadGeneration, setReloadGeneration] = useState(0);
   const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState('');
   const [saveStatusTone, setSaveStatusTone] = useState<UseOneBotInstanceConfig['saveStatusTone']>('idle');
@@ -78,10 +87,18 @@ export function useOneBotInstanceConfig(
     setSaveStatus('');
     setSaveStatusTone('idle');
     if (!selectedUin) {
+      setLoading(false);
+      setLoadError(null);
       setConfigState(null);
+      setLoadedUin(null);
       setSavedSnapshot(null);
       return;
     }
+    setLoading(true);
+    setLoadError(null);
+    setConfigState(null);
+    setLoadedUin(null);
+    setSavedSnapshot(null);
     let cancelled = false;
     (async () => {
       try {
@@ -89,15 +106,21 @@ export function useOneBotInstanceConfig(
         if (cancelled) return;
         editRevisionRef.current += 1;
         setConfigState(loaded);
+        setLoadedUin(selectedUin);
         setSavedSnapshot(JSON.stringify(loaded));
       } catch (e) {
         console.error('load-config', e);
+        if (!cancelled) {
+          setLoadError(e instanceof Error ? e.message : '加载账号配置失败');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [selectedUin, api]);
+  }, [selectedUin, api, reloadGeneration]);
 
   useEffect(
     () => () => {
@@ -106,15 +129,20 @@ export function useOneBotInstanceConfig(
     [],
   );
 
+  const currentConfig = loadedUin === selectedUin ? config : null;
+  const currentLoading = selectedUin !== null
+    && (loading || (loadError === null && currentConfig === null));
+
   const dirty = useMemo(() => {
-    if (config == null || savedSnapshot == null) return false;
-    return JSON.stringify(config) !== savedSnapshot;
-  }, [config, savedSnapshot]);
+    if (currentConfig == null || savedSnapshot == null) return false;
+    return JSON.stringify(currentConfig) !== savedSnapshot;
+  }, [currentConfig, savedSnapshot]);
 
   const setConfig = useCallback((next: OneBotConfig) => {
     editRevisionRef.current += 1;
     setConfigState(next);
   }, []);
+  const reload = useCallback(() => setReloadGeneration((generation) => generation + 1), []);
 
   const requestSwitchUin = useCallback(
     (uin: string) => {
@@ -144,7 +172,7 @@ export function useOneBotInstanceConfig(
   }, []);
 
   const save = useCallback(async (override?: OneBotConfig) => {
-    const target = override ?? config;
+    const target = override ?? currentConfig;
     if (!selectedUin || !target) return;
     const uin = selectedUin;
     const editRevision = editRevisionRef.current;
@@ -152,8 +180,35 @@ export function useOneBotInstanceConfig(
     setSaveStatus('保存中...');
     setSaveStatusTone('saving');
     try {
-      const result = await api.config.save(uin, target);
+      const result = await runAction(
+        {
+          title: '正在保存账号配置',
+          detail: `账号 ${uin}`,
+          successTitle: '账号配置已更新',
+          successDetail: (saved) => (
+            !saved.online
+              ? '配置已保存，将在账号下次连接时应用'
+              : saved.applied
+                ? '配置已保存并完成热重载'
+                : '配置已保存'
+          ),
+          errorTitle: '账号配置更新失败',
+          resultError: (saved) => {
+            if (!saved.saved) return saved.message || '服务器未确认配置已保存';
+            if (saved.online && !saved.applied) {
+              return `配置已保存，但热重载失败${saved.errors[0]?.message ? `：${saved.errors[0].message}` : ''}`;
+            }
+            return null;
+          },
+        },
+        () => api.config.save(uin, target),
+      );
       if (selectedUinRef.current !== uin || saveGenerationRef.current !== generation) return;
+      if (!result.saved) {
+        setSaveStatus(`保存失败：${result.message || '服务器未确认配置已保存'}`);
+        setSaveStatusTone('error');
+        return;
+      }
       setSavedSnapshot(JSON.stringify(result.config));
       if (editRevisionRef.current === editRevision) {
         setConfigState(result.config);
@@ -182,11 +237,14 @@ export function useOneBotInstanceConfig(
         scheduleStatusClear(uin, generation);
       }
     }
-  }, [api, selectedUin, config, scheduleStatusClear]);
+  }, [api, selectedUin, currentConfig, scheduleStatusClear, runAction]);
 
   return {
     selectedUin,
-    config,
+    config: currentConfig,
+    loading: currentLoading,
+    loadError,
+    reload,
     setConfig,
     dirty,
     requestSwitchUin,

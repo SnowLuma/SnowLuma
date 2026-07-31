@@ -1,7 +1,16 @@
+import { currentRequestId, runWithRequestId } from '@snowluma/common/logger';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { AdapterStatus } from '../src/network';
 import type { OneBotInstance } from '../src/instance';
-import { OneBotManager } from '../src/manager';
+import {
+  OneBotManager,
+  type DatabaseMigrationCallbacks,
+  type DatabaseMigrationTask,
+} from '../src/manager';
+import { estimateRemainingSeconds } from '../src/message-store-migration-task';
 
 function fakeInstance(
   uin: string,
@@ -17,6 +26,344 @@ function fakeInstance(
     getConnectionStatuses: () => statuses,
   } as unknown as OneBotInstance;
 }
+
+describe('database migration estimates', () => {
+  it('waits for measured throughput and reaches zero on completion', () => {
+    expect(estimateRemainingSeconds(
+      { phase: 'migrating', processed: 200, total: 1_000 },
+      null,
+    )).toBeNull();
+    expect(estimateRemainingSeconds(
+      { phase: 'migrating', processed: 200, total: 1_000 },
+      125,
+    )).toBe(7);
+    expect(estimateRemainingSeconds(
+      { phase: 'complete', processed: 1_000, total: 1_000 },
+      null,
+    )).toBe(0);
+  });
+});
+
+describe('OneBotManager database preparation', () => {
+  it('detaches migration and network startup from the login operation', () => {
+    let callbacks!: DatabaseMigrationCallbacks;
+    const observedRequestIds: Array<number | undefined> = [];
+    const task: DatabaseMigrationTask = {
+      beginMigration: vi.fn(() => observedRequestIds.push(currentRequestId())),
+      cancel: vi.fn(),
+      start: vi.fn((next) => {
+        observedRequestIds.push(currentRequestId());
+        callbacks = next;
+      }),
+    };
+    const instance = {
+      ...fakeInstance('10001', async () => undefined),
+      waitUntilNetworkReady: vi.fn(() => {
+        observedRequestIds.push(currentRequestId());
+        return new Promise(() => undefined);
+      }),
+      startLoginHistorySync: vi.fn(),
+    } as unknown as OneBotInstance;
+    const manager = new OneBotManager({
+      createDatabaseMigrationTask: () => task,
+      createInstance: () => {
+        observedRequestIds.push(currentRequestId());
+        return instance;
+      },
+    });
+    let startListener!: (uin: string, bridge: never) => void;
+    manager.bind({
+      addSessionStartedListener: (listener) => { startListener = listener; },
+      addSessionClosedListener: vi.fn(),
+    } as never);
+    const bridge = {
+      activePid: null,
+      identity: { nickname: 'test' },
+      fetchFriends: vi.fn(() => new Promise(() => undefined)),
+      fetchGroups: vi.fn(() => new Promise(() => undefined)),
+    };
+
+    runWithRequestId(5201, () => startListener('10001', bridge as never));
+    callbacks.onReady();
+
+    expect(observedRequestIds).toEqual([undefined, undefined, undefined, undefined]);
+  });
+
+  it('surfaces preparation as unavailable and ignores a stale completion after logout', async () => {
+    let callbacks!: DatabaseMigrationCallbacks;
+    const cancel = vi.fn();
+    const task: DatabaseMigrationTask = {
+      beginMigration: vi.fn(),
+      cancel,
+      start: vi.fn((next) => { callbacks = next; }),
+    };
+    const manager = new OneBotManager({
+      createDatabaseMigrationTask: () => task,
+      createInstance: () => { throw new Error('stale preparation started an account'); },
+    });
+    const internals = manager as unknown as {
+      onSessionStarted(uin: string, bridge: never): void;
+      onSessionClosed(uin: string): void;
+    };
+
+    internals.onSessionStarted('10001', {} as never);
+    expect(manager.getConnectionStatuses()).toEqual([{
+      uin: '10001',
+      nickname: '10001',
+      adapters: [],
+      databaseMigration: {
+        phase: 'preparing',
+        usable: false,
+        processed: 0,
+        total: null,
+        progress: null,
+        estimatedRemainingSeconds: null,
+      },
+    }]);
+
+    internals.onSessionClosed('10001');
+    callbacks.onReady();
+    await Promise.resolve();
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(manager.getInstance('10001')).toBeNull();
+    expect(manager.getConnectionStatuses()).toEqual([]);
+  });
+
+  it('starts migration only after the account instance is available', async () => {
+    const originalCwd = process.cwd();
+    const root = mkdtempSync(path.join(tmpdir(), 'snowluma-manager-lifecycle-'));
+    process.chdir(root);
+    let callbacks!: DatabaseMigrationCallbacks;
+    let instanceCreated = false;
+    const beginMigration = vi.fn(() => {
+      expect(instanceCreated).toBe(true);
+    });
+    const instance = {
+      ...fakeInstance('10001', async () => undefined),
+      waitUntilNetworkReady: vi.fn(async () => ({
+        applied: true,
+        statuses: [],
+        errors: [],
+      })),
+      startLoginHistorySync: vi.fn(),
+    } as unknown as OneBotInstance;
+    const manager = new OneBotManager({
+      createDatabaseMigrationTask: () => ({
+        beginMigration,
+        cancel: vi.fn(),
+        start: (next) => { callbacks = next; },
+      }),
+      createInstance: (_uin, _bridge, _config, _globalSettings) => {
+        instanceCreated = true;
+        return instance;
+      },
+    });
+
+    try {
+      const bridge = {
+        activePid: null,
+        identity: { nickname: 'test' },
+        fetchFriends: vi.fn(async () => undefined),
+        fetchGroups: vi.fn(async () => undefined),
+      };
+      (manager as unknown as { onSessionStarted(uin: string, bridge: never): void })
+        .onSessionStarted('10001', bridge as never);
+      callbacks.onReady();
+
+      expect(beginMigration).toHaveBeenCalledOnce();
+      expect(manager.getInstance('10001')).not.toBeNull();
+    } finally {
+      await manager.dispose();
+      process.chdir(originalCwd);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('retries when starting the database task fails synchronously', () => {
+    vi.useFakeTimers();
+    try {
+      const tasks: DatabaseMigrationTask[] = [];
+      const manager = new OneBotManager({
+        createDatabaseMigrationTask: () => {
+          const task: DatabaseMigrationTask = {
+            beginMigration: vi.fn(),
+            cancel: vi.fn(),
+            start: vi.fn(() => { throw new Error('private worker detail'); }),
+          };
+          tasks.push(task);
+          return task;
+        },
+      });
+      const internals = manager as unknown as {
+        onSessionStarted(uin: string, bridge: never): void;
+        onSessionClosed(uin: string): void;
+      };
+      const bridge = {
+        activePid: null,
+        identity: { nickname: 'test' },
+      };
+
+      expect(() => internals.onSessionStarted('10001', bridge as never)).not.toThrow();
+      expect(tasks[0].cancel).toHaveBeenCalledOnce();
+      expect(manager.getConnectionStatuses()[0].databaseMigration).toMatchObject({
+        phase: 'failed',
+        usable: false,
+        error: '数据库迁移失败，将自动重试',
+      });
+
+      vi.advanceTimersByTime(5_000);
+      expect(tasks).toHaveLength(2);
+      expect(tasks[1].start).toHaveBeenCalledOnce();
+      internals.onSessionClosed('10001');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the account usable when beginning migration fails', () => {
+    vi.useFakeTimers();
+    try {
+      let callbacks!: DatabaseMigrationCallbacks;
+      const tasks: DatabaseMigrationTask[] = [];
+      const instance = {
+        ...fakeInstance('10001', async () => undefined),
+        waitUntilNetworkReady: vi.fn(async () => ({
+          applied: true,
+          statuses: [],
+          errors: [],
+        })),
+        startLoginHistorySync: vi.fn(),
+      } as unknown as OneBotInstance;
+      const manager = new OneBotManager({
+        createDatabaseMigrationTask: () => {
+          const task: DatabaseMigrationTask = {
+            beginMigration: vi.fn(() => { throw new Error('private signal detail'); }),
+            cancel: vi.fn(),
+            start: vi.fn((next) => { callbacks = next; }),
+          };
+          tasks.push(task);
+          return task;
+        },
+        createInstance: () => instance,
+      });
+      const internals = manager as unknown as {
+        onSessionStarted(uin: string, bridge: never): void;
+        onSessionClosed(uin: string): void;
+      };
+      const bridge = {
+        activePid: null,
+        identity: { nickname: 'test' },
+        fetchFriends: vi.fn(async () => undefined),
+        fetchGroups: vi.fn(async () => undefined),
+      };
+
+      internals.onSessionStarted('10001', bridge as never);
+      expect(() => callbacks.onReady()).not.toThrow();
+      expect(tasks[0].cancel).toHaveBeenCalledOnce();
+      expect(manager.getInstance('10001')).toBe(instance);
+      expect(manager.getConnectionStatuses()[0].databaseMigration).toMatchObject({
+        phase: 'failed',
+        usable: true,
+        error: '数据库迁移失败，将自动重试',
+      });
+
+      vi.advanceTimersByTime(5_000);
+      expect(tasks).toHaveLength(2);
+      internals.onSessionClosed('10001');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries when account startup fails after database preparation', () => {
+    vi.useFakeTimers();
+    try {
+      const callbacks: DatabaseMigrationCallbacks[] = [];
+      const tasks: DatabaseMigrationTask[] = [];
+      const manager = new OneBotManager({
+        createDatabaseMigrationTask: () => {
+          const task: DatabaseMigrationTask = {
+            beginMigration: vi.fn(),
+            cancel: vi.fn(),
+            start: vi.fn((next) => { callbacks.push(next); }),
+          };
+          tasks.push(task);
+          return task;
+        },
+        createInstance: () => { throw new Error('private startup detail'); },
+      });
+      const internals = manager as unknown as {
+        onSessionStarted(uin: string, bridge: never): void;
+        onSessionClosed(uin: string): void;
+      };
+      const bridge = {
+        activePid: null,
+        identity: { nickname: 'test' },
+      };
+
+      internals.onSessionStarted('10001', bridge as never);
+      expect(() => callbacks[0].onReady()).not.toThrow();
+      expect(tasks[0].cancel).toHaveBeenCalledOnce();
+      expect(tasks[0].beginMigration).not.toHaveBeenCalled();
+      expect(manager.getInstance('10001')).toBeNull();
+      expect(manager.getConnectionStatuses()[0].databaseMigration).toMatchObject({
+        phase: 'failed',
+        usable: false,
+        error: '数据库迁移失败，将自动重试',
+      });
+
+      vi.advanceTimersByTime(5_000);
+      expect(tasks).toHaveLength(2);
+      expect(tasks[1].start).toHaveBeenCalledOnce();
+      internals.onSessionClosed('10001');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries a failed database task while the session remains present', async () => {
+    vi.useFakeTimers();
+    try {
+      const callbacks: DatabaseMigrationCallbacks[] = [];
+      const tasks: DatabaseMigrationTask[] = [];
+      const manager = new OneBotManager({
+        createDatabaseMigrationTask: () => {
+          const task: DatabaseMigrationTask = {
+            beginMigration: vi.fn(),
+            cancel: vi.fn(),
+            start: vi.fn((next) => { callbacks.push(next); }),
+          };
+          tasks.push(task);
+          return task;
+        },
+      });
+      const internals = manager as unknown as {
+        onSessionStarted(uin: string, bridge: never): void;
+        onSessionClosed(uin: string): void;
+      };
+
+      internals.onSessionStarted('10001', {} as never);
+      callbacks[0].onFailed(new Error('private detail'));
+      expect(manager.getConnectionStatuses()[0].databaseMigration).toMatchObject({
+        phase: 'failed',
+        usable: false,
+        error: '数据库迁移失败，将自动重试',
+      });
+
+      vi.advanceTimersByTime(5_000);
+      expect(tasks).toHaveLength(2);
+      expect(tasks[1].start).toHaveBeenCalledOnce();
+
+      internals.onSessionClosed('10001');
+      callbacks[1].onFailed(new Error('late failure'));
+      vi.advanceTimersByTime(5_000);
+      expect(tasks).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe('OneBotManager lifecycle failure accounting', () => {
   it('quiesces active instances before waiting for pending lifecycle work', async () => {

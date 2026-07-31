@@ -62,6 +62,9 @@ describe('apis/group-admin', () => {
 
   it('kickMember resolves UID per-group and forwards reject + reason', async () => {
     const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
+      Buffer.from('220308b960', 'hex'),
+    ));
     await new GroupAdminApi(bridge as any).kickMember(12345, 67890, true, 'bad behaviour');
     expect(bridge.resolveUserUid).toHaveBeenCalledWith(67890, 12345);
     const [cmd, bytes] = bridge.sendRawPacket.mock.calls[0]!;
@@ -75,6 +78,20 @@ describe('apis/group-admin', () => {
     });
   });
 
+  it('kickMember rejects a server business error instead of reporting success (#298)', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
+      Buffer.from(
+        '222008b960121be7bea4e4b8bbe697a0e6b395e8a2abe7a7bbe587bae7bea4e8818a',
+        'hex',
+      ),
+    ));
+
+    await expect(
+      new GroupAdminApi(bridge as any).kickMember(12345, 67890, false),
+    ).rejects.toThrow('群主无法被移出群聊');
+  });
+
   it('kickMembers resolves each UID in parallel', async () => {
     const bridge = mockBridge();
     vi.mocked(bridge.resolveUserUid)
@@ -86,6 +103,20 @@ describe('apis/group-admin', () => {
     const env = protobuf_decode<OidbBase<Oidb0x8a0Req>>(bridge.sendRawPacket.mock.calls[0]![1]);
     expect(env.body?.targetUids).toEqual(['uid-a', 'uid-b']);
     expect(env.body?.rejectAddRequest ?? 0).toBe(0);
+  });
+
+  it('kickMembers rejects the same command-level business error', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
+      Buffer.from(
+        '222008b960121be7bea4e4b8bbe697a0e6b395e8a2abe7a7bbe587bae7bea4e8818a',
+        'hex',
+      ),
+    ));
+
+    await expect(
+      new GroupAdminApi(bridge as any).kickMembers(12345, [67890], false),
+    ).rejects.toThrow('群主无法被移出群聊');
   });
 
   it('leave sends 0x1097_1, emits a self group_member_leave, and forgets the group (#133)', async () => {

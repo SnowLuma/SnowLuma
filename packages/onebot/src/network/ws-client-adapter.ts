@@ -149,6 +149,14 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
         this.log.warn('[%s] rejected inbound action from stale socket', this.name);
         return;
       }
+      if (this.ctx.api.isAcceptingActions === false) {
+        this.log.warn('[%s] rejected inbound action after instance quiesce', this.name);
+        if (this.role === 'Api' || this.role === 'Universal') {
+          const text = rawDataToString(raw);
+          if (text) this.ctx.api.traceQuiescedStreamRequest(text);
+        }
+        return;
+      }
       this.trackInboundAction(() => this.handleApiMessage(socket, raw));
     });
 
@@ -210,7 +218,10 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
   }
 
   private trackInboundAction(start: () => Promise<void>): void {
-    if (!this.acceptingActions || this.ctx.api.isAcceptingActions === false) {
+    if (
+      !this.acceptingActions
+      || this.ctx.api.isAcceptingActions === false
+    ) {
       this.log.warn('[%s] rejected inbound action while adapter is closing', this.name);
       return;
     }

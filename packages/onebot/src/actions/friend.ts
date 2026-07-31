@@ -32,19 +32,20 @@ export const actions = [
     name: 'get_stranger_info',
     summary: '获取陌生人信息',
     readOnly: true,
-    returns: '陌生人资料：QQ 号、昵称、性别、年龄与个性签名，命中资料时另含等级。',
+    returns: '用户资料：QQ 号、昵称、好友备注、性别、年龄与个性签名，命中资料时另含等级。',
     returnsSchema: {
       type: 'object',
       properties: {
         user_id: { type: 'integer', description: 'QQ 号' },
         nickname: { type: 'string', description: '昵称' },
+        remark: { type: 'string', description: '好友备注；非好友或未设置时为空字符串' },
         sex: { type: 'string', description: '性别（male/female/unknown）' },
         age: { type: 'integer', description: '年龄' },
         long_nick: { type: 'string', description: '个性签名' },
         qq_level: { type: 'integer', description: 'QQ 等级（仅查到资料时返回）' },
         level: { type: 'integer', description: 'QQ 等级，同 qq_level（仅查到资料时返回）' },
       },
-      required: ['user_id', 'nickname', 'sex', 'age', 'long_nick'],
+      required: ['user_id', 'nickname', 'remark', 'sex', 'age', 'long_nick'],
     },
     params: { user_id: f.userId().describe('QQ 号') },
     run: async (p, ctx) => {
@@ -52,11 +53,11 @@ export const actions = [
       if (ctx.getStrangerInfo) {
         const info = await ctx.getStrangerInfo(userId);
         return okResponse(info ?? {
-          user_id: userId, nickname: '', sex: 'unknown', age: 0, long_nick: '',
+          user_id: userId, nickname: '', remark: '', sex: 'unknown', age: 0, long_nick: '',
         });
       }
       return okResponse({
-        user_id: userId, nickname: '', sex: 'unknown', age: 0, long_nick: '',
+        user_id: userId, nickname: '', remark: '', sex: 'unknown', age: 0, long_nick: '',
       });
     },
   }),
