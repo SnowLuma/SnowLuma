@@ -43,9 +43,13 @@ SnowLuma 处于开发早期，迭代速度很快，**接口与目录结构随时
 
 ### 系统要求
 
-- **Node.js ≥ 22**（`engines` 字段强制，低版本会报错）
-- **pnpm 10.28.0+**（项目通过 `packageManager` 字段锁定，建议用 `corepack enable` 安装匹配版本）
+- **Node.js 22.13+（23 系需 23.4+）**（项目使用默认启用的 `node:sqlite`）
+- **pnpm 10.28.0**（项目通过 `packageManager` 与 CI 统一版本）
 - macOS / Linux / Windows 均可。如果要构建原生产物，需要对应平台的工具链。
+
+如果系统提供 Corepack，可执行 `corepack enable pnpm`；没有 Corepack 时可执行
+`npm install -g pnpm@10.28.0`。进入仓库后，`node --version` 与
+`pnpm --version` 应满足上述版本要求，否则安装会直接失败。
 
 ### 拉代码、装依赖、跑起来
 
@@ -57,13 +61,13 @@ cd SnowLuma
 # 2. 切到 dev 分支（所有开发都基于 dev，不是 main）
 git checkout dev
 
-# 3. 安装依赖
-pnpm install
+# 3. 按锁文件安装依赖
+pnpm install --frozen-lockfile
 
 # 4. 跑类型检查，确认环境 OK
 pnpm typecheck
 
-# 5. 跑测试
+# 5. 跑全工作区测试
 pnpm test
 
 # 6. 启动开发模式
@@ -96,14 +100,17 @@ git checkout -b fix/onebot-mention-encoding
 - **写测试**：修 bug 时优先写一个能复现该 bug 的测试，确认它会 fail，再让它 pass。新增功能至少补上 happy path 的测试。
 - **不要添加无意义的注释**：标识符已经说清楚的事情不需要再写一遍。注释应当解释"为什么"，而不是"做了什么"。
 
-提交之前请本地跑一遍：
+提交之前请运行与 PR CI 相同的验证入口：
 
 ```bash
 pnpm typecheck
+pnpm lint
 pnpm test
+pnpm run build:all
 ```
 
-CI 上跑的是同一套检查，本地通过几乎能保证 CI 通过。
+`pnpm test` 会运行所有声明了测试脚本的工作区包；只验证 Core 时可使用
+`pnpm test:core`。CI 会重新执行上述完整检查。
 
 ### 3. 提交信息
 

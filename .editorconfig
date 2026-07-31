@@ -2,7 +2,7 @@ root = true
 
 [*]
 charset = utf-8
-end_of_line = crlf
+end_of_line = lf
 indent_style = space
 indent_size = 2
 insert_final_newline = true
@@ -10,6 +10,12 @@ trim_trailing_whitespace = true
 
 [*.{json,yml,yaml,md}]
 indent_size = 2
+
+[*.py]
+indent_size = 4
+
+[*.bat]
+end_of_line = crlf
 
 [*.md]
 trim_trailing_whitespace = false

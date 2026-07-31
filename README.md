@@ -51,7 +51,7 @@ SnowLuma 将会话接入、协议解析、身份映射、OneBot 转换和网络�
 
 前往 [Releases](https://github.com/SnowLuma/SnowLuma/releases) 下载与你的平台匹配的版本：
 
-| 平台 | 完整版（内置 Node.js，推荐） | Lite（需要 Node.js 22+） |
+| 平台 | 完整版（内置 Node.js，推荐） | Lite（Node.js 22.13+；23 系需 23.4+） |
 | --- | --- | --- |
 | Windows x64 | `SnowLuma-vX.Y.Z-win-x64.zip` | `SnowLuma-vX.Y.Z-win-x64-lite.zip` |
 | Linux x64 | `SnowLuma-vX.Y.Z-linux-x64.tar.gz` | `SnowLuma-vX.Y.Z-linux-x64-lite.tar.gz` |
@@ -117,15 +117,17 @@ WebUI 的“系统设置 → 存储管理”可查看受管数据占用、调整
 
 ## 开发与贡献
 
-本地开发需要 Node.js 22+ 与项目锁定版本的 pnpm。所有日常开发基于 `dev` 分支：
+本地开发需要 Node.js 22.13+（23 系需 23.4+）与项目锁定的 pnpm 10.28.0。所有日常开发基于 `dev` 分支：
 
 ```bash
 git clone https://github.com/SnowLuma/SnowLuma.git
 cd SnowLuma
 git checkout dev
-pnpm install
+pnpm install --frozen-lockfile
 pnpm typecheck
+pnpm lint
 pnpm test
+pnpm run build:all
 ```
 
 - 先读 [`CONTEXT.md`](CONTEXT.md) 了解模块边界与项目词汇。

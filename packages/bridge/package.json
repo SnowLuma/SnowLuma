@@ -53,7 +53,7 @@
     "@snowluma/common": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^24.12.2",
+    "@types/node": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "^4.1.4"

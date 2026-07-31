@@ -36,7 +36,7 @@
     }
   },
   "devDependencies": {
-    "@types/node": "^24.12.2",
+    "@types/node": "catalog:",
     "tsup": "^8.5.0",
     "vite": "catalog:",
     "vitest": "^4.1.4"

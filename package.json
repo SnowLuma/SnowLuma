@@ -10,14 +10,15 @@
     "build:sdk": "pnpm --filter @snowluma/sdk build",
     "build:webui": "pnpm --filter webui build",
     "build:mcp": "pnpm --filter @snowluma/mcp build",
-    "build:all": "pnpm --filter @snowluma/core build:all && pnpm --filter @snowluma/sdk build && pnpm --filter @snowluma/mcp build && pnpm --filter webui build",
+    "build:all": "pnpm --filter @snowluma/core build:all && pnpm --filter @snowluma/sdk build && pnpm --filter @snowluma/mcp build && pnpm --filter @snowluma/ui build && pnpm --filter webui build",
     "dev": "pnpm --filter @snowluma/core dev",
     "dev:mode": "cd dist && cross-env SNOWLUMA_DEV_MODE=1 SNOWLUMA_DEV_WEBUI=1 node index.mjs",
     "dev:web": "pnpm --filter webui dev",
-    "test": "pnpm --filter @snowluma/core test",
+    "test": "pnpm -r --no-bail --if-present test",
+    "test:core": "pnpm --filter @snowluma/core test",
     "test:watch": "pnpm --filter @snowluma/core test:watch",
     "test:common": "pnpm --filter @snowluma/common test",
-    "test:all": "pnpm -r --if-present test",
+    "test:all": "pnpm test",
     "test:native": "pnpm -r --if-present test:native",
     "coverage": "pnpm --filter @snowluma/common test -- --coverage",
     "typecheck": "pnpm -r --if-present typecheck",
@@ -46,9 +47,6 @@
         "eslint-plugin-react-hooks>eslint": "10"
       }
     },
-    "onlyBuiltDependencies": [
-      "better-sqlite3"
-    ],
     "overrides": {
       "esbuild@<0.28.1": "^0.28.1",
       "@babel/core@<7.29.6": "^7.29.6"
@@ -56,6 +54,7 @@
   },
   "packageManager": "pnpm@10.28.0",
   "engines": {
-    "node": ">=22"
+    "node": "^22.13.0 || >=23.4.0",
+    "pnpm": "10.28.0"
   }
 }

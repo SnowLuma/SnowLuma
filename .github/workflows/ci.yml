@@ -4,9 +4,8 @@
 # unnoticed — and did (protocol's oidb-service rejection path, plus an external
 # contributor PR). This gates every PR on the whole suite.
 #
-# `pnpm -r --no-bail --if-present test` runs each package's `test` script
-# (skipping packages without one); --no-bail means one failing package still
-# reports the rest, and the run as a whole still fails if any package fails.
+# The root validation commands are the same ones contributors run locally.
+# Keep this workflow as the executable source of truth for pull requests.
 name: CI
 
 on:
@@ -33,14 +32,23 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version-file: '.node-version'
           cache: 'pnpm'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Type check all packages
+        run: pnpm typecheck
+
+      - name: Lint managed source files
+        run: pnpm lint
+
       - name: Run all package tests
-        run: pnpm -r --no-bail --if-present test
+        run: pnpm test
+
+      - name: Build release inputs
+        run: pnpm run build:all
 
       # The MCP test suite regenerates the action catalog (catalog.ts + the
       # catalog.json the docs site consumes). Fail if the committed snapshot

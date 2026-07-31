@@ -39,7 +39,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version-file: '.node-version'
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -60,7 +60,7 @@ jobs:
 
       # Naming convention:
       #   SnowLuma-<tag>-<arch>.zip|tar.gz        – zero-install (node bundled)
-      #   SnowLuma-<tag>-<arch>-lite.zip|tar.gz   – user provides Node >= 22
+      #   SnowLuma-<tag>-<arch>-lite.zip|tar.gz   – user provides Node 22.13+ (23.x requires 23.4+)
       - name: Package (windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -127,7 +127,7 @@ jobs:
 
           ## 选择下载
 
-          | 平台 | 完整版（内置 Node.js，推荐） | Lite（需 Node.js 22+） |
+          | 平台 | 完整版（内置 Node.js，推荐） | Lite（Node.js 22.13+；23 系需 23.4+） |
           | --- | --- | --- |
           | Windows x64 | \`SnowLuma-${tag}-win-x64.zip\` | \`SnowLuma-${tag}-win-x64-lite.zip\` |
           | Linux x64 | \`SnowLuma-${tag}-linux-x64.tar.gz\` | \`SnowLuma-${tag}-linux-x64-lite.tar.gz\` |
