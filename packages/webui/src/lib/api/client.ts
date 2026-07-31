@@ -1,5 +1,5 @@
 import type { AccountConnections, BackupBundle, BackupImportResult, DebugActionDoc, DebugInvokeResult, DebugStreamMessage, GlobalSettings, HookProcessInfo, LogEntry, LogLevel, LogStorageSettingsPatch, NotificationDeliveryRecord, NotificationsConfig, QQInfo, StorageCleanupRequest, StorageCleanupResponse, StorageOverviewResponse, StorageSettingsUpdateResponse, SystemInfo, SystemSettingsPatch, SystemSettingsResponse, UiAppearance, UiConfig, UpdateInfo } from '@/types';
-import type { PasswordRule } from '@/components/pages/change-password-page';
+import type { PasswordRule } from '@/components/pages/change-password-form';
 import { normalizeOneBotConfig } from '@/lib/onebot-config';
 import {
   type AgreementsPayload,

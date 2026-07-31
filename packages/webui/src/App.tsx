@@ -7,8 +7,10 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { SessionProvider } from '@/contexts/SessionContext';
 import { LoginPage } from '@/components/pages/login-page';
-import { ChangePasswordPage } from '@/components/pages/change-password-page';
-import { ConsentPage } from '@/components/pages/consent-page';
+import {
+  OnboardingWizardPage,
+  type AdditionalOnboardingStep,
+} from '@/components/pages/onboarding-wizard-page';
 import { SkeletonSwap, useSkeletonSwap } from '@/components/interior/skeleton-swap';
 import { ApiProvider, createApiClient, useApi, type ApiClient } from '@/lib/api';
 import { DebugTaskProvider } from '@/contexts/DebugTaskContext';
@@ -24,14 +26,18 @@ import {
 import type { AgreementsPayload } from '@/lib/api/types';
 import { appRouter } from '@/router';
 
-export default function App() {
+interface AppProps {
+  onboardingSteps?: AdditionalOnboardingStep[];
+}
+
+export default function App({ onboardingSteps = [] }: AppProps) {
   return (
     <ActionFeedbackProvider>
       <ThemeProvider>
         <ActionFeedbackViewport />
         <AdaptivePointer />
         <GlobalContextMenu />
-        <AuthBoundary />
+        <AuthBoundary onboardingSteps={onboardingSteps} />
       </ThemeProvider>
     </ActionFeedbackProvider>
   );
@@ -55,7 +61,7 @@ function consumeUrlToken(): string | null {
   }
 }
 
-function AuthBoundary() {
+function AuthBoundary({ onboardingSteps }: { onboardingSteps: AdditionalOnboardingStep[] }) {
   const [authChecked, setAuthChecked] = useState(false);
   const [authed, setAuthed] = useState(false);
   const [mustChange, setMustChange] = useState(false);
@@ -65,6 +71,7 @@ function AuthBoundary() {
   const [agreements, setAgreements] = useState<AgreementsPayload | null>(null);
   const [agreementsError, setAgreementsError] = useState<string | null>(null);
   const [needsConsent, setNeedsConsent] = useState(false);
+  const [onboardingFinished, setOnboardingFinished] = useState(false);
   // The password from *this* session's login, carried into the forced
   // change-password gate so it doesn't have to render an old-password field
   // (which browsers autofill, misleading users on upgrade). Stays undefined
@@ -137,6 +144,7 @@ function AuthBoundary() {
     setAgreements(null);
     setAgreementsError(null);
     setNeedsConsent(false);
+    setOnboardingFinished(false);
     setLoginPassword(undefined);
   }, []);
 
@@ -156,6 +164,7 @@ function AuthBoundary() {
           setStatus('已连接');
           setMustChange(needsChange);
           setLoginPassword(password);
+          setOnboardingFinished(false);
           void refreshAgreements();
         }}
       />
@@ -168,23 +177,22 @@ function AuthBoundary() {
         onLogout={() => { void handleDecline(); }}
       />
     );
-  } else if (needsConsent && agreements) {
+  } else if (!onboardingFinished && (needsConsent || mustChange || onboardingSteps.length > 0) && agreements) {
     view = (
-      <ConsentGate
+      <OnboardingGate
         payload={agreements}
-        onAccepted={() => setNeedsConsent(false)}
-        onStale={refreshAgreements}
-        onDecline={handleDecline}
-      />
-    );
-  } else if (mustChange) {
-    view = (
-      <ForcedChangePasswordGate
+        needsConsent={needsConsent}
+        mustChangePassword={mustChange}
+        additionalSteps={onboardingSteps}
         knownOldPassword={loginPassword}
-        onSuccess={() => {
+        onConsentComplete={() => setNeedsConsent(false)}
+        onPasswordComplete={() => {
           setMustChange(false);
           setLoginPassword(undefined);
         }}
+        onComplete={() => setOnboardingFinished(true)}
+        onStale={refreshAgreements}
+        onDecline={handleDecline}
       />
     );
   } else {
@@ -288,24 +296,45 @@ function LoginGate({ onAuthed }: { onAuthed: (mustChange: boolean, password: str
   return <LoginPage onLogin={handleLogin} />;
 }
 
-function ConsentGate({
+function OnboardingGate({
   payload,
-  onAccepted,
+  needsConsent,
+  mustChangePassword,
+  knownOldPassword,
+  onConsentComplete,
+  onPasswordComplete,
+  onComplete,
+  additionalSteps,
   onStale,
   onDecline,
 }: {
   payload: AgreementsPayload;
-  onAccepted: () => void;
+  needsConsent: boolean;
+  mustChangePassword: boolean;
+  knownOldPassword?: string;
+  onConsentComplete: () => void;
+  onPasswordComplete: () => void;
+  onComplete: () => void;
+  additionalSteps: AdditionalOnboardingStep[];
   onStale: () => void;
   onDecline: () => void;
 }) {
   const api = useApi();
   const { runAction } = useActionFeedback();
   return (
-    <ConsentPage
+    <OnboardingWizardPage
       documents={payload.documents}
-      version={payload.version}
+      agreementVersion={payload.version}
+      needsConsent={needsConsent}
+      mustChangePassword={mustChangePassword}
+      knownOldPassword={knownOldPassword}
       onDecline={onDecline}
+      onConsentComplete={onConsentComplete}
+      onPasswordComplete={onPasswordComplete}
+      onComplete={onComplete}
+      additionalSteps={additionalSteps}
+      checkStrength={(password) => api.checkPasswordStrength(password)}
+      submitPassword={(oldPassword, newPassword) => api.changePassword(oldPassword, newPassword)}
       onAccept={async () => {
         const result = await runAction(
           {
@@ -318,7 +347,6 @@ function ConsentGate({
           () => api.agreements.recordConsent(payload.version),
         );
         if (result.success) {
-          onAccepted();
           return { success: true };
         }
         // 409: the agreement text changed under us — re-fetch and re-prompt.
@@ -328,24 +356,6 @@ function ConsentGate({
         }
         return { success: false, message: result.message ?? '提交失败，请重试' };
       }}
-    />
-  );
-}
-
-function ForcedChangePasswordGate({
-  knownOldPassword,
-  onSuccess,
-}: {
-  knownOldPassword?: string;
-  onSuccess: () => void;
-}) {
-  const api = useApi();
-  return (
-    <ChangePasswordPage
-      knownOldPassword={knownOldPassword}
-      checkStrength={(p) => api.checkPasswordStrength(p)}
-      submit={(o, n) => api.changePassword(o, n)}
-      onSuccess={onSuccess}
     />
   );
 }

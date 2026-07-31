@@ -28,7 +28,7 @@ import type {
   UiConfig,
   UpdateInfo,
 } from '@/types';
-import type { PasswordRule } from '@/components/pages/change-password-page';
+import type { PasswordRule } from '@/components/pages/change-password-form';
 
 export class ApiError extends Error {
   status: number;

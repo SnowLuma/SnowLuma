@@ -70,12 +70,12 @@ chmod +x launcher.sh
 
 ### 3. 打开 WebUI
 
-浏览器访问 [`http://localhost:5099`](http://localhost:5099)。初始账号为 `admin`，随机密码会显示在启动日志中；登录后即可接入已启动的 QQ 进程并配置 OneBot 连接。
+浏览器访问 [`http://localhost:5099`](http://localhost:5099)。初始账号为 `admin`，随机密码会显示在启动日志中；首次登录后，WebUI 会在同一个引导流程中完成协议确认与访问密码设置，随后即可接入已启动的 QQ 进程并配置 OneBot 连接。
 
 <details>
 <summary><strong>无人值守部署：通过环境变量确认协议</strong></summary>
 
-同时设置以下两个变量可跳过 WebUI 的协议确认页面：
+同时设置以下两个变量可跳过 WebUI 首次使用引导中的协议确认步骤：
 
 ```bash
 SNOWLUMA_ACCEPT_EULA=1
@@ -83,6 +83,8 @@ SNOWLUMA_ACCEPT_PRIVACY=1
 ```
 
 两项必须同时设置，且环境变量确认不会写入持久化同意记录。设置变量即表示运营者已阅读并同意 [`EULA.md`](EULA.md) 与 [`PRIVACY.md`](PRIVACY.md)。
+
+全新无人值守部署还可以使用 `SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD` 预设 WebUI 密码（至少 8 位）；由该变量初始化的密码不再要求进入强制修改步骤。已有 `config/webui.json` 时仍以现有凭据为准。
 
 </details>
 
