@@ -438,15 +438,14 @@ class HttpApiClient implements ApiClient {
   }
 
   async checkPasswordStrength(password: string): Promise<{ rules: PasswordRule[]; valid: boolean }> {
-    try {
-      const data = await this.postJson<{ rules?: PasswordRule[]; valid?: boolean }>(
-        '/api/auth/check-strength',
-        { password },
-      );
-      return { rules: data.rules ?? [], valid: !!data.valid };
-    } catch {
-      return { rules: [], valid: false };
+    const data = await this.postJson<{ rules?: PasswordRule[]; valid?: boolean }>(
+      '/api/auth/check-strength',
+      { password },
+    );
+    if (!Array.isArray(data.rules) || typeof data.valid !== 'boolean') {
+      throw new ApiError(502, '密码强度接口返回了无效响应');
     }
+    return { rules: data.rules, valid: data.valid };
   }
 
   async changePassword(oldPassword: string, newPassword: string): Promise<ChangePasswordResult> {

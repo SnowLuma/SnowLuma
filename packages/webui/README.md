@@ -13,6 +13,9 @@ status, OneBot configuration, logs, storage, and server settings.
   intermediate edit.
 - Failures must remain visible in the affected control and in the operation
   result; do not convert failed responses into successful feedback.
+- Password change flows use floating labels and inline validation consistently.
+- Password strength details appear only while the new-password field has focus
+  and leave with the same motion language when focus moves away.
 
 ## Local development
 
