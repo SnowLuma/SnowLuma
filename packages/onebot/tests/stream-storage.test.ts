@@ -97,6 +97,48 @@ describe('StreamStorage', () => {
       .toThrow(/root inspection denied/);
   });
 
+  it('rejects a managed root that is already a symbolic link', () => {
+    const externalDir = path.join(container, 'external');
+    const externalFile = path.join(externalDir, 'keep.bin');
+    writeSized(externalFile, 12);
+    fs.symlinkSync(externalDir, root);
+
+    expect(() => new StreamStorage(root)).toThrow(/symbolic link/i);
+    expect(fs.readFileSync(externalFile)).toHaveLength(12);
+  });
+
+  it('rejects a symbolic-link replacement before creating managed children', () => {
+    const externalDir = path.join(container, 'late-external');
+    fs.mkdirSync(externalDir);
+    fs.symlinkSync(externalDir, root);
+
+    expect(() => storage.ensureDirectory(storage.uploadDir)).toThrow(/symbolic link/i);
+    expect(fs.readdirSync(externalDir)).toEqual([]);
+  });
+
+  it.runIf(typeof process.getuid === 'function')('rejects a root owned by another account', () => {
+    fs.mkdirSync(root);
+    const uid = process.getuid!();
+    vi.spyOn(process, 'getuid').mockReturnValue(uid + 1);
+
+    expect(() => new StreamStorage(root)).toThrow(/owned by another account/i);
+  });
+
+  it.runIf(process.platform !== 'win32')('rejects a root writable by other accounts', () => {
+    fs.mkdirSync(root, { mode: 0o777 });
+    fs.chmodSync(root, 0o777);
+
+    expect(() => new StreamStorage(root)).toThrow(/writable by other accounts/i);
+  });
+
+  it('keeps ordinary existing directories usable', () => {
+    fs.mkdirSync(root, { mode: 0o755 });
+
+    const existing = new StreamStorage(root);
+    expect(() => existing.ensureDirectory(existing.uploadDir)).not.toThrow();
+    expect(fs.lstatSync(existing.uploadDir).isDirectory()).toBe(true);
+  });
+
   it('removes a symlink without following it outside the managed root', () => {
     const externalDir = path.join(root, '..', `${path.basename(root)}-external`);
     const externalFile = path.join(externalDir, 'keep.bin');
