@@ -14,6 +14,12 @@ import path from 'path';
 export const PIPE_MAGIC = 0x31504851;
 export const PIPE_VERSION = 1;
 export const HEADER_SIZE = 40;
+// Keep these byte limits in lockstep with nnphook's pipe_protocol.hpp. The
+// native readers already enforce them; mirroring them here prevents the JS
+// endpoint from buffering frames that the peer can never accept.
+export const MAX_PIPE_CMD_BYTES = 4096;
+export const MAX_PIPE_MSG_BYTES = 65536;
+export const MAX_PIPE_BODY_BYTES = 16 * 1024 * 1024;
 export const DEFAULT_ACK_TIMEOUT_MS = 5000;
 export const DEFAULT_REPLY_TIMEOUT_MS = 30000;
 const DEFAULT_PIPE_PROBE_TIMEOUT_MS = 250;
@@ -303,6 +309,7 @@ function encodeFrame({
   const cmdBuf = Buffer.from(cmd, 'utf8');
   const msgBuf = Buffer.from(msg, 'utf8');
   const bodyBuf = toBuffer(body);
+  validatePipeFrameLengths(cmdBuf.length, msgBuf.length, bodyBuf.length);
   const header = Buffer.alloc(HEADER_SIZE);
   header.writeUInt32LE(PIPE_MAGIC, 0);
   header.writeUInt16LE(PIPE_VERSION, 4);
@@ -317,45 +324,115 @@ function encodeFrame({
   return Buffer.concat([header, cmdBuf, msgBuf, bodyBuf]);
 }
 
+function validatePipeFrameLengths(cmdLen: number, msgLen: number, bodyLen: number): void {
+  const lengths = [
+    ['command', cmdLen, MAX_PIPE_CMD_BYTES],
+    ['message', msgLen, MAX_PIPE_MSG_BYTES],
+    ['body', bodyLen, MAX_PIPE_BODY_BYTES],
+  ] as const;
+  for (const [name, length, limit] of lengths) {
+    if (length > limit) {
+      throw new Error(`pipe frame ${name} length ${length} exceeds limit ${limit}`);
+    }
+  }
+}
+
+interface PendingPipeFrame {
+  op: number;
+  requestId: number;
+  status: number;
+  flags: number;
+  value0: bigint;
+  cmdLen: number;
+  msgLen: number;
+  bodyLen: number;
+  payload: Buffer;
+  received: number;
+}
+
 class FrameReader {
-  private buffer = Buffer.alloc(0);
+  private readonly header = Buffer.alloc(HEADER_SIZE);
+  private headerBytes = 0;
+  private pending: PendingPipeFrame | null = null;
 
   constructor(private readonly onFrame: (frame: PipeFrame) => void) { }
 
   push(chunk: Buffer): void {
-    this.buffer = Buffer.concat([this.buffer, chunk]);
-    while (this.buffer.length >= HEADER_SIZE) {
-      const magic = this.buffer.readUInt32LE(0);
-      const version = this.buffer.readUInt16LE(4);
-      if (magic !== PIPE_MAGIC || version !== PIPE_VERSION) {
-        throw new Error(`bad frame header magic=0x${magic.toString(16)} version=${version}`);
+    let chunkOffset = 0;
+    while (chunkOffset < chunk.length) {
+      if (!this.pending) {
+        const headerBytes = Math.min(HEADER_SIZE - this.headerBytes, chunk.length - chunkOffset);
+        chunk.copy(
+          this.header,
+          this.headerBytes,
+          chunkOffset,
+          chunkOffset + headerBytes,
+        );
+        this.headerBytes += headerBytes;
+        chunkOffset += headerBytes;
+        if (this.headerBytes < HEADER_SIZE) return;
+
+        this.headerBytes = 0;
+        const magic = this.header.readUInt32LE(0);
+        const version = this.header.readUInt16LE(4);
+        if (magic !== PIPE_MAGIC || version !== PIPE_VERSION) {
+          throw new Error(`bad frame header magic=0x${magic.toString(16)} version=${version}`);
+        }
+
+        const cmdLen = this.header.readUInt32LE(20);
+        const msgLen = this.header.readUInt32LE(24);
+        const bodyLen = this.header.readUInt32LE(28);
+        validatePipeFrameLengths(cmdLen, msgLen, bodyLen);
+        const payloadLength = cmdLen + msgLen + bodyLen;
+        this.pending = {
+          op: this.header.readUInt16LE(6),
+          requestId: this.header.readUInt32LE(8),
+          status: this.header.readInt32LE(12),
+          flags: this.header.readUInt32LE(16),
+          value0: this.header.readBigUInt64LE(32),
+          cmdLen,
+          msgLen,
+          bodyLen,
+          payload: payloadLength === 0 ? Buffer.alloc(0) : Buffer.allocUnsafe(payloadLength),
+          received: 0,
+        };
       }
 
-      const cmdLen = this.buffer.readUInt32LE(20);
-      const msgLen = this.buffer.readUInt32LE(24);
-      const bodyLen = this.buffer.readUInt32LE(28);
-      const total = HEADER_SIZE + cmdLen + msgLen + bodyLen;
-      if (this.buffer.length < total) return;
+      const pending = this.pending;
+      const payloadBytes = Math.min(
+        pending.payload.length - pending.received,
+        chunk.length - chunkOffset,
+      );
+      if (payloadBytes > 0) {
+        chunk.copy(
+          pending.payload,
+          pending.received,
+          chunkOffset,
+          chunkOffset + payloadBytes,
+        );
+        pending.received += payloadBytes;
+        chunkOffset += payloadBytes;
+      }
+      if (pending.received < pending.payload.length) return;
 
+      this.pending = null;
       const frame: PipeFrame = {
-        op: this.buffer.readUInt16LE(6),
-        requestId: this.buffer.readUInt32LE(8),
-        status: this.buffer.readInt32LE(12),
-        flags: this.buffer.readUInt32LE(16),
-        value0: this.buffer.readBigUInt64LE(32),
+        op: pending.op,
+        requestId: pending.requestId,
+        status: pending.status,
+        flags: pending.flags,
+        value0: pending.value0,
         cmd: '',
         msg: '',
         body: Buffer.alloc(0),
       };
 
-      let offset = HEADER_SIZE;
-      frame.cmd = this.buffer.subarray(offset, offset + cmdLen).toString('utf8');
-      offset += cmdLen;
-      frame.msg = this.buffer.subarray(offset, offset + msgLen).toString('utf8');
-      offset += msgLen;
-      frame.body = Buffer.from(this.buffer.subarray(offset, offset + bodyLen));
-
-      this.buffer = this.buffer.subarray(total);
+      let offset = 0;
+      frame.cmd = pending.payload.subarray(offset, offset + pending.cmdLen).toString('utf8');
+      offset += pending.cmdLen;
+      frame.msg = pending.payload.subarray(offset, offset + pending.msgLen).toString('utf8');
+      offset += pending.msgLen;
+      frame.body = Buffer.from(pending.payload.subarray(offset, offset + pending.bodyLen));
       this.onFrame(frame);
     }
   }
@@ -830,7 +907,7 @@ export class QqHookClient extends EventEmitter {
             reader.push(chunk);
           } catch (error) {
             this.emit('error', error);
-            socket.destroy(error instanceof Error ? error : undefined);
+            socket.destroy();
           }
         });
         socket.on('error', error => {
