@@ -43,7 +43,7 @@ class HttpApiClient implements ApiClient {
   private currentToken: string | null;
   private onUnauthorized?: () => void;
 
-  // Shared, ref-counted /api/logs/stream: a single EventSource fans out to every
+  // Shared, ref-counted /api/logs/stream: a single authenticated fetch stream fans out to every
   // subscriber (any number of dashboard alert widgets + the log viewer) instead
   // of opening one connection each. See openLogStream.
   private logSubscribers = new Set<LogsStreamOptions>();
@@ -381,8 +381,8 @@ class HttpApiClient implements ApiClient {
     const changed = this.currentToken !== token;
     this.currentToken = token;
     this.tokenStore.save(token);
-    // The shared log stream URL carries the token — rebuild it on any change so
-    // a re-login doesn't leave subscribers on a stale-token connection (#185).
+    // Rebuild the shared stream on any change so a re-login doesn't leave
+    // subscribers on a stale Authorization header (#185).
     if (changed) this.reopenSharedLogStream();
   }
 
@@ -485,10 +485,10 @@ class HttpApiClient implements ApiClient {
   /**
    * Open a token-authed SSE channel to `path`, dispatching each parsed frame to
    * `onMessage` and surfacing transport state ('open' / 'reconnecting' /
-   * 'closed') via `onStatus`. EventSource auto-reconnects on drop — `onerror`
-   * fires once per loss, so a single 'reconnecting' is enough. A malformed
-   * frame (or a throw from `onMessage`) is swallowed; the next frame arrives
-   * normally. The returned disposer closes the source and reports 'closed'.
+   * 'closed') via `onStatus`. The fetch stream reconnects after transport loss
+   * so it retains EventSource's user-visible behaviour while keeping the token
+   * in the Authorization header. A malformed frame (or a throw from
+   * `onMessage`) is skipped. The returned disposer aborts the active request.
    */
   private openSseChannel<T>(
     path: string,
@@ -496,14 +496,98 @@ class HttpApiClient implements ApiClient {
     onStatus?: (s: StreamStatus) => void,
   ): () => void {
     if (!this.currentToken) { onStatus?.('closed'); return () => {}; }
-    const url = `${path}?token=${encodeURIComponent(this.currentToken)}`;
-    const source = new EventSource(url);
-    source.onopen = () => onStatus?.('open');
-    source.onerror = () => onStatus?.('reconnecting');
-    source.onmessage = (event) => {
-      try { onMessage(JSON.parse(event.data) as T); } catch { /* malformed frame — skip */ }
+    let disposed = false;
+    let active: AbortController | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleReconnect = () => {
+      if (disposed || reconnectTimer !== null) return;
+      onStatus?.('reconnecting');
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        void connect();
+      }, 1_000);
     };
-    return () => { source.close(); onStatus?.('closed'); };
+
+    const connect = async () => {
+      const token = this.currentToken;
+      if (disposed || !token) { onStatus?.('closed'); return; }
+      const controller = new AbortController();
+      active = controller;
+      try {
+        const response = await fetch(path, {
+          headers: {
+            Accept: 'text/event-stream',
+            Authorization: `Bearer ${token}`,
+          },
+          signal: controller.signal,
+        });
+        if (response.status === 401) {
+          disposed = true;
+          active = null;
+          this.setToken(null);
+          this.onUnauthorized?.();
+          onStatus?.('closed');
+          return;
+        }
+        if (!response.ok || !response.body) {
+          throw new ApiError(response.status, response.statusText || '实时连接失败');
+        }
+        onStatus?.('open');
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        try {
+          while (!disposed) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            if (buffer.length > 1024 * 1024) throw new Error('SSE frame buffer exceeded 1 MiB');
+            for (;;) {
+              const lf = buffer.indexOf('\n\n');
+              const crlf = buffer.indexOf('\r\n\r\n');
+              let separator = -1;
+              let separatorLength = 0;
+              if (lf >= 0 && (crlf < 0 || lf < crlf)) {
+                separator = lf;
+                separatorLength = 2;
+              } else if (crlf >= 0) {
+                separator = crlf;
+                separatorLength = 4;
+              }
+              if (separator < 0) break;
+              const block = buffer.slice(0, separator);
+              buffer = buffer.slice(separator + separatorLength);
+              const data = block
+                .split(/\r?\n/u)
+                .filter((line) => line.startsWith('data:'))
+                .map((line) => line.slice(5).replace(/^ /u, ''))
+                .join('\n');
+              if (!data) continue;
+              try { onMessage(JSON.parse(data) as T); } catch { /* malformed frame — skip */ }
+            }
+          }
+        } finally {
+          reader.releaseLock();
+        }
+        if (!disposed) scheduleReconnect();
+      } catch {
+        if (!disposed && !controller.signal.aborted) scheduleReconnect();
+      } finally {
+        if (active === controller) active = null;
+      }
+    };
+
+    void connect();
+    return () => {
+      if (disposed) return;
+      disposed = true;
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+      active?.abort();
+      active = null;
+      onStatus?.('closed');
+    };
   }
 
   private openLogStream(options: LogsStreamOptions): () => void {

@@ -99,7 +99,7 @@ export function LiveActivity() {
   const [query, setQuery] = useState('');
   const idRef = useRef(0);
 
-  // Pausing truly drops the EventSource instead of connecting-and-discarding:
+  // Pausing truly drops the live fetch stream instead of connecting-and-discarding:
   // `paused` is an effect dependency, so it closes the stream on pause and
   // reopens it on resume. (The always-on-across-tabs behaviour is intentional —
   // debug-page keeps this mounted so actions fired from other tabs still land in

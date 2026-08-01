@@ -79,6 +79,14 @@ import type { NotificationManager } from '../notifications/manager';
 import { StorageManagementService } from './storage-management';
 import { registerStorageRoutes } from './storage-routes';
 import { LogStorageSettingsManager } from './storage-settings';
+import {
+  clearAvatarSessionCookie,
+  extractBearerToken,
+  readAvatarSessionToken,
+  registerLoginRequestSecurity,
+  setAvatarSessionCookie,
+  webuiSecurityHeaders,
+} from './request-security';
 
 const log = createLogger('WebUI');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -198,21 +206,6 @@ const CONSENT_ALLOWLIST = new Set([
   '/api/agreements/record-consent',
   '/api/logout',
 ]);
-
-// Endpoints that may authenticate via `?token=` query parameter. Reserved
-// for SSE streams: EventSource cannot set custom headers, so these MUST
-// accept the token via query. All other endpoints use the Authorization
-// header so tokens never leak into access logs / Referer / browser history.
-//
-// Exported so the regression test can lock the invariant — a missing entry
-// here silently 401s the EventSource and the whole push channel goes dark,
-// which has happened (see /api/state/stream's first cut).
-export const SSE_TOKEN_QUERY_PATHS: ReadonlySet<string> = new Set([
-  '/api/logs/stream',
-  '/api/debug/stream',
-  '/api/state/stream',
-]);
-const TOKEN_QUERY_ALLOWLIST = SSE_TOKEN_QUERY_PATHS;
 
 // uin = QQ number; 5–10 digits (real QQ UINs fit in uint32, max 4294967295).
 // Used to construct config file paths, so we MUST refuse anything else (path
@@ -533,6 +526,8 @@ export async function initWebUI(
   }
 
   const app = new Hono();
+  app.use('*', webuiSecurityHeaders);
+  registerLoginRequestSecurity(app);
   const storageManagement = new StorageManagementService({
     dataDir: 'data',
     getLogStatus: getLogStorageStatus,
@@ -583,10 +578,7 @@ export async function initWebUI(
     // nothing sensitive (no layout, no secrets) — see ui-config.ts.
     if (reqPath === '/api/login' || reqPath === '/api/ui/public') return next();
 
-    const authHeader = c.req.header('Authorization');
-    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
-    const queryToken = TOKEN_QUERY_ALLOWLIST.has(reqPath) ? (c.req.query('token') ?? '') : '';
-    const token = bearerToken || queryToken;
+    const token = extractBearerToken(c.req.raw);
     if (!token) return c.json({ status: 'failed', message: 'Unauthorized' }, 401);
 
     const info = sessionTokens.get(token);
@@ -650,12 +642,14 @@ export async function initWebUI(
     const token = randomBytes(32).toString('hex');
     const mustChange = auth.mustChangePassword();
     sessionTokens.set(token, { expiresAt: now + TOKEN_TTL_MS, mustChangePassword: mustChange });
+    setAvatarSessionCookie(c, token, listener.tlsEnabled === true);
     return c.json({ success: true, token, mustChangePassword: mustChange });
   });
 
   app.post('/api/logout', (c) => {
     const token = c.get('sessionToken' as never) as string | undefined;
     if (token) sessionTokens.delete(token);
+    clearAvatarSessionCookie(c, listener.tlsEnabled === true);
     return c.json({ success: true });
   });
 
@@ -709,6 +703,7 @@ export async function initWebUI(
     // password was compromised, the attacker may already hold the current
     // token; rotating credentials must rotate sessions too.
     sessionTokens.clear();
+    clearAvatarSessionCookie(c, listener.tlsEnabled === true);
     log.info('password updated; all sessions invalidated');
     return c.json({ success: true, requireRelogin: true });
   });
@@ -750,6 +745,12 @@ export async function initWebUI(
 
   // ─── Avatar proxy (uin validated) ────────────────────────────────────────
   app.get('/avatar/:uin', async (c) => {
+    const sessionToken = readAvatarSessionToken(c);
+    const session = sessionTokens.get(sessionToken);
+    if (!session || Date.now() > session.expiresAt) {
+      if (sessionToken) sessionTokens.delete(sessionToken);
+      return c.text('unauthorized', 401);
+    }
     const uin = c.req.param('uin');
     if (!UIN_REGEX.test(uin)) return c.text('invalid uin', 400);
 
@@ -768,7 +769,8 @@ export async function initWebUI(
     return new Response(cached.body, {
       headers: {
         'Content-Type': cached.contentType,
-        'Cache-Control': `public, max-age=${AVATAR_BROWSER_CACHE_SECONDS}, immutable`,
+        'Cache-Control': `private, max-age=${AVATAR_BROWSER_CACHE_SECONDS}, immutable`,
+        Vary: 'Cookie',
       },
     });
   });
@@ -793,7 +795,13 @@ export async function initWebUI(
   });
 
   // ─── Read-only API ───────────────────────────────────────────────────────
-  app.get('/api/status', (c) => c.json({ status: 'running' }));
+  app.get('/api/status', (c) => {
+    // Refresh the path-scoped avatar cookie for a still-valid localStorage
+    // session (for example after upgrading from a version without the cookie).
+    const token = c.get('sessionToken' as never) as string;
+    setAvatarSessionCookie(c, token, listener.tlsEnabled === true);
+    return c.json({ status: 'running' });
+  });
 
   // Advisory update check — compares the running build against the latest
   // GitHub stable release and links the user to it. Read-only: SnowLuma
