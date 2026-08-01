@@ -8,6 +8,7 @@ import type {
   OidbFriendCategory,
   OidbRobotUinRangeResponse,
   OidbSvcTrpcTcp0xFD4_1Response,
+  OidbSvcTrpcTcp0xFE5_2Response,
   OidbSvcTrpcTcp0xFE7_3Response,
 } from '@snowluma/proto-defs/oidb';
 import type {
@@ -86,6 +87,18 @@ function memberListPacket(body: OidbSvcTrpcTcp0xFE7_3Response): SendPacketResult
   };
 }
 
+function groupListPacket(body: OidbSvcTrpcTcp0xFE5_2Response): SendPacketResult {
+  return {
+    success: true,
+    gotResponse: true,
+    errorCode: 0,
+    errorMessage: '',
+    responseData: Buffer.from(
+      protobuf_encode<OidbBase<OidbSvcTrpcTcp0xFE5_2Response>>({ body }),
+    ),
+  };
+}
+
 function apiForPages(pages: OidbSvcTrpcTcp0xFD4_1Response[]) {
   let index = 0;
   const sendRawPacket = vi.fn(async (
@@ -130,6 +143,34 @@ function apiForCategoryChange(roster: OidbSvcTrpcTcp0xFD4_1Response) {
   } as any);
   return { api, sendRawPacket };
 }
+
+describe('apis/contacts / group roster', () => {
+  it('maps QQ group remarks into the returned and remembered roster', async () => {
+    const rememberGroups = vi.fn();
+    const sendRawPacket = vi.fn(async () => groupListPacket({
+      groups: [{
+        groupUin: 123456789,
+        info: { groupName: 'Project', memberCount: 42, memberMax: 500 },
+        customInfo: { remark: '  My Project  ' },
+      }],
+    }));
+    const api = new ContactsApi({
+      sendRawPacket,
+      identity: { rememberGroups },
+    } as any);
+
+    const groups = await api.fetchGroupList();
+
+    expect(groups).toEqual([expect.objectContaining({
+      groupId: 123456789,
+      groupName: 'Project',
+      remark: '  My Project  ',
+      memberCount: 42,
+      memberMax: 500,
+    })]);
+    expect(rememberGroups).toHaveBeenCalledWith(groups);
+  });
+});
 
 describe('apis/contacts / categorized friend roster', () => {
   it('keeps fetchFriendList flat while traversing cookie pages', async () => {

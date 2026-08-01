@@ -275,7 +275,8 @@ export interface OidbGroupListConfig1 {
 export interface OidbGroupListConfig2 {
   field1?: pb<1, bool>;
   field2?: pb<2, bool>;
-  field3?: pb<3, bool>;
+  /** Request the bot-local label returned as group.customInfo.remark. */
+  remark?: pb<3, bool>;
   field4?: pb<4, bool>;
   field5?: pb<5, bool>;
   field6?: pb<6, bool>;

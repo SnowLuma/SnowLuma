@@ -129,6 +129,7 @@ export interface MockBridge {
     findUinByUid: ReturnType<typeof vi.fn>;
     findGroupMember: ReturnType<typeof vi.fn>;
     updateFriendRemark: ReturnType<typeof vi.fn>;
+    updateGroupRemark: ReturnType<typeof vi.fn>;
     forgetGroup: ReturnType<typeof vi.fn>;
   };
   events: { emit: ReturnType<typeof vi.fn> };
@@ -162,6 +163,7 @@ export function mockBridge(overrides: Partial<MockBridge> = {}): MockBridge {
       findUinByUid: vi.fn(() => 0),
       findGroupMember: vi.fn(() => null),
       updateFriendRemark: vi.fn(() => true),
+      updateGroupRemark: vi.fn(() => true),
       forgetGroup: vi.fn(),
       ...(overrides.identity ?? {}),
     } as MockBridge['identity'],

@@ -322,6 +322,35 @@ export class IdentityService {
     this.runWrite('group member update', () => this.transaction(() => this.upsertGroupMember(persisted)));
   }
 
+  /** Apply a server-confirmed update to the bot's local label for one group. */
+  updateGroupRemark(groupId: number, remark: string): boolean {
+    this.beginObservation('group remark update');
+    if (!Number.isSafeInteger(groupId) || groupId <= 0) {
+      throw new Error(`group remark update has invalid group id: ${groupId}`);
+    }
+    if (typeof remark !== 'string') {
+      throw new Error('group remark update must be a string');
+    }
+
+    const group = this.groups_.get(groupId);
+    if (!group) return false;
+
+    const observed: QQGroupInfo = { ...group, remark };
+    const persisted: GroupInput = {
+      groupId,
+      groupName: observed.groupName,
+      remark: observed.remark,
+      memberCount: observed.memberCount,
+      memberMax: observed.memberMax,
+    };
+    this.groups_.set(groupId, observed);
+    this.runWrite(
+      'group remark update',
+      () => this.transaction(() => this.upsertGroup(persisted)),
+    );
+    return true;
+  }
+
   /** Apply the server-authoritative friend/stranger remark synchronization push. */
   updateFriendRemark(uid: string, uin: number, remark: string): boolean {
     this.beginObservation('friend remark update');
@@ -932,7 +961,7 @@ export class IdentityService {
     ).run(
       input.groupId,
       mergeOptionalText(input.groupName, existing?.group_name ?? ''),
-      mergeOptionalText(input.remark, existing?.remark ?? ''),
+      mergeOptionalExactText(input.remark, existing?.remark ?? ''),
       normalizeNonNegative(input.memberCount, existing?.member_count ?? 0),
       normalizeNonNegative(input.memberMax, existing?.member_max ?? 0),
       nowSeconds(),

@@ -28,13 +28,17 @@ describe('FetchGroupList namespace', () => {
       expect(env.reserved).toBe(1);
     });
 
-    it('sends the verbatim config blob (field5002/5003 OFF to avoid EPIPE on big rosters)', async () => {
+    it('requests group remarks without enabling the other costly optional fields', async () => {
       const sender = makeSender();
       await FetchGroupList.invoke(sender);
       const [, bytes] = sender.sendRawPacket.mock.calls[0]!;
       const env = protobuf_decode<OidbBase<OidbGroupListRequest>>(bytes);
       expect(env.body?.config?.config1?.groupName).toBe(true);
       expect(env.body?.config?.config1?.memberCount).toBe(true);
+      expect(env.body?.config?.config2?.remark).toBe(true);
+      for (const field of ['field1', 'field2', 'field4', 'field5', 'field6', 'field7', 'field8'] as const) {
+        expect(env.body?.config?.config2?.[field] ?? false, field).toBe(false);
+      }
       // proto3 default false — omitted on wire, decoded as null.
       expect(env.body?.config?.config1?.field5002 ?? false).toBe(false);
       expect(env.body?.config?.config1?.field5003 ?? false).toBe(false);

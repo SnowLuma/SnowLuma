@@ -238,6 +238,37 @@ describe('IdentityService', () => {
     }
   });
 
+  it('keeps exact group remark updates after reopening the persistent cache', () => {
+    const dbPath = tempDbPath('update-group-remark');
+    const remark = '  project group  ';
+
+    {
+      const identity = new IdentityService(SELF_UIN, dbPath);
+      identity.rememberGroups([{ ...makeGroup(), remark: 'old-remark' }]);
+
+      expect(identity.updateGroupRemark(GROUP_ID, remark)).toBe(true);
+      expect(identity.findGroup(GROUP_ID)?.remark).toBe(remark);
+      identity.close();
+    }
+
+    {
+      const identity = new IdentityService(SELF_UIN, dbPath);
+      expect(identity.findGroup(GROUP_ID)?.remark).toBe(remark);
+      identity.close();
+    }
+  });
+
+  it('does not invent a group while applying a remark update', () => {
+    const identity = IdentityService.memory(SELF_UIN);
+    identity.rememberGroups([makeGroup()]);
+
+    expect(identity.updateGroupRemark(987654321, 'unknown')).toBe(false);
+    expect(identity.groups).toHaveLength(1);
+    expect(identity.findGroup(GROUP_ID)?.remark).toBe('');
+    expect(identity.findGroup(987654321)).toBeNull();
+    identity.close();
+  });
+
   it.each([
     ['empty', ''],
     ['whitespace-only', '   '],
@@ -749,6 +780,7 @@ describe('IdentityService', () => {
       ['nickname', () => { identity.nickname = 'after-close'; }],
       ['self profile', () => identity.setSelfProfile(profile)],
       ['group member update', () => identity.updateGroupMember(GROUP_ID, { ...member, card: 'after-close' })],
+      ['group remark update', () => identity.updateGroupRemark(GROUP_ID, 'after-close')],
       ['friends', () => identity.rememberFriends([{ uin: 22222, uid: 'u_friend', nickname: '', remark: '' }])],
       ['groups', () => identity.rememberGroups([])],
       ['forget group', () => identity.forgetGroup(GROUP_ID)],
