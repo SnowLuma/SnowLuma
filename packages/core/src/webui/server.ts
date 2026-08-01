@@ -484,7 +484,7 @@ export async function initWebUI(
   const auth = WebuiAuth.load();
   const initialPassword = auth.takeInitialPassword();
   if (auth.isDevMode()) {
-    log.warn('dev mode enabled: password=%s', WebuiAuth.devPassword);
+    log.warn('dev mode enabled with the configured development credential');
     log.warn('dev mode skips config/webui.json and password rotation');
   } else if (initialPassword) {
     log.info('════════════════════════════════════════════════════════════════');

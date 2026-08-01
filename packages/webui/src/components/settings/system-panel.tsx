@@ -379,7 +379,7 @@ export function SystemPanel() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-sm"><Database className="h-4 w-4" /> 配置备份 / 恢复</CardTitle>
-            <CardDescription>备份外观、通知、系统设置和证书等配置；敏感开关还会包含 OneBot 配置。不含消息数据库。</CardDescription>
+            <CardDescription>备份外观、系统设置和证书等配置；通知渠道与 OneBot 配置仅在包含敏感配置时导出。不含消息数据库。</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
@@ -388,7 +388,7 @@ export function SystemPanel() {
                 <ToggleSwitch value={exportCreds} onChange={setExportCreds} ariaLabel="导出包含敏感配置" />
               </div>
               {exportCreds && (
-                <p className="text-sm leading-relaxed text-red-600 dark:text-red-400">⚠ 将额外包含 WebUI 登录状态、TLS 私钥，以及带访问令牌的 OneBot 配置，请妥善保管。</p>
+                <p className="text-sm leading-relaxed text-red-600 dark:text-red-400">⚠ 将额外包含 WebUI 登录状态、TLS 私钥、通知渠道地址与 OneBot 访问令牌，请妥善保管。</p>
               )}
               <div>
                 <Button onClick={exportBackup} disabled={saving} className="gap-1.5">
@@ -405,7 +405,7 @@ export function SystemPanel() {
                 <ToggleSwitch value={restoreCreds} onChange={setRestoreCreds} ariaLabel="恢复包含敏感配置" />
               </div>
               {restoreCreds && (
-                <p className="text-sm leading-relaxed text-red-600 dark:text-red-400">⚠ 将覆盖当前 WebUI 登录状态、TLS 私钥与 OneBot 配置（含访问令牌）；若备份口令未知可能登不进。</p>
+                <p className="text-sm leading-relaxed text-red-600 dark:text-red-400">⚠ 将覆盖当前 WebUI 登录状态、TLS 私钥、通知渠道地址与 OneBot 访问令牌；若备份口令未知可能登不进。</p>
               )}
               <input
                 ref={fileRef}

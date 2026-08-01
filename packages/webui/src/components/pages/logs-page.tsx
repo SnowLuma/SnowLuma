@@ -606,7 +606,7 @@ export function LogsPage() {
               <div>
                 <div className="mb-2 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                   <span className="text-xs font-medium text-foreground">服务端日志级别</span>
-                  <span className="text-xs text-muted-foreground">· 普通日志仅影响控制台 / 实时流；首次登录凭据始终可见；文件等级由环境变量决定，默认为 debug</span>
+                  <span className="text-xs text-muted-foreground">· 普通日志仅影响控制台 / 实时流；首次登录凭据仅输出到启动终端；文件等级由环境变量决定，默认为 debug</span>
                 </div>
                 <SkeletonSwap
                   ready={serverLevelReady}

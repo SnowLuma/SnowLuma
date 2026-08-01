@@ -27,9 +27,10 @@ describe('buildBackup', () => {
     expect(b.files['runtime.json']).toEqual({ encoding: 'utf8', data: '{"webuiPort":5099}' });
   });
 
-  it('treats all OneBot config (global + per-uin), webui.json, key.pem as credentials', () => {
+  it('treats notification endpoints and all authentication material as credentials', () => {
     const map = {
       'runtime.json': Buffer.from('{}'),
+      'notifications.json': Buffer.from('{"channels":[]}'),
       'webui.json': Buffer.from('{"hash":"x"}'),
       'key.pem': Buffer.from('KEY'),
       'cert.pem': Buffer.from('CERT'),
@@ -42,7 +43,7 @@ describe('buildBackup', () => {
     expect(Object.keys(without.files).sort()).toEqual(['cert.pem', 'runtime.json']);
     const withCreds = buildBackup(reader(map), perUin, { includeCredentials: true }, TS);
     expect(Object.keys(withCreds.files).sort()).toEqual(
-      ['cert.pem', 'key.pem', 'onebot.json', 'onebot_12345.json', 'runtime.json', 'webui.json'],
+      ['cert.pem', 'key.pem', 'notifications.json', 'onebot.json', 'onebot_12345.json', 'runtime.json', 'webui.json'],
     );
   });
 
@@ -61,6 +62,7 @@ describe('buildBackup', () => {
 describe('specFor', () => {
   it('resolves static names and per-uin onebot pattern; rejects others', () => {
     expect(specFor('runtime.json')?.credential).toBe(false);
+    expect(specFor('notifications.json')?.credential).toBe(true);
     expect(specFor('onebot.json')?.credential).toBe(true);
     expect(specFor('onebot_98765.json')).toEqual({ name: 'onebot_98765.json', binary: false, credential: true });
     expect(specFor('onebot_.json')).toBeNull();
@@ -71,9 +73,9 @@ describe('specFor', () => {
   });
 });
 
-it('BACKUP_FILES marks webui.json / key.pem / onebot.json as credentials, cert.pem public', () => {
+it('BACKUP_FILES marks notification endpoints and authentication material as credentials', () => {
   const creds = BACKUP_FILES.filter((f) => f.credential).map((f) => f.name).sort();
-  expect(creds).toEqual(['key.pem', 'onebot.json', 'webui.json']);
+  expect(creds).toEqual(['key.pem', 'notifications.json', 'onebot.json', 'webui.json']);
   expect(specFor('cert.pem')?.credential).toBe(false);
 });
 
@@ -156,8 +158,21 @@ describe('prepareRestorePlan — strict semantic preflight', () => {
           }),
         },
       }),
-      { restoreCredentials: false, readCurrent: () => null },
+      { restoreCredentials: true, readCurrent: () => null },
     )).toThrow(/notifications\.json.*channels/i);
+  });
+
+  it('skips notification endpoints when credential restore is disabled', () => {
+    const prepared = prepareRestorePlan(
+      backupWith({
+        'notifications.json': { encoding: 'utf8', data: '{private malformed value' },
+        'runtime.json': { encoding: 'utf8', data: '{}' },
+      }),
+      { restoreCredentials: false, readCurrent: () => null },
+    );
+
+    expect(prepared.skipped).toEqual(['notifications.json']);
+    expect(prepared.restore.map((entry) => entry.name)).toEqual(['runtime.json']);
   });
 
   it('does not validate credential files that the operator chose to skip', () => {
@@ -278,13 +293,18 @@ describe('prepareRestorePlan — strict semantic preflight', () => {
     const prepared = prepareRestorePlan(
       backupWith({
         'webui.json': { encoding: 'utf8', data: JSON.stringify(validAuth) },
+        'notifications.json': {
+          encoding: 'utf8',
+          data: JSON.stringify({ version: 1, debounceSeconds: 30, channels: [] }),
+        },
       }),
       { restoreCredentials: true, readCurrent: () => null, listCurrentOneBotNames: () => [] },
     );
 
-    expect(prepared.restore).toEqual([
+    expect(prepared.restore).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'webui.json', mode: 0o600 }),
-    ]);
+      expect.objectContaining({ name: 'notifications.json', mode: 0o600 }),
+    ]));
   });
 
   it('rejects an encoding that does not match the allowlisted file kind', () => {

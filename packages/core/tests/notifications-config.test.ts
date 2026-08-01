@@ -160,7 +160,11 @@ describe('loadNotificationsConfig / saveNotificationsConfig (fs-backed)', () => 
     const mod = await import('../src/notifications/config');
     const cfg = mod.loadNotificationsConfig();
     expect(cfg).toEqual(mod.defaultNotificationsConfig());
-    expect(fs.existsSync(path.join('config', 'notifications.json'))).toBe(true);
+    const file = path.join('config', 'notifications.json');
+    expect(fs.existsSync(file)).toBe(true);
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    }
   });
 
   it('round-trips a saved config across a fresh module load', async () => {
@@ -175,6 +179,42 @@ describe('loadNotificationsConfig / saveNotificationsConfig (fs-backed)', () => 
     vi.resetModules();
     const mod2 = await import('../src/notifications/config');
     expect(mod2.loadNotificationsConfig()).toEqual(saved);
+  });
+
+  it('repairs permissive permissions on an existing sensitive config', async () => {
+    const file = path.join('config', 'notifications.json');
+    fs.mkdirSync('config', { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({
+      version: 1,
+      debounceSeconds: 30,
+      channels: [{ id: 'ops', url: 'https://example.com/private-hook' }],
+    }), { encoding: 'utf8', mode: 0o644 });
+    if (process.platform !== 'win32') fs.chmodSync(file, 0o644);
+
+    const mod = await import('../src/notifications/config');
+    expect(mod.loadNotificationsConfig().channels).toHaveLength(1);
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  it('keeps restrictive permissions after replacing an existing config', async () => {
+    const file = path.join('config', 'notifications.json');
+    fs.mkdirSync('config', { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ version: 1, debounceSeconds: 30, channels: [] }), {
+      encoding: 'utf8',
+      mode: 0o644,
+    });
+    if (process.platform !== 'win32') fs.chmodSync(file, 0o644);
+
+    const mod = await import('../src/notifications/config');
+    mod.saveNotificationsConfig({
+      channels: [{ id: 'ops', url: 'https://example.com/private-hook' }],
+    });
+
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    }
   });
 
   it('section-merges partial saves (debounce-only keeps channels)', async () => {
