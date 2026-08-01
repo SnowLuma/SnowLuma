@@ -269,7 +269,7 @@ export function ConfigPage() {
               </div>
 
               {/* Single dialog covers create + edit across all 4 kinds. */}
-              {dialog.open && config && (
+              {dialog.open && config && selectedUin && (
                 <NodeEditDialog
                   open={dialog.open}
                   onOpenChange={(open) => !open && setDialog({ open: false })}
@@ -277,6 +277,7 @@ export function ConfigPage() {
                   initial={dialog.seed}
                   isEdit={dialog.index != null}
                   otherNames={otherNames(config.networks, dialog.kind, dialog.index)}
+                  uin={selectedUin}
                   onSubmit={(item) => {
                     if (dialog.index == null) handleCreate(dialog.kind, item);
                     else handleEdit(dialog.kind, dialog.index, item);

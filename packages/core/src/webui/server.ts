@@ -17,6 +17,7 @@ import {
   subscribeLogs,
 } from '@snowluma/common/logger';
 import {
+  assertValidOneBotConfig,
   loadOneBotConfig,
   OneBotConfigValidationError,
   saveOneBotConfig,
@@ -61,6 +62,10 @@ import { startConnectionDiffLoop } from './connection-diff-loop';
 import { comparableConnectionSnapshot } from './connection-snapshot';
 import { traceAuthenticatedWebuiMutation } from './mutation-trace';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
+import {
+  OneBotAccessTokenPolicyError,
+  validateOneBotAccessTokenChanges,
+} from './onebot-token-policy';
 import { findAvailablePort } from './port';
 import {
   clearBackgroundImage,
@@ -442,6 +447,10 @@ export async function initWebUI(
   // Default ('') = trust the TCP socket peer only (cannot be spoofed).
   const trustProxyMode = parseTrustProxy(listener.trustProxy);
   const getClientIp = makeClientIpResolver(trustProxyMode);
+  // Security decisions must not silently turn an unreadable socket peer into
+  // localhost. The regular resolver keeps its compatibility fallback for
+  // rate-limit bucketing; this resolver fails closed with an empty address.
+  const getSecurityClientIp = makeClientIpResolver(trustProxyMode, '');
 
   // Connection-status diff loop: OneBot adapters don't emit events for
   // listening/connected/client-count changes, so we poll the snapshot at
@@ -1295,11 +1304,36 @@ export async function initWebUI(
       return c.json({ success: false, saved: false, applied: false, message: '请求格式错误' }, 400);
     }
 
+    let nextConfig: OneBotConfig;
     try {
-      saveOneBotConfig(uin, body as OneBotConfig);
+      assertValidOneBotConfig(body);
+      nextConfig = body;
+
+      let previousConfig: OneBotConfig | null = null;
+      try {
+        previousConfig = loadOneBotConfig(uin);
+      } catch (err) {
+        // A damaged existing file must not strand the recovery UI. Treat the
+        // submitted endpoints as new, apply the full policy, and let the
+        // subsequent atomic save either repair the file or fail visibly.
+        log.warn(
+          'could not read prior OneBot config for uin=%s before save: %s',
+          uin,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+
+      validateOneBotAccessTokenChanges(previousConfig, nextConfig, {
+        clientIp: getSecurityClientIp(c),
+        uin,
+      });
+      saveOneBotConfig(uin, nextConfig);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (err instanceof OneBotConfigValidationError) {
+      if (
+        err instanceof OneBotConfigValidationError
+        || err instanceof OneBotAccessTokenPolicyError
+      ) {
         log.warn('reject invalid config for uin=%s: %s', uin, message);
         return c.json({ success: false, saved: false, applied: false, message }, 400);
       }
@@ -1311,7 +1345,7 @@ export async function initWebUI(
       // Apply the exact validated value that was persisted above. Re-reading
       // the path here would race concurrent POSTs (request A could load B and
       // falsely report that A was applied).
-      const apply = await oneBotManager.reloadConfig(uin, body as OneBotConfig);
+      const apply = await oneBotManager.reloadConfig(uin, nextConfig);
       const message = !apply.online
         ? '配置保存成功，当前会话未在线，将在下次连接时生效。'
         : apply.applied
