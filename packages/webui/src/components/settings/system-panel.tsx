@@ -10,7 +10,6 @@ import { AlertTriangle, Database, Download, Loader2, Lock, Pencil, Save, ShieldC
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { SkeletonSwap } from '@/components/interior/skeleton-swap';
-import { Dropdown } from '@/components/interior/dropdown';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -33,7 +32,7 @@ export function SystemPanel() {
 
   // editable form state
   const [port, setPort] = useState('');
-  const [host, setHost] = useState('0.0.0.0');
+  const [host, setHost] = useState('127.0.0.1');
   const [trustProxy, setTrustProxy] = useState('');
   const [tlsEnabled, setTlsEnabled] = useState(false);
   const [certPem, setCertPem] = useState('');
@@ -281,16 +280,28 @@ export function SystemPanel() {
             </div>
             <div className="flex flex-col gap-1.5">
               <Label className="flex items-center">绑定地址<EnvBadge field="webuiHost" /></Label>
-              <Dropdown
+              <Input
                 value={host}
-                onChange={setHost}
-                label="绑定地址"
-                items={[
-                  { value: '0.0.0.0', label: '0.0.0.0（所有网卡）' },
-                  { value: '127.0.0.1', label: '127.0.0.1（仅本机）' },
-                ]}
-                className="w-full"
+                onChange={(event) => setHost(event.target.value)}
+                placeholder="127.0.0.1"
+                spellCheck={false}
               />
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setHost('127.0.0.1')}>
+                  仅本机
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setHost('0.0.0.0')}>
+                  所有网卡
+                </Button>
+              </div>
+              <p className={cn(
+                'text-xs',
+                host.trim() === '0.0.0.0' ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground',
+              )}>
+                {host.trim() === '0.0.0.0'
+                  ? '所有网卡会允许局域网访问；建议同时启用 HTTPS，并设置强访问凭据。'
+                  : '默认仅本机访问；也可填写其他明确的绑定地址。'}
+              </p>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label className="flex items-center">信任代理 (trust-proxy)<EnvBadge field="trustProxy" /></Label>
@@ -358,7 +369,7 @@ export function SystemPanel() {
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                私钥仅写入服务器 config/key.pem（0600 权限），不会回显。证书无效时保存会被拒绝；若启用了 TLS 但证书加载失败，启动时会自动回退到 HTTP。
+                私钥仅写入服务器 config/key.pem（0600 权限），不会回显。证书无效时保存会被拒绝；启用 TLS 后证书无法加载将阻止 WebUI 启动，不会降级为 HTTP。
                 </p>
               </>
             )}

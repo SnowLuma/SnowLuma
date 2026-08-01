@@ -47,7 +47,7 @@ import {
   recordConsent,
   resolveEnvironmentConsent,
 } from './consent';
-import { resolveTlsContext, validateTlsPair } from './tls';
+import { requireTlsContext, resolveTlsContext, validateTlsPair } from './tls';
 import { coerceSettingsPatch } from './system-settings';
 import { buildBackup } from './backup';
 import { restoreBackup, RestoreTransactionError, type RestorePhase } from './restore';
@@ -1538,26 +1538,21 @@ export async function initWebUI(
     );
   });
 
-  const finalPort = await findAvailablePort(desiredPort);
+  const host = listener.host || '127.0.0.1';
+  const finalPort = await findAvailablePort(desiredPort, { host });
   if (finalPort !== desiredPort) {
     log.warn('port %d is in use, using %d instead', desiredPort, finalPort);
   }
   boundPort = finalPort;
 
-  const host = listener.host || '0.0.0.0';
-
-  // TLS: only when explicitly enabled AND the on-disk cert/key load. A bad
-  // or missing cert must never brick the WebUI — fall back to HTTP + warn.
+  // TLS is an explicit transport promise. Once enabled, an unusable pair must
+  // abort startup instead of silently exposing the listener over plaintext.
   let tlsServe: { createServer: typeof createHttpsServer; serverOptions: { cert: Buffer; key: Buffer } } | undefined;
   let scheme = 'http';
   if (listener.tlsEnabled) {
-    const tls = resolveTlsContext('config');
-    if (tls.ok && tls.cert && tls.key) {
-      tlsServe = { createServer: createHttpsServer, serverOptions: { cert: tls.cert, key: tls.key } };
-      scheme = 'https';
-    } else {
-      log.warn('TLS enabled but cert/key unusable (%s) — serving over HTTP instead', tls.reason);
-    }
+    const tls = requireTlsContext('config');
+    tlsServe = { createServer: createHttpsServer, serverOptions: tls };
+    scheme = 'https';
   }
 
   await new Promise<void>((resolve) => {

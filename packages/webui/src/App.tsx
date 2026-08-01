@@ -17,6 +17,7 @@ import { DebugTaskProvider } from '@/contexts/DebugTaskContext';
 import { TaskBadge } from '@/components/debug/task-badge';
 import { AdaptivePointer } from '@/components/ui/adaptive-pointer';
 import { GlobalContextMenu } from '@/components/ui/global-context-menu';
+import { InsecureRemoteAccessBanner } from '@/components/insecure-remote-access-banner';
 import {
   actionErrorMessage,
   ActionFeedbackProvider,
@@ -43,6 +44,7 @@ export default function App({ onboardingSteps = [] }: AppProps) {
   return (
     <ActionFeedbackProvider>
       <ThemeProvider>
+        <InsecureRemoteAccessBanner />
         <ActionFeedbackViewport />
         <AdaptivePointer />
         <GlobalContextMenu />

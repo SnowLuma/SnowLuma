@@ -20,6 +20,11 @@ export interface TlsResolution {
   reason?: string;
 }
 
+export interface RequiredTlsContext {
+  cert: Buffer;
+  key: Buffer;
+}
+
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
@@ -54,4 +59,13 @@ export function resolveTlsContext(configDir: string): TlsResolution {
   const valid = validateTlsPair(cert, key);
   if (!valid.ok) return { ok: false, reason: valid.reason };
   return { ok: true, cert, key };
+}
+
+/** Resolve the configured pair for an enabled listener or abort startup. */
+export function requireTlsContext(configDir: string): RequiredTlsContext {
+  const resolved = resolveTlsContext(configDir);
+  if (!resolved.ok || !resolved.cert || !resolved.key) {
+    throw new Error(`TLS listener cannot start: ${resolved.reason ?? 'certificate pair is unusable'}`);
+  }
+  return { cert: resolved.cert, key: resolved.key };
 }

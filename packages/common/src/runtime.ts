@@ -7,8 +7,8 @@ export interface RuntimeConfig {
    * the HookManager. Also overridable at runtime via SNOWLUMA_HOOK_AUTOLOAD.
    * Defaults to false; the Docker image flips it on in supervisord.conf. */
   hookAutoLoad?: boolean;
-  /** WebUI listener bind address. '0.0.0.0' = all interfaces (default),
-   * '127.0.0.1' = localhost-only. Listener-level: change needs a restart. */
+  /** WebUI listener bind address. '127.0.0.1' = localhost-only (default),
+   * '0.0.0.0' = all IPv4 interfaces. Listener-level: change needs a restart. */
   webuiHost?: string;
   /** WebUI TLS. Cert/key live in config/cert.pem + config/key.pem; this
    * only flips serving on/off. Listener-level: change needs a restart. */
@@ -28,7 +28,7 @@ const CONFIG_DIR = 'config';
 const RUNTIME_CONFIG_PATH = path.join(CONFIG_DIR, 'runtime.json');
 
 const DEFAULT_WEBUI_PORT = 5099;
-const DEFAULT_WEBUI_HOST = '0.0.0.0';
+const DEFAULT_WEBUI_HOST = '127.0.0.1';
 export const DEFAULT_LOG_MAX_TOTAL_MB = 1024;
 export const DEFAULT_LOG_RETAIN_DAYS = 7;
 export const DEFAULT_LOG_PER_UIN = false;

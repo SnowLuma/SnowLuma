@@ -8,7 +8,7 @@ describe('normalizeRuntimeConfig', () => {
     expect(normalizeRuntimeConfig({})).toEqual({
       webuiPort: 5099,
       hookAutoLoad: false,
-      webuiHost: '0.0.0.0',
+      webuiHost: '127.0.0.1',
       webuiTls: { enabled: false },
       trustProxy: '',
       logMaxTotalMb: 1024,
@@ -47,7 +47,7 @@ describe('normalizeRuntimeConfig', () => {
       trustProxy: 5,           // non-string → default
     });
     expect(out.webuiPort).toBe(5099);
-    expect(out.webuiHost).toBe('0.0.0.0');
+    expect(out.webuiHost).toBe('127.0.0.1');
     expect(out.webuiTls).toEqual({ enabled: false });
     expect(out.trustProxy).toBe('');
   });
@@ -69,12 +69,12 @@ describe('normalizeRuntimeConfig', () => {
 
   it('coerces webuiTls.enabled loosely and trims a blank host to default', () => {
     expect(normalizeRuntimeConfig({ webuiTls: { enabled: 1 } }).webuiTls).toEqual({ enabled: true });
-    expect(normalizeRuntimeConfig({ webuiHost: '   ' }).webuiHost).toBe('0.0.0.0');
+    expect(normalizeRuntimeConfig({ webuiHost: '   ' }).webuiHost).toBe('127.0.0.1');
   });
 
   it('rejects a non-object input back to full defaults', () => {
     expect(normalizeRuntimeConfig(null).webuiPort).toBe(5099);
-    expect(normalizeRuntimeConfig('nope').webuiHost).toBe('0.0.0.0');
+    expect(normalizeRuntimeConfig('nope').webuiHost).toBe('127.0.0.1');
   });
 });
 

@@ -111,7 +111,7 @@ describe('prepareRestorePlan — strict semantic preflight', () => {
     expect(JSON.parse(prepared.restore[0].data.toString('utf8'))).toEqual({
       webuiPort: 5099,
       hookAutoLoad: false,
-      webuiHost: '0.0.0.0',
+      webuiHost: '127.0.0.1',
       webuiTls: { enabled: false },
       trustProxy: '',
       logMaxTotalMb: 1024,
