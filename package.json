@@ -1,7 +1,7 @@
 {
   "license": "SEE LICENSE IN LICENSE",
   "name": "snowluma-monorepo",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "description": "SnowLuma monorepo workspace (pnpm)",
   "private": true,
   "type": "module",
