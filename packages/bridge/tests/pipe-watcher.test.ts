@@ -30,6 +30,27 @@ function captureEvents(watcher: PipeWatcher): EventRow[] {
 }
 
 describe('PipeWatcher', () => {
+  it('passes the current process snapshot to pipe discovery', async () => {
+    const processes = [
+      { pid: 1234, name: 'qq', path: '/opt/QQ/qq' },
+      { pid: 5678, name: 'qq', path: '/opt/QQ/qq' },
+    ];
+    let observed: readonly HookProcessBaseInfo[] | undefined;
+    const watcher = new PipeWatcher({
+      listProcesses: () => processes,
+      listLivePipes: async current => {
+        observed = current;
+        return new Set();
+      },
+      intervalMs: 60_000,
+    });
+
+    await watcher.start();
+
+    expect(observed).toEqual(processes);
+    watcher.stop();
+  });
+
   it('start() emits process-discovered + pipe-up for live PIDs on first tick', async () => {
     const ctx = setupWatcher({
       processes: [{ pid: 1234, name: 'QQ.exe', path: '' }],
@@ -190,6 +211,38 @@ describe('PipeWatcher', () => {
     await watcher.tickNow();
 
     expect(events).toEqual([['discovered', 1234], ['up', 1234]]);
+    watcher.stop();
+  });
+
+  it('preserves live sessions when pipe discovery temporarily fails', async () => {
+    let processes = [{ pid: 1234, name: 'QQ.exe', path: '' }];
+    let failPipeDiscovery = false;
+    const watcher = new PipeWatcher({
+      listProcesses: () => processes,
+      listLivePipes: async () => {
+        if (failPipeDiscovery) throw new Error('permission denied');
+        return new Set([1234]);
+      },
+      intervalMs: 60_000,
+    });
+
+    await watcher.start();
+    expect(watcher.isPipeLive(1234)).toBe(true);
+    const events = captureEvents(watcher);
+
+    failPipeDiscovery = true;
+    await watcher.tickNow();
+
+    expect(events).toEqual([]);
+    expect(watcher.isProcessAlive(1234)).toBe(true);
+    expect(watcher.isPipeLive(1234)).toBe(true);
+
+    processes = [];
+    await watcher.tickNow();
+
+    expect(events).toEqual([['down', 1234], ['gone', 1234]]);
+    expect(watcher.isProcessAlive(1234)).toBe(false);
+    expect(watcher.isPipeLive(1234)).toBe(false);
     watcher.stop();
   });
 

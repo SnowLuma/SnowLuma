@@ -6,10 +6,11 @@ import {
   runWithTraceRequest,
 } from '@snowluma/common/logger';
 import { renderParamsVerbose } from '@snowluma/common/log-summary';
+import { isRealUin } from '@snowluma/common/uin';
 import { readdirSync, promises as fs } from 'fs';
 import net from 'net';
-import os from 'os';
 import path from 'path';
+import { resolveHookRuntimeDir } from './hook-runtime-dir';
 
 export const PIPE_MAGIC = 0x31504851;
 export const PIPE_VERSION = 1;
@@ -34,6 +35,7 @@ export enum PipeOp {
   error = 5,
   recvPacket = 6,
   loginState = 7,
+  loginIdentityHint = 17,
 }
 
 const PipeFlagWantReply = 1 << 0;
@@ -69,6 +71,7 @@ export interface QqHookSendReply {
 export interface QqHookClientOptions {
   ackTimeoutMs?: number;
   replyTimeoutMs?: number;
+  runtimeDir?: string;
 }
 
 export interface QqHookSendOptions {
@@ -100,6 +103,20 @@ interface PendingAck {
   wantReply: boolean;
 }
 
+function isMissingDirectoryError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
+}
+
+function isUnavailableSocketError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === 'ENOENT'
+    || code === 'ENOTDIR'
+    || code === 'ENOTSOCK'
+    || code === 'ECONNREFUSED'
+    || code === 'ECONNRESET';
+}
+
 /**
  * Sync directory scan for `mojo.<pid>.control.sock` socket files in the
  * runtime dir, returning the pid set. Used by the darwin path of
@@ -114,14 +131,15 @@ interface PendingAck {
  * variant still gates the subsequent `pipe-up` emit via a real connect.
  */
 export function listSnowlumaPipePidsSync(
-  runtimeDir = linuxRuntimeDir(),
+  runtimeDir = resolveHookRuntimeDir(),
 ): Set<number> {
   const result = new Set<number>();
   let names: string[];
   try {
     names = readdirSync(runtimeDir);
-  } catch {
-    return result;
+  } catch (error) {
+    if (isMissingDirectoryError(error)) return result;
+    throw error;
   }
   for (const name of names) {
     const m = /^mojo\.(\d+)\.control\.sock$/i.exec(name);
@@ -132,37 +150,11 @@ export function listSnowlumaPipePidsSync(
   return result;
 }
 
-function linuxRuntimeDir(): string {
-  // Name kept for historical reasons (the function predates the macOS port);
-  // applies to every non-win32 platform. The fallback order mirrors each
-  // platform hook's runtime_dir(): explicit override first, then the OS-
-  // native ephemeral-dir convention.
-  const explicit = process.env.SNOWLUMA_HOOK_RUNTIME_DIR;
-  if (explicit && explicit.length > 0) return explicit;
-  const xdg = process.env.XDG_RUNTIME_DIR;
-  if (xdg && xdg.length > 0) return xdg;
-  // macOS: dylib defaults to "$TMPDIR/snowluma-hook" (apps/qq/macos/
-  // qq_hook_dylib.cpp's runtime_dir()). $TMPDIR is per-user on macOS
-  // (under /var/folders/.../T) so this is the right place — Linux's
-  // /tmp/snowluma-<uid> doesn't exist on a stock Mac.
-  if (process.platform === 'darwin') {
-    const tmpdir = process.env.TMPDIR;
-    if (tmpdir && tmpdir.length > 0) {
-      const trimmed = tmpdir.endsWith('/') ? tmpdir.slice(0, -1) : tmpdir;
-      return path.join(trimmed, 'snowluma-hook');
-    }
-  }
-  // Linux fallback: mirrors hook_stub.cpp runtime_dir() last-resort.
-  // process.geteuid is POSIX-only; cast to allow non-Linux type checks.
-  const uid = typeof process.geteuid === 'function' ? process.geteuid() : os.userInfo().uid;
-  return `/tmp/snowluma-${uid}`;
-}
-
-function mojoPipeName(pid: number, suffix: string): string {
+function mojoPipeName(pid: number, suffix: string, runtimeDir = resolveHookRuntimeDir(pid)): string {
   if (process.platform === 'win32') {
     return `\\\\.\\pipe\\mojo.${pid}.${suffix}`;
   }
-  return path.join(linuxRuntimeDir(), `mojo.${pid}.${suffix}.sock`);
+  return path.join(runtimeDir, `mojo.${pid}.${suffix}.sock`);
 }
 
 type LinuxPipeProbe = (socketPath: string) => Promise<boolean>;
@@ -171,16 +163,18 @@ async function isConnectableUnixSocket(socketPath: string): Promise<boolean> {
   try {
     const stat = await fs.stat(socketPath);
     if (!stat.isSocket()) return false;
-  } catch {
-    return false;
+  } catch (error) {
+    if (isUnavailableSocketError(error)) return false;
+    throw error;
   }
 
-  return new Promise<boolean>((resolve) => {
+  return new Promise<boolean>((resolve, reject) => {
     let socket: net.Socket;
     try {
       socket = net.createConnection(socketPath);
-    } catch {
-      resolve(false);
+    } catch (error) {
+      if (isUnavailableSocketError(error)) resolve(false);
+      else reject(error);
       return;
     }
     let done = false;
@@ -195,20 +189,31 @@ async function isConnectableUnixSocket(socketPath: string): Promise<boolean> {
     };
     timer = setTimeout(() => finish(false), DEFAULT_PIPE_PROBE_TIMEOUT_MS);
     socket.once('connect', () => finish(true));
-    socket.once('error', () => finish(false));
+    socket.once('error', error => {
+      if (isUnavailableSocketError(error)) finish(false);
+      else {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        socket.removeAllListeners();
+        socket.destroy();
+        reject(error);
+      }
+    });
   });
 }
 
 export async function listLiveLinuxPipePids(
-  runtimeDir = linuxRuntimeDir(),
+  runtimeDir = resolveHookRuntimeDir(),
   probe: LinuxPipeProbe = isConnectableUnixSocket,
 ): Promise<Set<number>> {
   const result = new Set<number>();
   let names: string[];
   try {
     names = await fs.readdir(runtimeDir);
-  } catch {
-    return result;
+  } catch (error) {
+    if (isMissingDirectoryError(error)) return result;
+    throw error;
   }
 
   await Promise.all(names.map(async (name) => {
@@ -440,6 +445,7 @@ class FrameReader {
 
 export class QqHookClient extends EventEmitter {
   readonly pid: number;
+  readonly runtimeDir: string;
   readonly defaultAckTimeoutMs: number;
   readonly defaultReplyTimeoutMs: number;
 
@@ -462,9 +468,11 @@ export class QqHookClient extends EventEmitter {
   constructor(pid: number, {
     ackTimeoutMs = DEFAULT_ACK_TIMEOUT_MS,
     replyTimeoutMs = DEFAULT_REPLY_TIMEOUT_MS,
+    runtimeDir = resolveHookRuntimeDir(pid),
   }: QqHookClientOptions = {}) {
     super();
     this.pid = pid;
+    this.runtimeDir = runtimeDir;
     this.defaultAckTimeoutMs = ackTimeoutMs;
     this.defaultReplyTimeoutMs = replyTimeoutMs;
   }
@@ -490,16 +498,14 @@ export class QqHookClient extends EventEmitter {
   }
 
   /**
-   * Reconcile a login edge that the native hook could not replay after the
-   * pipe connected. The client remains the single source of truth so packet
-   * sending, login waiters, and HookSession all observe the same transition.
+   * Forward an observed account identity for reconciliation. This does not
+   * change login state; readiness still requires peer confirmation.
    */
-  reconcileLoginState(state: QqHookLoginState): void {
-    this.applyLoginState({
-      loggedIn: state.loggedIn,
-      uin: state.uin || state.uinNumber.toString(),
-      uinNumber: state.uinNumber,
-    });
+  async reconcileLoginIdentity(uin: string): Promise<void> {
+    if (!isRealUin(uin)) {
+      throw new Error(`invalid QQ login identity hint: ${JSON.stringify(uin)}`);
+    }
+    await this.sendAckOnly(PipeOp.loginIdentityHint, BigInt(uin), 'login identity hint');
   }
 
   async waitForLogin({ timeoutMs = 0 } = {}): Promise<QqHookLoginState> {
@@ -512,12 +518,12 @@ export class QqHookClient extends EventEmitter {
     return withTimeout(deferred.promise, timeoutMs, 'waitForLogin');
   }
 
-  static controlPipeName(pid: number): string {
-    return mojoPipeName(pid, 'control');
+  static controlPipeName(pid: number, runtimeDir = resolveHookRuntimeDir(pid)): string {
+    return mojoPipeName(pid, 'control', runtimeDir);
   }
 
-  static recvPipeName(pid: number): string {
-    return mojoPipeName(pid, 'recv');
+  static recvPipeName(pid: number, runtimeDir = resolveHookRuntimeDir(pid)): string {
+    return mojoPipeName(pid, 'recv', runtimeDir);
   }
 
   /**
@@ -526,7 +532,7 @@ export class QqHookClient extends EventEmitter {
    * opening the pipe, so probing cannot disturb the first real client connect.
    */
   static async probePipe(pid: number): Promise<boolean> {
-    const live = await QqHookClient.listLivePipes();
+    const live = await QqHookClient.listLivePipes([pid]);
     return live.has(pid);
   }
 
@@ -535,20 +541,24 @@ export class QqHookClient extends EventEmitter {
    * in a single filesystem listing. The HookManager's pipe-watcher uses this
    * to drive connect/reconnect decisions without per-PID stat calls.
    */
-  static async listLivePipes(): Promise<Set<number>> {
+  static async listLivePipes(pids: readonly number[] = []): Promise<Set<number>> {
     const result = new Set<number>();
-    try {
-      if (process.platform === 'win32') {
-        const names = await fs.readdir('\\\\.\\pipe\\');
-        for (const name of names) {
-          const m = /^mojo\.(\d+)\.control$/i.exec(name);
-          if (m) result.add(Number(m[1]));
-        }
-      } else {
-        return await listLiveLinuxPipePids();
+    if (process.platform === 'win32') {
+      const names = await fs.readdir('\\\\.\\pipe\\');
+      for (const name of names) {
+        const m = /^mojo\.(\d+)\.control$/i.exec(name);
+        if (m) result.add(Number(m[1]));
       }
-    } catch {
-      /* directory missing or inaccessible — treat as no live pipes */
+    } else {
+      const runtimeDirs = new Set<string>();
+      if (pids.length === 0) {
+        runtimeDirs.add(resolveHookRuntimeDir());
+      } else {
+        for (const pid of pids) runtimeDirs.add(resolveHookRuntimeDir(pid));
+      }
+      for (const runtimeDir of runtimeDirs) {
+        for (const pid of await listLiveLinuxPipePids(runtimeDir)) result.add(pid);
+      }
     }
     return result;
   }
@@ -605,18 +615,7 @@ export class QqHookClient extends EventEmitter {
   }: QqHookSendOptions = {}): Promise<QqHookSendReply | { requestId: number }> {
     await this.connect();
 
-    // Wrap inside uint32 explicitly. `nextRequestId++ >>> 0` would
-    // misbehave once the integer exceeds Number.MAX_SAFE_INTEGER (the
-    // postfix increment loses precision before the shift), letting two
-    // distinct requests collide on the same id. Skip 0 because zero is
-    // used as a sentinel by the wire protocol.
-    let requestId = this.nextRequestId;
-    while (this.pendingAcks.has(requestId) || this.pendingReplies.has(requestId)) {
-      requestId = (requestId + 1) >>> 0;
-      if (requestId === 0) requestId = 1;
-    }
-    this.nextRequestId = (requestId + 1) >>> 0;
-    if (this.nextRequestId === 0) this.nextRequestId = 1;
+    const requestId = this.allocateRequestId();
     const startedAt = Date.now();
     const bodyBytes = toBuffer(body);
     const payload = encodeFrame({
@@ -840,12 +839,49 @@ export class QqHookClient extends EventEmitter {
     return writePromise;
   }
 
+  private allocateRequestId(): number {
+    // Wrap inside uint32 explicitly. `nextRequestId++ >>> 0` would lose
+    // precision past Number.MAX_SAFE_INTEGER. Zero remains the wire sentinel.
+    let requestId = this.nextRequestId;
+    while (this.pendingAcks.has(requestId) || this.pendingReplies.has(requestId)) {
+      requestId = (requestId + 1) >>> 0;
+      if (requestId === 0) requestId = 1;
+    }
+    this.nextRequestId = (requestId + 1) >>> 0;
+    if (this.nextRequestId === 0) this.nextRequestId = 1;
+    return requestId;
+  }
+
+  private async sendAckOnly(op: PipeOp, value0: bigint, label: string): Promise<number> {
+    await this.connect();
+    const requestId = this.allocateRequestId();
+    const ackDeferred = createDeferred<{ requestId: number; wantReply: boolean }>();
+    ackDeferred.promise.catch(() => { /* observed by the await below */ });
+    this.pendingAcks.set(requestId, {
+      resolve: ackDeferred.resolve,
+      reject: ackDeferred.reject,
+      wantReply: false,
+    });
+    try {
+      await this.writeControl(encodeFrame({ op, requestId, value0 }));
+      await withTimeout(
+        ackDeferred.promise,
+        this.defaultAckTimeoutMs,
+        `${label} ack ${requestId}`,
+      );
+      return requestId;
+    } catch (error) {
+      this.pendingAcks.delete(requestId);
+      throw error;
+    }
+  }
+
   private async connectPipe(kind: 'control' | 'recv'): Promise<QqHookHello> {
     return runWithTraceRequest(async () => {
       const startedAt = Date.now();
       const pipeName = kind === 'control'
-        ? QqHookClient.controlPipeName(this.pid)
-        : QqHookClient.recvPipeName(this.pid);
+        ? QqHookClient.controlPipeName(this.pid, this.runtimeDir)
+        : QqHookClient.recvPipeName(this.pid, this.runtimeDir);
       let phase: 'connect' | 'hello' = 'connect';
       runtimeLog.trace(
         'hook_pipe_start pid=%d kind=%s pipeName=%j',

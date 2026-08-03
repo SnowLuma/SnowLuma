@@ -160,7 +160,7 @@ export class HookManager {
     } else {
       this.pipeWatcher = new PipeWatcher({
         listProcesses: this.enumerate,
-        listLivePipes: () => QqHookClient.listLivePipes(),
+        listLivePipes: processes => QqHookClient.listLivePipes(processes.map(({ pid }) => pid)),
         intervalMs: deps.watcherIntervalMs,
         log: this.log,
       });

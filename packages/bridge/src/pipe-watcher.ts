@@ -11,8 +11,9 @@ export type PipeWatcherDeps = {
    *  case this tick keeps the prior process+pipe state instead of treating the
    *  missing data as "everything disappeared" (issue #158). */
   listProcesses: () => HookProcessBaseInfo[] | null | Promise<HookProcessBaseInfo[] | null>;
-  /** Native: PIDs that currently have a live SnowLuma named pipe. */
-  listLivePipes: () => Promise<Set<number>>;
+  /** Native: PIDs that currently have a live SnowLuma named pipe. The current
+   *  process snapshot lets Linux inspect each target user's runtime directory. */
+  listLivePipes: (processes: readonly HookProcessBaseInfo[]) => Promise<Set<number>>;
   /** Polling interval in ms. Defaults to 1500, floored to 250. */
   intervalMs?: number;
   log?: Logger;
@@ -158,12 +159,12 @@ export class PipeWatcher extends EventEmitter {
         this.emit('tick');
         return;
       }
-      let livePipes: Set<number>;
+      let livePipes: Set<number> | null;
       try {
-        livePipes = await this.listLivePipes();
+        livePipes = await this.listLivePipes(processes);
       } catch (error) {
         this.log.warn('listLivePipes failed: %s', errMsg(error));
-        livePipes = new Set();
+        livePipes = null;
       }
 
       const newKnownPids = new Set<number>();
@@ -179,11 +180,19 @@ export class PipeWatcher extends EventEmitter {
       // 2. Pipes that came up. Ignore pipes for processes we don't know
       //    about (would race against an out-of-order tick).
       const newLivePipes = new Set<number>();
-      for (const pid of livePipes) {
-        if (!newKnownPids.has(pid)) continue;
-        newLivePipes.add(pid);
-        if (!this.livePipes.has(pid)) {
-          this.emit('pipe-up', pid);
+      if (livePipes === null) {
+        // Keep the last known pipe state for processes that still exist, while
+        // allowing confirmed process exits to complete their normal teardown.
+        for (const pid of this.livePipes) {
+          if (newKnownPids.has(pid)) newLivePipes.add(pid);
+        }
+      } else {
+        for (const pid of livePipes) {
+          if (!newKnownPids.has(pid)) continue;
+          newLivePipes.add(pid);
+          if (!this.livePipes.has(pid)) {
+            this.emit('pipe-up', pid);
+          }
         }
       }
 

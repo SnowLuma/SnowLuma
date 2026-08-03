@@ -151,6 +151,35 @@ describe('listLiveLinuxPipePids', () => {
 });
 
 describe('QqHookClient — pipe frame limits', () => {
+  it('forwards a probed account as a native identity hint without changing login state', async () => {
+    const pid = 778819;
+    const writes: Buffer[] = [];
+    const connection = mockControlPipe(pid, (socket, payload) => {
+      writes.push(Buffer.from(payload));
+      const requestId = payload.readUInt32LE(8);
+      queueMicrotask(() => socket.emit('data', pipeFrame({
+        op: PipeOp.sendAck,
+        requestId,
+      })));
+    });
+    const client = new QqHookClient(pid);
+    try {
+      await client.reconcileLoginIdentity('10001');
+
+      expect(writes).toHaveLength(1);
+      expect(writes[0]!.readUInt16LE(6)).toBe(PipeOp.loginIdentityHint);
+      expect(writes[0]!.readBigUInt64LE(32)).toBe(10001n);
+      expect(client.getLoginState()).toEqual({
+        loggedIn: false,
+        uin: '0',
+        uinNumber: 0n,
+      });
+    } finally {
+      client.close();
+      connection.mockRestore();
+    }
+  });
+
   it.each([
     ['command', 20, MAX_PIPE_CMD_BYTES],
     ['message', 24, MAX_PIPE_MSG_BYTES],
