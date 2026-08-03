@@ -328,6 +328,8 @@ describe('apis/group-file', () => {
         findUidByUin: vi.fn(() => 'cached-uid'),
         findUinByUid: vi.fn(() => 0),
         findGroupMember: vi.fn(() => null),
+        updateFriendRemark: vi.fn(() => true),
+        updateGroupRemark: vi.fn(() => true),
         forgetGroup: vi.fn(),
       },
     });

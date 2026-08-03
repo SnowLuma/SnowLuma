@@ -34,6 +34,13 @@ function waitForOpen(socket: WebSocket): Promise<void> {
   });
 }
 
+function waitForHandshakeError(socket: WebSocket): Promise<string> {
+  return new Promise((resolve, reject) => {
+    socket.once('open', () => reject(new Error('unauthorized WebSocket completed the upgrade')));
+    socket.once('error', (error: Error) => resolve(error.message));
+  });
+}
+
 function waitForMessage(socket: WebSocket): Promise<JsonObject> {
   return new Promise((resolve, reject) => {
     socket.once('message', (raw: Buffer) => {
@@ -128,6 +135,28 @@ describe('HttpServerAdapter — optional WebSocket transport', () => {
       data: { transport: 'websocket' },
       echo: 'same-port',
     });
+  });
+
+  it('rejects an invalid WebSocket token before completing the HTTP upgrade', async () => {
+    const config = {
+      name: 'pre-upgrade-auth',
+      host: '127.0.0.1',
+      port: 0,
+      path: '/',
+      enabled: true,
+      enableWebSocket: true,
+      accessToken: 'expected-token',
+      messageFormat: 'array',
+      reportSelfMessage: false,
+    } satisfies HttpServerNetwork & { enableWebSocket: boolean };
+    adapter = new HttpServerAdapter(config.name, config, context());
+    await adapter.open();
+
+    const address = (adapter as unknown as { server: http.Server }).server.address() as AddressInfo;
+    socket = new WebSocket(`ws://127.0.0.1:${String(address.port)}/api?access_token=wrong-token`);
+
+    await expect(waitForHandshakeError(socket)).resolves.toContain('Unexpected response status 401');
+    expect(adapter.describeStatus().detail).toBe('监听中 · WebSocket 0 个客户端');
   });
 
   it('records and drops a valid WebSocket action after API quiesce', async () => {

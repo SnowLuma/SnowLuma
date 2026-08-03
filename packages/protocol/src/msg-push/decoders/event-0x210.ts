@@ -10,6 +10,7 @@ import type {
 } from '../../events';
 import type {
   FriendRecall,
+  FriendRemarkChangedNotify,
   FriendRequest,
   GeneralGrayTipInfo,
   InputStatusNotify,
@@ -46,6 +47,7 @@ export const decodeEvent0x210: MsgPushDecoder = (ctx) => {
     case Event0x210SubType.FriendPokeNotice: return decodeFriendPoke(ctx);
     case Event0x210SubType.InputStatusNotice: return decodeInputStatus(ctx);
     case Event0x210SubType.OnlineDevicesNotice: return decodeOnlineDevices(ctx);
+    case Event0x210SubType.FriendRemarkChangedNotice: return decodeFriendRemarkChanged(ctx);
     case Event0x210SubType.ProfileLikeNotice: return decodeProfileLike(ctx);
     // 179 + 226 both carry the NewFriend payload — see enum comment.
     case Event0x210SubType.NewFriendNotice:
@@ -69,6 +71,32 @@ export const decodeEvent0x210: MsgPushDecoder = (ctx) => {
   unknownLog.debug('Event0x210 unknown subType=%d', ctx.head.subType);
   return [];
 };
+
+function decodeFriendRemarkChanged(ctx: MsgPushContext): QQEventVariant[] {
+  const notify = protobuf_decode<FriendRemarkChangedNotify>(ctx.content);
+  const change = notify?.change;
+  const uid = change?.target?.uid?.trim() ?? '';
+  const rawUin = change?.target?.uin;
+  const uin = rawUin === undefined ? 0 : Number(rawUin);
+  if (rawUin !== undefined && (!Number.isSafeInteger(uin) || uin <= 0)) {
+    throw new Error(`friend remark synchronization has invalid UIN ${rawUin}`);
+  }
+  if (!uid && uin <= 0) {
+    throw new Error('friend remark synchronization is missing both UID and UIN');
+  }
+  if (change?.remark === undefined) {
+    throw new Error(`friend remark synchronization is missing the remark value (uid=${uid} uin=${uin})`);
+  }
+  if (ctx.isHistorical) return [];
+  return [{
+    kind: 'friend_remark_changed',
+    time: ctx.head.timestamp,
+    selfUin: ctx.selfUin,
+    userUid: uid,
+    userUin: uin,
+    remark: change.remark,
+  }];
+}
 
 const COMPUTER_CLIENT_TYPES = new Set([1, 5, 15]);
 const PHONE_CLIENT_TYPES = new Set([2, 3, 4, 6, 7, 12]);

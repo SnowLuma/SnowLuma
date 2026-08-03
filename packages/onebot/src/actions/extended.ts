@@ -82,18 +82,30 @@ function essenceContentToSegment(content: GroupEssenceContent): JsonObject {
           url: essenceString(content.image_url, 'msg_content.image_url', false),
         },
       };
-    case 4:
+    case 4: {
+      const fileName = essenceString(content.file_name, 'msg_content.file_name', false);
+      const fileId = essenceString(content.file_id, 'msg_content.file_id', false);
+      const fileSize = essenceNonNegativeNumber(
+        content.file_size,
+        'msg_content.file_size',
+      );
+      const busId = essenceNonNegativeNumber(
+        content.file_bus_id,
+        'msg_content.file_bus_id',
+      );
       return {
-        type: 'video',
+        type: 'file',
         data: {
-          file: '',
-          url: essenceString(
-            content.file_thumbnail_url,
-            'msg_content.file_thumbnail_url',
-            false,
-          ),
+          file: fileName,
+          file_id: fileId,
+          file_size: fileSize,
+          name: fileName,
+          id: fileId,
+          size: fileSize,
+          busid: busId,
         },
       };
+    }
     default:
       throw new Error(`unsupported group essence content type: ${content.msg_type}`);
   }
@@ -2593,7 +2605,7 @@ export const actions = [
 
   defineAction({
     name: 'get_fileset_id',
-    summary: '从分享码/链接获取 fileset_id',
+    summary: '从 QQ 闪传分享码或官方分享链接获取 fileset_id',
     readOnly: true,
     returns: '{ fileset_id }：解析出的文件集 ID。',
     returnsSchema: {
@@ -2603,7 +2615,10 @@ export const actions = [
       },
       required: ['fileset_id'],
     },
-    params: { share_code: f.string({ allowEmpty: false }) },
+    params: {
+      share_code: f.string({ allowEmpty: false })
+        .describe('QQ 闪传分享码，或 https://qfile.qq.com/q/... 官方分享链接'),
+    },
     run: async (p, ctx) => {
       const filesetId = await ctx.bridge.apis.flashTransfer.getFilesetIdByCode(p.share_code);
       return okResponse({ fileset_id: filesetId });

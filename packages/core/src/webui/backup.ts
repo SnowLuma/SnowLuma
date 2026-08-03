@@ -4,9 +4,10 @@
 // can't leak and an import can't path-traverse.
 //
 // Credentials are gated by a toggle on both export and import. The credential
-// set is: webui.json (password hash), key.pem (TLS private key), AND every
-// OneBot config (onebot.json + per-account onebot_<uin>.json) — those carry the
-// OneBot access token, so a no-credentials backup must NOT include them.
+// set is: webui.json (password hash), key.pem (TLS private key),
+// notifications.json (webhook URLs may embed secrets), AND every OneBot config
+// (onebot.json + per-account onebot_<uin>.json) — those carry access tokens, so
+// a no-credentials backup must NOT include them.
 // cert.pem is public so it always travels.
 //
 // Pure functions here own bundle validation and semantic preflight. Filesystem
@@ -39,9 +40,8 @@ export interface BackupFileSpec {
 export const BACKUP_FILES: readonly BackupFileSpec[] = [
   { name: 'runtime.json', binary: false, credential: false },
   { name: 'ui.json', binary: false, credential: false },
-  { name: 'notifications.json', binary: false, credential: false },
-  // Global all-accounts SnowLuma settings (rkey fallback servers, …). Same
-  // class as notifications.json: global, opt-in, non-credential.
+  { name: 'notifications.json', binary: false, credential: true },
+  // Global all-accounts SnowLuma settings (rkey fallback servers, …).
   { name: 'snowluma.json', binary: false, credential: false },
   { name: 'cert.pem', binary: false, credential: false },
   { name: 'ui-assets/background', binary: true, credential: false },

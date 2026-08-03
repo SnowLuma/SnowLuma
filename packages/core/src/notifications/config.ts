@@ -170,11 +170,22 @@ function ensureConfigDir(): void {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
 }
 
+function enforceSensitiveFileMode(file: string): void {
+  // POSIX mode bits do not model Windows ACLs; on Windows the inherited ACL
+  // remains authoritative. Avoid pretending chmod provides equivalent policy.
+  if (process.platform !== 'win32') fs.chmodSync(file, 0o600);
+}
+
 function atomicWrite(config: NotificationsConfig): void {
   ensureConfigDir();
   const tmp = NOTIFICATIONS_CONFIG_PATH + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(config, null, 2), 'utf8');
+  fs.writeFileSync(tmp, JSON.stringify(config, null, 2), {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
+  enforceSensitiveFileMode(tmp);
   fs.renameSync(tmp, NOTIFICATIONS_CONFIG_PATH);
+  enforceSensitiveFileMode(NOTIFICATIONS_CONFIG_PATH);
 }
 
 let cached: NotificationsConfig | null = null;
@@ -195,6 +206,10 @@ export function loadNotificationsConfig(): NotificationsConfig {
     return fresh;
   }
 
+  // Webhook URLs commonly embed credentials. Repair older permissive files
+  // before reading them into memory so upgrades close the exposure promptly.
+  enforceSensitiveFileMode(NOTIFICATIONS_CONFIG_PATH);
+
   try {
     const raw = fs.readFileSync(NOTIFICATIONS_CONFIG_PATH, 'utf8');
     const parsed = JSON.parse(raw) as unknown;
@@ -203,8 +218,8 @@ export function loadNotificationsConfig(): NotificationsConfig {
     if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
       try {
         atomicWrite(normalized);
-      } catch {
-        /* best-effort self-heal */
+      } catch (err) {
+        log.warn('failed to normalize notifications.json on disk: %s', err instanceof Error ? err.message : String(err));
       }
     }
     cached = normalized;

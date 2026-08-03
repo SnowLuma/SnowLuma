@@ -15,10 +15,12 @@ import { probeQqLoginInfo, type QqPortLoginInfo } from './qq-port-probe';
 import { statusFor } from './hook-status';
 import type { HookProcessInfo, HookProcessStatus } from './types';
 
-/** How often to actively re-probe QQ's login state while connected but not yet
- *  logged in — the safety net for a login the native hook never pushed (Docker
- *  auto-login races/bypasses the pushed loginState frame). */
+/** How often to re-check account identity while the connection is not ready.
+ *  Identity alone never proves that requests can be served. */
 const LOGIN_RECONCILE_INTERVAL_MS = 3000;
+const LOGIN_IDENTITY_OBSERVE_INTERVAL_MS = 30_000;
+const LOGIN_HINT_MAX_ATTEMPTS = 3;
+const LOGIN_HINT_RETRY_DELAYS_MS = [3000, 9000] as const;
 
 /** QQ emits this response periodically while its MSF receive path is healthy.
  *  Seeing it once arms the watchdog; before that, silence is UNKNOWN rather
@@ -99,6 +101,11 @@ export class HookSession extends EventEmitter {
   private disposed = false;
   private loginProbeTimer: ReturnType<typeof setInterval> | null = null;
   private probing = false;
+  private acceptedLoginHintUin = '';
+  private loginHintAttemptUin = '';
+  private loginHintAttempts = 0;
+  private nextLoginHintAt = 0;
+  private nextLoginIdentityObservationAt = 0;
   private _receiveHealthy = true;
   private receiveWatchUin = '';
   private receiveWatchArmed = false;
@@ -575,6 +582,7 @@ export class HookSession extends EventEmitter {
     this.bound = false;
     this.connected = false;
     this.loggedIn = false;
+    this.resetLoginHint();
   }
 
   private handleLoginState(state: QqHookLoginState): void {
@@ -582,8 +590,7 @@ export class HookSession extends EventEmitter {
     const previousUin = this._uin;
     this._uin = state.uin || state.uinNumber.toString();
     this.loggedIn = state.loggedIn && isRealUin(this._uin);
-    // However login was observed (pushed frame or the active probe), the
-    // safety net's job is done.
+    // Login readiness has now been confirmed, so identity probing is done.
     if (this.loggedIn) {
       this.stopLoginReconcile();
       // A PID can switch accounts without an intermediate logout edge. Never
@@ -639,13 +646,9 @@ export class HookSession extends EventEmitter {
   }
 
   // ─────────────── login reconcile (Docker auto-login safety net) ───────────
-  // The hook's loginState frame is edge-triggered (pushed only when the native
-  // observes the login transition). When that edge is missed — QQ auto-logged
-  // in before connect, or a silent session-restore path the hook doesn't
-  // intercept — we'd sit at 'loaded'/'connecting' forever. So while connected
-  // but not logged in, actively re-probe QQ's own ports and synthesize the
-  // login once it reports a real uin. Idempotent with the pushed-frame path
-  // (handleLoginState's wasLoggedIn guard dedups the 'login' emit).
+  // The local endpoint can identify an auto-restored account before the
+  // runtime is ready. Forward identity for reconciliation, but never synthesize
+  // online state from the probe.
 
   private startLoginReconcile(): void {
     if (this.loginProbeTimer || this.disposed) return;
@@ -666,32 +669,83 @@ export class HookSession extends EventEmitter {
     // slow probe never stacks concurrent subprocess-spawning scans.
     if (this.probing) return;
     if (this.disposed || !this.connected || this.loggedIn) { this.stopLoginReconcile(); return; }
+    if (Date.now() < this.nextLoginIdentityObservationAt) return;
     this.probing = true;
     try {
       let info: QqPortLoginInfo | null;
       try {
         info = await this.probeLogin(this.pid);
-      } catch {
+      } catch (error) {
+        this.log.trace(
+          'login identity probe failed: PID=%d err=%s',
+          this.pid,
+          errMsg(error),
+        );
         return; // best-effort; the interval retries
       }
       // The await yielded — re-check we still want this before mutating state.
       if (this.disposed || !this.connected || this.loggedIn) { this.stopLoginReconcile(); return; }
-      if (info?.loggedIn && isRealUin(info.uin)) {
-        this.log.info('login reconciled via active probe: PID=%d UIN=%s', this.pid, info.uin);
-        // isRealUin guarantees a pure non-empty digit string, so BigInt() here
-        // cannot throw (keep that contract if isRealUin's regex is ever changed).
-        // Reconcile through QqHookClient instead of mutating HookSession alone:
-        // packet sending and login waiters must observe the same state before
-        // the login event starts Bridge / OneBot initialization.
-        this.client!.reconcileLoginState({
-          loggedIn: true,
-          uin: info.uin,
-          uinNumber: BigInt(info.uin),
-        });
+      if (info?.identityKnown && isRealUin(info.uin)) {
+        const client = this.client;
+        if (!client) return;
+        if (this.acceptedLoginHintUin === info.uin) {
+          this.nextLoginIdentityObservationAt = Date.now()
+            + LOGIN_IDENTITY_OBSERVE_INTERVAL_MS;
+          return;
+        }
+        if (this.loginHintAttemptUin !== info.uin) {
+          this.loginHintAttemptUin = info.uin;
+          this.loginHintAttempts = 0;
+          this.nextLoginHintAt = 0;
+          this.nextLoginIdentityObservationAt = 0;
+        }
+        if (this.loginHintAttempts >= LOGIN_HINT_MAX_ATTEMPTS
+          || Date.now() < this.nextLoginHintAt) return;
+
+        const attempt = ++this.loginHintAttempts;
+        this.log.info('login identity discovered: PID=%d UIN=%s; awaiting readiness', this.pid, info.uin);
+        try {
+          await client.reconcileLoginIdentity(info.uin);
+          if (this.client !== client || this.disposed || !this.connected || this.loggedIn) return;
+          this.acceptedLoginHintUin = info.uin;
+          this.nextLoginIdentityObservationAt = Date.now()
+            + LOGIN_IDENTITY_OBSERVE_INTERVAL_MS;
+        } catch (error) {
+          if (this.client !== client || this.disposed) return;
+          if (attempt >= LOGIN_HINT_MAX_ATTEMPTS) {
+            this.log.warn(
+              'login identity reconciliation failed: PID=%d UIN=%s attempts=%d err=%s',
+              this.pid,
+              info.uin,
+              attempt,
+              errMsg(error),
+            );
+            this.nextLoginIdentityObservationAt = Date.now()
+              + LOGIN_IDENTITY_OBSERVE_INTERVAL_MS;
+          } else {
+            this.nextLoginHintAt = Date.now()
+              + LOGIN_HINT_RETRY_DELAYS_MS[attempt - 1]!;
+            this.log.trace(
+              'login identity hint failed: PID=%d UIN=%s attempt=%d err=%s',
+              this.pid,
+              info.uin,
+              attempt,
+              errMsg(error),
+            );
+          }
+        }
       }
     } finally {
       this.probing = false;
     }
+  }
+
+  private resetLoginHint(): void {
+    this.acceptedLoginHintUin = '';
+    this.loginHintAttemptUin = '';
+    this.loginHintAttempts = 0;
+    this.nextLoginHintAt = 0;
+    this.nextLoginIdentityObservationAt = 0;
   }
 
   private handlePacket(packet: QqHookPacket): void {

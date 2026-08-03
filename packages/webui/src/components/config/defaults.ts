@@ -30,7 +30,7 @@ export interface NetworkTabDescriptor<K extends NetworkKind> {
   defaultEntry: (suffix: number) => OneBotNetworks[K][number];
 }
 
-function genToken(): string {
+export function generateAccessToken(): string {
   const bytes = new Uint8Array(32);
   globalThis.crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
@@ -48,11 +48,11 @@ const httpServersTab: NetworkTabDescriptor<'httpServers'> = {
   },
   defaultEntry: (suffix): HttpServerNetwork => ({
     name: `http-${suffix}`,
-    host: '0.0.0.0',
+    host: '127.0.0.1',
     port: 3000,
     path: '/',
     enableWebSocket: false,
-    accessToken: genToken(),
+    accessToken: generateAccessToken(),
     messageFormat: 'array',
     reportSelfMessage: false,
   }),
@@ -85,11 +85,11 @@ const wsServersTab: NetworkTabDescriptor<'wsServers'> = {
   },
   defaultEntry: (suffix): WsServerNetwork => ({
     name: `ws-${suffix}`,
-    host: '0.0.0.0',
+    host: '127.0.0.1',
     port: 3001,
     path: '/',
     role: 'Universal' as WsRole,
-    accessToken: genToken(),
+    accessToken: generateAccessToken(),
     messageFormat: 'array',
     reportSelfMessage: false,
   }),

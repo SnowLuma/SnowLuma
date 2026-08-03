@@ -49,6 +49,99 @@ function entryToInfo(e: FlashFileEntry): FlashFileInfo {
   };
 }
 
+const QFILE_SHARE_ORIGIN = 'https://qfile.qq.com';
+const QFILE_SHARE_PAGE_MAX_BYTES = 2 * 1024 * 1024;
+const QFILE_SHARE_TIMEOUT_MS = 20_000;
+
+function officialQfileShareUrl(input: string): string {
+  const value = input.trim();
+  if (!value) throw new Error('get_fileset_id: share code is empty');
+
+  let code = value;
+  if (/^[a-z][a-z\d+.-]*:/i.test(value) || value.startsWith('//')) {
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch (error) {
+      throw new Error('get_fileset_id: expected an official QQ share URL', { cause: error });
+    }
+    if (
+      parsed.protocol !== 'https:'
+      || parsed.hostname !== 'qfile.qq.com'
+      || parsed.port !== ''
+      || parsed.username !== ''
+      || parsed.password !== ''
+    ) {
+      throw new Error('get_fileset_id: expected an official QQ share URL');
+    }
+    const match = /^\/q\/([^/]+)\/?$/.exec(parsed.pathname);
+    if (!match) throw new Error('get_fileset_id: expected an official QQ share URL');
+    try {
+      code = decodeURIComponent(match[1]);
+    } catch (error) {
+      throw new Error('get_fileset_id: expected an official QQ share URL', { cause: error });
+    }
+  }
+
+  const hasForbiddenCharacter = Array.from(code).some((char) => {
+    const codePoint = char.codePointAt(0) ?? 0;
+    return codePoint <= 0x20 || codePoint === 0x7f || '/\\?#'.includes(char);
+  });
+  if (code.length > 256 || hasForbiddenCharacter) {
+    throw new Error('get_fileset_id: invalid share code');
+  }
+  return `${QFILE_SHARE_ORIGIN}/q/${encodeURIComponent(code)}`;
+}
+
+async function rejectShareResponse(response: Response, error: Error): Promise<never> {
+  try {
+    await response.body?.cancel(error);
+  } catch (cleanupError) {
+    throw new AggregateError([error, cleanupError], error.message);
+  }
+  throw error;
+}
+
+async function readSharePage(response: Response): Promise<string> {
+  const declaredLength = response.headers.get('content-length');
+  if (declaredLength !== null) {
+    if (!/^\d+$/.test(declaredLength)) {
+      await rejectShareResponse(response, new Error('get_fileset_id: invalid response length'));
+    }
+    if (Number(declaredLength) > QFILE_SHARE_PAGE_MAX_BYTES) {
+      await rejectShareResponse(response, new Error('get_fileset_id: share page too large'));
+    }
+  }
+  if (!response.body) throw new Error('get_fileset_id: share page response has no body');
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  let html = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > QFILE_SHARE_PAGE_MAX_BYTES) {
+        const error = new Error('get_fileset_id: share page too large');
+        try {
+          await reader.cancel(error);
+        } catch (cleanupError) {
+          throw new AggregateError([error, cleanupError], error.message);
+        }
+        throw error;
+      }
+      html += decoder.decode(value, { stream: true });
+    }
+    html += decoder.decode();
+    return html;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 // 手写 PNG 编码（zlib 压缩，避免引入图像库）。缩略图用随机纯色，每次 SHA1 不同，
 // 避免命中服务端秒传缓存。
 const CRC_TABLE: Uint32Array = (() => {
@@ -207,10 +300,26 @@ export class FlashTransferApi {
    * 接口数据），直接 GET + 正则提取即可，无需复刻带签名的 trpc 调用。
    */
   async getFilesetIdByCode(shareCode: string): Promise<string> {
-    const url = /^https?:\/\//i.test(shareCode) ? shareCode : `https://qfile.qq.com/q/${shareCode}`;
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`get_fileset_id: HTTP ${resp.status}`);
-    const html = await resp.text();
+    const url = officialQfileShareUrl(shareCode);
+    let resp: Response;
+    try {
+      resp = await fetch(url, {
+        redirect: 'manual',
+        signal: AbortSignal.timeout(QFILE_SHARE_TIMEOUT_MS),
+      });
+    } catch (error) {
+      if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
+        throw new Error('get_fileset_id: share page request timed out', { cause: error });
+      }
+      throw error;
+    }
+    if (resp.status >= 300 && resp.status < 400) {
+      await rejectShareResponse(resp, new Error('get_fileset_id: share page redirect is not allowed'));
+    }
+    if (!resp.ok) {
+      await rejectShareResponse(resp, new Error(`get_fileset_id: HTTP ${resp.status}`));
+    }
+    const html = await readSharePage(resp);
     // 网页里 fileset_id 以 JSON 嵌入（引号可能被转义为 \"），正则兼容两种形态。
     const m = /fileset_id\\?"\s*:\s*\\?"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/.exec(html);
     if (!m) throw new Error('get_fileset_id: fileset_id not found in share page');

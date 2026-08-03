@@ -214,13 +214,12 @@ function emit(
   level: LogLevel,
   options: LogOptions,
   args: unknown[],
-  forceInitialCredentials = false,
 ): void {
   // Console / subscriber and file filters are independent. If no destination
   // accepts the record, stop before formatting or building a LogEntry.
-  const passesConsole = forceInitialCredentials || shouldLog(level);
+  const passesConsole = shouldLog(level);
   const passesFile = level !== 'trace'
-    && (forceInitialCredentials || shouldLogToFile(level));
+    && shouldLogToFile(level);
   if (!passesConsole && !passesFile) return;
 
   // `trace` is the high-volume full-chain diagnostic stream, intentionally
@@ -239,7 +238,7 @@ function emit(
 
   const reqId = currentRequestId();
   const formattedMessage = format(...realArgs);
-  const message = level === 'trace' || forceInitialCredentials
+  const message = level === 'trace'
     ? formattedMessage
     : redactLogMessage(formattedMessage);
   const line = render(level, options, message, reqId);
@@ -364,12 +363,17 @@ export function runWithTraceRequest<T>(fn: () => T): T {
 }
 
 export function logInitialWebuiCredentials(password: string): void {
-  emit(
+  // This is deliberately not a LogEntry: application logs can be retained on
+  // disk, exported through WebUI, and delivered to subscribers. First-run
+  // credentials must only cross the process terminal boundary.
+  const line = render(
     'info',
     { scope: 'WebUI' },
-    ['initial credentials: user=admin password=%s', password],
-    true,
+    format('initial credentials: user=admin password=%s', password),
   );
+  // Keep the same terminal control-character policy as regular console logs.
+  // eslint-disable-next-line no-control-regex
+  process.stdout.write(line.replace(/[\x00-\x08\x0B-\x1A\x1C-\x1F\x7F]/g, '') + '\n');
 }
 
 // Request-correlation primitives remain available for callers that already own

@@ -1,10 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { subscribeLogs, type LogEntry } from '@snowluma/common/logger';
-import { protobuf_decode } from '@snowluma/proton';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   OidbDeleteFriend,
   OidbFriendRequestAction,
+  OidbSetFriendRemarkResponse,
 } from '@snowluma/proto-defs/oidb-actions/base';
 
 // Post-namespace migration: FriendApi is a thin facade over the
@@ -65,10 +66,27 @@ describe('apis/friend', () => {
   });
 
   it('setRemark uses the current set command for a non-empty remark', async () => {
-    const bridge = mockBridge();
+    const bridge = mockBridge({
+      sendRawPacket: vi.fn(async () => ({
+        success: true,
+        gotResponse: true,
+        errorCode: 0,
+        errorMessage: '',
+        responseData: Buffer.from(protobuf_encode<OidbBase<OidbSetFriendRemarkResponse>>({
+          body: {
+            result: {
+              target: { targetUid: 'resolved-uid', targetUin: 10001n },
+              remark: 'best-friend',
+            },
+          },
+        })),
+      })),
+    });
     await new FriendApi(bridge as any).setRemark(10001, 'best-friend');
     expect(bridge.sendRawPacket.mock.calls[0]![0])
       .toBe('OidbSvcTrpcTcp.0x912e_0');
+    expect(bridge.identity.updateFriendRemark)
+      .toHaveBeenCalledWith('resolved-uid', 10001, 'best-friend');
   });
 
   it('setRemark uses the dedicated clear command for an empty remark', async () => {

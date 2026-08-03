@@ -110,12 +110,20 @@ export class WsServerConnections {
     }
   }
 
+  /** Authenticate the HTTP upgrade before a WebSocket object is allocated. */
+  authorizeUpgrade(request: IncomingMessage): boolean {
+    const authorized = isAuthorized(request, this.config.accessToken ?? '');
+    if (!authorized) this.log.debug('[%s] rejected unauthorized WebSocket upgrade', this.name);
+    return authorized;
+  }
+
   accept(socket: WebSocket, request: IncomingMessage): void {
     if (!this.acceptingActions || this.ctx.api.isAcceptingActions === false) {
       safeClose(socket, 1012, 'server closing');
       return;
     }
-    if (!isAuthorized(request, this.config.accessToken ?? '')) {
+    // Defence in depth for custom/future listeners that bypass verifyClient.
+    if (!this.authorizeUpgrade(request)) {
       safeClose(socket, 1008, 'invalid access token');
       return;
     }

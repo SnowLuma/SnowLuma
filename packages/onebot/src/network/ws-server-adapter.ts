@@ -1,5 +1,6 @@
 import { WebSocketServer } from '@snowluma/websocket';
 import { createLogger } from '@snowluma/common/logger';
+import type { IncomingMessage } from 'node:http';
 import type { DispatchPayload } from '../event-filter';
 import type { JsonObject, WsServerNetwork } from '../types';
 import { IOneBotNetworkAdapter, type AdapterStatus, type NetworkAdapterContext } from './adapter';
@@ -105,6 +106,8 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
           host: this.config.host ?? '0.0.0.0',
           port: this.config.port,
           path: normalizePath(this.config.path),
+          verifyClient: ({ req }: { req: IncomingMessage }) =>
+            this.connections.authorizeUpgrade(req),
         });
       } catch (error) {
         this.recordTransportFailure(error);

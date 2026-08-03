@@ -7,8 +7,12 @@ const { FakeWebSocketServer, servers } = vi.hoisted(() => {
 
   class FakeWebSocketServer extends EventEmitter {
     closeCallback: ((error?: Error) => void) | null = null;
-    constructor(_options: unknown) {
+    readonly options: {
+      verifyClient?: (info: { req: { headers: Record<string, string>; url?: string } }) => boolean;
+    };
+    constructor(options: unknown) {
       super();
+      this.options = options as typeof this.options;
       servers.push(this);
     }
     close(callback?: (error?: Error) => void): void {
@@ -71,6 +75,19 @@ describe('WsServerAdapter bind/release lifecycle promises', () => {
     await opening;
     expect(resolved).toBe(true);
     expect(adapter.describeStatus().status).toBe('ok');
+  });
+
+  it('provides standalone upgrade authentication before accepting a connection', () => {
+    const adapter = new WsServerAdapter('ws', {
+      ...config(),
+      accessToken: 'expected-token',
+    }, CTX);
+    void adapter.open();
+    const verify = servers[0].options.verifyClient;
+
+    expect(verify).toBeTypeOf('function');
+    expect(verify?.({ req: { headers: {}, url: '/?access_token=wrong-token' } })).toBe(false);
+    expect(verify?.({ req: { headers: {}, url: '/?access_token=expected-token' } })).toBe(true);
   });
 
   it('rejects bind errors and exposes them as degraded', async () => {

@@ -30,6 +30,7 @@ import {
   STREAM_ROOT,
   STREAM_UPLOAD_DIR,
   clearInactiveStreamStorage,
+  ensureStreamDirectory,
   registerActiveStreamItem,
 } from '../stream-storage';
 
@@ -149,7 +150,7 @@ function createUpload(p: UploadParams, account: string): UploadState {
   const finalPath = path.join(dirRoot, `${p.stream_id}__${filename}`);
   assertWithin(STREAM_UPLOAD_DIR, tempDir);
   assertWithin(STREAM_UPLOAD_DIR, finalPath);
-  fs.mkdirSync(tempDir, { recursive: true });
+  ensureStreamDirectory(tempDir);
 
   const key = account ? `${account}:${p.stream_id}` : p.stream_id;
   const releaseStorageActivity = registerActiveStreamItem([tempDir, finalPath]);

@@ -15,6 +15,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   HEADER_SIZE,
   listLiveLinuxPipePids,
+  MAX_PIPE_BODY_BYTES,
+  MAX_PIPE_CMD_BYTES,
+  MAX_PIPE_MSG_BYTES,
   PIPE_MAGIC,
   PIPE_VERSION,
   PipeOp,
@@ -144,6 +147,205 @@ describe('listLiveLinuxPipePids', () => {
 
     expect([...pids]).toEqual([56]);
     expect(probe).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('QqHookClient — pipe frame limits', () => {
+  it('forwards a probed account as a native identity hint without changing login state', async () => {
+    const pid = 778819;
+    const writes: Buffer[] = [];
+    const connection = mockControlPipe(pid, (socket, payload) => {
+      writes.push(Buffer.from(payload));
+      const requestId = payload.readUInt32LE(8);
+      queueMicrotask(() => socket.emit('data', pipeFrame({
+        op: PipeOp.sendAck,
+        requestId,
+      })));
+    });
+    const client = new QqHookClient(pid);
+    try {
+      await client.reconcileLoginIdentity('10001');
+
+      expect(writes).toHaveLength(1);
+      expect(writes[0]!.readUInt16LE(6)).toBe(PipeOp.loginIdentityHint);
+      expect(writes[0]!.readBigUInt64LE(32)).toBe(10001n);
+      expect(client.getLoginState()).toEqual({
+        loggedIn: false,
+        uin: '0',
+        uinNumber: 0n,
+      });
+    } finally {
+      client.close();
+      connection.mockRestore();
+    }
+  });
+
+  it.each([
+    ['command', 20, MAX_PIPE_CMD_BYTES],
+    ['message', 24, MAX_PIPE_MSG_BYTES],
+    ['body', 28, MAX_PIPE_BODY_BYTES],
+  ] as const)(
+    'rejects an oversized inbound %s before waiting for its payload',
+    async (name, lengthOffset, limit) => {
+      const pid = 778830;
+      let socket: net.Socket | null = null;
+      const createConnection = vi.spyOn(net, 'createConnection').mockImplementation((() => {
+        socket = new Duplex({ read() { /* peer data is injected with emit('data') */ } }) as net.Socket;
+        queueMicrotask(() => {
+          socket!.emit('connect');
+          const header = Buffer.alloc(HEADER_SIZE);
+          header.writeUInt32LE(PIPE_MAGIC, 0);
+          header.writeUInt16LE(PIPE_VERSION, 4);
+          header.writeUInt16LE(PipeOp.hello, 6);
+          header.writeUInt32LE(limit + 1, lengthOffset);
+          socket!.emit('data', header);
+        });
+        return socket;
+      }) as typeof net.createConnection);
+      const client = new QqHookClient(pid);
+      const connecting = client.connect().catch(() => undefined);
+      try {
+        const error = await new Promise<Error>((resolve, reject) => {
+          const timer = setTimeout(
+            () => reject(new Error('oversized frame was not rejected')),
+            100,
+          );
+          client.once('error', (reason: unknown) => {
+            clearTimeout(timer);
+            resolve(reason instanceof Error ? reason : new Error(String(reason)));
+          });
+        });
+
+        expect(error.message).toBe(
+          `pipe frame ${name} length ${limit + 1} exceeds limit ${limit}`,
+        );
+        expect(socket?.destroyed).toBe(true);
+      } finally {
+        client.close();
+        await connecting;
+        createConnection.mockRestore();
+      }
+    });
+
+  it('rejects an oversized outbound command before writing to the pipe', async () => {
+    const pid = 778831;
+    const onWrite = vi.fn();
+    const connection = mockControlPipe(pid, onWrite);
+    const client = new QqHookClient(pid);
+    try {
+      await client.connect();
+
+      await expect(client.sendNoReply('x'.repeat(MAX_PIPE_CMD_BYTES + 1), Buffer.alloc(0), {
+        ackTimeoutMs: 25,
+      })).rejects.toThrow(
+        `pipe frame command length ${MAX_PIPE_CMD_BYTES + 1} exceeds limit ${MAX_PIPE_CMD_BYTES}`,
+      );
+      expect(onWrite).not.toHaveBeenCalled();
+    } finally {
+      client.close();
+      connection.mockRestore();
+    }
+  });
+
+  it('rejects an oversized outbound body before writing to the pipe', async () => {
+    const pid = 778832;
+    const onWrite = vi.fn();
+    const connection = mockControlPipe(pid, onWrite);
+    const client = new QqHookClient(pid);
+    try {
+      await client.connect();
+
+      await expect(client.sendNoReply(
+        'test.command',
+        Buffer.alloc(MAX_PIPE_BODY_BYTES + 1),
+      )).rejects.toThrow(
+        `pipe frame body length ${MAX_PIPE_BODY_BYTES + 1} exceeds limit ${MAX_PIPE_BODY_BYTES}`,
+      );
+      expect(onWrite).not.toHaveBeenCalled();
+    } finally {
+      client.close();
+      connection.mockRestore();
+    }
+  });
+
+  it('accepts values exactly at the command limit', async () => {
+    const pid = 778833;
+    const connection = mockControlPipe(pid, (socket, payload) => {
+      const requestId = payload.readUInt32LE(8);
+      queueMicrotask(() => socket.emit('data', pipeFrame({
+        op: PipeOp.sendAck,
+        requestId,
+      })));
+    });
+    const client = new QqHookClient(pid);
+    try {
+      await expect(client.sendNoReply('x'.repeat(MAX_PIPE_CMD_BYTES), Buffer.alloc(0)))
+        .resolves.toMatchObject({ requestId: 1 });
+    } finally {
+      client.close();
+      connection.mockRestore();
+    }
+  });
+
+  it('parses fragmented and coalesced frames without losing boundaries', async () => {
+    const pid = 778834;
+    const states: string[] = [];
+    const wire = Buffer.concat([
+      pipeFrame({ op: PipeOp.hello, value0: BigInt(pid), message: 'control' }),
+      pipeFrame({ op: PipeOp.loginState, status: 1, value0: 10001n, message: '10001' }),
+      pipeFrame({ op: PipeOp.loginState, status: 1, value0: 10002n, message: '10002' }),
+    ]);
+    const createConnection = vi.spyOn(net, 'createConnection').mockImplementation((() => {
+      const socket = new Duplex({ read() { /* peer data is injected with emit('data') */ } }) as net.Socket;
+      queueMicrotask(() => {
+        socket.emit('connect');
+        queueMicrotask(() => {
+          const cuts = [1, 7, 39, 40, 44, 83, wire.length - 1, wire.length];
+          let offset = 0;
+          for (const end of cuts) {
+            if (end > offset) socket.emit('data', wire.subarray(offset, end));
+            offset = end;
+          }
+        });
+      });
+      return socket;
+    }) as typeof net.createConnection);
+    const client = new QqHookClient(pid);
+    client.on('loginState', state => states.push(state.uin));
+    try {
+      const hello = await client.connect();
+
+      expect(hello).toMatchObject({ pipeName: 'control', pid });
+      expect(states).toEqual(['10001', '10002']);
+    } finally {
+      client.close();
+      createConnection.mockRestore();
+    }
+  });
+
+  it('accepts an inbound message exactly at the native limit', async () => {
+    const pid = 778835;
+    const message = 'x'.repeat(MAX_PIPE_MSG_BYTES);
+    const frame = pipeFrame({ op: PipeOp.hello, value0: BigInt(pid), message });
+    const createConnection = vi.spyOn(net, 'createConnection').mockImplementation((() => {
+      const socket = new Duplex({ read() { /* peer data is injected with emit('data') */ } }) as net.Socket;
+      queueMicrotask(() => {
+        socket.emit('connect');
+        queueMicrotask(() => {
+          for (let offset = 0; offset < frame.length; offset += 1024) {
+            socket.emit('data', frame.subarray(offset, offset + 1024));
+          }
+        });
+      });
+      return socket;
+    }) as typeof net.createConnection);
+    const client = new QqHookClient(pid);
+    try {
+      await expect(client.connect()).resolves.toMatchObject({ pipeName: message, pid });
+    } finally {
+      client.close();
+      createConnection.mockRestore();
+    }
   });
 });
 

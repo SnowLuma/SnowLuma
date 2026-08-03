@@ -18,13 +18,14 @@ describe('makeDefaultOneBotConfig', () => {
     const config = makeDefaultOneBotConfig();
     expect(config.networks.httpServers).toHaveLength(1);
     expect(config.networks.httpServers[0].name).toBe('http-default');
-    expect(config.networks.httpServers[0].host).toBe('0.0.0.0');
+    expect(config.networks.httpServers[0].host).toBe('127.0.0.1');
     expect(config.networks.httpServers[0].port).toBe(3000);
     expect(config.networks.httpServers[0].accessToken).toMatch(TOKEN_PATTERN);
     expect(config.networks.httpServers[0].messageFormat).toBe('array');
     expect(config.networks.httpServers[0].reportSelfMessage).toBe(false);
     expect(config.networks.httpClients).toEqual([]);
     expect(config.networks.wsServers).toHaveLength(1);
+    expect(config.networks.wsServers[0].host).toBe('127.0.0.1');
     expect(config.networks.wsServers[0].port).toBe(3001);
     expect(config.networks.wsServers[0].role).toBe('Universal');
     expect(config.networks.wsServers[0].accessToken).toMatch(TOKEN_PATTERN);
@@ -87,6 +88,7 @@ describe('assertValidOneBotConfig', () => {
 
   it('rejects enabled servers with the same normalized host and port', () => {
     const config = makeDefaultOneBotConfig();
+    config.networks.httpServers[0].host = '0.0.0.0';
     config.networks.wsServers.push({
       name: 'conflicting-ws',
       host: '0.0.0.0',
@@ -107,6 +109,7 @@ describe('assertValidOneBotConfig', () => {
     expect(() => assertValidOneBotConfig(blank)).toThrow(/\.host/);
 
     const wildcard = makeDefaultOneBotConfig();
+    wildcard.networks.httpServers[0].host = '0.0.0.0';
     wildcard.networks.wsServers.push({
       name: 'specific-ws',
       host: '127.0.0.1',
@@ -182,13 +185,14 @@ describe('saveOneBotConfig validation boundary', () => {
       const config = makeDefaultOneBotConfig();
       config.networks.wsServers.push({
         name: 'same-bind',
+        host: '127.0.0.1',
         port: 3000,
         path: '/ws',
         messageFormat: 'array',
         reportSelfMessage: false,
       });
 
-      expect(() => saveOneBotConfig('10001', config)).toThrow(/server binding 0\.0\.0\.0:3000/);
+      expect(() => saveOneBotConfig('10001', config)).toThrow(/server binding 127\.0\.0\.1:3000/);
       expect(fs.existsSync(path.join(tempDir, 'config', 'onebot_10001.json'))).toBe(false);
     } finally {
       process.chdir(previous);

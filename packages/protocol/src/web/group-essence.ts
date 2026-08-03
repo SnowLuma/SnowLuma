@@ -9,7 +9,11 @@ export interface GroupEssenceContent {
   text?: string;
   face_index?: number;
   image_url?: string;
+  file_name?: string;
+  file_bus_id?: number | string;
+  file_id?: string;
   file_thumbnail_url?: string;
+  file_size?: number | string;
 }
 
 export interface GroupEssenceMessage {

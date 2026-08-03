@@ -6,14 +6,21 @@ import {
   runWithTraceRequest,
 } from '@snowluma/common/logger';
 import { renderParamsVerbose } from '@snowluma/common/log-summary';
+import { isRealUin } from '@snowluma/common/uin';
 import { readdirSync, promises as fs } from 'fs';
 import net from 'net';
-import os from 'os';
 import path from 'path';
+import { resolveHookRuntimeDir } from './hook-runtime-dir';
 
 export const PIPE_MAGIC = 0x31504851;
 export const PIPE_VERSION = 1;
 export const HEADER_SIZE = 40;
+// Keep these byte limits in lockstep with nnphook's pipe_protocol.hpp. The
+// native readers already enforce them; mirroring them here prevents the JS
+// endpoint from buffering frames that the peer can never accept.
+export const MAX_PIPE_CMD_BYTES = 4096;
+export const MAX_PIPE_MSG_BYTES = 65536;
+export const MAX_PIPE_BODY_BYTES = 16 * 1024 * 1024;
 export const DEFAULT_ACK_TIMEOUT_MS = 5000;
 export const DEFAULT_REPLY_TIMEOUT_MS = 30000;
 const DEFAULT_PIPE_PROBE_TIMEOUT_MS = 250;
@@ -28,6 +35,7 @@ export enum PipeOp {
   error = 5,
   recvPacket = 6,
   loginState = 7,
+  loginIdentityHint = 17,
 }
 
 const PipeFlagWantReply = 1 << 0;
@@ -63,6 +71,7 @@ export interface QqHookSendReply {
 export interface QqHookClientOptions {
   ackTimeoutMs?: number;
   replyTimeoutMs?: number;
+  runtimeDir?: string;
 }
 
 export interface QqHookSendOptions {
@@ -94,6 +103,20 @@ interface PendingAck {
   wantReply: boolean;
 }
 
+function isMissingDirectoryError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
+}
+
+function isUnavailableSocketError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === 'ENOENT'
+    || code === 'ENOTDIR'
+    || code === 'ENOTSOCK'
+    || code === 'ECONNREFUSED'
+    || code === 'ECONNRESET';
+}
+
 /**
  * Sync directory scan for `mojo.<pid>.control.sock` socket files in the
  * runtime dir, returning the pid set. Used by the darwin path of
@@ -108,14 +131,15 @@ interface PendingAck {
  * variant still gates the subsequent `pipe-up` emit via a real connect.
  */
 export function listSnowlumaPipePidsSync(
-  runtimeDir = linuxRuntimeDir(),
+  runtimeDir = resolveHookRuntimeDir(),
 ): Set<number> {
   const result = new Set<number>();
   let names: string[];
   try {
     names = readdirSync(runtimeDir);
-  } catch {
-    return result;
+  } catch (error) {
+    if (isMissingDirectoryError(error)) return result;
+    throw error;
   }
   for (const name of names) {
     const m = /^mojo\.(\d+)\.control\.sock$/i.exec(name);
@@ -126,37 +150,11 @@ export function listSnowlumaPipePidsSync(
   return result;
 }
 
-function linuxRuntimeDir(): string {
-  // Name kept for historical reasons (the function predates the macOS port);
-  // applies to every non-win32 platform. The fallback order mirrors each
-  // platform hook's runtime_dir(): explicit override first, then the OS-
-  // native ephemeral-dir convention.
-  const explicit = process.env.SNOWLUMA_HOOK_RUNTIME_DIR;
-  if (explicit && explicit.length > 0) return explicit;
-  const xdg = process.env.XDG_RUNTIME_DIR;
-  if (xdg && xdg.length > 0) return xdg;
-  // macOS: dylib defaults to "$TMPDIR/snowluma-hook" (apps/qq/macos/
-  // qq_hook_dylib.cpp's runtime_dir()). $TMPDIR is per-user on macOS
-  // (under /var/folders/.../T) so this is the right place — Linux's
-  // /tmp/snowluma-<uid> doesn't exist on a stock Mac.
-  if (process.platform === 'darwin') {
-    const tmpdir = process.env.TMPDIR;
-    if (tmpdir && tmpdir.length > 0) {
-      const trimmed = tmpdir.endsWith('/') ? tmpdir.slice(0, -1) : tmpdir;
-      return path.join(trimmed, 'snowluma-hook');
-    }
-  }
-  // Linux fallback: mirrors hook_stub.cpp runtime_dir() last-resort.
-  // process.geteuid is POSIX-only; cast to allow non-Linux type checks.
-  const uid = typeof process.geteuid === 'function' ? process.geteuid() : os.userInfo().uid;
-  return `/tmp/snowluma-${uid}`;
-}
-
-function mojoPipeName(pid: number, suffix: string): string {
+function mojoPipeName(pid: number, suffix: string, runtimeDir = resolveHookRuntimeDir(pid)): string {
   if (process.platform === 'win32') {
     return `\\\\.\\pipe\\mojo.${pid}.${suffix}`;
   }
-  return path.join(linuxRuntimeDir(), `mojo.${pid}.${suffix}.sock`);
+  return path.join(runtimeDir, `mojo.${pid}.${suffix}.sock`);
 }
 
 type LinuxPipeProbe = (socketPath: string) => Promise<boolean>;
@@ -165,16 +163,18 @@ async function isConnectableUnixSocket(socketPath: string): Promise<boolean> {
   try {
     const stat = await fs.stat(socketPath);
     if (!stat.isSocket()) return false;
-  } catch {
-    return false;
+  } catch (error) {
+    if (isUnavailableSocketError(error)) return false;
+    throw error;
   }
 
-  return new Promise<boolean>((resolve) => {
+  return new Promise<boolean>((resolve, reject) => {
     let socket: net.Socket;
     try {
       socket = net.createConnection(socketPath);
-    } catch {
-      resolve(false);
+    } catch (error) {
+      if (isUnavailableSocketError(error)) resolve(false);
+      else reject(error);
       return;
     }
     let done = false;
@@ -189,20 +189,31 @@ async function isConnectableUnixSocket(socketPath: string): Promise<boolean> {
     };
     timer = setTimeout(() => finish(false), DEFAULT_PIPE_PROBE_TIMEOUT_MS);
     socket.once('connect', () => finish(true));
-    socket.once('error', () => finish(false));
+    socket.once('error', error => {
+      if (isUnavailableSocketError(error)) finish(false);
+      else {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        socket.removeAllListeners();
+        socket.destroy();
+        reject(error);
+      }
+    });
   });
 }
 
 export async function listLiveLinuxPipePids(
-  runtimeDir = linuxRuntimeDir(),
+  runtimeDir = resolveHookRuntimeDir(),
   probe: LinuxPipeProbe = isConnectableUnixSocket,
 ): Promise<Set<number>> {
   const result = new Set<number>();
   let names: string[];
   try {
     names = await fs.readdir(runtimeDir);
-  } catch {
-    return result;
+  } catch (error) {
+    if (isMissingDirectoryError(error)) return result;
+    throw error;
   }
 
   await Promise.all(names.map(async (name) => {
@@ -303,6 +314,7 @@ function encodeFrame({
   const cmdBuf = Buffer.from(cmd, 'utf8');
   const msgBuf = Buffer.from(msg, 'utf8');
   const bodyBuf = toBuffer(body);
+  validatePipeFrameLengths(cmdBuf.length, msgBuf.length, bodyBuf.length);
   const header = Buffer.alloc(HEADER_SIZE);
   header.writeUInt32LE(PIPE_MAGIC, 0);
   header.writeUInt16LE(PIPE_VERSION, 4);
@@ -317,45 +329,115 @@ function encodeFrame({
   return Buffer.concat([header, cmdBuf, msgBuf, bodyBuf]);
 }
 
+function validatePipeFrameLengths(cmdLen: number, msgLen: number, bodyLen: number): void {
+  const lengths = [
+    ['command', cmdLen, MAX_PIPE_CMD_BYTES],
+    ['message', msgLen, MAX_PIPE_MSG_BYTES],
+    ['body', bodyLen, MAX_PIPE_BODY_BYTES],
+  ] as const;
+  for (const [name, length, limit] of lengths) {
+    if (length > limit) {
+      throw new Error(`pipe frame ${name} length ${length} exceeds limit ${limit}`);
+    }
+  }
+}
+
+interface PendingPipeFrame {
+  op: number;
+  requestId: number;
+  status: number;
+  flags: number;
+  value0: bigint;
+  cmdLen: number;
+  msgLen: number;
+  bodyLen: number;
+  payload: Buffer;
+  received: number;
+}
+
 class FrameReader {
-  private buffer = Buffer.alloc(0);
+  private readonly header = Buffer.alloc(HEADER_SIZE);
+  private headerBytes = 0;
+  private pending: PendingPipeFrame | null = null;
 
   constructor(private readonly onFrame: (frame: PipeFrame) => void) { }
 
   push(chunk: Buffer): void {
-    this.buffer = Buffer.concat([this.buffer, chunk]);
-    while (this.buffer.length >= HEADER_SIZE) {
-      const magic = this.buffer.readUInt32LE(0);
-      const version = this.buffer.readUInt16LE(4);
-      if (magic !== PIPE_MAGIC || version !== PIPE_VERSION) {
-        throw new Error(`bad frame header magic=0x${magic.toString(16)} version=${version}`);
+    let chunkOffset = 0;
+    while (chunkOffset < chunk.length) {
+      if (!this.pending) {
+        const headerBytes = Math.min(HEADER_SIZE - this.headerBytes, chunk.length - chunkOffset);
+        chunk.copy(
+          this.header,
+          this.headerBytes,
+          chunkOffset,
+          chunkOffset + headerBytes,
+        );
+        this.headerBytes += headerBytes;
+        chunkOffset += headerBytes;
+        if (this.headerBytes < HEADER_SIZE) return;
+
+        this.headerBytes = 0;
+        const magic = this.header.readUInt32LE(0);
+        const version = this.header.readUInt16LE(4);
+        if (magic !== PIPE_MAGIC || version !== PIPE_VERSION) {
+          throw new Error(`bad frame header magic=0x${magic.toString(16)} version=${version}`);
+        }
+
+        const cmdLen = this.header.readUInt32LE(20);
+        const msgLen = this.header.readUInt32LE(24);
+        const bodyLen = this.header.readUInt32LE(28);
+        validatePipeFrameLengths(cmdLen, msgLen, bodyLen);
+        const payloadLength = cmdLen + msgLen + bodyLen;
+        this.pending = {
+          op: this.header.readUInt16LE(6),
+          requestId: this.header.readUInt32LE(8),
+          status: this.header.readInt32LE(12),
+          flags: this.header.readUInt32LE(16),
+          value0: this.header.readBigUInt64LE(32),
+          cmdLen,
+          msgLen,
+          bodyLen,
+          payload: payloadLength === 0 ? Buffer.alloc(0) : Buffer.allocUnsafe(payloadLength),
+          received: 0,
+        };
       }
 
-      const cmdLen = this.buffer.readUInt32LE(20);
-      const msgLen = this.buffer.readUInt32LE(24);
-      const bodyLen = this.buffer.readUInt32LE(28);
-      const total = HEADER_SIZE + cmdLen + msgLen + bodyLen;
-      if (this.buffer.length < total) return;
+      const pending = this.pending;
+      const payloadBytes = Math.min(
+        pending.payload.length - pending.received,
+        chunk.length - chunkOffset,
+      );
+      if (payloadBytes > 0) {
+        chunk.copy(
+          pending.payload,
+          pending.received,
+          chunkOffset,
+          chunkOffset + payloadBytes,
+        );
+        pending.received += payloadBytes;
+        chunkOffset += payloadBytes;
+      }
+      if (pending.received < pending.payload.length) return;
 
+      this.pending = null;
       const frame: PipeFrame = {
-        op: this.buffer.readUInt16LE(6),
-        requestId: this.buffer.readUInt32LE(8),
-        status: this.buffer.readInt32LE(12),
-        flags: this.buffer.readUInt32LE(16),
-        value0: this.buffer.readBigUInt64LE(32),
+        op: pending.op,
+        requestId: pending.requestId,
+        status: pending.status,
+        flags: pending.flags,
+        value0: pending.value0,
         cmd: '',
         msg: '',
         body: Buffer.alloc(0),
       };
 
-      let offset = HEADER_SIZE;
-      frame.cmd = this.buffer.subarray(offset, offset + cmdLen).toString('utf8');
-      offset += cmdLen;
-      frame.msg = this.buffer.subarray(offset, offset + msgLen).toString('utf8');
-      offset += msgLen;
-      frame.body = Buffer.from(this.buffer.subarray(offset, offset + bodyLen));
-
-      this.buffer = this.buffer.subarray(total);
+      let offset = 0;
+      frame.cmd = pending.payload.subarray(offset, offset + pending.cmdLen).toString('utf8');
+      offset += pending.cmdLen;
+      frame.msg = pending.payload.subarray(offset, offset + pending.msgLen).toString('utf8');
+      offset += pending.msgLen;
+      frame.body = Buffer.from(pending.payload.subarray(offset, offset + pending.bodyLen));
       this.onFrame(frame);
     }
   }
@@ -363,6 +445,7 @@ class FrameReader {
 
 export class QqHookClient extends EventEmitter {
   readonly pid: number;
+  readonly runtimeDir: string;
   readonly defaultAckTimeoutMs: number;
   readonly defaultReplyTimeoutMs: number;
 
@@ -385,9 +468,11 @@ export class QqHookClient extends EventEmitter {
   constructor(pid: number, {
     ackTimeoutMs = DEFAULT_ACK_TIMEOUT_MS,
     replyTimeoutMs = DEFAULT_REPLY_TIMEOUT_MS,
+    runtimeDir = resolveHookRuntimeDir(pid),
   }: QqHookClientOptions = {}) {
     super();
     this.pid = pid;
+    this.runtimeDir = runtimeDir;
     this.defaultAckTimeoutMs = ackTimeoutMs;
     this.defaultReplyTimeoutMs = replyTimeoutMs;
   }
@@ -413,16 +498,14 @@ export class QqHookClient extends EventEmitter {
   }
 
   /**
-   * Reconcile a login edge that the native hook could not replay after the
-   * pipe connected. The client remains the single source of truth so packet
-   * sending, login waiters, and HookSession all observe the same transition.
+   * Forward an observed account identity for reconciliation. This does not
+   * change login state; readiness still requires peer confirmation.
    */
-  reconcileLoginState(state: QqHookLoginState): void {
-    this.applyLoginState({
-      loggedIn: state.loggedIn,
-      uin: state.uin || state.uinNumber.toString(),
-      uinNumber: state.uinNumber,
-    });
+  async reconcileLoginIdentity(uin: string): Promise<void> {
+    if (!isRealUin(uin)) {
+      throw new Error(`invalid QQ login identity hint: ${JSON.stringify(uin)}`);
+    }
+    await this.sendAckOnly(PipeOp.loginIdentityHint, BigInt(uin), 'login identity hint');
   }
 
   async waitForLogin({ timeoutMs = 0 } = {}): Promise<QqHookLoginState> {
@@ -435,12 +518,12 @@ export class QqHookClient extends EventEmitter {
     return withTimeout(deferred.promise, timeoutMs, 'waitForLogin');
   }
 
-  static controlPipeName(pid: number): string {
-    return mojoPipeName(pid, 'control');
+  static controlPipeName(pid: number, runtimeDir = resolveHookRuntimeDir(pid)): string {
+    return mojoPipeName(pid, 'control', runtimeDir);
   }
 
-  static recvPipeName(pid: number): string {
-    return mojoPipeName(pid, 'recv');
+  static recvPipeName(pid: number, runtimeDir = resolveHookRuntimeDir(pid)): string {
+    return mojoPipeName(pid, 'recv', runtimeDir);
   }
 
   /**
@@ -449,7 +532,7 @@ export class QqHookClient extends EventEmitter {
    * opening the pipe, so probing cannot disturb the first real client connect.
    */
   static async probePipe(pid: number): Promise<boolean> {
-    const live = await QqHookClient.listLivePipes();
+    const live = await QqHookClient.listLivePipes([pid]);
     return live.has(pid);
   }
 
@@ -458,20 +541,24 @@ export class QqHookClient extends EventEmitter {
    * in a single filesystem listing. The HookManager's pipe-watcher uses this
    * to drive connect/reconnect decisions without per-PID stat calls.
    */
-  static async listLivePipes(): Promise<Set<number>> {
+  static async listLivePipes(pids: readonly number[] = []): Promise<Set<number>> {
     const result = new Set<number>();
-    try {
-      if (process.platform === 'win32') {
-        const names = await fs.readdir('\\\\.\\pipe\\');
-        for (const name of names) {
-          const m = /^mojo\.(\d+)\.control$/i.exec(name);
-          if (m) result.add(Number(m[1]));
-        }
-      } else {
-        return await listLiveLinuxPipePids();
+    if (process.platform === 'win32') {
+      const names = await fs.readdir('\\\\.\\pipe\\');
+      for (const name of names) {
+        const m = /^mojo\.(\d+)\.control$/i.exec(name);
+        if (m) result.add(Number(m[1]));
       }
-    } catch {
-      /* directory missing or inaccessible — treat as no live pipes */
+    } else {
+      const runtimeDirs = new Set<string>();
+      if (pids.length === 0) {
+        runtimeDirs.add(resolveHookRuntimeDir());
+      } else {
+        for (const pid of pids) runtimeDirs.add(resolveHookRuntimeDir(pid));
+      }
+      for (const runtimeDir of runtimeDirs) {
+        for (const pid of await listLiveLinuxPipePids(runtimeDir)) result.add(pid);
+      }
     }
     return result;
   }
@@ -528,18 +615,7 @@ export class QqHookClient extends EventEmitter {
   }: QqHookSendOptions = {}): Promise<QqHookSendReply | { requestId: number }> {
     await this.connect();
 
-    // Wrap inside uint32 explicitly. `nextRequestId++ >>> 0` would
-    // misbehave once the integer exceeds Number.MAX_SAFE_INTEGER (the
-    // postfix increment loses precision before the shift), letting two
-    // distinct requests collide on the same id. Skip 0 because zero is
-    // used as a sentinel by the wire protocol.
-    let requestId = this.nextRequestId;
-    while (this.pendingAcks.has(requestId) || this.pendingReplies.has(requestId)) {
-      requestId = (requestId + 1) >>> 0;
-      if (requestId === 0) requestId = 1;
-    }
-    this.nextRequestId = (requestId + 1) >>> 0;
-    if (this.nextRequestId === 0) this.nextRequestId = 1;
+    const requestId = this.allocateRequestId();
     const startedAt = Date.now();
     const bodyBytes = toBuffer(body);
     const payload = encodeFrame({
@@ -763,12 +839,49 @@ export class QqHookClient extends EventEmitter {
     return writePromise;
   }
 
+  private allocateRequestId(): number {
+    // Wrap inside uint32 explicitly. `nextRequestId++ >>> 0` would lose
+    // precision past Number.MAX_SAFE_INTEGER. Zero remains the wire sentinel.
+    let requestId = this.nextRequestId;
+    while (this.pendingAcks.has(requestId) || this.pendingReplies.has(requestId)) {
+      requestId = (requestId + 1) >>> 0;
+      if (requestId === 0) requestId = 1;
+    }
+    this.nextRequestId = (requestId + 1) >>> 0;
+    if (this.nextRequestId === 0) this.nextRequestId = 1;
+    return requestId;
+  }
+
+  private async sendAckOnly(op: PipeOp, value0: bigint, label: string): Promise<number> {
+    await this.connect();
+    const requestId = this.allocateRequestId();
+    const ackDeferred = createDeferred<{ requestId: number; wantReply: boolean }>();
+    ackDeferred.promise.catch(() => { /* observed by the await below */ });
+    this.pendingAcks.set(requestId, {
+      resolve: ackDeferred.resolve,
+      reject: ackDeferred.reject,
+      wantReply: false,
+    });
+    try {
+      await this.writeControl(encodeFrame({ op, requestId, value0 }));
+      await withTimeout(
+        ackDeferred.promise,
+        this.defaultAckTimeoutMs,
+        `${label} ack ${requestId}`,
+      );
+      return requestId;
+    } catch (error) {
+      this.pendingAcks.delete(requestId);
+      throw error;
+    }
+  }
+
   private async connectPipe(kind: 'control' | 'recv'): Promise<QqHookHello> {
     return runWithTraceRequest(async () => {
       const startedAt = Date.now();
       const pipeName = kind === 'control'
-        ? QqHookClient.controlPipeName(this.pid)
-        : QqHookClient.recvPipeName(this.pid);
+        ? QqHookClient.controlPipeName(this.pid, this.runtimeDir)
+        : QqHookClient.recvPipeName(this.pid, this.runtimeDir);
       let phase: 'connect' | 'hello' = 'connect';
       runtimeLog.trace(
         'hook_pipe_start pid=%d kind=%s pipeName=%j',
@@ -830,7 +943,7 @@ export class QqHookClient extends EventEmitter {
             reader.push(chunk);
           } catch (error) {
             this.emit('error', error);
-            socket.destroy(error instanceof Error ? error : undefined);
+            socket.destroy();
           }
         });
         socket.on('error', error => {

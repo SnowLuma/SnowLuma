@@ -160,7 +160,11 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
       let webSocketServer: WebSocketServer | null = null;
       try {
         if (this.config.enableWebSocket === true) {
-          webSocketServer = new WebSocketServer({ server });
+          webSocketServer = new WebSocketServer({
+            server,
+            verifyClient: ({ req }: { req: IncomingMessage }) =>
+              this.webSocketConnections.authorizeUpgrade(req),
+          });
           webSocketServer.on('connection', (socket, request) => {
             this.webSocketConnections.accept(socket, request);
           });

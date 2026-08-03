@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RouterProvider } from '@tanstack/react-router';
 import { AlertTriangle, LogOut, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,7 @@ import { DebugTaskProvider } from '@/contexts/DebugTaskContext';
 import { TaskBadge } from '@/components/debug/task-badge';
 import { AdaptivePointer } from '@/components/ui/adaptive-pointer';
 import { GlobalContextMenu } from '@/components/ui/global-context-menu';
+import { InsecureRemoteAccessBanner } from '@/components/insecure-remote-access-banner';
 import {
   actionErrorMessage,
   ActionFeedbackProvider,
@@ -25,6 +26,15 @@ import {
 } from '@/contexts/ActionFeedbackContext';
 import type { AgreementsPayload } from '@/lib/api/types';
 import { appRouter } from '@/router';
+import {
+  browserPath,
+  DEVELOPER_ONBOARDING_RETURN_KEY,
+  DEVELOPER_ONBOARDING_URL,
+  DEVELOPER_SETTINGS_URL,
+  developerOnboardingReturnPath,
+  isDeveloperOnboardingLocation,
+} from '@/lib/onboarding-navigation';
+import { onboardingExecution } from '@/lib/onboarding-actions';
 
 interface AppProps {
   onboardingSteps?: AdditionalOnboardingStep[];
@@ -34,6 +44,7 @@ export default function App({ onboardingSteps = [] }: AppProps) {
   return (
     <ActionFeedbackProvider>
       <ThemeProvider>
+        <InsecureRemoteAccessBanner />
         <ActionFeedbackViewport />
         <AdaptivePointer />
         <GlobalContextMenu />
@@ -72,6 +83,10 @@ function AuthBoundary({ onboardingSteps }: { onboardingSteps: AdditionalOnboardi
   const [agreementsError, setAgreementsError] = useState<string | null>(null);
   const [needsConsent, setNeedsConsent] = useState(false);
   const [onboardingFinished, setOnboardingFinished] = useState(false);
+  const [replayingOnboarding, setReplayingOnboarding] = useState(
+    () => typeof window !== 'undefined' && isDeveloperOnboardingLocation(window.location),
+  );
+  const onboardingReturnPath = useRef<string | null>(null);
   // The password from *this* session's login, carried into the forced
   // change-password gate so it doesn't have to render an old-password field
   // (which browsers autofill, misleading users on upgrade). Stays undefined
@@ -145,6 +160,8 @@ function AuthBoundary({ onboardingSteps }: { onboardingSteps: AdditionalOnboardi
     setAgreementsError(null);
     setNeedsConsent(false);
     setOnboardingFinished(false);
+    setReplayingOnboarding(false);
+    onboardingReturnPath.current = null;
     setLoginPassword(undefined);
   }, []);
 
@@ -152,6 +169,47 @@ function AuthBoundary({ onboardingSteps }: { onboardingSteps: AdditionalOnboardi
     await client.logout();
     handleLoggedOut();
   }, [client, handleLoggedOut]);
+
+  const restartOnboarding = useCallback(() => {
+    const currentPath = browserPath(window.location);
+    const returnPath = isDeveloperOnboardingLocation(window.location)
+      ? DEVELOPER_SETTINGS_URL
+      : currentPath;
+    onboardingReturnPath.current = returnPath;
+    const currentState = typeof window.history.state === 'object' && window.history.state !== null
+      ? window.history.state as Record<string, unknown>
+      : {};
+    setReplayingOnboarding(true);
+    appRouter.history.push(
+      DEVELOPER_ONBOARDING_URL,
+      { ...currentState, [DEVELOPER_ONBOARDING_RETURN_KEY]: returnPath },
+    );
+  }, []);
+
+  const exitOnboardingReplay = useCallback(() => {
+    const returnPath = onboardingReturnPath.current
+      ?? developerOnboardingReturnPath(window.history.state);
+    onboardingReturnPath.current = null;
+
+    if (returnPath && isDeveloperOnboardingLocation(window.location)) {
+      // The developer page pushed the replay entry, so browser Back is the
+      // authoritative way to restore both the URL and its router history.
+      appRouter.history.back();
+      return;
+    }
+
+    appRouter.history.replace(returnPath ?? DEVELOPER_SETTINGS_URL);
+    setReplayingOnboarding(false);
+  }, []);
+
+  useEffect(() => {
+    const syncReplayToLocation = () => {
+      const replaying = isDeveloperOnboardingLocation(appRouter.history.location);
+      if (!replaying) onboardingReturnPath.current = null;
+      setReplayingOnboarding(replaying);
+    };
+    return appRouter.history.subscribe(syncReplayToLocation);
+  }, []);
 
   let view: React.ReactNode;
   if (authLoading || showAuthSkeleton) {
@@ -177,12 +235,19 @@ function AuthBoundary({ onboardingSteps }: { onboardingSteps: AdditionalOnboardi
         onLogout={() => { void handleDecline(); }}
       />
     );
-  } else if (!onboardingFinished && (needsConsent || mustChange || onboardingSteps.length > 0) && agreements) {
+  } else if (
+    agreements
+    && (
+      replayingOnboarding
+      || (!onboardingFinished && (needsConsent || mustChange || onboardingSteps.length > 0))
+    )
+  ) {
     view = (
       <OnboardingGate
         payload={agreements}
-        needsConsent={needsConsent}
-        mustChangePassword={mustChange}
+        needsConsent={replayingOnboarding || needsConsent}
+        mustChangePassword={replayingOnboarding || mustChange}
+        replay={replayingOnboarding}
         additionalSteps={onboardingSteps}
         knownOldPassword={loginPassword}
         onConsentComplete={() => setNeedsConsent(false)}
@@ -190,14 +255,26 @@ function AuthBoundary({ onboardingSteps }: { onboardingSteps: AdditionalOnboardi
           setMustChange(false);
           setLoginPassword(undefined);
         }}
-        onComplete={() => setOnboardingFinished(true)}
+        onComplete={() => {
+          if (replayingOnboarding) {
+            exitOnboardingReplay();
+            return;
+          }
+          setOnboardingFinished(true);
+        }}
         onStale={refreshAgreements}
-        onDecline={handleDecline}
+        onDecline={replayingOnboarding ? exitOnboardingReplay : handleDecline}
       />
     );
   } else {
     view = (
-      <SessionProvider value={{ status, onLogoutComplete: handleLoggedOut }}>
+      <SessionProvider
+        value={{
+          status,
+          onLogoutComplete: handleLoggedOut,
+          restartOnboarding,
+        }}
+      >
         <RouterProvider router={appRouter} />
       </SessionProvider>
     );
@@ -300,6 +377,7 @@ function OnboardingGate({
   payload,
   needsConsent,
   mustChangePassword,
+  replay,
   knownOldPassword,
   onConsentComplete,
   onPasswordComplete,
@@ -311,6 +389,7 @@ function OnboardingGate({
   payload: AgreementsPayload;
   needsConsent: boolean;
   mustChangePassword: boolean;
+  replay: boolean;
   knownOldPassword?: string;
   onConsentComplete: () => void;
   onPasswordComplete: () => void;
@@ -321,21 +400,11 @@ function OnboardingGate({
 }) {
   const api = useApi();
   const { runAction } = useActionFeedback();
-  return (
-    <OnboardingWizardPage
-      documents={payload.documents}
-      agreementVersion={payload.version}
-      needsConsent={needsConsent}
-      mustChangePassword={mustChangePassword}
-      knownOldPassword={knownOldPassword}
-      onDecline={onDecline}
-      onConsentComplete={onConsentComplete}
-      onPasswordComplete={onPasswordComplete}
-      onComplete={onComplete}
-      additionalSteps={additionalSteps}
-      checkStrength={(password) => api.checkPasswordStrength(password)}
-      submitPassword={(oldPassword, newPassword) => api.changePassword(oldPassword, newPassword)}
-      onAccept={async () => {
+  const execution = onboardingExecution(
+    replay,
+    {
+      changePassword: (oldPassword, newPassword) => api.changePassword(oldPassword, newPassword),
+      acceptAgreements: async () => {
         const result = await runAction(
           {
             title: '正在记录协议确认',
@@ -346,16 +415,31 @@ function OnboardingGate({
           },
           () => api.agreements.recordConsent(payload.version),
         );
-        if (result.success) {
-          return { success: true };
-        }
-        // 409: the agreement text changed under us — re-fetch and re-prompt.
+        if (result.success) return { success: true };
         if (result.currentVersion && result.currentVersion !== payload.version) {
           onStale();
           return { success: false, message: '协议已更新，已为你载入最新版本，请重新阅读后确认。' };
         }
         return { success: false, message: result.message ?? '提交失败，请重试' };
-      }}
+      },
+    },
+  );
+  return (
+    <OnboardingWizardPage
+      documents={payload.documents}
+      agreementVersion={payload.version}
+      needsConsent={needsConsent}
+      mustChangePassword={mustChangePassword}
+      knownOldPassword={knownOldPassword}
+      passwordMode={execution.passwordMode}
+      onDecline={onDecline}
+      onConsentComplete={replay ? () => undefined : onConsentComplete}
+      onPasswordComplete={replay ? () => undefined : onPasswordComplete}
+      onComplete={onComplete}
+      additionalSteps={additionalSteps}
+      checkStrength={(password) => api.checkPasswordStrength(password)}
+      submitPassword={execution.actions.changePassword}
+      onAccept={execution.actions.acceptAgreements}
     />
   );
 }

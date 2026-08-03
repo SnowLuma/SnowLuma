@@ -17,6 +17,7 @@ import {
   subscribeLogs,
 } from '@snowluma/common/logger';
 import {
+  assertValidOneBotConfig,
   loadOneBotConfig,
   OneBotConfigValidationError,
   saveOneBotConfig,
@@ -47,7 +48,7 @@ import {
   recordConsent,
   resolveEnvironmentConsent,
 } from './consent';
-import { resolveTlsContext, validateTlsPair } from './tls';
+import { requireTlsContext, resolveTlsContext, validateTlsPair } from './tls';
 import { coerceSettingsPatch } from './system-settings';
 import { buildBackup } from './backup';
 import { restoreBackup, RestoreTransactionError, type RestorePhase } from './restore';
@@ -61,6 +62,10 @@ import { startConnectionDiffLoop } from './connection-diff-loop';
 import { comparableConnectionSnapshot } from './connection-snapshot';
 import { traceAuthenticatedWebuiMutation } from './mutation-trace';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
+import {
+  OneBotAccessTokenPolicyError,
+  validateOneBotAccessTokenChanges,
+} from './onebot-token-policy';
 import { findAvailablePort } from './port';
 import {
   clearBackgroundImage,
@@ -79,6 +84,14 @@ import type { NotificationManager } from '../notifications/manager';
 import { StorageManagementService } from './storage-management';
 import { registerStorageRoutes } from './storage-routes';
 import { LogStorageSettingsManager } from './storage-settings';
+import {
+  clearAvatarSessionCookie,
+  extractBearerToken,
+  readAvatarSessionToken,
+  registerLoginRequestSecurity,
+  setAvatarSessionCookie,
+  webuiSecurityHeaders,
+} from './request-security';
 
 const log = createLogger('WebUI');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -198,21 +211,6 @@ const CONSENT_ALLOWLIST = new Set([
   '/api/agreements/record-consent',
   '/api/logout',
 ]);
-
-// Endpoints that may authenticate via `?token=` query parameter. Reserved
-// for SSE streams: EventSource cannot set custom headers, so these MUST
-// accept the token via query. All other endpoints use the Authorization
-// header so tokens never leak into access logs / Referer / browser history.
-//
-// Exported so the regression test can lock the invariant — a missing entry
-// here silently 401s the EventSource and the whole push channel goes dark,
-// which has happened (see /api/state/stream's first cut).
-export const SSE_TOKEN_QUERY_PATHS: ReadonlySet<string> = new Set([
-  '/api/logs/stream',
-  '/api/debug/stream',
-  '/api/state/stream',
-]);
-const TOKEN_QUERY_ALLOWLIST = SSE_TOKEN_QUERY_PATHS;
 
 // uin = QQ number; 5–10 digits (real QQ UINs fit in uint32, max 4294967295).
 // Used to construct config file paths, so we MUST refuse anything else (path
@@ -449,6 +447,10 @@ export async function initWebUI(
   // Default ('') = trust the TCP socket peer only (cannot be spoofed).
   const trustProxyMode = parseTrustProxy(listener.trustProxy);
   const getClientIp = makeClientIpResolver(trustProxyMode);
+  // Security decisions must not silently turn an unreadable socket peer into
+  // localhost. The regular resolver keeps its compatibility fallback for
+  // rate-limit bucketing; this resolver fails closed with an empty address.
+  const getSecurityClientIp = makeClientIpResolver(trustProxyMode, '');
 
   // Connection-status diff loop: OneBot adapters don't emit events for
   // listening/connected/client-count changes, so we poll the snapshot at
@@ -491,7 +493,7 @@ export async function initWebUI(
   const auth = WebuiAuth.load();
   const initialPassword = auth.takeInitialPassword();
   if (auth.isDevMode()) {
-    log.warn('dev mode enabled: password=%s', WebuiAuth.devPassword);
+    log.warn('dev mode enabled with the configured development credential');
     log.warn('dev mode skips config/webui.json and password rotation');
   } else if (initialPassword) {
     log.info('════════════════════════════════════════════════════════════════');
@@ -533,6 +535,8 @@ export async function initWebUI(
   }
 
   const app = new Hono();
+  app.use('*', webuiSecurityHeaders);
+  registerLoginRequestSecurity(app);
   const storageManagement = new StorageManagementService({
     dataDir: 'data',
     getLogStatus: getLogStorageStatus,
@@ -583,10 +587,7 @@ export async function initWebUI(
     // nothing sensitive (no layout, no secrets) — see ui-config.ts.
     if (reqPath === '/api/login' || reqPath === '/api/ui/public') return next();
 
-    const authHeader = c.req.header('Authorization');
-    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
-    const queryToken = TOKEN_QUERY_ALLOWLIST.has(reqPath) ? (c.req.query('token') ?? '') : '';
-    const token = bearerToken || queryToken;
+    const token = extractBearerToken(c.req.raw);
     if (!token) return c.json({ status: 'failed', message: 'Unauthorized' }, 401);
 
     const info = sessionTokens.get(token);
@@ -650,12 +651,14 @@ export async function initWebUI(
     const token = randomBytes(32).toString('hex');
     const mustChange = auth.mustChangePassword();
     sessionTokens.set(token, { expiresAt: now + TOKEN_TTL_MS, mustChangePassword: mustChange });
+    setAvatarSessionCookie(c, token, listener.tlsEnabled === true);
     return c.json({ success: true, token, mustChangePassword: mustChange });
   });
 
   app.post('/api/logout', (c) => {
     const token = c.get('sessionToken' as never) as string | undefined;
     if (token) sessionTokens.delete(token);
+    clearAvatarSessionCookie(c, listener.tlsEnabled === true);
     return c.json({ success: true });
   });
 
@@ -709,6 +712,7 @@ export async function initWebUI(
     // password was compromised, the attacker may already hold the current
     // token; rotating credentials must rotate sessions too.
     sessionTokens.clear();
+    clearAvatarSessionCookie(c, listener.tlsEnabled === true);
     log.info('password updated; all sessions invalidated');
     return c.json({ success: true, requireRelogin: true });
   });
@@ -750,6 +754,12 @@ export async function initWebUI(
 
   // ─── Avatar proxy (uin validated) ────────────────────────────────────────
   app.get('/avatar/:uin', async (c) => {
+    const sessionToken = readAvatarSessionToken(c);
+    const session = sessionTokens.get(sessionToken);
+    if (!session || Date.now() > session.expiresAt) {
+      if (sessionToken) sessionTokens.delete(sessionToken);
+      return c.text('unauthorized', 401);
+    }
     const uin = c.req.param('uin');
     if (!UIN_REGEX.test(uin)) return c.text('invalid uin', 400);
 
@@ -768,7 +778,8 @@ export async function initWebUI(
     return new Response(cached.body, {
       headers: {
         'Content-Type': cached.contentType,
-        'Cache-Control': `public, max-age=${AVATAR_BROWSER_CACHE_SECONDS}, immutable`,
+        'Cache-Control': `private, max-age=${AVATAR_BROWSER_CACHE_SECONDS}, immutable`,
+        Vary: 'Cookie',
       },
     });
   });
@@ -793,7 +804,13 @@ export async function initWebUI(
   });
 
   // ─── Read-only API ───────────────────────────────────────────────────────
-  app.get('/api/status', (c) => c.json({ status: 'running' }));
+  app.get('/api/status', (c) => {
+    // Refresh the path-scoped avatar cookie for a still-valid localStorage
+    // session (for example after upgrading from a version without the cookie).
+    const token = c.get('sessionToken' as never) as string;
+    setAvatarSessionCookie(c, token, listener.tlsEnabled === true);
+    return c.json({ status: 'running' });
+  });
 
   // Advisory update check — compares the running build against the latest
   // GitHub stable release and links the user to it. Read-only: SnowLuma
@@ -1287,11 +1304,36 @@ export async function initWebUI(
       return c.json({ success: false, saved: false, applied: false, message: '请求格式错误' }, 400);
     }
 
+    let nextConfig: OneBotConfig;
     try {
-      saveOneBotConfig(uin, body as OneBotConfig);
+      assertValidOneBotConfig(body);
+      nextConfig = body;
+
+      let previousConfig: OneBotConfig | null = null;
+      try {
+        previousConfig = loadOneBotConfig(uin);
+      } catch (err) {
+        // A damaged existing file must not strand the recovery UI. Treat the
+        // submitted endpoints as new, apply the full policy, and let the
+        // subsequent atomic save either repair the file or fail visibly.
+        log.warn(
+          'could not read prior OneBot config for uin=%s before save: %s',
+          uin,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+
+      validateOneBotAccessTokenChanges(previousConfig, nextConfig, {
+        clientIp: getSecurityClientIp(c),
+        uin,
+      });
+      saveOneBotConfig(uin, nextConfig);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (err instanceof OneBotConfigValidationError) {
+      if (
+        err instanceof OneBotConfigValidationError
+        || err instanceof OneBotAccessTokenPolicyError
+      ) {
         log.warn('reject invalid config for uin=%s: %s', uin, message);
         return c.json({ success: false, saved: false, applied: false, message }, 400);
       }
@@ -1303,7 +1345,7 @@ export async function initWebUI(
       // Apply the exact validated value that was persisted above. Re-reading
       // the path here would race concurrent POSTs (request A could load B and
       // falsely report that A was applied).
-      const apply = await oneBotManager.reloadConfig(uin, body as OneBotConfig);
+      const apply = await oneBotManager.reloadConfig(uin, nextConfig);
       const message = !apply.online
         ? '配置保存成功，当前会话未在线，将在下次连接时生效。'
         : apply.applied
@@ -1530,26 +1572,21 @@ export async function initWebUI(
     );
   });
 
-  const finalPort = await findAvailablePort(desiredPort);
+  const host = listener.host || '127.0.0.1';
+  const finalPort = await findAvailablePort(desiredPort, { host });
   if (finalPort !== desiredPort) {
     log.warn('port %d is in use, using %d instead', desiredPort, finalPort);
   }
   boundPort = finalPort;
 
-  const host = listener.host || '0.0.0.0';
-
-  // TLS: only when explicitly enabled AND the on-disk cert/key load. A bad
-  // or missing cert must never brick the WebUI — fall back to HTTP + warn.
+  // TLS is an explicit transport promise. Once enabled, an unusable pair must
+  // abort startup instead of silently exposing the listener over plaintext.
   let tlsServe: { createServer: typeof createHttpsServer; serverOptions: { cert: Buffer; key: Buffer } } | undefined;
   let scheme = 'http';
   if (listener.tlsEnabled) {
-    const tls = resolveTlsContext('config');
-    if (tls.ok && tls.cert && tls.key) {
-      tlsServe = { createServer: createHttpsServer, serverOptions: { cert: tls.cert, key: tls.key } };
-      scheme = 'https';
-    } else {
-      log.warn('TLS enabled but cert/key unusable (%s) — serving over HTTP instead', tls.reason);
-    }
+    const tls = requireTlsContext('config');
+    tlsServe = { createServer: createHttpsServer, serverOptions: tls };
+    scheme = 'https';
   }
 
   await new Promise<void>((resolve) => {

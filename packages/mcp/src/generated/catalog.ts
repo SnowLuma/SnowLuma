@@ -3041,7 +3041,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "get_fileset_id",
     "aliases": [],
-    "summary": "从分享码/链接获取 fileset_id",
+    "summary": "从 QQ 闪传分享码或官方分享链接获取 fileset_id",
     "returns": "{ fileset_id }：解析出的文件集 ID。",
     "returnsSchema": {
       "type": "object",
@@ -3064,7 +3064,8 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "type": "string",
           "minLength": 1
-        }
+        },
+        "desc": "QQ 闪传分享码，或 https://qfile.qq.com/q/... 官方分享链接"
       }
     ],
     "invariants": [],
@@ -3073,7 +3074,8 @@ export const ACTIONS: CatalogAction[] = [
       "properties": {
         "share_code": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "QQ 闪传分享码，或 https://qfile.qq.com/q/... 官方分享链接"
         }
       },
       "required": [

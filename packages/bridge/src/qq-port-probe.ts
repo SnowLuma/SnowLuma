@@ -1,6 +1,5 @@
 import { createLogger } from '@snowluma/common/logger';
 import { exec } from 'child_process';
-import net from 'net';
 import http from 'http';
 import https from 'https';
 import { promisify } from 'util';
@@ -8,9 +7,6 @@ import { promisify } from 'util';
 const execAsync = promisify(exec);
 const log = createLogger('LoginProbe');
 
-const PORT_RANGE_START = 9210;
-const PORT_RANGE_END = 9219;
-const PROBE_TIMEOUT_MS = 1000;
 const CONNECTION_TIMEOUT_MS = 500;
 const COMMAND_TIMEOUT_MS = 1500;
 const OVERALL_PROBE_TIMEOUT_MS = 5000;
@@ -28,101 +24,10 @@ export interface QqPortLoginInfo {
   uin: string;
   uid?: string;
   nickName?: string;
-  loggedIn: boolean;
+  /** The local QQ endpoint exposed an account identity. This does not prove
+   * the native protocol session is ready to send or receive packets. */
+  identityKnown: boolean;
 }
-
-interface JwtPayload {
-  errCode: number;
-  errMsg: string;
-  port: number;
-  uin?: string;
-  uid?: string;
-  nickName?: string;
-  data?: {
-    uin?: string;
-    url?: string;
-  };
-  iat: number;
-}
-
-function decodeJwt(token: string): JwtPayload | null {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const payload = Buffer.from(parts[1], 'base64').toString('utf8');
-    return JSON.parse(payload);
-  } catch {
-    return null;
-  }
-}
-
-
-async function probePort(port: number): Promise<QqPortLoginInfo | null> {
-  return new Promise((resolve) => {
-    const client = new net.Socket();
-    const link = 'tencent://';
-    const payload = `POST /tencent HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nConnection: close\r\nContent-Length: ${link.length}\r\n\r\n${link}`;
-
-    let responseData = '';
-    let timer: NodeJS.Timeout;
-
-    const cleanup = () => {
-      clearTimeout(timer);
-      client.removeAllListeners();
-      client.destroy();
-    };
-
-    timer = setTimeout(() => {
-      cleanup();
-      resolve(null);
-    }, PROBE_TIMEOUT_MS);
-
-    client.setTimeout(CONNECTION_TIMEOUT_MS);
-
-    client.connect(port, '127.0.0.1', () => {
-      client.write(payload);
-    });
-
-    client.on('data', (data) => {
-      responseData += data.toString();
-    });
-
-    client.on('close', () => {
-      cleanup();
-      const jwtMatch = responseData.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
-      if (!jwtMatch) {
-        resolve(null);
-        return;
-      }
-
-      const decoded = decodeJwt(jwtMatch[0]);
-      if (!decoded || decoded.errCode !== 0) {
-        resolve(null);
-        return;
-      }
-
-      const uin = decoded.uin || decoded.data?.uin || '';
-      resolve({
-        port,
-        uin,
-        uid: decoded.uid,
-        nickName: decoded.nickName,
-        loggedIn: uin.length > 0,
-      });
-    });
-
-    client.on('error', () => {
-      cleanup();
-      resolve(null);
-    });
-
-    client.on('timeout', () => {
-      cleanup();
-      resolve(null);
-    });
-  });
-}
-
 
 /** One entry of the Ptlogin `pt_get_uins` JSONP array. Only the fields the
  *  probe reads are modelled; QQ sends more but they're irrelevant here. */
@@ -194,7 +99,7 @@ async function tryPtloginMethod(port: number): Promise<QqPortLoginInfo | 'fallba
       port,
       uin: String(account.uin || account.account || ''),
       nickName: account.nickname || '',
-      loggedIn: true,
+      identityKnown: true,
     };
   }
 
@@ -264,7 +169,7 @@ async function probeQqLoginInfoInternal(pid: number): Promise<QqPortLoginInfo | 
   if (ports.length === 0) {
     const totalPids = await getQqProcessCount();
     if (totalPids < LOGGED_OUT_PROCESS_COUNT_MAX) {
-      return { port: 0, uin: '', loggedIn: false };
+      return { port: 0, uin: '', identityKnown: false };
     }
     return null;
   }
@@ -294,17 +199,13 @@ async function probeQqLoginInfoInternal(pid: number): Promise<QqPortLoginInfo | 
       return {
         port: ports[0] || 0,
         uin: '',
-        loggedIn: false,
+        identityKnown: false,
       };
     }
   }
 
-  const deepLinkPorts = ports.filter(p => p >= PORT_RANGE_START && p <= PORT_RANGE_END);
-  for (const port of deepLinkPorts) {
-    const info = await probePort(port);
-    if (info) return info;
-  }
-
+  // Background discovery must remain passive. Interactive application
+  // endpoints are deliberately excluded from automatic probing.
   return null;
 }
 

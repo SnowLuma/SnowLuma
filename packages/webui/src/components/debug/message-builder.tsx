@@ -34,6 +34,7 @@ type SegBody =
   | { k: 'markdown'; content: string }
   | { k: 'node'; user_id: string; nickname: string; content: Seg[] };
 export type Seg = SegBody & { _id: string };
+export type MessageBuilderMode = 'auto' | 'message' | 'forward' | 'node-content';
 
 let segSeq = 0;
 const nid = () => `s${segSeq++}`;
@@ -101,18 +102,41 @@ const ADVANCED: { k: SegBody['k']; label: string; icon: React.ReactNode }[] = [
   { k: 'node', label: '合并转发节点', icon: <Forward className="h-4 w-4" /> },
 ];
 
+/** Segment kinds exposed by the add menu for a builder context. */
+export function messageBuilderSegmentKinds(
+  mode: MessageBuilderMode,
+  segments: Seg[],
+): SegBody['k'][] {
+  const all = [...COMMON, ...ADVANCED].map((item) => item.k);
+  if (mode === 'auto') return all;
+  if (mode === 'message') return all.filter((kind) => kind !== 'node');
+  if (mode === 'forward') return ['node'];
+
+  // A forward node may contain either an ordinary message or another list of
+  // nodes, never a mixture. Window shake is also rejected anywhere inside a
+  // forward payload. Lock the menu to the branch selected by the first child.
+  const forwardSafe = all.filter((kind) => kind !== 'poke');
+  if (segments.length === 0) return forwardSafe;
+  if (segments.every((segment) => segment.k === 'node')) return ['node'];
+  if (segments.every((segment) => segment.k !== 'node')) {
+    return forwardSafe.filter((kind) => kind !== 'node');
+  }
+  return [];
+}
+
 const LABELS: Record<SegBody['k'], string> = {
   text: '文本', at: '@', image: '图片', face: '表情', reply: '回复', record: '语音', video: '视频',
   file: '文件', mface: '商城表情', poke: '戳一戳', json: 'JSON', xml: 'XML', markdown: 'Markdown', node: '转发节点',
 };
 
-export function MessageBuilder({ segments, onChange, uin, groupId, depth = 0 }: {
+export function MessageBuilder({ segments, onChange, uin, groupId, depth = 0, mode = 'auto' }: {
   segments: Seg[];
   onChange: (segs: Seg[]) => void;
   uin: string;
   /** group context for @ member picking (empty for private targets). */
   groupId: string;
   depth?: number;
+  mode?: MessageBuilderMode;
 }) {
   const [showAdd, setShowAdd] = useState(false);
   const [dragFrom, setDragFrom] = useState<number | null>(null);
@@ -140,6 +164,11 @@ export function MessageBuilder({ segments, onChange, uin, groupId, depth = 0 }: 
     : depth === 1
       ? 'max(0px, calc(var(--radius) - 0.25rem))'
       : 'max(0px, calc(var(--radius) - 0.5rem))';
+  const allowedKinds = new Set(messageBuilderSegmentKinds(mode, segments));
+  const commonOptions = COMMON.filter((item) => allowedKinds.has(item.k));
+  const advancedOptions = ADVANCED.filter((item) => allowedKinds.has(item.k));
+  const primaryOptions = mode === 'forward' ? advancedOptions : commonOptions;
+  const secondaryOptions = mode === 'forward' ? [] : advancedOptions;
 
   return (
     // The root is a bounded compose canvas, so its empty hint reads as an
@@ -152,7 +181,9 @@ export function MessageBuilder({ segments, onChange, uin, groupId, depth = 0 }: 
       style={nested ? undefined : { borderRadius: canvasRadius }}
     >
       {segments.length === 0 && (
-        <p className="py-4 text-center text-xs text-muted-foreground">空消息 — 点下方「添加段」开始</p>
+        <p className="py-4 text-center text-xs text-muted-foreground">
+          {mode === 'forward' ? '空转发 — 点下方添加转发节点' : '空消息 — 点下方「添加段」开始'}
+        </p>
       )}
 
       {segments.map((s, i) => (
@@ -201,24 +232,24 @@ export function MessageBuilder({ segments, onChange, uin, groupId, depth = 0 }: 
         {showAdd && (
           <div className="absolute z-30 mt-1.5 w-64 rounded-xl border border-border/60 bg-popover p-2 shadow-lg">
             <div className="grid grid-cols-4 gap-1">
-              {COMMON.map((c) => (
+              {primaryOptions.map((c) => (
                 <button key={c.k} type="button" onClick={() => add(c.k)}
                   className="flex flex-col items-center gap-1 rounded-sm p-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground">
                   {c.icon}{c.label}
                 </button>
               ))}
             </div>
-            <details className="mt-1.5">
+            {secondaryOptions.length > 0 && <details className="mt-1.5">
               <summary className="cursor-pointer list-none px-1 text-xs text-muted-foreground hover:text-foreground"><span className="inline-flex items-center gap-1"><ChevronDown className="h-3 w-3" /> 进阶段</span></summary>
               <div className="mt-1 grid grid-cols-4 gap-1">
-                {ADVANCED.map((c) => (
+                {secondaryOptions.map((c) => (
                   <button key={c.k} type="button" onClick={() => add(c.k)}
                     className="flex flex-col items-center gap-1 rounded-sm p-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground">
                     {c.icon}{c.label}
                   </button>
                 ))}
               </div>
-            </details>
+            </details>}
           </div>
         )}
       </div>
@@ -278,7 +309,7 @@ function SegmentEditor({ seg, onChange, uin, groupId, depth }: { seg: Seg; onCha
           <div>
             <span className="mb-1 block text-xs text-muted-foreground">节点内容(可再嵌套)</span>
             {depth < 3 ? (
-              <MessageBuilder segments={seg.content} onChange={(c) => onChange({ ...seg, content: c })} uin={uin} groupId={groupId} depth={depth + 1} />
+              <MessageBuilder segments={seg.content} onChange={(c) => onChange({ ...seg, content: c })} uin={uin} groupId={groupId} depth={depth + 1} mode="node-content" />
             ) : (
               <p className="text-xs text-destructive">嵌套层级过深</p>
             )}

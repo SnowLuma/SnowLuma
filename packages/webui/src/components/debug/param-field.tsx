@@ -11,7 +11,12 @@ import { Picker } from '@/components/ui/picker';
 import { FaceGrid } from '@/components/ui/face-grid';
 import { FileSource } from '@/components/debug/file-source';
 import { Segmented } from '@/components/debug/segmented';
-import { MessageBuilder, toOneBot, type Seg } from '@/components/debug/message-builder';
+import {
+  MessageBuilder,
+  toOneBot,
+  type MessageBuilderMode,
+  type Seg,
+} from '@/components/debug/message-builder';
 import { useFriends, useGroups, useGroupMembers } from '@/hooks/use-debug-contacts';
 import type { DebugActionParam, FieldRole } from '@/types';
 
@@ -47,13 +52,15 @@ function MemberPicker({ uin, groupId, value, onChange }: { uin: string; groupId:
 
 const MEDIA_ROLES: FieldRole[] = ['file', 'image', 'record', 'video'];
 
-export function ParamField({ param, value, onChange, uin, groupContext }: {
+export function ParamField({ param, value, onChange, uin, groupContext, actionName }: {
   param: DebugActionParam;
   value: string;
   onChange: (v: string) => void;
   uin: string;
   /** value of the sibling group_id field (for member_id pickers). */
   groupContext: string;
+  /** Selected Action controls which message shapes the visual builder offers. */
+  actionName: string;
 }) {
   const role = param.role;
 
@@ -108,7 +115,8 @@ export function ParamField({ param, value, onChange, uin, groupContext }: {
     );
   }
   if (param.type === 'message') {
-    return <MessageParamField value={value} onChange={onChange} uin={uin} groupContext={groupContext} />;
+    return <MessageParamField value={value} onChange={onChange} uin={uin} groupContext={groupContext}
+      mode={messageBuilderModeForAction(actionName)} />;
   }
   if (isNumericType(param.type)) {
     return <Input type="number" value={value} onChange={(e) => onChange(e.target.value)}
@@ -118,12 +126,22 @@ export function ParamField({ param, value, onChange, uin, groupContext }: {
     placeholder={param.desc || (param.default !== undefined ? `默认 ${JSON.stringify(param.default)}` : '')} />;
 }
 
+export function messageBuilderModeForAction(actionName: string): MessageBuilderMode {
+  return /(?:forward|foward)_msg$/.test(actionName) ? 'forward' : 'message';
+}
+
 // Message param: the visual builder (keeps its own Seg[] model and emits the
 // serialized OneBot array as the string param value) with a raw-text escape
 // hatch. The builder is one-way (builder → value); switching to 原文 edits the
 // string directly — the tester's global JSON mode covers full raw editing.
-function MessageParamField({ value, onChange, uin, groupContext }: { value: string; onChange: (v: string) => void; uin: string; groupContext: string }) {
-  const [mode, setMode] = useState<'build' | 'raw'>('build');
+function MessageParamField({ value, onChange, uin, groupContext, mode }: {
+  value: string;
+  onChange: (v: string) => void;
+  uin: string;
+  groupContext: string;
+  mode: MessageBuilderMode;
+}) {
+  const [inputMode, setInputMode] = useState<'build' | 'raw'>('build');
   const [segs, setSegs] = useState<Seg[]>([]);
 
   const updateSegs = (next: Seg[]) => {
@@ -134,10 +152,10 @@ function MessageParamField({ value, onChange, uin, groupContext }: { value: stri
   return (
     <div className="flex flex-col gap-2">
       <div className="flex justify-end">
-        <Segmented value={mode} onChange={setMode} options={[{ value: 'build', label: '构建器' }, { value: 'raw', label: '原文' }]} />
+        <Segmented value={inputMode} onChange={setInputMode} options={[{ value: 'build', label: '构建器' }, { value: 'raw', label: '原文' }]} />
       </div>
-      {mode === 'build' ? (
-        <MessageBuilder segments={segs} onChange={updateSegs} uin={uin} groupId={groupContext} />
+      {inputMode === 'build' ? (
+        <MessageBuilder segments={segs} onChange={updateSegs} uin={uin} groupId={groupContext} mode={mode} />
       ) : (
         <textarea
           value={value}

@@ -26,7 +26,11 @@ import { defineStreamAction, f } from '../action-kit';
 import type { ApiActionContext } from '../api-handler';
 import { okResponse, type ApiResponse, type JsonObject, type JsonValue } from '../types';
 import { type StreamSink, StreamStatus } from '../streaming';
-import { STREAM_ROOT, registerActiveStreamItem } from '../stream-storage';
+import {
+  STREAM_ROOT,
+  ensureStreamDirectory,
+  registerActiveStreamItem,
+} from '../stream-storage';
 
 const DEFAULT_CHUNK_BYTES = 64 * 1024;
 const MAX_CHUNK_REQUEST_BYTES = 16 * 1024 * 1024;     // cap the client-requested chunk size
@@ -224,6 +228,7 @@ async function resolveDownload(
     let st: fs.Stats | null = null;
     try { st = fs.statSync(local); } catch { st = null; }
     if (st?.isFile()) {
+      ensureStreamDirectory(STREAM_ROOT);
       // Fence against the *real* path so a symlink inside the root can't point
       // out (lexical resolve alone would follow it).
       let real = local;

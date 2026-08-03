@@ -289,25 +289,26 @@ describe('file output gating', () => {
     ]);
   });
 
-  it('keeps bootstrap notices visible and persisted above configured thresholds', async () => {
+  it('prints bootstrap credentials only to the current process terminal', async () => {
     const fresh = await loadLoggerForFileLevel('error');
     fresh.setLogLevel('error');
     const entries: LogEntry[] = [];
     const unsubscribe = fresh.subscribeLogs((entry) => entries.push(entry));
+    const snapshotBefore = fresh.getLogSnapshot();
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    fresh.logInitialWebuiCredentials('secret');
-    unsubscribe();
+    try {
+      fresh.logInitialWebuiCredentials('secret');
 
-    expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({
-      level: 'info',
-      scope: 'WebUI',
-      message: 'initial credentials: user=admin password=secret',
-    });
-    expect(fileWriteSpy).toHaveBeenCalledTimes(1);
-    expect(fileWriteSpy).toHaveBeenCalledWith(
-      expect.stringContaining('initial credentials: user=admin password=secret'),
-      undefined,
-    );
+      expect(stdout).toHaveBeenCalledWith(
+        expect.stringContaining('initial credentials: user=admin password=secret'),
+      );
+      expect(entries).toEqual([]);
+      expect(fresh.getLogSnapshot()).toEqual(snapshotBefore);
+      expect(fileWriteSpy).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+      stdout.mockRestore();
+    }
   });
 });

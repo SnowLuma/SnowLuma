@@ -81,7 +81,7 @@ export function ActionTester({ accounts, docs, presetAction }: { accounts: QQInf
   useEffect(() => { if (accounts[0] && !uin) setUin(accounts[0].uin); }, [accounts, uin]);
   // Prefill from the API browser's 试一下 (nonce lets the same action re-trigger).
   useEffect(() => {
-    if (presetAction) { setActionName(presetAction.name); setParamMode('form'); setResult(null); setFrames([]); setShowHistory(false); }
+    if (presetAction) { setActionName(presetAction.name); setFields({}); setParamMode('form'); setResult(null); setFrames([]); setShowHistory(false); }
   }, [presetAction]);
 
   const doc = useMemo(() => docs.find((d) => d.name === actionName), [docs, actionName]);
@@ -234,7 +234,7 @@ export function ActionTester({ accounts, docs, presetAction }: { accounts: QQInf
             <Picker
               ariaLabel="选择 action"
               value={actionName}
-              onChange={(v) => { setActionName(v); setResult(null); setFrames([]); }}
+              onChange={(v) => { setActionName(v); setFields({}); setResult(null); setFrames([]); }}
               options={actionOptions}
               placeholder="search action…"
               validateRaw={(s) => s.trim().length > 0}
@@ -265,8 +265,9 @@ export function ActionTester({ accounts, docs, presetAction }: { accounts: QQInf
           <div className="flex flex-col gap-3.5">
             {doc!.params.length === 0 && <p className="text-[12px] text-muted-foreground">该接口无参数。</p>}
             {doc!.params.map((p) => (
-              <Field key={p.name} label={<>{p.name}<span className="ml-1 font-normal text-muted-foreground/70">{p.type}{p.required ? ' · 必填' : ''}</span></>}>
+              <Field key={`${actionName}:${p.name}`} label={<>{p.name}<span className="ml-1 font-normal text-muted-foreground/70">{p.type}{p.required ? ' · 必填' : ''}</span></>}>
                 <ParamField param={p} value={fields[p.name] ?? ''} uin={uin} groupContext={fields['group_id'] ?? ''}
+                  actionName={actionName}
                   onChange={(v) => setFields((f) => {
                     const next = { ...f, [p.name]: v };
                     // Changing the group resets any sibling member picker — its

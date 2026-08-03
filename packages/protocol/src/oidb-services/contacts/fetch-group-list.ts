@@ -5,8 +5,9 @@
 // per-group fields to include. Asking for everything blows the
 // named-pipe write buffer on accounts with ~200+ groups (see #42),
 // so we keep `config1.*` mostly on but turn off the costly
-// `field5002`/`field5003` and entire `config2` block that never map
-// back to a decoded field anyway.
+// `field5002`/`field5003` and the unused `config2` fields. `config2.remark`
+// is the bot-local group remark returned as `customInfo.remark`, so it is the
+// sole optional field enabled in that block.
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase, OidbSvcTrpcTcp0xFE5_2Response } from '@snowluma/proto-defs/oidb';
@@ -37,7 +38,7 @@ export namespace FetchGroupList {
         field32: allTrue, field5001: allTrue, field5002: false, field5003: false,
       },
       config2: {
-        field1: false, field2: false, field3: false, field4: false,
+        field1: false, field2: false, remark: true, field4: false,
         field5: false, field6: false, field7: false, field8: false,
       },
       config3: { field5: allTrue, field6: allTrue },

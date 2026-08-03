@@ -7,7 +7,7 @@
 // captioned sections, soft rounded cards, settings rows with a label on the
 // left and a control (toggle / custom dropdown) on the right.
 
-import { useRef, useState, type ReactNode } from 'react';
+import { useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { motion } from 'motion/react';
 import {
   ArrowLeftRight,
@@ -17,6 +17,7 @@ import {
   Eye,
   EyeOff,
   Radio,
+  RefreshCw,
   Server,
   type LucideIcon,
 } from 'lucide-react';
@@ -27,6 +28,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { cn } from '@/lib/utils';
+import {
+  accessTokenFeedback,
+  type AccessTokenFeedback,
+} from '@/lib/access-token-feedback';
+import { isLoopbackHostname } from '@/lib/transport-security';
 import type {
   HttpClientNetwork,
   HttpServerNetwork,
@@ -37,7 +43,7 @@ import type {
   WsRole,
   WsServerNetwork,
 } from '@/types';
-import { NETWORK_TABS } from './defaults';
+import { generateAccessToken, NETWORK_TABS } from './defaults';
 
 type AnyAdapter<K extends NetworkKind> = OneBotNetworks[K][number];
 
@@ -59,11 +65,13 @@ interface NodeEditDialogProps<K extends NetworkKind> {
   isEdit: boolean;
   /** Names of every other adapter in the same list, for duplicate check. */
   otherNames: string[];
+  /** Account context used when evaluating user-chosen access tokens. */
+  uin: string;
   onSubmit: (item: AnyAdapter<K>) => void;
 }
 
 export function NodeEditDialog<K extends NetworkKind>(props: NodeEditDialogProps<K>) {
-  const { open, onOpenChange, kind, initial, isEdit, otherNames, onSubmit } = props;
+  const { open, onOpenChange, kind, initial, isEdit, otherNames, uin, onSubmit } = props;
   const tab = NETWORK_TABS[kind];
   const Icon: LucideIcon = KIND_ICON[kind];
 
@@ -76,7 +84,24 @@ export function NodeEditDialog<K extends NetworkKind>(props: NodeEditDialogProps
   const blankName = trimmedName.length === 0;
   const duplicateName = !blankName && otherNames.includes(trimmedName);
 
-  const canSave = !blankName && !duplicateName;
+  const isInboundServer = kind === 'httpServers' || kind === 'wsServers';
+  const tokenChanged = (draft.accessToken ?? '') !== (initial.accessToken ?? '');
+  const enforceTokenPolicy = isInboundServer && (!isEdit || tokenChanged);
+  const allowEmptyToken = typeof window !== 'undefined'
+    && isLoopbackHostname(window.location.hostname);
+  const inbound = isInboundServer ? draft as HttpServerNetwork | WsServerNetwork : null;
+  const tokenFeedback = useMemo(
+    () => enforceTokenPolicy
+      ? accessTokenFeedback(
+        draft.accessToken ?? '',
+        [uin, draft.name ?? '', kind, inbound?.host ?? '', inbound?.port ?? 0],
+        allowEmptyToken,
+      )
+      : undefined,
+    [allowEmptyToken, draft.accessToken, draft.name, enforceTokenPolicy, inbound?.host, inbound?.port, kind, uin],
+  );
+
+  const canSave = !blankName && !duplicateName && (tokenFeedback?.valid ?? true);
 
   const patch = (changes: Partial<AnyAdapter<K>>) => setDraft({ ...draft, ...changes } as AnyAdapter<K>);
 
@@ -155,9 +180,11 @@ export function NodeEditDialog<K extends NetworkKind>(props: NodeEditDialogProps
           <div className="p-4">
             <TokenField
               label="授权 Token"
-              placeholder="不填则无密码"
+              placeholder={isInboundServer ? '留空则关闭鉴权（仅允许本机保存）' : '按对端要求填写'}
               value={draft.accessToken}
               onChange={(v) => patch({ accessToken: v || undefined } as Partial<AnyAdapter<K>>)}
+              onGenerate={() => patch({ accessToken: generateAccessToken() } as Partial<AnyAdapter<K>>)}
+              feedback={tokenFeedback}
             />
           </div>
         </Section>
@@ -259,7 +286,7 @@ function KindFields<K extends NetworkKind>({ kind, draft, patch }: KindFieldsPro
       <div className="grid gap-3 sm:grid-cols-[1fr_120px_140px]">
         <Field
           label="主机"
-          placeholder="0.0.0.0"
+          placeholder="127.0.0.1"
           value={it.host}
           onChange={(v) => set({ host: v || undefined })}
         />
@@ -307,7 +334,7 @@ function KindFields<K extends NetworkKind>({ kind, draft, patch }: KindFieldsPro
       <div className="grid gap-3 sm:grid-cols-[1fr_120px_140px]">
         <Field
           label="主机"
-          placeholder="0.0.0.0"
+          placeholder="127.0.0.1"
           value={it.host}
           onChange={(v) => set({ host: v || undefined })}
         />
@@ -381,7 +408,9 @@ interface TokenFieldProps {
   label: string;
   value: string | undefined;
   onChange: (v: string) => void;
+  onGenerate: () => void;
   placeholder?: string;
+  feedback?: AccessTokenFeedback;
 }
 
 /** Insecure-context clipboard fallback. Returns true on success.
@@ -411,10 +440,11 @@ function legacyCopyToClipboard(value: string): boolean {
  * unmasks it and a copy button shoves the current value to the system
  * clipboard with a short "已复制" confirmation flash.
  */
-function TokenField({ label, value, onChange, placeholder }: TokenFieldProps) {
+function TokenField({ label, value, onChange, onGenerate, placeholder, feedback }: TokenFieldProps) {
   const [visible, setVisible] = useState(false);
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef<number | null>(null);
+  const feedbackId = useId();
 
   const handleCopy = async () => {
     if (!value) return;
@@ -449,8 +479,20 @@ function TokenField({ label, value, onChange, placeholder }: TokenFieldProps) {
           placeholder={placeholder}
           autoComplete="off"
           spellCheck={false}
+          aria-invalid={feedback?.tone === 'error' || undefined}
+          aria-describedby={feedback ? feedbackId : undefined}
           className="flex-1 font-mono"
         />
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          onClick={onGenerate}
+          aria-label="生成新的随机令牌"
+          title="生成新的随机令牌"
+        >
+          <RefreshCw className="size-4" />
+        </Button>
         <Button
           type="button"
           variant="outline"
@@ -473,6 +515,22 @@ function TokenField({ label, value, onChange, placeholder }: TokenFieldProps) {
           {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
         </Button>
       </div>
+      {feedback && (
+        <p
+          id={feedbackId}
+          aria-live="polite"
+          className={cn(
+            'text-xs',
+            feedback.tone === 'error'
+              ? 'text-destructive'
+              : feedback.tone === 'warning'
+                ? 'text-warning'
+                : 'text-success',
+          )}
+        >
+          {feedback.message}
+        </p>
+      )}
     </div>
   );
 }

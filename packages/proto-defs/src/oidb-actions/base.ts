@@ -275,7 +275,8 @@ export interface OidbGroupListConfig1 {
 export interface OidbGroupListConfig2 {
   field1?: pb<1, bool>;
   field2?: pb<2, bool>;
-  field3?: pb<3, bool>;
+  /** Request the bot-local label returned as group.customInfo.remark. */
+  remark?: pb<3, bool>;
   field4?: pb<4, bool>;
   field5?: pb<5, bool>;
   field6?: pb<6, bool>;
@@ -918,6 +919,7 @@ export interface OidbStrangerStatusReq {
   key?: pb_repeated<3, OidbStrangerStatusKey>;
 }
 export interface OidbFriendRemarkTarget {
+  targetUin?: pb<3, uint_64>;
   targetUid?: pb<7, string>;
 }
 export interface OidbSetFriendRemarkChange {
@@ -929,6 +931,14 @@ export interface OidbSetFriendRemark {
   // Current QQ explicitly emits scene=0 for an ordinary friend. Omitting
   // the default changes the request shape used by StrangerRemarkSetWorker.
   scene?:  pb_optional<2, uint_32>;
+}
+export interface OidbSetFriendRemarkError {
+  code?:    pb<2, int_32>;
+  message?: pb<3, string>;
+}
+export interface OidbSetFriendRemarkResponse {
+  result?: pb<1, OidbSetFriendRemarkChange>;
+  error?:  pb<3, OidbSetFriendRemarkError>;
 }
 export interface OidbClearFriendRemark {
   target?: pb<1, OidbFriendRemarkTarget>;

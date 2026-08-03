@@ -74,7 +74,7 @@ const debugRoute = createRoute({
 });
 
 /** Settings sub-tabs — also the contract for the `?tab=` deep link. */
-export const SETTINGS_TABS = ['appearance', 'data', 'advanced', 'account', 'system', 'storage', 'notifications', 'globalConfig', 'about'] as const;
+export const SETTINGS_TABS = ['appearance', 'data', 'advanced', 'account', 'system', 'storage', 'notifications', 'globalConfig', 'developer', 'about'] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 export const settingsRoute = createRoute({

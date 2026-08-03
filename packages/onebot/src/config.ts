@@ -45,7 +45,7 @@ export function makeDefaultOneBotConfig(): OneBotConfig {
     networks: {
       httpServers: [{
         name: 'http-default',
-        host: '0.0.0.0',
+        host: '127.0.0.1',
         port: 3000,
         path: '/',
         enableWebSocket: false,
@@ -56,7 +56,7 @@ export function makeDefaultOneBotConfig(): OneBotConfig {
       httpClients: [],
       wsServers: [{
         name: 'ws-default',
-        host: '0.0.0.0',
+        host: '127.0.0.1',
         port: 3001,
         path: '/',
         role: 'Universal',

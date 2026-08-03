@@ -24,9 +24,30 @@ export class StreamStorage {
   private nextActiveItemId = 1;
 
   constructor(root: string) {
-    this.root = resolveWithExistingAncestor(root);
+    this.root = resolveManagedRoot(root);
     this.uploadDir = path.join(this.root, 'upload');
     this.downloadDir = path.join(this.root, 'download');
+  }
+
+  /**
+   * Create a directory inside the managed root without following a substituted
+   * directory link. Existing directories remain usable when they belong to the
+   * current account and cannot be modified by other local accounts.
+   */
+  ensureDirectory(directory: string): void {
+    const resolved = path.resolve(directory);
+    if (resolved !== this.root && !isStrictDescendant(this.root, resolved)) {
+      throw new Error(`stream directory is outside the managed root: ${directory}`);
+    }
+
+    let current = this.root;
+    ensureManagedDirectory(current);
+    const relative = path.relative(this.root, resolved);
+    if (!relative) return;
+    for (const segment of relative.split(path.sep)) {
+      current = path.join(current, segment);
+      ensureManagedDirectory(current);
+    }
   }
 
   registerActiveItem(paths: string[]): () => void {
@@ -91,9 +112,7 @@ export class StreamStorage {
   private assertRootDirectoryOrMissing(): boolean {
     try {
       const stat = fs.lstatSync(this.root);
-      if (!stat.isDirectory()) {
-        throw new Error(`managed stream root is not a directory: ${this.root}`);
-      }
+      assertManagedDirectory(this.root, stat);
       return true;
     } catch (error) {
       if (isMissing(error)) return false;
@@ -201,23 +220,57 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function resolveWithExistingAncestor(input: string): string {
-  let existing = path.resolve(input);
-  const suffix: string[] = [];
-  while (true) {
-    try {
-      fs.lstatSync(existing);
-      break;
-    } catch (error) {
-      if (!isMissing(error)) throw error;
-      const parent = path.dirname(existing);
-      if (parent === existing) throw error;
-      suffix.unshift(path.basename(existing));
-      existing = parent;
-    }
+function assertManagedDirectory(directory: string, stat: fs.Stats): void {
+  if (stat.isSymbolicLink()) {
+    throw new Error(`managed stream directory must not be a symbolic link: ${directory}`);
   }
-  const canonical = fs.realpathSync(existing);
-  return path.join(canonical, ...suffix);
+  if (!stat.isDirectory()) {
+    throw new Error(`managed stream path is not a directory: ${directory}`);
+  }
+
+  const currentUid = typeof process.getuid === 'function' ? process.getuid() : undefined;
+  if (currentUid !== undefined && stat.uid !== currentUid) {
+    throw new Error(`managed stream directory is owned by another account: ${directory}`);
+  }
+  if (process.platform !== 'win32' && (stat.mode & 0o022) !== 0) {
+    throw new Error(`managed stream directory is writable by other accounts: ${directory}`);
+  }
+}
+
+function ensureManagedDirectory(directory: string): void {
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(directory);
+  } catch (error) {
+    if (!isMissing(error)) throw error;
+    try {
+      fs.mkdirSync(directory, { mode: 0o700 });
+    } catch (mkdirError) {
+      if (!(mkdirError instanceof Error && 'code' in mkdirError && mkdirError.code === 'EEXIST')) {
+        throw mkdirError;
+      }
+    }
+    stat = fs.lstatSync(directory);
+  }
+  assertManagedDirectory(directory, stat);
+}
+
+function resolveManagedRoot(input: string): string {
+  const absolute = path.resolve(input);
+  try {
+    const stat = fs.lstatSync(absolute);
+    assertManagedDirectory(absolute, stat);
+    return fs.realpathSync(absolute);
+  } catch (error) {
+    if (!isMissing(error)) throw error;
+  }
+
+  const parent = path.dirname(absolute);
+  const parentStat = fs.statSync(parent);
+  if (!parentStat.isDirectory()) {
+    throw new Error(`managed stream parent is not a directory: ${parent}`);
+  }
+  return path.join(fs.realpathSync(parent), path.basename(absolute));
 }
 
 export const streamStorage = new StreamStorage(path.join(os.tmpdir(), 'snowluma-stream'));
@@ -227,6 +280,10 @@ export const STREAM_DOWNLOAD_DIR = streamStorage.downloadDir;
 
 export function registerActiveStreamItem(paths: string[]): () => void {
   return streamStorage.registerActiveItem(paths);
+}
+
+export function ensureStreamDirectory(directory: string): void {
+  streamStorage.ensureDirectory(directory);
 }
 
 export function snapshotStreamStorage(): StreamStorageSnapshot {

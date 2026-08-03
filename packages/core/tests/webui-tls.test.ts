@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { validateTlsPair, resolveTlsContext } from '../src/webui/tls';
+import { requireTlsContext, validateTlsPair, resolveTlsContext } from '../src/webui/tls';
 
 // A throwaway self-signed pair (openssl, CN=snowluma-test). createSecureContext
 // only parses — expiry is irrelevant — so this stays valid for the test forever.
@@ -98,5 +98,22 @@ describe('resolveTlsContext', () => {
     const r = resolveTlsContext(dir);
     expect(r.ok).toBe(false);
     expect(r.reason).toBeTruthy();
+  });
+
+  it('refuses to start an enabled TLS listener with an unusable certificate pair', () => {
+    expect(() => requireTlsContext(dir)).toThrow(/TLS.*missing/i);
+
+    fs.writeFileSync(path.join(dir, 'cert.pem'), 'garbage');
+    fs.writeFileSync(path.join(dir, 'key.pem'), 'garbage');
+    expect(() => requireTlsContext(dir)).toThrow(/TLS.*invalid/i);
+  });
+
+  it('returns a validated certificate pair for an enabled TLS listener', () => {
+    fs.writeFileSync(path.join(dir, 'cert.pem'), CERT);
+    fs.writeFileSync(path.join(dir, 'key.pem'), KEY);
+
+    const tls = requireTlsContext(dir);
+    expect(tls.cert.toString()).toContain('BEGIN CERTIFICATE');
+    expect(tls.key.toString()).toContain('PRIVATE KEY');
   });
 });

@@ -10,7 +10,6 @@ import { AlertTriangle, Database, Download, Loader2, Lock, Pencil, Save, ShieldC
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { SkeletonSwap } from '@/components/interior/skeleton-swap';
-import { Dropdown } from '@/components/interior/dropdown';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -33,7 +32,7 @@ export function SystemPanel() {
 
   // editable form state
   const [port, setPort] = useState('');
-  const [host, setHost] = useState('0.0.0.0');
+  const [host, setHost] = useState('127.0.0.1');
   const [trustProxy, setTrustProxy] = useState('');
   const [tlsEnabled, setTlsEnabled] = useState(false);
   const [certPem, setCertPem] = useState('');
@@ -281,16 +280,28 @@ export function SystemPanel() {
             </div>
             <div className="flex flex-col gap-1.5">
               <Label className="flex items-center">绑定地址<EnvBadge field="webuiHost" /></Label>
-              <Dropdown
+              <Input
                 value={host}
-                onChange={setHost}
-                label="绑定地址"
-                items={[
-                  { value: '0.0.0.0', label: '0.0.0.0（所有网卡）' },
-                  { value: '127.0.0.1', label: '127.0.0.1（仅本机）' },
-                ]}
-                className="w-full"
+                onChange={(event) => setHost(event.target.value)}
+                placeholder="127.0.0.1"
+                spellCheck={false}
               />
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setHost('127.0.0.1')}>
+                  仅本机
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setHost('0.0.0.0')}>
+                  所有网卡
+                </Button>
+              </div>
+              <p className={cn(
+                'text-xs',
+                host.trim() === '0.0.0.0' ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground',
+              )}>
+                {host.trim() === '0.0.0.0'
+                  ? '所有网卡会允许局域网访问；建议同时启用 HTTPS，并设置强访问凭据。'
+                  : '默认仅本机访问；也可填写其他明确的绑定地址。'}
+              </p>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label className="flex items-center">信任代理 (trust-proxy)<EnvBadge field="trustProxy" /></Label>
@@ -358,7 +369,7 @@ export function SystemPanel() {
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                私钥仅写入服务器 config/key.pem（0600 权限），不会回显。证书无效时保存会被拒绝；若启用了 TLS 但证书加载失败，启动时会自动回退到 HTTP。
+                私钥仅写入服务器 config/key.pem（0600 权限），不会回显。证书无效时保存会被拒绝；启用 TLS 后证书无法加载将阻止 WebUI 启动，不会降级为 HTTP。
                 </p>
               </>
             )}
@@ -368,7 +379,7 @@ export function SystemPanel() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-sm"><Database className="h-4 w-4" /> 配置备份 / 恢复</CardTitle>
-            <CardDescription>备份外观、通知、系统设置和证书等配置；敏感开关还会包含 OneBot 配置。不含消息数据库。</CardDescription>
+            <CardDescription>备份外观、系统设置和证书等配置；通知渠道与 OneBot 配置仅在包含敏感配置时导出。不含消息数据库。</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
@@ -377,7 +388,7 @@ export function SystemPanel() {
                 <ToggleSwitch value={exportCreds} onChange={setExportCreds} ariaLabel="导出包含敏感配置" />
               </div>
               {exportCreds && (
-                <p className="text-sm leading-relaxed text-red-600 dark:text-red-400">⚠ 将额外包含 WebUI 登录状态、TLS 私钥，以及带访问令牌的 OneBot 配置，请妥善保管。</p>
+                <p className="text-sm leading-relaxed text-red-600 dark:text-red-400">⚠ 将额外包含 WebUI 登录状态、TLS 私钥、通知渠道地址与 OneBot 访问令牌，请妥善保管。</p>
               )}
               <div>
                 <Button onClick={exportBackup} disabled={saving} className="gap-1.5">
@@ -394,7 +405,7 @@ export function SystemPanel() {
                 <ToggleSwitch value={restoreCreds} onChange={setRestoreCreds} ariaLabel="恢复包含敏感配置" />
               </div>
               {restoreCreds && (
-                <p className="text-sm leading-relaxed text-red-600 dark:text-red-400">⚠ 将覆盖当前 WebUI 登录状态、TLS 私钥与 OneBot 配置（含访问令牌）；若备份口令未知可能登不进。</p>
+                <p className="text-sm leading-relaxed text-red-600 dark:text-red-400">⚠ 将覆盖当前 WebUI 登录状态、TLS 私钥、通知渠道地址与 OneBot 访问令牌；若备份口令未知可能登不进。</p>
               )}
               <input
                 ref={fileRef}
