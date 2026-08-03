@@ -97,9 +97,9 @@ function makeSession(opts: {
     inject: vi.fn(() => ({ method: 'loadModuleManual' as const, handle: DUMMY_HANDLE })),
     unload: vi.fn(),
   };
-  // Default probe reports "not logged in" so the reconcile safety net is inert
-  // unless a test opts into a logged-in probe (never hits the real port scan).
-  const probeLogin = opts.probeLogin ?? (async () => ({ port: 0, uin: '', loggedIn: false }));
+  // Default probe exposes no identity so the reconcile safety net is inert
+  // unless a test opts into a known account.
+  const probeLogin = opts.probeLogin ?? (async () => ({ port: 0, uin: '', identityKnown: false }));
 
   const session = new HookSession(pid, {
     injector,
@@ -828,7 +828,7 @@ describe('HookSession — login reconcile (Docker auto-login safety net)', () =>
   it('keeps the packet sender usable only after native readiness confirms the identity hint', async () => {
     const ctx = makeSession({
       pipeLive: true,
-      probeLogin: async () => ({ port: 4301, uin: '10001', loggedIn: true }),
+      probeLogin: async () => ({ port: 4301, uin: '10001', identityKnown: true }),
       nativeReadyOnIdentityHint: true,
     });
     let sender: PacketSender | undefined;
@@ -860,7 +860,7 @@ describe('HookSession — login reconcile (Docker auto-login safety net)', () =>
     // for a login-state confirmation instead of synthesizing one.
     const ctx = makeSession({
       pipeLive: true,
-      probeLogin: async () => ({ port: 4301, uin: '10001', loggedIn: true }),
+      probeLogin: async () => ({ port: 4301, uin: '10001', identityKnown: true }),
     });
     const loginSpy = vi.fn();
     ctx.session.on('login', loginSpy);
@@ -880,7 +880,7 @@ describe('HookSession — login reconcile (Docker auto-login safety net)', () =>
     vi.useFakeTimers();
     const ctx = makeSession({
       pipeLive: true,
-      probeLogin: async () => ({ port: 4301, uin: '10001', loggedIn: true }),
+      probeLogin: async () => ({ port: 4301, uin: '10001', identityKnown: true }),
     });
     try {
       await ctx.session.load();
@@ -900,7 +900,7 @@ describe('HookSession — login reconcile (Docker auto-login safety net)', () =>
     let uin = '10001';
     const ctx = makeSession({
       pipeLive: true,
-      probeLogin: async () => ({ port: 4301, uin, loggedIn: true }),
+      probeLogin: async () => ({ port: 4301, uin, identityKnown: true }),
     });
     try {
       await ctx.session.load();
@@ -924,7 +924,7 @@ describe('HookSession — login reconcile (Docker auto-login safety net)', () =>
     vi.useFakeTimers();
     const ctx = makeSession({
       pipeLive: true,
-      probeLogin: async () => ({ port: 4301, uin: '10001', loggedIn: true }),
+      probeLogin: async () => ({ port: 4301, uin: '10001', identityKnown: true }),
       identityHintFailures: 3,
     });
     try {
@@ -950,7 +950,7 @@ describe('HookSession — login reconcile (Docker auto-login safety net)', () =>
   it('does not log in when the probe reports not-logged-in', async () => {
     const ctx = makeSession({
       pipeLive: true,
-      probeLogin: async () => ({ port: 0, uin: '', loggedIn: false }),
+      probeLogin: async () => ({ port: 0, uin: '', identityKnown: false }),
     });
     const loginSpy = vi.fn();
     ctx.session.on('login', loginSpy);
@@ -965,7 +965,7 @@ describe('HookSession — login reconcile (Docker auto-login safety net)', () =>
   it('ignores a probe with a non-real uin (0)', async () => {
     const ctx = makeSession({
       pipeLive: true,
-      probeLogin: async () => ({ port: 4301, uin: '0', loggedIn: true }),
+      probeLogin: async () => ({ port: 4301, uin: '0', identityKnown: true }),
     });
     const loginSpy = vi.fn();
     ctx.session.on('login', loginSpy);
@@ -994,10 +994,10 @@ describe('HookSession — login reconcile (Docker auto-login safety net)', () =>
   it('detects a login that lands on a LATER interval probe', async () => {
     vi.useFakeTimers();
     try {
-      let loggedIn = false;
+      let identityKnown = false;
       const ctx = makeSession({
         pipeLive: true,
-        probeLogin: async () => ({ port: 4301, uin: '10001', loggedIn }),
+        probeLogin: async () => ({ port: 4301, uin: '10001', identityKnown }),
         nativeReadyOnIdentityHint: true,
       });
       const loginSpy = vi.fn();
@@ -1008,7 +1008,7 @@ describe('HookSession — login reconcile (Docker auto-login safety net)', () =>
       await vi.advanceTimersByTimeAsync(0);   // connect + immediate probe (not logged in yet)
       expect(loginSpy).not.toHaveBeenCalled();
 
-      loggedIn = true;                          // QQ finishes auto-login
+      identityKnown = true;                     // QQ exposes the restored identity
       await vi.advanceTimersByTimeAsync(3000);  // next interval probe picks it up
 
       expect(loginSpy).toHaveBeenCalledOnce();
@@ -1021,7 +1021,7 @@ describe('HookSession — login reconcile (Docker auto-login safety net)', () =>
   it('does not double-emit when the pushed frame logs in first', async () => {
     // Pushed-frame login wins; a subsequent probe with the same uin must not
     // re-emit (handleLoginState dedups), and the reconcile timer is stopped.
-    const probeLogin = vi.fn(async () => ({ port: 4301, uin: '10001', loggedIn: true }));
+    const probeLogin = vi.fn(async () => ({ port: 4301, uin: '10001', identityKnown: true }));
     const ctx = makeSession({ pipeLive: true, probeLogin });
     const loginSpy = vi.fn();
     ctx.session.on('login', loginSpy);

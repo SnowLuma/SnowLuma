@@ -1,8 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const execMock = vi.hoisted(() => vi.fn());
+const socketCtorMock = vi.hoisted(() => vi.fn(function MockSocket() {
+  throw new Error('interactive QQ probe must not run');
+}));
 
 vi.mock('child_process', () => ({ exec: execMock }));
+vi.mock('net', () => ({
+  default: { Socket: socketCtorMock },
+  Socket: socketCtorMock,
+}));
 
 import { probeQqLoginInfo } from '../src/qq-port-probe';
 
@@ -10,6 +17,7 @@ describe('probeQqLoginInfo — bounded execution', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     execMock.mockReset();
+    socketCtorMock.mockClear();
   });
 
   afterEach(() => {
@@ -33,7 +41,23 @@ describe('probeQqLoginInfo — bounded execution', () => {
     await expect(probeQqLoginInfo(4242)).resolves.toEqual({
       port: 0,
       uin: '',
-      loggedIn: false,
+      identityKnown: false,
     });
+  });
+
+  it('keeps background identity discovery passive', async () => {
+    execMock
+      .mockImplementationOnce((_command, _options, callback) => {
+        callback(null, {
+          stdout: 'LISTEN 0 128 127.0.0.1:9218 0.0.0.0:* users:(("qq",pid=4242,fd=12))\n',
+          stderr: '',
+        });
+      })
+      .mockImplementationOnce((_command, _options, callback) => {
+        callback(null, { stdout: '8\n', stderr: '' });
+      });
+
+    await expect(probeQqLoginInfo(4242)).resolves.toBeNull();
+    expect(socketCtorMock).not.toHaveBeenCalled();
   });
 });

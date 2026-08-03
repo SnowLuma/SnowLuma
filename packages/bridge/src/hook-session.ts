@@ -685,7 +685,7 @@ export class HookSession extends EventEmitter {
       }
       // The await yielded — re-check we still want this before mutating state.
       if (this.disposed || !this.connected || this.loggedIn) { this.stopLoginReconcile(); return; }
-      if (info?.loggedIn && isRealUin(info.uin)) {
+      if (info?.identityKnown && isRealUin(info.uin)) {
         const client = this.client;
         if (!client) return;
         if (this.acceptedLoginHintUin === info.uin) {

@@ -12,7 +12,7 @@ interface QqPortLoginInfo {
   uin: string;
   uid?: string;
   nickName?: string;
-  loggedIn: boolean;
+  identityKnown: boolean;
 }
 
 interface ProcessProbeDialogProps {
@@ -46,7 +46,7 @@ export function ProcessProbeDialog({ pid, processName, open, onOpenChange, onLoa
       if (activeProbe.current !== controller) return;
       setInfo(result as QqPortLoginInfo | null);
       if (!result) {
-        setError('未检测到登录信息（端口 9210-9219 无响应）');
+        setError('未检测到可用的账号身份信息');
       }
     } catch (err) {
       if (activeProbe.current !== controller || controller.signal.aborted) return;
@@ -101,7 +101,7 @@ export function ProcessProbeDialog({ pid, processName, open, onOpenChange, onLoa
               </div>
             ) : info ? (
               <div className="space-y-4">
-                {info.loggedIn ? (
+                {info.identityKnown ? (
                   <div className="flex items-center gap-4 rounded-lg border bg-card/50 p-4">
                     <Avatar className="size-14">
                       <AvatarImage src={qqAvatarUrl(info.uin)} alt={info.uin} />
@@ -112,7 +112,7 @@ export function ProcessProbeDialog({ pid, processName, open, onOpenChange, onLoa
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <span className="font-semibold">{info.nickName || info.uin}</span>
-                        <Badge variant="success">已登录</Badge>
+                        <Badge variant="secondary">已识别账号</Badge>
                       </div>
                       <div className="mt-1 text-sm text-muted-foreground">UIN: {info.uin}</div>
                       {info.uid && (
@@ -121,6 +121,9 @@ export function ProcessProbeDialog({ pid, processName, open, onOpenChange, onLoa
                         </div>
                       )}
                       <div className="mt-1 text-xs text-muted-foreground">端口: {info.port}</div>
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        此结果仅表示账号身份已识别，协议会话是否就绪以进程状态为准。
+                      </div>
                     </div>
                   </div>
                 ) : (
@@ -141,7 +144,7 @@ export function ProcessProbeDialog({ pid, processName, open, onOpenChange, onLoa
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
               关闭
           </Button>
-          {!loading && info?.loggedIn && onLoad && (
+          {!loading && info?.identityKnown && onLoad && (
             <Button size="sm" onClick={onLoad}>
                 加载
             </Button>

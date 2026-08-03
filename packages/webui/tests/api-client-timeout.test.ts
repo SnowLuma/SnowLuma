@@ -45,7 +45,7 @@ describe('API client request deadline', () => {
         }),
       )
       .mockResolvedValueOnce(new Response(JSON.stringify({
-        info: { port: 0, uin: '', loggedIn: false },
+        info: { port: 0, uin: '', identityKnown: false },
       }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -61,7 +61,7 @@ describe('API client request deadline', () => {
     await expect(client.processes.probeLoginInfo(4242)).resolves.toEqual({
       port: 0,
       uin: '',
-      loggedIn: false,
+      identityKnown: false,
     });
   });
 
