@@ -18,11 +18,8 @@ export interface ResponseGrp {
   groupName?:  pb<7, string>;
 }
 
-// ResponseHead field 7 is multi-purpose: a forward message carries
-// `friendName` (field 6); a group temp-session push carries the source group
-// (field 4). Subfields don't collide, so one interface covers both.
 export interface ResponseForward {
-  tempGroupUin?: pb<4, uint_32>;
+  tempGroupUin?: pb<5, uint_32>;
   friendName?:   pb<6, string>;
 }
 
