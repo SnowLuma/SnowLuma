@@ -18,6 +18,7 @@ import { workerData } from 'node:worker_threads';
 import { BridgeManager } from './bridge/manager';
 import { createNotificationManager } from './notifications/manager';
 import { createStateWiring } from './webui/state-wiring';
+import { bindSystemFaceCatalog } from './sys-face-catalog';
 
 const log = createLogger('App');
 
@@ -57,6 +58,7 @@ async function main() {
   cleanupInvalidPerUinConfigs();
 
   const bridgeManager = new BridgeManager();
+  bindSystemFaceCatalog(bridgeManager);
   const oneBotManager = new OneBotManager();
   const autoLoadOnDiscovery = resolveAutoLoad(runtimeConfig.hookAutoLoad);
 

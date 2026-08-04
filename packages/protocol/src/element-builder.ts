@@ -55,12 +55,12 @@ function makeTextElem(text: string): ProtoElem {
 //   super (animated, aniSticker not pack (1,1)) → CommonElem 37 + QFaceExtra
 //   other id ≥ 260                              → CommonElem 33 + QSmallFaceExtra
 //   classic id < 260                            → legacy FaceElem
-function makeFaceElem(faceId: number, ctx?: SendContext): ProtoElem {
-  // Keep the catalog warm so subsequent super-face sends are classified even if
-  // this one raced ahead of the first fetch.
-  if (ctx) sysFaceStore.ensureWarm(ctx.bridge);
-
-  const wire = sysFaceStore.classify(faceId);
+async function makeFaceElem(faceId: number, ctx?: SendContext): Promise<ProtoElem> {
+  // With a live bridge, wait for the authoritative catalog. Login normally
+  // preloads it, while this await closes the reconnect / first-send race.
+  const wire = ctx
+    ? await sysFaceStore.resolveWire(ctx.bridge, faceId)
+    : sysFaceStore.classify(faceId);
   if (wire.kind === 'super') {
     return {
       commonElem: {
@@ -495,7 +495,7 @@ export async function buildSendElems(elements: MessageElement[], ctx?: SendConte
         break;
 
       case 'face':
-        result.push(makeFaceElem(elem.faceId, ctx));
+        result.push(await makeFaceElem(elem.faceId, ctx));
         break;
 
       case 'poke':

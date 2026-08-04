@@ -14,6 +14,7 @@ import { MiscApi } from './misc';
 import { ProfileApi } from './profile';
 import { QzoneApi } from './qzone';
 import { WebApi } from './web';
+import { SystemFaceApi } from './system-face';
 
 export interface ApiHub {
   /** Personal QQ collections: authenticated list retrieval and pagination. */
@@ -46,6 +47,8 @@ export interface ApiHub {
   readonly extras: ExtrasApi;
   /** Cookie-backed HTTP: essence / honor / notice / client-key / csrf-token. */
   readonly web: WebApi;
+  /** QQ system-face directory: durable catalog, id lookup, and search. */
+  readonly systemFace: SystemFaceApi;
 }
 
 /**
@@ -73,6 +76,7 @@ export function buildApiHub(ctx: BridgeContext): ApiHub {
     misc: new MiscApi(ctx),
     extras: new ExtrasApi(ctx),
     web: new WebApi(ctx),
+    systemFace: new SystemFaceApi(ctx),
   };
 }
 
@@ -101,3 +105,4 @@ export { ProfileApi } from './profile';
 export { QzoneApi } from './qzone';
 export { FlashTransferApi, type FlashFileInfo } from './flash-transfer';
 export { WebApi } from './web';
+export { SystemFaceApi } from './system-face';

@@ -44,6 +44,14 @@
       "types": "./src/self-uid.ts",
       "default": "./src/self-uid.ts"
     },
+    "./sys-face-store": {
+      "types": "./src/sys-face-store.ts",
+      "default": "./src/sys-face-store.ts"
+    },
+    "./sys-face-storage": {
+      "types": "./src/sys-face-storage.ts",
+      "default": "./src/sys-face-storage.ts"
+    },
     "./bridge-oidb": {
       "types": "./src/bridge-oidb.ts",
       "default": "./src/bridge-oidb.ts"
