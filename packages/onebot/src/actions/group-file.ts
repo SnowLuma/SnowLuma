@@ -49,7 +49,30 @@ export const actions = [
       upload_file: f.bool().default(true),
     },
     run: async (p, ctx) => {
-      const result = await ctx.bridge.apis.groupFile.uploadPrivate(p.user_id, p.file, p.name, p.upload_file);
+      const result = await ctx.bridge.apis.groupFile.uploadPrivate(
+        p.user_id,
+        p.file,
+        p.name,
+        p.upload_file,
+        false,
+      );
+      if (p.upload_file) {
+        if (!result.fileId) throw new Error('private file upload returned no file_id');
+        const uploaded = ctx.bridge.recallUploadedFile(result.fileId);
+        if (!uploaded || uploaded.scope !== 'private' || uploaded.userId !== p.user_id) {
+          throw new Error(`private file upload metadata missing for file_id ${result.fileId}`);
+        }
+        await ctx.sendPrivateMessage(p.user_id, [{
+          type: 'file',
+          data: {
+            file_id: result.fileId,
+            name: uploaded.fileName,
+            file_size: uploaded.fileSize,
+            md5: Buffer.from(uploaded.fileMd5).toString('hex'),
+            file_hash: result.fileHash ?? uploaded.fileHash ?? '',
+          },
+        }], false);
+      }
       return okResponse({ file_id: result.fileId });
     },
   }),

@@ -8,6 +8,7 @@ import {
   type LogEntry,
 } from '@snowluma/common/logger';
 import type { BridgeInterface } from '../../core/src/bridge/bridge-interface';
+import { ApiHandler } from '../src/api-handler';
 import { OneBotInstance } from '../src/instance';
 import { buildApiContext, type OneBotInstanceContext } from '../src/instance-context';
 import { hashMessageIdInt32, PRIVATE_NT_MESSAGE_EVENT } from '../src/message-id';
@@ -158,6 +159,89 @@ function privateSentEvent(overrides: JsonObject = {}): JsonObject {
 }
 
 describe('OneBot self-sent events', () => {
+  it('reports upload_private_file as a private self-sent message', async () => {
+    const { ctx, dispatchEvent } = makeContext();
+    const handler = new ApiHandler(buildApiContext(ctx));
+
+    const response = await handler.handle('upload_private_file', {
+      user_id: PEER_ID,
+      file: 'base64://AQID',
+      name: 'inline.txt',
+    });
+
+    expect(response).toMatchObject({
+      status: 'ok',
+      retcode: 0,
+      data: { file_id: 'uploaded-file-uuid' },
+    });
+    expect(ctx.bridge.apis.groupFile.uploadPrivate).toHaveBeenCalledWith(
+      PEER_ID,
+      'base64://AQID',
+      'inline.txt',
+      true,
+      false,
+    );
+    expect(ctx.bridge.apis.message.sendC2cFile).toHaveBeenCalledOnce();
+    expect(dispatchEvent).toHaveBeenCalledOnce();
+    expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
+      post_type: 'message_sent',
+      message_type: 'private',
+      self_id: SELF_ID,
+      user_id: SELF_ID,
+      target_id: PEER_ID,
+      message_seq: RECEIPT.clientSequence,
+      message: [{
+        type: 'file',
+        data: expect.objectContaining({
+          file_id: 'uploaded-file-uuid',
+          file: 'inline.txt',
+          file_size: 3,
+        }),
+      }],
+    }), 'send');
+  });
+
+  it('fails upload_private_file when publishing the private file fails', async () => {
+    const { ctx, dispatchEvent } = makeContext();
+    vi.mocked(ctx.bridge.apis.message.sendC2cFile).mockRejectedValueOnce(
+      new Error('private file publication rejected'),
+    );
+    const handler = new ApiHandler(buildApiContext(ctx));
+
+    const response = await handler.handle('upload_private_file', {
+      user_id: PEER_ID,
+      file: 'base64://AQID',
+      name: 'inline.txt',
+    });
+
+    expect(response).toMatchObject({
+      status: 'failed',
+      retcode: 100,
+      wording: 'private file publication rejected',
+    });
+    expect(dispatchEvent).not.toHaveBeenCalled();
+  });
+
+  it('does not report upload_private_file when upload_file is disabled', async () => {
+    const { ctx, dispatchEvent } = makeContext();
+    const handler = new ApiHandler(buildApiContext(ctx));
+
+    const response = await handler.handle('upload_private_file', {
+      user_id: PEER_ID,
+      file: 'base64://AQID',
+      name: 'inline.txt',
+      upload_file: false,
+    });
+
+    expect(response).toMatchObject({
+      status: 'ok',
+      retcode: 0,
+      data: { file_id: 'uploaded-file-uuid' },
+    });
+    expect(ctx.bridge.apis.message.sendC2cFile).not.toHaveBeenCalled();
+    expect(dispatchEvent).not.toHaveBeenCalled();
+  });
+
   it('reports a private message sent through an action', async () => {
     const { ctx, dispatchEvent } = makeContext();
     const api = buildApiContext(ctx);
