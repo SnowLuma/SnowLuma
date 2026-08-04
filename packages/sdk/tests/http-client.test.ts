@@ -7,6 +7,27 @@ import {
 } from '../src';
 
 describe('SnowLumaHttpClient', () => {
+  it('maps system-face catalog helpers to their OneBot actions', async () => {
+    const fetchImpl = vi.fn().mockImplementation(async () => new Response(JSON.stringify({
+      status: 'ok',
+      retcode: 0,
+      data: null,
+    })));
+    const client = new SnowLumaHttpClient({ fetch: fetchImpl });
+
+    await client.fetchSysFaces(true);
+    await client.fetchFaceEntity(392, { refresh: true });
+    await client.searchSysFaces('dragon');
+    await client.fetchSuperFaceId(392);
+
+    expect(fetchImpl.mock.calls.map((call) => JSON.parse((call[1] as RequestInit).body as string))).toEqual([
+      { action: 'fetch_sys_faces', params: { refresh: true } },
+      { action: 'fetch_face_entity', params: { face_id: 392, refresh: true } },
+      { action: 'search_sys_faces', params: { query: 'dragon' } },
+      { action: 'fetch_super_face_id', params: { face_id: 392, refresh: false } },
+    ]);
+  });
+
   it('maps group-announcement options to their OneBot field names', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       status: 'ok',
