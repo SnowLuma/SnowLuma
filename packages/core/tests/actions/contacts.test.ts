@@ -7,6 +7,7 @@ import type {
   OidbFriend,
   OidbFriendCategory,
   OidbRobotUinRangeResponse,
+  OidbSvcTrpcTcp0x88D_0Response,
   OidbSvcTrpcTcp0xFD4_1Response,
   OidbSvcTrpcTcp0xFE5_2Response,
   OidbSvcTrpcTcp0xFE7_3Response,
@@ -99,6 +100,18 @@ function groupListPacket(body: OidbSvcTrpcTcp0xFE5_2Response): SendPacketResult 
   };
 }
 
+function groupDetailPacket(body: OidbSvcTrpcTcp0x88D_0Response): SendPacketResult {
+  return {
+    success: true,
+    gotResponse: true,
+    errorCode: 0,
+    errorMessage: '',
+    responseData: Buffer.from(
+      protobuf_encode<OidbBase<OidbSvcTrpcTcp0x88D_0Response>>({ body }),
+    ),
+  };
+}
+
 function apiForPages(pages: OidbSvcTrpcTcp0xFD4_1Response[]) {
   let index = 0;
   const sendRawPacket = vi.fn(async (
@@ -150,7 +163,12 @@ describe('apis/contacts / group roster', () => {
     const sendRawPacket = vi.fn(async () => groupListPacket({
       groups: [{
         groupUin: 123456789,
-        info: { groupName: 'Project', memberCount: 42, memberMax: 500 },
+        info: {
+          groupName: 'Project',
+          memberCount: 42,
+          memberMax: 500,
+          shutUpAllTimestamp: 4_294_967_295,
+        },
         customInfo: { remark: '  My Project  ' },
       }],
     }));
@@ -167,8 +185,30 @@ describe('apis/contacts / group roster', () => {
       remark: '  My Project  ',
       memberCount: 42,
       memberMax: 500,
+      allMuted: true,
     })]);
     expect(rememberGroups).toHaveBeenCalledWith(groups);
+  });
+
+  it('maps the group-wide mute timestamp from a single-group detail', async () => {
+    const sendRawPacket = vi.fn(async () => groupDetailPacket({
+      groupInfo: {
+        uin: 123456789n,
+        results: {
+          name: 'Muted Group',
+          shutUpAllTimestamp: 4_294_967_295,
+        },
+      },
+    }));
+    const api = new ContactsApi({ sendRawPacket, identity: {} } as any);
+
+    const detail = await api.fetchGroupDetail(123456789);
+
+    expect(detail).toEqual(expect.objectContaining({
+      groupId: 123456789,
+      groupName: 'Muted Group',
+      allMuted: true,
+    }));
   });
 });
 

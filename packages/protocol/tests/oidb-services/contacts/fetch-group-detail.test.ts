@@ -3,12 +3,32 @@
 // matching Lagrange's GetGroupInfoService) and the response decode.
 
 import { describe, expect, it, vi } from 'vitest';
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import {
+  protobuf_decode,
+  protobuf_encode,
+  type pb,
+  type uint_32,
+  type uint_64,
+} from '@snowluma/proton';
 import type { OidbBase, OidbSvcTrpcTcp0x88D_0Response } from '@snowluma/proto-defs/oidb';
 import type { OidbGroupDetailRequest } from '@snowluma/proto-defs/oidb-actions/base';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 
 import { FetchGroupDetail } from '../../../src/oidb-services/contacts/fetch-group-detail';
+
+interface GroupDetailResultsFixture {
+  name?: pb<15, string>;
+  shutUpAllTimestamp?: pb<59, uint_32>;
+}
+
+interface GroupDetailInfoFixture {
+  uin?: pb<1, uint_64>;
+  results?: pb<3, GroupDetailResultsFixture>;
+}
+
+interface GroupDetailResponseFixture {
+  groupInfo?: pb<1, GroupDetailInfoFixture>;
+}
 
 function makeSender(body?: OidbSvcTrpcTcp0x88D_0Response) {
   const responseData = body !== undefined
@@ -33,6 +53,8 @@ describe('FetchGroupDetail namespace', () => {
       expect(out.config?.flags?.name).toBe('');       // string mask → request the name
       expect(out.config?.flags?.memberCount).toBe(true);
       expect(out.config?.flags?.maxMemberCount).toBe(true);
+      expect((out.config?.flags as { shutUpAllTimestamp?: boolean })?.shutUpAllTimestamp)
+        .toBe(true);
     });
   });
 
@@ -65,6 +87,29 @@ describe('FetchGroupDetail namespace', () => {
       expect(out.groupInfo?.results?.name).toBe('测试群');
       expect(out.groupInfo?.results?.memberCount).toBe(42n);
       expect(out.groupInfo?.results?.maxMemberCount).toBe(500n);
+    });
+
+    it('decodes the group-wide mute timestamp from a detail response', async () => {
+      const responseData = Buffer.from(protobuf_encode<OidbBase<GroupDetailResponseFixture>>({
+        body: {
+          groupInfo: {
+            uin: 601692726n,
+            results: { name: 'Muted Group', shutUpAllTimestamp: 4_294_967_295 },
+          },
+        },
+      }));
+      const sender = makeSender();
+      sender.sendRawPacket.mockResolvedValue({
+        success: true,
+        gotResponse: true,
+        errorCode: 0,
+        errorMessage: '',
+        responseData,
+      });
+
+      const out = await FetchGroupDetail.invoke(sender, { groupUin: 601692726 });
+
+      expect(out.groupInfo?.results?.shutUpAllTimestamp).toBe(4_294_967_295);
     });
   });
 });

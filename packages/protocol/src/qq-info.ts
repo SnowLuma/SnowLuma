@@ -57,6 +57,8 @@ export interface QQGroupInfo {
   level?: number;
   /** Group memo / announcement preview. '' when unknown (#197). */
   memo?: string;
+  /** Whether the group currently has group-wide mute enabled. */
+  allMuted?: boolean;
 }
 
 export interface GroupRequestInfo {

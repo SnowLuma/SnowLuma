@@ -202,7 +202,7 @@ describe('onebot/contact-actions / getGroupFiles', () => {
 
 describe('onebot/contact-actions / getGroupList', () => {
   it('triggers fetch when the in-memory roster is empty', async () => {
-    const fetched = [{ ...makeGroup(100, 'Group A'), remark: '工作群' }];
+    const fetched = [{ ...makeGroup(100, 'Group A'), remark: '工作群', allMuted: true }];
     // `groups` starts empty; the fetch callback flips it to mimic
     // bridge.apis.contacts.fetchGroupList writing back through identity.rememberGroups.
     let groups: QQGroupInfo[] = [];
@@ -219,6 +219,7 @@ describe('onebot/contact-actions / getGroupList', () => {
       group_remark: '工作群',
       member_count: 0, max_member_count: 500,
       group_create_time: 0, group_level: 0, group_memo: '',
+      group_all_shut: -1,
     }]);
   });
 
@@ -242,14 +243,13 @@ describe('onebot/contact-actions / getGroupList', () => {
     expect(bridge.apis.contacts.fetchGroupList).toHaveBeenCalledOnce();
   });
 
-  it('serves the stale cache when the fetch path throws', async () => {
+  it('propagates fetch failures when noCache=true', async () => {
     const cached = [makeGroup(400, 'Group D')];
     const bridge = fakeBridge({
       fetchGroupList: vi.fn(async () => { throw new Error('boom'); }),
       identity: fakeIdentity({ groups: cached }),
     });
-    const out = await getGroupList(bridge, true);
-    expect(out[0]).toMatchObject({ group_id: 400, group_name: 'Group D' });
+    await expect(getGroupList(bridge, true)).rejects.toThrow('boom');
   });
 });
 
@@ -259,6 +259,7 @@ describe('onebot/contact-actions / getGroupInfo', () => {
     const findGroup = vi.fn((groupId: number) => groupId === 500 ? cached : null);
     const bridge = fakeBridge({
       fetchGroupList: vi.fn(async () => []),
+      fetchGroupDetail: vi.fn(async () => cached),
       identity: fakeIdentity({ findGroup }),
     });
     const out = await getGroupInfo(bridge, 500);
@@ -270,6 +271,38 @@ describe('onebot/contact-actions / getGroupInfo', () => {
     expect(bridge.apis.contacts.fetchGroupList).not.toHaveBeenCalled();
   });
 
+  it('keeps joined-group mute state on the roster source across level-cache hits', async () => {
+    const cached = { ...makeGroup(510, 'Muted Group'), allMuted: true };
+    const fetchGroupDetail = vi.fn(async () => ({
+      ...cached,
+      level: 6,
+      allMuted: false,
+    }));
+    const bridge = fakeBridge({
+      fetchGroupList: vi.fn(async () => []),
+      fetchGroupDetail,
+      identity: fakeIdentity({ findGroup: (groupId: number) => groupId === 510 ? cached : null }),
+    });
+
+    const first = await getGroupInfo(bridge, 510);
+    const second = await getGroupInfo(bridge, 510);
+
+    expect(first).toMatchObject({ group_level: 6, group_all_shut: -1 });
+    expect(second).toMatchObject({ group_level: 6, group_all_shut: -1 });
+    expect(fetchGroupDetail).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates detail refresh failures when noCache=true', async () => {
+    const cached = makeGroup(520, 'Refresh Group');
+    const bridge = fakeBridge({
+      fetchGroupList: vi.fn(async () => [cached]),
+      fetchGroupDetail: vi.fn(async () => { throw new Error('detail unavailable'); }),
+      identity: fakeIdentity({ findGroup: (groupId: number) => groupId === 520 ? cached : null }),
+    });
+
+    await expect(getGroupInfo(bridge, 520, true)).rejects.toThrow('detail unavailable');
+  });
+
   it('triggers fetch when the group is unknown to the cache', async () => {
     const cached = makeGroup(600, 'Group F');
     let known = false;
@@ -277,6 +310,7 @@ describe('onebot/contact-actions / getGroupInfo', () => {
     const fetchGroupList = vi.fn(async () => { known = true; return [cached]; });
     const bridge = fakeBridge({
       fetchGroupList,
+      fetchGroupDetail: vi.fn(async () => cached),
       identity: fakeIdentity({ findGroup }),
     });
     const out = await getGroupInfo(bridge, 600);
@@ -294,7 +328,10 @@ describe('onebot/contact-actions / getGroupInfo', () => {
   });
 
   it('resolves a non-member group via the by-id server lookup (e.g. a group invite name)', async () => {
-    const fetchGroupDetail = vi.fn(async () => makeGroup(7100, '邀请来的群'));
+    const fetchGroupDetail = vi.fn(async () => ({
+      ...makeGroup(7100, '邀请来的群'),
+      allMuted: true,
+    }));
     const bridge = fakeBridge({
       fetchGroupList: vi.fn(async () => []),
       fetchGroupDetail,
@@ -306,6 +343,7 @@ describe('onebot/contact-actions / getGroupInfo', () => {
       group_id: 7100,
       group_name: '邀请来的群',
       group_remark: '',
+      group_all_shut: -1,
     });
   });
 
@@ -333,6 +371,36 @@ describe('onebot/contact-actions / getGroupInfo', () => {
     await getGroupInfo(bridge, 7300);
     await getGroupInfo(bridge, 7300, true);
     expect(fetchGroupDetail).toHaveBeenCalledTimes(2);
+  });
+
+  it('isolates non-member group details between accounts', async () => {
+    const groupId = 7400;
+    const firstFetch = vi.fn(async () => ({
+      ...makeGroup(groupId, 'Account A View'),
+      allMuted: true,
+    }));
+    const secondFetch = vi.fn(async () => ({
+      ...makeGroup(groupId, 'Account B View'),
+      allMuted: false,
+    }));
+    const firstBridge = fakeBridge({
+      fetchGroupList: vi.fn(async () => []),
+      fetchGroupDetail: firstFetch,
+      identity: fakeIdentity({ uin: '10001', findGroup: () => null }),
+    });
+    const secondBridge = fakeBridge({
+      fetchGroupList: vi.fn(async () => []),
+      fetchGroupDetail: secondFetch,
+      identity: fakeIdentity({ uin: '10002', findGroup: () => null }),
+    });
+
+    const first = await getGroupInfo(firstBridge, groupId);
+    const second = await getGroupInfo(secondBridge, groupId);
+
+    expect(first).toMatchObject({ group_name: 'Account A View', group_all_shut: -1 });
+    expect(second).toMatchObject({ group_name: 'Account B View', group_all_shut: 0 });
+    expect(firstFetch).toHaveBeenCalledOnce();
+    expect(secondFetch).toHaveBeenCalledOnce();
   });
 });
 

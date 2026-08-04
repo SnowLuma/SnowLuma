@@ -232,8 +232,8 @@ export interface SnowLumaActionMap {
   click_inline_keyboard_button: { params: JsonObject; data: JsonValue };
   set_group_sign: { params: JsonObject; data: EmptyData };
   send_group_sign: { params: JsonObject; data: EmptyData };
-  get_group_info_ex: { params: GroupIdParams; data: JsonObject };
-  get_group_detail_info: { params: GroupIdParams; data: JsonObject };
+  get_group_info_ex: { params: GetGroupInfoParams; data: JsonObject };
+  get_group_detail_info: { params: GetGroupInfoParams; data: JsonObject };
   trans_group_file: { params: JsonObject; data: JsonValue };
   rename_group_file: { params: JsonObject; data: JsonValue };
   get_file: { params: GetMediaParams; data: JsonValue };

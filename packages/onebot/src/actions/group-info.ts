@@ -3,6 +3,25 @@ import { asString } from '../api-handler';
 import { RETCODE, failedResponse, okResponse } from '../types';
 import { WebHonorType } from '@snowluma/protocol/web/group-honor';
 
+export const groupInfoReturnsSchema = {
+  type: 'object',
+  properties: {
+    group_id: { type: 'integer', description: '群号' },
+    group_name: { type: 'string', description: '群名' },
+    group_remark: { type: 'string', description: '当前账号设置的群备注' },
+    member_count: { type: 'integer', description: '当前成员数' },
+    max_member_count: { type: 'integer', description: '成员上限' },
+    group_create_time: { type: 'integer', description: '建群时间戳（秒）' },
+    group_level: { type: 'integer', description: '群等级' },
+    group_memo: { type: 'string', description: '群简介 / 公告预览' },
+    group_all_shut: { type: 'integer', enum: [-1, 0], description: '是否开启全员禁言（-1 开启，0 关闭）' },
+  },
+  required: [
+    'group_id', 'group_name', 'group_remark', 'member_count',
+    'max_member_count', 'group_all_shut',
+  ],
+};
+
 export const actions = [
   defineAction({
     name: 'get_group_list',
@@ -22,8 +41,12 @@ export const actions = [
           group_create_time: { type: 'integer', description: '建群时间戳（秒）' },
           group_level: { type: 'integer', description: '群等级（列表批量场景恒 0，详见 get_group_info）' },
           group_memo: { type: 'string', description: '群简介 / 公告预览' },
+          group_all_shut: { type: 'integer', enum: [-1, 0], description: '是否开启全员禁言（-1 开启，0 关闭）' },
         },
-        required: ['group_id', 'group_name', 'group_remark', 'member_count', 'max_member_count'],
+        required: [
+          'group_id', 'group_name', 'group_remark', 'member_count',
+          'max_member_count', 'group_all_shut',
+        ],
       },
     },
     params: { no_cache: f.bool().default(false) },
@@ -41,20 +64,7 @@ export const actions = [
     summary: '获取群信息',
     readOnly: true,
     returns: '群信息对象。',
-    returnsSchema: {
-      type: 'object',
-      properties: {
-        group_id: { type: 'integer', description: '群号' },
-        group_name: { type: 'string', description: '群名' },
-        group_remark: { type: 'string', description: '当前账号设置的群备注' },
-        member_count: { type: 'integer', description: '当前成员数' },
-        max_member_count: { type: 'integer', description: '成员上限' },
-        group_create_time: { type: 'integer', description: '建群时间戳（秒）' },
-        group_level: { type: 'integer', description: '群等级' },
-        group_memo: { type: 'string', description: '群简介 / 公告预览' },
-      },
-      required: ['group_id', 'group_name', 'group_remark', 'member_count', 'max_member_count'],
-    },
+    returnsSchema: groupInfoReturnsSchema,
     params: { no_cache: f.bool().default(false) },
     run: async (p, ctx) => {
       const groupId = p.group_id;
@@ -68,6 +78,7 @@ export const actions = [
         group_create_time: 0,
         group_level: 0,
         group_memo: '',
+        group_all_shut: 0,
       };
       if (ctx.getGroupInfo) {
         const info = await ctx.getGroupInfo(groupId, noCache);

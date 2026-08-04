@@ -466,12 +466,18 @@ export abstract class SnowLumaApiClient {
     return this.call('get_clientkey', {}, options);
   }
 
-  getGroupInfoEx(groupId: number, options?: RequestOptions) {
-    return this.call('get_group_info_ex', { group_id: groupId }, options);
+  getGroupInfoEx(groupId: number, options?: RequestOptions & { noCache?: boolean }) {
+    return this.call('get_group_info_ex', {
+      group_id: groupId,
+      no_cache: options?.noCache,
+    }, options);
   }
 
-  getGroupDetailInfo(groupId: number, options?: RequestOptions) {
-    return this.call('get_group_detail_info', { group_id: groupId }, options);
+  getGroupDetailInfo(groupId: number, options?: RequestOptions & { noCache?: boolean }) {
+    return this.call('get_group_detail_info', {
+      group_id: groupId,
+      no_cache: options?.noCache,
+    }, options);
   }
 
   /** Calls any registered SnowLuma action and returns the response data. */

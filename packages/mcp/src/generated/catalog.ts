@@ -2133,11 +2133,11 @@ export const ACTIONS: CatalogAction[] = [
         "name": "face_id",
         "type": "int",
         "required": true,
+        "role": "face_id",
         "schema": {
           "type": "integer",
           "minimum": 0
         },
-        "role": "face_id",
         "desc": "QQ 系统表情编号"
       },
       {
@@ -2243,11 +2243,11 @@ export const ACTIONS: CatalogAction[] = [
         "name": "face_id",
         "type": "int",
         "required": true,
+        "role": "face_id",
         "schema": {
           "type": "integer",
           "minimum": 0
         },
-        "role": "face_id",
         "desc": "QQ 系统表情编号"
       },
       {
@@ -4146,6 +4146,59 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_detail_info",
     "aliases": [],
     "summary": "获取群详细信息",
+    "returnsSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "description": "群号"
+        },
+        "group_name": {
+          "type": "string",
+          "description": "群名"
+        },
+        "group_remark": {
+          "type": "string",
+          "description": "当前账号设置的群备注"
+        },
+        "member_count": {
+          "type": "integer",
+          "description": "当前成员数"
+        },
+        "max_member_count": {
+          "type": "integer",
+          "description": "成员上限"
+        },
+        "group_create_time": {
+          "type": "integer",
+          "description": "建群时间戳（秒）"
+        },
+        "group_level": {
+          "type": "integer",
+          "description": "群等级"
+        },
+        "group_memo": {
+          "type": "string",
+          "description": "群简介 / 公告预览"
+        },
+        "group_all_shut": {
+          "type": "integer",
+          "enum": [
+            -1,
+            0
+          ],
+          "description": "是否开启全员禁言（-1 开启，0 关闭）"
+        }
+      },
+      "required": [
+        "group_id",
+        "group_name",
+        "group_remark",
+        "member_count",
+        "max_member_count",
+        "group_all_shut"
+      ]
+    },
     "readOnly": true,
     "params": [
       {
@@ -4157,6 +4210,15 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "minimum": 1
         }
+      },
+      {
+        "name": "no_cache",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "default": false
       }
     ],
     "invariants": [],
@@ -4167,6 +4229,10 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "minimum": 1,
           "x-role": "group_id"
+        },
+        "no_cache": {
+          "type": "boolean",
+          "default": false
         }
       },
       "required": [
@@ -4718,6 +4784,14 @@ export const ACTIONS: CatalogAction[] = [
         "group_memo": {
           "type": "string",
           "description": "群简介 / 公告预览"
+        },
+        "group_all_shut": {
+          "type": "integer",
+          "enum": [
+            -1,
+            0
+          ],
+          "description": "是否开启全员禁言（-1 开启，0 关闭）"
         }
       },
       "required": [
@@ -4725,7 +4799,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_name",
         "group_remark",
         "member_count",
-        "max_member_count"
+        "max_member_count",
+        "group_all_shut"
       ]
     },
     "readOnly": true,
@@ -4777,6 +4852,59 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_info_ex",
     "aliases": [],
     "summary": "获取群信息（扩展）",
+    "returnsSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "description": "群号"
+        },
+        "group_name": {
+          "type": "string",
+          "description": "群名"
+        },
+        "group_remark": {
+          "type": "string",
+          "description": "当前账号设置的群备注"
+        },
+        "member_count": {
+          "type": "integer",
+          "description": "当前成员数"
+        },
+        "max_member_count": {
+          "type": "integer",
+          "description": "成员上限"
+        },
+        "group_create_time": {
+          "type": "integer",
+          "description": "建群时间戳（秒）"
+        },
+        "group_level": {
+          "type": "integer",
+          "description": "群等级"
+        },
+        "group_memo": {
+          "type": "string",
+          "description": "群简介 / 公告预览"
+        },
+        "group_all_shut": {
+          "type": "integer",
+          "enum": [
+            -1,
+            0
+          ],
+          "description": "是否开启全员禁言（-1 开启，0 关闭）"
+        }
+      },
+      "required": [
+        "group_id",
+        "group_name",
+        "group_remark",
+        "member_count",
+        "max_member_count",
+        "group_all_shut"
+      ]
+    },
     "readOnly": true,
     "params": [
       {
@@ -4788,6 +4916,15 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "minimum": 1
         }
+      },
+      {
+        "name": "no_cache",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "default": false
       }
     ],
     "invariants": [],
@@ -4798,6 +4935,10 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "minimum": 1,
           "x-role": "group_id"
+        },
+        "no_cache": {
+          "type": "boolean",
+          "default": false
         }
       },
       "required": [
@@ -4848,6 +4989,14 @@ export const ACTIONS: CatalogAction[] = [
           "group_memo": {
             "type": "string",
             "description": "群简介 / 公告预览"
+          },
+          "group_all_shut": {
+            "type": "integer",
+            "enum": [
+              -1,
+              0
+            ],
+            "description": "是否开启全员禁言（-1 开启，0 关闭）"
           }
         },
         "required": [
@@ -4855,7 +5004,8 @@ export const ACTIONS: CatalogAction[] = [
           "group_name",
           "group_remark",
           "member_count",
-          "max_member_count"
+          "max_member_count",
+          "group_all_shut"
         ]
       }
     },
