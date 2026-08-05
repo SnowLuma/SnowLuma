@@ -30,6 +30,7 @@ vi.mock('@snowluma/protocol/highway/video-upload', () => ({
 import { buildSendElems } from '@snowluma/protocol/element-builder';
 import { MessageElementValidationError } from '@snowluma/protocol/element-manifest';
 import { uploadImageMsgInfo } from '@snowluma/protocol/highway/image-upload';
+import { uploadVideoMsgInfo } from '@snowluma/protocol/highway/video-upload';
 
 const fakeBridge = {} as any;
 
@@ -168,6 +169,63 @@ describe('element-builder / commonElem.businessType per scene', () => {
 });
 
 describe('element-builder / all-message validation preflight', () => {
+  it('rejects hidden siblings and duplicate videos before uploading', async () => {
+    vi.mocked(uploadVideoMsgInfo).mockClear();
+
+    await expect(buildSendElems([
+      { type: 'video', url: 'file:///tmp/clip.mp4' },
+      { type: 'text', text: 'must not become hidden content' },
+    ], { bridge: fakeBridge, groupId: 12345 })).rejects.toMatchObject({
+      code: 'UNSENDABLE_TYPE',
+      elementType: 'video',
+      message: expect.stringContaining('only segment'),
+    });
+
+    await expect(buildSendElems([
+      { type: 'video', url: 'file:///tmp/first.mp4' },
+      { type: 'video', url: 'file:///tmp/second.mp4' },
+    ], { bridge: fakeBridge, groupId: 12345 })).rejects.toMatchObject({
+      code: 'UNSENDABLE_TYPE',
+      elementType: 'video',
+      message: expect.stringContaining('only once'),
+    });
+
+    expect(uploadVideoMsgInfo).not.toHaveBeenCalled();
+  });
+
+  it('keeps empty canonical text invalid instead of sending it beside a video', async () => {
+    vi.mocked(uploadVideoMsgInfo).mockClear();
+
+    await expect(buildSendElems([
+      { type: 'text', text: '' },
+      { type: 'video', url: 'file:///tmp/clip.mp4' },
+    ], { bridge: fakeBridge, groupId: 12345 })).rejects.toMatchObject({
+      code: 'INVALID_FIELD',
+      elementType: 'text',
+    });
+
+    expect(uploadVideoMsgInfo).not.toHaveBeenCalled();
+  });
+
+  it('applies standalone-video validation to forward nodes', async () => {
+    vi.mocked(uploadVideoMsgInfo).mockClear();
+
+    await expect(buildSendElems([
+      { type: 'video', url: 'file:///tmp/clip.mp4' },
+      { type: 'text', text: 'must not survive bot forwarding' },
+    ], {
+      bridge: fakeBridge,
+      groupId: 12345,
+      forwardFake: true,
+      scene: 'forward',
+    })).rejects.toMatchObject({
+      code: 'UNSENDABLE_TYPE',
+      elementType: 'video',
+    });
+
+    expect(uploadVideoMsgInfo).not.toHaveBeenCalled();
+  });
+
   it('does not upload an early image when a later segment is unsendable', async () => {
     vi.mocked(uploadImageMsgInfo).mockClear();
 

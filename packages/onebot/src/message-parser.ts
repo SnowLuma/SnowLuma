@@ -1,6 +1,7 @@
 import { createLogger } from '@snowluma/common/logger';
 import type { MessageElement } from '@snowluma/protocol/events';
 import {
+  assertVideoSendPolicy,
   assertWindowShakeSendPolicy,
   assertValidMessageElement,
   ELEMENT_MANIFEST,
@@ -68,9 +69,22 @@ function normalizeSegmentType(type: string): string {
   return type.toLowerCase();
 }
 
-function outboundInputSegmentTypes(message: JsonValue, autoEscape: boolean): string[] {
+interface OutboundInputSegmentSummary {
+  rawTypes: string[];
+  effectiveVideoTypes: string[];
+}
+
+function isExplicitEmptyTextPlaceholder(segment: MessageSegment): boolean {
+  return normalizeSegmentType(segment.type) === 'text'
+    && segmentPayload(segment).text === '';
+}
+
+function outboundInputSegmentSummary(
+  message: JsonValue,
+  autoEscape: boolean,
+): OutboundInputSegmentSummary {
   if (typeof message === 'string') {
-    if (autoEscape) return ['text'];
+    if (autoEscape) return { rawTypes: ['text'], effectiveVideoTypes: ['text'] };
     const types: string[] = [];
     let lastIndex = 0;
     for (const match of message.matchAll(CQ_REGEX)) {
@@ -79,34 +93,48 @@ function outboundInputSegmentTypes(message: JsonValue, autoEscape: boolean): str
       lastIndex = match.index! + match[0].length;
     }
     if (lastIndex < message.length) types.push('text');
-    return types;
+    return { rawTypes: types, effectiveVideoTypes: types };
   }
   if (Array.isArray(message)) {
-    return message.flatMap((item) => {
-      if (typeof item !== 'object' || item === null || Array.isArray(item)) return [];
+    const rawTypes: string[] = [];
+    const effectiveVideoTypes: string[] = [];
+    for (const item of message) {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) continue;
       const type = (item as { type?: unknown }).type;
-      return typeof type === 'string' ? [normalizeSegmentType(type)] : [];
-    });
+      if (typeof type !== 'string') continue;
+      const normalizedType = normalizeSegmentType(type);
+      rawTypes.push(normalizedType);
+      if (!isExplicitEmptyTextPlaceholder(item as MessageSegment)) {
+        effectiveVideoTypes.push(normalizedType);
+      }
+    }
+    return { rawTypes, effectiveVideoTypes };
   }
   if (typeof message === 'object' && message !== null) {
     const type = (message as { type?: unknown }).type;
-    return typeof type === 'string' ? [normalizeSegmentType(type)] : [];
+    const types = typeof type === 'string' ? [normalizeSegmentType(type)] : [];
+    return { rawTypes: types, effectiveVideoTypes: types };
   }
-  return [];
+  return { rawTypes: [], effectiveVideoTypes: [] };
 }
 
 /**
- * Reject unsupported window-shake inputs before parsers can resolve identities,
- * fetch cards, sign music, or perform any other externally visible work.
+ * Reject unsupported message combinations before parsers can resolve
+ * identities, fetch cards, sign music, or perform any other externally
+ * visible work.
  */
-export function assertWindowShakeMessageInput(
+export function assertOutboundMessageInput(
   message: JsonValue,
   autoEscape: boolean,
   scene: OutboundMessageScene,
 ): void {
-  const types = outboundInputSegmentTypes(message, autoEscape);
-  const shakeCount = types.filter((type) => type === 'poke' || type === 'shake').length;
-  assertWindowShakeSendPolicy(shakeCount, types.length, scene);
+  const { rawTypes, effectiveVideoTypes } = outboundInputSegmentSummary(message, autoEscape);
+  assertVideoSendPolicy(
+    effectiveVideoTypes.filter((type) => type === 'video').length,
+    effectiveVideoTypes.length,
+  );
+  const shakeCount = rawTypes.filter((type) => type === 'poke' || type === 'shake').length;
+  assertWindowShakeSendPolicy(shakeCount, rawTypes.length, scene);
 }
 
 function invalidMessageShape(message: string): MessageElementValidationError {
@@ -415,7 +443,7 @@ export async function parseMessage(message: JsonValue, autoEscape: boolean, opti
       // Some OneBot clients insert empty text between media as a separator.
       // Only the exact empty string is a no-op; malformed and whitespace text
       // must still pass through strict element validation.
-      if (normalizeSegmentType(seg.type) === 'text' && data.text === '') {
+      if (isExplicitEmptyTextPlaceholder(seg)) {
         log.debug('ignored explicit empty text placeholder in message segment array');
         continue;
       }

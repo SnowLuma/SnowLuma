@@ -10,6 +10,7 @@ import type { BridgeContext } from './bridge-context';
 import { sysFaceStore } from './sys-face-store';
 import type { MessageElement } from './events';
 import {
+  assertVideoSendPolicy,
   assertWindowShakeSendPolicy,
   assertValidMessageElements,
   MessageElementValidationError,
@@ -458,6 +459,13 @@ export async function buildSendElems(elements: MessageElement[], ctx?: SendConte
   // preserves all-or-nothing semantics: a malformed later segment cannot make
   // an earlier media segment perform side effects before the send is rejected.
   assertValidMessageElements(elements, 'W');
+  // Canonical MessageElements cannot contain empty text. OneBot's explicit
+  // empty-text compatibility placeholders are removed before this boundary,
+  // so the array length here is the effective on-wire segment count.
+  assertVideoSendPolicy(
+    elements.filter((element) => element.type === 'video').length,
+    elements.length,
+  );
   assertWindowShakeSendPolicy(
     elements.filter((element) => element.type === 'poke').length,
     elements.length,

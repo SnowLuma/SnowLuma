@@ -81,6 +81,22 @@ describe('private window shake messages', () => {
     expect(sendPrivate).not.toHaveBeenCalled();
   });
 
+  it('keeps empty text significant for the standalone window-shake policy', async () => {
+    const sendPrivate = vi.fn(async () => ({ ...receipt, clientSequence: 9 }));
+    const ctx = makeContext({ sendPrivate });
+
+    await expect(sendPrivateMessage(ctx, 67890, [
+      { type: 'poke', data: { type: 1 } },
+      { type: 'text', data: { text: '' } },
+    ], false)).rejects.toMatchObject({
+      code: 'UNSENDABLE_TYPE',
+      elementType: 'poke',
+      message: expect.stringContaining('only segment'),
+    });
+
+    expect(sendPrivate).not.toHaveBeenCalled();
+  });
+
   it('rejects group window shakes before resolving an earlier segment', async () => {
     const sendGroup = vi.fn(async () => receipt);
     const ctx = makeContext({ sendGroup });
