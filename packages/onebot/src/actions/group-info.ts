@@ -107,6 +107,7 @@ export const actions = [
           age: { type: 'integer', description: '年龄' },
           join_time: { type: 'integer', description: '入群时间戳（秒）' },
           last_sent_time: { type: 'integer', description: '最后发言时间戳（秒）' },
+          shut_up_timestamp: { type: 'integer', description: '禁言结束时间戳（秒，未禁言时为 0）' },
           level: { type: 'string', description: '群等级' },
           role: { type: 'string', enum: ['owner', 'admin', 'member'], description: '角色' },
           title: { type: 'string', description: '专属头衔' },
@@ -146,6 +147,7 @@ export const actions = [
         age: { type: 'integer', description: '年龄' },
         join_time: { type: 'integer', description: '入群时间戳（秒）' },
         last_sent_time: { type: 'integer', description: '最后发言时间戳（秒）' },
+        shut_up_timestamp: { type: 'integer', description: '禁言结束时间戳（秒，未禁言时为 0）' },
         level: { type: 'string', description: '群等级' },
         role: { type: 'string', enum: ['owner', 'admin', 'member'], description: '角色' },
         title: { type: 'string', description: '专属头衔' },
@@ -167,6 +169,7 @@ export const actions = [
           group_id: groupId, user_id: userId, nickname: '', card: '',
           is_robot: false,
           sex: 'unknown', age: 0, join_time: 0, last_sent_time: 0,
+          shut_up_timestamp: 0,
           level: '0', role: 'member', title: '',
         });
       }
@@ -174,6 +177,7 @@ export const actions = [
         group_id: groupId, user_id: userId, nickname: '', card: '',
         is_robot: false,
         sex: 'unknown', age: 0, join_time: 0, last_sent_time: 0,
+        shut_up_timestamp: 0,
         level: '0', role: 'member', title: '',
       });
     },

@@ -431,6 +431,7 @@ function formatGroupMember(
     age: 0,
     join_time: member.joinTime,
     last_sent_time: member.lastSentTime,
+    shut_up_timestamp: member.shutUpTime,
     level: String(member.level),
     role: member.role,
     title: member.title,

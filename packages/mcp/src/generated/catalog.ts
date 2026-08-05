@@ -5083,6 +5083,10 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "description": "最后发言时间戳（秒）"
         },
+        "shut_up_timestamp": {
+          "type": "integer",
+          "description": "禁言结束时间戳（秒，未禁言时为 0）"
+        },
         "level": {
           "type": "string",
           "description": "群等级"
@@ -5237,6 +5241,10 @@ export const ACTIONS: CatalogAction[] = [
           "last_sent_time": {
             "type": "integer",
             "description": "最后发言时间戳（秒）"
+          },
+          "shut_up_timestamp": {
+            "type": "integer",
+            "description": "禁言结束时间戳（秒，未禁言时为 0）"
           },
           "level": {
             "type": "string",
