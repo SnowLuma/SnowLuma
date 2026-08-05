@@ -11,6 +11,7 @@ import type { JsonObject, NetworkBase, WsRole } from '../types';
 import type { NetworkAdapterContext } from './adapter';
 import {
   isAuthorized,
+  normalizePath,
   parseRequestPath,
   rawDataToString,
   safeClose,
@@ -27,7 +28,7 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_MAX_MISSED = 2;
 const HEARTBEAT_DEAD_AFTER_S = (HEARTBEAT_INTERVAL_MS * (HEARTBEAT_MAX_MISSED + 1)) / 1000;
 
-export type WsServerConnectionConfig = NetworkBase & { role?: WsRole };
+export type WsServerConnectionConfig = NetworkBase & { path?: string; role?: WsRole };
 
 interface ForwardConnection {
   socket: WebSocket;
@@ -100,6 +101,10 @@ export class WsServerConnections {
     if (tokenChanged) this.disconnectAll(1008, 'access token changed');
   }
 
+  acceptsUpgradePath(requestPath: string): boolean {
+    return resolveForwardRole(requestPath, this.config) !== null;
+  }
+
   onEvent(payload: DispatchPayload): void {
     if (!this.acceptingActions || this.connections.size === 0) return;
     for (const connection of this.connections.values()) {
@@ -128,7 +133,13 @@ export class WsServerConnections {
       return;
     }
 
-    const role = this.config.role ?? classifyForwardRole(request);
+    const requestPath = parseRequestPath(request.url ?? '/');
+    const role = resolveForwardRole(requestPath, this.config);
+    if (role === null) {
+      this.log.warn('[%s] rejected WebSocket path after upgrade', this.name);
+      safeClose(socket, 1008, 'invalid path');
+      return;
+    }
     const stopHeartbeat = startHeartbeat(
       socket,
       { intervalMs: HEARTBEAT_INTERVAL_MS, maxMissed: HEARTBEAT_MAX_MISSED },
@@ -252,8 +263,24 @@ export class WsServerConnections {
   }
 }
 
-function classifyForwardRole(request: IncomingMessage): WsRole {
-  const path = parseRequestPath(request.url ?? '/');
+function resolveForwardRole(requestPath: string, config: WsServerConnectionConfig): WsRole | null {
+  if (
+    config.role !== undefined
+    && (!requestPath.startsWith('/') || requestPath.startsWith('//'))
+  ) return null;
+
+  const path = normalizePath(requestPath);
+  if (config.role === undefined) return classifyForwardRole(path);
+
+  const basePath = normalizePath(config.path);
+  if (path === basePath) return config.role;
+  if (config.role !== 'Universal' || basePath !== '/') return null;
+  if (path === '/api') return 'Api';
+  if (path === '/event') return 'Event';
+  return null;
+}
+
+function classifyForwardRole(path: string): WsRole {
   if (path.endsWith('/api')) return 'Api';
   if (path.endsWith('/event')) return 'Event';
   return 'Universal';

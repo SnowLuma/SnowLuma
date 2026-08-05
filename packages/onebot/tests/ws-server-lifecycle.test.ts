@@ -8,7 +8,10 @@ const { FakeWebSocketServer, servers } = vi.hoisted(() => {
   class FakeWebSocketServer extends EventEmitter {
     closeCallback: ((error?: Error) => void) | null = null;
     readonly options: {
-      verifyClient?: (info: { req: { headers: Record<string, string>; url?: string } }) => boolean;
+      verifyClient?: (
+        info: { req: { headers: Record<string, string>; url?: string } },
+        done: (allow: boolean, code?: number, message?: string) => void,
+      ) => void;
     };
     constructor(options: unknown) {
       super();
@@ -86,8 +89,13 @@ describe('WsServerAdapter bind/release lifecycle promises', () => {
     const verify = servers[0].options.verifyClient;
 
     expect(verify).toBeTypeOf('function');
-    expect(verify?.({ req: { headers: {}, url: '/?access_token=wrong-token' } })).toBe(false);
-    expect(verify?.({ req: { headers: {}, url: '/?access_token=expected-token' } })).toBe(true);
+    const denied = vi.fn();
+    verify?.({ req: { headers: {}, url: '/?access_token=wrong-token' } }, denied);
+    expect(denied).toHaveBeenCalledWith(false, 401, 'Unauthorized');
+
+    const accepted = vi.fn();
+    verify?.({ req: { headers: {}, url: '/?access_token=expected-token' } }, accepted);
+    expect(accepted).toHaveBeenCalledWith(true);
   });
 
   it('rejects bind errors and exposes them as degraded', async () => {
