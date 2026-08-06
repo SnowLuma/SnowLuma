@@ -51,6 +51,10 @@ describe('safeUploadName', () => {
 });
 
 describe('uploadDestPath', () => {
+  it('uses a neutral temporary directory name', () => {
+    expect(path.basename(DEBUG_UPLOAD_DIR)).toBe('webui-upload');
+  });
+
   it('produces a unique path inside the upload dir', () => {
     const a = uploadDestPath('pic.png');
     const b = uploadDestPath('pic.png');

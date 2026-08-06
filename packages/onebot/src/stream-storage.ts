@@ -273,7 +273,7 @@ function resolveManagedRoot(input: string): string {
   return path.join(fs.realpathSync(parent), path.basename(absolute));
 }
 
-export const streamStorage = new StreamStorage(path.join(os.tmpdir(), 'snowluma-stream'));
+export const streamStorage = new StreamStorage(path.join(os.tmpdir(), 'onebot-stream'));
 export const STREAM_ROOT = streamStorage.root;
 export const STREAM_UPLOAD_DIR = streamStorage.uploadDir;
 export const STREAM_DOWNLOAD_DIR = streamStorage.downloadDir;

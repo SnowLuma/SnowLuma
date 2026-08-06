@@ -23,7 +23,7 @@ import { traceWebuiMutationRequestChunk } from './mutation-trace';
 
 /** Temp dir for browser→server uploads. Siblings the Stream API's temp root but
  *  kept distinct so the two cleanup stories don't entangle. */
-export const DEBUG_UPLOAD_DIR = path.join(os.tmpdir(), 'snowluma-debug-upload');
+export const DEBUG_UPLOAD_DIR = path.join(os.tmpdir(), 'webui-upload');
 
 /** Hard ceiling on a single upload. Mirrors the Stream API's upload cap. */
 export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024; // 4 GiB
