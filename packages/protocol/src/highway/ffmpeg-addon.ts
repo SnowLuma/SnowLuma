@@ -161,7 +161,7 @@ export async function encodeSilk(inputFile: string, tempDir: string): Promise<En
 
 /** Default location for temporary silk files. */
 export function defaultPttTempDir(): string {
-  return path.join(os.tmpdir(), 'snowluma-ptt');
+  return path.join(os.tmpdir(), 'audio-upload');
 }
 
 // ── audio transcode (get_record out_format, #165) ──
@@ -220,7 +220,7 @@ export async function convertAudioBytes(
   }
   const addon = deps.addon ?? getFFmpegAddon();
   const maxOut = deps.maxOutputBytes ?? DEFAULT_MAX_AUDIO_OUTPUT;
-  const dir = deps.tmpDir ?? path.join(os.tmpdir(), 'snowluma-rec');
+  const dir = deps.tmpDir ?? path.join(os.tmpdir(), 'audio-transcode');
   fs.mkdirSync(dir, { recursive: true });
   const id = crypto.randomBytes(8).toString('hex');
   const inPath = path.join(dir, `${id}.in`);

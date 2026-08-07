@@ -32,7 +32,7 @@ import {
 
 const log = createLogger('Highway.Stage');
 
-export const STAGE_DIR = path.join(os.tmpdir(), 'snowluma-stage');
+export const STAGE_DIR = path.join(os.tmpdir(), 'media-stage');
 // Must comfortably exceed the slowest plausible single upload (a 1.5 GiB PUT at
 // a few MB/s is ~5-10 min). Only unregistered (crash-orphaned) temps are reaped.
 const STAGE_TTL_MS = 30 * 60 * 1000;

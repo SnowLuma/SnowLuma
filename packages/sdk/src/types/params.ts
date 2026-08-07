@@ -302,6 +302,18 @@ export interface FetchCustomFaceParams extends JsonObject {
   count?: number;
 }
 
+export interface FetchSysFacesParams extends JsonObject {
+  refresh?: boolean;
+}
+
+export interface FetchFaceEntityParams extends FetchSysFacesParams {
+  face_id: number;
+}
+
+export interface SearchSysFacesParams extends JsonObject {
+  query: string;
+}
+
 export interface GetCollectionListParams extends JsonObject {
   /** Collection category ID; 0 returns every category. */
   category?: number;

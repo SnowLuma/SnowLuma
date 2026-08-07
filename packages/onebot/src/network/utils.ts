@@ -131,9 +131,6 @@ export function normalizePath(pathValue: string | undefined): string {
 }
 
 export function parseRequestPath(urlValue: string): string {
-  try {
-    return new URL(urlValue, 'ws://127.0.0.1').pathname;
-  } catch {
-    return '/';
-  }
+  const queryIndex = urlValue.indexOf('?');
+  return queryIndex === -1 ? urlValue : urlValue.slice(0, queryIndex);
 }

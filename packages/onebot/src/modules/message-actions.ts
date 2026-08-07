@@ -13,7 +13,7 @@ import {
   privateMessageEventName,
 } from '../message-id';
 import {
-  assertWindowShakeMessageInput,
+  assertOutboundMessageInput,
   MessageElementValidationError,
   parseMessage,
 } from '../message-parser';
@@ -797,7 +797,7 @@ export async function sendPrivateMessage(
   if (tempGroupId !== undefined && !isTempReply) {
     throw new Error(`cannot send to user ${userId} in group ${tempGroupId}: no such temp session`);
   }
-  assertWindowShakeMessageInput(
+  assertOutboundMessageInput(
     message,
     autoEscape,
     tempGroupId === undefined ? 'direct-private' : 'group-temp',
@@ -1034,7 +1034,7 @@ export async function sendGroupMessage(
   message: JsonValue,
   autoEscape: boolean,
 ): Promise<MessageSendResult> {
-  assertWindowShakeMessageInput(message, autoEscape, 'group');
+  assertOutboundMessageInput(message, autoEscape, 'group');
   const elements = await parseMessage(message, autoEscape, {
     resolveReplySequence: (replyMessageId) => {
       return ref.messageStore.resolveReplySequence(true, groupId, replyMessageId);
@@ -1232,6 +1232,7 @@ export async function forwardSingleMessage(
   if (!event) throw new Error(`message not found: ${messageId}`);
 
   const content = (event.message ?? event.raw_message ?? '') as JsonValue;
+  assertOutboundMessageInput(content, false, 'forward');
   const parsed = await parseMessage(content, false);
   if (parsed.length === 0) throw new Error('message has no content');
 
@@ -1528,7 +1529,7 @@ function assertForwardNodeMetadataIsScalar(
   }
 }
 
-function assertNoWindowShakeInForwardInput(
+function assertForwardMessageInputPolicies(
   ref: OneBotInstanceContext,
   messages: JsonValue,
   depth = 0,
@@ -1544,7 +1545,7 @@ function assertNoWindowShakeInForwardInput(
     if (messageId !== 0) {
       const event = ref.messageStore.findEvent(messageId);
       if (event) {
-        assertWindowShakeMessageInput(
+        assertOutboundMessageInput(
           (event.message ?? event.raw_message ?? '') as JsonValue,
           false,
           'forward',
@@ -1555,9 +1556,9 @@ function assertNoWindowShakeInForwardInput(
 
     const content = (nodeData.content ?? nodeData.message ?? '') as JsonValue;
     if (isNestedNodeArray(content)) {
-      assertNoWindowShakeInForwardInput(ref, content, depth + 1);
+      assertForwardMessageInputPolicies(ref, content, depth + 1);
     } else {
-      assertWindowShakeMessageInput(content, false, 'forward');
+      assertOutboundMessageInput(content, false, 'forward');
     }
   }
 }
@@ -1655,9 +1656,10 @@ async function parseForwardNodes(
   });
 
   // Scan the complete raw tree before parsing any earlier node. Some segment
-  // codecs perform identity lookups or HTTP signing, so discovering a later
-  // window-shake segment during the normal loop would already be too late.
-  assertNoWindowShakeInForwardInput(ref, messages, depth);
+  // codecs perform identity lookups or HTTP signing, so discovering an
+  // unsupported message combination during the normal loop would already be
+  // too late.
+  assertForwardMessageInputPolicies(ref, messages, depth);
 
   const nodes: ForwardNodePayload[] = [];
   for (const { nodeData } of prepared) {

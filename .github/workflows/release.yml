@@ -96,6 +96,9 @@ jobs:
         working-directory: dist
         run: npm install --omit=dev
 
+      - name: Verify release layout
+        run: pnpm check:release-layout
+
       # Naming convention:
       #   SnowLuma-<tag>-<arch>.zip|tar.gz        – zero-install (node bundled)
       #   SnowLuma-<tag>-<arch>-lite.zip|tar.gz   – user provides Node 22.13+ (23.x requires 23.4+)

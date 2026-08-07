@@ -175,6 +175,38 @@ export interface CollectionListInfo extends JsonObject {
   collectionSearchList: CollectionSearchListInfo;
 }
 
+export interface SystemFaceInfo extends JsonObject {
+  q_sid: string;
+  q_des: string;
+  em_code: string;
+  q_cid: number | null;
+  ani_sticker_type: number | null;
+  ani_sticker_pack_id: number | null;
+  ani_sticker_id: number | null;
+  url: string | null;
+  emoji_name_alias: string[];
+  ani_sticker_width: number | null;
+  ani_sticker_height: number | null;
+  is_super: boolean;
+}
+
+export interface SystemFacePackInfo extends JsonObject {
+  pack_name: string;
+  emojis: SystemFaceInfo[];
+}
+
+export interface SystemFaceCatalogInfo extends JsonObject {
+  packs: SystemFacePackInfo[];
+}
+
+export interface SystemFaceSearchInfo extends JsonObject {
+  faces: SystemFaceInfo[];
+}
+
+export interface SuperFaceInfo extends JsonObject {
+  is_super: boolean;
+}
+
 export interface UrlSafetyInfo {
   level: number;
 }

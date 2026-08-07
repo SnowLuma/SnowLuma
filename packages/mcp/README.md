@@ -56,7 +56,7 @@ reported as MCP errors because they mean no complete stream result was committed
 | `SNOWLUMA_MCP_TOKEN` | Access token (sent as `Authorization: Bearer …`), if the endpoint requires one. |
 | `SNOWLUMA_MCP_TIMEOUT_MS` | Ordinary-action request timeout; for Stream Actions, connection timeout **and per-read idle timeout** (the idle deadline resets after every body read). Default `30000`. Invalid values fail startup. |
 | `SNOWLUMA_MCP_MODE` | `docs` \| `read` \| `write`. Default: `read` when an endpoint is set, else `docs`. Invalid values fail startup. |
-| `SNOWLUMA_MCP_STREAM_DIR` | Directory on the MCP host for completed Stream Action downloads. Created and validated at startup. Default: `os.tmpdir()/snowluma-mcp/downloads`. |
+| `SNOWLUMA_MCP_STREAM_DIR` | Directory on the MCP host for completed Stream Action downloads. Created and validated at startup. Default: `os.tmpdir()/onebot-mcp-downloads`. |
 | `SNOWLUMA_MCP_UPLOAD_ROOT` | Existing directory on the MCP host from which automatic uploads may read. Automatic upload is disabled when absent. |
 | `SNOWLUMA_MCP_MAX_STREAM_BYTES` | Per-file download/upload ceiling in bytes. Positive integer up to 4 GiB; default `4294967296`. Invalid values fail server startup. |
 
@@ -90,7 +90,7 @@ groups, etc.). Enable deliberately:
         "SNOWLUMA_MCP_ENDPOINT": "http://127.0.0.1:3000/",
         "SNOWLUMA_MCP_TOKEN": "your-access-token",
         "SNOWLUMA_MCP_MODE": "write",
-        "SNOWLUMA_MCP_STREAM_DIR": "/var/tmp/snowluma-mcp-downloads",
+        "SNOWLUMA_MCP_STREAM_DIR": "/var/tmp/onebot-mcp-downloads",
         "SNOWLUMA_MCP_UPLOAD_ROOT": "/home/me/mcp-share"
       }
     }

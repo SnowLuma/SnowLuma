@@ -15,7 +15,7 @@ import { createHash, randomUUID } from 'node:crypto';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_STREAM_BYTES = 4 * 1024 * 1024 * 1024;
-const DEFAULT_STREAM_DIR = path.join(os.tmpdir(), 'snowluma-mcp', 'downloads');
+const DEFAULT_STREAM_DIR = path.join(os.tmpdir(), 'onebot-mcp-downloads');
 const MAX_GENERIC_FRAMES = 256;
 const MAX_GENERIC_TEXT_BYTES = 256 * 1024;
 // OneBot permits a 16 MiB decoded download chunk. Base64 expands that to

@@ -67,6 +67,33 @@ export function assertWindowShakeSendPolicy(
   }
 }
 
+/**
+ * QQ clients treat a video as a standalone message: sibling elements remain
+ * on the wire but are not rendered, and additional videos cannot be opened.
+ * Reject that ambiguous wire shape instead of reporting a successful send
+ * whose visible content differs from the caller's request.
+ */
+export function assertVideoSendPolicy(
+  videoCount: number,
+  effectiveSegmentCount: number,
+): void {
+  if (videoCount === 0) return;
+  if (videoCount !== 1) {
+    throw new MessageElementValidationError(
+      'UNSENDABLE_TYPE',
+      'message element "video" may appear only once in a message',
+      'video',
+    );
+  }
+  if (effectiveSegmentCount !== 1) {
+    throw new MessageElementValidationError(
+      'UNSENDABLE_TYPE',
+      'message element "video" must be the only segment in a message',
+      'video',
+    );
+  }
+}
+
 type ElementField<T extends MessageElementType> = Exclude<keyof MessageElementOf<T>, 'type'> & string;
 
 export interface ElementSpec<T extends MessageElementType> {

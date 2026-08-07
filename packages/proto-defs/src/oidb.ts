@@ -82,6 +82,7 @@ export interface OidbSvcTrpcTcp0xFE5_2GroupInfo {
   description?:  pb<18, string>;
   question?:     pb<19, string>;
   announcement?: pb<30, string>;
+  shutUpAllTimestamp?: pb<31, uint_32>;
 }
 
 export interface OidbSvcTrpcTcp0xFE5_2CustomInfo {
@@ -115,6 +116,7 @@ export interface OidbSvcTrpcTcp0x88D_0Results {
   question?:        pb<24, string>;
   answer?:          pb<25, string>;
   maxAdminCount?:   pb<29, uint_64>;
+  shutUpAllTimestamp?: pb<59, uint_32>;
 }
 export interface OidbSvcTrpcTcp0x88D_0ResponseGroupInfo {
   uin?:     pb<1, uint_64>;

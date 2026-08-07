@@ -17,6 +17,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { BridgeInterface } from '../../src/bridge/bridge-interface';
 import type { OneBotInstanceContext } from '../src/instance-context';
 import {
+  forwardSingleMessage,
   sendGroupForwardMessage,
   sendPrivateForwardMessage,
 } from '../src/modules/message-actions';
@@ -207,6 +208,58 @@ describe('forward — nested {type:"node"} content', () => {
     expect((nodes as any[])).toHaveLength(2);
     expect((nodes as any[])[0]!.elements).toEqual([{ type: 'text', text: 'one' }]);
     expect((nodes as any[])[1]!.elements).toEqual([{ type: 'text', text: 'two' }]);
+  });
+
+  it('rejects video with hidden siblings before uploading a forward', async () => {
+    const uploadForwardNodes = vi.fn(async () => 'RES');
+    const sendGroupMessage = vi.fn();
+    const bridge = fakeBridge({
+      apis: { message: { sendGroup: sendGroupMessage }, forward: { upload: uploadForwardNodes } },
+    } as any);
+    const ctx = makeCtx(bridge);
+
+    await expect(sendGroupForwardMessage(ctx, 12345, [{
+      type: 'node',
+      data: {
+        user_id: 111,
+        nickname: 'mixed-video',
+        content: [
+          { type: 'video', data: { file: 'https://example.com/video.mp4' } },
+          { type: 'text', data: { text: 'must not survive bot forwarding' } },
+        ],
+      },
+    }] as any)).rejects.toMatchObject({
+      code: 'UNSENDABLE_TYPE',
+      elementType: 'video',
+    });
+
+    expect(uploadForwardNodes).not.toHaveBeenCalled();
+    expect(sendGroupMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects hidden siblings before forwarding a cached video message', async () => {
+    const sendGroupMessage = vi.fn();
+    const findVideo = vi.fn();
+    const bridge = fakeBridge({ apis: { message: { sendGroup: sendGroupMessage } } } as any);
+    const ctx = makeCtx(bridge);
+    (ctx as any).messageStore = {
+      findEvent: () => ({
+        message: [
+          { type: 'video', data: { file: 'cached-video-id' } },
+          { type: 'text', data: { text: 'must not survive bot forwarding' } },
+        ],
+      }),
+    };
+    (ctx as any).mediaStore = { findVideo };
+
+    await expect(forwardSingleMessage(ctx, 77, { groupId: 12345 }))
+      .rejects.toMatchObject({
+        code: 'UNSENDABLE_TYPE',
+        elementType: 'video',
+      });
+
+    expect(findVideo).not.toHaveBeenCalled();
+    expect(sendGroupMessage).not.toHaveBeenCalled();
   });
 
   it('rejects an unknown top-level entry before uploading valid siblings', async () => {

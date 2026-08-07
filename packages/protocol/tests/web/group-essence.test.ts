@@ -45,10 +45,26 @@ describe('group essence pagination', () => {
       .rejects.toThrow(/retcode 100.*permission denied/);
   });
 
-  it('rejects a success response without a message list', async () => {
+  it.each([
+    ['an omitted list', { is_end: true }],
+    ['a null list', { is_end: true, msg_list: null }],
+  ])('normalizes an ended success response with %s to an empty page', async (_case, data) => {
+    const request = vi.spyOn(RequestUtil, 'HttpGetJson').mockResolvedValue({
+      retcode: 0,
+      data,
+    } as never);
+
+    await expect(getGroupEssenceMsgAll(cookie, '123456789')).resolves.toEqual([{
+      retcode: 0,
+      data: { is_end: true, msg_list: [] },
+    }]);
+    expect(request).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a missing message list before the response explicitly ends', async () => {
     vi.spyOn(RequestUtil, 'HttpGetJson').mockResolvedValue({
       retcode: 0,
-      data: { is_end: true },
+      data: { is_end: false },
     } as never);
 
     await expect(getGroupEssenceMsgAll(cookie, '123456789'))

@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { protobuf_decode } from '@snowluma/proton';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { QFaceExtra, QSmallFaceExtra } from '@snowluma/proto-defs/element';
+import type { OidbBase } from '@snowluma/proto-defs/oidb';
+import type { OidbFetchSysFacesResp } from '@snowluma/proto-defs/oidb-actions/sys-faces';
 import {
   FetchSysFaces,
   findFaceEntity,
@@ -9,26 +11,53 @@ import {
   type SysFaceEntry,
   type SysFacePackEntry,
 } from '../src/oidb-services/sys-faces/fetch-sys-faces';
-import { faceWireFor, sysFaceStore } from '../src/sys-face-store';
+import {
+  faceWireFor,
+  SysFaceStore,
+  sysFaceStore,
+  type SysFaceCatalogSnapshot,
+  type SysFaceCatalogStorage,
+} from '../src/sys-face-store';
 import { buildSendElems } from '../src/element-builder';
 
-function entry(qSid: string, aniStickerType: number | null, aniStickerPackId: number | null, aniStickerId: number | null): SysFaceEntry {
+function entry(
+  qSid: string,
+  aniStickerType: number | null,
+  aniStickerPackId: number | null,
+  aniStickerId: number | null,
+  qDes = '',
+  emojiNameAlias: string[] = [],
+): SysFaceEntry {
   return {
-    qSid, qDes: '', emCode: '', qCid: null,
+    qSid, qDes, emCode: '', qCid: null,
     aniStickerType, aniStickerPackId, aniStickerId,
-    url: null, emojiNameAlias: [], aniStickerWidth: null, aniStickerHeight: null,
+    url: null, emojiNameAlias, aniStickerWidth: null, aniStickerHeight: null,
   };
 }
 
 // 392 is a real non-(1,1) super face; 424 is a real (1,1) "new small" face.
 const CATALOG: SysFacePackEntry[] = [
-  { packName: '经典', emojis: [entry('14', null, null, null)] },
+  { packName: '经典', emojis: [entry('14', null, null, null, '/微笑', ['smile'])] },
   { packName: '超级表情', emojis: [
-    entry('392', 3, 2, 38),   // super → CommonElem 37
+    entry('392', 3, 2, 38, '/龙年快乐'),   // super → CommonElem 37
     entry('424', 1, 1, 52),   // (1,1) → small → CommonElem 33
     entry('358', 2, 1, 33),   // super (packId 1 but type 2) → CommonElem 37
   ] },
 ];
+
+class MemoryCatalogStorage implements SysFaceCatalogStorage {
+  saved: SysFaceCatalogSnapshot[] = [];
+
+  constructor(private readonly initial: SysFaceCatalogSnapshot | null = null) {}
+
+  async load(): Promise<SysFaceCatalogSnapshot | null> {
+    return this.initial;
+  }
+
+  async save(snapshot: SysFaceCatalogSnapshot): Promise<void> {
+    this.saved.push(snapshot);
+  }
+}
 
 describe('isSuperFaceEntry / isSuperFaceId — the (1,1) rule', () => {
   it('treats only non-(1,1) aniSticker faces as super', () => {
@@ -58,13 +87,16 @@ describe('faceWireFor — classification', () => {
       kind: 'super', packId: '2', stickerId: '38', stickerType: 3,
     });
   });
+  it('rejects incomplete super-face metadata instead of filling guessed ids', () => {
+    expect(() => faceWireFor(entry('392', 3, 2, null), 392))
+      .toThrow(/incomplete super-face metadata/);
+  });
   it('(1,1) face → small/classic by id range, not super', () => {
     expect(faceWireFor(entry('424', 1, 1, 52), 424)).toEqual({ kind: 'small' });
   });
-  it('cold (no catalog entry) → id-range guess', () => {
-    expect(faceWireFor(undefined, 14)).toEqual({ kind: 'classic' });   // < 260
-    expect(faceWireFor(undefined, 424)).toEqual({ kind: 'small' });    // ≥ 260
-    expect(faceWireFor(null, 100)).toEqual({ kind: 'classic' });
+  it('rejects an unknown id instead of guessing a wire shape', () => {
+    expect(() => faceWireFor(null, 14)).toThrow(/absent from the current catalog/);
+    expect(() => faceWireFor(undefined, 424)).toThrow(/absent from the current catalog/);
   });
 });
 
@@ -80,8 +112,192 @@ describe('FetchSysFaces.deserialize', () => {
   });
 });
 
+describe('SysFaceStore — persistent catalog and query seam', () => {
+  const sender = {} as never;
+
+  it('accepts face id 0 from the authoritative catalog', async () => {
+    const zero = entry('0', null, null, null, '/惊讶');
+    const store = new SysFaceStore({
+      storage: new MemoryCatalogStorage({
+        schemaVersion: 1,
+        fetchedAt: 123,
+        packs: [{ packName: '经典', emojis: [zero] }],
+      }),
+      fetchCatalog: async () => { throw new Error('network must not be used'); },
+    });
+
+    await store.ensureReady(sender);
+
+    expect(store.lookup(0)?.qDes).toBe('/惊讶');
+    expect(store.classify(0)).toEqual({ kind: 'classic' });
+  });
+
+  it('loads a persisted catalog and resolves ids, descriptions, aliases, and pack names', async () => {
+    const storage = new MemoryCatalogStorage({
+      schemaVersion: 1,
+      fetchedAt: 123,
+      packs: CATALOG,
+    });
+    const store = new SysFaceStore({
+      storage,
+      fetchCatalog: async () => { throw new Error('network must not be used'); },
+    });
+
+    await store.ensureReady(sender);
+
+    expect(store.lookup(392)?.qDes).toBe('/龙年快乐');
+    expect(store.search('龙年').map((face) => face.qSid)).toEqual(['392']);
+    expect(store.search('SMILE').map((face) => face.qSid)).toEqual(['14']);
+    expect(store.search('经典').map((face) => face.qSid)).toEqual(['14']);
+  });
+
+  it('coalesces concurrent refreshes and persists the authoritative result once', async () => {
+    const storage = new MemoryCatalogStorage();
+    let fetches = 0;
+    let release!: (packs: SysFacePackEntry[]) => void;
+    const pending = new Promise<SysFacePackEntry[]>((resolve) => { release = resolve; });
+    const store = new SysFaceStore({
+      storage,
+      now: () => 456,
+      fetchCatalog: async () => {
+        fetches += 1;
+        return pending;
+      },
+    });
+
+    const first = store.refresh(sender);
+    const second = store.refresh(sender);
+    release(CATALOG);
+    await Promise.all([first, second]);
+
+    expect(fetches).toBe(1);
+    expect(storage.saved).toEqual([{
+      schemaVersion: 1,
+      fetchedAt: 456,
+      packs: CATALOG,
+    }]);
+  });
+
+  it('refreshes a cache miss once, then keeps an authoritative not-found result', async () => {
+    const storage = new MemoryCatalogStorage({
+      schemaVersion: 1,
+      fetchedAt: 123,
+      packs: CATALOG.slice(0, 1),
+    });
+    let fetches = 0;
+    const store = new SysFaceStore({
+      storage,
+      fetchCatalog: async () => {
+        fetches += 1;
+        return CATALOG;
+      },
+    });
+
+    expect((await store.resolve(sender, 392))?.qSid).toBe('392');
+    expect(await store.resolve(sender, 99999)).toBeNull();
+    expect(await store.resolve(sender, 99999)).toBeNull();
+    expect(fetches).toBe(1);
+  });
+
+  it('prewarms from login only once per process while sharing the result across accounts', async () => {
+    let fetches = 0;
+    const store = new SysFaceStore({
+      storage: new MemoryCatalogStorage(),
+      fetchCatalog: async () => {
+        fetches += 1;
+        return CATALOG;
+      },
+    });
+
+    await Promise.all([
+      store.prewarm({} as never),
+      store.prewarm({} as never),
+      store.prewarm({} as never),
+    ]);
+    await store.prewarm({} as never);
+
+    expect(fetches).toBe(1);
+  });
+
+  it('waits for an in-flight login refresh before resolving a cached face', async () => {
+    const staleCatalog: SysFacePackEntry[] = [{
+      packName: '旧目录',
+      emojis: [entry('392', 1, 1, 52)],
+    }];
+    let release!: (packs: SysFacePackEntry[]) => void;
+    let markFetchStarted!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => { markFetchStarted = resolve; });
+    const pending = new Promise<SysFacePackEntry[]>((resolve) => { release = resolve; });
+    const store = new SysFaceStore({
+      storage: new MemoryCatalogStorage({
+        schemaVersion: 1,
+        fetchedAt: 123,
+        packs: staleCatalog,
+      }),
+      fetchCatalog: async () => {
+        markFetchStarted();
+        return pending;
+      },
+    });
+
+    const prewarm = store.prewarm(sender);
+    await fetchStarted;
+    const resolved = store.resolveWire(sender, 392);
+    let settled = false;
+    void resolved.finally(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    release(CATALOG);
+    await expect(resolved).resolves.toMatchObject({ kind: 'super' });
+    await prewarm;
+  });
+});
+
 describe('makeFaceElem (via buildSendElems) — three-way wire encoding', () => {
   const ctx = { bridge: {} as never };
+
+  it('awaits an authoritative refresh when the first send misses the persisted catalog', async () => {
+    sysFaceStore.load(CATALOG.slice(0, 1));
+    let requests = 0;
+    const responseData = protobuf_encode<OidbBase<OidbFetchSysFacesResp>>({
+      body: {
+        commonFace: {
+          emojiList: [{
+            emojiPackName: '经典',
+            emojiDetail: [{ qSid: '14', qDes: '/微笑' }],
+          }],
+        },
+        specialBigFace: {
+          emojiList: [{
+            emojiPackName: '超级表情',
+            emojiDetail: [{
+              qSid: '392', qDes: '/龙年快乐',
+              aniStickerType: 3, aniStickerPackId: 2, aniStickerId: 38,
+            }],
+          }],
+        },
+      },
+    });
+    const liveCtx = {
+      bridge: {
+        sendRawPacket: async () => {
+          requests += 1;
+          return {
+            success: true,
+            gotResponse: true,
+            errorCode: 0,
+            responseData,
+          };
+        },
+      } as never,
+    };
+
+    const [elem] = await buildSendElems([{ type: 'face', faceId: 392 }], liveCtx);
+
+    expect(requests).toBe(1);
+    expect(elem.commonElem?.serviceType).toBe(37);
+  });
 
   it('encodes each face id by its catalog classification', async () => {
     sysFaceStore.load(CATALOG); // warm → ensureWarm no-ops, classify uses the catalog
@@ -100,5 +316,12 @@ describe('makeFaceElem (via buildSendElems) — three-way wire encoding', () => 
 
     const [classicElem] = await buildSendElems([{ type: 'face', faceId: 14 }], ctx);
     expect(classicElem.face?.index).toBe(14);
+  });
+
+  it('rejects an unknown id even when building without a live send context', async () => {
+    sysFaceStore.load(CATALOG);
+
+    await expect(buildSendElems([{ type: 'face', faceId: 99999 }]))
+      .rejects.toThrow(/absent from the current catalog/);
   });
 });

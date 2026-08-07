@@ -4,8 +4,11 @@ import type { IncomingMessage } from 'node:http';
 import type { DispatchPayload } from '../event-filter';
 import type { JsonObject, WsServerNetwork } from '../types';
 import { IOneBotNetworkAdapter, type AdapterStatus, type NetworkAdapterContext } from './adapter';
-import { normalizePath } from './utils';
-import { WsServerConnections } from './ws-server-connections';
+import { normalizePath, parseRequestPath } from './utils';
+import {
+  WsServerConnections,
+  type WsServerConnectionConfig,
+} from './ws-server-connections';
 
 const moduleLog = createLogger('OneBot.WS-Server');
 
@@ -17,7 +20,7 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
 
   constructor(name: string, config: WsServerNetwork, ctx: NetworkAdapterContext) {
     super(name, config, ctx, moduleLog);
-    this.connections = new WsServerConnections(name, config, ctx, this.log, {
+    this.connections = new WsServerConnections(name, standaloneConnectionConfig(config), ctx, this.log, {
       frame: (event, options) => this.metaFrame(event, options),
       bootstrap: (options) => this.bootstrapMetaFrames(options),
     });
@@ -90,7 +93,7 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
   }
 
   protected override onConfigReplaced(next: WsServerNetwork): void {
-    this.connections.updateConfig(next);
+    this.connections.updateConfig(standaloneConnectionConfig(next));
   }
 
   onEvent(_event: JsonObject, payload: DispatchPayload): void {
@@ -105,9 +108,22 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
         wss = new WebSocketServer({
           host: this.config.host ?? '0.0.0.0',
           port: this.config.port,
-          path: normalizePath(this.config.path),
-          verifyClient: ({ req }: { req: IncomingMessage }) =>
-            this.connections.authorizeUpgrade(req),
+          verifyClient: (
+            { req }: { req: IncomingMessage },
+            done: (allow: boolean, code?: number, message?: string) => void,
+          ) => {
+            const requestPath = parseRequestPath(req.url ?? '/');
+            if (!this.connections.acceptsUpgradePath(requestPath)) {
+              this.log.debug('[%s] rejected unknown WebSocket path %s', this.name, requestPath);
+              done(false, 400, 'Bad path for WebSocket');
+              return;
+            }
+            if (!this.connections.authorizeUpgrade(req)) {
+              done(false, 401, 'Unauthorized');
+              return;
+            }
+            done(true);
+          },
         });
       } catch (error) {
         this.recordTransportFailure(error);
@@ -169,4 +185,8 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
 
 function isAlreadyClosedError(error: Error): boolean {
   return (error as NodeJS.ErrnoException).code === 'ERR_SERVER_NOT_RUNNING';
+}
+
+function standaloneConnectionConfig(config: WsServerNetwork): WsServerConnectionConfig {
+  return { ...config, role: config.role ?? 'Universal' };
 }

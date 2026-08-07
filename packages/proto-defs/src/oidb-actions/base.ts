@@ -315,6 +315,7 @@ export interface OidbGroupDetailFlags {
   question?:        pb<24, bool>;
   answer?:          pb<25, string>;
   maxAdminCount?:   pb<29, string>;
+  shutUpAllTimestamp?: pb<59, bool>;
 }
 export interface OidbGroupDetailConfig {
   uin?:   pb<1, uint_64>;

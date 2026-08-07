@@ -293,6 +293,7 @@ export class ContactsApi {
         // is not in the list (0x88D_0 detail only), so it stays undefined here.
         createTime: raw.info?.createdTime ?? 0,
         memo: raw.info?.announcement || raw.info?.description || '',
+        allMuted: (raw.info?.shutUpAllTimestamp ?? 0) > 0,
       });
     }
     this.ctx.identity.rememberGroups(groups);
@@ -323,6 +324,7 @@ export class ContactsApi {
       createTime: Number(r.createTime ?? 0n),
       level: Number(r.level ?? 0n),
       memo: r.noticePreview ?? '',
+      allMuted: (r.shutUpAllTimestamp ?? 0) > 0,
     };
   }
 

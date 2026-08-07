@@ -16,6 +16,7 @@ import {
   type MessageMeta,
 } from '../types';
 import { defineAction, groupAction, groupUserAction, f } from '../action-kit';
+import { groupInfoReturnsSchema } from './group-info';
 import { GROUP_MESSAGE_EVENT, hashMessageIdInt32 } from '../message-id';
 
 const DOWNLOAD_FILE_MAX_BYTES = 1024 * 1024 * 1024; // 1 GiB
@@ -1852,10 +1853,14 @@ export const actions = [
     name: 'get_group_info_ex',
     summary: '获取群信息（扩展）',
     readOnly: true,
-    params: { group_id: f.groupId() },
+    returnsSchema: groupInfoReturnsSchema,
+    params: {
+      group_id: f.groupId(),
+      no_cache: f.bool().default(false),
+    },
     run: async (p, ctx) => {
       if (ctx.getGroupInfo) {
-        return okResponse(await ctx.getGroupInfo(p.group_id));
+        return okResponse(await ctx.getGroupInfo(p.group_id, p.no_cache));
       }
       return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
     },
@@ -1865,10 +1870,14 @@ export const actions = [
     name: 'get_group_detail_info',
     summary: '获取群详细信息',
     readOnly: true,
-    params: { group_id: f.groupId() },
+    returnsSchema: groupInfoReturnsSchema,
+    params: {
+      group_id: f.groupId(),
+      no_cache: f.bool().default(false),
+    },
     run: async (p, ctx) => {
       if (ctx.getGroupInfo) {
-        return okResponse(await ctx.getGroupInfo(p.group_id));
+        return okResponse(await ctx.getGroupInfo(p.group_id, p.no_cache));
       }
       return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
     },

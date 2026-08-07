@@ -2034,6 +2034,147 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "fetch_face_entity",
+    "aliases": [],
+    "summary": "按编号查询 QQ 系统表情",
+    "returns": "表情详情；编号不存在时返回 null。",
+    "returnsSchema": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "q_sid": {
+              "type": "string",
+              "description": "表情编号"
+            },
+            "q_des": {
+              "type": "string",
+              "description": "表情描述"
+            },
+            "em_code": {
+              "type": "string"
+            },
+            "q_cid": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "ani_sticker_type": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "ani_sticker_pack_id": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "ani_sticker_id": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "url": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "emoji_name_alias": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ani_sticker_width": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "ani_sticker_height": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "is_super": {
+              "type": "boolean",
+              "description": "是否使用超级表情格式"
+            }
+          },
+          "required": [
+            "q_sid",
+            "q_des",
+            "em_code",
+            "q_cid",
+            "ani_sticker_type",
+            "ani_sticker_pack_id",
+            "ani_sticker_id",
+            "url",
+            "emoji_name_alias",
+            "ani_sticker_width",
+            "ani_sticker_height",
+            "is_super"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "readOnly": true,
+    "params": [
+      {
+        "name": "face_id",
+        "type": "int",
+        "required": true,
+        "role": "face_id",
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "desc": "QQ 系统表情编号"
+      },
+      {
+        "name": "refresh",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "default": false,
+        "desc": "是否强制从 QQ 刷新目录"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "face_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "QQ 系统表情编号",
+          "x-role": "face_id"
+        },
+        "refresh": {
+          "type": "boolean",
+          "description": "是否强制从 QQ 刷新目录",
+          "default": false
+        }
+      },
+      "required": [
+        "face_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "系统表情"
+  },
+  {
     "name": "fetch_ptt_text",
     "aliases": [
       "get_ptt_text",
@@ -2079,6 +2220,209 @@ export const ACTIONS: CatalogAction[] = [
       "additionalProperties": true
     },
     "category": "扩展"
+  },
+  {
+    "name": "fetch_super_face_id",
+    "aliases": [],
+    "summary": "判断 QQ 系统表情是否使用超级表情格式",
+    "returns": "是否使用超级表情格式。",
+    "returnsSchema": {
+      "type": "object",
+      "properties": {
+        "is_super": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "is_super"
+      ]
+    },
+    "readOnly": true,
+    "params": [
+      {
+        "name": "face_id",
+        "type": "int",
+        "required": true,
+        "role": "face_id",
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "desc": "QQ 系统表情编号"
+      },
+      {
+        "name": "refresh",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "default": false,
+        "desc": "是否强制从 QQ 刷新目录"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "face_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "QQ 系统表情编号",
+          "x-role": "face_id"
+        },
+        "refresh": {
+          "type": "boolean",
+          "description": "是否强制从 QQ 刷新目录",
+          "default": false
+        }
+      },
+      "required": [
+        "face_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "系统表情"
+  },
+  {
+    "name": "fetch_sys_faces",
+    "aliases": [],
+    "summary": "获取 QQ 系统表情目录",
+    "returns": "按分组返回完整的 QQ 系统表情映射。",
+    "returnsSchema": {
+      "type": "object",
+      "properties": {
+        "packs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pack_name": {
+                "type": "string"
+              },
+              "emojis": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "q_sid": {
+                      "type": "string",
+                      "description": "表情编号"
+                    },
+                    "q_des": {
+                      "type": "string",
+                      "description": "表情描述"
+                    },
+                    "em_code": {
+                      "type": "string"
+                    },
+                    "q_cid": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "ani_sticker_type": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "ani_sticker_pack_id": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "ani_sticker_id": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "url": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "emoji_name_alias": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "ani_sticker_width": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "ani_sticker_height": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "is_super": {
+                      "type": "boolean",
+                      "description": "是否使用超级表情格式"
+                    }
+                  },
+                  "required": [
+                    "q_sid",
+                    "q_des",
+                    "em_code",
+                    "q_cid",
+                    "ani_sticker_type",
+                    "ani_sticker_pack_id",
+                    "ani_sticker_id",
+                    "url",
+                    "emoji_name_alias",
+                    "ani_sticker_width",
+                    "ani_sticker_height",
+                    "is_super"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "pack_name",
+              "emojis"
+            ]
+          }
+        }
+      },
+      "required": [
+        "packs"
+      ]
+    },
+    "readOnly": true,
+    "params": [
+      {
+        "name": "refresh",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "default": false,
+        "desc": "是否强制从 QQ 刷新目录"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "refresh": {
+          "type": "boolean",
+          "description": "是否强制从 QQ 刷新目录",
+          "default": false
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "系统表情"
   },
   {
     "name": "forward_friend_single_msg",
@@ -3802,6 +4146,59 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_detail_info",
     "aliases": [],
     "summary": "获取群详细信息",
+    "returnsSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "description": "群号"
+        },
+        "group_name": {
+          "type": "string",
+          "description": "群名"
+        },
+        "group_remark": {
+          "type": "string",
+          "description": "当前账号设置的群备注"
+        },
+        "member_count": {
+          "type": "integer",
+          "description": "当前成员数"
+        },
+        "max_member_count": {
+          "type": "integer",
+          "description": "成员上限"
+        },
+        "group_create_time": {
+          "type": "integer",
+          "description": "建群时间戳（秒）"
+        },
+        "group_level": {
+          "type": "integer",
+          "description": "群等级"
+        },
+        "group_memo": {
+          "type": "string",
+          "description": "群简介 / 公告预览"
+        },
+        "group_all_shut": {
+          "type": "integer",
+          "enum": [
+            -1,
+            0
+          ],
+          "description": "是否开启全员禁言（-1 开启，0 关闭）"
+        }
+      },
+      "required": [
+        "group_id",
+        "group_name",
+        "group_remark",
+        "member_count",
+        "max_member_count",
+        "group_all_shut"
+      ]
+    },
     "readOnly": true,
     "params": [
       {
@@ -3813,6 +4210,15 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "minimum": 1
         }
+      },
+      {
+        "name": "no_cache",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "default": false
       }
     ],
     "invariants": [],
@@ -3823,6 +4229,10 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "minimum": 1,
           "x-role": "group_id"
+        },
+        "no_cache": {
+          "type": "boolean",
+          "default": false
         }
       },
       "required": [
@@ -4374,6 +4784,14 @@ export const ACTIONS: CatalogAction[] = [
         "group_memo": {
           "type": "string",
           "description": "群简介 / 公告预览"
+        },
+        "group_all_shut": {
+          "type": "integer",
+          "enum": [
+            -1,
+            0
+          ],
+          "description": "是否开启全员禁言（-1 开启，0 关闭）"
         }
       },
       "required": [
@@ -4381,7 +4799,8 @@ export const ACTIONS: CatalogAction[] = [
         "group_name",
         "group_remark",
         "member_count",
-        "max_member_count"
+        "max_member_count",
+        "group_all_shut"
       ]
     },
     "readOnly": true,
@@ -4433,6 +4852,59 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_info_ex",
     "aliases": [],
     "summary": "获取群信息（扩展）",
+    "returnsSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "description": "群号"
+        },
+        "group_name": {
+          "type": "string",
+          "description": "群名"
+        },
+        "group_remark": {
+          "type": "string",
+          "description": "当前账号设置的群备注"
+        },
+        "member_count": {
+          "type": "integer",
+          "description": "当前成员数"
+        },
+        "max_member_count": {
+          "type": "integer",
+          "description": "成员上限"
+        },
+        "group_create_time": {
+          "type": "integer",
+          "description": "建群时间戳（秒）"
+        },
+        "group_level": {
+          "type": "integer",
+          "description": "群等级"
+        },
+        "group_memo": {
+          "type": "string",
+          "description": "群简介 / 公告预览"
+        },
+        "group_all_shut": {
+          "type": "integer",
+          "enum": [
+            -1,
+            0
+          ],
+          "description": "是否开启全员禁言（-1 开启，0 关闭）"
+        }
+      },
+      "required": [
+        "group_id",
+        "group_name",
+        "group_remark",
+        "member_count",
+        "max_member_count",
+        "group_all_shut"
+      ]
+    },
     "readOnly": true,
     "params": [
       {
@@ -4444,6 +4916,15 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "minimum": 1
         }
+      },
+      {
+        "name": "no_cache",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "default": false
       }
     ],
     "invariants": [],
@@ -4454,6 +4935,10 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "minimum": 1,
           "x-role": "group_id"
+        },
+        "no_cache": {
+          "type": "boolean",
+          "default": false
         }
       },
       "required": [
@@ -4504,6 +4989,14 @@ export const ACTIONS: CatalogAction[] = [
           "group_memo": {
             "type": "string",
             "description": "群简介 / 公告预览"
+          },
+          "group_all_shut": {
+            "type": "integer",
+            "enum": [
+              -1,
+              0
+            ],
+            "description": "是否开启全员禁言（-1 开启，0 关闭）"
           }
         },
         "required": [
@@ -4511,7 +5004,8 @@ export const ACTIONS: CatalogAction[] = [
           "group_name",
           "group_remark",
           "member_count",
-          "max_member_count"
+          "max_member_count",
+          "group_all_shut"
         ]
       }
     },
@@ -4588,6 +5082,10 @@ export const ACTIONS: CatalogAction[] = [
         "last_sent_time": {
           "type": "integer",
           "description": "最后发言时间戳（秒）"
+        },
+        "shut_up_timestamp": {
+          "type": "integer",
+          "description": "禁言结束时间戳（秒，未禁言时为 0）"
         },
         "level": {
           "type": "string",
@@ -4743,6 +5241,10 @@ export const ACTIONS: CatalogAction[] = [
           "last_sent_time": {
             "type": "integer",
             "description": "最后发言时间戳（秒）"
+          },
+          "shut_up_timestamp": {
+            "type": "integer",
+            "description": "禁言结束时间戳（秒，未禁言时为 0）"
           },
           "level": {
             "type": "string",
@@ -7375,6 +7877,134 @@ export const ACTIONS: CatalogAction[] = [
       "additionalProperties": true
     },
     "category": "扩展"
+  },
+  {
+    "name": "search_sys_faces",
+    "aliases": [],
+    "summary": "搜索 QQ 系统表情",
+    "returns": "匹配编号、名称、别名或分组名的表情列表。",
+    "returnsSchema": {
+      "type": "object",
+      "properties": {
+        "faces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "q_sid": {
+                "type": "string",
+                "description": "表情编号"
+              },
+              "q_des": {
+                "type": "string",
+                "description": "表情描述"
+              },
+              "em_code": {
+                "type": "string"
+              },
+              "q_cid": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "ani_sticker_type": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "ani_sticker_pack_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "ani_sticker_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "emoji_name_alias": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "ani_sticker_width": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "ani_sticker_height": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "is_super": {
+                "type": "boolean",
+                "description": "是否使用超级表情格式"
+              }
+            },
+            "required": [
+              "q_sid",
+              "q_des",
+              "em_code",
+              "q_cid",
+              "ani_sticker_type",
+              "ani_sticker_pack_id",
+              "ani_sticker_id",
+              "url",
+              "emoji_name_alias",
+              "ani_sticker_width",
+              "ani_sticker_height",
+              "is_super"
+            ]
+          }
+        }
+      },
+      "required": [
+        "faces"
+      ]
+    },
+    "readOnly": true,
+    "params": [
+      {
+        "name": "query",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "编号、名称、别名或分组名"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "description": "编号、名称、别名或分组名"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": true
+    },
+    "category": "系统表情"
   },
   {
     "name": "send_ark_share",
@@ -11052,6 +11682,10 @@ export const CATEGORIES: CatalogCategory[] = [
   {
     "category": "空间",
     "count": 9
+  },
+  {
+    "category": "系统表情",
+    "count": 4
   },
   {
     "category": "流式接口",

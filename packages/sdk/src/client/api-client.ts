@@ -409,6 +409,28 @@ export abstract class SnowLumaApiClient {
     return this.call('set_msg_emoji_like', { message_id: messageId, emoji_id: emojiId, set }, options);
   }
 
+  fetchSysFaces(refresh = false, options?: RequestOptions) {
+    return this.call('fetch_sys_faces', { refresh }, options);
+  }
+
+  fetchFaceEntity(faceId: number, options: RequestOptions & { refresh?: boolean } = {}) {
+    return this.call('fetch_face_entity', {
+      face_id: faceId,
+      refresh: options.refresh ?? false,
+    }, options);
+  }
+
+  searchSysFaces(query: string, options?: RequestOptions) {
+    return this.call('search_sys_faces', { query }, options);
+  }
+
+  fetchSuperFaceId(faceId: number, options: RequestOptions & { refresh?: boolean } = {}) {
+    return this.call('fetch_super_face_id', {
+      face_id: faceId,
+      refresh: options.refresh ?? false,
+    }, options);
+  }
+
   markAllAsRead(options?: RequestOptions) {
     return this.call('_mark_all_as_read', {}, options);
   }
@@ -444,12 +466,18 @@ export abstract class SnowLumaApiClient {
     return this.call('get_clientkey', {}, options);
   }
 
-  getGroupInfoEx(groupId: number, options?: RequestOptions) {
-    return this.call('get_group_info_ex', { group_id: groupId }, options);
+  getGroupInfoEx(groupId: number, options?: RequestOptions & { noCache?: boolean }) {
+    return this.call('get_group_info_ex', {
+      group_id: groupId,
+      no_cache: options?.noCache,
+    }, options);
   }
 
-  getGroupDetailInfo(groupId: number, options?: RequestOptions) {
-    return this.call('get_group_detail_info', { group_id: groupId }, options);
+  getGroupDetailInfo(groupId: number, options?: RequestOptions & { noCache?: boolean }) {
+    return this.call('get_group_detail_info', {
+      group_id: groupId,
+      no_cache: options?.noCache,
+    }, options);
   }
 
   /** Calls any registered SnowLuma action and returns the response data. */

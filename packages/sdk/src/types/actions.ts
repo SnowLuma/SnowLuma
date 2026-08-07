@@ -7,6 +7,8 @@ import type {
   DomainParams,
   DownloadFileParams,
   FetchCustomFaceParams,
+  FetchFaceEntityParams,
+  FetchSysFacesParams,
   FetchEmojiLikeParams,
   ForwardMessageParams,
   FriendPokeParams,
@@ -70,6 +72,7 @@ import type {
   AiVoiceParams,
   DeleteGroupFolderParams,
   SendPacketParams,
+  SearchSysFacesParams,
 } from './params';
 import type {
   CapabilityInfo,
@@ -100,6 +103,10 @@ import type {
   UserOnlineStatus,
   SendGroupAiRecordResult,
   CollectionListInfo,
+  SuperFaceInfo,
+  SystemFaceCatalogInfo,
+  SystemFaceInfo,
+  SystemFaceSearchInfo,
 } from './results';
 
 export type ActionData = JsonValue;
@@ -200,6 +207,10 @@ export interface SnowLumaActionMap {
   get_recent_contact: { params: JsonObject; data: JsonArray };
   get_profile_like: { params: JsonObject; data: JsonObject };
   fetch_custom_face: { params: FetchCustomFaceParams; data: string[] };
+  fetch_sys_faces: { params: FetchSysFacesParams; data: SystemFaceCatalogInfo };
+  fetch_face_entity: { params: FetchFaceEntityParams; data: SystemFaceInfo | null };
+  search_sys_faces: { params: SearchSysFacesParams; data: SystemFaceSearchInfo };
+  fetch_super_face_id: { params: FetchFaceEntityParams; data: SuperFaceInfo };
   get_emoji_likes: { params: GetEmojiLikesParams; data: JsonObject };
   fetch_emoji_like: { params: FetchEmojiLikeParams; data: JsonObject };
   get_friends_with_category: { params: JsonObject; data: FriendCategoryResult[] };
@@ -221,8 +232,8 @@ export interface SnowLumaActionMap {
   click_inline_keyboard_button: { params: JsonObject; data: JsonValue };
   set_group_sign: { params: JsonObject; data: EmptyData };
   send_group_sign: { params: JsonObject; data: EmptyData };
-  get_group_info_ex: { params: GroupIdParams; data: JsonObject };
-  get_group_detail_info: { params: GroupIdParams; data: JsonObject };
+  get_group_info_ex: { params: GetGroupInfoParams; data: JsonObject };
+  get_group_detail_info: { params: GetGroupInfoParams; data: JsonObject };
   trans_group_file: { params: JsonObject; data: JsonValue };
   rename_group_file: { params: JsonObject; data: JsonValue };
   get_file: { params: GetMediaParams; data: JsonValue };

@@ -41,6 +41,16 @@ export interface GroupEssenceMsgRet {
   };
 }
 
+interface RawGroupEssenceMsgRet {
+  retcode: number;
+  retmsg?: string;
+  data?: {
+    is_end?: unknown;
+    msg_list?: Array<GroupEssenceMessage | null> | null;
+    group_role?: number;
+    config_page_url?: string;
+  } | null;
+}
 
 /**
  * 分页获取群精华消息
@@ -61,7 +71,7 @@ export async function getGroupEssenceMsg(
   }).toString()}`;
 
   try {
-    const ret = await RequestUtil.HttpGetJson<GroupEssenceMsgRet>(
+    const ret = await RequestUtil.HttpGetJson<RawGroupEssenceMsgRet>(
       url,
       'GET',
       '',
@@ -72,12 +82,35 @@ export async function getGroupEssenceMsg(
         `group essence request failed with retcode ${ret.retcode}: ${ret.retmsg ?? 'unknown error'}`,
       );
     }
+    if (ret.data?.is_end === true && ret.data.msg_list == null) {
+      log.debug(
+        'normalized empty group essence response (group=%s page=%d/%d)',
+        groupCode,
+        pageStart,
+        pageLimit,
+      );
+      return {
+        ...ret,
+        data: {
+          ...ret.data,
+          is_end: true,
+          msg_list: [],
+        },
+      };
+    }
     if (!ret.data
       || typeof ret.data.is_end !== 'boolean'
       || !Array.isArray(ret.data.msg_list)) {
       throw new Error('invalid group essence response: data.is_end or data.msg_list is missing');
     }
-    return ret;
+    return {
+      ...ret,
+      data: {
+        ...ret.data,
+        is_end: ret.data.is_end,
+        msg_list: ret.data.msg_list,
+      },
+    };
   } catch (e) {
     log.warn('getGroupEssenceMsg failed (group=%s page=%d/%d): %s',
       groupCode, pageStart, pageLimit, e instanceof Error ? (e.stack ?? e.message) : String(e));
