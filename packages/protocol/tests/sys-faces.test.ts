@@ -110,6 +110,22 @@ describe('FetchSysFaces.deserialize', () => {
     expect(packs.map((p) => p.packName)).toEqual(['经典', '超级', 'MagicFace']);
     expect(packs[1].emojis[0].aniStickerType).toBe(3);
   });
+
+  it('fails closed when an id field uses an unsupported wire encoding', () => {
+    const driftedFace = { qDes: '/未知表情' };
+    Object.defineProperty(driftedFace, Symbol.for('snowluma.proton.unknownFields'), {
+      value: {
+        fields: [{ fieldNumber: 1, wireType: 0, count: 1, totalByteLength: 1 }],
+        totalOccurrences: 1,
+        omittedOccurrences: 0,
+        omittedByteLength: 0,
+      },
+    });
+
+    expect(() => FetchSysFaces.deserialize({} as never, {
+      specialMagicFace: { field1: { emojiList: [driftedFace] } },
+    } as never)).toThrow(/unsupported wire encoding.*wireTypes=0/);
+  });
 });
 
 describe('SysFaceStore — persistent catalog and query seam', () => {
@@ -176,6 +192,42 @@ describe('SysFaceStore — persistent catalog and query seam', () => {
       fetchedAt: 456,
       packs: CATALOG,
     }]);
+  });
+
+  it('keeps usable faces when a server pack contains an id-less record', async () => {
+    const storage = new MemoryCatalogStorage();
+    const response = FetchSysFaces.deserialize(sender, {
+      commonFace: {
+        emojiList: [
+          { emojiPackName: '经典', emojiDetail: [{ qSid: '14', qDes: '/微笑' }] },
+          { emojiPackName: '小表情', emojiDetail: [{ qSid: '424', qDes: '/比心' }] },
+        ],
+      },
+      specialBigFace: {
+        emojiList: [{
+          emojiPackName: '超级表情',
+          emojiDetail: [{ qSid: '392', qDes: '/龙年快乐' }],
+        }],
+      },
+      specialMagicFace: {
+        field1: {
+          emojiList: [
+            { qDes: '/目录占位' },
+            { qSid: '999', qDes: '/魔法表情' },
+          ],
+        },
+      },
+    } as never);
+    const store = new SysFaceStore({
+      storage,
+      now: () => 456,
+      fetchCatalog: async () => response,
+    });
+
+    await expect(store.refresh(sender)).resolves.toHaveLength(4);
+    expect(store.lookup(14)?.qDes).toBe('/微笑');
+    expect(store.lookup(999)?.qDes).toBe('/魔法表情');
+    expect(storage.saved[0]?.packs[3]?.emojis.map((face) => face.qSid)).toEqual(['999']);
   });
 
   it('refreshes a cache miss once, then keeps an authoritative not-found result', async () => {

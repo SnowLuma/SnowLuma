@@ -6,7 +6,12 @@
 // `aniSticker*` metadata to pick the right wire encoding for a face id (see
 // element-builder's makeFaceElem + sys-face-store).
 
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import { createLogger } from '@snowluma/common/logger';
+import {
+  protobuf_decode,
+  protobuf_encode,
+  protobuf_getUnknownFieldMetadata,
+} from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   OidbFaceEmoji,
@@ -14,6 +19,8 @@ import type {
   OidbFetchSysFacesResp,
 } from '@snowluma/proto-defs/oidb-actions/sys-faces';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
+
+const log = createLogger('SysFace');
 
 /** A single system face / emoji. Field names match Lagrange's `SysFaceEntry`;
  *  `qSid` is the numeric face ID as a string. */
@@ -37,9 +44,44 @@ export interface SysFacePackEntry {
   emojis: SysFaceEntry[];
 }
 
-function emojiToEntry(e: OidbFaceEmoji): SysFaceEntry {
+interface FaceLocation {
+  source: 'common' | 'special-big' | 'magic';
+  packIndex: number;
+  faceIndex: number;
+}
+
+function emojiToEntry(e: OidbFaceEmoji, location: FaceLocation): SysFaceEntry | null {
+  const qSid = e.qSid;
+  if (qSid == null || qSid === '') {
+    const metadata = protobuf_getUnknownFieldMetadata(e);
+    const unexpectedIdFields = metadata.fields.filter((field) => field.fieldNumber === 1);
+    if (unexpectedIdFields.length > 0) {
+      throw new Error(
+        `system face id uses unsupported wire encoding at source ${location.source}, `
+        + `pack ${location.packIndex}, face ${location.faceIndex}: `
+        + `wireTypes=${unexpectedIdFields.map((field) => field.wireType).join(',')}`,
+      );
+    }
+    log.warn(
+      'system face catalog skipped entry without id: source=%s pack=%d face=%d '
+      + 'hasDescription=%s hasCode=%s unknownFields=%d',
+      location.source,
+      location.packIndex,
+      location.faceIndex,
+      Boolean(e.qDes),
+      Boolean(e.emCode),
+      metadata.totalOccurrences,
+    );
+    return null;
+  }
+  if (typeof qSid !== 'string') {
+    throw new Error(
+      `system face id has invalid decoded type at source ${location.source}, `
+      + `pack ${location.packIndex}, face ${location.faceIndex}: ${typeof qSid}`,
+    );
+  }
   return {
-    qSid: e.qSid ?? '',
+    qSid,
     qDes: e.qDes ?? '',
     emCode: e.emCode ?? '',
     qCid: e.qCid ?? null,
@@ -51,6 +93,19 @@ function emojiToEntry(e: OidbFaceEmoji): SysFaceEntry {
     aniStickerWidth: e.aniStickerWidth ?? null,
     aniStickerHeight: e.aniStickerHeight ?? null,
   };
+}
+
+function emojisToEntries(
+  emojis: OidbFaceEmoji[],
+  source: FaceLocation['source'],
+  packIndex: number,
+): SysFaceEntry[] {
+  const entries: SysFaceEntry[] = [];
+  for (const [faceIndex, emoji] of emojis.entries()) {
+    const entry = emojiToEntry(emoji, { source, packIndex, faceIndex });
+    if (entry) entries.push(entry);
+  }
+  return entries;
 }
 
 export namespace FetchSysFaces {
@@ -70,11 +125,15 @@ export namespace FetchSysFaces {
     const packs: SysFacePackEntry[] = [];
 
     // common + special-big share the same content shape.
-    for (const content of [body.commonFace, body.specialBigFace]) {
+    for (const [source, content] of [
+      ['common', body.commonFace],
+      ['special-big', body.specialBigFace],
+    ] as const) {
       for (const list of content?.emojiList ?? []) {
+        const packIndex = packs.length;
         packs.push({
           packName: list.emojiPackName ?? '',
-          emojis: (list.emojiDetail ?? []).map(emojiToEntry),
+          emojis: emojisToEntries(list.emojiDetail ?? [], source, packIndex),
         });
       }
     }
@@ -83,7 +142,11 @@ export namespace FetchSysFaces {
     // "MagicFace" client-side, so we match for parity.
     const magicEmojis = body.specialMagicFace?.field1?.emojiList ?? [];
     if (magicEmojis.length > 0) {
-      packs.push({ packName: 'MagicFace', emojis: magicEmojis.map(emojiToEntry) });
+      const packIndex = packs.length;
+      packs.push({
+        packName: 'MagicFace',
+        emojis: emojisToEntries(magicEmojis, 'magic', packIndex),
+      });
     }
 
     return packs;
