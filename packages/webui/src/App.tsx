@@ -139,11 +139,14 @@ function AuthBoundary({ onboardingSteps }: { onboardingSteps: AdditionalOnboardi
       if (ok) {
         setAuthed(true);
         setStatus('已连接');
-        setMustChange(await client.mustChangePassword());
+        const [nextMustChange] = await Promise.all([
+          client.mustChangePassword(),
+          refreshAgreements(),
+        ]);
+        setMustChange(nextMustChange);
         // Carry the URL password into the forced change-password gate so it
         // needn't re-prompt for the old password (matches the login flow).
         if (urlPassword) setLoginPassword(urlPassword);
-        await refreshAgreements();
       }
       setAuthChecked(true);
     })();
