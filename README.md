@@ -117,6 +117,26 @@ WebUI 的“系统设置 → 存储管理”可查看受管数据占用、调整
 | MCP | 让支持 MCP 的工具查询或调用 SnowLuma 动作 | [`packages/mcp`](packages/mcp/README.md) |
 | WebUI | 管理运行状态、日志、账号与连接 | 启动后访问 `http://localhost:5099` |
 
+### 音乐分享消息段兼容
+
+标准自定义音乐分享使用 `type: "custom"`，无需提供 `id`。为兼容 NapCat，SnowLuma 也接受省略 `id`、保留平台类型并携带完整自定义数据的写法：
+
+```json
+{
+  "type": "music",
+  "data": {
+    "type": "163",
+    "url": "https://music.example/song/1",
+    "audio": "https://cdn.example/song.mp3",
+    "title": "歌曲标题",
+    "image": "https://cdn.example/cover.jpg",
+    "content": "歌手"
+  }
+}
+```
+
+这种写法必须提供非空的 `url`、`audio` 和 `title`；一旦提供 `id`，则按对应平台的歌曲编号分享处理。
+
 ## 开发与贡献
 
 本地开发需要 Node.js 22.13+（23 系需 23.4+）与项目锁定的 pnpm 10.28.0。所有日常开发基于 `dev` 分支：

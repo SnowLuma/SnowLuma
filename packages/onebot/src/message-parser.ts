@@ -248,12 +248,19 @@ export async function segmentToElement(type: string, data: Record<string, unknow
       const musicType = requireNonEmptyStringField(normalizedType, data, 'type');
       // Non-custom platform names are deliberately open: musicSignUrl is
       // configurable and private signers may support platforms beyond the
-      // built-in NapCat set. Their executable contract is non-empty type+id.
-      if (musicType === 'custom') {
+      // built-in NapCat set. NapCat also treats an id-less platform-labelled
+      // segment as custom music data, so presence of id selects platform mode.
+      const hasMusicId = data.id !== undefined
+        && data.id !== null
+        && String(data.id).trim() !== '';
+      const hasCustomMusicData = ['url', 'audio', 'title', 'image', 'content']
+        .some((field) => Object.prototype.hasOwnProperty.call(data, field));
+      const usesCustomMusicData = musicType === 'custom' || (!hasMusicId && hasCustomMusicData);
+      if (usesCustomMusicData) {
         requireNonEmptyStringField(normalizedType, data, 'url');
         requireNonEmptyStringField(normalizedType, data, 'audio');
         requireNonEmptyStringField(normalizedType, data, 'title');
-      } else if (data.id === undefined || data.id === null || String(data.id).trim() === '') {
+      } else if (!hasMusicId) {
         throw new MessageElementValidationError(
           'MISSING_FIELD',
           'message segment "music" requires field "id" for a platform card',
@@ -264,9 +271,9 @@ export async function segmentToElement(type: string, data: Record<string, unknow
       const signUrl = options?.musicSignUrl || 'https://ss.xingzhige.com/music_card/card';
       try {
         let postData: Record<string, unknown>;
-        if (musicType === 'custom') {
+        if (usesCustomMusicData) {
           postData = {
-            type: 'custom',
+            type: musicType,
             id: undefined,
             url: String(data.url ?? ''),
             audio: String(data.audio ?? ''),
