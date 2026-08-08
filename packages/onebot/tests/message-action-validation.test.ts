@@ -88,6 +88,33 @@ describe('outbound message validation at the Action boundary', () => {
     expect(bridgeSend).not.toHaveBeenCalled();
   });
 
+  it('sends object-valued JSON cards from AstrBot-compatible clients', async () => {
+    const bridgeSend = vi.fn(async () => sendReceipt);
+    const ref = instanceContext(bridgeSend);
+    const api = new ApiHandler({
+      sendGroupMessage: (groupId, message, autoEscape) =>
+        sendGroupMessage(ref, groupId, message, autoEscape),
+    } as ApiActionContext);
+
+    const response = await api.handle('send_group_msg', {
+      group_id: 12345,
+      message: [{
+        type: 'json',
+        data: {
+          data: { app: 'com.tencent.music.lua', meta: { music: { title: '晴天' } } },
+          config: { token: 'signed-token' },
+        },
+      }],
+    });
+
+    expect(response).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(bridgeSend).toHaveBeenCalledOnce();
+    expect(bridgeSend.mock.calls[0]?.[1]).toEqual([{
+      type: 'json',
+      text: '{"app":"com.tencent.music.lua","meta":{"music":{"title":"晴天"}}}',
+    }]);
+  });
+
   it('reports the public data field when a JSON segment uses data.text', async () => {
     const bridgeSend = vi.fn();
     const ref = instanceContext(bridgeSend);
@@ -107,7 +134,7 @@ describe('outbound message validation at the Action boundary', () => {
     expect(response).toMatchObject({
       status: 'failed',
       retcode: 1400,
-      wording: 'message segment "json" field "data" must be a non-empty JSON string',
+      wording: 'message segment "json" field "data" must be a JSON object or non-empty JSON string',
     });
     expect(bridgeSend).not.toHaveBeenCalled();
   });

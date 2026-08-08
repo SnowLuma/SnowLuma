@@ -168,7 +168,7 @@ describe('parseMessage', () => {
       )).resolves.toEqual([{ type: 'text', text: ' ' }]);
     });
 
-    it('rejects object-valued fields instead of stringifying caller input', async () => {
+    it('rejects object-valued fields for scalar-only segments', async () => {
       await expect(parseMessage(
         [{ type: 'text', data: { text: { bad: true } } }] as any,
         false,
@@ -176,14 +176,6 @@ describe('parseMessage', () => {
         code: 'INVALID_FIELD',
         elementType: 'text',
         field: 'text',
-      });
-      await expect(parseMessage(
-        [{ type: 'json', data: { data: { app: 'unexpected-object' } } }] as any,
-        false,
-      )).rejects.toMatchObject({
-        code: 'INVALID_FIELD',
-        elementType: 'json',
-        field: 'data',
       });
     });
 
@@ -586,6 +578,52 @@ describe('parseMessage', () => {
       expect(result[0].text).toBe('{"app":"test"}');
     });
 
+    it('accepts an object JSON payload produced by AstrBot-compatible clients', async () => {
+      const result = await parseMessage(
+        [{
+          type: 'json',
+          data: {
+            data: {
+              app: 'com.tencent.music.lua',
+              meta: { music: { title: '晴天' } },
+            },
+            config: { token: 'signed-token' },
+          },
+        }] as any,
+        false,
+      );
+
+      expect(result).toEqual([{
+        type: 'json',
+        text: '{"app":"com.tencent.music.lua","meta":{"music":{"title":"晴天"}}}',
+      }]);
+    });
+
+    it('accepts the JSON raw-string segment shorthand used by compatible clients', async () => {
+      await expect(parseMessage(
+        [{ type: 'json', data: '{"app":"com.tencent.music.lua"}' }] as any,
+        false,
+      )).resolves.toEqual([{
+        type: 'json',
+        text: '{"app":"com.tencent.music.lua"}',
+      }]);
+    });
+
+    it.each([
+      { label: 'array', value: [] },
+      { label: 'null', value: null },
+      { label: 'number', value: 1 },
+    ])('rejects a $label JSON payload instead of sending a non-object card', async ({ value }) => {
+      await expect(parseMessage(
+        [{ type: 'json', data: { data: value } }] as any,
+        false,
+      )).rejects.toMatchObject({
+        code: 'INVALID_FIELD',
+        elementType: 'json',
+        field: 'data',
+      });
+    });
+
     it('reads canonical xml resid and file_size fields', async () => {
       const xml = await parseMessage(
         [{ type: 'xml', data: { data: '<msg/>', resid: '35' } }] as any,
@@ -727,6 +765,48 @@ describe('parseMessage', () => {
       expect(result[0].text).toBeDefined();
       const parsed = JSON.parse(result[0].text!);
       expect(parsed.meta.contact.type).toBe('group');
+    });
+
+    it('accepts id-less custom music data with a platform type for NapCat compatibility', async () => {
+      const card = JSON.stringify({
+        app: 'com.tencent.structmsg',
+        view: 'music',
+        prompt: '[音乐]光',
+      });
+      const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => ({
+        ok: true,
+        text: async () => card,
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      try {
+        const result = await parseMessage(
+          [{
+            type: 'music',
+            data: {
+              type: '163',
+              url: 'https://music.example/song/3402687142',
+              audio: 'https://cdn.example/3402687142.mp3',
+              title: '光',
+              image: 'https://cdn.example/3402687142.jpg',
+              content: '陈粒',
+            },
+          }] as any,
+          false,
+        );
+
+        expect(result).toEqual([{ type: 'json', text: card }]);
+        expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+          type: '163',
+          url: 'https://music.example/song/3402687142',
+          audio: 'https://cdn.example/3402687142.mp3',
+          title: '光',
+          image: 'https://cdn.example/3402687142.jpg',
+          singer: '陈粒',
+        });
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
 
     it('parses signed music cards and buildSendElems preserves non-ASCII JSON', async () => {

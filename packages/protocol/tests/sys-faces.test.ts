@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { QFaceExtra, QSmallFaceExtra } from '@snowluma/proto-defs/element';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
-import type { OidbFetchSysFacesResp } from '@snowluma/proto-defs/oidb-actions/sys-faces';
+import type {
+  OidbFetchSysFacesReq,
+  OidbFetchSysFacesResp,
+} from '@snowluma/proto-defs/oidb-actions/sys-faces';
 import {
   FetchSysFaces,
   findFaceEntity,
@@ -100,6 +103,27 @@ describe('faceWireFor — classification', () => {
   });
 });
 
+describe('FetchSysFaces protocol contract', () => {
+  it('encodes the native 0x9154_1 request layout', () => {
+    const body = FetchSysFaces.serialize({} as never, {});
+    expect(body).toEqual({
+      field1: 0,
+      field2: 7,
+      field3: 0,
+    });
+
+    const decoded = protobuf_decode<OidbBase<OidbFetchSysFacesReq>>(
+      FetchSysFaces.encode({ body }),
+    );
+    expect(decoded.body).toEqual({
+      field1: null,
+      field2: 7,
+      field3: null,
+      field4: null,
+    });
+  });
+});
+
 describe('FetchSysFaces.deserialize', () => {
   it('flattens common + big + magic packs', () => {
     const packs = FetchSysFaces.deserialize({} as never, {
@@ -109,6 +133,43 @@ describe('FetchSysFaces.deserialize', () => {
     } as never);
     expect(packs.map((p) => p.packName)).toEqual(['经典', '超级', 'MagicFace']);
     expect(packs[1].emojis[0].aniStickerType).toBe(3);
+  });
+
+  it('preserves Unicode catalog identifiers returned by QQ', () => {
+    const packs = FetchSysFaces.deserialize({} as never, {
+      commonFace: {
+        emojiList: [{
+          emojiPackName: 'emoji',
+          emojiDetail: [{ qSid: '😊', qDes: '/嘿嘿', qCid: 128522, emCode: '400832' }],
+        }],
+      },
+    } as never);
+
+    expect(packs).toEqual([{
+      packName: 'emoji',
+      emojis: [expect.objectContaining({
+        qSid: '😊',
+        qDes: '/嘿嘿',
+        qCid: 128522,
+        emCode: '400832',
+      })],
+    }]);
+  });
+
+  it('fails closed when an id field uses an unsupported wire encoding', () => {
+    const driftedFace = { qDes: '/未知表情' };
+    Object.defineProperty(driftedFace, Symbol.for('snowluma.proton.unknownFields'), {
+      value: {
+        fields: [{ fieldNumber: 1, wireType: 0, count: 1, totalByteLength: 1 }],
+        totalOccurrences: 1,
+        omittedOccurrences: 0,
+        omittedByteLength: 0,
+      },
+    });
+
+    expect(() => FetchSysFaces.deserialize({} as never, {
+      specialMagicFace: { field1: { emojiList: [driftedFace] } },
+    } as never)).toThrow(/unsupported wire encoding.*wireTypes=0/);
   });
 });
 
@@ -151,6 +212,37 @@ describe('SysFaceStore — persistent catalog and query seam', () => {
     expect(store.search('经典').map((face) => face.qSid)).toEqual(['14']);
   });
 
+  it('persists and searches Unicode catalog ids without exposing them as numeric face ids', async () => {
+    const unicodeFace = entry('😊', null, null, null, '/嘿嘿');
+    unicodeFace.qCid = 128522;
+    unicodeFace.emCode = '400832';
+    const catalog: SysFacePackEntry[] = [{ packName: 'emoji', emojis: [unicodeFace] }];
+    const storage = new MemoryCatalogStorage();
+    const store = new SysFaceStore({
+      storage,
+      now: () => 456,
+      fetchCatalog: async () => catalog,
+    });
+
+    await expect(store.refresh(sender)).resolves.toEqual(catalog);
+
+    expect(storage.saved[0]?.packs).toEqual(catalog);
+    expect(store.search('😊').map((face) => face.qSid)).toEqual(['😊']);
+    expect(store.search('嘿嘿').map((face) => face.qSid)).toEqual(['😊']);
+    expect(store.lookup(128522)).toBeNull();
+  });
+
+  it('still rejects empty and duplicate catalog identifiers', () => {
+    const store = new SysFaceStore();
+
+    expect(() => store.load([{ packName: 'emoji', emojis: [entry('', null, null, null)] }]))
+      .toThrow(/invalid system face id/);
+    expect(() => store.load([{
+      packName: 'emoji',
+      emojis: [entry('😊', null, null, null), entry('😊', null, null, null)],
+    }])).toThrow(/duplicate system face id/);
+  });
+
   it('coalesces concurrent refreshes and persists the authoritative result once', async () => {
     const storage = new MemoryCatalogStorage();
     let fetches = 0;
@@ -176,6 +268,42 @@ describe('SysFaceStore — persistent catalog and query seam', () => {
       fetchedAt: 456,
       packs: CATALOG,
     }]);
+  });
+
+  it('keeps usable faces when a server pack contains an id-less record', async () => {
+    const storage = new MemoryCatalogStorage();
+    const response = FetchSysFaces.deserialize(sender, {
+      commonFace: {
+        emojiList: [
+          { emojiPackName: '经典', emojiDetail: [{ qSid: '14', qDes: '/微笑' }] },
+          { emojiPackName: '小表情', emojiDetail: [{ qSid: '424', qDes: '/比心' }] },
+        ],
+      },
+      specialBigFace: {
+        emojiList: [{
+          emojiPackName: '超级表情',
+          emojiDetail: [{ qSid: '392', qDes: '/龙年快乐' }],
+        }],
+      },
+      specialMagicFace: {
+        field1: {
+          emojiList: [
+            { qDes: '/目录占位' },
+            { qSid: '999', qDes: '/魔法表情' },
+          ],
+        },
+      },
+    } as never);
+    const store = new SysFaceStore({
+      storage,
+      now: () => 456,
+      fetchCatalog: async () => response,
+    });
+
+    await expect(store.refresh(sender)).resolves.toHaveLength(4);
+    expect(store.lookup(14)?.qDes).toBe('/微笑');
+    expect(store.lookup(999)?.qDes).toBe('/魔法表情');
+    expect(storage.saved[0]?.packs[3]?.emojis.map((face) => face.qSid)).toEqual(['999']);
   });
 
   it('refreshes a cache miss once, then keeps an authoritative not-found result', async () => {

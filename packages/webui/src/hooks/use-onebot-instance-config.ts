@@ -55,7 +55,11 @@ export function useOneBotInstanceConfig(
 ): UseOneBotInstanceConfig {
   const api = useApi();
   const { runAction } = useActionFeedback();
-  const { selectedUin, onSelectedUinChange } = options;
+  const { onSelectedUinChange } = options;
+  // Start the first config request in the same render that receives the account
+  // list; publishing the selection upward remains an effect, but no longer adds
+  // an otherwise unnecessary render before the network request can begin.
+  const selectedUin = options.selectedUin ?? accounts[0]?.uin ?? null;
   const [config, setConfigState] = useState<OneBotConfig | null>(null);
   const [loadedUin, setLoadedUin] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -71,10 +75,10 @@ export function useOneBotInstanceConfig(
   const selectedUinRef = useRef(selectedUin);
   selectedUinRef.current = selectedUin;
 
-  // Auto-select first account when none is selected yet.
+  // Publish the derived first selection so the sidebar and later routes retain it.
   useEffect(() => {
-    if (!selectedUin && accounts.length > 0) onSelectedUinChange(accounts[0].uin);
-  }, [accounts, selectedUin, onSelectedUinChange]);
+    if (options.selectedUin === null && selectedUin) onSelectedUinChange(selectedUin);
+  }, [options.selectedUin, selectedUin, onSelectedUinChange]);
 
   // Load on UIN change. The api client already runs normalizeOneBotConfig.
   useEffect(() => {

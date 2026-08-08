@@ -318,11 +318,14 @@ export const ELEMENT_CODECS = {
       return { type: 'json', data: { data: element.text ?? '' } };
     },
     async fromSegment(data) {
-      const text = data.data;
+      const raw = data.data;
+      const text = typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+        ? JSON.stringify(raw)
+        : raw;
       if (typeof text !== 'string' || !text.trim()) {
         throw new MessageElementValidationError(
           'INVALID_FIELD',
-          'message segment "json" field "data" must be a non-empty JSON string',
+          'message segment "json" field "data" must be a JSON object or non-empty JSON string',
           'json',
           'data',
         );
