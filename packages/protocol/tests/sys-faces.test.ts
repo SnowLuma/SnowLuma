@@ -232,7 +232,44 @@ describe('SysFaceStore — persistent catalog and query seam', () => {
     expect(store.lookup(128522)).toBeNull();
   });
 
-  it('still rejects empty and duplicate catalog identifiers', () => {
+  it('preserves one face across multiple catalog packs', async () => {
+    const commonFace = entry('474', 1, 4, 76, '/给你一拳');
+    commonFace.emCode = '10474';
+    const specialFace: SysFaceEntry = {
+      ...commonFace,
+      qDes: '/给你一拳（黄脸）',
+      emojiNameAlias: ['punch'],
+    };
+    const catalog: SysFacePackEntry[] = [
+      { packName: '超级表情', emojis: [commonFace] },
+      { packName: 'QQ黄脸', emojis: [specialFace] },
+    ];
+    const storage = new MemoryCatalogStorage();
+    const store = new SysFaceStore({
+      storage,
+      now: () => 456,
+      fetchCatalog: async () => catalog,
+    });
+
+    await expect(store.refresh(sender)).resolves.toEqual(catalog);
+
+    expect(storage.saved[0]?.packs).toEqual(catalog);
+    await expect(store.getCatalog(sender)).resolves.toEqual(catalog);
+    expect(store.lookup(474)).toEqual(commonFace);
+    expect(store.search('超级表情').map((face) => face.qSid)).toEqual(['474']);
+    expect(store.search('QQ黄脸').map((face) => face.qSid)).toEqual(['474']);
+    expect(store.search('punch').map((face) => face.qSid)).toEqual(['474']);
+
+    const restored = new SysFaceStore({
+      storage: new MemoryCatalogStorage(storage.saved[0]!),
+      fetchCatalog: async () => { throw new Error('network must not be used'); },
+    });
+    await restored.ensureReady(sender);
+    await expect(restored.getCatalog(sender)).resolves.toEqual(catalog);
+    expect(restored.search('QQ黄脸').map((face) => face.qSid)).toEqual(['474']);
+  });
+
+  it('still rejects empty identifiers and duplicates within one pack', () => {
     const store = new SysFaceStore();
 
     expect(() => store.load([{ packName: 'emoji', emojis: [entry('', null, null, null)] }]))
@@ -241,6 +278,32 @@ describe('SysFaceStore — persistent catalog and query seam', () => {
       packName: 'emoji',
       emojis: [entry('😊', null, null, null), entry('😊', null, null, null)],
     }])).toThrow(/duplicate system face id/);
+    expect(() => store.load([
+      { packName: '超级表情', emojis: [entry('474', 1, 4, 76)] },
+      {
+        packName: 'QQ黄脸',
+        emojis: [entry('474', 1, 4, 76), entry('474', 1, 4, 76)],
+      },
+    ])).toThrow(/duplicate system face id 474 within pack 1/);
+  });
+
+  it('rejects cross-pack copies with conflicting send metadata', () => {
+    const store = new SysFaceStore();
+
+    expect(() => store.load([
+      { packName: '超级表情', emojis: [entry('474', 1, 4, 76)] },
+      { packName: 'QQ黄脸', emojis: [entry('474', 3, 2, 38)] },
+    ])).toThrow(/conflicting system face send metadata.*pack 0.*pack 1/);
+  });
+
+  it('allows non-addressable Unicode entries to carry panel-specific metadata', () => {
+    const store = new SysFaceStore();
+
+    expect(() => store.load([
+      { packName: 'emoji', emojis: [entry('😊', null, null, null, '/微笑')] },
+      { packName: '最近使用', emojis: [entry('😊', 3, 2, 38, '/最近使用')] },
+    ])).not.toThrow();
+    expect(store.search('最近使用').map((face) => face.qSid)).toEqual(['😊']);
   });
 
   it('coalesces concurrent refreshes and persists the authoritative result once', async () => {
