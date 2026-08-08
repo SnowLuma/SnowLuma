@@ -31,6 +31,32 @@ describe('system face actions', () => {
     });
   });
 
+  it('preserves Unicode catalog identifiers in the public catalog response', async () => {
+    const unicodeFace = {
+      ...FACE,
+      qSid: '😊',
+      qDes: '/嘿嘿',
+      qCid: 128522,
+      emCode: '400832',
+      aniStickerType: null,
+      aniStickerPackId: null,
+      aniStickerId: null,
+    };
+    const fetchCatalog = vi.fn(async () => [{ packName: 'emoji', emojis: [unicodeFace] }]);
+
+    const response = await handler({ fetchCatalog }).handle('fetch_sys_faces', {});
+
+    expect(response).toMatchObject({
+      status: 'ok',
+      data: {
+        packs: [{
+          pack_name: 'emoji',
+          emojis: [{ q_sid: '😊', q_des: '/嘿嘿', q_cid: 128522, em_code: '400832' }],
+        }],
+      },
+    });
+  });
+
   it('looks up one id without redownloading a fresh catalog', async () => {
     const fetchFace = vi.fn(async () => FACE);
     const response = await handler({ fetchFace }).handle('fetch_face_entity', { face_id: '392' });

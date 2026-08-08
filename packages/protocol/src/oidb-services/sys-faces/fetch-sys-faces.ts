@@ -1,10 +1,8 @@
 // 0x9154_1 — fetch the bot's system face / emoji catalog.
 //
-// Mirrors Lagrange.Core's `FetchFullSysFacesService`. One server round-trip
-// returns the entire pack list — common faces, "big"/super faces (the giant
-// animated emoji), and the magic-face pack. The send path uses each emoji's
-// `aniSticker*` metadata to pick the right wire encoding for a face id (see
-// element-builder's makeFaceElem + sys-face-store).
+// QQ returns the common, special-big, and magic-face panels in one response.
+// The send path uses the catalog metadata to select the corresponding face
+// element encoding (see element-builder and sys-face-store).
 
 import { createLogger } from '@snowluma/common/logger';
 import {
@@ -22,8 +20,9 @@ import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 const log = createLogger('SysFace');
 
-/** A single system face / emoji. Field names match Lagrange's `SysFaceEntry`;
- *  `qSid` is the numeric face ID as a string. */
+/** A single system face / emoji. `qSid` is QQ's opaque catalog identifier:
+ *  numeric system faces use decimal strings, while emoji groups may use a
+ *  Unicode emoji string. */
 export interface SysFaceEntry {
   qSid: string;
   qDes: string;
@@ -118,7 +117,7 @@ export namespace FetchSysFaces {
   export const serialize = (_ctx: Deps, _p: Params): OidbFetchSysFacesReq => ({
     field1: 0,
     field2: 7,
-    field3: '0',
+    field3: 0,
   });
 
   export const deserialize = (_ctx: Deps, body: OidbFetchSysFacesResp): SysFacePackEntry[] => {
@@ -138,8 +137,8 @@ export namespace FetchSysFaces {
       }
     }
 
-    // Magic faces arrive as a single un-named bundle — Lagrange tags it
-    // "MagicFace" client-side, so we match for parity.
+    // QQ returns magic faces as a single unnamed bundle. Keep a stable local
+    // name so callers can identify the group across refreshes.
     const magicEmojis = body.specialMagicFace?.field1?.emojiList ?? [];
     if (magicEmojis.length > 0) {
       const packIndex = packs.length;
@@ -173,10 +172,7 @@ export function findFaceEntity(packs: SysFacePackEntry[], faceId: number): SysFa
   return null;
 }
 
-/** True when `faceId` is an animated "super face" — has both aniStickerType
- *  and aniStickerPackId set, and is NOT the (1,1) pack (the regular static
- *  emojis). Matches Lagrange's `GetUniqueSuperQSids` filter. Super faces ride
- *  CommonElem serviceType 37 (QFaceExtra); the (1,1) ones ride serviceType 33. */
+/** True when the catalog metadata selects the existing super-face send path. */
 export function isSuperFaceEntry(emoji: SysFaceEntry): boolean {
   if (emoji.aniStickerType == null || emoji.aniStickerPackId == null) return false;
   return !(emoji.aniStickerType === 1 && emoji.aniStickerPackId === 1);

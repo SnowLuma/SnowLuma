@@ -1,10 +1,4 @@
-// 0x9154_1 — system face / emoji catalog (sysface) protobuf shapes.
-//
-// Mirrors Lagrange.Core's FetchFullSysFacesService response: one round-trip
-// returns every pack — common faces, "big"/super animated faces, and the
-// magic-face pack. Each emoji carries its `aniSticker*` metadata, which the
-// send path uses to pick the right wire encoding for a face id (classic
-// FaceElem vs CommonElem 37/33). See protocol/oidb-services/sys-faces.
+// 0x9154_1 — QQ system face / emoji catalog protobuf shapes.
 
 import type { pb, pb_repeated, int_32 } from '@snowluma/proton';
 
@@ -47,10 +41,15 @@ export interface OidbFaceMagicContent {
   resourceUrl?: pb<2, OidbFaceResourceUrl>;
 }
 
+export interface OidbFetchSysFacesExpInfo {
+  field1?: pb<1, string>;
+}
+
 export interface OidbFetchSysFacesReq {
   field1?: pb<1, int_32>;
   field2?: pb<2, int_32>;
-  field3?: pb<3, string>;
+  field3?: pb<3, int_32>;
+  field4?: pb<4, OidbFetchSysFacesExpInfo>;
 }
 
 export interface OidbFetchSysFacesResp {

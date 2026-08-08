@@ -27,7 +27,7 @@ const nullableString = { type: ['string', 'null'] };
 const faceSchema = {
   type: 'object',
   properties: {
-    q_sid: { type: 'string', description: '表情编号' },
+    q_sid: { type: 'string', description: 'QQ 表情目录标识（部分 emoji 为 Unicode 表情字符串）' },
     q_des: { type: 'string', description: '表情描述' },
     em_code: { type: 'string' },
     q_cid: nullableInteger,

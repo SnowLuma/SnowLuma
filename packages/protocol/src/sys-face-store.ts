@@ -295,8 +295,7 @@ function validateCatalog(packs: SysFacePackEntry[]): SysFacePackEntry[] {
       throw new Error(`invalid system face pack at index ${packIndex}`);
     }
     for (const [faceIndex, face] of pack.emojis.entries()) {
-      if (!face || typeof face.qSid !== 'string' || !/^(?:0|[1-9]\d*)$/.test(face.qSid)
-        || !Number.isSafeInteger(Number(face.qSid)) || Number(face.qSid) < 0) {
+      if (!face || typeof face.qSid !== 'string' || face.qSid.length === 0) {
         throw new Error(
           `invalid system face id at pack ${packIndex}, face ${faceIndex}: `
           + `value=${JSON.stringify(face?.qSid)}`,
