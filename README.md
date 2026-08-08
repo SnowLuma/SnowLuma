@@ -61,6 +61,8 @@ SnowLuma 是面向 QQ 客户端的 TypeScript 互操作运行时，将 QQ 原生
 | TypeScript SDK | [`packages/sdk/README.md`](packages/sdk/README.md) |
 | MCP | [`packages/mcp/README.md`](packages/mcp/README.md) |
 
+JSON 消息段接受标准的 `data.data` 字符串，也兼容 `data.data` 非数组对象和 `{ type: "json", data: "..." }` 简写；`data` 必填，最终内容必须是 JSON 对象。
+
 ## 开发
 
 需要 Node.js 22.13+（23 系需 23.4+）与 pnpm 10.28.0，日常开发基于 `dev` 分支：

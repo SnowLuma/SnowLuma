@@ -53,7 +53,7 @@ export function parseCQParams(raw: string): Record<string, string> {
 
 interface MessageSegment {
   type: string;
-  data?: Record<string, unknown>;
+  data?: unknown;
   [key: string]: unknown;
 }
 
@@ -152,12 +152,18 @@ function validatedOutboundElement(element: MessageElement): MessageElement {
 
 function assertScalarSegmentData(type: string, data: Record<string, unknown>): void {
   for (const [field, value] of Object.entries(data)) {
+    const isJsonObjectField = type === 'json'
+      && (field === 'data' || field === 'config')
+      && typeof value === 'object'
+      && value !== null
+      && !Array.isArray(value);
     if (
       value === undefined
       || value === null
       || typeof value === 'string'
       || typeof value === 'number'
       || typeof value === 'boolean'
+      || isJsonObjectField
     ) continue;
     throw new MessageElementValidationError(
       'INVALID_FIELD',
@@ -207,11 +213,11 @@ function requireCoordinate(
 export async function segmentToElement(type: string, data: Record<string, unknown>, options?: ParseMessageOptions): Promise<MessageElement | null> {
   const normalizedType = normalizeSegmentType(type);
 
-  // Ordinary OneBot segment fields are scalar. Reject objects/arrays before
-  // codecs can stringify them into "[object Object]" and alter caller intent.
-  // Forward nodes deliberately own nested content but are rejected by their
-  // dedicated normal-send branch below; anonymous is rejected regardless of
-  // payload, so neither needs the scalar guard.
+  // Ordinary OneBot segment fields are scalar. JSON deliberately accepts its
+  // object-valued data/config compatibility fields; every other object/array
+  // is rejected before a codec can coerce it and alter caller intent. Forward
+  // nodes own nested content but are rejected by their dedicated normal-send
+  // branch below; anonymous is rejected regardless of payload.
   if (normalizedType !== 'node' && normalizedType !== 'anonymous') {
     assertScalarSegmentData(normalizedType, data);
   }
@@ -415,6 +421,9 @@ function segmentPayload(seg: MessageSegment): Record<string, unknown> {
   const topLevel = { ...seg } as Record<string, unknown>;
   delete topLevel.type;
   delete topLevel.data;
+  if (normalizeSegmentType(seg.type) === 'json' && typeof seg.data === 'string') {
+    return { ...topLevel, data: seg.data };
+  }
   const nested = (seg.data && typeof seg.data === 'object' && !Array.isArray(seg.data))
     ? seg.data
     : {};

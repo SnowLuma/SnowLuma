@@ -168,7 +168,7 @@ describe('parseMessage', () => {
       )).resolves.toEqual([{ type: 'text', text: ' ' }]);
     });
 
-    it('rejects object-valued fields instead of stringifying caller input', async () => {
+    it('rejects object-valued fields for scalar-only segments', async () => {
       await expect(parseMessage(
         [{ type: 'text', data: { text: { bad: true } } }] as any,
         false,
@@ -176,14 +176,6 @@ describe('parseMessage', () => {
         code: 'INVALID_FIELD',
         elementType: 'text',
         field: 'text',
-      });
-      await expect(parseMessage(
-        [{ type: 'json', data: { data: { app: 'unexpected-object' } } }] as any,
-        false,
-      )).rejects.toMatchObject({
-        code: 'INVALID_FIELD',
-        elementType: 'json',
-        field: 'data',
       });
     });
 
@@ -584,6 +576,52 @@ describe('parseMessage', () => {
       expect(result).toHaveLength(1);
       expect(result[0].type).toBe('json');
       expect(result[0].text).toBe('{"app":"test"}');
+    });
+
+    it('accepts an object JSON payload produced by AstrBot-compatible clients', async () => {
+      const result = await parseMessage(
+        [{
+          type: 'json',
+          data: {
+            data: {
+              app: 'com.tencent.music.lua',
+              meta: { music: { title: '晴天' } },
+            },
+            config: { token: 'signed-token' },
+          },
+        }] as any,
+        false,
+      );
+
+      expect(result).toEqual([{
+        type: 'json',
+        text: '{"app":"com.tencent.music.lua","meta":{"music":{"title":"晴天"}}}',
+      }]);
+    });
+
+    it('accepts the JSON raw-string segment shorthand used by compatible clients', async () => {
+      await expect(parseMessage(
+        [{ type: 'json', data: '{"app":"com.tencent.music.lua"}' }] as any,
+        false,
+      )).resolves.toEqual([{
+        type: 'json',
+        text: '{"app":"com.tencent.music.lua"}',
+      }]);
+    });
+
+    it.each([
+      { label: 'array', value: [] },
+      { label: 'null', value: null },
+      { label: 'number', value: 1 },
+    ])('rejects a $label JSON payload instead of sending a non-object card', async ({ value }) => {
+      await expect(parseMessage(
+        [{ type: 'json', data: { data: value } }] as any,
+        false,
+      )).rejects.toMatchObject({
+        code: 'INVALID_FIELD',
+        elementType: 'json',
+        field: 'data',
+      });
     });
 
     it('reads canonical xml resid and file_size fields', async () => {
