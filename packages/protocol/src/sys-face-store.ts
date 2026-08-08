@@ -42,7 +42,8 @@ export interface SysFaceStoreOptions {
 interface IndexedCatalog {
   packs: SysFacePackEntry[];
   byId: Map<string, SysFaceEntry>;
-  packNameById: Map<string, string>;
+  entryCount: number;
+  overlapCount: number;
 }
 
 /** Pure classification once an authoritative entry is known. */
@@ -108,16 +109,25 @@ export class SysFaceStore {
     if (!needle || !this.catalog) return [];
 
     const matches: SysFaceEntry[] = [];
-    for (const [id, face] of this.catalog.byId) {
-      const haystacks = [
-        id,
-        face.qDes,
-        face.emCode,
-        this.catalog.packNameById.get(id) ?? '',
-        ...face.emojiNameAlias,
-      ];
-      if (haystacks.some((value) => value.toLocaleLowerCase().includes(needle))) {
-        matches.push(face);
+    const matchedIds = new Set<string>();
+    for (const pack of this.catalog.packs) {
+      for (const face of pack.emojis) {
+        if (matchedIds.has(face.qSid)) continue;
+        const haystacks = [
+          face.qSid,
+          face.qDes,
+          face.emCode,
+          pack.packName,
+          ...face.emojiNameAlias,
+        ];
+        if (haystacks.some((value) => value.toLocaleLowerCase().includes(needle))) {
+          const canonical = this.catalog.byId.get(face.qSid);
+          if (!canonical) {
+            throw new Error(`system face index is missing catalog id ${face.qSid}`);
+          }
+          matches.push(canonical);
+          matchedIds.add(face.qSid);
+        }
       }
     }
     return matches;
@@ -179,8 +189,10 @@ export class SysFaceStore {
         this.refreshedInProcess = true;
         if (this.storage) await this.storage.save(snapshot);
         log.info(
-          'system face catalog refreshed: faces=%d packs=%d elapsedMs=%d',
+          'system face catalog refreshed: entries=%d uniqueFaces=%d overlaps=%d packs=%d elapsedMs=%d',
+          this.catalog.entryCount,
           this.catalog.byId.size,
+          this.catalog.overlapCount,
           validated.length,
           this.now() - startedAt,
         );
@@ -246,8 +258,11 @@ export class SysFaceStore {
         validateSnapshot(snapshot);
         this.catalog = indexCatalog(snapshot.packs);
         log.info(
-          'system face catalog restored: faces=%d packs=%d fetchedAt=%d elapsedMs=%d',
+          'system face catalog restored: entries=%d uniqueFaces=%d overlaps=%d packs=%d '
+          + 'fetchedAt=%d elapsedMs=%d',
+          this.catalog.entryCount,
           this.catalog.byId.size,
+          this.catalog.overlapCount,
           snapshot.packs.length,
           snapshot.fetchedAt,
           this.now() - startedAt,
@@ -288,7 +303,12 @@ function validateCatalog(packs: SysFacePackEntry[]): SysFacePackEntry[] {
     throw new Error('system face catalog is empty');
   }
 
-  const seen = new Set<string>();
+  const seen = new Map<string, {
+    face: SysFaceEntry;
+    packIndex: number;
+    faceIndex: number;
+    faceIndexByPack: Map<number, number>;
+  }>();
   let faceCount = 0;
   for (const [packIndex, pack] of packs.entries()) {
     if (!pack || typeof pack.packName !== 'string' || !Array.isArray(pack.emojis)) {
@@ -300,9 +320,6 @@ function validateCatalog(packs: SysFacePackEntry[]): SysFacePackEntry[] {
           `invalid system face id at pack ${packIndex}, face ${faceIndex}: `
           + `value=${JSON.stringify(face?.qSid)}`,
         );
-      }
-      if (seen.has(face.qSid)) {
-        throw new Error(`duplicate system face id ${face.qSid}`);
       }
       if (!Array.isArray(face.emojiNameAlias)
         || face.emojiNameAlias.some((alias) => typeof alias !== 'string')) {
@@ -326,7 +343,31 @@ function validateCatalog(packs: SysFacePackEntry[]): SysFacePackEntry[] {
       if (face.url !== null && typeof face.url !== 'string') {
         throw new Error(`invalid url for system face id ${face.qSid}`);
       }
-      seen.add(face.qSid);
+      const previous = seen.get(face.qSid);
+      if (previous) {
+        const previousFaceIndex = previous.faceIndexByPack.get(packIndex);
+        if (previousFaceIndex !== undefined) {
+          throw new Error(
+            `duplicate system face id ${face.qSid} within pack ${packIndex}: `
+            + `faces ${previousFaceIndex} and ${faceIndex}`,
+          );
+        }
+        if (!hasCompatibleSendMetadata(previous.face, face)) {
+          throw new Error(
+            `conflicting system face send metadata for id ${face.qSid}: `
+            + `pack ${previous.packIndex}, face ${previous.faceIndex} vs `
+            + `pack ${packIndex}, face ${faceIndex}`,
+          );
+        }
+        previous.faceIndexByPack.set(packIndex, faceIndex);
+      } else {
+        seen.set(face.qSid, {
+          face,
+          packIndex,
+          faceIndex,
+          faceIndexByPack: new Map([[packIndex, faceIndex]]),
+        });
+      }
       faceCount += 1;
     }
   }
@@ -334,16 +375,38 @@ function validateCatalog(packs: SysFacePackEntry[]): SysFacePackEntry[] {
   return packs;
 }
 
+function hasCompatibleSendMetadata(left: SysFaceEntry, right: SysFaceEntry): boolean {
+  if (!isAddressableFaceId(left.qSid)) return true;
+  const leftIsSuper = isSuperFaceEntry(left);
+  const rightIsSuper = isSuperFaceEntry(right);
+  if (leftIsSuper !== rightIsSuper) return false;
+  if (!leftIsSuper) return true;
+  return left.aniStickerType === right.aniStickerType
+    && left.aniStickerPackId === right.aniStickerPackId
+    && left.aniStickerId === right.aniStickerId;
+}
+
+function isAddressableFaceId(id: string): boolean {
+  if (!/^(?:0|[1-9]\d*)$/.test(id)) return false;
+  const numeric = Number(id);
+  return Number.isSafeInteger(numeric) && numeric >= 0;
+}
+
 function indexCatalog(packs: SysFacePackEntry[]): IndexedCatalog {
   const byId = new Map<string, SysFaceEntry>();
-  const packNameById = new Map<string, string>();
+  let entryCount = 0;
   for (const pack of packs) {
     for (const emoji of pack.emojis) {
-      byId.set(emoji.qSid, emoji);
-      packNameById.set(emoji.qSid, pack.packName);
+      entryCount += 1;
+      if (!byId.has(emoji.qSid)) byId.set(emoji.qSid, emoji);
     }
   }
-  return { packs, byId, packNameById };
+  return {
+    packs,
+    byId,
+    entryCount,
+    overlapCount: entryCount - byId.size,
+  };
 }
 
 /** Shared, process-wide catalog (the face set is account-independent). */
