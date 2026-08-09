@@ -104,14 +104,20 @@ export class ExtrasApi {
   // ─────────────── Stranger online/ext status (0xFE1_2) ───────────────
 
   /**
-   * Returns `null` on transport / decode failure rather than throwing,
-   * so the OneBot action can produce a clean retcode without try/catch
-   * gymnastics. Namespace throws on transport failure → swallow here.
+   * Keeps the action response user-safe while retaining the underlying
+   * failure in the service log for diagnosis.
    */
   async getStrangerStatus(uin: number): Promise<StrangerStatus | null> {
     try {
-      return await GetStrangerStatus.invoke(this.ctx, { uin });
-    } catch {
+      const status = await GetStrangerStatus.invoke(this.ctx, { uin });
+      if (!status) log.warn('user status query returned no status target=%d', uin);
+      return status;
+    } catch (error) {
+      log.warn(
+        'user status query failed target=%d: %s',
+        uin,
+        error instanceof Error ? error.message : String(error),
+      );
       return null;
     }
   }

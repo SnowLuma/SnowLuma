@@ -48,7 +48,7 @@ describe('apis/extras / getStrangerStatus (0xFE1_2)', () => {
   it('issues the FE1_2 query with key=27372', async () => {
     const bridge = mockBridge();
     bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
-      protobuf_encode<OidbBase<OidbStrangerStatusResp>>({ body: { data: { status: { value: 5n } } } }),
+      protobuf_encode<OidbBase<OidbStrangerStatusResp>>({ body: { data: { properties: { entries: [{ key: 27372, value: 5n }] } } } }),
     ));
     await new ExtrasApi(bridge as any).getStrangerStatus(100200);
     const [wireName, bytes] = bridge.sendRawPacket.mock.calls[0]!;
@@ -62,7 +62,7 @@ describe('apis/extras / getStrangerStatus (0xFE1_2)', () => {
   it('low-band values (≤10) map to status*10 with ext_status=0', async () => {
     const bridge = mockBridge();
     bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
-      protobuf_encode<OidbBase<OidbStrangerStatusResp>>({ body: { data: { status: { value: 7n } } } }),
+      protobuf_encode<OidbBase<OidbStrangerStatusResp>>({ body: { data: { properties: { entries: [{ key: 27372, value: 7n }] } } } }),
     ));
     expect(await new ExtrasApi(bridge as any).getStrangerStatus(1)).toEqual({ status: 70, ext_status: 0 });
   });
@@ -70,7 +70,7 @@ describe('apis/extras / getStrangerStatus (0xFE1_2)', () => {
   it('high-band values decompose into the (0xff00 + (>>16 & 0xff)) status word', async () => {
     const bridge = mockBridge();
     bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
-      protobuf_encode<OidbBase<OidbStrangerStatusResp>>({ body: { data: { status: { value: 0x42F100n } } } }),
+      protobuf_encode<OidbBase<OidbStrangerStatusResp>>({ body: { data: { properties: { entries: [{ key: 27372, value: 0x42F100n }] } } } }),
     ));
     const status = await new ExtrasApi(bridge as any).getStrangerStatus(1);
     expect(status).toEqual({ status: 10, ext_status: 0xF142 });

@@ -944,12 +944,17 @@ export interface OidbSetFriendRemarkResponse {
 export interface OidbClearFriendRemark {
   target?: pb<1, OidbFriendRemarkTarget>;
 }
-export interface OidbStrangerStatusRespStatus {
+export interface OidbStrangerStatusRespProperty {
   key?:   pb<1, uint_32>;
   value?: pb<2, uint_64>;
 }
+export interface OidbStrangerStatusRespProperties {
+  entries?: pb_repeated<1, OidbStrangerStatusRespProperty>;
+}
 export interface OidbStrangerStatusRespData {
-  status?: pb<2, OidbStrangerStatusRespStatus>;
+  targetUin?:  pb<1, uint_32>;
+  properties?: pb<2, OidbStrangerStatusRespProperties>;
+  uin?:        pb<3, uint_32>;
 }
 export interface OidbStrangerStatusResp {
   data?: pb<1, OidbStrangerStatusRespData>;
