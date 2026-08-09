@@ -61,6 +61,7 @@ const APIS_ROUTING: Record<string, [string, string]> = {
   setAvatar: ['profile', 'setAvatar'],
   setGroupAvatar: ['profile', 'setGroupAvatar'],
   fetchCustomFace: ['profile', 'fetchCustomFace'],
+  fetchCustomFaceDetails: ['profile', 'fetchCustomFaceDetails'],
   getProfileLike: ['profile', 'getLike'],
   getUnidirectionalFriendList: ['profile', 'getUnidirectionalFriendList'],
   // FriendApi: handleRequest/delete/setRemark.
@@ -71,6 +72,7 @@ const APIS_ROUTING: Record<string, [string, string]> = {
   setGroupTodo: ['extras', 'setGroupTodo'],
   completeGroupTodo: ['extras', 'completeGroupTodo'],
   cancelGroupTodo: ['extras', 'cancelGroupTodo'],
+  getGroupTodoList: ['extras', 'getGroupTodoList'],
   getStrangerStatus: ['extras', 'getStrangerStatus'],
   fetchAiVoiceList: ['extras', 'fetchAiVoiceList'],
   fetchAiVoice: ['extras', 'fetchAiVoice'],
@@ -1175,6 +1177,82 @@ describe('extended-actions / set_/complete_/cancel_group_todo', () => {
   });
 });
 
+describe('extended-actions / get_group_todo_list', () => {
+  it('maps QQ identities to OneBot ids, caches metadata, and includes cached content', async () => {
+    const getGroupTodoList = vi.fn(async () => [{
+      sourceId: '5631_0',
+      sequence: 5631,
+      random: 0,
+      text: '测试待办',
+      createdAt: 1735000000,
+      updatedAt: 1735000001,
+    }]);
+    const bridge = fakeBridge({ getGroupTodoList });
+    const messageId = hashMessageIdInt32(5631, 100, GROUP_MESSAGE_EVENT);
+    const cacheMessageMetas = vi.fn();
+    const message = [{ type: 'text', data: { text: '原消息' } }];
+    const ctx = fakeCtx(bridge, {
+      cacheMessageMetas,
+      getMessage: (id) => id === messageId ? { message } : null,
+    });
+
+    const response = await makeHandler(ctx).handle('get_group_todo_list', { group_id: 100 });
+
+    expect(getGroupTodoList).toHaveBeenCalledWith(100);
+    expect(cacheMessageMetas).toHaveBeenCalledWith([{
+      messageId,
+      meta: {
+        isGroup: true,
+        targetId: 100,
+        sequence: 5631,
+        sequenceAuthoritative: true,
+        eventName: GROUP_MESSAGE_EVENT,
+        clientSequence: 0,
+        random: 0,
+        timestamp: 1735000000,
+      },
+    }]);
+    expect(response).toMatchObject({
+      status: 'ok',
+      data: [{
+        message_id: messageId,
+        message_seq: 5631,
+        message_random: 0,
+        message,
+        text: '测试待办',
+        create_time: 1735000000,
+        update_time: 1735000001,
+      }],
+    });
+  });
+
+  it('still returns a usable message id when the original body is not cached', async () => {
+    const bridge = fakeBridge({
+      getGroupTodoList: vi.fn(async () => [{
+        sourceId: '88_0',
+        sequence: 88,
+        random: 0,
+        text: '',
+        createdAt: 0,
+        updatedAt: 0,
+      }]),
+    });
+    const response = await makeHandler(fakeCtx(bridge)).handle(
+      'get_group_todo_list',
+      { group_id: 100 },
+    );
+
+    expect(response).toMatchObject({
+      status: 'ok',
+      data: [{
+        message_id: hashMessageIdInt32(88, 100, GROUP_MESSAGE_EVENT),
+        message_seq: 88,
+        message: null,
+      }],
+    });
+  });
+});
+
 describe('extended-actions / set_group_reaction', () => {
   it('rejects a local-only message id without calling the reaction protocol', async () => {
     const setGroupReaction = vi.fn(async () => {});
@@ -1404,6 +1482,161 @@ describe('extended-actions / set_group_portrait', () => {
       group_id: 1, file: 'x.png',
     });
     expect(res).toMatchObject({ status: 'failed', retcode: 100, wording: 'highway 500' });
+  });
+});
+
+describe('extended-actions / fetch_custom_face_detail', () => {
+  it('returns real packet-backed fields with SnowLuma and NapCat resource aliases', async () => {
+    const fetchCustomFaceDetails = vi.fn(async () => [{
+      emojiId: '10001_0_0_0_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_0_0',
+      url: 'https://p.qpic.cn/qq_expression/10001/id/0',
+      md5: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      desc: '开心',
+    }]);
+    const bridge = fakeBridge({ fetchCustomFaceDetails });
+
+    const response = await makeHandler(fakeCtx(bridge)).handle('fetch_custom_face_detail', {
+      count: '1',
+    });
+
+    expect(fetchCustomFaceDetails).toHaveBeenCalledWith(1);
+    expect(response).toMatchObject({
+      status: 'ok',
+      data: [{
+        emoji_id: '10001_0_0_0_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_0_0',
+        resId: '10001_0_0_0_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_0_0',
+        url: 'https://p.qpic.cn/qq_expression/10001/id/0',
+        md5: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        desc: '开心',
+      }],
+    });
+  });
+
+  it('defaults to the compatibility page size of 48', async () => {
+    const fetchCustomFaceDetails = vi.fn(async () => []);
+    const bridge = fakeBridge({ fetchCustomFaceDetails });
+    await makeHandler(fakeCtx(bridge)).handle('fetch_custom_face_detail', {});
+    expect(fetchCustomFaceDetails).toHaveBeenCalledWith(48);
+  });
+
+  it('rejects a negative count before calling the bridge', async () => {
+    const fetchCustomFaceDetails = vi.fn();
+    const bridge = fakeBridge({ fetchCustomFaceDetails });
+    const response = await makeHandler(fakeCtx(bridge)).handle('fetch_custom_face_detail', {
+      count: -1,
+    });
+    expect(response).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(fetchCustomFaceDetails).not.toHaveBeenCalled();
+  });
+});
+
+describe('extended-actions / set_group_member_invite_policy', () => {
+  it('forwards the validated policy to the group-admin API', async () => {
+    const setMemberInvitePolicy = vi.fn(async () => undefined);
+    const bridge = fakeBridge({ apis: { groupAdmin: { setMemberInvitePolicy } } });
+
+    const response = await makeHandler(fakeCtx(bridge)).handle(
+      'set_group_member_invite_policy',
+      { group_id: '12345', policy: 'no_approval_under_100' },
+    );
+
+    expect(response).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(setMemberInvitePolicy).toHaveBeenCalledWith(12345, 'no_approval_under_100');
+  });
+
+  it('rejects an unknown policy before calling the bridge', async () => {
+    const setMemberInvitePolicy = vi.fn();
+    const bridge = fakeBridge({ apis: { groupAdmin: { setMemberInvitePolicy } } });
+
+    const response = await makeHandler(fakeCtx(bridge)).handle(
+      'set_group_member_invite_policy',
+      { group_id: 12345, policy: 'anything' },
+    );
+
+    expect(response).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(setMemberInvitePolicy).not.toHaveBeenCalled();
+  });
+});
+
+describe('extended-actions / set_group_new_member_history_visibility', () => {
+  it('forwards the normalized group id and visibility to the group-admin API', async () => {
+    const setNewMemberHistoryVisibility = vi.fn(async () => undefined);
+    const bridge = fakeBridge({ apis: { groupAdmin: { setNewMemberHistoryVisibility } } });
+
+    const response = await makeHandler(fakeCtx(bridge)).handle(
+      'set_group_new_member_history_visibility',
+      { group_id: '12345', visible: false },
+    );
+
+    expect(response).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(setNewMemberHistoryVisibility).toHaveBeenCalledWith(12345, false);
+  });
+
+  it('rejects a missing visibility value before calling the bridge', async () => {
+    const setNewMemberHistoryVisibility = vi.fn();
+    const bridge = fakeBridge({ apis: { groupAdmin: { setNewMemberHistoryVisibility } } });
+
+    const response = await makeHandler(fakeCtx(bridge)).handle(
+      'set_group_new_member_history_visibility',
+      { group_id: 12345 },
+    );
+
+    expect(response).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(setNewMemberHistoryVisibility).not.toHaveBeenCalled();
+  });
+});
+
+describe('extended-actions / set_group_member_permissions', () => {
+  it('forwards all supplied capability switches to the group-admin API', async () => {
+    const setMemberPermissions = vi.fn(async () => undefined);
+    const bridge = fakeBridge({ apis: { groupAdmin: { setMemberPermissions } } });
+
+    const response = await makeHandler(fakeCtx(bridge)).handle(
+      'set_group_member_permissions',
+      {
+        group_id: '12345',
+        allow_member_upload_album: 'true',
+        allow_member_temporary_session: false,
+        allow_member_create_group: 1,
+      },
+    );
+
+    expect(response).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(setMemberPermissions).toHaveBeenCalledWith(12345, {
+      allowMemberUploadAlbum: true,
+      allowMemberTemporarySession: false,
+      allowMemberCreateGroup: true,
+    });
+  });
+
+  it('accepts a single supplied capability switch', async () => {
+    const setMemberPermissions = vi.fn(async () => undefined);
+    const bridge = fakeBridge({ apis: { groupAdmin: { setMemberPermissions } } });
+
+    const response = await makeHandler(fakeCtx(bridge)).handle(
+      'set_group_member_permissions',
+      { group_id: 12345, allow_member_upload_album: false },
+    );
+
+    expect(response).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(setMemberPermissions).toHaveBeenCalledWith(12345, {
+      allowMemberUploadAlbum: false,
+      allowMemberTemporarySession: undefined,
+      allowMemberCreateGroup: undefined,
+    });
+  });
+
+  it('rejects an empty update before calling the bridge', async () => {
+    const setMemberPermissions = vi.fn();
+    const bridge = fakeBridge({ apis: { groupAdmin: { setMemberPermissions } } });
+
+    const response = await makeHandler(fakeCtx(bridge)).handle(
+      'set_group_member_permissions',
+      { group_id: 12345 },
+    );
+
+    expect(response).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(setMemberPermissions).not.toHaveBeenCalled();
   });
 });
 

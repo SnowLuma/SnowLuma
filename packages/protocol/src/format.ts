@@ -123,6 +123,7 @@ function renderSegment(type: string, data: Record<string, unknown>): string {
     }
     case 'xml': return '[XML]';
     case 'markdown': return '[Markdown]';
+    case 'inline_keyboard': return '[交互按钮]';
     case 'forward': return '[聊天记录]';
     case 'poke': return '[窗口抖动]';
     case 'flash_file': {

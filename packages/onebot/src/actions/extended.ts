@@ -1220,6 +1220,40 @@ export const actions = [
   }),
 
   defineAction({
+    name: 'fetch_custom_face_detail',
+    summary: '获取自定义表情详情',
+    readOnly: true,
+    returns: '自定义表情详情数组，包含资源标识、图片地址、摘要与描述。',
+    returnsSchema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          emoji_id: { type: 'string', description: '可传给 SnowLuma 表情管理接口的资源标识' },
+          resId: { type: 'string', description: '兼容 NapCat 的资源标识' },
+          url: { type: 'string', description: '表情图片地址' },
+          md5: { type: 'string', description: '表情内容摘要' },
+          desc: { type: 'string', description: '自定义表情描述；未设置时为空字符串' },
+        },
+        required: ['emoji_id', 'resId', 'url', 'md5', 'desc'],
+      },
+    },
+    params: {
+      count: f.int({ min: 0 }).default(48),
+    },
+    run: async (p, ctx) => {
+      const details = await ctx.bridge.apis.profile.fetchCustomFaceDetails(p.count);
+      return okResponse(details.map((detail) => ({
+        emoji_id: detail.emojiId,
+        resId: detail.emojiId,
+        url: detail.url,
+        md5: detail.md5,
+        desc: detail.desc,
+      })));
+    },
+  }),
+
+  defineAction({
     name: 'get_emoji_likes',
     summary: '获取表情回应用户',
     readOnly: true,
@@ -2438,6 +2472,52 @@ export const actions = [
       if (!p.rsp) return okResponse(null);
       const respHex = result.responseData ? bytesToHex(result.responseData) : '';
       return okResponse(respHex);
+    },
+  }),
+
+  groupAction({
+    name: 'get_group_todo_list',
+    summary: '获取群待办列表',
+    returns: '群待办数组，包含可用于待办操作的消息标识、服务端摘要与时间',
+    readOnly: true,
+    run: async (p, ctx) => {
+      const todos = await ctx.bridge.apis.extras.getGroupTodoList(p.group_id);
+      const projections = todos.map((todo) => {
+        const messageId = hashMessageIdInt32(
+          todo.sequence,
+          p.group_id,
+          GROUP_MESSAGE_EVENT,
+        );
+        const meta: MessageMeta = {
+          isGroup: true,
+          targetId: p.group_id,
+          sequence: todo.sequence,
+          sequenceAuthoritative: true,
+          eventName: GROUP_MESSAGE_EVENT,
+          clientSequence: 0,
+          random: todo.random,
+          timestamp: todo.createdAt,
+        };
+        return { todo, messageId, meta };
+      });
+
+      ctx.cacheMessageMetas(projections.map(({ messageId, meta }) => ({
+        messageId,
+        meta,
+      })));
+
+      return okResponse(projections.map(({ todo, messageId }) => {
+        const cached = ctx.getMessage(messageId)?.message;
+        return {
+          message_id: messageId,
+          message_seq: todo.sequence,
+          message_random: todo.random,
+          message: Array.isArray(cached) ? cached : null,
+          text: todo.text,
+          create_time: todo.createdAt,
+          update_time: todo.updatedAt,
+        };
+      }));
     },
   }),
 

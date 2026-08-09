@@ -1791,6 +1791,7 @@ function elementPreview(element: MessageElement): string {
     case 'json': return '[JSON消息]';
     case 'xml': return '[XML消息]';
     case 'markdown': return '[Markdown]';
+    case 'inline_keyboard': return '[交互按钮]';
     case 'forward': return '[聊天记录]';
     case 'poke': return '[窗口抖动]';
     default: return '';

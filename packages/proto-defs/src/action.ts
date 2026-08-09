@@ -95,5 +95,11 @@ export interface MentionExtraSend {
 
 // MarkdownData
 export interface MarkdownData {
-  content?: pb<1, string>;
+  content?:    pb<1, string>;
+  field2?:     pb<2, string>;
+  field3?:     pb<3, bytes>;
+  processMsg?: pb<4, string>;
+  summary?:    pb<5, string>;
+  extType?:    pb<6, uint_32>;
+  field7?:     pb<7, bytes>;
 }

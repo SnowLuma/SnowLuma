@@ -1,4 +1,5 @@
 import { GetAtAllRemain } from '@snowluma/protocol/oidb-services/group-admin/get-at-all-remain';
+import { FetchGroupDetail } from '@snowluma/protocol/oidb-services/contacts/fetch-group-detail';
 import { KickMember } from '@snowluma/protocol/oidb-services/group-admin/kick-member';
 import { KickMembers } from '@snowluma/protocol/oidb-services/group-admin/kick-members';
 import { LeaveGroup } from '@snowluma/protocol/oidb-services/group-admin/leave-group';
@@ -10,10 +11,33 @@ import { SetAdmin } from '@snowluma/protocol/oidb-services/group-admin/set-admin
 import { SetGroupName } from '@snowluma/protocol/oidb-services/group-admin/set-group-name';
 import { SetGroupRemark } from '@snowluma/protocol/oidb-services/group-admin/set-group-remark';
 import { SetMemberCard } from '@snowluma/protocol/oidb-services/group-admin/set-member-card';
+import {
+  MEMBER_INVITE_PRIVILEGE_MASK,
+  mergeMemberInvitePrivilegeFlag,
+  SetMemberInvitePolicy,
+  type GroupMemberInvitePolicy,
+} from '@snowluma/protocol/oidb-services/group-admin/set-member-invite-policy';
+import {
+  GROUP_HISTORY_VISIBILITY_MASK,
+  mergeGroupHistoryVisibility,
+  SetNewMemberHistoryVisibility,
+} from '@snowluma/protocol/oidb-services/group-admin/set-new-member-history-visibility';
+import {
+  GROUP_MEMBER_PERMISSION_MASKS,
+  mergeGroupMemberPermission,
+  SetMemberPermission,
+  type GroupMemberPermission,
+} from '@snowluma/protocol/oidb-services/group-admin/set-member-permission';
 import { SetSearch } from '@snowluma/protocol/oidb-services/group-admin/set-search';
 import { SetSpecialTitle } from '@snowluma/protocol/oidb-services/group-admin/set-special-title';
 import { ModifyGroupExtInfo } from '@snowluma/protocol/oidb-services/group-admin/modify-group-ext-info';
 import type { BridgeContext } from '../bridge-context';
+
+export interface GroupMemberPermissions {
+  allowMemberUploadAlbum?: boolean;
+  allowMemberTemporarySession?: boolean;
+  allowMemberCreateGroup?: boolean;
+}
 
 export class GroupAdminApi {
   constructor(private readonly ctx: BridgeContext) { }
@@ -37,6 +61,105 @@ export class GroupAdminApi {
 
   setSearch(groupId: number, noFingerOpen?: number, noCodeFingerOpen?: number): Promise<void> {
     return SetSearch.invoke(this.ctx, { groupId, noFingerOpen, noCodeFingerOpen });
+  }
+
+  async setMemberInvitePolicy(groupId: number, policy: GroupMemberInvitePolicy): Promise<void> {
+    const currentPrivilegeFlag = await this.fetchGroupPrivilegeFlag(
+      groupId,
+      'group member invite policy',
+      'before update',
+    );
+    const expectedPrivilegeFlag = mergeMemberInvitePrivilegeFlag(currentPrivilegeFlag, policy);
+
+    await SetMemberInvitePolicy.invoke(this.ctx, {
+      groupId,
+      currentPrivilegeFlag,
+      policy,
+    });
+
+    const actualPrivilegeFlag = await this.fetchGroupPrivilegeFlag(
+      groupId,
+      'group member invite policy',
+      'after update',
+    );
+    const mask = BigInt(MEMBER_INVITE_PRIVILEGE_MASK);
+    if ((BigInt(actualPrivilegeFlag) & mask) !== (BigInt(expectedPrivilegeFlag) & mask)) {
+      throw new Error(`group member invite policy was not applied for group ${groupId}`);
+    }
+  }
+
+  private async fetchGroupPrivilegeFlag(groupId: number, setting: string, phase: string): Promise<number> {
+    const detail = await FetchGroupDetail.invoke(this.ctx, { groupUin: groupId });
+    const privilegeFlag = detail.groupInfo?.results?.privilegeFlag;
+    if (typeof privilegeFlag !== 'number') {
+      throw new Error(`unable to read ${setting} ${phase} for group ${groupId}`);
+    }
+    return privilegeFlag;
+  }
+
+  async setMemberPermissions(groupId: number, permissions: GroupMemberPermissions): Promise<void> {
+    const updates: ReadonlyArray<readonly [GroupMemberPermission, boolean | undefined]> = [
+      ['upload_album', permissions.allowMemberUploadAlbum],
+      ['temporary_session', permissions.allowMemberTemporarySession],
+      ['create_group', permissions.allowMemberCreateGroup],
+    ];
+    if (!updates.some(([, allow]) => allow !== undefined)) {
+      throw new Error('at least one member permission must be specified');
+    }
+
+    let expectedPrivilegeFlag = await this.fetchGroupPrivilegeFlag(
+      groupId,
+      'group member permissions',
+      'before update',
+    );
+    let combinedMask = 0n;
+
+    for (const [permission, allow] of updates) {
+      if (allow === undefined) continue;
+      await SetMemberPermission.invoke(this.ctx, {
+        groupId,
+        currentPrivilegeFlag: expectedPrivilegeFlag,
+        permission,
+        allow,
+      });
+      expectedPrivilegeFlag = mergeGroupMemberPermission(expectedPrivilegeFlag, permission, allow);
+      combinedMask |= BigInt(GROUP_MEMBER_PERMISSION_MASKS[permission]);
+    }
+
+    const actualPrivilegeFlag = await this.fetchGroupPrivilegeFlag(
+      groupId,
+      'group member permissions',
+      'after update',
+    );
+    if ((BigInt(actualPrivilegeFlag) & combinedMask) !== (BigInt(expectedPrivilegeFlag) & combinedMask)) {
+      throw new Error(`group member permissions were not applied for group ${groupId}`);
+    }
+  }
+
+  async setNewMemberHistoryVisibility(groupId: number, visible: boolean): Promise<void> {
+    const currentGroupFlagExt4 = await this.fetchGroupFlagExt4(groupId, 'before update');
+    const expectedGroupFlagExt4 = mergeGroupHistoryVisibility(currentGroupFlagExt4, visible);
+
+    await SetNewMemberHistoryVisibility.invoke(this.ctx, {
+      groupId,
+      currentGroupFlagExt4,
+      visible,
+    });
+
+    const actualGroupFlagExt4 = await this.fetchGroupFlagExt4(groupId, 'after update');
+    const mask = BigInt(GROUP_HISTORY_VISIBILITY_MASK);
+    if ((BigInt(actualGroupFlagExt4) & mask) !== (BigInt(expectedGroupFlagExt4) & mask)) {
+      throw new Error(`new-member history visibility was not applied for group ${groupId}`);
+    }
+  }
+
+  private async fetchGroupFlagExt4(groupId: number, phase: string): Promise<number> {
+    const detail = await FetchGroupDetail.invoke(this.ctx, { groupUin: groupId });
+    const groupFlagExt4 = detail.groupInfo?.results?.groupFlagExt4;
+    if (typeof groupFlagExt4 !== 'number') {
+      throw new Error(`unable to read new-member history visibility ${phase} for group ${groupId}`);
+    }
+    return groupFlagExt4;
   }
 
   setAddRequest(

@@ -65,6 +65,56 @@ export const actions = [
     },
   }),
 
+  groupAction({
+    name: 'set_group_member_invite_policy',
+    summary: '设置群成员邀请策略',
+    params: {
+      policy: f.enum(
+        'disabled',
+        'require_approval',
+        'no_approval',
+        'no_approval_under_100',
+      ),
+    },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.groupAdmin.setMemberInvitePolicy(p.group_id, p.policy);
+      return okResponse();
+    },
+  }),
+
+  groupAction({
+    name: 'set_group_new_member_history_visibility',
+    summary: '设置新成员是否可查看历史消息',
+    params: { visible: f.bool() },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.groupAdmin.setNewMemberHistoryVisibility(p.group_id, p.visible);
+      return okResponse();
+    },
+  }),
+
+  groupAction({
+    name: 'set_group_member_permissions',
+    summary: '设置群成员权限',
+    params: {
+      allow_member_upload_album: f.bool().optional(),
+      allow_member_temporary_session: f.bool().optional(),
+      allow_member_create_group: f.bool().optional(),
+    },
+    rules: (r) => [r.atLeastOneOf(
+      'allow_member_upload_album',
+      'allow_member_temporary_session',
+      'allow_member_create_group',
+    )],
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.groupAdmin.setMemberPermissions(p.group_id, {
+        allowMemberUploadAlbum: p.allow_member_upload_album,
+        allowMemberTemporarySession: p.allow_member_temporary_session,
+        allowMemberCreateGroup: p.allow_member_create_group,
+      });
+      return okResponse();
+    },
+  }),
+
   groupUserAction({
     name: 'set_group_admin',
     summary: '设置/取消管理员',
@@ -128,4 +178,3 @@ export const actions = [
     },
   }),
 ];
-

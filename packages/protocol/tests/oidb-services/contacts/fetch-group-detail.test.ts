@@ -19,6 +19,8 @@ import { FetchGroupDetail } from '../../../src/oidb-services/contacts/fetch-grou
 interface GroupDetailResultsFixture {
   name?: pb<15, string>;
   shutUpAllTimestamp?: pb<59, uint_32>;
+  privilegeFlag?: pb<99, uint_32>;
+  groupFlagExt4?: pb<101, uint_32>;
 }
 
 interface GroupDetailInfoFixture {
@@ -55,6 +57,8 @@ describe('FetchGroupDetail namespace', () => {
       expect(out.config?.flags?.maxMemberCount).toBe(true);
       expect((out.config?.flags as { shutUpAllTimestamp?: boolean })?.shutUpAllTimestamp)
         .toBe(true);
+      expect(out.config?.flags?.privilegeFlag).toBe(true);
+      expect(out.config?.flags?.groupFlagExt4).toBe(true);
     });
   });
 
@@ -110,6 +114,50 @@ describe('FetchGroupDetail namespace', () => {
       const out = await FetchGroupDetail.invoke(sender, { groupUin: 601692726 });
 
       expect(out.groupInfo?.results?.shutUpAllTimestamp).toBe(4_294_967_295);
+    });
+
+    it('decodes the complete privilege flag used by masked group mutations', async () => {
+      const responseData = Buffer.from(protobuf_encode<OidbBase<GroupDetailResponseFixture>>({
+        body: {
+          groupInfo: {
+            uin: 601692726n,
+            results: { privilegeFlag: 0x82100001 },
+          },
+        },
+      }));
+      const sender = makeSender();
+      sender.sendRawPacket.mockResolvedValue({
+        success: true,
+        gotResponse: true,
+        errorCode: 0,
+        errorMessage: '',
+        responseData,
+      });
+
+      const out = await FetchGroupDetail.invoke(sender, { groupUin: 601692726 });
+      expect(out.groupInfo?.results?.privilegeFlag).toBe(0x82100001);
+    });
+
+    it('decodes the complete extended group flag used by history visibility', async () => {
+      const responseData = Buffer.from(protobuf_encode<OidbBase<GroupDetailResponseFixture>>({
+        body: {
+          groupInfo: {
+            uin: 601692726n,
+            results: { groupFlagExt4: 0x80000005 },
+          },
+        },
+      }));
+      const sender = makeSender();
+      sender.sendRawPacket.mockResolvedValue({
+        success: true,
+        gotResponse: true,
+        errorCode: 0,
+        errorMessage: '',
+        responseData,
+      });
+
+      const out = await FetchGroupDetail.invoke(sender, { groupUin: 601692726 });
+      expect(out.groupInfo?.results?.groupFlagExt4).toBe(0x80000005);
     });
   });
 });

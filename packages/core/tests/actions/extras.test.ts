@@ -5,6 +5,8 @@ import type { QQEventVariant } from '@snowluma/protocol/events';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   OidbGroupTodo,
+  OidbQueryGroupTopBannersReq,
+  OidbQueryGroupTopBannersResp,
   OidbStrangerStatusReq,
   OidbStrangerStatusResp,
 } from '@snowluma/proto-defs/oidb-actions/base';
@@ -15,7 +17,7 @@ import type {
   OidbAiVoiceResp,
 } from '@snowluma/proto-defs/oidb-actions/media';
 
-// Post-namespace migration: ExtrasApi forwards 6 OIDB cmds through
+// Post-namespace migration: ExtrasApi forwards OIDB cmds through
 // namespaces under @snowluma/protocol/oidb-services/extras. Tests assert
 // against bridge.sendRawPacket directly.
 import { ExtrasApi, AiVoiceChatType } from '../../src/bridge/apis/extras';
@@ -28,7 +30,21 @@ function packResponse(body: Uint8Array) {
   };
 }
 
-describe('apis/extras / group todo (0xF90)', () => {
+describe('apis/extras / group todo (0x9474 / 0xF90)', () => {
+  it('getGroupTodoList dispatches the todo-only banner query', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
+      protobuf_encode<OidbBase<OidbQueryGroupTopBannersResp>>({ body: {} }),
+    ));
+
+    await expect(new ExtrasApi(bridge as any).getGroupTodoList(12345)).resolves.toEqual([]);
+
+    const [wireName, bytes] = bridge.sendRawPacket.mock.calls[0]!;
+    expect(wireName).toBe('OidbSvcTrpcTcp.0x9474_0');
+    const env = protobuf_decode<OidbBase<OidbQueryGroupTopBannersReq>>(bytes);
+    expect(env.body).toEqual({ groupId: 12345n, bannerFlag: 1 });
+  });
+
   it.each([
     ['setGroupTodo', 'OidbSvcTrpcTcp.0xf90_1'] as const,
     ['completeGroupTodo', 'OidbSvcTrpcTcp.0xf90_2'] as const,
@@ -48,7 +64,7 @@ describe('apis/extras / getStrangerStatus (0xFE1_2)', () => {
   it('issues the FE1_2 query with key=27372', async () => {
     const bridge = mockBridge();
     bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
-      protobuf_encode<OidbBase<OidbStrangerStatusResp>>({ body: { data: { status: { value: 5n } } } }),
+      protobuf_encode<OidbBase<OidbStrangerStatusResp>>({ body: { data: { properties: { entries: [{ key: 27372, value: 5n }] } } } }),
     ));
     await new ExtrasApi(bridge as any).getStrangerStatus(100200);
     const [wireName, bytes] = bridge.sendRawPacket.mock.calls[0]!;
@@ -62,7 +78,7 @@ describe('apis/extras / getStrangerStatus (0xFE1_2)', () => {
   it('low-band values (≤10) map to status*10 with ext_status=0', async () => {
     const bridge = mockBridge();
     bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
-      protobuf_encode<OidbBase<OidbStrangerStatusResp>>({ body: { data: { status: { value: 7n } } } }),
+      protobuf_encode<OidbBase<OidbStrangerStatusResp>>({ body: { data: { properties: { entries: [{ key: 27372, value: 7n }] } } } }),
     ));
     expect(await new ExtrasApi(bridge as any).getStrangerStatus(1)).toEqual({ status: 70, ext_status: 0 });
   });
@@ -70,7 +86,7 @@ describe('apis/extras / getStrangerStatus (0xFE1_2)', () => {
   it('high-band values decompose into the (0xff00 + (>>16 & 0xff)) status word', async () => {
     const bridge = mockBridge();
     bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
-      protobuf_encode<OidbBase<OidbStrangerStatusResp>>({ body: { data: { status: { value: 0x42F100n } } } }),
+      protobuf_encode<OidbBase<OidbStrangerStatusResp>>({ body: { data: { properties: { entries: [{ key: 27372, value: 0x42F100n }] } } } }),
     ));
     const status = await new ExtrasApi(bridge as any).getStrangerStatus(1);
     expect(status).toEqual({ status: 10, ext_status: 0xF142 });

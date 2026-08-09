@@ -1,4 +1,4 @@
-import type { JsonObject, JsonValue } from './json';
+import type { JsonArray, JsonObject, JsonValue } from './json';
 
 export interface SendMessageResult {
   message_id: number;
@@ -215,6 +215,16 @@ export interface GroupAtAllRemainInfo {
   can_at_all: boolean;
   remain_at_all_count_for_group: number;
   remain_at_all_count_for_uin: number;
+}
+
+export interface GroupTodoListItem {
+  message_id: number;
+  message_seq: number;
+  message_random: number;
+  message: JsonArray | null;
+  text: string;
+  create_time: number;
+  update_time: number;
 }
 
 export type EmptyData = null;

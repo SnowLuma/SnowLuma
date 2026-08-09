@@ -201,10 +201,15 @@ export const ELEMENT_MANIFEST = {
     note: 'W 仅支持普通好友私聊窗口抖动；send_poke Action 仍表示拍一拍',
   },
   markdown: {
-    directions: { D: 'no', S: 'no', P: 'yes', W: 'yes' },
+    directions: { D: 'yes', S: 'yes', P: 'yes', W: 'yes' },
     fields: fieldsFor<'markdown'>()(['text']),
     requiredFields: ['text'],
-    note: '收侧（D/S）无对应，仅发送方向存在',
+  },
+  inline_keyboard: {
+    directions: { D: 'yes', S: 'yes', P: 'no', W: 'no' },
+    fields: fieldsFor<'inline_keyboard'>()(['botAppid', 'rows']),
+    requiredFields: ['botAppid', 'rows'],
+    note: '机器人消息的交互按钮；当前仅解码并上报，不支持作为普通消息发送',
   },
   flash_file: {
     directions: { D: 'yes', S: 'yes', P: 'by-design-no', W: 'by-design-no' },
@@ -245,7 +250,7 @@ const STRING_FIELDS: ReadonlySet<string> = new Set([
   'text', 'uid', 'imageUrl', 'fileId', 'fileName', 'fileHash', 'url',
   'thumbUrl', 'summary', 'emojiId', 'emojiKey', 'resId', 'filesetId',
   'forwardSource', 'forwardSummary', 'forwardPrompt', 'forwardUuid',
-  'md5Hex', 'sha1Hex',
+  'md5Hex', 'sha1Hex', 'botAppid',
 ]);
 const NUMBER_FIELDS: ReadonlySet<string> = new Set([
   'faceId', 'targetUin', 'fileSize', 'replySeq', 'replyMessageId',
@@ -298,6 +303,53 @@ function validateFieldValue(type: ElementType, field: string, value: unknown): v
       || Object.keys(item).some((key) => key !== 'text')
     ))) {
       throwValidation('INVALID_FIELD', 'message element "forward" field "forwardNews" must contain only { text: string } entries', type, field);
+    }
+    return;
+  }
+  if (field === 'rows') {
+    const stringFields = new Set([
+      'id', 'label', 'visitedLabel', 'unsupportedTips', 'data',
+    ]);
+    const numberFields = new Set([
+      'style', 'type', 'clickLimit', 'permissionType', 'anchor',
+    ]);
+    const booleanFields = new Set([
+      'atBotShowChannelList', 'isReply', 'enter',
+    ]);
+    const stringArrayFields = new Set(['specifyRoleIds', 'specifyUserIds']);
+    const buttonFields = new Set([
+      ...stringFields, ...numberFields, ...booleanFields, ...stringArrayFields,
+    ]);
+    const valid = Array.isArray(value) && value.every((row) => {
+      if (typeof row !== 'object' || row === null || Array.isArray(row)) return false;
+      const rowRecord = row as Record<string, unknown>;
+      if (Object.keys(rowRecord).some((key) => key !== 'buttons') || !Array.isArray(rowRecord.buttons)) {
+        return false;
+      }
+      return rowRecord.buttons.every((button) => {
+        if (typeof button !== 'object' || button === null || Array.isArray(button)) return false;
+        const buttonRecord = button as Record<string, unknown>;
+        if (Object.keys(buttonRecord).some((key) => !buttonFields.has(key))) return false;
+        return [...stringFields].every((key) => typeof buttonRecord[key] === 'string')
+          && [...numberFields].every((key) => (
+            typeof buttonRecord[key] === 'number'
+            && Number.isSafeInteger(buttonRecord[key])
+            && (buttonRecord[key] as number) >= 0
+          ))
+          && [...booleanFields].every((key) => typeof buttonRecord[key] === 'boolean')
+          && [...stringArrayFields].every((key) => (
+            Array.isArray(buttonRecord[key])
+            && (buttonRecord[key] as unknown[]).every((entry) => typeof entry === 'string')
+          ));
+      });
+    });
+    if (!valid) {
+      throwValidation(
+        'INVALID_FIELD',
+        'message element "inline_keyboard" field "rows" must contain normalized button rows',
+        type,
+        field,
+      );
     }
     return;
   }
@@ -363,6 +415,17 @@ function validateSemantics(
     case 'xml':
     case 'markdown':
       requireNonEmptyString(element as unknown as Record<string, unknown>, element.type, 'text');
+      return;
+    case 'inline_keyboard':
+      requireNonEmptyString(element as unknown as Record<string, unknown>, element.type, 'botAppid');
+      if (!/^\d+$/.test(element.botAppid)) {
+        throwValidation(
+          'INVALID_FIELD',
+          'message element "inline_keyboard" field "botAppid" must be an unsigned decimal integer',
+          element.type,
+          'botAppid',
+        );
+      }
       return;
     case 'json': {
       requireNonEmptyString(element as unknown as Record<string, unknown>, element.type, 'text');

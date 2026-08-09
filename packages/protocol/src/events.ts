@@ -68,6 +68,36 @@ export interface MarkdownElement {
   text: string;
 }
 
+export interface InlineKeyboardButton {
+  id: string;
+  label: string;
+  visitedLabel: string;
+  style: number;
+  type: number;
+  clickLimit: number;
+  unsupportedTips: string;
+  data: string;
+  atBotShowChannelList: boolean;
+  permissionType: number;
+  specifyRoleIds: string[];
+  specifyUserIds: string[];
+  isReply: boolean;
+  enter: boolean;
+  anchor: number;
+}
+
+export interface InlineKeyboardRow {
+  buttons: InlineKeyboardButton[];
+}
+
+/** Receive-side bot keyboard embedded in a CommonElem. */
+export interface InlineKeyboardElement {
+  type: 'inline_keyboard';
+  /** Kept as decimal text because the wire identifier is uint64. */
+  botAppid: string;
+  rows: InlineKeyboardRow[];
+}
+
 export interface ForwardElement {
   type: 'forward';
   resId: string;
@@ -171,6 +201,7 @@ type MessageElementVariant =
   | JsonElement
   | XmlElement
   | MarkdownElement
+  | InlineKeyboardElement
   | ForwardElement
   | ImageElement
   | RecordElement

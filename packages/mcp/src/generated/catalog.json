@@ -1891,6 +1891,73 @@
       "category": "扩展"
     },
     {
+      "name": "fetch_custom_face_detail",
+      "aliases": [],
+      "summary": "获取自定义表情详情",
+      "returns": "自定义表情详情数组，包含资源标识、图片地址、摘要与描述。",
+      "returnsSchema": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "emoji_id": {
+              "type": "string",
+              "description": "可传给 SnowLuma 表情管理接口的资源标识"
+            },
+            "resId": {
+              "type": "string",
+              "description": "兼容 NapCat 的资源标识"
+            },
+            "url": {
+              "type": "string",
+              "description": "表情图片地址"
+            },
+            "md5": {
+              "type": "string",
+              "description": "表情内容摘要"
+            },
+            "desc": {
+              "type": "string",
+              "description": "自定义表情描述；未设置时为空字符串"
+            }
+          },
+          "required": [
+            "emoji_id",
+            "resId",
+            "url",
+            "md5",
+            "desc"
+          ]
+        }
+      },
+      "readOnly": true,
+      "params": [
+        {
+          "name": "count",
+          "type": "int",
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "default": 48
+        }
+      ],
+      "invariants": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 48
+          }
+        },
+        "additionalProperties": true
+      },
+      "category": "扩展"
+    },
+    {
       "name": "fetch_emoji_like",
       "aliases": [],
       "summary": "获取表情回应用户（NapCat 分页）",
@@ -5767,6 +5834,43 @@
         "additionalProperties": true
       },
       "category": "群信息"
+    },
+    {
+      "name": "get_group_todo_list",
+      "aliases": [],
+      "summary": "获取群待办列表",
+      "returns": "群待办数组，包含可用于待办操作的消息标识、服务端摘要与时间",
+      "readOnly": true,
+      "params": [
+        {
+          "name": "group_id",
+          "type": "uint",
+          "required": true,
+          "role": "group_id",
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "desc": "群号"
+        }
+      ],
+      "invariants": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "群号",
+            "x-role": "group_id"
+          }
+        },
+        "required": [
+          "group_id"
+        ],
+        "additionalProperties": true
+      },
+      "category": "扩展"
     },
     {
       "name": "get_image",
@@ -9798,6 +9902,141 @@
       "category": "群管理"
     },
     {
+      "name": "set_group_member_invite_policy",
+      "aliases": [],
+      "summary": "设置群成员邀请策略",
+      "readOnly": false,
+      "params": [
+        {
+          "name": "group_id",
+          "type": "uint",
+          "required": true,
+          "role": "group_id",
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "desc": "群号"
+        },
+        {
+          "name": "policy",
+          "type": "enum",
+          "required": true,
+          "values": [
+            "disabled",
+            "require_approval",
+            "no_approval",
+            "no_approval_under_100"
+          ],
+          "schema": {
+            "enum": [
+              "disabled",
+              "require_approval",
+              "no_approval",
+              "no_approval_under_100"
+            ]
+          }
+        }
+      ],
+      "invariants": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "群号",
+            "x-role": "group_id"
+          },
+          "policy": {
+            "enum": [
+              "disabled",
+              "require_approval",
+              "no_approval",
+              "no_approval_under_100"
+            ]
+          }
+        },
+        "required": [
+          "group_id",
+          "policy"
+        ],
+        "additionalProperties": true
+      },
+      "category": "群管理"
+    },
+    {
+      "name": "set_group_member_permissions",
+      "aliases": [],
+      "summary": "设置群成员权限",
+      "readOnly": false,
+      "params": [
+        {
+          "name": "group_id",
+          "type": "uint",
+          "required": true,
+          "role": "group_id",
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "desc": "群号"
+        },
+        {
+          "name": "allow_member_upload_album",
+          "type": "bool",
+          "required": false,
+          "schema": {
+            "type": "boolean"
+          }
+        },
+        {
+          "name": "allow_member_temporary_session",
+          "type": "bool",
+          "required": false,
+          "schema": {
+            "type": "boolean"
+          }
+        },
+        {
+          "name": "allow_member_create_group",
+          "type": "bool",
+          "required": false,
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "invariants": [
+        "at least one of: allow_member_upload_album, allow_member_temporary_session, allow_member_create_group"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "群号",
+            "x-role": "group_id"
+          },
+          "allow_member_upload_album": {
+            "type": "boolean"
+          },
+          "allow_member_temporary_session": {
+            "type": "boolean"
+          },
+          "allow_member_create_group": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "group_id"
+        ],
+        "additionalProperties": true
+      },
+      "category": "群管理"
+    },
+    {
       "name": "set_group_name",
       "aliases": [],
       "summary": "设置群名",
@@ -9841,6 +10080,54 @@
         },
         "required": [
           "group_id"
+        ],
+        "additionalProperties": true
+      },
+      "category": "群管理"
+    },
+    {
+      "name": "set_group_new_member_history_visibility",
+      "aliases": [],
+      "summary": "设置新成员是否可查看历史消息",
+      "readOnly": false,
+      "params": [
+        {
+          "name": "group_id",
+          "type": "uint",
+          "required": true,
+          "role": "group_id",
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "desc": "群号"
+        },
+        {
+          "name": "visible",
+          "type": "bool",
+          "required": true,
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "invariants": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "群号",
+            "x-role": "group_id"
+          },
+          "visible": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "group_id",
+          "visible"
         ],
         "additionalProperties": true
       },
@@ -11657,7 +11944,7 @@
     },
     {
       "category": "群管理",
-      "count": 14
+      "count": 17
     },
     {
       "category": "群文件",
@@ -11669,7 +11956,7 @@
     },
     {
       "category": "扩展",
-      "count": 111
+      "count": 113
     },
     {
       "category": "群相册",

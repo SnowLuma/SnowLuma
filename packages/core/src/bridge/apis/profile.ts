@@ -7,6 +7,7 @@ import type {
 } from '@snowluma/proto-defs/oidb-actions/base';
 import { AddCustomFace } from '@snowluma/protocol/oidb-services/custom-face/add-custom-face';
 import { DeleteCustomFace } from '@snowluma/protocol/oidb-services/custom-face/delete-custom-face';
+import { FetchCustomFaceDetail } from '@snowluma/protocol/oidb-services/custom-face/fetch-custom-face-detail';
 import { ModifyCustomFace } from '@snowluma/protocol/oidb-services/custom-face/modify-custom-face';
 import { MoveCustomFace } from '@snowluma/protocol/oidb-services/custom-face/move-custom-face';
 import { OrderCustomFace } from '@snowluma/protocol/oidb-services/custom-face/order-custom-face';
@@ -22,6 +23,13 @@ import type { Bridge } from '../bridge';
 import type { BridgeContext } from '../bridge-context';
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
+
+export interface CustomFaceDetail {
+  emojiId: string;
+  url: string;
+  md5: string;
+  desc: string;
+}
 
 export class ProfileApi {
   constructor(private readonly ctx: BridgeContext) { }
@@ -134,6 +142,36 @@ export class ProfileApi {
   }
 
   async fetchCustomFace(count = 10): Promise<string[]> {
+    const faceIds = await this.fetchCustomFaceIds(count);
+    return faceIds.map((id) => this.customFaceUrl(id));
+  }
+
+  async fetchCustomFaceDetails(count = 10): Promise<CustomFaceDetail[]> {
+    const faceIds = await this.fetchCustomFaceIds(count);
+    if (faceIds.length === 0) return [];
+
+    const emojis = faceIds.map((emojiId) => ({
+      emojiId,
+      md5: md5FromEmojiId(emojiId),
+    }));
+    const details = await FetchCustomFaceDetail.invoke(this.ctx, { emojis });
+    const descriptions = new Map(details.map((detail) => [detail.emojiId, detail.desc]));
+
+    return emojis.map(({ emojiId, md5 }) => ({
+      emojiId,
+      url: this.customFaceUrl(emojiId),
+      md5,
+      // The detail response may omit entries which have never had a remark.
+      desc: descriptions.get(emojiId) ?? '',
+    }));
+  }
+
+  private async fetchCustomFaceIds(count: number): Promise<string[]> {
+    if (!Number.isInteger(count) || count < 0) {
+      throw new Error('custom face count must be a non-negative integer');
+    }
+    if (count === 0) return [];
+
     const req = {
       inner: { field1: 1, osVersion: '10.0.26200', qqVersion: '9.9.28-46928' },
       uin: BigInt(this.ctx.identity.uin),
@@ -146,11 +184,15 @@ export class ProfileApi {
       throw new Error(result.errorMessage || 'fetch custom face failed');
     }
     const resp = protobuf_decode<FaceroamOpResp>(result.responseData);
-    if (!resp || resp.retCode !== 0) {
+    if (!resp || (resp.retCode ?? 0) !== 0) {
       throw new Error(`fetch custom face error: ${resp?.message || 'unknown'}`);
     }
     const faceIds = resp.item?.faceIds || [];
-    return faceIds.slice(0, count).map((id: string) => `https://p.qpic.cn/qq_expression/${this.ctx.identity.uin}/${id}/0`);
+    return faceIds.slice(0, count);
+  }
+
+  private customFaceUrl(emojiId: string): string {
+    return `https://p.qpic.cn/qq_expression/${this.ctx.identity.uin}/${emojiId}/0`;
   }
 
   /** 删除一个收藏表情（custom face）。emoji_id 来自 fetchCustomFace 返回的 URL 路径段。 */

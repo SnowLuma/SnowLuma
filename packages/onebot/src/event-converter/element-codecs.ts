@@ -492,11 +492,46 @@ export const ELEMENT_CODECS = {
   },
 
   markdown: {
-    // 收侧（S）无对应，仅发·解存在。
+    async toSegment(element) {
+      return {
+        type: 'markdown',
+        data: { content: element.text },
+      };
+    },
     async fromSegment(data) {
       return {
         type: 'markdown',
         text: String(data.content ?? ''),
+      };
+    },
+  },
+
+  inline_keyboard: {
+    async toSegment(element) {
+      return {
+        type: 'inline_keyboard',
+        data: {
+          bot_appid: element.botAppid,
+          rows: element.rows.map((row) => ({
+            buttons: row.buttons.map((button) => ({
+              id: button.id,
+              label: button.label,
+              visited_label: button.visitedLabel,
+              style: button.style,
+              type: button.type,
+              click_limit: button.clickLimit,
+              unsupport_tips: button.unsupportedTips,
+              data: button.data,
+              at_bot_show_channel_list: button.atBotShowChannelList,
+              permission_type: button.permissionType,
+              specify_role_ids: button.specifyRoleIds,
+              specify_user_ids: button.specifyUserIds,
+              is_reply: button.isReply,
+              enter: button.enter,
+              anchor: button.anchor,
+            })),
+          })),
+        },
       };
     },
   },

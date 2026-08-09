@@ -4,6 +4,10 @@ import {
   type AiVoiceCategory as NamespaceAiVoiceCategory,
 } from '@snowluma/protocol/oidb-services/extras/fetch-ai-voice-list';
 import { GetStrangerStatus, type StrangerStatus as NamespaceStrangerStatus } from '@snowluma/protocol/oidb-services/extras/get-stranger-status';
+import {
+  GetGroupTodoList,
+  type GroupTodoListItem as NamespaceGroupTodoListItem,
+} from '@snowluma/protocol/oidb-services/extras/get-group-todo-list';
 import { GroupTodo } from '@snowluma/protocol/oidb-services/extras/group-todo';
 import { convertAudioBytes } from '@snowluma/protocol/highway/ffmpeg-addon';
 import { loadBinarySource } from '@snowluma/protocol/highway/utils';
@@ -35,6 +39,7 @@ export interface PttTransInput {
 // ─────────────── public types (re-exported from bridge.ts as before) ───
 
 export type StrangerStatus = NamespaceStrangerStatus;
+export type GroupTodoListItem = NamespaceGroupTodoListItem;
 
 export const AiVoiceChatType = {
   Unknown: 0,
@@ -87,7 +92,13 @@ export class ExtrasApi {
 
   constructor(private readonly ctx: BridgeContext) { }
 
-  // ─────────────── Group todo (0xF90) ───────────────
+  // ─────────────── Group todo query / mutations (0x9474 / 0xF90) ───────────────
+
+  async getGroupTodoList(groupId: number): Promise<GroupTodoListItem[]> {
+    const items = await GetGroupTodoList.invoke(this.ctx, { groupId });
+    log.debug('group todo list fetched group=%d count=%d', groupId, items.length);
+    return items;
+  }
 
   setGroupTodo(groupId: number, msgSeq: bigint): Promise<void> {
     return GroupTodo.invoke(this.ctx, { groupId, msgSeq, action: 'set' });
@@ -104,14 +115,20 @@ export class ExtrasApi {
   // ─────────────── Stranger online/ext status (0xFE1_2) ───────────────
 
   /**
-   * Returns `null` on transport / decode failure rather than throwing,
-   * so the OneBot action can produce a clean retcode without try/catch
-   * gymnastics. Namespace throws on transport failure → swallow here.
+   * Keeps the action response user-safe while retaining the underlying
+   * failure in the service log for diagnosis.
    */
   async getStrangerStatus(uin: number): Promise<StrangerStatus | null> {
     try {
-      return await GetStrangerStatus.invoke(this.ctx, { uin });
-    } catch {
+      const status = await GetStrangerStatus.invoke(this.ctx, { uin });
+      if (!status) log.warn('user status query returned no status target=%d', uin);
+      return status;
+    } catch (error) {
+      log.warn(
+        'user status query failed target=%d: %s',
+        uin,
+        error instanceof Error ? error.message : String(error),
+      );
       return null;
     }
   }
