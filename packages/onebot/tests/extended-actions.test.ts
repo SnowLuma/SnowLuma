@@ -1509,6 +1509,60 @@ describe('extended-actions / set_group_new_member_history_visibility', () => {
   });
 });
 
+describe('extended-actions / set_group_member_permissions', () => {
+  it('forwards all supplied capability switches to the group-admin API', async () => {
+    const setMemberPermissions = vi.fn(async () => undefined);
+    const bridge = fakeBridge({ apis: { groupAdmin: { setMemberPermissions } } });
+
+    const response = await makeHandler(fakeCtx(bridge)).handle(
+      'set_group_member_permissions',
+      {
+        group_id: '12345',
+        allow_member_upload_album: 'true',
+        allow_member_temporary_session: false,
+        allow_member_create_group: 1,
+      },
+    );
+
+    expect(response).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(setMemberPermissions).toHaveBeenCalledWith(12345, {
+      allowMemberUploadAlbum: true,
+      allowMemberTemporarySession: false,
+      allowMemberCreateGroup: true,
+    });
+  });
+
+  it('accepts a single supplied capability switch', async () => {
+    const setMemberPermissions = vi.fn(async () => undefined);
+    const bridge = fakeBridge({ apis: { groupAdmin: { setMemberPermissions } } });
+
+    const response = await makeHandler(fakeCtx(bridge)).handle(
+      'set_group_member_permissions',
+      { group_id: 12345, allow_member_upload_album: false },
+    );
+
+    expect(response).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(setMemberPermissions).toHaveBeenCalledWith(12345, {
+      allowMemberUploadAlbum: false,
+      allowMemberTemporarySession: undefined,
+      allowMemberCreateGroup: undefined,
+    });
+  });
+
+  it('rejects an empty update before calling the bridge', async () => {
+    const setMemberPermissions = vi.fn();
+    const bridge = fakeBridge({ apis: { groupAdmin: { setMemberPermissions } } });
+
+    const response = await makeHandler(fakeCtx(bridge)).handle(
+      'set_group_member_permissions',
+      { group_id: 12345 },
+    );
+
+    expect(response).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(setMemberPermissions).not.toHaveBeenCalled();
+  });
+});
+
 // ─── Wave 1: get_group_shut_list ───
 
 describe('extended-actions / get_group_shut_list', () => {

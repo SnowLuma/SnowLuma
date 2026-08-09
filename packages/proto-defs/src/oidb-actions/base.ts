@@ -82,6 +82,17 @@ export interface Oidb0x89a_0HistoryVisibility {
   settings?: pb<2, Oidb0x89a_0HistoryVisibilitySettings>;
   field12?:  pb<12, uint_32>;
 }
+// 0x89A_0 — one masked group-member capability update. These are deny bits,
+// so callers clear the selected bit to allow a capability and set it to deny.
+export interface Oidb0x89a_0MemberPermissionSettings {
+  appPrivilegeFlag?: pb_optional<23, uint_32>;
+  appPrivilegeMask?: pb_optional<24, uint_32>;
+}
+export interface Oidb0x89a_0MemberPermission {
+  groupUin?: pb<1, uint_64>;
+  settings?: pb<2, Oidb0x89a_0MemberPermissionSettings>;
+  field12?:  pb<12, uint_32>;
+}
 export interface OidbKickMember {
   groupUin?:         pb<1, uint_32>;
   targetUid?:        pb<3, string>;

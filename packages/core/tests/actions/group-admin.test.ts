@@ -8,6 +8,7 @@ import type {
   Oidb0x89a_0Search,
   Oidb0x89a_0InvitePolicy,
   Oidb0x89a_0HistoryVisibility,
+  Oidb0x89a_0MemberPermission,
   Oidb0xf16Req,
   OidbGroupRequestAction,
   OidbKickMember,
@@ -332,6 +333,74 @@ describe('apis/group-admin', () => {
     await expect(
       new GroupAdminApi(bridge as any).setNewMemberHistoryVisibility(12345, true),
     ).rejects.toThrow(/was not applied/);
+    expect(bridge.sendRawPacket).toHaveBeenCalledTimes(3);
+  });
+
+  it('setMemberPermissions applies supplied switches separately and verifies the combined result (#335)', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(packPrivilegeFlag(0x80018001))
+      .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
+      .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
+      .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
+      .mockResolvedValueOnce(packPrivilegeFlag(0x80010000));
+
+    await new GroupAdminApi(bridge as any).setMemberPermissions(12345, {
+      allowMemberUploadAlbum: true,
+      allowMemberTemporarySession: false,
+      allowMemberCreateGroup: true,
+    });
+
+    expect(bridge.sendRawPacket.mock.calls.map((call) => call[0])).toEqual([
+      'OidbSvcTrpcTcp.0x88d_0',
+      'OidbSvcTrpcTcp.0x89a_0',
+      'OidbSvcTrpcTcp.0x89a_0',
+      'OidbSvcTrpcTcp.0x89a_0',
+      'OidbSvcTrpcTcp.0x88d_0',
+    ]);
+
+    const writes = bridge.sendRawPacket.mock.calls.slice(1, 4).map((call) =>
+      protobuf_decode<OidbBase<Oidb0x89a_0MemberPermission>>(call[1]).body?.settings,
+    );
+    expect(writes).toEqual([
+      { appPrivilegeFlag: 0x80018000, appPrivilegeMask: 0x1 },
+      { appPrivilegeFlag: 0x80018000, appPrivilegeMask: 0x10000 },
+      { appPrivilegeFlag: 0x80010000, appPrivilegeMask: 0x8000 },
+    ]);
+  });
+
+  it('setMemberPermissions rejects an empty update before reading group state', async () => {
+    const bridge = mockBridge();
+    await expect(
+      new GroupAdminApi(bridge as any).setMemberPermissions(12345, {}),
+    ).rejects.toThrow(/at least one member permission/);
+    expect(bridge.sendRawPacket).not.toHaveBeenCalled();
+  });
+
+  it('setMemberPermissions fails before mutation when the current flag is absent', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packPrivilegeFlag());
+
+    await expect(
+      new GroupAdminApi(bridge as any).setMemberPermissions(12345, {
+        allowMemberUploadAlbum: true,
+      }),
+    ).rejects.toThrow(/unable to read group member permissions before update/);
+    expect(bridge.sendRawPacket).toHaveBeenCalledOnce();
+  });
+
+  it('setMemberPermissions rejects an ack when final read-back does not match', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(packPrivilegeFlag(0x80000001))
+      .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
+      .mockResolvedValueOnce(packPrivilegeFlag(0x80000001));
+
+    await expect(
+      new GroupAdminApi(bridge as any).setMemberPermissions(12345, {
+        allowMemberUploadAlbum: true,
+      }),
+    ).rejects.toThrow(/were not applied/);
     expect(bridge.sendRawPacket).toHaveBeenCalledTimes(3);
   });
 

@@ -92,6 +92,29 @@ export const actions = [
     },
   }),
 
+  groupAction({
+    name: 'set_group_member_permissions',
+    summary: '设置群成员权限',
+    params: {
+      allow_member_upload_album: f.bool().optional(),
+      allow_member_temporary_session: f.bool().optional(),
+      allow_member_create_group: f.bool().optional(),
+    },
+    rules: (r) => [r.atLeastOneOf(
+      'allow_member_upload_album',
+      'allow_member_temporary_session',
+      'allow_member_create_group',
+    )],
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.groupAdmin.setMemberPermissions(p.group_id, {
+        allowMemberUploadAlbum: p.allow_member_upload_album,
+        allowMemberTemporarySession: p.allow_member_temporary_session,
+        allowMemberCreateGroup: p.allow_member_create_group,
+      });
+      return okResponse();
+    },
+  }),
+
   groupUserAction({
     name: 'set_group_admin',
     summary: '设置/取消管理员',
