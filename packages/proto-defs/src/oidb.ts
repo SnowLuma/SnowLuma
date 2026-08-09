@@ -117,6 +117,8 @@ export interface OidbSvcTrpcTcp0x88D_0Results {
   answer?:          pb<25, string>;
   maxAdminCount?:   pb<29, uint_64>;
   shutUpAllTimestamp?: pb<59, uint_32>;
+  /** Complete app privilege bitfield (requested with detail flag tag 99). */
+  privilegeFlag?:   pb<99, uint_32>;
 }
 export interface OidbSvcTrpcTcp0x88D_0ResponseGroupInfo {
   uin?:     pb<1, uint_64>;

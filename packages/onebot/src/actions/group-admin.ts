@@ -65,6 +65,23 @@ export const actions = [
     },
   }),
 
+  groupAction({
+    name: 'set_group_member_invite_policy',
+    summary: '设置群成员邀请策略',
+    params: {
+      policy: f.enum(
+        'disabled',
+        'require_approval',
+        'no_approval',
+        'no_approval_under_100',
+      ),
+    },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.groupAdmin.setMemberInvitePolicy(p.group_id, p.policy);
+      return okResponse();
+    },
+  }),
+
   groupUserAction({
     name: 'set_group_admin',
     summary: '设置/取消管理员',
@@ -128,4 +145,3 @@ export const actions = [
     },
   }),
 ];
-

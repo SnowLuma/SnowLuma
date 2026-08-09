@@ -56,6 +56,20 @@ export interface Oidb0x89a_0Search {
   settings?: pb<2, Oidb0x89a_0SearchSettings>;
   field12?:  pb<12, uint_32>;
 }
+// 0x89A_0 — member invitation policy. The three settings tags are the
+// GroupDetailInfoV2 fields emitted by QQ's EncodeModifyGroupDetailInfoParam:
+// appPrivilegeFlag=23, appPrivilegeMask=24, allowMemberInvite=29.
+export interface Oidb0x89a_0InvitePolicySettings {
+  // All three values can legitimately be zero and still have to be present.
+  appPrivilegeFlag?: pb_optional<23, uint_32>;
+  appPrivilegeMask?: pb_optional<24, uint_32>;
+  allowMemberInvite?: pb_optional<29, uint_32>;
+}
+export interface Oidb0x89a_0InvitePolicy {
+  groupUin?: pb<1, uint_64>;
+  settings?: pb<2, Oidb0x89a_0InvitePolicySettings>;
+  field12?:  pb<12, uint_32>;
+}
 export interface OidbKickMember {
   groupUin?:         pb<1, uint_32>;
   targetUid?:        pb<3, string>;
@@ -316,6 +330,8 @@ export interface OidbGroupDetailFlags {
   answer?:          pb<25, string>;
   maxAdminCount?:   pb<29, string>;
   shutUpAllTimestamp?: pb<59, bool>;
+  /** Current complete app privilege bitfield; needed for masked mutations. */
+  privilegeFlag?:   pb<99, bool>;
 }
 export interface OidbGroupDetailConfig {
   uin?:   pb<1, uint_64>;

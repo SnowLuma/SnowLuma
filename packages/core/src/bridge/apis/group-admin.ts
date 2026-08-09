@@ -1,4 +1,5 @@
 import { GetAtAllRemain } from '@snowluma/protocol/oidb-services/group-admin/get-at-all-remain';
+import { FetchGroupDetail } from '@snowluma/protocol/oidb-services/contacts/fetch-group-detail';
 import { KickMember } from '@snowluma/protocol/oidb-services/group-admin/kick-member';
 import { KickMembers } from '@snowluma/protocol/oidb-services/group-admin/kick-members';
 import { LeaveGroup } from '@snowluma/protocol/oidb-services/group-admin/leave-group';
@@ -10,6 +11,12 @@ import { SetAdmin } from '@snowluma/protocol/oidb-services/group-admin/set-admin
 import { SetGroupName } from '@snowluma/protocol/oidb-services/group-admin/set-group-name';
 import { SetGroupRemark } from '@snowluma/protocol/oidb-services/group-admin/set-group-remark';
 import { SetMemberCard } from '@snowluma/protocol/oidb-services/group-admin/set-member-card';
+import {
+  MEMBER_INVITE_PRIVILEGE_MASK,
+  mergeMemberInvitePrivilegeFlag,
+  SetMemberInvitePolicy,
+  type GroupMemberInvitePolicy,
+} from '@snowluma/protocol/oidb-services/group-admin/set-member-invite-policy';
 import { SetSearch } from '@snowluma/protocol/oidb-services/group-admin/set-search';
 import { SetSpecialTitle } from '@snowluma/protocol/oidb-services/group-admin/set-special-title';
 import { ModifyGroupExtInfo } from '@snowluma/protocol/oidb-services/group-admin/modify-group-ext-info';
@@ -37,6 +44,32 @@ export class GroupAdminApi {
 
   setSearch(groupId: number, noFingerOpen?: number, noCodeFingerOpen?: number): Promise<void> {
     return SetSearch.invoke(this.ctx, { groupId, noFingerOpen, noCodeFingerOpen });
+  }
+
+  async setMemberInvitePolicy(groupId: number, policy: GroupMemberInvitePolicy): Promise<void> {
+    const currentPrivilegeFlag = await this.fetchGroupPrivilegeFlag(groupId, 'before update');
+    const expectedPrivilegeFlag = mergeMemberInvitePrivilegeFlag(currentPrivilegeFlag, policy);
+
+    await SetMemberInvitePolicy.invoke(this.ctx, {
+      groupId,
+      currentPrivilegeFlag,
+      policy,
+    });
+
+    const actualPrivilegeFlag = await this.fetchGroupPrivilegeFlag(groupId, 'after update');
+    const mask = BigInt(MEMBER_INVITE_PRIVILEGE_MASK);
+    if ((BigInt(actualPrivilegeFlag) & mask) !== (BigInt(expectedPrivilegeFlag) & mask)) {
+      throw new Error(`group member invite policy was not applied for group ${groupId}`);
+    }
+  }
+
+  private async fetchGroupPrivilegeFlag(groupId: number, phase: string): Promise<number> {
+    const detail = await FetchGroupDetail.invoke(this.ctx, { groupUin: groupId });
+    const privilegeFlag = detail.groupInfo?.results?.privilegeFlag;
+    if (typeof privilegeFlag !== 'number') {
+      throw new Error(`unable to read group member invite policy ${phase} for group ${groupId}`);
+    }
+    return privilegeFlag;
   }
 
   setAddRequest(

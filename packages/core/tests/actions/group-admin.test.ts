@@ -1,11 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { OidbBase } from '@snowluma/proto-defs/oidb';
+import type { OidbBase, OidbSvcTrpcTcp0x88D_0Response } from '@snowluma/proto-defs/oidb';
 import type {
   Oidb0x8a0Req,
   Oidb0x8a7Resp,
   Oidb0x89a_0AddOption,
   Oidb0x89a_0Search,
+  Oidb0x89a_0InvitePolicy,
   Oidb0xf16Req,
   OidbGroupRequestAction,
   OidbKickMember,
@@ -29,6 +30,17 @@ function packResponse(body: Uint8Array) {
     success: true, gotResponse: true, errorCode: 0, errorMessage: '',
     responseData: Buffer.from(body),
   };
+}
+
+function packPrivilegeFlag(privilegeFlag?: number) {
+  return packResponse(protobuf_encode<OidbBase<OidbSvcTrpcTcp0x88D_0Response>>({
+    body: {
+      groupInfo: {
+        uin: 12345n,
+        results: privilegeFlag === undefined ? {} : { privilegeFlag },
+      },
+    },
+  }));
 }
 
 describe('apis/group-admin', () => {
@@ -208,6 +220,58 @@ describe('apis/group-admin', () => {
 
     const env2 = protobuf_decode<OidbBase<OidbGroupRequestAction>>(bridge.sendRawPacket.mock.calls[1]![1]);
     expect(env2.body?.accept).toBe(2);
+  });
+
+  it('setMemberInvitePolicy reads, merges, writes, and verifies the privilege flag (#334)', async () => {
+    const bridge = mockBridge();
+    const currentPrivilegeFlag = 0x86100001;
+    const expectedPrivilegeFlag = 0x84000001;
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(packPrivilegeFlag(currentPrivilegeFlag))
+      .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
+      .mockResolvedValueOnce(packPrivilegeFlag(expectedPrivilegeFlag));
+
+    await new GroupAdminApi(bridge as any).setMemberInvitePolicy(12345, 'disabled');
+
+    expect(bridge.sendRawPacket.mock.calls.map((call) => call[0])).toEqual([
+      'OidbSvcTrpcTcp.0x88d_0',
+      'OidbSvcTrpcTcp.0x89a_0',
+      'OidbSvcTrpcTcp.0x88d_0',
+    ]);
+    const env = protobuf_decode<OidbBase<Oidb0x89a_0InvitePolicy>>(
+      bridge.sendRawPacket.mock.calls[1]![1],
+    );
+    expect(env.body).toMatchObject({
+      groupUin: 12345n,
+      settings: {
+        appPrivilegeFlag: expectedPrivilegeFlag,
+        appPrivilegeMask: 0x06100000,
+        allowMemberInvite: 0,
+      },
+    });
+  });
+
+  it('setMemberInvitePolicy fails before mutation when the current flag is absent', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packPrivilegeFlag());
+
+    await expect(
+      new GroupAdminApi(bridge as any).setMemberInvitePolicy(12345, 'require_approval'),
+    ).rejects.toThrow(/unable to read group member invite policy before update/);
+    expect(bridge.sendRawPacket).toHaveBeenCalledOnce();
+  });
+
+  it('setMemberInvitePolicy rejects a successful ack when read-back does not match', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(packPrivilegeFlag(0x80100001))
+      .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
+      .mockResolvedValueOnce(packPrivilegeFlag(0x80100001));
+
+    await expect(
+      new GroupAdminApi(bridge as any).setMemberInvitePolicy(12345, 'disabled'),
+    ).rejects.toThrow(/was not applied/);
+    expect(bridge.sendRawPacket).toHaveBeenCalledTimes(3);
   });
 
   it('getAtAllRemain decodes the response and converts BigInts', async () => {

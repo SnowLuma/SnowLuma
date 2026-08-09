@@ -1453,6 +1453,34 @@ describe('extended-actions / fetch_custom_face_detail', () => {
   });
 });
 
+describe('extended-actions / set_group_member_invite_policy', () => {
+  it('forwards the validated policy to the group-admin API', async () => {
+    const setMemberInvitePolicy = vi.fn(async () => undefined);
+    const bridge = fakeBridge({ apis: { groupAdmin: { setMemberInvitePolicy } } });
+
+    const response = await makeHandler(fakeCtx(bridge)).handle(
+      'set_group_member_invite_policy',
+      { group_id: '12345', policy: 'no_approval_under_100' },
+    );
+
+    expect(response).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(setMemberInvitePolicy).toHaveBeenCalledWith(12345, 'no_approval_under_100');
+  });
+
+  it('rejects an unknown policy before calling the bridge', async () => {
+    const setMemberInvitePolicy = vi.fn();
+    const bridge = fakeBridge({ apis: { groupAdmin: { setMemberInvitePolicy } } });
+
+    const response = await makeHandler(fakeCtx(bridge)).handle(
+      'set_group_member_invite_policy',
+      { group_id: 12345, policy: 'anything' },
+    );
+
+    expect(response).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(setMemberInvitePolicy).not.toHaveBeenCalled();
+  });
+});
+
 // ─── Wave 1: get_group_shut_list ───
 
 describe('extended-actions / get_group_shut_list', () => {
