@@ -666,8 +666,10 @@ export interface CustomFaceModifyBody {
 // 0x902e modify 响应：f1=retcode, f2=errmsg, f3=opType, f4 repeated 受影响条目
 // {f1:{emojiId,md5}, f3:desc}（含改后 desc）。
 export interface CustomFaceModifyRespEntry {
-  emoji?: pb<1, CustomFaceOpEmojiEntry>;
-  desc?:  pb<3, string>;
+  emoji?:      pb<1, CustomFaceOpEmojiEntry>;
+  /** Older QQ builds return the description in tag 2. */
+  legacyDesc?: pb<2, string>;
+  desc?:       pb<3, string>;
 }
 export interface CustomFaceModifyResp {
   retCode?: pb<1, uint_32>;

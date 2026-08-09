@@ -61,6 +61,7 @@ const APIS_ROUTING: Record<string, [string, string]> = {
   setAvatar: ['profile', 'setAvatar'],
   setGroupAvatar: ['profile', 'setGroupAvatar'],
   fetchCustomFace: ['profile', 'fetchCustomFace'],
+  fetchCustomFaceDetails: ['profile', 'fetchCustomFaceDetails'],
   getProfileLike: ['profile', 'getLike'],
   getUnidirectionalFriendList: ['profile', 'getUnidirectionalFriendList'],
   // FriendApi: handleRequest/delete/setRemark.
@@ -1404,6 +1405,51 @@ describe('extended-actions / set_group_portrait', () => {
       group_id: 1, file: 'x.png',
     });
     expect(res).toMatchObject({ status: 'failed', retcode: 100, wording: 'highway 500' });
+  });
+});
+
+describe('extended-actions / fetch_custom_face_detail', () => {
+  it('returns real packet-backed fields with SnowLuma and NapCat resource aliases', async () => {
+    const fetchCustomFaceDetails = vi.fn(async () => [{
+      emojiId: '10001_0_0_0_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_0_0',
+      url: 'https://p.qpic.cn/qq_expression/10001/id/0',
+      md5: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      desc: '开心',
+    }]);
+    const bridge = fakeBridge({ fetchCustomFaceDetails });
+
+    const response = await makeHandler(fakeCtx(bridge)).handle('fetch_custom_face_detail', {
+      count: '1',
+    });
+
+    expect(fetchCustomFaceDetails).toHaveBeenCalledWith(1);
+    expect(response).toMatchObject({
+      status: 'ok',
+      data: [{
+        emoji_id: '10001_0_0_0_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_0_0',
+        resId: '10001_0_0_0_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_0_0',
+        url: 'https://p.qpic.cn/qq_expression/10001/id/0',
+        md5: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        desc: '开心',
+      }],
+    });
+  });
+
+  it('defaults to the compatibility page size of 48', async () => {
+    const fetchCustomFaceDetails = vi.fn(async () => []);
+    const bridge = fakeBridge({ fetchCustomFaceDetails });
+    await makeHandler(fakeCtx(bridge)).handle('fetch_custom_face_detail', {});
+    expect(fetchCustomFaceDetails).toHaveBeenCalledWith(48);
+  });
+
+  it('rejects a negative count before calling the bridge', async () => {
+    const fetchCustomFaceDetails = vi.fn();
+    const bridge = fakeBridge({ fetchCustomFaceDetails });
+    const response = await makeHandler(fakeCtx(bridge)).handle('fetch_custom_face_detail', {
+      count: -1,
+    });
+    expect(response).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(fetchCustomFaceDetails).not.toHaveBeenCalled();
   });
 });
 

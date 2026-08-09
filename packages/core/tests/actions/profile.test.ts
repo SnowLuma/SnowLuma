@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
+  CustomFaceModifyResp,
+  CustomFaceMoveBody,
+  FaceroamOpResp,
   GroupAvatarExtra,
   Oidb0x7edResp,
   Oidb0xe17Resp,
@@ -207,5 +210,68 @@ describe('apis/profile', () => {
     });
     const out = await new ProfileApi(bridge as any).getUnidirectionalFriendList();
     expect(out).toEqual([{ uin: 10001 }, { uin: 10002 }]);
+  });
+
+  it('fetchCustomFaceDetails supplements the Faceroam ids with server descriptions (#333)', async () => {
+    const bridge = mockBridge();
+    const emojiA = '10001_0_0_0_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_0_0';
+    const emojiB = '10001_0_0_0_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB_0_0';
+    bridge.sendRawPacket
+      .mockResolvedValueOnce({
+        success: true,
+        gotResponse: true,
+        errorCode: 0,
+        errorMessage: '',
+        responseData: Buffer.from(protobuf_encode<FaceroamOpResp>({
+          retCode: 0,
+          item: { faceIds: [emojiA, emojiB] },
+        })),
+      } as any)
+      .mockResolvedValueOnce({
+        success: true,
+        gotResponse: true,
+        errorCode: 0,
+        errorMessage: '',
+        responseData: Buffer.from(protobuf_encode<OidbBase<CustomFaceModifyResp>>({
+          body: {
+            retCode: 0,
+            entries: [{ emoji: { emojiId: emojiB }, desc: '第二个表情' }],
+          },
+        })),
+      } as any);
+
+    const out = await new ProfileApi(bridge as any).fetchCustomFaceDetails(2);
+
+    expect(bridge.sendRawPacket.mock.calls.map((call) => call[0])).toEqual([
+      'Faceroam.OpReq',
+      'OidbSvcTrpcTcp.0x902e_1',
+    ]);
+    const detailRequest = protobuf_decode<OidbBase<CustomFaceMoveBody>>(
+      bridge.sendRawPacket.mock.calls[1]![1],
+    );
+    expect(detailRequest.body?.emojis).toEqual([
+      { emojiId: emojiA, md5: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' },
+      { emojiId: emojiB, md5: 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB' },
+    ]);
+    expect(out).toEqual([
+      {
+        emojiId: emojiA,
+        url: `https://p.qpic.cn/qq_expression/10001/${emojiA}/0`,
+        md5: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        desc: '',
+      },
+      {
+        emojiId: emojiB,
+        url: `https://p.qpic.cn/qq_expression/10001/${emojiB}/0`,
+        md5: 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+        desc: '第二个表情',
+      },
+    ]);
+  });
+
+  it('fetchCustomFaceDetails returns immediately for count=0', async () => {
+    const bridge = mockBridge();
+    await expect(new ProfileApi(bridge as any).fetchCustomFaceDetails(0)).resolves.toEqual([]);
+    expect(bridge.sendRawPacket).not.toHaveBeenCalled();
   });
 });

@@ -1220,6 +1220,40 @@ export const actions = [
   }),
 
   defineAction({
+    name: 'fetch_custom_face_detail',
+    summary: '获取自定义表情详情',
+    readOnly: true,
+    returns: '自定义表情详情数组，包含资源标识、图片地址、摘要与描述。',
+    returnsSchema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          emoji_id: { type: 'string', description: '可传给 SnowLuma 表情管理接口的资源标识' },
+          resId: { type: 'string', description: '兼容 NapCat 的资源标识' },
+          url: { type: 'string', description: '表情图片地址' },
+          md5: { type: 'string', description: '表情内容摘要' },
+          desc: { type: 'string', description: '自定义表情描述；未设置时为空字符串' },
+        },
+        required: ['emoji_id', 'resId', 'url', 'md5', 'desc'],
+      },
+    },
+    params: {
+      count: f.int({ min: 0 }).default(48),
+    },
+    run: async (p, ctx) => {
+      const details = await ctx.bridge.apis.profile.fetchCustomFaceDetails(p.count);
+      return okResponse(details.map((detail) => ({
+        emoji_id: detail.emojiId,
+        resId: detail.emojiId,
+        url: detail.url,
+        md5: detail.md5,
+        desc: detail.desc,
+      })));
+    },
+  }),
+
+  defineAction({
     name: 'get_emoji_likes',
     summary: '获取表情回应用户',
     readOnly: true,
