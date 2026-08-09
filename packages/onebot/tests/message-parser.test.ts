@@ -195,13 +195,18 @@ describe('parseMessage', () => {
         false,
       )).rejects.toMatchObject({ code: 'INVALID_FIELD' });
       await expect(parseMessage(
-        [{ type: 'reply', data: { id: '456junk' } }] as any,
-        false,
-      )).rejects.toMatchObject({ code: 'INVALID_FIELD' });
-      await expect(parseMessage(
         [{ type: 'face', data: { id: 1.9 } }] as any,
         false,
       )).rejects.toMatchObject({ code: 'INVALID_FIELD' });
+    });
+
+    it('skips an unusable reply segment while preserving sendable content', async () => {
+      const result = await parseMessage([
+        { type: 'reply', data: { id: 'notice-event-id' } },
+        { type: 'text', data: { text: 'still sent' } },
+      ] as any, false);
+
+      expect(result).toEqual([{ type: 'text', text: 'still sent' }]);
     });
 
     it('parses image segment', async () => {
