@@ -82,6 +82,16 @@ export const actions = [
     },
   }),
 
+  groupAction({
+    name: 'set_group_new_member_history_visibility',
+    summary: '设置新成员是否可查看历史消息',
+    params: { visible: f.bool() },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.groupAdmin.setNewMemberHistoryVisibility(p.group_id, p.visible);
+      return okResponse();
+    },
+  }),
+
   groupUserAction({
     name: 'set_group_admin',
     summary: '设置/取消管理员',

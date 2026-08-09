@@ -7,6 +7,7 @@ import type {
   Oidb0x89a_0AddOption,
   Oidb0x89a_0Search,
   Oidb0x89a_0InvitePolicy,
+  Oidb0x89a_0HistoryVisibility,
   Oidb0xf16Req,
   OidbGroupRequestAction,
   OidbKickMember,
@@ -38,6 +39,17 @@ function packPrivilegeFlag(privilegeFlag?: number) {
       groupInfo: {
         uin: 12345n,
         results: privilegeFlag === undefined ? {} : { privilegeFlag },
+      },
+    },
+  }));
+}
+
+function packGroupFlagExt4(groupFlagExt4?: number) {
+  return packResponse(protobuf_encode<OidbBase<OidbSvcTrpcTcp0x88D_0Response>>({
+    body: {
+      groupInfo: {
+        uin: 12345n,
+        results: groupFlagExt4 === undefined ? {} : { groupFlagExt4 },
       },
     },
   }));
@@ -270,6 +282,55 @@ describe('apis/group-admin', () => {
 
     await expect(
       new GroupAdminApi(bridge as any).setMemberInvitePolicy(12345, 'disabled'),
+    ).rejects.toThrow(/was not applied/);
+    expect(bridge.sendRawPacket).toHaveBeenCalledTimes(3);
+  });
+
+  it('setNewMemberHistoryVisibility reads, merges, writes, and verifies the extended flag (#336)', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(packGroupFlagExt4(0x80000001))
+      .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
+      .mockResolvedValueOnce(packGroupFlagExt4(0x80000005));
+
+    await new GroupAdminApi(bridge as any).setNewMemberHistoryVisibility(12345, true);
+
+    expect(bridge.sendRawPacket.mock.calls.map((call) => call[0])).toEqual([
+      'OidbSvcTrpcTcp.0x88d_0',
+      'OidbSvcTrpcTcp.0x89a_0',
+      'OidbSvcTrpcTcp.0x88d_0',
+    ]);
+    const envelope = protobuf_decode<OidbBase<Oidb0x89a_0HistoryVisibility>>(
+      bridge.sendRawPacket.mock.calls[1]![1],
+    );
+    expect(envelope.body).toMatchObject({
+      groupUin: 12345n,
+      settings: {
+        groupFlagExt4: 0x80000005,
+        groupFlagExt4Mask: 0x4,
+      },
+    });
+  });
+
+  it('setNewMemberHistoryVisibility fails before mutation when the current flag is absent', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packGroupFlagExt4());
+
+    await expect(
+      new GroupAdminApi(bridge as any).setNewMemberHistoryVisibility(12345, true),
+    ).rejects.toThrow(/unable to read new-member history visibility before update/);
+    expect(bridge.sendRawPacket).toHaveBeenCalledOnce();
+  });
+
+  it('setNewMemberHistoryVisibility rejects an ack when read-back does not match', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(packGroupFlagExt4(0x80000001))
+      .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
+      .mockResolvedValueOnce(packGroupFlagExt4(0x80000001));
+
+    await expect(
+      new GroupAdminApi(bridge as any).setNewMemberHistoryVisibility(12345, true),
     ).rejects.toThrow(/was not applied/);
     expect(bridge.sendRawPacket).toHaveBeenCalledTimes(3);
   });

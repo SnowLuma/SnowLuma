@@ -33,7 +33,7 @@ export namespace FetchGroupDetail {
         ownerUid: on, createTime: on, maxMemberCount: on, memberCount: on,
         level: on, name: '', noticePreview: '', uin: on, lastSequence: on,
         lastMessageTime: on, question: on, answer: '', maxAdminCount: '',
-        shutUpAllTimestamp: on, privilegeFlag: on,
+        shutUpAllTimestamp: on, privilegeFlag: on, groupFlagExt4: on,
       },
     },
   });

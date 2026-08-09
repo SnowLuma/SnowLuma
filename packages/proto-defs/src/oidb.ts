@@ -119,6 +119,8 @@ export interface OidbSvcTrpcTcp0x88D_0Results {
   shutUpAllTimestamp?: pb<59, uint_32>;
   /** Complete app privilege bitfield (requested with detail flag tag 99). */
   privilegeFlag?:   pb<99, uint_32>;
+  /** Complete groupFlagExt4 bitfield (requested with detail flag tag 101). */
+  groupFlagExt4?:   pb<101, uint_32>;
 }
 export interface OidbSvcTrpcTcp0x88D_0ResponseGroupInfo {
   uin?:     pb<1, uint_64>;

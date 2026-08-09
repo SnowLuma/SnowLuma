@@ -1481,6 +1481,34 @@ describe('extended-actions / set_group_member_invite_policy', () => {
   });
 });
 
+describe('extended-actions / set_group_new_member_history_visibility', () => {
+  it('forwards the normalized group id and visibility to the group-admin API', async () => {
+    const setNewMemberHistoryVisibility = vi.fn(async () => undefined);
+    const bridge = fakeBridge({ apis: { groupAdmin: { setNewMemberHistoryVisibility } } });
+
+    const response = await makeHandler(fakeCtx(bridge)).handle(
+      'set_group_new_member_history_visibility',
+      { group_id: '12345', visible: false },
+    );
+
+    expect(response).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(setNewMemberHistoryVisibility).toHaveBeenCalledWith(12345, false);
+  });
+
+  it('rejects a missing visibility value before calling the bridge', async () => {
+    const setNewMemberHistoryVisibility = vi.fn();
+    const bridge = fakeBridge({ apis: { groupAdmin: { setNewMemberHistoryVisibility } } });
+
+    const response = await makeHandler(fakeCtx(bridge)).handle(
+      'set_group_new_member_history_visibility',
+      { group_id: 12345 },
+    );
+
+    expect(response).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(setNewMemberHistoryVisibility).not.toHaveBeenCalled();
+  });
+});
+
 // ─── Wave 1: get_group_shut_list ───
 
 describe('extended-actions / get_group_shut_list', () => {

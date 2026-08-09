@@ -70,6 +70,18 @@ export interface Oidb0x89a_0InvitePolicy {
   settings?: pb<2, Oidb0x89a_0InvitePolicySettings>;
   field12?:  pb<12, uint_32>;
 }
+// 0x89A_0 — whether newly joined members may browse group history. Current QQ's
+// GroupDetailInfoV2 encoder emits groupFlagExt4=42 and its mutation mask=43.
+export interface Oidb0x89a_0HistoryVisibilitySettings {
+  // Explicit presence is required when clearing the only selected bit.
+  groupFlagExt4?:     pb_optional<42, uint_32>;
+  groupFlagExt4Mask?: pb_optional<43, uint_32>;
+}
+export interface Oidb0x89a_0HistoryVisibility {
+  groupUin?: pb<1, uint_64>;
+  settings?: pb<2, Oidb0x89a_0HistoryVisibilitySettings>;
+  field12?:  pb<12, uint_32>;
+}
 export interface OidbKickMember {
   groupUin?:         pb<1, uint_32>;
   targetUid?:        pb<3, string>;
@@ -332,6 +344,8 @@ export interface OidbGroupDetailFlags {
   shutUpAllTimestamp?: pb<59, bool>;
   /** Current complete app privilege bitfield; needed for masked mutations. */
   privilegeFlag?:   pb<99, bool>;
+  /** Current complete groupFlagExt4 bitfield; needed for masked mutations. */
+  groupFlagExt4?:   pb<101, bool>;
 }
 export interface OidbGroupDetailConfig {
   uin?:   pb<1, uint_64>;
