@@ -217,7 +217,7 @@ export interface OidbLike {
 }
 export interface OidbGroupRequestList {
   count?:  pb<1, uint_32>;
-  field2?: pb<2, uint_32>;
+  field2?: pb<2, uint_64>;
 }
 export interface OidbUserInfoKey {
   key?: pb<1, uint_32>;

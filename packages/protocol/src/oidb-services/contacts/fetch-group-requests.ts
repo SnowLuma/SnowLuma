@@ -1,30 +1,86 @@
 // 0x10C0 — fetch pending group-add requests.
 //   subCommand 1 = main inbox, 2 = filtered (low-priority) inbox
 //
-// Returns the wire shape verbatim — the facade does the GroupRequestInfo
-// mapping because it also needs to thread the `filtered` flag onto
-// each entry, which the wire doesn't carry.
+// Current QQ uses the UIN-form envelope for its native list path. The server
+// changes user field 1 from a UID string to a numeric UIN when that envelope
+// bit changes, so the two forms deliberately have separate decoders below.
+// The UID form remains necessary for correlating UID-only real-time pushes.
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { OidbBase, OidbSvcTrpcTcp0x10C0Response } from '@snowluma/proto-defs/oidb';
+import type {
+  OidbBase,
+  OidbSvcTrpcTcp0x10C0Response,
+  OidbSvcTrpcTcp0x10C0ResponseByUin,
+} from '@snowluma/proto-defs/oidb';
 import type { OidbGroupRequestList } from '@snowluma/proto-defs/oidb-actions/base';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
+// Current QQ's EncodeOperateSysNotify maps the high-level list notification
+// type to the discriminator sent by 0x10C8. This table was read directly from
+// the current Linux client; keeping the distinction prevents list type 7
+// (join request) from being incorrectly sent back as operation type 7.
+const GROUP_REQUEST_OPERATION_TYPE = new Map<number, number>([
+  [0, 0], [1, 2], [2, 10], [3, 11], [4, 12], [5, 22],
+  [6, 35], [7, 1], [8, 3], [9, 6], [10, 7], [11, 13],
+  [12, 15], [13, 16], [14, 17], [15, 19], [16, 8], [17, 100],
+]);
+
+export function groupRequestOperationType(notifyType: number): number | null {
+  return GROUP_REQUEST_OPERATION_TYPE.get(notifyType) ?? null;
+}
+
 export namespace FetchGroupRequests {
   export const command = 0x10C0;
+  export const uinForm = true;
 
   export interface Params {
     /** false → subCmd 1 (main inbox), true → subCmd 2 (filtered). */
     filtered: boolean;
+    /** Maximum records in this screen. QQ's own default is 50. */
+    count?: number;
+    /** Cursor returned by response field 2; zero starts at the newest screen. */
+    cursor?: bigint;
   }
 
   export type Deps = OidbSender;
 
   export const resolveSubCommand = (p: Params): number => p.filtered ? 2 : 1;
 
-  export const serialize = (_ctx: Deps, _: Params): OidbGroupRequestList => ({
-    count: 20,
-    field2: 0,
+  export const serialize = (_ctx: Deps, p: Params): OidbGroupRequestList => ({
+    count: p.count ?? 50,
+    field2: p.cursor ?? 0n,
+  });
+
+  export const deserialize = (_ctx: Deps, body: OidbSvcTrpcTcp0x10C0ResponseByUin): OidbSvcTrpcTcp0x10C0ResponseByUin => body;
+
+  export const encode = (env: OidbBase<OidbGroupRequestList>): Uint8Array =>
+    protobuf_encode<OidbBase<OidbGroupRequestList>>(env);
+
+  export const decode = (bytes: Uint8Array): OidbBase<OidbSvcTrpcTcp0x10C0ResponseByUin> =>
+    protobuf_decode<OidbBase<OidbSvcTrpcTcp0x10C0ResponseByUin>>(bytes);
+
+  export const invoke = (deps: Deps, params: Params): Promise<OidbSvcTrpcTcp0x10C0ResponseByUin> =>
+    invokeOidb(deps, FetchGroupRequests, params);
+}
+
+/** UID-form compatibility path used only when an incoming push supplies UID
+ * but no UIN. It intentionally leaves the envelope's reserved field unset. */
+export namespace FetchGroupRequestsByUid {
+  export const command = 0x10C0;
+
+  export interface Params {
+    filtered: boolean;
+    count?: number;
+    cursor?: bigint;
+  }
+
+  export type Deps = OidbSender;
+
+  export const resolveSubCommand = (p: Params): number => p.filtered ? 2 : 1;
+
+  export const serialize = (_ctx: Deps, p: Params): OidbGroupRequestList => ({
+    count: p.count ?? 50,
+    field2: p.cursor ?? 0n,
   });
 
   export const deserialize = (_ctx: Deps, body: OidbSvcTrpcTcp0x10C0Response): OidbSvcTrpcTcp0x10C0Response => body;
@@ -36,5 +92,5 @@ export namespace FetchGroupRequests {
     protobuf_decode<OidbBase<OidbSvcTrpcTcp0x10C0Response>>(bytes);
 
   export const invoke = (deps: Deps, params: Params): Promise<OidbSvcTrpcTcp0x10C0Response> =>
-    invokeOidb(deps, FetchGroupRequests, params);
+    invokeOidb(deps, FetchGroupRequestsByUid, params);
 }

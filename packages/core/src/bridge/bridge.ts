@@ -70,8 +70,8 @@ export class Bridge implements BridgeInterface {
       },
       resolveGroupJoinRequest: async (groupId, uid, subType) => {
         const [main, filtered] = await Promise.allSettled([
-          this.apis.contacts.fetchGroupRequests(false),
-          this.apis.contacts.fetchGroupRequests(true),
+          this.apis.contacts.fetchGroupRequestsByUid(false),
+          this.apis.contacts.fetchGroupRequestsByUid(true),
         ]);
         if (main.status === 'rejected') {
           log.warn('group-request enrichment main inbox failed: group=%d uid=%s err=%s',

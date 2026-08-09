@@ -184,7 +184,7 @@ export interface OidbRobotUinRangeResponse {
   robotConfig?: pb<5, OidbRobotUinRangeConfig>;
 }
 
-// OIDB.0x10C0 Group Request
+// OIDB.0x10C0 Group Request — UID-form response (envelope reserved=0).
 export interface OidbSvcTrpcTcp0x10C0ResponseUser {
   uid?:  pb<1, string>;
   name?: pb<2, string>;
@@ -209,6 +209,36 @@ export interface OidbSvcTrpcTcp0x10C0ResponseRequest {
 
 export interface OidbSvcTrpcTcp0x10C0Response {
   requests?:     pb_repeated<1, OidbSvcTrpcTcp0x10C0ResponseRequest>;
+  field2?:       pb<2, uint_64>;
+  newLatestSeq?: pb<3, uint_64>;
+  field4?:       pb<4, uint_32>;
+  field5?:       pb<5, uint_64>;
+  field6?:       pb<6, uint_32>;
+}
+
+// The native UIN-form request (envelope reserved=1) uses the same response
+// tags, but user field 1 changes wire type from string to uint32. Keep a
+// separate schema: decoding both forms through one interface would silently
+// discard every numeric account identifier as a mismatched wire type.
+export interface OidbSvcTrpcTcp0x10C0ResponseUserByUin {
+  uin?:  pb<1, uint_32>;
+  name?: pb<2, string>;
+}
+
+export interface OidbSvcTrpcTcp0x10C0ResponseRequestByUin {
+  sequence?:     pb<1, uint_64>;
+  eventType?:    pb<2, uint_32>;
+  state?:        pb<3, uint_32>;
+  group?:        pb<4, OidbSvcTrpcTcp0x10C0ResponseGroup>;
+  target?:       pb<5, OidbSvcTrpcTcp0x10C0ResponseUserByUin>;
+  invitor?:      pb<6, OidbSvcTrpcTcp0x10C0ResponseUserByUin>;
+  operatorUser?: pb<7, OidbSvcTrpcTcp0x10C0ResponseUserByUin>;
+  field9?:       pb<9, string>;
+  comment?:      pb<10, string>;
+}
+
+export interface OidbSvcTrpcTcp0x10C0ResponseByUin {
+  requests?:     pb_repeated<1, OidbSvcTrpcTcp0x10C0ResponseRequestByUin>;
   field2?:       pb<2, uint_64>;
   newLatestSeq?: pb<3, uint_64>;
   field4?:       pb<4, uint_32>;

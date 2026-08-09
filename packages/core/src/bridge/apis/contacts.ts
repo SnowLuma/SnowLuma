@@ -3,7 +3,11 @@ import { FetchFriendListPage } from '@snowluma/protocol/oidb-services/contacts/f
 import { FetchGroupDetail } from '@snowluma/protocol/oidb-services/contacts/fetch-group-detail';
 import { FetchGroupList } from '@snowluma/protocol/oidb-services/contacts/fetch-group-list';
 import { FetchGroupMemberListPage } from '@snowluma/protocol/oidb-services/contacts/fetch-group-member-list-page';
-import { FetchGroupRequests } from '@snowluma/protocol/oidb-services/contacts/fetch-group-requests';
+import {
+  FetchGroupRequests,
+  FetchGroupRequestsByUid,
+  groupRequestOperationType,
+} from '@snowluma/protocol/oidb-services/contacts/fetch-group-requests';
 import {
   FetchRobotUinRanges,
   type RobotUinRange,
@@ -90,6 +94,19 @@ export function isRobotUin(uin: number, ranges: readonly RobotUinRange[]): boole
   return Number.isInteger(uin)
     && uin > 0
     && ranges.some(({ minUin, maxUin }) => uin >= minUin && uin <= maxUin);
+}
+
+function normalizeGroupRequestSequence(
+  rawSequence: bigint | number | undefined,
+  groupId: number,
+): number {
+  const sequence = Number(rawSequence ?? 0);
+  if (!Number.isSafeInteger(sequence) || sequence <= 0) {
+    throw new Error(
+      `invalid group-request sequence: group=${groupId} sequence=${String(rawSequence ?? 0)}`,
+    );
+  }
+  return sequence;
 }
 
 const MEMBER_LIST_TTL_MS = 60_000;
@@ -387,25 +404,107 @@ export class ContactsApi {
     return info;
   }
 
-  async fetchGroupRequests(filtered = false): Promise<GroupRequestInfo[]> {
-    const resp = await FetchGroupRequests.invoke(this.ctx, { filtered });
+  async fetchGroupRequests(
+    filtered = false,
+    count = 50,
+    cursor = 0n,
+  ): Promise<GroupRequestInfo[]> {
+    const resp = await FetchGroupRequests.invoke(this.ctx, { filtered, count, cursor });
     const requests: GroupRequestInfo[] = [];
     for (const raw of resp.requests ?? []) {
+      const groupId = raw.group?.groupUin ?? 0;
+      const targetUin = raw.target?.uin ?? 0;
+      const invitorUin = raw.invitor?.uin ?? 0;
+      const operatorUin = raw.operatorUser?.uin ?? 0;
+      const notifyType = raw.eventType ?? 0;
+      const operationType = groupRequestOperationType(notifyType);
+      const sequence = normalizeGroupRequestSequence(raw.sequence, groupId);
+      if (operationType === null) {
+        log.warn(
+          'unsupported group-request notification type: group=%d sequence=%s type=%d',
+          groupId,
+          String(raw.sequence ?? 0n),
+          notifyType,
+        );
+      }
       requests.push({
-        groupId: raw.group?.groupUin ?? 0,
+        groupId,
         groupName: raw.group?.groupName ?? '',
-        targetUid: raw.target?.uid ?? '',
-        targetUin: 0,
+        targetUid: this.ctx.identity.findUidByUin(targetUin, groupId)
+          ?? this.ctx.identity.findUidByUin(targetUin)
+          ?? '',
+        targetUin,
         targetName: raw.target?.name ?? '',
-        invitorUid: raw.invitor?.uid ?? '',
-        invitorUin: 0,
+        invitorUid: this.ctx.identity.findUidByUin(invitorUin, groupId)
+          ?? this.ctx.identity.findUidByUin(invitorUin)
+          ?? '',
+        invitorUin,
         invitorName: raw.invitor?.name ?? '',
-        operatorUid: raw.operatorUser?.uid ?? '',
-        operatorUin: 0,
+        operatorUid: this.ctx.identity.findUidByUin(operatorUin, groupId)
+          ?? this.ctx.identity.findUidByUin(operatorUin)
+          ?? '',
+        operatorUin,
         operatorName: raw.operatorUser?.name ?? '',
-        sequence: Number(raw.sequence ?? 0),
+        sequence,
         state: raw.state ?? 0,
-        eventType: raw.eventType ?? 0,
+        notifyType,
+        eventType: operationType ?? 0,
+        comment: raw.comment ?? '',
+        filtered,
+      });
+    }
+    this.ctx.identity.rememberGroupRequests(requests);
+    return requests;
+  }
+
+  /** UID-form request list retained for correlating incoming UID-only pushes.
+   * Explicit list/actions use fetchGroupRequests(), which matches QQ's native
+   * numeric-account path and does not need profile lookups. */
+  async fetchGroupRequestsByUid(
+    filtered = false,
+    count = 50,
+    cursor = 0n,
+  ): Promise<GroupRequestInfo[]> {
+    const resp = await FetchGroupRequestsByUid.invoke(this.ctx, { filtered, count, cursor });
+    const requests: GroupRequestInfo[] = [];
+    for (const raw of resp.requests ?? []) {
+      const groupId = raw.group?.groupUin ?? 0;
+      const targetUid = raw.target?.uid ?? '';
+      const invitorUid = raw.invitor?.uid ?? '';
+      const operatorUid = raw.operatorUser?.uid ?? '';
+      const notifyType = raw.eventType ?? 0;
+      const operationType = groupRequestOperationType(notifyType);
+      const sequence = normalizeGroupRequestSequence(raw.sequence, groupId);
+      if (operationType === null) {
+        log.warn(
+          'unsupported group-request notification type: group=%d sequence=%s type=%d',
+          groupId,
+          String(raw.sequence ?? 0n),
+          notifyType,
+        );
+      }
+      requests.push({
+        groupId,
+        groupName: raw.group?.groupName ?? '',
+        targetUid,
+        targetUin: this.ctx.identity.findUinByUid(targetUid, groupId)
+          ?? this.ctx.identity.findUinByUid(targetUid)
+          ?? 0,
+        targetName: raw.target?.name ?? '',
+        invitorUid,
+        invitorUin: this.ctx.identity.findUinByUid(invitorUid, groupId)
+          ?? this.ctx.identity.findUinByUid(invitorUid)
+          ?? 0,
+        invitorName: raw.invitor?.name ?? '',
+        operatorUid,
+        operatorUin: this.ctx.identity.findUinByUid(operatorUid, groupId)
+          ?? this.ctx.identity.findUinByUid(operatorUid)
+          ?? 0,
+        operatorName: raw.operatorUser?.name ?? '',
+        sequence,
+        state: raw.state ?? 0,
+        notifyType,
+        eventType: operationType ?? 0,
         comment: raw.comment ?? '',
         filtered,
       });
