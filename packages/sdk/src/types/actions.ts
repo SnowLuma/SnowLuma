@@ -90,6 +90,7 @@ import type {
   GroupFileUrl,
   GroupMessageHistory,
   GroupNoticeInfo,
+  GroupTodoListItem,
   LoginInfo,
   MediaInfo,
   OnlineClientsInfo,
@@ -247,6 +248,7 @@ export interface SnowLumaActionMap {
   nc_get_user_status: { params: NcGetUserStatusParams; data: UserOnlineStatus };
   get_group_ignore_add_request: { params: JsonObject; data: JsonArray };
   delete_group_folder: { params: DeleteGroupFolderParams; data: EmptyData };
+  get_group_todo_list: { params: GroupIdParams; data: GroupTodoListItem[] };
   set_group_todo: { params: GroupTodoParams; data: EmptyData };
   complete_group_todo: { params: GroupTodoParams; data: EmptyData };
   cancel_group_todo: { params: GroupTodoParams; data: EmptyData };

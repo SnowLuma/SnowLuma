@@ -72,6 +72,7 @@ const APIS_ROUTING: Record<string, [string, string]> = {
   setGroupTodo: ['extras', 'setGroupTodo'],
   completeGroupTodo: ['extras', 'completeGroupTodo'],
   cancelGroupTodo: ['extras', 'cancelGroupTodo'],
+  getGroupTodoList: ['extras', 'getGroupTodoList'],
   getStrangerStatus: ['extras', 'getStrangerStatus'],
   fetchAiVoiceList: ['extras', 'fetchAiVoiceList'],
   fetchAiVoice: ['extras', 'fetchAiVoice'],
@@ -1173,6 +1174,82 @@ describe('extended-actions / set_/complete_/cancel_group_todo', () => {
     const r2 = await makeHandler(fakeCtx(fakeBridge())).handle('set_group_todo', { group_id: 1 });
     expect(r1).toMatchObject({ status: 'failed', retcode: 1400 });
     expect(r2).toMatchObject({ status: 'failed', retcode: 1400 });
+  });
+});
+
+describe('extended-actions / get_group_todo_list', () => {
+  it('maps QQ identities to OneBot ids, caches metadata, and includes cached content', async () => {
+    const getGroupTodoList = vi.fn(async () => [{
+      sourceId: '5631_0',
+      sequence: 5631,
+      random: 0,
+      text: '测试待办',
+      createdAt: 1735000000,
+      updatedAt: 1735000001,
+    }]);
+    const bridge = fakeBridge({ getGroupTodoList });
+    const messageId = hashMessageIdInt32(5631, 100, GROUP_MESSAGE_EVENT);
+    const cacheMessageMetas = vi.fn();
+    const message = [{ type: 'text', data: { text: '原消息' } }];
+    const ctx = fakeCtx(bridge, {
+      cacheMessageMetas,
+      getMessage: (id) => id === messageId ? { message } : null,
+    });
+
+    const response = await makeHandler(ctx).handle('get_group_todo_list', { group_id: 100 });
+
+    expect(getGroupTodoList).toHaveBeenCalledWith(100);
+    expect(cacheMessageMetas).toHaveBeenCalledWith([{
+      messageId,
+      meta: {
+        isGroup: true,
+        targetId: 100,
+        sequence: 5631,
+        sequenceAuthoritative: true,
+        eventName: GROUP_MESSAGE_EVENT,
+        clientSequence: 0,
+        random: 0,
+        timestamp: 1735000000,
+      },
+    }]);
+    expect(response).toMatchObject({
+      status: 'ok',
+      data: [{
+        message_id: messageId,
+        message_seq: 5631,
+        message_random: 0,
+        message,
+        text: '测试待办',
+        create_time: 1735000000,
+        update_time: 1735000001,
+      }],
+    });
+  });
+
+  it('still returns a usable message id when the original body is not cached', async () => {
+    const bridge = fakeBridge({
+      getGroupTodoList: vi.fn(async () => [{
+        sourceId: '88_0',
+        sequence: 88,
+        random: 0,
+        text: '',
+        createdAt: 0,
+        updatedAt: 0,
+      }]),
+    });
+    const response = await makeHandler(fakeCtx(bridge)).handle(
+      'get_group_todo_list',
+      { group_id: 100 },
+    );
+
+    expect(response).toMatchObject({
+      status: 'ok',
+      data: [{
+        message_id: hashMessageIdInt32(88, 100, GROUP_MESSAGE_EVENT),
+        message_seq: 88,
+        message: null,
+      }],
+    });
   });
 });
 

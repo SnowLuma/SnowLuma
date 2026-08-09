@@ -4,6 +4,10 @@ import {
   type AiVoiceCategory as NamespaceAiVoiceCategory,
 } from '@snowluma/protocol/oidb-services/extras/fetch-ai-voice-list';
 import { GetStrangerStatus, type StrangerStatus as NamespaceStrangerStatus } from '@snowluma/protocol/oidb-services/extras/get-stranger-status';
+import {
+  GetGroupTodoList,
+  type GroupTodoListItem as NamespaceGroupTodoListItem,
+} from '@snowluma/protocol/oidb-services/extras/get-group-todo-list';
 import { GroupTodo } from '@snowluma/protocol/oidb-services/extras/group-todo';
 import { convertAudioBytes } from '@snowluma/protocol/highway/ffmpeg-addon';
 import { loadBinarySource } from '@snowluma/protocol/highway/utils';
@@ -35,6 +39,7 @@ export interface PttTransInput {
 // ─────────────── public types (re-exported from bridge.ts as before) ───
 
 export type StrangerStatus = NamespaceStrangerStatus;
+export type GroupTodoListItem = NamespaceGroupTodoListItem;
 
 export const AiVoiceChatType = {
   Unknown: 0,
@@ -87,7 +92,13 @@ export class ExtrasApi {
 
   constructor(private readonly ctx: BridgeContext) { }
 
-  // ─────────────── Group todo (0xF90) ───────────────
+  // ─────────────── Group todo query / mutations (0x9474 / 0xF90) ───────────────
+
+  async getGroupTodoList(groupId: number): Promise<GroupTodoListItem[]> {
+    const items = await GetGroupTodoList.invoke(this.ctx, { groupId });
+    log.debug('group todo list fetched group=%d count=%d', groupId, items.length);
+    return items;
+  }
 
   setGroupTodo(groupId: number, msgSeq: bigint): Promise<void> {
     return GroupTodo.invoke(this.ctx, { groupId, msgSeq, action: 'set' });

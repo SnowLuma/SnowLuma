@@ -955,6 +955,64 @@ export interface OidbGroupTodo {
   groupUin?: pb<1, uint_32>;
   msgSeq?:   pb<2, uint_64>;
 }
+// 0x9474_0 — query group top banners. A request flag of 1 selects group
+// todos; current QQ represents them with commonBanner while older responses
+// may still use the legacy todoBanner shape.
+export interface OidbQueryGroupTopBannersReq {
+  groupId?:    pb<1, uint_64>;
+  bannerFlag?: pb<2, uint_32>;
+}
+export interface OidbGroupTopBannerUi {
+  iconUrl?:         pb<1, string>;
+  preText?:         pb<2, string>;
+  text?:            pb<3, string>;
+  highText?:        pb<4, string>;
+  accessoryType?:   pb<5, uint_32>;
+  iconColor?:       pb<6, uint_32>;
+  needTranslation?: pb<7, bool>;
+}
+export interface OidbGroupTopBannerJumpInfo {
+  jumpType?:  pb<1, uint_32>;
+  jumpUrl?:   pb<2, string>;
+  jumpParam?: pb<3, bytes>;
+}
+export interface OidbGroupTopBannerCommon {
+  ui?:         pb<1, OidbGroupTopBannerUi>;
+  jumpInfo?:   pb<2, OidbGroupTopBannerJumpInfo>;
+  createTime?: pb<3, uint_64>;
+  updateTime?: pb<4, uint_64>;
+}
+export interface OidbGroupTodoLegacyBanner {
+  redText?:     pb<1, string>;
+  text?:        pb<2, string>;
+  url?:         pb<3, string>;
+  isExposure?:  pb<4, bool>;
+  isComplete?:  pb<5, bool>;
+}
+export interface OidbGroupTopBannerPriority {
+  categoryType?: pb<1, uint_32>;
+  priority?:     pb<2, int_32>;
+}
+export interface OidbOnlineBanner {
+  bizType?:             pb<1, uint_32>;
+  bannerType?:          pb<2, uint_32>;
+  msgId?:               pb<3, bytes>;
+  isDisappear?:         pb<4, bool>;
+  expireTime?:          pb<8, uint_64>;
+  todoBanner?:          pb<12, OidbGroupTodoLegacyBanner>;
+  commonBanner?:        pb<20, OidbGroupTopBannerCommon>;
+  bannerPriority?:      pb<40, OidbGroupTopBannerPriority>;
+  bizId?:               pb<41, int_32>;
+  priority?:            pb<42, int_32>;
+  leftShowTimes?:       pb<43, int_32>;
+  supportMultiBanners?: pb<44, bool>;
+  supportLongPress?:    pb<45, bool>;
+  noNeedReportShow?:    pb<46, bool>;
+}
+export interface OidbQueryGroupTopBannersResp {
+  banners?: pb_repeated<1, OidbOnlineBanner>;
+  newSeq?:  pb<3, uint_64>;
+}
 export interface OidbStrangerStatusKey {
   key?: pb<1, uint_32>;
 }

@@ -2476,6 +2476,52 @@ export const actions = [
   }),
 
   groupAction({
+    name: 'get_group_todo_list',
+    summary: '获取群待办列表',
+    returns: '群待办数组，包含可用于待办操作的消息标识、服务端摘要与时间',
+    readOnly: true,
+    run: async (p, ctx) => {
+      const todos = await ctx.bridge.apis.extras.getGroupTodoList(p.group_id);
+      const projections = todos.map((todo) => {
+        const messageId = hashMessageIdInt32(
+          todo.sequence,
+          p.group_id,
+          GROUP_MESSAGE_EVENT,
+        );
+        const meta: MessageMeta = {
+          isGroup: true,
+          targetId: p.group_id,
+          sequence: todo.sequence,
+          sequenceAuthoritative: true,
+          eventName: GROUP_MESSAGE_EVENT,
+          clientSequence: 0,
+          random: todo.random,
+          timestamp: todo.createdAt,
+        };
+        return { todo, messageId, meta };
+      });
+
+      ctx.cacheMessageMetas(projections.map(({ messageId, meta }) => ({
+        messageId,
+        meta,
+      })));
+
+      return okResponse(projections.map(({ todo, messageId }) => {
+        const cached = ctx.getMessage(messageId)?.message;
+        return {
+          message_id: messageId,
+          message_seq: todo.sequence,
+          message_random: todo.random,
+          message: Array.isArray(cached) ? cached : null,
+          text: todo.text,
+          create_time: todo.createdAt,
+          update_time: todo.updatedAt,
+        };
+      }));
+    },
+  }),
+
+  groupAction({
     name: 'set_group_todo',
     summary: '设置群待办',
     params: { message_id: f.messageId() },
