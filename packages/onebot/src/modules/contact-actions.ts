@@ -17,6 +17,8 @@ const log = createLogger('OneBot.Contacts');
 export interface GroupSystemMessageQuery {
   groupId?: number;
   onlyPending?: boolean;
+  /** Maximum records read from each QQ request inbox. */
+  count?: number;
 }
 
 export function getLoginInfo(ref: OneBotInstanceContext): { userId: number; nickname: string } {
@@ -330,10 +332,11 @@ async function resolveRequesterUins(
   const unresolved = new Set<string>();
 
   for (const request of requests) {
-    const uid = request.targetUid;
+    const actor = groupRequestActor(request);
+    const uid = actor.uid;
     if (!uid || resolved.has(uid)) continue;
-    if (request.targetUin > 0) {
-      resolved.set(uid, request.targetUin);
+    if (actor.uin > 0) {
+      resolved.set(uid, actor.uin);
       unresolved.delete(uid);
       continue;
     }
@@ -365,27 +368,66 @@ async function resolveRequesterUins(
   return resolved;
 }
 
+function groupRequestActor(request: GroupRequestInfo): {
+  uid: string;
+  uin: number;
+  name: string;
+} {
+  if (request.notifyType === 1) {
+    return {
+      uid: request.invitorUid,
+      uin: request.invitorUin,
+      name: request.invitorName,
+    };
+  }
+  return {
+    uid: request.targetUid,
+    uin: request.targetUin,
+    name: request.targetName,
+  };
+}
+
 export async function getGroupSystemMessages(
   bridge: BridgeInterface,
   query: GroupSystemMessageQuery = {},
 ): Promise<JsonObject[]> {
-  const requests = (await bridge.apis.contacts.fetchGroupRequests()).filter((request) => {
+  const count = query.count ?? 50;
+  if (!Number.isSafeInteger(count) || count < 1 || count > 100) {
+    throw new Error(`invalid group-system-message count: ${count}`);
+  }
+  const [main, filtered] = await Promise.all([
+    bridge.apis.contacts.fetchGroupRequests(false, count),
+    bridge.apis.contacts.fetchGroupRequests(true, count),
+  ]);
+  const unique = new Map<string, GroupRequestInfo>();
+  for (const request of [...main, ...filtered]) {
+    if (request.notifyType !== undefined
+      && request.notifyType !== 1
+      && request.notifyType !== 7) continue;
+    if (request.eventType <= 0) continue;
+    const flag = formatGroupRequestFlag(request);
+    if (!unique.has(flag)) unique.set(flag, request);
+  }
+  const requests = [...unique.values()].filter((request) => {
     if (query.groupId !== undefined && request.groupId !== query.groupId) return false;
     if (query.onlyPending && request.state !== 1) return false;
     return true;
   });
   const requesterUins = await resolveRequesterUins(bridge, requests);
 
-  return requests.map((request) => ({
-    group_id: request.groupId,
-    group_name: request.groupName,
-    request_id: request.sequence,
-    requester_uin: requesterUins.get(request.targetUid) ?? request.targetUin,
-    requester_nick: request.targetName,
-    message: request.comment,
-    checked: request.state !== 1,
-    flag: formatGroupRequestFlag(request),
-  }));
+  return requests.map((request) => {
+    const actor = groupRequestActor(request);
+    return {
+      group_id: request.groupId,
+      group_name: request.groupName,
+      request_id: request.sequence,
+      requester_uin: requesterUins.get(actor.uid) ?? actor.uin,
+      requester_nick: actor.name,
+      message: request.comment,
+      checked: request.state !== 1,
+      flag: formatGroupRequestFlag(request),
+    };
+  });
 }
 
 export async function getDownloadRKeys(bridge: BridgeInterface): Promise<JsonObject[]> {

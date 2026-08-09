@@ -355,6 +355,7 @@ export class OneBotManager {
     this.trackLifecycle(`network startup UIN=${uin}`, instance.waitUntilNetworkReady().then((result) => {
       if (result.applied) log.info('network startup applied: UIN=%s adapters=%d', uin, result.statuses.length);
       else log.warn('network startup degraded: UIN=%s failures=%d', uin, result.errors.length);
+      instance.startGroupRequestPolling();
     }));
     void warmUpBridgeState(uin, bridge).then(
       (warmup) => {

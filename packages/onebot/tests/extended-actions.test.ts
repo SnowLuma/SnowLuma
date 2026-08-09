@@ -1059,16 +1059,17 @@ describe('extended-actions / get_group_ignored_notifies', () => {
       actor: 8888,
       invitor_uin: 7777,
       invitor_nick: 'inviter',
-      flag: '7:999:u_t:filtered',
+      flag: 'slreq:1:42:999:7:1',
     }]);
   });
 
-  it('returns [] when the fetch throws', async () => {
+  it('surfaces filtered-inbox failures instead of returning a false empty result', async () => {
     const bridge = fakeBridge({
       fetchGroupRequests: (async () => { throw new Error('boom'); }) as any,
     });
     const res = await makeHandler(fakeCtx(bridge)).handle('get_group_ignored_notifies', {});
-    expect(res).toMatchObject({ status: 'ok', data: [] });
+    expect(res).toMatchObject({ status: 'failed' });
+    expect(res.wording).toContain('boom');
   });
 });
 
