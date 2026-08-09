@@ -55,10 +55,12 @@ describe('element-manifest 对账（protocol 侧：D 收·解 / W 发·打包）
     const sampleValue = (field: string): unknown => {
       if (field === 'replyElements') return [];
       if (field === 'forwardNews') return [{ text: 'preview' }];
+      if (field === 'rows') return [{ buttons: [] }];
       if (field === 'mediaNode') return {};
       if (field === 'emojiId' || field === 'md5Hex') return 'ab'.repeat(16);
       if (field === 'sha1Hex') return 'cd'.repeat(20);
       if (field === 'flash' || field === 'noByteFallback') return true;
+      if (field === 'botAppid') return '1';
       if (field === 'targetUin' || field === 'faceId' || field === 'fileSize'
         || field.startsWith('reply') || field === 'subType' || field === 'duration'
         || field === 'width' || field === 'height' || field === 'emojiPackageId'

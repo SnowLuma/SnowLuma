@@ -365,7 +365,7 @@ describe('convertEvent — request kinds', () => {
   });
 });
 
-describe('convertEvent — message elements (13 segment types)', () => {
+describe('convertEvent — message elements', () => {
   // Round-trips one element through elementsToOneBotSegments and
   // asserts the OneBot segment shape. Resolvers are wired only when
   // the element type needs them. JsonArray's index type is JsonValue
@@ -521,6 +521,62 @@ describe('convertEvent — message elements (13 segment types)', () => {
 
     const seg2 = await segment({ type: 'xml', text: '<x/>', subType: 50 });
     expect((seg2.data as Record<string, unknown>).resid).toBe(50);
+  });
+
+  it('markdown: exposes the original content on receive', async () => {
+    const seg = await segment({ type: 'markdown', text: '# Bot answer' });
+    expect(seg).toEqual({ type: 'markdown', data: { content: '# Bot answer' } });
+  });
+
+  it('inline keyboard: exposes rows and actionable button metadata', async () => {
+    const seg = await segment({
+      type: 'inline_keyboard',
+      botAppid: '9007199254740993',
+      rows: [{
+        buttons: [{
+          id: 'btn-1',
+          label: 'Run',
+          visitedLabel: 'Done',
+          style: 1,
+          type: 2,
+          clickLimit: 3,
+          unsupportedTips: 'Admins only',
+          data: 'callback-data',
+          atBotShowChannelList: true,
+          permissionType: 2,
+          specifyRoleIds: ['admin'],
+          specifyUserIds: ['u_10001'],
+          isReply: false,
+          enter: true,
+          anchor: 9,
+        }],
+      }],
+    });
+    expect(seg).toEqual({
+      type: 'inline_keyboard',
+      data: {
+        bot_appid: '9007199254740993',
+        rows: [{
+          buttons: [{
+            id: 'btn-1',
+            label: 'Run',
+            visited_label: 'Done',
+            style: 1,
+            type: 2,
+            click_limit: 3,
+            unsupport_tips: 'Admins only',
+            data: 'callback-data',
+            at_bot_show_channel_list: true,
+            permission_type: 2,
+            specify_role_ids: ['admin'],
+            specify_user_ids: ['u_10001'],
+            is_reply: false,
+            enter: true,
+            anchor: 9,
+          }],
+        }],
+      },
+    });
   });
 
   it('file: canonical file/file_id/file_size + legacy name/size/id + url + file_hash', async () => {

@@ -7,6 +7,7 @@ import type {
   FileInfo,
   GroupFileExtra,
   IndexNode,
+  InlineKeyboardExtra,
   MentionExtra,
   MsgInfo,
   NotOnlineImage,
@@ -217,6 +218,93 @@ function decodeBigFacesOnce(elems: ElemDecoded[]): Map<ElemDecoded, QFaceExtra |
   return decoded;
 }
 
+const MARKDOWN_BUSINESS_TYPES: ReadonlySet<number> = new Set([1, 3, 4]);
+const INLINE_KEYBOARD_SERVICE_TYPES: ReadonlySet<number> = new Set([46, 50, 51]);
+
+function decodeMarkdownCommonElement(pbElem: Uint8Array, businessType: number): MessageElement | null {
+  const md = decodeProtobufPayload(
+    'commonElem.markdown',
+    pbElem,
+    () => protobuf_decode<MarkdownData>(pbElem),
+  );
+  const content = md?.content ?? '';
+  if (!content) return null;
+
+  // Business type 3 is also used by the old flash-transfer richui card. Keep
+  // that semantic element instead of exposing the transport markdown. If a
+  // payload identifies itself as FlashTransfer but is malformed, fail open to
+  // the sibling compatibility text rather than misreporting it as markdown.
+  if (businessType === 3 && content.includes('FlashTransfer')) {
+    return decodeFlashTransferMarkdown(content);
+  }
+  return { type: 'markdown', text: content };
+}
+
+function decodeMarkdownElementsOnce(elems: ElemDecoded[]): Map<ElemDecoded, MessageElement | null> {
+  const decoded = new Map<ElemDecoded, MessageElement | null>();
+  for (const elem of elems) {
+    const ce = elem.commonElem;
+    const businessType = ce?.businessType ?? 0;
+    if (ce?.serviceType !== 45 || !MARKDOWN_BUSINESS_TYPES.has(businessType) || !ce.pbElem?.length) {
+      continue;
+    }
+    decoded.set(elem, decodeMarkdownCommonElement(ce.pbElem, businessType));
+  }
+  return decoded;
+}
+
+function decodeInlineKeyboardCommonElement(pbElem: Uint8Array): MessageElement | null {
+  const extra = decodeProtobufPayload(
+    'commonElem.inlineKeyboard',
+    pbElem,
+    () => protobuf_decode<InlineKeyboardExtra>(pbElem),
+  );
+  const keyboard = extra?.keyboard;
+  if (!keyboard) return null;
+
+  return {
+    type: 'inline_keyboard',
+    botAppid: String(keyboard.botAppid ?? 0),
+    rows: (keyboard.rows ?? []).map((row) => ({
+      buttons: (row.buttons ?? []).map((button) => {
+        const render = button.renderData;
+        const action = button.action;
+        const permission = action?.permission;
+        return {
+          id: button.id ?? '',
+          label: render?.label ?? '',
+          visitedLabel: render?.visitedLabel ?? '',
+          style: render?.style ?? 0,
+          type: action?.type ?? 0,
+          clickLimit: action?.clickLimit ?? 0,
+          unsupportedTips: action?.unsupportedTips ?? '',
+          data: action?.data ?? '',
+          atBotShowChannelList: action?.atBotShowChannelList ?? false,
+          permissionType: permission?.type ?? 0,
+          specifyRoleIds: permission?.specifyRoleIds ?? [],
+          specifyUserIds: permission?.specifyUserIds ?? [],
+          isReply: action?.reply ?? false,
+          enter: action?.enter ?? false,
+          anchor: action?.anchor ?? 0,
+        };
+      }),
+    })),
+  };
+}
+
+function decodeInlineKeyboardsOnce(elems: ElemDecoded[]): Map<ElemDecoded, MessageElement | null> {
+  const decoded = new Map<ElemDecoded, MessageElement | null>();
+  for (const elem of elems) {
+    const ce = elem.commonElem;
+    if (!ce || !INLINE_KEYBOARD_SERVICE_TYPES.has(ce.serviceType ?? 0)
+      || ce.businessType !== 1 || !ce.pbElem?.length) {
+      continue;
+    }
+    decoded.set(elem, decodeInlineKeyboardCommonElement(ce.pbElem));
+  }
+  return decoded;
+}
+
 function logUnknownWireMetadata(
   value: unknown,
   path: string,
@@ -387,27 +475,19 @@ export function decodeRichBody(body: PushMsgBody | undefined, isGroup: boolean):
 
 function convertElements(elems: ElemDecoded[]): MessageElement[] {
   const result: MessageElement[] = [];
-  // [#146] A QQ mini-program / ark share (B站 video, QQ 小程序, …) arrives as a
-  // `lightApp`/`richMsg` card element plus a plain `text` element carrying QQ's
-  // graceful-degradation compat string ("当前QQ版本不支持此应用，请升级") — the text
-  // protocol-old clients render instead of the card. The text element has NO wire
-  // marker distinguishing it (confirmed on-target: no pbReserve / attr6Buf), and
-  // the receiver binary contains none of these strings, so QQ does NOT match by
-  // content. Instead QQ NT's kernel codec (msg_codec_mgr) collapses the message
-  // to a single ark element — the sibling text is never emitted (verified by RE:
-  // wrapper.linux.node has no fallback strings; NapCat maps kernel elements 1:1
-  // with no ark-aware skip yet surfaces only the card). We mirror that structural
-  // rule: when a card is present, drop sibling plain `text`. `@`/reply/face etc.
-  // are not plain text and survive. `richMsg` covers json (svc=1) and xml (svc=35)
-  // cards alike.
-  // Only a card that can actually decode is allowed to suppress QQ's sibling
-  // compatibility text. Field presence alone is insufficient: a malformed
-  // card must fail open and preserve its otherwise-valid text sibling.
+  // [#146/#337] Rich cards and bot markdown arrive beside a plain compatibility
+  // `text` element for older clients. That sibling has no independent wire
+  // marker; QQ NT's codec structurally collapses the pair to the rich element.
+  // Mirror that rule only after the rich payload decodes successfully, so a
+  // malformed payload fails open and preserves its readable fallback text.
+  // Structural @/reply/face elements are not plain text and always survive.
   const decodedCards = decodeCardsOnce(elems);
   const decodedBigFaces = decodeBigFacesOnce(elems);
-  const hasCard = [...decodedCards.values()].some((cards) => (
+  const decodedMarkdown = decodeMarkdownElementsOnce(elems);
+  const decodedInlineKeyboards = decodeInlineKeyboardsOnce(elems);
+  const hasRichContent = [...decodedCards.values()].some((cards) => (
     Boolean(cards.rich?.element || cards.light?.element)
-  ));
+  )) || [...decodedMarkdown.values()].some((element) => element?.type === 'markdown');
   // QQ NT serializes a service-37 big face as the CommonElem followed by a
   // compatibility TextElem. The latter repeats QFaceExtra.text in `str`, while
   // field 12 contains a nested TextElem whose `str` is
@@ -537,9 +617,8 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
           result.push(me);
         } else {
           const text = t.str ?? '';
-          // [#146] drop QQ's ark-compat fallback text — structurally, like the
-          // kernel codec: a card message collapses to just the card element.
-          if (text && hasCard) continue;
+          // Drop the successfully decoded card/markdown compatibility sibling.
+          if (text && hasRichContent) continue;
           if (text) result.push({ type: 'text', text });
         }
       }
@@ -816,12 +895,11 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
           result.push({ type: 'face', faceId: extra.qsid });
         }
       } else if (svcType === 45 && ce.pbElem && ce.pbElem.length > 0) {
-        // Markdown commonElem. Older QQ clients (≤9.9.30) deliver a 闪传 (flash
-        // transfer) file as a richui markdown card (busId=FlashTransfer); newer
-        // clients send a plain text+link message that decodes elsewhere. Pull
-        // the flash fields out so the message isn't dropped to empty (#199/#200).
-        const flash = decodeFlashTransferCard(ce.pbElem);
-        if (flash) result.push(flash);
+        const markdown = decodedMarkdown.get(elem);
+        if (markdown) result.push(markdown);
+      } else if (INLINE_KEYBOARD_SERVICE_TYPES.has(svcType) && bizType === 1 && ce.pbElem?.length) {
+        const keyboard = decodedInlineKeyboards.get(elem);
+        if (keyboard) result.push(keyboard);
       }
 
       // Route predicates alone are not proof that a payload decoded. Log any
@@ -862,14 +940,14 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
 }
 
 /**
- * Decode a 闪传 richui markdown commonElem (svc=45) into a `flash_file`
- * element. The pbElem is a `MarkdownData` whose `content` is a markdown link
+ * Decode the content of a 闪传 richui markdown commonElem (svc=45) into a
+ * `flash_file` element. The `MarkdownData.content` is a markdown link
  * `[闪传](mqqapi://markdown/node?nodeType=richui&json=<url-encoded JSON>)`; the
  * JSON's `busId` is `FlashTransfer`. Field NAMES (fileSetId / sceneType /
  * title) were confirmed against QQ NT's flash-transfer manager in
  * wrapper.node.i64; the exact nesting is unknown (the card is built by the
- * sender's client), so we search recursively rather than pin a path. Returns
- * null for any non-flash markdown. See #199 / #200.
+ * sender's client), so we search recursively rather than pin a path. See
+ * #199 / #200.
  */
 function deepFindValue(obj: unknown, keys: readonly string[], depth = 0): unknown {
   if (depth > 8 || obj === null || typeof obj !== 'object') return undefined;
@@ -885,14 +963,7 @@ function deepFindValue(obj: unknown, keys: readonly string[], depth = 0): unknow
   return undefined;
 }
 
-function decodeFlashTransferCard(pbElem: Uint8Array): MessageElement | null {
-  const md = decodeProtobufPayload(
-    'commonElem.flashTransfer',
-    pbElem,
-    () => protobuf_decode<MarkdownData>(pbElem),
-  );
-  const content = md?.content ?? '';
-  if (!content.includes('FlashTransfer')) return null;
+function decodeFlashTransferMarkdown(content: string): MessageElement | null {
   const m = content.match(/[?&]json=([^)\s]+)/);
   if (!m) return null;
   let obj: unknown;

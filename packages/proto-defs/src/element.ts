@@ -241,6 +241,50 @@ export interface CommonElem {
   businessType?: pb<3, uint_32>;
 }
 
+/** CommonElem services 46/50/51, business type 1. */
+export interface InlineKeyboardPermission {
+  type?:           pb<1, uint_32>;
+  specifyRoleIds?: pb_repeated<2, string>;
+  specifyUserIds?: pb_repeated<3, string>;
+}
+
+export interface InlineKeyboardAction {
+  type?:                     pb<1, uint_32>;
+  permission?:               pb<2, InlineKeyboardPermission>;
+  clickLimit?:               pb<3, uint_32>;
+  unsupportedTips?:          pb<4, string>;
+  data?:                     pb<5, string>;
+  atBotShowChannelList?:     pb<6, bool>;
+  reply?:                    pb<7, bool>;
+  enter?:                    pb<8, bool>;
+  anchor?:                   pb<9, uint_32>;
+}
+
+export interface InlineKeyboardRenderData {
+  label?:        pb<1, string>;
+  visitedLabel?: pb<2, string>;
+  style?:        pb<3, uint_32>;
+}
+
+export interface InlineKeyboardButton {
+  id?:         pb<1, string>;
+  renderData?: pb<2, InlineKeyboardRenderData>;
+  action?:     pb<3, InlineKeyboardAction>;
+}
+
+export interface InlineKeyboardRow {
+  buttons?: pb_repeated<1, InlineKeyboardButton>;
+}
+
+export interface InlineKeyboardData {
+  rows?:      pb_repeated<1, InlineKeyboardRow>;
+  botAppid?:  pb<2, uint_64>;
+}
+
+export interface InlineKeyboardExtra {
+  keyboard?: pb<1, InlineKeyboardData>;
+}
+
 /** Payload carried by CommonElem serviceType=2 for private window shakes. */
 export interface PokeExtra {
   type?: pb<1, uint_32>;

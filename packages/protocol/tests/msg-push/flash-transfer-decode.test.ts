@@ -40,8 +40,9 @@ describe('decodeRichBody / 闪传 flash_file (#199/#200)', () => {
     expect(out).toEqual([]);
   });
 
-  it('ignores a non-FlashTransfer markdown card (no flash_file element)', () => {
+  it('does not misclassify a non-FlashTransfer markdown card as flash_file', () => {
     const out = decodeRichBody(flashBody({ busId: 'SomethingElse', templateId: 'button' }), true);
     expect(out.some((e) => e.type === 'flash_file')).toBe(false);
+    expect(out[0]?.type).toBe('markdown');
   });
 });
