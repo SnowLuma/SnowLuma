@@ -132,8 +132,16 @@ export abstract class SnowLumaApiClient {
     return this.call('get_group_honor_info', params, options);
   }
 
-  getGroupSystemMessages(options?: RequestOptions) {
-    return this.call('get_group_system_msg', {}, options);
+  getGroupSystemMessages(options?: RequestOptions & {
+    groupId?: number;
+    onlyPending?: boolean;
+    count?: number;
+  }) {
+    return this.call('get_group_system_msg', {
+      group_id: options?.groupId,
+      only_pending: options?.onlyPending,
+      count: options?.count,
+    }, options);
   }
 
   setGroupKick(groupId: number, userId: number, options?: RequestOptions & { rejectAddRequest?: boolean }) {
