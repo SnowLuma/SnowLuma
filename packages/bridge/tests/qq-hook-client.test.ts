@@ -688,10 +688,19 @@ describe('QqHookClient — packet TRACE', () => {
         message: 'send ack 1 timed out after 25 ms',
       });
 
-      await expect(client.sendAndWait(
+      const requestError = await client.sendAndWait(
         'Pipe.Error',
         Buffer.from([0xff]),
-      )).rejects.toThrow('send ack 2 timed out after 25 ms');
+      ).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(requestError).toMatchObject({
+        name: 'HookPipeRequestError',
+        message: 'send ack 2 timed out after 25 ms',
+        status: 12,
+        requestId: 2,
+      });
 
       expect(traceMessages(entries)).toEqual(expect.arrayContaining([
         expect.stringMatching(/^packet_terminal serviceCmd="Ack\.Timeout" requestId=1 outcome=timeout reason=ack_timeout error="send ack 1 timed out after 25 ms" elapsedMs=\d+$/),

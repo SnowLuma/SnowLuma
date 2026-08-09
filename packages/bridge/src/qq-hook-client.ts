@@ -23,6 +23,7 @@ export const MAX_PIPE_MSG_BYTES = 65536;
 export const MAX_PIPE_BODY_BYTES = 16 * 1024 * 1024;
 export const DEFAULT_ACK_TIMEOUT_MS = 5000;
 export const DEFAULT_REPLY_TIMEOUT_MS = 30000;
+export const PIPE_STATUS_CONNECTION_UNAVAILABLE = -39;
 const DEFAULT_PIPE_PROBE_TIMEOUT_MS = 250;
 const packetLog = createLogger('QQHook.Packet');
 const runtimeLog = createLogger('QQHook.Runtime');
@@ -273,8 +274,12 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
   });
 }
 
-class HookPipeRequestError extends Error {
-  constructor(message: string) {
+export class HookPipeRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly requestId: number,
+  ) {
     super(message);
     this.name = 'HookPipeRequestError';
   }
@@ -1064,7 +1069,11 @@ export class QqHookClient extends EventEmitter {
       return;
     }
     if (frame.op === PipeOp.error) {
-      const error = new HookPipeRequestError(frame.msg || `pipe error ${frame.status}`);
+      const error = new HookPipeRequestError(
+        frame.msg || `pipe error ${frame.status}`,
+        frame.status,
+        frame.requestId,
+      );
       const ack = this.pendingAcks.get(frame.requestId);
       if (ack) {
         this.pendingAcks.delete(frame.requestId);

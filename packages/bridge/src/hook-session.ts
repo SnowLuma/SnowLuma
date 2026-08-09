@@ -69,7 +69,7 @@ export type HookSessionDeps = {
  * Emitted events:
  *   'login'          (uin, packetSender) — real-UIN login detected
  *   'disconnected'   (wasLoggedIn)       — connection dropped or torn down
- *   'receive-health-changed' (healthy)   — receive path confirmed stale/recovered
+ *   'receive-health-changed' (healthy)   — combined receive/request path health changed
  *   'status-changed' (status, error)     — status field mutated
  *   'disposed'       ()                  — session stopped tracking this PID
  */
@@ -107,6 +107,7 @@ export class HookSession extends EventEmitter {
   private nextLoginHintAt = 0;
   private nextLoginIdentityObservationAt = 0;
   private _receiveHealthy = true;
+  private _outboundHealthy = true;
   private receiveWatchUin = '';
   private receiveWatchArmed = false;
   private receiveWatchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -130,7 +131,9 @@ export class HookSession extends EventEmitter {
   get uin(): string { return this._uin; }
   get method(): string { return this._method; }
   get isDisposed(): boolean { return this.disposed; }
-  get receiveHealthy(): boolean { return this._receiveHealthy; }
+  get receiveHealthy(): boolean {
+    return this._receiveHealthy && this._outboundHealthy;
+  }
 
   attachProcessInfo(info: { name?: string; path?: string }): void {
     if (info.name) this._name = info.name;
@@ -499,7 +502,10 @@ export class HookSession extends EventEmitter {
       if (this.client?.isClosed) this.tearDownClient();
       if (!this.client) {
         this.client = this.makeClient(this.pid);
-        this.sender = new HookPacketClient(this.client);
+        this.sender = new HookPacketClient(
+          this.client,
+          healthy => this.setOutboundHealthy(healthy),
+        );
         this.bound = false;
       }
       if (!this.bound) {
@@ -582,6 +588,7 @@ export class HookSession extends EventEmitter {
     this.bound = false;
     this.connected = false;
     this.loggedIn = false;
+    this._outboundHealthy = true;
     this.resetLoginHint();
   }
 
@@ -595,9 +602,13 @@ export class HookSession extends EventEmitter {
       this.stopLoginReconcile();
       // A PID can switch accounts without an intermediate logout edge. Never
       // carry the previous account's heartbeat deadline into the new epoch.
-      if (this.receiveWatchUin !== this._uin) this.resetReceiveWatch(this._uin);
+      if (this.receiveWatchUin !== this._uin) {
+        this.resetReceiveWatch(this._uin);
+        this._outboundHealthy = true;
+      }
     } else {
       this.resetReceiveWatch();
+      this._outboundHealthy = true;
     }
 
     // Only the connected/logged-in states are ours to set here; when fully
@@ -844,8 +855,29 @@ export class HookSession extends EventEmitter {
 
   private setReceiveHealthy(healthy: boolean): void {
     if (this._receiveHealthy === healthy) return;
+    const previous = this.receiveHealthy;
     this._receiveHealthy = healthy;
-    this.emit('receive-health-changed', healthy);
+    if (previous !== this.receiveHealthy) {
+      this.emit('receive-health-changed', this.receiveHealthy);
+    }
+  }
+
+  private setOutboundHealthy(healthy: boolean): void {
+    if (this._outboundHealthy === healthy) return;
+    const previous = this.receiveHealthy;
+    this._outboundHealthy = healthy;
+    if (previous !== this.receiveHealthy) {
+      this.emit('receive-health-changed', this.receiveHealthy);
+    }
+    if (healthy) {
+      this.log.info('request path recovered: PID=%d UIN=%s', this.pid, this._uin);
+    } else {
+      this.log.warn(
+        'request path unavailable: PID=%d UIN=%s; reporting good=false',
+        this.pid,
+        this._uin,
+      );
+    }
   }
 
   private resetReceiveWatch(uin = ''): void {

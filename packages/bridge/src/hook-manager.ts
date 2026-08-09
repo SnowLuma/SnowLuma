@@ -81,7 +81,7 @@ export type HookManagerDeps = {
  * Responsibilities:
  *   - Route user commands (load/unload/refresh) to the matching session.
  *   - Route watcher diff events to the matching session.
- *   - Forward session events ('login' / 'disconnected' / receive health) to BridgeManager.
+ *   - Forward session events ('login' / 'disconnected' / transport health) to BridgeManager.
  *   - Retry stuck-in-connecting sessions on every watcher tick (so a
  *     failed connect eventually recovers without a manual refresh).
  *   - Retry the bounded early-process auto-load race without retrying

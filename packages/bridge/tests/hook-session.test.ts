@@ -2,7 +2,12 @@ import { afterEach, describe, it, expect, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { HookSession } from '../src/hook-session';
 import type { ManualMapHandle } from '../src/injector';
-import type { QqHookClient, QqHookPacket } from '../src/qq-hook-client';
+import {
+  HookPipeRequestError,
+  PIPE_STATUS_CONNECTION_UNAVAILABLE,
+  type QqHookClient,
+  type QqHookPacket,
+} from '../src/qq-hook-client';
 import type { QqPortLoginInfo } from '../src/qq-port-probe';
 import type { PacketSender } from '@snowluma/common/packet-sender';
 import type { PacketSink } from '@snowluma/common/protocol-types';
@@ -35,6 +40,7 @@ class FakeClient extends EventEmitter {
   shouldFailConnect = false;
   nativeReadyOnIdentityHint = false;
   identityHintFailures = 0;
+  sendError: Error | null = null;
   readonly sentPackets: Array<{ serviceCmd: string; body: Buffer }> = [];
   readonly loginIdentityHints: string[] = [];
   private loginState = { loggedIn: false, uin: '0', uinNumber: 0n };
@@ -58,6 +64,7 @@ class FakeClient extends EventEmitter {
     if (this.nativeReadyOnIdentityHint) this.fireLogin(uin);
   }
   async send(serviceCmd: string, body: Buffer) {
+    if (this.sendError) throw this.sendError;
     this.sentPackets.push({ serviceCmd, body: Buffer.from(body) });
     return {
       requestId: this.sentPackets.length,
@@ -1060,6 +1067,39 @@ describe('HookSession — end-to-end receive health (#233)', () => {
   ): void {
     ctx.currentClient().firePacket({ seq, error: 0, cmd, uin, body: Buffer.alloc(0) });
   }
+
+  it('reports native outbound loss as unhealthy and recovers on the next successful request', async () => {
+    const { ctx, healthChanges } = await startReceiveSession();
+    let sender: PacketSender | undefined;
+    ctx.session.on('login', (_uin: string, nextSender: PacketSender) => {
+      sender = nextSender;
+    });
+
+    try {
+      // Re-emit on a new account epoch so the test captures the session sender.
+      ctx.currentClient().fireLogin('20002');
+      ctx.currentClient().sendError = new HookPipeRequestError(
+        'The QQ connection changed. Please restart QQ and try again.',
+        PIPE_STATUS_CONNECTION_UNAVAILABLE,
+        1,
+      );
+
+      await sender!.sendPacket('Test.Command', Buffer.alloc(0));
+      expect(ctx.session.receiveHealthy).toBe(false);
+      expect(healthChanges).toEqual([false]);
+
+      // Incoming traffic alone must not conceal a still-broken send path.
+      firePacket(ctx, HEARTBEAT_CMD, '20002');
+      expect(ctx.session.receiveHealthy).toBe(false);
+
+      ctx.currentClient().sendError = null;
+      await sender!.sendPacket('Test.Command', Buffer.alloc(0));
+      expect(ctx.session.receiveHealthy).toBe(true);
+      expect(healthChanges).toEqual([false, true]);
+    } finally {
+      ctx.session.dispose();
+    }
+  });
 
   it('becomes unhealthy only after an observed QQ heartbeat stays silent, then recovers on the next packet', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
