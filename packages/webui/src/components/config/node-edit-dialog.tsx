@@ -44,8 +44,18 @@ import type {
   WsServerNetwork,
 } from '@/types';
 import { generateAccessToken, NETWORK_TABS } from './defaults';
+import {
+  formatGroupIdsInput,
+  parseGroupIdsInput,
+  type GroupMessageFilterConfig,
+  type GroupMessageFilterMode,
+} from './group-message-filter-utils';
 
 type AnyAdapter<K extends NetworkKind> = OneBotNetworks[K][number];
+type WsClientWithGroupFilter = WsClientNetwork & {
+  groupMessageFilter?: GroupMessageFilterConfig;
+};
+type GroupFilterUiMode = 'off' | GroupMessageFilterMode;
 
 const KIND_ICON: Record<NetworkKind, LucideIcon> = {
   httpServers: Server,
@@ -79,6 +89,14 @@ export function NodeEditDialog<K extends NetworkKind>(props: NodeEditDialogProps
   // open gets a fresh `initial` via useState's lazy init — no effect-based
   // resync needed, which keeps the lifecycle linear.
   const [draft, setDraft] = useState<AnyAdapter<K>>(initial);
+  const initialWsClient = kind === 'wsClients' ? initial as WsClientWithGroupFilter : undefined;
+  const [groupIdsText, setGroupIdsText] = useState(
+    () => formatGroupIdsInput(initialWsClient?.groupMessageFilter?.groupIds ?? []),
+  );
+  const parsedGroupIds = useMemo(() => parseGroupIdsInput(groupIdsText), [groupIdsText]);
+  const wsDraft = kind === 'wsClients' ? draft as WsClientWithGroupFilter : undefined;
+  const groupFilterMode: GroupFilterUiMode = wsDraft?.groupMessageFilter?.mode ?? 'off';
+  const groupFilterError = groupFilterMode === 'off' ? undefined : parsedGroupIds.error;
 
   const trimmedName = draft.name?.trim() ?? '';
   const blankName = trimmedName.length === 0;
@@ -101,7 +119,10 @@ export function NodeEditDialog<K extends NetworkKind>(props: NodeEditDialogProps
     [allowEmptyToken, draft.accessToken, draft.name, enforceTokenPolicy, inbound?.host, inbound?.port, kind, uin],
   );
 
-  const canSave = !blankName && !duplicateName && (tokenFeedback?.valid ?? true);
+  const canSave = !blankName
+    && !duplicateName
+    && (tokenFeedback?.valid ?? true)
+    && !groupFilterError;
 
   const patch = (changes: Partial<AnyAdapter<K>>) => setDraft({ ...draft, ...changes } as AnyAdapter<K>);
 
@@ -134,6 +155,15 @@ export function NodeEditDialog<K extends NetworkKind>(props: NodeEditDialogProps
             disabled={!canSave}
             onClick={() => {
               const cleaned = { ...draft, name: trimmedName } as AnyAdapter<K>;
+              if (kind === 'wsClients') {
+                const ws = cleaned as WsClientWithGroupFilter;
+                if (ws.groupMessageFilter) {
+                  ws.groupMessageFilter = {
+                    mode: ws.groupMessageFilter.mode,
+                    groupIds: parsedGroupIds.groupIds,
+                  };
+                }
+              }
               onSubmit(cleaned);
               onOpenChange(false);
             }}
@@ -221,6 +251,51 @@ export function NodeEditDialog<K extends NetworkKind>(props: NodeEditDialogProps
                   onChange={(v) => patch({ role: v } as unknown as Partial<AnyAdapter<K>>)}
                 />
               </SettingRow>
+            )}
+
+            {kind === 'wsClients' && (
+              <>
+                <SettingRow
+                  label="群消息过滤"
+                  desc="只影响此 WS 客户端收到的群聊消息，不影响私聊、通知、请求或 API 通信"
+                >
+                  <DropdownSelect
+                    className="w-32"
+                    ariaLabel="群消息过滤模式"
+                    value={groupFilterMode}
+                    options={GROUP_FILTER_OPTIONS}
+                    onChange={(next) => {
+                      if (next === 'off') {
+                        patch({ groupMessageFilter: undefined } as unknown as Partial<AnyAdapter<K>>);
+                        return;
+                      }
+                      patch({
+                        groupMessageFilter: {
+                          mode: next,
+                          groupIds: parsedGroupIds.error ? [] : parsedGroupIds.groupIds,
+                        },
+                      } as unknown as Partial<AnyAdapter<K>>);
+                    }}
+                  />
+                </SettingRow>
+
+                {groupFilterMode !== 'off' && (
+                  <div className="px-4 py-3">
+                    <Field
+                      label="群号"
+                      placeholder="985983966, 787682322"
+                      value={groupIdsText}
+                      onChange={setGroupIdsText}
+                      error={groupFilterError}
+                    />
+                    <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                      {groupFilterMode === 'blacklist'
+                        ? '这些群的聊天消息不会发送到此 WS 客户端'
+                        : '只有这些群的聊天消息会发送到此 WS 客户端'}
+                    </p>
+                  </div>
+                )}
+              </>
             )}
 
             <SettingRow label="上报自身消息" desc="将机器人自己发送的消息也作为 message_sent 事件上报">
@@ -544,4 +619,10 @@ const WS_ROLE_OPTIONS: ReadonlyArray<DropdownOption<WsRole>> = [
   { value: 'Universal', label: 'Universal' },
   { value: 'Event', label: 'Event' },
   { value: 'Api', label: 'Api' },
+];
+
+const GROUP_FILTER_OPTIONS: ReadonlyArray<DropdownOption<GroupFilterUiMode>> = [
+  { value: 'off', label: '不启用' },
+  { value: 'blacklist', label: '黑名单' },
+  { value: 'whitelist', label: '白名单' },
 ];
