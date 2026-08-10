@@ -1,4 +1,10 @@
-import type { JsonObject, JsonValue, MessageFormat } from './types';
+import type {
+  GroupMessageFilterConfig,
+  JsonObject,
+  JsonValue,
+  MessageFormat,
+} from './types';
+
 export interface EventReportOptions {
   messageFormat: MessageFormat;
   reportSelfMessage: boolean;
@@ -31,6 +37,22 @@ export function buildDispatchPayload(event: JsonObject): DispatchPayload {
   }
 
   return { isSelfMessage, arrayJson, stringJson };
+}
+
+export function shouldDispatchGroupMessage(
+  event: JsonObject,
+  filter: GroupMessageFilterConfig | undefined,
+): boolean {
+  if (!filter) return true;
+  if (event.message_type !== 'group') return true;
+
+  const groupId = event.group_id;
+  if (typeof groupId !== 'number' || !Number.isSafeInteger(groupId) || groupId <= 0) {
+    return true;
+  }
+
+  const listed = filter.groupIds.includes(groupId);
+  return filter.mode === 'blacklist' ? !listed : listed;
 }
 
 export function pickDispatchJson(
