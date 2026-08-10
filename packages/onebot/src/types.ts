@@ -26,6 +26,13 @@ export type WsRole = 'Api' | 'Event' | 'Universal';
 
 export type MessageFormat = 'array' | 'string';
 
+export type GroupMessageFilterMode = 'blacklist' | 'whitelist';
+
+export interface GroupMessageFilterConfig {
+  mode: GroupMessageFilterMode;
+  groupIds: number[];
+}
+
 export type NetworkKind = 'httpServers' | 'httpClients' | 'wsServers' | 'wsClients';
 
 export interface NetworkBase {
@@ -63,6 +70,8 @@ export interface WsClientNetwork extends NetworkBase {
   url: string;
   role?: WsRole;
   reconnectIntervalMs?: number;
+  /** Optional per-client filter applied only to group chat message events. */
+  groupMessageFilter?: GroupMessageFilterConfig;
 }
 
 export interface OneBotNetworks {
