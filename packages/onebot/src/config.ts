@@ -5,6 +5,7 @@ import fs from 'fs';
 import { isIP } from 'node:net';
 import path from 'path';
 import type {
+  GroupMessageFilterConfig,
   HttpClientNetwork,
   HttpServerNetwork,
   JsonObject,
@@ -195,6 +196,7 @@ const RESTORE_TOP_LEVEL_KEYS = new Set([
 
 const RESTORE_NETWORK_KEYS = new Set(['httpServers', 'httpClients', 'wsServers', 'wsClients']);
 const RESTORE_BASE_ADAPTER_KEYS = ['name', 'enabled', 'accessToken', 'messageFormat', 'reportSelfMessage'] as const;
+const GROUP_MESSAGE_FILTER_KEYS = new Set(['mode', 'groupIds']);
 
 function validateOneBotRestoreSource(value: JsonObject): void {
   rejectUnknownKeys(value, RESTORE_TOP_LEVEL_KEYS, '$');
@@ -256,7 +258,7 @@ function validateRestoreAdapterArray(value: unknown, kind: keyof OneBotNetworks,
     ? ['host', 'port', 'path']
     : kind === 'httpClients'
       ? ['url', 'timeoutMs']
-      : ['url', 'role', 'reconnectIntervalMs'];
+      : ['url', 'role', 'reconnectIntervalMs', 'groupMessageFilter'];
   if (kind === 'httpServers') specific.push('enableWebSocket');
   if (kind === 'wsServers') specific.push('role');
   const allowed = new Set<string>([...RESTORE_BASE_ADAPTER_KEYS, ...specific]);
@@ -299,11 +301,14 @@ function validateRestoreAdapterArray(value: unknown, kind: keyof OneBotNetworks,
         invalid(`${pathAt}.role must be Api, Event, or Universal`);
       }
     }
-    if (kind === 'wsClients' && raw.reconnectIntervalMs !== undefined) {
-      const interval = parseRestoreInteger(raw.reconnectIntervalMs);
-      if (interval === null || interval < 1000 || interval > NODE_TIMER_MAX_MS) {
-        invalid(`${pathAt}.reconnectIntervalMs must be an integer between 1000 and ${NODE_TIMER_MAX_MS}`);
+    if (kind === 'wsClients') {
+      if (raw.reconnectIntervalMs !== undefined) {
+        const interval = parseRestoreInteger(raw.reconnectIntervalMs);
+        if (interval === null || interval < 1000 || interval > NODE_TIMER_MAX_MS) {
+          invalid(`${pathAt}.reconnectIntervalMs must be an integer between 1000 and ${NODE_TIMER_MAX_MS}`);
+        }
       }
+      validateGroupMessageFilter(raw.groupMessageFilter, `${pathAt}.groupMessageFilter`);
     }
   });
   return value.length;
@@ -424,6 +429,7 @@ export function assertValidOneBotConfig(value: unknown): asserts value is OneBot
     ) {
       invalid(`${at}.reconnectIntervalMs must be an integer between 1000 and ${NODE_TIMER_MAX_MS}`);
     }
+    validateGroupMessageFilter(item.groupMessageFilter, `${at}.groupMessageFilter`);
   });
 
   if (!isObject(value.statusCommand)) invalid('statusCommand must be an object');
@@ -569,6 +575,38 @@ function validateRole(value: unknown, at: string): void {
   }
 }
 
+function validateGroupMessageFilter(value: unknown, at: string): void {
+  if (value === undefined) return;
+  if (!isObject(value)) invalid(`${at} must be an object`);
+  rejectUnknownKeys(value, GROUP_MESSAGE_FILTER_KEYS, at);
+  if (value.mode !== 'blacklist' && value.mode !== 'whitelist') {
+    invalid(`${at}.mode must be blacklist or whitelist`);
+  }
+  if (!Array.isArray(value.groupIds)) invalid(`${at}.groupIds must be an array`);
+  value.groupIds.forEach((id, index) => {
+    if (typeof id !== 'number' || !Number.isSafeInteger(id) || id <= 0) {
+      invalid(`${at}.groupIds[${String(index)}] must be a positive safe integer`);
+    }
+  });
+}
+
+function parseGroupMessageFilter(value: unknown): GroupMessageFilterConfig | undefined {
+  if (value === undefined) return undefined;
+  validateGroupMessageFilter(value, 'ws client groupMessageFilter');
+  const raw = value as JsonObject;
+  const seen = new Set<number>();
+  const groupIds: number[] = [];
+  for (const id of raw.groupIds as number[]) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    groupIds.push(id);
+  }
+  return {
+    mode: raw.mode as GroupMessageFilterConfig['mode'],
+    groupIds,
+  };
+}
+
 function invalid(message: string): never {
   throw new OneBotConfigValidationError(message);
 }
@@ -681,6 +719,12 @@ function wsClientToJson(n: WsClientNetwork): JsonObject {
     typeof n.reconnectIntervalMs === 'number' && Number.isFinite(n.reconnectIntervalMs)
       ? Math.max(1000, Math.trunc(n.reconnectIntervalMs))
       : 5000;
+  if (n.groupMessageFilter) {
+    out.groupMessageFilter = {
+      mode: n.groupMessageFilter.mode,
+      groupIds: [...new Set(n.groupMessageFilter.groupIds)],
+    };
+  }
   return out;
 }
 
@@ -900,6 +944,7 @@ function parseWsClient(value: JsonObject, defaults: AdapterDefaults): WsClientNe
     url,
     role: asRole(value.role, 'Universal'),
     reconnectIntervalMs: Math.max(1000, reconnectIntervalMs),
+    groupMessageFilter: parseGroupMessageFilter(value.groupMessageFilter),
   });
 }
 
