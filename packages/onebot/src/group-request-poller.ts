@@ -93,18 +93,40 @@ export class GroupRequestPoller {
     if (this.lifecycleStarted && !this.running) return;
     const discovered = [...main, ...filtered]
       .filter((request) => request.state === 1)
-      .filter((request) => request.notifyType === 1 || request.notifyType === 7)
-      .map((request) => ({ request, event: this.toEvent(request) }));
+      .filter((request) => request.notifyType === 1 || request.notifyType === 7);
 
     const now = this.now();
     this.sweepRecentFingerprints(now);
-    for (const { request, event } of discovered) {
+    for (const request of discovered) {
       if (this.lifecycleStarted && !this.running) return;
+      let event: GroupInviteEvent;
+      try {
+        event = this.toEvent(request);
+      } catch (error) {
+        this.log.error(
+          'group request record rejected: group=%s sequence=%s subtype=%s reason=%s',
+          String(request.groupId),
+          String(request.sequence),
+          request.notifyType === 1 ? 'invite' : 'add',
+          error instanceof Error ? error.message : String(error),
+        );
+        continue;
+      }
+
       const fingerprint = eventFingerprint(event);
       if (this.seenFlags.has(event.flag)) continue;
       if ((this.recentFingerprints.get(fingerprint) ?? 0) > now - RECENT_EVENT_WINDOW_MS) {
         this.rememberFlag(event.flag);
         continue;
+      }
+
+      if (event.fromUin === 0) {
+        this.log.warn(
+          'group request sender could not be identified: group=%d sequence=%d subtype=%s',
+          event.groupId,
+          request.sequence,
+          event.subType,
+        );
       }
 
       // Mark before emission: handlers may synchronously trigger another list
@@ -141,10 +163,8 @@ export class GroupRequestPoller {
         `group request has no operation type: group=${request.groupId} sequence=${request.sequence} notifyType=${notifyType ?? 0}`,
       );
     }
-    if (!Number.isSafeInteger(fromUin) || fromUin <= 0) {
-      throw new Error(
-        `group request has no sender account: group=${request.groupId} sequence=${request.sequence} subtype=${subType}`,
-      );
+    if (!Number.isSafeInteger(fromUin) || fromUin < 0) {
+      throw new Error(`invalid sender account on group request: ${fromUin}`);
     }
     if (inviteCardSequence !== undefined
       && (!Number.isSafeInteger(inviteCardSequence) || inviteCardSequence <= 0)) {
@@ -212,7 +232,14 @@ export class GroupRequestPoller {
   }
 }
 
-function eventFingerprint(event: Pick<GroupInviteEvent, 'groupId' | 'subType' | 'fromUin' | 'fromUid'>): string {
-  const actor = event.fromUin > 0 ? `uin:${event.fromUin}` : `uid:${event.fromUid ?? ''}`;
+function eventFingerprint(
+  event: Pick<GroupInviteEvent, 'groupId' | 'subType' | 'fromUin' | 'fromUid' | 'flag'>,
+): string {
+  const fromUid = event.fromUid?.trim() ?? '';
+  const actor = event.fromUin > 0
+    ? `uin:${event.fromUin}`
+    : fromUid
+      ? `uid:${fromUid}`
+      : `request:${event.flag}`;
   return `${event.groupId}:${event.subType}:${actor}`;
 }

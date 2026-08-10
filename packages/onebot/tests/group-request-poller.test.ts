@@ -87,6 +87,93 @@ describe('GroupRequestPoller', () => {
     })]);
   });
 
+  it('emits an actionable invite when the sender account is unavailable and continues the batch', async () => {
+    const fetchGroupRequests = vi.fn(async (filtered: boolean) => filtered ? [] : [
+      request({
+        notifyType: 1,
+        eventType: 2,
+        sequence: 41,
+        invitorUid: '',
+        invitorUin: 0,
+      }),
+      request({
+        groupId: 1_000,
+        notifyType: 1,
+        eventType: 2,
+        sequence: 42,
+      }),
+    ]);
+    const { events, poller } = setup(fetchGroupRequests);
+    const received: unknown[] = [];
+    events.on('group_invite', (event) => { received.push(event); });
+
+    await poller.pollOnce();
+    await poller.pollOnce();
+
+    expect(received).toEqual([
+      expect.objectContaining({
+        groupId: 999,
+        fromUin: 0,
+        fromUid: '',
+        subType: 'invite',
+        flag: 'slreq:1:41:999:2:0',
+      }),
+      expect.objectContaining({
+        groupId: 1_000,
+        fromUin: 456,
+        flag: 'slreq:1:42:1000:2:0',
+      }),
+    ]);
+  });
+
+  it('does not merge separate requests whose sender identities are both unavailable', async () => {
+    const fetchGroupRequests = vi.fn(async (filtered: boolean) => filtered ? [] : [
+      request({
+        notifyType: 1,
+        eventType: 2,
+        sequence: 41,
+        invitorUid: '',
+        invitorUin: 0,
+      }),
+      request({
+        notifyType: 1,
+        eventType: 2,
+        sequence: 42,
+        invitorUid: '',
+        invitorUin: 0,
+      }),
+    ]);
+    const { events, poller } = setup(fetchGroupRequests);
+    const received: unknown[] = [];
+    events.on('group_invite', (event) => { received.push(event); });
+
+    await poller.pollOnce();
+
+    expect(received).toEqual([
+      expect.objectContaining({ flag: 'slreq:1:41:999:2:0' }),
+      expect.objectContaining({ flag: 'slreq:1:42:999:2:0' }),
+    ]);
+  });
+
+  it('isolates a malformed list record without suppressing valid siblings', async () => {
+    const fetchGroupRequests = vi.fn(async (filtered: boolean) => filtered ? [] : [
+      request({ sequence: 0 }),
+      request({ groupId: 1_000, sequence: 43 }),
+    ]);
+    const { events, poller } = setup(fetchGroupRequests);
+    const received: unknown[] = [];
+    events.on('group_invite', (event) => { received.push(event); });
+
+    await poller.pollOnce();
+
+    expect(received).toEqual([
+      expect.objectContaining({
+        groupId: 1_000,
+        flag: 'slreq:1:43:1000:1:0',
+      }),
+    ]);
+  });
+
   it('preserves the private invite-card approval sequence when one is known', async () => {
     const fetchGroupRequests = vi.fn(async (filtered: boolean) => filtered ? [] : [request({
       notifyType: 1,
