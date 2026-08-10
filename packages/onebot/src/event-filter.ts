@@ -44,6 +44,7 @@ export function shouldDispatchGroupMessage(
   filter: GroupMessageFilterConfig | undefined,
 ): boolean {
   if (!filter) return true;
+  if (event.post_type !== 'message' && event.post_type !== 'message_sent') return true;
   if (event.message_type !== 'group') return true;
 
   const groupId = event.group_id;
