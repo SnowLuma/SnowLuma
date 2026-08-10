@@ -3,6 +3,7 @@ import { createLogger } from '@snowluma/common/logger';
 import {
   pickDispatchJson,
   resolveReportOptions,
+  shouldDispatchGroupMessage,
   type DispatchPayload,
   type EventReportOptions,
 } from '../event-filter';
@@ -94,9 +95,10 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
     this.role = next.role ?? 'Universal';
   }
 
-  onEvent(_event: JsonObject, payload: DispatchPayload): void {
+  onEvent(event: JsonObject, payload: DispatchPayload): void {
     if (!this.isEnabled || !this.socket) return;
     if (this.role !== 'Event' && this.role !== 'Universal') return;
+    if (!shouldDispatchGroupMessage(event, this.config.groupMessageFilter)) return;
     const json = pickDispatchJson(payload, this.options);
     if (json === null) return;
     safeSend(this.socket, json);
