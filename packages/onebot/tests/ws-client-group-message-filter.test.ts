@@ -23,6 +23,7 @@ const privateMessage: JsonObject = {
 
 const groupNotice: JsonObject = {
   post_type: 'notice',
+  message_type: 'group',
   notice_type: 'group_increase',
   group_id: 985983966,
   user_id: 10001,
