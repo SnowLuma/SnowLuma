@@ -23,6 +23,33 @@ import { GROUP_MESSAGE_EVENT, hashMessageIdInt32 } from '../message-id';
 const DOWNLOAD_FILE_MAX_BYTES = 1024 * 1024 * 1024; // 1 GiB
 const DOWNLOAD_FILE_TIMEOUT_MS = 60_000;
 
+const profileLikeUserSchema = {
+  type: 'object',
+  properties: {
+    uid: { type: 'string', description: '用户 uid' },
+    uin: { type: 'integer', description: '用户 QQ 号；资料中没有有效号码时为 0' },
+    src: { type: 'integer', description: '来源类型' },
+    latestTime: { type: 'integer', description: '最近互动时间戳' },
+    count: { type: 'integer', description: '互动次数' },
+    giftCount: { type: 'integer', description: '礼物数量' },
+    customId: { type: 'integer', description: '自定义标识' },
+    lastCharged: { type: 'integer', description: '最近充能时间' },
+    bAvailableCnt: { type: 'integer', description: '可用次数' },
+    bTodayVotedCnt: { type: 'integer', description: '今日已点赞次数' },
+    nick: { type: 'string', description: '昵称' },
+    gender: { type: 'integer', description: '性别' },
+    age: { type: 'integer', description: '年龄' },
+    isFriend: { type: 'boolean', description: '是否为好友' },
+    isvip: { type: 'boolean', description: '是否为会员' },
+    isSvip: { type: 'boolean', description: '是否为超级会员' },
+  },
+  required: [
+    'uid', 'uin', 'src', 'latestTime', 'count', 'giftCount', 'customId',
+    'lastCharged', 'bAvailableCnt', 'bTodayVotedCnt', 'nick', 'gender',
+    'age', 'isFriend', 'isvip', 'isSvip',
+  ],
+};
+
 function essenceNumber(value: unknown, field: string): number {
   if (typeof value !== 'number'
     && (typeof value !== 'string' || !/^-?\d+$/.test(value))) {
@@ -1150,7 +1177,7 @@ export const actions = [
     name: 'get_profile_like',
     summary: '获取资料点赞',
     readOnly: true,
-    returns: '点赞资料：uid、最近点赞时间、收藏（favoriteInfo）与点赞（voteInfo）统计。',
+    returns: '点赞资料：uid、最近点赞时间、收藏与点赞统计及用户明细。',
     returnsSchema: {
       type: 'object',
       properties: {
@@ -1163,7 +1190,11 @@ export const actions = [
             total_count: { type: 'integer', description: '收藏总数' },
             last_time: { type: 'integer', description: '最近收藏时间戳' },
             today_count: { type: 'integer', description: '今日收藏数' },
-            userInfos: { type: 'array', description: '用户列表（恒空）' },
+            userInfos: {
+              type: 'array',
+              description: '收藏用户列表',
+              items: profileLikeUserSchema,
+            },
           },
         },
         voteInfo: {
@@ -1174,7 +1205,11 @@ export const actions = [
             new_count: { type: 'integer', description: '新增点赞数' },
             new_nearby_count: { type: 'integer', description: '附近的人新增点赞数' },
             last_visit_time: { type: 'integer', description: '最近访问时间戳' },
-            userInfos: { type: 'array', description: '用户列表（恒空）' },
+            userInfos: {
+              type: 'array',
+              description: '点赞用户列表',
+              items: profileLikeUserSchema,
+            },
           },
         },
       },

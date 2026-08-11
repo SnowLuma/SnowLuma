@@ -53,12 +53,13 @@ export interface OidbSender {
  * `Pick<BridgeContext, ...>` slices the cmd actually needs.
  *
  * One of `subCommand` (static) or `resolveSubCommand` (dynamic from
- * params) must be present. `resolveSubCommand` wins if both are given.
+ * params and context) must be present. `resolveSubCommand` wins if both
+ * are given.
  */
 export interface OidbCallSpec<TCtx extends OidbSender, TReq, TResp, TParams, TResult> {
   command: number;
   subCommand?: number;
-  resolveSubCommand?(params: TParams): number;
+  resolveSubCommand?(params: TParams, ctx: TCtx): number;
   /** Set OIDB envelope `reserved = 1` (UIN-form variant, see makeOidbEnvelope's isUid). */
   uinForm?: boolean;
   /** Override the default `OidbSvcTrpcTcp.0xNNNN_N` wire name. A few
@@ -107,7 +108,7 @@ export async function invokeOidb<TCtx extends OidbSender, TReq, TResp, TParams, 
   timeoutMs?: number,
 ): Promise<TResult> {
   const subCommand = spec.resolveSubCommand
-    ? spec.resolveSubCommand(params)
+    ? spec.resolveSubCommand(params, ctx)
     : spec.subCommand!;
   const reqBody = await spec.serialize(ctx, params);
   const env = makeOidbEnvelope(spec.command, subCommand, reqBody, spec.uinForm ?? false);
@@ -163,7 +164,7 @@ export async function buildOidbRequest<TCtx extends OidbSender, TReq, TResp, TPa
   params: TParams,
 ): Promise<{ wireName: string; bytes: Uint8Array }> {
   const subCommand = spec.resolveSubCommand
-    ? spec.resolveSubCommand(params)
+    ? spec.resolveSubCommand(params, ctx)
     : spec.subCommand!;
   const reqBody = await spec.serialize(ctx, params);
   const env = makeOidbEnvelope(spec.command, subCommand, reqBody, spec.uinForm ?? false);

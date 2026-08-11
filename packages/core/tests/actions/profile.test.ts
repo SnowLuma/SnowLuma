@@ -173,22 +173,35 @@ describe('apis/profile', () => {
 
   it('getProfileLike (self): resolves self UID, returns formatted favorite + vote info', async () => {
     const bridge = mockBridge();
+    bridge.identity.findUinByUid.mockImplementation(
+      (uid: string) => uid === 'liker-uid' ? 20002 : 0,
+    );
     bridge.sendRawPacket.mockResolvedValueOnce({
       success: true, gotResponse: true, errorCode: 0, errorMessage: '',
       responseData: Buffer.from(protobuf_encode<OidbBase<Oidb0x7edResp>>({
         body: {
           userLikeInfos: [{
             uid: 'u',
-            time: 1700000000n,
-            favoriteInfo: { totalCount: 5, lastTime: 1n, newCount: 1 },
-            voteInfo: { totalCount: 7, newCount: 2, lastTime: 2n },
+            time: 1700000000,
+            favoriteInfo: { totalCount: 5, lastTime: 1, todayCount: 1 },
+            voteInfo: {
+              totalCount: 7,
+              newCount: 2,
+              newNearbyCount: 1,
+              lastVisitTime: 2,
+              userInfos: [{ uid: 'liker-uid', nick: '点赞者', count: 3 }],
+            },
           }],
         } as any,
       })),
     });
     const out = await new ProfileApi(bridge as any).getLike();
+    expect(bridge.sendRawPacket.mock.calls[0]![0]).toBe('OidbSvcTrpcTcp.0x7ed_13');
     expect(out.favoriteInfo.total_count).toBe(5);
     expect(out.voteInfo.total_count).toBe(7);
+    expect(out.voteInfo.userInfos).toEqual([
+      expect.objectContaining({ uid: 'liker-uid', uin: 20002, nick: '点赞者', count: 3 }),
+    ]);
   });
 
   it('getProfileLike throws on empty result', async () => {
@@ -198,6 +211,56 @@ describe('apis/profile', () => {
       responseData: Buffer.from(protobuf_encode<OidbBase<Oidb0x7edResp>>({ body: { userLikeInfos: [] } as any })),
     });
     await expect(new ProfileApi(bridge as any).getLike()).rejects.toThrow(/empty/);
+  });
+
+  it('getProfileLike resolves uncached liker uins from their profiles', async () => {
+    const bridge = mockBridge();
+    bridge.identity.findUinByUid.mockReturnValue(null);
+    const fetchUserProfileByUid = vi.fn(async (uid: string) => ({
+      uid,
+      uin: 30003,
+      nickname: '陌生点赞者',
+    }));
+    (bridge.apis.contacts as any).fetchUserProfileByUid = fetchUserProfileByUid;
+    bridge.sendRawPacket.mockResolvedValueOnce({
+      success: true, gotResponse: true, errorCode: 0, errorMessage: '',
+      responseData: Buffer.from(protobuf_encode<OidbBase<Oidb0x7edResp>>({
+        body: {
+          userLikeInfos: [{
+            uid: 'self-uid',
+            voteInfo: { userInfos: [{ uid: 'stranger-uid', nick: '陌生点赞者' }] },
+          }],
+        },
+      })),
+    });
+
+    const out = await new ProfileApi(bridge as any).getLike();
+
+    expect(fetchUserProfileByUid).toHaveBeenCalledOnce();
+    expect(fetchUserProfileByUid).toHaveBeenCalledWith('stranger-uid');
+    expect(out.voteInfo.userInfos[0]?.uin).toBe(30003);
+  });
+
+  it('getProfileLike surfaces failures while resolving uncached liker uins', async () => {
+    const bridge = mockBridge();
+    bridge.identity.findUinByUid.mockReturnValue(null);
+    (bridge.apis.contacts as any).fetchUserProfileByUid = vi.fn(async () => {
+      throw new Error('profile lookup failed');
+    });
+    bridge.sendRawPacket.mockResolvedValueOnce({
+      success: true, gotResponse: true, errorCode: 0, errorMessage: '',
+      responseData: Buffer.from(protobuf_encode<OidbBase<Oidb0x7edResp>>({
+        body: {
+          userLikeInfos: [{
+            uid: 'self-uid',
+            voteInfo: { userInfos: [{ uid: 'stranger-uid' }] },
+          }],
+        },
+      })),
+    });
+
+    await expect(new ProfileApi(bridge as any).getLike())
+      .rejects.toThrow('profile lookup failed');
   });
 
   it('getUnidirectionalFriendList parses the embedded JSON body', async () => {
