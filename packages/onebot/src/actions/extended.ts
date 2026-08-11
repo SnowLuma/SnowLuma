@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { FriendDressError } from '@snowluma/protocol/web/friend-dress';
+import { formatGroupRequestFlag } from '@snowluma/protocol/qq-info';
 import type {
   GroupEssenceContent,
   GroupEssenceMessage,
@@ -1006,7 +1007,7 @@ export const actions = [
           actor: { type: 'integer', description: '处理人 QQ 号' },
           invitor_uin: { type: 'integer', description: '邀请人 QQ 号' },
           invitor_nick: { type: 'string', description: '邀请人昵称' },
-          flag: { type: 'string', description: '处理用 flag（eventType:groupId:targetUid:filtered）' },
+          flag: { type: 'string', description: '处理请求使用的规范 flag' },
         },
         required: ['group_id', 'group_name', 'request_id', 'requester_uin', 'requester_nick', 'message', 'checked', 'actor', 'invitor_uin', 'invitor_nick', 'flag'],
       },
@@ -1025,13 +1026,13 @@ export const actions = [
         actor: r.operatorUin,
         invitor_uin: r.invitorUin,
         invitor_nick: r.invitorName,
-        flag: `${r.eventType}:${r.groupId}:${r.targetUid}:filtered`,
+        flag: formatGroupRequestFlag(r),
       })));
     },
   }),
 
   // NapCat 对“被忽略通知中属于入群请求的子集”的命名（notify type == 7）。
-  // 这里把经过过滤的 0x10c8_2 每一项映射成 NapCat 结构。
+  // 这里把经过过滤的申请收件箱项目映射成 NapCat 结构。
   // eventType 已经在当前流水线中编码了请求类别。
   defineAction({
     name: 'get_group_ignore_add_request',
@@ -2735,14 +2736,10 @@ export const actions = [
 ];
 
 // 已过滤（机器人/被忽略）的入群请求。
-// SnowLuma 已通过 fetchGroupRequests 实现底层 oidb 0x10c8_2 拉取。
+// 与标准群系统消息共用过滤收件箱，只保留方言动作的返回形状。
 // 这几个动作只是为实际使用中的 OneBot 方言客户端重命名并投影相同数据。
 async function fetchFilteredGroupRequests(ctx: ApiActionContext) {
-  try {
-    return await ctx.bridge.apis.contacts.fetchGroupRequests(true);
-  } catch {
-    return [];
-  }
+  return ctx.bridge.apis.contacts.fetchGroupRequests(true);
 }
 
 

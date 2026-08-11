@@ -27,12 +27,12 @@ export const actions = [
   defineAction({
     name: 'get_status',
     readOnly: true,
-    returns: '运行状态。`online` 表示账号在线；`good` 仅在接收链路确认停滞时为 `false`。',
+    returns: '运行状态。`online` 表示账号在线；`good` 表示已确认的收发链路健康状态。',
     returnsSchema: {
       type: 'object',
       properties: {
         online: { type: 'boolean', description: '是否在线' },
-        good: { type: 'boolean', description: '接收链路健康状态；仅在确认停滞时为 false' },
+        good: { type: 'boolean', description: '收发链路健康状态；确认接收停滞或主动请求连接失效时为 false' },
       },
       required: ['online', 'good'],
     },

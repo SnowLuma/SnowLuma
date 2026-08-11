@@ -75,6 +75,9 @@ export interface GroupRequestInfo {
   operatorName: string;
   sequence: number;
   state: number;
+  /** High-level notification type returned by the request list. */
+  notifyType?: number;
+  /** 0x10C8 operation discriminator derived from notifyType. */
   eventType: number;
   comment: string;
   filtered: boolean;

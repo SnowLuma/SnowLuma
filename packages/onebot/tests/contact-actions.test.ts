@@ -123,6 +123,7 @@ function makeGroupRequest(overrides: Partial<GroupRequestInfo> = {}): GroupReque
     operatorName: 'operator',
     sequence: 123456,
     state: 1,
+    notifyType: 7,
     eventType: 22,
     comment: 'please',
     filtered: false,
@@ -595,6 +596,19 @@ describe('onebot/contact-actions / getStrangerInfo', () => {
 });
 
 describe('onebot/contact-actions / getGroupSystemMessages', () => {
+  it('reads both request inboxes with the requested per-inbox count', async () => {
+    const fetchGroupRequests = vi.fn(async (filtered: boolean) => filtered
+      ? [makeGroupRequest({ sequence: 2, filtered: true, targetUin: 202, targetUid: '' })]
+      : [makeGroupRequest({ sequence: 1, filtered: false, targetUin: 101, targetUid: '' })]);
+    const bridge = fakeBridge({ fetchGroupRequests });
+
+    const result = await getGroupSystemMessages(bridge, { count: 80 });
+
+    expect(fetchGroupRequests).toHaveBeenNthCalledWith(1, false, 80);
+    expect(fetchGroupRequests).toHaveBeenNthCalledWith(2, true, 80);
+    expect(result.map((item) => item.request_id)).toEqual([1, 2]);
+  });
+
   it('returns the same canonical flag accepted by set_group_add_request', async () => {
     const bridge = fakeBridge({
       fetchGroupRequests: vi.fn(async () => [
@@ -611,6 +625,28 @@ describe('onebot/contact-actions / getGroupSystemMessages', () => {
       checked: false,
       flag: 'slreq:1:123456:999:22:1',
     });
+  });
+
+  it('reports the inviter as requester for group invitations', async () => {
+    const bridge = fakeBridge({
+      fetchGroupRequests: vi.fn(async (filtered: boolean) => filtered ? [] : [
+        makeGroupRequest({
+          notifyType: 1,
+          eventType: 2,
+          targetUin: 10_001,
+          targetName: 'bot',
+          invitorUin: 45_678,
+          invitorName: 'inviter',
+        }),
+      ]),
+    });
+
+    const result = await getGroupSystemMessages(bridge);
+
+    expect(result).toEqual([expect.objectContaining({
+      requester_uin: 45_678,
+      requester_nick: 'inviter',
+    })]);
   });
 
   it('filters by group and pending state before resolving requester identities', async () => {

@@ -237,12 +237,14 @@ export const actions = [
     params: {
       group_id: f.groupId().optional(),
       only_pending: f.bool().default(false),
+      count: f.int({ min: 1, max: 100 }).default(50).describe('每个收件箱最多读取的记录数'),
     },
     run: async (p, ctx) => {
       if (ctx.handleGetGroupSystemMsg) {
         return okResponse(await ctx.handleGetGroupSystemMsg({
           groupId: p.group_id,
           onlyPending: p.only_pending,
+          count: p.count,
         }));
       }
       return okResponse([]);

@@ -4784,7 +4784,7 @@ export const ACTIONS: CatalogAction[] = [
           },
           "flag": {
             "type": "string",
-            "description": "处理用 flag（eventType:groupId:targetUid:filtered）"
+            "description": "处理请求使用的规范 flag"
           }
         },
         "required": [
@@ -5818,6 +5818,18 @@ export const ACTIONS: CatalogAction[] = [
           "type": "boolean"
         },
         "default": false
+      },
+      {
+        "name": "count",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "default": 50,
+        "desc": "每个收件箱最多读取的记录数"
       }
     ],
     "invariants": [],
@@ -5832,6 +5844,13 @@ export const ACTIONS: CatalogAction[] = [
         "only_pending": {
           "type": "boolean",
           "default": false
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "每个收件箱最多读取的记录数",
+          "default": 50
         }
       },
       "additionalProperties": true
@@ -6973,7 +6992,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "get_status",
     "aliases": [],
-    "returns": "运行状态。`online` 表示账号在线；`good` 仅在接收链路确认停滞时为 `false`。",
+    "returns": "运行状态。`online` 表示账号在线；`good` 表示已确认的收发链路健康状态。",
     "returnsSchema": {
       "type": "object",
       "properties": {
@@ -6983,7 +7002,7 @@ export const ACTIONS: CatalogAction[] = [
         },
         "good": {
           "type": "boolean",
-          "description": "接收链路健康状态；仅在确认停滞时为 false"
+          "description": "收发链路健康状态；确认接收停滞或主动请求连接失效时为 false"
         }
       },
       "required": [

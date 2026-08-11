@@ -7,7 +7,7 @@ import type { GroupRequestInfo } from '@snowluma/protocol/qq-info';
 const APIS_ROUTING: Record<string, string> = {
   fetchFriendList: 'contacts', fetchGroupList: 'contacts',
   fetchGroupMemberList: 'contacts', fetchUserProfile: 'contacts',
-  fetchGroupRequests: 'contacts', fetchDownloadRKeys: 'contacts',
+  fetchGroupRequests: 'contacts', fetchGroupRequestsByUid: 'contacts', fetchDownloadRKeys: 'contacts',
   getGroupInviteCardSequence: 'contacts', findGroupInviteCardGroupBySequence: 'contacts',
 };
 
@@ -111,10 +111,11 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
 
   it('matches add requests by groupId and targetUid', async () => {
     const setAddRequest = vi.fn(async () => {});
+    const fetchGroupRequestsByUid = vi.fn(async () => [
+      fakeRequest({ groupId: 999, targetUid: 'u_t', sequence: 42, eventType: 7, filtered: false }),
+    ]);
     const bridge = fakeBridge({
-      fetchGroupRequests: vi.fn(async () => [
-        fakeRequest({ groupId: 999, targetUid: 'u_t', sequence: 42, eventType: 7, filtered: false }),
-      ]),
+      fetchGroupRequestsByUid,
       apis: { groupAdmin: { setAddRequest } } as any,
     });
 
@@ -122,12 +123,14 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
 
     expect(setAddRequest).toHaveBeenCalledOnce();
     expect(setAddRequest).toHaveBeenCalledWith(999, 42, 7, true, 'ok', false);
+    expect(fetchGroupRequestsByUid).toHaveBeenCalledWith(false, 100);
+    expect(fetchGroupRequestsByUid).toHaveBeenCalledWith(true, 100);
   });
 
   it('matches invite requests by groupId and invitorUid', async () => {
     const setAddRequest = vi.fn(async () => {});
     const bridge = fakeBridge({
-      fetchGroupRequests: vi.fn(async () => [
+      fetchGroupRequestsByUid: vi.fn(async () => [
         fakeRequest({ groupId: 999, invitorUid: 'u_i', sequence: 97, eventType: 8, filtered: false }),
       ]),
       getGroupInviteCardSequence: vi.fn(() => null),
@@ -144,7 +147,7 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
     const setAddRequest = vi.fn(async () => {});
     const bridge = fakeBridge({
       // Main inbox empty; the invite sits only in the spam-filtered inbox.
-      fetchGroupRequests: vi.fn(async (filtered: boolean) =>
+      fetchGroupRequestsByUid: vi.fn(async (filtered: boolean) =>
         filtered
           ? [fakeRequest({ groupId: 999, invitorUid: 'u_i', sequence: 55, eventType: 2, filtered: true })]
           : []),
@@ -161,7 +164,7 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
 
   it('surfaces "not found" only when neither inbox has the request', async () => {
     const bridge = fakeBridge({
-      fetchGroupRequests: vi.fn(async () => []),
+      fetchGroupRequestsByUid: vi.fn(async () => []),
       getGroupInviteCardSequence: vi.fn(() => null),
       apis: { groupAdmin: { setAddRequest: vi.fn(async () => {}) } } as any,
     });
@@ -187,7 +190,7 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
   it('does not fall back to another request from the same group', async () => {
     const setAddRequest = vi.fn(async () => {});
     const bridge = fakeBridge({
-      fetchGroupRequests: vi.fn(async () => [
+      fetchGroupRequestsByUid: vi.fn(async () => [
         fakeRequest({ groupId: 999, targetUid: 'u_someone_else' }),
       ]),
       apis: { groupAdmin: { setAddRequest } } as any,
@@ -212,6 +215,20 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
     await handleGroupAddRequest(bridge, '55', true, 'ok');
 
     expect(setAddRequest).toHaveBeenCalledWith(999, 55, 2, true, 'ok', true);
+  });
+
+  it('does not report not-found when an unavailable inbox may contain the request', async () => {
+    const bridge = fakeBridge({
+      findGroupInviteCardGroupBySequence: vi.fn(() => undefined),
+      fetchGroupRequests: vi.fn(async (filtered: boolean) => {
+        if (filtered) throw new Error('filtered inbox down');
+        return [];
+      }),
+      apis: { groupAdmin: { setAddRequest: vi.fn(async () => {}) } } as any,
+    });
+
+    await expect(handleGroupAddRequest(bridge, '55', true, 'ok'))
+      .rejects.toThrow(/lookup incomplete/);
   });
 
   it('distinguishes request-queue failure from a genuine missing request', async () => {

@@ -23,6 +23,7 @@ function fakeInstance(
     nickname: `retiring-${uin}`,
     quiesce,
     dispose,
+    startGroupRequestPolling: vi.fn(),
     getConnectionStatuses: () => statuses,
   } as unknown as OneBotInstance;
 }
@@ -173,6 +174,9 @@ describe('OneBotManager database preparation', () => {
 
       expect(beginMigration).toHaveBeenCalledOnce();
       expect(manager.getInstance('10001')).not.toBeNull();
+      await vi.waitFor(() => {
+        expect(instance.startGroupRequestPolling).toHaveBeenCalledOnce();
+      });
     } finally {
       await manager.dispose();
       process.chdir(originalCwd);

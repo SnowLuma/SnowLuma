@@ -57,6 +57,12 @@ export interface GetGroupHonorInfoParams extends GroupIdParams {
   type?: 'talkative' | 'performer' | 'legend' | 'strong_newbie' | 'emotion' | 'all' | string;
 }
 
+export interface GetGroupSystemMsgParams extends JsonObject {
+  group_id?: number;
+  only_pending?: boolean;
+  count?: number;
+}
+
 export interface DeleteFriendParams extends UserIdParams {
   block?: boolean;
 }

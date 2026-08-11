@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ApiHandler, type ApiActionContext } from '../src/api-handler';
 
-describe('get_status receive health (#233)', () => {
+describe('get_status transport health (#233, #342)', () => {
   it('keeps online true while reporting a stalled receive path as not good', async () => {
     const ctx = {
       isOnline: () => true,

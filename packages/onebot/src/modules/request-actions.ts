@@ -50,10 +50,22 @@ export function parseGroupRequestFlag(flag: string): ParsedGroupRequestFlag {
   return { kind: 'legacy', requestType, groupId, targetUid };
 }
 
-async function fetchRequestInboxes(bridge: BridgeInterface): Promise<GroupRequestInfo[]> {
+interface RequestInboxLookup {
+  requests: GroupRequestInfo[];
+  failures: unknown[];
+}
+
+async function fetchRequestInboxes(
+  bridge: BridgeInterface,
+  identityForm: 'uin' | 'uid',
+): Promise<RequestInboxLookup> {
   const [main, filtered] = await Promise.allSettled([
-    bridge.apis.contacts.fetchGroupRequests(false),
-    bridge.apis.contacts.fetchGroupRequests(true),
+    identityForm === 'uin'
+      ? bridge.apis.contacts.fetchGroupRequests(false, 100)
+      : bridge.apis.contacts.fetchGroupRequestsByUid(false, 100),
+    identityForm === 'uin'
+      ? bridge.apis.contacts.fetchGroupRequests(true, 100)
+      : bridge.apis.contacts.fetchGroupRequestsByUid(true, 100),
   ]);
 
   if (main.status === 'rejected') {
@@ -64,14 +76,27 @@ async function fetchRequestInboxes(bridge: BridgeInterface): Promise<GroupReques
     log.warn('failed to fetch filtered group-request inbox: %s',
       filtered.reason instanceof Error ? filtered.reason.message : String(filtered.reason));
   }
-  if (main.status === 'rejected' && filtered.status === 'rejected') {
-    throw new Error('failed to fetch group requests from both inboxes');
+  const failures = [main, filtered]
+    .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    .map((result) => result.reason);
+  if (failures.length === 2) {
+    throw new AggregateError(failures, 'failed to fetch group requests from both inboxes');
   }
 
-  return [
-    ...(main.status === 'fulfilled' ? main.value : []),
-    ...(filtered.status === 'fulfilled' ? filtered.value : []),
-  ];
+  return {
+    requests: [
+      ...(main.status === 'fulfilled' ? main.value : []),
+      ...(filtered.status === 'fulfilled' ? filtered.value : []),
+    ],
+    failures,
+  };
+}
+
+function throwMissingGroupRequest(message: string, failures: readonly unknown[]): never {
+  if (failures.length > 0) {
+    throw new AggregateError(failures, `group request lookup incomplete: ${message}`);
+  }
+  throw new Error(message);
 }
 
 async function applyGroupRequest(
@@ -119,9 +144,14 @@ export async function handleGroupAddRequest(
       return;
     }
 
-    const matching = (await fetchRequestInboxes(bridge))
-      .find((request) => request.sequence === parsed.sequence);
-    if (!matching) throw new Error(`group request sequence ${parsed.sequence} not found`);
+    const lookup = await fetchRequestInboxes(bridge, 'uin');
+    const matching = lookup.requests.find((request) => request.sequence === parsed.sequence);
+    if (!matching) {
+      throwMissingGroupRequest(
+        `group request sequence ${parsed.sequence} not found`,
+        lookup.failures,
+      );
+    }
     await applyGroupRequest(bridge, matching, approve, reason);
     return;
   }
@@ -141,7 +171,8 @@ export async function handleGroupAddRequest(
     }
   }
 
-  const matching = (await fetchRequestInboxes(bridge)).find((request) => {
+  const lookup = await fetchRequestInboxes(bridge, 'uid');
+  const matching = lookup.requests.find((request) => {
     if (request.groupId !== parsed.groupId) return false;
     return parsed.requestType === 'add'
       ? request.targetUid === parsed.targetUid
@@ -150,6 +181,6 @@ export async function handleGroupAddRequest(
 
   // Never fall back to an arbitrary request from the same group: when a UID
   // does not match, approving another pending request is worse than failing.
-  if (!matching) throw new Error('matching group request not found');
+  if (!matching) throwMissingGroupRequest('matching group request not found', lookup.failures);
   await applyGroupRequest(bridge, matching, approve, reason);
 }

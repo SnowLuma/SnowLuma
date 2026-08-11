@@ -137,16 +137,18 @@ describe('compiled production Action registry', () => {
     const response = await handler.handle('get_group_system_msg', {
       group_id: '100000002',
       only_pending: true,
+      count: '80',
     });
 
     expect(response.status).toBe('ok');
     expect(handleGetGroupSystemMsg).toHaveBeenCalledWith({
       groupId: 100000002,
       onlyPending: true,
+      count: 80,
     });
     const doc = ACTION_REGISTRY.resolve('get_group_system_msg');
     if (!doc || doc.kind === 'raw') throw new Error('get_group_system_msg action missing');
-    expect(doc.action.doc.params.map((param) => param.name)).toEqual(['group_id', 'only_pending']);
+    expect(doc.action.doc.params.map((param) => param.name)).toEqual(['group_id', 'only_pending', 'count']);
   });
 });
 

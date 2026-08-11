@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import type { pb, pb_repeated, uint_32, uint_64 } from '@snowluma/proton';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 import type {
   OidbBase,
@@ -19,6 +20,36 @@ import type {
 } from '@snowluma/proto-defs/oidb-actions/base';
 
 import { ContactsApi } from '../../src/bridge/apis/contacts';
+
+interface ObservedGroupRequestUserByUin {
+  uin?: pb<1, uint_32>;
+  name?: pb<2, string>;
+}
+
+interface ObservedGroupRequestUserByUid {
+  uid?: pb<1, string>;
+  name?: pb<2, string>;
+}
+
+interface ObservedGroupRequestGroup {
+  groupUin?: pb<1, uint_32>;
+  groupName?: pb<2, string>;
+}
+
+interface ObservedGroupRequest<TUser> {
+  sequence?: pb<1, uint_64>;
+  eventType?: pb<2, uint_32>;
+  state?: pb<3, uint_32>;
+  group?: pb<4, ObservedGroupRequestGroup>;
+  target?: pb<5, TUser>;
+  invitor?: pb<6, TUser>;
+  operatorUser?: pb<7, TUser>;
+  comment?: pb<10, string>;
+}
+
+interface ObservedGroupRequestResponse<TUser> {
+  requests?: pb_repeated<1, ObservedGroupRequest<TUser>>;
+}
 
 function friend(
   uin: number,
@@ -108,6 +139,34 @@ function groupDetailPacket(body: OidbSvcTrpcTcp0x88D_0Response): SendPacketResul
     errorMessage: '',
     responseData: Buffer.from(
       protobuf_encode<OidbBase<OidbSvcTrpcTcp0x88D_0Response>>({ body }),
+    ),
+  };
+}
+
+function groupRequestPacketByUin(
+  body: ObservedGroupRequestResponse<ObservedGroupRequestUserByUin>,
+): SendPacketResult {
+  return {
+    success: true,
+    gotResponse: true,
+    errorCode: 0,
+    errorMessage: '',
+    responseData: Buffer.from(
+      protobuf_encode<OidbBase<ObservedGroupRequestResponse<ObservedGroupRequestUserByUin>>>({ body }),
+    ),
+  };
+}
+
+function groupRequestPacketByUid(
+  body: ObservedGroupRequestResponse<ObservedGroupRequestUserByUid>,
+): SendPacketResult {
+  return {
+    success: true,
+    gotResponse: true,
+    errorCode: 0,
+    errorMessage: '',
+    responseData: Buffer.from(
+      protobuf_encode<OidbBase<ObservedGroupRequestResponse<ObservedGroupRequestUserByUid>>>({ body }),
     ),
   };
 }
@@ -209,6 +268,75 @@ describe('apis/contacts / group roster', () => {
       groupName: 'Muted Group',
       allMuted: true,
     }));
+  });
+});
+
+describe('apis/contacts / group requests', () => {
+  it('maps the native numeric-account response into directly actionable requests', async () => {
+    const rememberGroupRequests = vi.fn();
+    const findUidByUin = vi.fn((uin: number) => uin === 1_234_567_890 ? 'cached_target_uid' : null);
+    const sendRawPacket = vi.fn(async () => groupRequestPacketByUin({
+      requests: [{
+        sequence: 1_785_525_232_784_291n,
+        eventType: 7,
+        state: 1,
+        group: { groupUin: 1_095_186_374, groupName: 'group' },
+        target: { uin: 1_234_567_890, name: 'requester' },
+        invitor: { uin: 2_345_678_901, name: 'inviter' },
+        operatorUser: { uin: 3_456_789_012, name: 'operator' },
+        comment: 'please',
+      }],
+    }));
+    const api = new ContactsApi({
+      sendRawPacket,
+      identity: { findUidByUin, rememberGroupRequests },
+    } as any);
+
+    const requests = await api.fetchGroupRequests(false);
+
+    expect(requests).toEqual([expect.objectContaining({
+      groupId: 1_095_186_374,
+      targetUid: 'cached_target_uid',
+      targetUin: 1_234_567_890,
+      invitorUin: 2_345_678_901,
+      operatorUin: 3_456_789_012,
+      sequence: 1_785_525_232_784_291,
+      notifyType: 7,
+      eventType: 1,
+      filtered: false,
+    })]);
+    expect(rememberGroupRequests).toHaveBeenCalledWith(requests);
+  });
+
+  it('retains the UID-form response for correlating real-time request pushes', async () => {
+    const rememberGroupRequests = vi.fn();
+    const findUinByUid = vi.fn((uid: string) => uid === 'target_uid' ? 1_234_567_890 : null);
+    const sendRawPacket = vi.fn(async () => groupRequestPacketByUid({
+      requests: [{
+        sequence: 42n,
+        eventType: 7,
+        state: 1,
+        group: { groupUin: 999, groupName: 'group' },
+        target: { uid: 'target_uid', name: 'requester' },
+        invitor: { uid: 'inviter_uid', name: 'inviter' },
+        operatorUser: { uid: 'operator_uid', name: 'operator' },
+      }],
+    }));
+    const api = new ContactsApi({
+      sendRawPacket,
+      identity: { findUinByUid, rememberGroupRequests },
+    } as any);
+
+    const requests = await api.fetchGroupRequestsByUid(true);
+
+    expect(requests).toEqual([expect.objectContaining({
+      targetUid: 'target_uid',
+      targetUin: 1_234_567_890,
+      invitorUid: 'inviter_uid',
+      operatorUid: 'operator_uid',
+      filtered: true,
+    })]);
+    expect(rememberGroupRequests).toHaveBeenCalledWith(requests);
   });
 });
 

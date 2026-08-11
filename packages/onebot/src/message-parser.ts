@@ -396,6 +396,11 @@ export async function segmentToElement(type: string, data: Record<string, unknow
   if (codec?.fromSegment) {
     const element = await codec.fromSegment(data, options);
     if (!element) {
+      // A reply decorates another sendable segment. NapCat-compatible clients
+      // treat an unusable reply target as best-effort and still deliver the
+      // remaining content; a reply-only message is rejected by parseMessage's
+      // final non-empty check below.
+      if (normalizedType === 'reply') return null;
       throw new MessageElementValidationError(
         'MISSING_FIELD',
         `message segment "${normalizedType}" is missing required or usable fields`,

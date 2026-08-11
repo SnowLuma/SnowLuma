@@ -18,6 +18,8 @@ function fabricatedInstance(results: NetworkShutdownResult[]) {
     heartbeatTimer: null,
     eventPipeline: null,
     eventPipelineDrain: Promise.resolve(),
+    groupRequestPoller: { stop: vi.fn(() => Promise.resolve()) },
+    groupRequestPollerDrain: Promise.resolve(),
     disposePromise: null,
     disposeRequested: false,
     acceptingActions: true,
