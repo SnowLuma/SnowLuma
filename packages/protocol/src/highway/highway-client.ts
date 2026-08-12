@@ -28,10 +28,20 @@ const HIGHWAY_BLOCK_SIZE = 1024 * 1024;
 // one-shot TCP connections; QQ's highway edge nodes (and proxies/NAT on the
 // path) sporadically FIN a fresh connection before responding, so a single
 // transient close among a 48 MB file's ~48 chunks must not abort the whole
-// upload (issue #118). Only transport failures retry — a decoded highway
-// error_code is a definitive server reject and is never retried.
+// upload (issue #118). Transport failures retry. Most decoded highway
+// error_codes are definitive rejects and are never retried — except
+// 102902 / 302902, which QQ's own BDH client treats as NeedDelayRetry
+// (issue #352; wrapper.node multi_uploader.cc).
 const HIGHWAY_MAX_CHUNK_ATTEMPTS = 3;
 const HIGHWAY_RETRY_BASE_MS = 300;
+const HIGHWAY_DELAY_RETRY_CODES = new Set([102902, 302902]);
+// Official DelayTryNext clamps server uDelayTime to [250, 1200] ms and
+// gives up after 33 consecutive delay-retries. We don't currently parse
+// uDelayTime out of the highway response, so use the 250 ms floor; 8
+// consecutive delay-retries is enough to ride out the backpressure that
+// #352 hits on multi-GiB PUTs without stalling a chunk for ~8 s.
+const HIGHWAY_DELAY_RETRY_MS = 250;
+const HIGHWAY_MAX_DELAY_RETRIES = 8;
 
 // Idle read timeout for a highway response. tcpConnect() clears the socket's
 // own timeout once connected, so a peer that accepts the connection but then
@@ -165,10 +175,11 @@ export function fetchHighwaySession(bridge: BridgeContext): Promise<HighwaySessi
 function makeHighwayHead(
   uin: string, commandId: number, fileSize: number, offset: number, length: number,
   chunkMd5: Uint8Array, fileMd5: Uint8Array, sigSession: Uint8Array, extend: Uint8Array,
+  retryTimes = 0,
 ): Uint8Array {
   return protobuf_encode<ReqDataHighwayHead>({
     msgBaseHead: {
-      version: 1, uin, command: 'PicUp.DataUp', seq: 0, retryTimes: 0,
+      version: 1, uin, command: 'PicUp.DataUp', seq: 0, retryTimes,
       appId: HIGHWAY_APP_ID, dataFlag: 16, commandId,
     },
     msgSegHead: {
@@ -482,10 +493,11 @@ async function uploadHighwayHttpOperation(
   //
   // Blocks are PUT in STRICT offset order over ONE persistent connection,
   // reused across chunks via HTTP keep-alive. Two properties matter:
-  //   - In order: QQ's highway server reassembles by offset but REJECTS a
-  //     block that arrives after a later one (error_code=102902) — parallel or
-  //     out-of-order PUTs do not work (proven on a real endpoint). Sequential
-  //     send guarantees in-order arrival.
+  //   - In order: QQ's highway server wants blocks in offset order. Parallel
+  //     PUTs were observed to return error_code=102902 (~20% on a live
+  //     account). That code is NeedDelayRetry in the official BDH client,
+  //     not a fatal "out of order" reject — but sequential send still keeps
+  //     the server from having to delay-retry overlapping pieces.
   //   - One warm connection: reusing the socket keeps the TCP congestion
   //     window open across the whole file instead of paying slow-start on a
   //     fresh connection for every 1 MiB block. That per-block cold start was
@@ -497,10 +509,13 @@ async function uploadHighwayHttpOperation(
   // half-closed after a response, we drop it, reconnect, and re-send the SAME
   // block (re-PUTting an offset is idempotent). Worst case — a server that
   // closes after every response — degrades to one connection per block: no
-  // worse than the #118 behavior, and still strictly in order (so never
-  // error_code=102902). `connectCount` is logged so a real run reveals which
-  // regime we hit (1 connection = keep-alive honored; ~chunkCount = closed
-  // every time).
+  // worse than the #118 behavior, and still strictly in order.
+  //
+  // 102902 / 302902 are a separate recovery path (issue #352): drop the
+  // socket (official client switches sender IP), wait DelayTryNext's 250 ms
+  // floor, and re-PUT the same offset. `connectCount` is logged so a real
+  // run reveals which regime we hit (1 connection = keep-alive honored;
+  // ~chunkCount = closed every time).
   //
   // `source` may buffer the whole file (BufferChunkSource) or stream it from
   // disk (FileChunkSource); either way one chunk is read/held at a time. We
@@ -526,25 +541,41 @@ async function uploadHighwayHttpOperation(
       }
       log.trace('highway_put_branch branch=chunk_read offset=%d bytes=%d', offset, chunkSize);
       const chunkMd5 = computeMd5(chunk);
-      const head = makeHighwayHead(
-        bridge.identity.uin, commandId, totalSize, offset, chunkSize,
-        chunkMd5, fileMd5, session.sigSession, extend,
-      );
-      log.trace(() => [
-        'highway_put_branch branch=chunk_control_request offset=%d bytes=%d headBytes=%d headHex=%s',
-        offset,
-        chunkSize,
-        head.byteLength,
-        renderTraceBytes(head),
-      ]);
-      const frame = packHighwayFrame(head, chunk);
+      const rejectServer = (errorCode: number, segRetCode: number): never => {
+        const fileMd5Hex = Buffer.from(fileMd5).toString('hex');
+        trace.failureReason = 'server_rejected';
+        trace.error = new Error(
+          `highway upload error_code=${errorCode}` +
+          ` (cmdId=${commandId} chunk=${chunkSize}/${totalSize}` +
+          ` offset=${offset} segRetCode=${segRetCode}` +
+          ` fileMd5=${fileMd5Hex.slice(0, 16)}…)`,
+        );
+        throw trace.error;
+      };
 
       // Send this block, reusing the live connection when there is one. On any
       // transport failure (peer FIN between chunks, ECONNRESET, connect
       // refused/timeout) drop the socket, reconnect, and retry THIS block —
       // re-sending the same offset range is idempotent on the server.
+      // 102902 / 302902 take a separate delay-retry path (issue #352).
       let responseBody: Uint8Array | undefined;
-      for (let attempt = 1; ; attempt++) {
+      let transportAttempts = 0;
+      let delayRetries = 0;
+      for (;;) {
+        const retryTimes = transportAttempts + delayRetries;
+        const attempt = retryTimes + 1;
+        const head = makeHighwayHead(
+          bridge.identity.uin, commandId, totalSize, offset, chunkSize,
+          chunkMd5, fileMd5, session.sigSession, extend, retryTimes,
+        );
+        log.trace(() => [
+          'highway_put_branch branch=chunk_control_request offset=%d bytes=%d headBytes=%d headHex=%s',
+          offset,
+          chunkSize,
+          head.byteLength,
+          renderTraceBytes(head),
+        ]);
+        const frame = packHighwayFrame(head, chunk);
         try {
           if (!socket) {
             socket = await tcpConnect(session.host, session.port);
@@ -566,7 +597,6 @@ async function uploadHighwayHttpOperation(
             connectCount,
           );
           responseBody = await httpPostFrame(socket, session.host, pathStr, frame);
-          break;
         } catch (err) {
           if (err instanceof HighwayResponseReadError && err.responseBody) {
             log.trace(() => [
@@ -578,10 +608,11 @@ async function uploadHighwayHttpOperation(
             ]);
           }
           dropSocket();
-          if (attempt >= HIGHWAY_MAX_CHUNK_ATTEMPTS) {
+          transportAttempts += 1;
+          if (transportAttempts >= HIGHWAY_MAX_CHUNK_ATTEMPTS) {
             trace.failureReason = 'transport_exhausted';
             const exhausted = new Error(
-              `highway upload transport failed after ${attempt} attempts ` +
+              `highway upload transport failed after ${transportAttempts} attempts ` +
               `(cmdId=${commandId} chunk=${chunkSize}/${totalSize} offset=${offset}): ${String(err)}`,
             );
             trace.error = exhausted;
@@ -591,59 +622,72 @@ async function uploadHighwayHttpOperation(
             'highway_put_branch branch=chunk_retry offset=%d bytes=%d attempt=%d error=%j',
             offset,
             chunkSize,
-            attempt,
+            transportAttempts,
             highwayErrorText(err),
           );
-          await sleepMs(HIGHWAY_RETRY_BASE_MS * attempt);
+          await sleepMs(HIGHWAY_RETRY_BASE_MS * transportAttempts);
+          continue;
         }
-      }
 
-      // Unreachable: the retry loop only exits via break (responseBody set) or
-      // throw — the guard just narrows the type for the compiler.
-      if (!responseBody) {
-        trace.failureReason = 'transport_exhausted';
-        trace.error = new Error('highway upload: missing response');
-        throw trace.error;
-      }
-      log.trace(() => [
-        'highway_put_branch branch=chunk_control_response offset=%d bytes=%d responseBytes=%d responseHex=%s',
-        offset,
-        chunkSize,
-        responseBody.byteLength,
-        renderTraceBytes(responseBody),
-      ]);
-      let resp: RespDataHighwayHead;
-      try {
-        const { head: respHead } = unpackHighwayFrame(responseBody);
-        resp = protobuf_decode<RespDataHighwayHead>(respHead);
-        log.trace(
-          'highway_put_branch branch=chunk_control_decoded offset=%d errorCode=%d segRetCode=%d',
+        // Unreachable: httpPostFrame either returns a body or throws.
+        if (!responseBody) {
+          trace.failureReason = 'transport_exhausted';
+          trace.error = new Error('highway upload: missing response');
+          throw trace.error;
+        }
+        const body = responseBody;
+        log.trace(() => [
+          'highway_put_branch branch=chunk_control_response offset=%d bytes=%d responseBytes=%d responseHex=%s',
           offset,
-          resp?.errorCode ?? 0,
-          resp?.msgSegHead?.retCode ?? 0,
-        );
-      } catch (error) {
-        trace.failureReason = 'control_decode_failed';
-        trace.error = error;
-        throw error;
-      }
-      if (resp?.errorCode && resp.errorCode !== 0) {
-        // Surface every diagnostic the highway response carries so
-        // user reports of `error_code=921` and friends include the
-        // server-side context (segHead.retCode, chunk size, file md5)
-        // — without these we can't tell apart a malformed-payload
-        // reject, a session-ticket mismatch, or a per-account rate-
-        // limit.
-        const segRetCode = resp.msgSegHead?.retCode ?? 0;
-        const fileMd5Hex = Buffer.from(fileMd5).toString('hex');
-        trace.failureReason = 'server_rejected';
-        trace.error = new Error(
-          `highway upload error_code=${resp.errorCode}` +
-          ` (cmdId=${commandId} chunk=${chunkSize}/${totalSize}` +
-          ` offset=${offset} segRetCode=${segRetCode}` +
-          ` fileMd5=${fileMd5Hex.slice(0, 16)}…)`,
-        );
-        throw trace.error;
+          chunkSize,
+          body.byteLength,
+          renderTraceBytes(body),
+        ]);
+        let resp: RespDataHighwayHead;
+        try {
+          const { head: respHead } = unpackHighwayFrame(body);
+          resp = protobuf_decode<RespDataHighwayHead>(respHead);
+          log.trace(
+            'highway_put_branch branch=chunk_control_decoded offset=%d errorCode=%d segRetCode=%d',
+            offset,
+            resp?.errorCode ?? 0,
+            resp?.msgSegHead?.retCode ?? 0,
+          );
+        } catch (error) {
+          trace.failureReason = 'control_decode_failed';
+          trace.error = error;
+          throw error;
+        }
+
+        const errorCode = resp?.errorCode ?? 0;
+        const segRetCode = resp?.msgSegHead?.retCode ?? 0;
+        if (errorCode !== 0 && HIGHWAY_DELAY_RETRY_CODES.has(errorCode)) {
+          dropSocket();
+          delayRetries += 1;
+          if (delayRetries >= HIGHWAY_MAX_DELAY_RETRIES) {
+            rejectServer(errorCode, segRetCode);
+          }
+          log.trace(
+            'highway_put_branch branch=chunk_delay_retry offset=%d bytes=%d attempt=%d errorCode=%d delayMs=%d',
+            offset,
+            chunkSize,
+            delayRetries,
+            errorCode,
+            HIGHWAY_DELAY_RETRY_MS,
+          );
+          await sleepMs(HIGHWAY_DELAY_RETRY_MS);
+          continue;
+        }
+        if (errorCode !== 0) {
+          // Surface every diagnostic the highway response carries so
+          // user reports of `error_code=921` and friends include the
+          // server-side context (segHead.retCode, chunk size, file md5)
+          // — without these we can't tell apart a malformed-payload
+          // reject, a session-ticket mismatch, or a per-account rate-
+          // limit.
+          rejectServer(errorCode, segRetCode);
+        }
+        break;
       }
 
       // If the peer half-closed after sending its response, the socket can no
