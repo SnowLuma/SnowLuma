@@ -2062,6 +2062,85 @@ describe('extended-actions / TierB ③ share + doubt + robot-option', () => {
   });
 });
 
+// ─── TierB ③: send_ark (图文 Ark 卡片, OIDB 0xdc2_34) ───
+
+describe('extended-actions / send_ark', () => {
+  const arkParams = {
+    title: '标题',
+    desc: '描述',
+    summary: '摘要',
+    jump_url: 'https://example.com',
+  };
+
+  it('routes to group when group_id is given (peerType=1)', async () => {
+    const sendTuwenArk = vi.fn(async () => {});
+    const bridge = fakeBridge({ apis: { contacts: { sendTuwenArk } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('send_ark', {
+      group_id: 12345,
+      ...arkParams,
+    });
+    expect(res).toMatchObject({ status: 'ok', retcode: 0, data: null });
+    expect(sendTuwenArk).toHaveBeenCalledWith({
+      targetId: 12345,
+      peerType: 1,
+      title: '标题',
+      desc: '描述',
+      summary: '摘要',
+      previewUrl: '',
+      jumpUrl: 'https://example.com',
+    });
+  });
+
+  it('routes to C2C when user_id is given (peerType=0)', async () => {
+    const sendTuwenArk = vi.fn(async () => {});
+    const bridge = fakeBridge({ apis: { contacts: { sendTuwenArk } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('send_ark', {
+      user_id: 10001,
+      ...arkParams,
+    });
+    expect(res).toMatchObject({ status: 'ok', retcode: 0, data: null });
+    expect(sendTuwenArk).toHaveBeenCalledWith({
+      targetId: 10001,
+      peerType: 0,
+      title: '标题',
+      desc: '描述',
+      summary: '摘要',
+      previewUrl: '',
+      jumpUrl: 'https://example.com',
+    });
+  });
+
+  it('prefers group_id over user_id when both are supplied', async () => {
+    const sendTuwenArk = vi.fn(async () => {});
+    const bridge = fakeBridge({ apis: { contacts: { sendTuwenArk } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('send_ark', {
+      group_id: 12345,
+      user_id: 10001,
+      ...arkParams,
+    });
+    expect(res).toMatchObject({ status: 'ok' });
+    expect(sendTuwenArk).toHaveBeenCalledWith(expect.objectContaining({ peerType: 1, targetId: 12345 }));
+  });
+
+  it('rejects when neither user_id nor group_id is given', async () => {
+    const sendTuwenArk = vi.fn();
+    const bridge = fakeBridge({ apis: { contacts: { sendTuwenArk } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('send_ark', { ...arkParams });
+    expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(sendTuwenArk).not.toHaveBeenCalled();
+  });
+
+  it('surfaces bridge errors as action_failed', async () => {
+    const sendTuwenArk = vi.fn(async () => { throw new Error('oidb 0xdc2 rejected'); });
+    const bridge = fakeBridge({ apis: { contacts: { sendTuwenArk } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('send_ark', {
+      group_id: 12345,
+      ...arkParams,
+    });
+    expect(res).toMatchObject({ status: 'failed', retcode: 100, wording: 'oidb 0xdc2 rejected' });
+  });
+});
+
 // ─── napcat-parity: get_qun_album_list (QQ NT AlbumService) ───
 describe('extended-actions / get_group_album_list', () => {
   it('returns the cover and last-upload metadata from the core facade', async () => {
