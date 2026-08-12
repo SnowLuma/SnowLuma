@@ -17,6 +17,7 @@ import { FetchUserProfile } from '@snowluma/protocol/oidb-services/contacts/fetc
 import { FetchUserProfileByUid } from '@snowluma/protocol/oidb-services/contacts/fetch-user-profile-by-uid';
 import { GetBuddyRecommendArk } from '@snowluma/protocol/oidb-services/contacts/get-buddy-recommend-ark';
 import { GetGroupRecommendArk } from '@snowluma/protocol/oidb-services/contacts/get-group-recommend-ark';
+import { SendTuwenArk, type SendTuwenArkParams } from '@snowluma/protocol/oidb-services/contacts/send-tuwen-ark';
 import { SetFriendCategory } from '@snowluma/protocol/oidb-services/contacts/set-friend-category';
 import { toHex } from '@snowluma/common/hex';
 import { createLogger } from '@snowluma/common/logger';
@@ -166,6 +167,11 @@ export class ContactsApi {
   /** Server-built ARK share card (JSON string) recommending a group. */
   getGroupRecommendArk(groupId: number): Promise<string> {
     return GetGroupRecommendArk.invoke(this.ctx, { groupId });
+  }
+
+  /** Send a custom 图文 ark card to a C2C peer or group (0xdc2_34). */
+  sendTuwenArk(params: SendTuwenArkParams): Promise<void> {
+    return SendTuwenArk.invoke(this.ctx, params);
   }
 
   private async fetchFriendRoster(): Promise<FriendRoster> {

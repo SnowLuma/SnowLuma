@@ -28,3 +28,42 @@ export interface OidbGroupRecommendArkResp {
   errCode?: pb<1, uint_32>;
   arkJson?: pb<5, string>;
 }
+
+// 0xdc2_34 — send a custom 图文 (URL-share) ark card to a C2C peer or group.
+// Field layout RE'd from QQ Android 9.3.25 captures.
+// appId = 100446242 is fixed for this ark type.
+// targetId (UIN or group_id) appears at AppInfo[11] AND Meta[2].
+// Meta.peerType: 0 = C2C, 1 = group.
+export interface Oidb0xdc2CardField5 {
+  field1?: pb<1, uint_32>;
+}
+
+export interface Oidb0xdc2CardContent {
+  flag?:       pb<1,  uint_32>;
+  title?:      pb<10, string>;
+  desc?:       pb<11, string>;
+  summary?:    pb<12, string>;
+  jumpUrl?:    pb<13, string>;
+  previewUrl?: pb<14, string>;
+}
+
+export interface Oidb0xdc2AppInfo {
+  appId?:    pb<1,  uint_32>;
+  field2?:   pb<2,  uint_32>;
+  field3?:   pb<3,  uint_32>;
+  field5?:   pb<5,  Oidb0xdc2CardField5>;
+  targetId?: pb<11, uint_32>;
+  content?:  pb<12, Oidb0xdc2CardContent>;
+}
+
+export interface Oidb0xdc2Meta {
+  peerType?: pb<1, uint_32>;
+  targetId?: pb<2, uint_32>;
+}
+
+export interface Oidb0xdc2_34Req {
+  appInfo?: pb<1, Oidb0xdc2AppInfo>;
+  meta?:    pb<2, Oidb0xdc2Meta>;
+}
+
+export interface Oidb0xdc2_34Resp {}

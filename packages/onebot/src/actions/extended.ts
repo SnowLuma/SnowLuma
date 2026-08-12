@@ -1681,6 +1681,52 @@ export const actions = [
     },
   }),
 
+  // send_ark — send a custom 图文 (URL-share) ark card to a C2C peer or group (0xdc2_34).
+  // targetId at AppInfo[11] and Meta[2]; Meta.peerType: 0=C2C, 1=group.
+  defineAction({
+    name: 'send_ark',
+    summary: '发送自定义图文 Ark 卡片（私聊/群聊）',
+    readOnly: false,
+    returns: 'null',
+    returnsSchema: { type: 'null' },
+    params: {
+      user_id:     f.userId().optional(),
+      group_id:    f.groupId().optional(),
+      title:       f.string(),
+      desc:        f.string(),
+      summary:     f.string(),
+      preview_url: f.string().default(''),
+      jump_url:    f.string(),
+    },
+    run: async (p, ctx) => {
+      if (p.group_id) {
+        await ctx.bridge.apis.contacts.sendTuwenArk({
+          targetId:   p.group_id,
+          peerType:   1,
+          title:      p.title,
+          desc:       p.desc,
+          summary:    p.summary,
+          previewUrl: p.preview_url,
+          jumpUrl:    p.jump_url,
+        });
+        return okResponse(null);
+      }
+      if (p.user_id) {
+        await ctx.bridge.apis.contacts.sendTuwenArk({
+          targetId:   p.user_id,
+          peerType:   0,
+          title:      p.title,
+          desc:       p.desc,
+          summary:    p.summary,
+          previewUrl: p.preview_url,
+          jumpUrl:    p.jump_url,
+        });
+        return okResponse(null);
+      }
+      return failedResponse(RETCODE.BAD_REQUEST, 'user_id or group_id is required');
+    },
+  }),
+
   // share_group_ex / send_group_ark_share — group-only Ark share. NapCat uses
   // a distinct kernel API (getArkJsonGroupShare) we did NOT RE; we route to
   // the fully-RE'd group recommend-contact ark (0x8b7_5), the closest

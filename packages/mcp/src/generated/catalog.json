@@ -8301,6 +8301,119 @@
       "category": "系统表情"
     },
     {
+      "name": "send_ark",
+      "aliases": [],
+      "summary": "发送自定义图文 Ark 卡片（私聊/群聊）",
+      "returns": "null",
+      "returnsSchema": {
+        "type": "null"
+      },
+      "readOnly": false,
+      "params": [
+        {
+          "name": "user_id",
+          "type": "uint",
+          "required": false,
+          "role": "user_id",
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        {
+          "name": "group_id",
+          "type": "uint",
+          "required": false,
+          "role": "group_id",
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "desc",
+          "type": "string",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "summary",
+          "type": "string",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "preview_url",
+          "type": "string",
+          "required": false,
+          "schema": {
+            "type": "string"
+          },
+          "default": ""
+        },
+        {
+          "name": "jump_url",
+          "type": "string",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "invariants": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "minimum": 1,
+            "x-role": "user_id"
+          },
+          "group_id": {
+            "type": "integer",
+            "minimum": 1,
+            "x-role": "group_id"
+          },
+          "title": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "preview_url": {
+            "type": "string",
+            "default": ""
+          },
+          "jump_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "desc",
+          "summary",
+          "jump_url"
+        ],
+        "additionalProperties": true
+      },
+      "category": "扩展"
+    },
+    {
       "name": "send_ark_share",
       "aliases": [],
       "summary": "分享用户/群 Ark 卡片（NapCat 标准名）",
@@ -12149,7 +12262,7 @@
     },
     {
       "category": "扩展",
-      "count": 113
+      "count": 114
     },
     {
       "category": "群相册",
