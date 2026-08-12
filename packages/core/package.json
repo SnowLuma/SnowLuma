@@ -44,10 +44,11 @@
     "@snowluma/bridge": "workspace:*",
     "@snowluma/common": "workspace:*",
     "@snowluma/onebot": "workspace:*",
-    "@snowluma/protocol": "workspace:*",
     "@snowluma/proto-defs": "workspace:*",
+    "@snowluma/protocol": "workspace:*",
     "@snowluma/proton": "workspace:*",
-    "@snowluma/websocket": "workspace:*"
+    "@snowluma/websocket": "workspace:*",
+    "otpauth": "^9.5.1"
   },
   "devDependencies": {
     "@hono/node-server": "^1.19.14",

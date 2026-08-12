@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { motion } from 'motion/react';
 import { ArrowRight, KeyRound, Sparkles } from 'lucide-react';
 import { Modal } from '@/components/interior/modal';
+import { OtpInput, type OtpInputHandle } from '@/components/interior/otp-input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -12,9 +13,16 @@ import { LoginWaves } from '@/components/login-waves';
 import { useTheme } from '@/contexts/ThemeContext';
 import { cn } from '@/lib/utils';
 import { APP_NAME, APP_VERSION } from '@/types';
+import { parseSecondFactor } from '@/lib/totp-second-factor';
 
 interface LoginPageProps {
-  onLogin: (password: string) => Promise<{ success: boolean; error?: string }>;
+  onLogin: (
+    password: string,
+    secondFactor?: { totp?: string; recoveryCode?: string },
+  ) => Promise<{ success: boolean; error?: string; needsTotp?: boolean }>;
+  initialPassword?: string;
+  initialNeedsTotp?: boolean;
+  initialUseRecovery?: boolean;
 }
 
 // Device-local preference for the (heavy) animated login background. Kept out
@@ -33,7 +41,12 @@ function readLoginFx(): boolean {
   try { return !window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return true; }
 }
 
-export function LoginPage({ onLogin }: LoginPageProps) {
+export function LoginPage({
+  onLogin,
+  initialPassword = '',
+  initialNeedsTotp = false,
+  initialUseRecovery = false,
+}: LoginPageProps) {
   const { appearance } = useTheme();
   const customBg = appearance.background.type !== 'none';
   const reduce = appearance.reduceMotion || appearance.disableMotion;
@@ -43,7 +56,11 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   // clear any lingering custom-CSS <style> whenever the login page shows.
   useEffect(() => { document.getElementById('snowluma-custom-css')?.remove(); }, []);
 
-  const [password, setPassword] = useState('');
+  const [password, setPassword] = useState(initialPassword);
+  const [useRecovery, setUseRecovery] = useState(initialUseRecovery);
+  const [needsTotp, setNeedsTotp] = useState(initialNeedsTotp);
+  const [otpStatus, setOtpStatus] = useState<'idle' | 'checking' | 'rejected'>('idle');
+  const otpRef = useRef<OtpInputHandle>(null);
   const [showPwd, setShowPwd] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -56,24 +73,213 @@ export function LoginPage({ onLogin }: LoginPageProps) {
     try { localStorage.setItem(LOGIN_FX_KEY, v ? '1' : '0'); } catch { /* ignore */ }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  useEffect(() => {
+    if (otpStatus !== 'rejected') return;
+    const id = window.setTimeout(() => {
+      otpRef.current?.clear();
+      setOtpStatus('idle');
+      setError('');
+    }, 1600);
+    return () => window.clearTimeout(id);
+  }, [otpStatus]);
+
+  const goBackToPassword = () => {
+    setNeedsTotp(false);
+    setUseRecovery(false);
+    setOtpStatus('idle');
+    setError('');
+  };
+
+  const handlePasswordSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     const result = await onLogin(password);
     setLoading(false);
+    if (result.needsTotp) {
+      setNeedsTotp(true);
+      setUseRecovery(false);
+      setOtpStatus('idle');
+      setError('');
+      return;
+    }
     if (!result.success) {
       setError(result.error || '登录失败');
       setShake((k) => k + 1);
     }
   };
 
+  const submitTotp = async (code: string) => {
+    setOtpStatus('checking');
+    const result = await onLogin(password, parseSecondFactor(code));
+    if (result.success) return;
+    if (result.needsTotp) {
+      setOtpStatus('idle');
+      return;
+    }
+    setError(result.error || (useRecovery
+      ? '恢复码不正确，改错的那一位即可。'
+      : '验证码不正确，改错的那一位即可。'));
+    setOtpStatus('rejected');
+  };
+
+  const handleTotpSubmit = (e: FormEvent) => {
+    e.preventDefault();
+  };
+
+  return (
+    <LoginShell
+      customBg={customBg}
+      reduce={reduce}
+      fxOn={fxOn}
+      helpOpen={helpOpen}
+      onHelpOpen={setHelpOpen}
+      onToggleFx={toggleFx}
+      wide={useRecovery}
+    >
+      {needsTotp ? (
+        <>
+          <LoginBrand subtitle={useRecovery ? '输入保存的一次性恢复码' : '输入 Authenticator 中的 6 位验证码'} />
+          <form onSubmit={handleTotpSubmit} className="mt-8 flex flex-col gap-3.5">
+            <OtpInput
+              key={useRecovery ? 'recovery' : 'totp'}
+              ref={otpRef}
+              autoFocus
+              className="w-full"
+              length={useRecovery ? 8 : 6}
+              mode={useRecovery ? 'alphanumeric' : 'numeric'}
+              groupEvery={useRecovery ? 4 : 3}
+              groupSeparator={useRecovery}
+              label={useRecovery ? '恢复码' : '验证码'}
+              disabled={otpStatus === 'checking'}
+              error={otpStatus === 'rejected'}
+              errorMessage={error || (useRecovery
+                ? '恢复码不正确，改错的那一位即可。'
+                : '验证码不正确，改错的那一位即可。')}
+              hint={useRecovery
+                ? '可以把完整恢复码粘贴到任意一格，连字符会自动忽略。'
+                : '可以把完整验证码粘贴到任意一格。'}
+              onChange={() => setOtpStatus((s) => (s === 'rejected' ? 'idle' : s))}
+              onComplete={(code) => { void submitTotp(code); }}
+            />
+
+            <div className="flex items-center justify-between text-[12px]">
+              <button
+                type="button"
+                onClick={goBackToPassword}
+                className="text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
+              >
+                返回
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setUseRecovery((v) => !v);
+                  setOtpStatus('idle');
+                  setError('');
+                }}
+                className="text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
+              >
+                {useRecovery ? '改用验证码' : '使用恢复码'}
+              </button>
+            </div>
+          </form>
+        </>
+      ) : (
+        <>
+          <LoginBrand subtitle="OneBot v11 协议网关 · 安全登录" />
+          <form onSubmit={handlePasswordSubmit} className="mt-8 flex flex-col gap-3.5">
+            <motion.div
+              key={shake}
+              animate={shake > 0 ? { x: [0, -8, 8, -6, 6, -3, 3, 0] } : {}}
+              transition={{ duration: 0.4 }}
+              className="relative"
+            >
+              <KeyRound className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type={showPwd ? 'text' : 'password'}
+                placeholder="输入访问令牌"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoFocus
+                autoComplete="current-password"
+                className="h-12 rounded-xl bg-background/40 pl-10 pr-11 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPwd((v) => !v)}
+                className="absolute right-2 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer"
+                tabIndex={-1}
+                aria-label={showPwd ? '隐藏密码' : '显示密码'}
+              >
+                <PasswordVisibilityIcon visible={showPwd} reduceMotion={reduce} />
+              </button>
+            </motion.div>
+
+            {error && (
+              <motion.p
+                initial={reduce ? false : { opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-lg bg-destructive/10 px-3 py-2 text-center text-xs text-destructive"
+              >
+                {error}
+              </motion.p>
+            )}
+
+            <Button type="submit" disabled={loading || !password} className="h-12 rounded-xl text-[15px]">
+              {loading ? '验证中…' : (
+                <>
+                  进入控制台 <ArrowRight className="optical-forward size-4" />
+                </>
+              )}
+            </Button>
+          </form>
+        </>
+      )}
+    </LoginShell>
+  );
+}
+
+function LoginBrand({ subtitle }: { subtitle: string }) {
+  return (
+    <div className="flex flex-col items-center gap-3 text-center">
+      <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 shadow-sm ring-1 ring-primary/20">
+        <img src="/logo.png" alt="SnowLuma" className="size-10 object-contain" />
+      </div>
+      <div>
+        <div className="flex items-center justify-center gap-2">
+          <span className="text-2xl font-semibold tracking-tight">{APP_NAME}</span>
+          <span className="rounded-full bg-primary/10 px-1.5 py-0.5 font-mono text-micro text-primary tabular-nums">v{APP_VERSION}</span>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
+      </div>
+    </div>
+  );
+}
+
+function LoginShell({
+  customBg,
+  reduce,
+  fxOn,
+  helpOpen,
+  onHelpOpen,
+  onToggleFx,
+  wide = false,
+  children,
+}: {
+  customBg: boolean;
+  reduce: boolean;
+  fxOn: boolean;
+  helpOpen: boolean;
+  onHelpOpen: (open: boolean) => void;
+  onToggleFx: (value: boolean) => void;
+  wide?: boolean;
+  children: ReactNode;
+}) {
   return (
     <div className={cn('relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-8', customBg ? 'bg-transparent' : 'bg-background')}>
-      {/* Animated wavy-line background (device-local toggle) */}
       {fxOn && <LoginWaves />}
 
-      {/* Soft glow backdrop — also helps the frosted card read against the waves */}
       <div
         className="pointer-events-none absolute inset-0"
         style={{
@@ -90,81 +296,20 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         initial={reduce ? false : { opacity: 0, y: 16, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={reduce ? { duration: 0 } : { duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
-        className="relative z-10 flex w-full max-w-md flex-col items-center"
+        className={cn('relative z-10 flex w-full flex-col items-center', wide ? 'max-w-2xl' : 'max-w-md')}
       >
-        {/* Frosted "vibrancy" card */}
         <Card className="w-full overflow-hidden border-border/50 bg-card/75 shadow-2xl shadow-primary/5 backdrop-blur-2xl supports-[backdrop-filter]:bg-card/65">
           <CardContent className="px-7 py-9 sm:px-10">
-            {/* Centered brand focal point */}
-            <div className="flex flex-col items-center gap-3 text-center">
-              <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 shadow-sm ring-1 ring-primary/20">
-                <img src="/logo.png" alt="SnowLuma" className="size-10 object-contain" />
-              </div>
-              <div>
-                <div className="flex items-center justify-center gap-2">
-                  <span className="text-2xl font-semibold tracking-tight">{APP_NAME}</span>
-                  <span className="rounded-full bg-primary/10 px-1.5 py-0.5 font-mono text-micro text-primary tabular-nums">v{APP_VERSION}</span>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">OneBot v11 协议网关 · 安全登录</p>
-              </div>
-            </div>
-
-            <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-3.5">
-              <motion.div
-                key={shake}
-                animate={shake > 0 ? { x: [0, -8, 8, -6, 6, -3, 3, 0] } : {}}
-                transition={{ duration: 0.4 }}
-                className="relative"
-              >
-                <KeyRound className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  type={showPwd ? 'text' : 'password'}
-                  placeholder="输入访问令牌"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoFocus
-                  className="h-12 rounded-xl bg-background/40 pl-10 pr-11 text-sm"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPwd((v) => !v)}
-                  className="absolute right-2 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer"
-                  tabIndex={-1}
-                  aria-label={showPwd ? '隐藏密码' : '显示密码'}
-                >
-                  <PasswordVisibilityIcon visible={showPwd} reduceMotion={reduce} />
-                </button>
-              </motion.div>
-
-              {error && (
-                <motion.p
-                  initial={reduce ? false : { opacity: 0, y: -4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="rounded-lg bg-destructive/10 px-3 py-2 text-center text-xs text-destructive"
-                >
-                  {error}
-                </motion.p>
-              )}
-
-              <Button type="submit" disabled={loading || !password} className="h-12 rounded-xl text-[15px]">
-                {loading ? '验证中…' : (
-                  <>
-                    进入控制台 <ArrowRight className="optical-forward size-4" />
-                  </>
-                )}
-              </Button>
-            </form>
-
+            {children}
             <p className="mt-7 text-center text-meta text-muted-foreground">
               © {new Date().getFullYear()} SnowLuma. All rights reserved.
             </p>
           </CardContent>
         </Card>
 
-        {/* 灵动岛-style frosted capsule: perf escape hatch for the background */}
         <motion.button
           type="button"
-          onClick={() => setHelpOpen(true)}
+          onClick={() => onHelpOpen(true)}
           whileHover={reduce ? undefined : { scale: 1.04 }}
           whileTap={reduce ? undefined : { scale: 0.96 }}
           transition={{ type: 'spring', stiffness: 420, damping: 26 }}
@@ -177,7 +322,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
 
       <Modal
         open={helpOpen}
-        onClose={() => setHelpOpen(false)}
+        onClose={() => onHelpOpen(false)}
         title="界面有点卡顿？"
         description="登录页背景是一个跟随鼠标的动态线条效果，在部分设备上可能比较吃性能。可以在这里关掉它——该开关仅作用于本设备的登录页，与系统的动效设置相互独立。"
         closeLabel="关闭性能设置弹窗"
@@ -189,7 +334,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               <p className="text-sm font-medium">登录页动态背景</p>
               <p className="mt-0.5 text-xs text-muted-foreground">{fxOn ? '已开启 · 关闭后背景为静态' : '已关闭 · 背景为静态'}</p>
             </div>
-            <ToggleSwitch value={fxOn} onChange={toggleFx} ariaLabel="登录页动态背景" />
+            <ToggleSwitch value={fxOn} onChange={onToggleFx} ariaLabel="登录页动态背景" />
           </div>
 
           <p className="text-xs leading-relaxed text-muted-foreground">
