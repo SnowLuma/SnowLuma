@@ -2,6 +2,12 @@ import { createLogger } from '@snowluma/common/logger';
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import {
+  parseTotpStateLenient,
+  prepareTotpStateForRestore,
+  rewrapTotpSecret,
+  type TotpPersistedState,
+} from './totp';
 
 const log = createLogger('WebUI.Auth');
 
@@ -32,6 +38,7 @@ export interface WebuiAuthState {
   mustChangePassword: boolean;
   generatedAt: string;
   updatedAt: string;
+  totp?: TotpPersistedState;
 }
 
 export interface PasswordRule {
@@ -91,24 +98,43 @@ export function prepareWebuiAuthStateForRestore(value: unknown): WebuiAuthState 
   if (typeof v.updatedAt !== 'string' || !Number.isFinite(Date.parse(v.updatedAt))) {
     throw new Error('updatedAt must be a valid timestamp');
   }
-  const allowed = new Set(['passwordHash', 'passwordSalt', 'mustChangePassword', 'generatedAt', 'updatedAt']);
+  const allowed = new Set(['passwordHash', 'passwordSalt', 'mustChangePassword', 'generatedAt', 'updatedAt', 'totp']);
   const unknown = Object.keys(v).find((key) => !allowed.has(key));
   if (unknown) throw new Error(`unknown field $.${unknown}`);
-  return {
+  const state: WebuiAuthState = {
     passwordHash: v.passwordHash,
     passwordSalt: v.passwordSalt,
     mustChangePassword: v.mustChangePassword,
     generatedAt: v.generatedAt,
     updatedAt: v.updatedAt,
   };
+  if (!Object.prototype.hasOwnProperty.call(v, 'totp') || v.totp === undefined) {
+    return state;
+  }
+  state.totp = prepareTotpStateForRestore(v.totp);
+  return state;
 }
 
-function isValidState(value: unknown): value is WebuiAuthState {
+function parseLiveAuthState(value: unknown): WebuiAuthState | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  const totpValue = v.totp;
+  const withoutTotp = { ...v };
+  delete withoutTotp.totp;
   try {
-    prepareWebuiAuthStateForRestore(value);
-    return true;
+    const state = prepareWebuiAuthStateForRestore(
+      Object.prototype.hasOwnProperty.call(v, 'totp')
+        ? withoutTotp
+        : value,
+    );
+    const totp = parseTotpStateLenient(totpValue);
+    if (Object.prototype.hasOwnProperty.call(v, 'totp') && totpValue !== undefined && !totp) {
+      log.warn('webui.json totp field is invalid and will be ignored; password credentials are unchanged');
+    }
+    if (totp) state.totp = totp;
+    return state;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -177,8 +203,9 @@ export class WebuiAuth {
       try {
         const raw = fs.readFileSync(WEBUI_CONFIG_PATH, 'utf8');
         const parsed = JSON.parse(raw) as unknown;
-        if (isValidState(parsed)) {
-          if (parsed.mustChangePassword) {
+        const live = parseLiveAuthState(parsed);
+        if (live) {
+          if (live.mustChangePassword) {
             // Previous start generated a bootstrap password but the operator
             // never completed the forced-change flow. The plaintext is gone
             // (only the hash is on disk, and the log line from last run may
@@ -189,7 +216,7 @@ export class WebuiAuth {
             log.warn('previous bootstrap password was never rotated; regenerated a new one');
             return new WebuiAuth(state, initialPassword, false);
           }
-          return new WebuiAuth(parsed, null, false);
+          return new WebuiAuth(live, null, false);
         }
         log.error('webui.json schema invalid; backing up and regenerating credentials');
         backupCorruptConfig();
@@ -257,12 +284,19 @@ export class WebuiAuth {
     }
   }
 
-  setPassword(newPassword: string): void {
+  setPassword(newPassword: string, currentPassword?: string): void {
     if (this.devMode) {
       throw new Error('开发模式 (SNOWLUMA_DEV_MODE=1) 已禁用密码修改');
     }
     if (!isStrongPassword(newPassword)) {
       throw new Error('密码不符合强度要求');
+    }
+    let totp = this.state.totp;
+    if (totp) {
+      if (typeof currentPassword !== 'string' || currentPassword.length === 0) {
+        throw new Error('修改密码需要当前密码以重新保护 2FA 密钥');
+      }
+      totp = rewrapTotpSecret(currentPassword, newPassword, totp);
     }
     const salt = randomBytes(16);
     const hash = hashPassword(newPassword, salt);
@@ -272,7 +306,37 @@ export class WebuiAuth {
       mustChangePassword: false,
       generatedAt: this.state.generatedAt,
       updatedAt: new Date().toISOString(),
+      ...(totp ? { totp } : {}),
     };
+    atomicWrite(next);
+    this.state = next;
+  }
+
+  totpEnabled(): boolean {
+    return this.state.totp !== undefined;
+  }
+
+  totpStatus(): { enabled: false } | { enabled: true; remainingRecoveryCodes: number; label: string } {
+    const totp = this.state.totp;
+    if (!totp) return { enabled: false };
+    return {
+      enabled: true,
+      remainingRecoveryCodes: totp.recoveryCodeHashes.length,
+      label: totp.label,
+    };
+  }
+
+  totpState(): TotpPersistedState | undefined {
+    return this.state.totp;
+  }
+
+  persistTotp(totp: TotpPersistedState | undefined): void {
+    if (this.devMode) {
+      throw new Error('开发模式 (SNOWLUMA_DEV_MODE=1) 已禁用 2FA');
+    }
+    const next: WebuiAuthState = { ...this.state, updatedAt: new Date().toISOString() };
+    if (totp) next.totp = totp;
+    else delete next.totp;
     atomicWrite(next);
     this.state = next;
   }

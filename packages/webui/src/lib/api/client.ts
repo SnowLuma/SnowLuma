@@ -14,6 +14,7 @@ import {
   type StateStreamOptions,
   type StreamStatus,
   type TokenStore,
+  type TotpStatus,
 } from './types';
 import { localStorageTokenStore } from './token-store';
 
@@ -62,6 +63,7 @@ class HttpApiClient implements ApiClient {
   readonly storage: ApiClient['storage'];
   readonly debug: ApiClient['debug'];
   readonly agreements: ApiClient['agreements'];
+  readonly totp: ApiClient['totp'];
 
   constructor(opts: CreateApiClientOptions = {}) {
     this.tokenStore = opts.tokenStore ?? localStorageTokenStore(DEFAULT_TOKEN_KEY);
@@ -312,6 +314,97 @@ class HttpApiClient implements ApiClient {
         }
       },
     };
+
+    this.totp = {
+      status: async () => {
+        const data = await this.getJson<TotpStatus>('/api/auth/totp');
+        if (data.enabled === true) {
+          return {
+            enabled: true,
+            remainingRecoveryCodes: data.remainingRecoveryCodes,
+            label: data.label,
+          };
+        }
+        return { enabled: false };
+      },
+      begin: async (options) => {
+        try {
+          const res = await this.request('/api/auth/totp/begin', {
+            method: 'POST',
+            body: JSON.stringify(options ?? {}),
+          });
+          const data = await readJson<{
+            success?: boolean;
+            message?: string;
+            secret?: string;
+            otpauthUrl?: string;
+            issuer?: string;
+            accountName?: string;
+          }>(res);
+          if (
+            res.ok
+            && data.success === true
+            && typeof data.secret === 'string'
+            && typeof data.otpauthUrl === 'string'
+            && typeof data.issuer === 'string'
+            && typeof data.accountName === 'string'
+          ) {
+            return {
+              success: true,
+              secret: data.secret,
+              otpauthUrl: data.otpauthUrl,
+              issuer: data.issuer,
+              accountName: data.accountName,
+            };
+          }
+          return { success: false, message: data.message ?? '无法开始 2FA 绑定' };
+        } catch (e) {
+          return { success: false, message: e instanceof Error ? e.message : '网络错误' };
+        }
+      },
+      confirm: async (password, code) => {
+        try {
+          const res = await this.request('/api/auth/totp/confirm', {
+            method: 'POST',
+            body: JSON.stringify({ password, code }),
+          });
+          const data = await readJson<{ success?: boolean; message?: string; recoveryCodes?: string[] }>(res);
+          if (res.ok && data.success === true && Array.isArray(data.recoveryCodes)) {
+            return { success: true, recoveryCodes: data.recoveryCodes };
+          }
+          return { success: false, message: data.message ?? '2FA 绑定失败' };
+        } catch (e) {
+          return { success: false, message: e instanceof Error ? e.message : '网络错误' };
+        }
+      },
+      disable: async (password, secondFactor) => {
+        try {
+          const res = await this.request('/api/auth/totp/disable', {
+            method: 'POST',
+            body: JSON.stringify({ password, ...secondFactor }),
+          });
+          const data = await readJson<{ success?: boolean; message?: string }>(res);
+          return { success: res.ok && !!data.success, message: data.message };
+        } catch (e) {
+          return { success: false, message: e instanceof Error ? e.message : '网络错误' };
+        }
+      },
+      regenerateRecoveryCodes: async (password, totp) => {
+        try {
+          const res = await this.request('/api/auth/totp/recovery-codes', {
+            method: 'POST',
+            body: JSON.stringify({ password, totp }),
+          });
+          const data = await readJson<{ success?: boolean; message?: string; recoveryCodes?: string[] }>(res);
+          if (res.ok && data.success === true && Array.isArray(data.recoveryCodes)) {
+            return { success: true, recoveryCodes: data.recoveryCodes };
+          }
+          return { success: false, message: data.message ?? '无法重新生成恢复码' };
+        } catch (e) {
+          return { success: false, message: e instanceof Error ? e.message : '网络错误' };
+        }
+      },
+    };
   }
 
   // ---------- HTTP helpers ----------
@@ -388,20 +481,37 @@ class HttpApiClient implements ApiClient {
 
   // ---------- auth ----------
 
-  async login(password: string): Promise<LoginResult> {
+  async login(
+    password: string,
+    secondFactor?: { totp?: string; recoveryCode?: string },
+  ): Promise<LoginResult> {
     // Login deliberately bypasses fetchJson/onUnauthorized so a bad password
     // doesn't trigger a global sign-out side effect.
     try {
       const res = await this.fetchWithDeadline('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({
+          password,
+          ...(secondFactor?.totp ? { totp: secondFactor.totp } : {}),
+          ...(secondFactor?.recoveryCode ? { recoveryCode: secondFactor.recoveryCode } : {}),
+        }),
       });
+      const payload = await readJson<{
+        token?: string;
+        mustChangePassword?: boolean;
+        needsTotp?: boolean;
+        message?: string;
+      }>(res);
+      if (res.ok && payload.needsTotp === true) {
+        return { ok: false, needsTotp: true };
+      }
       if (!res.ok) {
-        const payload = await readJson<ErrorPayload>(res);
         return { ok: false, message: extractErrorMessage(payload, '令牌错误') };
       }
-      const payload = await readJson<{ token: string; mustChangePassword?: boolean }>(res);
+      if (typeof payload.token !== 'string' || payload.token.length === 0) {
+        return { ok: false, message: extractErrorMessage(payload, '令牌错误') };
+      }
       this.setToken(payload.token);
       return { ok: true, mustChangePassword: !!payload.mustChangePassword };
     } catch (e) {

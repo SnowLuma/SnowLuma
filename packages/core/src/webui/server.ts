@@ -39,6 +39,13 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { evaluatePasswordRules, isStrongPassword, WebuiAuth } from './auth';
+import { completeWebuiLogin, invalidateOtherSessions } from './webui-login';
+import {
+  beginTotpEnrollment,
+  confirmTotpEnrollment,
+  decideSecondFactorLogin,
+  regenerateRecoveryCodes,
+} from './totp';
 import {
   EULA_ACCEPT_ENV,
   getAgreementsPayload,
@@ -103,10 +110,18 @@ interface SessionInfo {
 
 const sessionTokens = new Map<string, SessionInfo>();
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+const totpEnrollments = new Map<string, {
+  secret: string;
+  issuer: string;
+  accountName: string;
+  expiresAt: number;
+}>();
 
 const LOGIN_MAX_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+const TOTP_ENROLL_TTL_MS = 10 * 60 * 1000;
+const DEFAULT_TOTP_ISSUER = 'SnowLuma';
 const AVATAR_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const AVATAR_BROWSER_CACHE_SECONDS = 30 * 24 * 60 * 60;
 
@@ -229,6 +244,21 @@ function purgeExpiredTokens() {
   for (const [ip, attempt] of loginAttempts) {
     if (now > attempt.resetAt) loginAttempts.delete(ip);
   }
+  for (const [token, enrollment] of totpEnrollments) {
+    if (now > enrollment.expiresAt) totpEnrollments.delete(token);
+  }
+}
+
+function sanitizeTotpLabelPart(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.replace(/[\r\n\t]/g, '').trim();
+  if (!trimmed) return fallback;
+  return trimmed.slice(0, 64);
+}
+
+function defaultTotpAccountName(): string {
+  const host = os.hostname().trim();
+  return host || 'admin';
 }
 
 
@@ -632,27 +662,42 @@ export async function initWebUI(
       return c.json({ success: false, message: `登录尝试过多，请 ${waitSec} 秒后重试` }, 429);
     }
 
-    let body: { password?: unknown };
+    let body: unknown;
     try {
       body = await c.req.json();
     } catch {
       return c.json({ success: false, message: '请求格式错误' }, 400);
     }
-    const password = typeof body.password === 'string' ? body.password : '';
-    if (!auth.verify(password)) {
+
+    const result = completeWebuiLogin(auth, body, now);
+    if (result.kind === 'bad-request') {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    if (result.kind === 'bad-password' || result.kind === 'bad-second-factor') {
       const current = loginAttempts.get(ip) ?? { count: 0, resetAt: now + LOGIN_LOCKOUT_MS };
       current.count += 1;
       if (current.count === 1) current.resetAt = now + LOGIN_LOCKOUT_MS;
       loginAttempts.set(ip, current);
-      return c.json({ success: false, message: '密码错误' }, 401);
+      const message = result.kind === 'bad-second-factor' ? '验证码不正确' : '密码错误';
+      return c.json({ success: false, message }, 401);
+    }
+    if (result.kind === 'needs-totp') {
+      return c.json({ success: false, needsTotp: true });
     }
 
     loginAttempts.delete(ip);
+    if (result.totpState) {
+      try {
+        auth.persistTotp(result.totpState);
+      } catch (err) {
+        log.warn('persist totp after login failed: %s', err instanceof Error ? err.message : String(err));
+        return c.json({ success: false, message: '登录失败' }, 500);
+      }
+    }
     const token = randomBytes(32).toString('hex');
-    const mustChange = auth.mustChangePassword();
-    sessionTokens.set(token, { expiresAt: now + TOKEN_TTL_MS, mustChangePassword: mustChange });
+    sessionTokens.set(token, { expiresAt: now + TOKEN_TTL_MS, mustChangePassword: result.mustChangePassword });
     setAvatarSessionCookie(c, token, listener.tlsEnabled === true);
-    return c.json({ success: true, token, mustChangePassword: mustChange });
+    return c.json({ success: true, token, mustChangePassword: result.mustChangePassword });
   });
 
   app.post('/api/logout', (c) => {
@@ -703,7 +748,7 @@ export async function initWebUI(
       return c.json({ success: false, message: '新密码不得与旧密码相同' }, 400);
     }
     try {
-      auth.setPassword(newPassword);
+      auth.setPassword(newPassword, oldPassword);
     } catch (err) {
       log.warn('change password failed: %s', err instanceof Error ? err.message : String(err));
       return c.json({ success: false, message: '密码修改失败' }, 400);
@@ -715,6 +760,167 @@ export async function initWebUI(
     clearAvatarSessionCookie(c, listener.tlsEnabled === true);
     log.info('password updated; all sessions invalidated');
     return c.json({ success: true, requireRelogin: true });
+  });
+
+  const totpDisabledInDev = () => auth.isDevMode();
+
+  app.get('/api/auth/totp', (c) => {
+    if (totpDisabledInDev()) {
+      return c.json({ success: false, message: '开发模式已禁用 2FA' }, 400);
+    }
+    return c.json(auth.totpStatus());
+  });
+
+  app.post('/api/auth/totp/begin', async (c) => {
+    if (totpDisabledInDev()) {
+      return c.json({ success: false, message: '开发模式已禁用 2FA' }, 400);
+    }
+    if (auth.totpEnabled()) {
+      return c.json({ success: false, message: '2FA 已开启' }, 409);
+    }
+    const token = c.get('sessionToken' as never) as string;
+    let body: Record<string, unknown> = {};
+    try {
+      const parsed = await c.req.json();
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        body = parsed as Record<string, unknown>;
+      }
+    } catch {
+      body = {};
+    }
+    const issuer = sanitizeTotpLabelPart(body.issuer, DEFAULT_TOTP_ISSUER);
+    const accountName = sanitizeTotpLabelPart(body.accountName, defaultTotpAccountName());
+    const now = Date.now();
+    const existing = totpEnrollments.get(token);
+    const secret = existing && existing.expiresAt > now ? existing.secret : undefined;
+    const enrollment = beginTotpEnrollment({ issuer, accountName, secret });
+    totpEnrollments.set(token, {
+      secret: enrollment.secret,
+      issuer,
+      accountName,
+      expiresAt: now + TOTP_ENROLL_TTL_MS,
+    });
+    return c.json({
+      success: true,
+      secret: enrollment.secret,
+      otpauthUrl: enrollment.otpauthUrl,
+      issuer: enrollment.issuer,
+      accountName: enrollment.accountName,
+    });
+  });
+
+  app.post('/api/auth/totp/confirm', async (c) => {
+    if (totpDisabledInDev()) {
+      return c.json({ success: false, message: '开发模式已禁用 2FA' }, 400);
+    }
+    if (auth.totpEnabled()) {
+      return c.json({ success: false, message: '2FA 已开启' }, 409);
+    }
+    const token = c.get('sessionToken' as never) as string;
+    let body: { password?: unknown; code?: unknown };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const password = typeof body.password === 'string' ? body.password : '';
+    const code = typeof body.code === 'string' ? body.code : '';
+    if (!auth.verify(password)) {
+      return c.json({ success: false, message: '当前密码不正确' }, 401);
+    }
+    const pending = totpEnrollments.get(token);
+    if (!pending || pending.expiresAt <= Date.now()) {
+      totpEnrollments.delete(token);
+      return c.json({ success: false, message: '请先开始绑定' }, 400);
+    }
+    try {
+      const enabled = confirmTotpEnrollment({
+        password,
+        secret: pending.secret,
+        code,
+        label: `${pending.issuer} (${pending.accountName})`,
+        atMs: Date.now(),
+      });
+      auth.persistTotp(enabled.state);
+      totpEnrollments.delete(token);
+      invalidateOtherSessions(sessionTokens, token);
+      log.info('webui 2FA enabled; other sessions invalidated');
+      return c.json({ success: true, recoveryCodes: enabled.recoveryCodes });
+    } catch (err) {
+      log.warn('totp confirm failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '验证码不正确' }, 401);
+    }
+  });
+
+  app.post('/api/auth/totp/disable', async (c) => {
+    if (totpDisabledInDev()) {
+      return c.json({ success: false, message: '开发模式已禁用 2FA' }, 400);
+    }
+    if (!auth.totpEnabled()) {
+      return c.json({ success: false, message: '2FA 未开启' }, 400);
+    }
+    const token = c.get('sessionToken' as never) as string;
+    let body: { password?: unknown; totp?: unknown; recoveryCode?: unknown };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const password = typeof body.password === 'string' ? body.password : '';
+    if (!auth.verify(password)) {
+      return c.json({ success: false, message: '当前密码不正确' }, 401);
+    }
+    const decision = decideSecondFactorLogin({
+      totpEnabled: true,
+      state: auth.totpState(),
+      password,
+      totp: typeof body.totp === 'string' ? body.totp : undefined,
+      recoveryCode: typeof body.recoveryCode === 'string' ? body.recoveryCode : undefined,
+      atMs: Date.now(),
+    });
+    if (decision.kind !== 'ok') {
+      return c.json({ success: false, message: '验证码不正确' }, 401);
+    }
+    auth.persistTotp(undefined);
+    totpEnrollments.delete(token);
+    invalidateOtherSessions(sessionTokens, token);
+    log.info('webui 2FA disabled; other sessions invalidated');
+    return c.json({ success: true });
+  });
+
+  app.post('/api/auth/totp/recovery-codes', async (c) => {
+    if (totpDisabledInDev()) {
+      return c.json({ success: false, message: '开发模式已禁用 2FA' }, 400);
+    }
+    const state = auth.totpState();
+    if (!state) {
+      return c.json({ success: false, message: '2FA 未开启' }, 400);
+    }
+    let body: { password?: unknown; totp?: unknown };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const password = typeof body.password === 'string' ? body.password : '';
+    const totp = typeof body.totp === 'string' ? body.totp : '';
+    if (!auth.verify(password)) {
+      return c.json({ success: false, message: '当前密码不正确' }, 401);
+    }
+    try {
+      const next = regenerateRecoveryCodes({
+        password,
+        state,
+        totp,
+        atMs: Date.now(),
+      });
+      auth.persistTotp(next.state);
+      log.info('webui 2FA recovery codes regenerated');
+      return c.json({ success: true, recoveryCodes: next.recoveryCodes });
+    } catch (err) {
+      log.warn('totp recovery regenerate failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '验证码不正确' }, 401);
+    }
   });
 
   // ─── EULA / PRIVACY consent ──────────────────────────────────────────────
