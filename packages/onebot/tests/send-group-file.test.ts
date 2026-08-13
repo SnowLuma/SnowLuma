@@ -295,4 +295,26 @@ describe('send_group_msg with {type:"file"} segment', () => {
     // publish must NOT be called — upload() already handles it internally
     expect(publish).not.toHaveBeenCalled();
   });
+
+  it('percent-decodes a file:// URL basename when name is omitted (#354)', async () => {
+    const upload = vi.fn(async () => ({ fileId: 'auto-fid', fileHash: null }));
+    const bridge = fakeBridge({
+      apis: {
+        message: { sendGroup: vi.fn() },
+        groupFile: { upload, publish: vi.fn() },
+      } as any,
+      resolveUserUid: vi.fn(),
+    } as any);
+    const ctx = makeCtx(bridge);
+
+    await sendGroupMessage(ctx, 12345, [{
+      type: 'file',
+      data: { file: 'file:///D:/test/%E6%B5%8B%E8%AF%95%E6%96%87%E4%BB%B6.xlsx' },
+    }] as any, false);
+
+    expect(upload).toHaveBeenCalledOnce();
+    const [, src, name] = upload.mock.calls[0]!;
+    expect(src).toBe('file:///D:/test/%E6%B5%8B%E8%AF%95%E6%96%87%E4%BB%B6.xlsx');
+    expect(name).toBe('测试文件.xlsx');
+  });
 });

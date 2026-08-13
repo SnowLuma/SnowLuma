@@ -2,7 +2,7 @@
   "license": "SEE LICENSE IN LICENSE",
   "name": "webui",
   "private": true,
-  "version": "1.14.5",
+  "version": "1.14.6",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -31,7 +31,8 @@
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "tailwind-merge": "^3.5.0",
-    "tw-animate-css": "^1.2.5"
+    "tw-animate-css": "^1.2.5",
+    "uqr": "^0.1.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

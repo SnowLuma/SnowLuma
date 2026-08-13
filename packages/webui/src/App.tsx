@@ -92,6 +92,8 @@ function AuthBoundary({ onboardingSteps }: { onboardingSteps: AdditionalOnboardi
   // (which browsers autofill, misleading users on upgrade). Stays undefined
   // for a returning session that's already authed but still must change.
   const [loginPassword, setLoginPassword] = useState<string | undefined>(undefined);
+  const [urlLoginPassword, setUrlLoginPassword] = useState<string | undefined>(undefined);
+  const [urlNeedsTotp, setUrlNeedsTotp] = useState(false);
   const authLoading = !authChecked || (authed && agreements === null && agreementsError === null);
   const { showSkeleton: showAuthSkeleton } = useSkeletonSwap({ ready: !authLoading });
 
@@ -134,6 +136,10 @@ function AuthBoundary({ onboardingSteps }: { onboardingSteps: AdditionalOnboardi
         if (pw) {
           const result = await client.login(pw);
           if (result.ok) { ok = true; urlPassword = pw; }
+          else if ('needsTotp' in result && result.needsTotp) {
+            setUrlLoginPassword(pw);
+            setUrlNeedsTotp(true);
+          }
         }
       }
       if (ok) {
@@ -166,6 +172,8 @@ function AuthBoundary({ onboardingSteps }: { onboardingSteps: AdditionalOnboardi
     setReplayingOnboarding(false);
     onboardingReturnPath.current = null;
     setLoginPassword(undefined);
+    setUrlLoginPassword(undefined);
+    setUrlNeedsTotp(false);
   }, []);
 
   const handleDecline = useCallback(async () => {
@@ -220,11 +228,15 @@ function AuthBoundary({ onboardingSteps }: { onboardingSteps: AdditionalOnboardi
   } else if (!authed) {
     view = (
       <LoginGate
+        initialPassword={urlLoginPassword}
+        initialNeedsTotp={urlNeedsTotp}
         onAuthed={(needsChange, password) => {
           setAuthed(true);
           setStatus('已连接');
           setMustChange(needsChange);
           setLoginPassword(password);
+          setUrlLoginPassword(undefined);
+          setUrlNeedsTotp(false);
           setOnboardingFinished(false);
           void refreshAgreements();
         }}
@@ -351,29 +363,45 @@ function Splash({ children }: { children: React.ReactNode }) {
   );
 }
 
-function LoginGate({ onAuthed }: { onAuthed: (mustChange: boolean, password: string) => void }) {
+function LoginGate({
+  onAuthed,
+  initialPassword,
+  initialNeedsTotp,
+}: {
+  onAuthed: (mustChange: boolean, password: string) => void;
+  initialPassword?: string;
+  initialNeedsTotp?: boolean;
+}) {
   const api = useApi();
-  const { runAction } = useActionFeedback();
+  const { startAction, dismiss } = useActionFeedback();
   const handleLogin = useCallback(
-    async (password: string) => {
-      const result = await runAction(
-        {
-          title: '正在登录',
-          detail: '正在验证 WebUI 访问密码',
-          successTitle: '登录成功',
-          successDetail: '正在进入控制台',
-          errorTitle: '登录失败',
-          resultError: (login) => login.ok ? null : login.message,
-        },
-        () => api.login(password),
-      );
-      if (!result.ok) return { success: false, error: result.message };
-      onAuthed(result.mustChangePassword, password);
-      return { success: true };
+    async (password: string, secondFactor?: { totp?: string; recoveryCode?: string }) => {
+      const handle = startAction({
+        title: '正在登录',
+        detail: secondFactor ? '正在验证一次性密码' : '正在验证 WebUI 访问密码',
+      });
+      const result = await api.login(password, secondFactor);
+      if (result.ok) {
+        handle.succeed({ title: '登录成功', detail: '正在进入控制台' });
+        onAuthed(result.mustChangePassword, password);
+        return { success: true };
+      }
+      if ('message' in result) {
+        handle.fail(result.message, { title: '登录失败' });
+        return { success: false, error: result.message };
+      }
+      dismiss();
+      return { success: false, needsTotp: true };
     },
-    [api, onAuthed, runAction],
+    [api, dismiss, onAuthed, startAction],
   );
-  return <LoginPage onLogin={handleLogin} />;
+  return (
+    <LoginPage
+      onLogin={handleLogin}
+      initialPassword={initialPassword}
+      initialNeedsTotp={initialNeedsTotp}
+    />
+  );
 }
 
 function OnboardingGate({

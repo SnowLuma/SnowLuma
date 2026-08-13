@@ -43,7 +43,27 @@ export class ApiError extends Error {
 
 export type LoginResult =
   | { ok: true; mustChangePassword: boolean }
+  | { ok: false; needsTotp: true }
   | { ok: false; message: string };
+
+export type TotpStatus =
+  | { enabled: false }
+  | { enabled: true; remainingRecoveryCodes: number; label: string };
+
+export type TotpEnrollment = {
+  secret: string;
+  otpauthUrl: string;
+  issuer: string;
+  accountName: string;
+};
+
+export type TotpBeginResult =
+  | { success: true } & TotpEnrollment
+  | { success: false; message: string };
+
+export type TotpConfirmResult =
+  | { success: true; recoveryCodes: string[] }
+  | { success: false; message: string };
 
 export type ChangePasswordResult = { success: boolean; message?: string };
 
@@ -115,7 +135,7 @@ export interface StateStreamOptions {
 
 export interface ApiClient {
   // ---- auth ----
-  login(password: string): Promise<LoginResult>;
+  login(password: string, secondFactor?: { totp?: string; recoveryCode?: string }): Promise<LoginResult>;
   logout(): Promise<void>;
   /** True if the current token is still valid. */
   status(): Promise<boolean>;
@@ -123,6 +143,13 @@ export interface ApiClient {
   mustChangePassword(): Promise<boolean>;
   checkPasswordStrength(password: string): Promise<{ rules: PasswordRule[]; valid: boolean }>;
   changePassword(oldPassword: string, newPassword: string): Promise<ChangePasswordResult>;
+  totp: {
+    status(): Promise<TotpStatus>;
+    begin(options?: { issuer?: string; accountName?: string }): Promise<TotpBeginResult>;
+    confirm(password: string, code: string): Promise<TotpConfirmResult>;
+    disable(password: string, secondFactor: { totp?: string; recoveryCode?: string }): Promise<{ success: boolean; message?: string }>;
+    regenerateRecoveryCodes(password: string, totp: string): Promise<TotpConfirmResult>;
+  };
 
   // ---- EULA / PRIVACY consent (shown after login, before set-password) ----
   agreements: {

@@ -352,7 +352,9 @@ export interface OidbGroupDetailFlags {
   question?:        pb<24, bool>;
   answer?:          pb<25, string>;
   maxAdminCount?:   pb<29, string>;
-  shutUpAllTimestamp?: pb<59, bool>;
+  // Official request mask for group shutup expire (proto tag 45 → 60027).
+  // Lagrange's tag 59 requests 60259, which is a different field.
+  shutUpAllTimestamp?: pb<45, bool>;
   /** Current complete app privilege bitfield; needed for masked mutations. */
   privilegeFlag?:   pb<99, bool>;
   /** Current complete groupFlagExt4 bitfield; needed for masked mutations. */
@@ -539,28 +541,55 @@ export interface OidbSetProfile {
   stringProfiles?: pb_repeated<2, OidbProfileStringItem>;
   intProfiles?:    pb_repeated<3, OidbProfileIntItem>;
 }
-export interface Oidb0x7edInteraction {
+export interface Oidb0x7edUserInfo {
+  uid?:                pb<1, string>;
+  src?:                pb<2, uint_32>;
+  latestTime?:         pb<3, uint_32>;
+  count?:              pb<4, uint_32>;
+  giftCount?:          pb<5, uint_32>;
+  customId?:           pb<6, uint_32>;
+  lastCharged?:        pb<8, uint_32>;
+  availableCount?:     pb<21, uint_32>;
+  todayVotedCount?:    pb<22, uint_32>;
+  nick?:               pb<101, string>;
+  gender?:             pb<102, uint_32>;
+  age?:                pb<103, uint_32>;
+  isFriend?:           pb<104, bool>;
+  isVip?:              pb<105, bool>;
+  isSvip?:             pb<106, bool>;
+}
+export interface Oidb0x7edFavoriteInfo {
   totalCount?: pb<1, uint_32>;
-  newCount?:   pb<2, uint_32>;
+  lastTime?:   pb<2, uint_32>;
   todayCount?: pb<3, uint_32>;
-  lastTime?:   pb<4, uint_64>;
+  userInfos?:  pb_repeated<4, Oidb0x7edUserInfo>;
+}
+export interface Oidb0x7edVoteInfo {
+  totalCount?:      pb<1, uint_32>;
+  newCount?:        pb<2, uint_32>;
+  newNearbyCount?:  pb<3, uint_32>;
+  lastVisitTime?:   pb<4, uint_32>;
+  userInfos?:       pb_repeated<5, Oidb0x7edUserInfo>;
 }
 export interface Oidb0x7edUserLikeInfo {
   uid?:          pb<1, string>;
-  time?:         pb<2, uint_64>;
-  favoriteInfo?: pb<3, Oidb0x7edInteraction>;
-  voteInfo?:     pb<4, Oidb0x7edInteraction>;
+  time?:         pb<2, uint_32>;
+  favoriteInfo?: pb<3, Oidb0x7edFavoriteInfo>;
+  voteInfo?:     pb<4, Oidb0x7edVoteInfo>;
 }
 export interface Oidb0x7edReq {
-  targetUid?: pb<1, string>;
-  basic?:     pb<2, uint_32>;
-  vote?:      pb<3, uint_32>;
-  favorite?:  pb<4, uint_32>;
-  start?:     pb<12, uint_32>;
-  limit?:     pb<103, uint_32>;
+  targetUids?: pb_repeated<1, string>;
+  basic?:      pb<2, uint_32>;
+  vote?:       pb<3, uint_32>;
+  favorite?:   pb<4, uint_32>;
+  userProfile?: pb<101, uint_32>;
+  start?:      pb<102, uint_32>;
+  limit?:      pb<103, uint_32>;
 }
 export interface Oidb0x7edResp {
   userLikeInfos?: pb_repeated<1, Oidb0x7edUserLikeInfo>;
+  friendMaxVotes?: pb<2, uint_32>;
+  start?:          pb<101, int_32>;
 }
 export interface Oidb0x8a7Req {
   basic1?:  pb<1, uint_32>;

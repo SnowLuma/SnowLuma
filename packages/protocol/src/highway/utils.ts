@@ -252,11 +252,17 @@ export async function loadBinarySource(
   return { bytes, fileName };
 }
 
-function guessFileNameFromUrl(url: string): string {
+export function guessFileNameFromUrl(url: string): string {
   const queryPos = url.search(/[?#]/);
   const pathPart = queryPos >= 0 ? url.slice(0, queryPos) : url;
   const lastSlash = pathPart.lastIndexOf('/');
-  return lastSlash >= 0 ? pathPart.slice(lastSlash + 1) : '';
+  const raw = lastSlash >= 0 ? pathPart.slice(lastSlash + 1) : '';
+  if (!raw) return '';
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
 }
 
 // --- Hashing ---

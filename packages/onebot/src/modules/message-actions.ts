@@ -2,6 +2,7 @@ import { createLogger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import type { ForwardNodePayload, FriendMessage, GroupMessage, MessageElement, MessageElementOf, QQEventVariant } from '@snowluma/protocol/events';
 import { getVideoSourceSize, MAX_VIDEO_SIZE } from '@snowluma/protocol/highway/video-upload';
+import { guessFileNameFromUrl } from '@snowluma/protocol/highway/utils';
 import type { MessageSendResult } from '../api-handler';
 import { convertEvent, elementsToOneBotSegments, type ConverterContext } from '../event-converter';
 import { segmentsToRawMessage } from '../helper/cq';
@@ -978,7 +979,7 @@ export async function sendPrivateMessage(
     const userUid = await ensureFileTargetUid();
     for (const fileEl of allFileElements) {
       if (fileEl.url && !fileEl.fileId) {
-        const name = fileEl.fileName || fileEl.url.split('/').pop() || 'file';
+        const name = fileEl.fileName || guessFileNameFromUrl(fileEl.url) || 'file';
         // Upload and publish are separate here so the Action keeps the real
         // PbSendMsg receipt. Letting uploadPrivate publish internally discards
         // that receipt, which makes a reliable message_sent event impossible
@@ -1109,7 +1110,7 @@ export async function sendGroupMessage(
     let fileId: string;
     if (fileEl.url && !fileEl.fileId) {
       // upload() already calls publish() internally — do NOT call publish() again.
-      const name = fileEl.fileName || fileEl.url.split('/').pop() || 'file';
+      const name = fileEl.fileName || guessFileNameFromUrl(fileEl.url) || 'file';
       const result = await ref.bridge.apis.groupFile.upload(groupId, fileEl.url, name, '/', true);
       fileId = result.fileId ?? '';
       if (!fileId) throw new Error('group file auto-upload returned no file_id');

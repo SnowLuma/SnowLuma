@@ -336,4 +336,41 @@ describe('send_private_msg with {type:"file"} segment', () => {
     );
     expect(sendC2cFile).toHaveBeenCalledOnce();
   });
+
+  it('percent-decodes a file:// URL basename when name is omitted (#354)', async () => {
+    const uploadPrivate = vi.fn(async () => ({ fileId: 'auto-fid', fileHash: 'auto-hash' }));
+    const sendC2cFileMessage = vi.fn(async () => goodReceipt);
+    const bridge = fakeBridge({
+      apis: {
+        message: { sendPrivate: vi.fn(), sendC2cFile: sendC2cFileMessage },
+        groupFile: { uploadPrivate },
+      } as any,
+      resolveUserUid: vi.fn(async () => 'u_peer'),
+      recallUploadedFile: vi.fn(() => ({
+        fileId: 'auto-fid',
+        scope: 'private',
+        userId: 67890,
+        fileName: '测试文件.xlsx',
+        fileSize: 3,
+        fileMd5: new Uint8Array(16),
+        fileSha1: new Uint8Array(20),
+        fileHash: 'auto-hash',
+        rememberedAt: Date.now(),
+      })),
+    } as any);
+    const ctx = makeCtx(bridge);
+
+    await sendPrivateMessage(ctx, 67890, [{
+      type: 'file',
+      data: { file: 'file:///D:/test/%E6%B5%8B%E8%AF%95%E6%96%87%E4%BB%B6.xlsx' },
+    }] as any, false);
+
+    expect(uploadPrivate).toHaveBeenCalledWith(
+      67890,
+      'file:///D:/test/%E6%B5%8B%E8%AF%95%E6%96%87%E4%BB%B6.xlsx',
+      '测试文件.xlsx',
+      true,
+      false,
+    );
+  });
 });

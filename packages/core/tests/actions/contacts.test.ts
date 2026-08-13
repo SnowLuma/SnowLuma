@@ -269,6 +269,25 @@ describe('apis/contacts / group roster', () => {
       allMuted: true,
     }));
   });
+
+  it('treats a past group-mute expire as unmuted (#356)', async () => {
+    const sendRawPacket = vi.fn(async () => groupListPacket({
+      groups: [{
+        groupUin: 123456789,
+        info: {
+          groupName: 'Was Muted',
+          shutUpAllTimestamp: 1_700_000_000,
+        },
+      }],
+    }));
+    const api = new ContactsApi({
+      sendRawPacket,
+      identity: { rememberGroups: vi.fn() },
+    } as any);
+
+    const groups = await api.fetchGroupList();
+    expect(groups[0]?.allMuted).toBe(false);
+  });
 });
 
 describe('apis/contacts / group requests', () => {

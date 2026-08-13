@@ -2,10 +2,12 @@
 //
 // 方案 3（#211）：单连接、按 offset 顺序、流水线上传，跨 chunk 复用同一个
 // TCP 连接（HTTP keep-alive）。要点：
-//   - 顺序发送 → 天然保序，避开 QQ highway 对乱序块的 error_code=102902；
+//   - 顺序发送 → 减少 QQ highway 对重叠块的 NeedDelayRetry（error_code=102902）；
 //   - 复用连接 → TCP 拥塞窗口全程保持，省掉每块新建连接的 slow-start。
 // 边缘节点可能在响应后 FIN（#118）；此时自适应地丢弃 socket + 重连 + 重发
 // 同一块（重发幂等），最坏退化成“每块一连接”，不比旧实现差，且仍然保序。
+// 102902 / 302902 不是致命拒绝（#352）：官方 BDH 走 NeedDelayRetry，延迟后
+// 换连接重发同一 offset。
 //
 // 本测试用两种 mock 服务端行为锁定这套自适应逻辑：
 //   - keepalive：每个 POST 回一个响应，连接保持 → 整个文件 1 个连接；
@@ -36,10 +38,21 @@ function buildEmptyHighwayResponseFrame(): Buffer {
   return frame;
 }
 
-// errorCode 帧：RespDataHighwayHead.field3 (errorCode) = 921。tag(field3,
-// varint)=0x18，varint(921)=0x99 0x07。定义即拒绝（不重试）。
-function buildErrorCodeFrame(): Buffer {
-  const head = Buffer.from([0x18, 0x99, 0x07]);
+function encodeVarint(n: number): number[] {
+  const bytes: number[] = [];
+  let value = n >>> 0;
+  while (value > 0x7f) {
+    bytes.push((value & 0x7f) | 0x80);
+    value >>>= 7;
+  }
+  bytes.push(value);
+  return bytes;
+}
+
+// errorCode 帧：RespDataHighwayHead.field3 (errorCode)。tag(field3, varint)=0x18。
+// 921 是定义即拒绝；102902 / 302902 是 QQ BDH 的 NeedDelayRetry（#352）。
+function buildErrorCodeFrame(errorCode = 921): Buffer {
+  const head = Buffer.from([0x18, ...encodeVarint(errorCode)]);
   const frame = Buffer.alloc(9 + head.length + 1);
   frame[0] = 0x28;
   frame.writeUInt32BE(head.length, 1);
@@ -75,6 +88,7 @@ class FakeSocket extends EventEmitter {
     private readonly failOnPost = -1,
     private readonly truncateOnPost = -1,
     private readonly errorAfterPartialOnPost = -1,
+    private readonly frameOnPost: Readonly<Record<number, Buffer>> = {},
   ) {
     super();
   }
@@ -135,7 +149,7 @@ class FakeSocket extends EventEmitter {
           this.emit('close');
           return;
         }
-        this.emit('data', httpWrap(this.responseFrame));
+        this.emit('data', httpWrap(this.frameOnPost[thisPost] ?? this.responseFrame));
         if (this.mode === 'closeafter') {
           this.readableEnded = true;
           this.writable = false;
@@ -659,5 +673,70 @@ describe('uploadHighwayHttp single-connection pipelined upload (#211)', () => {
     expect(source.closedWhileReading).toBe(false);
     // Definitive reject on block 0 → stop immediately, don't PUT later blocks.
     expect(source.reads.length).toBeLessThan(3);
+  });
+
+  it('delay-retries 102902 on the same offset, then completes (#352)', async () => {
+    // QQ BDH NeedDelayRetry: 102902 is backpressure, not a fatal reject.
+    // Official client delays, switches sender, and re-PUTs the same piece.
+    installFactory((idx) => idx === 0
+      ? new FakeSocket(buildErrorCodeFrame(102902), 'keepalive')
+      : new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive'));
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      const bytes = new Uint8Array(Math.floor(2.5 * HIGHWAY_BLOCK_SIZE));
+      await uploadHighwayHttp(
+        makeBridge(), makeSession(), 71, new BufferChunkSource(bytes),
+        new Uint8Array(16), new Uint8Array(0),
+      );
+      expect(createConnectionMock).toHaveBeenCalledTimes(2);
+      const messages = highwayTrace(entries).map((entry) => entry.message);
+      expect(messages).toEqual(expect.arrayContaining([
+        expect.stringContaining('branch=chunk_delay_retry offset=0'),
+        expect.stringContaining('errorCode=102902'),
+        expect.stringContaining('outcome=completed reason=upload_complete'),
+      ]));
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('delay-retries 302902 the same way as 102902', async () => {
+    installFactory((idx) => idx === 0
+      ? new FakeSocket(buildErrorCodeFrame(302902), 'keepalive')
+      : new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive'));
+    await uploadHighwayHttp(
+      makeBridge(), makeSession(), 71,
+      new BufferChunkSource(new Uint8Array(512 * 1024)),
+      new Uint8Array(16), new Uint8Array(0),
+    );
+    expect(createConnectionMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('delay-retries 102902 on a later in-order block after keep-alive was already warm (#352 shape)', async () => {
+    // Mirrors the report: sequential upload is healthy, then a later offset
+    // returns 102902. Recovery must re-PUT that offset, not abort the file.
+    installFactory((idx) => idx === 0
+      ? new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive', -1, -1, -1, {
+        3: buildErrorCodeFrame(102902),
+      })
+      : new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive'));
+    const bytes = new Uint8Array(Math.floor(2.5 * HIGHWAY_BLOCK_SIZE)); // 3 blocks
+    await uploadHighwayHttp(
+      makeBridge(), makeSession(), 71, new BufferChunkSource(bytes),
+      new Uint8Array(16), new Uint8Array(0),
+    );
+    expect(createConnectionMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('exhausts delay-retries when 102902 keeps coming back', async () => {
+    installFactory(() => new FakeSocket(buildErrorCodeFrame(102902), 'keepalive'));
+    await expect(uploadHighwayHttp(
+      makeBridge(), makeSession(), 71,
+      new BufferChunkSource(new Uint8Array(16)),
+      new Uint8Array(16), new Uint8Array(0),
+    )).rejects.toThrow(/error_code=102902/);
+    expect(createConnectionMock.mock.calls.length).toBeGreaterThan(1);
   });
 });

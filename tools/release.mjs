@@ -13,7 +13,7 @@
 //      auto-merges if the GitHub setting allows.
 //   4. Push to origin/dev.
 //   5. (Unless `--no-wait`) poll the Promote PR via `gh` until it
-//      merges, then `git fetch && git checkout main && git pull`,
+//      merges, then fetch and fast-forward `main` to `origin/main`,
 //      create `vX.Y.Z` tag, push it — that triggers `release.yml`.
 //   6. Switch back to `dev` so the next `git log` view is back where
 //      you were.
@@ -81,6 +81,34 @@ function ok(msg)   { console.log(`\x1b[32m✓\x1b[0m ${msg}`); }
 function info(msg) { console.log(`\x1b[36mi\x1b[0m ${msg}`); }
 function warn(msg) { console.log(`\x1b[33m!\x1b[0m ${msg}`); }
 
+function printManualFinish() {
+  info('Once the Promote PR merges, finish manually with:');
+  info('  git fetch origin refs/heads/main:refs/remotes/origin/main');
+  info('  git switch main');
+  info('  git merge --ff-only origin/main');
+  info(`  git tag ${tag} && git push origin ${tag}`);
+}
+
+function syncMain() {
+  // Use a fully qualified refspec and an explicit fast-forward so release
+  // behavior cannot be changed by the caller's pull/rebase configuration.
+  sh('git fetch origin refs/heads/main:refs/remotes/origin/main --quiet');
+  sh('git switch main');
+  sh('git merge --ff-only origin/main');
+
+  if (dryRun) return;
+
+  const localMain = shCapture('git rev-parse refs/heads/main');
+  const remoteMain = shCapture('git rev-parse refs/remotes/origin/main');
+  if (localMain !== remoteMain) {
+    throw new Error(
+      `Refusing to tag: local main (${localMain.slice(0, 12)}) does not exactly match ` +
+      `origin/main (${remoteMain.slice(0, 12)}).`,
+    );
+  }
+  ok('main matches origin/main');
+}
+
 // ───────────── step 1: preflight ─────────────
 
 function preflightFail(msg) {
@@ -145,8 +173,7 @@ function bumpAndPushDev() {
 async function waitAndTag() {
   if (!which('gh')) {
     warn('`gh` CLI not found — skipping auto-tag.');
-    info('Once the Promote PR merges, run:');
-    info(`  git fetch && git checkout main && git pull && git tag ${tag} && git push origin ${tag}`);
+    printManualFinish();
     return;
   }
 
@@ -196,13 +223,11 @@ async function waitAndTag() {
 
   if (Date.now() - startedAt >= TIMEOUT_MS) {
     warn('30-minute timeout reached without seeing the PR merge.');
-    info(`Once it does, finish manually: git checkout main && git pull && git tag ${tag} && git push origin ${tag}`);
+    printManualFinish();
     return;
   }
 
-  sh('git fetch origin main --quiet');
-  sh('git checkout main');
-  sh('git pull origin main');
+  syncMain();
 
   // Sanity: package.json on main matches version
   const mainPkg = JSON.parse(await readFile(path.join(repoRoot, 'package.json'), 'utf-8'));
@@ -229,7 +254,7 @@ async function waitAndTag() {
 
   if (noWait) {
     info('--no-wait set; not polling for PR merge.');
-    info(`Once it merges: git checkout main && git pull && git tag ${tag} && git push origin ${tag}`);
+    printManualFinish();
     return;
   }
 
