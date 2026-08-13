@@ -35,8 +35,12 @@ describe('OneBot access token editor policy', () => {
     });
   });
 
-  it('only permits an empty inbound token on loopback', () => {
-    expect(accessTokenFeedback('', [], false)).toMatchObject({ valid: false, tone: 'error' });
+  it('only permits an empty inbound token in a trusted bind or local-page context', () => {
+    expect(accessTokenFeedback('', [], false)).toEqual({
+      valid: false,
+      tone: 'error',
+      message: '未绑定本机地址时，远程访问必须填写令牌；请生成令牌或将主机改为 127.0.0.1。',
+    });
     expect(accessTokenFeedback('', [], true)).toMatchObject({ valid: true, tone: 'warning' });
   });
 });

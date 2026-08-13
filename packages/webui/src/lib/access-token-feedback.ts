@@ -21,7 +21,7 @@ export function accessTokenFeedback(
       : {
         valid: false,
         tone: 'error',
-        message: '当前为远程访问，请使用右侧按钮生成令牌后保存。',
+        message: '未绑定本机地址时，远程访问必须填写令牌；请生成令牌或将主机改为 127.0.0.1。',
       };
   }
 

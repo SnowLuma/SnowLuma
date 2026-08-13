@@ -15,6 +15,17 @@ export function isLoopbackHostname(hostname: string): boolean {
   return false;
 }
 
+/** Empty inbound OneBot tokens are safe when the listener is loopback, or
+ *  when the operator opened WebUI on loopback (they can bind 0.0.0.0
+ *  without a token on purpose). A remote WebUI plus a public bind host
+ *  must keep a token. */
+export function allowEmptyInboundAccessToken(
+  webuiHostname: string,
+  bindHost: string | undefined,
+): boolean {
+  return isLoopbackHostname(webuiHostname) || isLoopbackHostname(bindHost ?? '');
+}
+
 export function shouldWarnAboutInsecureRemoteAccess(location: {
   protocol: string;
   hostname: string;

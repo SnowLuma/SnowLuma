@@ -32,7 +32,7 @@ import {
   accessTokenFeedback,
   type AccessTokenFeedback,
 } from '@/lib/access-token-feedback';
-import { isLoopbackHostname } from '@/lib/transport-security';
+import { allowEmptyInboundAccessToken } from '@/lib/transport-security';
 import type {
   HttpClientNetwork,
   HttpServerNetwork,
@@ -87,9 +87,9 @@ export function NodeEditDialog<K extends NetworkKind>(props: NodeEditDialogProps
   const isInboundServer = kind === 'httpServers' || kind === 'wsServers';
   const tokenChanged = (draft.accessToken ?? '') !== (initial.accessToken ?? '');
   const enforceTokenPolicy = isInboundServer && (!isEdit || tokenChanged);
-  const allowEmptyToken = typeof window !== 'undefined'
-    && isLoopbackHostname(window.location.hostname);
   const inbound = isInboundServer ? draft as HttpServerNetwork | WsServerNetwork : null;
+  const allowEmptyToken = typeof window !== 'undefined'
+    && allowEmptyInboundAccessToken(window.location.hostname, inbound?.host);
   const tokenFeedback = useMemo(
     () => enforceTokenPolicy
       ? accessTokenFeedback(
@@ -180,7 +180,7 @@ export function NodeEditDialog<K extends NetworkKind>(props: NodeEditDialogProps
           <div className="p-4">
             <TokenField
               label="授权 Token"
-              placeholder={isInboundServer ? '留空则关闭鉴权（仅允许本机保存）' : '按对端要求填写'}
+              placeholder={isInboundServer ? '留空则关闭鉴权（监听本机或从本机打开页面时可保存）' : '按对端要求填写'}
               value={draft.accessToken}
               onChange={(v) => patch({ accessToken: v || undefined } as Partial<AnyAdapter<K>>)}
               onGenerate={() => patch({ accessToken: generateAccessToken() } as Partial<AnyAdapter<K>>)}
