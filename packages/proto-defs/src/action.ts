@@ -93,7 +93,17 @@ export interface MentionExtraSend {
   uid?:    pb<9, string>;
 }
 
-// MarkdownData
+// Markdown commonElem (svc=45). Official DecodeMarkdownElement reads
+// content / process_msg / summary / extType / mdExtInfo.
+// extType=1 dispatches to DecodeMdExtInfoFileTransfer.
+export interface MarkdownFlashTransferExt {
+  filesetId?:  pb<1, string>;
+  name?:       pb<2, string>;
+  fileSize?:   pb<3, uint_32>;
+  thumbnail?:  pb<4, bytes>;
+  expireTime?: pb<6, uint_32>;
+}
+
 export interface MarkdownData {
   content?:    pb<1, string>;
   field2?:     pb<2, string>;
@@ -101,5 +111,5 @@ export interface MarkdownData {
   processMsg?: pb<4, string>;
   summary?:    pb<5, string>;
   extType?:    pb<6, uint_32>;
-  field7?:     pb<7, bytes>;
+  extInfo?:    pb<7, MarkdownFlashTransferExt>;
 }
