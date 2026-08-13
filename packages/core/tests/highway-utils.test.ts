@@ -3,13 +3,23 @@ import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { loadBinarySource, resolveLocalFilePath } from '@snowluma/protocol/highway/utils';
+import { guessFileNameFromUrl, loadBinarySource, resolveLocalFilePath } from '@snowluma/protocol/highway/utils';
 
 describe('highway source paths', () => {
   it('normalizes file URLs with an extra leading slash on POSIX', () => {
     if (process.platform === 'win32') return;
     expect(resolveLocalFilePath('file:////AstrBot/data/plugin/cache/BV-test.mp4'))
       .toBe('/AstrBot/data/plugin/cache/BV-test.mp4');
+  });
+
+  it('percent-decodes a URL basename used as the upload filename (#354)', () => {
+    expect(guessFileNameFromUrl(
+      'file:///D:/test/%E6%B5%8B%E8%AF%95%E6%96%87%E4%BB%B6.xlsx',
+    )).toBe('测试文件.xlsx');
+    expect(guessFileNameFromUrl('https://cdn.example/a/%E4%B8%AD%E6%96%87.png?x=1'))
+      .toBe('中文.png');
+    expect(guessFileNameFromUrl('https://cdn.example/plain.bin')).toBe('plain.bin');
+    expect(guessFileNameFromUrl('https://cdn.example/%ZZ.xlsx')).toBe('%ZZ.xlsx');
   });
 
   it('loads encoded file URLs from the local filesystem', async () => {
