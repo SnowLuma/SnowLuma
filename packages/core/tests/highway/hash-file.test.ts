@@ -11,8 +11,9 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { hashFileStreaming } from '@snowluma/protocol/highway/hash-file';
+import { hashFileStreaming, hashFlashFileStreaming } from '@snowluma/protocol/highway/hash-file';
 import { computeHashes, computeMd5 } from '@snowluma/protocol/highway/utils';
+import { computeSha1StateV } from '@snowluma/protocol/highway/sha1-stream';
 import { computeVideoSha1Blocks } from '@snowluma/protocol/highway/video-upload';
 
 const MB = 1024 * 1024;
@@ -88,5 +89,68 @@ describe('hashFileStreaming ≡ buffered computeHashes + computeVideoSha1Blocks 
     expect(streamed.sha1Blocks.length).toBe(1); // just the finalized whole-file sha1
     expect(eq(streamed.sha1Blocks[0]!, buffered.sha1)).toBe(true);
     expect(eq(streamed.headMd5!, computeMd5(new Uint8Array(0)))).toBe(true);
+  });
+});
+
+// Flash sliceupload Sha1StateV is NOT video sha1Blocks. Both snapshot
+// un-finalized SHA1 at 1 MiB boundaries, but flash omits the un-finalized
+// snapshot of the last full slice — that slot is the finalized whole-file
+// SHA1. Reusing sha1Blocks when size % 1 MiB === 0 ships an extra state
+// and the server rejects the upload.
+describe('hashFlashFileStreaming ≡ buffered computeHashes + computeSha1StateV', () => {
+  let dir: string;
+  beforeAll(async () => { dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'sl-flash-hash-')); });
+  afterAll(async () => { await fsp.rm(dir, { recursive: true, force: true }); });
+
+  const SIZES = [0, 1, 63, 64, 65, MB - 1, MB, MB + 1, 2 * MB, 2 * MB + 123];
+
+  for (const size of SIZES) {
+    it(`size=${size}: md5 / sha1 / Sha1StateV match the buffered flash helpers`, async () => {
+      const data = synth(size);
+      const file = path.join(dir, `${randomUUID()}.bin`);
+      fs.writeFileSync(file, data);
+
+      const streamed = await hashFlashFileStreaming(file);
+      const buffered = computeHashes(data);
+      const sliceCount = Math.ceil(size / MB);
+      const refState = computeSha1StateV(data, sliceCount, MB);
+
+      expect(eq(streamed.md5, buffered.md5)).toBe(true);
+      expect(eq(streamed.sha1, buffered.sha1)).toBe(true);
+      expect(streamed.md5Hex).toBe(buffered.md5Hex);
+      expect(streamed.sha1Hex).toBe(buffered.sha1Hex);
+      expect(streamed.sliceCount).toBe(sliceCount);
+      expect(streamed.sha1StateV.length).toBe(refState.length);
+      for (let i = 0; i < refState.length; i++) {
+        expect(eq(streamed.sha1StateV[i]!, refState[i]!)).toBe(true);
+      }
+    });
+  }
+
+  it('exact 1 MiB is not video sha1Blocks (no extra un-finalized last-slice state)', async () => {
+    const data = synth(MB);
+    const file = path.join(dir, `${randomUUID()}.bin`);
+    fs.writeFileSync(file, data);
+
+    const flash = await hashFlashFileStreaming(file);
+    const video = await hashFileStreaming(file);
+    expect(flash.sha1StateV.length).toBe(1);
+    expect(video.sha1Blocks.length).toBe(2);
+    expect(eq(flash.sha1StateV[0]!, video.sha1Blocks[1]!)).toBe(true);
+    expect(eq(flash.sha1StateV[0]!, video.sha1Blocks[0]!)).toBe(false);
+  });
+
+  it('exact 2 MiB: flash has 2 states, video sha1Blocks has 3', async () => {
+    const data = synth(2 * MB);
+    const file = path.join(dir, `${randomUUID()}.bin`);
+    fs.writeFileSync(file, data);
+
+    const flash = await hashFlashFileStreaming(file);
+    const video = await hashFileStreaming(file);
+    expect(flash.sliceCount).toBe(2);
+    expect(flash.sha1StateV.length).toBe(2);
+    expect(video.sha1Blocks.length).toBe(3);
+    expect(eq(flash.sha1StateV[0]!, video.sha1Blocks[0]!)).toBe(true);
+    expect(eq(flash.sha1StateV[1]!, video.sha1Blocks[2]!)).toBe(true);
   });
 });
