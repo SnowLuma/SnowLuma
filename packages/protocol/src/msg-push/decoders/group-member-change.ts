@@ -31,8 +31,8 @@ export const decodeGroupMemberJoin: MsgPushDecoder = (ctx) => {
     time: ctx.head.timestamp,
     selfUin: ctx.selfUin,
     groupId,
-    userUin: resolveUidToUin(ctx.identity, groupId, userUid, 0),
-    operatorUin: resolveUidToUin(ctx.identity, groupId, operatorUid, 0),
+    userUin: resolveUidToUin(ctx.identity, groupId, userUid),
+    operatorUin: resolveUidToUin(ctx.identity, groupId, operatorUid),
     userUid,
     operatorUid,
     joinType: joinTypeFromOperationType(change.decreaseType ?? 0),
@@ -66,7 +66,7 @@ export const decodeGroupMemberLeave: MsgPushDecoder = (ctx) => {
   const dt = change.decreaseType ?? 0;
   const groupId = change.groupUin ?? 0;
   const userUid = change.memberUid ?? '';
-  const userUin = resolveUidToUin(ctx.identity, groupId, userUid, 0);
+  const userUin = resolveUidToUin(ctx.identity, groupId, userUid);
 
   let operatorUid: string;
   let operatorUin: number;
@@ -83,7 +83,7 @@ export const decodeGroupMemberLeave: MsgPushDecoder = (ctx) => {
     operatorUid = dt === 3
       ? decodeNestedOperatorUid(operatorBytes, 'group member decrease type=3')
       : decodeGroupChangeOperatorUid(operatorBytes, `group member decrease type=${dt}`);
-    operatorUin = resolveUidToUin(ctx.identity, groupId, operatorUid, 0);
+    operatorUin = resolveUidToUin(ctx.identity, groupId, operatorUid);
   }
   const ev: GroupMemberLeave = {
     kind: 'group_member_leave',
@@ -119,7 +119,7 @@ export const decodeGroupSelfJoined: MsgPushDecoder = (ctx) => {
     groupId,
     userUin: ctx.selfUin,
     userUid: ctx.identity.selfUid ?? '',
-    operatorUin: resolveUidToUin(ctx.identity, groupId, operatorUid, 0),
+    operatorUin: resolveUidToUin(ctx.identity, groupId, operatorUid),
     operatorUid,
   };
   return [ev];

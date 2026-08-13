@@ -47,16 +47,6 @@ export interface PacketPipelineDeps {
    */
   refreshMemberCache(groupId: number, refreshGroupList: boolean, forceMemberList: boolean): Promise<boolean>;
   /**
-   * Resolve a stranger profile by UID — used to fill in the requester's
-   * uin + nickname on group-join-request and friend-request events
-   * where the push only carries a uid. Mirrors Lagrange's
-   * `FetchUserInfoEvent.Create(targetUid)` path
-   * (`dev/Lagrange.Core/.../MessagingLogic.cs:215-224`). Returns null
-   * on lookup failure so the dispatch path can proceed with the bare
-   * uid-only event.
-   */
-  resolveStrangerProfile(uid: string): Promise<{ uin: number; nickname: string } | null>;
-  /**
    * Resolve the verify message ("postscript") + server sequence number
    * for a pending group-join / group-invite. The OIDB push only
    * carries the requester's UID + group uin — the actual verify text
@@ -459,34 +449,28 @@ export class IncomingPacketPipeline {
       // Record the requester's identity up-front (synchronously), mirroring the
       // friend_request path — uid-bearing group_invites take this async branch
       // and would otherwise never store the inviter's uid↔uin when the uin is
-      // already known (needsProfile=false). uin equal to the group's own uin is
-      // the legacy decoder-pollution signature → pass 0 so the map write is
-      // skipped (rememberUidUin short-circuits on uin <= 0).
+      // already known (needsProfile=false).
       this.deps.identity.rememberRequestIdentity({
         groupId: event.groupId,
         uid,
-        uin: event.fromUin > 0 && event.fromUin !== event.groupId ? event.fromUin : 0,
+        uin: event.fromUin > 0 ? event.fromUin : 0,
         source: 'group_request',
       });
 
       const subType = event.subType === 'invite' ? 'invite' : 'add';
-      // ALWAYS fetch the verify comment (it's never in the push). Resolve
-      // the UID→UIN profile only when the requester isn't already known —
-      // `fromUin === groupId` is the legacy cache-pollution signature
-      // (decoder fell back to the group's own uin) and must force a
-      // re-resolve so the cache self-heals. The two are independent OIDB
-      // calls (0xFE1_2 profile + 0x10C0 request queue); `Promise.allSettled`
-      // so a flake on one path can't kill the other.
-      const needsProfile = event.fromUin <= 0 || (event.groupId > 0 && event.fromUin === event.groupId);
+      // ALWAYS fetch the verify comment (it's never in the push). UID→UIN
+      // waits only when the requester is still unresolved. Comment and
+      // identity are independent; `Promise.allSettled` so a flake on one
+      // path cannot kill the other.
+      const needsProfile = event.fromUin <= 0;
       const [profileR, requestR] = await Promise.allSettled([
-        needsProfile ? this.deps.resolveStrangerProfile(uid) : Promise.resolve(null),
+        needsProfile ? this.deps.identity.resolveUin(uid, event.groupId) : Promise.resolve(null),
         this.deps.resolveGroupJoinRequest(event.groupId, uid, subType),
       ]);
 
       if (needsProfile) {
-        if (profileR.status === 'fulfilled' && profileR.value && profileR.value.uin > 0) {
-          event.fromUin = profileR.value.uin;
-          // uin was unknown/polluted at entry; now resolved → self-heal the map.
+        if (profileR.status === 'fulfilled' && profileR.value !== null && profileR.value > 0) {
+          event.fromUin = profileR.value;
           this.deps.identity.rememberRequestIdentity({
             groupId: event.groupId,
             uid,
@@ -560,15 +544,13 @@ export class IncomingPacketPipeline {
 
   private async prepareGroupMemberJoinIdentity(event: Extract<QQEventVariant, { kind: 'group_member_join' }>): Promise<boolean> {
     this.resolveMemberIdentityFromCache(event);
-    if (event.userUin > 0 || !event.userUid || event.groupId <= 0) return false;
+    if (event.userUin > 0 || !event.userUid) return false;
 
-    const refreshed = await this.deps.refreshMemberCache(
-      event.groupId,
-      !this.deps.identity.findGroup(event.groupId) || this.isSelfMemberIdentity(event.userUin, event.userUid),
-      true,
-    );
+    const uin = await this.deps.identity.resolveUin(event.userUid, event.groupId);
+    if (uin !== null) event.userUin = uin;
     this.resolveMemberIdentityFromCache(event);
-    return refreshed;
+    // Roster refresh stays a post-dispatch side-effect, not the UIN hop.
+    return false;
   }
 
   private resolveMemberIdentityFromCache(event: GroupMemberIdentityEvent): void {

@@ -22,8 +22,7 @@ import type { PttTransPush } from '@snowluma/proto-defs/ptt-trans';
 import type { MsgPushContext } from '../context';
 import { Event0x210SubType } from '../enums';
 import {
-  buildTemplateMap, findTemplateValue,
-  parseU64OrZero,
+  buildTemplateMap, c2cRoutingUin, findTemplateValue,
   resolveUidToUin,
 } from '../helpers';
 import type { MsgPushDecoder } from '../registry';
@@ -177,7 +176,7 @@ function decodeFriendRequest(ctx: MsgPushContext): QQEventVariant[] {
     kind: 'friend_request',
     time: ctx.head.timestamp,
     selfUin: ctx.selfUin,
-    fromUin: resolveUidToUin(ctx.identity, 0, sourceUid, ctx.fromUin),
+    fromUin: resolveUidToUin(ctx.identity, 0, sourceUid),
     fromUid: sourceUid,
     message: request.info.message ?? '',
     flag: sourceUid,
@@ -199,7 +198,7 @@ function decodeFriendRecall(ctx: MsgPushContext): QQEventVariant[] {
     kind: 'friend_recall',
     time: recall.info.time ?? ctx.head.timestamp,
     selfUin: ctx.selfUin,
-    userUin: resolveUidToUin(ctx.identity, 0, peerUid, ctx.fromUin),
+    userUin: resolveUidToUin(ctx.identity, 0, peerUid),
     msgSeq: recall.info.clientSequence ?? 0,
     clientSeq: recall.info.clientSequence ?? 0,
     recalledBySelf: isSelfRecall,
@@ -211,7 +210,7 @@ function decodeNewFriend(ctx: MsgPushContext): QQEventVariant[] {
   const nf = protobuf_decode<NewFriend>(ctx.content);
   if (!nf?.info) return [];
   const newFriendUid = nf.info.uid ?? '';
-  const newFriendUin = resolveUidToUin(ctx.identity, 0, newFriendUid, ctx.fromUin);
+  const newFriendUin = c2cRoutingUin(ctx.identity, newFriendUid, ctx.fromUin);
   if (newFriendUin <= 0) return []; // can't surface a `user_id`-less friend_add to OneBot
   const ev: FriendAddEvent = {
     kind: 'friend_add',
@@ -240,7 +239,7 @@ function decodeInputStatus(ctx: MsgPushContext): QQEventVariant[] {
     kind: 'friend_input_status',
     time: ctx.head.timestamp,
     selfUin: ctx.selfUin,
-    userUin: resolveUidToUin(ctx.identity, 0, fromUid, ctx.fromUin),
+    userUin: resolveUidToUin(ctx.identity, 0, fromUid),
     userUid: fromUid,
     eventType,
     statusText: inputStatusText(eventType),
@@ -285,16 +284,15 @@ function decodeFriendPoke(ctx: MsgPushContext): QQEventVariant[] {
   const templates = buildTemplateMap(grayTip.msgTemplParam ?? []);
   const actor = findTemplateValue(templates, 'uin_str1');
   const target = findTemplateValue(templates, 'uin_str2');
-  const senderUin = resolveUidToUin(ctx.identity, 0, actor, parseU64OrZero(actor));
-  const routeFromUin = resolveUidToUin(ctx.identity, 0, ctx.fromUid, ctx.fromUin);
+  const senderUin = resolveUidToUin(ctx.identity, 0, actor);
+  const routeFromUin = c2cRoutingUin(ctx.identity, ctx.fromUid, ctx.fromUin);
   // The gray-tip template only identifies the two poke endpoints. The C2C
   // routing head owns the conversation peer: outbound notices use `to`,
   // while inbound notices use `from`, just like ordinary friend messages.
   const sentBySelf = routeFromUin > 0 && routeFromUin === ctx.selfUin;
   const peerUin = sentBySelf
-    ? resolveUidToUin(
+    ? c2cRoutingUin(
       ctx.identity,
-      0,
       ctx.responseHead?.toUid ?? '',
       ctx.responseHead?.toUin ?? 0,
     )
@@ -311,7 +309,7 @@ function decodeFriendPoke(ctx: MsgPushContext): QQEventVariant[] {
     selfUin: ctx.selfUin,
     peerUin,
     senderUin,
-    targetUin: resolveUidToUin(ctx.identity, 0, target, parseU64OrZero(target)),
+    targetUin: resolveUidToUin(ctx.identity, 0, target),
     action: findTemplateValue(templates, 'action_str', 'alt_str1'),
     suffix: findTemplateValue(templates, 'suffix_str'),
     actionImgUrl: findTemplateValue(templates, 'action_img_url'),

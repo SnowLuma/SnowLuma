@@ -75,15 +75,23 @@ function msgPushContext(
 
 function makePipeline(opts: {
   refreshMemberCache?: () => Promise<boolean>;
-  resolveStrangerProfile?: () => Promise<{ uin: number; nickname: string } | null>;
+  fetchProfileByUid?: () => Promise<{ uin: number; uid: string; nickname: string; remark: string; qid: string; sex: string; age: number; sign: string; avatar: string; level: number }>;
 } = {}) {
   const identity = IdentityService.memory('10001');
+  if (opts.fetchProfileByUid) {
+    identity.setFetcher({
+      fetchProfile: async () => ({
+        uin: 0, uid: '', nickname: '', remark: '', qid: '', sex: 'unknown',
+        age: 0, sign: '', avatar: '', level: 0,
+      }),
+      fetchProfileByUid: opts.fetchProfileByUid,
+    });
+  }
   const events = new BridgeEventBus();
   const pipeline = new IncomingPacketPipeline({
     identity,
     events,
     refreshMemberCache: opts.refreshMemberCache ?? vi.fn(async () => false),
-    resolveStrangerProfile: opts.resolveStrangerProfile ?? vi.fn(async () => null),
     resolveGroupJoinRequest: vi.fn(async () => null),
   });
   const dispatched: Array<{ event: QQEventVariant; req: number | undefined }> = [];
@@ -200,7 +208,7 @@ describe('IncomingPacketPipeline TRACE lifecycle', () => {
     }
   });
 
-  it('records degraded enrichment but still completes after dispatch', async () => {
+  it('completes join identity enrichment without treating roster refresh as the UIN hop', async () => {
     const entries: LogEntry[] = [];
     setLogLevel('trace');
     const unsubscribe = subscribeLogs((entry) => entries.push(entry));
@@ -227,7 +235,6 @@ describe('IncomingPacketPipeline TRACE lifecycle', () => {
       expect(packetTrace(entries).map((entry) => entry.message)).toEqual([
         'packet_branch serviceCmd="Trace.Command" seqId=77 parser=1 branch=parser_events events=1',
         'packet_branch serviceCmd="Trace.Command" seqId=77 branch=enrichment_started eventKind="group_member_join" enrichment="identity_refresh"',
-        'packet_branch serviceCmd="Trace.Command" seqId=77 branch=enrichment_degraded eventKind="group_member_join" enrichment="identity_refresh" error="fixture refresh failed"',
         'packet_branch serviceCmd="Trace.Command" seqId=77 branch=dispatch eventKind="group_member_join" mode=enriched',
         expect.stringMatching(/^packet_terminal serviceCmd="Trace\.Command" seqId=77 outcome=completed reason=dispatch_complete events=1 dispatched=1 parserErrors=0 elapsedMs=\d+$/),
       ]);
@@ -305,7 +312,21 @@ describe('IncomingPacketPipeline TRACE lifecycle', () => {
     const unsubscribe = subscribeLogs((entry) => entries.push(entry));
     try {
       const { pipeline, dispatched } = makePipeline({
-        resolveStrangerProfile: () => profile,
+        fetchProfileByUid: async () => {
+          const resolved = await profile;
+          return {
+            uin: resolved.uin,
+            uid: 'u_stranger',
+            nickname: resolved.nickname,
+            remark: '',
+            qid: '',
+            sex: 'unknown',
+            age: 0,
+            sign: '',
+            avatar: '',
+            level: 0,
+          };
+        },
       });
       pipeline.registerCmd('Trace.Command', () => [{
         kind: 'group_invite',
