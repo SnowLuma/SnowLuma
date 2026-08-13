@@ -228,15 +228,14 @@ function decodeMarkdownCommonElement(pbElem: Uint8Array, businessType: number): 
     () => protobuf_decode<MarkdownData>(pbElem),
   );
   const content = md?.content ?? '';
-  if (!content) return null;
-
-  // Business type 3 is also used by the old flash-transfer richui card. Keep
-  // that semantic element instead of exposing the transport markdown. If a
-  // payload identifies itself as FlashTransfer but is malformed, fail open to
-  // the sibling compatibility text rather than misreporting it as markdown.
-  if (businessType === 3 && content.includes('FlashTransfer')) {
-    return decodeFlashTransferMarkdown(content);
+  // Business type 3 carries the 闪传 card. Current NT puts fileset identity
+  // on extType=1 / extInfo (DecodeMdExtInfoFileTransfer); older cards only
+  // have it inside the richui JSON. If the payload looks like FlashTransfer
+  // but has no fileset, fail open to the sibling compatibility text.
+  if (md && businessType === 3 && isFlashTransferMarkdown(md, content)) {
+    return decodeFlashTransfer(md);
   }
+  if (!content) return null;
   return { type: 'markdown', text: content };
 }
 
@@ -487,7 +486,9 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
   const decodedInlineKeyboards = decodeInlineKeyboardsOnce(elems);
   const hasRichContent = [...decodedCards.values()].some((cards) => (
     Boolean(cards.rich?.element || cards.light?.element)
-  )) || [...decodedMarkdown.values()].some((element) => element?.type === 'markdown');
+  )) || [...decodedMarkdown.values()].some((element) => (
+    element?.type === 'markdown' || element?.type === 'flash_file'
+  ));
   // QQ NT serializes a service-37 big face as the CommonElem followed by a
   // compatibility TextElem. The latter repeats QFaceExtra.text in `str`, while
   // field 12 contains a nested TextElem whose `str` is
@@ -940,14 +941,14 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
 }
 
 /**
- * Decode the content of a 闪传 richui markdown commonElem (svc=45) into a
- * `flash_file` element. The `MarkdownData.content` is a markdown link
- * `[闪传](mqqapi://markdown/node?nodeType=richui&json=<url-encoded JSON>)`; the
- * JSON's `busId` is `FlashTransfer`. Field NAMES (fileSetId / sceneType /
- * title) were confirmed against QQ NT's flash-transfer manager in
- * wrapper.node.i64; the exact nesting is unknown (the card is built by the
- * sender's client), so we search recursively rather than pin a path. See
- * #199 / #200.
+ * Decode a 闪传 markdown commonElem (svc=45, biz=3) into `flash_file`.
+ *
+ * Current NT (DecodeMarkdownElement + DecodeMdExtInfoFileTransfer, #358):
+ *   extType=1, extInfo.filesetId / name; click scheme also carries
+ *   `mqqrouter://flash_transfer/open_fileset?fileset_id=`.
+ * Older cards (#199/#200): only the richui JSON `data.fileSetId`.
+ * Field names on the JSON card are searched recursively because the
+ * sender builds that blob; extInfo tags are fixed.
  */
 function deepFindValue(obj: unknown, keys: readonly string[], depth = 0): unknown {
   if (depth > 8 || obj === null || typeof obj !== 'object') return undefined;
@@ -963,28 +964,117 @@ function deepFindValue(obj: unknown, keys: readonly string[], depth = 0): unknow
   return undefined;
 }
 
-function decodeFlashTransferMarkdown(content: string): MessageElement | null {
-  const m = content.match(/[?&]json=([^)\s]+)/);
-  if (!m) return null;
-  let obj: unknown;
+function isFlashTransferMarkdown(md: MarkdownData | null | undefined, content: string): boolean {
+  if (md?.extType === 1 && md.extInfo?.filesetId) return true;
+  return content.includes('FlashTransfer') || content.includes('flash_transfer');
+}
+
+function parseQueryValue(text: string, key: string): string {
+  const m = text.match(new RegExp(`[?&]${key}=([^&\\s"']+)`));
+  if (!m) return '';
   try {
-    obj = JSON.parse(decodeURIComponent(m[1]));
+    return decodeURIComponent(m[1]).trim();
   } catch {
+    return m[1].trim();
+  }
+}
+
+function collectSchemeFields(obj: unknown): { filesetId: string; sceneType: number | undefined } {
+  const schemes: string[] = [];
+  const walk = (value: unknown, depth: number): void => {
+    if (depth > 8 || value == null) return;
+    if (typeof value === 'string') {
+      if (value.includes('fileset_id=') || value.includes('open_fileset')) schemes.push(value);
+      return;
+    }
+    if (typeof value === 'object') {
+      for (const child of Object.values(value as Record<string, unknown>)) walk(child, depth + 1);
+    }
+  };
+  walk(obj, 0);
+  for (const scheme of schemes) {
+    const filesetId = parseQueryValue(scheme, 'fileset_id');
+    if (!filesetId) continue;
+    const rawScene = parseQueryValue(scheme, 'scene_type');
+    const n = Number(rawScene);
+    return {
+      filesetId,
+      sceneType: rawScene && Number.isSafeInteger(n) && n >= 0 ? n : undefined,
+    };
+  }
+  return { filesetId: '', sceneType: undefined };
+}
+
+function parseFlashTransferCard(content: string): {
+  filesetId: string;
+  fileName: string;
+  sceneType: number | undefined;
+} | null {
+  const m = content.match(/[?&]json=([^)\s]+)/);
+  let obj: unknown;
+  let decodedJson = '';
+  if (m) {
+    try {
+      decodedJson = decodeURIComponent(m[1]);
+    } catch {
+      decodedJson = m[1];
+    }
+    try {
+      obj = JSON.parse(decodedJson);
+    } catch {
+      obj = undefined;
+    }
+  }
+
+  const fromKeys = obj
+    ? String(deepFindValue(obj, ['fileSetId', 'filesetId', 'fileset_id', 'file_set_id']) ?? '').trim()
+    : '';
+  const fromScheme = obj ? collectSchemeFields(obj) : { filesetId: '', sceneType: undefined };
+  const fromRaw = {
+    filesetId: parseQueryValue(decodedJson, 'fileset_id'),
+    sceneType: Number(parseQueryValue(decodedJson, 'scene_type')),
+  };
+  const filesetId = fromKeys || fromScheme.filesetId || fromRaw.filesetId;
+  if (!filesetId && obj && deepFindValue(obj, ['busId']) !== 'FlashTransfer' && !content.includes('flash_transfer')) {
     return null;
   }
-  if (deepFindValue(obj, ['busId']) !== 'FlashTransfer') return null;
-  const filesetId = deepFindValue(obj, ['fileSetId', 'filesetId', 'fileset_id', 'file_set_id']);
-  const title = deepFindValue(obj, ['title', 'fileName', 'name']);
-  const sceneType = deepFindValue(obj, ['sceneType', 'scene_type']);
-  const normalizedFilesetId = filesetId != null ? String(filesetId).trim() : '';
-  if (!normalizedFilesetId) return null;
-  const normalizedSceneType = sceneType == null ? 0 : Number(sceneType);
-  if (!Number.isSafeInteger(normalizedSceneType) || normalizedSceneType < 0) return null;
+
+  const title = obj ? deepFindValue(obj, ['title', 'fileName', 'name']) : undefined;
+  const rawScene = obj ? deepFindValue(obj, ['sceneType', 'scene_type']) : undefined;
+  let sceneType: number | undefined;
+  if (rawScene != null && rawScene !== '') {
+    const n = Number(rawScene);
+    if (Number.isSafeInteger(n) && n >= 0) sceneType = n;
+  }
+  if (sceneType == null) sceneType = fromScheme.sceneType;
+  if (sceneType == null && Number.isSafeInteger(fromRaw.sceneType) && fromRaw.sceneType >= 0 && parseQueryValue(decodedJson, 'scene_type')) {
+    sceneType = fromRaw.sceneType;
+  }
+
+  return {
+    filesetId,
+    fileName: title != null ? String(title) : '',
+    sceneType,
+  };
+}
+
+function decodeFlashTransfer(md: MarkdownData): MessageElement | null {
+  const ext = md.extType === 1 ? md.extInfo : undefined;
+  const card = parseFlashTransferCard(md.content ?? '');
+  const filesetId = (ext?.filesetId ?? card?.filesetId ?? '').trim();
+  if (!filesetId) return null;
+
+  let fileName = (ext?.name ?? '').trim();
+  if (!fileName) fileName = (card?.fileName ?? '').trim();
+  if (!fileName && md.summary) {
+    fileName = md.summary.replace(/^\[QQ闪传\]\s*/, '').trim();
+  }
+
   return {
     type: 'flash_file',
-    filesetId: normalizedFilesetId,
-    fileName: title != null ? String(title) : '',
-    sceneType: normalizedSceneType,
+    filesetId,
+    fileName,
+    sceneType: card?.sceneType ?? 0,
   };
 }
 

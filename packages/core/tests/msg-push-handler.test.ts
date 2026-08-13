@@ -495,7 +495,6 @@ describe('parseMsgPush Event0x210 subType=364 (friend remark synchronization)', 
       identity,
       events: new BridgeEventBus(),
       refreshMemberCache: vi.fn(async () => false),
-      resolveStrangerProfile: vi.fn(async () => null),
       resolveGroupJoinRequest: vi.fn(async () => null),
     });
     pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
@@ -979,8 +978,7 @@ describe('parseMsgPush PkgType 44 (group admin set/unset) keeps the member cache
     const [event] = parseMsgPush(makeGroupAdminPacket('u_unknown', true), identity) as GroupAdminEvent[];
 
     expect(event.kind).toBe('group_admin');
-    // fromUin (the group id) is the resolve fallback — it must not be
-    // confused for a real, promotable member.
+    expect(event.userUin).toBe(0);
     expect(identity.findGroupMember(GROUP_ID, GROUP_ID)).toBeNull();
   });
 });

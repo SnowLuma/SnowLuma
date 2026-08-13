@@ -17,12 +17,48 @@ import { SetFilesetStatus } from '@snowluma/protocol/oidb-services/flash-transfe
 import { ApplyUpload } from '@snowluma/protocol/oidb-services/flash-transfer/apply-upload';
 import { PrepareUpload } from '@snowluma/protocol/oidb-services/flash-transfer/prepare-upload';
 import { SendFlashMsg } from '@snowluma/protocol/oidb-services/flash-transfer/send-flash';
-import { loadBinarySource, computeHashes } from '@snowluma/protocol/highway/utils';
+import { FileChunkSource } from '@snowluma/protocol/highway';
+import {
+  computeHashes,
+  inlineBase64Payload,
+  FLASH_TRANSFER_MAX_BYTES,
+  FLASH_TRANSFER_INLINE_MAX_BYTES,
+} from '@snowluma/protocol/highway/utils';
+import { stageSourceToDisk } from '@snowluma/protocol/highway/stage';
+import { hashFlashFileStreaming } from '@snowluma/protocol/highway/hash-file';
 import { computeSha1StateV } from '@snowluma/protocol/highway/sha1-stream';
 import { protobuf_encode, protobuf_decode } from '@snowluma/proton';
 import type { FlashSliceUploadBody, FlashSliceUploadResp, FlashFileId } from '@snowluma/proto-defs/oidb-actions/flash-transfer';
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
+import { promises as fsp } from 'node:fs';
 import { deflateSync } from 'node:zlib';
+
+const FLASH_SLICE_SIZE = 1024 * 1024;
+
+/** Fail cleanly if the staged file changed since the streaming hash pass. */
+async function assertUnchanged(filePath: string, baseline: { size: number; mtimeMs: number }): Promise<void> {
+  const now = await fsp.stat(filePath);
+  if (now.size !== baseline.size || now.mtimeMs !== baseline.mtimeMs) {
+    throw new Error('file source changed during send (mutated between hashing and upload)');
+  }
+}
+
+function flashStageMaxBytes(source: string): number {
+  return inlineBase64Payload(source) !== null
+    ? FLASH_TRANSFER_INLINE_MAX_BYTES
+    : FLASH_TRANSFER_MAX_BYTES;
+}
+
+interface StagedFlashItem {
+  filePath: string;
+  fileSize: number;
+  fileName: string;
+  fileUuid: string;
+  fileIndex: number;
+  formatCode: number;
+  guardStat: { size: number; mtimeMs: number };
+  cleanup(): Promise<void>;
+}
 
 /** 闪传文件信息（业务层，从 FlashFileEntry 转换）。 */
 export interface FlashFileInfo {
@@ -379,6 +415,10 @@ export class FlashTransferApi {
    * 逐个 prepare/apply/sliceupload。prepare/apply 的 filesetWrap.f4 必须与 commit
    * 的 f6 一致，否则文件不计入 fileset。多文件时 ApplyFileset 的 fileName 用
    * 「<首文件名>等N个文件」、fileSize 用总和——服务端据此判定 fileset 为多文件。
+   *
+   * 源文件经 stageSourceToDisk 落到本地路径后流式哈希 / 分片读取，不再经
+   * loadBinarySource 整文件进内存。本地与 HTTP 上限与群文件相同（4 GiB）；
+   * 内联 base64 仍按 1 GiB 封顶，因为 stage 解码时会占用等量 RAM。
    */
   async createFlashTask(files: string | string[], _name?: string, _thumbPath?: string): Promise<{ filesetId: string }> {
     const fileList = Array.isArray(files) ? files : [files];
@@ -390,104 +430,124 @@ export class FlashTransferApi {
       // uid drops the fileset if this runs before warmup populated selfUid.
       uid: await resolveSelfUid(this.ctx),
     };
-    // 读取所有文件，每个分配 fileUuid + 序号 + formatCode
-    const items: { bytes: Uint8Array; fileName: string; fileUuid: string; fileIndex: number; formatCode: number }[] = [];
-    for (let i = 0; i < fileList.length; i++) {
-      const { bytes, fileName } = await loadBinarySource(fileList[i], 'flash-transfer');
-      const { formatCode } = FlashTransferApi.fileTypeCode(fileName);
-      items.push({ bytes: new Uint8Array(bytes), fileName, fileUuid: randomUUID(), fileIndex: i + 1, formatCode });
+    const items: StagedFlashItem[] = [];
+    try {
+      for (let i = 0; i < fileList.length; i++) {
+        const source = fileList[i];
+        const staged = await stageSourceToDisk(source, flashStageMaxBytes(source));
+        const fileName = staged.fileName;
+        const { formatCode } = FlashTransferApi.fileTypeCode(fileName);
+        items.push({
+          filePath: staged.filePath,
+          fileSize: staged.fileSize,
+          fileName,
+          fileUuid: randomUUID(),
+          fileIndex: i + 1,
+          formatCode,
+          guardStat: await fsp.stat(staged.filePath),
+          cleanup: () => staged.cleanup(),
+        });
+        if (staged.fileSize === 0) throw new Error('create_flash_task: file is empty');
+      }
+      // 申请 fileset。多文件时 fileName 用「<首文件名>等N个文件」、fileSize 用总和，
+      // 服务端据此判定 fileset 为多文件，commit 的后续 entry 才会被计入。
+      const first = items[0];
+      const { typeCode } = FlashTransferApi.fileTypeCode(first.fileName);
+      const isMulti = items.length > 1;
+      const filesetName = isMulti ? `${first.fileName}等${items.length}个文件` : first.fileName;
+      const totalSize = items.reduce((s, it) => s + it.fileSize, 0);
+      const apply = await ApplyFileset.invoke(this.ctx, {
+        fileName: filesetName, origName: filesetName,
+        fileSize: totalSize, typeCode, uploader,
+      });
+      const filesetUuid = apply.filesetUuid;
+      if (!filesetUuid) throw new Error('apply fileset failed: missing uuid');
+      // 一次性 commit 所有文件元数据（f4 repeated，每条 f6=序号）
+      const commitEntries = items.map((it) => ({
+        fileUuid: it.fileUuid, fileName: it.fileName, origName: it.fileName,
+        fileSize: it.fileSize, formatCode: it.formatCode, fileIndex: it.fileIndex,
+      }));
+      await CommitFile.invoke(this.ctx, { filesetUuid, entries: commitEntries });
+      await CompleteFileset.invoke(this.ctx, { filesetUuid });
+      // 两阶段上传：先全部 prepare+apply 注册 fileId，再全部 sliceupload 落盘。
+      const prepared: { it: StagedFlashItem; rkey: string; sha1StateV: Uint8Array[]; sliceCount: number }[] = [];
+      for (const it of items) {
+        const p = await this.prepareAndApply(filesetUuid, it);
+        if (p) prepared.push({ it, ...p });
+      }
+      for (const p of prepared) {
+        await assertUnchanged(p.it.filePath, p.it.guardStat);
+        await this.sliceuploadFile(
+          p.it.filePath, p.it.fileSize, p.rkey, p.sha1StateV, p.sliceCount, p.it.fileName,
+        );
+      }
+      // fileset 级缩略图（序号在主文件之后递增），主文件下载入口需要缩略图关联
+      await this.uploadThumbnail(filesetUuid, items[0].fileUuid, 'png', items.length + 1);
+      await this.uploadThumbnail(filesetUuid, items[0].fileUuid, 'jpg', items.length + 2);
+      await SetFilesetStatus.invoke(this.ctx, { filesetUuid });
+      return { filesetId: filesetUuid };
+    } finally {
+      await Promise.all(items.map((it) => it.cleanup()));
     }
-    // 申请 fileset。多文件时 fileName 用「<首文件名>等N个文件」、fileSize 用总和，
-    // 服务端据此判定 fileset 为多文件，commit 的后续 entry 才会被计入。
-    const first = items[0];
-    const { typeCode } = FlashTransferApi.fileTypeCode(first.fileName);
-    const isMulti = items.length > 1;
-    const filesetName = isMulti ? `${first.fileName}等${items.length}个文件` : first.fileName;
-    const totalSize = items.reduce((s, it) => s + it.bytes.length, 0);
-    const apply = await ApplyFileset.invoke(this.ctx, {
-      fileName: filesetName, origName: filesetName,
-      fileSize: totalSize, typeCode, uploader,
-    });
-    const filesetUuid = apply.filesetUuid;
-    if (!filesetUuid) throw new Error('apply fileset failed: missing uuid');
-    // 一次性 commit 所有文件元数据（f4 repeated，每条 f6=序号）
-    const commitEntries = items.map((it) => ({
-      fileUuid: it.fileUuid, fileName: it.fileName, origName: it.fileName,
-      fileSize: it.bytes.length, formatCode: it.formatCode, fileIndex: it.fileIndex,
-    }));
-    await CommitFile.invoke(this.ctx, { filesetUuid, entries: commitEntries });
-    await CompleteFileset.invoke(this.ctx, { filesetUuid });
-    // 两阶段上传：先全部 prepare+apply 注册 fileId，再全部 sliceupload 落盘。
-    const prepared: { it: typeof items[0]; rkey: string; sha1StateV: Uint8Array[]; sliceCount: number }[] = [];
-    for (const it of items) {
-      const p = await this.prepareAndApply(filesetUuid, it.bytes, it.fileName, it.fileUuid, it.fileIndex, it.formatCode);
-      if (p) prepared.push({ it, ...p });
-    }
-    for (const p of prepared) {
-      await this.sliceuploadFile(p.it.bytes, p.rkey, p.sha1StateV, p.sliceCount, p.it.fileName);
-    }
-    // fileset 级缩略图（序号在主文件之后递增），主文件下载入口需要缩略图关联
-    await this.uploadThumbnail(filesetUuid, items[0].fileUuid, 'png', items.length + 1);
-    await this.uploadThumbnail(filesetUuid, items[0].fileUuid, 'jpg', items.length + 2);
-    await SetFilesetStatus.invoke(this.ctx, { filesetUuid });
-    return { filesetId: filesetUuid };
   }
 
   /**
-   * 阶段1：prepare（拿 rkey）+ apply（注册 fileId）。返回 sliceupload 所需的 rkey/sha1state。
+   * 阶段1：流式哈希 + prepare（拿 rkey）+ apply（注册 fileId）。
    * 秒传（rkey=null）返回 null，调用方跳过 sliceupload。
    */
   private async prepareAndApply(
-    filesetUuid: string, bytes: Uint8Array, fileName: string, fileUuid: string, fileIndex: number, formatCode: number,
+    filesetUuid: string, it: StagedFlashItem,
   ): Promise<{ rkey: string; sha1StateV: Uint8Array[]; sliceCount: number } | null> {
-    const fileSize = bytes.length;
-    const hashes = computeHashes(bytes);
-    const SLICE_SIZE = 1024 * 1024;
-    const sliceCount = Math.ceil(fileSize / SLICE_SIZE);
-    const sha1StateV = computeSha1StateV(bytes, sliceCount, SLICE_SIZE);
+    const hashes = await hashFlashFileStreaming(it.filePath);
+    await assertUnchanged(it.filePath, it.guardStat);
 
     const rkey = await PrepareUpload.invoke(this.ctx, {
-      filesetUuid, fileUuid, fileName, fileSize, sha1: hashes.sha1Hex, fileIndex, formatCode,
+      filesetUuid, fileUuid: it.fileUuid, fileName: it.fileName, fileSize: it.fileSize,
+      sha1: hashes.sha1Hex, fileIndex: it.fileIndex, formatCode: it.formatCode,
     });
     if (rkey === null) return null;  // 秒传
 
-    const fileId = FlashTransferApi.buildFileId(hashes.sha1, fileSize);
+    const fileId = FlashTransferApi.buildFileId(hashes.sha1, it.fileSize);
     await ApplyUpload.invoke(this.ctx, {
-      filesetUuid, fileUuid, fileId, fileName, fileSize,
-      md5: hashes.md5Hex, sha1: hashes.sha1Hex, fileIndex, formatCode,
+      filesetUuid, fileUuid: it.fileUuid, fileId, fileName: it.fileName, fileSize: it.fileSize,
+      md5: hashes.md5Hex, sha1: hashes.sha1Hex, fileIndex: it.fileIndex, formatCode: it.formatCode,
     });
-    return { rkey, sha1StateV, sliceCount };
+    return { rkey, sha1StateV: hashes.sha1StateV, sliceCount: hashes.sliceCount };
   }
 
   /**
-   * 阶段2：sliceupload 分片上传（所有文件 prepare+apply 完成后调用）。
+   * 阶段2：从磁盘按 1 MiB 切片 POST sliceupload（所有文件 prepare+apply 完成后调用）。
    */
   private async sliceuploadFile(
-    bytes: Uint8Array, rkey: string, sha1StateV: Uint8Array[], sliceCount: number, fileName: string,
+    filePath: string, fileSize: number, rkey: string,
+    sha1StateV: Uint8Array[], sliceCount: number, fileName: string,
   ): Promise<void> {
-    const fileSize = bytes.length;
-    const SLICE_SIZE = 1024 * 1024;
-    for (let i = 0; i < sliceCount; i++) {
-      const start = i * SLICE_SIZE;
-      const chunk = bytes.subarray(start, Math.min(start + SLICE_SIZE, fileSize));
-      const chunkLen = chunk.length;
-      const chunkSha1 = new Uint8Array(createHash('sha1').update(Buffer.from(chunk)).digest());
-      const body: FlashSliceUploadBody = {
-        field1: 0,
-        appid: 14901,
-        field3: 2,
-        payload: {
-          field1: {},
-          rkey,
-          start,
-          end: start + chunkLen - 1,
-          sha1: chunkSha1,
-          sha1StateV: { state: sha1StateV.map((s) => new Uint8Array(s)) },
-          chunk: new Uint8Array(chunk),
-        },
-      };
-      const bodyBytes = protobuf_encode<FlashSliceUploadBody>(body);
-      await this.postSliceupload(bodyBytes, `${fileName} slice ${i}`);
+    const src = await FileChunkSource.open(filePath, fileSize);
+    try {
+      for (let i = 0; i < sliceCount; i++) {
+        const start = i * FLASH_SLICE_SIZE;
+        const chunkLen = Math.min(FLASH_SLICE_SIZE, fileSize - start);
+        const chunk = await src.read(start, chunkLen);
+        const chunkSha1 = new Uint8Array(createHash('sha1').update(Buffer.from(chunk)).digest());
+        const body: FlashSliceUploadBody = {
+          field1: 0,
+          appid: 14901,
+          field3: 2,
+          payload: {
+            field1: {},
+            rkey,
+            start,
+            end: start + chunkLen - 1,
+            sha1: chunkSha1,
+            sha1StateV: { state: sha1StateV.map((s) => new Uint8Array(s)) },
+            chunk: new Uint8Array(chunk),
+          },
+        };
+        const bodyBytes = protobuf_encode<FlashSliceUploadBody>(body);
+        await this.postSliceupload(bodyBytes, `${fileName} slice ${i}`);
+      }
+    } finally {
+      await src.close();
     }
   }
 

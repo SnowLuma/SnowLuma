@@ -44,6 +44,8 @@ interface PendingIdentityWrite {
  */
 export interface IdentityFetcher {
   fetchProfile(uin: number): Promise<UserProfileInfo>;
+  /** Inbound UID→UIN network hop. Must not be used to refresh a group roster. */
+  fetchProfileByUid?(uid: string): Promise<UserProfileInfo>;
   fetchGroupMemberList?(groupId: number): Promise<unknown>;
 }
 
@@ -431,9 +433,35 @@ export class IdentityService {
     throw new Error(`failed to resolve UID for UIN ${normalized}`);
   }
 
+  /**
+   * Inbound UID→UIN. Sync cache/DB (including a numeric UID) first; on miss,
+   * `fetchProfileByUid`. Returns null when still unknown. Never throws for a
+   * miss, a fetcher error, or a missing fetcher — inbound events still emit.
+   * Does not pull a group member list; that remains a roster side-effect.
+   */
+  async resolveUin(uid: string, groupId?: number): Promise<number | null> {
+    const cached = this.findUinByUid(uid, groupId);
+    if (cached !== null) return cached;
+
+    const normalized = normalizeUid(uid);
+    if (!normalized || !this.fetcher?.fetchProfileByUid) return null;
+
+    try {
+      const profile = await this.fetcher.fetchProfileByUid(normalized);
+      const uin = normalizeUin(profile.uin);
+      if (uin !== null) return uin;
+    } catch {
+      // Fall through: a fetcher that remembered then threw still counts as a hit.
+    }
+    return this.findUinByUid(normalized, groupId);
+  }
+
   findUinByUid(uid: string, groupId?: number): number | null {
     const normalized = normalizeUid(uid);
     if (!normalized) return null;
+
+    const numeric = numericUidAsUin(normalized);
+    if (numeric !== null) return numeric;
 
     if (groupId !== undefined) {
       const member = this.findGroupMemberByUid(groupId, normalized);
@@ -1301,6 +1329,12 @@ function rowToMemberInfo(row: {
 
 function normalizeUid(uid: unknown): string {
   return typeof uid === 'string' ? uid.trim() : '';
+}
+
+/** A UID that is itself a decimal UIN. Protocol fact, not a packet-header guess. */
+function numericUidAsUin(uid: string): number | null {
+  if (!/^\d+$/.test(uid)) return null;
+  return normalizeUin(uid);
 }
 
 function normalizeUin(uin: unknown): number | null {

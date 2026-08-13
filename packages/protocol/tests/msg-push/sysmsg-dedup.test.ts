@@ -20,7 +20,7 @@ import type { PacketInfo } from '@snowluma/common/protocol-types';
 import { protobuf_encode } from '@snowluma/proton';
 import type { PushMsg, PushMsgBody } from '@snowluma/proto-defs/message';
 import type { GroupChange, OnlineDeviceNotify } from '@snowluma/proto-defs/notify';
-import type { IdentityService } from '../../src/identity-service';
+import { IdentityService } from '../../src/identity-service';
 import {
   deriveSysMsgDedupIdentity,
   parseMsgPush,
@@ -28,7 +28,7 @@ import {
   type SysMsgDedupIdentity,
 } from '../../src/msg-push';
 
-const identity = { findUinByUid: () => null, findFriend: () => undefined } as unknown as IdentityService;
+const identity = IdentityService.memory('2000000001');
 
 function pushPacket(message: PushMsgBody): PacketInfo {
   return {
@@ -43,7 +43,7 @@ function pushPacket(message: PushMsgBody): PacketInfo {
 }
 
 // A type-33 group member-increase push (the #137 shape). `memberUid` is a
-// numeric string so resolveUidToUin returns it without touching identity.
+// numeric string so Identity.findUinByUid returns it without a map lookup.
 function memberIncreasePush(opts: { groupId: number; memberUin: number; sequence: number; msgId: number }): PacketInfo {
   return pushPacket({
     responseHead: { fromUin: opts.groupId, fromUid: '' },
