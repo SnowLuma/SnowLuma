@@ -4,9 +4,8 @@
 // including ones the bot hasn't joined — used to put a name on a group invite
 // (where the invite push itself carries no group name). The `flags` block is a
 // request mask: a present bool(true)/string("") asks the server to include that
-// field in the response. Cross-checked against
-// dev/Lagrange.Core/.../GetGroupInfoService.cs — note it builds the envelope
-// with isUid=false, i.e. reserved=0 (NO uinForm), unlike the 0xFE5_2 list query.
+// field in the response. Envelope is reserved=0 (NO uinForm), unlike 0xFE5_2.
+// Mute expire request/response tag is 45 (official 60027), not Lagrange's 59.
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase, OidbSvcTrpcTcp0x88D_0Response } from '@snowluma/proto-defs/oidb';
@@ -33,6 +32,7 @@ export namespace FetchGroupDetail {
         ownerUid: on, createTime: on, maxMemberCount: on, memberCount: on,
         level: on, name: '', noticePreview: '', uin: on, lastSequence: on,
         lastMessageTime: on, question: on, answer: '', maxAdminCount: '',
+        // Tag 45 (not Lagrange's 59): official request mask for 60027.
         shutUpAllTimestamp: on, privilegeFlag: on, groupFlagExt4: on,
       },
     },
