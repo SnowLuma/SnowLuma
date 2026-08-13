@@ -1681,11 +1681,14 @@ export const actions = [
     },
   }),
 
-  // send_ark — send a custom 图文 (URL-share) ark card to a C2C peer or group (0xdc2_34).
+  // send_tuwen_ark — send a custom 图文 (URL-share) ark card to a C2C peer or group (0xdc2_34).
   // targetId at AppInfo[11] and Meta[2]; Meta.peerType: 0=C2C, 1=group.
+  // 与 send_ark_share 的区别：send_ark_share 只获取推荐联系人 JSON 不发送；
+  // 与 send_msg share/json 的区别：后者发送 structmsg 图文卡且有 message_id，
+  // 本 action 发送固定图文 ark 模板，返回 null（无法用于撤回/设精华）。
   defineAction({
-    name: 'send_ark',
-    summary: '发送自定义图文 Ark 卡片（私聊/群聊）',
+    name: 'send_tuwen_ark',
+    summary: '发送图文 Ark 卡片（私聊/群聊）',
     readOnly: false,
     returns: 'null',
     returnsSchema: { type: 'null' },
@@ -1694,8 +1697,8 @@ export const actions = [
       group_id:    f.groupId().optional(),
       title:       f.string(),
       desc:        f.string(),
-      summary:     f.string(),
-      preview_url: f.string().default(''),
+      summary:     f.string().default('[分享]'),
+      preview_url: f.string().default('https://tangram-1251316161.file.myqcloud.com/files/20210721/e50a8e37e08f29bf1ffc7466e1950690.png'),
       jump_url:    f.string(),
     },
     run: async (p, ctx) => {

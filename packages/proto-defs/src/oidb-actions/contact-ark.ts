@@ -8,7 +8,7 @@
 //   reads {1:bussness_error_code, 5:ark_json}.
 // Both return a server-built ark JSON string (the share card payload).
 
-import type { pb, uint_32 } from '@snowluma/proton';
+import type { pb, pb_optional, uint_32 } from '@snowluma/proton';
 
 export interface OidbBuddyRecommendArkReq {
   uin?:         pb<1, uint_32>;
@@ -30,10 +30,11 @@ export interface OidbGroupRecommendArkResp {
 }
 
 // 0xdc2_34 — send a custom 图文 (URL-share) ark card to a C2C peer or group.
-// Field layout RE'd from QQ Android 9.3.25 captures.
+// Field layout RE'd from QQ Android 9.3.25 captures. Default SSO: OidbSvcTrpcTcp.0xdc2_34.
 // appId = 100446242 is fixed for this ark type.
 // targetId (UIN or group_id) appears at AppInfo[11] AND Meta[2].
 // Meta.peerType: 0 = C2C, 1 = group.
+// peerType, field3, and previewUrl are pb_optional — proton preserves 0/empty on wire.
 export interface Oidb0xdc2CardField5 {
   field1?: pb<1, uint_32>;
 }
@@ -44,20 +45,20 @@ export interface Oidb0xdc2CardContent {
   desc?:       pb<11, string>;
   summary?:    pb<12, string>;
   jumpUrl?:    pb<13, string>;
-  previewUrl?: pb<14, string>;
+  previewUrl?: pb_optional<14, string>;
 }
 
 export interface Oidb0xdc2AppInfo {
   appId?:    pb<1,  uint_32>;
   field2?:   pb<2,  uint_32>;
-  field3?:   pb<3,  uint_32>;
+  field3?:   pb_optional<3,  uint_32>;
   field5?:   pb<5,  Oidb0xdc2CardField5>;
   targetId?: pb<11, uint_32>;
   content?:  pb<12, Oidb0xdc2CardContent>;
 }
 
 export interface Oidb0xdc2Meta {
-  peerType?: pb<1, uint_32>;
+  peerType?: pb_optional<1, uint_32>;
   targetId?: pb<2, uint_32>;
 }
 

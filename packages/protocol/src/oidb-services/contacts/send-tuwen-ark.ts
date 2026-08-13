@@ -1,7 +1,8 @@
 // 0xdc2_34 — send a custom 图文 (URL-share) ark card to a C2C peer or group.
-// RE'd from QQ Android 9.3.25 captures. Fixed fields:
-//   appId = 100446242, field2 = 1, field3 = 0, field5 = {1:1}
+// RE'd from QQ Android 9.3.25 captures. Default SSO: OidbSvcTrpcTcp.0xdc2_34.
+// Fixed fields: appId = 100446242, field2 = 1, field3 = 0, field5 = {1:1}
 // targetId appears at AppInfo[11] and Meta[2]; Meta.peerType: 0=C2C, 1=group.
+// peerType, field3, and previewUrl are pb_optional — proton preserves 0/empty on wire.
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';

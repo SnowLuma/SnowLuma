@@ -8304,119 +8304,6 @@ export const ACTIONS: CatalogAction[] = [
     "category": "系统表情"
   },
   {
-    "name": "send_ark",
-    "aliases": [],
-    "summary": "发送自定义图文 Ark 卡片（私聊/群聊）",
-    "returns": "null",
-    "returnsSchema": {
-      "type": "null"
-    },
-    "readOnly": false,
-    "params": [
-      {
-        "name": "user_id",
-        "type": "uint",
-        "required": false,
-        "role": "user_id",
-        "schema": {
-          "type": "integer",
-          "minimum": 1
-        }
-      },
-      {
-        "name": "group_id",
-        "type": "uint",
-        "required": false,
-        "role": "group_id",
-        "schema": {
-          "type": "integer",
-          "minimum": 1
-        }
-      },
-      {
-        "name": "title",
-        "type": "string",
-        "required": true,
-        "schema": {
-          "type": "string"
-        }
-      },
-      {
-        "name": "desc",
-        "type": "string",
-        "required": true,
-        "schema": {
-          "type": "string"
-        }
-      },
-      {
-        "name": "summary",
-        "type": "string",
-        "required": true,
-        "schema": {
-          "type": "string"
-        }
-      },
-      {
-        "name": "preview_url",
-        "type": "string",
-        "required": false,
-        "schema": {
-          "type": "string"
-        },
-        "default": ""
-      },
-      {
-        "name": "jump_url",
-        "type": "string",
-        "required": true,
-        "schema": {
-          "type": "string"
-        }
-      }
-    ],
-    "invariants": [],
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "user_id": {
-          "type": "integer",
-          "minimum": 1,
-          "x-role": "user_id"
-        },
-        "group_id": {
-          "type": "integer",
-          "minimum": 1,
-          "x-role": "group_id"
-        },
-        "title": {
-          "type": "string"
-        },
-        "desc": {
-          "type": "string"
-        },
-        "summary": {
-          "type": "string"
-        },
-        "preview_url": {
-          "type": "string",
-          "default": ""
-        },
-        "jump_url": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "title",
-        "desc",
-        "summary",
-        "jump_url"
-      ],
-      "additionalProperties": true
-    },
-    "category": "扩展"
-  },
-  {
     "name": "send_ark_share",
     "aliases": [],
     "summary": "分享用户/群 Ark 卡片（NapCat 标准名）",
@@ -9298,6 +9185,120 @@ export const ACTIONS: CatalogAction[] = [
       "additionalProperties": true
     },
     "category": "空间"
+  },
+  {
+    "name": "send_tuwen_ark",
+    "aliases": [],
+    "summary": "发送图文 Ark 卡片（私聊/群聊）",
+    "returns": "null",
+    "returnsSchema": {
+      "type": "null"
+    },
+    "readOnly": false,
+    "params": [
+      {
+        "name": "user_id",
+        "type": "uint",
+        "required": false,
+        "role": "user_id",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": false,
+        "role": "group_id",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      {
+        "name": "title",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "desc",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "summary",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "default": "[分享]"
+      },
+      {
+        "name": "preview_url",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "default": "https://tangram-1251316161.file.myqcloud.com/files/20210721/e50a8e37e08f29bf1ffc7466e1950690.png"
+      },
+      {
+        "name": "jump_url",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "integer",
+          "minimum": 1,
+          "x-role": "user_id"
+        },
+        "group_id": {
+          "type": "integer",
+          "minimum": 1,
+          "x-role": "group_id"
+        },
+        "title": {
+          "type": "string"
+        },
+        "desc": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string",
+          "default": "[分享]"
+        },
+        "preview_url": {
+          "type": "string",
+          "default": "https://tangram-1251316161.file.myqcloud.com/files/20210721/e50a8e37e08f29bf1ffc7466e1950690.png"
+        },
+        "jump_url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "desc",
+        "jump_url"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
   },
   {
     "name": "set_diy_online_status",
