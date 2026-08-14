@@ -188,6 +188,13 @@ export class WebSocket extends EventEmitter {
   get readyState(): number { return this._readyState; }
   get isServer(): boolean { return this._isServer; }
 
+  /** Bytes queued in the underlying socket write buffer (ws-compatible API).
+   *  Lets callers observe backpressure before control frames (pong) get
+   *  starved behind an unbounded event backlog. */
+  get bufferedAmount(): number {
+    return this._socket.writableLength;
+  }
+
   protected _bindSocket(): void {
     const sock = this._socket;
     sock.on('data', (chunk: Buffer) => this._onData(chunk));
