@@ -285,6 +285,48 @@ describe('FlashTransferApi.createFlashTask — disk streaming (#359)', () => {
     expect(commit.entries[1]).toEqual(expect.objectContaining({ fileName: 'b.zip' }));
   });
 
+  it('uses a per-file name on commit and keeps the fileset title separate (#361)', async () => {
+    const file = writeSrc('uuid__clip.mp4', synth(40, 3));
+    installSliceuploadOk();
+
+    await api().createFlashTask({ file, name: 'clip.mp4' }, '自定义名称');
+
+    expect(ApplyFileset.invoke).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      fileName: '自定义名称',
+      origName: '自定义名称',
+    }));
+    expect(CommitFile.invoke).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      entries: [expect.objectContaining({ fileName: 'clip.mp4', origName: 'clip.mp4', fileSize: 40 })],
+    }));
+  });
+
+  it('uses per-file names in a mixed files list (#361)', async () => {
+    const fileA = writeSrc('a-id__a.mp4', synth(50, 1));
+    const fileB = writeSrc('b.zip', synth(70, 2));
+    installSliceuploadOk();
+
+    await api().createFlashTask([{ file: fileA, name: 'a.mp4' }, fileB]);
+
+    expect(ApplyFileset.invoke).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      fileName: 'a.mp4等2个文件',
+      fileSize: 120,
+    }));
+    const commit = vi.mocked(CommitFile.invoke).mock.calls[0]![1];
+    expect(commit.entries[0]).toEqual(expect.objectContaining({ fileName: 'a.mp4' }));
+    expect(commit.entries[1]).toEqual(expect.objectContaining({ fileName: 'b.zip' }));
+  });
+
+  it('falls back to the path basename when the per-file name is blank (#361)', async () => {
+    const file = writeSrc('clip.mp4', synth(32, 9));
+    installSliceuploadOk();
+
+    await api().createFlashTask({ file, name: '   ' });
+
+    expect(CommitFile.invoke).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      entries: [expect.objectContaining({ fileName: 'clip.mp4' })],
+    }));
+  });
+
   it('falls back to the filename title when name is blank (#363)', async () => {
     const file = writeSrc('clip.mp4', synth(32, 9));
     installSliceuploadOk();

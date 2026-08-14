@@ -251,6 +251,7 @@ async function completeUpload(state: UploadState): Promise<ApiResponse> {
     received_chunks: received,
     total_chunks: total,
     file_path: finalPath,
+    file_name: state.filename,
     file_size: fileSize,
     sha256,
   });
@@ -346,7 +347,7 @@ type UploadParams = {
 const uploadFileStream = defineStreamAction({
   name: 'upload_file_stream',
   summary: '以流式分块方式上传文件到机器人本地(返回可用于发送的本地路径)',
-  returns: '流式帧:分块确认 type=stream、完成 type=response(含 file_path/file_size/sha256)',
+  returns: '流式帧:分块确认 type=stream、完成 type=response(含 file_path/file_name/file_size/sha256)',
   params: uploadParams,
   run: (p, ctx) => handleUpload(p, accountKey(ctx)),
 });

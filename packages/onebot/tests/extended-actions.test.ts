@@ -2209,3 +2209,46 @@ describe('extended-actions / get_fileset_id', () => {
     expect(res).toMatchObject({ status: 'failed', retcode: 100 });
   });
 });
+
+describe('extended-actions / create_flash_task (#361)', () => {
+  it('accepts a path string', async () => {
+    const createFlashTask = vi.fn(async () => ({ filesetId: 'fs-1' }));
+    const bridge = fakeBridge({ apis: { flashTransfer: { createFlashTask } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('create_flash_task', { files: '/tmp/a.pdf' });
+    expect(res).toMatchObject({ status: 'ok', data: { fileset_id: 'fs-1', task_id: 'fs-1' } });
+    expect(createFlashTask).toHaveBeenCalledWith([{ file: '/tmp/a.pdf' }], undefined, undefined);
+  });
+
+  it('accepts { file, name } and forwards the per-file name', async () => {
+    const createFlashTask = vi.fn(async () => ({ filesetId: 'fs-2' }));
+    const bridge = fakeBridge({ apis: { flashTransfer: { createFlashTask } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('create_flash_task', {
+      files: { file: '/tmp/uuid__a.pdf', name: 'a.pdf' },
+      name: '卡片',
+    });
+    expect(res.status).toBe('ok');
+    expect(createFlashTask).toHaveBeenCalledWith(
+      [{ file: '/tmp/uuid__a.pdf', name: 'a.pdf' }],
+      '卡片',
+      undefined,
+    );
+  });
+
+  it('rejects an empty files value', async () => {
+    const createFlashTask = vi.fn(async () => ({ filesetId: 'fs' }));
+    const bridge = fakeBridge({ apis: { flashTransfer: { createFlashTask } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('create_flash_task', { files: [] });
+    expect(res).toMatchObject({ status: 'failed', retcode: 1400, wording: 'files must not be empty' });
+    expect(createFlashTask).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-string per-file name', async () => {
+    const createFlashTask = vi.fn(async () => ({ filesetId: 'fs' }));
+    const bridge = fakeBridge({ apis: { flashTransfer: { createFlashTask } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('create_flash_task', {
+      files: { file: '/tmp/a.pdf', name: 1 },
+    });
+    expect(res).toMatchObject({ status: 'failed', retcode: 1400, wording: 'files[].name must be a string' });
+    expect(createFlashTask).not.toHaveBeenCalled();
+  });
+});
