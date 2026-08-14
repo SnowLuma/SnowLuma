@@ -2,6 +2,13 @@ import { assessAccessToken } from '@snowluma/common/access-token';
 import type { OneBotConfig } from '@snowluma/onebot/types';
 import { isLoopbackClientIp } from './client-ip';
 
+function isLoopbackBindHost(host: string | undefined): boolean {
+  const value = host?.trim().toLowerCase().replace(/^\[|\]$/gu, '').replace(/\.$/u, '') ?? '';
+  if (!value) return false;
+  if (value === 'localhost' || value.endsWith('.localhost')) return true;
+  return isLoopbackClientIp(value);
+}
+
 export class OneBotAccessTokenPolicyError extends Error {
   constructor(message: string) {
     super(message);
@@ -40,7 +47,7 @@ export function validateOneBotAccessTokenChanges(
   next: OneBotConfig,
   options: OneBotAccessTokenPolicyOptions,
 ): void {
-  const allowEmpty = isLoopbackClientIp(options.clientIp);
+  const allowEmptyFromClient = isLoopbackClientIp(options.clientIp);
   for (const kind of INBOUND_KINDS) {
     const previousList = previous?.networks[kind] ?? [];
     const nextList = next.networks[kind];
@@ -50,9 +57,9 @@ export function validateOneBotAccessTokenChanges(
       if (sameTokenAtPreviousIdentity(previousList, nextList, adapter.name, token, index)) continue;
 
       if (!token) {
-        if (!allowEmpty) {
+        if (!allowEmptyFromClient && !isLoopbackBindHost(adapter.host)) {
           throw new OneBotAccessTokenPolicyError(
-            `节点“${adapter.name}”仅能从本机页面保存无令牌配置；请生成令牌后重试。`,
+            `节点“${adapter.name}”未绑定本机地址，远程保存必须填写令牌；请生成令牌或将主机改为 127.0.0.1。`,
           );
         }
         continue;

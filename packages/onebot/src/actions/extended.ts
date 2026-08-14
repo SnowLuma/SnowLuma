@@ -302,6 +302,31 @@ async function groupTodoRun(
   return okResponse();
 }
 
+function parseFlashTaskFiles(
+  raw: unknown,
+): { files: Array<{ file: string; name?: string }> } | { error: string } {
+  const items = Array.isArray(raw) ? raw : raw == null ? [] : [raw];
+  if (items.length === 0) return { error: 'files must not be empty' };
+  const files: Array<{ file: string; name?: string }> = [];
+  for (const item of items) {
+    if (typeof item === 'string') {
+      if (item === '') return { error: 'files must not be empty' };
+      files.push({ file: item });
+      continue;
+    }
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
+      const file = (item as { file?: unknown }).file;
+      const name = (item as { name?: unknown }).name;
+      if (typeof file !== 'string' || file === '') return { error: 'files must not be empty' };
+      if (name !== undefined && typeof name !== 'string') return { error: 'files[].name must be a string' };
+      files.push({ file, name });
+      continue;
+    }
+    return { error: 'files must be a path string, { file, name }, or an array of those' };
+  }
+  return { files };
+}
+
 /** FlashTransferApi 返回的 FlashFileInfo → OneBot JSON 响应（plain object，JsonObject 兼容）。
  *  字段名对齐 NapCat（get_flash_file_list 用 size，非 file_size），便于客户端 drop-in 迁移。 */
 function flashFileInfoToJson(f: {
@@ -2633,25 +2658,15 @@ export const actions = [
     name: 'create_flash_task',
     summary: '创建闪传任务',
     params: {
-      // files 支持单个路径(string)或多个路径(string[])，多文件共用一个 fileset
-      files: f.raw(),
+      // 路径、{ file, name }，或它们的数组；name 是该文件在闪传里的显示名
+      files: f.raw().describe('路径、{ file, name }，或它们的数组'),
       name: f.string().optional(),
       thumb_path: f.string().optional(),
     },
     run: async (p, ctx) => {
-      // f.raw() 不做校验，这里归一化为 string[] 并校验
-      const rawFiles = p.files;
-      let fileList: string[];
-      if (typeof rawFiles === 'string') {
-        if (rawFiles === '') return failedResponse(RETCODE.BAD_REQUEST, 'files must not be empty');
-        fileList = [rawFiles];
-      } else if (Array.isArray(rawFiles) && rawFiles.every((x) => typeof x === 'string' && x !== '')) {
-        if (rawFiles.length === 0) return failedResponse(RETCODE.BAD_REQUEST, 'files must not be empty');
-        fileList = rawFiles as string[];
-      } else {
-        return failedResponse(RETCODE.BAD_REQUEST, 'files must be a string or string array');
-      }
-      const result = await ctx.bridge.apis.flashTransfer.createFlashTask(fileList, p.name, p.thumb_path);
+      const parsed = parseFlashTaskFiles(p.files);
+      if ('error' in parsed) return failedResponse(RETCODE.BAD_REQUEST, parsed.error);
+      const result = await ctx.bridge.apis.flashTransfer.createFlashTask(parsed.files, p.name, p.thumb_path);
       return okResponse({ fileset_id: result.filesetId, task_id: result.filesetId });
     },
   }),

@@ -19,7 +19,7 @@ export const decodeGroupAdmin: MsgPushDecoder = (ctx) => {
   if (!adminUid) return [];
   const groupId = admin.groupUin ?? 0;
   const set = !!enableUid;
-  const userUin = resolveUidToUin(ctx.identity, groupId, adminUid, ctx.fromUin);
+  const userUin = resolveUidToUin(ctx.identity, groupId, adminUid);
 
   // Keep the in-memory member cache in step with the promotion/demotion.
   // `get_group_member_info` serves straight from this cache on its

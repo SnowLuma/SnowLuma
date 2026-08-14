@@ -20,6 +20,13 @@ export interface LoadedBinary {
 const DEFAULT_MAX_BINARY_SIZE = 1024 * 1024 * 1024; // 1 GiB
 /** Hard ceiling QQ's file protocol supports — used by group/private files. */
 export const FILE_UPLOAD_MAX_BYTES = 4 * 1024 * 1024 * 1024; // 4 GiB
+/** Local / HTTP flash sources. Official fileset max is unknown; reuse the
+ *  group/private file ceiling so create_flash_task is not stuck on
+ *  `loadBinarySource`'s 1 GiB default. */
+export const FLASH_TRANSFER_MAX_BYTES = FILE_UPLOAD_MAX_BYTES;
+/** Inline `base64://` / `data:` flash sources still decode into RAM inside
+ *  `stageSourceToDisk`, so they keep the 1 GiB buffered-load ceiling. */
+export const FLASH_TRANSFER_INLINE_MAX_BYTES = DEFAULT_MAX_BINARY_SIZE;
 const FETCH_TIMEOUT_MS = 60_000;
 
 /**
@@ -252,11 +259,17 @@ export async function loadBinarySource(
   return { bytes, fileName };
 }
 
-function guessFileNameFromUrl(url: string): string {
+export function guessFileNameFromUrl(url: string): string {
   const queryPos = url.search(/[?#]/);
   const pathPart = queryPos >= 0 ? url.slice(0, queryPos) : url;
   const lastSlash = pathPart.lastIndexOf('/');
-  return lastSlash >= 0 ? pathPart.slice(lastSlash + 1) : '';
+  const raw = lastSlash >= 0 ? pathPart.slice(lastSlash + 1) : '';
+  if (!raw) return '';
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
 }
 
 // --- Hashing ---

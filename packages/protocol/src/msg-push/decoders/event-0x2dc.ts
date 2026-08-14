@@ -21,7 +21,6 @@ import type { MsgPushContext } from '../context';
 import { Event0x2DCSubType } from '../enums';
 import {
   buildTemplateMap, findTemplateValue,
-  parseU64OrZero,
   resolveUidToUin,
   unwrapGroupNotifyPayload,
 } from '../helpers';
@@ -50,8 +49,8 @@ function decodeGroupMute(ctx: MsgPushContext): QQEventVariant[] {
     time: mute.data.timestamp ?? ctx.head.timestamp,
     selfUin: ctx.selfUin,
     groupId: mute.groupUin ?? 0,
-    operatorUin: resolveUidToUin(ctx.identity, mute.groupUin ?? 0, mute.operatorUid ?? '', ctx.fromUin),
-    userUin: resolveUidToUin(ctx.identity, mute.groupUin ?? 0, mute.data.state.targetUid ?? '', 0),
+    operatorUin: resolveUidToUin(ctx.identity, mute.groupUin ?? 0, mute.operatorUid ?? ''),
+    userUin: resolveUidToUin(ctx.identity, mute.groupUin ?? 0, mute.data.state.targetUid ?? ''),
     duration: duration === 0xFFFFFFFF ? 0x7FFFFFFF : duration,
   };
   return [ev];
@@ -69,8 +68,8 @@ function decodeGroupRecall(ctx: MsgPushContext): QQEventVariant[] {
     selfUin: ctx.selfUin,
     groupId: notify.groupUin ?? 0,
     operatorUin: resolveUidToUin(ctx.identity, notify.groupUin ?? 0,
-      notify.recall.operatorUid || notify.operatorUid || '', ctx.fromUin),
-    authorUin: resolveUidToUin(ctx.identity, notify.groupUin ?? 0, recalled.authorUid ?? '', ctx.fromUin),
+      notify.recall.operatorUid || notify.operatorUid || ''),
+    authorUin: resolveUidToUin(ctx.identity, notify.groupUin ?? 0, recalled.authorUid ?? ''),
     msgSeq: recalled.sequence ?? 0,
   };
   return [ev];
@@ -89,8 +88,8 @@ function decodeGroupGreyTip(ctx: MsgPushContext): QQEventVariant[] {
     time: ctx.head.timestamp,
     selfUin: ctx.selfUin,
     groupId: notify.groupUin ?? 0,
-    userUin: resolveUidToUin(ctx.identity, notify.groupUin ?? 0, actor, parseU64OrZero(actor)),
-    targetUin: resolveUidToUin(ctx.identity, notify.groupUin ?? 0, target, parseU64OrZero(target)),
+    userUin: resolveUidToUin(ctx.identity, notify.groupUin ?? 0, actor),
+    targetUin: resolveUidToUin(ctx.identity, notify.groupUin ?? 0, target),
     action: findTemplateValue(templates, 'action_str', 'alt_str1'),
     suffix: findTemplateValue(templates, 'suffix_str'),
     actionImgUrl: findTemplateValue(templates, 'action_img_url'),
@@ -111,7 +110,7 @@ function decodeGroupEssence(ctx: MsgPushContext): QQEventVariant[] {
     selfUin: ctx.selfUin,
     groupId: essence.groupUin ?? notify.groupUin ?? 0,
     senderUin: essence.memberUin ?? 0,
-    operatorUin: essence.operatorUin ?? ctx.fromUin,
+    operatorUin: essence.operatorUin ?? 0,
     msgSeq: essence.msgSequence ?? essence.msgSequence2 ?? notify.msgSequence ?? 0,
     random: essence.random ?? 0,
     set: setFlag === 1,
@@ -200,7 +199,7 @@ function decodeGroupName(ctx: MsgPushContext): QQEventVariant[] {
     // Operator is a group member → resolves from the roster. Fall back to 0
     // (not ctx.fromUin, which on a 0x2DC push is the group id) so an
     // unresolved operator never surfaces the group id as user_id.
-    operatorUin: resolveUidToUin(ctx.identity, groupId, notify?.operatorUid ?? '', 0),
+    operatorUin: resolveUidToUin(ctx.identity, groupId, notify?.operatorUid ?? ''),
     name,
   };
   return [ev];
@@ -235,7 +234,7 @@ function decodeGroupMsgEmojiLike(ctx: MsgPushContext): QQEventVariant[] {
     time: ctx.head.timestamp,
     selfUin: ctx.selfUin,
     groupId,
-    operatorUin: resolveUidToUin(ctx.identity, groupId, operatorUid, ctx.fromUin),
+    operatorUin: resolveUidToUin(ctx.identity, groupId, operatorUid),
     operatorUid,
     msgSeq,
     emojiId,

@@ -352,7 +352,9 @@ export interface OidbGroupDetailFlags {
   question?:        pb<24, bool>;
   answer?:          pb<25, string>;
   maxAdminCount?:   pb<29, string>;
-  shutUpAllTimestamp?: pb<59, bool>;
+  // Official request mask for group shutup expire (proto tag 45 → 60027).
+  // Lagrange's tag 59 requests 60259, which is a different field.
+  shutUpAllTimestamp?: pb<45, bool>;
   /** Current complete app privilege bitfield; needed for masked mutations. */
   privilegeFlag?:   pb<99, bool>;
   /** Current complete groupFlagExt4 bitfield; needed for masked mutations. */

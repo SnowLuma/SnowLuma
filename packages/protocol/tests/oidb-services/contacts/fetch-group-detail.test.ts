@@ -18,7 +18,8 @@ import { FetchGroupDetail } from '../../../src/oidb-services/contacts/fetch-grou
 
 interface GroupDetailResultsFixture {
   name?: pb<15, string>;
-  shutUpAllTimestamp?: pb<59, uint_32>;
+  shutUpAllTimestamp?: pb<45, uint_32>;
+  leftover59?: pb<59, uint_32>;
   privilegeFlag?: pb<99, uint_32>;
   groupFlagExt4?: pb<101, uint_32>;
 }
@@ -114,6 +115,28 @@ describe('FetchGroupDetail namespace', () => {
       const out = await FetchGroupDetail.invoke(sender, { groupUin: 601692726 });
 
       expect(out.groupInfo?.results?.shutUpAllTimestamp).toBe(4_294_967_295);
+    });
+
+    it('does not treat 0x88D results tag 59 as the mute expire (#356)', async () => {
+      const responseData = Buffer.from(protobuf_encode<OidbBase<GroupDetailResponseFixture>>({
+        body: {
+          groupInfo: {
+            uin: 601692726n,
+            results: { name: 'Unmuted Group', leftover59: 4_294_967_295 },
+          },
+        },
+      }));
+      const sender = makeSender();
+      sender.sendRawPacket.mockResolvedValue({
+        success: true,
+        gotResponse: true,
+        errorCode: 0,
+        errorMessage: '',
+        responseData,
+      });
+
+      const out = await FetchGroupDetail.invoke(sender, { groupUin: 601692726 });
+      expect(out.groupInfo?.results?.shutUpAllTimestamp ?? undefined).toBeUndefined();
     });
 
     it('decodes the complete privilege flag used by masked group mutations', async () => {

@@ -35,28 +35,19 @@ function makeGroup(members: GroupMemberInfo[] = []): QQGroupInfo {
   };
 }
 
-class RefreshingBridge extends Bridge {
-  readonly memberFetches: Array<{ groupId: number; force: boolean }> = [];
-
-  constructor(identity: IdentityService, private readonly refreshedMembers: GroupMemberInfo[]) {
-    super(identity);
-    // `fetchGroupMemberList` moved from Bridge onto `apis.contacts`
-    // under the #6 refactor — patch the method on the constructed
-    // ContactsApi instance to intercept calls + record them for
-    // assertions. (Direct property assignment works because the
-    // method is just an own property on the Api instance, not on
-    // its prototype.)
-    this.apis.contacts.fetchGroupMemberList = async (
-      groupId: number,
-      options: { force?: boolean } = {},
-    ): Promise<GroupMemberInfo[]> => {
-      this.memberFetches.push({ groupId, force: Boolean(options.force) });
-      for (const member of this.refreshedMembers) {
-        this.identity.updateGroupMember(groupId, member);
-      }
-      return this.refreshedMembers;
-    };
-  }
+function emptyProfile(uin: number, uid: string) {
+  return {
+    uin,
+    uid,
+    nickname: '',
+    remark: '',
+    qid: '',
+    sex: 'unknown',
+    age: 0,
+    sign: '',
+    avatar: '',
+    level: 0,
+  };
 }
 
 function makePacket(): PacketInfo {
@@ -87,11 +78,21 @@ async function waitForEvent(events: GroupMemberJoin[]): Promise<GroupMemberJoin>
 }
 
 describe('Bridge group member identity refresh', () => {
-  it('forces a fresh member list before dispatching an unresolved join event', async () => {
+  it('resolves an unresolved join UIN via inbound profile before dispatch', async () => {
     const member = makeGroupMember(22222, 'u_new_member');
     const identity = IdentityService.memory(SELF_UIN);
     identity.rememberGroups([makeGroup()]);
-    const bridge = new RefreshingBridge(identity, [member]);
+    const bridge = new Bridge(identity);
+    const profileFetches: string[] = [];
+    const memberFetches: Array<{ groupId: number; force: boolean }> = [];
+    bridge.apis.contacts.fetchUserProfileByUid = async (uid) => {
+      profileFetches.push(uid);
+      return emptyProfile(member.uin, uid);
+    };
+    bridge.apis.contacts.fetchGroupMemberList = async (groupId, options = {}) => {
+      memberFetches.push({ groupId, force: Boolean(options.force) });
+      return [];
+    };
     const seen: GroupMemberJoin[] = [];
 
     bridge.registerCmd('test.member_join', () => [{
@@ -111,9 +112,9 @@ describe('Bridge group member identity refresh', () => {
     bridge.onPacket(makePacket());
     const event = await waitForEvent(seen);
 
-    expect(bridge.memberFetches).toEqual([{ groupId: GROUP_ID, force: true }]);
+    expect(profileFetches).toEqual([member.uid]);
+    expect(memberFetches.some((fetch) => fetch.force)).toBe(false);
     expect(event.userUin).toBe(member.uin);
-    expect(event.operatorUin).toBe(member.uin);
   });
 
   it('remembers UID mappings from realtime request events', () => {

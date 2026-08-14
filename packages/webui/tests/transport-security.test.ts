@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  allowEmptyInboundAccessToken,
   isLoopbackHostname,
   shouldWarnAboutInsecureRemoteAccess,
 } from '../src/lib/transport-security';
@@ -25,6 +26,18 @@ describe('WebUI transport security notice', () => {
     '::ffff:192.168.1.20',
   ])('does not treat %s as loopback', (hostname) => {
     expect(isLoopbackHostname(hostname)).toBe(false);
+  });
+
+  it('allows an empty inbound token when the bind host is loopback, even from a remote WebUI', () => {
+    expect(allowEmptyInboundAccessToken('192.168.1.20', '127.0.0.1')).toBe(true);
+    expect(allowEmptyInboundAccessToken('panel.example.com', 'localhost')).toBe(true);
+    expect(allowEmptyInboundAccessToken('192.168.1.20', '0.0.0.0')).toBe(false);
+    expect(allowEmptyInboundAccessToken('192.168.1.20', '')).toBe(false);
+  });
+
+  it('still allows an empty inbound token when the WebUI itself is opened on loopback', () => {
+    expect(allowEmptyInboundAccessToken('127.0.0.1', '0.0.0.0')).toBe(true);
+    expect(allowEmptyInboundAccessToken('localhost', undefined)).toBe(true);
   });
 
   it('warns only when a non-loopback page is accessed without HTTPS', () => {

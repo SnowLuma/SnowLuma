@@ -95,3 +95,68 @@ export async function hashFileStreaming(
     await src.close();
   }
 }
+
+export interface StreamedFlashHashes {
+  md5: Uint8Array;
+  sha1: Uint8Array;
+  md5Hex: string;
+  sha1Hex: string;
+  /** Flash sliceupload Sha1StateV — un-finalized little-endian state after
+   *  every full 1 MiB slice except the last; the last entry is the finalized
+   *  whole-file SHA1. Same shape as `computeSha1StateV`, not `sha1Blocks`. */
+  sha1StateV: Uint8Array[];
+  sliceCount: number;
+}
+
+/**
+ * Streaming hash for flash-transfer sliceupload. Equivalent to
+ * `computeHashes` + `computeSha1StateV(bytes, ceil(size/1MiB), 1MiB)`
+ * without buffering the file.
+ *
+ * Do not substitute `hashFileStreaming().sha1Blocks`: when
+ * `size % 1 MiB === 0` that list has an extra un-finalized last-slice
+ * state that flash's Sha1StateV must not carry.
+ */
+export async function hashFlashFileStreaming(filePath: string): Promise<StreamedFlashHashes> {
+  const { size } = await fsp.stat(filePath);
+  const sliceCount = Math.ceil(size / SHA1_STREAM_BLOCK_SIZE);
+  const src = await FileChunkSource.open(filePath, size);
+  try {
+    const md5 = createHash('md5');
+    const sha1 = createHash('sha1');
+    const blockSha1 = new Sha1Stream();
+    const sha1StateV: Uint8Array[] = [];
+
+    let offset = 0;
+    let sliceIndex = 0;
+    while (offset < size) {
+      const len = Math.min(SHA1_STREAM_BLOCK_SIZE, size - offset);
+      const chunk = await src.read(offset, len);
+      md5.update(chunk);
+      sha1.update(chunk);
+      blockSha1.update(chunk);
+      if (sliceIndex !== sliceCount - 1) {
+        sha1StateV.push(blockSha1.hash(true));
+      }
+      offset += len;
+      sliceIndex += 1;
+    }
+
+    const sha1Digest = sha1.digest();
+    if (sliceCount > 0) {
+      sha1StateV.push(new Uint8Array(sha1Digest));
+    }
+    const md5Digest = md5.digest();
+
+    return {
+      md5: new Uint8Array(md5Digest),
+      sha1: new Uint8Array(sha1Digest),
+      md5Hex: md5Digest.toString('hex'),
+      sha1Hex: sha1Digest.toString('hex'),
+      sha1StateV,
+      sliceCount,
+    };
+  } finally {
+    await src.close();
+  }
+}

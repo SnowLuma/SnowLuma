@@ -14,7 +14,8 @@ import { FetchGroupList } from '../../../src/oidb-services/contacts/fetch-group-
 
 interface GroupInfoFixture {
   groupName?: pb<5, string>;
-  shutUpAllTimestamp?: pb<31, uint_32>;
+  shutUpAllTimestamp?: pb<10, uint_32>;
+  leftover31?: pb<31, uint_32>;
 }
 
 interface GroupFixture {
@@ -55,7 +56,7 @@ describe('FetchGroupList namespace', () => {
       const env = protobuf_decode<OidbBase<OidbGroupListRequest>>(bytes);
       expect(env.body?.config?.config1?.groupName).toBe(true);
       expect(env.body?.config?.config1?.memberCount).toBe(true);
-      expect(env.body?.config?.config1?.field31).toBe(true);
+      expect(env.body?.config?.config1?.field10).toBe(true);
       expect(env.body?.config?.config2?.remark).toBe(true);
       for (const field of ['field1', 'field2', 'field4', 'field5', 'field6', 'field7', 'field8'] as const) {
         expect(env.body?.config?.config2?.[field] ?? false, field).toBe(false);
@@ -86,6 +87,29 @@ describe('FetchGroupList namespace', () => {
       const out = await FetchGroupList.invoke(sender);
 
       expect(out.groups?.[0]?.info?.shutUpAllTimestamp).toBe(4_294_967_295);
+    });
+
+    it('does not treat 0xFE5 info tag 31 as the mute expire (#356)', async () => {
+      const responseData = Buffer.from(protobuf_encode<OidbBase<GroupListFixture>>({
+        body: {
+          groups: [{
+            groupUin: 123456789,
+            info: { groupName: 'Unmuted Group', leftover31: 4_294_967_295 },
+          }],
+        },
+      }));
+      const sender = makeSender();
+      sender.sendRawPacket.mockResolvedValue({
+        success: true,
+        gotResponse: true,
+        errorCode: 0,
+        errorMessage: '',
+        responseData,
+      });
+
+      const out = await FetchGroupList.invoke(sender);
+
+      expect(out.groups?.[0]?.info?.shutUpAllTimestamp ?? undefined).toBeUndefined();
     });
   });
 });

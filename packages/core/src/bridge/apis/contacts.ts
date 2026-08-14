@@ -35,6 +35,13 @@ import type { BridgeContext } from '../bridge-context';
 
 const log = createLogger('Bridge.Contacts');
 
+// Official client stores group mute as an expire timestamp (internal 60027 /
+// JS groupShutupExpireTime): 0 = off, 0xFFFFFFFF = permanent, otherwise unix
+// seconds. `> 0` is wrong — a leftover past expire still looks "on".
+function isGroupAllMuted(expireTs?: number, nowSec = Math.floor(Date.now() / 1000)): boolean {
+  return (expireTs ?? 0) > nowSec;
+}
+
 // ─── Helpers (previously in bridge-contacts.ts) ───────────────────
 
 type FriendPropertySource = {
@@ -316,7 +323,7 @@ export class ContactsApi {
         // is not in the list (0x88D_0 detail only), so it stays undefined here.
         createTime: raw.info?.createdTime ?? 0,
         memo: raw.info?.announcement || raw.info?.description || '',
-        allMuted: (raw.info?.shutUpAllTimestamp ?? 0) > 0,
+        allMuted: isGroupAllMuted(raw.info?.shutUpAllTimestamp),
       });
     }
     this.ctx.identity.rememberGroups(groups);
@@ -347,7 +354,7 @@ export class ContactsApi {
       createTime: Number(r.createTime ?? 0n),
       level: Number(r.level ?? 0n),
       memo: r.noticePreview ?? '',
-      allMuted: (r.shutUpAllTimestamp ?? 0) > 0,
+      allMuted: isGroupAllMuted(r.shutUpAllTimestamp),
     };
   }
 

@@ -4,16 +4,14 @@ import type { GeneralGrayTipInfo } from '@snowluma/proto-defs/notify';
 import { protobuf_encode } from '@snowluma/proton';
 import { describe, expect, it } from 'vitest';
 
-import type { IdentityService } from '../../src/identity-service';
+import { IdentityService } from '../../src/identity-service';
 import { parseMsgPush } from '../../src/msg-push';
 
 const SELF_UIN = 10001;
 const FRIEND_A = 20001;
 const FRIEND_B = 20002;
 
-const identity = {
-  findUinByUid: () => null,
-} as unknown as IdentityService;
+const identity = IdentityService.memory(String(SELF_UIN));
 
 function friendPokePacket(
   peerUin: number,

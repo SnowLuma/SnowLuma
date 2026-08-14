@@ -82,7 +82,10 @@ export interface OidbSvcTrpcTcp0xFE5_2GroupInfo {
   description?:  pb<18, string>;
   question?:     pb<19, string>;
   announcement?: pb<30, string>;
-  shutUpAllTimestamp?: pb<31, uint_32>;
+  // wrapper.node 3.2.32 group_codec.cc DecodeGroupInfo: tag 10 → internal
+  // 60027 (JS groupShutupExpireTime). Tag 31 is 60259, not the mute expire.
+  // 0 = off, 0xFFFFFFFF = permanent, otherwise unix-seconds expire.
+  shutUpAllTimestamp?: pb<10, uint_32>;
 }
 
 export interface OidbSvcTrpcTcp0xFE5_2CustomInfo {
@@ -116,7 +119,10 @@ export interface OidbSvcTrpcTcp0x88D_0Results {
   question?:        pb<24, string>;
   answer?:          pb<25, string>;
   maxAdminCount?:   pb<29, uint_64>;
-  shutUpAllTimestamp?: pb<59, uint_32>;
+  // wrapper.node 3.2.32 group_info_fetch_codec.cc
+  // DecodeSingleGroupDetailInfoByBaseFilter: tag 45 → internal 60027.
+  // Tag 59 is 60259, not the mute expire. Request mask tag is also 45.
+  shutUpAllTimestamp?: pb<45, uint_32>;
   /** Complete app privilege bitfield (requested with detail flag tag 99). */
   privilegeFlag?:   pb<99, uint_32>;
   /** Complete groupFlagExt4 bitfield (requested with detail flag tag 101). */

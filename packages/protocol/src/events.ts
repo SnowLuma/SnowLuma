@@ -191,6 +191,8 @@ export interface FlashFileElement {
   filesetId: string;
   sceneType?: number;
   fileName?: string;
+  /** Cover URL from the incoming card, when present. */
+  thumbUrl?: string;
 }
 
 type MessageElementVariant =

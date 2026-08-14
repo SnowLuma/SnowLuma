@@ -213,9 +213,9 @@ export const ELEMENT_MANIFEST = {
   },
   flash_file: {
     directions: { D: 'yes', S: 'yes', P: 'by-design-no', W: 'by-design-no' },
-    fields: fieldsFor<'flash_file'>()(['filesetId', 'sceneType', 'fileName']),
+    fields: fieldsFor<'flash_file'>()(['filesetId', 'sceneType', 'fileName', 'thumbUrl']),
     requiredFields: ['filesetId'],
-    note: '闪传文件（#199/#200）：旧客户端(≤9.9.30)的 richui markdown 卡片才有；仅收侧解码上报，发送走 send_flash_msg 动作，故 P/W 按设计不支持',
+    note: '闪传文件：收侧解码 markdown commonElem（旧卡 JSON data.fileSetId，现网 extType=1/extInfo + open_fileset scheme，#199/#200/#358）；发送走 send_flash_msg，故 P/W 按设计不支持',
   },
 } as const satisfies ManifestShape;
 

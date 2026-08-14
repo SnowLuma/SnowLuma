@@ -14,17 +14,46 @@ function validate(
 }
 
 describe('OneBot access token save policy', () => {
-  it('rejects clearing an inbound token from a non-loopback client', () => {
+  it('rejects clearing an inbound token from a non-loopback client when the bind host is public', () => {
     const previous = makeDefaultOneBotConfig();
     const next = structuredClone(previous);
+    next.networks.httpServers[0].host = '0.0.0.0';
     next.networks.httpServers[0].accessToken = undefined;
 
     expect(() => validate(previous, next, '192.0.2.10')).toThrow(OneBotAccessTokenPolicyError);
-    expect(() => validate(previous, next, '192.0.2.10')).toThrow(/本机/);
+    expect(() => validate(previous, next, '192.0.2.10')).toThrow(/令牌/);
+  });
+
+  it('allows a remote client to clear a token when the inbound host is loopback', () => {
+    const previous = makeDefaultOneBotConfig();
+    const next = structuredClone(previous);
+    next.networks.httpServers[0].host = '127.0.0.1';
+    next.networks.httpServers[0].accessToken = undefined;
+
+    expect(() => validate(previous, next, '192.0.2.10')).not.toThrow();
+  });
+
+  it('treats localhost as a loopback bind host for empty inbound tokens', () => {
+    const previous = makeDefaultOneBotConfig();
+    const next = structuredClone(previous);
+    next.networks.wsServers[0].host = 'localhost';
+    next.networks.wsServers[0].accessToken = undefined;
+
+    expect(() => validate(previous, next, '192.0.2.10')).not.toThrow();
+  });
+
+  it('does not treat a missing bind host as loopback', () => {
+    const previous = makeDefaultOneBotConfig();
+    const next = structuredClone(previous);
+    next.networks.httpServers[0].host = undefined;
+    next.networks.httpServers[0].accessToken = undefined;
+
+    expect(() => validate(previous, next, '192.0.2.10')).toThrow(OneBotAccessTokenPolicyError);
   });
 
   it('treats every inbound token as new when no readable prior config exists', () => {
     const next = makeDefaultOneBotConfig();
+    next.networks.httpServers[0].host = '0.0.0.0';
     next.networks.httpServers[0].accessToken = undefined;
 
     expect(() => validate(null, next, '192.0.2.10')).toThrow(OneBotAccessTokenPolicyError);
