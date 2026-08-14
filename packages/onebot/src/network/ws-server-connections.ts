@@ -122,24 +122,41 @@ export class WsServerConnections {
     if (!this.acceptingActions || this.connections.size === 0) return;
     for (const connection of this.connections.values()) {
       if (connection.role !== 'Event' && connection.role !== 'Universal') continue;
-      const json = pickDispatchJson(payload, connection.options);
-      if (json === null) continue;
+      // Backpressure gate first (cheap) before serializing the event: a slow
+      // consumer must not balloon the socket write buffer — control frames
+      // (pong) share the same TCP stream and queue behind the backlog, so an
+      // unbounded backlog starves the peer's heartbeat and the connection
+      // dies anyway. OneBot event push is best-effort, so under overload we
+      // drop frames until the backlog drains below half the ceiling
+      // (hysteresis avoids flapping at the threshold). Log only on the
+      // enter/exit transition to avoid log spam while dropping.
       const backlog = connection.socket.bufferedAmount;
       if (backlog > SEND_BACKPRESSURE_CEILING) {
-        connection.droppingEvents = true;
+        if (!connection.droppingEvents) {
+          connection.droppingEvents = true;
+          this.log.warn(
+            '[%s] send backlog %d bytes, dropping event frames until it drains below %d',
+            this.name,
+            backlog,
+            SEND_BACKPRESSURE_RESUME,
+          );
+        }
       } else if (backlog < SEND_BACKPRESSURE_RESUME) {
-        connection.droppingEvents = false;
+        if (connection.droppingEvents) {
+          connection.droppingEvents = false;
+          this.log.info(
+            '[%s] send backlog drained to %d bytes, resuming event push',
+            this.name,
+            backlog,
+          );
+        }
       }
       if (connection.droppingEvents) {
         this.droppedEvents += 1;
-        this.log.warn(
-          '[%s] send backlog %d bytes, dropping event frame (total dropped: %d)',
-          this.name,
-          backlog,
-          this.droppedEvents,
-        );
         continue;
       }
+      const json = pickDispatchJson(payload, connection.options);
+      if (json === null) continue;
       safeSend(connection.socket, json);
     }
   }
