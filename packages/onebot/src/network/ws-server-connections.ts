@@ -28,6 +28,17 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_MAX_MISSED = 2;
 const HEARTBEAT_DEAD_AFTER_S = (HEARTBEAT_INTERVAL_MS * (HEARTBEAT_MAX_MISSED + 1)) / 1000;
 
+// Per-connection send backpressure. OneBot event push is best-effort, so when
+// a slow consumer lets the socket write buffer grow past the ceiling we drop
+// event frames (hysteresis: resume only after the backlog drains below half).
+// An unbounded backlog would otherwise starve control frames — pong shares the
+// same TCP stream and queues behind it, so the peer's heartbeat times out and
+// the connection dies anyway (the "client timed out waiting for pong" failure
+// mode). 256 KiB drains in well under a second on any sane link, far below
+// typical heartbeat timeouts.
+const SEND_BACKPRESSURE_CEILING = 256 * 1024;
+const SEND_BACKPRESSURE_RESUME = SEND_BACKPRESSURE_CEILING / 2;
+
 export type WsServerConnectionConfig = NetworkBase & { path?: string; role?: WsRole };
 
 interface ForwardConnection {
@@ -35,6 +46,7 @@ interface ForwardConnection {
   role: WsRole;
   options: EventReportOptions;
   stopHeartbeat: () => void;
+  droppingEvents: boolean;
 }
 
 interface MetaFrames {
@@ -55,6 +67,7 @@ export class WsServerConnections {
   private acceptingActions = false;
   private readonly inFlightActions = new Set<Promise<void>>();
   private readonly connections = new Map<WebSocket, ForwardConnection>();
+  private droppedEvents = 0;
   private config: WsServerConnectionConfig;
   private options: EventReportOptions;
 
@@ -111,6 +124,22 @@ export class WsServerConnections {
       if (connection.role !== 'Event' && connection.role !== 'Universal') continue;
       const json = pickDispatchJson(payload, connection.options);
       if (json === null) continue;
+      const backlog = connection.socket.bufferedAmount;
+      if (backlog > SEND_BACKPRESSURE_CEILING) {
+        connection.droppingEvents = true;
+      } else if (backlog < SEND_BACKPRESSURE_RESUME) {
+        connection.droppingEvents = false;
+      }
+      if (connection.droppingEvents) {
+        this.droppedEvents += 1;
+        this.log.warn(
+          '[%s] send backlog %d bytes, dropping event frame (total dropped: %d)',
+          this.name,
+          backlog,
+          this.droppedEvents,
+        );
+        continue;
+      }
       safeSend(connection.socket, json);
     }
   }
@@ -157,6 +186,7 @@ export class WsServerConnections {
       role,
       options: this.options,
       stopHeartbeat,
+      droppingEvents: false,
     };
     this.connections.set(socket, connection);
 
