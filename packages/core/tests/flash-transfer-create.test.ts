@@ -252,6 +252,51 @@ describe('FlashTransferApi.createFlashTask — disk streaming (#359)', () => {
     expect(Buffer.from(uploaded[1]!.payload!.chunk!).equals(Buffer.from(b))).toBe(true);
   });
 
+  it('uses the optional name as the fileset title and keeps real file names on commit (#363)', async () => {
+    const file = writeSrc('clip.mp4', synth(40, 3));
+    installSliceuploadOk();
+
+    await api().createFlashTask(file, '自定义名称');
+
+    expect(ApplyFileset.invoke).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      fileName: '自定义名称',
+      origName: '自定义名称',
+      fileSize: 40,
+    }));
+    expect(CommitFile.invoke).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      entries: [expect.objectContaining({ fileName: 'clip.mp4', fileSize: 40 })],
+    }));
+  });
+
+  it('uses the optional name as the multi-file fileset title (#363)', async () => {
+    const fileA = writeSrc('a.mp4', synth(50, 1));
+    const fileB = writeSrc('b.zip', synth(70, 2));
+    installSliceuploadOk();
+
+    await api().createFlashTask([fileA, fileB], '相册');
+
+    expect(ApplyFileset.invoke).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      fileName: '相册',
+      origName: '相册',
+      fileSize: 120,
+    }));
+    const commit = vi.mocked(CommitFile.invoke).mock.calls[0]![1];
+    expect(commit.entries[0]).toEqual(expect.objectContaining({ fileName: 'a.mp4' }));
+    expect(commit.entries[1]).toEqual(expect.objectContaining({ fileName: 'b.zip' }));
+  });
+
+  it('falls back to the filename title when name is blank (#363)', async () => {
+    const file = writeSrc('clip.mp4', synth(32, 9));
+    installSliceuploadOk();
+
+    await api().createFlashTask(file, '   ');
+
+    expect(ApplyFileset.invoke).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      fileName: 'clip.mp4',
+      origName: 'clip.mp4',
+    }));
+  });
+
   it('rejects a source that mutates between hashing and upload', async () => {
     const file = writeSrc('mut.mp4', synth(90, 5));
     const actualHash = hashMod.hashFlashFileStreaming;
