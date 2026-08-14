@@ -96,11 +96,24 @@ export interface MentionExtraSend {
 // Markdown commonElem (svc=45). Official DecodeMarkdownElement reads
 // content / process_msg / summary / extType / mdExtInfo.
 // extType=1 dispatches to DecodeMdExtInfoFileTransfer.
+/** extInfo.thumbnail — cover download info, not raw image bytes. */
+export interface MarkdownFlashTransferThumbUrl {
+  field1?:      pb<1, uint_32>;
+  downloadUrl?: pb<2, string>;
+}
+
+export interface MarkdownFlashTransferThumb {
+  fileId?:   pb<1, string>;
+  download?: pb<2, MarkdownFlashTransferThumbUrl>;
+  sha1?:     pb<3, string>;
+  field4?:   pb<4, uint_32>;
+}
+
 export interface MarkdownFlashTransferExt {
   filesetId?:  pb<1, string>;
   name?:       pb<2, string>;
   fileSize?:   pb<3, uint_32>;
-  thumbnail?:  pb<4, bytes>;
+  thumbnail?:  pb<4, MarkdownFlashTransferThumb>;
   expireTime?: pb<6, uint_32>;
 }
 

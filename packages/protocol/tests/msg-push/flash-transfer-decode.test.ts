@@ -95,6 +95,21 @@ describe('decodeRichBody / 闪传 flash_file (#358 current NT card)', () => {
     }]);
   });
 
+  it('reads the cover URL from extInfo.thumbnail', () => {
+    const out = decodeRichBody(currentNtFlashBody(currentNtCardJson, {
+      filesetId: 'fs-nt-358',
+      name: 'a.zip',
+      thumbnail: { download: { field1: 2, downloadUrl: 'https://example.test/cover.jpg' } },
+    }), true);
+    expect(out).toEqual([{
+      type: 'flash_file',
+      filesetId: 'fs-nt-358',
+      fileName: 'a.zip',
+      sceneType: 1,
+      thumbUrl: 'https://example.test/cover.jpg',
+    }]);
+  });
+
   it('falls back to the open_fileset scheme when extInfo is absent', () => {
     const out = decodeRichBody(currentNtFlashBody(currentNtCardJson), true);
     expect(out).toEqual([{
@@ -155,12 +170,14 @@ describe('decodeRichBody / 闪传 flash_file (#358 current NT card)', () => {
     const push = protobuf_decode<PushMsg>(Buffer.from(hex, 'hex'));
     const out = decodeRichBody(push.message?.body, false);
     // Reporter redacted the richui JSON (unterminated src), so scene_type
-    // cannot be recovered from the scheme. extInfo still supplies fileset + name.
+    // cannot be recovered from the scheme. extInfo still supplies fileset + name
+    // and the cover URL (placeholder).
     expect(out).toEqual([{
       type: 'flash_file',
       filesetId: '[UUID]',
       fileName: 'cpwd截图.zip',
       sceneType: 0,
+      thumbUrl: '[FILE_URL]',
     }]);
   });
 });

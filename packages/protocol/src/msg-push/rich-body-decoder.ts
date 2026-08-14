@@ -1070,11 +1070,13 @@ function decodeFlashTransfer(md: MarkdownData): MessageElement | null {
     fileName = md.summary.replace(/^\[QQ闪传\]\s*/, '').trim();
   }
 
+  const thumbUrl = (ext?.thumbnail?.download?.downloadUrl ?? '').trim();
   return {
     type: 'flash_file',
     filesetId,
     fileName,
     sceneType: card?.sceneType ?? 0,
+    ...(thumbUrl ? { thumbUrl } : {}),
   };
 }
 

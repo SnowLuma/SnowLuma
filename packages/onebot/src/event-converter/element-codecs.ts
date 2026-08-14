@@ -478,6 +478,7 @@ export const ELEMENT_CODECS = {
           title: element.fileName ?? '',
           file_set_id: element.filesetId ?? '',
           scene_type: element.sceneType ?? 0,
+          thumb: element.thumbUrl ?? '',
         },
       };
     },
