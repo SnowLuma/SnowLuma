@@ -60,6 +60,21 @@ interface StagedFlashItem {
   cleanup(): Promise<void>;
 }
 
+/** One create_flash_task source: a path/URL, or a path plus a display name. */
+export type FlashTaskFileInput = string | { file: string; name?: string };
+
+function flashFileDisplayName(override: string | undefined, fallback: string): string {
+  const cleaned = (override ?? '').replace(/[/\\]/g, '_').trim();
+  return cleaned || fallback;
+}
+
+function normalizeFlashTaskInputs(
+  files: FlashTaskFileInput | FlashTaskFileInput[],
+): { file: string; name?: string }[] {
+  const list = Array.isArray(files) ? files : [files];
+  return list.map((item) => (typeof item === 'string' ? { file: item } : item));
+}
+
 /** 闪传文件信息（业务层，从 FlashFileEntry 转换）。 */
 export interface FlashFileInfo {
   filesetUuid: string;
@@ -413,15 +428,21 @@ export class FlashTransferApi {
    * 多文件：0x93d0 的 f4 是 repeated，一个 commit 请求同时携带 fileset 内所有文件
    * 条目，每条 f6=文件序号（1,2,3...）。commit 在上传前只发一次，之后 complete →
    * 逐个 prepare/apply/sliceupload。prepare/apply 的 filesetWrap.f4 必须与 commit
-   * 的 f6 一致，否则文件不计入 fileset。多文件时 ApplyFileset 的 fileName 用
-   * 「<首文件名>等N个文件」、fileSize 用总和——服务端据此判定 fileset 为多文件。
+   * 的 f6 一致，否则文件不计入 fileset。ApplyFileset 的 fileName 是 fileset 显示名
+   * （卡片标题）：有 name 用 name，否则单文件用首文件名、多文件用「<首文件名>等N个文件」。
+   * fileSize 用总和——服务端据此判定 fileset 为多文件。各文件在 commit 里用
+   * 条目上的 name（若有），否则用路径 basename。
    *
    * 源文件经 stageSourceToDisk 落到本地路径后流式哈希 / 分片读取，不再经
    * loadBinarySource 整文件进内存。本地与 HTTP 上限与群文件相同（4 GiB）；
    * 内联 base64 仍按 1 GiB 封顶，因为 stage 解码时会占用等量 RAM。
    */
-  async createFlashTask(files: string | string[], _name?: string, _thumbPath?: string): Promise<{ filesetId: string }> {
-    const fileList = Array.isArray(files) ? files : [files];
+  async createFlashTask(
+    files: FlashTaskFileInput | FlashTaskFileInput[],
+    name?: string,
+    _thumbPath?: string,
+  ): Promise<{ filesetId: string }> {
+    const fileList = normalizeFlashTaskInputs(files);
     if (fileList.length === 0) throw new Error('create_flash_task: files is empty');
     const uploader = {
       uin: this.ctx.identity.uin,
@@ -433,9 +454,10 @@ export class FlashTransferApi {
     const items: StagedFlashItem[] = [];
     try {
       for (let i = 0; i < fileList.length; i++) {
-        const source = fileList[i];
+        const source = fileList[i]!.file;
+        if (!source) throw new Error('create_flash_task: files is empty');
         const staged = await stageSourceToDisk(source, flashStageMaxBytes(source));
-        const fileName = staged.fileName;
+        const fileName = flashFileDisplayName(fileList[i]!.name, staged.fileName);
         const { formatCode } = FlashTransferApi.fileTypeCode(fileName);
         items.push({
           filePath: staged.filePath,
@@ -449,12 +471,14 @@ export class FlashTransferApi {
         });
         if (staged.fileSize === 0) throw new Error('create_flash_task: file is empty');
       }
-      // 申请 fileset。多文件时 fileName 用「<首文件名>等N个文件」、fileSize 用总和，
+      // 申请 fileset。fileName 是卡片/面板上的 fileset 标题；各文件真实名走 commit。
+      // 未指定 name 时，多文件用「<首文件名>等N个文件」、fileSize 用总和，
       // 服务端据此判定 fileset 为多文件，commit 的后续 entry 才会被计入。
       const first = items[0];
       const { typeCode } = FlashTransferApi.fileTypeCode(first.fileName);
       const isMulti = items.length > 1;
-      const filesetName = isMulti ? `${first.fileName}等${items.length}个文件` : first.fileName;
+      const filesetName = name?.trim()
+        || (isMulti ? `${first.fileName}等${items.length}个文件` : first.fileName);
       const totalSize = items.reduce((s, it) => s + it.fileSize, 0);
       const apply = await ApplyFileset.invoke(this.ctx, {
         fileName: filesetName, origName: filesetName,

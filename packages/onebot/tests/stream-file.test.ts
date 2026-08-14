@@ -42,7 +42,10 @@ describe('upload_file_stream', () => {
 
     r = await handleUpload(mk({ stream_id: id, total_chunks: 3, is_complete: true, expected_sha256: sha }));
     const data = r.data as Record<string, unknown>;
-    expect(data).toMatchObject({ type: 'response', status: 'file_complete', total_chunks: 3, file_size: full.length, sha256: sha });
+    expect(data).toMatchObject({
+      type: 'response', status: 'file_complete', total_chunks: 3,
+      file_size: full.length, sha256: sha, file_name: `upload_${id}`,
+    });
     expect(fs.readFileSync(String(data.file_path), 'utf8')).toBe(full);
     // state dropped after completion, chunk dir gone
     expect(uploads.has(id)).toBe(false);
@@ -95,6 +98,17 @@ describe('upload_file_stream', () => {
     const r = await handleUpload(mk({ stream_id: id, verify_only: true }));
     expect(r.data).toMatchObject({ type: 'stream', received_chunks: 1, total_chunks: 4 });
     await expect(handleUpload(mk({ stream_id: 'nope', verify_only: true }))).rejects.toThrow(/not found/i);
+  });
+
+  it('returns the original filename alongside the prefixed file_path (#361)', async () => {
+    const id = 'up-named';
+    await handleUpload(mk({
+      stream_id: id, total_chunks: 1, chunk_index: 0, chunk_data: b64('x'), filename: 'report.pdf',
+    }));
+    const r = await handleUpload(mk({ stream_id: id, total_chunks: 1, is_complete: true }));
+    const data = r.data as Record<string, unknown>;
+    expect(data.file_name).toBe('report.pdf');
+    expect(String(data.file_path)).toBe(path.join(STREAM_UPLOAD_DIR, `${id}__report.pdf`));
   });
 
   it('strips path separators from filename (no temp-dir escape)', async () => {

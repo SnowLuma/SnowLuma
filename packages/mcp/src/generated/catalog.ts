@@ -927,7 +927,8 @@ export const ACTIONS: CatalogAction[] = [
         "name": "files",
         "type": "raw",
         "required": false,
-        "schema": {}
+        "schema": {},
+        "desc": "路径、{ file, name }，或它们的数组"
       },
       {
         "name": "name",
@@ -950,7 +951,9 @@ export const ACTIONS: CatalogAction[] = [
     "inputSchema": {
       "type": "object",
       "properties": {
-        "files": {},
+        "files": {
+          "description": "路径、{ file, name }，或它们的数组"
+        },
         "name": {
           "type": "string"
         },
@@ -11581,7 +11584,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "upload_file_stream",
     "aliases": [],
     "summary": "以流式分块方式上传文件到机器人本地(返回可用于发送的本地路径)",
-    "returns": "流式帧:分块确认 type=stream、完成 type=response(含 file_path/file_size/sha256)",
+    "returns": "流式帧:分块确认 type=stream、完成 type=response(含 file_path/file_name/file_size/sha256)",
     "readOnly": false,
     "params": [
       {
