@@ -146,6 +146,27 @@ export namespace GetLike {
   export const decode = (bytes: Uint8Array): OidbBase<Oidb0x7edResp> =>
     protobuf_decode<OidbBase<Oidb0x7edResp>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<LikeInfo> =>
-    invokeOidb(deps, GetLike, params);
+  export const invoke = async (deps: Deps, params: Params): Promise<LikeInfo> => {
+    const info = await invokeOidb(deps, GetLike, params);
+    await fillUnresolvedLikeUins(deps, info);
+    return info;
+  };
+}
+
+async function fillUnresolvedLikeUins(ctx: GetLike.Deps, info: LikeInfo): Promise<void> {
+  const users = [...info.favoriteInfo.userInfos, ...info.voteInfo.userInfos];
+  const unresolved = new Map<string, ProfileLikeUserInfo[]>();
+  for (const user of users) {
+    if (user.uin > 0) continue;
+    const sameUid = unresolved.get(user.uid) ?? [];
+    sameUid.push(user);
+    unresolved.set(user.uid, sameUid);
+  }
+  if (unresolved.size === 0) return;
+
+  await Promise.all([...unresolved].map(async ([uid, sameUid]) => {
+    const uin = await ctx.identity.resolveUin(uid);
+    if (uin === null || uin <= 0) return;
+    for (const user of sameUid) user.uin = uin;
+  }));
 }

@@ -10,7 +10,7 @@
 // rKeyParam` triple → composed into `https://<domain><path><rKey>`.
 
 import type { NTV2IndexNode, NTV2RichMediaResp } from '@snowluma/proto-defs/oidb-actions/media';
-import { ensureRetCodeZero } from '../shared';
+import { ensureRetCodeZero, toInt } from '../shared';
 
 export function parseNtv2DownloadUrl(body: NTV2RichMediaResp): string {
   ensureRetCodeZero('ntv2 download', body.respHead?.retCode, body.respHead?.message, undefined);
@@ -54,12 +54,6 @@ export function normalizeMediaNode(node: NtMediaIndex): NTV2IndexNode {
     ttl: toInt(node.ttl),
     subType: toInt(node.subType),
   };
-}
-
-function toInt(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
-  if (typeof value === 'bigint') return Number(value);
-  return 0;
 }
 
 export interface NtMediaIndex {

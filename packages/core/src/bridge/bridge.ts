@@ -94,6 +94,9 @@ export class Bridge implements BridgeInterface {
         } while (Date.now() < deadline);
         return null;
       },
+      rememberGroupInviteCardSequence: (groupUin, sequence) => {
+        this.apis.contacts.rememberGroupInviteCardSequence(groupUin, sequence);
+      },
     });
     this.pipeline.registerCmd(
       MSG_PUSH_CMD,

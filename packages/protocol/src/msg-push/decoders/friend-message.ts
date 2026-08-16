@@ -28,16 +28,11 @@ export const decodeFriendMessage: MsgPushDecoder = (ctx) => {
   const sentBySelf = ctx.fromUin > 0 && ctx.fromUin === ctx.selfUin;
   const peerUin = sentBySelf ? (ctx.responseHead?.toUin ?? 0) : ctx.fromUin;
   const sequenceAuthoritative = ctx.head.ntMsgSeq > 0;
-  // Stash the approval msgseq from a live private group-invite card so a later
-  // `set_group_add_request` can approve a bot self-invite (issue #125).
-  // Historical decode is intentionally read-only: replaying an older card here
-  // could overwrite the sequence observed from a newer live invite.
-  if (!ctx.isHistorical) {
-    for (const el of elements) {
-      if (el.type === 'json' && typeof el.text === 'string') {
-        const card = parseGroupInviteCard(el.text);
-        if (card) ctx.identity.rememberGroupInviteCardSequence(card.groupUin, card.sequence);
-      }
+  let inviteCard: { groupUin: number; sequence: number } | null = null;
+  for (const el of elements) {
+    if (el.type === 'json' && typeof el.text === 'string') {
+      inviteCard = parseGroupInviteCard(el.text);
+      if (inviteCard) break;
     }
   }
   const ev: FriendMessage = {
@@ -54,6 +49,10 @@ export const decodeFriendMessage: MsgPushDecoder = (ctx) => {
     msgId: ctx.head.msgId & 0x7FFFFFFF,
     elements,
     senderNick: '',
+    ...(inviteCard ? {
+      inviteCardGroupUin: inviteCard.groupUin,
+      inviteCardSequence: inviteCard.sequence,
+    } : {}),
   };
   if (ctx.responseHead?.forward?.friendName) {
     ev.senderNick = ctx.responseHead.forward.friendName;

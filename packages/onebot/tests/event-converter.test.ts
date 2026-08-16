@@ -374,11 +374,7 @@ describe('convertEvent — message elements', () => {
   type Segment = { type: string; data: Record<string, unknown> };
   async function segment(element: MessageElement, opts: Partial<ConverterContext> = {}): Promise<Segment> {
     const ctx = bareCtx(opts);
-    const segments = await elementsToOneBotSegments(
-      [element], false, PEER_UIN,
-      ctx.imageUrlResolver, ctx.mediaUrlResolver, ctx.messageIdResolver, ctx.mediaSegmentSink,
-      ctx.selfId,
-    );
+    const segments = await elementsToOneBotSegments(ctx, [element], false, PEER_UIN);
     return segments[0] as unknown as Segment;
   }
 
@@ -626,6 +622,7 @@ describe('convertEvent — message elements', () => {
       mediaUrlResolver: async () => '',
     });
     await elementsToOneBotSegments(
+      ctx,
       [
         { type: 'image', fileId: 'i', imageUrl: '' },
         { type: 'record', fileName: 'r.silk', fileId: 'r' },
@@ -633,7 +630,6 @@ describe('convertEvent — message elements', () => {
         { type: 'text', text: 'not media' },
       ],
       true, GROUP_ID,
-      ctx.imageUrlResolver, ctx.mediaUrlResolver, ctx.messageIdResolver, ctx.mediaSegmentSink,
     );
     expect(calls).toEqual(['image', 'record', 'video']);
   });

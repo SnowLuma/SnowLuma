@@ -29,7 +29,7 @@ import {
   convertFriendRequest,
   convertGroupInvite,
 } from './to-request';
-import { elementsToJson } from './to-segment';
+export { elementsToOneBotSegments } from './to-segment';
 
 export type ImageUrlResolver = (element: MessageElement, isGroup: boolean) => string | Promise<string>;
 export type MediaUrlResolver = (element: MessageElement, isGroup: boolean, sessionId: number) => Promise<string>;
@@ -120,18 +120,4 @@ export async function convertEvent(
   return (converter as (ctx: ConverterContext, event: QQEventVariant) => JsonObject | Promise<JsonObject>)(ctx, event);
 }
 
-export async function elementsToOneBotSegments(
-  elements: MessageElement[],
-  isGroup: boolean,
-  sessionId: number,
-  imageUrlResolver?: ImageUrlResolver | null,
-  mediaUrlResolver?: MediaUrlResolver | null,
-  messageIdResolver?: MessageIdResolver | null,
-  mediaSegmentSink?: MediaSegmentSink | null,
-  selfId = 0,
-) {
-  return elementsToJson(
-    elements, isGroup, sessionId,
-    imageUrlResolver, mediaUrlResolver, messageIdResolver, mediaSegmentSink, selfId,
-  );
-}
+

@@ -63,6 +63,10 @@ export interface PacketPipelineDeps {
   /** Resolve a private invite-card msgseq. Implementations may briefly wait
    *  for the paired C2C Ark card, as the PkgType 87 push omits this value. */
   resolveGroupInviteCardSequence?(groupId: number): Promise<number | null>;
+  /** Live-only write of a parsed private invite-card msgseq onto the
+   *  pending-application store. Optional: tests that do not care about
+   *  cards may omit it; production Bridge always binds ContactsApi. */
+  rememberGroupInviteCardSequence?(groupUin: number, sequence: number): void;
 }
 
 export class IncomingPacketPipeline {
@@ -627,6 +631,12 @@ export class IncomingPacketPipeline {
           uin: event.senderUin,
           source: 'friend_message',
         });
+        if (event.inviteCardGroupUin && event.inviteCardSequence) {
+          this.deps.rememberGroupInviteCardSequence?.(
+            event.inviteCardGroupUin,
+            event.inviteCardSequence,
+          );
+        }
         break;
       case 'group_message': {
         // [#1] Self-heal a member's cached group card from message traffic. The
@@ -661,11 +671,22 @@ export class IncomingPacketPipeline {
           uin: event.operatorUin,
         });
         break;
-      case 'group_admin':
+      case 'group_admin': {
         this.deps.identity.rememberGroupMemberIdentity(event.groupId, {
           uin: event.userUin,
         });
+        // #93: get_group_member_info serves the cache and must not refetch
+        // per message. Patch a known member's role here — never invent a
+        // phantom, never downgrade the owner.
+        const cached = this.deps.identity.findGroupMember(event.groupId, event.userUin);
+        if (cached && cached.role !== 'owner') {
+          this.deps.identity.updateGroupMember(event.groupId, {
+            ...cached,
+            role: event.set ? 'admin' : 'member',
+          });
+        }
         break;
+      }
       case 'friend_request':
         this.deps.identity.rememberRequestIdentity({
           uid: event.fromUid,

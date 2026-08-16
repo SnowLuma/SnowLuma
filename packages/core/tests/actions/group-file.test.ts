@@ -327,6 +327,7 @@ describe('apis/group-file', () => {
         nickname: 'self-nick',
         findUidByUin: vi.fn(() => 'cached-uid'),
         findUinByUid: vi.fn(() => 0),
+        resolveUin: vi.fn(async () => null),
         findGroupMember: vi.fn(() => null),
         updateFriendRemark: vi.fn(() => true),
         updateGroupRemark: vi.fn(() => true),

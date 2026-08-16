@@ -498,3 +498,41 @@ describe('IncomingPacketPipeline / group_card_change from message traffic', () =
     expect(captured.some((e) => e.kind === 'group_card_change')).toBe(false);
   });
 });
+
+describe('IncomingPacketPipeline / invite-card pending application', () => {
+  const friendMessage = (
+    card?: { inviteCardGroupUin: number; inviteCardSequence: number },
+  ): QQEventVariant => ({
+    kind: 'friend_message',
+    time: 1,
+    selfUin: 10001,
+    senderUin: 222,
+    senderNick: 'Bob',
+    msgSeq: 1,
+    msgId: 1,
+    elements: [],
+    ...card,
+  });
+
+  it('remembers parsed invite-card facts through the optional port', () => {
+    const rememberGroupInviteCardSequence = vi.fn();
+    const pipeline = new IncomingPacketPipeline({
+      identity: IdentityService.memory('10001'),
+      events: new BridgeEventBus(),
+      refreshMemberCache: vi.fn(async () => false),
+      resolveGroupJoinRequest: vi.fn(async () => null),
+      rememberGroupInviteCardSequence,
+    });
+    pipeline.registerCmd('test.cmd', () => [
+      friendMessage({ inviteCardGroupUin: 12345, inviteCardSequence: 778899 }),
+    ]);
+    pipeline.process({ serviceCmd: 'test.cmd' } as PacketInfo);
+    expect(rememberGroupInviteCardSequence).toHaveBeenCalledWith(12345, 778899);
+  });
+
+  it('does not remember when the port is omitted or the event has no card', () => {
+    const { pipeline } = makePipeline();
+    pipeline.registerCmd('test.cmd', () => [friendMessage()]);
+    expect(() => pipeline.process({ serviceCmd: 'test.cmd' } as PacketInfo)).not.toThrow();
+  });
+});

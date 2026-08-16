@@ -916,11 +916,8 @@ describe('parseMsgPush PkgType 85 (bot self-joined a group)', () => {
 });
 
 describe('parseMsgPush PkgType 44 (group admin set/unset) keeps the member cache fresh', () => {
-  // Regression for #93: a member promoted to admin kept reading back as
-  // `member` via get_group_member_info because the admin-change push only
-  // emitted the notice and never patched the cached role — and that API
-  // serves straight from the cache (no per-read refetch, on purpose, to
-  // dodge risk-control). The decoder now mirrors the role into the cache.
+  // Regression for #93: get_group_member_info serves the cache. Role
+  // patch is IncomingPacketPipeline observation, not Decoder.
   function makeGroupAdminPacket(adminUid: string, set: boolean, fromUin = GROUP_ID): PacketInfo {
     const extra = { adminUid };
     const content = protobuf_encode<GroupAdmin>({
@@ -941,7 +938,18 @@ describe('parseMsgPush PkgType 44 (group admin set/unset) keeps the member cache
     };
   }
 
-  it('promotes a cached member to admin in the identity cache (and emits set=true)', () => {
+  async function processAdmin(identity: IdentityService, packet: PacketInfo): Promise<void> {
+    const pipeline = new IncomingPacketPipeline({
+      identity,
+      events: new BridgeEventBus(),
+      refreshMemberCache: vi.fn(async () => false),
+      resolveGroupJoinRequest: vi.fn(async () => null),
+    });
+    pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
+    await pipeline.process(packet);
+  }
+
+  it('Decoder emits the event without writing Identity', () => {
     const member = makeGroupMember(22222, 'u_member');
     const identity = makeIdentity([member]);
 
@@ -950,32 +958,41 @@ describe('parseMsgPush PkgType 44 (group admin set/unset) keeps the member cache
     expect(event.kind).toBe('group_admin');
     expect(event.userUin).toBe(member.uin);
     expect(event.set).toBe(true);
+    expect(identity.findGroupMember(GROUP_ID, member.uin)?.role).toBe('member');
+  });
+
+  it('promotes a cached member to admin at the packet-pipeline boundary', async () => {
+    const member = makeGroupMember(22222, 'u_member');
+    const identity = makeIdentity([member]);
+
+    await processAdmin(identity, makeGroupAdminPacket(member.uid, true));
+
     expect(identity.findGroupMember(GROUP_ID, member.uin)?.role).toBe('admin');
   });
 
-  it('demotes a cached admin back to member on an unset push', () => {
+  it('demotes a cached admin back to member on an unset push', async () => {
     const admin = { ...makeGroupMember(22222, 'u_admin'), role: 'admin' };
     const identity = makeIdentity([admin]);
 
-    const [event] = parseMsgPush(makeGroupAdminPacket(admin.uid, false), identity) as GroupAdminEvent[];
+    await processAdmin(identity, makeGroupAdminPacket(admin.uid, false));
 
-    expect(event.set).toBe(false);
     expect(identity.findGroupMember(GROUP_ID, admin.uin)?.role).toBe('member');
   });
 
-  it('never downgrades the owner', () => {
+  it('never downgrades the owner', async () => {
     const owner = { ...makeGroupMember(22222, 'u_owner'), role: 'owner' };
     const identity = makeIdentity([owner]);
 
-    parseMsgPush(makeGroupAdminPacket(owner.uid, false), identity);
+    await processAdmin(identity, makeGroupAdminPacket(owner.uid, false));
 
     expect(identity.findGroupMember(GROUP_ID, owner.uin)?.role).toBe('owner');
   });
 
-  it('is a no-op (no throw, no phantom member) when the target is not cached', () => {
+  it('is a no-op (no throw, no phantom member) when the target is not cached', async () => {
     const identity = makeIdentity();
 
     const [event] = parseMsgPush(makeGroupAdminPacket('u_unknown', true), identity) as GroupAdminEvent[];
+    await processAdmin(identity, makeGroupAdminPacket('u_unknown', true));
 
     expect(event.kind).toBe('group_admin');
     expect(event.userUin).toBe(0);
