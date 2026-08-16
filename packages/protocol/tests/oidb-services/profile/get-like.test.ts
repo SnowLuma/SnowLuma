@@ -10,6 +10,7 @@ function makeDeps(opts: {
   cachedSelfUid?: string | null;
   resolveUserUid?: (uin: number) => Promise<string>;
   findUinByUid?: (uid: string) => number | null;
+  resolveUin?: (uid: string) => Promise<number | null>;
   responseBody?: Oidb0x7edResp;
 } = {}) {
   const responseData = opts.responseBody !== undefined
@@ -22,6 +23,7 @@ function makeDeps(opts: {
       uin: '10001',
       selfUid: opts.cachedSelfUid ?? null,
       findUinByUid: vi.fn(opts.findUinByUid ?? (() => null)),
+      resolveUin: vi.fn(opts.resolveUin ?? (async () => null)),
     } as any,
     resolveUserUid: vi.fn(opts.resolveUserUid ?? (async (uin: number) => `uid-of-${uin}`)),
   };
@@ -212,6 +214,50 @@ describe('GetLike namespace', () => {
       const out = GetLike.deserialize(makeDeps(), { userLikeInfos: [{ uid: 'u', time: 0 }] });
       expect(out.favoriteInfo.total_count).toBe(0);
       expect(out.voteInfo.total_count).toBe(0);
+    });
+  });
+
+  describe('invoke (inbound UIN fill)', () => {
+    it('fills leftover uin=0 rows through Identity.resolveUin once per uid', async () => {
+      const deps = makeDeps({
+        cachedSelfUid: 'self-uid',
+        findUinByUid: () => null,
+        resolveUin: async (uid) => uid === 'shared-uid' ? 30003 : null,
+        responseBody: {
+          userLikeInfos: [{
+            uid: 'self-uid',
+            favoriteInfo: { userInfos: [{ uid: 'shared-uid', nick: '收藏' }] },
+            voteInfo: { userInfos: [{ uid: 'shared-uid', nick: '点赞' }, { uid: 'miss-uid' }] },
+          }],
+        },
+      });
+
+      const out = await GetLike.invoke(deps, {});
+
+      expect(deps.identity.resolveUin).toHaveBeenCalledTimes(2);
+      expect(deps.identity.resolveUin).toHaveBeenCalledWith('shared-uid');
+      expect(deps.identity.resolveUin).toHaveBeenCalledWith('miss-uid');
+      expect(out.favoriteInfo.userInfos[0]?.uin).toBe(30003);
+      expect(out.voteInfo.userInfos[0]?.uin).toBe(30003);
+      expect(out.voteInfo.userInfos[1]?.uin).toBe(0);
+    });
+
+    it('does not call resolveUin when deserialize already filled the cache hit', async () => {
+      const deps = makeDeps({
+        cachedSelfUid: 'self-uid',
+        findUinByUid: (uid) => uid === 'cached-uid' ? 20002 : null,
+        responseBody: {
+          userLikeInfos: [{
+            uid: 'self-uid',
+            voteInfo: { userInfos: [{ uid: 'cached-uid', nick: '点赞者' }] },
+          }],
+        },
+      });
+
+      const out = await GetLike.invoke(deps, {});
+
+      expect(deps.identity.resolveUin).not.toHaveBeenCalled();
+      expect(out.voteInfo.userInfos[0]?.uin).toBe(20002);
     });
   });
 });
