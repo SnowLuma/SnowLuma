@@ -15,18 +15,14 @@ import type {
 import type { OidbGroupRequestList } from '@snowluma/proto-defs/oidb-actions/base';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
-// Current QQ's EncodeOperateSysNotify maps the high-level list notification
-// type to the discriminator sent by 0x10C8. This table was read directly from
-// the current Linux client; keeping the distinction prevents list type 7
-// (join request) from being incorrectly sent back as operation type 7.
-const GROUP_REQUEST_OPERATION_TYPE = new Map<number, number>([
-  [0, 0], [1, 2], [2, 10], [3, 11], [4, 12], [5, 22],
-  [6, 35], [7, 1], [8, 3], [9, 6], [10, 7], [11, 13],
-  [12, 15], [13, 16], [14, 17], [15, 19], [16, 8], [17, 100],
-]);
-
+// In OIDB 0x10C0, field 2 directly reflects the operation discriminator used by
+// 0x10C8: 1 = user add request, 2 = user invitation, 22 = admin invitation.
+// High-level NT UI notification types (e.g. 7 for join application) map directly
+// to 1.
 export function groupRequestOperationType(notifyType: number): number | null {
-  return GROUP_REQUEST_OPERATION_TYPE.get(notifyType) ?? null;
+  if (notifyType <= 0) return null;
+  if (notifyType === 7) return 1;
+  return notifyType;
 }
 
 export namespace FetchGroupRequests {

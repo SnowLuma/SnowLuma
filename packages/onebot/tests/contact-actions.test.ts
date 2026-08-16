@@ -123,8 +123,8 @@ function makeGroupRequest(overrides: Partial<GroupRequestInfo> = {}): GroupReque
     operatorName: 'operator',
     sequence: 123456,
     state: 1,
-    notifyType: 7,
-    eventType: 22,
+    notifyType: 1,
+    eventType: 1,
     comment: 'please',
     filtered: false,
     ...overrides,
@@ -631,7 +631,7 @@ describe('onebot/contact-actions / getGroupSystemMessages', () => {
     const bridge = fakeBridge({
       fetchGroupRequests: vi.fn(async (filtered: boolean) => filtered ? [] : [
         makeGroupRequest({
-          notifyType: 1,
+          notifyType: 2,
           eventType: 2,
           targetUin: 10_001,
           targetName: 'bot',

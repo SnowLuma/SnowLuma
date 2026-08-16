@@ -64,7 +64,8 @@ describe('element-manifest 对账（protocol 侧：D 收·解 / W 发·打包）
       if (field === 'targetUin' || field === 'faceId' || field === 'fileSize'
         || field.startsWith('reply') || field === 'subType' || field === 'duration'
         || field === 'width' || field === 'height' || field === 'emojiPackageId'
-        || field === 'sceneType' || field === 'forwardTSum' || field.endsWith('Format')) return 1;
+        || field === 'sceneType' || field === 'forwardTSum' || field.endsWith('Format')
+        || field === 'packetType') return 1;
       return 'value';
     };
 

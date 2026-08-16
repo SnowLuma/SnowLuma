@@ -251,12 +251,13 @@ const STRING_FIELDS: ReadonlySet<string> = new Set([
   'thumbUrl', 'summary', 'emojiId', 'emojiKey', 'resId', 'filesetId',
   'forwardSource', 'forwardSummary', 'forwardPrompt', 'forwardUuid',
   'md5Hex', 'sha1Hex', 'botAppid',
+  'title', 'greeting', 'displayText', 'typeName', 'redPacketType', 'transferId', 'authKey',
 ]);
 const NUMBER_FIELDS: ReadonlySet<string> = new Set([
   'faceId', 'targetUin', 'fileSize', 'replySeq', 'replyMessageId',
   'replySenderUin', 'replyTime', 'replyRandom', 'subType', 'duration',
   'width', 'height', 'emojiPackageId', 'sceneType', 'forwardTSum',
-  'picFormat', 'videoFormat', 'voiceFormat',
+  'picFormat', 'videoFormat', 'voiceFormat', 'packetType',
 ]);
 const BOOLEAN_FIELDS: ReadonlySet<string> = new Set(['flash', 'noByteFallback']);
 

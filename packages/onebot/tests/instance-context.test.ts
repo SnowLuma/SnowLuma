@@ -93,8 +93,8 @@ function makeRequest(overrides: Partial<GroupRequestInfo> = {}): GroupRequestInf
     operatorName: 'operator',
     sequence: 888,
     state: 1,
-    notifyType: 7,
-    eventType: 22,
+    notifyType: 1,
+    eventType: 1,
     comment: 'please add',
     filtered: false,
     ...overrides,
@@ -881,7 +881,7 @@ describe('buildApiContext contact reads', () => {
       requester_nick: 'applicant',
       message: 'please add',
       checked: false,
-      flag: 'slreq:1:888:710010:22:0',
+      flag: 'slreq:1:888:710010:1:0',
     }]);
   });
 });

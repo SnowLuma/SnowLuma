@@ -355,9 +355,9 @@ export class ContactsApi {
       const invitorUin = raw.invitor?.uin ?? 0;
       const operatorUin = raw.operatorUser?.uin ?? 0;
       const notifyType = raw.eventType ?? 0;
-      const operationType = groupRequestOperationType(notifyType);
+      const operationType = groupRequestOperationType(notifyType) ?? notifyType;
       const sequence = normalizeGroupRequestSequence(raw.sequence, groupId);
-      if (operationType === null) {
+      if (operationType <= 0) {
         log.warn(
           'unsupported group-request notification type: group=%d sequence=%s type=%d',
           groupId,
@@ -386,7 +386,7 @@ export class ContactsApi {
         sequence,
         state: raw.state ?? 0,
         notifyType,
-        eventType: operationType ?? 0,
+        eventType: operationType,
         comment: raw.comment ?? '',
         filtered,
       });
@@ -411,9 +411,9 @@ export class ContactsApi {
       const invitorUid = raw.invitor?.uid ?? '';
       const operatorUid = raw.operatorUser?.uid ?? '';
       const notifyType = raw.eventType ?? 0;
-      const operationType = groupRequestOperationType(notifyType);
+      const operationType = groupRequestOperationType(notifyType) ?? notifyType;
       const sequence = normalizeGroupRequestSequence(raw.sequence, groupId);
-      if (operationType === null) {
+      if (operationType <= 0) {
         log.warn(
           'unsupported group-request notification type: group=%d sequence=%s type=%d',
           groupId,
@@ -442,7 +442,7 @@ export class ContactsApi {
         sequence,
         state: raw.state ?? 0,
         notifyType,
-        eventType: operationType ?? 0,
+        eventType: operationType,
         comment: raw.comment ?? '',
         filtered,
       });

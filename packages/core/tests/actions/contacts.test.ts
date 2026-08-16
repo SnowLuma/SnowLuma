@@ -327,6 +327,47 @@ describe('apis/contacts / group requests', () => {
     expect(rememberGroupRequests).toHaveBeenCalledWith(requests);
   });
 
+  it('preserves native eventType 1 for join applications and 2 for invitations', async () => {
+    const rememberGroupRequests = vi.fn();
+    const findUidByUin = vi.fn((uin: number) => uin === 101 ? 'uid_101' : null);
+    const sendRawPacket = vi.fn(async () => groupRequestPacketByUin({
+      requests: [
+        {
+          sequence: 1001n,
+          eventType: 1, // User Add Request
+          state: 1,
+          group: { groupUin: 999, groupName: 'group' },
+          target: { uin: 101, name: 'joiner' },
+        },
+        {
+          sequence: 1002n,
+          eventType: 2, // User Invite
+          state: 1,
+          group: { groupUin: 999, groupName: 'group' },
+          invitor: { uin: 102, name: 'inviter' },
+        },
+      ],
+    }));
+    const api = new ContactsApi({
+      sendRawPacket,
+      identity: { findUidByUin, rememberGroupRequests },
+    } as any);
+
+    const requests = await api.fetchGroupRequests(false);
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toMatchObject({
+      sequence: 1001,
+      eventType: 1,
+      targetUin: 101,
+    });
+    expect(requests[1]).toMatchObject({
+      sequence: 1002,
+      eventType: 2,
+      invitorUin: 102,
+    });
+  });
+
   it('retains the UID-form response for correlating real-time request pushes', async () => {
     const rememberGroupRequests = vi.fn();
     const findUinByUid = vi.fn((uid: string) => uid === 'target_uid' ? 1_234_567_890 : null);

@@ -93,7 +93,7 @@ export class GroupRequestPoller {
     if (this.lifecycleStarted && !this.running) return;
     const discovered = [...main, ...filtered]
       .filter((request) => request.state === 1)
-      .filter((request) => request.notifyType === 1 || request.notifyType === 7);
+      .filter((request) => request.eventType === 1 || request.eventType === 2 || request.eventType === 22 || request.notifyType === 1 || request.notifyType === 7);
 
     const now = this.now();
     this.sweepRecentFingerprints(now);
@@ -107,7 +107,7 @@ export class GroupRequestPoller {
           'group request record rejected: group=%s sequence=%s subtype=%s reason=%s',
           String(request.groupId),
           String(request.sequence),
-          request.notifyType === 1 ? 'invite' : 'add',
+          request.eventType === 2 || request.eventType === 22 || request.notifyType === 2 ? 'invite' : 'add',
           error instanceof Error ? error.message : String(error),
         );
         continue;
@@ -145,11 +145,11 @@ export class GroupRequestPoller {
   }
 
   private toEvent(request: GroupRequestInfo): GroupInviteEvent {
-    const notifyType = request.notifyType;
-    const subType = notifyType === 1 ? 'invite' : 'add';
-    const fromUin = notifyType === 1 ? request.invitorUin : request.targetUin;
-    const fromUid = notifyType === 1 ? request.invitorUid : request.targetUid;
-    const inviteCardSequence = notifyType === 1
+    const isInvite = request.eventType === 2 || request.eventType === 22 || request.notifyType === 2;
+    const subType = isInvite ? 'invite' : 'add';
+    const fromUin = isInvite ? request.invitorUin : request.targetUin;
+    const fromUid = isInvite ? request.invitorUid : request.targetUid;
+    const inviteCardSequence = isInvite
       ? this.bridge.apis.contacts.getGroupInviteCardSequence?.(request.groupId)
       : undefined;
     if (!Number.isSafeInteger(request.sequence) || request.sequence <= 0) {
@@ -160,7 +160,7 @@ export class GroupRequestPoller {
     }
     if (!Number.isSafeInteger(request.eventType) || request.eventType <= 0) {
       throw new Error(
-        `group request has no operation type: group=${request.groupId} sequence=${request.sequence} notifyType=${notifyType ?? 0}`,
+        `group request has no operation type: group=${request.groupId} sequence=${request.sequence} eventType=${request.eventType ?? 0}`,
       );
     }
     if (!Number.isSafeInteger(fromUin) || fromUin < 0) {

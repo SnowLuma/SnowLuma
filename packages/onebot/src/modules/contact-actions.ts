@@ -373,7 +373,7 @@ function groupRequestActor(request: GroupRequestInfo): {
   uin: number;
   name: string;
 } {
-  if (request.notifyType === 1) {
+  if (request.eventType === 2 || request.eventType === 22 || request.notifyType === 2) {
     return {
       uid: request.invitorUid,
       uin: request.invitorUin,
@@ -401,9 +401,6 @@ export async function getGroupSystemMessages(
   ]);
   const unique = new Map<string, GroupRequestInfo>();
   for (const request of [...main, ...filtered]) {
-    if (request.notifyType !== undefined
-      && request.notifyType !== 1
-      && request.notifyType !== 7) continue;
     if (request.eventType <= 0) continue;
     const flag = formatGroupRequestFlag(request);
     if (!unique.has(flag)) unique.set(flag, request);
