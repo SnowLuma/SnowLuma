@@ -6,9 +6,17 @@
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
-  OidbGroupFileViewReq, OidbGroupFileViewResp, OidbGroupFileListResp,
+  OidbGroupFileListItemResp,
+  OidbGroupFileViewReq,
+  OidbGroupFileViewResp,
 } from '@snowluma/proto-defs/oidb-actions/group-file';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
+import { ensureRetCodeZero } from '../shared';
+
+export interface GroupFileListPage {
+  items: OidbGroupFileListItemResp[];
+  isEnd: boolean;
+}
 
 export namespace ListGroupFilesPage {
   export const command = 0x6D8;
@@ -37,11 +45,13 @@ export namespace ListGroupFilesPage {
     },
   });
 
-  /** Returns the list body directly so the facade can inspect
-   *  `items`, `isEnd`, and `retCode` in one place. Returns null when
+  /** Returns items + isEnd after checking list.retCode. Returns null when
    *  the server elides the list entirely (end-of-stream sentinel). */
-  export const deserialize = (_ctx: Deps, body: OidbGroupFileViewResp): OidbGroupFileListResp | null => {
-    return body.list ?? null;
+  export const deserialize = (_ctx: Deps, body: OidbGroupFileViewResp): GroupFileListPage | null => {
+    const list = body.list;
+    if (!list) return null;
+    ensureRetCodeZero('group file list', list.retCode, list.retMsg, list.clientWording);
+    return { items: list.items ?? [], isEnd: !!list.isEnd };
   };
 
   export const encode = (env: OidbBase<OidbGroupFileViewReq>): Uint8Array =>
@@ -50,6 +60,6 @@ export namespace ListGroupFilesPage {
   export const decode = (bytes: Uint8Array): OidbBase<OidbGroupFileViewResp> =>
     protobuf_decode<OidbBase<OidbGroupFileViewResp>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<OidbGroupFileListResp | null> =>
+  export const invoke = (deps: Deps, params: Params): Promise<GroupFileListPage | null> =>
     invokeOidb(deps, ListGroupFilesPage, params);
 }

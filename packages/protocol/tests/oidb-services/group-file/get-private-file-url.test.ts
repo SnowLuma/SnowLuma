@@ -43,18 +43,24 @@ describe('GetPrivateFileUrl namespace', () => {
     expect(env.body?.field99999).toEqual(new Uint8Array([0xC0, 0x85, 0x2C, 0x01]));
   });
 
-  it('returns the result sub-message verbatim', async () => {
+  it('composes the http download URL', async () => {
     const deps = makeDeps({
       body: { result: { server: 'srv', port: 8080, url: '/path' } } as any,
     });
-    const out = await GetPrivateFileUrl.invoke(deps, { selfUid: 's', fileId: 'f', fileHash: 'h' });
-    expect(out.server).toBe('srv');
-    expect(out.port).toBe(8080);
-    expect(out.url).toBe('/path');
+    await expect(GetPrivateFileUrl.invoke(deps, { selfUid: 's', fileId: 'f', fileHash: 'h' }))
+      .resolves.toBe('http://srv:8080/path&isthumb=0');
   });
 
   it('throws when result is missing', async () => {
     const deps = makeDeps({ body: {} });
+    await expect(GetPrivateFileUrl.invoke(deps, { selfUid: 's', fileId: 'f', fileHash: 'h' }))
+      .rejects.toThrow(/private file url response invalid/);
+  });
+
+  it('throws when server/port/url is incomplete', async () => {
+    const deps = makeDeps({
+      body: { result: { server: 'srv', port: 0, url: '/path' } } as any,
+    });
     await expect(GetPrivateFileUrl.invoke(deps, { selfUid: 's', fileId: 'f', fileHash: 'h' }))
       .rejects.toThrow(/private file url response invalid/);
   });

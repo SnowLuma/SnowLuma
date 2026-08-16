@@ -11,19 +11,6 @@ export function toInt(value: unknown): number {
   return 0;
 }
 
-/**
- * Standard OIDB response check: throw a typed Error if retCode != 0.
- * Prefers `wording` over `msg` for the human-facing message, falling
- * back to a generic string. All themed action modules use this for
- * their OIDB error-path uniformity.
- */
-export function ensureRetCodeZero(operation: string, code: unknown, msg: unknown, wording: unknown): void {
-  const retCode = toInt(code);
-  if (retCode === 0) return;
-  const text = (typeof wording === 'string' && wording) || (typeof msg === 'string' && msg) || 'unknown error';
-  throw new Error(`${operation} failed: code=${retCode} msg=${text}`);
-}
-
 // The bot's-own-UID resolver is the single source of truth in @snowluma/protocol
 // (a Bridge satisfies its BridgeContext slice). Re-exported here so the existing
 // `resolveSelfUid(bridge)` call sites in this package keep importing from shared.
