@@ -96,7 +96,7 @@ export interface ApiActionContext {
   fetchPttText: (messageId: number) => Promise<{ text: string }>;
 }
 
-type ActionHandler = (params: JsonObject, sink?: StreamSink) => Promise<import('./types').ApiResponse>;
+export type ActionHandler = (params: JsonObject, sink?: StreamSink) => Promise<import('./types').ApiResponse>;
 
 interface RegisteredHandler {
   readonly handler: ActionHandler;
@@ -116,9 +116,7 @@ export type ActionObserver = (rec: ActionRecord) => void;
 export class ApiHandler {
   /** Handler + dispatch kind live in one record so stream classification can
    *  never outlive or drift from the handler it describes. */
-  private readonly handlers = new Map<string, RegisteredHandler>();
-  private readonly registry: CompiledActionRegistry;
-  private registrationOpen = true;
+  private readonly handlers: ReadonlyMap<string, RegisteredHandler>;
   /** Sticky instance-lifecycle gate. A failed transport close may restore its
    *  own listener for retry, but it must never reopen execution against a
    *  retiring Bridge/store generation. */
@@ -139,91 +137,27 @@ export class ApiHandler {
     uin?: number,
     registry: CompiledActionRegistry = ACTION_REGISTRY,
   ) {
-    this.registry = registry;
     this.log = typeof uin === 'number' && uin > 0 ? moduleLog.child({ uin }) : moduleLog;
-    try {
-      registry.register(this, context);
-
-      // The one non-ActionSpec handler: `.handle_quick_operation` needs the
-      // ApiHandler itself (to re-drive actions via executeQuickOperation), which
-      // ActionSpec.run's (params, ctx) signature can't supply — so it's the sole
-      // raw registration, kept here rather than in an action file's footer.
-      this.registerRawAction(HANDLE_QUICK_OPERATION_ACTION, async (params) => {
+    const rawFactories: Record<string, (api: ApiHandler) => ActionHandler> = {};
+    for (const raw of registry.rawActions) {
+      if (raw.name !== HANDLE_QUICK_OPERATION_ACTION) {
+        throw new Error(
+          `Action registry has no factory for raw action canonical "${raw.canonical}" `
+          + `(name "${raw.name}", kind raw)`,
+        );
+      }
+      rawFactories[raw.name] = (api) => async (params) => {
         const opContext = params.context as JsonObject | undefined;
         const operation = params.operation as Record<string, unknown> | undefined;
-        if (!opContext || !operation) return failedResponse(RETCODE.BAD_REQUEST, 'context and operation are required');
+        if (!opContext || !operation) {
+          return failedResponse(RETCODE.BAD_REQUEST, 'context and operation are required');
+        }
         const { executeQuickOperation } = await import('./network/quick-operation');
-        await executeQuickOperation(opContext, operation, this);
+        await executeQuickOperation(opContext, operation, api);
         return okResponse();
-      });
-      this.assertRegistryFullyBound();
-    } finally {
-      // registerAction/registerStreamAction are the constructor-time port used
-      // by ActionSpec. Once construction finishes (successfully or not), the
-      // runtime namespace is immutable and cannot bypass the compiled registry.
-      this.registrationOpen = false;
+      };
     }
-  }
-
-  registerAction(action: string, handler: ActionHandler): void {
-    this.registerHandler(action, handler, 'normal');
-  }
-
-  /** Register a Stream API action — dispatched exactly like a normal action,
-   *  but flagged so adapters stream its frames (the handler receives a sink). */
-  registerStreamAction(action: string, handler: ActionHandler): void {
-    this.registerHandler(action, handler, 'stream');
-  }
-
-  private registerRawAction(action: string, handler: ActionHandler): void {
-    this.registerHandler(action, handler, 'raw');
-  }
-
-  private registerHandler(action: string, handler: ActionHandler, kind: CompiledActionKind): void {
-    if (!this.registrationOpen) {
-      throw new Error(
-        `Action registry is sealed; cannot register canonical "${action}" (name "${action}", kind ${kind})`,
-      );
-    }
-    const claim = this.registry.resolve(action);
-    if (!claim) {
-      throw new Error(
-        `Action registration is not declared by the compiled registry: `
-        + `canonical "${action}" (name "${action}", kind ${kind})`,
-      );
-    }
-    const canonical = claim.canonical;
-    const existing = this.handlers.get(action);
-    if (existing) {
-      throw new Error(
-        `Action handler conflict for executable name "${action}": `
-        + `canonical "${existing.canonical}" (name "${action}", kind ${existing.kind}) conflicts with `
-        + `canonical "${canonical}" (name "${action}", kind ${kind})`,
-      );
-    }
-    if (claim.kind !== kind) {
-      throw new Error(
-        `Action handler kind mismatch for canonical "${canonical}" (name "${action}"): `
-        + `registry kind ${claim.kind}, registration kind ${kind}`,
-      );
-    }
-    this.handlers.set(action, { handler, canonical, kind });
-  }
-
-  private assertRegistryFullyBound(): void {
-    for (const claim of this.registry.executableNames) {
-      if (this.handlers.has(claim.name)) continue;
-      throw new Error(
-        `Action registry claim has no handler: canonical "${claim.canonical}" `
-        + `(name "${claim.name}", kind ${claim.kind})`,
-      );
-    }
-    if (this.handlers.size !== this.registry.executableNames.length) {
-      throw new Error(
-        `Action registry binding count mismatch: ${this.handlers.size} handlers for `
-        + `${this.registry.executableNames.length} executable names`,
-      );
-    }
+    this.handlers = registry.bind(context, this, rawFactories);
   }
 
   /** Whether `action` answers with a multi-frame Stream API response. */

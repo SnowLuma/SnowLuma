@@ -7,7 +7,7 @@
 // of that same compiled value; neither is allowed to rebuild its own list.
 
 import type { ActionDoc, RegisteredActionSpec } from '../action-kit';
-import type { ApiActionContext, ApiHandler } from '../api-handler';
+import type { ActionHandler, ApiActionContext, ApiHandler } from '../api-handler';
 import { actions as infoActions } from './info';
 import { actions as messageActions } from './message';
 import { actions as friendActions } from './friend';
@@ -67,6 +67,14 @@ export interface CompiledRawName extends ActionNameClaimBase {
 
 export type CompiledActionName = CompiledDeclarativeName | CompiledRawName;
 
+export type RawActionFactory = (api: ApiHandler) => ActionHandler;
+
+export interface BoundAction {
+  readonly handler: ActionHandler;
+  readonly canonical: string;
+  readonly kind: CompiledActionKind;
+}
+
 export interface CompiledActionRegistry {
   /** Canonical declarative actions in authored group/action order. */
   readonly actions: readonly CompiledAction[];
@@ -76,7 +84,12 @@ export interface CompiledActionRegistry {
   readonly categories: readonly { category: string; count: number }[];
   readonly rawActions: readonly CompiledRawName[];
   resolve(name: string): CompiledActionName | undefined;
-  register(h: ApiHandler, ctx: ApiActionContext): void;
+  /** Produce the sealed executable table. Extra or missing raw factories fail. */
+  bind(
+    ctx: ApiActionContext,
+    api: ApiHandler,
+    rawFactories: Readonly<Record<string, RawActionFactory>>,
+  ): ReadonlyMap<string, BoundAction>;
 }
 
 function validateSpecProjection(spec: RegisteredActionSpec, doc: ActionDoc): void {
@@ -179,10 +192,58 @@ export function compileActionRegistry(
     categories: Object.freeze(categories),
     rawActions: Object.freeze(rawActions),
     resolve: (name: string) => byName.get(name),
-    register: (h: ApiHandler, ctx: ApiActionContext) => {
-      for (const action of actions) action.spec.register(h, ctx);
-    },
+    bind: (
+      ctx: ApiActionContext,
+      api: ApiHandler,
+      rawFactories: Readonly<Record<string, RawActionFactory>>,
+    ) => bindActionRegistry(executableNames, ctx, api, rawFactories),
   });
+}
+
+function bindActionRegistry(
+  executableNames: readonly CompiledActionName[],
+  ctx: ApiActionContext,
+  api: ApiHandler,
+  rawFactories: Readonly<Record<string, RawActionFactory>>,
+): ReadonlyMap<string, BoundAction> {
+  const factoryNames = new Set(Object.keys(rawFactories));
+  const handlers = new Map<string, BoundAction>();
+
+  for (const claim of executableNames) {
+    if (claim.kind === 'raw') {
+      const factory = rawFactories[claim.name];
+      if (!factory) {
+        throw new Error(
+          `Action registry raw factory missing: canonical "${claim.canonical}" `
+          + `(name "${claim.name}", kind raw)`,
+        );
+      }
+      factoryNames.delete(claim.name);
+      handlers.set(claim.name, Object.freeze({
+        handler: factory(api),
+        canonical: claim.canonical,
+        kind: 'raw',
+      }));
+      continue;
+    }
+
+    const handler = claim.action.spec.toHandler(ctx);
+    handlers.set(claim.name, Object.freeze({
+      handler,
+      canonical: claim.canonical,
+      kind: claim.kind,
+    }));
+  }
+
+  if (factoryNames.size > 0) {
+    const extra = [...factoryNames][0]!;
+    throw new Error(
+      `Action registry unexpected raw factory: canonical "${extra}" `
+      + `(name "${extra}", kind raw)`,
+    );
+  }
+
+  return handlers;
 }
 
 /** Every declarative action, grouped by domain category. Authored input. */
