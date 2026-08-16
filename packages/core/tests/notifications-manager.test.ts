@@ -196,4 +196,13 @@ describe('NotificationManager — debounce integration (fake timers)', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(events).toEqual(['offline']);
   });
+
+  it('ignores online/offline after dispose so process exit is not a runtime drop', async () => {
+    const { events, mgr } = setup(0);
+    mgr.dispose();
+    mgr.handleOnline('123', 'Bob');
+    mgr.handleOffline('123', 'Bob');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(events).toEqual([]);
+  });
 });

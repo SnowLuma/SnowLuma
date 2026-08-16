@@ -68,7 +68,9 @@ export type HookSessionDeps = {
  *
  * Emitted events:
  *   'login'          (uin, packetSender) — real-UIN login detected
- *   'disconnected'   (wasLoggedIn)       — connection dropped or torn down
+ *   'disconnected'   (wasLoggedIn)       — connection dropped, torn down, or
+ *                                          dispose() of a logged-in session
+ *                                          (process shutdown uses this path)
  *   'receive-health-changed' (healthy)   — combined receive/request path health changed
  *   'status-changed' (status, error)     — status field mutated
  *   'disposed'       ()                  — session stopped tracking this PID
@@ -237,8 +239,13 @@ export class HookSession extends EventEmitter {
 
   dispose(): void {
     if (this.disposed) return;
+    const wasLoggedIn = this.loggedIn;
     this.disposed = true;
     this.tearDownClient();
+    // Process shutdown must take the same PID-detach path as a live drop.
+    // tearDownClient strips the pipe client first, so this emit is the only
+    // disconnected edge HookManager will see.
+    if (wasLoggedIn) this.emit('disconnected', true);
     this.removeAllListeners();
   }
 
