@@ -1,13 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
-import { protobuf_decode } from '@snowluma/proton';
-import type { OidbBase } from '@snowluma/proto-defs/oidb';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import type { OidbBase, OidbSvcTrpcTcp0xFE7_3Response } from '@snowluma/proto-defs/oidb';
 import type { OidbGroupMemberListRequest } from '@snowluma/proto-defs/oidb-actions/base';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 
 import { FetchGroupMemberListPage } from '../../../src/oidb-services/contacts/fetch-group-member-list-page';
 
-function makeSender() {
-  const r: SendPacketResult = { success: true, gotResponse: true, errorCode: 0, errorMessage: '', responseData: Buffer.alloc(0) };
+function makeSender(body?: OidbSvcTrpcTcp0xFE7_3Response) {
+  const responseData = body !== undefined
+    ? Buffer.from(protobuf_encode<OidbBase<OidbSvcTrpcTcp0xFE7_3Response>>({ body }))
+    : Buffer.alloc(0);
+  const r: SendPacketResult = { success: true, gotResponse: true, errorCode: 0, errorMessage: '', responseData };
   return { sendRawPacket: vi.fn(async () => r) };
 }
 
@@ -52,6 +55,61 @@ describe('FetchGroupMemberListPage namespace', () => {
       const [, bytes] = sender.sendRawPacket.mock.calls[0]!;
       const env = protobuf_decode<OidbBase<OidbGroupMemberListRequest>>(bytes);
       expect(env.body?.groupUin).toBe(12345);
+    });
+
+    it('maps members into GroupMemberInfo and leaves isRobot unset-false', async () => {
+      const sender = makeSender({
+        token: 'next',
+        members: [{
+          uin: { uid: 'u_admin', uin: 22222 },
+          memberName: 'Ada',
+          specialTitle: 't',
+          memberCard: { memberCard: 'card' },
+          level: { level: 12 },
+          joinTimestamp: 1,
+          lastMsgTimestamp: 2,
+          shutUpTimestamp: 3,
+          permission: 2,
+        }],
+      });
+      await expect(FetchGroupMemberListPage.invoke(sender, { groupId: 42, token: '' }))
+        .resolves.toEqual({
+          token: 'next',
+          members: [{
+            uin: 22222,
+            uid: 'u_admin',
+            nickname: 'Ada',
+            card: 'card',
+            isRobot: false,
+            role: 'admin',
+            level: 12,
+            title: 't',
+            joinTime: 1,
+            lastSentTime: 2,
+            shutUpTime: 3,
+          }],
+        });
+    });
+
+    it('maps permission 1 to owner and missing fields to 0 / empty', () => {
+      expect(FetchGroupMemberListPage.deserialize({} as any, {
+        members: [
+          { permission: 1 },
+          {},
+        ],
+      })).toEqual({
+        token: '',
+        members: [
+          {
+            uin: 0, uid: '', nickname: '', card: '', isRobot: false,
+            role: 'owner', level: 0, title: '', joinTime: 0, lastSentTime: 0, shutUpTime: 0,
+          },
+          {
+            uin: 0, uid: '', nickname: '', card: '', isRobot: false,
+            role: 'member', level: 0, title: '', joinTime: 0, lastSentTime: 0, shutUpTime: 0,
+          },
+        ],
+      });
     });
   });
 });

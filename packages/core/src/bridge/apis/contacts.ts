@@ -1,5 +1,9 @@
 import { FetchDownloadRkeys } from '@snowluma/protocol/oidb-services/contacts/fetch-download-rkeys';
-import { FetchFriendListPage } from '@snowluma/protocol/oidb-services/contacts/fetch-friend-list-page';
+import {
+  FetchFriendListPage,
+  type FriendListPageCategory,
+  type FriendListPageEntry,
+} from '@snowluma/protocol/oidb-services/contacts/fetch-friend-list-page';
 import { FetchGroupDetail } from '@snowluma/protocol/oidb-services/contacts/fetch-group-detail';
 import { FetchGroupList } from '@snowluma/protocol/oidb-services/contacts/fetch-group-list';
 import { FetchGroupMemberListPage } from '@snowluma/protocol/oidb-services/contacts/fetch-group-member-list-page';
@@ -41,60 +45,15 @@ function isGroupAllMuted(expireTs?: number, nowSec = Math.floor(Date.now() / 100
   return (expireTs ?? 0) > nowSec;
 }
 
-// ─── Helpers (previously in bridge-contacts.ts) ───────────────────
-
-type FriendPropertySource = {
-  additional?: Array<{
-    type?: number;
-    layer1?: {
-      properties?: Array<{
-        code?: number;
-        value?: string;
-      }>;
-    };
-  }>;
-};
-
-interface FriendRosterEntry {
-  friend: FriendInfo;
-  categoryId: number;
-}
-
-interface FriendCategoryMeta {
-  categoryId: number;
-  categoryName: string;
-  memberCount: number;
-  sortId: number;
-}
-
 interface FriendRoster {
-  entries: FriendRosterEntry[];
-  categories: FriendCategoryMeta[];
+  entries: FriendListPageEntry[];
+  categories: FriendListPageCategory[];
 }
 
 export interface SetFriendCategoryParams {
   uin: number;
   categoryId?: number;
   categoryName?: string;
-}
-
-export function buildFriendProperties(raw: FriendPropertySource): Map<number, string> {
-  const props = new Map<number, string>();
-  for (const additional of raw.additional ?? []) {
-    if ((additional.type ?? 0) !== 1 || !additional.layer1) continue;
-    for (const property of additional.layer1.properties ?? []) {
-      props.set(property.code ?? 0, property.value ?? '');
-    }
-  }
-  return props;
-}
-
-export function permissionToRole(permission: number): string {
-  switch (permission) {
-    case 1: return 'owner';
-    case 2: return 'admin';
-    default: return 'member';
-  }
 }
 
 export function isRobotUin(uin: number, ranges: readonly RobotUinRange[]): boolean {
@@ -179,36 +138,19 @@ export class ContactsApi {
   }
 
   private async fetchFriendRoster(): Promise<FriendRoster> {
-    const entries: FriendRosterEntry[] = [];
-    const categories = new Map<number, FriendCategoryMeta>();
+    const entries: FriendListPageEntry[] = [];
+    const categories = new Map<number, FriendListPageCategory>();
     const seenCookies = new Set<string>();
     let cookie: Uint8Array | undefined;
 
     for (;;) {
-      const resp = await FetchFriendListPage.invoke(this.ctx, { cookie });
-      for (const raw of resp.friends ?? []) {
-        const props = buildFriendProperties(raw);
-        entries.push({
-          categoryId: raw.customGroup ?? 0,
-          friend: {
-            uin: raw.uin ?? 0,
-            uid: raw.uid ?? '',
-            nickname: props.get(20002) ?? String(raw.uin ?? 0),
-            remark: props.get(103) ?? '',
-          },
-        });
-      }
-      for (const raw of resp.categories ?? []) {
-        const categoryId = raw.categoryId ?? 0;
-        categories.set(categoryId, {
-          categoryId,
-          categoryName: raw.categoryName ?? '',
-          memberCount: raw.memberCount ?? 0,
-          sortId: raw.sortId ?? 0,
-        });
+      const page = await FetchFriendListPage.invoke(this.ctx, { cookie });
+      entries.push(...page.entries);
+      for (const category of page.categories) {
+        categories.set(category.categoryId, category);
       }
 
-      const next = resp.cookie;
+      const next = page.cookie;
       if (!next?.length) break;
       const key = toHex(next);
       if (seenCookies.has(key)) {
@@ -370,23 +312,9 @@ export class ContactsApi {
     const members: GroupMemberInfo[] = [];
     let token = '';
     do {
-      const resp = await FetchGroupMemberListPage.invoke(this.ctx, { groupId, token });
-      for (const raw of resp.members ?? []) {
-        members.push({
-          uin: raw.uin?.uin ?? 0,
-          uid: raw.uin?.uid ?? '',
-          nickname: raw.memberName ?? '',
-          card: raw.memberCard?.memberCard ?? '',
-          isRobot: false,
-          role: permissionToRole(raw.permission ?? 0),
-          level: raw.level?.level ?? 0,
-          title: raw.specialTitle ?? '',
-          joinTime: raw.joinTimestamp ?? 0,
-          lastSentTime: raw.lastMsgTimestamp ?? 0,
-          shutUpTime: raw.shutUpTimestamp ?? 0,
-        });
-      }
-      token = resp.token ?? '';
+      const page = await FetchGroupMemberListPage.invoke(this.ctx, { groupId, token });
+      members.push(...page.members);
+      token = page.token;
     } while (token);
 
     const robotSnapshot = await robotSnapshotPromise;
