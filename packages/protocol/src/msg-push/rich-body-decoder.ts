@@ -457,6 +457,19 @@ function buildMediaNode(idx: IndexNode, fi: FileInfo): MessageElement['mediaNode
   };
 }
 
+/** Whether this body carries any slot {@link decodeRichBody} would try:
+ *  `richText.elems`, a voice (`ptt`), a c2c file (`notOnlineFile`), or
+ *  serialized `msgContent`. Presence, not successful decode — a body that
+ *  has elems we do not yet understand is still decodable content. */
+export function hasDecodableContent(body: PushMsgBody | undefined): boolean {
+  const rt = body?.richText;
+  if (rt) {
+    if (rt.elems && rt.elems.length > 0) return true;
+    if (rt.ptt || rt.notOnlineFile) return true;
+  }
+  return !!(body?.msgContent && body.msgContent.length > 0);
+}
+
 export function decodeRichBody(body: PushMsgBody | undefined, isGroup: boolean): MessageElement[] {
   const elements: MessageElement[] = [];
   logUnknownWireFields(body, 'body');

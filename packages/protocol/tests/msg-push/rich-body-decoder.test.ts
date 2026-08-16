@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { deflateSync } from 'zlib';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { getLogLevel, setLogLevel, subscribeLogs } from '@snowluma/common/logger';
-import { decodeRichBody } from '../../src/msg-push/rich-body-decoder';
+import { decodeRichBody, hasDecodableContent } from '../../src/msg-push/rich-body-decoder';
 import { MAX_RICH_CARD_OUTPUT_BYTES } from '../../src/msg-push/helpers';
 import { buildSendElems } from '../../src/element-builder';
 import { assertValidMessageElement } from '../../src/element-manifest';
@@ -980,5 +980,26 @@ describe('decodeRichBody / unknown wire element observability', () => {
       && entry.message.includes('reason=message_output_budget_exceeded')
     ));
     expect(exhausted).toHaveLength(2);
+  });
+});
+
+describe('hasDecodableContent', () => {
+  it('is false for a missing or empty body', () => {
+    expect(hasDecodableContent(undefined)).toBe(false);
+    expect(hasDecodableContent({})).toBe(false);
+    expect(hasDecodableContent({ richText: { elems: [] } })).toBe(false);
+  });
+
+  it('is true for elems, ptt, notOnlineFile, or msgContent', () => {
+    expect(hasDecodableContent({ richText: { elems: [{ text: { str: 'hi' } }] } })).toBe(true);
+    expect(hasDecodableContent({ richText: { ptt: { fileName: 'a.amr' } } })).toBe(true);
+    expect(hasDecodableContent({ richText: { notOnlineFile: { fileName: 'a.bin' } } })).toBe(true);
+    expect(hasDecodableContent({ msgContent: new Uint8Array([1]) })).toBe(true);
+  });
+
+  it('is true when elems exist even if decodeRichBody would emit nothing', () => {
+    const body: MessageBody = { richText: { elems: [{ commonElem: { serviceType: 999, businessType: 0 } }] } };
+    expect(hasDecodableContent(body)).toBe(true);
+    expect(decodeRichBody(body, false)).toEqual([]);
   });
 });

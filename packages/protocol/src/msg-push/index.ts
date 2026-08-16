@@ -4,7 +4,8 @@ import type { PacketInfo } from '@snowluma/common/protocol-types';
 import type { Elem } from '@snowluma/proto-defs/element';
 import type { QQEventVariant } from '../events';
 import type { IdentityService } from '../identity-service';
-import { bodyHasDecodableContent, isC2cControlPush } from './blank-filter';
+import { isC2cControlPush } from './blank-filter';
+import { hasDecodableContent } from './rich-body-decoder';
 import { buildContext, type PushMsgBody } from './context';
 import { decodeEvent0x210 } from './decoders/event-0x210';
 import { decodeEvent0x2DC } from './decoders/event-0x2dc';
@@ -217,7 +218,7 @@ function parseMsgPushInternal(
     // If instead the body *had* content we just couldn't decode, keep the
     // (still-empty) event but warn so the missing decoder gets noticed rather
     // than silently swallowed.
-    if (bodyHasDecodableContent(ctx.body)) {
+    if (hasDecodableContent(ctx.body)) {
       log.warn('message had content but decoded to 0 elements — missing decoder? (kind=%s seq=%d from=%d msgType=%d/%d): %s',
         ev.kind, ctx.head.sequence, ctx.fromUin, ctx.head.msgType, ctx.head.subType,
         describeUndecodedBody(ctx.body));
