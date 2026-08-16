@@ -134,6 +134,9 @@ export class ContactsApi {
       load: (groupId) => this.fetchGroupMemberListUncached(groupId),
     });
   private robotUinRangesPromise_: Promise<RobotUinRangeSnapshot> | null = null;
+  /** groupUin → approval msgseq from a private qun.invite card. Written
+   *  only by IncomingPacketPipeline (and tests). OneBot reads get/find. */
+  private readonly groupInviteCardSeqs_ = new Map<number, number>();
 
   constructor(private readonly ctx: BridgeContext) { }
 
@@ -520,17 +523,25 @@ export class ContactsApi {
     return requests;
   }
 
+  /** Live observation write. IncomingPacketPipeline and tests only. */
+  rememberGroupInviteCardSequence(groupUin: number, sequence: number): void {
+    if (groupUin > 0 && sequence > 0) this.groupInviteCardSeqs_.set(groupUin, sequence);
+  }
+
   /** The approval msgseq captured from a private "qun.invite" card for this
    *  group, or undefined if none was seen. `set_group_add_request` uses it to
    *  approve a bot self-invite via 0x10c8 (eventType=2). See issue #125. */
   getGroupInviteCardSequence(groupId: number): number | undefined {
-    return this.ctx.identity.getGroupInviteCardSequence(groupId);
+    return this.groupInviteCardSeqs_.get(groupId);
   }
 
   /** Resolve the group for a private invite-card msgseq. Numeric OneBot flags
    *  use this path because the card sequence is absent from 0x10C0. */
   findGroupInviteCardGroupBySequence(sequence: number): number | undefined {
-    return this.ctx.identity.findGroupInviteCardGroupBySequence(sequence);
+    for (const [groupUin, rememberedSequence] of this.groupInviteCardSeqs_) {
+      if (rememberedSequence === sequence) return groupUin;
+    }
+    return undefined;
   }
 
   async fetchDownloadRKeys(): Promise<DownloadRKeyInfo[]> {

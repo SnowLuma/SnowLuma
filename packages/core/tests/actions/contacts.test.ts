@@ -623,3 +623,18 @@ describe('apis/contacts / robot group-member classification', () => {
     expect(rememberGroupMembers).toHaveBeenCalledOnce();
   });
 });
+
+describe('apis/contacts / invite-card pending application', () => {
+  it('remembers, reads, and reverse-looks-up a card sequence', () => {
+    const api = new ContactsApi({ identity: { uin: '10001' } } as any);
+    expect(api.getGroupInviteCardSequence(12345)).toBeUndefined();
+
+    api.rememberGroupInviteCardSequence(12345, 778899);
+    api.rememberGroupInviteCardSequence(0, 1);
+    api.rememberGroupInviteCardSequence(1, 0);
+
+    expect(api.getGroupInviteCardSequence(12345)).toBe(778899);
+    expect(api.findGroupInviteCardGroupBySequence(778899)).toBe(12345);
+    expect(api.findGroupInviteCardGroupBySequence(1)).toBeUndefined();
+  });
+});

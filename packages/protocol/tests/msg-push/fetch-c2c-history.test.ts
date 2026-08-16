@@ -171,38 +171,38 @@ describe('fetchC2cMessageRange / SsoGetC2cMsg', () => {
     )).rejects.toThrow('friend uid mismatch');
   });
 
-  it('does not replay live-only invite observations from older history', async () => {
-    const remembered: Array<[number, number]> = [];
-    const observingIdentity = {
-      findFriend: () => undefined,
-      rememberGroupInviteCardSequence: (groupUin: number, sequence: number) => {
-        remembered.push([groupUin, sequence]);
-      },
-    } as unknown as IdentityService;
-
+  it('parses invite-card facts on friend messages without writing Identity', async () => {
     const live = buildContextFromMessage(
       inviteCardMessage(222),
       10001,
-      observingIdentity,
+      identity,
       false,
     );
     expect(live).not.toBeNull();
-    decodeFriendMessage(live!);
+    expect(decodeFriendMessage(live!)).toMatchObject([{
+      kind: 'friend_message',
+      inviteCardGroupUin: 12345,
+      inviteCardSequence: 222,
+    }]);
 
     const historyResponse = protobuf_encode<SsoGetC2cMsgResponse>({
       friendUid: 'u_friend',
       messages: [inviteCardMessage(111)],
     });
-    await fetchC2cMessageRange(
+    const out = await fetchC2cMessageRange(
       { sendRawPacket: async () => okResult(historyResponse) },
-      observingIdentity,
+      identity,
       10001,
       'u_friend',
       100,
       120,
     );
 
-    expect(remembered).toEqual([[12345, 222]]);
+    expect(out).toMatchObject([{
+      kind: 'friend_message',
+      inviteCardGroupUin: 12345,
+      inviteCardSequence: 111,
+    }]);
   });
 });
 

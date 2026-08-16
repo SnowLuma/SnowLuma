@@ -21,21 +21,6 @@ export const decodeGroupAdmin: MsgPushDecoder = (ctx) => {
   const set = !!enableUid;
   const userUin = resolveUidToUin(ctx.identity, groupId, adminUid);
 
-  // Keep the in-memory member cache in step with the promotion/demotion.
-  // `get_group_member_info` serves straight from this cache on its
-  // default (no_cache=false) path — and we deliberately *don't*
-  // force-refresh there, because clients like OlivaDice/MaiBot query it
-  // once per inbound message and a per-message OIDB refetch trips
-  // Tencent risk-control (see the ContactsApi member-list cache). So if
-  // we don't patch the role here, a freshly-promoted admin keeps reading
-  // back as `member` until the member-list TTL lapses, and permission
-  // gates reject their commands (#93). Only touch a member we already
-  // know, and never downgrade the owner.
-  const cached = ctx.identity.findGroupMember(groupId, userUin);
-  if (cached && cached.role !== 'owner') {
-    ctx.identity.updateGroupMember(groupId, { ...cached, role: set ? 'admin' : 'member' });
-  }
-
   const ev: GroupAdminEvent = {
     kind: 'group_admin',
     time: ctx.head.timestamp,
