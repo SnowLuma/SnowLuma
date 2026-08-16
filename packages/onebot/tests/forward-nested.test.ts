@@ -375,6 +375,50 @@ describe('forward — nested {type:"node"} content', () => {
     });
   });
 
+  it('[#372] empty group card does not replace a cached sender nickname with the QQ number', async () => {
+    // Group events always store sender.card as "" when the member has no
+    // card. `??` treats that empty string as present and then
+    // `nickname || String(userUin)` collapses the display name to the QQ
+    // number — the get_forward_msg symptom in #372.
+    const uploadForwardNodes = vi.fn(async () => 'RES');
+    const sendGroupMessage = vi.fn(async () => ({
+      messageId: 1, sequence: 1, clientSequence: 0, random: 1, timestamp: 1,
+    }));
+    const findEvent = vi.fn((id: number) => id === 7 ? ({
+      user_id: 22222,
+      message_id: 7,
+      message_seq: 42,
+      message_type: 'group',
+      group_id: 12345,
+      time: 1700000000,
+      message: [{ type: 'text', data: { text: 'cached' } }],
+      sender: { user_id: 22222, nickname: 'alice', card: '' },
+    }) : id === 8 ? ({
+      user_id: 33333,
+      message_id: 8,
+      message_seq: 43,
+      message_type: 'group',
+      group_id: 12345,
+      time: 1700000000,
+      message: [{ type: 'text', data: { text: 'nameless' } }],
+      sender: { user_id: 33333, nickname: '', card: '' },
+    }) : null);
+    const bridge = fakeBridge({
+      apis: { message: { sendGroup: sendGroupMessage }, forward: { upload: uploadForwardNodes } },
+    } as any);
+    const ctx = makeCtx(bridge);
+    (ctx as any).messageStore = { findEvent };
+
+    await sendGroupForwardMessage(ctx, 12345, [
+      { type: 'node', data: { id: 7, nickname: 'node-override' } },
+      { type: 'node', data: { id: 8, nickname: 'node-fallback' } },
+    ] as any);
+
+    const [nodes] = uploadForwardNodes.mock.calls[0]!;
+    expect((nodes as any[])[0]).toMatchObject({ userUin: 22222, nickname: 'alice' });
+    expect((nodes as any[])[1]).toMatchObject({ userUin: 33333, nickname: 'node-fallback' });
+  });
+
   it('reports a missing cached message_id as caller-invalid before upload', async () => {
     const uploadForwardNodes = vi.fn(async () => 'RES');
     const sendGroupMessage = vi.fn();
