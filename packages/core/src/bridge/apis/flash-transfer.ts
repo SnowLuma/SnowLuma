@@ -35,6 +35,10 @@ import { deflateSync } from 'node:zlib';
 
 const FLASH_SLICE_SIZE = 1024 * 1024;
 
+/** After create returns, 0x93d4 can still omit the main-file fileId for a
+ *  few seconds (#364). Re-query on this schedule (first lookup is immediate). */
+const FLASH_FILE_ID_RETRY_DELAYS_MS = [1000, 2000, 4000, 4000] as const;
+
 /** Fail cleanly if the staged file changed since the streaming hash pass. */
 async function assertUnchanged(filePath: string, baseline: { size: number; mtimeMs: number }): Promise<void> {
   const now = await fsp.stat(filePath);
@@ -267,21 +271,30 @@ export class FlashTransferApi {
    * 多文件时每条 f6=序号、f14=主文件 fileId），按 fileIndex 选中后走 0x12a9 sub=200
    * 拿主文件直链。0x93d3/0x93d4 的 downloadUrl 字段是缩略图（appid=14903/14902），
    * 主文件必须走 0x12a9 sub=200。
+   *
+   * create 刚返回时 f14 可能还是空的（#364）。fileId 空则按
+   * FLASH_FILE_ID_RETRY_DELAYS_MS 再问 0x93d4；已经有 fileId 后 0x12a9 只打一枪。
    */
   private async getFileDownload(
     filesetUuid: string, fileIndex: number = 1,
   ): Promise<{ url: string; fileName: string; fileSize: number } | null> {
-    const metas = await GetDownloadUrl.invoke(this.ctx, { filesetUuid });
-    const meta = metas.find((m) => m.fileIndex === fileIndex);
-    if (!meta || !meta.fileId) return null;
-    const url = await GetFlashDownload.invoke(this.ctx, {
-      filesetUuid: meta.filesetUuid,
-      fileUuid: meta.fileUuid,
-      fileId: meta.fileId,
-      fileName: meta.fileName,
-    });
-    if (!url) return null;
-    return { url, fileName: meta.fileName, fileSize: meta.fileSize };
+    for (let attempt = 0; ; attempt++) {
+      const metas = await GetDownloadUrl.invoke(this.ctx, { filesetUuid });
+      const meta = metas.find((m) => m.fileIndex === fileIndex);
+      if (meta?.fileId) {
+        const url = await GetFlashDownload.invoke(this.ctx, {
+          filesetUuid: meta.filesetUuid,
+          fileUuid: meta.fileUuid,
+          fileId: meta.fileId,
+          fileName: meta.fileName,
+        });
+        if (!url) return null;
+        return { url, fileName: meta.fileName, fileSize: meta.fileSize };
+      }
+      const delay = FLASH_FILE_ID_RETRY_DELAYS_MS[attempt];
+      if (delay === undefined) return null;
+      await new Promise<void>((resolve) => setTimeout(resolve, delay));
+    }
   }
 
   /**

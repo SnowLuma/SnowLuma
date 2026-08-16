@@ -1679,7 +1679,7 @@ async function parseForwardNodes(
 
       const eventSender = asJsonObject(event.sender) ?? {};
       const senderCard = eventSender.card !== undefined ? String(eventSender.card) : undefined;
-      const nickname = String(eventSender.card ?? eventSender.nickname ?? nodeData.nickname ?? nodeData.name ?? '');
+      const nickname = String(eventSender.card || eventSender.nickname || nodeData.nickname || nodeData.name || '');
       const userUin = toPositiveInt(event.user_id);
       if (userUin <= 0) {
         throw new MessageElementValidationError(
