@@ -58,8 +58,12 @@ export class Bridge implements BridgeInterface {
     this.pipeline = new IncomingPacketPipeline({
       identity: this.identity,
       events: this.events,
-      refreshMemberCache: (groupId, refreshGroupList, forceMemberList) =>
-        this.refreshMemberCache(groupId, refreshGroupList, forceMemberList),
+      fetchGroupList: async () => {
+        await this.apis.contacts.fetchGroupList();
+      },
+      fetchGroupMemberList: async (groupId) => {
+        await this.apis.contacts.fetchGroupMemberList(groupId);
+      },
       resolveGroupJoinRequest: async (groupId, uid, subType) => {
         const [main, filtered] = await Promise.allSettled([
           this.apis.contacts.fetchGroupRequestsByUid(false),
@@ -240,14 +244,6 @@ export class Bridge implements BridgeInterface {
     return this.pipeline.process(pkt);
   }
 
-  private async refreshMemberCache(groupId: number, refreshGroupList: boolean, forceMemberList: boolean): Promise<boolean> {
-    if (refreshGroupList) {
-      try { await this.apis.contacts.fetchGroupList(); } catch { /* ignore */ }
-    }
-    if (!this.identity.findGroup(groupId)) return false;
-    await this.apis.contacts.fetchGroupMemberList(groupId, { force: forceMemberList });
-    return true;
-  }
   rememberUploadedFile(meta: UploadedFileMeta): void {
     if (!meta.fileId) return;
     if (this.uploadedFileMeta_.size >= Bridge.UPLOADED_FILE_CACHE_MAX) {

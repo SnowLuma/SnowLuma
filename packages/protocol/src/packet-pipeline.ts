@@ -40,12 +40,12 @@ class EnrichedDispatchError extends Error {
 export interface PacketPipelineDeps {
   identity: IdentityService;
   events: BridgeEventBus;
-  /**
-   * Refresh group + member roster as a side-effect. Resolves with
-   * whether any refresh actually ran (false when the group is unknown
-   * and `refreshGroupList` was false).
-   */
-  refreshMemberCache(groupId: number, refreshGroupList: boolean, forceMemberList: boolean): Promise<boolean>;
+  /** Account group-list fetch. Roster side-effect only; the pipeline
+   *  swallows failures and does not read the returned roster. */
+  fetchGroupList(): Promise<void>;
+  /** One group's member-list fetch (adapter TTL applies). Roster
+   *  side-effect only; the pipeline does not pass `force`. */
+  fetchGroupMemberList(groupId: number): Promise<void>;
   /**
    * Resolve the verify message ("postscript") + server sequence number
    * for a pending group-join / group-invite. The OIDB push only
@@ -335,12 +335,11 @@ export class IncomingPacketPipeline {
     pkt: PacketInfo,
     event: QQEventVariant,
     mode: 'sync' | 'enriched',
-    alreadyRefreshed = false,
   ): number {
     // Snapshot the sender's cached group card BEFORE dispatch — the side-effects
     // inside finishDispatch self-heal it, so the old value must be read first.
     const cardBefore = this.groupCardBefore(event);
-    this.finishDispatch(event, alreadyRefreshed);
+    this.finishDispatch(event);
     this.traceDispatch(pkt, event.kind, mode);
     if (!this.emitGroupCardChange(event, cardBefore)) return 1;
     this.traceDispatch(pkt, 'group_card_change', 'derived');
@@ -382,13 +381,10 @@ export class IncomingPacketPipeline {
 
   /**
    * Common dispatch tail shared by the sync path and the two async enrichment
-   * paths: run side effects, log the event, then emit it. `alreadyRefreshed` is
-   * threaded through to `handleSideEffects` (true only on the identity-refresh
-   * path, where the roster refresh was already done) — it defaults false, so
-   * `finishDispatch(event)` matches the old `handleSideEffects(event)` calls.
+   * paths: run side effects, log the event, then emit it.
    */
-  private finishDispatch(event: QQEventVariant, alreadyRefreshed = false): void {
-    this.handleSideEffects(event, alreadyRefreshed);
+  private finishDispatch(event: QQEventVariant): void {
+    this.handleSideEffects(event);
     printEvent(this.eventLog, this.deps.identity, event);
     this.emit(event);
   }
@@ -422,9 +418,8 @@ export class IncomingPacketPipeline {
     pkt: PacketInfo,
     event: Extract<QQEventVariant, { kind: 'group_member_join' }>,
   ): Promise<number> {
-    let refreshed = false;
     try {
-      refreshed = await this.prepareGroupMemberJoinIdentity(event);
+      await this.prepareGroupMemberJoinIdentity(event);
     } catch (e) {
       this.packetLog.trace(() => [
         'packet_branch serviceCmd=%j seqId=%d branch=enrichment_degraded eventKind=%j enrichment="identity_refresh" error=%j',
@@ -438,7 +433,7 @@ export class IncomingPacketPipeline {
     }
 
     try {
-      return this.dispatchEvent(pkt, event, 'enriched', refreshed);
+      return this.dispatchEvent(pkt, event, 'enriched');
     } catch (error) {
       throw new EnrichedDispatchError(error);
     }
@@ -546,15 +541,13 @@ export class IncomingPacketPipeline {
     }
   }
 
-  private async prepareGroupMemberJoinIdentity(event: Extract<QQEventVariant, { kind: 'group_member_join' }>): Promise<boolean> {
+  private async prepareGroupMemberJoinIdentity(event: Extract<QQEventVariant, { kind: 'group_member_join' }>): Promise<void> {
     this.resolveMemberIdentityFromCache(event);
-    if (event.userUin > 0 || !event.userUid) return false;
+    if (event.userUin > 0 || !event.userUid) return;
 
     const uin = await this.deps.identity.resolveUin(event.userUid, event.groupId);
     if (uin !== null) event.userUin = uin;
     this.resolveMemberIdentityFromCache(event);
-    // Roster refresh stays a post-dispatch side-effect, not the UIN hop.
-    return false;
   }
 
   private resolveMemberIdentityFromCache(event: GroupMemberIdentityEvent): void {
@@ -574,9 +567,8 @@ export class IncomingPacketPipeline {
     return (uin > 0 && uin === selfUin) || (Boolean(uid) && uid === this.deps.identity.selfUid);
   }
 
-  private handleSideEffects(event: QQEventVariant, alreadyRefreshed = false): void {
+  private handleSideEffects(event: QQEventVariant): void {
     this.rememberEventIdentity(event);
-    if (alreadyRefreshed) return;
 
     let groupId = 0;
     let reason = '';
@@ -607,7 +599,16 @@ export class IncomingPacketPipeline {
 
     const task = (async () => {
       try {
-        await this.deps.refreshMemberCache(groupId, refreshGroupList, false);
+        if (refreshGroupList) {
+          try {
+            await this.deps.fetchGroupList();
+          } catch { /* ignore */ }
+        }
+        if (!this.deps.identity.findGroup(groupId)) {
+          this.log.debug('member cache refreshed: group=%d reason=%s', groupId, reason);
+          return;
+        }
+        await this.deps.fetchGroupMemberList(groupId);
         this.log.debug('member cache refreshed: group=%d reason=%s', groupId, reason);
       } catch (e) {
         this.log.warn('failed to refresh member cache: group=%d reason=%s err=%s',
