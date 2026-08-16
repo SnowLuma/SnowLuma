@@ -7,7 +7,7 @@ import {
 } from '../message-id';
 import type { JsonObject } from '../types';
 import type { ConverterContext } from './index';
-import { elementsToJson } from './to-segment';
+import { elementsToOneBotSegments } from './to-segment';
 import { applyMessageIdResolver } from './utils';
 import { message } from './envelope';
 
@@ -15,13 +15,8 @@ type FriendMessage = Extract<QQEventVariant, { kind: 'friend_message' }>;
 type GroupMessage = Extract<QQEventVariant, { kind: 'group_message' }>;
 type TempMessage = Extract<QQEventVariant, { kind: 'temp_message' }>;
 
-/** Fill the media/id resolvers from ctx — collapses the 7-arg elementsToJson splat. */
 function toSegments(ctx: ConverterContext, elements: MessageElement[], isGroup: boolean, sessionId: number) {
-  return elementsToJson(
-    elements, isGroup, sessionId,
-    ctx.imageUrlResolver, ctx.mediaUrlResolver, ctx.messageIdResolver, ctx.mediaSegmentSink,
-    ctx.selfId,
-  );
+  return elementsToOneBotSegments(ctx, elements, isGroup, sessionId);
 }
 
 /**
