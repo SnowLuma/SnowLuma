@@ -1,23 +1,17 @@
-// Group ext-info modify (robot-add option), RE'd from QQNT
-// wrapper.linux.node — OidbSvcTrpcTcp.0xf00_3 (modifyGroupExtInfoV2,
-// codec `group_ext_list_modify_codec.cc`). Worker ctor sub_4180800 passes
-// cmd=0xf00, sub=3, flag=1 (uin form).
+// Group ext-info modify (robot-add option).
+// OidbSvcTrpcTcp.0xf00_3 / modifyGroupExtInfoV2.
 //
-// Wire (EncodeModifyGroupExtInfoReq sub_4180B80 + ...Params sub_4180980):
-//   ModifyGroupExtInfoReq{ 1:groupCode, 2:GroupExtInfo{ 1:groupCode,
-//     2:EXTInfo{ 30:inviteRobotMemberSwitch, 31:inviteRobotMemberExamine } } }
-// The GroupExtFilter that modifyGroupExtInfoV2 takes as its 2nd arg is
-// CLIENT-SIDE ONLY (it gates which EXTInfo fields the encoder emits); it is
-// NOT a wire field. So presence of EXTInfo tag 30/31 IS the write signal.
-// NOTE: proto3 omits zero-valued scalars, so a value of 0 will not transmit;
-// the robot toggles are non-zero in practice (QQ avoids 0 for set-states).
-// Response (DecodeModifyGroupExtInfoRsp sub_4180DB0): {1:groupCode, 2:result}.
+// Wire: ModifyGroupExtInfoReq{ 1:groupCode, 2:GroupExtInfo{ 1:groupCode,
+//   2:EXTInfo{ 29:inviteRobotMemberSwitch, 30:inviteRobotMemberExamine } } }
+// GroupExtFilter is client-side only: it decides which EXTInfo fields the
+// encoder emits. Presence of tag 29/30 IS the write signal, including 0.
+// Response: {1:groupCode, 2:result}.
 
-import type { pb, int_32, uint_32 } from '@snowluma/proton';
+import type { pb, pb_optional, int_32, uint_32 } from '@snowluma/proton';
 
 export interface OidbGroupExtBody {
-  inviteRobotMemberSwitch?:  pb<30, uint_32>;
-  inviteRobotMemberExamine?: pb<31, uint_32>;
+  inviteRobotMemberSwitch?:  pb_optional<29, uint_32>;
+  inviteRobotMemberExamine?: pb_optional<30, uint_32>;
 }
 export interface OidbGroupExtInfo {
   groupCode?: pb<1, uint_32>;

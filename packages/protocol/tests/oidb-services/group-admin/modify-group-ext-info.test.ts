@@ -29,24 +29,42 @@ describe('ModifyGroupExtInfo namespace', () => {
       .toEqual({ groupCode: 1, info: { groupCode: 1, ext: {} } });
   });
 
-  it('byte-oracle: routes to 0xf00_3 and locks nested tags {1:gc,2:{1:gc,2:{30:switch,31:examine}}}', async () => {
+  it('byte-oracle: routes to 0xf00_3 and locks nested tags {1:gc,2:{1:gc,2:{29:switch,30:examine}}}', async () => {
     const sender = makeSender();
     await ModifyGroupExtInfo.invoke(sender, { groupId: 12345, robotMemberSwitch: 1, robotMemberExamine: 2 });
 
     const [cmd, bytes] = sender.sendRawPacket.mock.calls[0]!;
     expect(cmd).toBe('OidbSvcTrpcTcp.0xf00_3');
-    const ext = [...v(30, 1), ...v(31, 2)];
+    const ext = [...v(29, 1), ...v(30, 2)];
     const info = [...v(1, 12345), ...m(2, ext)];
     const body = [...v(1, 12345), ...m(2, info)];
     expect(Buffer.from(bytes).toString('hex')).toBe(env(0xF00, 3, body, true));
   });
 
-  it('CAVEAT: a value of 0 is omitted on the wire (proto3 default) — documents the disable edge', async () => {
+  it('emits switch=0 on the wire (explicit presence; omit would look like "unchanged")', async () => {
     const sender = makeSender();
     await ModifyGroupExtInfo.invoke(sender, { groupId: 12345, robotMemberSwitch: 0 });
     const [, bytes] = sender.sendRawPacket.mock.calls[0]!;
-    // tag 30 varint = 0xF0 0x01; with value 0 it must NOT appear on the wire.
-    expect(Buffer.from(bytes).toString('hex')).not.toContain('f001');
+    const ext = [...v(29, 0)];
+    const info = [...v(1, 12345), ...m(2, ext)];
+    const body = [...v(1, 12345), ...m(2, info)];
+    expect(Buffer.from(bytes).toString('hex')).toBe(env(0xF00, 3, body, true));
+  });
+
+  it('emits both zeros when the caller sets switch and examine to 0', async () => {
+    const sender = makeSender();
+    await ModifyGroupExtInfo.invoke(sender, { groupId: 12345, robotMemberSwitch: 0, robotMemberExamine: 0 });
+    const [, bytes] = sender.sendRawPacket.mock.calls[0]!;
+    const ext = [...v(29, 0), ...v(30, 0)];
+    const info = [...v(1, 12345), ...m(2, ext)];
+    const body = [...v(1, 12345), ...m(2, info)];
+    expect(Buffer.from(bytes).toString('hex')).toBe(env(0xF00, 3, body, true));
+  });
+
+  it('does not send when neither field is provided', async () => {
+    const sender = makeSender();
+    await ModifyGroupExtInfo.invoke(sender, { groupId: 12345 });
+    expect(sender.sendRawPacket).not.toHaveBeenCalled();
   });
 
   it('deserialize throws on a non-zero body result', () => {
