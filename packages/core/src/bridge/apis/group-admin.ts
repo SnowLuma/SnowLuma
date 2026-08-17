@@ -21,8 +21,6 @@ import {
 } from '@snowluma/protocol/oidb-services/group-admin/set-member-invite-policy';
 import {
   decodeGroupHistoryVisibility,
-  GROUP_HISTORY_VISIBILITY_MASK,
-  mergeGroupHistoryVisibility,
   SetNewMemberHistoryVisibility,
 } from '@snowluma/protocol/oidb-services/group-admin/set-new-member-history-visibility';
 import {
@@ -188,29 +186,21 @@ export class GroupAdminApi {
   }
 
   async setNewMemberHistoryVisibility(groupId: number, visible: boolean): Promise<void> {
-    const currentGroupFlagExt4 = await this.fetchGroupFlagExt4(groupId, 'before update');
-    const expectedGroupFlagExt4 = mergeGroupHistoryVisibility(currentGroupFlagExt4, visible);
-
-    await SetNewMemberHistoryVisibility.invoke(this.ctx, {
-      groupId,
-      currentGroupFlagExt4,
-      visible,
-    });
+    await SetNewMemberHistoryVisibility.invoke(this.ctx, { groupId, visible });
 
     const actualGroupFlagExt4 = await this.fetchGroupFlagExt4(groupId, 'after update');
-    const mask = BigInt(GROUP_HISTORY_VISIBILITY_MASK);
-    if ((BigInt(actualGroupFlagExt4) & mask) !== (BigInt(expectedGroupFlagExt4) & mask)) {
+    if (decodeGroupHistoryVisibility(actualGroupFlagExt4) !== visible) {
       throw new Error(`new-member history visibility was not applied for group ${groupId}`);
     }
   }
 
   private async fetchGroupFlagExt4(groupId: number, phase: string): Promise<number> {
     const detail = await FetchGroupDetail.invoke(this.ctx, { groupUin: groupId });
-    const groupFlagExt4 = detail.groupInfo?.results?.groupFlagExt4;
-    if (typeof groupFlagExt4 !== 'number') {
+    const results = detail.groupInfo?.results;
+    if (!results) {
       throw new Error(`unable to read new-member history visibility ${phase} for group ${groupId}`);
     }
-    return groupFlagExt4;
+    return results.groupFlagExt4 ?? 0;
   }
 
   setAddRequest(

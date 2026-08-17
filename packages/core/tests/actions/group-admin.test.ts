@@ -321,53 +321,83 @@ describe('apis/group-admin', () => {
     expect(bridge.sendRawPacket).toHaveBeenCalledTimes(3);
   });
 
-  it('setNewMemberHistoryVisibility reads, merges, writes, and verifies the extended flag (#336)', async () => {
+  it('setNewMemberHistoryVisibility accepts a 0/1 history-visible read-back (#387)', async () => {
     const bridge = mockBridge();
     bridge.sendRawPacket
-      .mockResolvedValueOnce(packGroupFlagExt4(0x80000001))
       .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
-      .mockResolvedValueOnce(packGroupFlagExt4(0x80000005));
+      .mockResolvedValueOnce(packGroupFlagExt4(1));
 
     await new GroupAdminApi(bridge as any).setNewMemberHistoryVisibility(12345, true);
 
     expect(bridge.sendRawPacket.mock.calls.map((call) => call[0])).toEqual([
-      'OidbSvcTrpcTcp.0x88d_0',
       'OidbSvcTrpcTcp.0x89a_0',
       'OidbSvcTrpcTcp.0x88d_0',
     ]);
     const envelope = protobuf_decode<OidbBase<Oidb0x89a_0HistoryVisibility>>(
-      bridge.sendRawPacket.mock.calls[1]![1],
+      bridge.sendRawPacket.mock.calls[0]![1],
     );
     expect(envelope.body).toMatchObject({
       groupUin: 12345n,
       settings: {
-        groupFlagExt4: 0x80000005,
+        groupFlagExt4: 0x4,
         groupFlagExt4Mask: 0x4,
       },
     });
   });
 
-  it('setNewMemberHistoryVisibility fails before mutation when the current flag is absent', async () => {
+  it('setNewMemberHistoryVisibility clears visibility when read-back is the off flag', async () => {
     const bridge = mockBridge();
-    bridge.sendRawPacket.mockResolvedValueOnce(packGroupFlagExt4());
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
+      .mockResolvedValueOnce(packGroupFlagExt4(0));
+
+    await new GroupAdminApi(bridge as any).setNewMemberHistoryVisibility(12345, false);
+
+    const envelope = protobuf_decode<OidbBase<Oidb0x89a_0HistoryVisibility>>(
+      bridge.sendRawPacket.mock.calls[0]![1],
+    );
+    expect(envelope.body?.settings).toEqual({
+      groupFlagExt4: 0,
+      groupFlagExt4Mask: 0x4,
+    });
+  });
+
+  it('setNewMemberHistoryVisibility treats an omitted history flag as hidden', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
+      .mockResolvedValueOnce(packGroupFlagExt4());
+
+    await new GroupAdminApi(bridge as any).setNewMemberHistoryVisibility(12345, false);
+    expect(bridge.sendRawPacket).toHaveBeenCalledTimes(2);
+  });
+
+  it('setNewMemberHistoryVisibility fails when group detail has no results block', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
+      .mockResolvedValueOnce(packResponse(
+        protobuf_encode<OidbBase<OidbSvcTrpcTcp0x88D_0Response>>({
+          body: { groupInfo: { uin: 12345n } },
+        }),
+      ));
 
     await expect(
       new GroupAdminApi(bridge as any).setNewMemberHistoryVisibility(12345, true),
-    ).rejects.toThrow(/unable to read new-member history visibility before update/);
-    expect(bridge.sendRawPacket).toHaveBeenCalledOnce();
+    ).rejects.toThrow(/unable to read new-member history visibility after update/);
+    expect(bridge.sendRawPacket).toHaveBeenCalledTimes(2);
   });
 
-  it('setNewMemberHistoryVisibility rejects an ack when read-back does not match', async () => {
+  it('setNewMemberHistoryVisibility rejects an ack when read-back stays hidden', async () => {
     const bridge = mockBridge();
     bridge.sendRawPacket
-      .mockResolvedValueOnce(packGroupFlagExt4(0x80000001))
       .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
-      .mockResolvedValueOnce(packGroupFlagExt4(0x80000001));
+      .mockResolvedValueOnce(packGroupFlagExt4(0));
 
     await expect(
       new GroupAdminApi(bridge as any).setNewMemberHistoryVisibility(12345, true),
     ).rejects.toThrow(/was not applied/);
-    expect(bridge.sendRawPacket).toHaveBeenCalledTimes(3);
+    expect(bridge.sendRawPacket).toHaveBeenCalledTimes(2);
   });
 
   it('setMemberPermissions applies supplied switches separately and verifies the combined result (#335)', async () => {
@@ -462,7 +492,7 @@ describe('apis/group-admin', () => {
           question: 'how',
           answer: '42',
           privilegeFlag: 0x84018001,
-          groupFlagExt4: 0x80000005,
+          groupFlagExt4: 1,
           noFingerOpen: 1,
         });
       }
