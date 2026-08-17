@@ -435,6 +435,7 @@ export class GroupAlbumApi {
   }
 
   async delete(groupId: number, albumId: string, lloc: string): Promise<{ success: true }> {
+    const target = await this.resolveDeleteTarget(groupId, albumId, lloc);
     const uin = this.ctx.identity.uin;
     const clientKey = `${uin}_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
 
@@ -445,7 +446,8 @@ export class GroupAlbumApi {
       body: {
         groupId: groupId.toString(),
         albumId,
-        lloc,
+        mediaIds: [target.mediaId],
+        ...(target.batchId ? { batchIds: [target.batchId] } : {}),
       },
       traceId: clientKey,
       extMap: [{ key: 'fc-appid', value: '100' }],
@@ -472,7 +474,70 @@ export class GroupAlbumApi {
 
     return { success: true };
   }
+
+  /**
+   * Official delete uses a photo lloc, or a video's cover lloc plus batch id.
+   * Callers may pass either an image lloc or a video id; resolve the latter.
+   */
+  private async resolveDeleteTarget(
+    groupId: number,
+    albumId: string,
+    mediaKey: string,
+  ): Promise<{ mediaId: string; batchId?: string }> {
+    try {
+      const seenCursors = new Set<string>();
+      let attachInfo = '';
+      while (true) {
+        const page = await this.getMediaList(groupId, albumId, attachInfo);
+        const hit = findDeleteTarget(page.mediaList, mediaKey);
+        if (hit) return hit;
+
+        const next = page.nextAttachInfo ?? '';
+        if (!next || seenCursors.has(next)) {
+          return { mediaId: mediaKey };
+        }
+        seenCursors.add(next);
+        attachInfo = next;
+      }
+    } catch (err) {
+      log.debug(
+        'resolve album delete target failed, using raw id: group=%d album=%s err=%s',
+        groupId,
+        albumId,
+        err instanceof Error ? err.message : String(err),
+      );
+      return { mediaId: mediaKey };
+    }
+  }
 }
+
+interface AlbumDeleteMediaItem {
+  image?: { lloc?: string } | null;
+  video?: { id?: string; cover?: { lloc?: string } | null } | null;
+  batchId?: string | number;
+}
+
+function findDeleteTarget(
+  mediaList: ReadonlyArray<unknown>,
+  mediaKey: string,
+): { mediaId: string; batchId?: string } | undefined {
+  for (const raw of mediaList) {
+    if (!raw || typeof raw !== 'object') continue;
+    const item = raw as AlbumDeleteMediaItem;
+    const batchId = item.batchId === undefined || item.batchId === ''
+      ? undefined
+      : String(item.batchId);
+    if (item.image?.lloc === mediaKey) {
+      return { mediaId: mediaKey, batchId };
+    }
+    const coverLloc = item.video?.cover?.lloc;
+    if (item.video?.id === mediaKey || coverLloc === mediaKey) {
+      return { mediaId: coverLloc || mediaKey, batchId };
+    }
+  }
+  return undefined;
+}
+
 export interface GroupAlbumMediaResult {
   mediaList: Array<JsonValue & Partial<MediaInfo>>;
   nextAttachInfo: string;

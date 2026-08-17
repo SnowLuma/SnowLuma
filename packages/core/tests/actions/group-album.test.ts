@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type {
+  DeleteMediasRequest,
+  DeleteMediasResponse,
   GetAlbumListResponse,
   GetMediaListResponse,
 } from '@snowluma/proto-defs/oidb-actions/group-album';
@@ -436,5 +438,129 @@ describe('apis/group-album', () => {
       }],
       nextAttachInfo: 'next-video-page',
     });
+  });
+
+  function packDeleteOk() {
+    return {
+      success: true,
+      gotResponse: true,
+      errorCode: 0,
+      errorMessage: '',
+      responseData: Buffer.from(protobuf_encode<DeleteMediasResponse>({ field1: 8694 })),
+    };
+  }
+
+  function packMediaList(body: GetMediaListResponse['data']) {
+    return {
+      success: true,
+      gotResponse: true,
+      errorCode: 0,
+      errorMessage: '',
+      responseData: Buffer.from(protobuf_encode<GetMediaListResponse>({ data: body })),
+    };
+  }
+
+  it('deletes a photo by lloc and includes the batch id', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockImplementation(async (cmd: string) => {
+      if (cmd.endsWith('GetMediaList')) {
+        return packMediaList({
+          mediaList: [{ type: 1, image: { lloc: 'photo-lloc' }, batchId: 77n }],
+        });
+      }
+      return packDeleteOk();
+    });
+
+    await expect(new GroupAlbumApi(bridge as never).delete(12345, 'album-id', 'photo-lloc'))
+      .resolves.toEqual({ success: true });
+
+    const deleteCall = bridge.sendRawPacket.mock.calls.find((call) =>
+      String(call[0]).endsWith('DeleteMedias'),
+    );
+    expect(deleteCall?.[0]).toBe('QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.DeleteMedias');
+    const request = protobuf_decode<DeleteMediasRequest>(deleteCall![1] as Uint8Array);
+    expect(request.body).toMatchObject({
+      groupId: '12345',
+      albumId: 'album-id',
+      mediaIds: ['photo-lloc'],
+      batchIds: ['77'],
+    });
+  });
+
+  it('deletes a video by video id using the cover lloc', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockImplementation(async (cmd: string) => {
+      if (cmd.endsWith('GetMediaList')) {
+        return packMediaList({
+          mediaList: [{
+            type: 2,
+            video: { id: 'video-id', cover: { lloc: 'cover-large' } },
+            batchId: 88n,
+          }],
+        });
+      }
+      return packDeleteOk();
+    });
+
+    await expect(new GroupAlbumApi(bridge as never).delete(12345, 'album-id', 'video-id'))
+      .resolves.toEqual({ success: true });
+
+    const deleteCall = bridge.sendRawPacket.mock.calls.find((call) =>
+      String(call[0]).endsWith('DeleteMedias'),
+    );
+    const request = protobuf_decode<DeleteMediasRequest>(deleteCall![1] as Uint8Array);
+    expect(request.body?.mediaIds).toEqual(['cover-large']);
+    expect(request.body?.batchIds).toEqual(['88']);
+  });
+
+  it('pages the media list until the video is found', async () => {
+    const bridge = mockBridge();
+    let pages = 0;
+    bridge.sendRawPacket.mockImplementation(async (cmd: string) => {
+      if (cmd.endsWith('GetMediaList')) {
+        pages += 1;
+        if (pages === 1) {
+          return packMediaList({
+            mediaList: [{ type: 1, image: { lloc: 'other' }, batchId: 1n }],
+            nextAttachInfo: 'page-2',
+          });
+        }
+        return packMediaList({
+          mediaList: [{
+            type: 2,
+            video: { id: 'video-id', cover: { lloc: 'cover-2' } },
+            batchId: 2n,
+          }],
+        });
+      }
+      return packDeleteOk();
+    });
+
+    await new GroupAlbumApi(bridge as never).delete(12345, 'album-id', 'video-id');
+    expect(pages).toBe(2);
+    const deleteCall = bridge.sendRawPacket.mock.calls.find((call) =>
+      String(call[0]).endsWith('DeleteMedias'),
+    );
+    const request = protobuf_decode<DeleteMediasRequest>(deleteCall![1] as Uint8Array);
+    expect(request.body?.mediaIds).toEqual(['cover-2']);
+    expect(request.body?.batchIds).toEqual(['2']);
+  });
+
+  it('falls back to the raw id when the media list has no match', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockImplementation(async (cmd: string) => {
+      if (cmd.endsWith('GetMediaList')) {
+        return packMediaList({ mediaList: [] });
+      }
+      return packDeleteOk();
+    });
+
+    await new GroupAlbumApi(bridge as never).delete(12345, 'album-id', 'unknown-id');
+    const deleteCall = bridge.sendRawPacket.mock.calls.find((call) =>
+      String(call[0]).endsWith('DeleteMedias'),
+    );
+    const request = protobuf_decode<DeleteMediasRequest>(deleteCall![1] as Uint8Array);
+    expect(request.body?.mediaIds).toEqual(['unknown-id']);
+    expect(request.body?.batchIds ?? []).toEqual([]);
   });
 });

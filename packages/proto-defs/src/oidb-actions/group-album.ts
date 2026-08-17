@@ -278,7 +278,10 @@ export interface DoQunLikeResponse {
 export interface DeleteMediasReqBody {
   groupId?: pb<1, string>;
   albumId?: pb<2, string>;
-  lloc?:    pb<3, string>;
+  // deleteMedias 4th arg: photo lloc, or a video's cover lloc.
+  mediaIds?: pb_repeated<3, string>;
+  // deleteMedias 5th arg: matching batch ids. Android always sends these.
+  batchIds?: pb_repeated<4, string>;
 }
 export interface DeleteMediasRequest {
   field1?:  pb<1, int_32>;
