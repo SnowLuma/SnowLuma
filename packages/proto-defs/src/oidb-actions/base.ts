@@ -363,8 +363,8 @@ export interface OidbGroupDetailFlags {
   // Official request mask for group shutup expire (proto tag 45 → 60027).
   // Lagrange's tag 59 requests 60259, which is a different field.
   shutUpAllTimestamp?: pb<45, bool>;
-  /** Current complete app privilege bitfield; needed for masked mutations. */
-  privilegeFlag?:   pb<99, bool>;
+  /** Request the complete app privilege bitfield. */
+  privilegeFlag?:   pb<56, bool>;
   /** Request the new-member history-visible switch. */
   groupFlagExt4?:   pb<101, bool>;
   noFingerOpen?:     pb<82, bool>;

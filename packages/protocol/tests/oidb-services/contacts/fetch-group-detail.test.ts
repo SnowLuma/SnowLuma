@@ -20,7 +20,7 @@ interface GroupDetailResultsFixture {
   name?: pb<15, string>;
   shutUpAllTimestamp?: pb<45, uint_32>;
   leftover59?: pb<59, uint_32>;
-  privilegeFlag?: pb<99, uint_32>;
+  privilegeFlag?: pb<56, uint_32>;
   groupFlagExt4?: pb<101, uint_32>;
 }
 

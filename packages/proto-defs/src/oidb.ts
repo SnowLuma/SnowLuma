@@ -126,8 +126,8 @@ export interface OidbSvcTrpcTcp0x88D_0Results {
   // DecodeSingleGroupDetailInfoByBaseFilter: tag 45 → internal 60027.
   // Tag 59 is 60259, not the mute expire. Request mask tag is also 45.
   shutUpAllTimestamp?: pb<45, uint_32>;
-  /** Complete app privilege bitfield (requested with detail flag tag 99). */
-  privilegeFlag?:   pb<99, uint_32>;
+  /** Complete app privilege bitfield (requested with detail flag tag 56). */
+  privilegeFlag?:   pb<56, uint_32>;
   /** New-member history-visible switch (0/1; omitted means hidden). */
   groupFlagExt4?:   pb<101, uint_32>;
   // DecodeSingleGroupDetailInfoByBaseFilter: tag 82 → 60282, tag 83 → 60283.
