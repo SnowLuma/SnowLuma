@@ -950,7 +950,46 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
     }
   }
 
-  return result;
+  return dropLegacyImageSiblings(result);
+}
+
+function isNtImage(element: MessageElement): boolean {
+  if (element.type !== 'image') return false;
+  if (element.picFormat != null || element.sha1Hex) return true;
+  const url = element.imageUrl ?? '';
+  return url.includes('://multimedia.nt.qq.com.cn/');
+}
+
+function isUsableImageUrl(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+  if (parsed.hostname === 'multimedia.nt.qq.com.cn') return parsed.pathname.length > 1;
+  return parsed.pathname.length > 1;
+}
+
+function sameImageFile(left: MessageElement, right: MessageElement): boolean {
+  if (left.type !== 'image' || right.type !== 'image') return false;
+  if (left.fileId && right.fileId && left.fileId === right.fileId) return true;
+  return Boolean(left.md5Hex && right.md5Hex && left.md5Hex === right.md5Hex);
+}
+
+// [#389] NT pictures arrive as CommonElem plus a CustomFace / NotOnlineImage
+// sibling for older clients. QQ shows one picture. Keep the NT image and drop
+// the sibling when it names the same file, or when its URL cannot be fetched.
+function dropLegacyImageSiblings(elements: MessageElement[]): MessageElement[] {
+  const ntImages = elements.filter(isNtImage);
+  return elements.filter((element) => {
+    if (element.type !== 'image') return true;
+    if (isNtImage(element)) return true;
+    const url = element.imageUrl ?? '';
+    if (!url || !isUsableImageUrl(url)) return false;
+    return !ntImages.some((nt) => sameImageFile(nt, element));
+  });
 }
 
 /**

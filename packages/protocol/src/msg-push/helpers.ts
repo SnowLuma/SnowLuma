@@ -13,7 +13,13 @@ export type DecompressDataResult =
 
 export function makeImageUrl(origUrl: string): string {
   if (!origUrl) return '';
-  if (origUrl.includes('rkey')) return 'https://multimedia.nt.qq.com.cn' + origUrl;
+  if (/^https?:\/\//i.test(origUrl)) return origUrl;
+  // Compatibility faces sometimes carry a query fragment without a path.
+  // Prefixing the host onto that produces an unusable URL.
+  if (!origUrl.startsWith('/')) return '';
+  if (origUrl.includes('rkey') || origUrl.includes('fileid')) {
+    return 'https://multimedia.nt.qq.com.cn' + origUrl;
+  }
   return 'http://gchat.qpic.cn' + origUrl;
 }
 
