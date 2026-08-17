@@ -128,7 +128,7 @@ export interface OidbSvcTrpcTcp0x88D_0Results {
   shutUpAllTimestamp?: pb<45, uint_32>;
   /** Complete app privilege bitfield (requested with detail flag tag 99). */
   privilegeFlag?:   pb<99, uint_32>;
-  /** Complete groupFlagExt4 bitfield (requested with detail flag tag 101). */
+  /** New-member history-visible switch (0/1; omitted means hidden). */
   groupFlagExt4?:   pb<101, uint_32>;
   // DecodeSingleGroupDetailInfoByBaseFilter: tag 82 → 60282, tag 83 → 60283.
   // SET counterparts are 0x89A settings 35/36. 0 = that search mode is open.

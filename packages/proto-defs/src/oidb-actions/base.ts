@@ -365,7 +365,7 @@ export interface OidbGroupDetailFlags {
   shutUpAllTimestamp?: pb<45, bool>;
   /** Current complete app privilege bitfield; needed for masked mutations. */
   privilegeFlag?:   pb<99, bool>;
-  /** Current complete groupFlagExt4 bitfield; needed for masked mutations. */
+  /** Request the new-member history-visible switch. */
   groupFlagExt4?:   pb<101, bool>;
   noFingerOpen?:     pb<82, bool>;
   noCodeFingerOpen?: pb<83, bool>;
