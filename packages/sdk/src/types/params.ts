@@ -88,6 +88,8 @@ export interface SetGroupWholeBanParams extends GroupIdParams {
 
 export interface SetGroupAddOptionParams extends GroupIdParams {
   add_type: number;
+  group_question?: string;
+  group_answer?: string;
 }
 
 export interface SetGroupAdminParams extends GroupIdParams {

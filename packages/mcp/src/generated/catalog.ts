@@ -3877,6 +3877,14 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "description": "加群选项（同 set_group_add_option.add_type）"
         },
+        "group_question": {
+          "type": "string",
+          "description": "加群问题（同 set_group_add_option.group_question）"
+        },
+        "group_answer": {
+          "type": "string",
+          "description": "加群答案（同 set_group_add_option.group_answer）"
+        },
         "robot_member_switch": {
           "type": "integer",
           "description": "机器人加群开关（同 set_group_robot_add_option）"
@@ -3922,6 +3930,8 @@ export const ACTIONS: CatalogAction[] = [
       },
       "required": [
         "add_type",
+        "group_question",
+        "group_answer",
         "robot_member_switch",
         "robot_member_examine",
         "member_invite_policy",
@@ -9620,6 +9630,22 @@ export const ACTIONS: CatalogAction[] = [
           "minimum": 0
         },
         "default": 0
+      },
+      {
+        "name": "group_question",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "group_answer",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
       }
     ],
     "invariants": [],
@@ -9636,6 +9662,12 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "minimum": 0,
           "default": 0
+        },
+        "group_question": {
+          "type": "string"
+        },
+        "group_answer": {
+          "type": "string"
         }
       },
       "required": [

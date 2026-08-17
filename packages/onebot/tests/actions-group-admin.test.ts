@@ -454,23 +454,40 @@ describe('set_group_add_option parse', () => {
   it('defaults add_type to 0 and keeps a present 0', () => {
     expect(setGroupAddOption.parse({ group_id: 12345 })).toEqual({
       ok: true,
-      value: { group_id: 12345, add_type: 0 },
+      value: { group_id: 12345, add_type: 0, group_question: undefined, group_answer: undefined },
     });
     expect(setGroupAddOption.parse({ group_id: 12345, add_type: 0 })).toEqual({
       ok: true,
-      value: { group_id: 12345, add_type: 0 },
+      value: { group_id: 12345, add_type: 0, group_question: undefined, group_answer: undefined },
     });
   });
 
   it('accepts a positive add_type and rejects a negative one', () => {
     expect(setGroupAddOption.parse({ group_id: 12345, add_type: '2' })).toEqual({
       ok: true,
-      value: { group_id: 12345, add_type: 2 },
+      value: { group_id: 12345, add_type: 2, group_question: undefined, group_answer: undefined },
     });
     expect(setGroupAddOption.parse({ group_id: 12345, add_type: -1 })).toEqual({
       ok: false,
       field: 'add_type',
       reason: 'must be >= 0',
+    });
+  });
+
+  it('keeps optional question and answer when present', () => {
+    expect(setGroupAddOption.parse({
+      group_id: 12345,
+      add_type: 4,
+      group_question: 'q',
+      group_answer: 'a',
+    })).toEqual({
+      ok: true,
+      value: {
+        group_id: 12345,
+        add_type: 4,
+        group_question: 'q',
+        group_answer: 'a',
+      },
     });
   });
 });
@@ -483,7 +500,7 @@ describe('set_group_add_option toHandler', () => {
     await expect(setGroupAddOption.toHandler(ctx)({ group_id: 12345 }))
       .resolves.toEqual({ status: 'ok', retcode: 0, data: null });
 
-    expect(setAddOption.mock.calls).toEqual([[12345, 0]]);
+    expect(setAddOption.mock.calls).toEqual([[12345, 0, undefined, undefined]]);
   });
 
   it('forwards an explicit add_type', async () => {
@@ -495,7 +512,21 @@ describe('set_group_add_option toHandler', () => {
       add_type: 3,
     })).resolves.toEqual({ status: 'ok', retcode: 0, data: null });
 
-    expect(setAddOption.mock.calls).toEqual([[941657197, 3]]);
+    expect(setAddOption.mock.calls).toEqual([[941657197, 3, undefined, undefined]]);
+  });
+
+  it('forwards question and answer', async () => {
+    const setAddOption = vi.fn(async () => {});
+    const { ctx } = adminCtx({ setAddOption });
+
+    await expect(setGroupAddOption.toHandler(ctx)({
+      group_id: 941657197,
+      add_type: 4,
+      group_question: 'q',
+      group_answer: 'a',
+    })).resolves.toEqual({ status: 'ok', retcode: 0, data: null });
+
+    expect(setAddOption.mock.calls).toEqual([[941657197, 4, 'q', 'a']]);
   });
 });
 
@@ -780,6 +811,8 @@ describe('get_group_admin_settings toHandler', () => {
   it('forwards group_id and returns the current settings', async () => {
     const settings = {
       add_type: 2,
+      group_question: 'q',
+      group_answer: 'a',
       robot_member_switch: 1,
       robot_member_examine: 0,
       member_invite_policy: 'require_approval',

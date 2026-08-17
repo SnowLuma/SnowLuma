@@ -39,6 +39,8 @@ import type { BridgeContext } from '../bridge-context';
 
 export type GroupAdminSettings = {
   add_type: number;
+  group_question: string;
+  group_answer: string;
   robot_member_switch: number;
   robot_member_examine: number;
   member_invite_policy: GroupMemberInvitePolicy;
@@ -77,6 +79,8 @@ export class GroupAdminApi {
     const permissions = decodeGroupMemberPermissions(privilegeFlag);
     return {
       add_type: results.addType ?? 0,
+      group_question: results.question ?? '',
+      group_answer: results.answer ?? '',
       robot_member_switch: robot.robotMemberSwitch,
       robot_member_examine: robot.robotMemberExamine,
       member_invite_policy: decodeMemberInvitePolicy(privilegeFlag),
@@ -97,8 +101,13 @@ export class GroupAdminApi {
     return MuteAll.invoke(this.ctx, { groupId, enable });
   }
 
-  setAddOption(groupId: number, addType: number): Promise<void> {
-    return SetAddOption.invoke(this.ctx, { groupId, addType });
+  setAddOption(
+    groupId: number,
+    addType: number,
+    groupQuestion?: string,
+    groupAnswer?: string,
+  ): Promise<void> {
+    return SetAddOption.invoke(this.ctx, { groupId, addType, groupQuestion, groupAnswer });
   }
 
   setSearch(groupId: number, noFingerOpen?: number, noCodeFingerOpen?: number): Promise<void> {

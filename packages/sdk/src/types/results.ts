@@ -219,6 +219,8 @@ export interface GroupAtAllRemainInfo {
 
 export type GroupAdminSettings = {
   add_type: number;
+  group_question: string;
+  group_answer: string;
   robot_member_switch: number;
   robot_member_examine: number;
   member_invite_policy: 'disabled' | 'require_approval' | 'no_approval' | 'no_approval_under_100';

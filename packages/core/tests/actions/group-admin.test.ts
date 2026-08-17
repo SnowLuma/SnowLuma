@@ -231,9 +231,22 @@ describe('apis/group-admin', () => {
 
     const addOptEnv = protobuf_decode<OidbBase<Oidb0x89a_0AddOption>>(bridge.sendRawPacket.mock.calls[4]![1]);
     expect(addOptEnv.body).toMatchObject({ groupUin: 1n, settings: { addType: 2 } });
+    expect(addOptEnv.body?.settings?.groupQuestion ?? undefined).toBeUndefined();
 
     const searchEnv = protobuf_decode<OidbBase<Oidb0x89a_0Search>>(bridge.sendRawPacket.mock.calls[5]![1]);
     expect(searchEnv.body?.groupUin).toBe(1n);
+  });
+
+  it('setAddOption forwards question and answer for type 4', async () => {
+    const bridge = mockBridge();
+    await new GroupAdminApi(bridge as any).setAddOption(12345, 4, 'how', '42');
+    const envelope = protobuf_decode<OidbBase<Oidb0x89a_0AddOption>>(
+      bridge.sendRawPacket.mock.calls[0]![1],
+    );
+    expect(envelope.body).toMatchObject({
+      groupUin: 12345n,
+      settings: { addType: 4, groupQuestion: 'how', groupAnswer: '42' },
+    });
   });
 
   it('setAddRequest picks _1 / _2 based on filtered flag', async () => {
@@ -446,6 +459,8 @@ describe('apis/group-admin', () => {
       if (cmd === 'OidbSvcTrpcTcp.0x88d_0') {
         return packAdminDetail({
           addType: 2,
+          question: 'how',
+          answer: '42',
           privilegeFlag: 0x84018001,
           groupFlagExt4: 0x80000005,
           noFingerOpen: 1,
@@ -460,6 +475,8 @@ describe('apis/group-admin', () => {
     const out = await new GroupAdminApi(bridge as any).getAdminSettings(12345);
     expect(out).toEqual({
       add_type: 2,
+      group_question: 'how',
+      group_answer: '42',
       robot_member_switch: 1,
       robot_member_examine: 2,
       member_invite_policy: 'disabled',
@@ -490,6 +507,8 @@ describe('apis/group-admin', () => {
 
     await expect(new GroupAdminApi(bridge as any).getAdminSettings(12345)).resolves.toEqual({
       add_type: 0,
+      group_question: '',
+      group_answer: '',
       robot_member_switch: 0,
       robot_member_examine: 0,
       member_invite_policy: 'require_approval',

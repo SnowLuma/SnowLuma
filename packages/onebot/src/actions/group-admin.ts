@@ -45,9 +45,15 @@ export const actions = [
   groupAction({
     name: 'set_group_add_option',
     summary: '设置加群选项',
-    params: { add_type: f.int({ min: 0 }).default(0) },
+    params: {
+      add_type: f.int({ min: 0 }).default(0),
+      group_question: f.string().optional(),
+      group_answer: f.string().optional(),
+    },
     run: async (p, ctx) => {
-      await ctx.bridge.apis.groupAdmin.setAddOption(p.group_id, p.add_type);
+      await ctx.bridge.apis.groupAdmin.setAddOption(
+        p.group_id, p.add_type, p.group_question, p.group_answer,
+      );
       return okResponse();
     },
   }),
@@ -124,6 +130,8 @@ export const actions = [
       type: 'object',
       properties: {
         add_type: { type: 'integer', description: '加群选项（同 set_group_add_option.add_type）' },
+        group_question: { type: 'string', description: '加群问题（同 set_group_add_option.group_question）' },
+        group_answer: { type: 'string', description: '加群答案（同 set_group_add_option.group_answer）' },
         robot_member_switch: { type: 'integer', description: '机器人加群开关（同 set_group_robot_add_option）' },
         robot_member_examine: { type: 'integer', description: '机器人加群审核（同 set_group_robot_add_option）' },
         member_invite_policy: {
@@ -140,6 +148,8 @@ export const actions = [
       },
       required: [
         'add_type',
+        'group_question',
+        'group_answer',
         'robot_member_switch',
         'robot_member_examine',
         'member_invite_policy',
