@@ -139,11 +139,11 @@ export class GroupAdminApi {
 
   private async fetchGroupPrivilegeFlag(groupId: number, setting: string, phase: string): Promise<number> {
     const detail = await FetchGroupDetail.invoke(this.ctx, { groupUin: groupId });
-    const privilegeFlag = detail.groupInfo?.results?.privilegeFlag;
-    if (typeof privilegeFlag !== 'number') {
+    const results = detail.groupInfo?.results;
+    if (!results) {
       throw new Error(`unable to read ${setting} ${phase} for group ${groupId}`);
     }
-    return privilegeFlag;
+    return results.privilegeFlag ?? 0;
   }
 
   async setMemberPermissions(groupId: number, permissions: GroupMemberPermissions): Promise<void> {

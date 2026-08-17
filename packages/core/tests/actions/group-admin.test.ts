@@ -298,9 +298,32 @@ describe('apis/group-admin', () => {
     });
   });
 
-  it('setMemberInvitePolicy fails before mutation when the current flag is absent', async () => {
+  it('setMemberInvitePolicy treats an omitted privilege flag as zero', async () => {
     const bridge = mockBridge();
-    bridge.sendRawPacket.mockResolvedValueOnce(packPrivilegeFlag());
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(packPrivilegeFlag())
+      .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
+      .mockResolvedValueOnce(packPrivilegeFlag(0));
+
+    await new GroupAdminApi(bridge as any).setMemberInvitePolicy(12345, 'require_approval');
+
+    const env = protobuf_decode<OidbBase<Oidb0x89a_0InvitePolicy>>(
+      bridge.sendRawPacket.mock.calls[1]![1],
+    );
+    expect(env.body?.settings).toEqual({
+      appPrivilegeFlag: 0,
+      appPrivilegeMask: 0x06100000,
+      allowMemberInvite: 1,
+    });
+  });
+
+  it('setMemberInvitePolicy fails when group detail has no results block', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
+      protobuf_encode<OidbBase<OidbSvcTrpcTcp0x88D_0Response>>({
+        body: { groupInfo: { uin: 12345n } },
+      }),
+    ));
 
     await expect(
       new GroupAdminApi(bridge as any).setMemberInvitePolicy(12345, 'require_approval'),
@@ -441,9 +464,33 @@ describe('apis/group-admin', () => {
     expect(bridge.sendRawPacket).not.toHaveBeenCalled();
   });
 
-  it('setMemberPermissions fails before mutation when the current flag is absent', async () => {
+  it('setMemberPermissions treats an omitted privilege flag as all-allowed (#388)', async () => {
     const bridge = mockBridge();
-    bridge.sendRawPacket.mockResolvedValueOnce(packPrivilegeFlag());
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(packPrivilegeFlag())
+      .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
+      .mockResolvedValueOnce(packPrivilegeFlag(0));
+
+    await new GroupAdminApi(bridge as any).setMemberPermissions(12345, {
+      allowMemberUploadAlbum: true,
+    });
+
+    const envelope = protobuf_decode<OidbBase<Oidb0x89a_0MemberPermission>>(
+      bridge.sendRawPacket.mock.calls[1]![1],
+    );
+    expect(envelope.body?.settings).toEqual({
+      appPrivilegeFlag: 0,
+      appPrivilegeMask: 1,
+    });
+  });
+
+  it('setMemberPermissions fails when group detail has no results block', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
+      protobuf_encode<OidbBase<OidbSvcTrpcTcp0x88D_0Response>>({
+        body: { groupInfo: { uin: 12345n } },
+      }),
+    ));
 
     await expect(
       new GroupAdminApi(bridge as any).setMemberPermissions(12345, {
