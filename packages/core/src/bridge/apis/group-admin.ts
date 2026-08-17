@@ -165,8 +165,11 @@ export class GroupAdminApi {
   setAddRequest(
     groupId: number, sequence: number, eventType: number,
     approve: boolean, reason = '', filtered = false,
+    operateTransInfo?: Uint8Array,
   ): Promise<void> {
-    return SetAddRequest.invoke(this.ctx, { groupId, sequence, eventType, approve, reason, filtered });
+    return SetAddRequest.invoke(this.ctx, {
+      groupId, sequence, eventType, approve, reason, filtered, operateTransInfo,
+    });
   }
 
   kickMember(groupId: number, userId: number, reject: boolean, reason = ''): Promise<void> {

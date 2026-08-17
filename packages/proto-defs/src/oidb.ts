@@ -208,9 +208,10 @@ export interface OidbSvcTrpcTcp0x10C0ResponseRequest {
   group?:        pb<4, OidbSvcTrpcTcp0x10C0ResponseGroup>;
   target?:       pb<5, OidbSvcTrpcTcp0x10C0ResponseUser>;
   invitor?:      pb<6, OidbSvcTrpcTcp0x10C0ResponseUser>;
-  operatorUser?: pb<7, OidbSvcTrpcTcp0x10C0ResponseUser>;
-  field9?:       pb<9, string>;
-  comment?:      pb<10, string>;
+  operatorUser?:     pb<7, OidbSvcTrpcTcp0x10C0ResponseUser>;
+  field9?:           pb<9, string>;
+  comment?:          pb<10, string>;
+  operateTransInfo?: pb<14, bytes>;
 }
 
 export interface OidbSvcTrpcTcp0x10C0Response {
@@ -238,9 +239,10 @@ export interface OidbSvcTrpcTcp0x10C0ResponseRequestByUin {
   group?:        pb<4, OidbSvcTrpcTcp0x10C0ResponseGroup>;
   target?:       pb<5, OidbSvcTrpcTcp0x10C0ResponseUserByUin>;
   invitor?:      pb<6, OidbSvcTrpcTcp0x10C0ResponseUserByUin>;
-  operatorUser?: pb<7, OidbSvcTrpcTcp0x10C0ResponseUserByUin>;
-  field9?:       pb<9, string>;
-  comment?:      pb<10, string>;
+  operatorUser?:     pb<7, OidbSvcTrpcTcp0x10C0ResponseUserByUin>;
+  field9?:           pb<9, string>;
+  comment?:          pb<10, string>;
+  operateTransInfo?: pb<14, bytes>;
 }
 
 export interface OidbSvcTrpcTcp0x10C0ResponseByUin {

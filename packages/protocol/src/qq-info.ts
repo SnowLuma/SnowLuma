@@ -81,6 +81,7 @@ export interface GroupRequestInfo {
   eventType: number;
   comment: string;
   filtered: boolean;
+  operateTransInfo?: Uint8Array;
 }
 
 /** Approval tuple required by OIDB 0x10C8. The OneBot flag is opaque to

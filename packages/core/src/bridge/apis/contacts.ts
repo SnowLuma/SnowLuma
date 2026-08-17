@@ -389,6 +389,9 @@ export class ContactsApi {
         eventType: operationType ?? 0,
         comment: raw.comment ?? '',
         filtered,
+        operateTransInfo: raw.operateTransInfo && raw.operateTransInfo.length > 0
+          ? raw.operateTransInfo
+          : undefined,
       });
     }
     this.ctx.identity.rememberGroupRequests(requests);
@@ -445,6 +448,9 @@ export class ContactsApi {
         eventType: operationType ?? 0,
         comment: raw.comment ?? '',
         filtered,
+        operateTransInfo: raw.operateTransInfo && raw.operateTransInfo.length > 0
+          ? raw.operateTransInfo
+          : undefined,
       });
     }
     this.ctx.identity.rememberGroupRequests(requests);

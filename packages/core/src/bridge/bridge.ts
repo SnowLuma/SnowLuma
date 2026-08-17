@@ -84,10 +84,14 @@ export class Bridge implements BridgeInterface {
           ...(main.status === 'fulfilled' ? main.value : []),
           ...(filtered.status === 'fulfilled' ? filtered.value : []),
         ];
-        return requests.find(r => {
+        const matches = requests.filter((r) => {
           if (r.groupId !== groupId) return false;
           return subType === 'invite' ? r.invitorUid === uid : r.targetUid === uid;
-        }) ?? null;
+        });
+        if (subType === 'invite') {
+          return matches.find((r) => r.notifyType === 1) ?? matches[0] ?? null;
+        }
+        return matches.find((r) => r.notifyType === 7) ?? matches[0] ?? null;
       },
       resolveGroupInviteCardSequence: async (groupId) => {
         const deadline = Date.now() + 1_000;

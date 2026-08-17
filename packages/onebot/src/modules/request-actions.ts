@@ -99,21 +99,48 @@ function throwMissingGroupRequest(message: string, failures: readonly unknown[])
   throw new Error(message);
 }
 
+async function resolveLiveGroupRequest(
+  bridge: BridgeInterface,
+  handle: GroupRequestHandle,
+): Promise<GroupRequestHandle & { operateTransInfo?: Uint8Array }> {
+  const cardGroup = bridge.apis.contacts.findGroupInviteCardGroupBySequence?.(handle.sequence);
+  // Private invite-card seq is absent from 0x10C0; keep the flag tuple (#125).
+  if (cardGroup === handle.groupId) return handle;
+
+  const lookup = await fetchRequestInboxes(bridge, 'uin');
+  const live = lookup.requests.find((request) => (
+    request.groupId === handle.groupId
+    && request.sequence === handle.sequence
+    && request.eventType > 0
+  ));
+  if (!live) return handle;
+  return {
+    sequence: live.sequence,
+    groupId: live.groupId,
+    eventType: live.eventType,
+    filtered: live.filtered,
+    operateTransInfo: live.operateTransInfo,
+  };
+}
+
 async function applyGroupRequest(
   bridge: BridgeInterface,
   handle: GroupRequestHandle,
   approve: boolean,
   reason: string,
+  knownLive?: GroupRequestInfo,
 ): Promise<void> {
+  const live = knownLive ?? await resolveLiveGroupRequest(bridge, handle);
   log.debug('handling group request: group=%d sequence=%d eventType=%d filtered=%s approve=%s',
-    handle.groupId, handle.sequence, handle.eventType, handle.filtered, approve);
+    live.groupId, live.sequence, live.eventType, live.filtered, approve);
   await bridge.apis.groupAdmin.setAddRequest(
-    handle.groupId,
-    handle.sequence,
-    handle.eventType,
+    live.groupId,
+    live.sequence,
+    live.eventType,
     approve,
     reason,
-    handle.filtered,
+    live.filtered,
+    live.operateTransInfo,
   );
 }
 
@@ -152,7 +179,7 @@ export async function handleGroupAddRequest(
         lookup.failures,
       );
     }
-    await applyGroupRequest(bridge, matching, approve, reason);
+    await applyGroupRequest(bridge, matching, approve, reason, matching);
     return;
   }
 
@@ -182,5 +209,5 @@ export async function handleGroupAddRequest(
   // Never fall back to an arbitrary request from the same group: when a UID
   // does not match, approving another pending request is worse than failing.
   if (!matching) throwMissingGroupRequest('matching group request not found', lookup.failures);
-  await applyGroupRequest(bridge, matching, approve, reason);
+  await applyGroupRequest(bridge, matching, approve, reason, matching);
 }

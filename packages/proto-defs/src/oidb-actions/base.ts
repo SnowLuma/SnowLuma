@@ -139,10 +139,13 @@ export interface OidbDeleteFriend {
   field1?: pb<1, OidbDeleteFriendField1>;
 }
 export interface OidbGroupRequestBody {
-  sequence?:  pb<1, uint_64>;
-  eventType?: pb<2, uint_32>;
-  groupUin?:  pb<3, uint_32>;
-  message?:   pb<4, string>;
+  sequence?:         pb<1, uint_64>;
+  eventType?:        pb<2, uint_32>;
+  groupUin?:         pb<3, uint_32>;
+  // Encoder always writes this field. An omitted empty string is not the
+  // same as a present empty/space value; callers must set it.
+  message?:          pb_optional<4, string>;
+  operateTransInfo?: pb<7, bytes>;
 }
 export interface OidbGroupRequestAction {
   accept?: pb<1, uint_32>;
