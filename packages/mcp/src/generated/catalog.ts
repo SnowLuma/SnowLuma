@@ -1032,6 +1032,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "del_group_album_media",
     "aliases": [],
+    "summary": "删除群相册图片或视频",
     "readOnly": false,
     "params": [
       {
@@ -1061,7 +1062,8 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "type": "string",
           "minLength": 1
-        }
+        },
+        "desc": "图片长定位标识，或视频 id"
       }
     ],
     "invariants": [],
@@ -1080,7 +1082,8 @@ export const ACTIONS: CatalogAction[] = [
         },
         "lloc": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "图片长定位标识，或视频 id"
         }
       },
       "required": [
