@@ -5,6 +5,7 @@ import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type { Oidb0x89a_0HistoryVisibility } from '@snowluma/proto-defs/oidb-actions/base';
 
 import {
+  decodeGroupHistoryVisibility,
   GROUP_HISTORY_VISIBILITY_MASK,
   mergeGroupHistoryVisibility,
   SetNewMemberHistoryVisibility,
@@ -50,6 +51,17 @@ describe('SetNewMemberHistoryVisibility namespace', () => {
   it('merges only the verified history-visibility bit', () => {
     expect(mergeGroupHistoryVisibility(0xF0000001, true)).toBe(0xF0000005);
     expect(mergeGroupHistoryVisibility(0xF0000005, false)).toBe(0xF0000001);
+  });
+
+  it('decodes the history-visibility bit', () => {
+    expect(decodeGroupHistoryVisibility(0x80000001)).toBe(false);
+    expect(decodeGroupHistoryVisibility(0x80000005)).toBe(true);
+    expect(decodeGroupHistoryVisibility(0)).toBe(false);
+  });
+
+  it('round-trips history visibility through merge then decode', () => {
+    expect(decodeGroupHistoryVisibility(mergeGroupHistoryVisibility(0x80000001, true))).toBe(true);
+    expect(decodeGroupHistoryVisibility(mergeGroupHistoryVisibility(0x80000005, false))).toBe(false);
   });
 
   it('keeps an explicit zero value on the wire', async () => {

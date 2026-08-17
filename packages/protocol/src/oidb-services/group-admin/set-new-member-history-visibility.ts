@@ -22,6 +22,11 @@ export function mergeGroupHistoryVisibility(currentGroupFlagExt4: number, visibl
   return Number(visible ? current | mask : current & ~mask);
 }
 
+export function decodeGroupHistoryVisibility(groupFlagExt4: number): boolean {
+  assertUint32(groupFlagExt4, 'group history flag');
+  return (groupFlagExt4 & GROUP_HISTORY_VISIBILITY_MASK) !== 0;
+}
+
 export namespace SetNewMemberHistoryVisibility {
   export const command = 0x89A;
   export const subCommand = 0;

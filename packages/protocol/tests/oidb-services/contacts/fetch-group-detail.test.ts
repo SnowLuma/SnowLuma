@@ -60,6 +60,9 @@ describe('FetchGroupDetail namespace', () => {
         .toBe(true);
       expect(out.config?.flags?.privilegeFlag).toBe(true);
       expect(out.config?.flags?.groupFlagExt4).toBe(true);
+      expect(out.config?.flags?.addType).toBe(true);
+      expect(out.config?.flags?.noFingerOpen).toBe(true);
+      expect(out.config?.flags?.noCodeFingerOpen).toBe(true);
     });
   });
 
@@ -181,6 +184,30 @@ describe('FetchGroupDetail namespace', () => {
 
       const out = await FetchGroupDetail.invoke(sender, { groupUin: 601692726 });
       expect(out.groupInfo?.results?.groupFlagExt4).toBe(0x80000005);
+    });
+
+    it('decodes add-option and search flags from the detail response', async () => {
+      const responseData = Buffer.from(protobuf_encode<OidbBase<OidbSvcTrpcTcp0x88D_0Response>>({
+        body: {
+          groupInfo: {
+            uin: 601692726n,
+            results: { addType: 2, noFingerOpen: 1, noCodeFingerOpen: 0 },
+          },
+        },
+      }));
+      const sender = makeSender();
+      sender.sendRawPacket.mockResolvedValue({
+        success: true,
+        gotResponse: true,
+        errorCode: 0,
+        errorMessage: '',
+        responseData,
+      });
+
+      const out = await FetchGroupDetail.invoke(sender, { groupUin: 601692726 });
+      expect(out.groupInfo?.results?.addType).toBe(2);
+      expect(out.groupInfo?.results?.noFingerOpen).toBe(1);
+      expect(out.groupInfo?.results?.noCodeFingerOpen ?? 0).toBe(0);
     });
   });
 });

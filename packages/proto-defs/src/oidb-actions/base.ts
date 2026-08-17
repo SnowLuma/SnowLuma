@@ -346,6 +346,7 @@ export interface OidbGroupDetailFlags {
   createTime?:      pb<2, bool>;
   maxMemberCount?:  pb<5, bool>;
   memberCount?:     pb<6, bool>;
+  addType?:         pb<7, bool>;
   level?:           pb<10, bool>;
   name?:            pb<15, string>;
   noticePreview?:   pb<16, string>;
@@ -362,6 +363,8 @@ export interface OidbGroupDetailFlags {
   privilegeFlag?:   pb<99, bool>;
   /** Current complete groupFlagExt4 bitfield; needed for masked mutations. */
   groupFlagExt4?:   pb<101, bool>;
+  noFingerOpen?:     pb<82, bool>;
+  noCodeFingerOpen?: pb<83, bool>;
 }
 export interface OidbGroupDetailConfig {
   uin?:   pb<1, uint_64>;

@@ -110,6 +110,9 @@ export interface OidbSvcTrpcTcp0x88D_0Results {
   createTime?:      pb<2, uint_64>;
   maxMemberCount?:  pb<5, uint_64>;
   memberCount?:     pb<6, uint_64>;
+  // DecodeSingleGroupDetailInfoByBaseFilter: tag 7 → 60205 addOption.
+  // SET uses a different message domain (0x89A settings tag 16).
+  addType?:         pb<7, uint_32>;
   level?:           pb<10, uint_64>;
   name?:            pb<15, string>;
   noticePreview?:   pb<16, string>;
@@ -127,6 +130,10 @@ export interface OidbSvcTrpcTcp0x88D_0Results {
   privilegeFlag?:   pb<99, uint_32>;
   /** Complete groupFlagExt4 bitfield (requested with detail flag tag 101). */
   groupFlagExt4?:   pb<101, uint_32>;
+  // DecodeSingleGroupDetailInfoByBaseFilter: tag 82 → 60282, tag 83 → 60283.
+  // SET counterparts are 0x89A settings 35/36. 0 = that search mode is open.
+  noFingerOpen?:     pb<82, uint_32>;
+  noCodeFingerOpen?: pb<83, uint_32>;
 }
 export interface OidbSvcTrpcTcp0x88D_0ResponseGroupInfo {
   uin?:     pb<1, uint_64>;
