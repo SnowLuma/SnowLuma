@@ -25,6 +25,10 @@ export interface OidbMuteAll {
 }
 export interface Oidb0x89a_0AddOptionSettings {
   addType?: pb<16, uint_32>;
+  // EncodeModifyGroupDetailInfoParam: question=30/60224, answer=31/60225.
+  // Empty string is a real write (clears the other mode), so these are optional.
+  groupQuestion?: pb_optional<30, string>;
+  groupAnswer?:   pb_optional<31, string>;
 }
 export interface Oidb0x89a_0AddOption {
   groupUin?: pb<1, uint_64>;
