@@ -39,6 +39,7 @@ const setGroupSearch = requireAction('set_group_search');
 const setGroupMemberInvitePolicy = requireAction('set_group_member_invite_policy');
 const setGroupNewMemberHistoryVisibility = requireAction('set_group_new_member_history_visibility');
 const setGroupMemberPermissions = requireAction('set_group_member_permissions');
+const getGroupAdminSettings = requireAction('get_group_admin_settings');
 const setGroupAdmin = requireAction('set_group_admin');
 const setGroupCard = requireAction('set_group_card');
 const setGroupName = requireAction('set_group_name');
@@ -60,6 +61,7 @@ describe('group admin actions catalog', () => {
       ['set_group_member_invite_policy'],
       ['set_group_new_member_history_visibility'],
       ['set_group_member_permissions'],
+      ['get_group_admin_settings'],
       ['set_group_admin'],
       ['set_group_card'],
       ['set_group_name'],
@@ -72,7 +74,7 @@ describe('group admin actions catalog', () => {
     expect(actions.map((action) => action.kind)).toEqual([
       'normal', 'normal', 'normal', 'normal', 'normal', 'normal', 'normal',
       'normal', 'normal', 'normal', 'normal', 'normal', 'normal', 'normal',
-      'normal', 'normal', 'normal',
+      'normal', 'normal', 'normal', 'normal',
     ]);
   });
 });
@@ -757,6 +759,43 @@ describe('set_group_member_permissions toHandler', () => {
         wording: 'at least one of: allow_member_upload_album, allow_member_temporary_session, allow_member_create_group',
       });
     expect(setMemberPermissions).not.toHaveBeenCalled();
+  });
+});
+
+describe('get_group_admin_settings parse', () => {
+  it('requires group_id and has no extra params', () => {
+    expect(getGroupAdminSettings.parse({})).toEqual({
+      ok: false,
+      field: 'group_id',
+      reason: 'is required',
+    });
+    expect(getGroupAdminSettings.parse({ group_id: 12345 })).toEqual({
+      ok: true,
+      value: { group_id: 12345 },
+    });
+  });
+});
+
+describe('get_group_admin_settings toHandler', () => {
+  it('forwards group_id and returns the current settings', async () => {
+    const settings = {
+      add_type: 2,
+      robot_member_switch: 1,
+      robot_member_examine: 0,
+      member_invite_policy: 'require_approval',
+      allow_member_upload_album: true,
+      allow_member_temporary_session: false,
+      allow_member_create_group: true,
+      new_member_history_visible: true,
+      no_finger_open: 0,
+      no_code_finger_open: 1,
+    };
+    const getAdminSettings = vi.fn(async () => settings);
+    const { ctx } = adminCtx({ getAdminSettings });
+
+    await expect(getGroupAdminSettings.toHandler(ctx)({ group_id: 12345 }))
+      .resolves.toEqual({ status: 'ok', retcode: 0, data: settings });
+    expect(getAdminSettings.mock.calls).toEqual([[12345]]);
   });
 });
 

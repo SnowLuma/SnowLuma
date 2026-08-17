@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase, OidbSvcTrpcTcp0x88D_0Response } from '@snowluma/proto-defs/oidb';
+import type { OidbGetGroupExtResp } from '@snowluma/proto-defs/oidb-actions/group-ext';
 import type {
   Oidb0x8a0Req,
   Oidb0x8a7Resp,
@@ -52,6 +53,26 @@ function packGroupFlagExt4(groupFlagExt4?: number) {
         uin: 12345n,
         results: groupFlagExt4 === undefined ? {} : { groupFlagExt4 },
       },
+    },
+  }));
+}
+
+function packAdminDetail(results: NonNullable<NonNullable<OidbSvcTrpcTcp0x88D_0Response['groupInfo']>['results']>) {
+  return packResponse(protobuf_encode<OidbBase<OidbSvcTrpcTcp0x88D_0Response>>({
+    body: { groupInfo: { uin: 12345n, results } },
+  }));
+}
+
+function packRobotExt(robotMemberSwitch?: number, robotMemberExamine?: number) {
+  return packResponse(protobuf_encode<OidbBase<OidbGetGroupExtResp>>({
+    body: {
+      items: [{
+        groupCode: 12345n,
+        ext: {
+          inviteRobotMemberSwitch: robotMemberSwitch,
+          inviteRobotMemberExamine: robotMemberExamine,
+        },
+      }],
     },
   }));
 }
@@ -417,6 +438,83 @@ describe('apis/group-admin', () => {
       remain_at_all_count_for_group: 12,
       remain_at_all_count_for_uin: 5,
     });
+  });
+
+  it('getAdminSettings composes detail and ext-info into setter-aligned fields (#385)', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockImplementation(async (cmd: string) => {
+      if (cmd === 'OidbSvcTrpcTcp.0x88d_0') {
+        return packAdminDetail({
+          addType: 2,
+          privilegeFlag: 0x84018001,
+          groupFlagExt4: 0x80000005,
+          noFingerOpen: 1,
+        });
+      }
+      if (cmd === 'OidbSvcTrpcTcp.0xef0_1') {
+        return packRobotExt(1, 2);
+      }
+      return packResponse(Buffer.alloc(0));
+    });
+
+    const out = await new GroupAdminApi(bridge as any).getAdminSettings(12345);
+    expect(out).toEqual({
+      add_type: 2,
+      robot_member_switch: 1,
+      robot_member_examine: 2,
+      member_invite_policy: 'disabled',
+      allow_member_upload_album: false,
+      allow_member_temporary_session: false,
+      allow_member_create_group: false,
+      new_member_history_visible: true,
+      no_finger_open: 1,
+      no_code_finger_open: 0,
+    });
+    expect(bridge.sendRawPacket.mock.calls.map((call) => call[0]).sort()).toEqual([
+      'OidbSvcTrpcTcp.0x88d_0',
+      'OidbSvcTrpcTcp.0xef0_1',
+    ]);
+  });
+
+  it('getAdminSettings treats omitted detail/ext zeros as the default values', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockImplementation(async (cmd: string) => {
+      if (cmd === 'OidbSvcTrpcTcp.0x88d_0') {
+        return packAdminDetail({});
+      }
+      if (cmd === 'OidbSvcTrpcTcp.0xef0_1') {
+        return packRobotExt();
+      }
+      return packResponse(Buffer.alloc(0));
+    });
+
+    await expect(new GroupAdminApi(bridge as any).getAdminSettings(12345)).resolves.toEqual({
+      add_type: 0,
+      robot_member_switch: 0,
+      robot_member_examine: 0,
+      member_invite_policy: 'require_approval',
+      allow_member_upload_album: true,
+      allow_member_temporary_session: true,
+      allow_member_create_group: true,
+      new_member_history_visible: false,
+      no_finger_open: 0,
+      no_code_finger_open: 0,
+    });
+  });
+
+  it('getAdminSettings fails when group detail has no results block', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockImplementation(async (cmd: string) => {
+      if (cmd === 'OidbSvcTrpcTcp.0x88d_0') {
+        return packResponse(protobuf_encode<OidbBase<OidbSvcTrpcTcp0x88D_0Response>>({
+          body: { groupInfo: { uin: 12345n } },
+        }));
+      }
+      return packRobotExt(0, 0);
+    });
+
+    await expect(new GroupAdminApi(bridge as any).getAdminSettings(12345))
+      .rejects.toThrow(/unable to read group admin settings/);
   });
 
   it('getAtAllRemain falls back to zero / false when the response is empty', async () => {

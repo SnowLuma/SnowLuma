@@ -3866,6 +3866,106 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "get_group_admin_settings",
+    "aliases": [],
+    "summary": "获取群管理设置的当前值",
+    "returns": "与对应设置接口字段对齐的当前群管理设置。",
+    "returnsSchema": {
+      "type": "object",
+      "properties": {
+        "add_type": {
+          "type": "integer",
+          "description": "加群选项（同 set_group_add_option.add_type）"
+        },
+        "robot_member_switch": {
+          "type": "integer",
+          "description": "机器人加群开关（同 set_group_robot_add_option）"
+        },
+        "robot_member_examine": {
+          "type": "integer",
+          "description": "机器人加群审核（同 set_group_robot_add_option）"
+        },
+        "member_invite_policy": {
+          "type": "string",
+          "enum": [
+            "disabled",
+            "require_approval",
+            "no_approval",
+            "no_approval_under_100"
+          ],
+          "description": "成员邀请策略（同 set_group_member_invite_policy.policy）"
+        },
+        "allow_member_upload_album": {
+          "type": "boolean",
+          "description": "是否允许成员上传相册"
+        },
+        "allow_member_temporary_session": {
+          "type": "boolean",
+          "description": "是否允许成员发起临时会话"
+        },
+        "allow_member_create_group": {
+          "type": "boolean",
+          "description": "是否允许成员创建群聊"
+        },
+        "new_member_history_visible": {
+          "type": "boolean",
+          "description": "新成员是否可查看历史消息"
+        },
+        "no_finger_open": {
+          "type": "integer",
+          "description": "是否关闭群指纹/关键词搜索（0 开 1 关）"
+        },
+        "no_code_finger_open": {
+          "type": "integer",
+          "description": "是否关闭群号搜索（0 开 1 关）"
+        }
+      },
+      "required": [
+        "add_type",
+        "robot_member_switch",
+        "robot_member_examine",
+        "member_invite_policy",
+        "allow_member_upload_album",
+        "allow_member_temporary_session",
+        "allow_member_create_group",
+        "new_member_history_visible",
+        "no_finger_open",
+        "no_code_finger_open"
+      ]
+    },
+    "readOnly": true,
+    "params": [
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": true,
+        "role": "group_id",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "群号"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "群号",
+          "x-role": "group_id"
+        }
+      },
+      "required": [
+        "group_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "群管理"
+  },
+  {
     "name": "get_group_album_list",
     "aliases": [],
     "returns": "群相册列表数组，每项为一个相册的基本信息。",
@@ -12144,7 +12244,7 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "群管理",
-    "count": 17
+    "count": 18
   },
   {
     "category": "群文件",

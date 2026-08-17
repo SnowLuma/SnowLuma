@@ -11,18 +11,22 @@ import { SetAdmin } from '@snowluma/protocol/oidb-services/group-admin/set-admin
 import { SetGroupName } from '@snowluma/protocol/oidb-services/group-admin/set-group-name';
 import { SetGroupRemark } from '@snowluma/protocol/oidb-services/group-admin/set-group-remark';
 import { SetMemberCard } from '@snowluma/protocol/oidb-services/group-admin/set-member-card';
+import { FetchGroupExtInfo } from '@snowluma/protocol/oidb-services/group-admin/get-group-ext-info';
 import {
+  decodeMemberInvitePolicy,
   MEMBER_INVITE_PRIVILEGE_MASK,
   mergeMemberInvitePrivilegeFlag,
   SetMemberInvitePolicy,
   type GroupMemberInvitePolicy,
 } from '@snowluma/protocol/oidb-services/group-admin/set-member-invite-policy';
 import {
+  decodeGroupHistoryVisibility,
   GROUP_HISTORY_VISIBILITY_MASK,
   mergeGroupHistoryVisibility,
   SetNewMemberHistoryVisibility,
 } from '@snowluma/protocol/oidb-services/group-admin/set-new-member-history-visibility';
 import {
+  decodeGroupMemberPermissions,
   GROUP_MEMBER_PERMISSION_MASKS,
   mergeGroupMemberPermission,
   SetMemberPermission,
@@ -32,6 +36,19 @@ import { SetSearch } from '@snowluma/protocol/oidb-services/group-admin/set-sear
 import { SetSpecialTitle } from '@snowluma/protocol/oidb-services/group-admin/set-special-title';
 import { ModifyGroupExtInfo } from '@snowluma/protocol/oidb-services/group-admin/modify-group-ext-info';
 import type { BridgeContext } from '../bridge-context';
+
+export type GroupAdminSettings = {
+  add_type: number;
+  robot_member_switch: number;
+  robot_member_examine: number;
+  member_invite_policy: GroupMemberInvitePolicy;
+  allow_member_upload_album: boolean;
+  allow_member_temporary_session: boolean;
+  allow_member_create_group: boolean;
+  new_member_history_visible: boolean;
+  no_finger_open: number;
+  no_code_finger_open: number;
+};
 
 export interface GroupMemberPermissions {
   allowMemberUploadAlbum?: boolean;
@@ -45,6 +62,31 @@ export class GroupAdminApi {
   /** Set the group's robot-add option (switch / examine) via group ext-info. */
   setRobotAddOption(groupId: number, robotMemberSwitch?: number, robotMemberExamine?: number): Promise<void> {
     return ModifyGroupExtInfo.invoke(this.ctx, { groupId, robotMemberSwitch, robotMemberExamine });
+  }
+
+  async getAdminSettings(groupId: number): Promise<GroupAdminSettings> {
+    const [detail, robot] = await Promise.all([
+      FetchGroupDetail.invoke(this.ctx, { groupUin: groupId }),
+      FetchGroupExtInfo.invoke(this.ctx, { groupId }),
+    ]);
+    const results = detail.groupInfo?.results;
+    if (!results) {
+      throw new Error(`unable to read group admin settings for group ${groupId}`);
+    }
+    const privilegeFlag = results.privilegeFlag ?? 0;
+    const permissions = decodeGroupMemberPermissions(privilegeFlag);
+    return {
+      add_type: results.addType ?? 0,
+      robot_member_switch: robot.robotMemberSwitch,
+      robot_member_examine: robot.robotMemberExamine,
+      member_invite_policy: decodeMemberInvitePolicy(privilegeFlag),
+      allow_member_upload_album: permissions.allowMemberUploadAlbum,
+      allow_member_temporary_session: permissions.allowMemberTemporarySession,
+      allow_member_create_group: permissions.allowMemberCreateGroup,
+      new_member_history_visible: decodeGroupHistoryVisibility(results.groupFlagExt4 ?? 0),
+      no_finger_open: results.noFingerOpen ?? 0,
+      no_code_finger_open: results.noCodeFingerOpen ?? 0,
+    };
   }
 
   muteMember(groupId: number, userId: number, duration: number): Promise<void> {
