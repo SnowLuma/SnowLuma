@@ -494,7 +494,8 @@ describe('parseMsgPush Event0x210 subType=364 (friend remark synchronization)', 
     const pipeline = new IncomingPacketPipeline({
       identity,
       events: new BridgeEventBus(),
-      refreshMemberCache: vi.fn(async () => false),
+      fetchGroupList: vi.fn(async () => {}),
+      fetchGroupMemberList: vi.fn(async () => {}),
       resolveGroupJoinRequest: vi.fn(async () => null),
     });
     pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
@@ -942,7 +943,8 @@ describe('parseMsgPush PkgType 44 (group admin set/unset) keeps the member cache
     const pipeline = new IncomingPacketPipeline({
       identity,
       events: new BridgeEventBus(),
-      refreshMemberCache: vi.fn(async () => false),
+      fetchGroupList: vi.fn(async () => {}),
+      fetchGroupMemberList: vi.fn(async () => {}),
       resolveGroupJoinRequest: vi.fn(async () => null),
     });
     pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);

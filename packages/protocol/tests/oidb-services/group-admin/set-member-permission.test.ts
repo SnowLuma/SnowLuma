@@ -5,6 +5,7 @@ import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type { Oidb0x89a_0MemberPermission } from '@snowluma/proto-defs/oidb-actions/base';
 
 import {
+  decodeGroupMemberPermissions,
   GROUP_MEMBER_PERMISSION_MASKS,
   mergeGroupMemberPermission,
   SetMemberPermission,
@@ -72,6 +73,36 @@ describe('SetMemberPermission namespace', () => {
       .toBe(0xF0018000);
     expect(mergeGroupMemberPermission(0xF0000000, 'create_group', false))
       .toBe(0xF0008000);
+  });
+
+  it('treats permission bits as deny flags when decoding', () => {
+    expect(decodeGroupMemberPermissions(0)).toEqual({
+      allowMemberUploadAlbum: true,
+      allowMemberTemporarySession: true,
+      allowMemberCreateGroup: true,
+    });
+    expect(decodeGroupMemberPermissions(0x80018001)).toEqual({
+      allowMemberUploadAlbum: false,
+      allowMemberTemporarySession: false,
+      allowMemberCreateGroup: false,
+    });
+    expect(decodeGroupMemberPermissions(0x80000000)).toEqual({
+      allowMemberUploadAlbum: true,
+      allowMemberTemporarySession: true,
+      allowMemberCreateGroup: true,
+    });
+  });
+
+  it('round-trips each permission through merge then decode', () => {
+    let flag = 0x80000000;
+    flag = mergeGroupMemberPermission(flag, 'upload_album', false);
+    flag = mergeGroupMemberPermission(flag, 'temporary_session', true);
+    flag = mergeGroupMemberPermission(flag, 'create_group', false);
+    expect(decodeGroupMemberPermissions(flag)).toEqual({
+      allowMemberUploadAlbum: false,
+      allowMemberTemporarySession: true,
+      allowMemberCreateGroup: false,
+    });
   });
 
   it('keeps explicit zero fields on the wire', async () => {

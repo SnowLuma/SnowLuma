@@ -45,9 +45,15 @@ export const actions = [
   groupAction({
     name: 'set_group_add_option',
     summary: '设置加群选项',
-    params: { add_type: f.int({ min: 0 }).default(0) },
+    params: {
+      add_type: f.int({ min: 0 }).default(0),
+      group_question: f.string().optional(),
+      group_answer: f.string().optional(),
+    },
     run: async (p, ctx) => {
-      await ctx.bridge.apis.groupAdmin.setAddOption(p.group_id, p.add_type);
+      await ctx.bridge.apis.groupAdmin.setAddOption(
+        p.group_id, p.add_type, p.group_question, p.group_answer,
+      );
       return okResponse();
     },
   }),
@@ -112,6 +118,51 @@ export const actions = [
         allowMemberCreateGroup: p.allow_member_create_group,
       });
       return okResponse();
+    },
+  }),
+
+  groupAction({
+    name: 'get_group_admin_settings',
+    summary: '获取群管理设置的当前值',
+    readOnly: true,
+    returns: '与对应设置接口字段对齐的当前群管理设置。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        add_type: { type: 'integer', description: '加群选项（同 set_group_add_option.add_type）' },
+        group_question: { type: 'string', description: '加群问题（同 set_group_add_option.group_question）' },
+        group_answer: { type: 'string', description: '加群答案（同 set_group_add_option.group_answer）' },
+        robot_member_switch: { type: 'integer', description: '机器人加群开关（同 set_group_robot_add_option）' },
+        robot_member_examine: { type: 'integer', description: '机器人加群审核（同 set_group_robot_add_option）' },
+        member_invite_policy: {
+          type: 'string',
+          enum: ['disabled', 'require_approval', 'no_approval', 'no_approval_under_100'],
+          description: '成员邀请策略（同 set_group_member_invite_policy.policy）',
+        },
+        allow_member_upload_album: { type: 'boolean', description: '是否允许成员上传相册' },
+        allow_member_temporary_session: { type: 'boolean', description: '是否允许成员发起临时会话' },
+        allow_member_create_group: { type: 'boolean', description: '是否允许成员创建群聊' },
+        new_member_history_visible: { type: 'boolean', description: '新成员是否可查看历史消息' },
+        no_finger_open: { type: 'integer', description: '是否关闭群指纹/关键词搜索（0 开 1 关）' },
+        no_code_finger_open: { type: 'integer', description: '是否关闭群号搜索（0 开 1 关）' },
+      },
+      required: [
+        'add_type',
+        'group_question',
+        'group_answer',
+        'robot_member_switch',
+        'robot_member_examine',
+        'member_invite_policy',
+        'allow_member_upload_album',
+        'allow_member_temporary_session',
+        'allow_member_create_group',
+        'new_member_history_visible',
+        'no_finger_open',
+        'no_code_finger_open',
+      ],
+    },
+    run: async (p, ctx) => {
+      return okResponse(await ctx.bridge.apis.groupAdmin.getAdminSettings(p.group_id));
     },
   }),
 

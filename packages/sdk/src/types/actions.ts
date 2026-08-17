@@ -86,6 +86,7 @@ import type {
   ForwardMessageResult,
   FriendCategoryResult,
   FriendMessageHistory,
+  GroupAdminSettings,
   GroupAtAllRemainInfo,
   GroupFileSystemInfo,
   GroupFileUrl,
@@ -139,6 +140,7 @@ export interface SnowLumaActionMap {
   set_group_whole_ban: { params: SetGroupWholeBanParams; data: EmptyData };
   set_group_add_option: { params: SetGroupAddOptionParams; data: EmptyData };
   set_group_search: { params: GroupIdParams; data: EmptyData };
+  get_group_admin_settings: { params: GroupIdParams; data: GroupAdminSettings };
   set_group_admin: { params: SetGroupAdminParams; data: EmptyData };
   set_group_card: { params: SetGroupCardParams; data: EmptyData };
   set_group_name: { params: SetGroupNameParams; data: EmptyData };

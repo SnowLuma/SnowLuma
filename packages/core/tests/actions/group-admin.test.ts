@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase, OidbSvcTrpcTcp0x88D_0Response } from '@snowluma/proto-defs/oidb';
+import type { OidbGetGroupExtResp } from '@snowluma/proto-defs/oidb-actions/group-ext';
 import type {
   Oidb0x8a0Req,
   Oidb0x8a7Resp,
@@ -52,6 +53,26 @@ function packGroupFlagExt4(groupFlagExt4?: number) {
         uin: 12345n,
         results: groupFlagExt4 === undefined ? {} : { groupFlagExt4 },
       },
+    },
+  }));
+}
+
+function packAdminDetail(results: NonNullable<NonNullable<OidbSvcTrpcTcp0x88D_0Response['groupInfo']>['results']>) {
+  return packResponse(protobuf_encode<OidbBase<OidbSvcTrpcTcp0x88D_0Response>>({
+    body: { groupInfo: { uin: 12345n, results } },
+  }));
+}
+
+function packRobotExt(robotMemberSwitch?: number, robotMemberExamine?: number) {
+  return packResponse(protobuf_encode<OidbBase<OidbGetGroupExtResp>>({
+    body: {
+      items: [{
+        groupCode: 12345n,
+        ext: {
+          inviteRobotMemberSwitch: robotMemberSwitch,
+          inviteRobotMemberExamine: robotMemberExamine,
+        },
+      }],
     },
   }));
 }
@@ -210,9 +231,22 @@ describe('apis/group-admin', () => {
 
     const addOptEnv = protobuf_decode<OidbBase<Oidb0x89a_0AddOption>>(bridge.sendRawPacket.mock.calls[4]![1]);
     expect(addOptEnv.body).toMatchObject({ groupUin: 1n, settings: { addType: 2 } });
+    expect(addOptEnv.body?.settings?.groupQuestion ?? undefined).toBeUndefined();
 
     const searchEnv = protobuf_decode<OidbBase<Oidb0x89a_0Search>>(bridge.sendRawPacket.mock.calls[5]![1]);
     expect(searchEnv.body?.groupUin).toBe(1n);
+  });
+
+  it('setAddOption forwards question and answer for type 4', async () => {
+    const bridge = mockBridge();
+    await new GroupAdminApi(bridge as any).setAddOption(12345, 4, 'how', '42');
+    const envelope = protobuf_decode<OidbBase<Oidb0x89a_0AddOption>>(
+      bridge.sendRawPacket.mock.calls[0]![1],
+    );
+    expect(envelope.body).toMatchObject({
+      groupUin: 12345n,
+      settings: { addType: 4, groupQuestion: 'how', groupAnswer: '42' },
+    });
   });
 
   it('setAddRequest picks _1 / _2 based on filtered flag', async () => {
@@ -264,9 +298,32 @@ describe('apis/group-admin', () => {
     });
   });
 
-  it('setMemberInvitePolicy fails before mutation when the current flag is absent', async () => {
+  it('setMemberInvitePolicy treats an omitted privilege flag as zero', async () => {
     const bridge = mockBridge();
-    bridge.sendRawPacket.mockResolvedValueOnce(packPrivilegeFlag());
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(packPrivilegeFlag())
+      .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
+      .mockResolvedValueOnce(packPrivilegeFlag(0));
+
+    await new GroupAdminApi(bridge as any).setMemberInvitePolicy(12345, 'require_approval');
+
+    const env = protobuf_decode<OidbBase<Oidb0x89a_0InvitePolicy>>(
+      bridge.sendRawPacket.mock.calls[1]![1],
+    );
+    expect(env.body?.settings).toEqual({
+      appPrivilegeFlag: 0,
+      appPrivilegeMask: 0x06100000,
+      allowMemberInvite: 1,
+    });
+  });
+
+  it('setMemberInvitePolicy fails when group detail has no results block', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
+      protobuf_encode<OidbBase<OidbSvcTrpcTcp0x88D_0Response>>({
+        body: { groupInfo: { uin: 12345n } },
+      }),
+    ));
 
     await expect(
       new GroupAdminApi(bridge as any).setMemberInvitePolicy(12345, 'require_approval'),
@@ -287,53 +344,83 @@ describe('apis/group-admin', () => {
     expect(bridge.sendRawPacket).toHaveBeenCalledTimes(3);
   });
 
-  it('setNewMemberHistoryVisibility reads, merges, writes, and verifies the extended flag (#336)', async () => {
+  it('setNewMemberHistoryVisibility accepts a 0/1 history-visible read-back (#387)', async () => {
     const bridge = mockBridge();
     bridge.sendRawPacket
-      .mockResolvedValueOnce(packGroupFlagExt4(0x80000001))
       .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
-      .mockResolvedValueOnce(packGroupFlagExt4(0x80000005));
+      .mockResolvedValueOnce(packGroupFlagExt4(1));
 
     await new GroupAdminApi(bridge as any).setNewMemberHistoryVisibility(12345, true);
 
     expect(bridge.sendRawPacket.mock.calls.map((call) => call[0])).toEqual([
-      'OidbSvcTrpcTcp.0x88d_0',
       'OidbSvcTrpcTcp.0x89a_0',
       'OidbSvcTrpcTcp.0x88d_0',
     ]);
     const envelope = protobuf_decode<OidbBase<Oidb0x89a_0HistoryVisibility>>(
-      bridge.sendRawPacket.mock.calls[1]![1],
+      bridge.sendRawPacket.mock.calls[0]![1],
     );
     expect(envelope.body).toMatchObject({
       groupUin: 12345n,
       settings: {
-        groupFlagExt4: 0x80000005,
+        groupFlagExt4: 0x4,
         groupFlagExt4Mask: 0x4,
       },
     });
   });
 
-  it('setNewMemberHistoryVisibility fails before mutation when the current flag is absent', async () => {
+  it('setNewMemberHistoryVisibility clears visibility when read-back is the off flag', async () => {
     const bridge = mockBridge();
-    bridge.sendRawPacket.mockResolvedValueOnce(packGroupFlagExt4());
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
+      .mockResolvedValueOnce(packGroupFlagExt4(0));
+
+    await new GroupAdminApi(bridge as any).setNewMemberHistoryVisibility(12345, false);
+
+    const envelope = protobuf_decode<OidbBase<Oidb0x89a_0HistoryVisibility>>(
+      bridge.sendRawPacket.mock.calls[0]![1],
+    );
+    expect(envelope.body?.settings).toEqual({
+      groupFlagExt4: 0,
+      groupFlagExt4Mask: 0x4,
+    });
+  });
+
+  it('setNewMemberHistoryVisibility treats an omitted history flag as hidden', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
+      .mockResolvedValueOnce(packGroupFlagExt4());
+
+    await new GroupAdminApi(bridge as any).setNewMemberHistoryVisibility(12345, false);
+    expect(bridge.sendRawPacket).toHaveBeenCalledTimes(2);
+  });
+
+  it('setNewMemberHistoryVisibility fails when group detail has no results block', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
+      .mockResolvedValueOnce(packResponse(
+        protobuf_encode<OidbBase<OidbSvcTrpcTcp0x88D_0Response>>({
+          body: { groupInfo: { uin: 12345n } },
+        }),
+      ));
 
     await expect(
       new GroupAdminApi(bridge as any).setNewMemberHistoryVisibility(12345, true),
-    ).rejects.toThrow(/unable to read new-member history visibility before update/);
-    expect(bridge.sendRawPacket).toHaveBeenCalledOnce();
+    ).rejects.toThrow(/unable to read new-member history visibility after update/);
+    expect(bridge.sendRawPacket).toHaveBeenCalledTimes(2);
   });
 
-  it('setNewMemberHistoryVisibility rejects an ack when read-back does not match', async () => {
+  it('setNewMemberHistoryVisibility rejects an ack when read-back stays hidden', async () => {
     const bridge = mockBridge();
     bridge.sendRawPacket
-      .mockResolvedValueOnce(packGroupFlagExt4(0x80000001))
       .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
-      .mockResolvedValueOnce(packGroupFlagExt4(0x80000001));
+      .mockResolvedValueOnce(packGroupFlagExt4(0));
 
     await expect(
       new GroupAdminApi(bridge as any).setNewMemberHistoryVisibility(12345, true),
     ).rejects.toThrow(/was not applied/);
-    expect(bridge.sendRawPacket).toHaveBeenCalledTimes(3);
+    expect(bridge.sendRawPacket).toHaveBeenCalledTimes(2);
   });
 
   it('setMemberPermissions applies supplied switches separately and verifies the combined result (#335)', async () => {
@@ -377,9 +464,33 @@ describe('apis/group-admin', () => {
     expect(bridge.sendRawPacket).not.toHaveBeenCalled();
   });
 
-  it('setMemberPermissions fails before mutation when the current flag is absent', async () => {
+  it('setMemberPermissions treats an omitted privilege flag as all-allowed (#388)', async () => {
     const bridge = mockBridge();
-    bridge.sendRawPacket.mockResolvedValueOnce(packPrivilegeFlag());
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(packPrivilegeFlag())
+      .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
+      .mockResolvedValueOnce(packPrivilegeFlag(0));
+
+    await new GroupAdminApi(bridge as any).setMemberPermissions(12345, {
+      allowMemberUploadAlbum: true,
+    });
+
+    const envelope = protobuf_decode<OidbBase<Oidb0x89a_0MemberPermission>>(
+      bridge.sendRawPacket.mock.calls[1]![1],
+    );
+    expect(envelope.body?.settings).toEqual({
+      appPrivilegeFlag: 0,
+      appPrivilegeMask: 1,
+    });
+  });
+
+  it('setMemberPermissions fails when group detail has no results block', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
+      protobuf_encode<OidbBase<OidbSvcTrpcTcp0x88D_0Response>>({
+        body: { groupInfo: { uin: 12345n } },
+      }),
+    ));
 
     await expect(
       new GroupAdminApi(bridge as any).setMemberPermissions(12345, {
@@ -417,6 +528,89 @@ describe('apis/group-admin', () => {
       remain_at_all_count_for_group: 12,
       remain_at_all_count_for_uin: 5,
     });
+  });
+
+  it('getAdminSettings composes detail and ext-info into setter-aligned fields (#385)', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockImplementation(async (cmd: string) => {
+      if (cmd === 'OidbSvcTrpcTcp.0x88d_0') {
+        return packAdminDetail({
+          addType: 2,
+          question: 'how',
+          answer: '42',
+          privilegeFlag: 0x84018001,
+          groupFlagExt4: 1,
+          noFingerOpen: 1,
+        });
+      }
+      if (cmd === 'OidbSvcTrpcTcp.0xef0_1') {
+        return packRobotExt(1, 2);
+      }
+      return packResponse(Buffer.alloc(0));
+    });
+
+    const out = await new GroupAdminApi(bridge as any).getAdminSettings(12345);
+    expect(out).toEqual({
+      add_type: 2,
+      group_question: 'how',
+      group_answer: '42',
+      robot_member_switch: 1,
+      robot_member_examine: 2,
+      member_invite_policy: 'disabled',
+      allow_member_upload_album: false,
+      allow_member_temporary_session: false,
+      allow_member_create_group: false,
+      new_member_history_visible: true,
+      no_finger_open: 1,
+      no_code_finger_open: 0,
+    });
+    expect(bridge.sendRawPacket.mock.calls.map((call) => call[0]).sort()).toEqual([
+      'OidbSvcTrpcTcp.0x88d_0',
+      'OidbSvcTrpcTcp.0xef0_1',
+    ]);
+  });
+
+  it('getAdminSettings treats omitted detail/ext zeros as the default values', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockImplementation(async (cmd: string) => {
+      if (cmd === 'OidbSvcTrpcTcp.0x88d_0') {
+        return packAdminDetail({});
+      }
+      if (cmd === 'OidbSvcTrpcTcp.0xef0_1') {
+        return packRobotExt();
+      }
+      return packResponse(Buffer.alloc(0));
+    });
+
+    await expect(new GroupAdminApi(bridge as any).getAdminSettings(12345)).resolves.toEqual({
+      add_type: 0,
+      group_question: '',
+      group_answer: '',
+      robot_member_switch: 0,
+      robot_member_examine: 0,
+      member_invite_policy: 'require_approval',
+      allow_member_upload_album: true,
+      allow_member_temporary_session: true,
+      allow_member_create_group: true,
+      new_member_history_visible: false,
+      no_finger_open: 0,
+      no_code_finger_open: 0,
+    });
+  });
+
+  it('getAdminSettings fails when group detail has no results block', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockImplementation(async (cmd: string) => {
+      if (cmd === 'OidbSvcTrpcTcp.0x88d_0') {
+        return packResponse(protobuf_encode<OidbBase<OidbSvcTrpcTcp0x88D_0Response>>({
+          body: { groupInfo: { uin: 12345n } },
+        }));
+      }
+      return packRobotExt(0, 0);
+    });
+
+    await expect(new GroupAdminApi(bridge as any).getAdminSettings(12345))
+      .rejects.toThrow(/unable to read group admin settings/);
   });
 
   it('getAtAllRemain falls back to zero / false when the response is empty', async () => {

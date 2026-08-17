@@ -627,8 +627,8 @@ describe('buildApiContext handleGroupRequest', () => {
 
     await api.handleGroupRequest('slreq:1:123456:710410:22:1', 'add', true, 'welcome');
 
-    expect(setAddRequest).toHaveBeenCalledWith(710410, 123456, 22, true, 'welcome', true);
-    expect(fetchGroupRequests).not.toHaveBeenCalled();
+    expect(setAddRequest).toHaveBeenCalledWith(710410, 123456, 22, true, 'welcome', true, undefined);
+    expect(fetchGroupRequests).toHaveBeenCalled();
     expect(ref.bridge.apis.groupAdmin.setAddRequest).toHaveBeenCalledOnce();
   });
 });

@@ -382,6 +382,7 @@ export class OneBotManager {
   }
 
   private onSessionClosed(uin: string): void {
+    if (this.disposed) return;
     const migration = this.databaseMigrations.get(uin);
     if (migration) {
       migration.cancelled = true;

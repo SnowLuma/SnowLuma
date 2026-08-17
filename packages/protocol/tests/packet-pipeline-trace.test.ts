@@ -74,7 +74,8 @@ function msgPushContext(
 }
 
 function makePipeline(opts: {
-  refreshMemberCache?: () => Promise<boolean>;
+  fetchGroupList?: () => Promise<void>;
+  fetchGroupMemberList?: (groupId: number) => Promise<void>;
   fetchProfileByUid?: () => Promise<{ uin: number; uid: string; nickname: string; remark: string; qid: string; sex: string; age: number; sign: string; avatar: string; level: number }>;
 } = {}) {
   const identity = IdentityService.memory('10001');
@@ -91,7 +92,8 @@ function makePipeline(opts: {
   const pipeline = new IncomingPacketPipeline({
     identity,
     events,
-    refreshMemberCache: opts.refreshMemberCache ?? vi.fn(async () => false),
+    fetchGroupList: opts.fetchGroupList ?? vi.fn(async () => {}),
+    fetchGroupMemberList: opts.fetchGroupMemberList ?? vi.fn(async () => {}),
     resolveGroupJoinRequest: vi.fn(async () => null),
   });
   const dispatched: Array<{ event: QQEventVariant; req: number | undefined }> = [];
@@ -214,7 +216,7 @@ describe('IncomingPacketPipeline TRACE lifecycle', () => {
     const unsubscribe = subscribeLogs((entry) => entries.push(entry));
     try {
       const { pipeline, dispatched } = makePipeline({
-        refreshMemberCache: vi.fn(async () => {
+        fetchGroupList: vi.fn(async () => {
           throw new Error('fixture refresh failed');
         }),
       });

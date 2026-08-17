@@ -6,6 +6,7 @@ import type { Oidb0x89a_0InvitePolicy } from '@snowluma/proto-defs/oidb-actions/
 
 import {
   MEMBER_INVITE_PRIVILEGE_MASK,
+  decodeMemberInvitePolicy,
   mergeMemberInvitePrivilegeFlag,
   SetMemberInvitePolicy,
   type GroupMemberInvitePolicy,
@@ -53,6 +54,27 @@ describe('SetMemberInvitePolicy namespace', () => {
   it('preserves unrelated bits while replacing only the member-invite mask', () => {
     expect(mergeMemberInvitePrivilegeFlag(0xE7100001, 'require_approval'))
       .toBe(0xE1000001);
+  });
+
+  it.each<[number, GroupMemberInvitePolicy]>([
+    [0x04000000, 'disabled'],
+    [0, 'require_approval'],
+    [0x00100000, 'no_approval'],
+    [0x02000000, 'no_approval_under_100'],
+    [0x80100001, 'no_approval'],
+    [0x84000001, 'disabled'],
+  ])('decodes privilege %# as %s', (privilegeFlag, policy) => {
+    expect(decodeMemberInvitePolicy(privilegeFlag)).toBe(policy);
+  });
+
+  it('round-trips each invite policy through merge then decode', () => {
+    const policies: GroupMemberInvitePolicy[] = [
+      'disabled', 'require_approval', 'no_approval', 'no_approval_under_100',
+    ];
+    for (const policy of policies) {
+      expect(decodeMemberInvitePolicy(mergeMemberInvitePrivilegeFlag(0x80000001, policy)))
+        .toBe(policy);
+    }
   });
 
   it('keeps explicit zero fields on the wire', async () => {

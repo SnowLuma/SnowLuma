@@ -217,6 +217,21 @@ export interface GroupAtAllRemainInfo {
   remain_at_all_count_for_uin: number;
 }
 
+export type GroupAdminSettings = {
+  add_type: number;
+  group_question: string;
+  group_answer: string;
+  robot_member_switch: number;
+  robot_member_examine: number;
+  member_invite_policy: 'disabled' | 'require_approval' | 'no_approval' | 'no_approval_under_100';
+  allow_member_upload_album: boolean;
+  allow_member_temporary_session: boolean;
+  allow_member_create_group: boolean;
+  new_member_history_visible: boolean;
+  no_finger_open: number;
+  no_code_finger_open: number;
+};
+
 export interface GroupTodoListItem {
   message_id: number;
   message_seq: number;

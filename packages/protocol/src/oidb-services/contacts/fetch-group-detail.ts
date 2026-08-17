@@ -33,7 +33,8 @@ export namespace FetchGroupDetail {
         level: on, name: '', noticePreview: '', uin: on, lastSequence: on,
         lastMessageTime: on, question: on, answer: '', maxAdminCount: '',
         // Tag 45 (not Lagrange's 59): official request mask for 60027.
-        shutUpAllTimestamp: on, privilegeFlag: on, groupFlagExt4: on,
+        shutUpAllTimestamp: on, addType: on, privilegeFlag: on, groupFlagExt4: on,
+        noFingerOpen: on, noCodeFingerOpen: on,
       },
     },
   });

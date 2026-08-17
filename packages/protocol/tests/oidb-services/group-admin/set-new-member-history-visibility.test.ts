@@ -5,6 +5,7 @@ import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type { Oidb0x89a_0HistoryVisibility } from '@snowluma/proto-defs/oidb-actions/base';
 
 import {
+  decodeGroupHistoryVisibility,
   GROUP_HISTORY_VISIBILITY_MASK,
   mergeGroupHistoryVisibility,
   SetNewMemberHistoryVisibility,
@@ -23,14 +24,13 @@ function makeSender() {
 
 describe('SetNewMemberHistoryVisibility namespace', () => {
   it.each([
-    [true, 0x80000001, 0x80000005],
-    [false, 0x80000005, 0x80000001],
-  ])('writes visible=%s without changing unrelated bits', async (visible, current, expected) => {
+    [true, GROUP_HISTORY_VISIBILITY_MASK],
+    [false, 0],
+  ])('writes visible=%s as the mutation bit only', async (visible, expected) => {
     const sender = makeSender();
 
     await SetNewMemberHistoryVisibility.invoke(sender, {
       groupId: 12345,
-      currentGroupFlagExt4: current,
       visible,
     });
 
@@ -52,11 +52,28 @@ describe('SetNewMemberHistoryVisibility namespace', () => {
     expect(mergeGroupHistoryVisibility(0xF0000005, false)).toBe(0xF0000001);
   });
 
+  it('decodes the history-visibility switch from a 0/1 reply or the mutation bit', () => {
+    expect(decodeGroupHistoryVisibility(0)).toBe(false);
+    expect(decodeGroupHistoryVisibility(1)).toBe(true);
+    expect(decodeGroupHistoryVisibility(GROUP_HISTORY_VISIBILITY_MASK)).toBe(true);
+    expect(decodeGroupHistoryVisibility(0x80000001)).toBe(false);
+    expect(decodeGroupHistoryVisibility(0x80000005)).toBe(true);
+  });
+
+  it('round-trips history visibility through merge then decode', () => {
+    expect(decodeGroupHistoryVisibility(mergeGroupHistoryVisibility(0x80000001, true))).toBe(true);
+    expect(decodeGroupHistoryVisibility(mergeGroupHistoryVisibility(0x80000005, false))).toBe(false);
+  });
+
+  it('does not treat a 0/1 detail reply as a missing mutation bit (#387)', () => {
+    expect(decodeGroupHistoryVisibility(1)).toBe(true);
+    expect(decodeGroupHistoryVisibility(mergeGroupHistoryVisibility(0, true))).toBe(true);
+  });
+
   it('keeps an explicit zero value on the wire', async () => {
     const sender = makeSender();
     await SetNewMemberHistoryVisibility.invoke(sender, {
       groupId: 1,
-      currentGroupFlagExt4: GROUP_HISTORY_VISIBILITY_MASK,
       visible: false,
     });
 
@@ -67,13 +84,7 @@ describe('SetNewMemberHistoryVisibility namespace', () => {
     expect(envelope.body?.settings?.groupFlagExt4Mask).toBe(GROUP_HISTORY_VISIBILITY_MASK);
   });
 
-  it('rejects an invalid current flag before sending', async () => {
-    const sender = makeSender();
-    await expect(SetNewMemberHistoryVisibility.invoke(sender, {
-      groupId: 1,
-      currentGroupFlagExt4: -1,
-      visible: true,
-    })).rejects.toThrow(/unsigned 32-bit/);
-    expect(sender.sendRawPacket).not.toHaveBeenCalled();
+  it('rejects an invalid current flag when merging', () => {
+    expect(() => mergeGroupHistoryVisibility(-1, true)).toThrow(/unsigned 32-bit/);
   });
 });

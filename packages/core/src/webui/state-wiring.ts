@@ -14,8 +14,9 @@
  *     listeners directly so `qq-list` + `connections` invalidate at the right
  *     moment without modifying BridgeManager.
  *
- * `dispose()` unwires everything so a test (or a future hot-reload) can
- * recreate the wiring without leaking listeners.
+ * `dispose()` sets a latch and neuters the bus. BridgeManager listeners stay
+ * attached; further session edges publish nothing. Process shutdown disposes
+ * this wiring before Hook teardown so exit-time closed is not a WebUI invalidate.
  */
 
 import { StateBus } from './state-bus';

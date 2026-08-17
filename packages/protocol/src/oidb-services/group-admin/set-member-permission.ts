@@ -32,6 +32,22 @@ export function mergeGroupMemberPermission(
   return Number(allow ? current & ~mask : current | mask);
 }
 
+export function decodeGroupMemberPermissions(privilegeFlag: number): {
+  allowMemberUploadAlbum: boolean;
+  allowMemberTemporarySession: boolean;
+  allowMemberCreateGroup: boolean;
+} {
+  assertUint32(privilegeFlag, 'privilege flag');
+  return {
+    allowMemberUploadAlbum:
+      (privilegeFlag & GROUP_MEMBER_PERMISSION_MASKS.upload_album) === 0,
+    allowMemberTemporarySession:
+      (privilegeFlag & GROUP_MEMBER_PERMISSION_MASKS.temporary_session) === 0,
+    allowMemberCreateGroup:
+      (privilegeFlag & GROUP_MEMBER_PERMISSION_MASKS.create_group) === 0,
+  };
+}
+
 export namespace SetMemberPermission {
   export const command = 0x89A;
   export const subCommand = 0;

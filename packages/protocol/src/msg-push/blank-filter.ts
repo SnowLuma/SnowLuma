@@ -1,4 +1,5 @@
 import type { MsgPushHead, PushMsgBody } from './context';
+import { hasDecodableContent } from './rich-body-decoder';
 
 // C2C-family message types (private 166, temp 141, and 167) whose pushes QQ NT
 // classifies by `c2c_cmd`. RE: `long_cnn_msg_mgr.cc::OnRecvSysMsg` gates on
@@ -25,22 +26,6 @@ export function isC2cControlPush(head: Pick<MsgPushHead, 'msgType' | 'c2cCmd'>):
 }
 
 /**
- * Whether a push body carries anything {@link decodeRichBody} could turn into an
- * element: source `richText.elems`, a voice (`ptt`), a c2c file
- * (`notOnlineFile`), or serialised `msgContent` file metadata. Mirrors exactly
- * what the rich-body decoder reads. A body with none of these is a genuinely
- * content-less control push, not an element type we merely fail to decode.
- */
-export function bodyHasDecodableContent(body: PushMsgBody | undefined): boolean {
-  const rt = body?.richText;
-  if (rt) {
-    if (rt.elems && rt.elems.length > 0) return true;
-    if (rt.ptt || rt.notOnlineFile) return true;
-  }
-  return !!(body?.msgContent && body.msgContent.length > 0);
-}
-
-/**
  * A message-kind event is "blank" — the "[空消息]" phantom from #102 — when it
  * decoded to zero elements AND its body carried nothing decodable. These are
  * QQ's content-less C2C control/system pushes (msgType 166/141/167 carrying a
@@ -62,5 +47,5 @@ export function isBlankMessage(
   elements: readonly unknown[],
   body: PushMsgBody | undefined,
 ): boolean {
-  return elements.length === 0 && !bodyHasDecodableContent(body);
+  return elements.length === 0 && !hasDecodableContent(body);
 }

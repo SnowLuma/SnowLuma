@@ -25,6 +25,10 @@ export interface OidbMuteAll {
 }
 export interface Oidb0x89a_0AddOptionSettings {
   addType?: pb<16, uint_32>;
+  // EncodeModifyGroupDetailInfoParam: question=30/60224, answer=31/60225.
+  // Empty string is a real write (clears the other mode), so these are optional.
+  groupQuestion?: pb_optional<30, string>;
+  groupAnswer?:   pb_optional<31, string>;
 }
 export interface Oidb0x89a_0AddOption {
   groupUin?: pb<1, uint_64>;
@@ -139,10 +143,13 @@ export interface OidbDeleteFriend {
   field1?: pb<1, OidbDeleteFriendField1>;
 }
 export interface OidbGroupRequestBody {
-  sequence?:  pb<1, uint_64>;
-  eventType?: pb<2, uint_32>;
-  groupUin?:  pb<3, uint_32>;
-  message?:   pb<4, string>;
+  sequence?:         pb<1, uint_64>;
+  eventType?:        pb<2, uint_32>;
+  groupUin?:         pb<3, uint_32>;
+  // Encoder always writes this field. An omitted empty string is not the
+  // same as a present empty/space value; callers must set it.
+  message?:          pb_optional<4, string>;
+  operateTransInfo?: pb<7, bytes>;
 }
 export interface OidbGroupRequestAction {
   accept?: pb<1, uint_32>;
@@ -343,6 +350,7 @@ export interface OidbGroupDetailFlags {
   createTime?:      pb<2, bool>;
   maxMemberCount?:  pb<5, bool>;
   memberCount?:     pb<6, bool>;
+  addType?:         pb<7, bool>;
   level?:           pb<10, bool>;
   name?:            pb<15, string>;
   noticePreview?:   pb<16, string>;
@@ -355,10 +363,12 @@ export interface OidbGroupDetailFlags {
   // Official request mask for group shutup expire (proto tag 45 → 60027).
   // Lagrange's tag 59 requests 60259, which is a different field.
   shutUpAllTimestamp?: pb<45, bool>;
-  /** Current complete app privilege bitfield; needed for masked mutations. */
-  privilegeFlag?:   pb<99, bool>;
-  /** Current complete groupFlagExt4 bitfield; needed for masked mutations. */
+  /** Request the complete app privilege bitfield. */
+  privilegeFlag?:   pb<56, bool>;
+  /** Request the new-member history-visible switch. */
   groupFlagExt4?:   pb<101, bool>;
+  noFingerOpen?:     pb<82, bool>;
+  noCodeFingerOpen?: pb<83, bool>;
 }
 export interface OidbGroupDetailConfig {
   uin?:   pb<1, uint_64>;

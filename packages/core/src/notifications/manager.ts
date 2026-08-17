@@ -74,6 +74,7 @@ export class NotificationManager {
   private readonly nicknames = new Map<string, string>();
   private readonly history: DeliveryRecord[] = [];
   private readonly historyLimit: number;
+  private disposed = false;
 
   constructor(deps: NotificationManagerDeps) {
     this.deps = deps;
@@ -88,11 +89,13 @@ export class NotificationManager {
   }
 
   handleOnline(uin: string, nickname?: string): void {
+    if (this.disposed) return;
     if (nickname) this.nicknames.set(uin, nickname);
     this.apply(uin, this.machine.onOnline(uin));
   }
 
   handleOffline(uin: string, nickname?: string): void {
+    if (this.disposed) return;
     if (nickname) this.nicknames.set(uin, nickname);
     this.apply(uin, this.machine.onOffline(uin, this.debounceSeconds()));
   }
@@ -221,6 +224,8 @@ export class NotificationManager {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
   }

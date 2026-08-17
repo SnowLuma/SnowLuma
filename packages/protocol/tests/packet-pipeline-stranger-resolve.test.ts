@@ -37,7 +37,8 @@ function makePipeline(opts: {
   const pipeline = new IncomingPacketPipeline({
     identity,
     events,
-    refreshMemberCache: vi.fn(async () => false),
+    fetchGroupList: vi.fn(async () => {}),
+    fetchGroupMemberList: vi.fn(async () => {}),
     resolveGroupJoinRequest,
     resolveGroupInviteCardSequence,
   });
@@ -387,7 +388,8 @@ describe('IncomingPacketPipeline / #1 group card self-heal', () => {
     const pipeline = new IncomingPacketPipeline({
       identity,
       events,
-      refreshMemberCache: vi.fn(async () => false),
+      fetchGroupList: vi.fn(async () => {}),
+      fetchGroupMemberList: vi.fn(async () => {}),
       resolveGroupJoinRequest: vi.fn(async () => null),
     });
     return { identity, pipeline };
@@ -452,7 +454,8 @@ describe('IncomingPacketPipeline / group_card_change from message traffic', () =
     const events = new BridgeEventBus();
     const pipeline = new IncomingPacketPipeline({
       identity, events,
-      refreshMemberCache: vi.fn(async () => false),
+      fetchGroupList: vi.fn(async () => {}),
+      fetchGroupMemberList: vi.fn(async () => {}),
       resolveGroupJoinRequest: vi.fn(async () => null),
     });
     const captured: QQEventVariant[] = [];
@@ -519,7 +522,8 @@ describe('IncomingPacketPipeline / invite-card pending application', () => {
     const pipeline = new IncomingPacketPipeline({
       identity: IdentityService.memory('10001'),
       events: new BridgeEventBus(),
-      refreshMemberCache: vi.fn(async () => false),
+      fetchGroupList: vi.fn(async () => {}),
+      fetchGroupMemberList: vi.fn(async () => {}),
       resolveGroupJoinRequest: vi.fn(async () => null),
       rememberGroupInviteCardSequence,
     });

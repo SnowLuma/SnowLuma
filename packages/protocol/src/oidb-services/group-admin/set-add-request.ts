@@ -20,21 +20,30 @@ export namespace SetAddRequest {
     approve: boolean;
     reason?: string;
     filtered?: boolean;
+    operateTransInfo?: Uint8Array;
   }
 
   export type Deps = OidbSender;
 
   export const resolveSubCommand = (p: Params): number => p.filtered ? 2 : 1;
 
-  export const serialize = (_ctx: Deps, p: Params): OidbGroupRequestAction => ({
-    accept: p.approve ? 1 : 2,
-    body: {
-      sequence: BigInt(p.sequence),
-      eventType: p.eventType,
-      groupUin: p.groupId,
-      message: p.reason ?? '',
-    },
-  });
+  export const serialize = (_ctx: Deps, p: Params): OidbGroupRequestAction => {
+    const reason = p.reason ?? '';
+    return {
+      accept: p.approve ? 1 : 2,
+      body: {
+        sequence: BigInt(p.sequence),
+        eventType: p.eventType,
+        groupUin: p.groupId,
+        // Native operate always writes field 4. An omitted empty string is
+        // rejected; a present space is the native empty-reason form.
+        message: reason.length > 0 ? reason : ' ',
+        ...(p.operateTransInfo && p.operateTransInfo.length > 0
+          ? { operateTransInfo: p.operateTransInfo }
+          : {}),
+      },
+    };
+  };
 
   export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 

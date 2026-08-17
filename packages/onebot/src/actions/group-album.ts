@@ -223,9 +223,10 @@ export const actions = [
 
   groupAction({
     name: 'del_group_album_media',
+    summary: '删除群相册图片或视频',
     params: {
       album_id: f.string({ allowEmpty: false }),
-      lloc: f.string({ allowEmpty: false }),
+      lloc: f.string({ allowEmpty: false }).describe('图片长定位标识，或视频 id'),
     },
     run: async (p, ctx) => {
       const res = await ctx.bridge.apis.groupAlbum.delete(p.group_id, p.album_id, p.lloc);
