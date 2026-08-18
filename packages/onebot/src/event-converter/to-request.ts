@@ -16,11 +16,13 @@ export function convertFriendRequest(ctx: ConverterContext, event: FriendRequest
 }
 
 export function convertGroupInvite(ctx: ConverterContext, event: GroupInvite): JsonObject {
+  const invitedId = event.invitedUin ?? 0;
   return request(ctx, event, {
     request_type: 'group',
     sub_type: event.subType || 'invite',
     group_id: event.groupId,
     user_id: event.fromUin,
+    ...(invitedId > 0 ? { invited_id: invitedId } : {}),
     comment: event.message,
     flag: event.flag,
   });

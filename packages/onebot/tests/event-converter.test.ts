@@ -363,6 +363,23 @@ describe('convertEvent — request kinds', () => {
     } as QQEventVariant);
     expect(withSubType!.sub_type).toBe('add');
   });
+
+  it('group_invite: reports the invitee without replacing user_id (#394)', async () => {
+    const out = await convertEvent(bareCtx(), {
+      kind: 'group_invite', time: 1, selfUin: SELF_ID, groupId: GROUP_ID,
+      fromUin: PEER_UIN, invitedUin: 4242, message: '', flag: 'gflag', subType: 'invite',
+    } as QQEventVariant);
+    expect(out!.user_id).toBe(PEER_UIN);
+    expect(out!.invited_id).toBe(4242);
+  });
+
+  it('group_invite: omits invited_id when the invitee is unknown', async () => {
+    const out = await convertEvent(bareCtx(), {
+      kind: 'group_invite', time: 1, selfUin: SELF_ID, groupId: GROUP_ID,
+      fromUin: PEER_UIN, message: '', flag: 'gflag', subType: 'invite',
+    } as QQEventVariant);
+    expect(out).not.toHaveProperty('invited_id');
+  });
 });
 
 describe('convertEvent — message elements', () => {

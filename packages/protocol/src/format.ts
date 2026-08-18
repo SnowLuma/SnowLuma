@@ -283,8 +283,12 @@ export function formatEvent(identity: IdentityService, event: QQEventVariant): s
         return `群戳 ${formatGroup(identity, event.groupId)} | ${formatUser(identity, event.groupId, event.userUin)} -> ${formatUser(identity, event.groupId, event.targetUin)}`;
       case 'friend_request':
         return `好友请求 ${formatUser(identity, undefined, event.fromUin)}: ${event.message}`;
-      case 'group_invite':
-        return `群邀请 ${formatUser(identity, undefined, event.fromUin)} -> ${formatGroup(identity, event.groupId)}`;
+      case 'group_invite': {
+        const invitee = event.invitedUin && event.invitedUin > 0
+          ? ` 邀 ${formatUser(identity, event.groupId, event.invitedUin, event.invitedUid)}`
+          : '';
+        return `群邀请 ${formatUser(identity, undefined, event.fromUin)}${invitee} -> ${formatGroup(identity, event.groupId)}`;
+      }
       case 'group_essence':
         return `精华 ${formatGroup(identity, event.groupId)} | ${event.set ? '+' : '-'}精华`;
       case 'group_msg_emoji_like':
