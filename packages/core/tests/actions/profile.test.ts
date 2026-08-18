@@ -213,14 +213,13 @@ describe('apis/profile', () => {
     await expect(new ProfileApi(bridge as any).getLike()).rejects.toThrow(/empty/);
   });
 
-  it('getProfileLike resolves uncached liker uins from their profiles', async () => {
+  it('getProfileLike resolves uncached liker uins through Identity.resolveUin', async () => {
     const bridge = mockBridge();
     bridge.identity.findUinByUid.mockReturnValue(null);
-    const fetchUserProfileByUid = vi.fn(async (uid: string) => ({
-      uid,
-      uin: 30003,
-      nickname: '陌生点赞者',
-    }));
+    bridge.identity.resolveUin.mockImplementation(async (uid: string) => (
+      uid === 'stranger-uid' ? 30003 : null
+    ));
+    const fetchUserProfileByUid = vi.fn();
     (bridge.apis.contacts as any).fetchUserProfileByUid = fetchUserProfileByUid;
     bridge.sendRawPacket.mockResolvedValueOnce({
       success: true, gotResponse: true, errorCode: 0, errorMessage: '',
@@ -236,17 +235,20 @@ describe('apis/profile', () => {
 
     const out = await new ProfileApi(bridge as any).getLike();
 
-    expect(fetchUserProfileByUid).toHaveBeenCalledOnce();
-    expect(fetchUserProfileByUid).toHaveBeenCalledWith('stranger-uid');
+    expect(bridge.identity.resolveUin).toHaveBeenCalledOnce();
+    expect(bridge.identity.resolveUin).toHaveBeenCalledWith('stranger-uid');
+    expect(fetchUserProfileByUid).not.toHaveBeenCalled();
     expect(out.voteInfo.userInfos[0]?.uin).toBe(30003);
   });
 
-  it('getProfileLike surfaces failures while resolving uncached liker uins', async () => {
+  it('getProfileLike keeps uin=0 when Identity.resolveUin misses', async () => {
     const bridge = mockBridge();
     bridge.identity.findUinByUid.mockReturnValue(null);
-    (bridge.apis.contacts as any).fetchUserProfileByUid = vi.fn(async () => {
+    bridge.identity.resolveUin.mockResolvedValue(null);
+    const fetchUserProfileByUid = vi.fn(async () => {
       throw new Error('profile lookup failed');
     });
+    (bridge.apis.contacts as any).fetchUserProfileByUid = fetchUserProfileByUid;
     bridge.sendRawPacket.mockResolvedValueOnce({
       success: true, gotResponse: true, errorCode: 0, errorMessage: '',
       responseData: Buffer.from(protobuf_encode<OidbBase<Oidb0x7edResp>>({
@@ -259,8 +261,10 @@ describe('apis/profile', () => {
       })),
     });
 
-    await expect(new ProfileApi(bridge as any).getLike())
-      .rejects.toThrow('profile lookup failed');
+    const out = await new ProfileApi(bridge as any).getLike();
+
+    expect(out.voteInfo.userInfos[0]?.uin).toBe(0);
+    expect(fetchUserProfileByUid).not.toHaveBeenCalled();
   });
 
   it('getUnidirectionalFriendList parses the embedded JSON body', async () => {

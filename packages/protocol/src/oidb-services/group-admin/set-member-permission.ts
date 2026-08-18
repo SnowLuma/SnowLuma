@@ -1,6 +1,8 @@
-// 0x89A_0 — update one member capability through the appPrivilegeFlag deny
-// bits. Current QQ applies one selected mask per operation; callers that change
-// multiple capabilities must invoke this namespace sequentially.
+// 0x89A_8 — update one member capability through the appPrivilegeFlag deny
+// bits. Invite policy shares the same settings tags on 0x89A_0; album /
+// temporary-session / create-group writes use this variant. Current QQ applies
+// one selected mask per operation; callers that change multiple capabilities
+// must invoke this namespace sequentially.
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase, OidbEmpty } from '@snowluma/proto-defs/oidb';
@@ -32,9 +34,25 @@ export function mergeGroupMemberPermission(
   return Number(allow ? current & ~mask : current | mask);
 }
 
+export function decodeGroupMemberPermissions(privilegeFlag: number): {
+  allowMemberUploadAlbum: boolean;
+  allowMemberTemporarySession: boolean;
+  allowMemberCreateGroup: boolean;
+} {
+  assertUint32(privilegeFlag, 'privilege flag');
+  return {
+    allowMemberUploadAlbum:
+      (privilegeFlag & GROUP_MEMBER_PERMISSION_MASKS.upload_album) === 0,
+    allowMemberTemporarySession:
+      (privilegeFlag & GROUP_MEMBER_PERMISSION_MASKS.temporary_session) === 0,
+    allowMemberCreateGroup:
+      (privilegeFlag & GROUP_MEMBER_PERMISSION_MASKS.create_group) === 0,
+  };
+}
+
 export namespace SetMemberPermission {
   export const command = 0x89A;
-  export const subCommand = 0;
+  export const subCommand = 8;
 
   export interface Params {
     groupId: number;

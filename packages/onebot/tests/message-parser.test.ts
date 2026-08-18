@@ -666,6 +666,33 @@ describe('parseMessage', () => {
       expect(result[0].replySeq).toBe(100);
     });
 
+    it('resolves a signed-int32 message_id to the stored reply sequence (#371)', async () => {
+      const result = await parseMessage(
+        [
+          { type: 'reply', data: { id: -188861750 } },
+          { type: 'text', data: { text: '测试成功' } },
+        ] as any,
+        false,
+        { resolveReplySequence: (id) => id === -188861750 ? 4242 : null },
+      );
+      expect(result).toEqual([
+        { type: 'reply', replySeq: 4242, replyMessageId: -188861750 },
+        { type: 'text', text: '测试成功' },
+      ]);
+    });
+
+    it('does not treat an unresolved negative message_id as a QQ sequence (#371)', async () => {
+      const result = await parseMessage(
+        [
+          { type: 'reply', data: { id: -188861750 } },
+          { type: 'text', data: { text: '测试成功' } },
+        ] as any,
+        false,
+        { resolveReplySequence: () => null },
+      );
+      expect(result).toEqual([{ type: 'text', text: '测试成功' }]);
+    });
+
     it('parses share as json card', async () => {
       const result = await parseMessage(
         [{ type: 'share', data: { url: 'https://example.com', title: 'Test' } }] as any,

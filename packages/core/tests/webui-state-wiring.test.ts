@@ -43,7 +43,7 @@ describe('createStateWiring', () => {
     expect(sub).toHaveBeenNthCalledWith(2, 'connections');
   });
 
-  it('dispose() unwires onSessionsChanged + BridgeManager listeners (no further publishes)', () => {
+  it('dispose() latches so later Hook/Bridge edges publish nothing', () => {
     const wiring = createStateWiring();
     const bm = new BridgeManager();
     wiring.bindBridgeManager(bm);

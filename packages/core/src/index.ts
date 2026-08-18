@@ -118,13 +118,16 @@ async function main() {
       exitCode = 1;
       log.error('notification shutdown failed: %s', error instanceof Error ? (error.stack ?? error.message) : String(error));
     }
-    try { hookManager.dispose(); } catch (error) {
-      exitCode = 1;
-      log.error('hook shutdown failed: %s', error instanceof Error ? (error.stack ?? error.message) : String(error));
-    }
+    // Observers go deaf before Hook teardown. Hook dispose then emits the
+    // same disconnected → PID detach → Bridge closed path as a live drop;
+    // those closed edges must not look like a runtime offline.
     try { stateWiring.dispose(); } catch (error) {
       exitCode = 1;
       log.error('state wiring shutdown failed: %s', error instanceof Error ? (error.stack ?? error.message) : String(error));
+    }
+    try { hookManager.dispose(); } catch (error) {
+      exitCode = 1;
+      log.error('hook shutdown failed: %s', error instanceof Error ? (error.stack ?? error.message) : String(error));
     }
     await closeLogger();
     process.exit(exitCode);

@@ -19,11 +19,8 @@ import { SetInputStatus } from '@snowluma/protocol/oidb-services/profile/set-inp
 import { SetProfile } from '@snowluma/protocol/oidb-services/profile/set-profile';
 import { SetSelfLongNick } from '@snowluma/protocol/oidb-services/profile/set-self-long-nick';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import { createLogger } from '@snowluma/common/logger';
 import type { Bridge } from '../bridge';
 import type { BridgeContext } from '../bridge-context';
-
-const log = createLogger('Bridge.Profile');
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
 
@@ -136,37 +133,8 @@ export class ProfileApi {
 
   // ─────────────── queries on me / my contacts ───────────────
 
-  async getLike(userId?: number, start = 0, limit = 10): Promise<LikeInfo> {
-    const info = await GetLike.invoke(this.ctx, { userId, start, limit });
-    const users = [...info.favoriteInfo.userInfos, ...info.voteInfo.userInfos];
-    const unresolved = new Map<string, typeof users>();
-
-    for (const user of users) {
-      if (user.uin > 0) continue;
-      const sameUid = unresolved.get(user.uid) ?? [];
-      sameUid.push(user);
-      unresolved.set(user.uid, sameUid);
-    }
-
-    await Promise.all([...unresolved].map(async ([uid, sameUid]) => {
-      try {
-        const profile = await this.ctx.apis.contacts.fetchUserProfileByUid(uid);
-        if (profile.uin <= 0) {
-          log.warn('profile-like user resolution returned no uin: uid=%s', uid);
-          return;
-        }
-        for (const user of sameUid) user.uin = profile.uin;
-      } catch (error) {
-        log.error(
-          'profile-like user resolution failed: uid=%s err=%s',
-          uid,
-          error instanceof Error ? error.message : String(error),
-        );
-        throw error;
-      }
-    }));
-
-    return info;
+  getLike(userId?: number, start = 0, limit = 10): Promise<LikeInfo> {
+    return GetLike.invoke(this.ctx, { userId, start, limit });
   }
 
   getUnidirectionalFriendList(): Promise<UnidirectionalFriendEntry[]> {

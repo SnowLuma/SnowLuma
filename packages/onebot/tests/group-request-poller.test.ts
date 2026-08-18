@@ -63,6 +63,8 @@ describe('GroupRequestPoller', () => {
       groupId: 999,
       fromUin: 456,
       fromUid: 'inviter_uid',
+      invitedUin: 123,
+      invitedUid: 'target_uid',
       subType: 'invite',
       message: 'please',
       flag: 'slreq:1:42:999:2:0',

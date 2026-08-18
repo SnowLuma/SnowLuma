@@ -211,7 +211,8 @@ export const ELEMENT_CODECS = {
         log.warn('could not quote the target message');
         return null;
       }
-      if (id <= 0) {
+      // message_id is a signed int32 hash; only 0 is invalid (#371).
+      if (id === 0) {
         log.warn('could not quote the target message');
         return null;
       }
@@ -246,7 +247,10 @@ export const ELEMENT_CODECS = {
       }
 
       // Backward-compatible path: allow direct seq reply IDs.
-      return id > 0 ? { type: 'reply', replySeq: id } : null;
+      // A negative OneBot id is never a QQ sequence.
+      if (id > 0) return { type: 'reply', replySeq: id };
+      log.warn('could not quote the target message');
+      return null;
     },
   },
 

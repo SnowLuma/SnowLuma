@@ -52,7 +52,7 @@ function fakeRequest(overrides: Partial<GroupRequestInfo> = {}): GroupRequestInf
 }
 
 describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
-  it('uses a canonical self-contained flag without refetching the request queue', async () => {
+  it('uses a canonical flag and keeps the tuple when the inbox has no match', async () => {
     const setAddRequest = vi.fn(async () => {});
     const fetchGroupRequests = vi.fn(async () => []);
     const bridge = fakeBridge({
@@ -62,8 +62,31 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
 
     await handleGroupAddRequest(bridge, 'slreq:1:123456:999:22:1', true, 'ok');
 
-    expect(fetchGroupRequests).not.toHaveBeenCalled();
-    expect(setAddRequest).toHaveBeenCalledWith(999, 123456, 22, true, 'ok', true);
+    expect(fetchGroupRequests).toHaveBeenCalled();
+    expect(setAddRequest).toHaveBeenCalledWith(999, 123456, 22, true, 'ok', true, undefined);
+  });
+
+  it('corrects a stale canonical eventType from the live inbox', async () => {
+    const setAddRequest = vi.fn(async () => {});
+    const trans = Uint8Array.from([0xaa]);
+    const bridge = fakeBridge({
+      findGroupInviteCardGroupBySequence: vi.fn(() => undefined),
+      fetchGroupRequests: vi.fn(async (filtered: boolean) => filtered ? [] : [
+        fakeRequest({
+          groupId: 999,
+          sequence: 123456,
+          notifyType: 7,
+          eventType: 1,
+          filtered: false,
+          operateTransInfo: trans,
+        }),
+      ]),
+      apis: { groupAdmin: { setAddRequest } } as any,
+    });
+
+    await handleGroupAddRequest(bridge, 'slreq:1:123456:999:2:0', true, '');
+
+    expect(setAddRequest).toHaveBeenCalledWith(999, 123456, 1, true, '', false, trans);
   });
 
   it('accepts a NapCat numeric sequence and resolves the exact main-inbox request', async () => {
@@ -78,7 +101,7 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
 
     await handleGroupAddRequest(bridge, '261237407', false, 'no');
 
-    expect(setAddRequest).toHaveBeenCalledWith(999, 261237407, 7, false, 'no', false);
+    expect(setAddRequest).toHaveBeenCalledWith(999, 261237407, 7, false, 'no', false, undefined);
   });
 
   it('accepts a NapCat numeric sequence from the filtered inbox', async () => {
@@ -93,7 +116,7 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
 
     await handleGroupAddRequest(bridge, '55', true, 'ok');
 
-    expect(setAddRequest).toHaveBeenCalledWith(999, 55, 2, true, 'ok', true);
+    expect(setAddRequest).toHaveBeenCalledWith(999, 55, 2, true, 'ok', true, undefined);
   });
 
   it('resolves a private invite-card msgseq by its cached group', async () => {
@@ -106,7 +129,7 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
 
     await handleGroupAddRequest(bridge, '778899', true, 'ok');
 
-    expect(setAddRequest).toHaveBeenCalledWith(999, 778899, 2, true, 'ok', false);
+    expect(setAddRequest).toHaveBeenCalledWith(999, 778899, 2, true, 'ok', false, undefined);
   });
 
   it('matches add requests by groupId and targetUid', async () => {
@@ -122,7 +145,7 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
     await handleGroupAddRequest(bridge, 'add:999:u_t', true, 'ok');
 
     expect(setAddRequest).toHaveBeenCalledOnce();
-    expect(setAddRequest).toHaveBeenCalledWith(999, 42, 7, true, 'ok', false);
+    expect(setAddRequest).toHaveBeenCalledWith(999, 42, 7, true, 'ok', false, undefined);
     expect(fetchGroupRequestsByUid).toHaveBeenCalledWith(false, 100);
     expect(fetchGroupRequestsByUid).toHaveBeenCalledWith(true, 100);
   });
@@ -140,7 +163,7 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
     await handleGroupAddRequest(bridge, 'invite:999:u_i', false, 'no');
 
     expect(setAddRequest).toHaveBeenCalledOnce();
-    expect(setAddRequest).toHaveBeenCalledWith(999, 97, 8, false, 'no', false);
+    expect(setAddRequest).toHaveBeenCalledWith(999, 97, 8, false, 'no', false, undefined);
   });
 
   it('finds a request that only lives in the filtered inbox (#197)', async () => {
@@ -159,7 +182,7 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
 
     // Approved through the filtered inbox (subCommand 2 → last arg true).
     expect(setAddRequest).toHaveBeenCalledOnce();
-    expect(setAddRequest).toHaveBeenCalledWith(999, 55, 2, true, 'ok', true);
+    expect(setAddRequest).toHaveBeenCalledWith(999, 55, 2, true, 'ok', true, undefined);
   });
 
   it('surfaces "not found" only when neither inbox has the request', async () => {
@@ -214,7 +237,7 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
 
     await handleGroupAddRequest(bridge, '55', true, 'ok');
 
-    expect(setAddRequest).toHaveBeenCalledWith(999, 55, 2, true, 'ok', true);
+    expect(setAddRequest).toHaveBeenCalledWith(999, 55, 2, true, 'ok', true, undefined);
   });
 
   it('does not report not-found when an unavailable inbox may contain the request', async () => {

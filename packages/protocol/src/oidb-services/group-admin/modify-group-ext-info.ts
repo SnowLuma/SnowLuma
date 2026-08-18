@@ -1,10 +1,9 @@
 // 0xf00_3 — modifyGroupExtInfoV2, used for set_group_robot_add_option.
-// RE'd from QQNT group_ext_list_modify_codec.cc:
 //   ModifyGroupExtInfoReq{ 1:groupCode, 2:GroupExtInfo{ 1:groupCode,
-//     2:EXTInfo{ 30:inviteRobotMemberSwitch, 31:inviteRobotMemberExamine } } }
-// The NT GroupExtFilter (2nd kernel arg) is client-side only — it just gates
-// which EXTInfo fields the encoder emits — so we mirror that by only setting
-// the fields the caller provides. uin-form OIDB (envelope reserved=1).
+//     2:EXTInfo{ 29:inviteRobotMemberSwitch, 30:inviteRobotMemberExamine } } }
+// GroupExtFilter is client-side only — it gates which EXTInfo fields the
+// encoder emits, including a value of 0. We only set the fields the caller
+// provides. uin-form OIDB (envelope reserved=1).
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
@@ -50,6 +49,10 @@ export namespace ModifyGroupExtInfo {
   export const decode = (bytes: Uint8Array): OidbBase<OidbModifyGroupExtResp> =>
     protobuf_decode<OidbBase<OidbModifyGroupExtResp>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<void> =>
-    invokeOidb(deps, ModifyGroupExtInfo, params);
+  export const invoke = (deps: Deps, params: Params): Promise<void> => {
+    if (params.robotMemberSwitch === undefined && params.robotMemberExamine === undefined) {
+      return Promise.resolve();
+    }
+    return invokeOidb(deps, ModifyGroupExtInfo, params);
+  };
 }

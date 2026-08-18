@@ -1,6 +1,7 @@
 // 0x89A_0 — control whether newly joined members may browse group history.
-// QQ sends the complete current groupFlagExt4 value with a mutation mask, so
-// callers must read the flag before invoking this namespace.
+// Mutation writes the extended-flag value plus a one-bit mask. The matching
+// group-detail reply is a 0/1 switch (omitted means hidden), not the full
+// extended-flag bitfield.
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase, OidbEmpty } from '@snowluma/proto-defs/oidb';
@@ -22,13 +23,18 @@ export function mergeGroupHistoryVisibility(currentGroupFlagExt4: number, visibl
   return Number(visible ? current | mask : current & ~mask);
 }
 
+export function decodeGroupHistoryVisibility(groupFlagExt4: number): boolean {
+  assertUint32(groupFlagExt4, 'group history flag');
+  // Detail replies use 0/1. The mutation bitfield still uses bit 2.
+  return groupFlagExt4 === 1 || (groupFlagExt4 & GROUP_HISTORY_VISIBILITY_MASK) !== 0;
+}
+
 export namespace SetNewMemberHistoryVisibility {
   export const command = 0x89A;
   export const subCommand = 0;
 
   export interface Params {
     groupId: number;
-    currentGroupFlagExt4: number;
     visible: boolean;
   }
 
@@ -37,7 +43,7 @@ export namespace SetNewMemberHistoryVisibility {
   export const serialize = (_ctx: Deps, p: Params): Oidb0x89a_0HistoryVisibility => ({
     groupUin: BigInt(p.groupId),
     settings: {
-      groupFlagExt4: mergeGroupHistoryVisibility(p.currentGroupFlagExt4, p.visible),
+      groupFlagExt4: p.visible ? GROUP_HISTORY_VISIBILITY_MASK : 0,
       groupFlagExt4Mask: GROUP_HISTORY_VISIBILITY_MASK,
     },
   });

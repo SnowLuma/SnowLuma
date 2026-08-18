@@ -20,7 +20,7 @@ interface GroupDetailResultsFixture {
   name?: pb<15, string>;
   shutUpAllTimestamp?: pb<45, uint_32>;
   leftover59?: pb<59, uint_32>;
-  privilegeFlag?: pb<99, uint_32>;
+  privilegeFlag?: pb<56, uint_32>;
   groupFlagExt4?: pb<101, uint_32>;
 }
 
@@ -60,6 +60,11 @@ describe('FetchGroupDetail namespace', () => {
         .toBe(true);
       expect(out.config?.flags?.privilegeFlag).toBe(true);
       expect(out.config?.flags?.groupFlagExt4).toBe(true);
+      expect(out.config?.flags?.addType).toBe(true);
+      expect(out.config?.flags?.noFingerOpen).toBe(true);
+      expect(out.config?.flags?.noCodeFingerOpen).toBe(true);
+      expect(out.config?.flags?.question).toBe('');
+      expect(out.config?.flags?.answer).toBe('');
     });
   });
 
@@ -82,6 +87,19 @@ describe('FetchGroupDetail namespace', () => {
       expect(env.subCommand ?? 0).toBe(0); // proto3 omits the 0 default on the wire
       expect(env.reserved ?? 0).toBe(0); // NOT uin-form
       expect(env.body?.config?.uin).toBe(BigInt(601692726));
+      expect(env.body?.config?.flags?.question).toBe('');
+      expect(env.body?.config?.flags?.answer).toBe('');
+    });
+
+    it('keeps empty question/answer masks on the wire (#393)', async () => {
+      const sender = makeSender({ groupInfo: { uin: 1n, results: { name: 'g' } } });
+      await FetchGroupDetail.invoke(sender, { groupUin: 1 });
+
+      const bytes = sender.sendRawPacket.mock.calls[0]![1] as Uint8Array;
+      // length-delimited empty string: field 24/25, wire type 2, length 0.
+      const hex = Buffer.from(bytes).toString('hex');
+      expect(hex).toContain('c20100');
+      expect(hex).toContain('ca0100');
     });
 
     it('returns the decoded group detail (name + counts)', async () => {
@@ -181,6 +199,30 @@ describe('FetchGroupDetail namespace', () => {
 
       const out = await FetchGroupDetail.invoke(sender, { groupUin: 601692726 });
       expect(out.groupInfo?.results?.groupFlagExt4).toBe(0x80000005);
+    });
+
+    it('decodes add-option and search flags from the detail response', async () => {
+      const responseData = Buffer.from(protobuf_encode<OidbBase<OidbSvcTrpcTcp0x88D_0Response>>({
+        body: {
+          groupInfo: {
+            uin: 601692726n,
+            results: { addType: 2, noFingerOpen: 1, noCodeFingerOpen: 0 },
+          },
+        },
+      }));
+      const sender = makeSender();
+      sender.sendRawPacket.mockResolvedValue({
+        success: true,
+        gotResponse: true,
+        errorCode: 0,
+        errorMessage: '',
+        responseData,
+      });
+
+      const out = await FetchGroupDetail.invoke(sender, { groupUin: 601692726 });
+      expect(out.groupInfo?.results?.addType).toBe(2);
+      expect(out.groupInfo?.results?.noFingerOpen).toBe(1);
+      expect(out.groupInfo?.results?.noCodeFingerOpen ?? 0).toBe(0);
     });
   });
 });

@@ -37,7 +37,8 @@ function makePipeline(opts: {
   const pipeline = new IncomingPacketPipeline({
     identity,
     events,
-    refreshMemberCache: vi.fn(async () => false),
+    fetchGroupList: vi.fn(async () => {}),
+    fetchGroupMemberList: vi.fn(async () => {}),
     resolveGroupJoinRequest,
     resolveGroupInviteCardSequence,
   });
@@ -258,7 +259,38 @@ describe('IncomingPacketPipeline / stranger resolve on group_invite', () => {
     await new Promise(r => setTimeout(r, 10));
 
     expect(resolveGroupInviteCardSequence).toHaveBeenCalledWith(999);
-    expect(captured[0]).toMatchObject({ flag: 'slreq:1:778899:999:2:0' });
+    expect(captured[0]).toMatchObject({
+      flag: 'slreq:1:778899:999:2:0',
+      invitedUin: 10001,
+      invitedUid: 'self',
+    });
+  });
+
+  it('fills the invitee from the pending-request row (#394)', async () => {
+    const resolveGroupJoinRequest = vi.fn(async () => ({
+      groupId: 1, groupName: 'group',
+      targetUid: 'u_invitee', targetUin: 789, targetName: 'invitee',
+      invitorUid: 'u_inviter', invitorUin: 456, invitorName: 'inviter',
+      operatorUid: '', operatorUin: 0, operatorName: '',
+      sequence: 42, state: 1, eventType: 2,
+      comment: '', filtered: false,
+    }));
+    const { pipeline, captured } = makePipeline({ resolveGroupJoinRequest });
+
+    pipeline.registerCmd('test.cmd', () => [{
+      kind: 'group_invite', time: 1, selfUin: 10001,
+      groupId: 1, fromUin: 456, fromUid: 'u_inviter',
+      subType: 'invite', message: '', flag: 'invite:1:u_inviter',
+    } as QQEventVariant]);
+
+    pipeline.process({ serviceCmd: 'test.cmd' } as PacketInfo);
+    await new Promise(r => setTimeout(r, 10));
+
+    expect(captured[0]).toMatchObject({
+      fromUin: 456,
+      invitedUin: 789,
+      invitedUid: 'u_invitee',
+    });
   });
 
   it('runs the profile + request lookups in parallel (independent failures)', async () => {
@@ -387,7 +419,8 @@ describe('IncomingPacketPipeline / #1 group card self-heal', () => {
     const pipeline = new IncomingPacketPipeline({
       identity,
       events,
-      refreshMemberCache: vi.fn(async () => false),
+      fetchGroupList: vi.fn(async () => {}),
+      fetchGroupMemberList: vi.fn(async () => {}),
       resolveGroupJoinRequest: vi.fn(async () => null),
     });
     return { identity, pipeline };
@@ -452,7 +485,8 @@ describe('IncomingPacketPipeline / group_card_change from message traffic', () =
     const events = new BridgeEventBus();
     const pipeline = new IncomingPacketPipeline({
       identity, events,
-      refreshMemberCache: vi.fn(async () => false),
+      fetchGroupList: vi.fn(async () => {}),
+      fetchGroupMemberList: vi.fn(async () => {}),
       resolveGroupJoinRequest: vi.fn(async () => null),
     });
     const captured: QQEventVariant[] = [];
@@ -496,5 +530,44 @@ describe('IncomingPacketPipeline / group_card_change from message traffic', () =
     pipeline.registerCmd('test.cmd', () => [groupMsg('SomeCard')]);
     pipeline.process(pkt());
     expect(captured.some((e) => e.kind === 'group_card_change')).toBe(false);
+  });
+});
+
+describe('IncomingPacketPipeline / invite-card pending application', () => {
+  const friendMessage = (
+    card?: { inviteCardGroupUin: number; inviteCardSequence: number },
+  ): QQEventVariant => ({
+    kind: 'friend_message',
+    time: 1,
+    selfUin: 10001,
+    senderUin: 222,
+    senderNick: 'Bob',
+    msgSeq: 1,
+    msgId: 1,
+    elements: [],
+    ...card,
+  });
+
+  it('remembers parsed invite-card facts through the optional port', () => {
+    const rememberGroupInviteCardSequence = vi.fn();
+    const pipeline = new IncomingPacketPipeline({
+      identity: IdentityService.memory('10001'),
+      events: new BridgeEventBus(),
+      fetchGroupList: vi.fn(async () => {}),
+      fetchGroupMemberList: vi.fn(async () => {}),
+      resolveGroupJoinRequest: vi.fn(async () => null),
+      rememberGroupInviteCardSequence,
+    });
+    pipeline.registerCmd('test.cmd', () => [
+      friendMessage({ inviteCardGroupUin: 12345, inviteCardSequence: 778899 }),
+    ]);
+    pipeline.process({ serviceCmd: 'test.cmd' } as PacketInfo);
+    expect(rememberGroupInviteCardSequence).toHaveBeenCalledWith(12345, 778899);
+  });
+
+  it('does not remember when the port is omitted or the event has no card', () => {
+    const { pipeline } = makePipeline();
+    pipeline.registerCmd('test.cmd', () => [friendMessage()]);
+    expect(() => pipeline.process({ serviceCmd: 'test.cmd' } as PacketInfo)).not.toThrow();
   });
 });

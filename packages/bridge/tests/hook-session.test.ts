@@ -644,6 +644,40 @@ describe('HookSession — process gone', () => {
   });
 });
 
+describe('HookSession — dispose', () => {
+  it('emits disconnected(true) while logged in so BridgeManager can detach the PID', async () => {
+    const ctx = makeSession({ pipeLive: true });
+    const discSpy = vi.fn();
+    ctx.session.on('disconnected', discSpy);
+
+    await ctx.session.load();
+    ctx.session.onPipeUp();
+    await flush();
+    ctx.currentClient().fireLogin('10001');
+
+    ctx.session.dispose();
+
+    expect(discSpy).toHaveBeenCalledOnce();
+    expect(discSpy).toHaveBeenCalledWith(true);
+    expect(ctx.session.isDisposed).toBe(true);
+  });
+
+  it('does not emit disconnected when disposed before login', async () => {
+    const ctx = makeSession({ pipeLive: true });
+    const discSpy = vi.fn();
+    ctx.session.on('disconnected', discSpy);
+
+    await ctx.session.load();
+    ctx.session.onPipeUp();
+    await flush();
+
+    ctx.session.dispose();
+
+    expect(discSpy).not.toHaveBeenCalled();
+    expect(ctx.session.isDisposed).toBe(true);
+  });
+});
+
 describe('HookSession — refresh drift fix', () => {
   // refresh while the pipe is down on a connected-but-never-logged-in
   // session now reports 'connecting' (matching what onPipeDown gives for the

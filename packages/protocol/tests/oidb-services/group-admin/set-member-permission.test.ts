@@ -5,6 +5,7 @@ import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type { Oidb0x89a_0MemberPermission } from '@snowluma/proto-defs/oidb-actions/base';
 
 import {
+  decodeGroupMemberPermissions,
   GROUP_MEMBER_PERMISSION_MASKS,
   mergeGroupMemberPermission,
   SetMemberPermission,
@@ -23,6 +24,11 @@ function makeSender() {
 }
 
 describe('SetMemberPermission namespace', () => {
+  it('declares 0x89A_8', () => {
+    expect(SetMemberPermission.command).toBe(0x89A);
+    expect(SetMemberPermission.subCommand).toBe(8);
+  });
+
   it.each<[GroupMemberPermission, number]>([
     ['upload_album', 0x1],
     ['temporary_session', 0x10000],
@@ -38,8 +44,10 @@ describe('SetMemberPermission namespace', () => {
     });
 
     const [command, bytes] = sender.sendRawPacket.mock.calls[0]!;
-    expect(command).toBe('OidbSvcTrpcTcp.0x89a_0');
+    expect(command).toBe('OidbSvcTrpcTcp.0x89a_8');
     const envelope = protobuf_decode<OidbBase<Oidb0x89a_0MemberPermission>>(bytes);
+    expect(envelope.command).toBe(0x89A);
+    expect(envelope.subCommand).toBe(8);
     expect(envelope.body).toMatchObject({
       groupUin: 12345n,
       settings: {
@@ -72,6 +80,36 @@ describe('SetMemberPermission namespace', () => {
       .toBe(0xF0018000);
     expect(mergeGroupMemberPermission(0xF0000000, 'create_group', false))
       .toBe(0xF0008000);
+  });
+
+  it('treats permission bits as deny flags when decoding', () => {
+    expect(decodeGroupMemberPermissions(0)).toEqual({
+      allowMemberUploadAlbum: true,
+      allowMemberTemporarySession: true,
+      allowMemberCreateGroup: true,
+    });
+    expect(decodeGroupMemberPermissions(0x80018001)).toEqual({
+      allowMemberUploadAlbum: false,
+      allowMemberTemporarySession: false,
+      allowMemberCreateGroup: false,
+    });
+    expect(decodeGroupMemberPermissions(0x80000000)).toEqual({
+      allowMemberUploadAlbum: true,
+      allowMemberTemporarySession: true,
+      allowMemberCreateGroup: true,
+    });
+  });
+
+  it('round-trips each permission through merge then decode', () => {
+    let flag = 0x80000000;
+    flag = mergeGroupMemberPermission(flag, 'upload_album', false);
+    flag = mergeGroupMemberPermission(flag, 'temporary_session', true);
+    flag = mergeGroupMemberPermission(flag, 'create_group', false);
+    expect(decodeGroupMemberPermissions(flag)).toEqual({
+      allowMemberUploadAlbum: false,
+      allowMemberTemporarySession: true,
+      allowMemberCreateGroup: false,
+    });
   });
 
   it('keeps explicit zero fields on the wire', async () => {

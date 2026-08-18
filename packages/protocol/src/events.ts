@@ -278,6 +278,11 @@ export interface FriendMessage extends QQEvent {
   sequenceAuthoritative?: boolean;
   msgId: number;
   elements: MessageElement[];
+  /** Parsed `qun.invite` card, if this private message is one. Live
+   *  IncomingPacketPipeline copies these onto the pending-application
+   *  store. Not OneBot wire. */
+  inviteCardGroupUin?: number;
+  inviteCardSequence?: number;
 }
 
 export interface GroupMessage extends QQEvent {
@@ -386,6 +391,11 @@ export interface GroupInviteEvent extends QQEvent {
   groupId: number;
   fromUin: number;
   fromUid?: string;
+  /** Person being invited. Present on admin-side invitation notices
+   *  and on the pending-request list; for a self-invite this is the
+   *  logged-in account. */
+  invitedUin?: number;
+  invitedUid?: string;
   subType: string;
   message: string;
   flag: string;

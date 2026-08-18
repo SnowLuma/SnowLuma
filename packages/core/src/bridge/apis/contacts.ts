@@ -1,5 +1,9 @@
 import { FetchDownloadRkeys } from '@snowluma/protocol/oidb-services/contacts/fetch-download-rkeys';
-import { FetchFriendListPage } from '@snowluma/protocol/oidb-services/contacts/fetch-friend-list-page';
+import {
+  FetchFriendListPage,
+  type FriendListPageCategory,
+  type FriendListPageEntry,
+} from '@snowluma/protocol/oidb-services/contacts/fetch-friend-list-page';
 import { FetchGroupDetail } from '@snowluma/protocol/oidb-services/contacts/fetch-group-detail';
 import { FetchGroupList } from '@snowluma/protocol/oidb-services/contacts/fetch-group-list';
 import { FetchGroupMemberListPage } from '@snowluma/protocol/oidb-services/contacts/fetch-group-member-list-page';
@@ -42,60 +46,15 @@ function isGroupAllMuted(expireTs?: number, nowSec = Math.floor(Date.now() / 100
   return (expireTs ?? 0) > nowSec;
 }
 
-// ─── Helpers (previously in bridge-contacts.ts) ───────────────────
-
-type FriendPropertySource = {
-  additional?: Array<{
-    type?: number;
-    layer1?: {
-      properties?: Array<{
-        code?: number;
-        value?: string;
-      }>;
-    };
-  }>;
-};
-
-interface FriendRosterEntry {
-  friend: FriendInfo;
-  categoryId: number;
-}
-
-interface FriendCategoryMeta {
-  categoryId: number;
-  categoryName: string;
-  memberCount: number;
-  sortId: number;
-}
-
 interface FriendRoster {
-  entries: FriendRosterEntry[];
-  categories: FriendCategoryMeta[];
+  entries: FriendListPageEntry[];
+  categories: FriendListPageCategory[];
 }
 
 export interface SetFriendCategoryParams {
   uin: number;
   categoryId?: number;
   categoryName?: string;
-}
-
-export function buildFriendProperties(raw: FriendPropertySource): Map<number, string> {
-  const props = new Map<number, string>();
-  for (const additional of raw.additional ?? []) {
-    if ((additional.type ?? 0) !== 1 || !additional.layer1) continue;
-    for (const property of additional.layer1.properties ?? []) {
-      props.set(property.code ?? 0, property.value ?? '');
-    }
-  }
-  return props;
-}
-
-export function permissionToRole(permission: number): string {
-  switch (permission) {
-    case 1: return 'owner';
-    case 2: return 'admin';
-    default: return 'member';
-  }
 }
 
 export function isRobotUin(uin: number, ranges: readonly RobotUinRange[]): boolean {
@@ -135,6 +94,9 @@ export class ContactsApi {
       load: (groupId) => this.fetchGroupMemberListUncached(groupId),
     });
   private robotUinRangesPromise_: Promise<RobotUinRangeSnapshot> | null = null;
+  /** groupUin → approval msgseq from a private qun.invite card. Written
+   *  only by IncomingPacketPipeline (and tests). OneBot reads get/find. */
+  private readonly groupInviteCardSeqs_ = new Map<number, number>();
 
   constructor(private readonly ctx: BridgeContext) { }
 
@@ -182,36 +144,19 @@ export class ContactsApi {
   }
 
   private async fetchFriendRoster(): Promise<FriendRoster> {
-    const entries: FriendRosterEntry[] = [];
-    const categories = new Map<number, FriendCategoryMeta>();
+    const entries: FriendListPageEntry[] = [];
+    const categories = new Map<number, FriendListPageCategory>();
     const seenCookies = new Set<string>();
     let cookie: Uint8Array | undefined;
 
     for (;;) {
-      const resp = await FetchFriendListPage.invoke(this.ctx, { cookie });
-      for (const raw of resp.friends ?? []) {
-        const props = buildFriendProperties(raw);
-        entries.push({
-          categoryId: raw.customGroup ?? 0,
-          friend: {
-            uin: raw.uin ?? 0,
-            uid: raw.uid ?? '',
-            nickname: props.get(20002) ?? String(raw.uin ?? 0),
-            remark: props.get(103) ?? '',
-          },
-        });
-      }
-      for (const raw of resp.categories ?? []) {
-        const categoryId = raw.categoryId ?? 0;
-        categories.set(categoryId, {
-          categoryId,
-          categoryName: raw.categoryName ?? '',
-          memberCount: raw.memberCount ?? 0,
-          sortId: raw.sortId ?? 0,
-        });
+      const page = await FetchFriendListPage.invoke(this.ctx, { cookie });
+      entries.push(...page.entries);
+      for (const category of page.categories) {
+        categories.set(category.categoryId, category);
       }
 
-      const next = resp.cookie;
+      const next = page.cookie;
       if (!next?.length) break;
       const key = toHex(next);
       if (seenCookies.has(key)) {
@@ -373,23 +318,9 @@ export class ContactsApi {
     const members: GroupMemberInfo[] = [];
     let token = '';
     do {
-      const resp = await FetchGroupMemberListPage.invoke(this.ctx, { groupId, token });
-      for (const raw of resp.members ?? []) {
-        members.push({
-          uin: raw.uin?.uin ?? 0,
-          uid: raw.uin?.uid ?? '',
-          nickname: raw.memberName ?? '',
-          card: raw.memberCard?.memberCard ?? '',
-          isRobot: false,
-          role: permissionToRole(raw.permission ?? 0),
-          level: raw.level?.level ?? 0,
-          title: raw.specialTitle ?? '',
-          joinTime: raw.joinTimestamp ?? 0,
-          lastSentTime: raw.lastMsgTimestamp ?? 0,
-          shutUpTime: raw.shutUpTimestamp ?? 0,
-        });
-      }
-      token = resp.token ?? '';
+      const page = await FetchGroupMemberListPage.invoke(this.ctx, { groupId, token });
+      members.push(...page.members);
+      token = page.token;
     } while (token);
 
     const robotSnapshot = await robotSnapshotPromise;
@@ -464,6 +395,9 @@ export class ContactsApi {
         eventType: operationType ?? 0,
         comment: raw.comment ?? '',
         filtered,
+        operateTransInfo: raw.operateTransInfo && raw.operateTransInfo.length > 0
+          ? raw.operateTransInfo
+          : undefined,
       });
     }
     this.ctx.identity.rememberGroupRequests(requests);
@@ -520,23 +454,34 @@ export class ContactsApi {
         eventType: operationType ?? 0,
         comment: raw.comment ?? '',
         filtered,
+        operateTransInfo: raw.operateTransInfo && raw.operateTransInfo.length > 0
+          ? raw.operateTransInfo
+          : undefined,
       });
     }
     this.ctx.identity.rememberGroupRequests(requests);
     return requests;
   }
 
+  /** Live observation write. IncomingPacketPipeline and tests only. */
+  rememberGroupInviteCardSequence(groupUin: number, sequence: number): void {
+    if (groupUin > 0 && sequence > 0) this.groupInviteCardSeqs_.set(groupUin, sequence);
+  }
+
   /** The approval msgseq captured from a private "qun.invite" card for this
    *  group, or undefined if none was seen. `set_group_add_request` uses it to
    *  approve a bot self-invite via 0x10c8 (eventType=2). See issue #125. */
   getGroupInviteCardSequence(groupId: number): number | undefined {
-    return this.ctx.identity.getGroupInviteCardSequence(groupId);
+    return this.groupInviteCardSeqs_.get(groupId);
   }
 
   /** Resolve the group for a private invite-card msgseq. Numeric OneBot flags
    *  use this path because the card sequence is absent from 0x10C0. */
   findGroupInviteCardGroupBySequence(sequence: number): number | undefined {
-    return this.ctx.identity.findGroupInviteCardGroupBySequence(sequence);
+    for (const [groupUin, rememberedSequence] of this.groupInviteCardSeqs_) {
+      if (rememberedSequence === sequence) return groupUin;
+    }
+    return undefined;
   }
 
   async fetchDownloadRKeys(): Promise<DownloadRKeyInfo[]> {

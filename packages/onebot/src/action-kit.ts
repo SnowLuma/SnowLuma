@@ -6,9 +6,8 @@
 // doc metadata. The handler receives typed, already-validated params.
 //
 // Narrow seam (ADR-0006): `ApiHandler` keeps dispatch / try-catch / response
-// wrapping. `defineAction(...).register(h, ctx)` ultimately registers a plain
-// `(params) => Promise<ApiResponse>` via `ApiHandler.registerAction`, exactly
-// like the legacy style — so old and new actions coexist during migration.
+// wrapping. `toHandler(ctx)` produces the plain `(params, sink?) => ApiResponse`
+// that ActionRegistry.bind installs into the sealed handler table.
 //
 // Zero runtime npm deps (ADR-0004). Type inference via `InferParams` — no
 // hand-written param interface. Param contract is intentionally a second
@@ -20,7 +19,7 @@
 
 import { RETCODE, failedResponse } from './types';
 import type { ApiResponse, JsonObject, JsonValue } from './types';
-import type { ApiActionContext, ApiHandler } from './api-handler';
+import type { ApiActionContext } from './api-handler';
 import { type StreamSink, NOOP_SINK } from './streaming';
 
 // ─────────────────────────── result currency ───────────────────────────
@@ -444,11 +443,11 @@ export interface ActionDoc {
   inputSchema: JsonSchema;
 }
 
-type Handler = (params: JsonObject) => Promise<ApiResponse>;
+type Handler = (params: JsonObject, sink?: StreamSink) => Promise<ApiResponse>;
 
 /**
  * The narrow shape both `ActionSpec` and `StreamActionSpec` share — enough to
- * register a spec onto an `ApiHandler` and to collect its docs. The action
+ * bind a spec through ActionRegistry and to collect its docs. The action
  * registry barrel (`actions/index.ts`) is typed against this so it can hold
  * both kinds in one flat list without coupling to either concrete generic.
  */
@@ -459,7 +458,7 @@ export interface RegisteredActionSpec {
   /** Canonical name first, followed by every executable alias. */
   readonly names: readonly string[];
   describe(): ActionDoc;
-  register(h: ApiHandler, ctx: ApiActionContext): void;
+  toHandler(ctx: ApiActionContext): Handler;
 }
 
 export interface ActionSpec<S extends Spec> extends RegisteredActionSpec {
@@ -468,7 +467,7 @@ export interface ActionSpec<S extends Spec> extends RegisteredActionSpec {
   readonly params: S;
   /** Pure: coerce + validate + cross-field, no ctx, no I/O. The test surface. */
   parse(raw: JsonObject): CoerceResult<InferParams<S>>;
-  /** Bind ctx and produce the `(params) => ApiResponse` for `registerAction`. */
+  /** Bind ctx and produce the handler ActionRegistry.bind installs. */
   toHandler(ctx: ApiActionContext): Handler;
 }
 
@@ -553,20 +552,16 @@ export function defineAction<S extends Spec>(def: ActionDef<S>): ActionSpec<S> {
         inputSchema,
       };
     },
-    register: (h, ctx) => {
-      const handler = toHandler(ctx);
-      for (const name of names) h.registerAction(name, handler);
-    },
   };
 }
 
 // ─────────────────────────── defineStreamAction ───────────────────────────
 // A Stream API action (#163): same param contract + doc machinery as
 // `defineAction`, but `run` additionally receives a `StreamSink` to push
-// intermediate frames, and it registers via `registerStreamAction` so the
-// network adapter streams its output. The handler's return value is still the
-// terminal `ApiResponse` (the final frame). Reuses `defineAction` for
-// parse/describe so the two stay in lock-step.
+// intermediate frames. `toHandler` is sink-aware so ActionRegistry.bind
+// installs the same shape as a normal Action. The handler's return value is
+// still the terminal `ApiResponse` (the final frame). Reuses `defineAction`
+// for parse/describe so the two stay in lock-step.
 
 interface StreamActionDef<S extends Spec> {
   name: string | readonly [string, ...string[]];
@@ -584,6 +579,7 @@ export interface StreamActionSpec<S extends Spec> extends RegisteredActionSpec {
   readonly names: readonly string[];
   readonly params: S;
   parse(raw: JsonObject): CoerceResult<InferParams<S>>;
+  toHandler(ctx: ApiActionContext): Handler;
 }
 
 export function defineStreamAction<S extends Spec>(def: StreamActionDef<S>): StreamActionSpec<S> {
@@ -600,20 +596,19 @@ export function defineStreamAction<S extends Spec>(def: StreamActionDef<S>): Str
     run: () => failedResponse(RETCODE.INTERNAL_ERROR, 'stream action dispatched without a sink'),
   });
 
+  const toHandler = (ctx: ApiActionContext): Handler => async (params, sink) => {
+    const r = base.parse(params);
+    if (!r.ok) return failedResponse(RETCODE.BAD_REQUEST, wording(r));
+    return def.run(r.value, ctx, params, sink ?? NOOP_SINK);
+  };
+
   return {
     kind: 'stream',
     names: base.names,
     params: def.params,
     parse: base.parse,
+    toHandler,
     describe: () => ({ ...base.describe(), stream: true }),
-    register: (h, ctx) => {
-      const handler = async (params: JsonObject, sink?: StreamSink): Promise<ApiResponse> => {
-        const r = base.parse(params);
-        if (!r.ok) return failedResponse(RETCODE.BAD_REQUEST, wording(r));
-        return def.run(r.value, ctx, params, sink ?? NOOP_SINK);
-      };
-      for (const name of base.names) h.registerStreamAction(name, handler);
-    },
   };
 }
 
@@ -656,10 +651,4 @@ export function groupUserAction<S extends Spec>(
   return defineAction({ ...def, params } as unknown as ActionDef<WithGroupUser<S>>);
 }
 
-// ─────────────────────────── registration helper ───────────────────────────
 
-/** Register many specs onto an ApiHandler. Coexists with legacy
- *  `h.registerAction(name, fn)` in the same `register(h, ctx)`. */
-export function registerActions(h: ApiHandler, ctx: ApiActionContext, specs: ReadonlyArray<RegisteredActionSpec>): void {
-  for (const spec of specs) spec.register(h, ctx);
-}

@@ -786,7 +786,6 @@ describe('IdentityService', () => {
       ['forget group', () => identity.forgetGroup(GROUP_ID)],
       ['group members', () => identity.rememberGroupMembers(GROUP_ID, [])],
       ['user profile', () => identity.rememberUserProfile(profile)],
-      ['group invite sequence', () => identity.rememberGroupInviteCardSequence(GROUP_ID, 123)],
       ['group requests', () => identity.rememberGroupRequests([request])],
       ['request identity', () => identity.rememberRequestIdentity({ uid: 'u_request', uin: 88888 })],
       ['group member identity', () => identity.rememberGroupMemberIdentity(GROUP_ID, { uid: 'u_new', uin: 99999 })],

@@ -72,11 +72,57 @@ describe('FetchFriendListPage namespace', () => {
       expect(sender.sendRawPacket.mock.calls[0]![0]).toBe('OidbSvcTrpcTcp.0xfd4_1');
     });
 
-    it('returns the wire body verbatim (facade does the roster mapping)', async () => {
-      const body = { friends: [{ uin: 10001, uid: 'u', additional: [] }] };
+    it('maps a page of friends and categories into domain types', async () => {
+      const body = {
+        cookie: Uint8Array.from([0xAA]),
+        friends: [{
+          uin: 10001,
+          uid: 'u1',
+          customGroup: 7,
+          additional: [{
+            type: 1,
+            layer1: {
+              properties: [
+                { code: 20002, value: 'Alice' },
+                { code: 103, value: 'A' },
+              ],
+            },
+          }],
+        }],
+        categories: [{
+          categoryId: 7,
+          categoryName: 'Work',
+          memberCount: 1,
+          sortId: 1,
+        }],
+      };
       const sender = makeSender(body as any);
-      const out = await FetchFriendListPage.invoke(sender, {} as any);
-      expect(out.friends).toBeDefined();
+      await expect(FetchFriendListPage.invoke(sender, {} as any)).resolves.toEqual({
+        entries: [{
+          categoryId: 7,
+          friend: { uin: 10001, uid: 'u1', nickname: 'Alice', remark: 'A' },
+        }],
+        categories: [{
+          categoryId: 7,
+          categoryName: 'Work',
+          memberCount: 1,
+          sortId: 1,
+        }],
+        cookie: Uint8Array.from([0xAA]),
+      });
+    });
+
+    it('fills missing friend fields with 0 / empty string', () => {
+      expect(FetchFriendListPage.deserialize({} as any, {
+        friends: [{ additional: [] }],
+      })).toEqual({
+        entries: [{
+          categoryId: 0,
+          friend: { uin: 0, uid: '', nickname: '0', remark: '' },
+        }],
+        categories: [],
+        cookie: undefined,
+      });
     });
 
     it('encodes a follow-up cookie in the envelope body', async () => {

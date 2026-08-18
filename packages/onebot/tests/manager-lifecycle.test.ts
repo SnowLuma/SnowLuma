@@ -513,4 +513,28 @@ describe('OneBotManager lifecycle failure accounting', () => {
 
     await expect(manager.dispose()).rejects.toThrow(/failed to dispose OneBot manager cleanly/);
   });
+
+  it('ignores session-closed after dispose so process-exit closed does not retire again', async () => {
+    const manager = new OneBotManager();
+    const dispose = vi.fn(async () => ({ closed: true, errors: [] }));
+    const instance = fakeInstance('10001', dispose);
+    const internals = manager as unknown as {
+      instances: Map<string, OneBotInstance>;
+      retiringInstances: Set<OneBotInstance>;
+      onSessionClosed(uin: string): void;
+    };
+    internals.instances.set('10001', instance);
+
+    await manager.dispose();
+    expect(dispose).toHaveBeenCalledOnce();
+
+    const lateDispose = vi.fn(async () => ({ closed: true, errors: [] }));
+    const late = fakeInstance('10001', lateDispose);
+    internals.instances.set('10001', late);
+    internals.onSessionClosed('10001');
+
+    expect(lateDispose).not.toHaveBeenCalled();
+    expect(internals.retiringInstances.has(late)).toBe(false);
+    expect(manager.getInstance('10001')).toBe(late);
+  });
 });

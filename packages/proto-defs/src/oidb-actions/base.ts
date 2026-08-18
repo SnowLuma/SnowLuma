@@ -25,6 +25,10 @@ export interface OidbMuteAll {
 }
 export interface Oidb0x89a_0AddOptionSettings {
   addType?: pb<16, uint_32>;
+  // EncodeModifyGroupDetailInfoParam: question=30/60224, answer=31/60225.
+  // Empty string is a real write (clears the other mode), so these are optional.
+  groupQuestion?: pb_optional<30, string>;
+  groupAnswer?:   pb_optional<31, string>;
 }
 export interface Oidb0x89a_0AddOption {
   groupUin?: pb<1, uint_64>;
@@ -82,8 +86,9 @@ export interface Oidb0x89a_0HistoryVisibility {
   settings?: pb<2, Oidb0x89a_0HistoryVisibilitySettings>;
   field12?:  pb<12, uint_32>;
 }
-// 0x89A_0 — one masked group-member capability update. These are deny bits,
+// 0x89A_8 — one masked group-member capability update. These are deny bits,
 // so callers clear the selected bit to allow a capability and set it to deny.
+// Same settings tags as invite policy; the command variant is what differs.
 export interface Oidb0x89a_0MemberPermissionSettings {
   appPrivilegeFlag?: pb_optional<23, uint_32>;
   appPrivilegeMask?: pb_optional<24, uint_32>;
@@ -139,10 +144,13 @@ export interface OidbDeleteFriend {
   field1?: pb<1, OidbDeleteFriendField1>;
 }
 export interface OidbGroupRequestBody {
-  sequence?:  pb<1, uint_64>;
-  eventType?: pb<2, uint_32>;
-  groupUin?:  pb<3, uint_32>;
-  message?:   pb<4, string>;
+  sequence?:         pb<1, uint_64>;
+  eventType?:        pb<2, uint_32>;
+  groupUin?:         pb<3, uint_32>;
+  // Encoder always writes this field. An omitted empty string is not the
+  // same as a present empty/space value; callers must set it.
+  message?:          pb_optional<4, string>;
+  operateTransInfo?: pb<7, bytes>;
 }
 export interface OidbGroupRequestAction {
   accept?: pb<1, uint_32>;
@@ -343,22 +351,28 @@ export interface OidbGroupDetailFlags {
   createTime?:      pb<2, bool>;
   maxMemberCount?:  pb<5, bool>;
   memberCount?:     pb<6, bool>;
+  addType?:         pb<7, bool>;
   level?:           pb<10, bool>;
   name?:            pb<15, string>;
   noticePreview?:   pb<16, string>;
   uin?:             pb<21, bool>;
   lastSequence?:    pb<22, bool>;
   lastMessageTime?: pb<23, bool>;
-  question?:        pb<24, bool>;
-  answer?:          pb<25, string>;
+  // EncodeSingleGroupInfoParamByBaseFilter writes these as empty strings
+  // (length-delimited). A bool true is a different wire type and the
+  // server ignores it; a plain pb<> empty string is omitted.
+  question?:        pb_optional<24, string>;
+  answer?:          pb_optional<25, string>;
   maxAdminCount?:   pb<29, string>;
   // Official request mask for group shutup expire (proto tag 45 → 60027).
   // Lagrange's tag 59 requests 60259, which is a different field.
   shutUpAllTimestamp?: pb<45, bool>;
-  /** Current complete app privilege bitfield; needed for masked mutations. */
-  privilegeFlag?:   pb<99, bool>;
-  /** Current complete groupFlagExt4 bitfield; needed for masked mutations. */
+  /** Request the complete app privilege bitfield. */
+  privilegeFlag?:   pb<56, bool>;
+  /** Request the new-member history-visible switch. */
   groupFlagExt4?:   pb<101, bool>;
+  noFingerOpen?:     pb<82, bool>;
+  noCodeFingerOpen?: pb<83, bool>;
 }
 export interface OidbGroupDetailConfig {
   uin?:   pb<1, uint_64>;

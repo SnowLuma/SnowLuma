@@ -1,4 +1,3 @@
-import { toHexUpper } from '@snowluma/common/hex';
 import { createLogger } from '@snowluma/common/logger';
 import type { FileUploadExt } from '@snowluma/proto-defs/highway';
 import { FileChunkSource, fetchHighwaySession, uploadHighwayHttp } from '@snowluma/protocol/highway';
@@ -81,11 +80,6 @@ export type { MediaIndexNode } from './shared';
 function normalizeDirectory(dir?: string): string {
   if (!dir || !dir.trim()) return '/';
   return dir;
-}
-
-function bytesToHexUpper(data: unknown): string {
-  if (!(data instanceof Uint8Array) || data.length === 0) return '';
-  return toHexUpper(data);
 }
 
 // Reverses acidify's `Int.toIpString()`: the 32-bit IP arrives
@@ -568,9 +562,8 @@ export class GroupFileApi {
         groupId, targetDirectory, startIndex, pageSize,
       });
       if (!list) break;
-      ensureRetCodeZero('group file list', list.retCode, list.retMsg, list.clientWording);
 
-      for (const item of list.items ?? []) {
+      for (const item of list.items) {
         const type = toInt(item?.type);
         if (type === 1 && item?.fileInfo) {
           const file = item.fileInfo;
@@ -627,34 +620,14 @@ export class GroupFileApi {
   // ─────────────── url fetch (group / private files) ───────────────
 
   async getUrl(groupId: number, fileId: string, busId = 102): Promise<string> {
-    const download = await GetGroupFileUrl.invoke(this.ctx, { groupId, fileId, busId });
-    ensureRetCodeZero('group file url', download.retCode, download.retMsg, download.clientWording);
-
-    const dns = (typeof download.downloadDns === 'string' && download.downloadDns)
-      || (typeof download.downloadIp === 'string' && download.downloadIp)
-      || '';
-    const hexUrl = bytesToHexUpper(download.downloadUrl);
-    if (!dns || !hexUrl) {
-      throw new Error('group file url response invalid');
-    }
-
-    // Keep the same behavior as Lagrange: append file_id after ?fname=
-    return `https://${dns}/ftn_handler/${hexUrl}/?fname=${fileId}`;
+    return GetGroupFileUrl.invoke(this.ctx, { groupId, fileId, busId });
   }
 
   async getPrivateUrl(userId: number, fileId: string, fileHash: string): Promise<string> {
     const bridge = asBridge(this.ctx);
     const selfUid = await resolveSelfUid(bridge);
     void userId;
-    const result = await GetPrivateFileUrl.invoke(this.ctx, { selfUid, fileId, fileHash });
-
-    const server = typeof result?.server === 'string' ? result.server : '';
-    const port = toInt(result?.port);
-    const url = typeof result?.url === 'string' ? result.url : '';
-    if (!server || !port || !url) {
-      throw new Error('private file url response invalid');
-    }
-    return `http://${server}:${port}${url}&isthumb=0`;
+    return GetPrivateFileUrl.invoke(this.ctx, { selfUid, fileId, fileHash });
   }
 
   // ─────────────── delete / move ───────────────

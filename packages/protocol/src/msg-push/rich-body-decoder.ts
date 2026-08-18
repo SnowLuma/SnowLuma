@@ -457,6 +457,19 @@ function buildMediaNode(idx: IndexNode, fi: FileInfo): MessageElement['mediaNode
   };
 }
 
+/** Whether this body carries any slot {@link decodeRichBody} would try:
+ *  `richText.elems`, a voice (`ptt`), a c2c file (`notOnlineFile`), or
+ *  serialized `msgContent`. Presence, not successful decode — a body that
+ *  has elems we do not yet understand is still decodable content. */
+export function hasDecodableContent(body: PushMsgBody | undefined): boolean {
+  const rt = body?.richText;
+  if (rt) {
+    if (rt.elems && rt.elems.length > 0) return true;
+    if (rt.ptt || rt.notOnlineFile) return true;
+  }
+  return !!(body?.msgContent && body.msgContent.length > 0);
+}
+
 export function decodeRichBody(body: PushMsgBody | undefined, isGroup: boolean): MessageElement[] {
   const elements: MessageElement[] = [];
   logUnknownWireFields(body, 'body');
@@ -937,7 +950,46 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
     }
   }
 
-  return result;
+  return dropLegacyImageSiblings(result);
+}
+
+function isNtImage(element: MessageElement): boolean {
+  if (element.type !== 'image') return false;
+  if (element.picFormat != null || element.sha1Hex) return true;
+  const url = element.imageUrl ?? '';
+  return url.includes('://multimedia.nt.qq.com.cn/');
+}
+
+function isUsableImageUrl(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+  if (parsed.hostname === 'multimedia.nt.qq.com.cn') return parsed.pathname.length > 1;
+  return parsed.pathname.length > 1;
+}
+
+function sameImageFile(left: MessageElement, right: MessageElement): boolean {
+  if (left.type !== 'image' || right.type !== 'image') return false;
+  if (left.fileId && right.fileId && left.fileId === right.fileId) return true;
+  return Boolean(left.md5Hex && right.md5Hex && left.md5Hex === right.md5Hex);
+}
+
+// [#389] NT pictures arrive as CommonElem plus a CustomFace / NotOnlineImage
+// sibling for older clients. QQ shows one picture. Keep the NT image and drop
+// the sibling when it names the same file, or when its URL cannot be fetched.
+function dropLegacyImageSiblings(elements: MessageElement[]): MessageElement[] {
+  const ntImages = elements.filter(isNtImage);
+  return elements.filter((element) => {
+    if (element.type !== 'image') return true;
+    if (isNtImage(element)) return true;
+    const url = element.imageUrl ?? '';
+    if (!url || !isUsableImageUrl(url)) return false;
+    return !ntImages.some((nt) => sameImageFile(nt, element));
+  });
 }
 
 /**

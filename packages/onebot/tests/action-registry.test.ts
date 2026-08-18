@@ -90,9 +90,11 @@ describe('compileActionRegistry namespace conflicts', () => {
 });
 
 describe('compiled production Action registry', () => {
-  it('preserves all 191 canonical Action docs', () => {
-    expect(ACTION_REGISTRY.actions).toHaveLength(191);
-    expect(collectActionDocs()).toHaveLength(191);
+  it('publishes a doc for every compiled action', () => {
+    const registryNames = ACTION_REGISTRY.actions.map((action) => action.doc.name).sort();
+    const docNames = collectActionDocs().map((doc) => doc.name).sort();
+    expect(docNames).toEqual(registryNames);
+    expect(docNames.length).toBeGreaterThan(100);
   });
 
   it('resolves every executable name to exactly one canonical doc', () => {
@@ -114,20 +116,18 @@ describe('compiled production Action registry', () => {
     }
   });
 
-  it('registers the exact compiled executable-name/kind projection at runtime', () => {
-    const registered: Array<[string, 'normal' | 'stream']> = [];
-    const fakeHandler = {
-      registerAction: (name: string) => { registered.push([name, 'normal']); },
-      registerStreamAction: (name: string) => { registered.push([name, 'stream']); },
-    } as unknown as ApiHandler;
+  it('binds the exact compiled executable-name/kind projection', () => {
+    const api = { handle: vi.fn() } as unknown as ApiHandler;
+    const bound = ACTION_REGISTRY.bind({} as ApiActionContext, api, {
+      [HANDLE_QUICK_OPERATION_ACTION]: () => async () => okResponse(),
+    });
 
-    ACTION_REGISTRY.register(fakeHandler, {} as ApiActionContext);
-
-    expect(registered).toEqual(
-      ACTION_REGISTRY.executableNames
-        .filter((entry) => entry.kind !== 'raw')
-        .map((entry) => [entry.name, entry.kind]),
+    expect([...bound.entries()].map(([name, entry]) => [name, entry.kind])).toEqual(
+      ACTION_REGISTRY.executableNames.map((entry) => [entry.name, entry.kind]),
     );
+    for (const executable of ACTION_REGISTRY.executableNames) {
+      expect(bound.get(executable.name)?.canonical).toBe(executable.canonical);
+    }
   });
 
   it('validates and forwards get_group_system_msg filters', async () => {
@@ -152,21 +152,12 @@ describe('compiled production Action registry', () => {
   });
 });
 
-describe('ApiHandler constructor-time registry transaction', () => {
-  const handler = async () => okResponse();
-
+describe('ActionRegistry.bind', () => {
   function testRegistry(...specs: RegisteredActionSpec[]) {
     return compileActionRegistry(groups(...specs), RAW_ACTION_RESERVATIONS);
   }
 
-  function withRegistration(
-    base: RegisteredActionSpec,
-    register: RegisteredActionSpec['register'],
-  ): RegisteredActionSpec {
-    return { kind: base.kind, names: base.names, describe: base.describe, register };
-  }
-
-  it('binds only names declared by the injected complete registry, then seals', async () => {
+  it('binds only names declared by the injected complete registry', async () => {
     const api = new ApiHandler(
       {} as ApiActionContext,
       undefined,
@@ -174,7 +165,6 @@ describe('ApiHandler constructor-time registry transaction', () => {
     );
     expect((await api.handle('__registry_normal__', {})).status).toBe('ok');
     expect(api.isStreamAction('__registry_normal__')).toBe(false);
-    expect(() => api.registerAction('__rogue__', handler)).toThrow(/Action registry is sealed/);
     expect((await api.handle('__rogue__', {})).retcode).toBe(1404);
   });
 
@@ -184,61 +174,31 @@ describe('ApiHandler constructor-time registry transaction', () => {
       undefined,
       testRegistry(stream('__registry_stream__')),
     );
-    expect(() => api.registerAction('__registry_stream__', handler)).toThrow(
-      /Action registry is sealed/,
-    );
     expect(api.isStreamAction('__registry_stream__')).toBe(true);
+    expect(api.isStreamAction('__registry_normal__')).toBe(false);
   });
 
-  it('rejects a spec that registers an undeclared executable name', () => {
-    const base = normal('declared');
-    const malicious = withRegistration(base, (api) => api.registerAction('rogue', handler));
-    expect(() => new ApiHandler(
-      {} as ApiActionContext,
-      undefined,
-      testRegistry(malicious),
-    )).toThrow(/not declared.*canonical "rogue".*name "rogue".*kind normal/);
+  it('rejects a missing raw factory for a reserved name', () => {
+    const registry = testRegistry(normal('declared'));
+    expect(() => registry.bind({} as ApiActionContext, {} as ApiHandler, {})).toThrow(
+      /raw factory missing.*handle_quick_operation.*kind raw/,
+    );
   });
 
-  it('rejects a spec whose registration kind disagrees with its compiled claim', () => {
-    const base = normal('declared');
-    const malicious = withRegistration(base, (api) => api.registerStreamAction('declared', handler));
-    expect(() => new ApiHandler(
-      {} as ApiActionContext,
-      undefined,
-      testRegistry(malicious),
-    )).toThrow(/kind mismatch.*canonical "declared".*registry kind normal, registration kind stream/);
+  it('rejects an unexpected raw factory', () => {
+    const registry = compileActionRegistry(groups(normal('declared')));
+    expect(() => registry.bind({} as ApiActionContext, {} as ApiHandler, {
+      extra: () => async () => okResponse(),
+    })).toThrow(/unexpected raw factory.*extra.*kind raw/);
   });
 
-  it('rejects duplicate constructor-time handler binding', () => {
-    const base = normal('declared');
-    const malicious = withRegistration(base, (api) => {
-      api.registerAction('declared', handler);
-      api.registerAction('declared', handler);
-    });
-    expect(() => new ApiHandler(
+  it('constructs an injected registry that has no raw reservation', async () => {
+    const api = new ApiHandler(
       {} as ApiActionContext,
       undefined,
-      testRegistry(malicious),
-    )).toThrow(/canonical "declared".*kind normal.*conflicts with.*canonical "declared".*kind normal/);
-  });
-
-  it('rejects a compiled claim that did not bind a handler', () => {
-    const base = normal('declared');
-    const malicious = withRegistration(base, () => {});
-    expect(() => new ApiHandler(
-      {} as ApiActionContext,
-      undefined,
-      testRegistry(malicious),
-    )).toThrow(/claim has no handler.*canonical "declared".*name "declared".*kind normal/);
-  });
-
-  it('requires the raw quick-operation reservation in an injected registry', () => {
-    const incomplete = compileActionRegistry(groups(normal('declared')));
-    expect(() => new ApiHandler(
-      {} as ApiActionContext,
-      undefined,
-      incomplete,
-    )).toThrow(/not declared.*handle_quick_operation.*kind raw/);
+      compileActionRegistry(groups(normal('declared'))),
+    );
+    expect((await api.handle('declared', {})).status).toBe('ok');
+    expect((await api.handle(HANDLE_QUICK_OPERATION_ACTION, {})).retcode).toBe(1404);
   });
 });

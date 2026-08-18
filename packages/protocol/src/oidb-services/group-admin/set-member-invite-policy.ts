@@ -39,6 +39,15 @@ export function mergeMemberInvitePrivilegeFlag(
   return Number((current & ~mask) | (requested & mask));
 }
 
+export function decodeMemberInvitePolicy(privilegeFlag: number): GroupMemberInvitePolicy {
+  assertUint32(privilegeFlag, 'privilege flag');
+  const bits = privilegeFlag & MEMBER_INVITE_PRIVILEGE_MASK;
+  if ((bits & 0x04000000) !== 0) return 'disabled';
+  if ((bits & 0x02000000) !== 0) return 'no_approval_under_100';
+  if ((bits & 0x00100000) !== 0) return 'no_approval';
+  return 'require_approval';
+}
+
 export namespace SetMemberInvitePolicy {
   export const command = 0x89A;
   export const subCommand = 0;

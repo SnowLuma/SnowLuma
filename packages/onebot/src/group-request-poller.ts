@@ -180,6 +180,10 @@ export class GroupRequestPoller {
       groupId: request.groupId,
       fromUin,
       fromUid,
+      ...(notifyType === 1 ? {
+        invitedUin: request.targetUin,
+        invitedUid: request.targetUid,
+      } : {}),
       subType,
       message: request.comment,
       flag: formatGroupRequestFlag(inviteCardSequence === undefined ? request : {

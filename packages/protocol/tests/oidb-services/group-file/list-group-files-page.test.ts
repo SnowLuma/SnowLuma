@@ -68,15 +68,23 @@ describe('ListGroupFilesPage namespace', () => {
     });
   });
 
-  it('returns the list body so the facade can walk items / isEnd', async () => {
+  it('returns items and isEnd after checking list.retCode', async () => {
     const deps = makeDeps({
       list: { isEnd: false, items: [{ type: 1 }] } as any,
     });
     const out = await ListGroupFilesPage.invoke(deps, {
       groupId: 1, targetDirectory: '/', startIndex: 0, pageSize: 10,
     });
-    expect(out?.isEnd ?? false).toBe(false);
-    expect(out?.items).toHaveLength(1);
+    expect(out).toEqual({ items: [expect.objectContaining({ type: 1 })], isEnd: false });
+  });
+
+  it('throws when list.retCode is non-zero', async () => {
+    const deps = makeDeps({
+      list: { retCode: 2, retMsg: 'busy', isEnd: true, items: [] } as any,
+    });
+    await expect(ListGroupFilesPage.invoke(deps, {
+      groupId: 1, targetDirectory: '/', startIndex: 0, pageSize: 10,
+    })).rejects.toThrow(/group file list failed: code=2/);
   });
 
   it('decodes the folder last-upload metadata from the QQ wire fields', async () => {

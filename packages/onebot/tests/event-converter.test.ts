@@ -363,6 +363,23 @@ describe('convertEvent — request kinds', () => {
     } as QQEventVariant);
     expect(withSubType!.sub_type).toBe('add');
   });
+
+  it('group_invite: reports the invitee without replacing user_id (#394)', async () => {
+    const out = await convertEvent(bareCtx(), {
+      kind: 'group_invite', time: 1, selfUin: SELF_ID, groupId: GROUP_ID,
+      fromUin: PEER_UIN, invitedUin: 4242, message: '', flag: 'gflag', subType: 'invite',
+    } as QQEventVariant);
+    expect(out!.user_id).toBe(PEER_UIN);
+    expect(out!.invited_id).toBe(4242);
+  });
+
+  it('group_invite: omits invited_id when the invitee is unknown', async () => {
+    const out = await convertEvent(bareCtx(), {
+      kind: 'group_invite', time: 1, selfUin: SELF_ID, groupId: GROUP_ID,
+      fromUin: PEER_UIN, message: '', flag: 'gflag', subType: 'invite',
+    } as QQEventVariant);
+    expect(out).not.toHaveProperty('invited_id');
+  });
 });
 
 describe('convertEvent — message elements', () => {
@@ -374,11 +391,7 @@ describe('convertEvent — message elements', () => {
   type Segment = { type: string; data: Record<string, unknown> };
   async function segment(element: MessageElement, opts: Partial<ConverterContext> = {}): Promise<Segment> {
     const ctx = bareCtx(opts);
-    const segments = await elementsToOneBotSegments(
-      [element], false, PEER_UIN,
-      ctx.imageUrlResolver, ctx.mediaUrlResolver, ctx.messageIdResolver, ctx.mediaSegmentSink,
-      ctx.selfId,
-    );
+    const segments = await elementsToOneBotSegments(ctx, [element], false, PEER_UIN);
     return segments[0] as unknown as Segment;
   }
 
@@ -626,6 +639,7 @@ describe('convertEvent — message elements', () => {
       mediaUrlResolver: async () => '',
     });
     await elementsToOneBotSegments(
+      ctx,
       [
         { type: 'image', fileId: 'i', imageUrl: '' },
         { type: 'record', fileName: 'r.silk', fileId: 'r' },
@@ -633,7 +647,6 @@ describe('convertEvent — message elements', () => {
         { type: 'text', text: 'not media' },
       ],
       true, GROUP_ID,
-      ctx.imageUrlResolver, ctx.mediaUrlResolver, ctx.messageIdResolver, ctx.mediaSegmentSink,
     );
     expect(calls).toEqual(['image', 'record', 'video']);
   });

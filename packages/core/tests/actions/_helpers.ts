@@ -127,6 +127,7 @@ export interface MockBridge {
     nickname: string;
     findUidByUin: ReturnType<typeof vi.fn>;
     findUinByUid: ReturnType<typeof vi.fn>;
+    resolveUin: ReturnType<typeof vi.fn>;
     findGroupMember: ReturnType<typeof vi.fn>;
     updateFriendRemark: ReturnType<typeof vi.fn>;
     updateGroupRemark: ReturnType<typeof vi.fn>;
@@ -161,6 +162,7 @@ export function mockBridge(overrides: Partial<MockBridge> = {}): MockBridge {
       nickname: 'self-nick',
       findUidByUin: vi.fn(() => 'cached-uid'),
       findUinByUid: vi.fn(() => 0),
+      resolveUin: vi.fn(async () => null),
       findGroupMember: vi.fn(() => null),
       updateFriendRemark: vi.fn(() => true),
       updateGroupRemark: vi.fn(() => true),
