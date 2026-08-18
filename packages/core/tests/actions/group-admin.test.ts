@@ -440,9 +440,9 @@ describe('apis/group-admin', () => {
 
     expect(bridge.sendRawPacket.mock.calls.map((call) => call[0])).toEqual([
       'OidbSvcTrpcTcp.0x88d_0',
-      'OidbSvcTrpcTcp.0x89a_0',
-      'OidbSvcTrpcTcp.0x89a_0',
-      'OidbSvcTrpcTcp.0x89a_0',
+      'OidbSvcTrpcTcp.0x89a_8',
+      'OidbSvcTrpcTcp.0x89a_8',
+      'OidbSvcTrpcTcp.0x89a_8',
       'OidbSvcTrpcTcp.0x88d_0',
     ]);
 
@@ -475,9 +475,11 @@ describe('apis/group-admin', () => {
       allowMemberUploadAlbum: true,
     });
 
+    expect(bridge.sendRawPacket.mock.calls[1]![0]).toBe('OidbSvcTrpcTcp.0x89a_8');
     const envelope = protobuf_decode<OidbBase<Oidb0x89a_0MemberPermission>>(
       bridge.sendRawPacket.mock.calls[1]![1],
     );
+    expect(envelope.subCommand).toBe(8);
     expect(envelope.body?.settings).toEqual({
       appPrivilegeFlag: 0,
       appPrivilegeMask: 1,

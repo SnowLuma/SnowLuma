@@ -24,6 +24,11 @@ function makeSender() {
 }
 
 describe('SetMemberPermission namespace', () => {
+  it('declares 0x89A_8', () => {
+    expect(SetMemberPermission.command).toBe(0x89A);
+    expect(SetMemberPermission.subCommand).toBe(8);
+  });
+
   it.each<[GroupMemberPermission, number]>([
     ['upload_album', 0x1],
     ['temporary_session', 0x10000],
@@ -39,8 +44,10 @@ describe('SetMemberPermission namespace', () => {
     });
 
     const [command, bytes] = sender.sendRawPacket.mock.calls[0]!;
-    expect(command).toBe('OidbSvcTrpcTcp.0x89a_0');
+    expect(command).toBe('OidbSvcTrpcTcp.0x89a_8');
     const envelope = protobuf_decode<OidbBase<Oidb0x89a_0MemberPermission>>(bytes);
+    expect(envelope.command).toBe(0x89A);
+    expect(envelope.subCommand).toBe(8);
     expect(envelope.body).toMatchObject({
       groupUin: 12345n,
       settings: {
