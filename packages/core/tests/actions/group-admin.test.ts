@@ -11,6 +11,7 @@ import type {
   Oidb0x89a_0HistoryVisibility,
   Oidb0x89a_0MemberPermission,
   Oidb0xf16Req,
+  OidbGroupDetailRequest,
   OidbGroupRequestAction,
   OidbKickMember,
   OidbLeaveGroup,
@@ -570,6 +571,11 @@ describe('apis/group-admin', () => {
       'OidbSvcTrpcTcp.0x88d_0',
       'OidbSvcTrpcTcp.0xef0_1',
     ]);
+    const detailReq = protobuf_decode<OidbBase<OidbGroupDetailRequest>>(
+      bridge.sendRawPacket.mock.calls.find((call) => call[0] === 'OidbSvcTrpcTcp.0x88d_0')![1],
+    );
+    expect(detailReq.body?.config?.flags?.question).toBe('');
+    expect(detailReq.body?.config?.flags?.answer).toBe('');
   });
 
   it('getAdminSettings treats omitted detail/ext zeros as the default values', async () => {
