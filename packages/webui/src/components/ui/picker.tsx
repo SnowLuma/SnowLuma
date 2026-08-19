@@ -59,6 +59,7 @@ export function Picker({
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const suppressTriggerClick = useRef(false);
+  const dragRef = useRef<{ id: number; y: number; dragged: boolean } | null>(null);
   const waitingForOptions = Boolean(loading && options.length === 0);
 
   const selected = options.find((o) => o.value === value);
@@ -184,7 +185,7 @@ export function Picker({
             }}
             transition={reduced ? NONE : { ...OPEN, opacity: { duration: 0.12, ease: EASE } }}
             style={{ transformOrigin: 'top left' }}
-            className="absolute z-50 mt-1.5 w-full overflow-hidden rounded-[11px] border border-border bg-popover shadow-[0_1px_2px_rgb(0_0_0/0.06),0_16px_36px_-18px_rgb(0_0_0/0.5)]"
+            className="absolute z-[200] mt-1.5 w-full overflow-hidden rounded-[11px] border border-border bg-popover shadow-[0_1px_2px_rgb(0_0_0/0.06),0_16px_36px_-18px_rgb(0_0_0/0.5)]"
           >
             <div className="flex items-center gap-2 border-b border-border/60 px-2.5 py-2">
               <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -229,8 +230,8 @@ export function Picker({
                     ref={listRef}
                     role="listbox"
                     onScroll={(e) => setScrollTop((e.target as HTMLDivElement).scrollTop)}
-                    className="overflow-auto"
-                    style={{ height: viewH }}
+                    className="overflow-auto overscroll-contain"
+                    style={{ height: viewH, touchAction: 'pan-y' }}
                   >
                     <div style={{ height: totalRows * ROW_H, position: 'relative' }}>
                       <motion.span
@@ -251,10 +252,26 @@ export function Picker({
                           aria-selected={idx === active}
                           onMouseEnter={() => setActive(idx)}
                           onPointerDown={(e) => {
-                            e.preventDefault();
+                            if (e.pointerType === 'mouse') {
+                              suppressTriggerClick.current = true;
+                              choose(idx);
+                              return;
+                            }
+                            dragRef.current = { id: e.pointerId, y: e.clientY, dragged: false };
+                          }}
+                          onPointerMove={(e) => {
+                            const drag = dragRef.current;
+                            if (!drag || drag.id !== e.pointerId) return;
+                            if (Math.abs(e.clientY - drag.y) > 8) drag.dragged = true;
+                          }}
+                          onPointerUp={(e) => {
+                            const drag = dragRef.current;
+                            dragRef.current = null;
+                            if (!drag || drag.id !== e.pointerId || drag.dragged) return;
                             suppressTriggerClick.current = true;
                             choose(idx);
                           }}
+                          onPointerCancel={() => { dragRef.current = null; }}
                           className={cn(
                             'absolute left-0 right-0 z-[1] flex cursor-pointer items-center gap-2.5 px-3',
                             idx === active ? 'text-accent-foreground' : 'hover:bg-accent/50',
