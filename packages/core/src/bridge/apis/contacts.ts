@@ -354,6 +354,18 @@ export class ContactsApi {
       const targetUin = raw.target?.uin ?? 0;
       const invitorUin = raw.invitor?.uin ?? 0;
       const operatorUin = raw.operatorUser?.uin ?? 0;
+      const targetUid = raw.target?.uid
+        || this.ctx.identity.findUidByUin(targetUin, groupId)
+        || this.ctx.identity.findUidByUin(targetUin)
+        || '';
+      const invitorUid = raw.invitor?.uid
+        || this.ctx.identity.findUidByUin(invitorUin, groupId)
+        || this.ctx.identity.findUidByUin(invitorUin)
+        || '';
+      const operatorUid = raw.operatorUser?.uid
+        || this.ctx.identity.findUidByUin(operatorUin, groupId)
+        || this.ctx.identity.findUidByUin(operatorUin)
+        || '';
       const notifyType = raw.eventType ?? 0;
       const operationType = groupRequestOperationType(notifyType);
       const sequence = normalizeGroupRequestSequence(raw.sequence, groupId);
@@ -368,20 +380,23 @@ export class ContactsApi {
       requests.push({
         groupId,
         groupName: raw.group?.groupName ?? '',
-        targetUid: this.ctx.identity.findUidByUin(targetUin, groupId)
-          ?? this.ctx.identity.findUidByUin(targetUin)
-          ?? '',
-        targetUin,
+        targetUid,
+        targetUin: targetUin
+          || this.ctx.identity.findUinByUid(targetUid, groupId)
+          || this.ctx.identity.findUinByUid(targetUid)
+          || 0,
         targetName: raw.target?.name ?? '',
-        invitorUid: this.ctx.identity.findUidByUin(invitorUin, groupId)
-          ?? this.ctx.identity.findUidByUin(invitorUin)
-          ?? '',
-        invitorUin,
+        invitorUid,
+        invitorUin: invitorUin
+          || this.ctx.identity.findUinByUid(invitorUid, groupId)
+          || this.ctx.identity.findUinByUid(invitorUid)
+          || 0,
         invitorName: raw.invitor?.name ?? '',
-        operatorUid: this.ctx.identity.findUidByUin(operatorUin, groupId)
-          ?? this.ctx.identity.findUidByUin(operatorUin)
-          ?? '',
-        operatorUin,
+        operatorUid,
+        operatorUin: operatorUin
+          || this.ctx.identity.findUinByUid(operatorUid, groupId)
+          || this.ctx.identity.findUinByUid(operatorUid)
+          || 0,
         operatorName: raw.operatorUser?.name ?? '',
         sequence,
         state: raw.state ?? 0,

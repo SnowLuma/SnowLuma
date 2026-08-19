@@ -2027,7 +2027,10 @@ describe('extended-actions / TierB ③ share + doubt + robot-option', () => {
   });
 
   it('get_doubt_friends_add_request returns the mapped list', async () => {
-    const list = [{ uid: 'u1', nick: 'A', source: 's', msg: 'm', reqTime: 123 }];
+    const list = [{
+      uid: 'u1', user_id: 10001, nick: 'A', source: 's', reason: '',
+      msg: 'm', group_code: '', reqTime: 123,
+    }];
     const getDoubtRequests = vi.fn(async () => list);
     const bridge = fakeBridge({ apis: { friend: { getDoubtRequests } } });
     const res = await makeHandler(fakeCtx(bridge)).handle('get_doubt_friends_add_request', { count: 5 });

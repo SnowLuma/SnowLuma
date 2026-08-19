@@ -1,16 +1,20 @@
 // 0x10C0 — fetch pending group-add requests.
 //   subCommand 1 = main inbox, 2 = filtered (low-priority) inbox
 //
-// Current QQ uses the UIN-form envelope for its native list path. The server
-// changes user field 1 from a UID string to a numeric UIN when that envelope
-// bit changes, so the two forms deliberately have separate decoders below.
-// The UID form remains necessary for correlating UID-only real-time pushes.
+// Current QQ uses the UIN-form envelope for the native list path, but the
+// per-user record still carries a string account on field 1. Decode both
+// shapes and merge so neither identifier is dropped. The UID-form request
+// remains necessary for correlating UID-only real-time pushes.
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type {
   OidbBase,
   OidbSvcTrpcTcp0x10C0Response,
   OidbSvcTrpcTcp0x10C0ResponseByUin,
+  OidbSvcTrpcTcp0x10C0ResponseRequest,
+  OidbSvcTrpcTcp0x10C0ResponseRequestByUin,
+  OidbSvcTrpcTcp0x10C0ResponseUser,
+  OidbSvcTrpcTcp0x10C0ResponseUserByUin,
 } from '@snowluma/proto-defs/oidb';
 import type { OidbGroupRequestList } from '@snowluma/proto-defs/oidb-actions/base';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
@@ -24,9 +28,92 @@ const GROUP_REQUEST_OPERATION_TYPE = new Map<number, number>([
   [6, 35], [7, 1], [8, 3], [9, 6], [10, 7], [11, 13],
   [12, 15], [13, 16], [14, 17], [15, 19], [16, 8], [17, 100],
 ]);
+const GROUP_REQUEST_OPERATION_OUTPUT = new Set(GROUP_REQUEST_OPERATION_TYPE.values());
 
 export function groupRequestOperationType(notifyType: number): number | null {
-  return GROUP_REQUEST_OPERATION_TYPE.get(notifyType) ?? null;
+  const mapped = GROUP_REQUEST_OPERATION_TYPE.get(notifyType);
+  if (mapped !== undefined) return mapped;
+  // Some list replies already carry the mapped discriminator (e.g. 22).
+  if (GROUP_REQUEST_OPERATION_OUTPUT.has(notifyType)) return notifyType;
+  return null;
+}
+
+export interface DecodedGroupRequestUser {
+  uid: string;
+  uin: number;
+  name: string;
+}
+
+export interface DecodedGroupRequest {
+  sequence?: bigint;
+  eventType?: number;
+  state?: number;
+  group?: { groupUin?: number; groupName?: string };
+  target?: DecodedGroupRequestUser;
+  invitor?: DecodedGroupRequestUser;
+  operatorUser?: DecodedGroupRequestUser;
+  comment?: string;
+  operateTransInfo?: Uint8Array;
+}
+
+export interface DecodedGroupRequestList {
+  requests?: DecodedGroupRequest[];
+  field2?: bigint;
+  newLatestSeq?: bigint;
+  field4?: number;
+  field5?: bigint;
+  field6?: number;
+}
+
+function mergeRequestUser(
+  byUin?: OidbSvcTrpcTcp0x10C0ResponseUserByUin,
+  byUid?: OidbSvcTrpcTcp0x10C0ResponseUser,
+): DecodedGroupRequestUser {
+  return {
+    uid: byUid?.uid ?? '',
+    uin: byUin?.uin ?? 0,
+    name: (byUin?.name || byUid?.name) ?? '',
+  };
+}
+
+function mergeRequestItem(
+  byUin?: OidbSvcTrpcTcp0x10C0ResponseRequestByUin,
+  byUid?: OidbSvcTrpcTcp0x10C0ResponseRequest,
+): DecodedGroupRequest {
+  const src = byUin ?? byUid;
+  return {
+    sequence: src?.sequence,
+    eventType: src?.eventType,
+    state: src?.state,
+    group: src?.group,
+    target: mergeRequestUser(byUin?.target, byUid?.target),
+    invitor: mergeRequestUser(byUin?.invitor, byUid?.invitor),
+    operatorUser: mergeRequestUser(byUin?.operatorUser, byUid?.operatorUser),
+    comment: src?.comment ?? '',
+    operateTransInfo: src?.operateTransInfo,
+  };
+}
+
+function mergeRequestList(
+  byUin?: OidbSvcTrpcTcp0x10C0ResponseByUin,
+  byUid?: OidbSvcTrpcTcp0x10C0Response,
+): DecodedGroupRequestList {
+  const src = byUin ?? byUid;
+  const uinItems = byUin?.requests ?? [];
+  const uidItems = byUid?.requests ?? [];
+  const count = Math.max(uinItems.length, uidItems.length);
+  const requests: DecodedGroupRequest[] = [];
+  for (let i = 0; i < count; i++) {
+    requests.push(mergeRequestItem(uinItems[i], uidItems[i]));
+  }
+  return {
+    requests,
+    field2: src?.field2,
+    newLatestSeq: src?.newLatestSeq,
+    field4: src?.field4,
+    field5: src?.field5,
+    field6: src?.field6,
+  };
 }
 
 export namespace FetchGroupRequests {
@@ -51,15 +138,21 @@ export namespace FetchGroupRequests {
     field2: p.cursor ?? 0n,
   });
 
-  export const deserialize = (_ctx: Deps, body: OidbSvcTrpcTcp0x10C0ResponseByUin): OidbSvcTrpcTcp0x10C0ResponseByUin => body;
+  export const deserialize = (_ctx: Deps, body: DecodedGroupRequestList): DecodedGroupRequestList => body;
 
   export const encode = (env: OidbBase<OidbGroupRequestList>): Uint8Array =>
     protobuf_encode<OidbBase<OidbGroupRequestList>>(env);
 
-  export const decode = (bytes: Uint8Array): OidbBase<OidbSvcTrpcTcp0x10C0ResponseByUin> =>
-    protobuf_decode<OidbBase<OidbSvcTrpcTcp0x10C0ResponseByUin>>(bytes);
+  export const decode = (bytes: Uint8Array): OidbBase<DecodedGroupRequestList> => {
+    const byUin = protobuf_decode<OidbBase<OidbSvcTrpcTcp0x10C0ResponseByUin>>(bytes);
+    const byUid = protobuf_decode<OidbBase<OidbSvcTrpcTcp0x10C0Response>>(bytes);
+    return {
+      ...byUin,
+      body: mergeRequestList(byUin.body, byUid.body),
+    };
+  };
 
-  export const invoke = (deps: Deps, params: Params): Promise<OidbSvcTrpcTcp0x10C0ResponseByUin> =>
+  export const invoke = (deps: Deps, params: Params): Promise<DecodedGroupRequestList> =>
     invokeOidb(deps, FetchGroupRequests, params);
 }
 

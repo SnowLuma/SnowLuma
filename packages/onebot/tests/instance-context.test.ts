@@ -411,6 +411,34 @@ describe('buildApiContext setMsgEmojiLike', () => {
   });
 });
 
+describe('buildApiContext fetchEmojiLikeSummary', () => {
+  it('returns every emoji on the message with cached users', async () => {
+    const listUsers = vi.fn(() => [
+      { operatorUin: 20002, operatorUid: 'u_20002', setAt: 1_700_000_001 },
+    ]);
+    const fetchReactionSummary = vi.fn(async () => [
+      { emojiId: '76', emojiType: 1, count: 1, lastReactionTime: 1_700_000_001 },
+    ]);
+    const { api, metas } = makeRef({
+      reactionStore: { listUsers, summarizeMessage: vi.fn(() => []) },
+      apis: { interaction: { setReaction: vi.fn(), fetchReactionSummary } },
+    });
+    metas.set(-20, groupMeta({ targetId: 710301, sequence: 55 }));
+
+    await expect(api.fetchEmojiLikeSummary(-20)).resolves.toEqual([
+      {
+        emoji_id: '76',
+        emoji_type: 1,
+        count: 1,
+        last_reaction_time: 1_700_000_001,
+        users: [{ user_id: 20002 }],
+      },
+    ]);
+    expect(fetchReactionSummary).toHaveBeenCalledWith(710301, 55);
+    expect(listUsers).toHaveBeenCalledWith(710301, 55, '76', 1000, 0);
+  });
+});
+
 describe('buildApiContext fetchEmojiLikeUsers', () => {
   it('throws when the message is missing', async () => {
     const { api } = makeRef();
@@ -770,6 +798,12 @@ describe('buildApiContext contact reads', () => {
       long_nick: 'hello sign',
       qq_level: 17,
       level: 17,
+      status: 0,
+      extStatus: 0,
+      ext_status: 0,
+      batteryStatus: 0,
+      customStatus: null,
+      customStatusDescInfo: '',
     });
   });
 
@@ -879,6 +913,8 @@ describe('buildApiContext contact reads', () => {
       request_id: 888,
       requester_uin: 20002,
       requester_nick: 'applicant',
+      invitor_uin: 30003,
+      invitor_nick: 'inviter',
       message: 'please add',
       checked: false,
       flag: 'slreq:1:888:710010:22:0',

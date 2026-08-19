@@ -48,8 +48,19 @@ export class FriendApi {
   }
 
   /** List doubtful friend-add requests (可能认识的人). */
-  getDoubtRequests(count: number): Promise<DoubtBuddyRequest[]> {
-    return GetDoubtBuddyReq.invoke(this.ctx, { count });
+  async getDoubtRequests(count: number): Promise<DoubtBuddyRequest[]> {
+    const list = await GetDoubtBuddyReq.invoke(this.ctx, { count });
+    return list.map((item) => {
+      let uid = item.uid;
+      let userId = item.user_id;
+      if (userId <= 0 && uid) {
+        userId = this.ctx.identity.findUinByUid(uid) ?? 0;
+      }
+      if (!uid && userId > 0) {
+        uid = this.ctx.identity.findUidByUin(userId) ?? '';
+      }
+      return { ...item, uid, user_id: userId };
+    });
   }
 
   /** Approve a doubtful friend-add request by its uid (the list item's flag). */

@@ -627,6 +627,30 @@ describe('onebot/contact-actions / getGroupSystemMessages', () => {
     });
   });
 
+  it('includes admin-approval invitations with the invited account and inviter', async () => {
+    const bridge = fakeBridge({
+      fetchGroupRequests: vi.fn(async (filtered: boolean) => filtered ? [] : [
+        makeGroupRequest({
+          notifyType: 5,
+          eventType: 22,
+          targetUin: 10_001,
+          targetName: 'invitee',
+          invitorUin: 45_678,
+          invitorName: 'inviter',
+        }),
+      ]),
+    });
+
+    const result = await getGroupSystemMessages(bridge);
+
+    expect(result).toEqual([expect.objectContaining({
+      requester_uin: 10_001,
+      requester_nick: 'invitee',
+      invitor_uin: 45_678,
+      invitor_nick: 'inviter',
+    })]);
+  });
+
   it('reports the inviter as requester for group invitations', async () => {
     const bridge = fakeBridge({
       fetchGroupRequests: vi.fn(async (filtered: boolean) => filtered ? [] : [
@@ -646,6 +670,8 @@ describe('onebot/contact-actions / getGroupSystemMessages', () => {
     expect(result).toEqual([expect.objectContaining({
       requester_uin: 45_678,
       requester_nick: 'inviter',
+      invitor_uin: 45_678,
+      invitor_nick: 'inviter',
     })]);
   });
 
