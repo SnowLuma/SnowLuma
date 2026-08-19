@@ -455,10 +455,11 @@ export abstract class SnowLumaApiClient {
     return this.call('download_file', params, options);
   }
 
-  setQqProfile(params: { nickname?: string; personalNote?: string }, options?: RequestOptions) {
+  setQqProfile(params: { nickname?: string; personalNote?: string; sex?: number }, options?: RequestOptions) {
     return this.call('set_qq_profile', {
       nickname: params.nickname,
       personal_note: params.personalNote,
+      ...(params.sex !== undefined ? { sex: params.sex } : {}),
     }, options);
   }
 

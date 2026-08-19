@@ -350,6 +350,7 @@ export interface DownloadFileParams extends JsonObject {
 export interface SetQqProfileParams extends JsonObject {
   nickname?: string;
   personal_note?: string;
+  sex?: number;
 }
 
 export interface SetOnlineStatusParams extends JsonObject {

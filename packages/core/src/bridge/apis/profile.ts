@@ -82,8 +82,8 @@ export class ProfileApi {
     }
   }
 
-  setProfile(nickname?: string, personalNote?: string): Promise<void> {
-    return SetProfile.invoke(this.ctx, { nickname, personalNote });
+  setProfile(nickname?: string, personalNote?: string, sex?: number): Promise<void> {
+    return SetProfile.invoke(this.ctx, { nickname, personalNote, sex });
   }
 
   setSelfLongNick(longNick: string): Promise<void> {

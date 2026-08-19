@@ -86,9 +86,9 @@ export interface Oidb0x89a_0HistoryVisibility {
   settings?: pb<2, Oidb0x89a_0HistoryVisibilitySettings>;
   field12?:  pb<12, uint_32>;
 }
-// 0x89A_8 — one masked group-member capability update. These are deny bits,
+// 0x89A_0 — one masked group-member capability update. These are deny bits,
 // so callers clear the selected bit to allow a capability and set it to deny.
-// Same settings tags as invite policy; the command variant is what differs.
+// Same settings tags as invite policy.
 export interface Oidb0x89a_0MemberPermissionSettings {
   appPrivilegeFlag?: pb_optional<23, uint_32>;
   appPrivilegeMask?: pb_optional<24, uint_32>;
@@ -265,6 +265,10 @@ export interface OidbUserInfoResponse {
 }
 export interface AvatarInfo {
   url?: pb<5, string>;
+}
+export interface OidbCustomStatus {
+  faceId?: pb<1, uint_32>;
+  msg?:    pb<2, string>;
 }
 export interface OidbFriendListNumber {
   numbers?: pb_repeated<1, uint_32>;
