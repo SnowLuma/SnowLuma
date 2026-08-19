@@ -91,6 +91,13 @@ export interface ApiActionContext {
     serverCount: number;
     complete: boolean;
   }>;
+  fetchEmojiLikeSummary: (messageId: number) => Promise<Array<{
+    emoji_id: string;
+    emoji_type: number;
+    count: number;
+    last_reaction_time: number;
+    users: Array<{ user_id: number }>;
+  }>>;
   getImageInfo: (file: string) => Promise<JsonObject | null>;
   getRecordInfo: (file: string) => Promise<JsonObject | null>;
   fetchPttText: (messageId: number) => Promise<{ text: string }>;
