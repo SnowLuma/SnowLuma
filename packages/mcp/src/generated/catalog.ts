@@ -3238,6 +3238,10 @@ export const ACTIONS: CatalogAction[] = [
             "type": "string",
             "description": "申请人 uid（回传作 set_doubt_friends_add_request 的 flag）"
           },
+          "user_id": {
+            "type": "integer",
+            "description": "申请人 QQ 号"
+          },
           "nick": {
             "type": "string",
             "description": "申请人昵称"
@@ -3246,9 +3250,17 @@ export const ACTIONS: CatalogAction[] = [
             "type": "string",
             "description": "申请来源"
           },
+          "reason": {
+            "type": "string",
+            "description": "附加说明"
+          },
           "msg": {
             "type": "string",
             "description": "验证留言"
+          },
+          "group_code": {
+            "type": "string",
+            "description": "来源群号，无则为空串"
           },
           "reqTime": {
             "type": "integer",
@@ -3257,9 +3269,12 @@ export const ACTIONS: CatalogAction[] = [
         },
         "required": [
           "uid",
+          "user_id",
           "nick",
           "source",
+          "reason",
           "msg",
+          "group_code",
           "reqTime"
         ]
       }
@@ -5889,6 +5904,14 @@ export const ACTIONS: CatalogAction[] = [
             "type": "string",
             "description": "申请人昵称"
           },
+          "invitor_uin": {
+            "type": "integer",
+            "description": "邀请人 QQ 号，无邀请时为 0"
+          },
+          "invitor_nick": {
+            "type": "string",
+            "description": "邀请人昵称"
+          },
           "message": {
             "type": "string",
             "description": "验证留言"
@@ -5908,6 +5931,8 @@ export const ACTIONS: CatalogAction[] = [
           "request_id",
           "requester_uin",
           "requester_nick",
+          "invitor_uin",
+          "invitor_nick",
           "message",
           "checked",
           "flag"
@@ -6139,6 +6164,91 @@ export const ACTIONS: CatalogAction[] = [
       "additionalProperties": true
     },
     "category": "消息"
+  },
+  {
+    "name": "get_msg_emoji_likes",
+    "aliases": [],
+    "summary": "获取一条消息的全部表情回应",
+    "returns": "该消息上每个表情回应的编号、数量与用户列表。",
+    "returnsSchema": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "emoji_id": {
+            "type": "string",
+            "description": "表情编号"
+          },
+          "emoji_type": {
+            "type": "integer",
+            "description": "表情类型"
+          },
+          "count": {
+            "type": "integer",
+            "description": "回应数量"
+          },
+          "last_reaction_time": {
+            "type": "integer",
+            "description": "最近一次回应时间"
+          },
+          "users": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "user_id": {
+                  "type": "integer",
+                  "description": "用户 QQ 号"
+                }
+              },
+              "required": [
+                "user_id"
+              ]
+            }
+          }
+        },
+        "required": [
+          "emoji_id",
+          "emoji_type",
+          "count",
+          "last_reaction_time",
+          "users"
+        ]
+      }
+    },
+    "readOnly": true,
+    "params": [
+      {
+        "name": "message_id",
+        "type": "messageId",
+        "required": true,
+        "role": "message_id",
+        "schema": {
+          "type": "integer",
+          "not": {
+            "const": 0
+          }
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "message_id": {
+          "type": "integer",
+          "not": {
+            "const": 0
+          },
+          "x-role": "message_id"
+        }
+      },
+      "required": [
+        "message_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "扩展"
   },
   {
     "name": "get_online_clients",
@@ -7349,6 +7459,31 @@ export const ACTIONS: CatalogAction[] = [
         "level": {
           "type": "integer",
           "description": "QQ 等级，同 qq_level（仅查到资料时返回）"
+        },
+        "status": {
+          "type": "integer",
+          "description": "在线状态码"
+        },
+        "extStatus": {
+          "type": "integer",
+          "description": "扩展状态码"
+        },
+        "ext_status": {
+          "type": "integer",
+          "description": "扩展状态码（同 extStatus）"
+        },
+        "batteryStatus": {
+          "type": "integer",
+          "description": "电量状态"
+        },
+        "customStatus": {
+          "type": "object",
+          "description": "自定义状态",
+          "nullable": true
+        },
+        "customStatusDescInfo": {
+          "type": "string",
+          "description": "自定义状态说明"
         }
       },
       "required": [
@@ -11212,6 +11347,17 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "type": "string"
         }
+      },
+      {
+        "name": "sex",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "desc": "0 未知，1 男，2 女"
       }
     ],
     "invariants": [],
@@ -11223,6 +11369,12 @@ export const ACTIONS: CatalogAction[] = [
         },
         "personal_note": {
           "type": "string"
+        },
+        "sex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2,
+          "description": "0 未知，1 男，2 女"
         }
       },
       "additionalProperties": true
@@ -12291,7 +12443,7 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "扩展",
-    "count": 113
+    "count": 114
   },
   {
     "category": "群相册",
