@@ -12557,7 +12557,7 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "扩展",
-    "count": 114
+    "count": 115
   },
   {
     "category": "群相册",
