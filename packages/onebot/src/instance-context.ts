@@ -129,6 +129,31 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
       if (!hasAuthoritativeSequence(meta)) throw new Error('message has no authoritative QQ sequence');
       await bridge.apis.interaction.setReaction(meta.targetId, meta.sequence, emojiId, set);
     },
+    fetchEmojiLikeSummary: async (messageId) => {
+      const meta = messageStore.findMeta(messageId);
+      if (!meta) throw new Error('message not found');
+      if (!meta.isGroup) throw new Error('emoji reactions are not supported on private messages');
+      if (!hasAuthoritativeSequence(meta)) throw new Error('message has no authoritative QQ sequence');
+      let summary: Array<{ emojiId: string; emojiType: number; count: number; lastReactionTime: number }>;
+      try {
+        summary = await bridge.apis.interaction.fetchReactionSummary(meta.targetId, meta.sequence);
+      } catch {
+        summary = reactionStore.summarizeMessage(meta.targetId, meta.sequence).map((entry) => ({
+          emojiId: entry.emojiId,
+          emojiType: entry.emojiType,
+          count: entry.count,
+          lastReactionTime: entry.lastSetAt,
+        }));
+      }
+      return summary.map((entry) => ({
+        emoji_id: entry.emojiId,
+        emoji_type: entry.emojiType,
+        count: entry.count,
+        last_reaction_time: entry.lastReactionTime,
+        users: reactionStore.listUsers(meta.targetId, meta.sequence, entry.emojiId, 1000, 0)
+          .map((user) => ({ user_id: user.operatorUin })),
+      }));
+    },
     fetchEmojiLikeUsers: async (messageId, emojiId, count, offset = 0) => {
       const meta = messageStore.findMeta(messageId);
       if (!meta) throw new Error('message not found');

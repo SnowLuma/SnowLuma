@@ -200,7 +200,7 @@ export function ActionTester({ accounts, docs, presetAction }: { accounts: QQInf
       {/* tester */}
       <motion.section
         initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}
-        className={cn(cardCls, 'flex flex-col gap-5 p-6 xl:col-span-7')}
+        className={cn(cardCls, 'relative z-20 flex flex-col gap-5 p-6 xl:col-span-7')}
       >
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">

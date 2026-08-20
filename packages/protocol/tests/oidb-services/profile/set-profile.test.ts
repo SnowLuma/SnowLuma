@@ -21,6 +21,14 @@ describe('SetProfile namespace', () => {
   });
 
   describe('invoke', () => {
+    it('packages sex into integer field 20009', async () => {
+      const deps = makeDeps();
+      await SetProfile.invoke(deps, { sex: 1 });
+      const [, bytes] = deps.sendRawPacket.mock.calls[0]!;
+      const env = protobuf_decode<OidbBase<OidbSetProfile>>(bytes);
+      expect(env.body?.intProfiles).toEqual([{ fieldId: 20009, value: 1n }]);
+    });
+
     it('is a no-op when both nickname and personalNote are undefined', async () => {
       const deps = makeDeps();
       await SetProfile.invoke(deps, {});

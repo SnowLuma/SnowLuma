@@ -496,6 +496,12 @@ export class IncomingPacketPipeline {
         event.message = requestR.value.comment;
 
         const request = requestR.value;
+        if (subType === 'invite' && request.targetUid) {
+          if (!event.invitedUid) event.invitedUid = request.targetUid;
+          if ((event.invitedUin ?? 0) <= 0 && request.targetUin > 0) {
+            event.invitedUin = request.targetUin;
+          }
+        }
         const hasApprovalTuple = Number.isSafeInteger(request.sequence) && request.sequence > 0
           && Number.isSafeInteger(request.groupId) && request.groupId > 0
           && Number.isSafeInteger(request.eventType) && request.eventType > 0;
@@ -531,6 +537,17 @@ export class IncomingPacketPipeline {
         this.log.warn('failed to resolve group join request: groupId=%d uid=%s err=%s',
           event.groupId, uid,
           requestR.reason instanceof Error ? requestR.reason.message : String(requestR.reason));
+      }
+    }
+
+    if ((event.invitedUin ?? 0) <= 0 && event.invitedUid) {
+      try {
+        const invited = await this.deps.identity.resolveUin(event.invitedUid, event.groupId);
+        if (invited !== null && invited > 0) event.invitedUin = invited;
+      } catch (error) {
+        this.log.warn('failed to resolve invited account: groupId=%d uid=%s err=%s',
+          event.groupId, event.invitedUid,
+          error instanceof Error ? error.message : String(error));
       }
     }
 
@@ -724,6 +741,16 @@ export class IncomingPacketPipeline {
           uin: uinForCache,
           source: 'group_request',
         });
+        if (event.invitedUid) {
+          const invitedUin = event.invitedUin && event.invitedUin !== event.groupId
+            ? event.invitedUin : 0;
+          this.deps.identity.rememberRequestIdentity({
+            groupId: event.groupId,
+            uid: event.invitedUid,
+            uin: invitedUin,
+            source: 'group_request',
+          });
+        }
         break;
       }
       default:

@@ -1,6 +1,8 @@
 // 0x89A_0 — update one member capability through the appPrivilegeFlag deny
-// bits. Current QQ applies one selected mask per operation; callers that change
-// multiple capabilities must invoke this namespace sequentially.
+// bits. Invite policy shares the same settings tags; album / temporary-session
+// / create-group writes use the same command with a narrower mask. Current QQ
+// applies one selected mask per operation; callers that change multiple
+// capabilities must invoke this namespace sequentially.
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase, OidbEmpty } from '@snowluma/proto-defs/oidb';

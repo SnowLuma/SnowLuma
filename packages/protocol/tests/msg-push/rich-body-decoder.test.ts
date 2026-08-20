@@ -923,152 +923,152 @@ describe('decodeRichBody / unknown wire element observability', () => {
     }));
   });
 
-function ntImageElem(fileName: string): Elem {
-  const msgInfo: MsgInfo = {
-    msgInfoBody: [{
-      index: {
-        info: {
-          fileSize: 10711,
-          fileHash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-          fileSha1: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-          fileName,
-          width: 1080,
-          height: 1080,
-          type: { picFormat: 1001 },
+  function ntImageElem(fileName: string): Elem {
+    const msgInfo: MsgInfo = {
+      msgInfoBody: [{
+        index: {
+          info: {
+            fileSize: 10711,
+            fileHash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            fileSha1: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            fileName,
+            width: 1080,
+            height: 1080,
+            type: { picFormat: 1001 },
+          },
         },
+        picture: {
+          urlPath: '/download?appid=1407&fileid=EhRgood',
+          domain: 'multimedia.nt.qq.com.cn',
+          ext: { originalParameter: '&rkey=good' },
+        },
+      }],
+      extBizInfo: { pic: { bizType: 0, textSummary: '[图片]' } },
+    };
+    return {
+      commonElem: {
+        serviceType: 48,
+        businessType: 20,
+        pbElem: protobuf_encode<MsgInfo>(msgInfo),
       },
-      picture: {
-        urlPath: '/download?appid=1407&fileid=EhRgood',
-        domain: 'multimedia.nt.qq.com.cn',
-        ext: { originalParameter: '&rkey=good' },
+    };
+  }
+
+  function customFaceElem(filePath: string, origUrl: string, md5: Uint8Array): Elem {
+    return {
+      customFace: {
+        filePath,
+        origUrl,
+        md5,
+        size: 10711,
+        width: 1080,
+        height: 1080,
       },
-    }],
-    extBizInfo: { pic: { bizType: 0, textSummary: '[图片]' } },
-  };
-  return {
-    commonElem: {
-      serviceType: 48,
-      businessType: 20,
-      pbElem: protobuf_encode<MsgInfo>(msgInfo),
-    },
-  };
-}
+    };
+  }
 
-function customFaceElem(filePath: string, origUrl: string, md5: Uint8Array): Elem {
-  return {
-    customFace: {
-      filePath,
-      origUrl,
-      md5,
-      size: 10711,
-      width: 1080,
-      height: 1080,
-    },
-  };
-}
+  describe('decodeRichBody / NT image compatibility siblings (#389)', () => {
+    const fileName = 'bcc7bbcc76a1a9d940c57346a5d223e8.png';
+    const otherMd5 = Uint8Array.from({ length: 16 }, (_, i) => i + 1);
 
-describe('decodeRichBody / NT image compatibility siblings (#389)', () => {
-  const fileName = 'bcc7bbcc76a1a9d940c57346a5d223e8.png';
-  const otherMd5 = Uint8Array.from({ length: 16 }, (_, i) => i + 1);
+    it('keeps the NT image and drops the query-only customFace sibling', () => {
+      const out = decodeRichBody({
+        richText: {
+          elems: [
+            ntImageElem(fileName),
+            customFaceElem(fileName, '&rkey=xxx&spec=0', otherMd5),
+          ],
+        },
+      }, true);
 
-  it('keeps the NT image and drops the query-only customFace sibling', () => {
-    const out = decodeRichBody({
-      richText: {
-        elems: [
-          ntImageElem(fileName),
-          customFaceElem(fileName, '&rkey=xxx&spec=0', otherMd5),
-        ],
-      },
-    }, true);
+      expect(out).toHaveLength(1);
+      expect(out[0]).toMatchObject({
+        type: 'image',
+        fileId: fileName,
+        imageUrl: 'https://multimedia.nt.qq.com.cn/download?appid=1407&fileid=EhRgood&rkey=good',
+        picFormat: 1001,
+      });
+    });
 
-    expect(out).toHaveLength(1);
-    expect(out[0]).toMatchObject({
-      type: 'image',
-      fileId: fileName,
-      imageUrl: 'https://multimedia.nt.qq.com.cn/download?appid=1407&fileid=EhRgood&rkey=good',
-      picFormat: 1001,
+    it('drops a same-file customFace even when its legacy URL is well-formed', () => {
+      const out = decodeRichBody({
+        richText: {
+          elems: [
+            ntImageElem(fileName),
+            customFaceElem(fileName, '/gchatpic_new/0/0-0-AABB/0', otherMd5),
+          ],
+        },
+      }, true);
+
+      expect(out).toEqual([
+        expect.objectContaining({ type: 'image', fileId: fileName, picFormat: 1001 }),
+      ]);
+    });
+
+    it('keeps a standalone customFace with a usable download path', () => {
+      const out = decodeRichBody({
+        richText: {
+          elems: [customFaceElem(fileName, '/gchatpic_new/0/0-0-AABB/0', otherMd5)],
+        },
+      }, true);
+
+      expect(out).toEqual([{
+        type: 'image',
+        imageUrl: 'http://gchat.qpic.cn/gchatpic_new/0/0-0-AABB/0',
+        fileId: fileName,
+        fileSize: 10711,
+        width: 1080,
+        height: 1080,
+        subType: 0,
+        summary: '[图片]',
+        md5Hex: '0102030405060708090A0B0C0D0E0F10',
+      }]);
+    });
+
+    it('drops a standalone customFace whose URL cannot be fetched', () => {
+      const out = decodeRichBody({
+        richText: {
+          elems: [customFaceElem(fileName, '&rkey=xxx&spec=0', otherMd5)],
+        },
+      }, true);
+
+      expect(out).toEqual([]);
+    });
+
+    it('keeps two distinct pictures', () => {
+      const second = 'other.png';
+      const out = decodeRichBody({
+        richText: {
+          elems: [
+            ntImageElem(fileName),
+            customFaceElem(second, '/gchatpic_new/0/0-0-CCDD/0', otherMd5),
+          ],
+        },
+      }, true);
+
+      expect(out.map((el) => el.type === 'image' ? el.fileId : el.type)).toEqual([
+        fileName,
+        second,
+      ]);
     });
   });
 
-  it('drops a same-file customFace even when its legacy URL is well-formed', () => {
-    const out = decodeRichBody({
-      richText: {
-        elems: [
-          ntImageElem(fileName),
-          customFaceElem(fileName, '/gchatpic_new/0/0-0-AABB/0', otherMd5),
-        ],
-      },
-    }, true);
+  describe('makeImageUrl', () => {
+    it('prefixes NT paths that already include a download path', () => {
+      expect(makeImageUrl('/download?appid=1407&fileid=abc&rkey=x'))
+        .toBe('https://multimedia.nt.qq.com.cn/download?appid=1407&fileid=abc&rkey=x');
+    });
 
-    expect(out).toEqual([
-      expect.objectContaining({ type: 'image', fileId: fileName, picFormat: 1001 }),
-    ]);
+    it('does not glue the NT host onto a query fragment (#389)', () => {
+      expect(makeImageUrl('&rkey=xxx&spec=0')).toBe('');
+      expect(makeImageUrl('rkey=xxx&spec=0')).toBe('');
+    });
+
+    it('prefixes legacy gchat paths', () => {
+      expect(makeImageUrl('/gchatpic_new/0/0-0-AABB/0'))
+        .toBe('http://gchat.qpic.cn/gchatpic_new/0/0-0-AABB/0');
+    });
   });
-
-  it('keeps a standalone customFace with a usable download path', () => {
-    const out = decodeRichBody({
-      richText: {
-        elems: [customFaceElem(fileName, '/gchatpic_new/0/0-0-AABB/0', otherMd5)],
-      },
-    }, true);
-
-    expect(out).toEqual([{
-      type: 'image',
-      imageUrl: 'http://gchat.qpic.cn/gchatpic_new/0/0-0-AABB/0',
-      fileId: fileName,
-      fileSize: 10711,
-      width: 1080,
-      height: 1080,
-      subType: 0,
-      summary: '[图片]',
-      md5Hex: '0102030405060708090A0B0C0D0E0F10',
-    }]);
-  });
-
-  it('drops a standalone customFace whose URL cannot be fetched', () => {
-    const out = decodeRichBody({
-      richText: {
-        elems: [customFaceElem(fileName, '&rkey=xxx&spec=0', otherMd5)],
-      },
-    }, true);
-
-    expect(out).toEqual([]);
-  });
-
-  it('keeps two distinct pictures', () => {
-    const second = 'other.png';
-    const out = decodeRichBody({
-      richText: {
-        elems: [
-          ntImageElem(fileName),
-          customFaceElem(second, '/gchatpic_new/0/0-0-CCDD/0', otherMd5),
-        ],
-      },
-    }, true);
-
-    expect(out.map((el) => el.type === 'image' ? el.fileId : el.type)).toEqual([
-      fileName,
-      second,
-    ]);
-  });
-});
-
-describe('makeImageUrl', () => {
-  it('prefixes NT paths that already include a download path', () => {
-    expect(makeImageUrl('/download?appid=1407&fileid=abc&rkey=x'))
-      .toBe('https://multimedia.nt.qq.com.cn/download?appid=1407&fileid=abc&rkey=x');
-  });
-
-  it('does not glue the NT host onto a query fragment (#389)', () => {
-    expect(makeImageUrl('&rkey=xxx&spec=0')).toBe('');
-    expect(makeImageUrl('rkey=xxx&spec=0')).toBe('');
-  });
-
-  it('prefixes legacy gchat paths', () => {
-    expect(makeImageUrl('/gchatpic_new/0/0-0-AABB/0'))
-      .toBe('http://gchat.qpic.cn/gchatpic_new/0/0-0-AABB/0');
-  });
-});
 
   it('bounds retained card output across the entire message', () => {
     const previousLevel = getLogLevel();

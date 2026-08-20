@@ -27,7 +27,7 @@ function createControlPort(): {
   messages: MessageStoreMigrationWorkerMessage[];
   send(message: unknown): void;
   listenerCount(): number;
-} {
+  } {
   const messages: MessageStoreMigrationWorkerMessage[] = [];
   const events = new EventEmitter();
   return {

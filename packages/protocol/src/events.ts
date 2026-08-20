@@ -391,6 +391,11 @@ export interface GroupInviteEvent extends QQEvent {
   groupId: number;
   fromUin: number;
   fromUid?: string;
+  /** Person being invited. Present on admin-side invitation notices
+   *  and on the pending-request list; for a self-invite this is the
+   *  logged-in account. */
+  invitedUin?: number;
+  invitedUid?: string;
   subType: string;
   message: string;
   flag: string;

@@ -76,14 +76,15 @@ export class ProfileApi {
       if (!resp) {
         throw new Error(result.errorMessage || 'set online status failed (network/timeout)');
       }
-      if (resp.errCode !== undefined && resp.errCode !== 0) {
-        throw new Error(resp.errMsg || `set online status failed with errCode: ${resp.errCode}`);
+      const message = resp.errMsg ?? '';
+      if (message !== '' && message !== 'set status success') {
+        throw new Error(message);
       }
     }
   }
 
-  setProfile(nickname?: string, personalNote?: string): Promise<void> {
-    return SetProfile.invoke(this.ctx, { nickname, personalNote });
+  setProfile(nickname?: string, personalNote?: string, sex?: number): Promise<void> {
+    return SetProfile.invoke(this.ctx, { nickname, personalNote, sex });
   }
 
   setSelfLongNick(longNick: string): Promise<void> {

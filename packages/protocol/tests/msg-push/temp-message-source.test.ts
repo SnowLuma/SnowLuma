@@ -3,7 +3,6 @@ import {
   protobuf_encode,
   type pb,
   type pb_repeated,
-  type string,
   type uint_32,
 } from '@snowluma/proton';
 import { describe, expect, it } from 'vitest';

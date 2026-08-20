@@ -88,6 +88,7 @@ export interface Oidb0x89a_0HistoryVisibility {
 }
 // 0x89A_0 — one masked group-member capability update. These are deny bits,
 // so callers clear the selected bit to allow a capability and set it to deny.
+// Same settings tags as invite policy.
 export interface Oidb0x89a_0MemberPermissionSettings {
   appPrivilegeFlag?: pb_optional<23, uint_32>;
   appPrivilegeMask?: pb_optional<24, uint_32>;
@@ -265,6 +266,10 @@ export interface OidbUserInfoResponse {
 export interface AvatarInfo {
   url?: pb<5, string>;
 }
+export interface OidbCustomStatus {
+  faceId?: pb<1, uint_32>;
+  msg?:    pb<2, string>;
+}
 export interface OidbFriendListNumber {
   numbers?: pb_repeated<1, uint_32>;
 }
@@ -357,8 +362,11 @@ export interface OidbGroupDetailFlags {
   uin?:             pb<21, bool>;
   lastSequence?:    pb<22, bool>;
   lastMessageTime?: pb<23, bool>;
-  question?:        pb<24, bool>;
-  answer?:          pb<25, string>;
+  // EncodeSingleGroupInfoParamByBaseFilter writes these as empty strings
+  // (length-delimited). A bool true is a different wire type and the
+  // server ignores it; a plain pb<> empty string is omitted.
+  question?:        pb_optional<24, string>;
+  answer?:          pb_optional<25, string>;
   maxAdminCount?:   pb<29, string>;
   // Official request mask for group shutup expire (proto tag 45 → 60027).
   // Lagrange's tag 59 requests 60259, which is a different field.

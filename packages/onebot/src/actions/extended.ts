@@ -996,12 +996,10 @@ export const actions = [
     params: {
       nickname: f.string().optional(),
       personal_note: f.string().optional(),
+      sex: f.int({ min: 0, max: 2 }).optional().describe('0 未知，1 男，2 女'),
     },
     run: async (p, ctx) => {
-      const nickname = p.nickname;
-      const personalNote = p.personal_note;
-
-      await ctx.bridge.apis.profile.setProfile(nickname, personalNote);
+      await ctx.bridge.apis.profile.setProfile(p.nickname, p.personal_note, p.sex);
       return okResponse();
     },
   }),
@@ -1401,6 +1399,41 @@ export const actions = [
   }),
 
   defineAction({
+    name: 'get_msg_emoji_likes',
+    summary: '获取一条消息的全部表情回应',
+    readOnly: true,
+    returns: '该消息上每个表情回应的编号、数量与用户列表。',
+    returnsSchema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          emoji_id: { type: 'string', description: '表情编号' },
+          emoji_type: { type: 'integer', description: '表情类型' },
+          count: { type: 'integer', description: '回应数量' },
+          last_reaction_time: { type: 'integer', description: '最近一次回应时间' },
+          users: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { user_id: { type: 'integer', description: '用户 QQ 号' } },
+              required: ['user_id'],
+            },
+          },
+        },
+        required: ['emoji_id', 'emoji_type', 'count', 'last_reaction_time', 'users'],
+      },
+    },
+    params: { message_id: f.messageId() },
+    run: async (p, ctx) => {
+      if (!ctx.fetchEmojiLikeSummary) {
+        return failedResponse(RETCODE.ACTION_FAILED, 'emoji reaction summary is unavailable');
+      }
+      return okResponse(await ctx.fetchEmojiLikeSummary(p.message_id));
+    },
+  }),
+
+  defineAction({
     name: 'get_friends_with_category',
     summary: '获取分组好友列表',
     readOnly: true,
@@ -1706,6 +1739,55 @@ export const actions = [
     },
   }),
 
+  // send_tuwen_ark — send a custom 图文 (URL-share) ark card to a C2C peer or group (0xdc2_34).
+  // targetId at AppInfo[11] and Meta[2]; Meta.peerType: 0=C2C, 1=group.
+  // 与 send_ark_share 的区别：send_ark_share 只获取推荐联系人 JSON 不发送；
+  // 与 send_msg share/json 的区别：后者发送 structmsg 图文卡且有 message_id，
+  // 本 action 发送固定图文 ark 模板，返回 null（无法用于撤回/设精华）。
+  defineAction({
+    name: 'send_tuwen_ark',
+    summary: '发送图文 Ark 卡片（私聊/群聊）',
+    readOnly: false,
+    returns: 'null',
+    returnsSchema: { type: 'null' },
+    params: {
+      user_id:     f.userId().optional(),
+      group_id:    f.groupId().optional(),
+      title:       f.string(),
+      desc:        f.string(),
+      summary:     f.string().default('[分享]'),
+      preview_url: f.string().default('https://tangram-1251316161.file.myqcloud.com/files/20210721/e50a8e37e08f29bf1ffc7466e1950690.png'),
+      jump_url:    f.string(),
+    },
+    run: async (p, ctx) => {
+      if (p.group_id) {
+        await ctx.bridge.apis.contacts.sendTuwenArk({
+          targetId:   p.group_id,
+          peerType:   1,
+          title:      p.title,
+          desc:       p.desc,
+          summary:    p.summary,
+          previewUrl: p.preview_url,
+          jumpUrl:    p.jump_url,
+        });
+        return okResponse(null);
+      }
+      if (p.user_id) {
+        await ctx.bridge.apis.contacts.sendTuwenArk({
+          targetId:   p.user_id,
+          peerType:   0,
+          title:      p.title,
+          desc:       p.desc,
+          summary:    p.summary,
+          previewUrl: p.preview_url,
+          jumpUrl:    p.jump_url,
+        });
+        return okResponse(null);
+      }
+      return failedResponse(RETCODE.BAD_REQUEST, 'user_id or group_id is required');
+    },
+  }),
+
   // share_group_ex / send_group_ark_share — group-only Ark share. NapCat uses
   // a distinct kernel API (getArkJsonGroupShare) we did NOT RE; we route to
   // the fully-RE'd group recommend-contact ark (0x8b7_5), the closest
@@ -1746,12 +1828,15 @@ export const actions = [
         type: 'object',
         properties: {
           uid: { type: 'string', description: '申请人 uid（回传作 set_doubt_friends_add_request 的 flag）' },
+          user_id: { type: 'integer', description: '申请人 QQ 号' },
           nick: { type: 'string', description: '申请人昵称' },
           source: { type: 'string', description: '申请来源' },
+          reason: { type: 'string', description: '附加说明' },
           msg: { type: 'string', description: '验证留言' },
+          group_code: { type: 'string', description: '来源群号，无则为空串' },
           reqTime: { type: 'integer', description: '申请时间戳' },
         },
-        required: ['uid', 'nick', 'source', 'msg', 'reqTime'],
+        required: ['uid', 'user_id', 'nick', 'source', 'reason', 'msg', 'group_code', 'reqTime'],
       },
     },
     params: { count: f.int({ min: 0 }).default(50) },

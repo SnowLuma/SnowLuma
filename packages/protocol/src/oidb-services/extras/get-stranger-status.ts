@@ -16,6 +16,15 @@ export interface StrangerStatus {
   ext_status: number;
 }
 
+export function unpackStatusWord(raw: bigint | number): { status: number; ext_status: number } {
+  const extBig = typeof raw === 'bigint' ? raw : BigInt(raw);
+  if (extBig <= 10n) {
+    return { status: Number(extBig) * 10, ext_status: 0 };
+  }
+  const status = Number((extBig & 0xff00n) + ((extBig >> 16n) & 0xffn));
+  return { status: 10, ext_status: status };
+}
+
 const STATUS_PROPERTY_KEY = 27372;
 
 export namespace GetStrangerStatus {
@@ -39,12 +48,7 @@ export namespace GetStrangerStatus {
       ?.find((entry) => entry.key === STATUS_PROPERTY_KEY)
       ?.value;
     if (raw === undefined || raw === null) return null;
-    const extBig = typeof raw === 'bigint' ? raw : BigInt(raw);
-    if (extBig <= 10n) {
-      return { status: Number(extBig) * 10, ext_status: 0 };
-    }
-    const status = Number((extBig & 0xff00n) + ((extBig >> 16n) & 0xffn));
-    return { status: 10, ext_status: status };
+    return unpackStatusWord(raw);
   };
 
   export const encode = (env: OidbBase<OidbStrangerStatusReq>): Uint8Array =>

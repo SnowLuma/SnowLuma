@@ -613,6 +613,13 @@ describe('formatEvent', () => {
       fromUin: 30001,
       groupId: 778899,
     } as QQEventVariant)).toBe('群邀请 [惊蛰(30001)] -> [雪夜茶话(778899)]');
+
+    expect(formatEvent(identity, {
+      kind: 'group_invite',
+      fromUin: 30001,
+      invitedUin: 30002,
+      groupId: 778899,
+    } as QQEventVariant)).toBe('群邀请 [惊蛰(30001)] 邀 [白露(30002)] -> [雪夜茶话(778899)]');
   });
 
   it('renders group_essence set and unset', () => {

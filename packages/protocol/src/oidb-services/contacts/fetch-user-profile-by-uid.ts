@@ -22,6 +22,7 @@ import type {
   OidbUserInfoResponse,
 } from '@snowluma/proto-defs/oidb-actions/base';
 import type { UserProfileInfo } from '../../qq-info';
+import { applyOnlineStatus } from './fetch-user-profile';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 const REQUESTED_KEYS = [
@@ -83,6 +84,7 @@ export namespace FetchUserProfileByUid {
       info.sex = sexNum === 1 ? 'male' : sexNum === 2 ? 'female' : 'unknown';
       info.age = numMap.get(20037) ?? 0;
       info.level = numMap.get(105) ?? 0;
+      applyOnlineStatus(info, bytesMap, numMap);
     }
 
     return info;

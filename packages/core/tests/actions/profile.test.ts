@@ -87,9 +87,30 @@ describe('apis/profile', () => {
     expect(decoded.batteryStatus ?? 0).toBe(0);
   });
 
+  it('setOnlineStatus accepts QQ\'s success reply even when the reply code is non-zero (#405)', async () => {
+    const bridge = mockBridge();
+    const respBuf = Buffer.from(protobuf_encode<SetStatusResp>({
+      errCode: 1,
+      errMsg: 'set status success',
+    }));
+    expect(respBuf.length).toBeGreaterThan(0);
+    bridge.sendRawPacket.mockResolvedValueOnce({
+      success: true, gotResponse: true, errorCode: 0, errorMessage: '', responseData: respBuf,
+    } as any);
+    await expect(new ProfileApi(bridge as any).setOnlineStatus(10, 0, 100)).resolves.toBeUndefined();
+  });
+
+  it('setOnlineStatus accepts a success-only reply body (#405)', async () => {
+    const bridge = mockBridge();
+    const respBuf = Buffer.from(protobuf_encode<SetStatusResp>({ errMsg: 'set status success' }));
+    bridge.sendRawPacket.mockResolvedValueOnce({
+      success: true, gotResponse: true, errorCode: 0, errorMessage: '', responseData: respBuf,
+    } as any);
+    await expect(new ProfileApi(bridge as any).setOnlineStatus(10, 0)).resolves.toBeUndefined();
+  });
+
   it('setDiyOnlineStatus surfaces server errors via the same path as setOnlineStatus', async () => {
     const bridge = mockBridge();
-    // Build a response that decodes to errCode != 0.
     const respBuf = Buffer.from(protobuf_encode<SetStatusResp>({ errCode: 1, errMsg: 'denied' }));
     bridge.sendRawPacket.mockResolvedValueOnce({
       success: true, gotResponse: true, errorCode: 0, errorMessage: '', responseData: respBuf,

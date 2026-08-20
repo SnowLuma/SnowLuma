@@ -63,6 +63,8 @@ describe('FetchGroupDetail namespace', () => {
       expect(out.config?.flags?.addType).toBe(true);
       expect(out.config?.flags?.noFingerOpen).toBe(true);
       expect(out.config?.flags?.noCodeFingerOpen).toBe(true);
+      expect(out.config?.flags?.question).toBe('');
+      expect(out.config?.flags?.answer).toBe('');
     });
   });
 
@@ -85,6 +87,19 @@ describe('FetchGroupDetail namespace', () => {
       expect(env.subCommand ?? 0).toBe(0); // proto3 omits the 0 default on the wire
       expect(env.reserved ?? 0).toBe(0); // NOT uin-form
       expect(env.body?.config?.uin).toBe(BigInt(601692726));
+      expect(env.body?.config?.flags?.question).toBe('');
+      expect(env.body?.config?.flags?.answer).toBe('');
+    });
+
+    it('keeps empty question/answer masks on the wire (#393)', async () => {
+      const sender = makeSender({ groupInfo: { uin: 1n, results: { name: 'g' } } });
+      await FetchGroupDetail.invoke(sender, { groupUin: 1 });
+
+      const bytes = sender.sendRawPacket.mock.calls[0]![1] as Uint8Array;
+      // length-delimited empty string: field 24/25, wire type 2, length 0.
+      const hex = Buffer.from(bytes).toString('hex');
+      expect(hex).toContain('c20100');
+      expect(hex).toContain('ca0100');
     });
 
     it('returns the decoded group detail (name + counts)', async () => {

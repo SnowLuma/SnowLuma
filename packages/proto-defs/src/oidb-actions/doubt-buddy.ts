@@ -27,11 +27,17 @@ export interface OidbDoubtGetReq {
 }
 
 export interface OidbDoubtItem {
-  uid?:     pb<1, string>;   // HIGH (kStrTargetUid)
-  nick?:    pb<2, string>;   // MEDIUM (generic Nick attr 20002)
-  source?:  pb<5, string>;   // MEDIUM
-  reqTime?: pb<9, uint_64>;  // HIGH (attr 60001)
-  msg?:     pb<11, string>;  // MEDIUM
+  uid?:           pb<1, string>;
+  nick?:          pb<2, string>;
+  age?:           pb<3, uint_32>;
+  sex?:           pb<4, uint_32>;
+  msg?:           pb<5, string>;
+  source?:        pb<6, string>;
+  reason?:        pb<7, string>;
+  uin?:           pb<8, uint_64>;
+  reqTime?:       pb<9, uint_64>;
+  commFriendNum?: pb<10, uint_32>;
+  groupCode?:     pb<11, string>;
 }
 export interface OidbDoubtGetRespBody {
   list?:   pb_repeated<1, OidbDoubtItem>;

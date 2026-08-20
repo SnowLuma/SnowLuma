@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { pb, pb_repeated, uint_32, uint_64 } from '@snowluma/proton';
-import type { OidbBase } from '@snowluma/proto-defs/oidb';
+import type { OidbBase, OidbSvcTrpcTcp0x10C0Response } from '@snowluma/proto-defs/oidb';
 import type { OidbGroupRequestList } from '@snowluma/proto-defs/oidb-actions/base';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 
@@ -47,6 +47,8 @@ describe('FetchGroupRequests namespace', () => {
     expect(groupRequestOperationType(1)).toBe(2);
     expect(groupRequestOperationType(7)).toBe(1);
     expect(groupRequestOperationType(17)).toBe(100);
+    expect(groupRequestOperationType(5)).toBe(22);
+    expect(groupRequestOperationType(22)).toBe(22);
     expect(groupRequestOperationType(99)).toBeNull();
   });
 
@@ -135,11 +137,41 @@ describe('FetchGroupRequests namespace', () => {
       const response = await FetchGroupRequests.invoke(sender, { filtered: false });
 
       expect(response.requests?.[0]).toMatchObject({
-        target: { uin: 1_234_567_890, name: 'requester' },
-        invitor: { uin: 2_345_678_901, name: 'inviter' },
-        operatorUser: { uin: 3_456_789_012, name: 'operator' },
+        target: { uin: 1_234_567_890, uid: '', name: 'requester' },
+        invitor: { uin: 2_345_678_901, uid: '', name: 'inviter' },
+        operatorUser: { uin: 3_456_789_012, uid: '', name: 'operator' },
       });
       expect(response.field2).toBe(1_785_406_628_779_279n);
+    });
+
+    it('keeps string account identifiers from the native reply', async () => {
+      const responseData = Buffer.from(protobuf_encode<OidbBase<OidbSvcTrpcTcp0x10C0Response>>({
+        body: {
+          requests: [{
+            sequence: 99n,
+            eventType: 5,
+            state: 1,
+            group: { groupUin: 1001, groupName: 'group' },
+            target: { uid: 'u_target', name: 'invitee' },
+            invitor: { uid: 'u_inviter', name: 'inviter' },
+            comment: 'join us',
+          }],
+        },
+      }));
+      const sender = {
+        sendRawPacket: vi.fn(async () => ({
+          success: true, gotResponse: true, errorCode: 0, errorMessage: '', responseData,
+        })),
+      };
+
+      const response = await FetchGroupRequests.invoke(sender, { filtered: false });
+
+      expect(response.requests?.[0]).toMatchObject({
+        eventType: 5,
+        target: { uid: 'u_target', uin: 0, name: 'invitee' },
+        invitor: { uid: 'u_inviter', uin: 0, name: 'inviter' },
+        comment: 'join us',
+      });
     });
 
     it('keeps the UID response path on the non-native envelope', async () => {

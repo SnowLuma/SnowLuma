@@ -12,6 +12,11 @@ export interface UserProfileInfo {
    *  Already requested in `fetchUserProfile` keys[]; LagrangeV2
    *  `FetchStrangerService.cs` confirms `// Level`. */
   level: number;
+  status?: number;
+  extStatus?: number;
+  batteryStatus?: number;
+  customStatus?: { faceId: number; wording: string } | null;
+  customStatusDesc?: string;
 }
 
 export interface FriendInfo {

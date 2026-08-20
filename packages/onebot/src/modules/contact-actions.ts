@@ -280,35 +280,39 @@ export async function getGroupFiles(
   };
 }
 
+function formatStrangerInfo(p: UserProfileInfo): JsonObject {
+  return {
+    user_id: p.uin,
+    nickname: p.nickname,
+    remark: p.remark,
+    sex: p.sex,
+    age: p.age,
+    long_nick: p.sign,
+    qq_level: p.level,
+    level: p.level,
+    status: p.status ?? 0,
+    extStatus: p.extStatus ?? 0,
+    ext_status: p.extStatus ?? 0,
+    batteryStatus: p.batteryStatus ?? 0,
+    customStatus: p.customStatus ?? null,
+    customStatusDescInfo: p.customStatusDesc ?? '',
+  };
+}
+
 export async function getStrangerInfo(
   bridge: BridgeInterface,
   userId: number,
 ): Promise<JsonObject | null> {
   try {
     const p = await bridge.apis.contacts.fetchUserProfile(userId);
-    return {
-      user_id: p.uin,
-      nickname: p.nickname,
-      remark: p.remark,
-      sex: p.sex,
-      age: p.age,
-      long_nick: p.sign,
-      qq_level: p.level,
-      level: p.level,
-    };
+    return formatStrangerInfo(p);
   } catch {
     const p = bridge.identity.findUserProfile(userId);
     if (p) {
-      return {
-        user_id: p.uin,
-        nickname: p.nickname,
+      return formatStrangerInfo({
+        ...p,
         remark: p.remark || bridge.identity.findFriend(userId)?.remark || '',
-        sex: p.sex,
-        age: p.age,
-        long_nick: p.sign,
-        qq_level: p.level,
-        level: p.level,
-      };
+      });
     }
 
     const friend = bridge.identity.findFriend(userId);
@@ -327,24 +331,33 @@ export async function getStrangerInfo(
 async function resolveRequesterUins(
   bridge: BridgeInterface,
   requests: readonly GroupRequestInfo[],
-): Promise<Map<string, number>> {
-  const resolved = new Map<string, number>();
+): Promise<Map<string, { uin: number; name: string }>> {
+  const resolved = new Map<string, { uin: number; name: string }>();
   const unresolved = new Set<string>();
+  const names = new Map<string, string>();
+  const unresolvedUins = new Set<number>();
 
   for (const request of requests) {
     const actor = groupRequestActor(request);
     const uid = actor.uid;
-    if (!uid || resolved.has(uid)) continue;
-    if (actor.uin > 0) {
-      resolved.set(uid, actor.uin);
+    if (actor.name) names.set(uid || `uin:${actor.uin}`, actor.name);
+    if (uid && actor.uin > 0 && actor.name) {
+      resolved.set(uid, { uin: actor.uin, name: actor.name });
       unresolved.delete(uid);
       continue;
     }
-    if (unresolved.has(uid)) continue;
-    const cached = bridge.identity.findUinByUid(uid, request.groupId)
-      ?? bridge.identity.findUinByUid(uid);
-    if (cached && cached > 0) resolved.set(uid, cached);
-    else unresolved.add(uid);
+    if (uid) {
+      if (resolved.has(uid) || unresolved.has(uid)) continue;
+      const cached = bridge.identity.findUinByUid(uid, request.groupId)
+        ?? bridge.identity.findUinByUid(uid);
+      if (cached && cached > 0 && actor.name) {
+        resolved.set(uid, { uin: cached, name: actor.name });
+      } else {
+        unresolved.add(uid);
+      }
+      continue;
+    }
+    if (actor.uin > 0 && !actor.name) unresolvedUins.add(actor.uin);
   }
 
   const profiles = await mapWithConcurrency(
@@ -361,11 +374,41 @@ async function resolveRequesterUins(
       if (!Number.isSafeInteger(profile.uin) || profile.uin <= 0) {
         throw new Error(`failed to resolve requester UIN for UID ${uid}`);
       }
-      return [uid, profile.uin] as const;
+      return [uid, profile] as const;
     },
   );
-  for (const [uid, uin] of profiles) resolved.set(uid, uin);
+  for (const [uid, profile] of profiles) {
+    resolved.set(uid, {
+      uin: profile.uin,
+      name: names.get(uid) || profile.nickname || '',
+    });
+  }
+
+  const uinProfiles = await mapWithConcurrency(
+    [...unresolvedUins],
+    REQUESTER_PROFILE_CONCURRENCY,
+    async (uin) => {
+      try {
+        return [uin, await bridge.apis.contacts.fetchUserProfile(uin)] as const;
+      } catch {
+        return [uin, undefined] as const;
+      }
+    },
+  );
+  for (const [uin, profile] of uinProfiles) {
+    if (!profile) continue;
+    resolved.set(`uin:${uin}`, { uin: profile.uin, name: profile.nickname || '' });
+  }
   return resolved;
+}
+
+/** Join request (7) or invite that still needs an admin (5 / mapped 22). */
+function isJoinOrInviteNotify(notifyType: number | undefined): boolean {
+  return notifyType === undefined
+    || notifyType === 1
+    || notifyType === 5
+    || notifyType === 7
+    || notifyType === 22;
 }
 
 function groupRequestActor(request: GroupRequestInfo): {
@@ -401,9 +444,7 @@ export async function getGroupSystemMessages(
   ]);
   const unique = new Map<string, GroupRequestInfo>();
   for (const request of [...main, ...filtered]) {
-    if (request.notifyType !== undefined
-      && request.notifyType !== 1
-      && request.notifyType !== 7) continue;
+    if (!isJoinOrInviteNotify(request.notifyType)) continue;
     if (request.eventType <= 0) continue;
     const flag = formatGroupRequestFlag(request);
     if (!unique.has(flag)) unique.set(flag, request);
@@ -417,12 +458,16 @@ export async function getGroupSystemMessages(
 
   return requests.map((request) => {
     const actor = groupRequestActor(request);
+    const resolved = (actor.uid ? requesterUins.get(actor.uid) : undefined)
+      ?? (actor.uin > 0 ? requesterUins.get(`uin:${actor.uin}`) : undefined);
     return {
       group_id: request.groupId,
       group_name: request.groupName,
       request_id: request.sequence,
-      requester_uin: requesterUins.get(actor.uid) ?? actor.uin,
-      requester_nick: actor.name,
+      requester_uin: resolved?.uin ?? actor.uin,
+      requester_nick: resolved?.name || actor.name,
+      invitor_uin: request.invitorUin,
+      invitor_nick: request.invitorName,
       message: request.comment,
       checked: request.state !== 1,
       flag: formatGroupRequestFlag(request),

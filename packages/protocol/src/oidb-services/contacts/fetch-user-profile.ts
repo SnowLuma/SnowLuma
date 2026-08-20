@@ -21,11 +21,36 @@ import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   AvatarInfo,
+  OidbCustomStatus,
   OidbUserInfoRequest,
   OidbUserInfoResponse,
 } from '@snowluma/proto-defs/oidb-actions/base';
 import type { UserProfileInfo } from '../../qq-info';
+import { unpackStatusWord } from '../extras/get-stranger-status';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
+
+export function applyOnlineStatus(
+  info: UserProfileInfo,
+  bytesMap: Map<number, Uint8Array>,
+  numMap: Map<number, number>,
+): void {
+  const statusRaw = numMap.get(27372);
+  if (statusRaw !== undefined) {
+    const unpacked = unpackStatusWord(statusRaw);
+    info.status = unpacked.status;
+    info.extStatus = unpacked.ext_status;
+    info.batteryStatus = 0;
+  }
+  const customBytes = bytesMap.get(27406);
+  if (customBytes && customBytes.length > 0) {
+    const custom = protobuf_decode<OidbCustomStatus>(customBytes);
+    info.customStatus = {
+      faceId: custom.faceId ?? 0,
+      wording: custom.msg ?? '',
+    };
+    info.customStatusDesc = custom.msg ?? '';
+  }
+}
 
 const REQUESTED_KEYS = [
   20002, 27394, 20009, 20031, 101, 103, 102, 20020, 20003, 20026,
@@ -90,6 +115,7 @@ export namespace FetchUserProfile {
       info.sex = sexNum === 1 ? 'male' : sexNum === 2 ? 'female' : 'unknown';
       info.age = numMap.get(20037) ?? 0;
       info.level = numMap.get(105) ?? 0;
+      applyOnlineStatus(info, bytesMap, numMap);
     }
 
     return info;

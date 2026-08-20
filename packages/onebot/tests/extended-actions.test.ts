@@ -2027,7 +2027,10 @@ describe('extended-actions / TierB ③ share + doubt + robot-option', () => {
   });
 
   it('get_doubt_friends_add_request returns the mapped list', async () => {
-    const list = [{ uid: 'u1', nick: 'A', source: 's', msg: 'm', reqTime: 123 }];
+    const list = [{
+      uid: 'u1', user_id: 10001, nick: 'A', source: 's', reason: '',
+      msg: 'm', group_code: '', reqTime: 123,
+    }];
     const getDoubtRequests = vi.fn(async () => list);
     const bridge = fakeBridge({ apis: { friend: { getDoubtRequests } } });
     const res = await makeHandler(fakeCtx(bridge)).handle('get_doubt_friends_add_request', { count: 5 });
@@ -2059,6 +2062,84 @@ describe('extended-actions / TierB ③ share + doubt + robot-option', () => {
     const res = await makeHandler(fakeCtx(bridge)).handle('set_group_robot_add_option', { group_id: 12345, robot_member_switch: 1, robot_member_examine: 2 });
     expect(setRobotAddOption).toHaveBeenCalledWith(12345, 1, 2);
     expect(res).toMatchObject({ status: 'ok' });
+  });
+});
+
+// ─── TierB ③: send_ark (图文 Ark 卡片, OIDB 0xdc2_34) ───
+
+describe('extended-actions / send_tuwen_ark', () => {
+  const arkParams = {
+    title: '标题',
+    desc: '描述',
+    jump_url: 'https://example.com',
+  };
+
+  it('routes to group when group_id is given (peerType=1)', async () => {
+    const sendTuwenArk = vi.fn(async () => {});
+    const bridge = fakeBridge({ apis: { contacts: { sendTuwenArk } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('send_tuwen_ark', {
+      group_id: 12345,
+      ...arkParams,
+    });
+    expect(res).toMatchObject({ status: 'ok', retcode: 0, data: null });
+    expect(sendTuwenArk).toHaveBeenCalledWith({
+      targetId: 12345,
+      peerType: 1,
+      title: '标题',
+      desc: '描述',
+      summary: '[分享]',
+      previewUrl: 'https://tangram-1251316161.file.myqcloud.com/files/20210721/e50a8e37e08f29bf1ffc7466e1950690.png',
+      jumpUrl: 'https://example.com',
+    });
+  });
+
+  it('routes to C2C when user_id is given (peerType=0)', async () => {
+    const sendTuwenArk = vi.fn(async () => {});
+    const bridge = fakeBridge({ apis: { contacts: { sendTuwenArk } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('send_tuwen_ark', {
+      user_id: 10001,
+      ...arkParams,
+    });
+    expect(res).toMatchObject({ status: 'ok', retcode: 0, data: null });
+    expect(sendTuwenArk).toHaveBeenCalledWith({
+      targetId: 10001,
+      peerType: 0,
+      title: '标题',
+      desc: '描述',
+      summary: '[分享]',
+      previewUrl: 'https://tangram-1251316161.file.myqcloud.com/files/20210721/e50a8e37e08f29bf1ffc7466e1950690.png',
+      jumpUrl: 'https://example.com',
+    });
+  });
+
+  it('prefers group_id over user_id when both are supplied', async () => {
+    const sendTuwenArk = vi.fn(async () => {});
+    const bridge = fakeBridge({ apis: { contacts: { sendTuwenArk } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('send_tuwen_ark', {
+      group_id: 12345,
+      user_id: 10001,
+      ...arkParams,
+    });
+    expect(res).toMatchObject({ status: 'ok' });
+    expect(sendTuwenArk).toHaveBeenCalledWith(expect.objectContaining({ peerType: 1, targetId: 12345 }));
+  });
+
+  it('rejects when neither user_id nor group_id is given', async () => {
+    const sendTuwenArk = vi.fn();
+    const bridge = fakeBridge({ apis: { contacts: { sendTuwenArk } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('send_tuwen_ark', { ...arkParams });
+    expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(sendTuwenArk).not.toHaveBeenCalled();
+  });
+
+  it('surfaces bridge errors as action_failed', async () => {
+    const sendTuwenArk = vi.fn(async () => { throw new Error('oidb 0xdc2 rejected'); });
+    const bridge = fakeBridge({ apis: { contacts: { sendTuwenArk } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('send_tuwen_ark', {
+      group_id: 12345,
+      ...arkParams,
+    });
+    expect(res).toMatchObject({ status: 'failed', retcode: 100, wording: 'oidb 0xdc2 rejected' });
   });
 });
 

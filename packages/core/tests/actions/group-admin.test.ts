@@ -11,6 +11,7 @@ import type {
   Oidb0x89a_0HistoryVisibility,
   Oidb0x89a_0MemberPermission,
   Oidb0xf16Req,
+  OidbGroupDetailRequest,
   OidbGroupRequestAction,
   OidbKickMember,
   OidbLeaveGroup,
@@ -475,9 +476,11 @@ describe('apis/group-admin', () => {
       allowMemberUploadAlbum: true,
     });
 
+    expect(bridge.sendRawPacket.mock.calls[1]![0]).toBe('OidbSvcTrpcTcp.0x89a_0');
     const envelope = protobuf_decode<OidbBase<Oidb0x89a_0MemberPermission>>(
       bridge.sendRawPacket.mock.calls[1]![1],
     );
+    expect(envelope.subCommand ?? 0).toBe(0);
     expect(envelope.body?.settings).toEqual({
       appPrivilegeFlag: 0,
       appPrivilegeMask: 1,
@@ -568,6 +571,11 @@ describe('apis/group-admin', () => {
       'OidbSvcTrpcTcp.0x88d_0',
       'OidbSvcTrpcTcp.0xef0_1',
     ]);
+    const detailReq = protobuf_decode<OidbBase<OidbGroupDetailRequest>>(
+      bridge.sendRawPacket.mock.calls.find((call) => call[0] === 'OidbSvcTrpcTcp.0x88d_0')![1],
+    );
+    expect(detailReq.body?.config?.flags?.question).toBe('');
+    expect(detailReq.body?.config?.flags?.answer).toBe('');
   });
 
   it('getAdminSettings treats omitted detail/ext zeros as the default values', async () => {

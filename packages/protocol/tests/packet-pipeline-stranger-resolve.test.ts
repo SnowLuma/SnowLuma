@@ -259,7 +259,38 @@ describe('IncomingPacketPipeline / stranger resolve on group_invite', () => {
     await new Promise(r => setTimeout(r, 10));
 
     expect(resolveGroupInviteCardSequence).toHaveBeenCalledWith(999);
-    expect(captured[0]).toMatchObject({ flag: 'slreq:1:778899:999:2:0' });
+    expect(captured[0]).toMatchObject({
+      flag: 'slreq:1:778899:999:2:0',
+      invitedUin: 10001,
+      invitedUid: 'self',
+    });
+  });
+
+  it('fills the invitee from the pending-request row (#394)', async () => {
+    const resolveGroupJoinRequest = vi.fn(async () => ({
+      groupId: 1, groupName: 'group',
+      targetUid: 'u_invitee', targetUin: 789, targetName: 'invitee',
+      invitorUid: 'u_inviter', invitorUin: 456, invitorName: 'inviter',
+      operatorUid: '', operatorUin: 0, operatorName: '',
+      sequence: 42, state: 1, eventType: 2,
+      comment: '', filtered: false,
+    }));
+    const { pipeline, captured } = makePipeline({ resolveGroupJoinRequest });
+
+    pipeline.registerCmd('test.cmd', () => [{
+      kind: 'group_invite', time: 1, selfUin: 10001,
+      groupId: 1, fromUin: 456, fromUid: 'u_inviter',
+      subType: 'invite', message: '', flag: 'invite:1:u_inviter',
+    } as QQEventVariant]);
+
+    pipeline.process({ serviceCmd: 'test.cmd' } as PacketInfo);
+    await new Promise(r => setTimeout(r, 10));
+
+    expect(captured[0]).toMatchObject({
+      fromUin: 456,
+      invitedUin: 789,
+      invitedUid: 'u_invitee',
+    });
   });
 
   it('runs the profile + request lookups in parallel (independent failures)', async () => {

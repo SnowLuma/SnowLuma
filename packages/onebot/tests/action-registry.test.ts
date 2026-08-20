@@ -90,9 +90,11 @@ describe('compileActionRegistry namespace conflicts', () => {
 });
 
 describe('compiled production Action registry', () => {
-  it('preserves all 191 canonical Action docs', () => {
-    expect(ACTION_REGISTRY.actions).toHaveLength(191);
-    expect(collectActionDocs()).toHaveLength(191);
+  it('publishes a doc for every compiled action', () => {
+    const registryNames = ACTION_REGISTRY.actions.map((action) => action.doc.name).sort();
+    const docNames = collectActionDocs().map((doc) => doc.name).sort();
+    expect(docNames).toEqual(registryNames);
+    expect(docNames.length).toBeGreaterThan(100);
   });
 
   it('resolves every executable name to exactly one canonical doc', () => {
