@@ -33,11 +33,7 @@ export class InteractionApi {
     return SetEssence.invoke(this.ctx, { groupId, sequence, random, enable });
   }
 
-  /**
-   * Legacy stub: see `GetEmojiLikes` namespace comment for why this
-   * SSO path can never surface the user list. Real data lives in
-   * ReactionStore on the OneBot side.
-   */
+  /** Fetch the reactor list for one emoji on a group message. */
   async getEmojiLikes(
     groupId: number,
     sequence: number,
@@ -54,10 +50,7 @@ export class InteractionApi {
   }
 
   /**
-   * Fetch the per-emoji reaction summary on a group message via
-   * 0x9084_1 — emoji_id + reactor count + last-reaction timestamp.
-   * Cross-checked against the local ReactionStore cache for callers
-   * that need to detect cache gaps.
+   * Recent-used emoji catalog (0x9084_1). Not a per-message reaction list.
    */
   fetchReactionSummary(
     groupId: number,
