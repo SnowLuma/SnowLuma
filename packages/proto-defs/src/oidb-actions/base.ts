@@ -104,13 +104,16 @@ export interface OidbKickMember {
   rejectAddRequest?: pb<4, bool>;
   reason?:           pb<5, string>;
 }
-// 0x8A0_1 response body. Cross-checked against Lagrange.Core's
-// OidbSvcTrpcTcp0x8A0_1Response and the current QQ kick result contract:
-// transport/envelope success does not imply the member was removed; a
-// command-level refusal is returned in errorMsg.
+// 0x8A0_1 response body. Envelope errorCode=0 is not enough: each target
+// is listed in `results`. result=0 (or omitted) means that member was
+// removed; any other value is a refusal for that member.
+export interface OidbKickMemberResult {
+  result?: pb<1, uint_32>;
+  uid?:    pb<2, string>;
+}
 export interface OidbKickMemberResponse {
   groupUin?: pb<1, uint_32>;
-  errorMsg?: pb<2, string>;
+  results?:  pb_repeated<2, OidbKickMemberResult>;
 }
 export interface OidbLeaveGroup {
   groupUin?: pb<1, uint_32>;

@@ -33,8 +33,11 @@ export namespace KickMember {
   });
 
   export const deserialize = (_ctx: Deps, body: OidbKickMemberResponse): void => {
-    if (body.errorMsg) {
-      throw new Error(`kick member failed: ${body.errorMsg}`);
+    for (const item of body.results ?? []) {
+      const code = item.result ?? 0;
+      if (code !== 0) {
+        throw new Error(`kick member failed: result=${code}`);
+      }
     }
   };
 

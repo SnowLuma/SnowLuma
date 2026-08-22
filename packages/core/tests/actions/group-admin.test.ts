@@ -14,6 +14,7 @@ import type {
   OidbGroupDetailRequest,
   OidbGroupRequestAction,
   OidbKickMember,
+  OidbKickMemberResponse,
   OidbLeaveGroup,
   OidbMuteAll,
   OidbMuteMember,
@@ -125,18 +126,30 @@ describe('apis/group-admin', () => {
     });
   });
 
-  it('kickMember rejects a server business error instead of reporting success (#298)', async () => {
+  it('kickMember treats a zero per-member result as success (#413)', async () => {
     const bridge = mockBridge();
     bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
-      Buffer.from(
-        '222008b960121be7bea4e4b8bbe697a0e6b395e8a2abe7a7bbe587bae7bea4e8818a',
-        'hex',
-      ),
+      protobuf_encode<OidbBase<OidbKickMemberResponse>>({
+        body: { groupUin: 12345, results: [{ result: 0, uid: 'u_abcdefghijklmnopqrstuv' }] },
+      }),
     ));
 
     await expect(
       new GroupAdminApi(bridge as any).kickMember(12345, 67890, false),
-    ).rejects.toThrow('群主无法被移出群聊');
+    ).resolves.toBeUndefined();
+  });
+
+  it('kickMember rejects a server business error instead of reporting success (#298)', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
+      protobuf_encode<OidbBase<OidbKickMemberResponse>>({
+        body: { groupUin: 12345, results: [{ result: 1, uid: 'u_abcdefghijklmnopqrstuv' }] },
+      }),
+    ));
+
+    await expect(
+      new GroupAdminApi(bridge as any).kickMember(12345, 67890, false),
+    ).rejects.toThrow('kick member failed: result=1');
   });
 
   it('kickMembers resolves each UID in parallel', async () => {
@@ -155,15 +168,14 @@ describe('apis/group-admin', () => {
   it('kickMembers rejects the same command-level business error', async () => {
     const bridge = mockBridge();
     bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
-      Buffer.from(
-        '222008b960121be7bea4e4b8bbe697a0e6b395e8a2abe7a7bbe587bae7bea4e8818a',
-        'hex',
-      ),
+      protobuf_encode<OidbBase<OidbKickMemberResponse>>({
+        body: { groupUin: 12345, results: [{ result: 1, uid: 'u_abcdefghijklmnopqrstuv' }] },
+      }),
     ));
 
     await expect(
       new GroupAdminApi(bridge as any).kickMembers(12345, [67890], false),
-    ).rejects.toThrow('群主无法被移出群聊');
+    ).rejects.toThrow('kick members failed: result=1');
   });
 
   it('leave sends 0x1097_1, emits a self group_member_leave, and forgets the group (#133)', async () => {
