@@ -92,6 +92,10 @@
       "types": "./src/highway/*.ts",
       "default": "./src/highway/*.ts"
     },
+    "./services/*": {
+      "types": "./src/services/*.ts",
+      "default": "./src/services/*.ts"
+    },
     "./web/*": {
       "types": "./src/web/*.ts",
       "default": "./src/web/*.ts"

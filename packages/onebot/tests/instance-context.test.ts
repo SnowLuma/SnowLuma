@@ -820,6 +820,7 @@ describe('buildApiContext contact reads', () => {
       qidian_master_flag: 0,
       qidian_crew_flag: 0,
       qidian_crew_flag_2: 0,
+      qidian_enterprise_name: '',
     });
   });
 

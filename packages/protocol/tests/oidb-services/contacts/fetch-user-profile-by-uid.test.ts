@@ -53,7 +53,7 @@ describe('FetchUserProfileByUid namespace (UID form)', () => {
   it('decodes qidian flags from number-properties (0 when absent)', async () => {
     const qidian = makeSender({
       body: {
-        uin: 3004251964, uid: 'u',
+        uin: 10002, uid: 'u',
         properties: {
           bytesProperties: [],
           numberProperties: [

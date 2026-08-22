@@ -19,6 +19,10 @@ import {
 } from '@snowluma/protocol/oidb-services/contacts/fetch-robot-uin-ranges';
 import { FetchUserProfile } from '@snowluma/protocol/oidb-services/contacts/fetch-user-profile';
 import { FetchUserProfileByUid } from '@snowluma/protocol/oidb-services/contacts/fetch-user-profile-by-uid';
+import {
+  fetchQidianCorpInfo as fetchQidianCorpInfoWire,
+  type QidianCorpInfo,
+} from '@snowluma/protocol/services/qidian/fetch-corp-info';
 import { GetBuddyRecommendArk } from '@snowluma/protocol/oidb-services/contacts/get-buddy-recommend-ark';
 import { GetGroupRecommendArk } from '@snowluma/protocol/oidb-services/contacts/get-group-recommend-ark';
 import { SendTuwenArk, type SendTuwenArkParams } from '@snowluma/protocol/oidb-services/contacts/send-tuwen-ark';
@@ -346,6 +350,12 @@ export class ContactsApi {
     const info = await FetchUserProfileByUid.invoke(this.ctx, { uid });
     if (info.uin > 0) this.ctx.identity.rememberUserProfile(info);
     return info;
+  }
+
+  /** 企点企业资料卡（#404 后续 PR）。仅在判断命中的是企点账号后再调用。
+   *  best-effort：非企点账号或拉取失败返回 null，不影响上层资料读取。 */
+  async fetchQidianCorpInfo(uin: number): Promise<QidianCorpInfo | null> {
+    return fetchQidianCorpInfoWire(this.ctx, uin);
   }
 
   async fetchGroupRequests(
