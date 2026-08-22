@@ -589,6 +589,23 @@ describe('IdentityService', () => {
         lastError: expect.stringMatching(/locked/i),
         lastFailureAt: suspendedFailureAt,
       });
+      const skipLogsBeforeBurst = seen.filter((entry) =>
+        /persistence write skipped/.test(entry.message),
+      ).length;
+      expect(skipLogsBeforeBurst).toBe(1);
+      for (let i = 0; i < 50; i += 1) {
+        identity.rememberRequestIdentity({
+          uid: `u_skip_burst_${i}`,
+          uin: 500_000 + i,
+        });
+      }
+      expect(seen.filter((entry) => /persistence write skipped/.test(entry.message)))
+        .toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(60_000);
+      identity.rememberRequestIdentity({ uid: 'u_skip_after_minute', uin: 600_000 });
+      const skipLogs = seen.filter((entry) => /persistence write skipped/.test(entry.message));
+      expect(skipLogs).toHaveLength(2);
+      expect(skipLogs[1]?.message).toMatch(/suppressed=50/);
 
       releaseLock();
       identity.close();

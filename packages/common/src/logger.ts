@@ -264,7 +264,13 @@ function emit(
     // and ESC (0x1B) so multi-line records (stack traces) and ANSI color
     // sequences emitted by render() pass through intact.
     // eslint-disable-next-line no-control-regex
-    stream.write(line.replace(/[\x00-\x08\x0B-\x1A\x1C-\x1F\x7F]/g, '') + '\n');
+    const consoleLine = line.replace(/[\x00-\x08\x0B-\x1A\x1C-\x1F\x7F]/g, '') + '\n';
+    try {
+      stream.write(consoleLine);
+    } catch {
+      // A full Docker json-file log volume can make stdout/stderr throw.
+      // Logging must not take down message handling or the WebUI.
+    }
   }
 
   // File transport sees levels >= currentFileLevel (SNOWLUMA_LOG_FILE_LEVEL,

@@ -60,6 +60,13 @@ describe('logger UIN slot padding', () => {
     expect(() => createLogger('Test').info('no uin')).not.toThrow();
   });
 
+  it('does not throw when the console stream cannot accept the line', () => {
+    vi.mocked(process.stderr.write).mockImplementation(() => {
+      throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' });
+    });
+    expect(() => createLogger('Test').error('disk is full')).not.toThrow();
+  });
+
   it('keeps structured subscriber lines plain while terminal output stays colored', () => {
     const captured: LogEntry[] = [];
     const unsubscribe = subscribeLogs((entry) => captured.push(entry));
