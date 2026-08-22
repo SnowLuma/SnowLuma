@@ -116,4 +116,15 @@ describe('group information actions', () => {
       data: { user_id: 654323, shut_up_timestamp: 0 },
     });
   });
+
+  it('documents qidian flags on both member-list and single-member results', () => {
+    const listSchema = getGroupMemberList.describe().returnsSchema;
+    const infoSchema = getGroupMemberInfo.describe().returnsSchema;
+
+    for (const schema of [listSchema?.items?.properties, infoSchema?.properties]) {
+      expect(schema).toHaveProperty('qidian_master_flag');
+      expect(schema).toHaveProperty('qidian_crew_flag');
+      expect(schema).toHaveProperty('qidian_crew_flag_2');
+    }
+  });
 });
