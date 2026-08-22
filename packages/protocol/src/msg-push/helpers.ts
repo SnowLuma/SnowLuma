@@ -23,6 +23,19 @@ export function makeImageUrl(origUrl: string): string {
   return 'http://gchat.qpic.cn' + origUrl;
 }
 
+/** Classic group-pic URL used when the wire carries an MD5 and no download path. */
+export function imageUrlFromMd5(md5Hex: string): string {
+  if (!/^[0-9a-fA-F]{32}$/.test(md5Hex)) return '';
+  return `http://gchat.qpic.cn/gchatpic_new/0/0-0-${md5Hex.toUpperCase()}/0`;
+}
+
+/** NT multimedia download URL reconstructed from a file id when the path is omitted. */
+export function ntImageUrlFromFileId(fileId: string, isGroup: boolean): string {
+  if (!fileId) return '';
+  const appid = isGroup ? 1407 : 1406;
+  return `https://multimedia.nt.qq.com.cn/download?appid=${appid}&fileid=${encodeURIComponent(fileId)}`;
+}
+
 export function decompressData(
   data: Uint8Array,
   maxOutputBytes = MAX_RICH_CARD_OUTPUT_BYTES,

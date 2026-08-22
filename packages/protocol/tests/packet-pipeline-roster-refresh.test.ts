@@ -16,7 +16,10 @@ afterEach(() => {
 });
 
 function makeProfile(uin: number, uid = ''): UserProfileInfo {
-  return { uin, uid, nickname: '', remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0 };
+  return {
+    uin, uid, nickname: '', remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0,
+    qidianMasterFlag: 0, qidianCrewFlag: 0, qidianCrewFlag2: 0,
+  };
 }
 
 function makeMember(uin: number, uid: string): GroupMemberInfo {

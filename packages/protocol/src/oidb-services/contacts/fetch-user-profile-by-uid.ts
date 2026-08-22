@@ -28,6 +28,8 @@ import { invokeOidb, type OidbSender } from '../../oidb-service';
 const REQUESTED_KEYS = [
   20002, 27394, 20009, 20031, 101, 103, 102, 20020, 20003, 20026,
   105, 27372, 27406, 20037,
+  // 企点标志（QQ 企点 / 企业版 QQ 账号）：员工号实测为 1，普通账号为 0
+  40410, 42031,
 ];
 
 export namespace FetchUserProfileByUid {
@@ -55,6 +57,7 @@ export namespace FetchUserProfileByUid {
       uin: body.body.uin ?? 0,
       uid: body.body.uid ?? '',
       nickname: '', remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0,
+      qidianMasterFlag: 0, qidianCrewFlag: 0, qidianCrewFlag2: 0,
     };
 
     if (body.body.properties) {
@@ -85,6 +88,9 @@ export namespace FetchUserProfileByUid {
       info.age = numMap.get(20037) ?? 0;
       info.level = numMap.get(105) ?? 0;
       applyOnlineStatus(info, bytesMap, numMap);
+      // 企点标志：40410 / 42031，服务器仅在返回时才出现（普通账号缺省 → 0）
+      info.qidianMasterFlag = numMap.get(42031) ?? 0;
+      info.qidianCrewFlag = numMap.get(40410) ?? 0;
     }
 
     return info;

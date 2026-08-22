@@ -25,7 +25,7 @@ import type {
   SrcMsgPbReserve,
   TextElem,
 } from '@snowluma/proto-defs/element';
-import { makeImageUrl } from '../../src/msg-push/helpers';
+import { imageUrlFromMd5, makeImageUrl, ntImageUrlFromFileId } from '../../src/msg-push/helpers';
 
 function lightAppBytes(json: unknown): Uint8Array {
   const buf = deflateSync(Buffer.from(JSON.stringify(json), 'utf8'));
@@ -1035,6 +1035,64 @@ describe('decodeRichBody / unknown wire element observability', () => {
       expect(out).toEqual([]);
     });
 
+    it('rebuilds a download URL from md5 when a customFace has no path', () => {
+      const out = decodeRichBody({
+        richText: {
+          elems: [customFaceElem(fileName, '', otherMd5)],
+        },
+      }, true);
+
+      expect(out).toEqual([{
+        type: 'image',
+        imageUrl: 'http://gchat.qpic.cn/gchatpic_new/0/0-0-0102030405060708090A0B0C0D0E0F10/0',
+        fileId: fileName,
+        fileSize: 10711,
+        width: 1080,
+        height: 1080,
+        subType: 0,
+        summary: '[图片]',
+        md5Hex: '0102030405060708090A0B0C0D0E0F10',
+      }]);
+    });
+
+    it('rebuilds an NT download URL from file id when the path is omitted', () => {
+      const msgInfo: MsgInfo = {
+        msgInfoBody: [{
+          index: {
+            fileUuid: 'EhRforward',
+            info: {
+              fileSize: 10711,
+              fileHash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+              fileSha1: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+              fileName: '',
+              width: 1080,
+              height: 1080,
+              type: { picFormat: 1001 },
+            },
+          },
+        }],
+        extBizInfo: { pic: { bizType: 0, textSummary: '[图片]' } },
+      };
+      const out = decodeRichBody({
+        richText: {
+          elems: [{
+            commonElem: {
+              serviceType: 48,
+              businessType: 20,
+              pbElem: protobuf_encode<MsgInfo>(msgInfo),
+            },
+          }],
+        },
+      }, true);
+
+      expect(out).toEqual([expect.objectContaining({
+        type: 'image',
+        fileId: 'EhRforward',
+        imageUrl: 'https://multimedia.nt.qq.com.cn/download?appid=1407&fileid=EhRforward',
+        summary: '[图片]',
+      })]);
+    });
+
     it('keeps two distinct pictures', () => {
       const second = 'other.png';
       const out = decodeRichBody({
@@ -1067,6 +1125,19 @@ describe('decodeRichBody / unknown wire element observability', () => {
     it('prefixes legacy gchat paths', () => {
       expect(makeImageUrl('/gchatpic_new/0/0-0-AABB/0'))
         .toBe('http://gchat.qpic.cn/gchatpic_new/0/0-0-AABB/0');
+    });
+
+    it('rebuilds a gchat URL from a 32-char md5', () => {
+      expect(imageUrlFromMd5('0102030405060708090a0b0c0d0e0f10'))
+        .toBe('http://gchat.qpic.cn/gchatpic_new/0/0-0-0102030405060708090A0B0C0D0E0F10/0');
+      expect(imageUrlFromMd5('short')).toBe('');
+    });
+
+    it('rebuilds an NT URL from a file id', () => {
+      expect(ntImageUrlFromFileId('EhRforward', true))
+        .toBe('https://multimedia.nt.qq.com.cn/download?appid=1407&fileid=EhRforward');
+      expect(ntImageUrlFromFileId('EhRprivate', false))
+        .toBe('https://multimedia.nt.qq.com.cn/download?appid=1406&fileid=EhRprivate');
     });
   });
 

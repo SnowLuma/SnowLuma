@@ -589,6 +589,23 @@ describe('IdentityService', () => {
         lastError: expect.stringMatching(/locked/i),
         lastFailureAt: suspendedFailureAt,
       });
+      const skipLogsBeforeBurst = seen.filter((entry) =>
+        /persistence write skipped/.test(entry.message),
+      ).length;
+      expect(skipLogsBeforeBurst).toBe(1);
+      for (let i = 0; i < 50; i += 1) {
+        identity.rememberRequestIdentity({
+          uid: `u_skip_burst_${i}`,
+          uin: 500_000 + i,
+        });
+      }
+      expect(seen.filter((entry) => /persistence write skipped/.test(entry.message)))
+        .toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(60_000);
+      identity.rememberRequestIdentity({ uid: 'u_skip_after_minute', uin: 600_000 });
+      const skipLogs = seen.filter((entry) => /persistence write skipped/.test(entry.message));
+      expect(skipLogs).toHaveLength(2);
+      expect(skipLogs[1]?.message).toMatch(/suppressed=50/);
 
       releaseLock();
       identity.close();
@@ -757,6 +774,9 @@ describe('IdentityService', () => {
       sign: '',
       avatar: '',
       level: 0,
+      qidianMasterFlag: 0,
+      qidianCrewFlag: 0,
+      qidianCrewFlag2: 0,
     };
     const request = {
       groupId: GROUP_ID,
@@ -911,7 +931,10 @@ describe('IdentityService', () => {
 
 describe('IdentityService.resolveUid', () => {
   function makeProfile(uin: number, uid: string): UserProfileInfo {
-    return { uin, uid, nickname: '', remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0 };
+    return {
+      uin, uid, nickname: '', remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0,
+      qidianMasterFlag: 0, qidianCrewFlag: 0, qidianCrewFlag2: 0,
+    };
   }
 
   it('returns the cached uid without invoking the fetcher', async () => {
@@ -976,7 +999,10 @@ describe('IdentityService.resolveUid', () => {
 
 describe('IdentityService inbound UID→UIN', () => {
   function makeProfile(uin: number, uid: string): UserProfileInfo {
-    return { uin, uid, nickname: '', remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0 };
+    return {
+      uin, uid, nickname: '', remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0,
+      qidianMasterFlag: 0, qidianCrewFlag: 0, qidianCrewFlag2: 0,
+    };
   }
 
   it('findUinByUid treats a numeric uid as that uin without consulting maps', () => {

@@ -19,9 +19,11 @@ import type { MarkdownData } from '@snowluma/proto-defs/action';
 import type { FileExtra, MessageBody, PushMsgBody as PushMsgBodyFull, RichText } from '@snowluma/proto-defs/message';
 import {
   decompressData,
+  imageUrlFromMd5,
   makeImageUrl,
   MAX_RICH_CARD_MESSAGE_OUTPUT_BYTES,
   MAX_RICH_CARD_OUTPUT_BYTES,
+  ntImageUrlFromFileId,
 } from './helpers';
 
 type ElemDecoded = Elem;
@@ -476,7 +478,7 @@ export function decodeRichBody(body: PushMsgBody | undefined, isGroup: boolean):
   if (body?.richText) {
     const rt = body.richText;
     logUnknownWireFields(rt, 'body.richText');
-    if (rt.elems) elements.push(...convertElements(rt.elems as ElemDecoded[]));
+    if (rt.elems) elements.push(...convertElements(rt.elems as ElemDecoded[], isGroup));
     extractRichtextExtras(rt, elements, isGroup);
   }
   if (body?.msgContent && body.msgContent.length > 0) {
@@ -485,7 +487,7 @@ export function decodeRichBody(body: PushMsgBody | undefined, isGroup: boolean):
   return elements;
 }
 
-function convertElements(elems: ElemDecoded[]): MessageElement[] {
+function convertElements(elems: ElemDecoded[], isGroup: boolean): MessageElement[] {
   const result: MessageElement[] = [];
   // [#146/#337] Rich cards and bot markdown arrive beside a plain compatibility
   // `text` element for older clients. That sibling has no independent wire
@@ -562,7 +564,7 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
             );
             if (nested) decoded.push(nested);
           }
-          if (decoded.length) reply.replyElements = convertElements(decoded);
+          if (decoded.length) reply.replyElements = convertElements(decoded, isGroup);
         }
         // A C2C quoted FILE lives in RichText.notOnlineFile (message level), not
         // in elems[] — recover it from sourceMsg (field 9) when elems carried no
@@ -666,11 +668,12 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
     if (elem.notOnlineImage) {
       const img = elem.notOnlineImage;
       if (img.picMd5?.length === 16) {
+        const md5Hex = toHexUpper(img.picMd5);
         const urlPath = img.origUrl || img.bigUrl || '';
         result.push({
           type: 'image',
-          imageUrl: makeImageUrl(urlPath),
-          fileId: img.filePath ?? '',
+          imageUrl: makeImageUrl(urlPath) || (!urlPath ? imageUrlFromMd5(md5Hex) : ''),
+          fileId: img.filePath || md5Hex,
           fileSize: img.fileLen ?? 0,
           width: img.picWidth ?? 0,
           height: img.picHeight ?? 0,
@@ -680,7 +683,7 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
           // expect these literal Chinese strings when the wire
           // doesn't carry a per-image override.
           summary: img.pbRes?.summary || (img.pbRes?.subType === 1 ? '[动画表情]' : '[图片]'),
-          md5Hex: toHexUpper(img.picMd5),
+          md5Hex,
         });
       }
     }
@@ -689,16 +692,18 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
     if (elem.customFace) {
       const img = elem.customFace;
       if (img.md5?.length === 16) {
+        const md5Hex = toHexUpper(img.md5);
+        const origUrl = img.origUrl ?? '';
         result.push({
           type: 'image',
-          imageUrl: makeImageUrl(img.origUrl ?? ''),
-          fileId: img.filePath ?? '',
+          imageUrl: makeImageUrl(origUrl) || (!origUrl ? imageUrlFromMd5(md5Hex) : ''),
+          fileId: img.filePath || md5Hex,
           fileSize: img.size ?? 0,
           width: img.width ?? 0,
           height: img.height ?? 0,
           subType: img.pbRes?.subType ?? 0,
           summary: img.pbRes?.summary || (img.pbRes?.subType === 1 ? '[动画表情]' : '[图片]'),
-          md5Hex: toHexUpper(img.md5),
+          md5Hex,
         });
       }
     }
@@ -849,8 +854,10 @@ function convertElements(elems: ElemDecoded[]): MessageElement[] {
                   }
                 }
               }
+              const fileId = fi.fileName || idx.fileUuid || '';
+              if (!url && idx.fileUuid) url = ntImageUrlFromFileId(idx.fileUuid, isGroup);
               const me: MessageElement = {
-                type: 'image', fileId: fi.fileName ?? '',
+                type: 'image', fileId,
                 fileSize: fi.fileSize ?? 0, width: fi.width ?? 0,
                 height: fi.height ?? 0, imageUrl: url,
               };

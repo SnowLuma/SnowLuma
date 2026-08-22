@@ -128,31 +128,51 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
       if (!meta.isGroup) throw new Error('emoji reactions are not supported on private messages');
       if (!hasAuthoritativeSequence(meta)) throw new Error('message has no authoritative QQ sequence');
       await bridge.apis.interaction.setReaction(meta.targetId, meta.sequence, emojiId, set);
+      const emojiType = emojiId.length > 3 ? 2 : 1;
+      if (set) {
+        reactionStore.recordAdd(
+          meta.targetId, meta.sequence, emojiId, emojiType,
+          ref.selfId, '', Math.floor(Date.now() / 1000),
+        );
+      } else {
+        reactionStore.recordRemove(meta.targetId, meta.sequence, emojiId, ref.selfId);
+      }
     },
     fetchEmojiLikeSummary: async (messageId) => {
       const meta = messageStore.findMeta(messageId);
       if (!meta) throw new Error('message not found');
       if (!meta.isGroup) throw new Error('emoji reactions are not supported on private messages');
       if (!hasAuthoritativeSequence(meta)) throw new Error('message has no authoritative QQ sequence');
-      let summary: Array<{ emojiId: string; emojiType: number; count: number; lastReactionTime: number }>;
-      try {
-        summary = await bridge.apis.interaction.fetchReactionSummary(meta.targetId, meta.sequence);
-      } catch {
-        summary = reactionStore.summarizeMessage(meta.targetId, meta.sequence).map((entry) => ({
-          emojiId: entry.emojiId,
-          emojiType: entry.emojiType,
-          count: entry.count,
-          lastReactionTime: entry.lastSetAt,
-        }));
+      const summary = reactionStore.summarizeMessage(meta.targetId, meta.sequence);
+      const out: Array<{
+        emoji_id: string;
+        emoji_type: number;
+        count: number;
+        last_reaction_time: number;
+        users: Array<{ user_id: number }>;
+      }> = [];
+      for (const entry of summary) {
+        let users = reactionStore.listUsers(meta.targetId, meta.sequence, entry.emojiId, 1000, 0)
+          .map((user) => ({ user_id: user.operatorUin }));
+        try {
+          const remote = await bridge.apis.interaction.getEmojiLikes(
+            meta.targetId, meta.sequence, entry.emojiId, entry.emojiType, 1000,
+          );
+          if (remote.users.length > 0) {
+            users = remote.users.map((user) => ({ user_id: user.uin }));
+          }
+        } catch {
+          /* keep cached users */
+        }
+        out.push({
+          emoji_id: entry.emojiId,
+          emoji_type: entry.emojiType,
+          count: Math.max(entry.count, users.length),
+          last_reaction_time: entry.lastSetAt,
+          users,
+        });
       }
-      return summary.map((entry) => ({
-        emoji_id: entry.emojiId,
-        emoji_type: entry.emojiType,
-        count: entry.count,
-        last_reaction_time: entry.lastReactionTime,
-        users: reactionStore.listUsers(meta.targetId, meta.sequence, entry.emojiId, 1000, 0)
-          .map((user) => ({ user_id: user.operatorUin })),
-      }));
+      return out;
     },
     fetchEmojiLikeUsers: async (messageId, emojiId, count, offset = 0) => {
       const meta = messageStore.findMeta(messageId);
@@ -160,15 +180,23 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
       if (!meta.isGroup) throw new Error('emoji reactions are not supported on private messages');
       if (!hasAuthoritativeSequence(meta)) throw new Error('message has no authoritative QQ sequence');
       const raw = reactionStore.listUsers(meta.targetId, meta.sequence, emojiId, count, offset);
-      const users = raw.map(r => ({ uin: r.operatorUin, uid: r.operatorUid, setAt: r.setAt }));
+      let users = raw.map(r => ({ uin: r.operatorUin, uid: r.operatorUid, setAt: r.setAt }));
       const cachedCount = reactionStore.countUsers(meta.targetId, meta.sequence, emojiId);
       let serverCount = cachedCount;
       try {
-        const summary = await bridge.apis.interaction.fetchReactionSummary(meta.targetId, meta.sequence);
-        const match = summary.find(s => s.emojiId === emojiId);
-        if (match) serverCount = match.count;
+        const remote = await bridge.apis.interaction.getEmojiLikes(
+          meta.targetId, meta.sequence, emojiId, emojiId.length > 3 ? 2 : 1, count,
+        );
+        if (remote.users.length > 0) {
+          serverCount = remote.users.length;
+          if (offset === 0) {
+            users = remote.users.slice(0, count).map((user) => ({
+              uin: user.uin, uid: '', setAt: 0,
+            }));
+          }
+        }
       } catch {
-        /* keep serverCount = cachedCount */
+        /* keep cached users / count */
       }
       return {
         users,

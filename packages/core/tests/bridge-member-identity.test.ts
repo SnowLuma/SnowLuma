@@ -47,6 +47,9 @@ function emptyProfile(uin: number, uid: string) {
     sign: '',
     avatar: '',
     level: 0,
+    qidianMasterFlag: 0,
+    qidianCrewFlag: 0,
+    qidianCrewFlag2: 0,
   };
 }
 

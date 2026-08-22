@@ -200,6 +200,7 @@ function makeRef(overrides: {
       },
       interaction: {
         setReaction: vi.fn(async () => undefined),
+        getEmojiLikes: vi.fn(async () => ({ users: [], cookie: '', isLast: true })),
         fetchReactionSummary: vi.fn(async () => []),
         setEssence: vi.fn(async () => undefined),
         ...overrides.apis?.interaction,
@@ -232,6 +233,9 @@ function makeRef(overrides: {
     reactionStore: {
       listUsers: vi.fn(() => []),
       countUsers: vi.fn(() => 0),
+      summarizeMessage: vi.fn(() => []),
+      recordAdd: vi.fn(),
+      recordRemove: vi.fn(),
       ...overrides.reactionStore,
     },
     tempSessions: new TempSessionStore(),
@@ -387,8 +391,10 @@ describe('buildApiContext setMsgEmojiLike', () => {
 
   it('sets the reaction on the group message', async () => {
     const setReaction = vi.fn(async () => undefined);
+    const recordAdd = vi.fn();
     const { api, metas, ref } = makeRef({
-      apis: { interaction: { setReaction, fetchReactionSummary: vi.fn(async () => []) } },
+      reactionStore: { recordAdd },
+      apis: { interaction: { setReaction } },
     });
     metas.set(-5, groupMeta({ targetId: 710201, sequence: 4242 }));
 
@@ -396,32 +402,37 @@ describe('buildApiContext setMsgEmojiLike', () => {
 
     expect(setReaction).toHaveBeenCalledWith(710201, 4242, '76', true);
     expect(ref.bridge.apis.interaction.setReaction).toHaveBeenCalledOnce();
+    expect(recordAdd).toHaveBeenCalledWith(710201, 4242, '76', 1, SELF_ID, '', expect.any(Number));
   });
 
   it('clears the reaction when set is false', async () => {
     const setReaction = vi.fn(async () => undefined);
+    const recordRemove = vi.fn();
     const { api, metas } = makeRef({
-      apis: { interaction: { setReaction, fetchReactionSummary: vi.fn(async () => []) } },
+      reactionStore: { recordRemove },
+      apis: { interaction: { setReaction } },
     });
     metas.set(-6, groupMeta({ targetId: 710202, sequence: 88 }));
 
     await api.setMsgEmojiLike(-6, '144', false);
 
     expect(setReaction).toHaveBeenCalledWith(710202, 88, '144', false);
+    expect(recordRemove).toHaveBeenCalledWith(710202, 88, '144', SELF_ID);
   });
 });
 
 describe('buildApiContext fetchEmojiLikeSummary', () => {
-  it('returns every emoji on the message with cached users', async () => {
+  it('returns every cached emoji on the message with cached users', async () => {
     const listUsers = vi.fn(() => [
       { operatorUin: 20002, operatorUid: 'u_20002', setAt: 1_700_000_001 },
     ]);
-    const fetchReactionSummary = vi.fn(async () => [
-      { emojiId: '76', emojiType: 1, count: 1, lastReactionTime: 1_700_000_001 },
+    const summarizeMessage = vi.fn(() => [
+      { emojiId: '76', emojiType: 1, count: 1, lastSetAt: 1_700_000_001 },
     ]);
+    const getEmojiLikes = vi.fn(async () => ({ users: [], cookie: '', isLast: true }));
     const { api, metas } = makeRef({
-      reactionStore: { listUsers, summarizeMessage: vi.fn(() => []) },
-      apis: { interaction: { setReaction: vi.fn(), fetchReactionSummary } },
+      reactionStore: { listUsers, summarizeMessage },
+      apis: { interaction: { getEmojiLikes } },
     });
     metas.set(-20, groupMeta({ targetId: 710301, sequence: 55 }));
 
@@ -434,7 +445,8 @@ describe('buildApiContext fetchEmojiLikeSummary', () => {
         users: [{ user_id: 20002 }],
       },
     ]);
-    expect(fetchReactionSummary).toHaveBeenCalledWith(710301, 55);
+    expect(summarizeMessage).toHaveBeenCalledWith(710301, 55);
+    expect(getEmojiLikes).toHaveBeenCalledWith(710301, 55, '76', 1, 1000);
     expect(listUsers).toHaveBeenCalledWith(710301, 55, '76', 1000, 0);
   });
 });
@@ -464,10 +476,8 @@ describe('buildApiContext fetchEmojiLikeUsers', () => {
       { operatorUin: 20002, operatorUid: 'u_20002', setAt: 1_700_000_001 },
     ]);
     const countUsers = vi.fn(() => 1);
-    const fetchReactionSummary = vi.fn(async () => [{ emojiId: '76', count: 1 }]);
     const { api, metas } = makeRef({
       reactionStore: { listUsers, countUsers },
-      apis: { interaction: { setReaction: vi.fn(), fetchReactionSummary } },
     });
     metas.set(-7, groupMeta({ targetId: 710301, sequence: 55 }));
 
@@ -494,7 +504,7 @@ describe('buildApiContext fetchEmojiLikeUsers', () => {
     expect(listUsers).toHaveBeenCalledWith(710302, 9, '144', 5, 3);
   });
 
-  it('uses the matching server summary count and reports incomplete when cache is short', async () => {
+  it('uses the native reactor list when the first page has users', async () => {
     const { api, metas } = makeRef({
       reactionStore: {
         listUsers: () => [{ operatorUin: 1, operatorUid: 'u_1', setAt: 10 }],
@@ -502,35 +512,29 @@ describe('buildApiContext fetchEmojiLikeUsers', () => {
       },
       apis: {
         interaction: {
-          setReaction: vi.fn(),
-          fetchReactionSummary: vi.fn(async () => [
-            { emojiId: '99', count: 4 },
-            { emojiId: '76', count: 8 },
-          ]),
+          getEmojiLikes: vi.fn(async () => ({
+            users: Array.from({ length: 8 }, (_, i) => ({ uin: 1000 + i })),
+            cookie: '',
+            isLast: true,
+          })),
         },
       },
     });
     metas.set(-9, groupMeta({ targetId: 710303, sequence: 12 }));
 
     await expect(api.fetchEmojiLikeUsers(-9, '76', 10)).resolves.toEqual({
-      users: [{ uin: 1, uid: 'u_1', setAt: 10 }],
+      users: Array.from({ length: 8 }, (_, i) => ({ uin: 1000 + i, uid: '', setAt: 0 })),
       cachedCount: 2,
       serverCount: 8,
       complete: false,
     });
   });
 
-  it('keeps the cached count when the summary has no matching emoji', async () => {
+  it('keeps the cached count when the native list is empty', async () => {
     const { api, metas } = makeRef({
       reactionStore: {
         listUsers: () => [],
         countUsers: () => 3,
-      },
-      apis: {
-        interaction: {
-          setReaction: vi.fn(),
-          fetchReactionSummary: vi.fn(async () => [{ emojiId: '99', count: 9 }]),
-        },
       },
     });
     metas.set(-10, groupMeta({ targetId: 710304, sequence: 13 }));
@@ -551,21 +555,31 @@ describe('buildApiContext fetchEmojiLikeUsers', () => {
       },
       apis: {
         interaction: {
-          fetchReactionSummary: vi.fn(async () => [{ emojiId: '76', count: 5 }]),
+          getEmojiLikes: vi.fn(async () => ({
+            users: [{ uin: 1 }, { uin: 2 }, { uin: 3 }, { uin: 4 }, { uin: 5 }],
+            cookie: '',
+            isLast: true,
+          })),
         },
       },
     });
     metas.set(-12, groupMeta({ targetId: 710306, sequence: 15 }));
 
     await expect(api.fetchEmojiLikeUsers(-12, '76', 10)).resolves.toEqual({
-      users: [],
+      users: [
+        { uin: 1, uid: '', setAt: 0 },
+        { uin: 2, uid: '', setAt: 0 },
+        { uin: 3, uid: '', setAt: 0 },
+        { uin: 4, uid: '', setAt: 0 },
+        { uin: 5, uid: '', setAt: 0 },
+      ],
       cachedCount: 6,
       serverCount: 5,
       complete: true,
     });
   });
 
-  it('keeps the cached count when the summary fetch fails', async () => {
+  it('keeps the cached count when the native list fetch fails', async () => {
     const { api, metas } = makeRef({
       reactionStore: {
         listUsers: () => [],
@@ -573,9 +587,8 @@ describe('buildApiContext fetchEmojiLikeUsers', () => {
       },
       apis: {
         interaction: {
-          setReaction: vi.fn(),
-          fetchReactionSummary: vi.fn(async () => {
-            throw new Error('summary down');
+          getEmojiLikes: vi.fn(async () => {
+            throw new Error('list down');
           }),
         },
       },
@@ -804,6 +817,9 @@ describe('buildApiContext contact reads', () => {
       batteryStatus: 0,
       customStatus: null,
       customStatusDescInfo: '',
+      qidian_master_flag: 0,
+      qidian_crew_flag: 0,
+      qidian_crew_flag_2: 0,
     });
   });
 

@@ -104,7 +104,8 @@ function makeProfile(
   remark = '',
 ): UserProfileInfo {
   return {
-    uin, uid: `u_${uin}`, nickname, remark, qid: '', sex, age, sign, avatar: '',
+    uin, uid: `u_${uin}`, nickname, remark, qid: '', sex, age, sign, avatar: '', level: 0,
+    qidianMasterFlag: 0, qidianCrewFlag: 0, qidianCrewFlag2: 0,
   };
 }
 
@@ -544,6 +545,24 @@ describe('onebot/contact-actions / getStrangerInfo', () => {
       age: 25,
       remark: 'Teammate',
       long_nick: 'Stay curious',
+    });
+  });
+
+  it('passes through the qidian (企点) flags from the profile', async () => {
+    const bridge = fakeBridge({
+      fetchUserProfile: vi.fn(async () => ({
+        ...makeProfile(55555, 'QidianWorker', 'male'),
+        qidianMasterFlag: 0,
+        qidianCrewFlag: 1,
+        qidianCrewFlag2: 0,
+      })),
+    });
+    const out = await getStrangerInfo(bridge, 55555);
+    expect(out).toMatchObject({
+      user_id: 55555,
+      qidian_master_flag: 0,
+      qidian_crew_flag: 1,
+      qidian_crew_flag_2: 0,
     });
   });
 

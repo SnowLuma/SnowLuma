@@ -14,6 +14,8 @@ const moduleLogger = createLogger('Identity');
 
 const PERSISTENCE_QUEUE_CAPACITY = 256;
 const PERSISTENCE_RETRY_DELAYS_MS = [100, 500, 2_000, 10_000, 30_000] as const;
+/** After persistence is suspended, do not warn on every skipped write. */
+const SKIPPED_WRITE_LOG_INTERVAL_MS = 60_000;
 
 export type IdentityPersistenceState = 'memory-only' | 'healthy' | 'degraded' | 'closed';
 
@@ -159,6 +161,8 @@ export class IdentityService {
   private lastFailureAt_: number | null = null;
   private abandonedWrites_ = 0;
   private skippedWrites_ = 0;
+  private skippedWritesSinceLog_ = 0;
+  private lastSkippedWriteLogAt_ = 0;
   private persistenceSuspended_ = false;
   private closed_ = false;
 
@@ -1242,6 +1246,8 @@ export class IdentityService {
     const attempts = this.retryAttempt_;
     this.retryAttempt_ = 0;
     this.nextRetryAt_ = null;
+    this.skippedWritesSinceLog_ = 0;
+    this.lastSkippedWriteLogAt_ = 0;
     this.log.info(
       'identity persistence recovered: uin=%s flushed=%d pending=0 retries=%d',
       this.uin_, pendingAtStart, attempts,
@@ -1268,9 +1274,27 @@ export class IdentityService {
   private recordSkippedWrite(label: string): void {
     this.skippedWrites_ += 1;
     this.abandonedWrites_ += 1;
+    const now = Date.now();
+    if (
+      this.lastSkippedWriteLogAt_ !== 0
+      && now - this.lastSkippedWriteLogAt_ < SKIPPED_WRITE_LOG_INTERVAL_MS
+    ) {
+      this.skippedWritesSinceLog_ += 1;
+      return;
+    }
+    const suppressed = this.skippedWritesSinceLog_;
+    this.skippedWritesSinceLog_ = 0;
+    this.lastSkippedWriteLogAt_ = now;
+    if (suppressed > 0) {
+      this.log.warn(
+        'identity persistence write skipped: uin=%s label=%s skipped=%d abandoned=%d suppressed=%d',
+        this.uin_, label, this.skippedWrites_, this.abandonedWrites_, suppressed,
+      );
+      return;
+    }
     this.log.warn(
-      'identity persistence write skipped: uin=%s label=%s pending=0 retry=%d skipped=%d abandoned=%d',
-      this.uin_, label, this.retryAttempt_, this.skippedWrites_, this.abandonedWrites_,
+      'identity persistence write skipped: uin=%s label=%s skipped=%d abandoned=%d',
+      this.uin_, label, this.skippedWrites_, this.abandonedWrites_,
     );
   }
 }

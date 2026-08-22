@@ -51,20 +51,21 @@ describe('apis/interaction', () => {
     expect(cmds).toEqual(['OidbSvcTrpcTcp.0xeac_1', 'OidbSvcTrpcTcp.0xeac_2']);
   });
 
-  it('getEmojiLikes decodes user list, base64-encodes cookie, and reports isLast', async () => {
+  it('getEmojiLikes decodes user list, returns the cookie, and reports isLast', async () => {
     const bridge = mockBridge();
     bridge.sendRawPacket.mockResolvedValueOnce({
       success: true, gotResponse: true, errorCode: 0, errorMessage: '',
       responseData: Buffer.from(protobuf_encode<OidbBase<Oidb0x9083Resp>>({
         body: {
-          inner: { userInfo: [{ uin: 10001n }, { uin: 20002n }] },
-          cookie: new Uint8Array([0xCA, 0xFE]),
-        } as any,
+          users: [{ uin: 10001n }, { uin: 20002n }],
+          cookie: 'next-page',
+          isLast: false,
+        },
       })),
     });
     const out = await new InteractionApi(bridge as any).getEmojiLikes(12345, 99, '128516');
     expect(out.users).toEqual([{ uin: 10001 }, { uin: 20002 }]);
-    expect(out.cookie).toBe(Buffer.from([0xCA, 0xFE]).toString('base64'));
+    expect(out.cookie).toBe('next-page');
     expect(out.isLast).toBe(false);
   });
 

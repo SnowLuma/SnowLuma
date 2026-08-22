@@ -837,7 +837,7 @@ describe('set_group_member_permissions describe', () => {
     const doc = setGroupMemberPermissions.describe();
 
     expect(doc.name).toBe('set_group_member_permissions');
-    expect(doc.summary).toBe('设置群成员权限');
+    expect(doc.summary).toBe('设置群成员权限（仅群主可改）');
     expect(doc.invariants).toEqual([
       'at least one of: allow_member_upload_album, allow_member_temporary_session, allow_member_create_group',
     ]);

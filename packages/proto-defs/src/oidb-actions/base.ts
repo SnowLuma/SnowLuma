@@ -104,13 +104,16 @@ export interface OidbKickMember {
   rejectAddRequest?: pb<4, bool>;
   reason?:           pb<5, string>;
 }
-// 0x8A0_1 response body. Cross-checked against Lagrange.Core's
-// OidbSvcTrpcTcp0x8A0_1Response and the current QQ kick result contract:
-// transport/envelope success does not imply the member was removed; a
-// command-level refusal is returned in errorMsg.
+// 0x8A0_1 response body. Envelope errorCode=0 is not enough: each target
+// is listed in `results`. result=0 (or omitted) means that member was
+// removed; any other value is a refusal for that member.
+export interface OidbKickMemberResult {
+  result?: pb<1, uint_32>;
+  uid?:    pb<2, string>;
+}
 export interface OidbKickMemberResponse {
   groupUin?: pb<1, uint_32>;
-  errorMsg?: pb<2, string>;
+  results?:  pb_repeated<2, OidbKickMemberResult>;
 }
 export interface OidbLeaveGroup {
   groupUin?: pb<1, uint_32>;
@@ -905,46 +908,33 @@ export interface FaceroamOpResp {
   field3?:  pb<3, uint_32>;
   item?:    pb<4, FaceroamOpRespItem>;
 }
-// 0x9083_1: fetch emoji-like user list. Field numbers must mirror the
-// sibling 0x9082 reaction Req (OidbGroupReaction): field 4 = emoji_id
-// (string), field 5 = emoji_type (uint). The pre-fix definition had
-// these two swapped, which silently dropped both fields on the server
-// side (wire type mismatch → protobuf decoder discards) and made every
-// call return an empty list with no error. Cross-checked against
-// Lagrange.Core V2 `Internal/Packets/Service/SetGroupReaction.cs`.
+// 0x9083_1: fetch emoji-like user list for one emoji on a group message.
+// Request/response tags follow Windows QQ EncodeGetMsgEmojiLikesListReq /
+// DecodeGetMsgEmojiLikesListRsp. This is not the 0x9082 set-reaction body.
 export interface Oidb0x9083Req {
   groupId?:   pb<2, uint_64>;
-  // ulong on LagrangeV2's `SetGroupReactionRequest`. wire-compatible
-  // with uint_32 for small seq values (which is what message sequences
-  // actually are today), but match the spec to be safe — costs nothing.
   sequence?:  pb<3, uint_64>;
-  emojiId?:   pb<4, string>;
-  emojiType?: pb<5, uint_32>;
-  cookie?:    pb<6, bytes>;
+  emojiType?: pb<4, uint_32>;
+  emojiId?:   pb<5, string>;
+  cookie?:    pb<6, string>;
   field7?:    pb<7, uint_32>;
   count?:     pb<8, uint_32>;
-  field12?:   pb<12, uint_32>;
 }
-export interface Oidb0x9083RespUserInfo {
-  uin?:    pb<1, uint_64>;
-  field3?: pb<3, uint_32>;
-}
-export interface Oidb0x9083RespInner {
-  // The server returns one entry per liker — must be repeated. A single
-  // field collapses N wire entries into "last writer wins", so groups
-  // with multiple likers used to come back as a single user (or empty
-  // if the wire layout shifted).
-  userInfo?: pb_repeated<1, Oidb0x9083RespUserInfo>;
-  field4?:   pb<4, uint_32>;
+export interface Oidb0x9083RespUser {
+  uin?:     pb<1, uint_64>;
+  nick?:    pb<2, string>;
+  headUrl?: pb<3, string>;
 }
 export interface Oidb0x9083Resp {
-  inner?:  pb<4, Oidb0x9083RespInner>;
-  cookie?: pb<5, bytes>;
+  users?:   pb_repeated<1, Oidb0x9083RespUser>;
+  cookie?:  pb<2, string>;
+  isLast?:  pb<3, bool>;
+  isFirst?: pb<4, bool>;
 }
 
-// 0x9084_1: fetch reaction summary on a message. Returns one entry per
-// emoji used + an "available reactions" catalog tail. Schema decoded
-// from production wire dump:
+// 0x9084_1: recent-used emoji catalog (GetRecentUseEmojiListForC2CAndGroup).
+// Not the per-message reaction list (that is 0x9083_1). Schema from a
+// production dump of the catalog body:
 //   { 08 0A          ← top-level field 1 (uint, meaning unclear: maybe
 //                       "total reactions on msg" or a flag — empirically
 //                       constant across messages)

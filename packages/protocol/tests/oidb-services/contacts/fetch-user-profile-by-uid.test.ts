@@ -46,6 +46,41 @@ describe('FetchUserProfileByUid namespace (UID form)', () => {
     const keys = env.body?.keys?.map(k => k.key);
     expect(keys).toContain(20002); // nickname — the whole point
     expect(keys).toContain(105);   // QQ level
+    expect(keys).toContain(40410);
+    expect(keys).toContain(42031);
+  });
+
+  it('decodes qidian flags from number-properties (0 when absent)', async () => {
+    const qidian = makeSender({
+      body: {
+        uin: 3004251964, uid: 'u',
+        properties: {
+          bytesProperties: [],
+          numberProperties: [
+            { number1: 40410, number2: 1 },
+            { number1: 42031, number2: 1 },
+          ],
+        },
+      } as any,
+    });
+    const out = await FetchUserProfileByUid.invoke(qidian, { uid: 'u' });
+    expect(out.qidianMasterFlag).toBe(1);
+    expect(out.qidianCrewFlag).toBe(1);
+    expect(out.qidianCrewFlag2).toBe(0);
+
+    const normal = makeSender({
+      body: {
+        uin: 10001, uid: 'u',
+        properties: {
+          bytesProperties: [],
+          numberProperties: [{ number1: 20009, number2: 1 }],
+        },
+      } as any,
+    });
+    const out2 = await FetchUserProfileByUid.invoke(normal, { uid: 'u' });
+    expect(out2.qidianMasterFlag).toBe(0);
+    expect(out2.qidianCrewFlag).toBe(0);
+    expect(out2.qidianCrewFlag2).toBe(0);
   });
 
   it('decodes nickname + uin from the response so the pipeline can fill them into the event', async () => {

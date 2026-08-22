@@ -17,7 +17,10 @@ import type { GroupMemberInfo, QQGroupInfo, UserProfileInfo } from '@snowluma/pr
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 
 function makeProfile(uin: number, uid = '', nickname = ''): UserProfileInfo {
-  return { uin, uid, nickname, remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0 };
+  return {
+    uin, uid, nickname, remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0,
+    qidianMasterFlag: 0, qidianCrewFlag: 0, qidianCrewFlag2: 0,
+  };
 }
 
 function makePipeline(opts: {

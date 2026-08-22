@@ -2,7 +2,7 @@
   "license": "SEE LICENSE IN LICENSE",
   "name": "webui",
   "private": true,
-  "version": "1.14.12",
+  "version": "1.14.13",
   "type": "module",
   "scripts": {
     "dev": "vite",

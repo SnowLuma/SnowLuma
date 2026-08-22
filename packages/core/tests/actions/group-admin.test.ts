@@ -14,6 +14,7 @@ import type {
   OidbGroupDetailRequest,
   OidbGroupRequestAction,
   OidbKickMember,
+  OidbKickMemberResponse,
   OidbLeaveGroup,
   OidbMuteAll,
   OidbMuteMember,
@@ -26,7 +27,7 @@ import type {
 // Post-namespace migration: GroupAdminApi forwards through namespaces
 // under @snowluma/protocol/oidb-services/group-admin. Tests assert
 // against bridge.sendRawPacket directly — no module-level mocks.
-import { GroupAdminApi } from '../../src/bridge/apis/group-admin';
+import { GroupAdminApi, MEMBER_PERMISSIONS_OWNER_ONLY } from '../../src/bridge/apis/group-admin';
 import { mockBridge } from './_helpers';
 
 function packResponse(body: Uint8Array) {
@@ -36,15 +37,25 @@ function packResponse(body: Uint8Array) {
   };
 }
 
-function packPrivilegeFlag(privilegeFlag?: number) {
+function packPrivilegeFlag(privilegeFlag?: number, ownerUid?: string) {
   return packResponse(protobuf_encode<OidbBase<OidbSvcTrpcTcp0x88D_0Response>>({
     body: {
       groupInfo: {
         uin: 12345n,
-        results: privilegeFlag === undefined ? {} : { privilegeFlag },
+        results: {
+          ...(privilegeFlag === undefined ? {} : { privilegeFlag }),
+          ...(ownerUid === undefined ? {} : { ownerUid }),
+        },
       },
     },
   }));
+}
+
+function packOidbFail(code: number) {
+  return {
+    success: false, gotResponse: true, errorCode: code, errorMessage: '',
+    responseData: Buffer.alloc(0),
+  };
 }
 
 function packGroupFlagExt4(groupFlagExt4?: number) {
@@ -125,18 +136,30 @@ describe('apis/group-admin', () => {
     });
   });
 
-  it('kickMember rejects a server business error instead of reporting success (#298)', async () => {
+  it('kickMember treats a zero per-member result as success (#413)', async () => {
     const bridge = mockBridge();
     bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
-      Buffer.from(
-        '222008b960121be7bea4e4b8bbe697a0e6b395e8a2abe7a7bbe587bae7bea4e8818a',
-        'hex',
-      ),
+      protobuf_encode<OidbBase<OidbKickMemberResponse>>({
+        body: { groupUin: 12345, results: [{ result: 0, uid: 'u_abcdefghijklmnopqrstuv' }] },
+      }),
     ));
 
     await expect(
       new GroupAdminApi(bridge as any).kickMember(12345, 67890, false),
-    ).rejects.toThrow('群主无法被移出群聊');
+    ).resolves.toBeUndefined();
+  });
+
+  it('kickMember rejects a server business error instead of reporting success (#298)', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
+      protobuf_encode<OidbBase<OidbKickMemberResponse>>({
+        body: { groupUin: 12345, results: [{ result: 1, uid: 'u_abcdefghijklmnopqrstuv' }] },
+      }),
+    ));
+
+    await expect(
+      new GroupAdminApi(bridge as any).kickMember(12345, 67890, false),
+    ).rejects.toThrow('kick member failed: result=1');
   });
 
   it('kickMembers resolves each UID in parallel', async () => {
@@ -155,15 +178,14 @@ describe('apis/group-admin', () => {
   it('kickMembers rejects the same command-level business error', async () => {
     const bridge = mockBridge();
     bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
-      Buffer.from(
-        '222008b960121be7bea4e4b8bbe697a0e6b395e8a2abe7a7bbe587bae7bea4e8818a',
-        'hex',
-      ),
+      protobuf_encode<OidbBase<OidbKickMemberResponse>>({
+        body: { groupUin: 12345, results: [{ result: 1, uid: 'u_abcdefghijklmnopqrstuv' }] },
+      }),
     ));
 
     await expect(
       new GroupAdminApi(bridge as any).kickMembers(12345, [67890], false),
-    ).rejects.toThrow('群主无法被移出群聊');
+    ).rejects.toThrow('kick members failed: result=1');
   });
 
   it('leave sends 0x1097_1, emits a self group_member_leave, and forgets the group (#133)', async () => {
@@ -501,6 +523,53 @@ describe('apis/group-admin', () => {
       }),
     ).rejects.toThrow(/unable to read group member permissions before update/);
     expect(bridge.sendRawPacket).toHaveBeenCalledOnce();
+  });
+
+  it('setMemberPermissions rejects a non-owner before writing (#411)', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packPrivilegeFlag(0x80000001, 'u_owner'));
+
+    await expect(
+      new GroupAdminApi(bridge as any).setMemberPermissions(12345, {
+        allowMemberUploadAlbum: true,
+      }),
+    ).rejects.toThrow(MEMBER_PERMISSIONS_OWNER_ONLY);
+    expect(bridge.sendRawPacket).toHaveBeenCalledOnce();
+    expect(bridge.sendRawPacket.mock.calls[0]![0]).toBe('OidbSvcTrpcTcp.0x88d_0');
+  });
+
+  it('setMemberPermissions maps a not-owner server refusal to a readable error (#411)', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(packPrivilegeFlag(0x80000001))
+      .mockResolvedValueOnce(packOidbFail(1287));
+
+    await expect(
+      new GroupAdminApi(bridge as any).setMemberPermissions(12345, {
+        allowMemberUploadAlbum: true,
+      }),
+    ).rejects.toThrow(MEMBER_PERMISSIONS_OWNER_ONLY);
+    expect(bridge.sendRawPacket.mock.calls.map((call) => call[0])).toEqual([
+      'OidbSvcTrpcTcp.0x88d_0',
+      'OidbSvcTrpcTcp.0x89a_0',
+    ]);
+  });
+
+  it('setMemberPermissions writes when the bot is the group owner', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(packPrivilegeFlag(0x80000001, 'self-uid'))
+      .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
+      .mockResolvedValueOnce(packPrivilegeFlag(0, 'self-uid'));
+
+    await new GroupAdminApi(bridge as any).setMemberPermissions(12345, {
+      allowMemberUploadAlbum: true,
+    });
+    expect(bridge.sendRawPacket.mock.calls.map((call) => call[0])).toEqual([
+      'OidbSvcTrpcTcp.0x88d_0',
+      'OidbSvcTrpcTcp.0x89a_0',
+      'OidbSvcTrpcTcp.0x88d_0',
+    ]);
   });
 
   it('setMemberPermissions rejects an ack when final read-back does not match', async () => {

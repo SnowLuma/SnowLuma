@@ -1,15 +1,6 @@
-// 0x9083_1 — historic "fetch reactor user list" cmd. CONFIRMED to be
-// a real server endpoint (errorCode=0, trace string echoes the cmd
-// name), but its reply is always a 4-byte minimal ack `18 01 20 01`
-// regardless of the message / emoji / whether the bot just set a
-// reaction. The actual "who reacted" data is NOT served via SSO at
-// all — NTQQ's own client uses a wrapper-internal cache. SnowLuma
-// mirrors that with `ReactionStore` (fed from GroupMsgEmojiLikeEvent
-// push) on the OneBot side.
-//
-// This namespace exists as a legacy stub so older callers don't crash
-// — `invoke` always returns an empty user list. Newer code should
-// query `ReactionStore` instead.
+// 0x9083_1 — fetch the reactor user list for one emoji on a group message.
+// Encode/decode follow Windows QQ GetMsgEmojiLikesList. 0x9084_1 is a
+// different command (recent-used emoji catalog) and must not be used here.
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
@@ -28,13 +19,13 @@ export namespace GetEmojiLikes {
     emojiId: string;
     emojiType?: number;
     count?: number;
-    /** Base64-encoded continuation cookie from a previous page. */
+    /** Continuation cookie from a previous page. */
     cookie?: string;
   }
 
   export interface Result {
     users: Array<{ uin: number }>;
-    /** Base64 cookie for next page (empty when on last page). */
+    /** Cookie for next page (empty when on last page). */
     cookie: string;
     isLast: boolean;
   }
@@ -44,20 +35,18 @@ export namespace GetEmojiLikes {
   export const serialize = (_ctx: Deps, p: Params): Oidb0x9083Req => ({
     groupId: BigInt(p.groupId),
     sequence: BigInt(p.sequence),
-    emojiId: p.emojiId,
     emojiType: p.emojiType ?? 1,
-    cookie: p.cookie ? Buffer.from(p.cookie, 'base64') : new Uint8Array(0),
-    field7: 0,
+    emojiId: p.emojiId,
+    cookie: p.cookie ?? '',
     count: p.count ?? 10,
-    field12: 1,
   });
 
   export const deserialize = (_ctx: Deps, body: Oidb0x9083Resp): Result => {
-    const users: Array<{ uin: number }> = (body.inner?.userInfo ?? [])
+    const users: Array<{ uin: number }> = (body.users ?? [])
       .map(u => ({ uin: Number(u?.uin ?? 0) }))
       .filter(u => u.uin > 0);
-    const cookie = body.cookie ? Buffer.from(body.cookie).toString('base64') : '';
-    return { users, cookie, isLast: !cookie };
+    const cookie = body.cookie ?? '';
+    return { users, cookie, isLast: body.isLast ?? !cookie };
   };
 
   export const encode = (env: OidbBase<Oidb0x9083Req>): Uint8Array =>

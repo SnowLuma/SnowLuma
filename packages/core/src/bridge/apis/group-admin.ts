@@ -33,7 +33,12 @@ import {
 import { SetSearch } from '@snowluma/protocol/oidb-services/group-admin/set-search';
 import { SetSpecialTitle } from '@snowluma/protocol/oidb-services/group-admin/set-special-title';
 import { ModifyGroupExtInfo } from '@snowluma/protocol/oidb-services/group-admin/modify-group-ext-info';
+import { OidbError } from '@snowluma/protocol/oidb-service';
 import type { BridgeContext } from '../bridge-context';
+
+/** QQ only accepts this write from the group owner (#411). */
+export const MEMBER_PERMISSIONS_OWNER_ONLY =
+  'only the group owner can change group member permissions';
 
 export type GroupAdminSettings = {
   add_type: number;
@@ -138,12 +143,23 @@ export class GroupAdminApi {
   }
 
   private async fetchGroupPrivilegeFlag(groupId: number, setting: string, phase: string): Promise<number> {
+    return (await this.fetchGroupPrivilegeState(groupId, setting, phase)).privilegeFlag;
+  }
+
+  private async fetchGroupPrivilegeState(
+    groupId: number,
+    setting: string,
+    phase: string,
+  ): Promise<{ privilegeFlag: number; ownerUid?: string }> {
     const detail = await FetchGroupDetail.invoke(this.ctx, { groupUin: groupId });
     const results = detail.groupInfo?.results;
     if (!results) {
       throw new Error(`unable to read ${setting} ${phase} for group ${groupId}`);
     }
-    return results.privilegeFlag ?? 0;
+    return {
+      privilegeFlag: results.privilegeFlag ?? 0,
+      ownerUid: results.ownerUid,
+    };
   }
 
   async setMemberPermissions(groupId: number, permissions: GroupMemberPermissions): Promise<void> {
@@ -156,21 +172,34 @@ export class GroupAdminApi {
       throw new Error('at least one member permission must be specified');
     }
 
-    let expectedPrivilegeFlag = await this.fetchGroupPrivilegeFlag(
+    const before = await this.fetchGroupPrivilegeState(
       groupId,
       'group member permissions',
       'before update',
     );
+    const selfUid = this.ctx.identity.selfUid;
+    if (selfUid && before.ownerUid && selfUid !== before.ownerUid) {
+      throw new Error(MEMBER_PERMISSIONS_OWNER_ONLY);
+    }
+
+    let expectedPrivilegeFlag = before.privilegeFlag;
     let combinedMask = 0n;
 
     for (const [permission, allow] of updates) {
       if (allow === undefined) continue;
-      await SetMemberPermission.invoke(this.ctx, {
-        groupId,
-        currentPrivilegeFlag: expectedPrivilegeFlag,
-        permission,
-        allow,
-      });
+      try {
+        await SetMemberPermission.invoke(this.ctx, {
+          groupId,
+          currentPrivilegeFlag: expectedPrivilegeFlag,
+          permission,
+          allow,
+        });
+      } catch (error) {
+        if (error instanceof OidbError && error.code === 1287) {
+          throw new Error(MEMBER_PERMISSIONS_OWNER_ONLY);
+        }
+        throw error;
+      }
       expectedPrivilegeFlag = mergeGroupMemberPermission(expectedPrivilegeFlag, permission, allow);
       combinedMask |= BigInt(GROUP_MEMBER_PERMISSION_MASKS[permission]);
     }

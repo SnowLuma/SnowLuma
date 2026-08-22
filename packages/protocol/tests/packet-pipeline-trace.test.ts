@@ -76,7 +76,11 @@ function msgPushContext(
 function makePipeline(opts: {
   fetchGroupList?: () => Promise<void>;
   fetchGroupMemberList?: (groupId: number) => Promise<void>;
-  fetchProfileByUid?: () => Promise<{ uin: number; uid: string; nickname: string; remark: string; qid: string; sex: string; age: number; sign: string; avatar: string; level: number }>;
+  fetchProfileByUid?: () => Promise<{
+    uin: number; uid: string; nickname: string; remark: string; qid: string;
+    sex: string; age: number; sign: string; avatar: string; level: number;
+    qidianMasterFlag: number; qidianCrewFlag: number; qidianCrewFlag2: number;
+  }>;
 } = {}) {
   const identity = IdentityService.memory('10001');
   if (opts.fetchProfileByUid) {
@@ -84,6 +88,7 @@ function makePipeline(opts: {
       fetchProfile: async () => ({
         uin: 0, uid: '', nickname: '', remark: '', qid: '', sex: 'unknown',
         age: 0, sign: '', avatar: '', level: 0,
+        qidianMasterFlag: 0, qidianCrewFlag: 0, qidianCrewFlag2: 0,
       }),
       fetchProfileByUid: opts.fetchProfileByUid,
     });
@@ -327,6 +332,9 @@ describe('IncomingPacketPipeline TRACE lifecycle', () => {
             sign: '',
             avatar: '',
             level: 0,
+            qidianMasterFlag: 0,
+            qidianCrewFlag: 0,
+            qidianCrewFlag2: 0,
           };
         },
       });

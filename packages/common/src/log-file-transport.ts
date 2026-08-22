@@ -506,7 +506,13 @@ class FileWriter {
     }
 
     if (!this.quota.reserve(this.file.path, bytes)) return false;
-    this.file.stream.write(data);
+    try {
+      this.file.stream.write(data);
+    } catch (error) {
+      this.disabled = true;
+      this.quota.writeFailed(this.file.path, error);
+      return false;
+    }
     this.file.bytes += bytes;
     return true;
   }

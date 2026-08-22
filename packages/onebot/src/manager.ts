@@ -525,6 +525,7 @@ async function warmUpBridgeState(
           uin: f.uin, uid: f.uid,
           nickname: f.nickname || uin,
           remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0,
+          qidianMasterFlag: 0, qidianCrewFlag: 0, qidianCrewFlag2: 0,
         });
         bridge.identity.nickname = f.nickname || uin;
         log.debug('self info: UIN=%s uid=%s nickname=%s', uin, f.uid, f.nickname ?? '');
