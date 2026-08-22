@@ -32,7 +32,7 @@ export const actions = [
     name: 'get_stranger_info',
     summary: '获取陌生人信息',
     readOnly: true,
-    returns: '用户资料：QQ 号、昵称、好友备注、性别、年龄与个性签名，命中资料时另含等级。',
+    returns: '用户资料：QQ 号、昵称、好友备注、性别、年龄与个性签名，命中资料时另含等级与企点标志。',
     returnsSchema: {
       type: 'object',
       properties: {
@@ -50,6 +50,9 @@ export const actions = [
         batteryStatus: { type: 'integer', description: '电量状态' },
         customStatus: { type: 'object', description: '自定义状态', nullable: true },
         customStatusDescInfo: { type: 'string', description: '自定义状态说明' },
+        qidian_master_flag: { type: 'integer', description: '企点主号标志，0 或 1；普通账号为 0' },
+        qidian_crew_flag: { type: 'integer', description: '企点员工标志，0 或 1；普通账号为 0' },
+        qidian_crew_flag_2: { type: 'integer', description: '企点保留标志，0 或 1；普通账号为 0' },
       },
       required: ['user_id', 'nickname', 'remark', 'sex', 'age', 'long_nick'],
     },

@@ -817,6 +817,9 @@ describe('buildApiContext contact reads', () => {
       batteryStatus: 0,
       customStatus: null,
       customStatusDescInfo: '',
+      qidian_master_flag: 0,
+      qidian_crew_flag: 0,
+      qidian_crew_flag_2: 0,
     });
   });
 

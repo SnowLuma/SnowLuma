@@ -31,6 +31,9 @@ describe('get_stranger_info action', () => {
       properties: {
         remark: { type: 'string', description: '好友备注；非好友或未设置时为空字符串' },
         long_nick: { type: 'string', description: '个性签名' },
+        qidian_master_flag: { type: 'integer' },
+        qidian_crew_flag: { type: 'integer' },
+        qidian_crew_flag_2: { type: 'integer' },
       },
     });
     expect(schema?.required).toContain('remark');
