@@ -10563,7 +10563,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "set_group_member_permissions",
     "aliases": [],
-    "summary": "设置群成员权限",
+    "summary": "设置群成员权限（仅群主可改）",
     "readOnly": false,
     "params": [
       {

@@ -100,7 +100,7 @@ export const actions = [
 
   groupAction({
     name: 'set_group_member_permissions',
-    summary: '设置群成员权限',
+    summary: '设置群成员权限（仅群主可改）',
     params: {
       allow_member_upload_album: f.bool().optional(),
       allow_member_temporary_session: f.bool().optional(),

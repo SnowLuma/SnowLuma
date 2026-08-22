@@ -27,7 +27,7 @@ import type {
 // Post-namespace migration: GroupAdminApi forwards through namespaces
 // under @snowluma/protocol/oidb-services/group-admin. Tests assert
 // against bridge.sendRawPacket directly — no module-level mocks.
-import { GroupAdminApi } from '../../src/bridge/apis/group-admin';
+import { GroupAdminApi, MEMBER_PERMISSIONS_OWNER_ONLY } from '../../src/bridge/apis/group-admin';
 import { mockBridge } from './_helpers';
 
 function packResponse(body: Uint8Array) {
@@ -37,15 +37,25 @@ function packResponse(body: Uint8Array) {
   };
 }
 
-function packPrivilegeFlag(privilegeFlag?: number) {
+function packPrivilegeFlag(privilegeFlag?: number, ownerUid?: string) {
   return packResponse(protobuf_encode<OidbBase<OidbSvcTrpcTcp0x88D_0Response>>({
     body: {
       groupInfo: {
         uin: 12345n,
-        results: privilegeFlag === undefined ? {} : { privilegeFlag },
+        results: {
+          ...(privilegeFlag === undefined ? {} : { privilegeFlag }),
+          ...(ownerUid === undefined ? {} : { ownerUid }),
+        },
       },
     },
   }));
+}
+
+function packOidbFail(code: number) {
+  return {
+    success: false, gotResponse: true, errorCode: code, errorMessage: '',
+    responseData: Buffer.alloc(0),
+  };
 }
 
 function packGroupFlagExt4(groupFlagExt4?: number) {
@@ -513,6 +523,53 @@ describe('apis/group-admin', () => {
       }),
     ).rejects.toThrow(/unable to read group member permissions before update/);
     expect(bridge.sendRawPacket).toHaveBeenCalledOnce();
+  });
+
+  it('setMemberPermissions rejects a non-owner before writing (#411)', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packPrivilegeFlag(0x80000001, 'u_owner'));
+
+    await expect(
+      new GroupAdminApi(bridge as any).setMemberPermissions(12345, {
+        allowMemberUploadAlbum: true,
+      }),
+    ).rejects.toThrow(MEMBER_PERMISSIONS_OWNER_ONLY);
+    expect(bridge.sendRawPacket).toHaveBeenCalledOnce();
+    expect(bridge.sendRawPacket.mock.calls[0]![0]).toBe('OidbSvcTrpcTcp.0x88d_0');
+  });
+
+  it('setMemberPermissions maps a not-owner server refusal to a readable error (#411)', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(packPrivilegeFlag(0x80000001))
+      .mockResolvedValueOnce(packOidbFail(1287));
+
+    await expect(
+      new GroupAdminApi(bridge as any).setMemberPermissions(12345, {
+        allowMemberUploadAlbum: true,
+      }),
+    ).rejects.toThrow(MEMBER_PERMISSIONS_OWNER_ONLY);
+    expect(bridge.sendRawPacket.mock.calls.map((call) => call[0])).toEqual([
+      'OidbSvcTrpcTcp.0x88d_0',
+      'OidbSvcTrpcTcp.0x89a_0',
+    ]);
+  });
+
+  it('setMemberPermissions writes when the bot is the group owner', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket
+      .mockResolvedValueOnce(packPrivilegeFlag(0x80000001, 'self-uid'))
+      .mockResolvedValueOnce(packResponse(Buffer.alloc(0)))
+      .mockResolvedValueOnce(packPrivilegeFlag(0, 'self-uid'));
+
+    await new GroupAdminApi(bridge as any).setMemberPermissions(12345, {
+      allowMemberUploadAlbum: true,
+    });
+    expect(bridge.sendRawPacket.mock.calls.map((call) => call[0])).toEqual([
+      'OidbSvcTrpcTcp.0x88d_0',
+      'OidbSvcTrpcTcp.0x89a_0',
+      'OidbSvcTrpcTcp.0x88d_0',
+    ]);
   });
 
   it('setMemberPermissions rejects an ack when final read-back does not match', async () => {
