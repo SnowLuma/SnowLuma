@@ -6,6 +6,13 @@ import {
 import { renderParamsVerbose } from '@snowluma/common/log-summary';
 import type { PacketSender } from '@snowluma/common/packet-sender';
 import type { PacketInfo, PacketSink } from '@snowluma/common/protocol-types';
+import {
+  defaultHookUinFilter,
+  type HookUinFilter,
+  isHookUinFilterActive,
+  isUinAllowedByFilter,
+} from '@snowluma/common/runtime';
+import { isRealUin } from '@snowluma/common/uin';
 import fs from 'fs';
 import { HookSession, type HookSessionDeps } from './hook-session';
 import {
@@ -22,6 +29,8 @@ import { probeQqLoginInfo, type QqPortLoginInfo } from './qq-port-probe';
 import type { HookProcessInfo } from './types';
 
 const AUTO_LOAD_MAX_ATTEMPTS = 3;
+const UIN_GATE_PROBE_INTERVAL_MS = 3000;
+const UIN_GATE_DENIED_RECHECK_MS = 30_000;
 
 type AutoLoadAttempt = {
   attempts: number;
@@ -64,6 +73,9 @@ export type HookManagerDeps = {
    * A narrowly-classified early-process mapping race is retried on later
    * watcher ticks with a fixed attempt limit. */
   autoLoadOnDiscovery?: boolean;
+  /** UIN allow/deny gate for auto-injection. When active, a newly-discovered
+   * process is probed for its logged-in UIN before injection. */
+  uinFilter?: HookUinFilter;
   /** Optional hook fired whenever the set of HookProcessInfo observable to
    * `listProcesses()` changes — new process discovered, process gone, or
    * any session's status mutated. Used by the WebUI SSE wiring to push a
@@ -106,6 +118,10 @@ export class HookManager {
    *  injected (tests) — nothing to tear down in that case. */
   private readonly enumerator: ProcessEnumerator | null;
   private readonly autoLoadOnDiscovery: boolean;
+  private uinFilter: HookUinFilter;
+  private readonly uinGateState = new Map<number, { timer: ReturnType<typeof setTimeout> | null; startedAt: number; phase: 'probing' | 'denied'; lastCheckedUin: string }>();
+  private readonly gateApprovedPids = new Set<number>();
+  private readonly manualLoadPids = new Set<number>();
   private readonly onSessionsChangedRaw?: () => void;
   private readonly log: Logger;
   private readonly sessions = new Map<number, HookSession>();
@@ -129,6 +145,7 @@ export class HookManager {
     };
     this.makeClient = deps.makeClient ?? ((pid: number) => new QqHookClient(pid));
     this.autoLoadOnDiscovery = deps.autoLoadOnDiscovery ?? false;
+    this.uinFilter = deps.uinFilter ?? defaultHookUinFilter();
 
     // A custom lister (tests) is used directly — no worker, no isolation, just
     // an async wrap that maps a throw to the UNKNOWN sentinel. The default path
@@ -196,6 +213,9 @@ export class HookManager {
     this.assertValidPid(pid);
     await this.startPromise;
     this.autoLoadAttempts.delete(pid);
+    this.clearUinGate(pid);
+    this.gateApprovedPids.delete(pid);
+    this.manualLoadPids.add(pid);
     const session = this.ensureSession(pid);
     const info = await session.load();
     // Pull the next tick forward so a freshly-injected pipe gets noticed
@@ -208,6 +228,9 @@ export class HookManager {
     this.assertValidPid(pid);
     await this.startPromise;
     this.autoLoadAttempts.delete(pid);
+    this.clearUinGate(pid);
+    this.gateApprovedPids.delete(pid);
+    this.manualLoadPids.delete(pid);
     const session = this.ensureSession(pid);
     return session.unload();
   }
@@ -224,9 +247,172 @@ export class HookManager {
     return probeQqLoginInfo(pid);
   }
 
+  setUinFilter(filter: HookUinFilter): void {
+    const normalized = filter ?? defaultHookUinFilter();
+    this.uinFilter = normalized;
+    this.log.info(
+      'hook uin-filter updated: mode=%s whitelist=%j blacklist=%j maxWaitMs=%d',
+      normalized.mode,
+      normalized.whitelist,
+      normalized.blacklist,
+      normalized.maxWaitMs,
+    );
+    if (!isHookUinFilterActive(normalized)) {
+      for (const pid of [...this.uinGateState.keys()]) this.clearUinGate(pid);
+      return;
+    }
+    if (!this.autoLoadOnDiscovery) return;
+    for (const session of this.sessions.values()) {
+      const pid = session.pid;
+      const info = session.toInfo();
+      if ((info.loggedIn || info.injected) && info.uin && !isUinAllowedByFilter(normalized, info.uin)) {
+        this.log.warn(
+          'hook uin-filter active: forcing uninjected for non-allowed session pid=%d uin=%s status=%s',
+          pid,
+          info.uin,
+          info.status,
+        );
+        this.gateApprovedPids.delete(pid);
+        this.clearUinGate(pid);
+        try {
+          this.bridgeManager.onPidDisconnected(pid);
+        } catch { void 0; }
+        this.forceSessionAvailable(pid);
+        const state = { startedAt: Date.now(), timer: null, phase: 'denied' as const, lastCheckedUin: String(info.uin) };
+        this.uinGateState.set(pid, state);
+        this.scheduleUinGateProbe(pid, UIN_GATE_DENIED_RECHECK_MS);
+      } else if (!info.injected && !this.uinGateState.has(pid) && shouldAutoLoadPid(pid, this.log)) {
+        if (info.status === 'available' || info.status === 'error') {
+          this.log.info('hook uin-filter active: gating existing available pid=%d', pid);
+          this.startUinGate(session);
+        }
+      }
+    }
+  }
+
+  private isPidBlocked(pid: number): boolean {
+    const state = this.uinGateState.get(pid);
+    return !!state && state.phase === 'denied' && isHookUinFilterActive(this.uinFilter);
+  }
+
+  private forceSessionAvailable(pid: number): void {
+    const session = this.sessions.get(pid);
+    if (!session) return;
+    try {
+      (session as unknown as { tearDownClient?: () => void }).tearDownClient?.();
+    } catch { void 0; }
+    (session as unknown as { injected: boolean }).injected = false;
+    (session as unknown as { injectResult: unknown }).injectResult = null;
+    (session as unknown as { _method: string })._method = '';
+    (session as unknown as { _uin: string })._uin = '0';
+    (session as unknown as { _error: string })._error = '';
+    (session as unknown as { connected: boolean }).connected = false;
+    (session as unknown as { loggedIn: boolean }).loggedIn = false;
+    try {
+      (session as unknown as { setStatus: (s: string, e: string) => void }).setStatus('available', '');
+    } catch { void 0; }
+    try {
+      (this.pipeWatcher as unknown as { livePipes?: Set<number> }).livePipes?.delete(pid);
+    } catch { void 0; }
+    try {
+      this.autoLoadAttempts.delete(pid);
+    } catch { void 0; }
+  }
+
+  private clearUinGate(pid: number): void {
+    const state = this.uinGateState.get(pid);
+    if (state?.timer) clearTimeout(state.timer);
+    this.uinGateState.delete(pid);
+  }
+
+  private startUinGate(session: HookSession): void {
+    const pid = session.pid;
+    if (this.uinGateState.has(pid)) return;
+    this.log.info('hook uin-gate start: pid=%d mode=%s', pid, this.uinFilter.mode);
+    const state = { startedAt: Date.now(), timer: null, phase: 'probing' as const, lastCheckedUin: '' };
+    this.uinGateState.set(pid, state);
+    this.scheduleUinGateProbe(pid, 0);
+  }
+
+  private scheduleUinGateProbe(pid: number, delayMs: number): void {
+    const state = this.uinGateState.get(pid);
+    if (!state || this.disposed) return;
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = setTimeout(() => void this.runUinGateProbe(pid), delayMs);
+    if ((state.timer as unknown as { unref?: () => void }).unref) (state.timer as unknown as { unref: () => void }).unref();
+  }
+
+  private async runUinGateProbe(pid: number): Promise<void> {
+    if (this.disposed) return;
+    const state = this.uinGateState.get(pid);
+    if (!state) return;
+    const session = this.sessions.get(pid);
+    if (!session || (session as unknown as { isDisposed: boolean }).isDisposed) {
+      this.clearUinGate(pid);
+      return;
+    }
+    if (!isHookUinFilterActive(this.uinFilter)) {
+      this.clearUinGate(pid);
+      this.runAutoLoad(session);
+      return;
+    }
+    const maxWaitMs = this.uinFilter.maxWaitMs ?? 0;
+    if (maxWaitMs > 0 && Date.now() - state.startedAt >= maxWaitMs) {
+      if (state.phase === 'probing') {
+        this.log.info('hook uin-gate timeout: pid=%d wait=%dms -> low-frequency monitor', pid, maxWaitMs);
+        state.phase = 'denied';
+      }
+    }
+    let info: QqPortLoginInfo | null = null;
+    try {
+      info = await this.probeProcessLoginInfo(pid);
+    } catch (error) {
+      this.log.warn('hook uin-gate probe failed: pid=%d err=%s', pid, error instanceof Error ? error.message : String(error));
+    }
+    if (this.disposed || !this.uinGateState.has(pid)) return;
+    if (!this.sessions.has(pid)) {
+      this.clearUinGate(pid);
+      return;
+    }
+    if (info && info.identityKnown && isRealUin(info.uin)) {
+      const uin = String(info.uin);
+      state.lastCheckedUin = uin;
+      const allowed = isUinAllowedByFilter(this.uinFilter, uin);
+      if (allowed) {
+        this.log.info('hook uin-gate allowed: pid=%d uin=%s mode=%s', pid, uin, this.uinFilter.mode);
+        this.clearUinGate(pid);
+        this.gateApprovedPids.add(pid);
+        this.runAutoLoad(session);
+        return;
+      } else {
+        if (state.phase !== 'denied') this.log.info('hook uin-gate denied: pid=%d uin=%s mode=%s -> low-frequency monitor', pid, uin, this.uinFilter.mode);
+        state.phase = 'denied';
+        const sessInfo = session.toInfo();
+        if (sessInfo.loggedIn || sessInfo.injected) {
+          this.log.warn('hook uin-gate denied but session already injected/online: pid=%d uin=%s status=%s -> forcing uninjected', pid, uin, sessInfo.status);
+          try {
+            this.bridgeManager.onPidDisconnected(pid);
+          } catch { void 0; }
+          this.forceSessionAvailable(pid);
+        }
+        this.scheduleUinGateProbe(pid, UIN_GATE_DENIED_RECHECK_MS);
+        return;
+      }
+    }
+    if (state.phase === 'denied') {
+      this.scheduleUinGateProbe(pid, UIN_GATE_DENIED_RECHECK_MS);
+    } else {
+      this.scheduleUinGateProbe(pid, UIN_GATE_PROBE_INTERVAL_MS);
+    }
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    for (const state of this.uinGateState.values()) if (state.timer) clearTimeout(state.timer);
+    this.uinGateState.clear();
+    this.gateApprovedPids.clear();
+    this.manualLoadPids.clear();
     for (const session of this.sessions.values()) {
       session.dispose();
     }
@@ -252,12 +438,9 @@ export class HookManager {
           renderParamsVerbose(info),
           this.autoLoadOnDiscovery,
         ]);
-        // Headless/Docker deployments enable autoLoadOnDiscovery so QQ gets
-        // injected without a human clicking "Load" in WebUI. Fire-and-forget:
-        // failures are already captured inside loadInternal and surfaced via
-        // the session's status field.
         if (this.autoLoadOnDiscovery && shouldAutoLoadPid(info.pid, this.log)) {
-          this.runAutoLoad(session);
+          if (!isHookUinFilterActive(this.uinFilter)) this.runAutoLoad(session);
+          else this.startUinGate(session);
         }
         this.notifySessionsChanged();
       });
@@ -266,6 +449,9 @@ export class HookManager {
       if (this.disposed) return;
       runWithTraceRequest(() => {
         this.autoLoadAttempts.delete(pid);
+        this.clearUinGate(pid);
+        this.gateApprovedPids.delete(pid);
+        this.manualLoadPids.delete(pid);
         const session = this.sessions.get(pid);
         this.log.trace(
           'hook_manager_fact event=process_gone pid=%d tracked=%s',
@@ -278,6 +464,10 @@ export class HookManager {
     });
     this.pipeWatcher.on('pipe-up', (pid: number) => {
       if (this.disposed) return;
+      if (this.isPidBlocked(pid)) {
+        this.log.info('hook uin-filter: pipe-up blocked for denied pid=%d', pid);
+        return;
+      }
       const session = this.sessions.get(pid);
       if (session) session.onPipeUp();
     });
@@ -311,6 +501,7 @@ export class HookManager {
         }
         if ((session.status === 'connecting' || session.status === 'disconnected')
           && this.pipeWatcher.isPipeLive(session.pid)) {
+          if (this.isPidBlocked(session.pid)) continue;
           session.onPipeUp();
         }
       }
@@ -444,6 +635,41 @@ export class HookManager {
     session.attachProcessInfo({ name: defaultProcessName() });
 
     session.on('login', (uin: string, sender) => {
+      this.log.info(
+        'hook login attempt: pid=%d uin=%s mode=%s whitelist=%j blacklist=%j active=%s allowed=%s manual=%s',
+        pid,
+        String(uin),
+        this.uinFilter.mode,
+        this.uinFilter.whitelist,
+        this.uinFilter.blacklist,
+        isHookUinFilterActive(this.uinFilter),
+        isUinAllowedByFilter(this.uinFilter, uin),
+        this.manualLoadPids.has(pid),
+      );
+      if (isHookUinFilterActive(this.uinFilter) && !isUinAllowedByFilter(this.uinFilter, uin)) {
+        if (this.manualLoadPids.has(pid)) {
+          this.log.info('hook uin-filter: manual load bypass allowed pid=%d uin=%s mode=%s', pid, String(uin), this.uinFilter.mode);
+          this.manualLoadPids.delete(pid);
+          this.gateApprovedPids.delete(pid);
+          this.clearUinGate(pid);
+          this.bridgeManager.onHookLogin(pid, uin, sender);
+          return;
+        }
+        this.log.warn('hook uin-gate post-login denied: pid=%d uin=%s mode=%s -> blocking injection', pid, String(uin), this.uinFilter.mode);
+        this.gateApprovedPids.delete(pid);
+        this.clearUinGate(pid);
+        try {
+          this.bridgeManager.onPidDisconnected(pid);
+        } catch { void 0; }
+        this.forceSessionAvailable(pid);
+        const state = { startedAt: Date.now(), timer: null, phase: 'denied' as const, lastCheckedUin: String(uin) };
+        this.uinGateState.set(pid, state);
+        this.scheduleUinGateProbe(pid, UIN_GATE_DENIED_RECHECK_MS);
+        return;
+      }
+      if (this.gateApprovedPids.has(pid)) this.gateApprovedPids.delete(pid);
+      this.manualLoadPids.delete(pid);
+      this.clearUinGate(pid);
       this.bridgeManager.onHookLogin(pid, uin, sender);
     });
     session.on('disconnected', (wasLoggedIn: boolean) => {

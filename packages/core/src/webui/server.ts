@@ -1490,6 +1490,85 @@ export async function initWebUI(
     }
   });
 
+  app.get('/api/hook/uin-filter', (c) => {
+    try {
+      const cfg = readRuntimeConfig();
+      return c.json({ filter: cfg.hookUinFilter ?? { mode: 'off', whitelist: [], blacklist: [], maxWaitMs: 0 } });
+    } catch (err) {
+      log.warn('get uin-filter failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ filter: { mode: 'off', whitelist: [], blacklist: [], maxWaitMs: 0 } });
+    }
+  });
+
+  app.post('/api/hook/uin-filter', async (c) => {
+    if (!hookManager) return c.json({ success: false, message: 'hook manager is not available' }, 503);
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: 'invalid json' }, 400);
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return c.json({ success: false, message: 'body must be an object' }, 400);
+    }
+    const b = body as Record<string, unknown>;
+    const modeRaw = typeof b.mode === 'string' ? String(b.mode).trim().toLowerCase() : 'off';
+    if (!['off', 'whitelist', 'blacklist'].includes(modeRaw)) {
+      return c.json({ success: false, message: 'mode must be off | whitelist | blacklist' }, 400);
+    }
+    const mode = modeRaw as 'off' | 'whitelist' | 'blacklist';
+    function normalizeList(value: unknown, field: string): string[] | { error: string } {
+      if (value === undefined) return [];
+      if (!Array.isArray(value)) return { error: `${field} must be an array` };
+      const seen = new Set<string>();
+      const out: string[] = [];
+      for (const item of value) {
+        let v: string;
+        if (typeof item === 'string') v = item.trim();
+        else if (typeof item === 'number' && Number.isFinite(item)) v = String(Math.trunc(item));
+        else return { error: `${field} entries must be strings or numbers` };
+        if (!v) continue;
+        if (!UIN_REGEX.test(v)) return { error: `${field} entry "${v}" is not a valid UIN (5-10 digits)` };
+        if (seen.has(v)) continue;
+        seen.add(v);
+        out.push(v);
+      }
+      return out;
+    }
+    const wlRaw = normalizeList(b.whitelist, 'whitelist');
+    if (typeof wlRaw === 'object' && 'error' in (wlRaw as Record<string, unknown>)) {
+      return c.json({ success: false, message: (wlRaw as { error: string }).error }, 400);
+    }
+    const blRaw = normalizeList(b.blacklist, 'blacklist');
+    if (typeof blRaw === 'object' && 'error' in (blRaw as Record<string, unknown>)) {
+      return c.json({ success: false, message: (blRaw as { error: string }).error }, 400);
+    }
+    const whitelist = wlRaw as string[];
+    const blacklist = blRaw as string[];
+    let maxWaitMs = 0;
+    if (b.maxWaitMs !== undefined) {
+      const raw = b.maxWaitMs;
+      const n = typeof raw === 'string' && (raw as string).trim() ? Number((raw as string).trim()) : (raw as number);
+      if (typeof n !== 'number' || !Number.isFinite(n) || !Number.isInteger(n) || n < 0 || n > 3_600_000) {
+        return c.json({ success: false, message: 'maxWaitMs must be an integer in 0..3600000 (0 = unlimited)' }, 400);
+      }
+      maxWaitMs = n;
+    }
+    const filter = { mode, whitelist, blacklist, maxWaitMs };
+    try {
+      const saved = updateRuntimeConfig({ hookUinFilter: filter } as unknown as Record<string, unknown>);
+      try {
+        (hookManager as unknown as { setUinFilter?: (f: unknown) => void }).setUinFilter?.(saved.hookUinFilter);
+      } catch (e) {
+        log.warn('setUinFilter apply failed: %s', e instanceof Error ? e.message : String(e));
+      }
+      return c.json({ success: true, filter: saved.hookUinFilter });
+    } catch (err) {
+      log.warn('save uin-filter failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: 'save failed' }, 500);
+    }
+  });
+
   app.get('/api/config/:uin', (c) => {
     const uin = c.req.param('uin');
     if (!UIN_REGEX.test(uin)) return c.json({ message: 'invalid uin' }, 400);

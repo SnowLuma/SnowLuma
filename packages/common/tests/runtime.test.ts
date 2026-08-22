@@ -14,6 +14,7 @@ describe('normalizeRuntimeConfig', () => {
       logMaxTotalMb: 1024,
       logRetainDays: 7,
       logPerUin: false,
+      hookUinFilter: { mode: 'off', whitelist: [], blacklist: [], maxWaitMs: 0 },
     });
   });
 
@@ -36,6 +37,7 @@ describe('normalizeRuntimeConfig', () => {
       logMaxTotalMb: 2048,
       logRetainDays: 0,
       logPerUin: true,
+      hookUinFilter: { mode: 'off', whitelist: [], blacklist: [], maxWaitMs: 0 },
     });
   });
 

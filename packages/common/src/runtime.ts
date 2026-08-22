@@ -1,6 +1,14 @@
 import fs from 'fs';
 import path from 'path';
 
+export type HookUinFilterMode = 'off' | 'whitelist' | 'blacklist';
+export interface HookUinFilter {
+  mode: HookUinFilterMode;
+  whitelist: string[];
+  blacklist: string[];
+  /** Max time to wait for login before switching to low-frequency monitor. 0 = unlimited. */
+  maxWaitMs: number;
+}
 export interface RuntimeConfig {
   webuiPort?: number;
   /** When true, every newly-discovered QQ process gets auto-injected by
@@ -22,6 +30,9 @@ export interface RuntimeConfig {
   logRetainDays?: number;
   /** Duplicate UIN-scoped lines into logs/<uin>/ in addition to the shared log. */
   logPerUin?: boolean;
+  /** UIN allow/deny gate for auto-injection. When active, newly-discovered
+   * QQ processes are probed for their logged-in UIN before injection. */
+  hookUinFilter?: HookUinFilter;
 }
 
 const CONFIG_DIR = 'config';
@@ -36,6 +47,79 @@ export const MAX_LOG_TOTAL_MB = Math.floor(Number.MAX_SAFE_INTEGER / (1024 * 102
 export const MAX_LOG_RETAIN_DAYS = Math.floor(
   Number.MAX_SAFE_INTEGER / (24 * 60 * 60 * 1000),
 );
+export const MAX_HOOK_UIN_FILTER_WAIT_MS = 3_600_000;
+export const HOOK_UIN_FILTER_MODES = new Set<HookUinFilterMode>(['off', 'whitelist', 'blacklist']);
+const UIN_REGEX = /^\d{5,10}$/;
+
+export function defaultHookUinFilter(): HookUinFilter {
+  return { mode: 'off', whitelist: [], blacklist: [], maxWaitMs: 0 };
+}
+
+function normalizeUinList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of value) {
+    let v: string;
+    if (typeof item === 'string') v = item.trim();
+    else if (typeof item === 'number' && Number.isFinite(item)) v = String(Math.trunc(item));
+    else continue;
+    if (!v || !UIN_REGEX.test(v) || seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+  }
+  return out;
+}
+
+export function normalizeHookUinFilter(value: unknown): HookUinFilter {
+  if (!isObject(value)) return defaultHookUinFilter();
+  const rawMode = typeof (value as Record<string, unknown>).mode === 'string'
+    ? String((value as Record<string, unknown>).mode).trim().toLowerCase()
+    : 'off';
+  const mode: HookUinFilterMode = (HOOK_UIN_FILTER_MODES as Set<string>).has(rawMode)
+    ? (rawMode as HookUinFilterMode)
+    : 'off';
+  const whitelist = normalizeUinList((value as Record<string, unknown>).whitelist);
+  const blacklist = normalizeUinList((value as Record<string, unknown>).blacklist);
+  let maxWaitMs = 0;
+  const rawWait = (value as Record<string, unknown>).maxWaitMs;
+  if (rawWait !== undefined) {
+    const n = typeof rawWait === 'string' && (rawWait as string).trim()
+      ? Number((rawWait as string).trim())
+      : (rawWait as number);
+    if (typeof n === 'number' && Number.isFinite(n)) {
+      const clamped = Math.trunc(n);
+      if (clamped >= 0 && clamped <= MAX_HOOK_UIN_FILTER_WAIT_MS) maxWaitMs = clamped;
+      else if (clamped < 0) maxWaitMs = 0;
+      else maxWaitMs = MAX_HOOK_UIN_FILTER_WAIT_MS;
+    }
+  }
+  return { mode, whitelist, blacklist, maxWaitMs };
+}
+
+function isEqualHookUinFilter(a: HookUinFilter, b: HookUinFilter): boolean {
+  if (a.mode !== b.mode || a.maxWaitMs !== b.maxWaitMs) return false;
+  if (a.whitelist.length !== b.whitelist.length || a.blacklist.length !== b.blacklist.length) return false;
+  for (let i = 0; i < a.whitelist.length; i++) if (a.whitelist[i] !== b.whitelist[i]) return false;
+  for (let i = 0; i < a.blacklist.length; i++) if (a.blacklist[i] !== b.blacklist[i]) return false;
+  return true;
+}
+
+export function isHookUinFilterActive(filter?: HookUinFilter | null): boolean {
+  if (!filter || filter.mode === 'off') return false;
+  if (filter.mode === 'whitelist') return filter.whitelist.length > 0;
+  if (filter.mode === 'blacklist') return filter.blacklist.length > 0;
+  return false;
+}
+
+export function isUinAllowedByFilter(filter: HookUinFilter | undefined | null, uin: string | number): boolean {
+  if (!filter || filter.mode === 'off') return true;
+  const s = String(uin ?? '').trim();
+  if (!UIN_REGEX.test(s)) return false;
+  if (filter.mode === 'whitelist') return filter.whitelist.includes(s);
+  if (filter.mode === 'blacklist') return !filter.blacklist.includes(s);
+  return true;
+}
 
 /**
  * Pure on-disk-object → typed config normalization (defaults + validation,
@@ -64,6 +148,7 @@ export function normalizeRuntimeConfig(parsed: unknown): RuntimeConfig {
       'logRetainDays',
     ),
     logPerUin: normalizeRequiredBool(obj.logPerUin, DEFAULT_LOG_PER_UIN, 'logPerUin'),
+    hookUinFilter: normalizeHookUinFilter(obj.hookUinFilter),
   };
 }
 
@@ -182,6 +267,9 @@ function saveRuntimeConfig(config: RuntimeConfig): void {
  *  on every known field (so we can skip a needless rewrite). */
 function sameRuntimeConfig(parsed: Record<string, unknown>, n: RuntimeConfig): boolean {
   const parsedTls = isObject(parsed.webuiTls) ? parsed.webuiTls.enabled : undefined;
+  const parsedFilter = normalizeHookUinFilter(parsed.hookUinFilter);
+  const nFilter = n.hookUinFilter ?? defaultHookUinFilter();
+  if (!isEqualHookUinFilter(parsedFilter, nFilter)) return false;
   return (
     parsed.webuiPort === n.webuiPort
     && parsed.hookAutoLoad === n.hookAutoLoad

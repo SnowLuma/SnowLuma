@@ -53,8 +53,13 @@ describe('probeQqLoginInfo — bounded execution', () => {
           stderr: '',
         });
       })
-      .mockImplementationOnce((_command, _options, callback) => {
-        callback(null, { stdout: '8\n', stderr: '' });
+      .mockImplementationOnce((command: string, _options, callback) => {
+        if (String(command).includes('tasklist')) {
+          // Windows: tasklist output is filtered by "qq.exe" lines
+          callback(null, { stdout: 'qq.exe\n'.repeat(8), stderr: '' });
+        } else {
+          callback(null, { stdout: '8\n', stderr: '' });
+        }
       });
 
     await expect(probeQqLoginInfo(4242)).resolves.toBeNull();

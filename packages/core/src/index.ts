@@ -5,6 +5,7 @@ import {
   DEFAULT_LOG_MAX_TOTAL_MB,
   DEFAULT_LOG_PER_UIN,
   DEFAULT_LOG_RETAIN_DAYS,
+  isHookUinFilterActive,
   loadRuntimeConfig,
 } from '@snowluma/common/runtime';
 import { OneBotManager } from '@snowluma/onebot/manager';
@@ -69,10 +70,17 @@ async function main() {
   const hookManager = new HookManager({
     bridgeManager,
     autoLoadOnDiscovery,
+    uinFilter: runtimeConfig.hookUinFilter,
     onSessionsChanged: stateWiring.onSessionsChanged,
   });
   if (autoLoadOnDiscovery) {
     log.info('hook auto-load enabled: every discovered QQ process will be injected');
+  }
+  if (isHookUinFilterActive(runtimeConfig.hookUinFilter)) {
+    const f = runtimeConfig.hookUinFilter!;
+    log.info('hook uin-filter enabled: mode=%s whitelist=%j blacklist=%j maxWaitMs=%d', f.mode, f.whitelist, f.blacklist, f.maxWaitMs);
+  } else if (runtimeConfig.hookUinFilter && runtimeConfig.hookUinFilter.mode !== 'off') {
+    log.info('hook uin-filter configured but inactive (empty list): mode=%s', runtimeConfig.hookUinFilter.mode);
   }
 
   oneBotManager.bind(bridgeManager);
