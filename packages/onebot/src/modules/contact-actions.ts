@@ -296,6 +296,9 @@ function formatStrangerInfo(p: UserProfileInfo): JsonObject {
     batteryStatus: p.batteryStatus ?? 0,
     customStatus: p.customStatus ?? null,
     customStatusDescInfo: p.customStatusDesc ?? '',
+    qidian_master_flag: p.qidianMasterFlag,
+    qidian_crew_flag: p.qidianCrewFlag,
+    qidian_crew_flag_2: p.qidianCrewFlag2,
   };
 }
 

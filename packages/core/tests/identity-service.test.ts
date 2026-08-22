@@ -757,6 +757,9 @@ describe('IdentityService', () => {
       sign: '',
       avatar: '',
       level: 0,
+      qidianMasterFlag: 0,
+      qidianCrewFlag: 0,
+      qidianCrewFlag2: 0,
     };
     const request = {
       groupId: GROUP_ID,
@@ -911,7 +914,10 @@ describe('IdentityService', () => {
 
 describe('IdentityService.resolveUid', () => {
   function makeProfile(uin: number, uid: string): UserProfileInfo {
-    return { uin, uid, nickname: '', remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0 };
+    return {
+      uin, uid, nickname: '', remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0,
+      qidianMasterFlag: 0, qidianCrewFlag: 0, qidianCrewFlag2: 0,
+    };
   }
 
   it('returns the cached uid without invoking the fetcher', async () => {
@@ -976,7 +982,10 @@ describe('IdentityService.resolveUid', () => {
 
 describe('IdentityService inbound UID→UIN', () => {
   function makeProfile(uin: number, uid: string): UserProfileInfo {
-    return { uin, uid, nickname: '', remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0 };
+    return {
+      uin, uid, nickname: '', remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0,
+      qidianMasterFlag: 0, qidianCrewFlag: 0, qidianCrewFlag2: 0,
+    };
   }
 
   it('findUinByUid treats a numeric uid as that uin without consulting maps', () => {

@@ -17,6 +17,16 @@ export interface UserProfileInfo {
   batteryStatus?: number;
   customStatus?: { faceId: number; wording: string } | null;
   customStatusDesc?: string;
+  /**
+   * 企点标志（QQ 企点 / 企业版 QQ 账号），0/1。
+   * 数据来源为 OIDB 0xFE1_2 number-property key 40410 / 42031：
+   * 真实企点员工号上实测均为 1，普通账号均为 0（见 issue #404 讨论）。
+   * 与 NapCat `simpleInfo.relationFlags` 的 qidianMasterFlag / qidianCrewFlag
+   * 对应；qidianCrewFlag2 未发现独立 key，恒为 0。
+   */
+  qidianMasterFlag: number;
+  qidianCrewFlag: number;
+  qidianCrewFlag2: number;
 }
 
 export interface FriendInfo {

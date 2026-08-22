@@ -44,6 +44,43 @@ describe('FetchUserProfile namespace', () => {
       expect(keys).toContain(101);   // avatar
       expect(keys).toContain(102);   // sign
       expect(keys).toContain(103);   // remark
+      expect(keys).toContain(40410); // qidian crew flag (企点员工标志)
+      expect(keys).toContain(42031); // qidian master flag (企点主号标志)
+    });
+
+    it('decodes qidian flags from number-properties (0 when absent)', async () => {
+      // 企点员工号：两个标志均为 1；普通账号服务器不返回这两个 key → 缺省 0
+      const qidian = makeSender({
+        body: {
+          uin: 3004251964, uid: 'u',
+          properties: {
+            bytesProperties: [],
+            numberProperties: [
+              { number1: 40410, number2: 1 },
+              { number1: 42031, number2: 1 },
+            ],
+          },
+        } as any,
+      });
+      const out = await FetchUserProfile.invoke(qidian, { uin: 3004251964 });
+      expect(out.qidianMasterFlag).toBe(1);
+      expect(out.qidianCrewFlag).toBe(1);
+      expect(out.qidianCrewFlag2).toBe(0);
+
+      // 普通账号：无企点 key → 全 0
+      const normal = makeSender({
+        body: {
+          uin: 10001, uid: 'u',
+          properties: {
+            bytesProperties: [],
+            numberProperties: [{ number1: 20009, number2: 1 }],
+          },
+        } as any,
+      });
+      const out2 = await FetchUserProfile.invoke(normal, { uin: 10001 });
+      expect(out2.qidianMasterFlag).toBe(0);
+      expect(out2.qidianCrewFlag).toBe(0);
+      expect(out2.qidianCrewFlag2).toBe(0);
     });
 
     it('decodes nickname / remark / qid / sign from bytes-properties', async () => {
