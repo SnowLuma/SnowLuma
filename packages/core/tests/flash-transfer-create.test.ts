@@ -200,6 +200,24 @@ describe('FlashTransferApi.createFlashTask — disk streaming (#359)', () => {
     expect(SetFilesetStatus.invoke).toHaveBeenCalled();
   });
 
+  it('commits a png as image format 26 rather than video format 2 (#421)', async () => {
+    const file = writeSrc('shot.png', synth(48, 5));
+    installSliceuploadOk();
+
+    await api().createFlashTask(file);
+
+    expect(ApplyFileset.invoke).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      fileName: 'shot.png',
+      typeCode: 7,
+    }));
+    expect(CommitFile.invoke).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      entries: [expect.objectContaining({
+        fileName: 'shot.png',
+        formatCode: 26,
+      })],
+    }));
+  });
+
   it('sliceuploads a multi-megabyte file as 1 MiB disk chunks with flash Sha1StateV', async () => {
     const bytes = synth(SLICE + 80, 13);
     const file = writeSrc('big.mp4', bytes);
