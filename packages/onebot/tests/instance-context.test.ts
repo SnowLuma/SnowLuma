@@ -1120,6 +1120,44 @@ describe('buildApiContext send and forward dispatch', () => {
     expect(dispatchEvent).not.toHaveBeenCalled();
   });
 
+  it('send_private_msg with an exclusive node list uploads a forward (#415)', async () => {
+    const { api, dispatchEvent, ref } = makeRef();
+    const nodes = [{
+      type: 'node',
+      data: {
+        user_id: SELF_ID,
+        nickname: 'SnowLuma',
+        content: [{ type: 'text', data: { text: 'forwarded' } }],
+      },
+    }];
+
+    const result = await api.sendPrivateMessage(PEER_ID, nodes, false);
+
+    expect(result.messageId).toBe(hashMessageIdInt32(77, PEER_ID, PRIVATE_NT_MESSAGE_EVENT));
+    expect(ref.bridge.apis.forward.upload).toHaveBeenCalledOnce();
+    expect(ref.bridge.apis.message.sendPrivate).toHaveBeenCalledOnce();
+    expect(dispatchEvent).toHaveBeenCalledOnce();
+  });
+
+  it('send_group_msg with an exclusive node list uploads a forward (#415)', async () => {
+    const { api, dispatchEvent, ref } = makeRef();
+    const nodes = [{
+      type: 'node',
+      data: {
+        user_id: SELF_ID,
+        nickname: 'SnowLuma',
+        content: [{ type: 'text', data: { text: 'pack' } }],
+      },
+    }];
+
+    const result = await api.sendGroupMessage(GROUP_ID, nodes, false);
+
+    expect(result.messageId).toBe(hashMessageIdInt32(77, GROUP_ID, GROUP_MESSAGE_EVENT));
+    expect(ref.bridge.apis.forward.upload).toHaveBeenCalledOnce();
+    expect(ref.bridge.apis.message.sendGroup).toHaveBeenCalledOnce();
+    expect(dispatchEvent).not.toHaveBeenCalled();
+  });
+
   it('dispatches a private forward send', async () => {
     const { api, dispatchEvent, ref } = makeRef();
 
