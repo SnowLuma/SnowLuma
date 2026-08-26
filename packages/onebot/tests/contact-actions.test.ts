@@ -614,6 +614,55 @@ describe('onebot/contact-actions / getStrangerInfo', () => {
     });
   });
 
+  it('passes through the qidian enterprise (企业) data-card when available', async () => {
+    const fetchQidianCorpInfo = vi.fn(async () => ({
+      name: '测试企业', intro: '测试简介', website: 'https://example.com',
+      slogan: '测试签名', address: '测试地址', phone: '400-0000-0000', email: 'contact@example.com',
+    }));
+    const bridge = fakeBridge({
+      apis: {
+        contacts: {
+          fetchUserProfile: vi.fn(async () => ({
+            ...makeProfile(55555, 'QidianWorker', 'male'),
+            qidianMasterFlag: 0,
+            qidianCrewFlag: 1,
+            qidianCrewFlag2: 0,
+          })),
+          fetchQidianCorpInfo,
+        },
+      },
+    });
+    const out = await getStrangerInfo(bridge, 55555);
+    expect(out).toMatchObject({
+      user_id: 55555,
+      qidian_master_flag: 0,
+      qidian_crew_flag: 1,
+      qidian_crew_flag_2: 0,
+      qidian_enterprise_name: '测试企业',
+    });
+    expect(fetchQidianCorpInfo).toHaveBeenCalledWith(55555);
+  });
+
+  it('leaves enterprise fields empty for non-qidian accounts and never calls the corp lookup', async () => {
+    const fetchQidianCorpInfo = vi.fn(async () => ({
+      name: 'x', intro: '', website: '', slogan: '', address: '', phone: '', email: '',
+    }));
+    const bridge = fakeBridge({
+      apis: {
+        contacts: {
+          fetchUserProfile: vi.fn(async () => makeProfile(88888, 'Normal', 'male')),
+          fetchQidianCorpInfo,
+        },
+      },
+    });
+    const out = await getStrangerInfo(bridge, 88888);
+    expect(out).toMatchObject({
+      user_id: 88888,
+      qidian_enterprise_name: '',
+    });
+    expect(fetchQidianCorpInfo).not.toHaveBeenCalled();
+  });
+
   it('falls back to identity.findUserProfile when fetch fails but the profile is cached', async () => {
     const bridge = fakeBridge({
       fetchUserProfile: vi.fn(async () => { throw new Error('net'); }),

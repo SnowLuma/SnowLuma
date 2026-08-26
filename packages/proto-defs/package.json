@@ -44,6 +44,10 @@
       "types": "./src/get-c2c-msg.ts",
       "default": "./src/get-c2c-msg.ts"
     },
+    "./qidian-corp": {
+      "types": "./src/qidian-corp.ts",
+      "default": "./src/qidian-corp.ts"
+    },
     "./notify": {
       "types": "./src/notify.ts",
       "default": "./src/notify.ts"

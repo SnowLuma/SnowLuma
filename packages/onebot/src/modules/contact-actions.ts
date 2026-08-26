@@ -7,6 +7,7 @@ import {
   type GroupRequestInfo,
   type UserProfileInfo,
 } from '@snowluma/protocol/qq-info';
+import type { QidianCorpInfo } from '@snowluma/protocol/services/qidian/fetch-corp-info';
 import type { OneBotInstanceContext } from '../instance-context';
 import type { JsonObject } from '../types';
 
@@ -289,7 +290,7 @@ export async function getGroupFiles(
   };
 }
 
-function formatStrangerInfo(p: UserProfileInfo): JsonObject {
+function formatStrangerInfo(p: UserProfileInfo, corp?: QidianCorpInfo | null): JsonObject {
   return {
     user_id: p.uin,
     nickname: p.nickname,
@@ -308,7 +309,23 @@ function formatStrangerInfo(p: UserProfileInfo): JsonObject {
     qidian_master_flag: p.qidianMasterFlag ?? 0,
     qidian_crew_flag: p.qidianCrewFlag ?? 0,
     qidian_crew_flag_2: p.qidianCrewFlag2 ?? 0,
+    // #404 后续 PR：企点企业资料卡。企业资料卡不含独立的企业 ID，
+    // 因此这里只透出企业名称（SsoCorpInfo.corpName）。
+    qidian_enterprise_name: corp?.name ?? '',
   };
+}
+
+/** 命中的是企点账号时才去拉一次企业资料卡（best-effort，失败返回 null）。 */
+async function strangerCorpInfo(
+  bridge: BridgeInterface,
+  p: UserProfileInfo,
+): Promise<QidianCorpInfo | null> {
+  if (p.qidianMasterFlag === 0 && p.qidianCrewFlag === 0) return null;
+  try {
+    return await bridge.apis.contacts.fetchQidianCorpInfo(p.uin);
+  } catch {
+    return null;
+  }
 }
 
 export async function getStrangerInfo(
@@ -317,14 +334,17 @@ export async function getStrangerInfo(
 ): Promise<JsonObject | null> {
   try {
     const p = await bridge.apis.contacts.fetchUserProfile(userId);
-    return formatStrangerInfo(p);
+    const corp = await strangerCorpInfo(bridge, p);
+    return formatStrangerInfo(p, corp);
   } catch {
     const p = bridge.identity.findUserProfile(userId);
     if (p) {
-      return formatStrangerInfo({
+      const profile: UserProfileInfo = {
         ...p,
         remark: p.remark || bridge.identity.findFriend(userId)?.remark || '',
-      });
+      };
+      const corp = await strangerCorpInfo(bridge, profile);
+      return formatStrangerInfo(profile, corp);
     }
 
     const friend = bridge.identity.findFriend(userId);
