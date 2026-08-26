@@ -775,6 +775,9 @@ describe('buildApiContext contact reads', () => {
       unfriendly: false,
       title_expire_time: 0,
       card_changeable: true,
+      qidian_master_flag: 0,
+      qidian_crew_flag: 0,
+      qidian_crew_flag_2: 0,
     }]);
     await expect(api.getGroupMemberInfo(710503, 20002)).resolves.toMatchObject({
       group_id: 710503,

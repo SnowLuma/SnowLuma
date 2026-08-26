@@ -5317,6 +5317,18 @@ export const ACTIONS: CatalogAction[] = [
         "card_changeable": {
           "type": "boolean",
           "description": "是否可改名片（占位，恒 true）"
+        },
+        "qidian_master_flag": {
+          "type": "integer",
+          "description": "企点主号标志，0 或 1；普通账号为 0"
+        },
+        "qidian_crew_flag": {
+          "type": "integer",
+          "description": "企点员工标志，0 或 1；普通账号为 0"
+        },
+        "qidian_crew_flag_2": {
+          "type": "integer",
+          "description": "企点保留标志，0 或 1；普通账号为 0"
         }
       },
       "required": [
@@ -5476,6 +5488,18 @@ export const ACTIONS: CatalogAction[] = [
           "card_changeable": {
             "type": "boolean",
             "description": "是否可改名片（占位，恒 true）"
+          },
+          "qidian_master_flag": {
+            "type": "integer",
+            "description": "企点主号标志，0 或 1；普通账号为 0"
+          },
+          "qidian_crew_flag": {
+            "type": "integer",
+            "description": "企点员工标志，0 或 1；普通账号为 0"
+          },
+          "qidian_crew_flag_2": {
+            "type": "integer",
+            "description": "企点保留标志，0 或 1；普通账号为 0"
           }
         },
         "required": [

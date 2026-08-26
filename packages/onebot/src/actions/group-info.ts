@@ -115,6 +115,9 @@ export const actions = [
           unfriendly: { type: 'boolean', description: '是否不良记录（QQ NT 不提供，恒 false）' },
           title_expire_time: { type: 'integer', description: '头衔过期时间戳（QQ NT 不提供，恒 0）' },
           card_changeable: { type: 'boolean', description: '是否可改名片（占位，恒 true）' },
+          qidian_master_flag: { type: 'integer', description: '企点主号标志，0 或 1；普通账号为 0' },
+          qidian_crew_flag: { type: 'integer', description: '企点员工标志，0 或 1；普通账号为 0' },
+          qidian_crew_flag_2: { type: 'integer', description: '企点保留标志，0 或 1；普通账号为 0' },
         },
         required: ['group_id', 'user_id', 'nickname', 'role'],
       },
@@ -155,6 +158,9 @@ export const actions = [
         unfriendly: { type: 'boolean', description: '是否不良记录（QQ NT 不提供，恒 false）' },
         title_expire_time: { type: 'integer', description: '头衔过期时间戳（QQ NT 不提供，恒 0）' },
         card_changeable: { type: 'boolean', description: '是否可改名片（占位，恒 true）' },
+        qidian_master_flag: { type: 'integer', description: '企点主号标志，0 或 1；普通账号为 0' },
+        qidian_crew_flag: { type: 'integer', description: '企点员工标志，0 或 1；普通账号为 0' },
+        qidian_crew_flag_2: { type: 'integer', description: '企点保留标志，0 或 1；普通账号为 0' },
       },
       required: ['group_id', 'user_id', 'nickname', 'role'],
     },
@@ -171,6 +177,7 @@ export const actions = [
           sex: 'unknown', age: 0, join_time: 0, last_sent_time: 0,
           shut_up_timestamp: 0,
           level: '0', role: 'member', title: '',
+          qidian_master_flag: 0, qidian_crew_flag: 0, qidian_crew_flag_2: 0,
         });
       }
       return okResponse({

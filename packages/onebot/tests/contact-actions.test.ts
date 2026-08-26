@@ -510,6 +510,54 @@ describe('onebot/contact-actions / getGroupMemberInfo', () => {
     expect(out).toMatchObject({ user_id: 66, is_robot: true });
   });
 
+  it('passes through the qidian (企点) flags from the member profile', async () => {
+    const member = makeMember(88, 'QidianMember', 'Q');
+    const bridge = fakeBridge({
+      fetchGroupMemberList: vi.fn(async () => []),
+      identity: fakeIdentity({
+        findGroupMember: (gid: number, uin: number) =>
+          gid === 1400 && uin === 88 ? member : null,
+      }),
+      fetchUserProfile: vi.fn(async () => ({
+        ...makeProfile(88, 'QidianMember', 'male'),
+        qidianMasterFlag: 0,
+        qidianCrewFlag: 1,
+        qidianCrewFlag2: 0,
+      })),
+    });
+
+    const out = await getGroupMemberInfo(bridge, 1400, 88);
+
+    expect(out).toMatchObject({
+      user_id: 88,
+      qidian_master_flag: 0,
+      qidian_crew_flag: 1,
+      qidian_crew_flag_2: 0,
+    });
+    expect(bridge.apis.contacts.fetchUserProfile).toHaveBeenCalledWith(88);
+  });
+
+  it('falls back to zero qidian flags when the profile fetch fails', async () => {
+    const member = makeMember(89, 'NoProfileMember', 'N');
+    const bridge = fakeBridge({
+      fetchGroupMemberList: vi.fn(async () => []),
+      identity: fakeIdentity({
+        findGroupMember: (gid: number, uin: number) =>
+          gid === 1500 && uin === 89 ? member : null,
+      }),
+      fetchUserProfile: vi.fn(async () => { throw new Error('net down'); }),
+    });
+
+    const out = await getGroupMemberInfo(bridge, 1500, 89);
+
+    expect(out).toMatchObject({
+      user_id: 89,
+      qidian_master_flag: 0,
+      qidian_crew_flag: 0,
+      qidian_crew_flag_2: 0,
+    });
+  });
+
   it('rejects when an unknown cached classification cannot be refreshed', async () => {
     const member: GroupMemberInfo = { ...makeMember(77, 'unknown'), isRobot: undefined };
     const bridge = fakeBridge({
