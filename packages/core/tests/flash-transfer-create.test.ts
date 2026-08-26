@@ -196,7 +196,9 @@ describe('FlashTransferApi.createFlashTask — disk streaming (#359)', () => {
 
     await api().createFlashTask(file);
     expect(mainSlices(slices)).toHaveLength(0);
-    expect(ApplyUpload.invoke).toHaveBeenCalled(); // thumbs still apply
+    expect(ApplyUpload.invoke).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      fileName: 'hit.mp4',
+    }));
     expect(SetFilesetStatus.invoke).toHaveBeenCalled();
   });
 

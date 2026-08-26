@@ -570,7 +570,8 @@ export class FlashTransferApi {
 
   /**
    * 阶段1：流式哈希 + prepare（拿 rkey）+ apply（注册 fileId）。
-   * 秒传（rkey=null）返回 null，调用方跳过 sliceupload。
+   * 秒传时 prepare 不回 rkey，仍必须 apply，否则 fileset 会一直停在等待上传；
+   * 返回 null 只表示调用方跳过 sliceupload。
    */
   private async prepareAndApply(
     filesetUuid: string, it: StagedFlashItem,
@@ -582,13 +583,12 @@ export class FlashTransferApi {
       filesetUuid, fileUuid: it.fileUuid, fileName: it.fileName, fileSize: it.fileSize,
       sha1: hashes.sha1Hex, fileIndex: it.fileIndex, formatCode: it.formatCode,
     });
-    if (rkey === null) return null;  // 秒传
-
     const fileId = FlashTransferApi.buildFileId(hashes.sha1, it.fileSize);
     await ApplyUpload.invoke(this.ctx, {
       filesetUuid, fileUuid: it.fileUuid, fileId, fileName: it.fileName, fileSize: it.fileSize,
       md5: hashes.md5Hex, sha1: hashes.sha1Hex, fileIndex: it.fileIndex, formatCode: it.formatCode,
     });
+    if (rkey === null) return null;
     return { rkey, sha1StateV: hashes.sha1StateV, sliceCount: hashes.sliceCount };
   }
 
@@ -678,12 +678,12 @@ export class FlashTransferApi {
       filesetUuid, fileUuid, fileName, fileSize, sha1: hashes.sha1Hex,
       fileIndex, formatCode: thumbFormatCode, thumbType, width, height,
     });
-    if (rkey === null) return;  // 秒传
     const fileId = FlashTransferApi.buildFileId(hashes.sha1, fileSize, appid);
     await ApplyUpload.invoke(this.ctx, {
       filesetUuid, fileUuid, fileId, fileName, fileSize,
       md5: hashes.md5Hex, sha1: hashes.sha1Hex, fileIndex, formatCode: thumbFormatCode, thumbType, width, height,
     });
+    if (rkey === null) return;
     // sliceupload（缩略图小，1 片，Sha1StateV=[标准 SHA1]）
     const sha1StateV = computeSha1StateV(new Uint8Array(thumbBytes), 1, fileSize);
     const body: FlashSliceUploadBody = {
