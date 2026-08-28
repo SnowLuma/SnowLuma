@@ -52,7 +52,7 @@ describe('FetchUserProfile namespace', () => {
       // 企点员工号：两个标志均为 1；普通账号服务器不返回这两个 key → 缺省 0
       const qidian = makeSender({
         body: {
-          uin: 3004251964, uid: 'u',
+          uin: 10002, uid: 'u',
           properties: {
             bytesProperties: [],
             numberProperties: [
@@ -62,7 +62,7 @@ describe('FetchUserProfile namespace', () => {
           },
         } as any,
       });
-      const out = await FetchUserProfile.invoke(qidian, { uin: 3004251964 });
+      const out = await FetchUserProfile.invoke(qidian, { uin: 10002 });
       expect(out.qidianMasterFlag).toBe(1);
       expect(out.qidianCrewFlag).toBe(1);
       expect(out.qidianCrewFlag2).toBe(0);

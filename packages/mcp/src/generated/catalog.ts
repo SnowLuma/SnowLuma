@@ -5317,6 +5317,18 @@ export const ACTIONS: CatalogAction[] = [
         "card_changeable": {
           "type": "boolean",
           "description": "是否可改名片（占位，恒 true）"
+        },
+        "qidian_master_flag": {
+          "type": "integer",
+          "description": "企点主号标志，0 或 1；普通账号为 0"
+        },
+        "qidian_crew_flag": {
+          "type": "integer",
+          "description": "企点员工标志，0 或 1；普通账号为 0"
+        },
+        "qidian_crew_flag_2": {
+          "type": "integer",
+          "description": "企点保留标志，0 或 1；普通账号为 0"
         }
       },
       "required": [
@@ -5476,6 +5488,18 @@ export const ACTIONS: CatalogAction[] = [
           "card_changeable": {
             "type": "boolean",
             "description": "是否可改名片（占位，恒 true）"
+          },
+          "qidian_master_flag": {
+            "type": "integer",
+            "description": "企点主号标志，0 或 1；普通账号为 0"
+          },
+          "qidian_crew_flag": {
+            "type": "integer",
+            "description": "企点员工标志，0 或 1；普通账号为 0"
+          },
+          "qidian_crew_flag_2": {
+            "type": "integer",
+            "description": "企点保留标志，0 或 1；普通账号为 0"
           }
         },
         "required": [
@@ -7424,7 +7448,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_stranger_info",
     "aliases": [],
     "summary": "获取陌生人信息",
-    "returns": "用户资料：QQ 号、昵称、好友备注、性别、年龄与个性签名，命中资料时另含等级与企点标志。",
+    "returns": "用户资料：QQ 号、昵称、好友备注、性别、年龄与个性签名，命中资料时另含等级、企点标志与企业名称。",
     "returnsSchema": {
       "type": "object",
       "properties": {
@@ -7496,6 +7520,10 @@ export const ACTIONS: CatalogAction[] = [
         "qidian_crew_flag_2": {
           "type": "integer",
           "description": "企点保留标志，0 或 1；普通账号为 0"
+        },
+        "qidian_enterprise_name": {
+          "type": "string",
+          "description": "企点企业名称；非企点账号或未获取到时为空字符串"
         }
       },
       "required": [

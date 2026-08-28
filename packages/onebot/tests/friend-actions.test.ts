@@ -34,6 +34,7 @@ describe('get_stranger_info action', () => {
         qidian_master_flag: { type: 'integer' },
         qidian_crew_flag: { type: 'integer' },
         qidian_crew_flag_2: { type: 'integer' },
+        qidian_enterprise_name: { type: 'string' },
       },
     });
     expect(schema?.required).toContain('remark');

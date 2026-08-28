@@ -90,7 +90,8 @@ export namespace PrepareUpload {
 
   export const deserialize = (_ctx: Deps, body: FlashPrepareUploadResp): string | null => {
     // sub-100 resp f2={f1:rkey}（正常上传，CAES/CAIS/CAQS/CAMS）。
-    // 秒传（文件已在服务端）时 f2 无 f1(rkey)，返回 null，调用方跳过 sliceupload。
+    // 秒传（文件已在服务端）时 f2 无 f1(rkey)，返回 null，调用方仍要 apply，
+    // 只跳过 sliceupload。
     return body.rkeyWrap?.rkey ?? null;
   };
 

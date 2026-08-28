@@ -15,6 +15,7 @@ import {
 } from '../message-id';
 import {
   assertOutboundMessageInput,
+  exclusiveForwardNodeList,
   MessageElementValidationError,
   parseMessage,
 } from '../message-parser';
@@ -802,6 +803,17 @@ export async function sendPrivateMessage(
     autoEscape,
     tempGroupId === undefined ? 'direct-private' : 'group-temp',
   );
+  const privateForwardNodes = exclusiveForwardNodeList(message, autoEscape);
+  if (privateForwardNodes) {
+    if (tempGroupId !== undefined) {
+      throw new MessageElementValidationError(
+        'UNSENDABLE_TYPE',
+        'message segment "node" cannot be sent in a temp session',
+        'node',
+      );
+    }
+    return sendPrivateForwardMessage(ref, userId, privateForwardNodes, undefined, onSelfSent);
+  }
   const elements = await parseMessage(message, autoEscape, {
     resolveReplySequence: (replyMessageId) => {
       return ref.messageStore.resolveReplySequence(false, userId, replyMessageId);
@@ -1035,6 +1047,11 @@ export async function sendGroupMessage(
   autoEscape: boolean,
 ): Promise<MessageSendResult> {
   assertOutboundMessageInput(message, autoEscape, 'group');
+  const groupForwardNodes = exclusiveForwardNodeList(message, autoEscape);
+  if (groupForwardNodes) {
+    const result = await sendGroupForwardMessage(ref, groupId, groupForwardNodes);
+    return { messageId: result.messageId };
+  }
   const elements = await parseMessage(message, autoEscape, {
     resolveReplySequence: (replyMessageId) => {
       return ref.messageStore.resolveReplySequence(true, groupId, replyMessageId);

@@ -35,6 +35,54 @@ import { deflateSync } from 'node:zlib';
 
 const FLASH_SLICE_SIZE = 1024 * 1024;
 
+const FLASH_IMAGE_EXT = new Set([
+  'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'heic', 'avif', 'tiff', 'tif', 'ico', 'dib', 'heif',
+]);
+const FLASH_AUDIO_EXT = new Set(['mp3', 'wav', 'aac', 'flac']);
+const FLASH_VIDEO_EXT = new Set([
+  'mp4', 'avi', 'mkv', 'mov', '3gp', 'mpeg', 'rmvb', 'rm', 'wmv', 'flv', 'asf', 'webm', 'mpg', 'vob', 'm4v', 'f4v',
+]);
+const FLASH_ARCHIVE_EXT = new Set(['zip', 'rar', 'tar', 'bz2', 'xz', 'tgz', 'gz', '7z']);
+const FLASH_MODEL_EXT = new Set(['pt', 'pth', 'onnx', 'model', 'mlmodel']);
+
+/** 0x93cf f3 粗类：压缩包走 2/6，其余按媒体类 7。 */
+function flashApplyTypeCode(ext: string): number {
+  if (ext === 'zip') return 6;
+  if (FLASH_ARCHIVE_EXT.has(ext)) return 2;
+  return 7;
+}
+
+/**
+ * 0x93d0 / 0x12a9 格式码。与 QQ 客户端按扩展名判定的图标类型一致：
+ * 图片 26、音频 1、视频 2、文档 3、压缩包 4、未知 11。
+ */
+function flashFormatCode(ext: string): number {
+  if (FLASH_IMAGE_EXT.has(ext)) return 26;
+  if (FLASH_AUDIO_EXT.has(ext)) return 1;
+  if (FLASH_VIDEO_EXT.has(ext)) return 2;
+  if (ext === 'doc' || ext === 'docx') return 3;
+  if (FLASH_ARCHIVE_EXT.has(ext)) return 4;
+  if (ext === 'apk') return 5;
+  if (ext === 'xls' || ext === 'xlsx') return 6;
+  if (ext === 'ppt' || ext === 'pptx') return 7;
+  if (ext === 'html' || ext === 'htm') return 8;
+  if (ext === 'pdf') return 9;
+  if (ext === 'txt') return 10;
+  if (ext === 'psd') return 12;
+  if (FLASH_MODEL_EXT.has(ext)) return 15;
+  if (ext === 'ttf' || ext === 'otf') return 16;
+  if (ext === 'ipa') return 17;
+  if (ext === 'dmg') return 23;
+  if (ext === 'pkg') return 24;
+  if (ext === 'key') return 18;
+  if (ext === 'note') return 19;
+  if (ext === 'numbers') return 20;
+  if (ext === 'pages') return 21;
+  if (ext === 'sketch') return 22;
+  if (ext === 'exe') return 27;
+  return 11;
+}
+
 /** After create returns, 0x93d4 can still omit the main-file fileId for a
  *  few seconds (#364). Re-query on this schedule (first lookup is immediate). */
 const FLASH_FILE_ID_RETRY_DELAYS_MS = [1000, 2000, 4000, 4000] as const;
@@ -393,21 +441,13 @@ export class FlashTransferApi {
   // ─────────────── 文件上传 ───────────────
 
   /**
-   * 文件扩展名 → 闪传类型码映射。typeCode 用于 0x93cf f3，formatCode 用于
-   * 0x93d0 commit f7 与 0x12a9 filesetWrap.f7（两者同值）。mp4 → 2，rar/zip → 4。
-   * 未知扩展名按媒体类处理（formatCode=2），服务端按文件名扩展名判定。
+   * 文件扩展名 → 闪传类型码。typeCode 用于 0x93cf f3（卡片粗类：压缩包/媒体）；
+   * formatCode 用于 0x93d0 commit f7 与 0x12a9 filesetWrap.f7，决定对端图标
+   * （png=26，mp4=2，zip=4，未知=11）。
    */
   private static fileTypeCode(fileName: string): { typeCode: number; formatCode: number } {
     const ext = fileName.toLowerCase().match(/\.([^.]+)$/)?.[1] ?? '';
-    switch (ext) {
-      case 'rar': return { typeCode: 2, formatCode: 4 };
-      case 'zip': return { typeCode: 6, formatCode: 4 };
-      case '7z': case 'gz': case 'tar': case 'bz2': return { typeCode: 2, formatCode: 4 };
-      case 'png': case 'jpg': case 'jpeg': case 'bmp': case 'gif': case 'webp':
-      case 'mp4': case 'mov': case 'avi': case 'mkv':
-        return { typeCode: 7, formatCode: 2 };
-      default: return { typeCode: 7, formatCode: 2 };
-    }
+    return { typeCode: flashApplyTypeCode(ext), formatCode: flashFormatCode(ext) };
   }
 
   /** 构造 sub=103 的 fileId（客户端生成的 protobuf，base64url 编码）。
@@ -530,7 +570,8 @@ export class FlashTransferApi {
 
   /**
    * 阶段1：流式哈希 + prepare（拿 rkey）+ apply（注册 fileId）。
-   * 秒传（rkey=null）返回 null，调用方跳过 sliceupload。
+   * 秒传时 prepare 不回 rkey，仍必须 apply，否则 fileset 会一直停在等待上传；
+   * 返回 null 只表示调用方跳过 sliceupload。
    */
   private async prepareAndApply(
     filesetUuid: string, it: StagedFlashItem,
@@ -542,13 +583,12 @@ export class FlashTransferApi {
       filesetUuid, fileUuid: it.fileUuid, fileName: it.fileName, fileSize: it.fileSize,
       sha1: hashes.sha1Hex, fileIndex: it.fileIndex, formatCode: it.formatCode,
     });
-    if (rkey === null) return null;  // 秒传
-
     const fileId = FlashTransferApi.buildFileId(hashes.sha1, it.fileSize);
     await ApplyUpload.invoke(this.ctx, {
       filesetUuid, fileUuid: it.fileUuid, fileId, fileName: it.fileName, fileSize: it.fileSize,
       md5: hashes.md5Hex, sha1: hashes.sha1Hex, fileIndex: it.fileIndex, formatCode: it.formatCode,
     });
+    if (rkey === null) return null;
     return { rkey, sha1StateV: hashes.sha1StateV, sliceCount: hashes.sliceCount };
   }
 
@@ -638,12 +678,12 @@ export class FlashTransferApi {
       filesetUuid, fileUuid, fileName, fileSize, sha1: hashes.sha1Hex,
       fileIndex, formatCode: thumbFormatCode, thumbType, width, height,
     });
-    if (rkey === null) return;  // 秒传
     const fileId = FlashTransferApi.buildFileId(hashes.sha1, fileSize, appid);
     await ApplyUpload.invoke(this.ctx, {
       filesetUuid, fileUuid, fileId, fileName, fileSize,
       md5: hashes.md5Hex, sha1: hashes.sha1Hex, fileIndex, formatCode: thumbFormatCode, thumbType, width, height,
     });
+    if (rkey === null) return;
     // sliceupload（缩略图小，1 片，Sha1StateV=[标准 SHA1]）
     const sha1StateV = computeSha1StateV(new Uint8Array(thumbBytes), 1, fileSize);
     const body: FlashSliceUploadBody = {

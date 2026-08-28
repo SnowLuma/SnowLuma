@@ -79,6 +79,44 @@ function isExplicitEmptyTextPlaceholder(segment: MessageSegment): boolean {
     && segmentPayload(segment).text === '';
 }
 
+/**
+ * True when the OneBot payload is a forward: every effective segment is
+ * `node` (explicit empty-text placeholders ignored). `send_msg` routes
+ * this list through the forward upload path instead of parseMessage.
+ */
+export function isExclusiveForwardNodeMessage(
+  message: JsonValue,
+  autoEscape: boolean,
+): boolean {
+  return exclusiveForwardNodeList(message, autoEscape) !== null;
+}
+
+/** Node segments from an exclusive forward payload, or null if it is not one. */
+export function exclusiveForwardNodeList(
+  message: JsonValue,
+  autoEscape: boolean,
+): JsonValue[] | null {
+  if (autoEscape && typeof message === 'string') return null;
+  if (typeof message === 'object' && message !== null && !Array.isArray(message)) {
+    const type = (message as { type?: unknown }).type;
+    return typeof type === 'string' && normalizeSegmentType(type) === 'node'
+      ? [message]
+      : null;
+  }
+  if (!Array.isArray(message) || message.length === 0) return null;
+  const nodes: JsonValue[] = [];
+  for (const item of message) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) return null;
+    const type = (item as { type?: unknown }).type;
+    if (typeof type !== 'string' || type.trim().length === 0) return null;
+    const segment = item as MessageSegment;
+    if (isExplicitEmptyTextPlaceholder(segment)) continue;
+    if (normalizeSegmentType(type) !== 'node') return null;
+    nodes.push(item);
+  }
+  return nodes.length > 0 ? nodes : null;
+}
+
 function outboundInputSegmentSummary(
   message: JsonValue,
   autoEscape: boolean,
@@ -222,13 +260,13 @@ export async function segmentToElement(type: string, data: Record<string, unknow
     assertScalarSegmentData(normalizedType, data);
   }
 
-  // 纯 OneBot 输入词：可执行的塌缩成 json/face/poke；没有合法发送语义的 node /
-  // anonymous 在这里明确拒绝。它们无收侧对应、无专属 wire 形态，故不进 codec 表。
-  // 真实元素（收发同名）走下方的 ELEMENT_CODECS。
+  // 纯 OneBot 输入词：可执行的塌缩成 json/face/poke。整条消息都是 node 时由
+  // send 路径交给 parseForwardNodes；混进普通消息的 node、以及 anonymous，
+  // 在这里明确拒绝。真实元素（收发同名）走下方的 ELEMENT_CODECS。
   switch (normalizedType) {
     case 'node': {
-      // Forward-node arrays are consumed by parseForwardNodes before reaching
-      // this function. A node mixed into a normal message is not sendable.
+      // Exclusive node arrays never reach this function. A node mixed into a
+      // normal message is not sendable.
       throw new MessageElementValidationError(
         'UNSENDABLE_TYPE',
         'message segment "node" is only valid inside a forward node list',
