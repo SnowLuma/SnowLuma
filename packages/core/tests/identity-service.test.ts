@@ -809,6 +809,7 @@ describe('IdentityService', () => {
       ['group requests', () => identity.rememberGroupRequests([request])],
       ['request identity', () => identity.rememberRequestIdentity({ uid: 'u_request', uin: 88888 })],
       ['group member identity', () => identity.rememberGroupMemberIdentity(GROUP_ID, { uid: 'u_new', uin: 99999 })],
+      ['group member joined', () => identity.rememberGroupMemberJoined(GROUP_ID, { uid: 'u_new', uin: 99999 })],
       ['group member inactive', () => identity.markGroupMemberInactive(GROUP_ID, { uid: member.uid, uin: member.uin })],
     ];
 
@@ -821,6 +822,73 @@ describe('IdentityService', () => {
     expect(identity.findGroupMember(GROUP_ID, member.uin)?.card).toBe('before-close');
     expect(identity.findFriend(22222)).toBeNull();
     expect(identity.findUinByUid('u_request')).toBeNull();
+  });
+
+  it('does not treat identity-only sightings as live group members', () => {
+    const identity = IdentityService.memory(SELF_UIN);
+    identity.rememberGroups([makeGroup()]);
+    identity.rememberGroupMemberIdentity(GROUP_ID, { uid: 'u_seen', uin: 88888 });
+
+    expect(identity.findGroupMember(GROUP_ID, 88888)).toBeNull();
+    expect(identity.findUinByUid('u_seen')).toBe(88888);
+    identity.close();
+  });
+
+  it('records a thin live member on join without inventing roster details', () => {
+    const identity = IdentityService.memory(SELF_UIN);
+    identity.rememberGroups([makeGroup()]);
+    const existing = makeMember(33333, 'u_existing', 'card');
+    identity.rememberGroupMembers(GROUP_ID, [existing]);
+
+    identity.rememberGroupMemberJoined(GROUP_ID, { uid: 'u_join', uin: 44444 });
+    identity.rememberGroupMemberJoined(GROUP_ID, { uid: 'u_join', uin: 44444 });
+    identity.rememberGroupMemberJoined(GROUP_ID, { uid: 'u_ignored', uin: 0 });
+
+    const joined = identity.findGroupMember(GROUP_ID, 44444);
+    expect(joined).toMatchObject({
+      uin: 44444,
+      uid: 'u_join',
+      nickname: '',
+      card: '',
+      role: 'member',
+    });
+    expect(joined?.isRobot).toBeUndefined();
+    expect(identity.findGroupMember(GROUP_ID, 33333)?.card).toBe('card');
+    identity.close();
+  });
+
+  it('drops a leaver from the live roster and keeps their identity mapping', () => {
+    const identity = IdentityService.memory(SELF_UIN);
+    identity.rememberGroups([makeGroup()]);
+    const member = makeMember(33333, 'u_member', 'card');
+    identity.rememberGroupMembers(GROUP_ID, [member]);
+
+    identity.markGroupMemberInactive(GROUP_ID, { uid: member.uid, uin: member.uin });
+
+    expect(identity.findGroupMember(GROUP_ID, member.uin)).toBeNull();
+    expect(identity.findUidByUin(member.uin, GROUP_ID)).toBe(member.uid);
+    identity.close();
+  });
+
+  it('keeps a leaver out of the live roster after reopen', () => {
+    const dbPath = tempDbPath('leave-live-roster');
+    const member = makeMember(33333, 'u_member', 'card');
+
+    {
+      const identity = new IdentityService(SELF_UIN, dbPath);
+      identity.rememberGroups([makeGroup()]);
+      identity.rememberGroupMembers(GROUP_ID, [member]);
+      identity.markGroupMemberInactive(GROUP_ID, { uid: member.uid, uin: member.uin });
+      expect(identity.findGroupMember(GROUP_ID, member.uin)).toBeNull();
+      identity.close();
+    }
+
+    {
+      const identity = new IdentityService(SELF_UIN, dbPath);
+      expect(identity.findGroupMember(GROUP_ID, member.uin)).toBeNull();
+      expect(identity.findUidByUin(member.uin, GROUP_ID)).toBe(member.uid);
+      identity.close();
+    }
   });
 
   it('marks missing members inactive only after a successful full refresh', () => {

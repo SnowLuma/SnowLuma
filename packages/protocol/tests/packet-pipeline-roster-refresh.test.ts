@@ -138,6 +138,29 @@ describe('IncomingPacketPipeline roster refresh', () => {
     expect(fetchGroupMemberList).toHaveBeenCalledWith(GROUP_ID);
   });
 
+  it('known-group join records the joiner immediately and does not invent the operator', async () => {
+    const { pipeline, identity, fetchGroupList, fetchGroupMemberList } = makePipeline({ plantGroup: true });
+    pipeline.registerCmd('test.roster', () => [join({ userUin: 33333, userUid: 'u_new', operatorUin: 44444, operatorUid: 'u_op' })]);
+    await pipeline.process(pkt());
+
+    expect(identity.findGroupMember(GROUP_ID, 33333)?.uid).toBe('u_new');
+    expect(identity.findGroupMember(GROUP_ID, 33333)?.isRobot).toBeUndefined();
+    expect(identity.findGroupMember(GROUP_ID, 44444)).toBeNull();
+    expect(identity.findUinByUid('u_op')).toBe(44444);
+    expect(fetchGroupList).not.toHaveBeenCalled();
+    expect(fetchGroupMemberList).toHaveBeenCalledWith(GROUP_ID);
+  });
+
+  it('known-group leave drops the member immediately and keeps their identity mapping', async () => {
+    const { pipeline, identity } = makePipeline({ plantGroup: true });
+    identity.rememberGroupMembers(GROUP_ID, [makeMember(22222, 'u_member')]);
+    pipeline.registerCmd('test.roster', () => [leave()]);
+    await pipeline.process(pkt());
+
+    expect(identity.findGroupMember(GROUP_ID, 22222)).toBeNull();
+    expect(identity.findUidByUin(22222, GROUP_ID)).toBe('u_member');
+  });
+
   it('known-group join / leave / admin fetch only the member list', async () => {
     for (const event of [join(), leave(), admin()]) {
       const { pipeline, fetchGroupList, fetchGroupMemberList } = makePipeline({ plantGroup: true });

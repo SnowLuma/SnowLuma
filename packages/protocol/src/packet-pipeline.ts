@@ -678,6 +678,10 @@ export class IncomingPacketPipeline {
           uid: event.operatorUid,
           uin: event.operatorUin,
         });
+        this.deps.identity.rememberGroupMemberJoined(event.groupId, {
+          uid: event.userUid,
+          uin: event.userUin,
+        });
         break;
       case 'group_member_leave':
         this.deps.identity.markGroupMemberInactive(event.groupId, {
