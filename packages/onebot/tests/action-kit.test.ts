@@ -152,15 +152,26 @@ describe('toHandler — BAD_REQUEST shaping + ctx threading', () => {
   });
 });
 
-describe('run raw escape hatch — original params as 3rd arg', () => {
-  it('exposes untouched params for undeclared keys (alias fallbacks etc.)', async () => {
+describe('run only sees declared fields', () => {
+  it('lets a declared alias through and ignores undeclared keys', async () => {
     const spec = defineAction({
       name: 't',
-      params: { user_id: f.uint() },
-      run: (_p, _ctx, raw) => okResponse({ extra: (raw.long_nick ?? raw.longNick ?? null) as never }),
+      params: { user_id: f.uint(), longNick: f.string().optional() },
+      run: (p) => okResponse({ extra: (p.longNick ?? null) as never }),
     });
-    const res = await spec.toHandler(ctx)({ user_id: 1, longNick: 'hi' });
+    const res = await spec.toHandler(ctx)({ user_id: 1, longNick: 'hi', undeclared: 1 });
     expect(res).toMatchObject({ status: 'ok', data: { extra: 'hi' } });
+  });
+
+  it('rejects garbage on a declared int instead of treating it as 0', async () => {
+    const spec = defineAction({
+      name: 't',
+      params: { group_id: f.int({ min: 0 }).optional() },
+      run: (p) => okResponse({ group_id: p.group_id ?? 0 }),
+    });
+    const res = await spec.toHandler(ctx)({ group_id: 'nope' });
+    expect(res.retcode).toBe(RETCODE.BAD_REQUEST);
+    expect(res.wording).toContain('group_id');
   });
 });
 

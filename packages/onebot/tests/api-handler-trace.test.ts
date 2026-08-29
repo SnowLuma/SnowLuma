@@ -149,7 +149,7 @@ describe('ApiHandler TRACE lifecycle', () => {
     const stream = defineStreamAction({
       name: 'trace_stream',
       params: {},
-      run: async (_params, _ctx, _raw, sink) => {
+      run: async (_params, _ctx, sink) => {
         await sink.send({ type: StreamStatus.Stream, chunk: 'complete-frame' });
         return {
           status: 'ok',

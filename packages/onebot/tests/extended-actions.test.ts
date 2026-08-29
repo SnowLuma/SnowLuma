@@ -149,6 +149,50 @@ function fakeEssenceMessage(
   };
 }
 
+describe('extended-actions / send_forward_msg', () => {
+  it('treats group_id 0 as unused', async () => {
+    const sendForwardMsg = vi.fn(async () => ({ forwardId: 'fwd' }));
+    const ctx = fakeCtx(fakeBridge(), { sendForwardMsg });
+    const response = await makeHandler(ctx).handle('send_forward_msg', {
+      messages: 'hi',
+      group_id: 0,
+    });
+    expect(response).toMatchObject({ status: 'ok', retcode: 0 });
+    expect(sendForwardMsg).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a non-numeric group_id instead of treating it as 0', async () => {
+    const sendForwardMsg = vi.fn();
+    const ctx = fakeCtx(fakeBridge(), { sendForwardMsg });
+    const response = await makeHandler(ctx).handle('send_forward_msg', {
+      messages: 'hi',
+      group_id: 'nope',
+    });
+    expect(response).toMatchObject({ status: 'failed', retcode: 1400 });
+    expect(sendForwardMsg).not.toHaveBeenCalled();
+  });
+});
+
+describe('extended-actions / get_forward_msg', () => {
+  it('uses a string message_id as the forward id', async () => {
+    const getForwardMsg = vi.fn(async () => []);
+    const ctx = fakeCtx(fakeBridge(), { getForwardMsg });
+    const response = await makeHandler(ctx).handle('get_forward_msg', { message_id: 'resid-1' });
+    expect(getForwardMsg).toHaveBeenCalledWith('resid-1');
+    expect(response).toMatchObject({ status: 'ok' });
+  });
+});
+
+describe('extended-actions / fetch_ptt_text', () => {
+  it('accepts a numeric message_id', async () => {
+    const fetchPttText = vi.fn(async () => 'hello');
+    const ctx = fakeCtx(fakeBridge(), { fetchPttText });
+    const response = await makeHandler(ctx).handle('fetch_ptt_text', { message_id: 12 });
+    expect(fetchPttText).toHaveBeenCalledWith(12);
+    expect(response).toMatchObject({ status: 'ok', data: 'hello' });
+  });
+});
+
 describe('extended-actions / set_self_longnick', () => {
   it('accepts an empty longNick to clear the signature', async () => {
     const setSelfLongNick = vi.fn(async () => undefined);

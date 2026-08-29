@@ -1,5 +1,4 @@
 import { defineAction, groupAction, groupUserAction, f } from '../action-kit';
-import { asString } from '../api-handler';
 import { RETCODE, failedResponse, okResponse } from '../types';
 import { WebHonorType } from '@snowluma/protocol/web/group-honor';
 
@@ -190,17 +189,14 @@ export const actions = [
     },
   }),
 
-  // `type` keeps the legacy `asString(x) || 'all'` semantics (absent / non-string
-  // / empty-string all collapse to 'all'), which a typed string field can't
-  // replicate exactly — so it stays a raw param coerced in run().
   groupAction({
     name: 'get_group_honor_info',
     summary: '获取群荣誉信息',
     readOnly: true,
-    params: { type: f.raw() },
+    params: { type: f.string().optional() },
     run: async (p, ctx) => {
       const groupId = p.group_id;
-      const typeStr = asString(p.type) || 'all';
+      const typeStr = p.type || 'all';
 
       const typeValues = Object.values(WebHonorType) as string[];
       if (!typeValues.includes(typeStr)) {
