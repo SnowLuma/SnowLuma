@@ -1,6 +1,4 @@
 import type {
-  FaceroamOpReq,
-  FaceroamOpResp,
   GroupAvatarExtra,
   SetStatusReq,
   SetStatusResp,
@@ -8,6 +6,7 @@ import type {
 import { AddCustomFace } from '@snowluma/protocol/oidb-services/custom-face/add-custom-face';
 import { DeleteCustomFace } from '@snowluma/protocol/oidb-services/custom-face/delete-custom-face';
 import { FetchCustomFaceDetail } from '@snowluma/protocol/oidb-services/custom-face/fetch-custom-face-detail';
+import { FetchCustomFaceList } from '@snowluma/protocol/oidb-services/custom-face/fetch-custom-face-list';
 import { ModifyCustomFace } from '@snowluma/protocol/oidb-services/custom-face/modify-custom-face';
 import { MoveCustomFace } from '@snowluma/protocol/oidb-services/custom-face/move-custom-face';
 import { OrderCustomFace } from '@snowluma/protocol/oidb-services/custom-face/order-custom-face';
@@ -167,28 +166,13 @@ export class ProfileApi {
     }));
   }
 
-  private async fetchCustomFaceIds(count: number): Promise<string[]> {
+  async fetchCustomFaceIds(count = 10): Promise<string[]> {
     if (!Number.isInteger(count) || count < 0) {
       throw new Error('custom face count must be a non-negative integer');
     }
     if (count === 0) return [];
 
-    const req = {
-      inner: { field1: 1, osVersion: '10.0.26200', qqVersion: '9.9.28-46928' },
-      uin: BigInt(this.ctx.identity.uin),
-      field3: 1,
-      field6: 1,
-    };
-    const request = protobuf_encode<FaceroamOpReq>(req);
-    const result = await this.ctx.sendRawPacket('Faceroam.OpReq', request);
-    if (!result.success || !result.gotResponse || !result.responseData) {
-      throw new Error(result.errorMessage || 'fetch custom face failed');
-    }
-    const resp = protobuf_decode<FaceroamOpResp>(result.responseData);
-    if (!resp || (resp.retCode ?? 0) !== 0) {
-      throw new Error(`fetch custom face error: ${resp?.message || 'unknown'}`);
-    }
-    const faceIds = resp.item?.faceIds || [];
+    const faceIds = await FetchCustomFaceList.invoke(this.ctx, { uin: this.ctx.identity.uin });
     return faceIds.slice(0, count);
   }
 
@@ -196,7 +180,7 @@ export class ProfileApi {
     return `https://p.qpic.cn/qq_expression/${this.ctx.identity.uin}/${emojiId}/0`;
   }
 
-  /** 删除一个收藏表情（custom face）。emoji_id 来自 fetchCustomFace 返回的 URL 路径段。 */
+  /** 删除一个收藏表情（custom face）。emoji_id 来自收藏列表。 */
   deleteCustomFace(emojiId: string): Promise<void> {
     return DeleteCustomFace.invoke(this.ctx, { uin: this.ctx.identity.uin, emojiId });
   }
@@ -211,9 +195,8 @@ export class ProfileApi {
   }
 
   /**
-   * 修改收藏表情（custom face）备注。emoji_id 来自 fetchCustomFace 返回的
-   * URL 路径段；md5 从 emoji_id 中段解析，无需调用方单独提供。desc 为空串
-   * 则清空备注。
+   * 修改收藏表情（custom face）备注。emoji_id 来自收藏列表；md5 从 emoji_id
+   * 中段解析，无需调用方单独提供。desc 为空串则清空备注。
    */
   modifyCustomFace(emojiId: string, desc: string): Promise<void> {
     return ModifyCustomFace.invoke(this.ctx, {
@@ -231,11 +214,7 @@ export class ProfileApi {
    */
   async moveCustomFaceToFront(emojiId: string): Promise<void> {
     // 1. fetch 当前完整列表（fetch 顺序即可，不需要 DB 显示顺序）
-    const urls = await this.fetchCustomFace(1000);
-    const ids = urls.map((url) => {
-      const m = /\/qq_expression\/[^/]+\/([^/]+)\//.exec(url);
-      return m ? m[1] : '';
-    }).filter(Boolean);
+    const ids = await this.fetchCustomFaceIds(1000);
     const idx = ids.indexOf(emojiId);
     if (idx < 0) throw new Error(`emoji_id not in list: ${emojiId}`);
     // 新顺序：目标挪到第一，其余按原顺序

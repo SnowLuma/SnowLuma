@@ -1266,15 +1266,10 @@ export const actions = [
       return_type: f.string().default('url'),
     },
     run: async (p, ctx) => {
-      const urls = await ctx.bridge.apis.profile.fetchCustomFace(p.count);
       if (p.return_type === 'id') {
-        const emojiIds = urls.map((url) => {
-          const m = /\/qq_expression\/[^/]+\/([^/]+)\//.exec(url);
-          return m ? m[1] : '';
-        }).filter(Boolean);
-        return okResponse(emojiIds);
+        return okResponse(await ctx.bridge.apis.profile.fetchCustomFaceIds(p.count));
       }
-      return okResponse(urls);
+      return okResponse(await ctx.bridge.apis.profile.fetchCustomFace(p.count));
     },
   }),
 

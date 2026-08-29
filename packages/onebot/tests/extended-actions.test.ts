@@ -61,6 +61,7 @@ const APIS_ROUTING: Record<string, [string, string]> = {
   setAvatar: ['profile', 'setAvatar'],
   setGroupAvatar: ['profile', 'setGroupAvatar'],
   fetchCustomFace: ['profile', 'fetchCustomFace'],
+  fetchCustomFaceIds: ['profile', 'fetchCustomFaceIds'],
   fetchCustomFaceDetails: ['profile', 'fetchCustomFaceDetails'],
   getProfileLike: ['profile', 'getLike'],
   getUnidirectionalFriendList: ['profile', 'getUnidirectionalFriendList'],
@@ -1483,6 +1484,45 @@ describe('extended-actions / set_group_portrait', () => {
       group_id: 1, file: 'x.png',
     });
     expect(res).toMatchObject({ status: 'failed', retcode: 100, wording: 'highway 500' });
+  });
+});
+
+describe('extended-actions / fetch_custom_face', () => {
+  it('return_type=id uses the id list directly', async () => {
+    const fetchCustomFaceIds = vi.fn(async () => [
+      '10001_0_0_0_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_0_0',
+      '10001_0_0_0_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB_0_0',
+    ]);
+    const fetchCustomFace = vi.fn();
+    const bridge = fakeBridge({ fetchCustomFaceIds, fetchCustomFace });
+
+    const response = await makeHandler(fakeCtx(bridge)).handle('fetch_custom_face', {
+      count: '2',
+      return_type: 'id',
+    });
+
+    expect(fetchCustomFaceIds).toHaveBeenCalledWith(2);
+    expect(fetchCustomFace).not.toHaveBeenCalled();
+    expect(response).toMatchObject({
+      status: 'ok',
+      data: [
+        '10001_0_0_0_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_0_0',
+        '10001_0_0_0_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB_0_0',
+      ],
+    });
+  });
+
+  it('default return_type uses image urls', async () => {
+    const url = 'https://p.qpic.cn/qq_expression/10001/id/0';
+    const fetchCustomFace = vi.fn(async () => [url]);
+    const fetchCustomFaceIds = vi.fn();
+    const bridge = fakeBridge({ fetchCustomFace, fetchCustomFaceIds });
+
+    const response = await makeHandler(fakeCtx(bridge)).handle('fetch_custom_face', { count: '1' });
+
+    expect(fetchCustomFace).toHaveBeenCalledWith(1);
+    expect(fetchCustomFaceIds).not.toHaveBeenCalled();
+    expect(response).toMatchObject({ status: 'ok', data: [url] });
   });
 });
 
