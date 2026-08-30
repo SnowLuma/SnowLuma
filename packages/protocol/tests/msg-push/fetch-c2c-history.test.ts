@@ -3,7 +3,13 @@
 // re-uses the regular friend decoder).
 
 import { deflateSync } from 'node:zlib';
-import { describe, expect, it } from 'vitest';
+import {
+  getLogLevel,
+  setLogLevel,
+  subscribeLogs,
+  type LogEntry,
+} from '@snowluma/common/logger';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type {
@@ -24,6 +30,11 @@ import {
 } from '../../src/msg-push';
 
 const identity = { findFriend: () => undefined } as unknown as IdentityService;
+const previousLogLevel = getLogLevel();
+
+afterEach(() => {
+  setLogLevel(previousLogLevel);
+});
 
 function okResult(data: Uint8Array): SendPacketResult {
   return { success: true, gotResponse: true, responseData: data } as SendPacketResult;
@@ -122,6 +133,37 @@ describe('fetchC2cMessageRange / SsoGetC2cMsg', () => {
     const out = await fetchC2cMessageRange({ sendRawPacket: async () => okResult(resp) }, identity, 10001, 'u_friend', 100, 120);
     expect(out.map((m) => m.ntMsgSeq)).toEqual([120]);
     expect(out[0]).toMatchObject({ senderUin: 222, elements: [{ type: 'text', text: 'hi' }] });
+  });
+
+  it('keeps and warns on a body that had content but decoded to no elements', async () => {
+    const resp = protobuf_encode<SsoGetC2cMsgResponse>({
+      friendUid: 'u_friend',
+      messages: [{
+        responseHead: { fromUin: 222, forward: { friendName: 'Bob' } },
+        contentHead: { msgType: 166, sequence: 9120, ntMsgSeq: 120, timestamp: 1700000120, msgId: 7120 },
+        body: { richText: { elems: [{ commonElem: { serviceType: 999, businessType: 0 } }] } },
+      }],
+    });
+    const warnings: string[] = [];
+    setLogLevel('warn');
+    const unsubscribe = subscribeLogs((entry: LogEntry) => {
+      if (entry.level === 'warn') warnings.push(entry.message);
+    });
+    try {
+      const out = await fetchC2cMessageRange(
+        { sendRawPacket: async () => okResult(resp) },
+        identity,
+        10001,
+        'u_friend',
+        100,
+        120,
+      );
+      expect(out).toHaveLength(1);
+      expect(out[0]).toMatchObject({ kind: 'friend_message', ntMsgSeq: 120, elements: [] });
+      expect(warnings.some((message) => message.includes('missing decoder'))).toBe(true);
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('rejects a visible message without the canonical NT sequence', async () => {

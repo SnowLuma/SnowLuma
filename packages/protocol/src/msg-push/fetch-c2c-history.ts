@@ -10,7 +10,7 @@ import type {
 import type { PushMsgBody } from '@snowluma/proto-defs/message';
 import type { QQEventVariant } from '../events';
 import type { IdentityService } from '../identity-service';
-import { isBlankMessage, isC2cControlPush } from './blank-filter';
+import { isC2cControlPush, keepDecodedMessage } from './blank-filter';
 import { buildContextFromMessage } from './context';
 import { decodeFriendMessage } from './decoders/friend-message';
 import { requirePacketResponse } from './packet-response';
@@ -46,7 +46,7 @@ function decodeC2cMessages(
     if (isC2cControlPush(ctx.head)) continue;
     for (const ev of decodeFriendMessage(ctx)) {
       if (ev.kind !== 'friend_message') continue;
-      if (isBlankMessage(ev.elements, ctx.body)) continue;
+      if (!keepDecodedMessage(ctx.head, ev.elements, ctx.body, ev.kind, ctx.fromUin)) continue;
       if (ev.sequenceAuthoritative === false || !ev.ntMsgSeq || ev.ntMsgSeq <= 0) {
         throw new Error(
           `${source} message is missing the canonical NT sequence `

@@ -2,7 +2,13 @@
 // field tags) and the fetched-history decode path (each returned PushMsgBody
 // re-uses the regular group decoder).
 
-import { describe, expect, it } from 'vitest';
+import {
+  getLogLevel,
+  setLogLevel,
+  subscribeLogs,
+  type LogEntry,
+} from '@snowluma/common/logger';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { SsoGetGroupMsg, SsoGetGroupMsgResponse } from '@snowluma/proto-defs/get-group-msg';
@@ -10,6 +16,11 @@ import type { IdentityService } from '../../src/identity-service';
 import { SSO_GET_GROUP_MSG_CMD, fetchGroupMessageRange } from '../../src/msg-push';
 
 const identity = { findGroupMember: () => undefined, findGroup: () => null } as unknown as IdentityService;
+const previousLogLevel = getLogLevel();
+
+afterEach(() => {
+  setLogLevel(previousLogLevel);
+});
 
 function okResult(data: Uint8Array): SendPacketResult {
   return { success: true, gotResponse: true, responseData: data } as SendPacketResult;
@@ -117,6 +128,39 @@ describe('fetchGroupMessageRange / SsoGetGroupMsg', () => {
     const out = await fetchGroupMessageRange({ sendRawPacket: async () => okResult(resp) }, identity, 10001, 9999, 100, 120);
     expect(out.map((m) => m.msgSeq)).toEqual([120]);
     expect(out[0]).toMatchObject({ senderUin: 222, elements: [{ type: 'text', text: 'hi' }] });
+  });
+
+  it('keeps and warns on a body that had content but decoded to no elements', async () => {
+    const resp = protobuf_encode<SsoGetGroupMsgResponse>({
+      body: {
+        groupUin: 9999,
+        messages: [{
+          responseHead: { fromUin: 222, grp: { groupUin: 9999, memberName: 'Bob' } },
+          contentHead: { msgType: 82, sequence: 120, timestamp: 1700000120, msgId: 5120 },
+          body: { richText: { elems: [{ commonElem: { serviceType: 999, businessType: 0 } }] } },
+        }],
+      },
+    });
+    const warnings: string[] = [];
+    setLogLevel('warn');
+    const unsubscribe = subscribeLogs((entry: LogEntry) => {
+      if (entry.level === 'warn') warnings.push(entry.message);
+    });
+    try {
+      const out = await fetchGroupMessageRange(
+        { sendRawPacket: async () => okResult(resp) },
+        identity,
+        10001,
+        9999,
+        100,
+        120,
+      );
+      expect(out).toHaveLength(1);
+      expect(out[0]).toMatchObject({ kind: 'group_message', msgSeq: 120, elements: [] });
+      expect(warnings.some((message) => message.includes('missing decoder'))).toBe(true);
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('drops QQ null roam records even when they carry a deleted placeholder (#254)', async () => {
