@@ -71,9 +71,9 @@ type ConverterFor<K extends QQEventVariant['kind']> =
  * new `QQEventVariant` kind that forgets a converter is a compile error here —
  * not a silent `null` at runtime.
  */
-type ConverterRegistry = { [K in QQEventVariant['kind']]: ConverterFor<K> | null };
+export type ConverterRegistry = { [K in QQEventVariant['kind']]: ConverterFor<K> | null };
 
-const CONVERTERS: ConverterRegistry = {
+export const CONVERTERS: ConverterRegistry = {
   // Messages.
   friend_message: convertFriendMessage,
   group_message: convertGroupMessage,
