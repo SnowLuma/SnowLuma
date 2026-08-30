@@ -356,12 +356,12 @@ function PasswordStep({
         idPrefix="onboarding-cpw"
         submitLabel={mode === 'rehearsal' ? '完成演练' : '保存并完成'}
         className="gap-5"
-        renderActions={({ canSubmit, submitting, submitLabel }) => (
+        renderActions={({ canAttempt, submitting, submitLabel }) => (
           <div className="grid gap-3 pt-2 sm:flex sm:items-center">
             <Button type="button" variant="outline" onClick={back} disabled={submitting} className="h-11 w-full sm:w-auto">
               上一步
             </Button>
-            <Button type="submit" disabled={!canSubmit} className="h-11 w-full sm:ml-auto sm:min-w-36 sm:w-auto">
+            <Button type="submit" disabled={!canAttempt} className="h-11 w-full sm:ml-auto sm:min-w-36 sm:w-auto">
               {submitting ? (
                 <>
                   <Loader2 className="size-4 animate-spin" /> 提交中…
