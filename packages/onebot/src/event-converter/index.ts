@@ -73,7 +73,7 @@ type ConverterFor<K extends QQEventVariant['kind']> =
  */
 export type ConverterRegistry = { [K in QQEventVariant['kind']]: ConverterFor<K> | null };
 
-export const CONVERTERS: ConverterRegistry = {
+export const CONVERTERS = {
   // Messages.
   friend_message: convertFriendMessage,
   group_message: convertGroupMessage,
@@ -107,7 +107,7 @@ export const CONVERTERS: ConverterRegistry = {
   online_devices_changed: null,
   // Internal-only identity synchronization from another QQ client.
   friend_remark_changed: null,
-};
+} satisfies ConverterRegistry;
 
 export async function convertEvent(
   ctx: ConverterContext,

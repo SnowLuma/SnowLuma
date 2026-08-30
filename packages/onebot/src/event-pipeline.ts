@@ -424,7 +424,14 @@ function handlePttTransResult(
   traceEventTerminal(log, event.kind, state, 'internal', 'waiter_notified');
 }
 
-const convertOnly: PipelineHandler<EventKind> = convertAndDispatch;
+function convertOnly<K extends EventKind>(
+  ctx: OneBotInstanceContext,
+  log: Logger,
+  event: Extract<QQEventVariant, { kind: K }>,
+  state: EventTraceState,
+): Promise<void> {
+  return convertAndDispatch(ctx, log, event, state);
+}
 
 const EVENT_PIPELINE = {
   friend_message: { handle: handleFriendMessage },
