@@ -6,19 +6,27 @@
 //   pnpm release <version> --dry-run # print plan, change nothing
 //
 // What it does, in order:
-//   1. Sanity-check: on `dev`, clean tree, in sync with origin/dev.
+//   1. Sanity-check: on `dev`, clean tree. Must not be behind origin/dev.
+//      Ahead-by-one is allowed when HEAD is already this version's
+//      `chore(release):` commit (resume after a dropped push).
 //   2. `pnpm bump <version>` (writes every package.json).
 //   3. Commit `chore(release): vX.Y.Z` — that prefix triggers the
 //      Promote workflow, which opens (or updates) the dev→main PR and
-//      auto-merges if the GitHub setting allows.
-//   4. Push to origin/dev.
+//      auto-merges if the GitHub setting allows. Skipped when HEAD is
+//      already that commit.
+//   4. Push to origin/dev (retries transient HTTPS / TLS failures).
 //   5. (Unless `--no-wait`) poll the Promote PR via `gh` until it
 //      merges, then fetch and fast-forward `main` to `origin/main`,
 //      create `vX.Y.Z` tag, push it — that triggers `release.yml`.
+//      Fetch / tag push also retry.
 //   6. Switch back to `dev` so the next `git log` view is back where
 //      you were.
+//
+// Re-run the same `pnpm release <version>` after a dropped push; do
+// not amend the release commit.
 
 import { execSync, spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -66,6 +74,47 @@ function sh(cmd, { capture = false, allowFail = false } = {}) {
   return '';
 }
 
+function sleepSync(ms) {
+  execSync(`sleep ${Math.max(1, Math.ceil(ms / 1000))}`);
+}
+
+/** Retry git fetch / push. TLS drops after a successful commit used to abort
+ *  the whole pipeline with no way to resume except by hand. */
+function shRetry(cmd, { attempts = 5 } = {}) {
+  if (dryRun) {
+    console.log(`[dry-run] $ ${cmd}`);
+    return '';
+  }
+  let delayMs = 2000;
+  for (let i = 1; i <= attempts; i++) {
+    if (i > 1) info(`retry ${i}/${attempts}: ${cmd}`);
+    const result = spawnSync(cmd, { cwd: repoRoot, shell: true, stdio: 'inherit' });
+    if (result.status === 0) return '';
+    if (i === attempts) {
+      const hint = cmd.includes('git push origin dev')
+        ? `\nRelease commit is already local. Fix the network and re-run: pnpm release ${version}`
+        : '';
+      throw new Error(`Command failed after ${attempts} attempts: ${cmd}${hint}`);
+    }
+    warn(`failed (exit ${result.status}), retrying in ${delayMs / 1000}s`);
+    sleepSync(delayMs);
+    delayMs *= 2;
+  }
+  return '';
+}
+
+function headSubject() {
+  return shCapture('git log -1 --format=%s');
+}
+
+function packageVersion() {
+  return JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf-8')).version;
+}
+
+function headIsThisRelease() {
+  return headSubject() === releaseCommit && packageVersion() === version;
+}
+
 function shCapture(cmd) {
   return execSync(cmd, { cwd: repoRoot, encoding: 'utf-8' }).trim();
 }
@@ -82,7 +131,9 @@ function info(msg) { console.log(`\x1b[36mi\x1b[0m ${msg}`); }
 function warn(msg) { console.log(`\x1b[33m!\x1b[0m ${msg}`); }
 
 function printManualFinish() {
-  info('Once the Promote PR merges, finish manually with:');
+  info('Once the Promote PR merges, finish with:');
+  info(`  pnpm release ${version}`);
+  info('or by hand:');
   info('  git fetch origin refs/heads/main:refs/remotes/origin/main');
   info('  git switch main');
   info('  git merge --ff-only origin/main');
@@ -92,7 +143,7 @@ function printManualFinish() {
 function syncMain() {
   // Use a fully qualified refspec and an explicit fast-forward so release
   // behavior cannot be changed by the caller's pull/rebase configuration.
-  sh('git fetch origin refs/heads/main:refs/remotes/origin/main --quiet');
+  shRetry('git fetch origin refs/heads/main:refs/remotes/origin/main --quiet');
   sh('git switch main');
   sh('git merge --ff-only origin/main');
 
@@ -128,43 +179,53 @@ function preflight() {
     preflightFail(`Working tree is not clean. Commit or stash first.\n${dirty}`);
   }
 
-  // Make sure we're up to date with origin/dev so the bump commit doesn't
-  // collide with someone else's push.
-  shCapture('git fetch origin dev --quiet');
+  // Make sure we're not behind origin/dev so the bump commit doesn't
+  // collide with someone else's push. Ahead-by-one is a resume: the
+  // previous run committed the bump then dropped the push.
+  shRetry('git fetch origin refs/heads/dev:refs/remotes/origin/dev --quiet');
   const local = shCapture('git rev-parse dev');
   const remote = shCapture('git rev-parse origin/dev');
   if (local !== remote) {
     const ahead  = shCapture('git rev-list --count origin/dev..dev');
     const behind = shCapture('git rev-list --count dev..origin/dev');
-    preflightFail(`dev is not in sync with origin/dev (ahead=${ahead}, behind=${behind}). Pull / push first.`);
+    if (behind !== '0') {
+      preflightFail(`dev is behind origin/dev (behind=${behind}). Pull first.`);
+    }
+    if (ahead === '1' && headIsThisRelease()) {
+      warn(`dev is ahead of origin/dev by 1; HEAD is ${releaseCommit}, will resume from push`);
+    } else {
+      preflightFail(`dev is not in sync with origin/dev (ahead=${ahead}, behind=${behind}). Pull / push first.`);
+    }
   }
 
-  if (!dryRun) ok(`on dev, clean, in sync with origin/dev`);
+  if (!dryRun) ok(`on dev, clean, ready to release ${tag}`);
 }
 
 // ───────────── step 2-4: bump + commit + push dev ─────────────
 
 function bumpAndPushDev() {
-  sh(`node tools/bump-version.mjs ${version}`);
-  ok(`bumped all package.json files to ${version}`);
+  if (!dryRun && headIsThisRelease()) {
+    warn(`HEAD is already ${releaseCommit}; skipping bump and commit`);
+  } else {
+    sh(`node tools/bump-version.mjs ${version}`);
+    ok(`bumped all package.json files to ${version}`);
 
-  if (dryRun) {
-    info(`would commit "${releaseCommit}" and push origin dev`);
-    return;
+    if (dryRun) {
+      info(`would commit "${releaseCommit}" and push origin dev`);
+      return;
+    }
+
+    const changed = shCapture('git status --porcelain');
+    if (!changed) {
+      warn(`no version changes — package.json already at ${version}, skipping commit`);
+    } else {
+      sh('git add package.json packages/*/package.json');
+      sh(`git commit -m "${releaseCommit}"`);
+      ok(`committed ${releaseCommit}`);
+    }
   }
 
-  const changed = shCapture('git status --porcelain');
-  if (!changed) {
-    // Already at this version. Probably re-running. Still try to push tag.
-    warn(`no version changes — package.json already at ${version}, skipping commit`);
-    return;
-  }
-
-  sh('git add package.json packages/*/package.json');
-  sh(`git commit -m "${releaseCommit}"`);
-  ok(`committed ${releaseCommit}`);
-
-  sh('git push origin dev');
+  shRetry('git push origin dev');
   ok(`pushed to origin/dev — Promote workflow should kick off shortly`);
 }
 
@@ -236,9 +297,18 @@ async function waitAndTag() {
     warn('Tagging anyway, but the release artifact name may not match.');
   }
 
-  sh(`git tag ${tag}`);
-  sh(`git push origin ${tag}`);
-  ok(`tagged and pushed ${tag} — release workflow will pick it up`);
+  if (dryRun) {
+    info(`would tag ${tag} and push origin ${tag}`);
+  } else {
+    const exists = spawnSync('git', ['rev-parse', '-q', '--verify', `refs/tags/${tag}`], {
+      cwd: repoRoot,
+      stdio: 'ignore',
+    }).status === 0;
+    if (exists) warn(`tag ${tag} already exists locally`);
+    else sh(`git tag ${tag}`);
+    shRetry(`git push origin ${tag}`);
+    ok(`tagged and pushed ${tag} — release workflow will pick it up`);
+  }
 
   // Hop back to dev so the user lands where they started.
   sh('git checkout dev');

@@ -361,7 +361,7 @@ const downloadFileStream = defineStreamAction({
   summary: '以流式方式下载文件(stream 目录本地文件 / URL / 缓存媒体)',
   returns: '流式帧:file_info → file_chunk* → file_complete',
   params: downloadParams,
-  run: (p, ctx, _raw, sink) => runDownload(p.file || p.file_id || '', p.chunk_size, ctx, sink, 'auto'),
+  run: (p, ctx, sink) => runDownload(p.file || p.file_id || '', p.chunk_size, ctx, sink, 'auto'),
 });
 
 const downloadFileImageStream = defineStreamAction({
@@ -369,7 +369,7 @@ const downloadFileImageStream = defineStreamAction({
   summary: '以流式方式下载图片(缓存图片 id / URL / stream 目录本地文件)',
   returns: '流式帧:file_info → file_chunk* → file_complete',
   params: downloadParams,
-  run: (p, ctx, _raw, sink) => runDownload(p.file || p.file_id || '', p.chunk_size, ctx, sink, 'image'),
+  run: (p, ctx, sink) => runDownload(p.file || p.file_id || '', p.chunk_size, ctx, sink, 'image'),
 });
 
 const downloadFileRecordStream = defineStreamAction({
@@ -377,7 +377,7 @@ const downloadFileRecordStream = defineStreamAction({
   summary: '以流式方式下载语音(缓存语音 id / URL / stream 目录本地文件)',
   returns: '流式帧:file_info → file_chunk* → file_complete',
   params: downloadParams,
-  run: (p, ctx, _raw, sink) => runDownload(p.file || p.file_id || '', p.chunk_size, ctx, sink, 'record'),
+  run: (p, ctx, sink) => runDownload(p.file || p.file_id || '', p.chunk_size, ctx, sink, 'record'),
 });
 
 const testDownloadStream = defineStreamAction({
@@ -385,7 +385,7 @@ const testDownloadStream = defineStreamAction({
   summary: '测试下载流(推送 10 个数据帧,验证流式传输,不触达 QQ)',
   returns: '流式帧:data_chunk*10 → data_complete(error=true 时以 error 帧结束)',
   params: { error: f.bool().default(false).describe('是否触发测试错误') },
-  run: async (p, _ctx, _raw, sink) => {
+  run: async (p, _ctx, sink) => {
     for (let i = 0; i < 10; i++) {
       await sink.send({ type: StreamStatus.Stream, data: `Index-> ${i + 1}`, data_type: 'data_chunk' });
     }

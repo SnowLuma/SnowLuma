@@ -84,6 +84,24 @@ describe('send_msg parse', () => {
       reason: 'must be >= 1',
     });
   });
+
+  it('treats an empty group_id string as absent', () => {
+    expect(sendMsg.parse({
+      message_type: 'private',
+      user_id: 1316864423,
+      group_id: '',
+      message: 'hi',
+    })).toEqual({
+      ok: true,
+      value: {
+        message: 'hi',
+        message_type: 'private',
+        group_id: undefined,
+        user_id: 1316864423,
+        auto_escape: false,
+      },
+    });
+  });
 });
 
 describe('send_msg run', () => {
@@ -118,6 +136,26 @@ describe('send_msg run', () => {
       true,
     ]]);
     expect(sendPrivateMessage).not.toHaveBeenCalled();
+  });
+
+  it('sends a private message when group_id is an empty string', async () => {
+    const sendGroupMessage = vi.fn(async () => ({ messageId: 0 }));
+    const sendPrivateMessage = vi.fn(async () => ({ messageId: 9006 }));
+    const response = await sendMsg.toHandler(asCtx({ sendGroupMessage, sendPrivateMessage }))({
+      message_type: 'private',
+      user_id: 1316864423,
+      group_id: '',
+      message: [{ type: 'image', data: { file: 'base64://x' } }],
+    });
+
+    expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9006 } });
+    expect(sendPrivateMessage.mock.calls).toEqual([[
+      1316864423,
+      [{ type: 'image', data: { file: 'base64://x' } }],
+      false,
+      undefined,
+    ]]);
+    expect(sendGroupMessage).not.toHaveBeenCalled();
   });
 
   it('sends a private message when only user_id is present', async () => {

@@ -6,7 +6,6 @@ import type {
   GroupEssenceMessage,
 } from '@snowluma/protocol/web/group-essence';
 import type { ApiActionContext } from '../api-handler';
-import { asNumber, asString } from '../api-handler';
 import type { ForwardPreviewMeta } from '../modules/message-actions';
 import {
   hasAuthoritativeSequence,
@@ -14,9 +13,10 @@ import {
   failedResponse,
   okResponse,
   type JsonObject,
+  type JsonValue,
   type MessageMeta,
 } from '../types';
-import { defineAction, groupAction, groupUserAction, f } from '../action-kit';
+import { defineAction, groupAction, groupUserAction, f, type Field } from '../action-kit';
 import { groupInfoReturnsSchema } from './group-info';
 import { GROUP_MESSAGE_EVENT, hashMessageIdInt32 } from '../message-id';
 
@@ -262,19 +262,57 @@ async function saveDownloadBuffer(buf: Buffer, preferredName: string): Promise<s
   return resolved;
 }
 
-// 从 send_*_forward_msg 的参数里提取 NapCat 兼容的转发预览元信息。四个字段都是可选的——如果没有提供，模块层会根据实际消息节点列表推断出合理的默认值。
-function readForwardPreviewMeta(params: Record<string, unknown>): ForwardPreviewMeta | undefined {
-  const source = asString(params.source) || undefined;
-  const summary = asString(params.summary) || undefined;
-  const prompt = asString(params.prompt) || undefined;
+function optionalExactString(): Field<string | undefined> {
+  const inner = f.string().optional();
+  return Object.assign(Object.create(inner) as Field<string | undefined>, {
+    coerce(raw: unknown, field: string) {
+      if (typeof raw === 'number' || typeof raw === 'boolean' || raw === null
+        || (typeof raw === 'object' && raw !== null)) {
+        return { ok: false as const, field, reason: 'expected a string' };
+      }
+      return inner.coerce(raw as Parameters<Field<string | undefined>['coerce']>[0], field);
+    },
+  });
+}
+
+function integerFromDecimalString(value: string): number {
+  if (value.trim() === '') return 0;
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.trunc(n) : 0;
+}
+
+function primitiveText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return '';
+}
+
+const forwardPreviewParams = {
+  source: f.string().optional(),
+  summary: f.string().optional(),
+  prompt: f.string().optional(),
+  news: f.raw(),
+};
+
+// NapCat-compatible forward preview. All four fields are optional — if none
+// are provided, the message module infers defaults from the node list.
+function readForwardPreviewMeta(p: {
+  source?: string;
+  summary?: string;
+  prompt?: string;
+  news?: JsonValue;
+}): ForwardPreviewMeta | undefined {
+  const source = p.source || undefined;
+  const summary = p.summary || undefined;
+  const prompt = p.prompt || undefined;
   let news: Array<{ text: string }> | undefined;
-  if (Array.isArray(params.news)) {
+  if (Array.isArray(p.news)) {
     const collected: Array<{ text: string }> = [];
-    for (const item of params.news) {
+    for (const item of p.news) {
       if (typeof item === 'string') {
         collected.push({ text: item });
       } else if (item && typeof item === 'object' && !Array.isArray(item)) {
-        const text = asString((item as Record<string, unknown>).text);
+        const text = primitiveText((item as Record<string, unknown>).text);
         if (text) collected.push({ text });
       }
     }
@@ -801,13 +839,10 @@ export const actions = [
       required: ['text'],
     },
     params: {
-      message_id: f.string().default('').role('message_id'),
+      message_id: f.messageId(),
     },
-    // `raw` so message_id works whether the client sends a number or a string.
-    run: async (_p, ctx, raw) => {
-      const messageId = asNumber(raw.message_id);
-      if (!messageId) return failedResponse(RETCODE.BAD_REQUEST, 'message_id is required');
-      return okResponse(await ctx.fetchPttText(messageId));
+    run: async (p, ctx) => {
+      return okResponse(await ctx.fetchPttText(p.message_id));
     },
   }),
 
@@ -1266,15 +1301,10 @@ export const actions = [
       return_type: f.string().default('url'),
     },
     run: async (p, ctx) => {
-      const urls = await ctx.bridge.apis.profile.fetchCustomFace(p.count);
       if (p.return_type === 'id') {
-        const emojiIds = urls.map((url) => {
-          const m = /\/qq_expression\/[^/]+\/([^/]+)\//.exec(url);
-          return m ? m[1] : '';
-        }).filter(Boolean);
-        return okResponse(emojiIds);
+        return okResponse(await ctx.bridge.apis.profile.fetchCustomFaceIds(p.count));
       }
-      return okResponse(urls);
+      return okResponse(await ctx.bridge.apis.profile.fetchCustomFace(p.count));
     },
   }),
 
@@ -2273,8 +2303,7 @@ export const actions = [
     },
   }),
 
-  // ===== 原 legacy registerAction，现并入 kit（ctx 调用与逻辑逐字保留；
-  // 别名键 / 原始参数透传 / 任意对象经 run 第三参 raw 或 f.raw() 表达）=====
+  // ===== 原 legacy registerAction，现并入 kit =====
 
   defineAction({
     name: ['get_rkey', 'nc_get_rkey'],
@@ -2412,16 +2441,22 @@ export const actions = [
     name: 'send_forward_msg',
     summary: '发送合并转发（按 message_type/群号自动路由）',
     returns: '{ message_id, res_id, forward_id }',
-    // group_id/user_id 是“路由提示”而非身份字段：原实现用 asNumber + `>0` 判断，
-    // 占位的 0 表示“该分支不适用”、不应报错。故从 raw 读取（保持旧语义），
-    // 只声明 messages/message。
-    params: { messages: f.message().optional(), message: f.message().optional() },
-    run: async (p, ctx, raw) => {
-      const messageType = asString(raw.message_type);
-      const groupId = asNumber(raw.group_id);
-      const userId = asNumber(raw.user_id);
+    // group_id/user_id are routing hints, not identity: 0 means "this branch
+    // does not apply" and must not error. int({min:0}) optional, not groupId.
+    params: {
+      messages: f.message().optional(),
+      message: f.message().optional(),
+      message_type: f.string().optional(),
+      group_id: f.int({ min: 0 }).optional(),
+      user_id: f.int({ min: 0 }).optional(),
+      ...forwardPreviewParams,
+    },
+    run: async (p, ctx) => {
+      const messageType = p.message_type ?? '';
+      const groupId = p.group_id ?? 0;
+      const userId = p.user_id ?? 0;
       const messages = p.messages ?? p.message;
-      const meta = readForwardPreviewMeta(raw);
+      const meta = readForwardPreviewMeta(p);
       if (messages === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'message/messages is required');
       if ((messageType === 'group' || groupId > 0) && ctx.sendGroupForwardMsg) {
         if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
@@ -2442,11 +2477,15 @@ export const actions = [
     name: 'send_group_forward_msg',
     summary: '发送群合并转发',
     returns: '{ message_id, res_id, forward_id }',
-    params: { messages: f.message().optional(), message: f.message().optional() },
-    run: async (p, ctx, raw) => {
+    params: {
+      messages: f.message().optional(),
+      message: f.message().optional(),
+      ...forwardPreviewParams,
+    },
+    run: async (p, ctx) => {
       const messages = p.messages ?? p.message;
       if (messages === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'message/messages is required');
-      const result = await ctx.sendGroupForwardMsg(p.group_id, messages, readForwardPreviewMeta(raw));
+      const result = await ctx.sendGroupForwardMsg(p.group_id, messages, readForwardPreviewMeta(p));
       return okResponse({ message_id: result.messageId, res_id: result.forwardId, forward_id: result.forwardId });
     },
   }),
@@ -2455,11 +2494,16 @@ export const actions = [
     name: 'send_private_forward_msg',
     summary: '发送私聊合并转发',
     returns: '{ message_id, res_id, forward_id }',
-    params: { user_id: f.userId(), messages: f.message().optional(), message: f.message().optional() },
-    run: async (p, ctx, raw) => {
+    params: {
+      user_id: f.userId(),
+      messages: f.message().optional(),
+      message: f.message().optional(),
+      ...forwardPreviewParams,
+    },
+    run: async (p, ctx) => {
       const messages = p.messages ?? p.message;
       if (messages === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'message/messages is required');
-      const result = await ctx.sendPrivateForwardMsg(p.user_id, messages, readForwardPreviewMeta(raw));
+      const result = await ctx.sendPrivateForwardMsg(p.user_id, messages, readForwardPreviewMeta(p));
       return okResponse({ message_id: result.messageId, res_id: result.forwardId, forward_id: result.forwardId });
     },
   }),
@@ -2476,12 +2520,11 @@ export const actions = [
       },
       required: ['messages'],
     },
-    params: { id: f.string().optional() },
-    run: async (p, ctx, raw) => {
+    params: { id: f.string().optional(), message_id: f.string().optional() },
+    run: async (p, ctx) => {
       let id = p.id || '';
-      if (!id) {
-        const rawMessageId = raw.message_id;
-        const numericMessageId = asNumber(rawMessageId);
+      if (!id && p.message_id !== undefined) {
+        const numericMessageId = integerFromDecimalString(p.message_id);
         if (numericMessageId > 0) {
           const event = ctx.getMessage(numericMessageId);
           const segments = Array.isArray(event?.message) ? event.message : [];
@@ -2492,11 +2535,11 @@ export const actions = [
             const data = (typeof so.data === 'object' && so.data !== null && !Array.isArray(so.data))
               ? so.data as Record<string, unknown>
               : null;
-            const candidate = asString(data?.id) || asString(data?.res_id) || asString(data?.forward_id);
+            const candidate = primitiveText(data?.id) || primitiveText(data?.res_id) || primitiveText(data?.forward_id);
             if (candidate) { id = candidate; break; }
           }
         }
-        if (!id) id = asString(rawMessageId);
+        if (!id) id = p.message_id;
       }
       if (!id) return failedResponse(RETCODE.BAD_REQUEST, 'id or message_id is required');
       const messages = await ctx.getForwardMsg(id);
@@ -2508,8 +2551,13 @@ export const actions = [
     name: 'download_file',
     summary: '下载文件（url 或 base64）到 data/downloads',
     returns: '{ file }',
-    params: { url: f.string().default(''), base64: f.string().default(''), name: f.string().default('') },
-    run: async (p, _ctx, raw) => {
+    params: {
+      url: f.string().default(''),
+      base64: f.string().default(''),
+      name: f.string().default(''),
+      headers: f.raw(),
+    },
+    run: async (p) => {
       const url = p.url;
       const base64 = p.base64;
       const name = p.name;
@@ -2521,7 +2569,7 @@ export const actions = [
         buf = Buffer.from(base64, 'base64');
         if (buf.length > DOWNLOAD_FILE_MAX_BYTES) return failedResponse(RETCODE.BAD_REQUEST, `base64 payload too large: ${buf.length} > ${DOWNLOAD_FILE_MAX_BYTES} bytes`);
       } else {
-        buf = await fetchDownloadFile(url, parseDownloadHeaders(raw.headers), DOWNLOAD_FILE_MAX_BYTES, DOWNLOAD_FILE_TIMEOUT_MS);
+        buf = await fetchDownloadFile(url, parseDownloadHeaders(p.headers), DOWNLOAD_FILE_MAX_BYTES, DOWNLOAD_FILE_TIMEOUT_MS);
       }
       try {
         const safe = await saveDownloadBuffer(buf, name);
@@ -2544,12 +2592,9 @@ export const actions = [
       },
       required: ['words'],
     },
-    params: { words: f.raw() },
+    params: { words: f.array(f.string()) },
     run: async (p, ctx) => {
-      const rawWords = p.words;
-      if (!Array.isArray(rawWords)) return failedResponse(RETCODE.BAD_REQUEST, 'invalid words array');
-      const words = rawWords.map((w) => String(w));
-      const translated = await ctx.bridge.apis.misc.translateEn2Zh(words);
+      const translated = await ctx.bridge.apis.misc.translateEn2Zh(p.words);
       return okResponse({ words: translated });
     },
   }),
@@ -2557,7 +2602,7 @@ export const actions = [
   defineAction({
     name: 'set_self_longnick',
     summary: '设置个性签名（longNick/long_nick，严格 string）',
-    params: { longNick: f.raw(), long_nick: f.raw() },
+    params: { longNick: optionalExactString(), long_nick: optionalExactString() },
     run: async (p, ctx) => {
       const longNick = p.longNick !== undefined ? p.longNick : p.long_nick;
       if (typeof longNick !== 'string') return failedResponse(RETCODE.BAD_REQUEST, 'invalid longNick');
@@ -2570,14 +2615,22 @@ export const actions = [
     name: 'get_mini_app_ark',
     summary: '获取小程序卡片 ark',
     readOnly: true,
-    params: {},
-    run: async (_p, ctx, raw) => {
-      const type = raw.type || 'bili';
-      const title = raw.title || '';
-      const desc = raw.desc || '';
-      const picUrl = raw.picUrl || raw.pic_url || '';
-      const jumpUrl = raw.jumpUrl || raw.jump_url || '';
-      const data = await ctx.bridge.apis.misc.getMiniAppArk(String(type), String(title), String(desc), String(picUrl), String(jumpUrl));
+    params: {
+      type: f.string().optional(),
+      title: f.string().optional(),
+      desc: f.string().optional(),
+      picUrl: f.string().optional(),
+      pic_url: f.string().optional(),
+      jumpUrl: f.string().optional(),
+      jump_url: f.string().optional(),
+    },
+    run: async (p, ctx) => {
+      const type = p.type || 'bili';
+      const title = p.title || '';
+      const desc = p.desc || '';
+      const picUrl = p.picUrl || p.pic_url || '';
+      const jumpUrl = p.jumpUrl || p.jump_url || '';
+      const data = await ctx.bridge.apis.misc.getMiniAppArk(type, title, desc, picUrl, jumpUrl);
       return okResponse(data);
     },
   }),
@@ -2585,12 +2638,20 @@ export const actions = [
   groupAction({
     name: 'click_inline_keyboard_button',
     summary: '点击内联键盘按钮',
-    params: { bot_appid: f.uint(), msg_seq: f.uint() },
-    run: async (p, ctx, raw) => {
-      const buttonId = raw.button_id;
-      const callbackData = raw.callback_data || '';
-      if (!buttonId) return failedResponse(RETCODE.BAD_REQUEST, 'missing required parameters');
-      const data = await ctx.bridge.apis.misc.clickInlineKeyboardButton(p.group_id, p.bot_appid, String(buttonId), String(callbackData), p.msg_seq);
+    params: {
+      bot_appid: f.uint(),
+      msg_seq: f.uint(),
+      button_id: f.string({ allowEmpty: false }),
+      callback_data: f.string().default(''),
+    },
+    run: async (p, ctx) => {
+      const data = await ctx.bridge.apis.misc.clickInlineKeyboardButton(
+        p.group_id,
+        p.bot_appid,
+        p.button_id,
+        p.callback_data,
+        p.msg_seq,
+      );
       return okResponse(data);
     },
   }),

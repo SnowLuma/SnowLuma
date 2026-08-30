@@ -1,8 +1,20 @@
 import { createLogger } from '@snowluma/common/logger';
 import type { JsonObject, JsonValue } from '../types';
 import type { ApiActionContext } from '../api-handler';
-import { defineAction, groupAction, f } from '../action-kit';
+import { defineAction, groupAction, f, type Field } from '../action-kit';
 import { RETCODE, failedResponse, okResponse } from '../types';
+
+/** send_msg only (#426). Some clients send `group_id: ""` on private chats.
+ *  Treat that exact empty string as absent. Do not change `f.groupId()`. */
+function sendMsgOptionalGroupId(): Field<number | undefined> {
+  const inner = f.groupId().optional();
+  return Object.assign(Object.create(inner) as Field<number | undefined>, {
+    coerce(raw: Parameters<Field<number | undefined>['coerce']>[0], field: string) {
+      if (raw === '') return { ok: true as const, value: undefined };
+      return inner.coerce(raw, field);
+    },
+  });
+}
 
 const log = createLogger('OneBot');
 
@@ -47,7 +59,7 @@ export const actions = [
     params: {
       message: f.message(),
       message_type: f.string().optional(),
-      group_id: f.groupId().optional(),
+      group_id: sendMsgOptionalGroupId(),
       user_id: f.userId().optional(),
       auto_escape: f.bool().default(false),
     },

@@ -1,12 +1,9 @@
-import { hexPreview } from '@snowluma/common/hex';
 import { createLogger } from '@snowluma/common/logger';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
-import type { Elem } from '@snowluma/proto-defs/element';
 import type { QQEventVariant } from '../events';
 import type { IdentityService } from '../identity-service';
-import { isC2cControlPush } from './blank-filter';
-import { hasDecodableContent } from './rich-body-decoder';
-import { buildContext, type PushMsgBody } from './context';
+import { classifyMessageSurvival, warnUndecodedMessage } from './blank-filter';
+import { buildContext } from './context';
 import { decodeEvent0x210 } from './decoders/event-0x210';
 import { decodeEvent0x2DC } from './decoders/event-0x2dc';
 import { decodeFriendMessage } from './decoders/friend-message';
@@ -65,36 +62,11 @@ registry.register([
 
 const log = createLogger('MsgPush');
 
-// Kinds that carry decoded `elements`; an empty list surfaces to clients as the
-// confusing "[空消息]".
-const MESSAGE_KINDS = new Set<QQEventVariant['kind']>([
-  'friend_message', 'group_message', 'temp_message',
-]);
-
-/**
- * Summarise a body that decoded to zero elements despite carrying content —
- * each element's field names, every `commonElem`'s serviceType/businessType +
- * payload hex, and any `msgContent` — so a missing decoder can be identified
- * from one log line rather than swallowed silently.
- */
-function describeUndecodedBody(body: PushMsgBody | undefined): string {
-  const elems = (body?.richText?.elems ?? []) as Elem[];
-  const parts = elems.map((e) => {
-    if (e.commonElem) {
-      const ce = e.commonElem;
-      const pb = ce.pbElem && ce.pbElem.length > 0 ? ` pbElem=${hexPreview(ce.pbElem, 256)}` : '';
-      return `commonElem(svc=${ce.serviceType ?? 0},biz=${ce.businessType ?? 0})${pb}`;
-    }
-    const keys = Object.keys(e).filter((k) => (e as Record<string, unknown>)[k] != null);
-    return keys.join('+') || '(empty)';
-  });
-  const extras: string[] = [];
-  if (body?.richText?.ptt) extras.push('ptt');
-  if (body?.richText?.notOnlineFile) extras.push('notOnlineFile');
-  if (body?.msgContent && body.msgContent.length > 0) {
-    extras.push(`msgContent=${hexPreview(body.msgContent, 256)}`);
+function messageElements(ev: QQEventVariant): readonly unknown[] | undefined {
+  if (ev.kind === 'friend_message' || ev.kind === 'group_message' || ev.kind === 'temp_message') {
+    return ev.elements;
   }
-  return `elems=[${parts.join('; ')}]${extras.length ? ` ${extras.join(' ')}` : ''}`;
+  return undefined;
 }
 
 function warnMissingC2cSequence(ev: QQEventVariant, fromUin: number): void {
@@ -188,11 +160,10 @@ function parseMsgPushInternal(
     ? registry.decodeOrThrow(ctx)
     : registry.decode(ctx);
   const out = events.filter((ev) => {
-    if (!MESSAGE_KINDS.has(ev.kind)) return true;
-    // C2C control/system signal (#102): QQ NT routes these via OnRecvSysMsg and
-    // never shows them as a bubble. Drop by (msgType, c2cCmd) regardless of body
-    // — the precise discriminator, the group-invite "[空消息]" phantom being one.
-    if (isC2cControlPush(ctx.head)) {
+    const elements = messageElements(ev);
+    if (elements === undefined) return true;
+    const survival = classifyMessageSurvival(ctx.head, elements, ctx.body);
+    if (survival === 'drop-control') {
       log.trace(() => [
         'packet_branch serviceCmd=%j seqId=%d branch=c2c_control_push msgType=%d subType=%d c2cCmd=%d messageSeq=%d',
         pkt.serviceCmd,
@@ -202,38 +173,35 @@ function parseMsgPushInternal(
         ctx.head.c2cCmd,
         ctx.head.sequence,
       ]);
-      const elemCount = (ev as { elements?: unknown[] }).elements?.length ?? 0;
-      if (elemCount > 0) {
+      if (elements.length > 0) {
         log.debug('dropped c2c control push that carried %d element(s) (kind=%s seq=%d from=%d msgType=%d cmd=%d)',
-          elemCount, ev.kind, ctx.head.sequence, ctx.fromUin, ctx.head.msgType, ctx.head.c2cCmd);
+          elements.length, ev.kind, ctx.head.sequence, ctx.fromUin, ctx.head.msgType, ctx.head.c2cCmd);
       }
       return false;
     }
-    if ((ev as { elements?: unknown[] }).elements?.length !== 0) {
-      warnMissingC2cSequence(ev, ctx.fromUin);
-      return true;
+    if (survival === 'drop-blank') {
+      log.trace(() => [
+        'packet_branch serviceCmd=%j seqId=%d branch=empty_message msgType=%d subType=%d messageSeq=%d',
+        pkt.serviceCmd,
+        pkt.seqId,
+        ctx.head.msgType,
+        ctx.head.subType,
+        ctx.head.sequence,
+      ]);
+      return false;
     }
-    // Empty-element message that's NOT a known control cmd. Drop it when the body
-    // is genuinely empty (a content-less push we don't yet classify by c2cCmd).
-    // If instead the body *had* content we just couldn't decode, keep the
-    // (still-empty) event but warn so the missing decoder gets noticed rather
-    // than silently swallowed.
-    if (hasDecodableContent(ctx.body)) {
-      log.warn('message had content but decoded to 0 elements — missing decoder? (kind=%s seq=%d from=%d msgType=%d/%d): %s',
-        ev.kind, ctx.head.sequence, ctx.fromUin, ctx.head.msgType, ctx.head.subType,
-        describeUndecodedBody(ctx.body));
-      warnMissingC2cSequence(ev, ctx.fromUin);
-      return true;
+    if (survival === 'keep-undecoded') {
+      warnUndecodedMessage({
+        kind: ev.kind,
+        sequence: ctx.head.sequence,
+        fromUin: ctx.fromUin,
+        msgType: ctx.head.msgType,
+        subType: ctx.head.subType,
+        body: ctx.body,
+      });
     }
-    log.trace(() => [
-      'packet_branch serviceCmd=%j seqId=%d branch=empty_message msgType=%d subType=%d messageSeq=%d',
-      pkt.serviceCmd,
-      pkt.seqId,
-      ctx.head.msgType,
-      ctx.head.subType,
-      ctx.head.sequence,
-    ]);
-    return false;
+    warnMissingC2cSequence(ev, ctx.fromUin);
+    return true;
   });
 
   return out;

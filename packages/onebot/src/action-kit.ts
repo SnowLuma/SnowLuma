@@ -483,11 +483,7 @@ interface ActionDef<S extends Spec> {
   readOnly?: boolean;
   params: S;
   rules?: (r: RuleBuilders<InferParams<S>>) => readonly CrossFieldRule[];
-  /** `raw` is the original untouched params — an escape hatch for the
-   *  irregular tail (alias-key fallbacks, arbitrary nested objects). Declared
-   *  fields in `p` remain the validated path; reach for `raw` only for keys
-   *  the spec can't express. */
-  run: (p: InferParams<S>, ctx: ApiActionContext, raw: JsonObject) => Promise<ApiResponse> | ApiResponse;
+  run: (p: InferParams<S>, ctx: ApiActionContext) => Promise<ApiResponse> | ApiResponse;
 }
 
 const wording = (e: Err): string => (e.field ? `${e.field}: ${e.reason}` : e.reason);
@@ -517,7 +513,7 @@ export function defineAction<S extends Spec>(def: ActionDef<S>): ActionSpec<S> {
   const toHandler = (ctx: ApiActionContext): Handler => async (params: JsonObject) => {
     const r = parse(params);
     if (!r.ok) return failedResponse(RETCODE.BAD_REQUEST, wording(r));
-    return def.run(r.value, ctx, params);
+    return def.run(r.value, ctx);
   };
 
   return {
@@ -571,7 +567,7 @@ interface StreamActionDef<S extends Spec> {
   readOnly?: boolean;
   params: S;
   rules?: (r: RuleBuilders<InferParams<S>>) => readonly CrossFieldRule[];
-  run: (p: InferParams<S>, ctx: ApiActionContext, raw: JsonObject, sink: StreamSink) => Promise<ApiResponse> | ApiResponse;
+  run: (p: InferParams<S>, ctx: ApiActionContext, sink: StreamSink) => Promise<ApiResponse> | ApiResponse;
 }
 
 export interface StreamActionSpec<S extends Spec> extends RegisteredActionSpec {
@@ -599,7 +595,7 @@ export function defineStreamAction<S extends Spec>(def: StreamActionDef<S>): Str
   const toHandler = (ctx: ApiActionContext): Handler => async (params, sink) => {
     const r = base.parse(params);
     if (!r.ok) return failedResponse(RETCODE.BAD_REQUEST, wording(r));
-    return def.run(r.value, ctx, params, sink ?? NOOP_SINK);
+    return def.run(r.value, ctx, sink ?? NOOP_SINK);
   };
 
   return {
@@ -628,7 +624,7 @@ interface PresetDef<S extends Spec, Extra> {
   readOnly?: boolean;
   params?: S;
   rules?: (r: RuleBuilders<InferParams<S> & Extra>) => readonly CrossFieldRule[];
-  run: (p: InferParams<S> & Extra, ctx: ApiActionContext, raw: JsonObject) => Promise<ApiResponse> | ApiResponse;
+  run: (p: InferParams<S> & Extra, ctx: ApiActionContext) => Promise<ApiResponse> | ApiResponse;
 }
 
 /** Pre-seeds `group_id` (uint, required). */

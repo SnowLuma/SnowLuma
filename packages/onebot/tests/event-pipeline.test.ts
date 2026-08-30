@@ -234,6 +234,30 @@ describe('registerEventPipeline', () => {
     expect(dispatchCalls[0].notice_type).toBe('group_increase');
   });
 
+  it('does not subscribe to kinds the pipeline marks dropped', async () => {
+    const { ctx, bus, dispatchCalls } = makeContext();
+    registerEventPipeline(ctx);
+    vi.mocked(convertEvent).mockClear();
+
+    await bus.emit({
+      kind: 'online_devices_changed',
+      time: 1700000000,
+      selfUin: SELF_ID,
+      devices: [],
+    });
+    await bus.emit({
+      kind: 'friend_remark_changed',
+      time: 1700000000,
+      selfUin: SELF_ID,
+      userUid: 'u_peer',
+      userUin: PEER_UIN,
+      remark: 'x',
+    });
+
+    expect(dispatchCalls).toHaveLength(0);
+    expect(convertEvent).not.toHaveBeenCalled();
+  });
+
   it('removes a recalled private message and reports its original OneBot id', async () => {
     const recordPrivateRecall = vi.fn(() => -7654321);
     const { ctx, bus, dispatchCalls } = makeContext({

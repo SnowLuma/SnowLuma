@@ -28,6 +28,23 @@ const EMPTY_RULES: readonly PasswordRule[] = [
 
 const STRENGTH_LABELS = ['未输入', '很弱', '较弱', '一般', '良好', '强'] as const;
 
+/** Shown under the new-password field only while the animated rule list is hidden. */
+export function passwordRequirementHint(options: {
+  focused: boolean;
+  value: string;
+  checked: boolean;
+  valid: boolean;
+  rules: readonly PasswordRule[];
+  checkError: string;
+}): string | null {
+  if (options.focused || options.value.length === 0) return null;
+  if (options.checkError) return `密码强度校验失败：${options.checkError}`;
+  if (!options.checked || options.valid) return null;
+  const unmet = options.rules.filter((rule) => !rule.ok);
+  if (unmet.length === 0) return '密码尚未满足全部要求';
+  return `仍需满足：${unmet.map((rule) => rule.label).join('、')}`;
+}
+
 export interface ChangePasswordFormProps {
   /** Selects whether the form changes credentials or only rehearses validation. */
   mode?: 'change' | 'rehearsal';
@@ -57,6 +74,8 @@ export interface ChangePasswordFormProps {
   className?: string;
   renderActions?: (state: {
     canSubmit: boolean;
+    /** Fields are filled enough to try saving; strength may still be unmet. */
+    canAttempt: boolean;
     submitting: boolean;
     submitLabel: string;
   }) => ReactNode;
@@ -118,12 +137,20 @@ export function ChangePasswordForm({
     [displayedRules],
   );
   const confirmMatches = newPassword.length > 0 && newPassword === confirmPassword;
-  const canSubmit =
+  const canAttempt =
     !submitting
     && (rehearsing || effectiveOld.length > 0)
-    && valid
     && confirmMatches
     && (rehearsing || effectiveOld !== newPassword);
+  const canSubmit = canAttempt && valid;
+  const requirementHint = passwordRequirementHint({
+    focused: newPasswordFocused,
+    value: newPassword,
+    checked: checkedCurrentPassword,
+    valid,
+    rules: displayedRules,
+    checkError: strengthError,
+  });
 
   // Debounce the strength check so we don't slam the API on every keystroke.
   useEffect(() => {
@@ -156,7 +183,12 @@ export function ChangePasswordForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canSubmit) return;
+    if (!canAttempt) return;
+    if (!valid) {
+      setNewPasswordFocused(true);
+      document.getElementById(`${idPrefix}-new`)?.focus();
+      return;
+    }
     setSubmitting(true);
     setError('');
     try {
@@ -220,11 +252,12 @@ export function ChangePasswordForm({
           onChange={setNewPassword}
           onFocus={() => setNewPasswordFocused(true)}
           onBlur={() => setNewPasswordFocused(false)}
-          validationKey={effectiveOld}
+          validationKey={`${effectiveOld}\0${newPasswordFocused}\0${valid}\0${strengthError}\0${requirementHint ?? ''}`}
+          reserveLines={2}
           validate={(value) => {
             if (value.length === 0) return '请输入新密码';
             if (!rehearsing && value === effectiveOld) return '新密码不能与当前密码相同';
-            return null;
+            return requirementHint;
           }}
           showValidIcon={false}
           endAdornment={(
@@ -294,14 +327,14 @@ export function ChangePasswordForm({
         )}
       </AnimatePresence>
 
-      {renderActions ? renderActions({ canSubmit, submitting, submitLabel }) : (
+      {renderActions ? renderActions({ canSubmit, canAttempt, submitting, submitLabel }) : (
         <div className="flex items-center gap-2 pt-1">
           {onCancel && (
             <Button type="button" variant="ghost" onClick={onCancel} className="h-10">
               取消
             </Button>
           )}
-          <Button type="submit" disabled={!canSubmit} className="ml-auto h-10">
+          <Button type="submit" disabled={!canAttempt} className="ml-auto h-10">
             {submitting ? (
               <>
                 <Loader2 className="size-4 animate-spin" /> 提交中…

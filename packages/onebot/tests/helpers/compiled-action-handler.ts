@@ -14,7 +14,7 @@ export function testAction(name: string, run: TestActionRun): RegisteredActionSp
   return defineAction({
     name,
     params: {},
-    run: (_params, context, raw) => run(raw, context),
+    run: (params, context) => run(params, context),
   });
 }
 

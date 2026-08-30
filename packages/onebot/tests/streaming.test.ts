@@ -22,7 +22,7 @@ describe('Stream API plumbing', () => {
     const action = defineStreamAction({
       name: 'demo_stream',
       params: { n: f.uint() },
-      run: async (p, _ctx, _raw, sink) => {
+      run: async (p, _ctx, sink) => {
         for (let i = 0; i < p.n; i++) await sink.send({ type: 'stream', index: i });
         return okResponse({ type: 'response', total: p.n });
       },
@@ -85,7 +85,7 @@ describe('Stream API plumbing', () => {
     const action = defineStreamAction({
       name: 'demo_partial',
       params: {},
-      run: async (_p, _ctx, _raw, sink) => {
+      run: async (_p, _ctx, sink) => {
         await sink.send({ type: 'stream', index: 0 });
         throw new Error('mid');
       },
@@ -116,7 +116,7 @@ describe('Stream API plumbing', () => {
     const action = defineStreamAction({
       name: 'demo_abort',
       params: {},
-      run: async (_p, _ctx, _raw, sink) => {
+      run: async (_p, _ctx, sink) => {
         for (let i = 0; i < 5; i++) { await sink.send({ type: 'stream', index: i }); sent++; }
         return okResponse({ type: 'response' });
       },

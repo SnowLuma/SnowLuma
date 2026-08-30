@@ -415,26 +415,6 @@ export function asString(value: unknown, fallback = ''): string {
   return fallback;
 }
 
-export function asNumber(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
-  if (typeof value === 'string' && value.trim()) {
-    const n = Number(value);
-    if (Number.isFinite(n)) return Math.trunc(n);
-  }
-  return 0;
-}
-
-export function asBoolean(value: unknown, fallback: boolean): boolean {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') return value !== 0;
-  if (typeof value === 'string') {
-    const text = value.trim().toLowerCase();
-    if (text === 'true' || text === '1' || text === 'yes' || text === 'on') return true;
-    if (text === 'false' || text === '0' || text === 'no' || text === 'off') return false;
-  }
-  return fallback;
-}
-
 export function toJsonValue(value: unknown): JsonValue {
   if (value === null) return null;
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
@@ -447,22 +427,4 @@ export function toJsonValue(value: unknown): JsonValue {
     return obj;
   }
   return String(value);
-}
-
-export function asMessage(value: unknown): import('./types').JsonValue | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (Array.isArray(parsed)) {
-          return toJsonValue(parsed);
-        }
-      } catch {
-        // Fallback to literal text if it just looks like an array but is invalid JSON
-      }
-    }
-  }
-  return toJsonValue(value);
 }

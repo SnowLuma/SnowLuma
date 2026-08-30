@@ -6,6 +6,7 @@ import {
   PasswordStrength,
   type PasswordRule,
 } from '../src/components/interior/password-strength';
+import { passwordRequirementHint } from '../src/components/pages/change-password-form';
 
 const RULES: readonly PasswordRule[] = [
   { id: 'length', label: '长度不少于 10 位', test: (value) => value.length >= 10 },
@@ -66,5 +67,56 @@ describe('password input guidance', () => {
     expect(markup).toContain('确认新密码');
     expect(markup).toContain('需要与新密码完全一致');
     expect(markup).toContain('role="status"');
+  });
+});
+
+describe('passwordRequirementHint', () => {
+  const rules = [
+    { id: 'length', label: '长度不少于 10 位', ok: false },
+    { id: 'upper', label: '包含大写字母', ok: true },
+  ];
+
+  it('hides unmet-rule copy while the animated list is open', () => {
+    expect(passwordRequirementHint({
+      focused: true,
+      value: 'short',
+      checked: true,
+      valid: false,
+      rules,
+      checkError: '',
+    })).toBeNull();
+  });
+
+  it('lists unmet rules after the new-password field loses focus', () => {
+    expect(passwordRequirementHint({
+      focused: false,
+      value: 'short',
+      checked: true,
+      valid: false,
+      rules,
+      checkError: '',
+    })).toBe('仍需满足：长度不少于 10 位');
+  });
+
+  it('does not invent unmet rules while strength is still being checked', () => {
+    expect(passwordRequirementHint({
+      focused: false,
+      value: 'short',
+      checked: false,
+      valid: false,
+      rules,
+      checkError: '',
+    })).toBeNull();
+  });
+
+  it('surfaces a failed strength check after blur', () => {
+    expect(passwordRequirementHint({
+      focused: false,
+      value: 'short',
+      checked: false,
+      valid: false,
+      rules,
+      checkError: '网络错误',
+    })).toBe('密码强度校验失败：网络错误');
   });
 });

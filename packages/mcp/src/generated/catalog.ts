@@ -729,6 +729,24 @@ export const ACTIONS: CatalogAction[] = [
           "type": "integer",
           "minimum": 1
         }
+      },
+      {
+        "name": "button_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      {
+        "name": "callback_data",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "default": ""
       }
     ],
     "invariants": [],
@@ -748,12 +766,21 @@ export const ACTIONS: CatalogAction[] = [
         "msg_seq": {
           "type": "integer",
           "minimum": 1
+        },
+        "button_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "callback_data": {
+          "type": "string",
+          "default": ""
         }
       },
       "required": [
         "group_id",
         "bot_appid",
-        "msg_seq"
+        "msg_seq",
+        "button_id"
       ],
       "additionalProperties": true
     },
@@ -1580,6 +1607,12 @@ export const ACTIONS: CatalogAction[] = [
           "type": "string"
         },
         "default": ""
+      },
+      {
+        "name": "headers",
+        "type": "raw",
+        "required": false,
+        "schema": {}
       }
     ],
     "invariants": [],
@@ -1597,7 +1630,8 @@ export const ACTIONS: CatalogAction[] = [
         "name": {
           "type": "string",
           "default": ""
-        }
+        },
+        "headers": {}
       },
       "additionalProperties": true
     },
@@ -2271,13 +2305,15 @@ export const ACTIONS: CatalogAction[] = [
     "params": [
       {
         "name": "message_id",
-        "type": "string",
-        "required": false,
+        "type": "messageId",
+        "required": true,
+        "role": "message_id",
         "schema": {
-          "type": "string"
-        },
-        "default": "",
-        "role": "message_id"
+          "type": "integer",
+          "not": {
+            "const": 0
+          }
+        }
       }
     ],
     "invariants": [],
@@ -2285,11 +2321,16 @@ export const ACTIONS: CatalogAction[] = [
       "type": "object",
       "properties": {
         "message_id": {
-          "type": "string",
-          "default": "",
+          "type": "integer",
+          "not": {
+            "const": 0
+          },
           "x-role": "message_id"
         }
       },
+      "required": [
+        "message_id"
+      ],
       "additionalProperties": true
     },
     "category": "扩展"
@@ -3664,6 +3705,14 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "type": "string"
         }
+      },
+      {
+        "name": "message_id",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
       }
     ],
     "invariants": [],
@@ -3671,6 +3720,9 @@ export const ACTIONS: CatalogAction[] = [
       "type": "object",
       "properties": {
         "id": {
+          "type": "string"
+        },
+        "message_id": {
           "type": "string"
         }
       },
@@ -4769,9 +4821,11 @@ export const ACTIONS: CatalogAction[] = [
       },
       {
         "name": "type",
-        "type": "raw",
+        "type": "string",
         "required": false,
-        "schema": {}
+        "schema": {
+          "type": "string"
+        }
       }
     ],
     "invariants": [],
@@ -4784,7 +4838,9 @@ export const ACTIONS: CatalogAction[] = [
           "description": "群号",
           "x-role": "group_id"
         },
-        "type": {}
+        "type": {
+          "type": "string"
+        }
       },
       "required": [
         "group_id"
@@ -6141,11 +6197,90 @@ export const ACTIONS: CatalogAction[] = [
     "aliases": [],
     "summary": "获取小程序卡片 ark",
     "readOnly": true,
-    "params": [],
+    "params": [
+      {
+        "name": "type",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "title",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "desc",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "picUrl",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "pic_url",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "jumpUrl",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "jump_url",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      }
+    ],
     "invariants": [],
     "inputSchema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "desc": {
+          "type": "string"
+        },
+        "picUrl": {
+          "type": "string"
+        },
+        "pic_url": {
+          "type": "string"
+        },
+        "jumpUrl": {
+          "type": "string"
+        },
+        "jump_url": {
+          "type": "string"
+        }
+      },
       "additionalProperties": true
     },
     "category": "扩展"
@@ -8751,6 +8886,62 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         }
+      },
+      {
+        "name": "message_type",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "group_id",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      {
+        "name": "user_id",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      {
+        "name": "source",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "summary",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "prompt",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "news",
+        "type": "raw",
+        "required": false,
+        "schema": {}
       }
     ],
     "invariants": [],
@@ -8762,7 +8953,28 @@ export const ACTIONS: CatalogAction[] = [
         },
         "message": {
           "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
-        }
+        },
+        "message_type": {
+          "type": "string"
+        },
+        "group_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "user_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "news": {}
       },
       "additionalProperties": true
     },
@@ -8920,6 +9132,36 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         }
+      },
+      {
+        "name": "source",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "summary",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "prompt",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "news",
+        "type": "raw",
+        "required": false,
+        "schema": {}
       }
     ],
     "invariants": [],
@@ -8937,7 +9179,17 @@ export const ACTIONS: CatalogAction[] = [
         },
         "message": {
           "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
-        }
+        },
+        "source": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "news": {}
       },
       "required": [
         "group_id"
@@ -9283,6 +9535,36 @@ export const ACTIONS: CatalogAction[] = [
         "schema": {
           "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
         }
+      },
+      {
+        "name": "source",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "summary",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "prompt",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "news",
+        "type": "raw",
+        "required": false,
+        "schema": {}
       }
     ],
     "invariants": [],
@@ -9299,7 +9581,17 @@ export const ACTIONS: CatalogAction[] = [
         },
         "message": {
           "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
-        }
+        },
+        "source": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "news": {}
       },
       "required": [
         "user_id"
@@ -9986,15 +10278,19 @@ export const ACTIONS: CatalogAction[] = [
       },
       {
         "name": "sub_type",
-        "type": "raw",
+        "type": "string",
         "required": false,
-        "schema": {}
+        "schema": {
+          "type": "string"
+        }
       },
       {
         "name": "type",
-        "type": "raw",
+        "type": "string",
         "required": false,
-        "schema": {}
+        "schema": {
+          "type": "string"
+        }
       },
       {
         "name": "approve",
@@ -10023,8 +10319,12 @@ export const ACTIONS: CatalogAction[] = [
           "type": "string",
           "minLength": 1
         },
-        "sub_type": {},
-        "type": {},
+        "sub_type": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
         "approve": {
           "type": "boolean",
           "default": true
@@ -11695,23 +11995,31 @@ export const ACTIONS: CatalogAction[] = [
     "params": [
       {
         "name": "longNick",
-        "type": "raw",
+        "type": "string",
         "required": false,
-        "schema": {}
+        "schema": {
+          "type": "string"
+        }
       },
       {
         "name": "long_nick",
-        "type": "raw",
+        "type": "string",
         "required": false,
-        "schema": {}
+        "schema": {
+          "type": "string"
+        }
       }
     ],
     "invariants": [],
     "inputSchema": {
       "type": "object",
       "properties": {
-        "longNick": {},
-        "long_nick": {}
+        "longNick": {
+          "type": "string"
+        },
+        "long_nick": {
+          "type": "string"
+        }
       },
       "additionalProperties": true
     },
@@ -11936,17 +12244,30 @@ export const ACTIONS: CatalogAction[] = [
     "params": [
       {
         "name": "words",
-        "type": "raw",
-        "required": false,
-        "schema": {}
+        "type": "string[]",
+        "required": true,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     ],
     "invariants": [],
     "inputSchema": {
       "type": "object",
       "properties": {
-        "words": {}
+        "words": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       },
+      "required": [
+        "words"
+      ],
       "additionalProperties": true
     },
     "category": "扩展"

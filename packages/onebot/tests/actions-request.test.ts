@@ -241,7 +241,7 @@ describe('set_friend_add_request describe', () => {
 });
 
 describe('set_group_add_request parse', () => {
-  it('requires flag and defaults approve, reason, and the raw type fields', () => {
+  it('requires flag and defaults approve, reason, and the type fields', () => {
     expect(setGroupAddRequest.parse({ flag: 'slreq:1:123456:999:22:1' })).toEqual({
       ok: true,
       value: {
@@ -254,22 +254,22 @@ describe('set_group_add_request parse', () => {
     });
   });
 
-  it('keeps raw sub_type and type values without coercing them', () => {
+  it('rejects non-string sub_type and type values', () => {
     expect(setGroupAddRequest.parse({
       flag: 'flag-group-9',
       sub_type: { kind: 'invite' },
-      type: [1, 2],
-      approve: 0,
-      reason: 404,
     })).toEqual({
-      ok: true,
-      value: {
-        flag: 'flag-group-9',
-        sub_type: { kind: 'invite' },
-        type: [1, 2],
-        approve: false,
-        reason: '404',
-      },
+      ok: false,
+      field: 'sub_type',
+      reason: 'expected a string',
+    });
+    expect(setGroupAddRequest.parse({
+      flag: 'flag-group-9',
+      type: [1, 2],
+    })).toEqual({
+      ok: false,
+      field: 'type',
+      reason: 'expected a string',
     });
   });
 
@@ -418,23 +418,25 @@ describe('set_group_add_request toHandler', () => {
   });
 
   it.each([
-    [{ sub_type: { kind: 'invite' }, type: 'invite' }, 'invite'],
-    [{ sub_type: ['invite'], type: 'add' }, 'add'],
-    [{ sub_type: null, type: 'invite' }, 'invite'],
-    [{ sub_type: null, type: null }, 'add'],
-    [{ type: { kind: 'add' } }, 'add'],
-    [{ type: null }, 'add'],
-  ])('falls through a non-primitive locator %j to %s', async (params, subType) => {
+    [{ sub_type: { kind: 'invite' } }, 'sub_type'],
+    [{ sub_type: ['invite'] }, 'sub_type'],
+    [{ sub_type: null }, 'sub_type'],
+    [{ type: { kind: 'add' } }, 'type'],
+    [{ type: null }, 'type'],
+  ])('rejects a non-string locator %j', async (params, field) => {
     const { ctx, handleGroupRequest } = groupCtx();
 
     await expect(setGroupAddRequest.toHandler(ctx)({
       flag: 'flag-group-9',
       ...params,
-    })).resolves.toEqual({ status: 'ok', retcode: 0, data: null });
+    })).resolves.toEqual({
+      status: 'failed',
+      retcode: 1400,
+      data: null,
+      wording: `${field}: expected a string`,
+    });
 
-    expect(handleGroupRequest.mock.calls).toEqual([
-      ['flag-group-9', subType, true, ''],
-    ]);
+    expect(handleGroupRequest).not.toHaveBeenCalled();
   });
 
   it('stringifies a numeric flag and reason', async () => {
@@ -484,7 +486,7 @@ describe('set_group_add_request toHandler', () => {
 });
 
 describe('set_group_add_request describe', () => {
-  it('documents the group-request params including raw type fields', () => {
+  it('documents the group-request params including type fields', () => {
     const doc = setGroupAddRequest.describe();
 
     expect(doc.name).toBe('set_group_add_request');
@@ -504,17 +506,17 @@ describe('set_group_add_request describe', () => {
       },
       {
         name: 'sub_type',
-        type: 'raw',
+        type: 'string',
         required: false,
         default: undefined,
-        schema: {},
+        schema: { type: 'string' },
       },
       {
         name: 'type',
-        type: 'raw',
+        type: 'string',
         required: false,
         default: undefined,
-        schema: {},
+        schema: { type: 'string' },
       },
       {
         name: 'approve',
@@ -535,8 +537,8 @@ describe('set_group_add_request describe', () => {
       type: 'object',
       properties: {
         flag: { type: 'string', minLength: 1 },
-        sub_type: {},
-        type: {},
+        sub_type: { type: 'string' },
+        type: { type: 'string' },
         approve: { type: 'boolean', default: true },
         reason: { type: 'string', default: '' },
       },

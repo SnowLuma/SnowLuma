@@ -1,7 +1,7 @@
 import { createLogger, runWithTraceRequest, type Logger } from '@snowluma/common/logger';
 import { renderParamsVerbose } from '@snowluma/common/log-summary';
 import type { QQEventVariant } from '@snowluma/protocol/events';
-import { convertEvent } from './event-converter';
+import { CONVERTERS, convertEvent } from './event-converter';
 import type { OneBotInstanceContext } from './instance-context';
 import {
   GROUP_MESSAGE_EVENT,
@@ -75,84 +75,14 @@ export function registerEventPipeline(ctx: OneBotInstanceContext): EventPipeline
     });
   };
 
-  disposers.push(
-    ctx.bridge.events.on('group_message', (event) => track(event, async (state) => {
-      cacheGroupMessageMeta(ctx, event);
-      await convertAndDispatch(ctx, log, event, state);
-    })),
-  );
-  disposers.push(
-    ctx.bridge.events.on('friend_message', (event) => track(event, async (state) => {
-      cachePrivateMessageMeta(
-        ctx,
-        event.peerUin ?? event.senderUin,
-        event.msgSeq,
-        event.ntMsgSeq ?? 0,
-        event.clientSeq ?? event.msgSeq,
-        event.time,
-        event.msgId,
-        event.sequenceAuthoritative !== false,
-        event.senderUin === ctx.selfId ? 'outgoing' : 'incoming',
-      );
-      await convertAndDispatch(ctx, log, event, state);
-    })),
-  );
-  disposers.push(
-    ctx.bridge.events.on('temp_message', (event) => track(event, async (state) => {
-      cachePrivateMessageMeta(
-        ctx,
-        event.senderUin,
-        event.msgSeq,
-        event.ntMsgSeq ?? 0,
-        event.clientSeq ?? 0,
-        event.time,
-        0,
-        event.sequenceAuthoritative !== false,
-        undefined,
-      );
-      // Record this group temp session so a later reply is limited to sessions
-      // the peer opened.
-      ctx.tempSessions.record(event.senderUin, event.groupId);
-      await convertAndDispatch(ctx, log, event, state);
-    })),
-  );
-  for (const kind of NOTICE_KINDS) {
+  for (const kind of Object.keys(EVENT_PIPELINE) as EventKind[]) {
+    const entry = EVENT_PIPELINE[kind];
+    if ('drop' in entry) continue;
+    const handle = entry.handle as PipelineHandler<EventKind>;
     disposers.push(
-      ctx.bridge.events.on(kind, (event) => track(event, async (state) => {
-        if (event.kind === 'group_msg_emoji_like') {
-          cacheReaction(ctx, event);
-        }
-        let messageIdOverride: number | undefined;
-        if (event.kind === 'friend_recall') {
-          const clientSequence = event.clientSeq ?? event.msgSeq;
-          const recalled = ctx.messageStore.recordPrivateRecall(
-            event.userUin,
-            clientSequence,
-            event.recalledBySelf === true,
-            event.time,
-          );
-          if (recalled !== null) {
-            messageIdOverride = recalled;
-          } else {
-            log.debug(
-              'friend recall cache miss peer=%d clientSeq=%d',
-              event.userUin,
-              clientSequence,
-            );
-          }
-        }
-        await convertAndDispatch(ctx, log, event, state, messageIdOverride);
-      })),
+      ctx.bridge.events.on(kind, (event) => track(event, (state) => handle(ctx, log, event, state))),
     );
   }
-  // Internal-only: voice-to-text result push. Not converted to a OneBot event —
-  // it just unblocks the fetch_ptt_text call waiting on this msgId.
-  disposers.push(
-    ctx.bridge.events.on('ptt_trans_result', (event) => track(event, (state) => {
-      deliverPttTransText(pttTransKey(event.selfUin, event.msgId), event.text);
-      traceEventTerminal(log, event.kind, state, 'internal', 'waiter_notified');
-    })),
-  );
 
   const stop = (): void => {
     if (!accepting) return;
@@ -182,28 +112,20 @@ export function registerEventPipeline(ctx: OneBotInstanceContext): EventPipeline
   };
 }
 
-const NOTICE_KINDS = [
-  'group_member_join',
-  'group_member_leave',
-  'group_mute',
-  'group_admin',
-  'friend_recall',
-  'group_recall',
-  'friend_request',
-  'group_invite',
-  'friend_poke',
-  'group_poke',
-  'group_essence',
-  'group_file_upload',
-  'friend_add',
-  'friend_input_status',
-  'friend_profile_like',
-  'bot_offline',
-  'group_name_change',
-  'group_title_change',
-  'group_card_change',
-  'group_msg_emoji_like',
-] as const satisfies readonly QQEventVariant['kind'][];
+type EventKind = QQEventVariant['kind'];
+
+type PipelineHandler<K extends EventKind> = (
+  ctx: OneBotInstanceContext,
+  log: Logger,
+  event: Extract<QQEventVariant, { kind: K }>,
+  state: EventTraceState,
+) => void | Promise<void>;
+
+type PipelineDisposition<K extends EventKind> =
+  | { readonly handle: PipelineHandler<K> }
+  | { readonly drop: true };
+
+type PipelineRegistry = { [K in EventKind]: PipelineDisposition<K> };
 
 interface EventTraceState {
   startedAt: number;
@@ -404,3 +326,150 @@ function cacheReaction(
     );
   }
 }
+
+function handleGroupMessage(
+  ctx: OneBotInstanceContext,
+  log: Logger,
+  event: Extract<QQEventVariant, { kind: 'group_message' }>,
+  state: EventTraceState,
+): Promise<void> {
+  cacheGroupMessageMeta(ctx, event);
+  return convertAndDispatch(ctx, log, event, state);
+}
+
+function handleFriendMessage(
+  ctx: OneBotInstanceContext,
+  log: Logger,
+  event: Extract<QQEventVariant, { kind: 'friend_message' }>,
+  state: EventTraceState,
+): Promise<void> {
+  cachePrivateMessageMeta(
+    ctx,
+    event.peerUin ?? event.senderUin,
+    event.msgSeq,
+    event.ntMsgSeq ?? 0,
+    event.clientSeq ?? event.msgSeq,
+    event.time,
+    event.msgId,
+    event.sequenceAuthoritative !== false,
+    event.senderUin === ctx.selfId ? 'outgoing' : 'incoming',
+  );
+  return convertAndDispatch(ctx, log, event, state);
+}
+
+function handleTempMessage(
+  ctx: OneBotInstanceContext,
+  log: Logger,
+  event: Extract<QQEventVariant, { kind: 'temp_message' }>,
+  state: EventTraceState,
+): Promise<void> {
+  cachePrivateMessageMeta(
+    ctx,
+    event.senderUin,
+    event.msgSeq,
+    event.ntMsgSeq ?? 0,
+    event.clientSeq ?? 0,
+    event.time,
+    0,
+    event.sequenceAuthoritative !== false,
+    undefined,
+  );
+  ctx.tempSessions.record(event.senderUin, event.groupId);
+  return convertAndDispatch(ctx, log, event, state);
+}
+
+function handleFriendRecall(
+  ctx: OneBotInstanceContext,
+  log: Logger,
+  event: Extract<QQEventVariant, { kind: 'friend_recall' }>,
+  state: EventTraceState,
+): Promise<void> {
+  const clientSequence = event.clientSeq ?? event.msgSeq;
+  const recalled = ctx.messageStore.recordPrivateRecall(
+    event.userUin,
+    clientSequence,
+    event.recalledBySelf === true,
+    event.time,
+  );
+  let messageIdOverride: number | undefined;
+  if (recalled !== null) {
+    messageIdOverride = recalled;
+  } else {
+    log.debug(
+      'friend recall cache miss peer=%d clientSeq=%d',
+      event.userUin,
+      clientSequence,
+    );
+  }
+  return convertAndDispatch(ctx, log, event, state, messageIdOverride);
+}
+
+function handleGroupMsgEmojiLike(
+  ctx: OneBotInstanceContext,
+  log: Logger,
+  event: Extract<QQEventVariant, { kind: 'group_msg_emoji_like' }>,
+  state: EventTraceState,
+): Promise<void> {
+  cacheReaction(ctx, event);
+  return convertAndDispatch(ctx, log, event, state);
+}
+
+function handlePttTransResult(
+  _ctx: OneBotInstanceContext,
+  log: Logger,
+  event: Extract<QQEventVariant, { kind: 'ptt_trans_result' }>,
+  state: EventTraceState,
+): void {
+  deliverPttTransText(pttTransKey(event.selfUin, event.msgId), event.text);
+  traceEventTerminal(log, event.kind, state, 'internal', 'waiter_notified');
+}
+
+function convertOnly<K extends EventKind>(
+  ctx: OneBotInstanceContext,
+  log: Logger,
+  event: Extract<QQEventVariant, { kind: K }>,
+  state: EventTraceState,
+): Promise<void> {
+  return convertAndDispatch(ctx, log, event, state);
+}
+
+const EVENT_PIPELINE = {
+  friend_message: { handle: handleFriendMessage },
+  group_message: { handle: handleGroupMessage },
+  temp_message: { handle: handleTempMessage },
+  group_member_join: { handle: convertOnly },
+  group_member_leave: { handle: convertOnly },
+  group_mute: { handle: convertOnly },
+  group_admin: { handle: convertOnly },
+  friend_recall: { handle: handleFriendRecall },
+  group_recall: { handle: convertOnly },
+  friend_request: { handle: convertOnly },
+  group_invite: { handle: convertOnly },
+  friend_poke: { handle: convertOnly },
+  group_poke: { handle: convertOnly },
+  group_essence: { handle: convertOnly },
+  group_file_upload: { handle: convertOnly },
+  friend_add: { handle: convertOnly },
+  friend_input_status: { handle: convertOnly },
+  friend_profile_like: { handle: convertOnly },
+  bot_offline: { handle: convertOnly },
+  group_name_change: { handle: convertOnly },
+  group_title_change: { handle: convertOnly },
+  group_card_change: { handle: convertOnly },
+  group_msg_emoji_like: { handle: handleGroupMsgEmojiLike },
+  ptt_trans_result: { handle: handlePttTransResult },
+  online_devices_changed: { drop: true },
+  friend_remark_changed: { drop: true },
+} as const satisfies PipelineRegistry;
+
+type ConvertedKind = {
+  [K in EventKind]: (typeof CONVERTERS)[K] extends null ? never : K
+}[EventKind];
+
+type DroppedKind = {
+  [K in EventKind]: (typeof EVENT_PIPELINE)[K] extends { drop: true } ? K : never
+}[EventKind];
+
+type ConvertedButDropped = ConvertedKind & DroppedKind;
+const _convertedKindsAreHandled: [ConvertedButDropped] extends [never] ? true : ConvertedButDropped = true;
+void _convertedKindsAreHandled;

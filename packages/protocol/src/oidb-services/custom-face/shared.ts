@@ -15,7 +15,8 @@ export const FACEROAM_SERVICE = 'Faceroam.OpReq';
 // 真出问题再从 identity 里取。
 /** osVersion 字符串，Faceroam inner 与 0x902e 业务体 f2 共用。 */
 export const CLIENT_VERSION = '10.0.26200';
-const CLIENT_BUILD = '9.9.26-44343';
+/** qqVersion on the Faceroam list inner. Keep the value list already sends. Delete omits this field. */
+const LIST_QQ_VERSION = '9.9.28-46928';
 
 /**
  * 构造请求 inner（field1 客户端环境）。fetch 带 qqVersion，delete 不带——
@@ -23,6 +24,6 @@ const CLIENT_BUILD = '9.9.26-44343';
  */
 export function makeInner(withQqVersion: boolean): FaceroamOpReqInner {
   const inner: FaceroamOpReqInner = { field1: 1, osVersion: CLIENT_VERSION };
-  if (withQqVersion) inner.qqVersion = CLIENT_BUILD;
+  if (withQqVersion) inner.qqVersion = LIST_QQ_VERSION;
   return inner;
 }
