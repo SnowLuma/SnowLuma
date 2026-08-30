@@ -715,7 +715,7 @@ export class MessageApi {
       info: {
         clientSequence: clientSeq,
         random,
-        messageId: BigInt((0x01000000 * 0x100000000) + random),
+        messageId: (0x01000000n << 32n) | BigInt(random >>> 0),
         timestamp,
         field5: 0,
         messageSequence: msgSeq,

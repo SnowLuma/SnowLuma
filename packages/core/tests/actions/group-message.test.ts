@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type {
+  C2CRecallRequest,
   SsoReadedReportReq,
   SsoReadedReportResp,
 } from '@snowluma/proto-defs/oidb-actions/base';
@@ -64,6 +65,17 @@ describe('apis/message — recall + markRead', () => {
     expect(bridge.resolveUserUid).toHaveBeenCalledWith(10001);
     const [serviceCmd] = bridge.sendRawPacket.mock.calls[0]!;
     expect(serviceCmd).toBe('trpc.msg.msg_svc.MsgService.SsoC2CRecallMsg');
+  });
+
+  it('recallPrivate keeps the 64-bit message id exact for any random', async () => {
+    const random = 0x1234567;
+    const bridge = mockBridge();
+    await new MessageApi(bridge as any).recallPrivate(10001, 11110, 200, random, 1700000000);
+
+    const [, body] = bridge.sendRawPacket.mock.calls[0]!;
+    const request = protobuf_decode<C2CRecallRequest>(body);
+    expect(request.info?.random).toBe(random);
+    expect(request.info?.messageId).toBe(0x0100000001234567n);
   });
 
   it('probes and confirms group plus private reads in the same packets', async () => {
