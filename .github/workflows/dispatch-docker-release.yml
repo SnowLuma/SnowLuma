@@ -22,6 +22,10 @@ on:
         description: 'Override platforms (defaults to vars.DOCKER_PLATFORMS or linux/amd64,linux/arm64)'
         required: false
         default: ''
+      ghcr_image_override:
+        description: 'Override GHCR image name (defaults to vars.GHCR_IMAGE, leave empty to skip GHCR)'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -42,6 +46,8 @@ jobs:
           SNOWLUMA_TAG: ${{ inputs.snowluma_tag }}
           IMAGE_OVERRIDE: ${{ inputs.docker_image_override }}
           PLATFORMS_OVERRIDE: ${{ inputs.platforms_override }}
+          GHCR_IMAGE: ${{ vars.GHCR_IMAGE }}
+          GHCR_OVERRIDE: ${{ inputs.ghcr_image_override }}
         with:
           github-token: ${{ secrets.SNOWLUMA_TOKEN }}
           script: |
@@ -59,6 +65,7 @@ jobs:
             const platforms = process.env.PLATFORMS_OVERRIDE || process.env.DOCKER_PLATFORMS || 'linux/amd64,linux/arm64';
             const workflowId = process.env.DOCKER_WORKFLOW || 'docker-image.yml';
             const ref = process.env.DOCKER_REF || 'main';
+            const ghcrImage = process.env.GHCR_OVERRIDE || process.env.GHCR_IMAGE || '';
 
             await github.rest.actions.createWorkflowDispatch({
               owner,
@@ -72,7 +79,8 @@ jobs:
                 platforms,
                 snowluma_tag: tag,
                 snowluma_repository: sourceRepo,
+                ghcr_image: ghcrImage,
               },
             });
 
-            core.info(`Re-dispatched ${workflowId}@${ref} on ${target} for SnowLuma release ${sourceRepo}@${tag} (image=${image}, platforms=${platforms}).`);
+            core.info(`Re-dispatched ${workflowId}@${ref} on ${target} for SnowLuma release ${sourceRepo}@${tag} (image=${image}, ghcr_image=${ghcrImage}, platforms=${platforms}).`);
