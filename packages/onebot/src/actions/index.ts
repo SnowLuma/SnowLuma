@@ -211,14 +211,14 @@ function bindActionRegistry(
 
   for (const claim of executableNames) {
     if (claim.kind === 'raw') {
-      const factory = rawFactories[claim.name];
+      const factory = rawFactories[claim.canonical];
       if (!factory) {
         throw new Error(
           `Action registry raw factory missing: canonical "${claim.canonical}" `
           + `(name "${claim.name}", kind raw)`,
         );
       }
-      factoryNames.delete(claim.name);
+      factoryNames.delete(claim.canonical);
       handlers.set(claim.name, Object.freeze({
         handler: factory(api),
         canonical: claim.canonical,
@@ -262,10 +262,12 @@ export const ACTION_GROUPS: readonly ActionGroup[] = [
   { category: '流式接口', actions: [...streamFileActions, ...streamDownloadActions] },
 ];
 
-/** The sole non-ActionSpec handler; reserved in the same namespace up front. */
+/** Hidden OneBot v11 quick-operation handler; `_async` is the NoneBot 1 alias. */
 export const HANDLE_QUICK_OPERATION_ACTION = '.handle_quick_operation';
+export const HANDLE_QUICK_OPERATION_ASYNC_ACTION = '.handle_quick_operation_async';
 export const RAW_ACTION_RESERVATIONS: readonly RawActionReservation[] = [
   { name: HANDLE_QUICK_OPERATION_ACTION, canonical: HANDLE_QUICK_OPERATION_ACTION },
+  { name: HANDLE_QUICK_OPERATION_ASYNC_ACTION, canonical: HANDLE_QUICK_OPERATION_ACTION },
 ];
 
 /** Complete, validated runtime/docs registry. Compilation happens on import. */

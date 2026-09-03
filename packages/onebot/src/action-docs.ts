@@ -4,8 +4,9 @@
 // structured doc list + a Markdown view. The metadata is carried on the same
 // values that drive runtime validation, so docs cannot drift from behavior.
 //
-// The reserved `.handle_quick_operation` raw handler deliberately has no
-// ActionSpec/doc entry; every catalogued action comes from ACTION_REGISTRY.
+// The reserved `.handle_quick_operation` raw handler (and its `_async` alias)
+// deliberately has no ActionSpec/doc entry; every catalogued action comes
+// from ACTION_REGISTRY.
 //
 // The serving SURFACE (WebUI panel / OpenAPI export / static markdown) is a
 // deferred product decision; this module produces format-agnostic data plus a
@@ -58,7 +59,7 @@ export function renderActionDocsMarkdown(docs: readonly ActionDoc[] = collectAct
     '# OneBot Actions',
     '',
     '> 由 `packages/onebot/src/action-docs.ts` 从各 `ActionSpec.describe()` 自动生成，请勿手改。',
-    '> 覆盖完整声明式 Action registry；保留的 raw `.handle_quick_operation` handler 不生成文档。',
+    '> 覆盖完整声明式 Action registry；保留的 raw `.handle_quick_operation` / `.handle_quick_operation_async` handler 不生成文档。',
     '',
     `共 ${docs.length} 个声明式 action。`,
     '',

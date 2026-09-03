@@ -147,13 +147,13 @@ export class ApiHandler {
     this.log = typeof uin === 'number' && uin > 0 ? moduleLog.child({ uin }) : moduleLog;
     const rawFactories: Record<string, (api: ApiHandler) => ActionHandler> = {};
     for (const raw of registry.rawActions) {
-      if (raw.name !== HANDLE_QUICK_OPERATION_ACTION) {
+      if (raw.canonical !== HANDLE_QUICK_OPERATION_ACTION) {
         throw new Error(
           `Action registry has no factory for raw action canonical "${raw.canonical}" `
           + `(name "${raw.name}", kind raw)`,
         );
       }
-      rawFactories[raw.name] = (api) => async (params) => {
+      rawFactories[raw.canonical] = (api) => async (params) => {
         const opContext = params.context as JsonObject | undefined;
         const operation = params.operation as Record<string, unknown> | undefined;
         if (!opContext || !operation) {
