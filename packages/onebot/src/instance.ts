@@ -149,7 +149,7 @@ export class OneBotInstance {
           && timestamp !== undefined
           && (resolvedEventName === PRIVATE_MESSAGE_EVENT
             || resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT)) {
-          const storedId = this.messageStore.findPrivateMessageId(
+          const storedId = this.messageStore.resolvePrivateReplyMessageId(
             sessionId,
             sequence,
             resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT,

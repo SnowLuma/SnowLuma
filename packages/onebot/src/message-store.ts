@@ -42,6 +42,7 @@ export class MessageStore {
   private readonly stmtFindLatestPersistedAuthoritativeSequence: StatementSync;
   private readonly stmtListIncomingC2CSessions: StatementSync;
   private readonly stmtFindPrivateRecall: StatementSync;
+  private readonly stmtFindPrivateMessageAtTime: StatementSync;
   private readonly stmtFindPrivateRecallTombstone: StatementSync;
   private readonly stmtUpsertPrivateRecallTombstone: StatementSync;
   private readonly stmtDeleteMessage: StatementSync;
@@ -184,6 +185,14 @@ export class MessageStore {
        WHERE is_group = 0 AND session_id = ? AND client_sequence = ?
          AND private_direction = ? AND timestamp <= ?
        ORDER BY timestamp DESC, sequence DESC
+       LIMIT 1`,
+    );
+
+    this.stmtFindPrivateMessageAtTime = this.db.prepare(
+      `SELECT message_hash
+       FROM messages
+       WHERE is_group = 0 AND session_id = ? AND private_direction = ? AND timestamp = ?
+       ORDER BY sequence DESC
        LIMIT 1`,
     );
 
@@ -466,6 +475,54 @@ export class MessageStore {
       clientSequence,
       sentBySelf ? 1 : 0,
       upperTimestamp,
+    ) as { message_hash: number } | undefined;
+    if (!row) return null;
+    if (!isValidMessageId(row.message_hash)) {
+      throw new Error(`private message lookup matched invalid message id ${String(row.message_hash)}`);
+    }
+    return row.message_hash;
+  }
+
+  /**
+   * Resolve a private quote to a stored OneBot id. Prefer the quoted
+   * sender-local sequence; for a self-sent target, also match the send
+   * receipt's timestamp because QQ's quote sequence is not the local
+   * client sequence recorded at send time.
+   */
+  resolvePrivateReplyMessageId(
+    sessionId: number,
+    replySequence: number,
+    sentBySelf: boolean,
+    timestamp?: number,
+  ): number | null {
+    if (Number.isSafeInteger(replySequence) && replySequence > 0) {
+      const bySequence = this.findPrivateMessageId(
+        sessionId,
+        replySequence,
+        sentBySelf,
+        timestamp,
+      );
+      if (bySequence !== null) return bySequence;
+    }
+    if (sentBySelf && timestamp !== undefined) {
+      return this.findPrivateMessageIdAtTime(sessionId, true, timestamp);
+    }
+    return null;
+  }
+
+  findPrivateMessageIdAtTime(
+    sessionId: number,
+    sentBySelf: boolean,
+    timestamp: number,
+  ): number | null {
+    if (!Number.isSafeInteger(sessionId) || sessionId <= 0) return null;
+    if (!Number.isSafeInteger(timestamp) || timestamp <= 0 || timestamp >= Number.MAX_SAFE_INTEGER) {
+      return null;
+    }
+    const row = this.stmtFindPrivateMessageAtTime.get(
+      sessionId,
+      sentBySelf ? 1 : 0,
+      timestamp,
     ) as { message_hash: number } | undefined;
     if (!row) return null;
     if (!isValidMessageId(row.message_hash)) {
