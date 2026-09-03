@@ -51,11 +51,11 @@
     "otpauth": "^9.5.1"
   },
   "devDependencies": {
-    "@hono/node-server": "^1.19.14",
+    "@hono/node-server": "^1.19.15",
     "@rollup/plugin-node-resolve": "^16.0.3",
     "@types/node": "catalog:",
     "cross-env": "^10.1.0",
-    "hono": "^4.12.25",
+    "hono": "^4.12.34",
     "tsx": "^4.21.0",
     "typescript": "catalog:",
     "vite": "catalog:",
