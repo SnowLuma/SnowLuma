@@ -2,6 +2,7 @@ import { createLogger, runWithTraceRequest, type Logger } from '@snowluma/common
 import { renderParamsVerbose } from '@snowluma/common/log-summary';
 import type { QQEventVariant } from '@snowluma/protocol/events';
 import { CONVERTERS, convertEvent } from './event-converter';
+import { isSameActor } from './event-converter/utils';
 import type { OneBotInstanceContext } from './instance-context';
 import {
   GROUP_MESSAGE_EVENT,
@@ -140,7 +141,8 @@ type PipelineEventReason =
   | 'pipeline_threw'
   | 'recalled_before_backfill'
   | 'recalled_after_backfill'
-  | 'waiter_notified';
+  | 'waiter_notified'
+  | 'anti_self_invite_kicked';
 
 async function convertAndDispatch(
   ctx: OneBotInstanceContext,
@@ -424,6 +426,76 @@ function handlePttTransResult(
   traceEventTerminal(log, event.kind, state, 'internal', 'waiter_notified');
 }
 
+async function handleGroupMemberJoin(
+  ctx: OneBotInstanceContext,
+  log: Logger,
+  event: Extract<QQEventVariant, { kind: 'group_member_join' }>,
+  state: EventTraceState,
+): Promise<void> {
+  const antiConfig = ctx.config.antiSelfInvite;
+  if (antiConfig?.enabled && event.joinType === 'invite') {
+    const isSelfInvite = isSameActor(
+      event.operatorUin ?? 0,
+      event.operatorUid,
+      event.userUin ?? 0,
+      event.userUid,
+    );
+    if (isSelfInvite && event.userUin) {
+      try {
+        const botUin = Number.parseInt(ctx.uin, 10);
+        let botMember = ctx.bridge.identity?.findGroupMember(event.groupId, botUin);
+        if (!botMember && ctx.bridge.apis?.contacts?.fetchGroupMemberList) {
+          log.debug(
+            'bot role cache miss for group %d, fetching member list fallback',
+            event.groupId,
+          );
+          await ctx.bridge.apis.contacts.fetchGroupMemberList(event.groupId);
+          botMember = ctx.bridge.identity?.findGroupMember(event.groupId, botUin);
+        }
+
+        if (botMember?.role === 'admin' || botMember?.role === 'owner') {
+          log.warn(
+            '[AntiSelfInvite] detected self-invite exploit in group %d by user %d, executing kick...',
+            event.groupId,
+            event.userUin,
+          );
+          if (ctx.bridge.apis?.groupAdmin?.kickMember) {
+            await ctx.bridge.apis.groupAdmin.kickMember(
+              event.groupId,
+              event.userUin,
+              antiConfig.rejectAddRequest ?? true,
+              antiConfig.kickReason ?? 'Blacklisted: Self-invite exploit',
+            );
+          }
+          log.info(
+            '[AntiSelfInvite] successfully kicked user %d from group %d, dropping event',
+            event.userUin,
+            event.groupId,
+          );
+          traceEventTerminal(log, event.kind, state, 'dropped', 'anti_self_invite_kicked');
+          return;
+        }
+
+        log.warn(
+          '[AntiSelfInvite] detected self-invite in group %d by user %d, but bot role is %s (not admin/owner), skipping kick',
+          event.groupId,
+          event.userUin,
+          botMember?.role ?? 'unknown',
+        );
+      } catch (error) {
+        log.error(
+          '[AntiSelfInvite] execution failed for group %d, user %d: %s',
+          event.groupId,
+          event.userUin,
+          error instanceof Error ? (error.stack ?? error.message) : String(error),
+        );
+      }
+    }
+  }
+
+  return convertAndDispatch(ctx, log, event, state);
+}
+
 function convertOnly<K extends EventKind>(
   ctx: OneBotInstanceContext,
   log: Logger,
@@ -437,7 +509,7 @@ const EVENT_PIPELINE = {
   friend_message: { handle: handleFriendMessage },
   group_message: { handle: handleGroupMessage },
   temp_message: { handle: handleTempMessage },
-  group_member_join: { handle: convertOnly },
+  group_member_join: { handle: handleGroupMemberJoin },
   group_member_leave: { handle: convertOnly },
   group_mute: { handle: convertOnly },
   group_admin: { handle: convertOnly },

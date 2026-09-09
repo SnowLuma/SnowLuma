@@ -115,6 +115,16 @@ export interface HistorySyncConfig {
   enabled: boolean;
 }
 
+/** Built-in anti self-invite exploit settings. */
+export interface AntiSelfInviteConfig {
+  /** Master on/off. Default `false`. */
+  enabled: boolean;
+  /** Whether to reject future group join requests when kicking. Default `true`. */
+  rejectAddRequest?: boolean;
+  /** Kick reason note. Default `'Blacklisted: Self-invite exploit'`. */
+  kickReason?: string;
+}
+
 /** Per-UIN OneBot configuration. */
 export interface OneBotConfig {
   networks: OneBotNetworks;
@@ -126,6 +136,8 @@ export interface OneBotConfig {
    *  validated slugs; channels themselves live in config/notifications.json).
    *  Always present after normalization. */
   notifications?: { channelIds: string[] };
+  /** Intercept self-invite exploits and auto-kick malicious joiners. */
+  antiSelfInvite?: AntiSelfInviteConfig;
 }
 
 export interface MessageMeta {

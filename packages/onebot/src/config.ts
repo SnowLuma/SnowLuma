@@ -5,6 +5,7 @@ import fs from 'fs';
 import { isIP } from 'node:net';
 import path from 'path';
 import type {
+  AntiSelfInviteConfig,
   HttpClientNetwork,
   HttpServerNetwork,
   JsonObject,
@@ -36,8 +37,18 @@ const STATUS_COMMAND_COOLDOWN_MAX = 31_536_000;
 /** Max length of a user-customised trigger word (UTF-16 code units). */
 export const STATUS_COMMAND_TRIGGER_MAX_LENGTH = 32;
 
+const DEFAULT_ANTI_SELF_INVITE: AntiSelfInviteConfig = {
+  enabled: false,
+  rejectAddRequest: true,
+  kickReason: 'Blacklisted: Self-invite exploit',
+};
+
 function makeDefaultStatusCommand(): StatusCommandConfig {
   return { ...DEFAULT_STATUS_COMMAND };
+}
+
+function makeDefaultAntiSelfInvite(): AntiSelfInviteConfig {
+  return { ...DEFAULT_ANTI_SELF_INVITE };
 }
 
 export function makeDefaultOneBotConfig(): OneBotConfig {
@@ -69,6 +80,7 @@ export function makeDefaultOneBotConfig(): OneBotConfig {
     statusCommand: makeDefaultStatusCommand(),
     historySync: { enabled: false },
     notifications: { channelIds: [] },
+    antiSelfInvite: makeDefaultAntiSelfInvite(),
   };
 }
 
@@ -189,6 +201,7 @@ export function prepareOneBotConfigForRestore(
 
 const RESTORE_TOP_LEVEL_KEYS = new Set([
   'mode', 'networks', 'statusCommand', 'historySync', 'notifications', 'musicSignUrl',
+  'antiSelfInvite',
   'httpServers', 'httpClients', 'httpPostEndpoints', 'wsServers', 'wsClients',
   'messageFormat', 'reportSelfMessage',
 ]);
@@ -240,6 +253,7 @@ function validateOneBotRestoreSource(value: JsonObject): void {
   validateRestoreStatusCommand(value.statusCommand);
   validateRestoreHistorySync(value.historySync);
   validateRestoreNotifications(value.notifications);
+  validateRestoreAntiSelfInvite(value.antiSelfInvite);
 
   const parsed = fromJson([value], false);
   for (const key of RESTORE_NETWORK_KEYS) {
@@ -356,6 +370,24 @@ function validateRestoreHistorySync(value: unknown): void {
   }
 }
 
+function validateRestoreAntiSelfInvite(value: unknown): void {
+  if (value === undefined) return;
+  if (!isObject(value)) invalid('$.antiSelfInvite must be an object');
+  rejectUnknownKeys(value, new Set(['enabled', 'rejectAddRequest', 'kickReason']), '$.antiSelfInvite');
+  if (value.enabled !== undefined && typeof value.enabled !== 'boolean') {
+    invalid('$.antiSelfInvite.enabled must be a boolean');
+  }
+  if (value.rejectAddRequest !== undefined && typeof value.rejectAddRequest !== 'boolean') {
+    invalid('$.antiSelfInvite.rejectAddRequest must be a boolean');
+  }
+  if (
+    value.kickReason !== undefined &&
+    (typeof value.kickReason !== 'string' || !value.kickReason.trim() || value.kickReason.length > 64)
+  ) {
+    invalid('$.antiSelfInvite.kickReason must be a non-empty string <= 64 characters');
+  }
+}
+
 function rejectUnknownKeys(value: JsonObject, allowed: ReadonlySet<string>, at: string): void {
   const unknown = Object.keys(value).find((key) => !allowed.has(key));
   if (unknown) invalid(`${at}.${unknown} is not supported`);
@@ -459,6 +491,25 @@ export function assertValidOneBotConfig(value: unknown): asserts value is OneBot
       if (typeof channelId !== 'string' || !channelId || channelId.length > 64 || !/^[\w.-]+$/.test(channelId)) {
         invalid(`notifications.channelIds[${index}] is invalid`);
       }
+    }
+  }
+
+  if (value.antiSelfInvite !== undefined) {
+    if (!isObject(value.antiSelfInvite)) invalid('antiSelfInvite must be an object');
+    if (typeof value.antiSelfInvite.enabled !== 'boolean') {
+      invalid('antiSelfInvite.enabled must be a boolean');
+    }
+    if (
+      value.antiSelfInvite.rejectAddRequest !== undefined &&
+      typeof value.antiSelfInvite.rejectAddRequest !== 'boolean'
+    ) {
+      invalid('antiSelfInvite.rejectAddRequest must be a boolean');
+    }
+    if (
+      value.antiSelfInvite.kickReason !== undefined &&
+      (typeof value.antiSelfInvite.kickReason !== 'string' || !value.antiSelfInvite.kickReason.trim() || value.antiSelfInvite.kickReason.length > 64)
+    ) {
+      invalid('antiSelfInvite.kickReason must be a non-empty string <= 64 characters');
     }
   }
 }
@@ -611,7 +662,7 @@ export function cleanupInvalidPerUinConfigs(): string[] {
 
 function toJsonObject(config: OneBotConfig, mode: 'snapshot' | 'overlay'): JsonObject {
   const nets = config.networks;
-  return {
+  const out: JsonObject = {
     // Canonical per-UIN files are complete desired-state snapshots. Older
     // files without this marker retain the legacy global-overlay migration
     // behavior until their next successful save.
@@ -631,6 +682,14 @@ function toJsonObject(config: OneBotConfig, mode: 'snapshot' | 'overlay'): JsonO
     historySync: { enabled: config.historySync.enabled },
     notifications: { channelIds: config.notifications?.channelIds ?? [] },
   };
+  if (config.antiSelfInvite) {
+    out.antiSelfInvite = {
+      enabled: config.antiSelfInvite.enabled,
+      rejectAddRequest: config.antiSelfInvite.rejectAddRequest ?? true,
+      kickReason: config.antiSelfInvite.kickReason ?? 'Blacklisted: Self-invite exploit',
+    };
+  }
+  return out;
 }
 
 function applyBase(
@@ -717,6 +776,7 @@ function fromJson(sources: JsonObject[], freshInstall: boolean): OneBotConfig {
     statusCommand: parseStatusCommand(sources),
     historySync: parseHistorySync(sources),
     notifications: parseNotifications(sources),
+    antiSelfInvite: parseAntiSelfInvite(sources),
   };
   assertValidOneBotConfig(config);
   return config;
@@ -783,6 +843,21 @@ function parseStatusCommand(sources: JsonObject[]): StatusCommandConfig {
     }
     if (typeof raw.trigger === 'string' && raw.trigger.trim().length > 0 && !/[\r\n]/.test(raw.trigger)) {
       out.trigger = raw.trigger.trim().slice(0, STATUS_COMMAND_TRIGGER_MAX_LENGTH);
+    }
+  }
+  return out;
+}
+
+function parseAntiSelfInvite(sources: JsonObject[]): AntiSelfInviteConfig {
+  const out = makeDefaultAntiSelfInvite();
+  for (const src of sources) {
+    if (!Object.prototype.hasOwnProperty.call(src, 'antiSelfInvite')) continue;
+    const raw = src.antiSelfInvite;
+    if (!isObject(raw)) continue;
+    if (typeof raw.enabled === 'boolean') out.enabled = raw.enabled;
+    if (typeof raw.rejectAddRequest === 'boolean') out.rejectAddRequest = raw.rejectAddRequest;
+    if (typeof raw.kickReason === 'string' && raw.kickReason.trim()) {
+      out.kickReason = raw.kickReason.trim().slice(0, 64);
     }
   }
   return out;

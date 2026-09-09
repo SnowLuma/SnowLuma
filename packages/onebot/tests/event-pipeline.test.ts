@@ -560,4 +560,186 @@ describe('registerEventPipeline', () => {
       setLogLevel(previousLevel);
     }
   });
+
+  describe('antiSelfInvite handling', () => {
+    it('dispatches normally when antiSelfInvite is disabled', async () => {
+      const { ctx, bus, dispatchCalls } = makeContext({
+        config: {
+          networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
+          antiSelfInvite: { enabled: false },
+        } as never,
+      });
+      registerEventPipeline(ctx);
+
+      const event: GroupMemberJoin = {
+        kind: 'group_member_join',
+        time: 1700000000,
+        selfUin: SELF_ID,
+        groupId: GROUP_ID,
+        userUin: PEER_UIN,
+        operatorUin: PEER_UIN,
+        joinType: 'invite',
+      };
+      await bus.emit(event);
+
+      expect(dispatchCalls).toHaveLength(1);
+      expect(dispatchCalls[0]).toMatchObject({
+        post_type: 'notice',
+        notice_type: 'group_increase',
+      });
+    });
+
+    it('dispatches normally when operator is different from joiner', async () => {
+      const kickMember = vi.fn().mockResolvedValue(undefined);
+      const findGroupMember = vi.fn().mockReturnValue({ role: 'admin' });
+      const { ctx, bus, dispatchCalls } = makeContext({
+        config: {
+          networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
+          antiSelfInvite: { enabled: true },
+        } as never,
+      });
+      (ctx.bridge as unknown as Record<string, unknown>).identity = { findGroupMember };
+      (ctx.bridge as unknown as Record<string, unknown>).apis = { groupAdmin: { kickMember } };
+      registerEventPipeline(ctx);
+
+      const event: GroupMemberJoin = {
+        kind: 'group_member_join',
+        time: 1700000000,
+        selfUin: SELF_ID,
+        groupId: GROUP_ID,
+        userUin: PEER_UIN,
+        operatorUin: 33333,
+        joinType: 'invite',
+      };
+      await bus.emit(event);
+
+      expect(kickMember).not.toHaveBeenCalled();
+      expect(dispatchCalls).toHaveLength(1);
+    });
+
+    it('kicks self-inviter and drops event when bot is admin or owner', async () => {
+      const kickMember = vi.fn().mockResolvedValue(undefined);
+      const findGroupMember = vi.fn().mockReturnValue({ role: 'admin' });
+      const { ctx, bus, dispatchCalls } = makeContext({
+        config: {
+          networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
+          antiSelfInvite: { enabled: true, rejectAddRequest: true, kickReason: 'Exploit detected' },
+        } as never,
+      });
+      (ctx.bridge as unknown as Record<string, unknown>).identity = { findGroupMember };
+      (ctx.bridge as unknown as Record<string, unknown>).apis = { groupAdmin: { kickMember } };
+      registerEventPipeline(ctx);
+
+      const event: GroupMemberJoin = {
+        kind: 'group_member_join',
+        time: 1700000000,
+        selfUin: SELF_ID,
+        groupId: GROUP_ID,
+        userUin: PEER_UIN,
+        operatorUin: PEER_UIN,
+        joinType: 'invite',
+      };
+      await bus.emit(event);
+
+      expect(findGroupMember).toHaveBeenCalledWith(GROUP_ID, SELF_ID);
+      expect(kickMember).toHaveBeenCalledWith(GROUP_ID, PEER_UIN, true, 'Exploit detected');
+      expect(dispatchCalls).toHaveLength(0);
+    });
+
+    it('falls back to fetchGroupMemberList when bot role cache misses', async () => {
+      const kickMember = vi.fn().mockResolvedValue(undefined);
+      const fetchGroupMemberList = vi.fn().mockResolvedValue([]);
+      let queried = false;
+      const findGroupMember = vi.fn().mockImplementation(() => {
+        if (!queried) {
+          queried = true;
+          return undefined;
+        }
+        return { role: 'owner' };
+      });
+      const { ctx, bus, dispatchCalls } = makeContext({
+        config: {
+          networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
+          antiSelfInvite: { enabled: true },
+        } as never,
+      });
+      (ctx.bridge as unknown as Record<string, unknown>).identity = { findGroupMember };
+      (ctx.bridge as unknown as Record<string, unknown>).apis = {
+        groupAdmin: { kickMember },
+        contacts: { fetchGroupMemberList },
+      };
+      registerEventPipeline(ctx);
+
+      const event: GroupMemberJoin = {
+        kind: 'group_member_join',
+        time: 1700000000,
+        selfUin: SELF_ID,
+        groupId: GROUP_ID,
+        userUin: PEER_UIN,
+        operatorUin: PEER_UIN,
+        joinType: 'invite',
+      };
+      await bus.emit(event);
+
+      expect(fetchGroupMemberList).toHaveBeenCalledWith(GROUP_ID);
+      expect(kickMember).toHaveBeenCalled();
+      expect(dispatchCalls).toHaveLength(0);
+    });
+
+    it('does not kick and dispatches event when bot is only a normal member', async () => {
+      const kickMember = vi.fn().mockResolvedValue(undefined);
+      const findGroupMember = vi.fn().mockReturnValue({ role: 'member' });
+      const { ctx, bus, dispatchCalls } = makeContext({
+        config: {
+          networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
+          antiSelfInvite: { enabled: true },
+        } as never,
+      });
+      (ctx.bridge as unknown as Record<string, unknown>).identity = { findGroupMember };
+      (ctx.bridge as unknown as Record<string, unknown>).apis = { groupAdmin: { kickMember } };
+      registerEventPipeline(ctx);
+
+      const event: GroupMemberJoin = {
+        kind: 'group_member_join',
+        time: 1700000000,
+        selfUin: SELF_ID,
+        groupId: GROUP_ID,
+        userUin: PEER_UIN,
+        operatorUin: PEER_UIN,
+        joinType: 'invite',
+      };
+      await bus.emit(event);
+
+      expect(kickMember).not.toHaveBeenCalled();
+      expect(dispatchCalls).toHaveLength(1);
+    });
+
+    it('catches error and falls back to dispatching when kickMember throws', async () => {
+      const kickMember = vi.fn().mockRejectedValue(new Error('network timeout'));
+      const findGroupMember = vi.fn().mockReturnValue({ role: 'admin' });
+      const { ctx, bus, dispatchCalls } = makeContext({
+        config: {
+          networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
+          antiSelfInvite: { enabled: true },
+        } as never,
+      });
+      (ctx.bridge as unknown as Record<string, unknown>).identity = { findGroupMember };
+      (ctx.bridge as unknown as Record<string, unknown>).apis = { groupAdmin: { kickMember } };
+      registerEventPipeline(ctx);
+
+      const event: GroupMemberJoin = {
+        kind: 'group_member_join',
+        time: 1700000000,
+        selfUin: SELF_ID,
+        groupId: GROUP_ID,
+        userUin: PEER_UIN,
+        operatorUin: PEER_UIN,
+        joinType: 'invite',
+      };
+      await bus.emit(event);
+
+      expect(kickMember).toHaveBeenCalled();
+      expect(dispatchCalls).toHaveLength(1);
+    });
+  });
 });

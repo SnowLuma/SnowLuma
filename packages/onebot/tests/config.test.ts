@@ -35,6 +35,11 @@ describe('makeDefaultOneBotConfig', () => {
     expect(config.statusCommand).toEqual({ enabled: true, swallow: false, cooldownSeconds: 5, trigger: '#sl' });
     expect(config.historySync).toEqual({ enabled: false });
     expect(config.notifications).toEqual({ channelIds: [] });
+    expect(config.antiSelfInvite).toEqual({
+      enabled: false,
+      rejectAddRequest: true,
+      kickReason: 'Blacklisted: Self-invite exploit',
+    });
   });
 });
 
@@ -640,3 +645,66 @@ describe('OneBotConfig login history sync', () => {
       .toThrow(/historySync\.enabled must be a boolean/);
   });
 });
+
+describe('antiSelfInvite configuration', () => {
+  let tempDir: string;
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sl-test-antiself-'));
+    process.chdir(tempDir);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('provides safe defaults', () => {
+    const config = makeDefaultOneBotConfig();
+    expect(config.antiSelfInvite).toEqual({
+      enabled: false,
+      rejectAddRequest: true,
+      kickReason: 'Blacklisted: Self-invite exploit',
+    });
+  });
+
+  it('round-trips custom antiSelfInvite settings', () => {
+    const config = makeDefaultOneBotConfig();
+    config.antiSelfInvite = {
+      enabled: true,
+      rejectAddRequest: false,
+      kickReason: 'Custom reason',
+    };
+    saveOneBotConfig('40001', config);
+
+    const loaded = loadOneBotConfig('40001');
+    expect(loaded.antiSelfInvite).toEqual({
+      enabled: true,
+      rejectAddRequest: false,
+      kickReason: 'Custom reason',
+    });
+  });
+
+  it('validates antiSelfInvite fields', () => {
+    const malformed = makeDefaultOneBotConfig() as unknown as Record<string, unknown>;
+    malformed.antiSelfInvite = { enabled: 'invalid' };
+    expect(() => assertValidOneBotConfig(malformed)).toThrow(/antiSelfInvite\.enabled/);
+
+    malformed.antiSelfInvite = { enabled: true, rejectAddRequest: 'not-bool' };
+    expect(() => assertValidOneBotConfig(malformed)).toThrow(/antiSelfInvite\.rejectAddRequest/);
+
+    malformed.antiSelfInvite = { enabled: true, kickReason: '' };
+    expect(() => assertValidOneBotConfig(malformed)).toThrow(/antiSelfInvite\.kickReason/);
+  });
+
+  it('rejects unknown keys during restore', () => {
+    const source = {
+      networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
+      antiSelfInvite: { enabled: true, unknownField: true },
+    };
+    expect(() => prepareOneBotConfigForRestore(source, 'per-uin'))
+      .toThrow(/\$\.antiSelfInvite\.unknownField is not supported/);
+  });
+});
+
