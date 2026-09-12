@@ -2,8 +2,8 @@ import type {
   MarkdownData,
   MentionExtraSend,
 } from '@snowluma/proto-defs/action';
-import type { Elem, GroupFileExtra, MarketFacePbReserve, PokeExtra, QFaceExtra, QSmallFaceExtra } from '@snowluma/proto-defs/element';
-import { protobuf_encode } from '@snowluma/proton';
+import type { Elem, GroupFileExtra, MarketFacePbReserve, MsgInfo, PokeExtra, QFaceExtra, QSmallFaceExtra } from '@snowluma/proto-defs/element';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { randomUUID } from 'crypto';
 import { deflateSync } from 'zlib';
 import type { BridgeContext } from './bridge-context';
@@ -316,7 +316,69 @@ function makeForwardElem(element: MessageElement): ProtoElem {
   };
 }
 
-async function makeImageElem(ctx: SendContext, element: MessageElement): Promise<ProtoElem> {
+function md5BytesFromHex(hex: string | undefined): Uint8Array | null {
+  if (!hex || !/^[0-9a-fA-F]{32}$/.test(hex)) return null;
+  const bytes = hexToBytes(hex);
+  return bytes.length === 16 ? bytes : null;
+}
+
+function fingerprintsFromEncodedMsgInfo(msgInfo: Uint8Array): {
+  md5Hex: string;
+  fileName: string;
+  fileSize: number;
+  width: number;
+  height: number;
+} | null {
+  let info: MsgInfo;
+  try {
+    info = protobuf_decode<MsgInfo>(msgInfo);
+  } catch {
+    return null;
+  }
+  const fi = info.msgInfoBody?.[0]?.index?.info;
+  if (!fi?.fileHash || !/^[0-9a-fA-F]{32}$/.test(fi.fileHash)) return null;
+  return {
+    md5Hex: fi.fileHash,
+    fileName: fi.fileName || `${fi.fileHash.toLowerCase()}.png`,
+    fileSize: fi.fileSize ?? 0,
+    width: fi.width ?? 0,
+    height: fi.height ?? 0,
+  };
+}
+
+/**
+ * Long-msg storage often strips NT image download paths. A CustomFace /
+ * NotOnlineImage sibling with the md5 lets get_forward_msg rebuild a
+ * fetchable URL the way native forwards do (#441).
+ */
+function makeLegacyForwardImageElem(
+  isGroup: boolean,
+  msgInfo: Uint8Array,
+  element: MessageElement,
+): ProtoElem | null {
+  const fromInfo = fingerprintsFromEncodedMsgInfo(msgInfo);
+  const md5 = md5BytesFromHex(element.md5Hex) ?? md5BytesFromHex(fromInfo?.md5Hex);
+  if (!md5) return null;
+  const md5Hex = (element.md5Hex || fromInfo!.md5Hex);
+  const fileName = element.fileName || fromInfo?.fileName || `${md5Hex.toLowerCase()}.png`;
+  const fileSize = element.fileSize ?? fromInfo?.fileSize ?? 0;
+  const width = element.width ?? fromInfo?.width ?? 0;
+  const height = element.height ?? fromInfo?.height ?? 0;
+  if (isGroup) {
+    return { customFace: { filePath: fileName, md5, size: fileSize, width, height } };
+  }
+  return {
+    notOnlineImage: {
+      filePath: fileName,
+      picMd5: md5,
+      fileLen: fileSize,
+      picWidth: width,
+      picHeight: height,
+    },
+  };
+}
+
+async function makeImageElem(ctx: SendContext, element: MessageElement): Promise<ProtoElem[]> {
   const isGroup = ctx.groupId !== undefined;
   const targetIdOrUid = isGroup ? ctx.groupId! : (ctx.userUid ?? '');
   if (!isGroup && !targetIdOrUid) {
@@ -324,14 +386,16 @@ async function makeImageElem(ctx: SendContext, element: MessageElement): Promise
   }
 
   const msgInfo = await uploadImageMsgInfo(ctx.bridge, isGroup, targetIdOrUid, element);
-
-  return {
+  const nt: ProtoElem = {
     commonElem: {
       serviceType: 48,
       pbElem: msgInfo,
       businessType: isGroup ? 20 : 10,
     },
   };
+  if (!ctx.forwardFake) return [nt];
+  const legacy = makeLegacyForwardImageElem(isGroup, msgInfo, element);
+  return legacy ? [nt, legacy] : [nt];
 }
 
 async function makePttElem(ctx: SendContext, element: MessageElement): Promise<ProtoElem> {
@@ -539,7 +603,7 @@ export async function buildSendElems(elements: MessageElement[], ctx?: SendConte
         break;
 
       case 'image':
-        result.push(await makeImageElem(ctx!, elem));
+        result.push(...await makeImageElem(ctx!, elem));
         break;
 
       case 'forward':

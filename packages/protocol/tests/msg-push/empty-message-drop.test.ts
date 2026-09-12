@@ -13,7 +13,7 @@ import {
 } from '@snowluma/common/logger';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import { protobuf_encode } from '@snowluma/proton';
-import type { PushMsg, PushMsgBody } from '@snowluma/proto-defs/message';
+import type { FileExtra, PushMsg, PushMsgBody } from '@snowluma/proto-defs/message';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { IdentityService } from '../../src/identity-service';
 import { parseMsgPush } from '../../src/msg-push';
@@ -98,6 +98,46 @@ describe('parseMsgPush — empty message drop (#102)', () => {
     expect(out[0]).toMatchObject({
       kind: 'friend_message', senderUid: 'u_x', msgSeq: 32743, ntMsgSeq: 63214, clientSeq: 32743,
       elements: [{ type: 'text', text: 'hi' }],
+    });
+  });
+
+  it('drops an offline-file download receipt instead of a friend file message (#442)', () => {
+    const extra = protobuf_encode<FileExtra>({
+      file: {
+        fileUuid: 'fid-sent-by-bot',
+        fileName: 'doc.bin',
+        fileSize: 6119608n,
+        subcmd: 1,
+        downloadFlag: 2,
+        fileHash: 'abc',
+      },
+    });
+    const out = parseMsgPush(pushPacket({
+      responseHead: { fromUin: 10001, fromUid: 'u_x' },
+      contentHead: { msgType: 529, subType: 0, sequence: 1, timestamp: 1, msgId: 1 },
+      body: { msgContent: extra },
+    }), identity);
+    expect(out).toEqual([]);
+  });
+
+  it('keeps a real incoming c2c file (#442)', () => {
+    const extra = protobuf_encode<FileExtra>({
+      file: {
+        fileUuid: 'fid-from-user',
+        fileName: 'doc.bin',
+        fileSize: 10n,
+        subcmd: 1,
+      },
+    });
+    const out = parseMsgPush(pushPacket({
+      responseHead: { fromUin: 10001, fromUid: 'u_x' },
+      contentHead: { msgType: 529, subType: 0, sequence: 2, timestamp: 1, msgId: 2 },
+      body: { msgContent: extra },
+    }), identity);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      kind: 'friend_message',
+      elements: [{ type: 'file', fileId: 'fid-from-user', fileName: 'doc.bin' }],
     });
   });
 

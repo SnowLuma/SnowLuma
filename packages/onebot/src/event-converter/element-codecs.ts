@@ -259,7 +259,8 @@ export const ELEMENT_CODECS = {
       const url = ctx.imageUrlResolver ? await ctx.imageUrlResolver(element, ctx.isGroup) : (element.imageUrl ?? '');
       const data: JsonObject = {
         url,
-        file: element.fileId ?? '',
+        file: element.fileId
+          || (element.md5Hex ? `${element.md5Hex.toLowerCase()}.png` : ''),
         sub_type: element.subType ?? 0,
         summary: element.summary ?? '',
       };

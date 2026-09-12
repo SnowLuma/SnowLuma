@@ -1093,6 +1093,106 @@ describe('decodeRichBody / unknown wire element observability', () => {
       })]);
     });
 
+    it('does not emit a hollow NT image that has only picFormat (#441)', () => {
+      const msgInfo: MsgInfo = {
+        msgInfoBody: [{
+          index: {
+            info: {
+              type: { picFormat: 1001 },
+              width: 1080,
+              height: 1080,
+            },
+          },
+        }],
+        extBizInfo: { pic: { bizType: 0, textSummary: '[图片]' } },
+      };
+      const out = decodeRichBody({
+        richText: {
+          elems: [{
+            commonElem: {
+              serviceType: 48,
+              businessType: 20,
+              pbElem: protobuf_encode<MsgInfo>(msgInfo),
+            },
+          }],
+        },
+      }, true);
+      expect(out).toEqual([]);
+    });
+
+    it('keeps the customFace sibling when the NT image is hollow (#441)', () => {
+      const hollow: MsgInfo = {
+        msgInfoBody: [{
+          index: { info: { type: { picFormat: 1001 } } },
+        }],
+        extBizInfo: { pic: { bizType: 0, textSummary: '[图片]' } },
+      };
+      const out = decodeRichBody({
+        richText: {
+          elems: [
+            {
+              commonElem: {
+                serviceType: 48,
+                businessType: 20,
+                pbElem: protobuf_encode<MsgInfo>(hollow),
+              },
+            },
+            customFaceElem(fileName, '', otherMd5),
+          ],
+        },
+      }, true);
+
+      expect(out).toEqual([{
+        type: 'image',
+        imageUrl: 'http://gchat.qpic.cn/gchatpic_new/0/0-0-0102030405060708090A0B0C0D0E0F10/0',
+        fileId: fileName,
+        fileSize: 10711,
+        width: 1080,
+        height: 1080,
+        subType: 0,
+        summary: '[图片]',
+        md5Hex: '0102030405060708090A0B0C0D0E0F10',
+      }]);
+    });
+
+    it('rebuilds file id and url from fileHash when name and uuid are missing (#441)', () => {
+      const hash = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      const msgInfo: MsgInfo = {
+        msgInfoBody: [{
+          index: {
+            info: {
+              fileHash: hash,
+              fileSha1: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+              fileSize: 10711,
+              width: 1080,
+              height: 1080,
+              type: { picFormat: 1001 },
+            },
+          },
+        }],
+        extBizInfo: { pic: { bizType: 0, textSummary: '[图片]' } },
+      };
+      const out = decodeRichBody({
+        richText: {
+          elems: [{
+            commonElem: {
+              serviceType: 48,
+              businessType: 20,
+              pbElem: protobuf_encode<MsgInfo>(msgInfo),
+            },
+          }],
+        },
+      }, true);
+
+      expect(out).toEqual([expect.objectContaining({
+        type: 'image',
+        fileId: `${hash}.png`,
+        imageUrl: `http://gchat.qpic.cn/gchatpic_new/0/0-0-${hash.toUpperCase()}/0`,
+        md5Hex: hash,
+        picFormat: 1001,
+      })]);
+    });
+
     it('keeps two distinct pictures', () => {
       const second = 'other.png';
       const out = decodeRichBody({

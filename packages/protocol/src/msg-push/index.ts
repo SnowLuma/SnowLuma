@@ -179,6 +179,21 @@ function parseMsgPushInternal(
       }
       return false;
     }
+    if (survival === 'drop-receipt') {
+      log.trace(() => [
+        'packet_branch serviceCmd=%j seqId=%d branch=offline_file_receipt msgType=%d subType=%d messageSeq=%d',
+        pkt.serviceCmd,
+        pkt.seqId,
+        ctx.head.msgType,
+        ctx.head.subType,
+        ctx.head.sequence,
+      ]);
+      log.debug(
+        'dropped offline file receipt (kind=%s seq=%d from=%d msgType=%d)',
+        ev.kind, ctx.head.sequence, ctx.fromUin, ctx.head.msgType,
+      );
+      return false;
+    }
     if (survival === 'drop-blank') {
       log.trace(() => [
         'packet_branch serviceCmd=%j seqId=%d branch=empty_message msgType=%d subType=%d messageSeq=%d',

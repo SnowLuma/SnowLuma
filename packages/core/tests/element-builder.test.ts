@@ -27,6 +27,8 @@ vi.mock('@snowluma/protocol/highway/video-upload', () => ({
   uploadVideoMsgInfo: vi.fn(async () => new Uint8Array([1, 2, 3])),
 }));
 
+import { protobuf_encode } from '@snowluma/proton';
+import type { MsgInfo } from '@snowluma/proto-defs/element';
 import { buildSendElems } from '@snowluma/protocol/element-builder';
 import { MessageElementValidationError } from '@snowluma/protocol/element-manifest';
 import { uploadImageMsgInfo } from '@snowluma/protocol/highway/image-upload';
@@ -238,6 +240,47 @@ describe('element-builder / all-message validation preflight', () => {
     });
 
     expect(uploadImageMsgInfo).not.toHaveBeenCalled();
+  });
+
+  it('emits a customFace sibling for forwardFake group images (#441)', async () => {
+    const md5Hex = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const msgInfo = protobuf_encode<MsgInfo>({
+      msgInfoBody: [{
+        index: {
+          fileUuid: 'EhRimg',
+          info: {
+            fileHash: md5Hex,
+            fileName: `${md5Hex}.png`,
+            fileSize: 12,
+            width: 10,
+            height: 10,
+            type: { picFormat: 1001 },
+          },
+        },
+      }],
+    });
+    vi.mocked(uploadImageMsgInfo).mockResolvedValueOnce(msgInfo);
+
+    const elems = await buildSendElems(
+      [{ type: 'image', url: 'file:///tmp/a.png' }],
+      { bridge: fakeBridge, groupId: 12345, forwardFake: true, scene: 'forward' },
+    );
+
+    expect(elems).toHaveLength(2);
+    expect(elems[0]!.commonElem).toBeDefined();
+    expect(elems[1]!.customFace?.filePath).toBe(`${md5Hex}.png`);
+    expect(elems[1]!.customFace?.md5).toHaveLength(16);
+  });
+
+  it('does not emit a legacy sibling on a live group image send', async () => {
+    vi.mocked(uploadImageMsgInfo).mockResolvedValueOnce(new Uint8Array([7, 8, 9]));
+    const elems = await buildSendElems(
+      [{ type: 'image', url: 'file:///tmp/a.png' }],
+      { bridge: fakeBridge, groupId: 12345 },
+    );
+    expect(elems).toHaveLength(1);
+    expect(elems[0]!.commonElem).toBeDefined();
+    expect(elems[0]!.customFace).toBeUndefined();
   });
 
   it('accepts a received imageUrl-only element for re-send', async () => {
