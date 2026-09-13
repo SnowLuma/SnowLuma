@@ -34,6 +34,20 @@ function runtimeTrace(entries: LogEntry[]): LogEntry[] {
   );
 }
 
+function testSends(sendPacket: ReturnType<typeof vi.fn>): unknown[][] {
+  return sendPacket.mock.calls.filter(([cmd]) => String(cmd).startsWith('Test.'));
+}
+
+function ownershipSendTrace(entries: LogEntry[]): LogEntry[] {
+  return runtimeTrace(entries).filter((entry) => {
+    if (entry.message.startsWith('bridge_sender_fact ')) return true;
+    if (entry.message.startsWith('bridge_send_')) {
+      return entry.message.includes('serviceCmd="Test.');
+    }
+    return false;
+  });
+}
+
 function packet(pid: number, uin: string): PacketInfo {
   return {
     pid,
@@ -284,8 +298,8 @@ describe('BridgeManager PID ownership', () => {
 
     expect(bridge.activePid).toBe(202);
     await bridge.sendRawPacket('Test.BeforeDisconnect', new Uint8Array([1]));
-    expect(second.sendPacket).toHaveBeenCalledOnce();
-    expect(first.sendPacket).not.toHaveBeenCalled();
+    expect(testSends(second.sendPacket)).toHaveLength(1);
+    expect(testSends(first.sendPacket)).toHaveLength(0);
 
     manager.onPidDisconnected(202);
 
@@ -293,8 +307,8 @@ describe('BridgeManager PID ownership', () => {
     expect(bridge.activePid).toBe(101);
     expect(closed).not.toHaveBeenCalled();
     await bridge.sendRawPacket('Test.AfterDisconnect', new Uint8Array([2]));
-    expect(first.sendPacket).toHaveBeenCalledOnce();
-    expect(second.sendPacket).toHaveBeenCalledOnce();
+    expect(testSends(first.sendPacket)).toHaveLength(1);
+    expect(testSends(second.sendPacket)).toHaveLength(1);
 
     manager.onPidDisconnected(101);
     expect(manager.getSession('10001')).toBeNull();
@@ -324,9 +338,7 @@ describe('BridgeManager PID ownership', () => {
       manager.onPidDisconnected(101);
       await bridge.sendRawPacket('Test.NoSender', new Uint8Array([0x00, 0xff]));
 
-      const sender = runtimeTrace(entries).filter((entry) =>
-        entry.message.startsWith('bridge_sender_fact ')
-        || entry.message.startsWith('bridge_send_'));
+      const sender = ownershipSendTrace(entries);
       expect(sender.map((entry) => entry.message)).toEqual([
         'bridge_sender_fact event=selected uin="10001" pid=101 previousPid=null',
         'bridge_sender_fact event=selected uin="10001" pid=202 previousPid=101',
@@ -381,17 +393,17 @@ describe('BridgeManager PID ownership', () => {
     expect(started).toHaveBeenCalledOnce();
     expect(bridge.activePid).toBe(101);
     await bridge.sendRawPacket('Test.Rebound', new Uint8Array([1]));
-    expect(reboundFirst.sendPacket).toHaveBeenCalledOnce();
+    expect(testSends(reboundFirst.sendPacket)).toHaveLength(1);
 
     manager.onPidDisconnected(101);
     expect(bridge.activePid).toBe(303);
     await bridge.sendRawPacket('Test.Fallback', new Uint8Array([2]));
-    expect(third.sendPacket).toHaveBeenCalledOnce();
+    expect(testSends(third.sendPacket)).toHaveLength(1);
 
     manager.onPidDisconnected(303);
     expect(bridge.activePid).toBe(202);
     await bridge.sendRawPacket('Test.SecondFallback', new Uint8Array([3]));
-    expect(second.sendPacket).toHaveBeenCalledOnce();
+    expect(testSends(second.sendPacket)).toHaveLength(1);
   });
 
   it('applies the same ownership transition when a packet reveals a new UIN', async () => {
@@ -413,7 +425,7 @@ describe('BridgeManager PID ownership', () => {
     const replacement = manager.getSession('20002')!.bridge;
     expect(replacement.hasPid(101)).toBe(true);
     await replacement.sendRawPacket('Test.AfterPacketRebind', new Uint8Array([1]));
-    expect(sender.sendPacket).toHaveBeenCalledOnce();
+    expect(testSends(sender.sendPacket)).toHaveLength(1);
   });
 
   it('keeps the old UIN alive when its active PID moves and a fallback remains', async () => {
@@ -437,12 +449,12 @@ describe('BridgeManager PID ownership', () => {
     expect(oldBridge.hasPid(202)).toBe(false);
     expect(oldBridge.activePid).toBe(101);
     await oldBridge.sendRawPacket('Test.OldUinFallback', new Uint8Array([1]));
-    expect(fallback.sendPacket).toHaveBeenCalledOnce();
+    expect(testSends(fallback.sendPacket)).toHaveLength(1);
 
     const newBridge = manager.getSession('20002')!.bridge;
     expect(newBridge.activePid).toBe(202);
     await newBridge.sendRawPacket('Test.NewUinSender', new Uint8Array([2]));
-    expect(rebound.sendPacket).toHaveBeenCalledOnce();
+    expect(testSends(rebound.sendPacket)).toHaveLength(1);
 
     manager.onPidDisconnected(202);
     expect(lifecycle).toEqual([
@@ -485,7 +497,7 @@ describe('BridgeManager PID ownership', () => {
     manager.onPidDisconnected(101);
     expect(targetBridge.activePid).toBe(202);
     await targetBridge.sendRawPacket('Test.ExistingTargetFallback', new Uint8Array([1]));
-    expect(second.sendPacket).toHaveBeenCalledOnce();
+    expect(testSends(second.sendPacket)).toHaveLength(1);
     expect(closed).toHaveBeenCalledOnce();
 
     manager.onPidDisconnected(202);

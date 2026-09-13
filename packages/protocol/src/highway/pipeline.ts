@@ -215,6 +215,7 @@ async function runNtv2UploadOperation(
         extBizInfo: params.extBizInfo,
         tryFast,
         clientRandomId: makeClientRandomId(),
+        label,
       });
     } catch (error) {
       if (error instanceof OidbError) setState('oidb_rejected');
