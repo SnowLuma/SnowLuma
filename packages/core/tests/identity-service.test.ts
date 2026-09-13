@@ -834,6 +834,28 @@ describe('IdentityService', () => {
     identity.close();
   });
 
+  it('does not hydrate identity-only sightings as live members after reopen', () => {
+    const dbPath = tempDbPath('identity-only-not-roster');
+    const member = makeMember(33333, 'u_member', 'card');
+
+    {
+      const identity = new IdentityService(SELF_UIN, dbPath);
+      identity.rememberGroups([makeGroup()]);
+      identity.rememberGroupMembers(GROUP_ID, [member]);
+      identity.rememberGroupMemberIdentity(GROUP_ID, { uid: 'u_operator', uin: 88888 });
+      expect(identity.findGroupMember(GROUP_ID, 88888)).toBeNull();
+      identity.close();
+    }
+
+    {
+      const identity = new IdentityService(SELF_UIN, dbPath);
+      expect(identity.findGroupMember(GROUP_ID, member.uin)?.card).toBe('card');
+      expect(identity.findGroupMember(GROUP_ID, 88888)).toBeNull();
+      expect(identity.findUinByUid('u_operator')).toBe(88888);
+      identity.close();
+    }
+  });
+
   it('records a thin live member on join without inventing roster details', () => {
     const identity = IdentityService.memory(SELF_UIN);
     identity.rememberGroups([makeGroup()]);
@@ -855,6 +877,34 @@ describe('IdentityService', () => {
     expect(joined?.isRobot).toBeUndefined();
     expect(identity.findGroupMember(GROUP_ID, 33333)?.card).toBe('card');
     identity.close();
+  });
+
+  it('persists a thin live member on join across reopen', () => {
+    const dbPath = tempDbPath('join-live-roster');
+    const existing = makeMember(33333, 'u_existing', 'card');
+
+    {
+      const identity = new IdentityService(SELF_UIN, dbPath);
+      identity.rememberGroups([makeGroup()]);
+      identity.rememberGroupMembers(GROUP_ID, [existing]);
+      identity.rememberGroupMemberJoined(GROUP_ID, { uid: 'u_join', uin: 44444 });
+      identity.close();
+    }
+
+    {
+      const identity = new IdentityService(SELF_UIN, dbPath);
+      const joined = identity.findGroupMember(GROUP_ID, 44444);
+      expect(joined).toMatchObject({
+        uin: 44444,
+        uid: 'u_join',
+        nickname: '',
+        card: '',
+        role: 'member',
+      });
+      expect(joined?.isRobot).toBeUndefined();
+      expect(identity.findGroupMember(GROUP_ID, 33333)?.card).toBe('card');
+      identity.close();
+    }
   });
 
   it('drops a leaver from the live roster and keeps their identity mapping', () => {
@@ -989,7 +1039,7 @@ describe('IdentityService', () => {
 
       expect(identity.findUidByUin(55555)).toBe('u_friend_request');
       expect(identity.findUinByUid('u_friend_request')).toBe(55555);
-      expect(identity.findGroup(GROUP_ID)?.groupId).toBe(GROUP_ID);
+      expect(identity.findGroup(GROUP_ID)).toBeNull();
       expect(identity.findUidByUin(66666)).toBe('u_group_request');
 
       identity.close();

@@ -625,7 +625,6 @@ export class IdentityService {
     }
     this.runWrite('group requests', () => this.transaction(() => {
       for (const request of observed) {
-        this.upsertGroup({ groupId: request.groupId, groupName: request.groupName });
         this.upsertUser({
           uid: request.targetUid,
           uin: request.targetUin,
@@ -655,7 +654,6 @@ export class IdentityService {
     const observed = { ...identity };
     this.rememberUidUin(observed.uid, observed.uin);
     this.runWrite('request identity', () => this.transaction(() => {
-      if (observed.groupId !== undefined) this.upsertGroup({ groupId: observed.groupId });
       this.upsertUser({
         uid: observed.uid,
         uin: observed.uin,
@@ -666,19 +664,17 @@ export class IdentityService {
   }
 
   rememberGroupMemberIdentity(
-    groupId: number,
+    _groupId: number,
     identity: { uid?: string; uin?: number; nickname?: string; card?: string },
   ): void {
     this.beginObservation('group member identity');
     const observed = { ...identity };
     this.rememberUidUin(observed.uid, observed.uin);
-    this.runWrite('group member identity', () => this.transaction(() => this.upsertGroupMember({
-      groupId,
+    this.runWrite('group member identity', () => this.transaction(() => this.upsertUser({
       uid: observed.uid,
       uin: observed.uin,
       nickname: observed.nickname,
-      card: observed.card,
-      active: true,
+      source: 'group_member',
     })));
   }
 
@@ -695,7 +691,7 @@ export class IdentityService {
     if (!g || g.members.has(uin)) return;
     const uid = normalizeUid(identity.uid) ?? '';
     this.rememberUidUin(uid, uin);
-    g.members.set(uin, {
+    const joined: GroupMemberInfo = {
       uin,
       uid,
       nickname: '',
@@ -706,7 +702,13 @@ export class IdentityService {
       joinTime: 0,
       lastSentTime: 0,
       shutUpTime: 0,
-    });
+    };
+    g.members.set(uin, joined);
+    this.runWrite('group member joined', () => this.transaction(() => this.upsertGroupMember({
+      groupId,
+      ...joined,
+      active: true,
+    })));
   }
 
   markGroupMemberInactive(groupId: number, identity: { uid?: string; uin?: number }): void {
