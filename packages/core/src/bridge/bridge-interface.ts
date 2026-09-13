@@ -1,8 +1,15 @@
 import type { OnlineDeviceInfo } from '@snowluma/protocol/events';
 import type { BridgeContext } from './bridge-context';
 
+export interface RosterWarmupResult {
+  friendsLoaded: boolean;
+  groupsLoaded: boolean;
+}
+
 export interface BridgeInterface extends BridgeContext {
   readonly activePid: number | null;
+  /** Settles once for this Bridge session after first-login roster fetch. */
+  whenRosterWarmupSettled(): Promise<RosterWarmupResult>;
   /** False only when every attached QQ process has a confirmed receive or
    *  request-path failure. An unarmed watchdog remains true for compatibility. */
   readonly receiveHealthy: boolean;

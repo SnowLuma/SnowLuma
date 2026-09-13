@@ -13,7 +13,6 @@ import type { AdapterStatus, NetworkApplyError } from './network';
 import type { OneBotConfig } from './types';
 
 const log = createLogger('OneBot');
-const VERBOSE_WARMUP = process.env.SNOWLUMA_VERBOSE_WARMUP === '1';
 
 class InstanceLifecycleError extends Error {
   constructor(readonly instance: OneBotInstance, readonly rootCause: unknown) {
@@ -357,27 +356,36 @@ export class OneBotManager {
       else log.warn('network startup degraded: UIN=%s failures=%d', uin, result.errors.length);
       instance.startGroupRequestPolling();
     }));
-    void warmUpBridgeState(uin, bridge).then(
-      (warmup) => {
-        if (warmup.friendsLoaded && warmup.groupsLoaded) {
-          instance.startLoginHistorySync();
-          return;
-        }
-        log.warn(
-          'login history sync skipped because roster warmup was incomplete: '
-          + 'UIN=%s friendsLoaded=%s groupsLoaded=%s',
-          uin,
-          String(warmup.friendsLoaded),
-          String(warmup.groupsLoaded),
-        );
-      },
-      (err) => {
-        log.warn(
-          'warmup error for UIN %s: %s',
-          uin,
-          err instanceof Error ? (err.stack ?? err.message) : String(err),
-        );
-      },
+    void this.armLoginHistorySync(uin, instance, bridge);
+  }
+
+  private async armLoginHistorySync(
+    uin: string,
+    instance: OneBotInstance,
+    bridge: BridgeInterface,
+  ): Promise<void> {
+    let warmup;
+    try {
+      warmup = await bridge.whenRosterWarmupSettled();
+    } catch (err) {
+      log.warn(
+        'warmup error for UIN %s: %s',
+        uin,
+        err instanceof Error ? (err.stack ?? err.message) : String(err),
+      );
+      return;
+    }
+    if (this.disposed || this.instances.get(uin) !== instance) return;
+    if (warmup.friendsLoaded && warmup.groupsLoaded) {
+      instance.startLoginHistorySync();
+      return;
+    }
+    log.warn(
+      'login history sync skipped because roster warmup was incomplete: '
+      + 'UIN=%s friendsLoaded=%s groupsLoaded=%s',
+      uin,
+      String(warmup.friendsLoaded),
+      String(warmup.groupsLoaded),
     );
   }
 
@@ -497,99 +505,4 @@ function migrationPublicState(
   };
 }
 
-interface BridgeWarmupResult {
-  friendsLoaded: boolean;
-  groupsLoaded: boolean;
-}
 
-async function warmUpBridgeState(
-  uin: string,
-  bridge: BridgeInterface,
-): Promise<BridgeWarmupResult> {
-  const selfUin = parseInt(uin, 10) || 0;
-  let selfResolved = false;
-  let friendsLoaded = false;
-
-  // Step 1: Fetch friend list + derive self profile when QQ happens to
-  // include self in the response. Some accounts / versions omit self,
-  // which used to leave identity.nickname empty — see step 1b for the
-  // explicit fallback.
-  try {
-    const friends = await bridge.apis.contacts.fetchFriendList();
-    friendsLoaded = true;
-    log.info('friends loaded: UIN=%s count=%d', uin, friends.length);
-
-    for (const f of friends) {
-      if (f.uin === selfUin) {
-        bridge.identity.setSelfProfile({
-          uin: f.uin, uid: f.uid,
-          nickname: f.nickname || uin,
-          remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0,
-          qidianMasterFlag: 0, qidianCrewFlag: 0, qidianCrewFlag2: 0,
-        });
-        bridge.identity.nickname = f.nickname || uin;
-        log.debug('self info: UIN=%s uid=%s nickname=%s', uin, f.uid, f.nickname ?? '');
-        selfResolved = true;
-        break;
-      }
-    }
-  } catch (e) {
-    log.warn('failed to load friends for UIN %s: %s', uin, e instanceof Error ? e.message : String(e));
-  }
-
-  // Step 1b: friend-list path didn't resolve self → fetch user profile
-  // directly via OIDB 0xFE1_2 so multi-account WebUI shows a nickname
-  // for every injected session, not just the ones where QQ echoed self
-  // back in the friend list.
-  if (!selfResolved && selfUin > 0) {
-    try {
-      const profile = await bridge.apis.contacts.fetchUserProfile(selfUin);
-      bridge.identity.setSelfProfile(profile);
-      bridge.identity.nickname = profile.nickname || uin;
-      log.debug('self info via profile: UIN=%s uid=%s nickname=%s',
-        uin, profile.uid, profile.nickname);
-    } catch (e) {
-      log.warn('failed to load self profile for UIN %s: %s',
-        uin, e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  // Step 2: Fetch group list
-  let groups: { groupId: number }[] = [];
-  let groupsLoaded = false;
-  try {
-    groups = await bridge.apis.contacts.fetchGroupList();
-    groupsLoaded = true;
-    log.info('groups loaded: UIN=%s count=%d', uin, groups.length);
-  } catch (e) {
-    log.warn('failed to load groups for UIN %s: %s', uin, e instanceof Error ? e.message : String(e));
-  }
-
-  // Step 3: Fetch members for each group
-  let loadedGroupCount = 0;
-  let loadedMemberCount = 0;
-  let failedGroupCount = 0;
-  for (const g of groups) {
-    try {
-      const members = await bridge.apis.contacts.fetchGroupMemberList(g.groupId);
-      loadedGroupCount += 1;
-      loadedMemberCount += members.length;
-      if (VERBOSE_WARMUP) {
-        log.debug('members loaded: group=%d count=%d', g.groupId, members.length);
-      }
-    } catch (e) {
-      failedGroupCount += 1;
-      log.warn('failed to load members for group %d: %s', g.groupId, e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  log.info(
-    'member warmup completed: UIN=%s groups=%d/%d members=%d failed=%d',
-    uin,
-    loadedGroupCount,
-    groups.length,
-    loadedMemberCount,
-    failedGroupCount,
-  );
-  return { friendsLoaded, groupsLoaded };
-}
