@@ -25,6 +25,7 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "ci": "node tools/ci-check.mjs",
     "start": "node dist/index.mjs",
     "bump": "node tools/bump-version.mjs",
     "release": "node tools/release.mjs"

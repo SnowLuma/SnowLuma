@@ -9,17 +9,19 @@
 //   1. Sanity-check: on `dev`, clean tree. Must not be behind origin/dev.
 //      Ahead-by-one is allowed when HEAD is already this version's
 //      `chore(release):` commit (resume after a dropped push).
-//   2. `pnpm bump <version>` (writes every package.json).
-//   3. Commit `chore(release): vX.Y.Z` — that prefix triggers the
+//   2. Full CI suite (`node tools/ci-check.mjs`) — the same commands as
+//      `.github/workflows/ci.yml`. Fail here instead of after the bump.
+//   3. `pnpm bump <version>` (writes every package.json).
+//   4. Commit `chore(release): vX.Y.Z` — that prefix triggers the
 //      Promote workflow, which opens (or updates) the dev→main PR and
 //      auto-merges if the GitHub setting allows. Skipped when HEAD is
 //      already that commit.
-//   4. Push to origin/dev (retries transient HTTPS / TLS failures).
-//   5. (Unless `--no-wait`) poll the Promote PR via `gh` until it
+//   5. Push to origin/dev (retries transient HTTPS / TLS failures).
+//   6. (Unless `--no-wait`) poll the Promote PR via `gh` until it
 //      merges, then fetch and fast-forward `main` to `origin/main`,
 //      create `vX.Y.Z` tag, push it — that triggers `release.yml`.
 //      Fetch / tag push also retry.
-//   6. Switch back to `dev` so the next `git log` view is back where
+//   7. Switch back to `dev` so the next `git log` view is back where
 //      you were.
 //
 // Re-run the same `pnpm release <version>` after a dropped push; do
@@ -201,6 +203,12 @@ function preflight() {
   if (!dryRun) ok(`on dev, clean, ready to release ${tag}`);
 }
 
+function runCiSuite() {
+  info('running the full CI suite (same commands as .github/workflows/ci.yml)');
+  sh('node tools/ci-check.mjs');
+  if (!dryRun) ok('CI suite passed');
+}
+
 // ───────────── step 2-4: bump + commit + push dev ─────────────
 
 function bumpAndPushDev() {
@@ -320,6 +328,7 @@ async function waitAndTag() {
 (async () => {
   console.log(`Release pipeline → ${tag}${dryRun ? ' (dry-run)' : ''}\n`);
   preflight();
+  runCiSuite();
   bumpAndPushDev();
 
   if (noWait) {
