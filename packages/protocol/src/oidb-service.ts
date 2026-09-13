@@ -140,7 +140,9 @@ export async function invokeOidb<TCtx extends OidbSender, TReq, TResp, TParams, 
     ? spec.wireName(command, subCommand)
     : `OidbSvcTrpcTcp.0x${command.toString(16)}_${subCommand}`;
 
-  const result = await ctx.sendRawPacket(wireName, reqBytes, timeoutMs);
+  const result = timeoutMs === undefined
+    ? await ctx.sendRawPacket(wireName, reqBytes)
+    : await ctx.sendRawPacket(wireName, reqBytes, timeoutMs);
   if (!result.gotResponse) throw new Error(result.errorMessage || 'no response');
 
   if (!result.success) {
