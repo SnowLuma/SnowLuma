@@ -30,6 +30,7 @@ export namespace Ntv2UploadRequest {
     extBizInfo: NTV2ExtBizInfo;
     tryFast: boolean;
     clientRandomId: bigint;
+    label?: string;
   }
 
   export type Deps = OidbSender;
@@ -61,16 +62,19 @@ export namespace Ntv2UploadRequest {
     },
   });
 
-  export const deserialize = (_ctx: Deps, body: NTV2UploadRichMediaResp): NTV2UploadRespBody => {
-    if (!body) throw new Error('media upload response body missing');
+  export const deserializeUpload = (body: NTV2UploadRichMediaResp, label = 'media'): NTV2UploadRespBody => {
+    if (!body) throw new Error(`${label} upload response body missing`);
     if (body.respHead?.retCode && body.respHead.retCode !== 0) {
-      throw new Error(body.respHead.message ?? 'media upload failed');
+      throw new Error(body.respHead.message ?? `${label} upload failed`);
     }
     const upload = body.upload;
-    if (!upload) throw new Error('media upload response body missing');
+    if (!upload) throw new Error(`${label} upload response body missing`);
     if (!upload.msgInfo) throw new Error('upload response missing msgInfo');
     return upload;
   };
+
+  export const deserialize = (_ctx: Deps, body: NTV2UploadRichMediaResp): NTV2UploadRespBody =>
+    deserializeUpload(body);
 
   export const encode = (env: OidbBase<NTV2UploadRichMediaReq>): Uint8Array =>
     protobuf_encode<OidbBase<NTV2UploadRichMediaReq>>(env);
@@ -79,5 +83,8 @@ export namespace Ntv2UploadRequest {
     protobuf_decode<OidbBase<NTV2UploadRichMediaResp>>(bytes);
 
   export const invoke = (deps: Deps, params: Params): Promise<NTV2UploadRespBody> =>
-    invokeOidb(deps, Ntv2UploadRequest, params);
+    invokeOidb(deps, {
+      ...Ntv2UploadRequest,
+      deserialize: (_ctx, body) => deserializeUpload(body, params.label ?? 'media'),
+    }, params);
 }
