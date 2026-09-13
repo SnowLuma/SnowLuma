@@ -156,6 +156,28 @@ export const actions = [
   }),
 
   groupAction({
+    name: 'upload_video_to_qun_album',
+    summary: '上传视频到群相册',
+    returns: '{ id: string }',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: '视频 id' },
+      },
+      required: ['id'],
+    },
+    params: {
+      album_id: f.string({ allowEmpty: false }).describe('相册 id'),
+      album_name: f.string({ allowEmpty: false }).describe('相册名称'),
+      file: f.video().describe('视频文件'),
+    },
+    run: async (p, ctx) => {
+      const result = await ctx.bridge.apis.groupAlbum.uploadVideo(p.group_id, p.album_id, p.album_name, p.file);
+      return okResponse(result);
+    },
+  }),
+
+  groupAction({
     name: 'get_group_album_media_list',
     readOnly: true,
     returns: '相册图片/视频列表及下一页分页游标；视频项包含 id、url、cover、尺寸、时长和多规格地址。',

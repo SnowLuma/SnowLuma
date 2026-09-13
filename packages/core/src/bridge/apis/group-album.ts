@@ -17,7 +17,7 @@ import type {
   MediaInfo,
   UrlInfo,
 } from '@snowluma/proto-defs/oidb-actions/group-album';
-import { uploadImageToGroupAlbum } from '@snowluma/protocol/web/group-album';
+import { uploadImageToGroupAlbum, uploadVideoToGroupAlbum } from '@snowluma/protocol/web/group-album';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { BridgeContext } from '../bridge-context';
 
@@ -260,6 +260,13 @@ export class GroupAlbumApi {
     const uin = this.ctx.identity.uin;
     const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
     await uploadImageToGroupAlbum(cookieObject, groupCode, albumId, albumName, filePath, uin);
+  }
+
+  async uploadVideo(groupId: number, albumId: string, albumName: string, filePath: string): Promise<{ id: string }> {
+    const groupCode = groupId.toString();
+    const uin = this.ctx.identity.uin;
+    const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
+    return uploadVideoToGroupAlbum(cookieObject, groupCode, albumId, albumName, filePath, uin);
   }
 
   async getMediaList(groupId: number, albumId: string, attachInfo = ''): Promise<GroupAlbumMediaResult> {

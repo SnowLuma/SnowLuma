@@ -12884,6 +12884,105 @@ export const ACTIONS: CatalogAction[] = [
       "additionalProperties": true
     },
     "category": "群文件"
+  },
+  {
+    "name": "upload_video_to_qun_album",
+    "aliases": [],
+    "summary": "上传视频到群相册",
+    "returns": "{ id: string }",
+    "returnsSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "视频 id"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "readOnly": false,
+    "params": [
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": true,
+        "role": "group_id",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "群号"
+      },
+      {
+        "name": "album_id",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "相册 id"
+      },
+      {
+        "name": "album_name",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "相册名称"
+      },
+      {
+        "name": "file",
+        "type": "string",
+        "required": true,
+        "role": "video",
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "视频文件"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "群号",
+          "x-role": "group_id"
+        },
+        "album_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "相册 id"
+        },
+        "album_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "相册名称"
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "视频文件",
+          "x-role": "video"
+        }
+      },
+      "required": [
+        "group_id",
+        "album_id",
+        "album_name",
+        "file"
+      ],
+      "additionalProperties": true
+    },
+    "category": "群相册"
   }
 ];
 
@@ -12922,7 +13021,7 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "群相册",
-    "count": 8
+    "count": 9
   },
   {
     "category": "空间",
