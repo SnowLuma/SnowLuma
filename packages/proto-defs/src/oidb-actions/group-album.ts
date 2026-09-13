@@ -147,42 +147,20 @@ export interface CommentContentItem {
 export interface CommentUser {
   uin?: pb<13, string>;
 }
-export interface CommentReqContentMeta {
-  field1?: pb<1, uint_32>;
-  field2?: pb<2, string>;
-  field3?: pb<3, string>;
-  field4?: pb<4, string>;
-  field5?: pb<5, uint_32>;
-  field6?: pb<6, string>;
-}
 export interface CommentReqContent {
-  field2?:    pb<2, CommentUser>;
-  field3?:    pb<3, CommentReqContentMeta>;
+  user?:      pb<2, CommentUser>;
+  // QQ NT FeedWorker writes StComment content cells as a repeated field.
+  contents?:  pb_repeated<3, CommentContentItem>;
   clientKey?: pb<7, string>;
 }
-export interface CommentReqPhotoMeta {
-  field1?:  pb<1, uint_32>;
-  field2?:  pb<2, string>;
-  lloc?:    pb<3, string>;
-  field4?:  pb<4, string>;
-  field6?:  pb<6, string>;
-  field7?:  pb<7, uint_32>;
-  field8?:  pb<8, uint_32>;
-  field9?:  pb<9, uint_32>;
-  field14?: pb<14, uint_32>;
-  field15?: pb<15, uint_32>;
-  field17?: pb<17, uint_32>;
-}
-export interface CommentReqPhotoWrap {
-  field2?: pb<2, CommentReqPhotoMeta>;
-}
+// QQ NT FeedWorker copies StFeed media cells with the MediaInfo codec.
 export interface CommentReqPhotoInfo {
-  field1?:  pb<1, CommentReqPhotoWrap>;
+  medias?:  pb_repeated<1, MediaInfo>;
   albumId?: pb<3, string>;
-  field5?:  pb<5, uint_32>;
+  batchId?: pb<5, uint_64>;
 }
 export interface CommentReqBodyHeader {
-  field3?: pb<3, uint_32>;
+  field3?: pb<3, uint_64>;
   field4?: pb<4, string>;
 }
 export interface CommentReqBodyUserWrap {
@@ -222,11 +200,17 @@ export interface CommentRespData {
   clientKey?: pb<7, string>;
 }
 export interface DoQunCommentResponseComment {
-  data?: pb<2, CommentRespData>;
+  id?:        pb<1, string>;
+  data?:      pb<2, CommentRespData>;
+  content?:   pb_repeated<3, CommentRespContent>;
+  time?:      pb<4, uint_64>;
+  clientKey?: pb<7, string>;
 }
 export interface DoQunCommentResponse {
-  field1?:  pb<1, int_32>;
-  comment?: pb<4, DoQunCommentResponseComment>;
+  field1?:    pb<1, int_32>;
+  result?:    pb<2, int_32>;
+  errorText?: pb<3, string>;
+  comment?:   pb<4, DoQunCommentResponseComment>;
 }
 export interface DoQunLikeReqLikeInfo {
   id?:     pb<1, string>;
