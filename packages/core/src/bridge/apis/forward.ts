@@ -550,7 +550,7 @@ export class ForwardApi {
     forwardResCache.set(resId, uploadReadyNodes.map(node => ({
       userUin: node.userUin,
       nickname: node.nickname,
-      elements: [...node.elements],
+      elements: node.elements.map(cacheableForwardElement),
       time: node.time,
       msgId: node.msgId,
       msgSeq: node.msgSeq,
@@ -852,6 +852,14 @@ export class ForwardApi {
     };
     visit(nodes);
   }
+}
+
+function cacheableForwardElement(element: MessageElement): MessageElement {
+  if (element.type !== 'image') return element;
+  if (element.imageUrl || element.fileId || element.md5Hex) return element;
+  const source = (element.url ?? '').trim();
+  if (!source) return element;
+  return { ...element, imageUrl: source };
 }
 
 function cloneNodes(nodes: ForwardNodePayload[]): ForwardNodePayload[] {

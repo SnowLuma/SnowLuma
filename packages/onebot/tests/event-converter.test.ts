@@ -422,6 +422,37 @@ describe('convertEvent — message elements', () => {
     expect((seg.data as Record<string, unknown>).url).toBe('http://x');
   });
 
+  it('image: falls back to element.url when imageUrl is empty (#441)', async () => {
+    const source = 'https://cdn.example/bot-built.png';
+    const seg = await segment({ type: 'image', url: source });
+    expect(seg).toEqual({
+      type: 'image',
+      data: {
+        url: source,
+        file: source,
+        sub_type: 0,
+        summary: '',
+      },
+    });
+  });
+
+  it('image: resolver sees the upload source when only url is present (#441)', async () => {
+    const source = 'https://cdn.example/bot-built.png';
+    const seen: string[] = [];
+    const seg = await segment(
+      { type: 'image', url: source },
+      {
+        imageUrlResolver: (element) => {
+          seen.push(element.type === 'image' ? (element.imageUrl ?? '') : '');
+          return `${element.type === 'image' ? element.imageUrl : ''}&signed=1`;
+        },
+      },
+    );
+    expect(seen).toEqual([source]);
+    expect((seg.data as Record<string, unknown>).url).toBe(`${source}&signed=1`);
+    expect((seg.data as Record<string, unknown>).file).toBe(source);
+  });
+
   it('image: forwards optional sub_type and summary for custom emoji/stickers', async () => {
     const seg = await segment({
       type: 'image',

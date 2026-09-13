@@ -121,6 +121,29 @@ describe('actions/forward', () => {
     ])).rejects.toThrow(/missing res_id/);
   });
 
+  it('cached fetch after upload keeps a usable image source (#441)', async () => {
+    const sendRawPacket = vi.fn(async () => uploadResponseWithResId('res-img-cache')) as any;
+    const bridge = mockBridge({ sendRawPacket });
+    const source = 'https://cdn.example/bot-built.png';
+
+    const resId = await new ForwardApi(bridge as any).upload([
+      {
+        userUin: 10001,
+        nickname: 'alice',
+        elements: [{ type: 'image', url: source }],
+      },
+    ]);
+    const fetched = await new ForwardApi(bridge as any).fetch(resId);
+
+    expect(fetched).toHaveLength(1);
+    expect(fetched[0]!.elements[0]).toMatchObject({
+      type: 'image',
+      url: source,
+      imageUrl: source,
+    });
+    expect(sendRawPacket).toHaveBeenCalledTimes(1);
+  });
+
   it('fetchForwardNodes serves from cache after a successful upload (no second sendRawPacket)', async () => {
     const sendRawPacket = vi.fn(async () => uploadResponseWithResId('res-cache')) as any;
     const bridge = mockBridge({ sendRawPacket });

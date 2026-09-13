@@ -256,11 +256,21 @@ export const ELEMENT_CODECS = {
 
   image: {
     async toSegment(element, ctx) {
-      const url = ctx.imageUrlResolver ? await ctx.imageUrlResolver(element, ctx.isGroup) : (element.imageUrl ?? '');
+      // Bot-built forwards cache the upload source on `url`. Incoming
+      // pictures use `imageUrl`. get_forward_msg must accept either —
+      // otherwise a just-sent merge comes back with empty file/url (#441).
+      const source = (element.imageUrl || element.url || '').trim();
+      const resolved = source && !element.imageUrl
+        ? { ...element, imageUrl: source }
+        : element;
+      const url = ctx.imageUrlResolver
+        ? await ctx.imageUrlResolver(resolved, ctx.isGroup)
+        : source;
       const data: JsonObject = {
         url,
         file: element.fileId
-          || (element.md5Hex ? `${element.md5Hex.toLowerCase()}.png` : ''),
+          || (element.md5Hex ? `${element.md5Hex.toLowerCase()}.png` : '')
+          || source,
         sub_type: element.subType ?? 0,
         summary: element.summary ?? '',
       };
@@ -499,7 +509,7 @@ export const ELEMENT_CODECS = {
     async fromSegment(data) {
       return {
         type: 'forward',
-        resId: String(data.id ?? ''),
+        resId: String(data.id ?? data.res_id ?? data.forward_id ?? ''),
       };
     },
   },

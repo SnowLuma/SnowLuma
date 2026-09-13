@@ -1283,6 +1283,35 @@ describe('buildApiContext send and forward dispatch', () => {
     }]);
     expect(fetch).toHaveBeenCalledWith('res-abc');
   });
+
+  it('returns file/url for a cached bot-built image node (#441)', async () => {
+    const source = 'https://cdn.example/bot-built.png';
+    const fetch = vi.fn(async () => [{
+      messageType: 'group',
+      userUin: PEER_ID,
+      nickname: 'peer',
+      time: 1_725_000_100,
+      msgId: 11,
+      msgSeq: 12,
+      groupId: GROUP_ID,
+      elements: [{ type: 'image', url: source }],
+    }]);
+    const { api } = makeRef({
+      apis: { forward: { upload: vi.fn(), fetch } },
+    });
+
+    const messages = await api.getForwardMsg('res-img');
+    expect(messages).toHaveLength(1);
+    expect(messages[0]!.message).toEqual([{
+      type: 'image',
+      data: {
+        url: source,
+        file: source,
+        sub_type: 0,
+        summary: '',
+      },
+    }]);
+  });
 });
 
 describe('buildApiContext history', () => {
