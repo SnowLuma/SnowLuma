@@ -56,6 +56,14 @@ describe('ptt-upload', () => {
     const c2cFlags = (args.extBizInfo as any).ptt.bytesGeneralFlags;
     expect(c2cFlags.length).toBe(14);
     expect(c2cFlags[0]).toBe(0x9a);
+    expect((args.extBizInfo as any).ptt.waveform).toBeUndefined();
+  });
+
+  it('fingerprint path does not invent a waveform', async () => {
+    await uploadPttMsgInfo({} as any, true, 12345, FINGERPRINT);
+    const args = vi.mocked(pipeline.runNtv2Upload).mock.calls[0]![0];
+    expect((args.extBizInfo as any).ptt.waveform).toBeUndefined();
+    expect(pipeline.finalizeMediaMsgInfo).toHaveBeenCalledOnce();
   });
 
   it('fingerprint payload: zero bytes, fastOnlyError ready, voiceFormat defaults to 1', async () => {

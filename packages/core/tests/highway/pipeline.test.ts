@@ -488,6 +488,15 @@ describe('pipeline — finalizeMediaMsgInfo', () => {
     expect(decoded.extBizInfo.pic.textSummary).toBe('[image]');
   });
 
+  it('preserves a server ptt waveform on the outgoing MsgInfo', () => {
+    const waveform = new Uint8Array([8, 4, 18, 4, 10, 20, 30, 40]);
+    const out = finalizeMediaMsgInfo({
+      msgInfo: { msgInfoBody: [], extBizInfo: { ptt: { waveform } } },
+    });
+    const decoded: any = protobuf_decode<EncodableMediaMsgInfo>(out);
+    expect(decoded.extBizInfo.ptt.waveform).toEqual(waveform);
+  });
+
   it('without defaultPic, leaves pic untouched when server omits it', () => {
     const out = finalizeMediaMsgInfo({
       msgInfo: { msgInfoBody: [], extBizInfo: {} },

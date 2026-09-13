@@ -407,6 +407,12 @@ export interface VideoExtBizInfo {
   bytesPbReserve?: pb<3, bytes>;
 }
 
+/** Encoded payload of `PttExtBizInfo.waveform`. Count must equal amplitudes. */
+export interface PttWaveform {
+  size?:       pb<1, uint_32>;
+  amplitudes?: pb<2, bytes>;
+}
+
 export interface PttExtBizInfo {
   srcUin?:            pb<1, uint_64>;
   pttScene?:          pb<2, uint_32>;

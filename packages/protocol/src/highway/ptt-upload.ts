@@ -5,13 +5,19 @@ import path from 'path';
 import { createLogger } from '@snowluma/common/logger';
 import type { BridgeContext } from '../bridge-context';
 import type { MessageElement } from '../events';
-import { defaultPttTempDir, encodeSilk } from './ffmpeg-addon';
+import { defaultPttTempDir, encodeSilk, getFFmpegAddon } from './ffmpeg-addon';
 import {
   finalizeMediaMsgInfo,
   hexToBytes,
   runNtv2Upload,
   type MediaSubFileUpload,
 } from './pipeline';
+import {
+  amplitudesFromPcmS16le,
+  encodePttWaveform,
+  mergePttWaveform,
+  pcmS16leFromWav,
+} from './ptt-waveform';
 import { computeHashes, loadBinarySource, resolveLocalFilePath } from './utils';
 
 const moduleLog = createLogger('Highway.Ptt');
@@ -42,6 +48,8 @@ interface PttPayload {
   fastOnly: boolean;
   /** Cleanup hooks for any temp silk files staged during loadPtt. */
   cleanups: Array<() => void>;
+  /** Encoded `PttWaveform` for private-chat progress / peaks. Omitted on fingerprint. */
+  waveform?: Uint8Array;
 }
 
 function pttPayloadFromFingerprint(element: MessageElement): PttPayload {
@@ -110,6 +118,7 @@ async function loadPtt(element: MessageElement, tempDir: string): Promise<PttPay
     if (silkBytes.length === 0) throw new Error('silk file is empty after conversion');
 
     const hashes = computeHashes(silkBytes);
+    const waveform = await tryPttWaveform(silk.path, tempDir, cleanups);
     return {
       bytes: silkBytes,
       md5: hashes.md5,
@@ -122,10 +131,30 @@ async function loadPtt(element: MessageElement, tempDir: string): Promise<PttPay
       voiceFormat: 1,
       fastOnly: false,
       cleanups: [...cleanups],
+      waveform,
     };
   } catch (err) {
     runCleanups();
     throw err;
+  }
+}
+
+async function tryPttWaveform(
+  silkPath: string,
+  tempDir: string,
+  cleanups: Array<() => void>,
+): Promise<Uint8Array | undefined> {
+  const wavPath = path.join(tempDir, `snowluma-ptt-wave-${crypto.randomUUID()}.wav`);
+  cleanups.push(() => { try { fs.unlinkSync(wavPath); } catch { /* ignore */ } });
+  try {
+    const decoded = await getFFmpegAddon().decodeAudioToFmt(silkPath, wavPath, 'wav');
+    if (!decoded.result || !fs.existsSync(wavPath)) return undefined;
+    const wav = new Uint8Array(fs.readFileSync(wavPath));
+    const { pcm, channels } = pcmS16leFromWav(wav);
+    return encodePttWaveform(amplitudesFromPcmS16le(pcm, { channels }));
+  } catch (err) {
+    moduleLog.debug('ptt waveform skipped: %s', err instanceof Error ? err.message : String(err));
+    return undefined;
   }
 }
 
@@ -195,12 +224,14 @@ export async function uploadPttMsgInfo(
           bytesGeneralFlags: isGroup
             ? new Uint8Array([0x9a, 0x01, 0x07, 0xaa, 0x03, 0x04, 0x08, 0x08, 0x12, 0x00])
             : new Uint8Array([0x9a, 0x01, 0x0b, 0xaa, 0x03, 0x08, 0x08, 0x04, 0x12, 0x04, 0x00, 0x00, 0x00, 0x00]),
+          ...(ptt.waveform ? { waveform: ptt.waveform } : {}),
         },
       },
       uploads,
       label: 'ptt',
     });
 
+    mergePttWaveform(upload, ptt.waveform);
     return finalizeMediaMsgInfo(upload);
   } finally {
     for (const fn of ptt.cleanups) {
