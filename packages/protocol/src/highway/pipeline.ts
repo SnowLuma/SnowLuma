@@ -10,6 +10,7 @@ import type {
   NTV2UploadInfo,
   NTV2UploadRespBody,
 } from '@snowluma/proto-defs/highway';
+import { protobuf_encode } from '@snowluma/proton';
 import crypto from 'crypto';
 import type { BridgeContext } from '../bridge-context';
 import { OidbError } from '../oidb-service';
