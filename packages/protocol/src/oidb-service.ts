@@ -54,12 +54,15 @@ export interface OidbSender {
  *
  * One of `subCommand` (static) or `resolveSubCommand` (dynamic from
  * params and context) must be present. `resolveSubCommand` wins if both
- * are given.
+ * are given. `resolveCommand` likewise wins over static `command`.
  */
 export interface OidbCallSpec<TCtx extends OidbSender, TReq, TResp, TParams, TResult> {
   command: number;
+  resolveCommand?(params: TParams, ctx: TCtx): number;
   subCommand?: number;
   resolveSubCommand?(params: TParams, ctx: TCtx): number;
+  /** Packet and body envelope codes treated as success in addition to 0. */
+  acceptedEnvelopeCodes?: readonly number[];
   /** Set OIDB envelope `reserved = 1` (UIN-form variant, see makeOidbEnvelope's isUid). */
   uinForm?: boolean;
   /** Override the default `OidbSvcTrpcTcp.0xNNNN_N` wire name. A few
@@ -77,6 +80,28 @@ export interface OidbCallSpec<TCtx extends OidbSender, TReq, TResp, TParams, TRe
   encode(env: OidbBase<TReq>): Uint8Array;
   /** Per-type protobuf decoder. */
   decode(bytes: Uint8Array): OidbBase<TResp>;
+}
+
+function resolveOidbCall<TCtx extends OidbSender, TReq, TResp, TParams, TResult>(
+  spec: OidbCallSpec<TCtx, TReq, TResp, TParams, TResult>,
+  params: TParams,
+  ctx: TCtx,
+): { command: number; subCommand: number } {
+  const command = spec.resolveCommand
+    ? spec.resolveCommand(params, ctx)
+    : spec.command;
+  const subCommand = spec.resolveSubCommand
+    ? spec.resolveSubCommand(params, ctx)
+    : spec.subCommand!;
+  return { command, subCommand };
+}
+
+function isAcceptedEnvelopeCode<TCtx extends OidbSender, TReq, TResp, TParams, TResult>(
+  spec: OidbCallSpec<TCtx, TReq, TResp, TParams, TResult>,
+  code: number | null | undefined,
+): boolean {
+  if (code == null || code === 0) return true;
+  return spec.acceptedEnvelopeCodes?.includes(code) === true;
 }
 
 export class OidbError extends Error {
@@ -107,39 +132,40 @@ export async function invokeOidb<TCtx extends OidbSender, TReq, TResp, TParams, 
   params: TParams,
   timeoutMs?: number,
 ): Promise<TResult> {
-  const subCommand = spec.resolveSubCommand
-    ? spec.resolveSubCommand(params, ctx)
-    : spec.subCommand!;
+  const { command, subCommand } = resolveOidbCall(spec, params, ctx);
   const reqBody = await spec.serialize(ctx, params);
-  const env = makeOidbEnvelope(spec.command, subCommand, reqBody, spec.uinForm ?? false);
+  const env = makeOidbEnvelope(command, subCommand, reqBody, spec.uinForm ?? false);
   const reqBytes = spec.encode(env);
   const wireName = spec.wireName
-    ? spec.wireName(spec.command, subCommand)
-    : `OidbSvcTrpcTcp.0x${spec.command.toString(16)}_${subCommand}`;
+    ? spec.wireName(command, subCommand)
+    : `OidbSvcTrpcTcp.0x${command.toString(16)}_${subCommand}`;
 
   const result = await ctx.sendRawPacket(wireName, reqBytes, timeoutMs);
   if (!result.gotResponse) throw new Error(result.errorMessage || 'no response');
 
   if (!result.success) {
     if (result.errorCode && result.errorCode !== 0) {
-      throw new OidbError(
-        result.errorCode,
-        result.errorMessage || '',
-        spec.command,
-        subCommand
-      );
+      if (!isAcceptedEnvelopeCode(spec, result.errorCode)) {
+        throw new OidbError(
+          result.errorCode,
+          result.errorMessage || '',
+          command,
+          subCommand
+        );
+      }
+    } else {
+      // success=false without an OIDB error code = the packet send itself failed;
+      // surface it instead of silently resolving with an undecoded response.
+      throw new Error(result.errorMessage || 'packet send failed');
     }
-    // success=false without an OIDB error code = the packet send itself failed;
-    // surface it instead of silently resolving with an undecoded response.
-    throw new Error(result.errorMessage || 'packet send failed');
   }
 
   const respBytes = result.responseData ?? new Uint8Array(0);
   if (respBytes.length > 0) {
     const meta = protobuf_decode<OidbBaseMeta>(respBytes);
     const code = meta?.errorCode;
-    if (code && code !== 0) {
-      throw new OidbError(code, meta?.errorMsg ?? '', spec.command, subCommand);
+    if (code && code !== 0 && !isAcceptedEnvelopeCode(spec, code)) {
+      throw new OidbError(code, meta?.errorMsg ?? '', command, subCommand);
     }
   }
 
@@ -163,15 +189,13 @@ export async function buildOidbRequest<TCtx extends OidbSender, TReq, TResp, TPa
   spec: OidbCallSpec<TCtx, TReq, TResp, TParams, TResult>,
   params: TParams,
 ): Promise<{ wireName: string; bytes: Uint8Array }> {
-  const subCommand = spec.resolveSubCommand
-    ? spec.resolveSubCommand(params, ctx)
-    : spec.subCommand!;
+  const { command, subCommand } = resolveOidbCall(spec, params, ctx);
   const reqBody = await spec.serialize(ctx, params);
-  const env = makeOidbEnvelope(spec.command, subCommand, reqBody, spec.uinForm ?? false);
+  const env = makeOidbEnvelope(command, subCommand, reqBody, spec.uinForm ?? false);
   const bytes = spec.encode(env);
   const wireName = spec.wireName
-    ? spec.wireName(spec.command, subCommand)
-    : `OidbSvcTrpcTcp.0x${spec.command.toString(16)}_${subCommand}`;
+    ? spec.wireName(command, subCommand)
+    : `OidbSvcTrpcTcp.0x${command.toString(16)}_${subCommand}`;
   return { wireName, bytes };
 }
 

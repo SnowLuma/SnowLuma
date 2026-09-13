@@ -9,14 +9,11 @@ import type {
   NTV2ExtBizInfo,
   NTV2UploadInfo,
   NTV2UploadRespBody,
-  NTV2UploadRichMediaReq,
-  NTV2UploadRichMediaResp,
 } from '@snowluma/proto-defs/highway';
-import { OidbBase } from '@snowluma/proto-defs/oidb';
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import crypto from 'crypto';
 import type { BridgeContext } from '../bridge-context';
-import { makeOidbEnvelope } from '../bridge-oidb';
+import { OidbError } from '../oidb-service';
+import { Ntv2UploadRequest } from '../oidb-services/highway/ntv2-upload-request';
 import { BufferChunkSource, FileChunkSource, buildHighwayExtend, fetchHighwaySession, uploadHighwayHttp } from './highway-client';
 
 const moduleLog = createLogger('Highway');
@@ -189,7 +186,7 @@ async function runNtv2UploadOperation(
   params: NtV2UploadParams,
   setState: (failureReason: string, didPut?: boolean) => void,
 ): Promise<NTV2UploadRespBody> {
-  const { bridge, isGroup, targetIdOrUid, oidbCmd, serviceCmd, uploads } = params;
+  const { bridge, isGroup, targetIdOrUid, oidbCmd, uploads } = params;
   const label = params.label ?? 'media';
   const raw = bridge.identity?.uin;
   const uinNum = typeof raw === 'string' ? Number.parseInt(raw, 10) : 0;
@@ -204,67 +201,30 @@ async function runNtv2UploadOperation(
   // `pb<bool>` when it's `true`, so `tryFast === false` omits field 2 —
   // the server reads that as "don't fast-upload" (the opt-in default).
   const requestUpload = async (tryFast: boolean): Promise<NTV2UploadRespBody> => {
-    const body: NTV2UploadRichMediaReq = {
-      reqHead: {
-        common: { requestId: params.requestId, command: 100 },
-        scene: {
-          requestType: 2,
-          businessType: params.businessType,
-          sceneType: isGroup ? 2 : 1,
-          ...(isGroup
-            ? { group: { groupUin: Number(targetIdOrUid) } }
-            : { c2c: { accountType: 2, targetUid: String(targetIdOrUid) } }),
-        },
-        client: { agentType: 2 },
-      },
-      upload: {
+    setState('request_failed');
+    try {
+      return await Ntv2UploadRequest.invoke(bridge, {
+        oidbCmd,
+        isGroup,
+        targetIdOrUid,
+        requestId: params.requestId,
+        businessType: params.businessType,
         uploadInfo: params.uploadInfo,
-        tryFastUploadCompleted: tryFast,
-        srvSendMsg: false,
-        clientRandomId: makeClientRandomId(),
         compatQmsgSceneType: params.compatQmsgSceneType,
         extBizInfo: params.extBizInfo,
-        clientSeq: 0,
-        noNeedCompatMsg: false,
-      },
-    };
-
-    const env = makeOidbEnvelope<NTV2UploadRichMediaReq>(oidbCmd, 100, body, true);
-    const requestBytes = protobuf_encode<OidbBase<NTV2UploadRichMediaReq>>(env);
-
-    setState('request_failed');
-    const result = await bridge.sendRawPacket(serviceCmd, requestBytes);
-    log.trace(() => [
-      'highway_media_branch branch=oidb_response success=%s gotResponse=%s errorCode=%d errorMessage=%j responseBytes=%d',
-      result.success,
-      result.gotResponse,
-      result.errorCode,
-      result.errorMessage ?? '',
-      result.responseData?.byteLength ?? 0,
-    ]);
-    if (!result.success || !result.gotResponse || !result.responseData) {
-      throw new Error(result.errorMessage || `${label} upload request failed`);
+        tryFast,
+        clientRandomId: makeClientRandomId(),
+      });
+    } catch (error) {
+      if (error instanceof OidbError) setState('oidb_rejected');
+      else if (error instanceof Error && error.message.includes('missing msgInfo')) setState('response_invalid');
+      else if (error instanceof Error && error.message.includes('upload failed')) setState('business_rejected');
+      log.trace(() => [
+        'highway_media_branch branch=oidb_response error=%j',
+        error instanceof Error ? error.message : String(error),
+      ]);
+      throw error;
     }
-
-    setState('response_decode_failed');
-    const resp = protobuf_decode<OidbBase<NTV2UploadRichMediaResp>>(result.responseData);
-    if (!resp) throw new Error(`failed to decode ${label} upload response`);
-    if (resp.errorCode && resp.errorCode !== 0) {
-      setState('oidb_rejected');
-      throw new Error(`OIDB error ${resp.errorCode}: ${resp.errorMsg ?? ''}`);
-    }
-
-    const uploadBody = resp.body;
-    setState('response_invalid');
-    if (!uploadBody) throw new Error(`${label} upload response body missing`);
-    if (uploadBody.respHead?.retCode && uploadBody.respHead.retCode !== 0) {
-      setState('business_rejected');
-      throw new Error(uploadBody.respHead.message ?? `${label} upload failed`);
-    }
-    const upload = uploadBody.upload;
-    if (!upload) throw new Error(`${label} upload response body missing`);
-    if (!upload.msgInfo) throw new Error('upload response missing msgInfo');
-    return upload;
   };
 
   // Highway PUTs. Session is lazily fetched and cached — video does two

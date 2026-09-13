@@ -33,7 +33,7 @@ describe('apis/interaction', () => {
 
   it('setReaction picks _1 for set and _2 for unset', async () => {
     // setReaction now forwards through the SetReaction namespace, which
-    // calls bridge.sendRawPacket directly (bypassing runOidb).
+    // calls bridge.sendRawPacket directly.
     const bridge = mockBridge();
     const api = new InteractionApi(bridge as any);
     await api.setReaction(12345, 99, '128516', true);

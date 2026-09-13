@@ -1,9 +1,4 @@
-import { protobuf_decode } from '@snowluma/proton';
-import type { OidbBase, OidbBaseMeta } from '@snowluma/proto-defs/oidb';
-// Sender capability is the minimal interface needed by runOidb. The
-// concrete BridgeContext (and the Bridge class extending it) is
-// structurally a superset, so callers keep passing `bridge` unchanged.
-import type { OidbSender } from './oidb-service';
+import type { OidbBase } from '@snowluma/proto-defs/oidb';
 
 /**
  * Build the OidbBase<T>-shaped TS value. Pure helper, no protobuf
@@ -31,39 +26,3 @@ export function makeOidbEnvelope<T>(
   };
 }
 
-/**
- * Issue one OIDB request and return the raw response bytes.
- *
- * Typical usage:
- *   const env  = makeOidbEnvelope<MyReq>(0x1253, 1, value);
- *   const buf  = await runOidb(bridge, cmd, encodeOidbEnv<MyReq>(env));
- *   const resp = decodeOidbEnv<MyResp>(buf).body;
- *
- * Fire-and-check (no body decode):
- *   await runOidb(bridge, cmd, encodeOidbEnv<MyReq>(env));
- *
- * Always peeks at the envelope errorCode via the non-generic
- * `OidbBaseMeta` view so a server-side rejection cannot slip past
- * silently. Returns the raw response bytes (empty `Uint8Array` if the
- * packet carried no payload).
- */
-export async function runOidb(
-  sender: OidbSender,
-  cmd: string,
-  envelopeBytes: Uint8Array,
-  timeoutMs?: number,
-): Promise<Uint8Array> {
-  const result = await sender.sendRawPacket(cmd, envelopeBytes, timeoutMs);
-  if (!result.success) throw new Error(result.errorMessage || 'packet send failed');
-  if (!result.gotResponse) throw new Error(result.errorMessage || 'no response');
-
-  const bytes = result.responseData ?? new Uint8Array(0);
-  if (bytes.length > 0) {
-    const meta = protobuf_decode<OidbBaseMeta>(bytes);
-    const code = meta?.errorCode;
-    if (code && code !== 0) {
-      throw new Error(`OIDB error ${code}: ${meta?.errorMsg ?? ''}`);
-    }
-  }
-  return bytes;
-}

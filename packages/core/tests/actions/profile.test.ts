@@ -12,18 +12,12 @@ import type {
   SetStatusResp,
 } from '@snowluma/proto-defs/oidb-actions/base';
 
-// `encodeOidbEnv` / `decodeOidbEnv` are proton-bound pass-through wrappers
-// (substituted at the call site with the inlined codec). Mocking them on
-// the module object is a no-op — proton has already inlined the call.
-// We mock `runOidb` (non-generic) to return real proton-encoded bytes
-// that the production-side codec actually decodes.
 vi.mock('@snowluma/protocol/bridge-oidb', async () => {
   const actual = await vi.importActual<typeof import('@snowluma/protocol/bridge-oidb')>(
     '@snowluma/protocol/bridge-oidb',
   );
   return {
     ...actual,
-    runOidb: vi.fn(async () => new Uint8Array()),
     makeOidbEnvelope: vi.fn((_oidbCmd, _subCmd, body) => ({ body })),
   };
 });
@@ -47,8 +41,6 @@ import { mockBridge } from './_helpers';
 
 describe('apis/profile', () => {
   beforeEach(() => {
-    vi.mocked(oidb.runOidb).mockReset();
-    vi.mocked(oidb.runOidb).mockResolvedValue(new Uint8Array());
     vi.mocked(oidb.makeOidbEnvelope).mockClear();
     vi.mocked(highwayClient.fetchHighwaySession).mockClear();
     vi.mocked(highwayClient.uploadHighwayHttp).mockClear();
