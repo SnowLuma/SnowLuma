@@ -21,6 +21,16 @@ export interface UploadImageRetSuccess {
 export const GROUP_NOTICE_TYPE_NORMAL = 1;
 export const GROUP_NOTICE_TYPE_NEW_MEMBERS = 20;
 
+const GROUP_NOTICE_IMAGE_CDN = 'https://gdynamic.qpic.cn/gdynamic';
+
+/** Public download URL for a group-notice picture id from list_announce. */
+export function groupNoticeImageUrl(id: string): string {
+  const trimmed = id.trim();
+  if (!trimmed) throw new Error('group notice image id is empty');
+  if (/[/?#\s]/.test(trimmed)) throw new Error('group notice image id is malformed');
+  return `${GROUP_NOTICE_IMAGE_CDN}/${encodeURIComponent(trimmed)}/0`;
+}
+
 export interface SetGroupNoticeOptions {
   pinned?: number;
   /** Raw publish type kept for OneBot compatibility: 1=regular, 20=new members. */

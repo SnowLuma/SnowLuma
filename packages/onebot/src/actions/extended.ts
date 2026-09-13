@@ -726,7 +726,7 @@ export const actions = [
   groupAction({
     name: '_get_group_notice',
     summary: '获取群公告',
-    returns: '普通公告与新成员公告的合并数组；send_to_new_members 标识后者',
+    returns: '普通公告与新成员公告的合并数组；send_to_new_members 标识后者；图片含 id、url、宽高',
     readOnly: true,
     run: async (p, ctx) => {
       const notices = await ctx.bridge.apis.web.getNotice(p.group_id);

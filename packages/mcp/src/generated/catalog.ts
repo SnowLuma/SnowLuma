@@ -102,7 +102,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "_get_group_notice",
     "aliases": [],
     "summary": "获取群公告",
-    "returns": "普通公告与新成员公告的合并数组；send_to_new_members 标识后者",
+    "returns": "普通公告与新成员公告的合并数组；send_to_new_members 标识后者；图片含 id、url、宽高",
     "readOnly": true,
     "params": [
       {

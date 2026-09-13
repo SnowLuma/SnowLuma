@@ -10,6 +10,7 @@ import {
   GROUP_NOTICE_TYPE_NEW_MEMBERS,
   GROUP_NOTICE_TYPE_NORMAL,
   getGroupNoticeWebAPI,
+  groupNoticeImageUrl,
   setGroupNoticeWebAPI,
   uploadGroupNoticeImage,
   type SetNoticeRetSuccess,
@@ -43,8 +44,8 @@ export interface WebNoticeInfo {
   publish_time: number;
   message: {
     text: string;
-    image: Array<{ id: string; height: number; width: number }>;
-    images: Array<{ id: string; height: number; width: number }>;
+    image: Array<{ id: string; url: string; height: number; width: number }>;
+    images: Array<{ id: string; url: string; height: number; width: number }>;
   };
   settings: import('@snowluma/common/json').JsonValue;
   read_num: number;
@@ -104,6 +105,7 @@ function mapGroupNoticeFeed(feed: WebApiGroupNoticeFeed, sendToNewMembers: boole
     }
     return {
       id: pic.id,
+      url: groupNoticeImageUrl(pic.id),
       height: finiteNumber(pic.h, `feed ${feed.fid} image ${index}.h`),
       width: finiteNumber(pic.w, `feed ${feed.fid} image ${index}.w`),
     };

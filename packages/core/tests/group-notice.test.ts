@@ -33,8 +33,8 @@ describe('mapGroupNoticeResponse', () => {
         publish_time: 1_700_000_000,
         message: {
           text: 'regular',
-          image: [{ id: 'pic', width: 640, height: 360 }],
-          images: [{ id: 'pic', width: 640, height: 360 }],
+          image: [{ id: 'pic', url: 'https://gdynamic.qpic.cn/gdynamic/pic/0', width: 640, height: 360 }],
+          images: [{ id: 'pic', url: 'https://gdynamic.qpic.cn/gdynamic/pic/0', width: 640, height: 360 }],
         },
         settings: {},
         read_num: 2,
@@ -75,5 +75,9 @@ describe('mapGroupNoticeResponse', () => {
       ec: 0,
       feeds: [feed('bad', { msg: { text: 'bad', pics: [{ id: 'x', w: 'wide', h: 20 }] } })],
     })).toThrow('image 0.w');
+    expect(() => mapGroupNoticeResponse({
+      ec: 0,
+      feeds: [feed('bad-id', { msg: { text: 'bad', pics: [{ id: 'a/b', w: 20, h: 20 }] } })],
+    })).toThrow('malformed');
   });
 });

@@ -3,6 +3,7 @@ import {
   GROUP_NOTICE_TYPE_NEW_MEMBERS,
   calculateBkn,
   getGroupNoticeWebAPI,
+  groupNoticeImageUrl,
   parseGroupNoticeImageUploadResponse,
   resolveGroupNoticeOptions,
   setGroupNoticeWebAPI,
@@ -100,6 +101,19 @@ describe('group-notice / publish HTTP layer', () => {
   it('propagates transport failures instead of returning undefined', async () => {
     vi.spyOn(RequestUtil, 'HttpGetJson').mockRejectedValue(new Error('Unexpected status code: 403'));
     await expect(setGroupNoticeWebAPI(cookies, '12345', 'notice')).rejects.toThrow('403');
+  });
+});
+
+describe('group-notice / image download url', () => {
+  it('builds the public CDN url from a picture id', () => {
+    expect(groupNoticeImageUrl('pic-1')).toBe('https://gdynamic.qpic.cn/gdynamic/pic-1/0');
+  });
+
+  it('rejects empty or path-like ids', () => {
+    expect(() => groupNoticeImageUrl('')).toThrow('empty');
+    expect(() => groupNoticeImageUrl('  ')).toThrow('empty');
+    expect(() => groupNoticeImageUrl('a/b')).toThrow('malformed');
+    expect(() => groupNoticeImageUrl('a?x=1')).toThrow('malformed');
   });
 });
 

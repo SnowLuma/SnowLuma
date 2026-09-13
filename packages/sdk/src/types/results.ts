@@ -66,8 +66,8 @@ export interface GroupNoticeInfo {
   publish_time: number;
   message: {
     text: string;
-    image: Array<{ id: string; height: number; width: number }>;
-    images: Array<{ id: string; height: number; width: number }>;
+    image: Array<{ id: string; url: string; height: number; width: number }>;
+    images: Array<{ id: string; url: string; height: number; width: number }>;
   };
   settings: JsonValue;
   read_num: number;
