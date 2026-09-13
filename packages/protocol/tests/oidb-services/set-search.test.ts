@@ -43,6 +43,6 @@ describe('SetSearch (0x89a_0) settings encoding (#191)', () => {
       })),
     };
     await SetSearch.invoke(deps as never, { groupId: 941657197, noFingerOpen: 1 });
-    expect(deps.sendRawPacket).toHaveBeenCalledWith('OidbSvcTrpcTcp.0x89a_0', expect.anything(), undefined);
+    expect(deps.sendRawPacket).toHaveBeenCalledWith('OidbSvcTrpcTcp.0x89a_0', expect.anything());
   });
 });
