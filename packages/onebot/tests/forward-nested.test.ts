@@ -237,6 +237,124 @@ describe('forward — nested {type:"node"} content', () => {
     expect(sendGroupMessage).not.toHaveBeenCalled();
   });
 
+  it('regenerates a cached merged forward for the target chat (#437)', async () => {
+    const fetch = vi.fn(async (resId: string) => {
+      expect(resId).toBe('OLD_RES');
+      return [{
+        userUin: 111,
+        nickname: 'alice',
+        elements: [{ type: 'text', text: 'hi' }],
+      }];
+    });
+    const upload = vi.fn(async (nodes: any[], groupId?: number, userId?: number) => {
+      expect(groupId).toBeUndefined();
+      expect(userId).toBe(67890);
+      expect(nodes).toEqual([expect.objectContaining({
+        userUin: 111,
+        elements: [{ type: 'text', text: 'hi' }],
+      })]);
+      return 'NEW_RES';
+    });
+    const sendPrivate = vi.fn(async () => ({
+      messageId: 1, sequence: 100, clientSequence: 14, random: 1, timestamp: 1700000000,
+    }));
+    const bridge = fakeBridge({
+      apis: { message: { sendPrivate }, forward: { fetch, upload } },
+    } as any);
+    const ctx = makeCtx(bridge);
+    (ctx as any).messageStore = {
+      findEvent: () => ({
+        message: [{ type: 'forward', data: { id: 'OLD_RES' } }],
+      }),
+    };
+
+    const result = await forwardSingleMessage(ctx, 77, { userId: 67890 });
+
+    expect(result.messageId).not.toBe(0);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(upload).toHaveBeenCalledOnce();
+    expect(sendPrivate).toHaveBeenCalledOnce();
+    expect(sendPrivate.mock.calls[0]![1]).toEqual([
+      expect.objectContaining({ type: 'forward', resId: 'NEW_RES' }),
+    ]);
+  });
+
+  it('fails a merged-forward single send when the inner tree cannot be fetched (#437)', async () => {
+    const fetch = vi.fn(async () => {
+      throw new Error('download forward message failed');
+    });
+    const upload = vi.fn(async () => 'NEW_RES');
+    const sendPrivate = vi.fn();
+    const bridge = fakeBridge({
+      apis: { message: { sendPrivate }, forward: { fetch, upload } },
+    } as any);
+    const ctx = makeCtx(bridge);
+    (ctx as any).messageStore = {
+      findEvent: () => ({
+        message: [{ type: 'forward', data: { id: 'OLD_RES' } }],
+      }),
+    };
+
+    await expect(forwardSingleMessage(ctx, 77, { userId: 67890 }))
+      .rejects.toThrow(/download forward message failed/);
+    expect(upload).not.toHaveBeenCalled();
+    expect(sendPrivate).not.toHaveBeenCalled();
+  });
+
+  it('expands a nested forward card into an inner tree before upload (#437)', async () => {
+    const fetch = vi.fn(async (resId: string) => {
+      if (resId === 'OUTER') {
+        return [{
+          userUin: 111,
+          nickname: 'outer',
+          elements: [{ type: 'forward', resId: 'INNER' }],
+        }];
+      }
+      if (resId === 'INNER') {
+        return [{
+          userUin: 222,
+          nickname: 'inner',
+          elements: [{ type: 'text', text: 'leaf' }],
+        }];
+      }
+      throw new Error(`unexpected fetch ${resId}`);
+    });
+    const upload = vi.fn(async (nodes: any[]) => {
+      expect(nodes[0]).toMatchObject({
+        userUin: 111,
+        elements: [],
+        innerForward: [
+          expect.objectContaining({
+            userUin: 222,
+            elements: [{ type: 'text', text: 'leaf' }],
+          }),
+        ],
+      });
+      return 'NEW_OUTER';
+    });
+    const sendGroup = vi.fn(async () => ({
+      messageId: 1, sequence: 100, clientSequence: 0, random: 1, timestamp: 1700000000,
+    }));
+    const bridge = fakeBridge({
+      apis: { message: { sendGroup }, forward: { fetch, upload } },
+    } as any);
+    const ctx = makeCtx(bridge);
+    (ctx as any).messageStore = {
+      findEvent: () => ({
+        message: [{ type: 'forward', data: { id: 'OUTER' } }],
+      }),
+    };
+
+    await forwardSingleMessage(ctx, 88, { groupId: 12345 });
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(upload).toHaveBeenCalledOnce();
+    expect(upload.mock.calls[0]![1]).toBe(12345);
+    expect(sendGroup).toHaveBeenCalledWith(12345, [
+      expect.objectContaining({ type: 'forward', resId: 'NEW_OUTER' }),
+    ]);
+  });
+
   it('rejects hidden siblings before forwarding a cached video message', async () => {
     const sendGroupMessage = vi.fn();
     const findVideo = vi.fn();

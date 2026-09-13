@@ -1228,12 +1228,11 @@ export async function uploadForwardMessage(
 /**
  * Forward a previously-received message to another peer.
  *
- * We look up the cached event + media fingerprints, then re-send via the
- * normal send pipeline with `noByteFallback` set on media elements so the
- * upload modules fast-path through OIDB md5/sha1 instead of re-downloading
- * the original CDN bytes. Fails fast if a media segment has no cached
- * fingerprints or contains a file segment (file forwarding has its own
- * separate protocol and is not in scope here).
+ * Plain text/image/record/video reuse the cached fingerprints and the
+ * normal send pipeline. A merged-forward card cannot be resent as-is:
+ * long-msg resid is scoped to the source chat, so the inner tree is
+ * fetched and uploaded again for the target. Fail the Action rather
+ * than leave an unopenable bubble.
  */
 export async function forwardSingleMessage(
   ref: OneBotInstanceContext,
@@ -1253,7 +1252,7 @@ export async function forwardSingleMessage(
   const parsed = await parseMessage(content, false);
   if (parsed.length === 0) throw new Error('message has no content');
 
-  const elements = parsed.map((el) => enrichForForward(ref, el));
+  const elements = await prepareSingleForwardElements(ref, parsed, target);
 
   let receipt;
   let messageIdOut: number;
@@ -1277,11 +1276,98 @@ export async function forwardSingleMessage(
   return { messageId: messageIdOut };
 }
 
+async function prepareSingleForwardElements(
+  ref: OneBotInstanceContext,
+  elements: MessageElement[],
+  target: { groupId?: number; userId?: number },
+): Promise<MessageElement[]> {
+  const out: MessageElement[] = [];
+  for (const element of elements) {
+    if (element.type !== 'forward') {
+      out.push(enrichForForward(ref, element));
+      continue;
+    }
+    const resId = element.resId.trim();
+    if (!resId) throw new Error('forward id is missing');
+    const nodes = await expandForwardTreeForTarget(ref, resId, target, 0);
+    if (nodes.length === 0) throw new Error('forward content is empty');
+    const newResId = await ref.bridge.apis.forward.upload(nodes, target.groupId, target.userId);
+    if (!newResId) throw new Error('forward regenerate failed');
+    out.push(buildForwardPreviewElement(newResId, nodes, target.groupId !== undefined, undefined));
+  }
+  return out;
+}
+
+async function expandForwardTreeForTarget(
+  ref: OneBotInstanceContext,
+  resId: string,
+  target: { groupId?: number; userId?: number },
+  depth: number,
+): Promise<ForwardNodePayload[]> {
+  if (depth >= MAX_FORWARD_DEPTH) {
+    throw new MessageElementValidationError(
+      'INVALID_FIELD',
+      `forward nesting depth exceeds ${MAX_FORWARD_DEPTH}`,
+      'forward',
+      'id',
+    );
+  }
+  const nodes = await ref.bridge.apis.forward.fetch(resId);
+  if (!Array.isArray(nodes) || nodes.length === 0) {
+    throw new Error('forward content is empty');
+  }
+  const expanded: ForwardNodePayload[] = [];
+  for (const node of nodes) {
+    expanded.push(await expandForwardNodeForTarget(ref, node, target, depth));
+  }
+  return expanded;
+}
+
+async function expandForwardNodeForTarget(
+  ref: OneBotInstanceContext,
+  node: ForwardNodePayload,
+  target: { groupId?: number; userId?: number },
+  depth: number,
+): Promise<ForwardNodePayload> {
+  const forwards = node.elements.filter((element): element is MessageElementOf<'forward'> => (
+    element.type === 'forward'
+  ));
+  if (forwards.length === 0) return node;
+
+  if (forwards.length === node.elements.length && forwards.length === 1) {
+    const innerId = forwards[0]!.resId.trim();
+    if (!innerId) throw new Error('nested forward id is missing');
+    return {
+      ...node,
+      elements: [],
+      innerForward: await expandForwardTreeForTarget(ref, innerId, target, depth + 1),
+    };
+  }
+
+  const elements: MessageElement[] = [];
+  for (const element of node.elements) {
+    if (element.type !== 'forward') {
+      elements.push(element);
+      continue;
+    }
+    const innerId = element.resId.trim();
+    if (!innerId) throw new Error('nested forward id is missing');
+    const inner = await expandForwardTreeForTarget(ref, innerId, target, depth + 1);
+    const newResId = await ref.bridge.apis.forward.upload(inner, target.groupId, target.userId);
+    if (!newResId) throw new Error('forward regenerate failed');
+    elements.push(buildForwardPreviewElement(newResId, inner, target.groupId !== undefined, undefined));
+  }
+  return { ...node, elements };
+}
+
 function enrichForForward(ref: OneBotInstanceContext, element: MessageElement): MessageElement {
+  if (element.type === 'forward') {
+    throw new Error('merged forward must be regenerated for the target chat');
+  }
   // The send path takes care of these as-is; nothing extra to do.
   if (element.type === 'text' || element.type === 'face' || element.type === 'at'
     || element.type === 'reply' || element.type === 'json' || element.type === 'xml'
-    || element.type === 'poke' || element.type === 'forward' || element.type === 'mface') {
+    || element.type === 'poke' || element.type === 'mface') {
     return element;
   }
 
