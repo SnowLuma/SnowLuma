@@ -2,7 +2,7 @@ import { hexPreview } from '@snowluma/common/hex';
 import { createLogger } from '@snowluma/common/logger';
 import type { Elem } from '@snowluma/proto-defs/element';
 import type { MsgPushHead, PushMsgBody } from './context';
-import { hasDecodableContent } from './rich-body-decoder';
+import { hasDecodableContent, isOfflineFileReceipt } from './rich-body-decoder';
 
 const log = createLogger('MsgPush');
 
@@ -18,7 +18,7 @@ const C2C_CONTROL_TYPES = new Set<number>([141, 166, 167]);
 // phantom (#102) is one of them.
 const C2C_CONTROL_CMDS = new Set<number>([1, 73, 75, 129, 131, 133, 135, 192]);
 
-export type MessageSurvival = 'drop-control' | 'drop-blank' | 'keep-undecoded' | 'keep';
+export type MessageSurvival = 'drop-control' | 'drop-receipt' | 'drop-blank' | 'keep-undecoded' | 'keep';
 
 /**
  * Whether a push is a C2C control/system signal that QQ NT never renders as a
@@ -55,6 +55,7 @@ export function classifyMessageSurvival(
   body: PushMsgBody | undefined,
 ): MessageSurvival {
   if (isC2cControlPush(head)) return 'drop-control';
+  if (isOfflineFileReceipt(body)) return 'drop-receipt';
   if (elements.length !== 0) return 'keep';
   if (hasDecodableContent(body)) return 'keep-undecoded';
   return 'drop-blank';
@@ -90,7 +91,7 @@ export function keepDecodedMessage(
   fromUin: number,
 ): boolean {
   const survival = classifyMessageSurvival(head, elements, body);
-  if (survival === 'drop-control' || survival === 'drop-blank') return false;
+  if (survival === 'drop-control' || survival === 'drop-receipt' || survival === 'drop-blank') return false;
   if (survival === 'keep-undecoded') {
     warnUndecodedMessage({
       kind,

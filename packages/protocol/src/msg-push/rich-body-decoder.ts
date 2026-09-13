@@ -854,7 +854,7 @@ function convertElements(elems: ElemDecoded[], isGroup: boolean): MessageElement
                   }
                 }
               }
-              const fileId = fi.fileName || idx.fileUuid || '';
+              let fileId = fi.fileName || idx.fileUuid || '';
               if (!url && idx.fileUuid) url = ntImageUrlFromFileId(idx.fileUuid, isGroup);
               const me: MessageElement = {
                 type: 'image', fileId,
@@ -862,13 +862,21 @@ function convertElements(elems: ElemDecoded[], isGroup: boolean): MessageElement
                 height: fi.height ?? 0, imageUrl: url,
               };
               assignValidFingerprints(me, fi.fileHash, fi.fileSha1, 'commonElem image');
+              if (!fileId && me.md5Hex) fileId = `${me.md5Hex.toLowerCase()}.png`;
+              if (!url && me.md5Hex) url = imageUrlFromMd5(me.md5Hex);
+              me.fileId = fileId;
+              me.imageUrl = url;
               if (fi.type?.picFormat) me.picFormat = fi.type.picFormat;
               if (info.extBizInfo?.pic) {
                 me.subType = info.extBizInfo.pic.bizType ?? 0;
                 me.summary = info.extBizInfo.pic.textSummary
                   || (me.subType === 1 ? '[动画表情]' : '[图片]');
               }
-              result.push(me);
+              // Long-msg fetch of a bot-built forward can leave a stub NT
+              // image (format only, no id/url/md5). Do not emit that hollow
+              // bubble — it would also suppress the customFace sibling that
+              // still carries a usable md5 (#441).
+              if (hasUsableImageIdentity(me)) result.push(me);
             } else if (bizType === 12 || bizType === 22) {
               // Record
               const record: MessageElementOf<'record'> = {
@@ -960,8 +968,15 @@ function convertElements(elems: ElemDecoded[], isGroup: boolean): MessageElement
   return dropLegacyImageSiblings(result);
 }
 
-function isNtImage(element: MessageElement): boolean {
+function hasUsableImageIdentity(element: MessageElement): boolean {
   if (element.type !== 'image') return false;
+  if (element.fileId) return true;
+  if (element.md5Hex && /^[0-9a-fA-F]{32}$/.test(element.md5Hex)) return true;
+  return isUsableImageUrl(element.imageUrl ?? '');
+}
+
+function isNtImage(element: MessageElement): boolean {
+  if (!hasUsableImageIdentity(element)) return false;
   if (element.picFormat != null || element.sha1Hex) return true;
   const url = element.imageUrl ?? '';
   return url.includes('://multimedia.nt.qq.com.cn/');
@@ -1185,7 +1200,7 @@ function extractRichtextExtras(
   }
 
   // NotOnlineFile (C2C file)
-  if (rt.notOnlineFile) {
+  if (rt.notOnlineFile && !isOfflineFileReceiptFlag(rt.notOnlineFile.downloadFlag)) {
     const f = rt.notOnlineFile;
     elements.push({
       type: 'file', fileId: f.fileUuid ?? '',
@@ -1213,6 +1228,7 @@ function extractMsgContent(msgContent: Uint8Array, elements: MessageElement[]): 
   );
   if (!extra?.file) return;
   const f = extra.file;
+  if (isOfflineFileReceiptFlag(f.downloadFlag)) return;
   if (!f.fileUuid) return;
   elements.push({
     type: 'file',
@@ -1221,4 +1237,21 @@ function extractMsgContent(msgContent: Uint8Array, elements: MessageElement[]): 
     fileSize: f.fileSize !== undefined ? Number(f.fileSize) : 0,
     fileHash: f.fileHash ?? '',
   });
+}
+
+/** QQ treats downloadFlag=2 as an offline-file receipt gray tip, not a chat bubble. */
+function isOfflineFileReceiptFlag(flag: number | undefined): boolean {
+  return flag === 2;
+}
+
+/** True when this body is an offline-file download receipt, not a new file message. */
+export function isOfflineFileReceipt(body: PushMsgBody | undefined): boolean {
+  if (isOfflineFileReceiptFlag(body?.richText?.notOnlineFile?.downloadFlag)) return true;
+  if (!body?.msgContent || body.msgContent.length === 0) return false;
+  const extra = decodeProtobufPayload(
+    'messageBody.msgContent',
+    body.msgContent,
+    () => protobuf_decode<FileExtra>(body.msgContent!),
+  );
+  return isOfflineFileReceiptFlag(extra?.file?.downloadFlag);
 }

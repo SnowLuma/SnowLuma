@@ -21,10 +21,11 @@ import {
   type AiVoiceCategory,
   type StrangerStatus,
 } from './apis/extras';
-import type { BridgeInterface } from './bridge-interface';
+import type { BridgeInterface, RosterWarmupResult } from './bridge-interface';
 
 const log = createLogger('Bridge');
 const runtimeLog = createLogger('Bridge.Runtime');
+const VERBOSE_WARMUP = process.env.SNOWLUMA_VERBOSE_WARMUP === '1';
 
 export class Bridge implements BridgeInterface {
   readonly identity: IdentityService;
@@ -46,6 +47,11 @@ export class Bridge implements BridgeInterface {
   // Per-account dedup for QQ NT's already-deduped system pushes (#137).
   private readonly sysMsgDedup_ = new SysMsgDedup();
   private onlineClients_: readonly Readonly<OnlineDeviceInfo>[] | null = null;
+  private disposed_ = false;
+  private rosterWarmupStarted_ = false;
+  private rosterWarmupSettled_ = false;
+  private rosterWarmupResult_: RosterWarmupResult | null = null;
+  private readonly rosterWarmupWaiters_: Array<(result: RosterWarmupResult) => void> = [];
 
   constructor(identity: IdentityService) {
     this.identity = identity;
@@ -125,6 +131,8 @@ export class Bridge implements BridgeInterface {
   }
 
   dispose(): void {
+    this.disposed_ = true;
+    this.settleRosterWarmup({ friendsLoaded: false, groupsLoaded: false });
     this.pids_.clear();
     this.receiveHealthByPid_.clear();
     this.packetClientsByPid_.clear();
@@ -149,6 +157,7 @@ export class Bridge implements BridgeInterface {
     const pid = pids.length > 0 ? pids[pids.length - 1]! : null;
     this.packetClientPid_ = pid;
     if (pid !== null) this.packetClientsByPid_.set(pid, client);
+    this.maybeStartRosterWarmup();
   }
 
   registerCmd(cmd: string, parser: CmdParser): void {
@@ -188,6 +197,7 @@ export class Bridge implements BridgeInterface {
         previousPid,
       );
     }
+    this.maybeStartRosterWarmup();
   }
 
   /** @internal BridgeManager lookup used when an incoming packet is the first
@@ -244,6 +254,21 @@ export class Bridge implements BridgeInterface {
   getOnlineClients(): readonly Readonly<OnlineDeviceInfo>[] | null {
     return this.onlineClients_;
   }
+
+  whenRosterWarmupSettled(): Promise<RosterWarmupResult> {
+    if (this.rosterWarmupSettled_ && this.rosterWarmupResult_) {
+      return Promise.resolve(this.rosterWarmupResult_);
+    }
+    this.maybeStartRosterWarmup();
+    return new Promise((resolve) => {
+      if (this.rosterWarmupSettled_ && this.rosterWarmupResult_) {
+        resolve(this.rosterWarmupResult_);
+        return;
+      }
+      this.rosterWarmupWaiters_.push(resolve);
+    });
+  }
+
   onPacket(pkt: PacketInfo): Promise<void> {
     return this.pipeline.process(pkt);
   }
@@ -356,6 +381,125 @@ export class Bridge implements BridgeInterface {
   }
   async resolveUserUid(uin: number, groupId?: number): Promise<string> {
     return this.identity.resolveUid(uin, groupId);
+  }
+
+  private maybeStartRosterWarmup(): void {
+    if (this.disposed_ || this.rosterWarmupStarted_ || !this.packetClient_) return;
+    this.rosterWarmupStarted_ = true;
+    if (!this.identity.nickname) this.identity.nickname = this.identity.uin;
+    void this.runRosterWarmup().then(
+      (result) => this.settleRosterWarmup(this.disposed_ ? { friendsLoaded: false, groupsLoaded: false } : result),
+      (err) => {
+        log.warn(
+          'roster warmup failed: uin=%s err=%s',
+          this.identity.uin,
+          err instanceof Error ? (err.stack ?? err.message) : String(err),
+        );
+        this.settleRosterWarmup({ friendsLoaded: false, groupsLoaded: false });
+      },
+    );
+  }
+
+  private settleRosterWarmup(result: RosterWarmupResult): void {
+    if (this.rosterWarmupSettled_) return;
+    this.rosterWarmupSettled_ = true;
+    this.rosterWarmupResult_ = result;
+    const waiters = this.rosterWarmupWaiters_.splice(0);
+    for (const resolve of waiters) resolve(result);
+  }
+
+  private stillOpen(): boolean {
+    return !this.disposed_;
+  }
+
+  private async runRosterWarmup(): Promise<RosterWarmupResult> {
+    const uin = this.identity.uin;
+    const selfUin = parseInt(uin, 10) || 0;
+    let selfResolved = false;
+    let friendsLoaded = false;
+
+    try {
+      const friends = await this.apis.contacts.fetchFriendList();
+      if (!this.stillOpen()) return { friendsLoaded: false, groupsLoaded: false };
+      friendsLoaded = true;
+      log.info('friends loaded: UIN=%s count=%d', uin, friends.length);
+
+      for (const friend of friends) {
+        if (friend.uin === selfUin) {
+          this.identity.setSelfProfile({
+            uin: friend.uin, uid: friend.uid,
+            nickname: friend.nickname || uin,
+            remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0,
+            qidianMasterFlag: 0, qidianCrewFlag: 0, qidianCrewFlag2: 0,
+          });
+          this.identity.nickname = friend.nickname || uin;
+          log.debug('self info: UIN=%s uid=%s nickname=%s', uin, friend.uid, friend.nickname ?? '');
+          selfResolved = true;
+          break;
+        }
+      }
+    } catch (e) {
+      if (!this.stillOpen()) return { friendsLoaded: false, groupsLoaded: false };
+      log.warn('failed to load friends for UIN %s: %s', uin, e instanceof Error ? e.message : String(e));
+    }
+
+    if (!selfResolved && selfUin > 0 && this.stillOpen()) {
+      try {
+        const profile = await this.apis.contacts.fetchUserProfile(selfUin);
+        if (!this.stillOpen()) return { friendsLoaded: false, groupsLoaded: false };
+        this.identity.setSelfProfile(profile);
+        this.identity.nickname = profile.nickname || uin;
+        log.debug('self info via profile: UIN=%s uid=%s nickname=%s',
+          uin, profile.uid, profile.nickname);
+      } catch (e) {
+        if (!this.stillOpen()) return { friendsLoaded: false, groupsLoaded: false };
+        log.warn('failed to load self profile for UIN %s: %s',
+          uin, e instanceof Error ? e.message : String(e));
+      }
+    }
+
+    let groups: { groupId: number }[] = [];
+    let groupsLoaded = false;
+    try {
+      groups = await this.apis.contacts.fetchGroupList();
+      if (!this.stillOpen()) return { friendsLoaded: false, groupsLoaded: false };
+      groupsLoaded = true;
+      log.info('groups loaded: UIN=%s count=%d', uin, groups.length);
+    } catch (e) {
+      if (!this.stillOpen()) return { friendsLoaded: false, groupsLoaded: false };
+      log.warn('failed to load groups for UIN %s: %s', uin, e instanceof Error ? e.message : String(e));
+    }
+
+    let loadedGroupCount = 0;
+    let loadedMemberCount = 0;
+    let failedGroupCount = 0;
+    for (const group of groups) {
+      if (!this.stillOpen()) return { friendsLoaded: false, groupsLoaded: false };
+      try {
+        const members = await this.apis.contacts.fetchGroupMemberList(group.groupId);
+        if (!this.stillOpen()) return { friendsLoaded: false, groupsLoaded: false };
+        loadedGroupCount += 1;
+        loadedMemberCount += members.length;
+        if (VERBOSE_WARMUP) {
+          log.debug('members loaded: group=%d count=%d', group.groupId, members.length);
+        }
+      } catch (e) {
+        if (!this.stillOpen()) return { friendsLoaded: false, groupsLoaded: false };
+        failedGroupCount += 1;
+        log.warn('failed to load members for group %d: %s', group.groupId, e instanceof Error ? e.message : String(e));
+      }
+    }
+
+    if (!this.stillOpen()) return { friendsLoaded: false, groupsLoaded: false };
+    log.info(
+      'member warmup completed: UIN=%s groups=%d/%d members=%d failed=%d',
+      uin,
+      loadedGroupCount,
+      groups.length,
+      loadedMemberCount,
+      failedGroupCount,
+    );
+    return { friendsLoaded, groupsLoaded };
   }
 }
 export interface SendMessageReceipt {

@@ -4,6 +4,7 @@
 // nested `webuiTls.enabled`.
 
 import type { RuntimeConfig } from '@snowluma/common/runtime';
+import { checkListenerExposure } from './listener-exposure';
 
 export type SettingsPatch = Partial<Pick<RuntimeConfig, 'webuiPort' | 'webuiHost' | 'webuiTls' | 'trustProxy'>>;
 
@@ -49,4 +50,26 @@ export function coerceSettingsPatch(body: unknown): CoerceResult {
   }
 
   return { ok: true, patch };
+}
+
+const SETTINGS_ERRORS: Record<'invalid-bind-host' | 'tls-pair-required', string> = {
+  'invalid-bind-host': '绑定地址不是有效的 TCP 地址',
+  'tls-pair-required': '启用 TLS 前请先上传有效的证书与私钥',
+};
+
+/** Validate the listener that would be persisted after applying `patch` to `current`. */
+export function evaluateSettingsSave(
+  current: RuntimeConfig,
+  patch: SettingsPatch,
+  pairOk: boolean,
+): CoerceResult {
+  const webuiHost = patch.webuiHost ?? current.webuiHost ?? '127.0.0.1';
+  const tlsEnabled = patch.webuiTls?.enabled ?? current.webuiTls?.enabled ?? false;
+  const check = checkListenerExposure({ webuiHost, tlsEnabled, pairOk });
+  if (!check.ok) return { ok: false, error: SETTINGS_ERRORS[check.code] };
+  return { ok: true, patch };
+}
+
+export function tlsCertDeletionBlocked(tlsEnabled: boolean): boolean {
+  return tlsEnabled;
 }

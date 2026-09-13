@@ -4,6 +4,7 @@ import { ApiHandler, type ApiActionContext } from '../src/api-handler';
 import {
   ACTION_REGISTRY,
   HANDLE_QUICK_OPERATION_ACTION,
+  HANDLE_QUICK_OPERATION_ASYNC_ACTION,
   RAW_ACTION_RESERVATIONS,
   compileActionRegistry,
   type ActionGroup,
@@ -79,6 +80,15 @@ describe('compileActionRegistry namespace conflicts', () => {
     expect(message).toContain('kind raw, role raw');
   });
 
+  it('reserves the async quick-operation alias against declarative names', () => {
+    const message = conflict(
+      groups(normal(HANDLE_QUICK_OPERATION_ASYNC_ACTION)),
+      RAW_ACTION_RESERVATIONS,
+    );
+    expect(message).toContain(`name "${HANDLE_QUICK_OPERATION_ASYNC_ACTION}"`);
+    expect(message).toContain('kind raw, role raw');
+  });
+
   it('rejects duplicate raw reservations', () => {
     const message = conflict([], [
       { name: 'raw', canonical: 'first-raw' },
@@ -103,7 +113,11 @@ describe('compiled production Action registry', () => {
     for (const executable of ACTION_REGISTRY.executableNames) {
       expect(ACTION_REGISTRY.resolve(executable.name)).toBe(executable);
       if (executable.kind === 'raw') {
-        expect(executable.name).toBe(HANDLE_QUICK_OPERATION_ACTION);
+        expect(executable.canonical).toBe(HANDLE_QUICK_OPERATION_ACTION);
+        expect([
+          HANDLE_QUICK_OPERATION_ACTION,
+          HANDLE_QUICK_OPERATION_ASYNC_ACTION,
+        ]).toContain(executable.name);
         expect(docs.has(executable.canonical)).toBe(false);
         continue;
       }
@@ -128,6 +142,46 @@ describe('compiled production Action registry', () => {
     for (const executable of ACTION_REGISTRY.executableNames) {
       expect(bound.get(executable.name)?.canonical).toBe(executable.canonical);
     }
+  });
+
+  it('resolves the async quick-operation alias to the reserved raw handler', () => {
+    const syncName = ACTION_REGISTRY.resolve(HANDLE_QUICK_OPERATION_ACTION);
+    const asyncName = ACTION_REGISTRY.resolve(HANDLE_QUICK_OPERATION_ASYNC_ACTION);
+    expect(syncName).toMatchObject({
+      name: HANDLE_QUICK_OPERATION_ACTION,
+      canonical: HANDLE_QUICK_OPERATION_ACTION,
+      kind: 'raw',
+      role: 'raw',
+    });
+    expect(asyncName).toMatchObject({
+      name: HANDLE_QUICK_OPERATION_ASYNC_ACTION,
+      canonical: HANDLE_QUICK_OPERATION_ACTION,
+      kind: 'raw',
+      role: 'raw',
+    });
+  });
+
+  it.each([
+    HANDLE_QUICK_OPERATION_ACTION,
+    HANDLE_QUICK_OPERATION_ASYNC_ACTION,
+  ])('dispatches %s to set_group_add_request', async (action) => {
+    const handleGroupRequest = vi.fn(async () => undefined);
+    const handler = new ApiHandler({ handleGroupRequest } as unknown as ApiActionContext);
+
+    const response = await handler.handle(action, {
+      context: {
+        post_type: 'request',
+        request_type: 'group',
+        sub_type: 'invite',
+        group_id: 100000002,
+        user_id: 10001,
+        flag: 'invite-flag',
+      },
+      operation: { approve: true, remark: '' },
+    });
+
+    expect(response.status).toBe('ok');
+    expect(handleGroupRequest).toHaveBeenCalledWith('invite-flag', 'invite', true, '');
   });
 
   it('validates and forwards get_group_system_msg filters', async () => {

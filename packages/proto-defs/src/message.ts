@@ -74,15 +74,17 @@ export interface Ptt {
 // 1. 发送端必填：字段 9/50/55（subcmd=1, dangerEvel=0, expireTime=当前时间+7天）。
 // 2. 接收端只读：核心标识槽位（Uuid/Md5/Name/Size/Hash）。
 export interface NotOnlineFile {
-  fileType?:   pb<1, uint_32>;
-  fileUuid?:   pb<3, string>;
-  fileMd5?:    pb<4, bytes>;
-  fileName?:   pb<5, string>;
-  fileSize?:   pb<6, uint_64>;
-  subcmd?:     pb<9, uint_32>;   // 发送必填：固定为 1
-  dangerEvel?: pb<50, uint_32>;  // 发送必填：固定为 0
-  expireTime?: pb<55, uint_32>;  // 发送必填：过期时间戳（now + 7 days）
-  fileHash?:   pb<57, string>;
+  fileType?:     pb<1, uint_32>;
+  fileUuid?:     pb<3, string>;
+  fileMd5?:      pb<4, bytes>;
+  fileName?:     pb<5, string>;
+  fileSize?:     pb<6, uint_64>;
+  subcmd?:       pb<9, uint_32>;   // 发送必填：固定为 1
+  downloadFlag?: pb<12, uint_32>;  // 2 = 对方已下载的回执，不是一条新文件消息
+  dangerEvel?:   pb<50, uint_32>;  // 发送必填：固定为 0
+  expireTime?:   pb<55, uint_32>;  // 发送必填：过期时间戳（now + 7 days）
+  pbReserve?:    pb<56, bytes>;
+  fileHash?:     pb<57, string>;
 }
 
 // RichText 

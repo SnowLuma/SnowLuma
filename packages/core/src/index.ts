@@ -83,18 +83,20 @@ async function main() {
   const notificationManager = createNotificationManager();
   notificationManager.bind(bridgeManager);
 
+  let stopWebUI: (() => Promise<void>) | undefined;
   if (
     (typeof __BUILD_WEBUI__ !== 'undefined' && __BUILD_WEBUI__) ||
     process.env.SNOWLUMA_DEV_WEBUI === '1'
   ) {
     try {
       const { initWebUI } = await import('./webui/server');
-      await initWebUI(runtimeConfig.webuiPort || 5099, oneBotManager, hookManager, notificationManager, {
+      const started = await initWebUI(runtimeConfig.webuiPort || 5099, oneBotManager, hookManager, notificationManager, {
         host: runtimeConfig.webuiHost,
         tlsEnabled: runtimeConfig.webuiTls?.enabled,
         trustProxy: runtimeConfig.trustProxy,
         stateBus: stateWiring.bus,
       });
+      stopWebUI = started.stop;
     } catch (err) {
       log.error('Failed to start WebUI: ', err);
     }
@@ -117,6 +119,12 @@ async function main() {
     try { notificationManager.dispose(); } catch (error) {
       exitCode = 1;
       log.error('notification shutdown failed: %s', error instanceof Error ? (error.stack ?? error.message) : String(error));
+    }
+    try {
+      if (stopWebUI) await stopWebUI();
+    } catch (error) {
+      exitCode = 1;
+      log.error('WebUI shutdown failed: %s', error instanceof Error ? (error.stack ?? error.message) : String(error));
     }
     // Observers go deaf before Hook teardown. Hook dispose then emits the
     // same disconnected → PID detach → Bridge closed path as a live drop;

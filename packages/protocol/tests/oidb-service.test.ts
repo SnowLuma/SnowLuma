@@ -231,6 +231,33 @@ describe('invokeOidb', () => {
     const env = protobuf_decode<OidbBase<OidbGroupReaction>>(bytes);
     expect(env.reserved ?? 0).toBe(0);
   });
+
+  it('treats registered envelope codes as success on the packet and body', async () => {
+    const spec = { ...staticSubSpec, acceptedEnvelopeCodes: [2_001_002] };
+    const bodyBytes = protobuf_encode<OidbBase<OidbEmpty>>({
+      command: 0xEAC, subCommand: 1, errorCode: 2_001_002, errorMsg: 'already applied',
+    });
+    await expect(invokeOidb(makeSender({ responseData: Buffer.from(bodyBytes) }), spec, { groupId: 1 }))
+      .resolves.toBeUndefined();
+    await expect(invokeOidb(makeSender({
+      success: false,
+      errorCode: 2_001_002,
+      errorMessage: 'already applied',
+      responseData: null,
+    }), spec, { groupId: 1 })).resolves.toBeUndefined();
+  });
+
+  it('uses resolveCommand for the wire name and envelope command', async () => {
+    const spec = {
+      ...staticSubSpec,
+      command: 0,
+      resolveCommand: () => 0x11C5,
+      subCommand: 100,
+    };
+    const sender = makeSender();
+    await invokeOidb(sender, spec, { groupId: 1 });
+    expect(sender.sendRawPacket.mock.calls[0]![0]).toBe('OidbSvcTrpcTcp.0x11c5_100');
+  });
 });
 
 describe('buildOidbRequest', () => {

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { protobuf_encode } from '@snowluma/proton';
+import type { FileExtra } from '@snowluma/proto-defs/message';
 import {
   classifyMessageSurvival,
   isBlankMessage,
@@ -33,5 +35,20 @@ describe('classifyMessageSurvival', () => {
     expect(classifyMessageSurvival(privateHead, [{ type: 'text' }], {
       richText: { elems: [{ text: { str: 'hi' } }] },
     })).toBe('keep');
+  });
+
+  it('drops an offline-file download receipt even if a file element decoded (#442)', () => {
+    const body = {
+      msgContent: protobuf_encode<FileExtra>({
+        file: {
+          fileUuid: 'fid-sent-by-bot',
+          fileName: 'doc.bin',
+          fileSize: 6119608n,
+          subcmd: 1,
+          downloadFlag: 2,
+        },
+      }),
+    };
+    expect(classifyMessageSurvival(privateHead, [{ type: 'file' }], body)).toBe('drop-receipt');
   });
 });

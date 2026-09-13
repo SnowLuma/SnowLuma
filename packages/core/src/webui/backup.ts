@@ -18,10 +18,10 @@ import { normalizeRuntimeConfig } from '@snowluma/common/runtime';
 import { isRealUin } from '@snowluma/common/uin';
 import { normalizeGlobalSettings } from '@snowluma/onebot/global-config';
 import { prepareOneBotConfigForRestore } from '@snowluma/onebot/config';
-import { isIP } from 'node:net';
 import { normalizeNotificationsConfig } from '../notifications/config';
 import { prepareWebuiAuthStateForRestore } from './auth';
 import { MAX_BACKGROUND_BYTES, normalizeStoredUiConfig, sniffImageMime } from './ui-config';
+import { isValidBindHost } from './listener-exposure';
 import { validateTlsPair } from './tls';
 
 export const BACKUP_VERSION = 1;
@@ -448,17 +448,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function serializeJson(value: unknown): Buffer {
   return Buffer.from(JSON.stringify(value, null, 2), 'utf8');
-}
-
-function isValidBindHost(value: string): boolean {
-  const host = value.trim();
-  if (!host || host !== value || host.length > 253 || /[\s/?#@]/u.test(host)) return false;
-  if (host.includes(':')) return isIP(host) === 6;
-  if (/^[\d.]+$/.test(host)) {
-    return isIP(host) === 4;
-  }
-  const normalized = host.endsWith('.') ? host.slice(0, -1) : host;
-  return normalized.split('.').every((label) => /^(?!-)[A-Za-z0-9-]{1,63}(?<!-)$/.test(label));
 }
 
 function validateEffectiveTls(restore: PreparedRestoreFile[], opts: PrepareRestoreOptions): void {

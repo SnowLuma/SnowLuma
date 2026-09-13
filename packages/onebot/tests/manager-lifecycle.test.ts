@@ -12,6 +12,14 @@ import {
 } from '../src/manager';
 import { estimateRemainingSeconds } from '../src/message-store-migration-task';
 
+function fakeBridge(warmup?: Promise<{ friendsLoaded: boolean; groupsLoaded: boolean }>) {
+  return {
+    activePid: null,
+    identity: { nickname: 'test' },
+    whenRosterWarmupSettled: () => warmup ?? Promise.resolve({ friendsLoaded: false, groupsLoaded: false }),
+  };
+}
+
 function fakeInstance(
   uin: string,
   dispose: () => Promise<unknown>,
@@ -77,12 +85,7 @@ describe('OneBotManager database preparation', () => {
       addSessionStartedListener: (listener) => { startListener = listener; },
       addSessionClosedListener: vi.fn(),
     } as never);
-    const bridge = {
-      activePid: null,
-      identity: { nickname: 'test' },
-      fetchFriends: vi.fn(() => new Promise(() => undefined)),
-      fetchGroups: vi.fn(() => new Promise(() => undefined)),
-    };
+    const bridge = fakeBridge(new Promise(() => undefined));
 
     runWithRequestId(5201, () => startListener('10001', bridge as never));
     callbacks.onReady();
@@ -162,12 +165,7 @@ describe('OneBotManager database preparation', () => {
     });
 
     try {
-      const bridge = {
-        activePid: null,
-        identity: { nickname: 'test' },
-        fetchFriends: vi.fn(async () => undefined),
-        fetchGroups: vi.fn(async () => undefined),
-      };
+      const bridge = fakeBridge();
       (manager as unknown as { onSessionStarted(uin: string, bridge: never): void })
         .onSessionStarted('10001', bridge as never);
       callbacks.onReady();
@@ -203,10 +201,7 @@ describe('OneBotManager database preparation', () => {
         onSessionStarted(uin: string, bridge: never): void;
         onSessionClosed(uin: string): void;
       };
-      const bridge = {
-        activePid: null,
-        identity: { nickname: 'test' },
-      };
+      const bridge = fakeBridge();
 
       expect(() => internals.onSessionStarted('10001', bridge as never)).not.toThrow();
       expect(tasks[0].cancel).toHaveBeenCalledOnce();
@@ -255,12 +250,7 @@ describe('OneBotManager database preparation', () => {
         onSessionStarted(uin: string, bridge: never): void;
         onSessionClosed(uin: string): void;
       };
-      const bridge = {
-        activePid: null,
-        identity: { nickname: 'test' },
-        fetchFriends: vi.fn(async () => undefined),
-        fetchGroups: vi.fn(async () => undefined),
-      };
+      const bridge = fakeBridge();
 
       internals.onSessionStarted('10001', bridge as never);
       expect(() => callbacks.onReady()).not.toThrow();
@@ -301,10 +291,7 @@ describe('OneBotManager database preparation', () => {
         onSessionStarted(uin: string, bridge: never): void;
         onSessionClosed(uin: string): void;
       };
-      const bridge = {
-        activePid: null,
-        identity: { nickname: 'test' },
-      };
+      const bridge = fakeBridge();
 
       internals.onSessionStarted('10001', bridge as never);
       expect(() => callbacks[0].onReady()).not.toThrow();
@@ -366,6 +353,110 @@ describe('OneBotManager database preparation', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('OneBotManager login history sync', () => {
+  async function withTempCwd(run: () => Promise<void>): Promise<void> {
+    const originalCwd = process.cwd();
+    const root = mkdtempSync(path.join(tmpdir(), 'snowluma-manager-history-'));
+    process.chdir(root);
+    try {
+      await run();
+    } finally {
+      process.chdir(originalCwd);
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  function preparingManager(instance: OneBotInstance) {
+    let callbacks!: DatabaseMigrationCallbacks;
+    const manager = new OneBotManager({
+      createDatabaseMigrationTask: () => ({
+        beginMigration: vi.fn(),
+        cancel: vi.fn(),
+        start: (next) => { callbacks = next; },
+      }),
+      createInstance: () => instance,
+    });
+    return {
+      manager,
+      ready: () => callbacks.onReady(),
+    };
+  }
+
+  it('does not start history sync when roster warmup is incomplete', async () => {
+    await withTempCwd(async () => {
+      const instance = {
+        ...fakeInstance('10001', async () => undefined),
+        waitUntilNetworkReady: vi.fn(async () => ({ applied: true, statuses: [], errors: [] })),
+        startLoginHistorySync: vi.fn(),
+      } as unknown as OneBotInstance;
+      const { manager, ready } = preparingManager(instance);
+      try {
+        (manager as unknown as { onSessionStarted(uin: string, bridge: never): void })
+          .onSessionStarted('10001', fakeBridge() as never);
+        ready();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(instance.startLoginHistorySync).not.toHaveBeenCalled();
+      } finally {
+        await manager.dispose();
+      }
+    });
+  });
+
+  it('starts history sync only after the instance is usable and warmup has both lists', async () => {
+    await withTempCwd(async () => {
+      let settleWarmup!: (result: { friendsLoaded: boolean; groupsLoaded: boolean }) => void;
+      const warmup = new Promise<{ friendsLoaded: boolean; groupsLoaded: boolean }>((resolve) => {
+        settleWarmup = resolve;
+      });
+      const instance = {
+        ...fakeInstance('10001', async () => undefined),
+        waitUntilNetworkReady: vi.fn(async () => ({ applied: true, statuses: [], errors: [] })),
+        startLoginHistorySync: vi.fn(),
+      } as unknown as OneBotInstance;
+      const { manager, ready } = preparingManager(instance);
+      try {
+        (manager as unknown as { onSessionStarted(uin: string, bridge: never): void })
+          .onSessionStarted('10001', fakeBridge(warmup) as never);
+        ready();
+        await Promise.resolve();
+        expect(instance.startLoginHistorySync).not.toHaveBeenCalled();
+        settleWarmup({ friendsLoaded: true, groupsLoaded: true });
+        await vi.waitFor(() => {
+          expect(instance.startLoginHistorySync).toHaveBeenCalledOnce();
+        });
+      } finally {
+        await manager.dispose();
+      }
+    });
+  });
+
+  it('starts history sync when warmup finished before the instance became usable', async () => {
+    await withTempCwd(async () => {
+      const instance = {
+        ...fakeInstance('10001', async () => undefined),
+        waitUntilNetworkReady: vi.fn(async () => ({ applied: true, statuses: [], errors: [] })),
+        startLoginHistorySync: vi.fn(),
+      } as unknown as OneBotInstance;
+      const { manager, ready } = preparingManager(instance);
+      try {
+        (manager as unknown as { onSessionStarted(uin: string, bridge: never): void })
+          .onSessionStarted('10001', fakeBridge(Promise.resolve({
+            friendsLoaded: true,
+            groupsLoaded: true,
+          })) as never);
+        expect(instance.startLoginHistorySync).not.toHaveBeenCalled();
+        ready();
+        await vi.waitFor(() => {
+          expect(instance.startLoginHistorySync).toHaveBeenCalledOnce();
+        });
+      } finally {
+        await manager.dispose();
+      }
+    });
   });
 });
 

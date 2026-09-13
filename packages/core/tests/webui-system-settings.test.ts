@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { coerceSettingsPatch } from '../src/webui/system-settings';
+import {
+  coerceSettingsPatch,
+  evaluateSettingsSave,
+  tlsCertDeletionBlocked,
+} from '../src/webui/system-settings';
+import type { RuntimeConfig } from '@snowluma/common/runtime';
 
 describe('coerceSettingsPatch', () => {
   it('accepts a full valid body and maps tlsEnabled → webuiTls.enabled', () => {
@@ -35,5 +40,58 @@ describe('coerceSettingsPatch', () => {
 
   it('accepts an empty-string trustProxy (trust nobody)', () => {
     expect(coerceSettingsPatch({ trustProxy: '' })).toEqual({ ok: true, patch: { trustProxy: '' } });
+  });
+});
+
+describe('evaluateSettingsSave', () => {
+  const current: RuntimeConfig = {
+    webuiPort: 5099,
+    webuiHost: '127.0.0.1',
+    webuiTls: { enabled: false },
+  };
+
+  it('rejects an invalid bind host on the patch', () => {
+    const r = evaluateSettingsSave(current, { webuiHost: 'not_a_host' }, true);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/TCP/);
+  });
+
+  it('rejects saving an unrelated field when the persisted host is invalid', () => {
+    const r = evaluateSettingsSave(
+      { ...current, webuiHost: 'not_a_host' },
+      { webuiPort: 8080 },
+      true,
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it('rejects enabling TLS without a usable certificate pair', () => {
+    const r = evaluateSettingsSave(current, { webuiTls: { enabled: true } }, false);
+    expect(r).toEqual({ ok: false, error: '启用 TLS 前请先上传有效的证书与私钥' });
+  });
+
+  it('rejects leaving TLS enabled when the pair is already missing', () => {
+    const r = evaluateSettingsSave(
+      { ...current, webuiTls: { enabled: true } },
+      { webuiPort: 8080 },
+      false,
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it('allows disabling TLS even without a pair', () => {
+    const r = evaluateSettingsSave(
+      { ...current, webuiTls: { enabled: true } },
+      { webuiTls: { enabled: false } },
+      false,
+    );
+    expect(r).toEqual({ ok: true, patch: { webuiTls: { enabled: false } } });
+  });
+});
+
+describe('tlsCertDeletionBlocked', () => {
+  it('blocks deletion while TLS is enabled and allows it when TLS is off', () => {
+    expect(tlsCertDeletionBlocked(true)).toBe(true);
+    expect(tlsCertDeletionBlocked(false)).toBe(false);
   });
 });

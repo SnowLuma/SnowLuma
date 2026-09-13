@@ -56,7 +56,8 @@ import {
   resolveEnvironmentConsent,
 } from './consent';
 import { requireTlsContext, resolveTlsContext, validateTlsPair } from './tls';
-import { coerceSettingsPatch } from './system-settings';
+import { coerceSettingsPatch, evaluateSettingsSave, tlsCertDeletionBlocked } from './system-settings';
+import { checkListenerExposure } from './listener-exposure';
 import { buildBackup } from './backup';
 import { restoreBackup, RestoreTransactionError, type RestorePhase } from './restore';
 import { collectActionDocs, collectCategories } from '@snowluma/onebot/action-docs';
@@ -470,7 +471,20 @@ export async function initWebUI(
   hookManager?: HookManager,
   notificationManager?: NotificationManager,
   listener: { host?: string; tlsEnabled?: boolean; trustProxy?: string; stateBus?: StateBus } = {},
-): Promise<{ port: number }> {
+): Promise<{ port: number; stop: () => Promise<void> }> {
+  const host = listener.host || '127.0.0.1';
+  const tlsEnabled = listener.tlsEnabled === true;
+  const bootCheck = checkListenerExposure({
+    webuiHost: host,
+    tlsEnabled,
+    pairOk: resolveTlsContext('config').ok,
+  });
+  if (!bootCheck.ok) {
+    const reason = bootCheck.code === 'invalid-bind-host'
+      ? `bind host is not a valid TCP address: ${host}`
+      : 'TLS is enabled but the certificate/private-key pair is unusable';
+    throw new Error(`WebUI listener cannot start: ${reason}`);
+  }
   // Resolve the client IP for per-IP rate limiting from the configured
   // trust-proxy directive (runtime.json `trustProxy`, env-overridable via
   // SNOWLUMA_WEBUI_TRUST_PROXY which loadRuntimeConfig already merged in).
@@ -505,10 +519,9 @@ export async function initWebUI(
   // adapter detail strings at sub-second cadence wasn't required. If it
   // becomes one, surface client-count as a structured field on
   // AdapterStatus and include it in the comparable.
+  let connectionDiffLoop: ReturnType<typeof startConnectionDiffLoop> | undefined;
   if (listener.stateBus) {
-    // Handle deliberately discarded — initWebUI has no shutdown path; the
-    // loop's setInterval is .unref'd so it doesn't pin the event loop.
-    startConnectionDiffLoop({
+    connectionDiffLoop = startConnectionDiffLoop({
       bus: listener.stateBus,
       getSnapshot: () => oneBotManager.getConnectionStatuses(),
       pickComparable: comparableConnectionSnapshot,
@@ -1128,11 +1141,13 @@ export async function initWebUI(
     }
     const coerced = coerceSettingsPatch(body);
     if (!coerced.ok) return c.json({ success: false, message: coerced.error }, 400);
-    // Enabling TLS without a usable cert would brick HTTPS on restart — block it.
-    if (coerced.patch.webuiTls?.enabled && !resolveTlsContext('config').ok) {
-      return c.json({ success: false, message: '启用 TLS 前请先上传有效的证书与私钥' }, 400);
-    }
-    const saved = updateRuntimeConfig(coerced.patch);
+    const evaluated = evaluateSettingsSave(
+      readRuntimeConfig(),
+      coerced.patch,
+      resolveTlsContext('config').ok,
+    );
+    if (!evaluated.ok) return c.json({ success: false, message: evaluated.error }, 400);
+    const saved = updateRuntimeConfig(evaluated.patch);
     return c.json({
       success: true,
       settings: {
@@ -1201,6 +1216,9 @@ export async function initWebUI(
   });
 
   app.delete('/api/system/tls/cert', (c) => {
+    if (tlsCertDeletionBlocked(readRuntimeConfig().webuiTls?.enabled === true)) {
+      return c.json({ success: false, message: '请先关闭 TLS 再删除证书' }, 400);
+    }
     try {
       rmSync(SYSTEM_CERT_PATH, { force: true });
       rmSync(SYSTEM_KEY_PATH, { force: true });
@@ -1778,7 +1796,6 @@ export async function initWebUI(
     );
   });
 
-  const host = listener.host || '127.0.0.1';
   const finalPort = await findAvailablePort(desiredPort, { host });
   if (finalPort !== desiredPort) {
     log.warn('port %d is in use, using %d instead', desiredPort, finalPort);
@@ -1795,11 +1812,19 @@ export async function initWebUI(
     scheme = 'https';
   }
 
-  await new Promise<void>((resolve) => {
-    serve({ fetch: app.fetch, port: finalPort, hostname: host, ...(tlsServe ?? {}) }, (info) => {
+  const listeningServer = await new Promise<ReturnType<typeof serve>>((resolve) => {
+    const server = serve({ fetch: app.fetch, port: finalPort, hostname: host, ...(tlsServe ?? {}) }, (info) => {
       log.info(`listening ${scheme}://${host}:${info.port}`);
-      resolve();
+      resolve(server);
     });
   });
-  return { port: finalPort };
+  return {
+    port: finalPort,
+    async stop() {
+      connectionDiffLoop?.dispose();
+      await new Promise<void>((resolve, reject) => {
+        listeningServer.close((err) => (err ? reject(err) : resolve()));
+      });
+    },
+  };
 }
