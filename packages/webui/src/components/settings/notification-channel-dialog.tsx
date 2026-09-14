@@ -3,6 +3,7 @@
 // The channel id is the stable key per-account opt-ins reference, so it's
 // editable only on create and locked on edit.
 import { useState } from 'react';
+import { Plus, Trash2 } from 'lucide-react';
 import { Modal } from '@/components/interior/modal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +12,27 @@ import { Textarea } from '@/components/ui/textarea';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { cn } from '@/lib/utils';
 import type { NotificationChannel } from '@/types';
+
+interface HeaderRow {
+  name: string;
+  value: string;
+}
+
+function headersToRows(headers?: Record<string, string>): HeaderRow[] {
+  const rows = Object.entries(headers ?? {}).map(([name, value]) => ({ name, value }));
+  return rows.length > 0 ? rows : [{ name: '', value: '' }];
+}
+
+function rowsToHeaders(rows: HeaderRow[]): Record<string, string> | undefined {
+  const out: Record<string, string> = {};
+  for (const row of rows) {
+    const name = row.name.trim();
+    const value = row.value.trim();
+    if (!name || !value) continue;
+    out[name] = value;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 const CHANNEL_ID_RE = /^[\w.-]+$/;
 function isHttpUrl(u: string): boolean {
@@ -37,7 +59,11 @@ export function NotificationChannelDialog(props: NotificationChannelDialogProps)
   const { open, onOpenChange, isEdit, initial, otherIds, onSubmit } = props;
   // Parent unmounts on close, so each open re-seeds via lazy init.
   const [draft, setDraft] = useState<NotificationChannel>(initial);
+  const [headerRows, setHeaderRows] = useState<HeaderRow[]>(() => headersToRows(initial.headers));
   const patch = (p: Partial<NotificationChannel>) => setDraft({ ...draft, ...p });
+  const patchHeader = (index: number, p: Partial<HeaderRow>) => {
+    setHeaderRows(headerRows.map((row, i) => (i === index ? { ...row, ...p } : row)));
+  };
 
   const id = draft.id.trim();
   const idBlank = id.length === 0;
@@ -72,7 +98,13 @@ export function NotificationChannelDialog(props: NotificationChannelDialogProps)
           <Button
             disabled={!canSave}
             onClick={() => {
-              onSubmit({ ...draft, id, name: draft.name.trim(), url: draft.url.trim() });
+              onSubmit({
+                ...draft,
+                id,
+                name: draft.name.trim(),
+                url: draft.url.trim(),
+                headers: rowsToHeaders(headerRows),
+              });
               onOpenChange(false);
             }}
           >
@@ -108,6 +140,57 @@ export function NotificationChannelDialog(props: NotificationChannelDialogProps)
           error={urlError}
           onChange={(v) => patch({ url: v })}
         />
+
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <Label>请求头</Label>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setHeaderRows([...headerRows, { name: '', value: '' }])}
+            >
+              <Plus className="size-3.5" />
+              添加
+            </Button>
+          </div>
+          <div className="flex flex-col gap-2">
+            {headerRows.map((row, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Input
+                  value={row.name}
+                  placeholder="Authorization"
+                  spellCheck={false}
+                  onChange={(e) => patchHeader(i, { name: e.target.value })}
+                  className="font-mono text-xs"
+                />
+                <Input
+                  value={row.value}
+                  placeholder="Bearer …"
+                  spellCheck={false}
+                  onChange={(e) => patchHeader(i, { value: e.target.value })}
+                  className="font-mono text-xs"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="删除请求头"
+                  onClick={() => {
+                    const next = headerRows.filter((_, idx) => idx !== i);
+                    setHeaderRows(next.length > 0 ? next : [{ name: '', value: '' }]);
+                  }}
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            可选。用于飞书等需要鉴权头的 Webhook；默认仍带 JSON Content-Type。
+          </p>
+        </div>
 
         <div className="flex flex-col gap-1.5">
           <Label>Body 模板</Label>

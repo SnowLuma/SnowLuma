@@ -31,6 +31,10 @@ export const CHANNEL_ID_RE = /^[\w.-]+$/;
 const CHANNEL_ID_MAX = 64;
 const CHANNEL_NAME_MAX = 128;
 const BODY_TEMPLATE_MAX = 8192;
+const HEADER_NAME_MAX = 128;
+const HEADER_VALUE_MAX = 1024;
+const HEADERS_MAX = 16;
+const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 
 /** event ∈ {offline, online}; rendered verbatim into `{event}`. */
 export type NotificationEvent = 'offline' | 'online';
@@ -41,6 +45,8 @@ export interface NotificationChannel {
   url: string;
   bodyTemplate: string;
   enabled: boolean;
+  /** Extra outbound request headers (Authorization, etc.). */
+  headers?: Record<string, string>;
 }
 
 export interface NotificationsConfig {
@@ -120,6 +126,27 @@ function isHttpUrl(value: string): boolean {
 
 /** A channel is usable only with a valid id AND an http(s) target — anything
  *  else is unusable, so the whole entry is dropped (total normalize). */
+function normalizeHeaders(value: unknown): Record<string, string> | undefined {
+  if (!isObject(value)) return undefined;
+  const out: Record<string, string> = {};
+  const seen = new Set<string>();
+  for (const [rawName, rawValue] of Object.entries(value)) {
+    if (Object.keys(out).length >= HEADERS_MAX) break;
+    if (typeof rawValue !== 'string') continue;
+    const name = rawName.trim();
+    if (name.length === 0 || name.length > HEADER_NAME_MAX) continue;
+    if (!HEADER_NAME_RE.test(name)) continue;
+    const folded = name.toLowerCase();
+    if (seen.has(folded)) continue;
+    const headerValue = rawValue.trim();
+    if (headerValue.length === 0 || headerValue.length > HEADER_VALUE_MAX) continue;
+    if (headerValue.includes('\r') || headerValue.includes('\n')) continue;
+    seen.add(folded);
+    out[name] = headerValue;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function normalizeChannel(raw: unknown): NotificationChannel | null {
   if (!isObject(raw)) return null;
   const id = normalizeChannelId(raw.id);
@@ -127,12 +154,14 @@ function normalizeChannel(raw: unknown): NotificationChannel | null {
   const url = typeof raw.url === 'string' ? raw.url.trim() : '';
   if (!isHttpUrl(url)) return null;
   const name = strOr(raw.name, id, CHANNEL_NAME_MAX).trim() || id;
+  const headers = normalizeHeaders(raw.headers);
   return {
     id,
     name,
     url,
     bodyTemplate: strOr(raw.bodyTemplate, DEFAULT_BODY_TEMPLATE, BODY_TEMPLATE_MAX),
     enabled: boolOr(raw.enabled, true),
+    ...(headers ? { headers } : {}),
   };
 }
 

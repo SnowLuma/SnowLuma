@@ -57,6 +57,23 @@ describe('NotificationManager — dispatch + history', () => {
     expect(posts).toEqual([{ url: 'https://hook.example/c1', body: 'offline:123:123' }]);
   });
 
+  it('forwards channel request headers to the post collaborator', async () => {
+    const posts: { url: string; body: string; headers?: Record<string, string> }[] = [];
+    const { mgr } = setup({
+      loadConfig: () => ({
+        version: 1,
+        debounceSeconds: 30,
+        channels: [ch({ headers: { Authorization: 'Bearer secret' } })],
+      }),
+      post: async (url, body, headers) => {
+        posts.push({ url, body, headers });
+        return { ok: true, status: 200 };
+      },
+    });
+    await mgr.notify('123', 'offline');
+    expect(posts[0]?.headers).toEqual({ Authorization: 'Bearer secret' });
+  });
+
   it('uses the nickname captured on an online/offline edge', async () => {
     const { posts, mgr } = setup();
     mgr.handleOnline('123', 'Alice'); // caches nickname; cold online → no post

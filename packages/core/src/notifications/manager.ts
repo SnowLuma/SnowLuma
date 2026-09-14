@@ -49,7 +49,7 @@ export interface NotificationManagerDeps {
   /** The channel ids a UIN has opted into. */
   loadChannelIds: (uin: string) => string[];
   /** Outbound delivery — never throws; failures come back as `{ ok: false }`. */
-  post: (url: string, body: string) => Promise<PostResult>;
+  post: (url: string, body: string, headers?: Record<string, string>) => Promise<PostResult>;
   now: () => number;
   historyLimit?: number;
 }
@@ -165,7 +165,7 @@ export class NotificationManager {
       const body = renderTemplate(ch.bodyTemplate, vars);
       let result: PostResult;
       try {
-        result = await this.deps.post(ch.url, body);
+        result = await this.deps.post(ch.url, body, ch.headers);
       } catch (err) {
         // The injected post is contracted not to throw, but guard anyway.
         result = { ok: false, error: errMsg(err) };
@@ -204,7 +204,7 @@ export class NotificationManager {
       time: new Date(this.deps.now()).toISOString(),
     });
     try {
-      return { ...(await this.deps.post(channel.url, body)), found: true };
+      return { ...(await this.deps.post(channel.url, body, channel.headers)), found: true };
     } catch (err) {
       return { ok: false, found: true, error: errMsg(err) };
     }
@@ -234,11 +234,11 @@ export class NotificationManager {
 /** Default outbound POST: a single attempt with a timeout, JSON content-type
  *  (the common case for 钉钉/Discord/飞书). Never throws. */
 export function createDefaultPost(timeoutMs = DEFAULT_POST_TIMEOUT_MS): NotificationManagerDeps['post'] {
-  return async (url, body) => {
+  return async (url, body, headers) => {
     try {
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...headers },
         body,
         signal: AbortSignal.timeout(timeoutMs),
       });

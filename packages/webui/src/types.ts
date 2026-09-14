@@ -153,6 +153,7 @@ export interface NotificationChannel {
   url: string;
   bodyTemplate: string;
   enabled: boolean;
+  headers?: Record<string, string>;
 }
 
 export interface NotificationsConfig {

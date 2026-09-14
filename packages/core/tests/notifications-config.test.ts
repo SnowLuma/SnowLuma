@@ -137,6 +137,36 @@ describe('normalizeNotificationsConfig — total normalize', () => {
     expect(channels[0].enabled).toBe(true);
     expect(channels[0].name).toBe('c1');
     expect(channels[0].bodyTemplate).toBe(DEFAULT_BODY_TEMPLATE);
+    expect(channels[0].headers).toBeUndefined();
+  });
+
+  it('keeps valid request headers and drops unsafe or empty ones', () => {
+    const { channels } = normalizeNotificationsConfig({
+      channels: [{
+        id: 'feishu',
+        url: 'https://open.feishu.cn/hook',
+        headers: {
+          Authorization: 'Bearer secret',
+          'X-Custom': 'ok',
+          'Bad Name': 'x',
+          '': 'x',
+          Inject: 'line\r\nX-Evil: 1',
+          Empty: '  ',
+          NotString: 1,
+        } as Record<string, unknown>,
+      }],
+    });
+    expect(channels[0].headers).toEqual({
+      Authorization: 'Bearer secret',
+      'X-Custom': 'ok',
+    });
+  });
+
+  it('omits an empty headers object after normalize', () => {
+    const { channels } = normalizeNotificationsConfig({
+      channels: [{ id: 'c1', url: 'https://a.com', headers: { 'Bad Name': 'x' } }],
+    });
+    expect(channels[0].headers).toBeUndefined();
   });
 });
 
