@@ -13,14 +13,13 @@
 //      `.github/workflows/ci.yml`. Fail here instead of after the bump.
 //   3. `pnpm bump <version>` (writes every package.json).
 //   4. Commit `chore(release): vX.Y.Z` — that prefix triggers the
-//      Promote workflow, which opens (or updates) the dev→main PR and
-//      auto-merges if the GitHub setting allows. Skipped when HEAD is
-//      already that commit.
+//      Promote workflow, which points `main` at the dev tip. Skipped
+//      when HEAD is already that commit.
 //   5. Push to origin/dev (retries transient HTTPS / TLS failures).
-//   6. (Unless `--no-wait`) poll the Promote PR via `gh` until it
-//      merges, then fetch and fast-forward `main` to `origin/main`,
-//      create `vX.Y.Z` tag, push it — that triggers `release.yml`.
-//      Fetch / tag push also retry.
+//   6. (Unless `--no-wait`) poll until `origin/main` equals the dev
+//      tip we just pushed, then fetch and fast-forward `main` to
+//      `origin/main`, create `vX.Y.Z` tag, push it — that triggers
+//      `release.yml`. Fetch / tag push also retry.
 //   7. Switch back to `dev` so the next `git log` view is back where
 //      you were.
 //
@@ -133,7 +132,7 @@ function info(msg) { console.log(`\x1b[36mi\x1b[0m ${msg}`); }
 function warn(msg) { console.log(`\x1b[33m!\x1b[0m ${msg}`); }
 
 function printManualFinish() {
-  info('Once the Promote PR merges, finish with:');
+  info('Once origin/main equals the dev tip, finish with:');
   info(`  pnpm release ${version}`);
   info('or by hand:');
   info('  git fetch origin refs/heads/main:refs/remotes/origin/main');
@@ -237,63 +236,57 @@ function bumpAndPushDev() {
   ok(`pushed to origin/dev — Promote workflow should kick off shortly`);
 }
 
-// ───────────── step 5: wait for Promote PR + tag main ─────────────
+// ───────────── step 5: wait for main to match dev, then tag ─────────────
+
+function promoteRunFailed(expectedSha) {
+  if (!which('gh')) return null;
+  try {
+    const list = shCapture('gh run list --workflow=promote-dev-to-main.yml --limit 8 --json conclusion,headSha,url,status');
+    const runs = JSON.parse(list);
+    return runs.find((run) => run.headSha === expectedSha && run.conclusion === 'failure') ?? null;
+  } catch (error) {
+    warn(`gh run list failed: ${error.message}`);
+    return null;
+  }
+}
 
 async function waitAndTag() {
-  if (!which('gh')) {
-    warn('`gh` CLI not found — skipping auto-tag.');
-    printManualFinish();
-    return;
-  }
+  const expectedSha = dryRun ? 'dry-run' : shCapture('git rev-parse dev');
 
-  info('waiting for the Promote PR (head: dev → base: main) to merge...');
-  info('press Ctrl-C if you want to handle main / tag manually.');
+  if (dryRun) {
+    info(`would wait until origin/main equals dev @ ${expectedSha.slice(0, 12)}`);
+  } else {
+    info(`waiting until origin/main equals dev @ ${expectedSha.slice(0, 12)}...`);
+    info('press Ctrl-C if you want to handle main / tag manually.');
 
-  const startedAt = Date.now();
-  const TIMEOUT_MS = 30 * 60 * 1000;   // 30 min hard cap
-  const POLL_MS = 15 * 1000;
+    const startedAt = Date.now();
+    const TIMEOUT_MS = 30 * 60 * 1000;
+    const POLL_MS = 15 * 1000;
+    let promoted = false;
 
-  let prNumber = null;
-  while (Date.now() - startedAt < TIMEOUT_MS) {
-    if (!prNumber) {
-      try {
-        const list = shCapture(`gh pr list --base main --head dev --state all --json number,mergedAt,state --limit 5`);
-        const prs = JSON.parse(list);
-        // Pick the newest one that's open or merged after we pushed.
-        const fresh = prs.find(p => p.state === 'OPEN' || (p.mergedAt && Date.parse(p.mergedAt) > startedAt - 2 * POLL_MS));
-        if (fresh) {
-          prNumber = fresh.number;
-          info(`tracking PR #${prNumber}`);
-        }
-      } catch (e) {
-        warn(`gh pr list failed: ${e.message}`);
+    while (Date.now() - startedAt < TIMEOUT_MS) {
+      const failed = promoteRunFailed(expectedSha);
+      if (failed) {
+        console.error(`Promote failed for ${expectedSha.slice(0, 12)}: ${failed.url}`);
+        process.exit(1);
       }
+
+      shRetry('git fetch origin refs/heads/main:refs/remotes/origin/main --quiet');
+      const mainSha = shCapture('git rev-parse origin/main');
+      if (mainSha === expectedSha) {
+        ok(`origin/main is dev @ ${expectedSha.slice(0, 12)}`);
+        promoted = true;
+        break;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, POLL_MS));
     }
 
-    if (prNumber) {
-      try {
-        const view = shCapture(`gh pr view ${prNumber} --json state,mergedAt`);
-        const pr = JSON.parse(view);
-        if (pr.state === 'MERGED') {
-          ok(`PR #${prNumber} merged at ${pr.mergedAt}`);
-          break;
-        }
-        if (pr.state === 'CLOSED') {
-          console.error(`PR #${prNumber} was closed without merging — aborting tag step.`);
-          process.exit(1);
-        }
-      } catch (e) {
-        warn(`gh pr view failed: ${e.message}`);
-      }
+    if (!promoted) {
+      warn('30-minute timeout reached without origin/main matching dev.');
+      printManualFinish();
+      return;
     }
-
-    await new Promise(r => setTimeout(r, POLL_MS));
-  }
-
-  if (Date.now() - startedAt >= TIMEOUT_MS) {
-    warn('30-minute timeout reached without seeing the PR merge.');
-    printManualFinish();
-    return;
   }
 
   syncMain();
@@ -332,7 +325,7 @@ async function waitAndTag() {
   bumpAndPushDev();
 
   if (noWait) {
-    info('--no-wait set; not polling for PR merge.');
+    info('--no-wait set; not waiting for origin/main to match dev.');
     printManualFinish();
     return;
   }
