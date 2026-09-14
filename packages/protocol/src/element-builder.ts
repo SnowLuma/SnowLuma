@@ -2,12 +2,20 @@ import type {
   MarkdownData,
   MentionExtraSend,
 } from '@snowluma/proto-defs/action';
-import type { Elem, GroupFileExtra } from '@snowluma/proto-defs/element';
-import { protobuf_encode } from '@snowluma/proton';
+import type { Elem, GroupFileExtra, MarketFacePbReserve, MsgInfo, PokeExtra, QFaceExtra, QSmallFaceExtra } from '@snowluma/proto-defs/element';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { randomUUID } from 'crypto';
 import { deflateSync } from 'zlib';
 import type { BridgeContext } from './bridge-context';
+import { sysFaceStore } from './sys-face-store';
 import type { MessageElement } from './events';
+import {
+  assertVideoSendPolicy,
+  assertWindowShakeSendPolicy,
+  assertValidMessageElements,
+  MessageElementValidationError,
+  type OutboundMessageScene,
+} from './element-manifest';
 import { uploadImageMsgInfo } from './highway/image-upload';
 import { hexToBytes } from './highway/pipeline';
 import { uploadPttMsgInfo } from './highway/ptt-upload';
@@ -19,6 +27,8 @@ export interface SendContext {
   bridge: BridgeContext;
   groupId?: number;
   userUid?: string;
+  /** Explicit transport scene used by scene-limited message elements. */
+  scene?: OutboundMessageScene;
   /**
    * Set by the forward-message upload path. When `true`, file segments
    * are encoded as receive-side wire shapes (group → `transElem(24)`,
@@ -39,10 +49,45 @@ function makeTextElem(text: string): ProtoElem {
   };
 }
 
-function makeFaceElem(faceId: number): ProtoElem {
-  return {
-    face: { index: faceId },
-  };
+// QQ-NT splits face ids across three wire encodings. The legacy FaceElem only
+// renders classic small faces; newer "super" / animated faces sent that way are
+// silently remapped by the server (e.g. 424→168, issue #168). The split is
+// data-driven off the system-face catalog (0x9154_1, see sys-face-store):
+//   super (animated, aniSticker not pack (1,1)) → CommonElem 37 + QFaceExtra
+//   other id ≥ 260                              → CommonElem 33 + QSmallFaceExtra
+//   classic id < 260                            → legacy FaceElem
+async function makeFaceElem(faceId: number, ctx?: SendContext): Promise<ProtoElem> {
+  // With a live bridge, wait for the authoritative catalog. Login normally
+  // preloads it, while this await closes the reconnect / first-send race.
+  const wire = ctx
+    ? await sysFaceStore.resolveWire(ctx.bridge, faceId)
+    : sysFaceStore.classify(faceId);
+  if (wire.kind === 'super') {
+    return {
+      commonElem: {
+        serviceType: 37,
+        pbElem: protobuf_encode<QFaceExtra>({
+          packId: wire.packId,
+          stickerId: wire.stickerId,
+          qsid: faceId,
+          sourceType: 1,
+          stickerType: wire.stickerType,
+          randomType: 1,
+        }),
+        businessType: 1,
+      },
+    };
+  }
+  if (wire.kind === 'small') {
+    return {
+      commonElem: {
+        serviceType: 33,
+        pbElem: protobuf_encode<QSmallFaceExtra>({ faceId, preview: '', preview2: '' }),
+        businessType: 1,
+      },
+    };
+  }
+  return { face: { index: faceId } };
 }
 
 function resolveMentionDisplay(ctx: SendContext | undefined, targetUin: number): string {
@@ -105,6 +150,24 @@ function makeReplyElem(element: MessageElement): ProtoElem {
   return { srcMsg };
 }
 
+// The replied sender, encoded as a mention element placed right after srcMsg.
+// QQ NT's group reply wire shape expects this; without it a following
+// user-supplied @ is silently not honored by the server (issue #129).
+async function makeReplyMentionElem(ctx: SendContext, uin: number): Promise<ProtoElem | null> {
+  if (ctx.groupId === undefined || uin <= 0) return null;
+  const member = ctx.bridge.identity.findGroupMember(ctx.groupId, uin);
+  let uid = member?.uid ?? '';
+  if (!uid) uid = await ctx.bridge.identity.resolveUid(uin, ctx.groupId).catch(() => '');
+  if (!uid) return null;
+  const name = member?.card?.trim() || member?.nickname?.trim() || String(uin);
+  // uin=0 matches QQ NT's native reply auto-mention (the real uid lives in
+  // `uid`). It does not itself notify — the user's own @ does — and the receive
+  // side strips a type=2/uin=0 mention as structural (#127), so the bot's own
+  // replies don't surface a spurious @ either.
+  const extra = protobuf_encode<MentionExtraSend>({ type: 2, uin: 0, field5: 0, uid });
+  return { text: { str: `@${name} `, pbReserve: extra } };
+}
+
 function makeDeflatedPayload(content: string): Uint8Array {
   const deflated = deflateSync(Buffer.from(content, 'utf8'));
   const payload = new Uint8Array(deflated.length + 1);
@@ -146,6 +209,45 @@ function makeMarkdownElem(element: MessageElement): ProtoElem {
   };
 }
 
+function makePokeElem(element: MessageElement): ProtoElem {
+  const pokeType = element.subType;
+  return {
+    commonElem: {
+      serviceType: 2,
+      pbElem: protobuf_encode<PokeExtra>({ type: pokeType }),
+      businessType: pokeType,
+    },
+  };
+}
+
+
+/**
+ * Build a market-face (商城表情) wire element from the markers carried on the
+ * receive-side `image` segment (`emoji_id`/`emoji_package_id`/`key`/summary).
+ *
+ * The constants (`itemType=6`, `faceInfo=1`, `subType=3`, 300×300,
+ * `pbReserve.field8=1`) mirror NapCat's `PacketMsgMarkFaceElement.buildElement`
+ * (`dev/NapCatQQ/.../packet/message/element.ts:318-335`) — the QQ-NT server
+ * pairs them with the faceId/tabId/key to relay the sticker. `faceId` is the
+ * raw GUID bytes, recovered from the hex `emojiId`.
+ */
+function makeMarketFaceElem(element: MessageElement): ProtoElem {
+  const emojiId = (element.emojiId ?? '').trim();
+  return {
+    marketFace: {
+      faceName: element.text ?? '',
+      itemType: 6,
+      faceInfo: 1,
+      faceId: hexToBytes(emojiId),
+      tabId: element.emojiPackageId ?? 0,
+      subType: 3,
+      key: element.emojiKey ?? '',
+      imageWidth: 300,
+      imageHeight: 300,
+      pbReserve: protobuf_encode<MarketFacePbReserve>({ field8: 1 }),
+    },
+  };
+}
 
 function makeForwardElem(element: MessageElement): ProtoElem {
   const resId = (element.resId ?? '').trim();
@@ -214,7 +316,69 @@ function makeForwardElem(element: MessageElement): ProtoElem {
   };
 }
 
-async function makeImageElem(ctx: SendContext, element: MessageElement): Promise<ProtoElem> {
+function md5BytesFromHex(hex: string | undefined): Uint8Array | null {
+  if (!hex || !/^[0-9a-fA-F]{32}$/.test(hex)) return null;
+  const bytes = hexToBytes(hex);
+  return bytes.length === 16 ? bytes : null;
+}
+
+function fingerprintsFromEncodedMsgInfo(msgInfo: Uint8Array): {
+  md5Hex: string;
+  fileName: string;
+  fileSize: number;
+  width: number;
+  height: number;
+} | null {
+  let info: MsgInfo;
+  try {
+    info = protobuf_decode<MsgInfo>(msgInfo);
+  } catch {
+    return null;
+  }
+  const fi = info.msgInfoBody?.[0]?.index?.info;
+  if (!fi?.fileHash || !/^[0-9a-fA-F]{32}$/.test(fi.fileHash)) return null;
+  return {
+    md5Hex: fi.fileHash,
+    fileName: fi.fileName || `${fi.fileHash.toLowerCase()}.png`,
+    fileSize: fi.fileSize ?? 0,
+    width: fi.width ?? 0,
+    height: fi.height ?? 0,
+  };
+}
+
+/**
+ * Long-msg storage often strips NT image download paths. A CustomFace /
+ * NotOnlineImage sibling with the md5 lets get_forward_msg rebuild a
+ * fetchable URL the way native forwards do (#441).
+ */
+function makeLegacyForwardImageElem(
+  isGroup: boolean,
+  msgInfo: Uint8Array,
+  element: MessageElement,
+): ProtoElem | null {
+  const fromInfo = fingerprintsFromEncodedMsgInfo(msgInfo);
+  const md5 = md5BytesFromHex(element.md5Hex) ?? md5BytesFromHex(fromInfo?.md5Hex);
+  if (!md5) return null;
+  const md5Hex = (element.md5Hex || fromInfo!.md5Hex);
+  const fileName = element.fileName || fromInfo?.fileName || `${md5Hex.toLowerCase()}.png`;
+  const fileSize = element.fileSize ?? fromInfo?.fileSize ?? 0;
+  const width = element.width ?? fromInfo?.width ?? 0;
+  const height = element.height ?? fromInfo?.height ?? 0;
+  if (isGroup) {
+    return { customFace: { filePath: fileName, md5, size: fileSize, width, height } };
+  }
+  return {
+    notOnlineImage: {
+      filePath: fileName,
+      picMd5: md5,
+      fileLen: fileSize,
+      picWidth: width,
+      picHeight: height,
+    },
+  };
+}
+
+async function makeImageElem(ctx: SendContext, element: MessageElement): Promise<ProtoElem[]> {
   const isGroup = ctx.groupId !== undefined;
   const targetIdOrUid = isGroup ? ctx.groupId! : (ctx.userUid ?? '');
   if (!isGroup && !targetIdOrUid) {
@@ -222,14 +386,16 @@ async function makeImageElem(ctx: SendContext, element: MessageElement): Promise
   }
 
   const msgInfo = await uploadImageMsgInfo(ctx.bridge, isGroup, targetIdOrUid, element);
-
-  return {
+  const nt: ProtoElem = {
     commonElem: {
       serviceType: 48,
       pbElem: msgInfo,
       businessType: isGroup ? 20 : 10,
     },
   };
+  if (!ctx.forwardFake) return [nt];
+  const legacy = makeLegacyForwardImageElem(isGroup, msgInfo, element);
+  return legacy ? [nt, legacy] : [nt];
 }
 
 async function makePttElem(ctx: SendContext, element: MessageElement): Promise<ProtoElem> {
@@ -334,6 +500,10 @@ async function makeVideoElem(ctx: SendContext, element: MessageElement): Promise
   // commonElem.businessType is the QQ NT scene tag the receive-side
   // decoder pairs with: 11=c2c, 21=group. Sending the group tag on a
   // c2c message bounces with PbSendMsg result=79.
+  //
+  // Oversize videos throw here; the OneBot layer catches that and falls
+  // back to file upload (see message-actions.ts video fallback). A file
+  // element can't be built here — there's no uploaded file_id yet.
   return {
     commonElem: {
       serviceType: 48,
@@ -345,20 +515,67 @@ async function makeVideoElem(ctx: SendContext, element: MessageElement): Promise
 
 /**
  * Build proto Elem objects from an array of MessageElements.
- * Supports: text, face, at, reply, json, xml, markdown, image, record, video, forward.
+ * Supports: text, face, mface, at, reply, json, xml, markdown, image, record, video, forward, poke.
  * Image, record and video elements trigger NTV2 highway upload via the SendContext.
  */
 export async function buildSendElems(elements: MessageElement[], ctx?: SendContext): Promise<ProtoElem[]> {
+  // Validate the whole message before the first upload or packet build. This
+  // preserves all-or-nothing semantics: a malformed later segment cannot make
+  // an earlier media segment perform side effects before the send is rejected.
+  assertValidMessageElements(elements, 'W');
+  // Canonical MessageElements cannot contain empty text. OneBot's explicit
+  // empty-text compatibility placeholders are removed before this boundary,
+  // so the array length here is the effective on-wire segment count.
+  assertVideoSendPolicy(
+    elements.filter((element) => element.type === 'video').length,
+    elements.length,
+  );
+  assertWindowShakeSendPolicy(
+    elements.filter((element) => element.type === 'poke').length,
+    elements.length,
+    ctx?.scene,
+  );
+  for (const element of elements) {
+    if ((element.type === 'image' || element.type === 'record' || element.type === 'video') && !ctx) {
+      throw new MessageElementValidationError(
+        'MISSING_FIELD',
+        `message element "${element.type}" requires SendContext`,
+        element.type,
+      );
+    }
+    if (element.type === 'file' && !ctx?.forwardFake) {
+      throw new MessageElementValidationError(
+        'UNSENDABLE_TYPE',
+        'message element "file" must use the group/private file upload pipeline',
+        element.type,
+      );
+    }
+  }
+
   const result: ProtoElem[] = [];
+  // A user-supplied @ that lands immediately after a reply's srcMsg isn't
+  // honored by the QQ NT group server (the @ shows but never notifies, #129).
+  // When a reply and an @ coexist, emit the replied sender as a trailing
+  // mention right after srcMsg (mirrors Lagrange ForwardEntity.PackElement),
+  // which restores the wire shape the server expects.
+  const hasUserAt = elements.some((e) => e.type === 'at');
 
   for (const elem of elements) {
     switch (elem.type) {
       case 'text':
-        if (elem.text) result.push(makeTextElem(elem.text));
+        result.push(makeTextElem(elem.text));
         break;
 
       case 'face':
-        if (elem.faceId !== undefined) result.push(makeFaceElem(elem.faceId));
+        result.push(await makeFaceElem(elem.faceId, ctx));
+        break;
+
+      case 'poke':
+        result.push(makePokeElem(elem));
+        break;
+
+      case 'mface':
+        result.push(makeMarketFaceElem(elem));
         break;
 
       case 'at':
@@ -366,47 +583,39 @@ export async function buildSendElems(elements: MessageElement[], ctx?: SendConte
         break;
 
       case 'reply':
-        if (elem.replySeq) result.push(makeReplyElem(elem));
+        result.push(makeReplyElem(elem));
+        if (hasUserAt && ctx?.groupId !== undefined && elem.replySenderUin) {
+          const replyMention = await makeReplyMentionElem(ctx, elem.replySenderUin);
+          if (replyMention) result.push(replyMention);
+        }
         break;
 
       case 'json':
-        if (elem.text) result.push(makeJsonElem(elem));
+        result.push(makeJsonElem(elem));
         break;
 
       case 'xml':
-        if (elem.text) result.push(makeXmlElem(elem));
+        result.push(makeXmlElem(elem));
         break;
 
       case 'markdown':
-        if (elem.text) result.push(makeMarkdownElem(elem));
+        result.push(makeMarkdownElem(elem));
         break;
 
       case 'image':
-        if (ctx) {
-          result.push(await makeImageElem(ctx, elem));
-        } else {
-          console.warn('[ElemBuilder] image send requires SendContext');
-        }
+        result.push(...await makeImageElem(ctx!, elem));
         break;
 
       case 'forward':
-        if (elem.resId) result.push(makeForwardElem(elem));
+        result.push(makeForwardElem(elem));
         break;
 
       case 'record':
-        if (ctx) {
-          result.push(await makePttElem(ctx, elem));
-        } else {
-          console.warn('[ElemBuilder] record send requires SendContext');
-        }
+        result.push(await makePttElem(ctx!, elem));
         break;
 
       case 'video':
-        if (ctx) {
-          result.push(await makeVideoElem(ctx, elem));
-        } else {
-          console.warn('[ElemBuilder] video send requires SendContext');
-        }
+        result.push(await makeVideoElem(ctx!, elem));
         break;
 
       case 'file':
@@ -421,8 +630,8 @@ export async function buildSendElems(elements: MessageElement[], ctx?: SendConte
         //      * group: split → `bridge.sendGroupFileMessage`
         //        (OIDB 0x6d9_4 publish).
         //    The QQ-NT server REJECTS outgoing PbSendMsg with a
-        //    transElem(24) (result=79), so an element reaching here
-        //    in live-send mode is a routing bug — drop with a warn.
+        //    transElem(24) (result=79), so the all-message preflight above
+        //    raises a typed validation error when a live file reaches here.
         //
         // 2. FORWARD-FAKE upload (long-msg) — `ctx.forwardFake===true`.
         //    The long-msg service stores the gzipped protobuf verbatim
@@ -434,20 +643,21 @@ export async function buildSendElems(elements: MessageElement[], ctx?: SendConte
         //                the file segment off and writes msgContent
         //                separately (because RichText.notOnlineFile +
         //                FileExtra both live outside elems[]).
-        if (ctx && ctx.forwardFake) {
-          if (ctx.groupId !== undefined) {
-            result.push(makeGroupFileElem(elem, ctx));
-          }
-          // c2c forwardFake intentionally falls through — handled by
-          // the forward-builder at the msgContent level.
-        } else {
-          console.warn('[ElemBuilder] BUG: {type:"file"} reached element-builder — must be split out at the OneBot layer (see modules/message-actions.ts::sendPrivateMessage / ::sendGroupMessage)');
+        if (!ctx?.forwardFake) {
+          throw new Error('element-builder file routing invariant failed after preflight');
         }
+        if (ctx.groupId !== undefined) {
+          result.push(makeGroupFileElem(elem, ctx));
+        }
+        // c2c forwardFake intentionally emits no Elem — handled by the
+        // forward-builder at the msgContent level.
         break;
 
       default:
-        console.warn(`[ElemBuilder] unsupported element type for send: ${elem.type}`);
-        break;
+        // assertValidMessageElements above rejects every non-W type before any
+        // side effect. Reaching this branch means the manifest and dispatcher
+        // drifted despite their reconciliation test.
+        throw new Error(`element-builder dispatch invariant failed: ${elem.type}`);
     }
   }
 

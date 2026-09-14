@@ -4,7 +4,10 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { createLogger } from '@snowluma/common/logger';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const log = createLogger('Highway.Audio');
 
 export interface FFmpegVideoInfo {
   width: number;
@@ -21,11 +24,19 @@ interface FFmpegNativeAddon {
   getDuration(filePath: string): Promise<number>;
   convertToNTSilkTct(inputPath: string, outputPath: string): Promise<void>;
   decodeAudioToPCM(filePath: string, pcmPath: string, sampleRate?: number): Promise<{ result: boolean; sampleRate: number }>;
-  decodeAudioToFmt(filePath: string, pcmPath: string, format: string): Promise<{ channels: number; sampleRate: number; format: string }>;
+  decodeAudioToFmt(
+    filePath: string,
+    outputPath: string,
+    format: string,
+  ): Promise<{ result: boolean; channels: number; sampleRate: number; format: string }>;
 }
 
 let cachedAddon: FFmpegNativeAddon | null = null;
 let cachedLoadError: string | null = null;
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 function addonFileName(): string {
   return `ffmpegAddon.${process.platform}.${process.arch}.node`;
@@ -79,7 +90,7 @@ export function getFFmpegAddon(): FFmpegNativeAddon {
     cachedAddon = mod.exports as unknown as FFmpegNativeAddon;
     return cachedAddon;
   } catch (error) {
-    cachedLoadError = `failed to load ffmpegAddon (${addonPath}): ${error instanceof Error ? error.message : String(error)}`;
+    cachedLoadError = `failed to load ffmpegAddon (${addonPath}): ${errorMessage(error)}`;
     throw new Error(cachedLoadError);
   }
 }
@@ -150,5 +161,104 @@ export async function encodeSilk(inputFile: string, tempDir: string): Promise<En
 
 /** Default location for temporary silk files. */
 export function defaultPttTempDir(): string {
-  return path.join(os.tmpdir(), 'snowluma-ptt');
+  return path.join(os.tmpdir(), 'audio-upload');
+}
+
+// ── audio transcode (get_record out_format, #165) ──
+// The addon is a custom ffmpeg build that bundles a SILK decoder, so it can
+// transcode a QQ voice (SILK/AMR) into a normal container in one
+// decodeAudioToFmt call — mirroring NapCat's FFmpegService.convertAudioFmt.
+
+/** Output formats accepted by `out_format` (mirrors NapCat's allowlist). */
+export const AUDIO_OUT_FORMATS = ['mp3', 'amr', 'wma', 'm4a', 'spx', 'ogg', 'wav', 'flac'] as const;
+export type AudioOutFormat = (typeof AUDIO_OUT_FORMATS)[number];
+export function isAudioOutFormat(s: string): s is AudioOutFormat {
+  return (AUDIO_OUT_FORMATS as readonly string[]).includes(s);
+}
+
+/** Minimal addon surface the transcode needs — lets tests inject a fake. */
+type AudioConvertAddon = Pick<FFmpegNativeAddon, 'decodeAudioToFmt'>;
+
+/** Default ceiling on the transcoded output read into memory for base64. SILK→
+ *  WAV/FLAC is a decompressing direction, so cap it even though real voices are
+ *  tiny. Generous; overridable via deps. */
+const DEFAULT_MAX_AUDIO_OUTPUT = 256 * 1024 * 1024; // 256 MiB
+const SILK_V3_SIGNATURE = Buffer.from('#!SILK_V3', 'ascii');
+
+/**
+ * QQ AI voices use the same SILK payload as ordinary QQ voices but may carry
+ * a 0x03 container marker. The bundled decoder accepts the ordinary 0x02
+ * marker, so normalize this exact, observed container variant at the shared
+ * transcode boundary. Copy before rewriting to preserve caller-owned bytes.
+ */
+function normalizeQqAiSilkContainer(bytes: Uint8Array): Uint8Array {
+  if (bytes.length < SILK_V3_SIGNATURE.length + 1 || bytes[0] !== 0x03) return bytes;
+  for (let index = 0; index < SILK_V3_SIGNATURE.length; index += 1) {
+    if (bytes[index + 1] !== SILK_V3_SIGNATURE[index]) return bytes;
+  }
+
+  const normalized = Uint8Array.from(bytes);
+  normalized[0] = 0x02;
+  log.debug('normalized QQ AI SILK container for audio transcoding');
+  return normalized;
+}
+
+/**
+ * Transcode raw audio bytes (a QQ voice SILK/AMR) to `format`, returning the
+ * result as base64 + byte size. Writes the input + output to temp files (the
+ * native addon is file-based), always cleaning them up. `deps` injects a fake
+ * addon / tmp dir for tests. Throws on an unsupported format or a failed
+ * conversion (e.g. the binary lacks SILK decode).
+ */
+export async function convertAudioBytes(
+  bytes: Uint8Array,
+  format: string,
+  deps: { addon?: AudioConvertAddon; tmpDir?: string; maxOutputBytes?: number } = {},
+): Promise<{ base64: string; size: number }> {
+  if (!isAudioOutFormat(format)) {
+    throw new Error(`unsupported out_format: ${format} (expected one of ${AUDIO_OUT_FORMATS.join(', ')})`);
+  }
+  const addon = deps.addon ?? getFFmpegAddon();
+  const maxOut = deps.maxOutputBytes ?? DEFAULT_MAX_AUDIO_OUTPUT;
+  const dir = deps.tmpDir ?? path.join(os.tmpdir(), 'audio-transcode');
+  fs.mkdirSync(dir, { recursive: true });
+  const id = crypto.randomBytes(8).toString('hex');
+  const inPath = path.join(dir, `${id}.in`);
+  const outPath = path.join(dir, `${id}.${format}`);
+  let outcome: PromiseSettledResult<{ base64: string; size: number }>;
+  try {
+    await fs.promises.writeFile(inPath, normalizeQqAiSilkContainer(bytes));
+    await addon.decodeAudioToFmt(inPath, outPath, format);
+    if (!fs.existsSync(outPath)) throw new Error('audio conversion failed: no output file');
+    // Bound the output before reading it into memory (decompressing direction).
+    const stat = await fs.promises.stat(outPath);
+    if (stat.size > maxOut) throw new Error(`converted audio too large: ${stat.size} > ${maxOut}`);
+    const out = await fs.promises.readFile(outPath);
+    outcome = { status: 'fulfilled', value: { base64: out.toString('base64'), size: out.length } };
+  } catch (reason) {
+    outcome = { status: 'rejected', reason };
+  }
+
+  // `force` makes missing files harmless. Any remaining rejection is a real
+  // permission/I/O failure and must stay observable instead of leaking voice
+  // data silently. Preserve the conversion error too when both phases fail.
+  const cleanupResults = await Promise.allSettled([
+    fs.promises.rm(inPath, { force: true }),
+    fs.promises.rm(outPath, { force: true }),
+  ]);
+  const cleanupErrors = cleanupResults
+    .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    .map((result) => result.reason);
+  if (cleanupErrors.length > 0) {
+    const cleanupMessage = cleanupErrors.map(errorMessage).join('; ');
+    if (outcome.status === 'rejected') {
+      throw new AggregateError(
+        [outcome.reason, ...cleanupErrors],
+        `audio conversion failed: ${errorMessage(outcome.reason)}; temporary audio file cleanup failed: ${cleanupMessage}`,
+      );
+    }
+    throw new AggregateError(cleanupErrors, `temporary audio file cleanup failed: ${cleanupMessage}`);
+  }
+  if (outcome.status === 'rejected') throw outcome.reason;
+  return outcome.value;
 }

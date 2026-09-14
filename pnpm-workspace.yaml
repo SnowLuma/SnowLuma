@@ -2,7 +2,8 @@ packages:
   - 'packages/*'
 
 catalog:
-  vite: ^8.0.8
+  '@types/node': 22.13.0
+  vite: ^8.0.16
   typescript: ~6.0.2
 
 overrides:

@@ -1,19 +1,21 @@
-import { createLogger } from '@snowluma/common/logger';
+import {
+  createLogger,
+  renderTraceBytes,
+  runWithTraceRequest,
+} from '@snowluma/common/logger';
 import type {
   EncodableMediaMsgInfo,
   HighwayMsgInfoBody,
   NTV2ExtBizInfo,
   NTV2UploadInfo,
   NTV2UploadRespBody,
-  NTV2UploadRichMediaReq,
-  NTV2UploadRichMediaResp,
 } from '@snowluma/proto-defs/highway';
-import { OidbBase } from '@snowluma/proto-defs/oidb';
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import { protobuf_encode } from '@snowluma/proton';
 import crypto from 'crypto';
 import type { BridgeContext } from '../bridge-context';
-import { makeOidbEnvelope } from '../bridge-oidb';
-import { buildHighwayExtend, fetchHighwaySession, uploadHighwayHttp } from './highway-client';
+import { OidbError } from '../oidb-service';
+import { Ntv2UploadRequest } from '../oidb-services/highway/ntv2-upload-request';
+import { BufferChunkSource, FileChunkSource, buildHighwayExtend, fetchHighwaySession, uploadHighwayHttp } from './highway-client';
 
 const moduleLog = createLogger('Highway');
 
@@ -37,8 +39,13 @@ export interface MediaSubFileUpload {
   cmdId: number;
   /** Bytes to upload. Empty when the caller is forwarding from cached
    *  fingerprints; in that case set fastOnlyError so we throw with a
-   *  typed message when the server actually demands the bytes. */
+   *  typed message when the server actually demands the bytes. Also empty
+   *  when `fileSource` is set (the bytes are streamed from disk instead). */
   bytes: Uint8Array;
+  /** When set, this sub-file streams from a disk file instead of `bytes`
+   *  (which should be empty). runPuts opens a `FileChunkSource`; all size /
+   *  data-presence decisions use `fileSource.fileSize`, not `bytes.length`. */
+  fileSource?: { filePath: string; fileSize: number };
   /** md5 used for the highway request. */
   md5: Uint8Array;
   /** sha1 — single buffer or per-1MB block array. Passed verbatim to
@@ -101,6 +108,27 @@ export function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 
+function sha1TraceValue(value: Uint8Array | Uint8Array[]): string {
+  const values = Array.isArray(value) ? value : [value];
+  return `[${values.map((item) => renderTraceBytes(item)).join(',')}]`;
+}
+
+function uploadDescriptors(uploads: MediaSubFileUpload[]): string {
+  return `[${uploads.map((sub) => [
+    `source:${JSON.stringify(String(sub.source))}`,
+    `cmdId:${sub.cmdId}`,
+    `size:${sub.fileSource ? sub.fileSource.fileSize : sub.bytes.byteLength}`,
+    `storage:${JSON.stringify(sub.fileSource ? 'disk' : 'buffer')}`,
+    `md5:${renderTraceBytes(sub.md5)}`,
+    `sha1:${sha1TraceValue(sub.sha1)}`,
+    `subFileIndex:${sub.subFileIndex ?? 0}`,
+  ].join(',')).join(';')}]`;
+}
+
+function mediaErrorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 // ─────────────── main entrypoint ───────────────
 
 /**
@@ -111,8 +139,55 @@ export function hexToBytes(hex: string): Uint8Array {
  * Sessions are cached across sub-file uploads — video does two PUTs but
  * only fetches the Highway session once.
  */
-export async function runNtv2Upload(params: NtV2UploadParams): Promise<NTV2UploadRespBody> {
-  const { bridge, isGroup, targetIdOrUid, oidbCmd, serviceCmd, uploads } = params;
+export function runNtv2Upload(params: NtV2UploadParams): Promise<NTV2UploadRespBody> {
+  const startedAt = Date.now();
+  const label = params.label ?? 'media';
+  let failureReason = 'unexpected_failure';
+  let didPut = false;
+  return runWithTraceRequest(async () => {
+    moduleLog.trace(() => [
+      'highway_media_start label=%j scope=%s target=%j oidbCmd=%d serviceCmd=%j requestId=%d businessType=%d uploads=%s',
+      label,
+      params.isGroup ? 'group' : 'private',
+      String(params.targetIdOrUid),
+      params.oidbCmd,
+      params.serviceCmd,
+      params.requestId,
+      params.businessType,
+      uploadDescriptors(params.uploads),
+    ]);
+    try {
+      const result = await runNtv2UploadOperation(params, (reason, put) => {
+        failureReason = reason;
+        if (put !== undefined) didPut = put;
+      });
+      moduleLog.trace(
+        'highway_media_terminal label=%j outcome=completed reason=%s uploads=%d elapsedMs=%d',
+        label,
+        didPut ? 'put_complete' : 'fast_upload',
+        params.uploads.length,
+        Date.now() - startedAt,
+      );
+      return result;
+    } catch (error) {
+      moduleLog.trace(() => [
+        'highway_media_terminal label=%j outcome=failed reason=%s uploads=%d error=%j elapsedMs=%d',
+        label,
+        failureReason,
+        params.uploads.length,
+        mediaErrorText(error),
+        Date.now() - startedAt,
+      ]);
+      throw error;
+    }
+  });
+}
+
+async function runNtv2UploadOperation(
+  params: NtV2UploadParams,
+  setState: (failureReason: string, didPut?: boolean) => void,
+): Promise<NTV2UploadRespBody> {
+  const { bridge, isGroup, targetIdOrUid, oidbCmd, uploads } = params;
   const label = params.label ?? 'media';
   const raw = bridge.identity?.uin;
   const uinNum = typeof raw === 'string' ? Number.parseInt(raw, 10) : 0;
@@ -120,96 +195,145 @@ export async function runNtv2Upload(params: NtV2UploadParams): Promise<NTV2Uploa
     ? moduleLog.child({ uin: uinNum })
     : moduleLog;
 
-  // Build the full body once. Pulling this in here means each format file
-  // only specifies the seven fields that actually vary.
-  const body: NTV2UploadRichMediaReq = {
-    reqHead: {
-      common: { requestId: params.requestId, command: 100 },
-      scene: {
-        requestType: 2,
+  // Send one OIDB request and return its decoded `upload` body. `tryFast`
+  // toggles `tryFastUploadCompleted`: true asks the server to reuse a
+  // cached resource (skip the bytes); false forces it to allocate a fresh
+  // upload session and hand back a uKey. NOTE: proton only emits a plain
+  // `pb<bool>` when it's `true`, so `tryFast === false` omits field 2 —
+  // the server reads that as "don't fast-upload" (the opt-in default).
+  const requestUpload = async (tryFast: boolean): Promise<NTV2UploadRespBody> => {
+    setState('request_failed');
+    try {
+      return await Ntv2UploadRequest.invoke(bridge, {
+        oidbCmd,
+        isGroup,
+        targetIdOrUid,
+        requestId: params.requestId,
         businessType: params.businessType,
-        sceneType: isGroup ? 2 : 1,
-        ...(isGroup
-          ? { group: { groupUin: Number(targetIdOrUid) } }
-          : { c2c: { accountType: 2, targetUid: String(targetIdOrUid) } }),
-      },
-      client: { agentType: 2 },
-    },
-    upload: {
-      uploadInfo: params.uploadInfo,
-      tryFastUploadCompleted: true,
-      srvSendMsg: false,
-      clientRandomId: makeClientRandomId(),
-      compatQmsgSceneType: params.compatQmsgSceneType,
-      extBizInfo: params.extBizInfo,
-      clientSeq: 0,
-      noNeedCompatMsg: false,
-    },
+        uploadInfo: params.uploadInfo,
+        compatQmsgSceneType: params.compatQmsgSceneType,
+        extBizInfo: params.extBizInfo,
+        tryFast,
+        clientRandomId: makeClientRandomId(),
+        label,
+      });
+    } catch (error) {
+      if (error instanceof OidbError) setState('oidb_rejected');
+      else if (error instanceof Error && error.message.includes('missing msgInfo')) setState('response_invalid');
+      else if (error instanceof Error && error.message.includes('upload failed')) setState('business_rejected');
+      log.trace(() => [
+        'highway_media_branch branch=oidb_response error=%j',
+        error instanceof Error ? error.message : String(error),
+      ]);
+      throw error;
+    }
   };
 
-  const env = makeOidbEnvelope<NTV2UploadRichMediaReq>(oidbCmd, 100, body, true);
-  const requestBytes = protobuf_encode<OidbBase<NTV2UploadRichMediaReq>>(env);
-
-  const result = await bridge.sendRawPacket(serviceCmd, requestBytes);
-  if (!result.success || !result.gotResponse || !result.responseData) {
-    throw new Error(result.errorMessage || `${label} upload request failed`);
-  }
-
-  const resp = protobuf_decode<OidbBase<NTV2UploadRichMediaResp>>(result.responseData);
-  if (!resp) throw new Error(`failed to decode ${label} upload response`);
-  if (resp.errorCode && resp.errorCode !== 0) {
-    throw new Error(`OIDB error ${resp.errorCode}: ${resp.errorMsg ?? ''}`);
-  }
-
-  const uploadBody = resp.body;
-  if (!uploadBody) throw new Error(`${label} upload response body missing`);
-  if (uploadBody.respHead?.retCode && uploadBody.respHead.retCode !== 0) {
-    throw new Error(uploadBody.respHead.message ?? `${label} upload failed`);
-  }
-  const upload = uploadBody.upload;
-  if (!upload) throw new Error(`${label} upload response body missing`);
-
   // Highway PUTs. Session is lazily fetched and cached — video does two
-  // PUTs (main + thumb) and shouldn't pay for two sessions.
+  // PUTs (main + thumb) and shouldn't pay for two sessions, and a forced
+  // retry shouldn't re-fetch it either.
   let session: Awaited<ReturnType<typeof fetchHighwaySession>> | null = null;
   const getSession = async () => {
+    setState('session_failed');
     session ??= await fetchHighwaySession(bridge);
     return session;
   };
 
-  let didPut = false;
-  for (const sub of uploads) {
-    const target = sub.source === 'top' ? upload : upload.subFileInfos?.[sub.source];
-    const uKey = target?.uKey ?? '';
-    // Either the server fast-pathed this sub-file (no uKey) or msgInfo is
-    // missing entirely; either way nothing to push.
-    if (!uKey || !upload.msgInfo) continue;
+  // Run whatever PUTs the given `upload` response asks for.
+  const runPuts = async (upload: NTV2UploadRespBody): Promise<void> => {
+    const msgInfo = upload.msgInfo;
+    if (!msgInfo) throw new Error('upload response missing msgInfo');
+    let didPut = false;
+    for (const sub of uploads) {
+      const target = sub.source === 'top' ? upload : upload.subFileInfos?.[sub.source];
+      const uKey = target?.uKey ?? '';
+      // Data size / presence comes from fileSource (streamed) when set, else
+      // from the in-memory bytes — a streamed sub-file has empty `bytes`, so
+      // keying the checks below on `bytes.length` would wrongly treat it as a
+      // fast-only / empty sub-file.
+      const subSize = sub.fileSource ? sub.fileSource.fileSize : sub.bytes.length;
+      // No uKey: the server fast-pathed this sub-file — it already holds
+      // (or claims to hold) the resource, so there are no bytes to push.
+      if (!uKey) {
+        if (subSize > 0) {
+          log.trace(
+            'highway_media_branch branch=fast_upload source=%j cmdId=%d size=%d',
+            String(sub.source),
+            sub.cmdId,
+            subSize,
+          );
+          log.debug('%s fast-upload hit for sub=%s (server reusing cached resource)', label, String(sub.source));
+        }
+        continue;
+      }
 
-    if (sub.bytes.length === 0) {
-      if (sub.fastOnlyError) throw new Error(sub.fastOnlyError);
-      continue;
+      if (subSize === 0) {
+        log.trace(
+          'highway_media_branch branch=empty_source source=%j cmdId=%d hasFastOnlyError=%s',
+          String(sub.source),
+          sub.cmdId,
+          Boolean(sub.fastOnlyError),
+        );
+        if (sub.fastOnlyError) {
+          setState('source_unavailable');
+          throw new Error(sub.fastOnlyError);
+        }
+        continue;
+      }
+
+      if (!target) continue;
+
+      log.trace(
+        'highway_media_branch branch=put_required source=%j cmdId=%d size=%d uKey=%j storage=%s',
+        String(sub.source),
+        sub.cmdId,
+        subSize,
+        uKey,
+        sub.fileSource ? 'disk' : 'buffer',
+      );
+      setState('extend_build_failed');
+      const extend = buildHighwayExtend(
+        uKey,
+        msgInfo,
+        target.ipv4s ?? [],
+        sub.sha1,
+        sub.subFileIndex ?? 0,
+      );
+      // Resolve the (lazy, cached) session BEFORE opening the ChunkSource, so
+      // there is no fallible await between opening the FileChunkSource handle
+      // and the uploadHighwayHttp call that owns closing it — otherwise a
+      // session-fetch failure on the first PUT would leak the open handle.
+      const putSession = await getSession();
+      // uploadHighwayHttp owns the ChunkSource and closes it exactly once.
+      setState('source_open_failed');
+      const chunkSource = sub.fileSource
+        ? await FileChunkSource.open(sub.fileSource.filePath, sub.fileSource.fileSize)
+        : new BufferChunkSource(sub.bytes);
+      log.debug('%s OIDB requires bytes, PUT %d bytes (sub=%s)', label, subSize, String(sub.source));
+      const t0 = Date.now();
+      setState('put_failed');
+      await uploadHighwayHttp(bridge, putSession, sub.cmdId, chunkSource, sub.md5, extend);
+      log.debug('%s PUT done in %dms', label, Date.now() - t0);
+      didPut = true;
+      setState('unexpected_failure', true);
     }
 
-    if (!target) continue;
+    if (!didPut) {
+      log.debug('%s fast-upload hit (server already had bytes)', label);
+    }
+  };
 
-    const extend = buildHighwayExtend(
-      uKey,
-      upload.msgInfo,
-      target.ipv4s ?? [],
-      sub.sha1,
-      sub.subFileIndex ?? 0,
-    );
-    log.debug('%s OIDB requires bytes, PUT %d bytes (sub=%s)', label, sub.bytes.length, String(sub.source));
-    const t0 = Date.now();
-    await uploadHighwayHttp(bridge, await getSession(), sub.cmdId, sub.bytes, sub.md5, extend);
-    log.debug('%s PUT done in %dms', label, Date.now() - t0);
-    didPut = true;
-  }
-
-  if (!didPut) {
-    log.debug('%s fast-upload hit (server already had bytes)', label);
-  }
-
+  // NOTE: a previous attempt re-issued the request with
+  // `tryFastUploadCompleted: false` when the server fast-pathed the main video,
+  // on the theory it would force a fresh upload of a possibly-expired resource.
+  // Real-machine testing + kernel RE proved that ineffective — the server's
+  // fast-path is driven by md5-metadata existence and ignores the flag, and the
+  // QQ NT kernel itself does no validity check either (HandleRspUploadV3 trusts
+  // `fileExist` and reports success). An expired-but-still-indexed video
+  // resource is a platform-level limitation, not something the upload flow can
+  // refresh. See #145.
+  const upload = await requestUpload(true);
+  await runPuts(upload);
   return upload;
 }
 

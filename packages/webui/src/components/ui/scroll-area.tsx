@@ -4,16 +4,20 @@ import { cn } from '@/lib/utils';
 
 interface ScrollAreaProps extends React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root> {
   viewportClassName?: string;
+  /** Ref to the scrollable viewport element — needed to drive a virtualizer
+   *  (TanStack Virtual's getScrollElement) off the actual scroll container. */
+  viewportRef?: React.Ref<HTMLDivElement>;
 }
 
 const ScrollArea = React.forwardRef<React.ElementRef<typeof ScrollAreaPrimitive.Root>, ScrollAreaProps>(
-  ({ className, children, viewportClassName, ...props }, ref) => (
+  ({ className, children, viewportClassName, viewportRef, ...props }, ref) => (
     <ScrollAreaPrimitive.Root
       ref={ref}
       className={cn('relative overflow-hidden', className)}
       {...props}
     >
       <ScrollAreaPrimitive.Viewport
+        ref={viewportRef}
         className={cn('size-full rounded-[inherit] [&>div]:!block', viewportClassName)}
       >
         {children}
@@ -34,7 +38,7 @@ const ScrollBar = React.forwardRef<
     ref={ref}
     orientation={orientation}
     className={cn(
-      'flex touch-none select-none p-0.5 transition-colors',
+      'flex touch-none select-none p-0.5 transition-colors cursor-grab active:cursor-grabbing',
       orientation === 'vertical' && 'h-full w-2 border-l border-l-transparent',
       orientation === 'horizontal' && 'h-2 w-full flex-col border-t border-t-transparent',
       className

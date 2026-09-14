@@ -5,12 +5,13 @@
 // from blowing the line width.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ApiHandler } from '../src/api-handler';
+import { MessageElementValidationError } from '@snowluma/protocol/element-manifest';
+import { OidbError } from '@snowluma/protocol/oidb-service';
 import { subscribeLogs, type LogEntry } from '@snowluma/common/logger';
 import { summarizeParams } from '@snowluma/common/log-summary';
+import { createCompiledTestHandler, testAction } from './helpers/compiled-action-handler';
 
-// Minimal context — we never reach the real action handlers; we
-// register our own via registerAction.
+// Minimal context — isolated test ActionSpecs never call these dependencies.
 function emptyContext(): any {
   return {
     bridge: {},
@@ -78,8 +79,9 @@ describe('summarizeParams', () => {
 
 describe('ApiHandler dispatch logging', () => {
   it('emits a debug entry under [Bridge.Action] when an action is called', async () => {
-    const handler = new ApiHandler(emptyContext(), 12345);
-    handler.registerAction('echo', async () => ({ status: 'ok', retcode: 0, data: null }));
+    const handler = createCompiledTestHandler(emptyContext(), [
+      testAction('echo', async () => ({ status: 'ok', retcode: 0, data: null })),
+    ], 12345);
 
     await handler.handle('echo', { group_id: 67890, message: [1, 2, 3] });
 
@@ -91,11 +93,51 @@ describe('ApiHandler dispatch logging', () => {
     expect(entry!.message).toContain('message=[len=3]');
   });
 
-  it('emits a warn line with the error stack when the handler throws', async () => {
-    const handler = new ApiHandler(emptyContext(), 12345);
-    handler.registerAction('boom', async () => {
-      throw new Error('kapow');
+  it('logs the parsed emoji-like offset without exposing its cookie cursor', async () => {
+    const handler = createCompiledTestHandler(emptyContext(), [
+      testAction('fetch_emoji_like', async () => ({ status: 'ok', retcode: 0, data: null })),
+    ], 12345);
+
+    await handler.handle('fetch_emoji_like', {
+      message_id: 1,
+      emojiId: '66',
+      cookie: '40',
     });
+
+    const entry = captured.find((e) => e.scope === 'Bridge.Action' && e.level === 'debug');
+    expect(entry?.message).toContain('emoji_like_offset=40');
+    expect(entry?.message).not.toContain('cookie=');
+  });
+
+  it('keeps malformed emoji-like cookies redacted instead of parsing prefixes', async () => {
+    const handler = createCompiledTestHandler(emptyContext(), [
+      testAction('fetch_emoji_like', async () => ({ status: 'ok', retcode: 0, data: null })),
+    ], 12345);
+
+    await handler.handle('fetch_emoji_like', { cookie: '123.session=secret' });
+
+    const entry = captured.find((e) => e.scope === 'Bridge.Action' && e.level === 'debug');
+    expect(entry?.message).toContain('cookie=***');
+    expect(entry?.message).not.toContain('emoji_like_offset=');
+    expect(entry?.message).not.toContain('session=secret');
+  });
+
+  it('keeps cookie parameters redacted for every other action', async () => {
+    const handler = createCompiledTestHandler(emptyContext(), [
+      testAction('other_action', async () => ({ status: 'ok', retcode: 0, data: null })),
+    ], 12345);
+
+    await handler.handle('other_action', { cookie: '40' });
+
+    const entry = captured.find((e) => e.scope === 'Bridge.Action' && e.level === 'debug');
+    expect(entry?.message).toContain('cookie=***');
+    expect(entry?.message).not.toContain('cookie=40');
+  });
+
+  it('emits a warn line with the error stack when the handler throws', async () => {
+    const handler = createCompiledTestHandler(emptyContext(), [
+      testAction('boom', async () => { throw new Error('kapow'); }),
+    ], 12345);
 
     const result = await handler.handle('boom', {});
     expect(result.status).toBe('failed');
@@ -108,8 +150,59 @@ describe('ApiHandler dispatch logging', () => {
     expect(warn!.message).toMatch(/at\s+/);
   });
 
+  // The single error seam (ADR-0006 narrow seam): any throw from a handler
+  // maps to ONE policy here — ACTION_FAILED (100) + the error message —
+  // instead of each action hand-rolling its own inconsistent try/catch.
+  it('maps any handler throw to ACTION_FAILED (100) with the error message', async () => {
+    const handler = createCompiledTestHandler(emptyContext(), [
+      testAction('kaboom', async () => { throw new Error('permission denied'); }),
+    ], 12345);
+
+    const result = await handler.handle('kaboom', {});
+    expect(result).toMatchObject({ status: 'failed', retcode: 100, wording: 'permission denied' });
+  });
+
+  it('maps typed outbound message-contract failures to BAD_REQUEST', async () => {
+    const handler = createCompiledTestHandler(emptyContext(), [
+      testAction('bad_message', async () => {
+        throw new MessageElementValidationError(
+          'UNKNOWN_TYPE',
+          'unknown message segment type: surprise',
+          'surprise',
+        );
+      }),
+    ], 12345);
+
+    const result = await handler.handle('bad_message', {});
+    expect(result).toMatchObject({
+      status: 'failed',
+      retcode: 1400,
+      wording: 'unknown message segment type: surprise',
+    });
+  });
+
+  it('surfaces the OidbError code + server message through error.message (no special-casing)', async () => {
+    const handler = createCompiledTestHandler(emptyContext(), [
+      testAction('oidb_boom', async () => { throw new OidbError(34, 'no permission', 0x11ec, 2); }),
+    ], 12345);
+
+    const result = await handler.handle('oidb_boom', {});
+    expect(result).toMatchObject({ status: 'failed', retcode: 100 });
+    expect((result as { wording: string }).wording).toContain('34');
+    expect((result as { wording: string }).wording).toContain('no permission');
+  });
+
+  it('renders a non-Error throw via String()', async () => {
+    const handler = createCompiledTestHandler(emptyContext(), [
+      testAction('weird', async () => { throw 'just a string'; }),
+    ], 12345);
+
+    const result = await handler.handle('weird', {});
+    expect(result).toMatchObject({ status: 'failed', retcode: 100, wording: 'just a string' });
+  });
+
   it('logs unknown actions at debug level', async () => {
-    const handler = new ApiHandler(emptyContext(), 99);
+    const handler = createCompiledTestHandler(emptyContext(), [], 99);
     await handler.handle('not_a_real_action', {});
 
     const entry = captured.find((e) => e.scope === 'Bridge.Action' && e.message.includes('unknown action'));
@@ -118,8 +211,9 @@ describe('ApiHandler dispatch logging', () => {
   });
 
   it('falls back to the module-level logger (no uin slot) when uin is omitted', async () => {
-    const handler = new ApiHandler(emptyContext());
-    handler.registerAction('ping', async () => ({ status: 'ok', retcode: 0, data: null }));
+    const handler = createCompiledTestHandler(emptyContext(), [
+      testAction('ping', async () => ({ status: 'ok', retcode: 0, data: null })),
+    ]);
 
     await handler.handle('ping', {});
 

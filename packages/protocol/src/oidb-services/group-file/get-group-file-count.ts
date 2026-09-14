@@ -1,7 +1,8 @@
-// 0x6D8_3 — fetch group file slot usage. Returns the current count
-// alongside the server-side ceiling (NTQQ's `maxCount` default is
-// 10000; we surface that fallback so the OneBot action can render
-// the gauge without a second call when the server elides the field).
+// 0x6D8_2 — fetch the group file slot count. The 0x6D8 view command splits
+// into three subcommands: 1=List, 2=Count, 3=Space (see GetGroupFileSpace).
+// This was previously mis-wired to subCommand 3 (Space) with busId=0, so the
+// Count block was never returned and file_count always came back 0 (#196).
+// The count request needs busId=6.
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
@@ -17,13 +18,13 @@ export interface GroupFileCount {
 
 export namespace GetGroupFileCount {
   export const command = 0x6D8;
-  export const subCommand = 3;
+  export const subCommand = 2;
 
   export interface Params { groupId: number; }
   export type Deps = OidbSender;
 
   export const serialize = (_ctx: Deps, p: Params): OidbGroupFileCountViewReq => ({
-    count: { groupUin: p.groupId, appId: 7, busId: 0 },
+    count: { groupUin: p.groupId, appId: 7, busId: 6 },
   });
 
   export const deserialize = (_ctx: Deps, body: OidbGroupFileCountViewResp): GroupFileCount => ({

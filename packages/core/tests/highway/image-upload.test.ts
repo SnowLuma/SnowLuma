@@ -23,6 +23,7 @@ vi.mock('@snowluma/protocol/highway/utils', () => ({
 }));
 
 import * as pipeline from '@snowluma/protocol/highway/pipeline';
+import * as utils from '@snowluma/protocol/highway/utils';
 import { uploadImageMsgInfo } from '@snowluma/protocol/highway/image-upload';
 import { GROUP_IMAGE_CMD_ID, PRIVATE_IMAGE_CMD_ID } from '@snowluma/protocol/highway';
 
@@ -30,6 +31,7 @@ describe('image-upload', () => {
   beforeEach(() => {
     vi.mocked(pipeline.runNtv2Upload).mockClear();
     vi.mocked(pipeline.finalizeMediaMsgInfo).mockClear();
+    vi.mocked(utils.loadBinarySource).mockClear();
   });
 
   it('group: uses 0x11C4_100 + GROUP_IMAGE_CMD_ID and tags scene as group', async () => {
@@ -56,6 +58,19 @@ describe('image-upload', () => {
     expect(args.uploads[0]!.cmdId).toBe(PRIVATE_IMAGE_CMD_ID);
     expect((args.extBizInfo as any).pic.reserveC2c).toBeDefined();
     expect((args.extBizInfo as any).pic.reserveTroop).toBeUndefined();
+  });
+
+  it('uses receive-side imageUrl when url/fileId are absent', async () => {
+    await uploadImageMsgInfo(
+      {} as any,
+      true,
+      12345,
+      { type: 'image', imageUrl: 'https://gchat.qpic.cn/received.jpg' },
+    );
+    expect(utils.loadBinarySource).toHaveBeenCalledWith(
+      'https://gchat.qpic.cn/received.jpg',
+      'image',
+    );
   });
 
   it('encodes the detected picFormat and image dimensions into fileInfo', async () => {

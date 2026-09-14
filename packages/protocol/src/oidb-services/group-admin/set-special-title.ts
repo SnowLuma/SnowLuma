@@ -20,6 +20,9 @@ export namespace SetSpecialTitle {
       targetUid: await ctx.resolveUserUid(p.userId, p.groupId),
       specialTitle: p.title,
       expireTime: -1,
+      // Must mirror specialTitle, or the server accepts the request (errorCode 0)
+      // but silently never applies the title (see OidbSpecialTitleBody note).
+      uinName: p.title,
     },
   });
 

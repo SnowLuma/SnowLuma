@@ -1,5 +1,3 @@
-import type { Bridge } from '../bridge';
-
 export function toInt(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
   if (typeof value === 'bigint') {
@@ -13,35 +11,10 @@ export function toInt(value: unknown): number {
   return 0;
 }
 
-/**
- * Standard OIDB response check: throw a typed Error if retCode != 0.
- * Prefers `wording` over `msg` for the human-facing message, falling
- * back to a generic string. All themed action modules use this for
- * their OIDB error-path uniformity.
- */
-export function ensureRetCodeZero(operation: string, code: unknown, msg: unknown, wording: unknown): void {
-  const retCode = toInt(code);
-  if (retCode === 0) return;
-  const text = (typeof wording === 'string' && wording) || (typeof msg === 'string' && msg) || 'unknown error';
-  throw new Error(`${operation} failed: code=${retCode} msg=${text}`);
-}
-
-/**
- * Look up the bot's own UID. Cached on Identity once warmup populates
- * `selfProfile`; forward/profile actions need this fast path before
- * warmup completes.
- */
-export async function resolveSelfUid(bridge: Bridge): Promise<string> {
-  let selfUid = bridge.identity.selfUid;
-  if (selfUid) return selfUid;
-
-  const selfUin = toInt(bridge.identity.uin);
-  if (selfUin <= 0) {
-    throw new Error('self uid is unavailable');
-  }
-  selfUid = await bridge.resolveUserUid(selfUin);
-  return selfUid;
-}
+// The bot's-own-UID resolver is the single source of truth in @snowluma/protocol
+// (a Bridge satisfies its BridgeContext slice). Re-exported here so the existing
+// `resolveSelfUid(bridge)` call sites in this package keep importing from shared.
+export { resolveSelfUid } from '@snowluma/protocol/self-uid';
 
 /**
  * Index describing a server-side rich-media object (image / video /

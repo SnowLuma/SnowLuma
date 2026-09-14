@@ -21,9 +21,17 @@ export interface RoutingTrans0x211 {
   uid?:   pb<8, string>;
 }
 
+// Group temp-session routing head — RoutingHead field 3. Inner shape
+// { 群号 (source group), 对端 uid }.
+export interface RoutingGrpTmp {
+  groupUin?: pb<3, uint_64>;
+  toUid?:    pb<4, string>;
+}
+
 export interface RoutingHead {
   c2c?:        pb<1, RoutingC2C>;
   grp?:        pb<2, RoutingGroup>;
+  grpTmp?:     pb<3, RoutingGrpTmp>;
   trans0x211?: pb<15, RoutingTrans0x211>;
 }
 
@@ -85,7 +93,36 @@ export interface MentionExtraSend {
   uid?:    pb<9, string>;
 }
 
-// MarkdownData
+// Markdown commonElem (svc=45). Official DecodeMarkdownElement reads
+// content / process_msg / summary / extType / mdExtInfo.
+// extType=1 dispatches to DecodeMdExtInfoFileTransfer.
+/** extInfo.thumbnail — cover download info, not raw image bytes. */
+export interface MarkdownFlashTransferThumbUrl {
+  field1?:      pb<1, uint_32>;
+  downloadUrl?: pb<2, string>;
+}
+
+export interface MarkdownFlashTransferThumb {
+  fileId?:   pb<1, string>;
+  download?: pb<2, MarkdownFlashTransferThumbUrl>;
+  sha1?:     pb<3, string>;
+  field4?:   pb<4, uint_32>;
+}
+
+export interface MarkdownFlashTransferExt {
+  filesetId?:  pb<1, string>;
+  name?:       pb<2, string>;
+  fileSize?:   pb<3, uint_32>;
+  thumbnail?:  pb<4, MarkdownFlashTransferThumb>;
+  expireTime?: pb<6, uint_32>;
+}
+
 export interface MarkdownData {
-  content?: pb<1, string>;
+  content?:    pb<1, string>;
+  field2?:     pb<2, string>;
+  field3?:     pb<3, bytes>;
+  processMsg?: pb<4, string>;
+  summary?:    pb<5, string>;
+  extType?:    pb<6, uint_32>;
+  extInfo?:    pb<7, MarkdownFlashTransferExt>;
 }

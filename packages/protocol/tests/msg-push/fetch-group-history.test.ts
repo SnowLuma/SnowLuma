@@ -1,0 +1,266 @@
+// Round-trips the SsoGetGroupMsg request/response protos (proton codegen +
+// field tags) and the fetched-history decode path (each returned PushMsgBody
+// re-uses the regular group decoder).
+
+import {
+  getLogLevel,
+  setLogLevel,
+  subscribeLogs,
+  type LogEntry,
+} from '@snowluma/common/logger';
+import { afterEach, describe, expect, it } from 'vitest';
+import type { SendPacketResult } from '@snowluma/common/packet-sender';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import type { SsoGetGroupMsg, SsoGetGroupMsgResponse } from '@snowluma/proto-defs/get-group-msg';
+import type { IdentityService } from '../../src/identity-service';
+import { SSO_GET_GROUP_MSG_CMD, fetchGroupMessageRange } from '../../src/msg-push';
+
+const identity = { findGroupMember: () => undefined, findGroup: () => null } as unknown as IdentityService;
+const previousLogLevel = getLogLevel();
+
+afterEach(() => {
+  setLogLevel(previousLogLevel);
+});
+
+function okResult(data: Uint8Array): SendPacketResult {
+  return { success: true, gotResponse: true, responseData: data } as SendPacketResult;
+}
+
+describe('fetchGroupMessageRange / SsoGetGroupMsg', () => {
+  it('sends the right command and request field tags', async () => {
+    let captured: { cmd: string; body: Uint8Array } | null = null;
+    const sender = {
+      sendRawPacket: async (cmd: string, body: Uint8Array) => {
+        captured = { cmd, body };
+        return okResult(protobuf_encode<SsoGetGroupMsgResponse>({ body: { groupUin: 9999, messages: [] } }));
+      },
+    };
+
+    await fetchGroupMessageRange(sender, identity, 10001, 9999, 100, 120);
+
+    expect(captured!.cmd).toBe(SSO_GET_GROUP_MSG_CMD);
+    const req = protobuf_decode<SsoGetGroupMsg>(captured!.body);
+    expect(req.info?.groupUin).toBe(9999);
+    expect(req.info?.startSequence).toBe(100);
+    expect(req.info?.endSequence).toBe(120);
+    expect(req.direction).toBe(true);
+  });
+
+  it('decodes returned group messages (seq/group/sender, self uin), oldest→newest', async () => {
+    const resp = protobuf_encode<SsoGetGroupMsgResponse>({
+      body: {
+        groupUin: 9999,
+        startSequence: 100,
+        endSequence: 120,
+        messages: [
+          {
+            responseHead: { fromUin: 222, grp: { groupUin: 9999, memberName: 'Bob' } },
+            contentHead: { msgType: 82, sequence: 120, timestamp: 1700000120, msgId: 5120 },
+            body: { richText: { elems: [{ text: { str: 'hi' } }] } },
+          },
+          {
+            responseHead: { fromUin: 111, grp: { groupUin: 9999, memberName: 'Alice' } },
+            contentHead: { msgType: 82, sequence: 110, timestamp: 1700000110, msgId: 5110 },
+            body: { richText: { elems: [{ text: { str: 'hi' } }] } },
+          },
+        ],
+      },
+    });
+    const sender = { sendRawPacket: async () => okResult(resp) };
+
+    const out = await fetchGroupMessageRange(sender, identity, 10001, 9999, 100, 120);
+
+    expect(out.map((m) => m.msgSeq)).toEqual([110, 120]); // sorted ascending
+    expect(out.every((m) => m.kind === 'group_message')).toBe(true);
+    expect(out.every((m) => m.groupId === 9999)).toBe(true);
+    expect(out.every((m) => m.selfUin === 10001)).toBe(true);
+    expect(out[0]).toMatchObject({ msgSeq: 110, senderUin: 111, senderNick: 'Alice' });
+    expect(out[1]).toMatchObject({ msgSeq: 120, senderUin: 222, senderNick: 'Bob' });
+  });
+
+  it('[#1] prefers the fresher group card in grp.memberCard (field 4) over a stale cache card', async () => {
+    const stale = { uin: 222, uid: '', nickname: 'BaseNick', card: 'StaleCard', role: 'member', level: 0, title: '', joinTime: 0, lastSentTime: 0, shutUpTime: 0 };
+    const idWithMember = { findGroupMember: (_g: number, u: number) => (u === 222 ? stale : undefined), findGroup: () => null } as unknown as IdentityService;
+    const resp = protobuf_encode<SsoGetGroupMsgResponse>({
+      body: { groupUin: 9999, messages: [
+        { responseHead: { fromUin: 222, grp: { groupUin: 9999, memberCard: 'FreshCard' } }, // field2 empty, field4 = fresh card
+          contentHead: { msgType: 82, sequence: 130, timestamp: 1700000130, msgId: 5130 },
+          body: { richText: { elems: [{ text: { str: 'hi' } }] } } },
+      ] },
+    });
+    const out = await fetchGroupMessageRange({ sendRawPacket: async () => okResult(resp) }, idWithMember, 10001, 9999, 100, 140);
+    // Base nickname from cache; card overridden by the fresher field-4 value.
+    expect(out[0]).toMatchObject({ senderUin: 222, senderNick: 'BaseNick', senderCard: 'FreshCard' });
+  });
+
+  it('[#1] keeps the cache card when field 4 equals the base nickname (no active group card)', async () => {
+    const m = { uin: 222, uid: '', nickname: 'BaseNick', card: 'CachedCard', role: 'member', level: 0, title: '', joinTime: 0, lastSentTime: 0, shutUpTime: 0 };
+    const id = { findGroupMember: () => m, findGroup: () => null } as unknown as IdentityService;
+    const resp = protobuf_encode<SsoGetGroupMsgResponse>({
+      body: { groupUin: 9999, messages: [
+        { responseHead: { fromUin: 222, grp: { groupUin: 9999, memberCard: 'BaseNick' } }, // field4 == base nick → not a card
+          contentHead: { msgType: 82, sequence: 130, timestamp: 1700000130, msgId: 5130 },
+          body: { richText: { elems: [{ text: { str: 'hi' } }] } } },
+      ] },
+    });
+    const out = await fetchGroupMessageRange({ sendRawPacket: async () => okResult(resp) }, id, 10001, 9999, 100, 140);
+    expect(out[0]).toMatchObject({ senderNick: 'BaseNick', senderCard: 'CachedCard' });
+  });
+
+  it('drops content-less blank messages, keeps real ones (#102 parity)', async () => {
+    const resp = protobuf_encode<SsoGetGroupMsgResponse>({
+      body: {
+        groupUin: 9999,
+        messages: [
+          { // genuinely-blank control push → dropped
+            responseHead: { fromUin: 111, grp: { groupUin: 9999, memberName: 'Alice' } },
+            contentHead: { msgType: 82, sequence: 110, timestamp: 1700000110, msgId: 5110 },
+            body: { richText: { elems: [] } },
+          },
+          { // real message → kept
+            responseHead: { fromUin: 222, grp: { groupUin: 9999, memberName: 'Bob' } },
+            contentHead: { msgType: 82, sequence: 120, timestamp: 1700000120, msgId: 5120 },
+            body: { richText: { elems: [{ text: { str: 'hi' } }] } },
+          },
+        ],
+      },
+    });
+    const out = await fetchGroupMessageRange({ sendRawPacket: async () => okResult(resp) }, identity, 10001, 9999, 100, 120);
+    expect(out.map((m) => m.msgSeq)).toEqual([120]);
+    expect(out[0]).toMatchObject({ senderUin: 222, elements: [{ type: 'text', text: 'hi' }] });
+  });
+
+  it('keeps and warns on a body that had content but decoded to no elements', async () => {
+    const resp = protobuf_encode<SsoGetGroupMsgResponse>({
+      body: {
+        groupUin: 9999,
+        messages: [{
+          responseHead: { fromUin: 222, grp: { groupUin: 9999, memberName: 'Bob' } },
+          contentHead: { msgType: 82, sequence: 120, timestamp: 1700000120, msgId: 5120 },
+          body: { richText: { elems: [{ commonElem: { serviceType: 999, businessType: 0 } }] } },
+        }],
+      },
+    });
+    const warnings: string[] = [];
+    setLogLevel('warn');
+    const unsubscribe = subscribeLogs((entry: LogEntry) => {
+      if (entry.level === 'warn') warnings.push(entry.message);
+    });
+    try {
+      const out = await fetchGroupMessageRange(
+        { sendRawPacket: async () => okResult(resp) },
+        identity,
+        10001,
+        9999,
+        100,
+        120,
+      );
+      expect(out).toHaveLength(1);
+      expect(out[0]).toMatchObject({ kind: 'group_message', msgSeq: 120, elements: [] });
+      expect(warnings.some((message) => message.includes('missing decoder'))).toBe(true);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('drops QQ null roam records even when they carry a deleted placeholder (#254)', async () => {
+    const resp = protobuf_encode<SsoGetGroupMsgResponse>({
+      body: {
+        groupUin: 9999,
+        messages: [
+          {
+            responseHead: { fromUin: 0, grp: { groupUin: 9999 } },
+            contentHead: { msgType: 82, sequence: 110, timestamp: 0, msgId: 5110 },
+            body: { richText: { elems: [{ text: { str: '[已删除]' } }] } },
+          },
+          {
+            responseHead: { fromUin: 222, grp: { groupUin: 9999, memberName: 'Bob' } },
+            contentHead: { msgType: 82, sequence: 120, timestamp: 1700000120, msgId: 5120 },
+            body: { richText: { elems: [{ text: { str: 'hi' } }] } },
+          },
+        ],
+      },
+    });
+
+    const out = await fetchGroupMessageRange(
+      { sendRawPacket: async () => okResult(resp) },
+      identity,
+      10001,
+      9999,
+      100,
+      120,
+    );
+
+    expect(out.map((message) => message.msgSeq)).toEqual([120]);
+  });
+
+  it('keeps failed or empty transport responses observable', async () => {
+    const failSender = {
+      sendRawPacket: async () => ({
+        success: false,
+        gotResponse: false,
+        errorMessage: 'history unavailable',
+      } as SendPacketResult),
+    };
+    await expect(
+      fetchGroupMessageRange(failSender, identity, 10001, 9999, 100, 120),
+    ).rejects.toThrow('history unavailable');
+
+    const emptySender = {
+      sendRawPacket: async () => ({
+        success: true,
+        gotResponse: false,
+      } as SendPacketResult),
+    };
+    await expect(
+      fetchGroupMessageRange(emptySender, identity, 10001, 9999, 100, 120),
+    ).rejects.toThrow('response is empty');
+  });
+
+  it('rejects malformed history entries instead of silently omitting them', async () => {
+    const missingHead = protobuf_encode<SsoGetGroupMsgResponse>({
+      body: {
+        groupUin: 9999,
+        messages: [{
+          responseHead: { fromUin: 222, grp: { groupUin: 9999 } },
+          body: { richText: { elems: [{ text: { str: 'missing head' } }] } },
+        }],
+      },
+    });
+    await expect(fetchGroupMessageRange(
+      { sendRawPacket: async () => okResult(missingHead) },
+      identity,
+      10001,
+      9999,
+      100,
+      120,
+    )).rejects.toThrow(/message 0 has no content head.*group=9999 range=100-120/);
+
+    const invalidSequence = protobuf_encode<SsoGetGroupMsgResponse>({
+      body: {
+        groupUin: 9999,
+        messages: [{
+          responseHead: { fromUin: 222, grp: { groupUin: 9999 } },
+          contentHead: { msgType: 82, sequence: 0, timestamp: 1_700_000_000, msgId: 1 },
+          body: { richText: { elems: [{ text: { str: 'invalid sequence' } }] } },
+        }],
+      },
+    });
+    await expect(fetchGroupMessageRange(
+      { sendRawPacket: async () => okResult(invalidSequence) },
+      identity,
+      10001,
+      9999,
+      100,
+      120,
+    )).rejects.toThrow(/message 0 has invalid sequence 0.*group=9999 range=100-120/);
+  });
+
+  it('rejects an out-of-range request before sending', async () => {
+    // start > end is rejected before any send
+    let sent = false;
+    const guardSender = { sendRawPacket: async () => { sent = true; return okResult(new Uint8Array()); } };
+    expect(await fetchGroupMessageRange(guardSender, identity, 10001, 9999, 200, 100)).toEqual([]);
+    expect(sent).toBe(false);
+  });
+});

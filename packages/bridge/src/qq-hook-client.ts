@@ -1,15 +1,32 @@
 import { EventEmitter } from 'events';
-import { promises as fs } from 'fs';
+import {
+  createLogger,
+  renderTraceBytes,
+  runWithoutRequestContext,
+  runWithTraceRequest,
+} from '@snowluma/common/logger';
+import { renderParamsVerbose } from '@snowluma/common/log-summary';
+import { isRealUin } from '@snowluma/common/uin';
+import { readdirSync, promises as fs } from 'fs';
 import net from 'net';
-import os from 'os';
 import path from 'path';
+import { resolveHookRuntimeDir } from './hook-runtime-dir';
 
 export const PIPE_MAGIC = 0x31504851;
 export const PIPE_VERSION = 1;
 export const HEADER_SIZE = 40;
+// Keep these byte limits in lockstep with nnphook's pipe_protocol.hpp. The
+// native readers already enforce them; mirroring them here prevents the JS
+// endpoint from buffering frames that the peer can never accept.
+export const MAX_PIPE_CMD_BYTES = 4096;
+export const MAX_PIPE_MSG_BYTES = 65536;
+export const MAX_PIPE_BODY_BYTES = 16 * 1024 * 1024;
 export const DEFAULT_ACK_TIMEOUT_MS = 5000;
 export const DEFAULT_REPLY_TIMEOUT_MS = 30000;
+export const PIPE_STATUS_CONNECTION_UNAVAILABLE = -39;
 const DEFAULT_PIPE_PROBE_TIMEOUT_MS = 250;
+const packetLog = createLogger('QQHook.Packet');
+const runtimeLog = createLogger('QQHook.Runtime');
 
 export enum PipeOp {
   hello = 1,
@@ -19,6 +36,7 @@ export enum PipeOp {
   error = 5,
   recvPacket = 6,
   loginState = 7,
+  loginIdentityHint = 17,
 }
 
 const PipeFlagWantReply = 1 << 0;
@@ -54,6 +72,7 @@ export interface QqHookSendReply {
 export interface QqHookClientOptions {
   ackTimeoutMs?: number;
   replyTimeoutMs?: number;
+  runtimeDir?: string;
 }
 
 export interface QqHookSendOptions {
@@ -85,22 +104,58 @@ interface PendingAck {
   wantReply: boolean;
 }
 
-function linuxRuntimeDir(): string {
-  const explicit = process.env.SNOWLUMA_HOOK_RUNTIME_DIR;
-  if (explicit && explicit.length > 0) return explicit;
-  const xdg = process.env.XDG_RUNTIME_DIR;
-  if (xdg && xdg.length > 0) return xdg;
-  // Mirrors hook_stub.cpp runtime_dir() fallback.
-  // process.geteuid is POSIX-only; cast to allow non-Linux type checks.
-  const uid = typeof process.geteuid === 'function' ? process.geteuid() : os.userInfo().uid;
-  return `/tmp/snowluma-${uid}`;
+function isMissingDirectoryError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
 }
 
-function mojoPipeName(pid: number, suffix: string): string {
+function isUnavailableSocketError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === 'ENOENT'
+    || code === 'ENOTDIR'
+    || code === 'ENOTSOCK'
+    || code === 'ECONNREFUSED'
+    || code === 'ECONNRESET';
+}
+
+/**
+ * Sync directory scan for `mojo.<pid>.control.sock` socket files in the
+ * runtime dir, returning the pid set. Used by the darwin path of
+ * `listHookProcesses()` — on macOS the DYLD_INSERT injection model means
+ * there is no native enumerate-QQ-processes addon; the existence of our
+ * dylib's listener socket IS the proof that a QQ process is hooked. The
+ * sync variant is needed because the watcher's `listProcesses` dep is sync.
+ *
+ * Mirrors `listLiveLinuxPipePids` (the async + connectable-probe variant)
+ * but skips the connectable probe — the existence of the socket file is
+ * sufficient signal for "process exists with our dylib mapped". The async
+ * variant still gates the subsequent `pipe-up` emit via a real connect.
+ */
+export function listSnowlumaPipePidsSync(
+  runtimeDir = resolveHookRuntimeDir(),
+): Set<number> {
+  const result = new Set<number>();
+  let names: string[];
+  try {
+    names = readdirSync(runtimeDir);
+  } catch (error) {
+    if (isMissingDirectoryError(error)) return result;
+    throw error;
+  }
+  for (const name of names) {
+    const m = /^mojo\.(\d+)\.control\.sock$/i.exec(name);
+    if (!m) continue;
+    const pid = Number(m[1]);
+    if (Number.isInteger(pid) && pid > 0) result.add(pid);
+  }
+  return result;
+}
+
+function mojoPipeName(pid: number, suffix: string, runtimeDir = resolveHookRuntimeDir(pid)): string {
   if (process.platform === 'win32') {
     return `\\\\.\\pipe\\mojo.${pid}.${suffix}`;
   }
-  return path.join(linuxRuntimeDir(), `mojo.${pid}.${suffix}.sock`);
+  return path.join(runtimeDir, `mojo.${pid}.${suffix}.sock`);
 }
 
 type LinuxPipeProbe = (socketPath: string) => Promise<boolean>;
@@ -109,16 +164,18 @@ async function isConnectableUnixSocket(socketPath: string): Promise<boolean> {
   try {
     const stat = await fs.stat(socketPath);
     if (!stat.isSocket()) return false;
-  } catch {
-    return false;
+  } catch (error) {
+    if (isUnavailableSocketError(error)) return false;
+    throw error;
   }
 
-  return new Promise<boolean>((resolve) => {
+  return new Promise<boolean>((resolve, reject) => {
     let socket: net.Socket;
     try {
       socket = net.createConnection(socketPath);
-    } catch {
-      resolve(false);
+    } catch (error) {
+      if (isUnavailableSocketError(error)) resolve(false);
+      else reject(error);
       return;
     }
     let done = false;
@@ -133,20 +190,31 @@ async function isConnectableUnixSocket(socketPath: string): Promise<boolean> {
     };
     timer = setTimeout(() => finish(false), DEFAULT_PIPE_PROBE_TIMEOUT_MS);
     socket.once('connect', () => finish(true));
-    socket.once('error', () => finish(false));
+    socket.once('error', error => {
+      if (isUnavailableSocketError(error)) finish(false);
+      else {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        socket.removeAllListeners();
+        socket.destroy();
+        reject(error);
+      }
+    });
   });
 }
 
 export async function listLiveLinuxPipePids(
-  runtimeDir = linuxRuntimeDir(),
+  runtimeDir = resolveHookRuntimeDir(),
   probe: LinuxPipeProbe = isConnectableUnixSocket,
 ): Promise<Set<number>> {
   const result = new Set<number>();
   let names: string[];
   try {
     names = await fs.readdir(runtimeDir);
-  } catch {
-    return result;
+  } catch (error) {
+    if (isMissingDirectoryError(error)) return result;
+    throw error;
   }
 
   await Promise.all(names.map(async (name) => {
@@ -178,11 +246,21 @@ function createDeferred<T>(): Deferred<T> {
   return { promise, resolve, reject };
 }
 
+class OperationTimeoutError extends Error {
+  constructor(
+    readonly label: string,
+    timeoutMs: number,
+  ) {
+    super(`${label} timed out after ${timeoutMs} ms`);
+    this.name = 'OperationTimeoutError';
+  }
+}
+
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   if (!timeoutMs || timeoutMs <= 0) return promise;
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error(`${label} timed out after ${timeoutMs} ms`));
+      reject(new OperationTimeoutError(label, timeoutMs));
     }, timeoutMs);
     promise.then(
       value => {
@@ -194,6 +272,29 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
         reject(error);
       });
   });
+}
+
+export class HookPipeRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly requestId: number,
+  ) {
+    super(message);
+    this.name = 'HookPipeRequestError';
+  }
+}
+
+function packetFailureReason(
+  error: unknown,
+  requestId: number,
+): 'ack_timeout' | 'reply_timeout' | 'request_failed' | 'transport_failure' {
+  if (error instanceof HookPipeRequestError) return 'request_failed';
+  if (error instanceof OperationTimeoutError) {
+    if (error.label === `send ack ${requestId}`) return 'ack_timeout';
+    if (error.label === `send reply ${requestId}`) return 'reply_timeout';
+  }
+  return 'transport_failure';
 }
 
 function encodeFrame({
@@ -218,6 +319,7 @@ function encodeFrame({
   const cmdBuf = Buffer.from(cmd, 'utf8');
   const msgBuf = Buffer.from(msg, 'utf8');
   const bodyBuf = toBuffer(body);
+  validatePipeFrameLengths(cmdBuf.length, msgBuf.length, bodyBuf.length);
   const header = Buffer.alloc(HEADER_SIZE);
   header.writeUInt32LE(PIPE_MAGIC, 0);
   header.writeUInt16LE(PIPE_VERSION, 4);
@@ -232,45 +334,115 @@ function encodeFrame({
   return Buffer.concat([header, cmdBuf, msgBuf, bodyBuf]);
 }
 
+function validatePipeFrameLengths(cmdLen: number, msgLen: number, bodyLen: number): void {
+  const lengths = [
+    ['command', cmdLen, MAX_PIPE_CMD_BYTES],
+    ['message', msgLen, MAX_PIPE_MSG_BYTES],
+    ['body', bodyLen, MAX_PIPE_BODY_BYTES],
+  ] as const;
+  for (const [name, length, limit] of lengths) {
+    if (length > limit) {
+      throw new Error(`pipe frame ${name} length ${length} exceeds limit ${limit}`);
+    }
+  }
+}
+
+interface PendingPipeFrame {
+  op: number;
+  requestId: number;
+  status: number;
+  flags: number;
+  value0: bigint;
+  cmdLen: number;
+  msgLen: number;
+  bodyLen: number;
+  payload: Buffer;
+  received: number;
+}
+
 class FrameReader {
-  private buffer = Buffer.alloc(0);
+  private readonly header = Buffer.alloc(HEADER_SIZE);
+  private headerBytes = 0;
+  private pending: PendingPipeFrame | null = null;
 
   constructor(private readonly onFrame: (frame: PipeFrame) => void) { }
 
   push(chunk: Buffer): void {
-    this.buffer = Buffer.concat([this.buffer, chunk]);
-    while (this.buffer.length >= HEADER_SIZE) {
-      const magic = this.buffer.readUInt32LE(0);
-      const version = this.buffer.readUInt16LE(4);
-      if (magic !== PIPE_MAGIC || version !== PIPE_VERSION) {
-        throw new Error(`bad frame header magic=0x${magic.toString(16)} version=${version}`);
+    let chunkOffset = 0;
+    while (chunkOffset < chunk.length) {
+      if (!this.pending) {
+        const headerBytes = Math.min(HEADER_SIZE - this.headerBytes, chunk.length - chunkOffset);
+        chunk.copy(
+          this.header,
+          this.headerBytes,
+          chunkOffset,
+          chunkOffset + headerBytes,
+        );
+        this.headerBytes += headerBytes;
+        chunkOffset += headerBytes;
+        if (this.headerBytes < HEADER_SIZE) return;
+
+        this.headerBytes = 0;
+        const magic = this.header.readUInt32LE(0);
+        const version = this.header.readUInt16LE(4);
+        if (magic !== PIPE_MAGIC || version !== PIPE_VERSION) {
+          throw new Error(`bad frame header magic=0x${magic.toString(16)} version=${version}`);
+        }
+
+        const cmdLen = this.header.readUInt32LE(20);
+        const msgLen = this.header.readUInt32LE(24);
+        const bodyLen = this.header.readUInt32LE(28);
+        validatePipeFrameLengths(cmdLen, msgLen, bodyLen);
+        const payloadLength = cmdLen + msgLen + bodyLen;
+        this.pending = {
+          op: this.header.readUInt16LE(6),
+          requestId: this.header.readUInt32LE(8),
+          status: this.header.readInt32LE(12),
+          flags: this.header.readUInt32LE(16),
+          value0: this.header.readBigUInt64LE(32),
+          cmdLen,
+          msgLen,
+          bodyLen,
+          payload: payloadLength === 0 ? Buffer.alloc(0) : Buffer.allocUnsafe(payloadLength),
+          received: 0,
+        };
       }
 
-      const cmdLen = this.buffer.readUInt32LE(20);
-      const msgLen = this.buffer.readUInt32LE(24);
-      const bodyLen = this.buffer.readUInt32LE(28);
-      const total = HEADER_SIZE + cmdLen + msgLen + bodyLen;
-      if (this.buffer.length < total) return;
+      const pending = this.pending;
+      const payloadBytes = Math.min(
+        pending.payload.length - pending.received,
+        chunk.length - chunkOffset,
+      );
+      if (payloadBytes > 0) {
+        chunk.copy(
+          pending.payload,
+          pending.received,
+          chunkOffset,
+          chunkOffset + payloadBytes,
+        );
+        pending.received += payloadBytes;
+        chunkOffset += payloadBytes;
+      }
+      if (pending.received < pending.payload.length) return;
 
+      this.pending = null;
       const frame: PipeFrame = {
-        op: this.buffer.readUInt16LE(6),
-        requestId: this.buffer.readUInt32LE(8),
-        status: this.buffer.readInt32LE(12),
-        flags: this.buffer.readUInt32LE(16),
-        value0: this.buffer.readBigUInt64LE(32),
+        op: pending.op,
+        requestId: pending.requestId,
+        status: pending.status,
+        flags: pending.flags,
+        value0: pending.value0,
         cmd: '',
         msg: '',
         body: Buffer.alloc(0),
       };
 
-      let offset = HEADER_SIZE;
-      frame.cmd = this.buffer.subarray(offset, offset + cmdLen).toString('utf8');
-      offset += cmdLen;
-      frame.msg = this.buffer.subarray(offset, offset + msgLen).toString('utf8');
-      offset += msgLen;
-      frame.body = Buffer.from(this.buffer.subarray(offset, offset + bodyLen));
-
-      this.buffer = this.buffer.subarray(total);
+      let offset = 0;
+      frame.cmd = pending.payload.subarray(offset, offset + pending.cmdLen).toString('utf8');
+      offset += pending.cmdLen;
+      frame.msg = pending.payload.subarray(offset, offset + pending.msgLen).toString('utf8');
+      offset += pending.msgLen;
+      frame.body = Buffer.from(pending.payload.subarray(offset, offset + pending.bodyLen));
       this.onFrame(frame);
     }
   }
@@ -278,6 +450,7 @@ class FrameReader {
 
 export class QqHookClient extends EventEmitter {
   readonly pid: number;
+  readonly runtimeDir: string;
   readonly defaultAckTimeoutMs: number;
   readonly defaultReplyTimeoutMs: number;
 
@@ -300,9 +473,11 @@ export class QqHookClient extends EventEmitter {
   constructor(pid: number, {
     ackTimeoutMs = DEFAULT_ACK_TIMEOUT_MS,
     replyTimeoutMs = DEFAULT_REPLY_TIMEOUT_MS,
+    runtimeDir = resolveHookRuntimeDir(pid),
   }: QqHookClientOptions = {}) {
     super();
     this.pid = pid;
+    this.runtimeDir = runtimeDir;
     this.defaultAckTimeoutMs = ackTimeoutMs;
     this.defaultReplyTimeoutMs = replyTimeoutMs;
   }
@@ -327,6 +502,17 @@ export class QqHookClient extends EventEmitter {
     return { ...this.loginState };
   }
 
+  /**
+   * Forward an observed account identity for reconciliation. This does not
+   * change login state; readiness still requires peer confirmation.
+   */
+  async reconcileLoginIdentity(uin: string): Promise<void> {
+    if (!isRealUin(uin)) {
+      throw new Error(`invalid QQ login identity hint: ${JSON.stringify(uin)}`);
+    }
+    await this.sendAckOnly(PipeOp.loginIdentityHint, BigInt(uin), 'login identity hint');
+  }
+
   async waitForLogin({ timeoutMs = 0 } = {}): Promise<QqHookLoginState> {
     await this.connect();
     if (this.loginState.loggedIn) {
@@ -337,12 +523,12 @@ export class QqHookClient extends EventEmitter {
     return withTimeout(deferred.promise, timeoutMs, 'waitForLogin');
   }
 
-  static controlPipeName(pid: number): string {
-    return mojoPipeName(pid, 'control');
+  static controlPipeName(pid: number, runtimeDir = resolveHookRuntimeDir(pid)): string {
+    return mojoPipeName(pid, 'control', runtimeDir);
   }
 
-  static recvPipeName(pid: number): string {
-    return mojoPipeName(pid, 'recv');
+  static recvPipeName(pid: number, runtimeDir = resolveHookRuntimeDir(pid)): string {
+    return mojoPipeName(pid, 'recv', runtimeDir);
   }
 
   /**
@@ -351,7 +537,7 @@ export class QqHookClient extends EventEmitter {
    * opening the pipe, so probing cannot disturb the first real client connect.
    */
   static async probePipe(pid: number): Promise<boolean> {
-    const live = await QqHookClient.listLivePipes();
+    const live = await QqHookClient.listLivePipes([pid]);
     return live.has(pid);
   }
 
@@ -360,20 +546,24 @@ export class QqHookClient extends EventEmitter {
    * in a single filesystem listing. The HookManager's pipe-watcher uses this
    * to drive connect/reconnect decisions without per-PID stat calls.
    */
-  static async listLivePipes(): Promise<Set<number>> {
+  static async listLivePipes(pids: readonly number[] = []): Promise<Set<number>> {
     const result = new Set<number>();
-    try {
-      if (process.platform === 'win32') {
-        const names = await fs.readdir('\\\\.\\pipe\\');
-        for (const name of names) {
-          const m = /^mojo\.(\d+)\.control$/i.exec(name);
-          if (m) result.add(Number(m[1]));
-        }
-      } else {
-        return await listLiveLinuxPipePids();
+    if (process.platform === 'win32') {
+      const names = await fs.readdir('\\\\.\\pipe\\');
+      for (const name of names) {
+        const m = /^mojo\.(\d+)\.control$/i.exec(name);
+        if (m) result.add(Number(m[1]));
       }
-    } catch {
-      /* directory missing or inaccessible — treat as no live pipes */
+    } else {
+      const runtimeDirs = new Set<string>();
+      if (pids.length === 0) {
+        runtimeDirs.add(resolveHookRuntimeDir());
+      } else {
+        for (const pid of pids) runtimeDirs.add(resolveHookRuntimeDir(pid));
+      }
+      for (const runtimeDir of runtimeDirs) {
+        for (const pid of await listLiveLinuxPipePids(runtimeDir)) result.add(pid);
+      }
     }
     return result;
   }
@@ -388,14 +578,7 @@ export class QqHookClient extends EventEmitter {
     if (this.controlConnectPromise) {
       return this.controlConnectPromise;
     }
-    this.controlConnectPromise = (async () => {
-      this.controlSocket = await this.connectSocket(
-        QqHookClient.controlPipeName(this.pid),
-        'control',
-        frame => this.handleControlFrame(frame));
-      this.controlHello = await this.waitForHello(false);
-      return this.controlHello;
-    })();
+    this.controlConnectPromise = this.connectPipe('control');
     try {
       return await this.controlConnectPromise;
     } finally {
@@ -416,14 +599,7 @@ export class QqHookClient extends EventEmitter {
     if (this.recvConnectPromise) {
       return this.recvConnectPromise;
     }
-    this.recvConnectPromise = (async () => {
-      this.recvSocket = await this.connectSocket(
-        QqHookClient.recvPipeName(this.pid),
-        'recv',
-        frame => this.handleRecvFrame(frame));
-      this.recvHello = await this.waitForHello(true);
-      return this.recvHello;
-    })();
+    this.recvConnectPromise = this.connectPipe('recv');
     try {
       return await this.recvConnectPromise;
     } finally {
@@ -444,27 +620,31 @@ export class QqHookClient extends EventEmitter {
   }: QqHookSendOptions = {}): Promise<QqHookSendReply | { requestId: number }> {
     await this.connect();
 
-    // Wrap inside uint32 explicitly. `nextRequestId++ >>> 0` would
-    // misbehave once the integer exceeds Number.MAX_SAFE_INTEGER (the
-    // postfix increment loses precision before the shift), letting two
-    // distinct requests collide on the same id. Skip 0 because zero is
-    // used as a sentinel by the wire protocol.
-    let requestId = this.nextRequestId;
-    while (this.pendingAcks.has(requestId) || this.pendingReplies.has(requestId)) {
-      requestId = (requestId + 1) >>> 0;
-      if (requestId === 0) requestId = 1;
-    }
-    this.nextRequestId = (requestId + 1) >>> 0;
-    if (this.nextRequestId === 0) this.nextRequestId = 1;
+    const requestId = this.allocateRequestId();
+    const startedAt = Date.now();
+    const bodyBytes = toBuffer(body);
     const payload = encodeFrame({
       op: PipeOp.sendRequest,
       requestId,
       flags: wantReply ? PipeFlagWantReply : 0,
       cmd,
-      body,
+      body: bodyBytes,
     });
+    packetLog.trace(() => [
+      'packet_send serviceCmd=%j requestId=%d length=%d body=%s',
+      cmd,
+      requestId,
+      bodyBytes.length,
+      renderTraceBytes(bodyBytes),
+    ]);
 
     const ackDeferred = createDeferred<{ requestId: number; wantReply: boolean }>();
+    // Always attach a handler so a rejection can never become "unhandled" (which
+    // crashes Node). When the pipe closes, rejectControlPending() rejects every
+    // pending deferred — but the reply is only `await`ed AFTER the ack, so if the
+    // ack fails first the reply promise is rejected with NO awaiter. The real
+    // `await` below still observes the value/rejection (a separate continuation).
+    ackDeferred.promise.catch(() => { /* observed by the await, or harmless */ });
     this.pendingAcks.set(requestId, {
       resolve: ackDeferred.resolve,
       reject: ackDeferred.reject,
@@ -474,6 +654,7 @@ export class QqHookClient extends EventEmitter {
     let replyDeferred: Deferred<QqHookSendReply> | null = null;
     if (wantReply) {
       replyDeferred = createDeferred<QqHookSendReply>();
+      replyDeferred.promise.catch(() => { /* see note above — prevents unhandled rejection */ });
       this.pendingReplies.set(requestId, replyDeferred);
     }
 
@@ -481,15 +662,50 @@ export class QqHookClient extends EventEmitter {
       await this.writeControl(payload);
       await withTimeout(ackDeferred.promise, ackTimeoutMs, `send ack ${requestId}`);
       if (!wantReply) {
+        packetLog.trace(() => [
+          'packet_terminal serviceCmd=%j requestId=%d outcome=ok reason=ack_received elapsedMs=%d',
+          cmd,
+          requestId,
+          Date.now() - startedAt,
+        ]);
         return { requestId };
       }
-      return await withTimeout(
+      const reply = await withTimeout(
         replyDeferred!.promise,
         replyTimeoutMs,
         `send reply ${requestId}`);
+      packetLog.trace(() => [
+        'packet_recv serviceCmd=%j requestId=%d error=%d message=%j length=%d body=%s',
+        cmd,
+        requestId,
+        reply.error,
+        reply.message,
+        reply.body.length,
+        renderTraceBytes(reply.body),
+      ]);
+      packetLog.trace(() => [
+        'packet_terminal serviceCmd=%j requestId=%d outcome=%s reason=%s error=%d elapsedMs=%d',
+        cmd,
+        requestId,
+        reply.error === 0 ? 'ok' : 'failed',
+        reply.error === 0 ? 'reply_received' : 'reply_error',
+        reply.error,
+        Date.now() - startedAt,
+      ]);
+      return reply;
     } catch (error) {
       this.pendingAcks.delete(requestId);
       this.pendingReplies.delete(requestId);
+      const reason = packetFailureReason(error, requestId);
+      packetLog.trace(() => [
+        'packet_terminal serviceCmd=%j requestId=%d outcome=%s reason=%s error=%j elapsedMs=%d',
+        cmd,
+        requestId,
+        reason.endsWith('_timeout') ? 'timeout' : 'failed',
+        reason,
+        error instanceof Error ? error.message : String(error),
+        Date.now() - startedAt,
+      ]);
       throw error;
     }
   }
@@ -628,6 +844,97 @@ export class QqHookClient extends EventEmitter {
     return writePromise;
   }
 
+  private allocateRequestId(): number {
+    // Wrap inside uint32 explicitly. `nextRequestId++ >>> 0` would lose
+    // precision past Number.MAX_SAFE_INTEGER. Zero remains the wire sentinel.
+    let requestId = this.nextRequestId;
+    while (this.pendingAcks.has(requestId) || this.pendingReplies.has(requestId)) {
+      requestId = (requestId + 1) >>> 0;
+      if (requestId === 0) requestId = 1;
+    }
+    this.nextRequestId = (requestId + 1) >>> 0;
+    if (this.nextRequestId === 0) this.nextRequestId = 1;
+    return requestId;
+  }
+
+  private async sendAckOnly(op: PipeOp, value0: bigint, label: string): Promise<number> {
+    await this.connect();
+    const requestId = this.allocateRequestId();
+    const ackDeferred = createDeferred<{ requestId: number; wantReply: boolean }>();
+    ackDeferred.promise.catch(() => { /* observed by the await below */ });
+    this.pendingAcks.set(requestId, {
+      resolve: ackDeferred.resolve,
+      reject: ackDeferred.reject,
+      wantReply: false,
+    });
+    try {
+      await this.writeControl(encodeFrame({ op, requestId, value0 }));
+      await withTimeout(
+        ackDeferred.promise,
+        this.defaultAckTimeoutMs,
+        `${label} ack ${requestId}`,
+      );
+      return requestId;
+    } catch (error) {
+      this.pendingAcks.delete(requestId);
+      throw error;
+    }
+  }
+
+  private async connectPipe(kind: 'control' | 'recv'): Promise<QqHookHello> {
+    return runWithTraceRequest(async () => {
+      const startedAt = Date.now();
+      const pipeName = kind === 'control'
+        ? QqHookClient.controlPipeName(this.pid, this.runtimeDir)
+        : QqHookClient.recvPipeName(this.pid, this.runtimeDir);
+      let phase: 'connect' | 'hello' = 'connect';
+      runtimeLog.trace(
+        'hook_pipe_start pid=%d kind=%s pipeName=%j',
+        this.pid,
+        kind,
+        pipeName,
+      );
+      try {
+        const socket = await runWithoutRequestContext(() => this.connectSocket(
+          pipeName,
+          kind,
+          kind === 'control'
+            ? frame => this.handleControlFrame(frame)
+            : frame => this.handleRecvFrame(frame),
+        ));
+        if (kind === 'control') this.controlSocket = socket;
+        else this.recvSocket = socket;
+        runtimeLog.trace(
+          'hook_pipe_branch pid=%d kind=%s branch=socket_connected',
+          this.pid,
+          kind,
+        );
+        phase = 'hello';
+        const hello = await this.waitForHello(kind === 'recv');
+        if (kind === 'control') this.controlHello = hello;
+        else this.recvHello = hello;
+        runtimeLog.trace(() => [
+          'hook_pipe_terminal pid=%d kind=%s outcome=completed reason=hello_received hello=%s elapsedMs=%d',
+          this.pid,
+          kind,
+          renderParamsVerbose(hello),
+          Date.now() - startedAt,
+        ]);
+        return hello;
+      } catch (error) {
+        runtimeLog.trace(() => [
+          'hook_pipe_terminal pid=%d kind=%s outcome=failed reason=%s error=%j elapsedMs=%d',
+          this.pid,
+          kind,
+          phase === 'connect' ? 'connect_failed' : 'hello_failed',
+          error instanceof Error ? error.message : String(error),
+          Date.now() - startedAt,
+        ]);
+        throw error;
+      }
+    });
+  }
+
   private connectSocket(pipeName: string, kind: 'control' | 'recv', onFrame: (frame: PipeFrame) => void): Promise<net.Socket> {
     return new Promise((resolve, reject) => {
       const socket = net.createConnection(pipeName);
@@ -641,15 +948,17 @@ export class QqHookClient extends EventEmitter {
             reader.push(chunk);
           } catch (error) {
             this.emit('error', error);
-            socket.destroy(error instanceof Error ? error : undefined);
+            socket.destroy();
           }
         });
         socket.on('error', error => {
           this.emit('error', error);
         });
         socket.on('close', () => {
-          this.handleSocketClose(kind);
-          this.emit('close', kind);
+          runWithTraceRequest(() => {
+            this.handleSocketClose(kind);
+            this.emit('close', kind);
+          });
         });
         resolve(socket);
       });
@@ -679,6 +988,13 @@ export class QqHookClient extends EventEmitter {
   }
 
   private handleSocketClose(kind: 'control' | 'recv'): void {
+    runtimeLog.trace(
+      'hook_runtime_fact pid=%d event=pipe_closed kind=%s loggedIn=%s uin=%j',
+      this.pid,
+      kind,
+      this.loginState.loggedIn,
+      this.loginState.uin,
+    );
     if (kind === 'control') {
       this.controlSocket = null;
       this.controlHello = null;
@@ -696,17 +1012,32 @@ export class QqHookClient extends EventEmitter {
     const loggedIn = flaggedLoggedIn || statusLoggedIn;
     const uinNumber = BigInt(frame.value0);
     const uin = frame.msg || uinNumber.toString();
+    this.applyLoginState({ loggedIn, uin, uinNumber });
+  }
+
+  private applyLoginState(next: QqHookLoginState): void {
     const previous = this.loginState;
-    const next = { loggedIn, uin, uinNumber };
     this.loginState = next;
-    this.emit('loginState', next);
-    if (previous.loggedIn !== next.loggedIn || previous.uin !== next.uin) {
+    if (previous.loggedIn === next.loggedIn && previous.uin === next.uin) {
+      this.emit('loginState', next);
+      return;
+    }
+    runWithTraceRequest(() => {
+      runtimeLog.trace(
+        'hook_runtime_fact pid=%d event=login_state_changed previousLoggedIn=%s previousUin=%j loggedIn=%s uin=%j',
+        this.pid,
+        previous.loggedIn,
+        previous.uin,
+        next.loggedIn,
+        next.uin,
+      );
+      this.emit('loginState', next);
       if (next.loggedIn) {
         const waiters = this.loginWaiters;
         this.loginWaiters = [];
         for (const waiter of waiters) waiter.resolve({ ...next });
       }
-    }
+    });
   }
 
   private handleControlFrame(frame: PipeFrame): void {
@@ -738,7 +1069,11 @@ export class QqHookClient extends EventEmitter {
       return;
     }
     if (frame.op === PipeOp.error) {
-      const error = new Error(frame.msg || `pipe error ${frame.status}`);
+      const error = new HookPipeRequestError(
+        frame.msg || `pipe error ${frame.status}`,
+        frame.status,
+        frame.requestId,
+      );
       const ack = this.pendingAcks.get(frame.requestId);
       if (ack) {
         this.pendingAcks.delete(frame.requestId);

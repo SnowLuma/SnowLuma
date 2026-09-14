@@ -36,6 +36,13 @@ describe('SetSelfLongNick namespace', () => {
       expect(env.body?.profile).toEqual({ tag: 102, value: 'hello world' });
     });
 
+    it('omits the value field when clearing the signature', async () => {
+      const deps = makeDeps();
+      await SetSelfLongNick.invoke(deps, { longNick: '' });
+      const [, bytes] = deps.sendRawPacket.mock.calls[0]!;
+      expect(Buffer.from(bytes).toString('hex')).toBe('08aa221002220708914e12020866');
+    });
+
     it('coerces non-string longNick into a string (defensive)', async () => {
       const deps = makeDeps();
       // simulate a misbehaving caller passing a number

@@ -18,6 +18,7 @@ function fakeCtx(handleFn: (action: string, params: Record<string, unknown>) => 
         const data = handleFn(action, params);
         return { status: 'ok', retcode: 0, data };
       }),
+      isStreamAction: () => false,
     } as any,
     buildLifecycleEvent: vi.fn(() => ({})),
     buildHeartbeatEvent: vi.fn(() => ({})),
@@ -55,13 +56,11 @@ describe('HttpServerAdapter content-type parsing', () => {
     const ctx = fakeCtx(handleFn);
     const config: HttpServerNetwork = { name: 'test-http', port: PORT, enabled: true, messageFormat: 'array', reportSelfMessage: false };
     adapter = new HttpServerAdapter('test-http', config, ctx);
-    adapter.open();
-    // Wait for server to be listening
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await adapter.open();
   });
 
-  afterAll(() => {
-    adapter.close();
+  afterAll(async () => {
+    await adapter.close();
   });
 
   it('should parse application/json body', async () => {

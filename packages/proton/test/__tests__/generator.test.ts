@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { analyzeSource } from '../../src/ast/analyzer';
 import { generateCode } from '../../src/codegen/generator';
+import { protobuf_getUnknownFieldMetadata } from '../../src/runtime';
 import { loadFixture } from '../helpers';
 
 /** Analyze fixture → generate → eval → return encode/decode pair */
@@ -24,6 +25,18 @@ function makeRoundTripFromSchema(schema: string, msgName: string) {
   return { enc, dec };
 }
 
+function encodeVarint32(value: number): number[] {
+  const bytes: number[] = [];
+  let remaining = value >>> 0;
+  do {
+    let byte = remaining & 0x7f;
+    remaining >>>= 7;
+    if (remaining !== 0) byte |= 0x80;
+    bytes.push(byte);
+  } while (remaining !== 0);
+  return bytes;
+}
+
 describe('code generator', () => {
   it('generates encode/decode for simple uint_32', () => {
     const gen = generateCode(analyzeSource(loadFixture('simple.ts'), 't.ts'));
@@ -36,7 +49,7 @@ describe('code generator', () => {
   it('generates nested message code', () => {
     const gen = generateCode(analyzeSource(loadFixture('nested.ts'), 't.ts'));
     expect(gen).toContain('protobuf_encode_Inner(');
-    expect(gen).toContain('protobuf_decode_Inner(data, offset, offset + _len)');
+    expect(gen).toContain('protobuf_decode_Inner(data, offset, _end)');
   });
 
   it('round-trip uint_32', () => {
@@ -124,6 +137,137 @@ interface Sint32Msg {
     const { enc, dec } = makeRoundTripFromSchema(schema, 'Sint32Msg');
     const input = { value: -789, values: [-1, 0, 1, -789, 2147483647, -2147483648] };
     expect(dec(enc(input))).toEqual(input);
+  });
+
+  it('preserves legacy outbound int_32 bytes while accepting canonical negative varints', () => {
+    const schema = `
+interface Int32Msg {
+  value: pb<1, int_32>;
+  values: pb_repeated<2, int_32>;
+  forced: pb_optional<3, int_32>;
+}`;
+    const { enc, dec } = makeRoundTripFromSchema(schema, 'Int32Msg');
+    const input = {
+      value: -1,
+      values: [-2147483648, -1, 0, 1, 2147483647],
+      forced: -2147483648,
+    };
+    const encoded = enc(input);
+
+    // Keep SnowLuma's established five-byte negative int32 encoding on the
+    // outbound path until QQ interoperability is verified on a live account.
+    // The decoder remains liberal and accepts protobuf's canonical ten-byte
+    // negative form below.
+    expect(Array.from(encoded.slice(0, 6))).toEqual([
+      0x08,
+      0xff, 0xff, 0xff, 0xff, 0x0f,
+    ]);
+    expect(dec(encoded)).toEqual(input);
+    expect(dec(Uint8Array.from([
+      0x08,
+      0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01,
+    ])).value).toBe(-1);
+  });
+
+  it('retains the low 32 bits of extended uint_32 field varints', () => {
+    const { dec } = makeRoundTripFromSchema(
+      `interface Uint32Msg { value: pb<1, uint_32>; }`,
+      'Uint32Msg',
+    );
+
+    // QQ sometimes serializes a signed 32-bit source into a schema slot that
+    // clients expose as uint32. Protobuf readers consume the full ten-byte
+    // varint and retain its low 32 bits for wire compatibility.
+    expect(dec(Uint8Array.from([
+      0x08,
+      0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01,
+    ])).value).toBe(0xfffffffe);
+
+    // QQ-compatible uint32 readers consume up to a full 64-bit varint and
+    // retain its low 32 bits. Some push-envelope sequences use that wire
+    // representation, so values with non-zero high bits must remain decodable.
+    expect(dec(Uint8Array.from([
+      0x08,
+      0x80, 0x80, 0x80, 0x80, 0x10,
+    ])).value).toBe(0);
+    expect(dec(Uint8Array.from([
+      0x08,
+      0x87, 0x80, 0x80, 0x80, 0x10,
+    ])).value).toBe(7);
+
+    // Compatibility applies only to complete uint64 varints. Truncated input
+    // and values wider than 64 bits must still fail loudly.
+    expect(() => dec(Uint8Array.from([
+      0x08,
+      0x80,
+    ]))).toThrow(/truncated uint64 varint/);
+    expect(() => dec(Uint8Array.from([
+      0x08,
+      0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x02,
+    ]))).toThrow(/uint64 varint overflow/);
+  });
+
+  it('rejects malformed length-delimited fields without leaving parent bounds', () => {
+    const schema = `interface BytesMsg { data: pb<1, bytes>; }`;
+    const gen = generateCode(analyzeSource(schema, 'BytesMsg.ts'));
+    const { dec } = makeRoundTripFromSchema(schema, 'BytesMsg');
+
+    expect(gen).toContain('const _end = __checkedEnd(offset, _len, end);');
+    expect(() => dec(Uint8Array.from([0x0a, 0x80]))).toThrow(/truncated uint32 varint/);
+    expect(() => dec(Uint8Array.from([0x0a, 0x80, 0x80, 0x80, 0x80, 0x10]))).toThrow(/uint32 varint overflow/);
+  });
+
+  it('skips unknown groups without decoding their fields into the parent', () => {
+    const schema = `
+interface Text { str: pb<1, string>; }
+interface Elem { text: pb<1, Text>; }
+`;
+    const { dec } = makeRoundTripFromSchema(schema, 'Elem');
+    const decoded = dec(Uint8Array.from([
+      0x7b,
+      0x0a, 0x08, 0x0a, 0x06, 0x66, 0x6f, 0x72, 0x67, 0x65, 0x64,
+      0x7c,
+    ]));
+
+    expect(decoded.text).toBeNull();
+    expect(protobuf_getUnknownFieldMetadata(decoded).fields).toMatchObject([
+      { fieldNumber: 15, wireType: 3 },
+    ]);
+  });
+
+  it('aggregates repeated unknown fields instead of retaining every occurrence', () => {
+    const { dec } = makeRoundTripFromSchema(
+      `interface UnknownMsg { known: pb<1, uint_32>; }`,
+      'UnknownMsg',
+    );
+    const wire: number[] = [];
+    const tag = encodeVarint32((60 << 3) | 0);
+    for (let index = 0; index < 1_000; index++) wire.push(...tag, 0);
+
+    const metadata = protobuf_getUnknownFieldMetadata(dec(Uint8Array.from(wire)));
+    expect(metadata).toEqual({
+      fields: [{ fieldNumber: 60, wireType: 0, count: 1_000, totalByteLength: 1_000 }],
+      totalOccurrences: 1_000,
+      omittedOccurrences: 0,
+      omittedByteLength: 0,
+    });
+  });
+
+  it('caps retained unknown field kinds and summarizes overflow', () => {
+    const { dec } = makeRoundTripFromSchema(
+      `interface UnknownKindsMsg { known: pb<1, uint_32>; }`,
+      'UnknownKindsMsg',
+    );
+    const wire: number[] = [];
+    for (let fieldNumber = 2; fieldNumber <= 66; fieldNumber++) {
+      wire.push(...encodeVarint32((fieldNumber << 3) | 0), 0);
+    }
+
+    const metadata = protobuf_getUnknownFieldMetadata(dec(Uint8Array.from(wire)));
+    expect(metadata.fields).toHaveLength(64);
+    expect(metadata.totalOccurrences).toBe(65);
+    expect(metadata.omittedOccurrences).toBe(1);
+    expect(metadata.omittedByteLength).toBe(1);
   });
 
   it('round-trip double as ieee754 number', () => {

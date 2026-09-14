@@ -28,15 +28,23 @@ export function describeTrustProxy(mode: TrustProxyMode): string {
   }
 }
 
-function isLoopback(ip: string): boolean {
-  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+export function isLoopbackClientIp(ip: string): boolean {
+  const normalized = ip.trim().toLowerCase();
+  if (normalized === '::1' || normalized === '0:0:0:0:0:0:0:1') return true;
+  if (normalized.startsWith('::ffff:')) {
+    return isLoopbackClientIp(normalized.slice('::ffff:'.length));
+  }
+  const octets = normalized.split('.');
+  return octets.length === 4
+    && octets[0] === '127'
+    && octets.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255);
 }
 
 function shouldTrustHeaders(mode: TrustProxyMode, socketIp: string): boolean {
   switch (mode.kind) {
     case 'none': return false;
     case 'all': return true;
-    case 'loopback': return isLoopback(socketIp);
+    case 'loopback': return isLoopbackClientIp(socketIp);
     case 'ip-list': return mode.ips.has(socketIp);
   }
 }
@@ -45,11 +53,15 @@ export function pickClientIp(
   c: Pick<Context, 'req'>,
   mode: TrustProxyMode,
   getSocketIp: () => string,
+  fallbackIp = '127.0.0.1',
 ): string {
-  const socketIp = (() => {
-    try { return getSocketIp() || '127.0.0.1'; }
-    catch { return '127.0.0.1'; }
-  })();
+  let socketIp: string;
+  try {
+    socketIp = getSocketIp();
+  } catch {
+    return fallbackIp;
+  }
+  if (!socketIp) return fallbackIp;
 
   if (!shouldTrustHeaders(mode, socketIp)) return socketIp;
 
@@ -64,9 +76,14 @@ export function pickClientIp(
 }
 
 /** Convenience binding for the live server: read socket via getConnInfo. */
-export function makeClientIpResolver(mode: TrustProxyMode): (c: Context) => string {
-  return (c) => pickClientIp(c, mode, () => {
-    try { return getConnInfo(c).remote.address ?? '127.0.0.1'; }
-    catch { return '127.0.0.1'; }
-  });
+export function makeClientIpResolver(
+  mode: TrustProxyMode,
+  fallbackIp = '127.0.0.1',
+): (c: Context) => string {
+  return (c) => pickClientIp(
+    c,
+    mode,
+    () => getConnInfo(c).remote.address ?? fallbackIp,
+    fallbackIp,
+  );
 }

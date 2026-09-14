@@ -23,7 +23,7 @@ on:
         required: false
         default: ''
       ghcr_image_override:
-        description: 'Override GHCR image name (defaults to vars.GHCR_IMAGE, leave empty to skip GHCR)'
+        description: 'Override GHCR image name (defaults to vars.GHCR_IMAGE or ghcr.io/snowluma/snowluma)'
         required: false
         default: ''
 
@@ -65,7 +65,7 @@ jobs:
             const platforms = process.env.PLATFORMS_OVERRIDE || process.env.DOCKER_PLATFORMS || 'linux/amd64,linux/arm64';
             const workflowId = process.env.DOCKER_WORKFLOW || 'docker-image.yml';
             const ref = process.env.DOCKER_REF || 'main';
-            const ghcrImage = process.env.GHCR_OVERRIDE || process.env.GHCR_IMAGE || '';
+            const ghcrImage = process.env.GHCR_OVERRIDE || process.env.GHCR_IMAGE || 'ghcr.io/snowluma/snowluma';
 
             await github.rest.actions.createWorkflowDispatch({
               owner,

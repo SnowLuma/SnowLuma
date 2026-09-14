@@ -1,23 +1,34 @@
 // highway-client.uploadHighwayHttp 的连接生命周期测试。
 //
-// 回归覆盖：当上传数据 > HIGHWAY_BLOCK_SIZE (1 MiB) 时，旧实现会复用
-// 同一个 TCP socket 在 keep-alive 模式下连续 POST，但 QQ highway 的
-// 边缘节点经常在第一次响应后立刻 FIN 关闭，导致第二次 POST 报
-// `connection closed before response`。用户上报的 1.19 MB 图片
-// （onebot retcode=1200）就是这个分支。
+// 方案 3（#211）：单连接、按 offset 顺序、流水线上传，跨 chunk 复用同一个
+// TCP 连接（HTTP keep-alive）。要点：
+//   - 顺序发送 → 减少 QQ highway 对重叠块的 NeedDelayRetry（error_code=102902）；
+//   - 复用连接 → TCP 拥塞窗口全程保持，省掉每块新建连接的 slow-start。
+// 边缘节点可能在响应后 FIN（#118）；此时自适应地丢弃 socket + 重连 + 重发
+// 同一块（重发幂等），最坏退化成“每块一连接”，不比旧实现差，且仍然保序。
+// 102902 / 302902 不是致命拒绝（#352）：官方 BDH 走 NeedDelayRetry，延迟后
+// 换连接重发同一 offset。
 //
-// 修复方案：每个 chunk 独立建一个新的 TCP 连接。本测试通过 mock
-// `net.createConnection` 计数建连次数，断言每个 chunk 一连接的不变量。
+// 本测试用两种 mock 服务端行为锁定这套自适应逻辑：
+//   - keepalive：每个 POST 回一个响应，连接保持 → 整个文件 1 个连接；
+//   - closeafter：每个响应后半关闭（readableEnded/emit close）→ 退化成每块
+//     一连接，但仍全部成功。
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  getLogLevel,
+  setLogLevel,
+  subscribeLogs,
+  type LogEntry,
+} from '@snowluma/common/logger';
+import type { HttpConn0x6FF501Response } from '@snowluma/proto-defs/highway';
+import { protobuf_encode } from '@snowluma/proton';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'events';
 
 // highway-client 解析响应只关心 errorCode === 0 —— 一个完全空的
-// RespDataHighwayHead protobuf 体（0 字节）会被解为 ，errorCode
-// 是 undefined，走 falsy 通过分支。
-//
-// HTTP body 是 highway frame：
-//   0x28 | head_len(BE32) | body_len(BE32) | head | body | 0x29
+// RespDataHighwayHead protobuf 体（0 字节）会被解为 errorCode=undefined，
+// 走 falsy 通过分支。
+// highway frame：0x28 | head_len(BE32) | body_len(BE32) | head | body | 0x29
 function buildEmptyHighwayResponseFrame(): Buffer {
   const frame = Buffer.alloc(10);
   frame[0] = 0x28;
@@ -27,59 +38,139 @@ function buildEmptyHighwayResponseFrame(): Buffer {
   return frame;
 }
 
-function buildHttpResponse(frameBody: Buffer): Buffer {
-  const headers = [
-    'HTTP/1.1 200 OK',
-    `Content-Length: ${frameBody.length}`,
-    'Connection: close',
-    '',
-    '',
-  ].join('\r\n');
-  return Buffer.concat([Buffer.from(headers, 'ascii'), frameBody]);
+function encodeVarint(n: number): number[] {
+  const bytes: number[] = [];
+  let value = n >>> 0;
+  while (value > 0x7f) {
+    bytes.push((value & 0x7f) | 0x80);
+    value >>>= 7;
+  }
+  bytes.push(value);
+  return bytes;
 }
 
-// FakeSocket 模拟 net.Socket 的最小子集。highway-client 用到：
-//   - 'data' / 'error' / 'close' 事件
-//   - .write(data, cb)  cb 会被 socketWrite 等待
-//   - .destroy()
-//   - .setTimeout / .once / .removeListener  （继承自 EventEmitter）
+// errorCode 帧：RespDataHighwayHead.field3 (errorCode)。tag(field3, varint)=0x18。
+// 921 是定义即拒绝；102902 / 302902 是 QQ BDH 的 NeedDelayRetry（#352）。
+function buildErrorCodeFrame(errorCode = 921): Buffer {
+  const head = Buffer.from([0x18, ...encodeVarint(errorCode)]);
+  const frame = Buffer.alloc(9 + head.length + 1);
+  frame[0] = 0x28;
+  frame.writeUInt32BE(head.length, 1);
+  frame.writeUInt32BE(0, 5);
+  head.copy(frame, 9);
+  frame[9 + head.length] = 0x29;
+  return frame;
+}
+
+function buildMalformedHighwayResponseFrame(): Buffer {
+  return Buffer.from([0x28, 0, 0, 0, 5, 0, 0, 0, 0, 0x08, 0x01, 0x29]);
+}
+
+function httpWrap(frame: Buffer): Buffer {
+  const headers = ['HTTP/1.1 200 OK', `Content-Length: ${frame.length}`, '', ''].join('\r\n');
+  return Buffer.concat([Buffer.from(headers, 'ascii'), frame]);
+}
+
+type ServerMode = 'keepalive' | 'closeafter';
+
+// FakeSocket 模拟 net.Socket 的最小子集，支持在一个连接上顺序处理多个 POST。
+// 累积写入的字节，按 `\r\n\r\n` + Content-Length 切出每个完整 POST，逐个回
+// 响应。`mode` 控制响应后是否半关闭；`failOnPost` 用于模拟链路中途断开。
 class FakeSocket extends EventEmitter {
   destroyed = false;
-  // 每个 POST = 2 次 write（HTTP header + body）。第二次 write 落地后
-  // 异步回放响应并立刻 close —— 复现 QQ highway 真实行为：响应一发完
-  // 就 FIN，旧实现的下一次 POST 必然撞上已关闭的 socket。
-  private writeCount = 0;
-  private response: Buffer;
-
-  constructor(response: Buffer) {
+  readableEnded = false;
+  writable = true;
+  posts = 0;
+  private buf = Buffer.alloc(0);
+  constructor(
+    private readonly responseFrame: Buffer,
+    private readonly mode: ServerMode,
+    private readonly failOnPost = -1,
+    private readonly truncateOnPost = -1,
+    private readonly errorAfterPartialOnPost = -1,
+    private readonly frameOnPost: Readonly<Record<number, Buffer>> = {},
+  ) {
     super();
-    this.response = response;
   }
 
-  setTimeout(_ms: number) { /* no-op */ }
+  setTimeout(_ms?: number) { /* no-op */ }
 
-  write(_data: unknown, cb?: (err?: Error) => void): boolean {
-    this.writeCount += 1;
-    if (this.writeCount === 2) {
-      setImmediate(() => {
-        this.emit('data', this.response);
-        this.emit('close');
-      });
+  write(data: unknown, cb?: (err?: Error) => void): boolean {
+    if (this.destroyed || !this.writable) {
+      const err = new Error('write after socket end');
+      if (cb) cb(err);
+      setImmediate(() => this.emit('error', err));
+      return false;
     }
+    this.buf = Buffer.concat([this.buf, Buffer.from(data as Uint8Array)]);
+    this.drainPosts();
     if (cb) cb();
     return true;
   }
 
+  private drainPosts(): void {
+    for (;;) {
+      const s = this.buf.toString('latin1');
+      const he = s.indexOf('\r\n\r\n');
+      if (he < 0) return;
+      const m = s.slice(0, he).match(/content-length:\s*(\d+)/i);
+      const cl = m ? parseInt(m[1], 10) : 0;
+      const total = he + 4 + cl;
+      if (this.buf.length < total) return;
+      this.buf = this.buf.subarray(total);
+      this.posts += 1;
+      const thisPost = this.posts;
+      setImmediate(() => {
+        if (this.destroyed) return;
+        if (thisPost === this.failOnPost) {
+          this.writable = false;
+          this.readableEnded = true;
+          this.emit('error', new Error('ECONNRESET'));
+          this.emit('close');
+          return;
+        }
+        if (thisPost === this.errorAfterPartialOnPost) {
+          const full = httpWrap(this.responseFrame);
+          this.emit('data', full.subarray(0, full.length - 3));
+          this.writable = false;
+          this.readableEnded = true;
+          this.emit('error', new Error('ECONNRESET after partial response'));
+          this.emit('close');
+          return;
+        }
+        if (thisPost === this.truncateOnPost) {
+          // Send the HTTP header + only part of the declared body, then FIN —
+          // a truncated response. Dropping the last 3 body bytes keeps the
+          // header intact so Content-Length parses but is never satisfied.
+          const full = httpWrap(this.responseFrame);
+          this.emit('data', full.subarray(0, full.length - 3));
+          this.writable = false;
+          this.readableEnded = true;
+          this.emit('close');
+          return;
+        }
+        this.emit('data', httpWrap(this.frameOnPost[thisPost] ?? this.responseFrame));
+        if (this.mode === 'closeafter') {
+          this.readableEnded = true;
+          this.writable = false;
+          this.emit('end');
+          this.emit('close');
+        }
+      });
+    }
+  }
+
   destroy() {
     this.destroyed = true;
+    this.writable = false;
   }
 }
 
-// vitest 把 vi.mock 工厂 hoist 到文件顶部，所以工厂里不能引用普通的
-// 顶层 const —— 那会触发 "Cannot access X before initialization"。
-// 用 vi.hoisted 让这两个值跟着 mock 一起被 hoist。
-const { createdSockets, createConnectionMock } = vi.hoisted(() => ({
-  createdSockets: [] as FakeSocket[],
+// vitest 把 vi.mock 工厂 hoist 到文件顶部，所以工厂里不能引用普通的顶层
+// const。用 vi.hoisted 让这些值跟着 mock 一起 hoist。
+const { createdSockets, socketFactoryRef, createConnectionMock } = vi.hoisted(() => ({
+  createdSockets: [] as unknown[],
+  socketFactoryRef: { make: null as null | ((idx: number) => unknown) },
   createConnectionMock: vi.fn(),
 }));
 
@@ -88,15 +179,24 @@ vi.mock('net', () => ({
   createConnection: createConnectionMock,
 }));
 
-import { uploadHighwayHttp, type HighwaySession } from '@snowluma/protocol/highway';
+import {
+  fetchHighwaySession,
+  uploadHighwayHttp,
+  BufferChunkSource,
+  type ChunkSource,
+  type HighwaySession,
+} from '@snowluma/protocol/highway';
 import type { BridgeContext } from '@snowluma/protocol/bridge-context';
 
 const HIGHWAY_BLOCK_SIZE = 1024 * 1024;
+const previousLogLevel = getLogLevel();
+
+function highwayTrace(entries: LogEntry[]): LogEntry[] {
+  return entries.filter((entry) => entry.level === 'trace' && entry.scope === 'Highway');
+}
 
 function makeBridge(): BridgeContext {
-  return {
-    identity: { uin: '10001' } as unknown,
-  } as unknown as BridgeContext;
+  return { identity: { uin: '10001' } as unknown } as unknown as BridgeContext;
 }
 
 function makeSession(): HighwaySession {
@@ -108,54 +208,535 @@ function makeSession(): HighwaySession {
   };
 }
 
-describe('uploadHighwayHttp connection lifecycle', () => {
-  beforeEach(() => {
-    createdSockets.length = 0;
-    createConnectionMock.mockReset();
-    createConnectionMock.mockImplementation((_opts: unknown, listener?: () => void) => {
-      const sock = new FakeSocket(buildHttpResponse(buildEmptyHighwayResponseFrame()));
-      createdSockets.push(sock);
-      // net.createConnection 在握手成功后调用 listener。同步触发即可，
-      // tcpConnect 的 Promise 会立刻 resolve。
-      if (listener) setImmediate(listener);
-      return sock as unknown as ReturnType<typeof createConnectionMock>;
-    });
+// 安装一个 socket 工厂：createConnection 每次调用按序号创建一个 FakeSocket。
+function installFactory(make: (idx: number) => FakeSocket): void {
+  createdSockets.length = 0;
+  socketFactoryRef.make = make as (idx: number) => unknown;
+  createConnectionMock.mockReset();
+  createConnectionMock.mockImplementation((_opts: unknown, listener?: () => void) => {
+    const idx = createdSockets.length;
+    const sock = socketFactoryRef.make!(idx) as FakeSocket;
+    createdSockets.push(sock);
+    if (listener) setImmediate(listener); // 握手成功后异步回调 → tcpConnect resolve
+    return sock as unknown as ReturnType<typeof createConnectionMock>;
   });
+}
 
+// 顺序读取记录：offset/length + 关闭时机，用于数据完整性与 close 语义。
+class RecordingChunkSource implements ChunkSource {
+  reads: Array<{ offset: number; length: number }> = [];
+  inFlight = 0;
+  closeCount = 0;
+  closedWhileReading = false;
+  constructor(readonly size: number) {}
+  async read(offset: number, length: number): Promise<Uint8Array> {
+    this.inFlight += 1;
+    this.reads.push({ offset, length });
+    await Promise.resolve();
+    this.inFlight -= 1;
+    return new Uint8Array(length);
+  }
+  async close(): Promise<void> {
+    if (this.inFlight > 0) this.closedWhileReading = true;
+    this.closeCount += 1;
+  }
+}
+
+describe('fetchHighwaySession trace lifecycle', () => {
   afterEach(() => {
+    setLogLevel(previousLogLevel);
     vi.restoreAllMocks();
   });
 
-  it('uses a single TCP connection for a sub-block payload', async () => {
-    // 0.5 MiB → 1 chunk。覆盖 PTT / 小图的常见场景。
-    const bytes = new Uint8Array(512 * 1024);
-    await uploadHighwayHttp(
-      makeBridge(), makeSession(), 1003, bytes, new Uint8Array(16), new Uint8Array(0),
-    );
-    expect(createConnectionMock).toHaveBeenCalledTimes(1);
-    expect(createdSockets[0]!.destroyed).toBe(true);
-  });
-
-  it('uses a fresh TCP connection per chunk for multi-block payloads', async () => {
-    // 1.5 MiB → ceil(1.5) = 2 chunks。这正是用户上报的 1.19 MB 图片
-    // 触发的代码路径：旧实现复用 socket 时第二次 POST 撞上 keep-alive
-    // 关闭，新实现必须为每个 chunk 各开一个 socket。
-    const bytes = new Uint8Array(Math.floor(1.5 * HIGHWAY_BLOCK_SIZE));
-    await uploadHighwayHttp(
-      makeBridge(), makeSession(), 1003, bytes, new Uint8Array(16), new Uint8Array(0),
-    );
-    expect(createConnectionMock).toHaveBeenCalledTimes(2);
-    expect(createdSockets).toHaveLength(2);
-    for (const sock of createdSockets) {
-      expect(sock.destroyed).toBe(true);
+  it('records session metadata without duplicating packet control bytes', async () => {
+    const responseData = protobuf_encode<HttpConn0x6FF501Response>({
+      httpConn: {
+        sigSession: new Uint8Array([0xAA, 0xBB]),
+        sessionKey: new Uint8Array([0xCC]),
+        serverInfos: [{
+          serviceType: 1,
+          serverAddrs: [{ ip: 0x04030201, port: 8080 }],
+        }],
+      },
+    });
+    const sendRawPacket = vi.fn<
+      (cmd: string, body: Uint8Array) => Promise<{
+        success: boolean;
+        gotResponse: boolean;
+        errorCode: number;
+        errorMessage: string;
+        responseData: Buffer;
+        }>
+        >(async () => ({
+          success: true,
+          gotResponse: true,
+          errorCode: 0,
+          errorMessage: '',
+          responseData: Buffer.from(responseData),
+        }));
+    const bridge = {
+      identity: { uin: '10001' },
+      sendRawPacket,
+    } as unknown as BridgeContext;
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      const session = await fetchHighwaySession(bridge);
+      expect([...session.sigSession]).toEqual([0xAA, 0xBB]);
+      expect([...session.sessionKey]).toEqual([0xCC]);
+      expect(session.host).toBe('1.2.3.4');
+      expect(session.port).toBe(8080);
+      const requestBytes = sendRawPacket.mock.calls[0]![1] as Uint8Array;
+      const messages = highwayTrace(entries).map((entry) => entry.message);
+      expect(messages).toEqual(expect.arrayContaining([
+        `highway_session_start serviceCmd="HttpConn.0x6ff_501" requestBytes=${requestBytes.byteLength}`,
+        expect.stringContaining(`branch=control_response success=true gotResponse=true errorCode=0 errorMessage="" responseBytes=${responseData.byteLength}`),
+        expect.stringMatching(/^highway_session_terminal outcome=completed reason=session_ready host="1\.2\.3\.4" port=8080 sigBytes=2 sessionKeyBytes=1 elapsedMs=\d+$/),
+      ]));
+      expect(messages.join('\n')).not.toContain('requestHex=');
+      expect(messages.join('\n')).not.toContain('responseHex=');
+      expect(messages.filter((message) => message.startsWith('highway_session_terminal '))).toHaveLength(1);
+    } finally {
+      unsubscribe();
     }
   });
 
-  it('opens N connections for N chunks (3 chunks here)', async () => {
-    const bytes = new Uint8Array(Math.floor(2.5 * HIGHWAY_BLOCK_SIZE));
+  it('records a thrown control request as one failed terminal', async () => {
+    const bridge = {
+      identity: { uin: '10001' },
+      sendRawPacket: vi.fn(async () => { throw new Error('fixture session pipe failure'); }),
+    } as unknown as BridgeContext;
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      await expect(fetchHighwaySession(bridge)).rejects.toThrow('fixture session pipe failure');
+      const terminals = highwayTrace(entries)
+        .filter((entry) => entry.message.startsWith('highway_session_terminal '));
+      expect(terminals).toHaveLength(1);
+      expect(terminals[0]!.message).toContain('outcome=failed reason=request_failed');
+    } finally {
+      unsubscribe();
+    }
+  });
+});
+
+describe('uploadHighwayHttp single-connection pipelined upload (#211)', () => {
+  afterEach(() => {
+    setLogLevel(previousLogLevel);
+    vi.restoreAllMocks();
+  });
+
+  it('records complete chunk control lifecycle without copying source bytes', async () => {
+    installFactory(() => new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive'));
+    const sourceBytes = new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF]);
+    const fileMd5 = new Uint8Array([0x00, 0xFF, 0x10, 0x20]);
+    const extend = new Uint8Array([0xCA, 0xFE]);
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      await uploadHighwayHttp(
+        makeBridge(),
+        makeSession(),
+        1004,
+        new BufferChunkSource(sourceBytes),
+        fileMd5,
+        extend,
+      );
+
+      const trace = highwayTrace(entries);
+      expect(trace.every((entry) => entry.req !== undefined && entry.req === trace[0]!.req)).toBe(true);
+      const messages = trace.map((entry) => entry.message);
+      expect(messages).toEqual(expect.arrayContaining([
+        expect.stringContaining('highway_put_start cmdId=1004'),
+        expect.stringContaining('totalBytes=4'),
+        expect.stringContaining('fileMd5=00ff1020'),
+        expect.stringContaining('extendBytes=2'),
+        expect.stringContaining('branch=chunk_read offset=0 bytes=4'),
+        expect.stringMatching(/^highway_put_branch branch=chunk_control_request offset=0 bytes=4 headBytes=\d+ headHex=[0-9a-f]+$/),
+        expect.stringContaining('branch=chunk_attempt offset=0 bytes=4 attempt=1'),
+        expect.stringContaining('branch=chunk_control_response offset=0'),
+        expect.stringContaining('branch=chunk_control_decoded offset=0 errorCode=0'),
+        expect.stringMatching(/^highway_put_terminal cmdId=1004 outcome=completed reason=upload_complete totalBytes=4 uploadedBytes=4 connections=1 elapsedMs=\d+$/),
+      ]));
+      expect(messages.join('\n')).not.toContain('deadbeef');
+      expect(messages.filter((message) => message.startsWith('highway_put_terminal '))).toHaveLength(1);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('records reconnect at the same offset and one successful terminal', async () => {
+    installFactory((idx) => idx === 0
+      ? new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive', 1)
+      : new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive'));
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      await uploadHighwayHttp(
+        makeBridge(),
+        makeSession(),
+        1004,
+        new BufferChunkSource(new Uint8Array([1, 2, 3])),
+        new Uint8Array(16),
+        new Uint8Array(0),
+      );
+      const messages = highwayTrace(entries).map((entry) => entry.message);
+      expect(messages).toEqual(expect.arrayContaining([
+        expect.stringContaining('branch=chunk_retry offset=0 bytes=3 attempt=1'),
+        expect.stringContaining('branch=reconnect offset=0 attempt=2 connection=2'),
+        expect.stringContaining('outcome=completed reason=upload_complete'),
+      ]));
+      expect(messages.filter((message) => message.startsWith('highway_put_terminal '))).toHaveLength(1);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('records definitive server rejection as one failed terminal', async () => {
+    installFactory(() => new FakeSocket(buildErrorCodeFrame(), 'keepalive'));
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      await expect(uploadHighwayHttp(
+        makeBridge(),
+        makeSession(),
+        1004,
+        new BufferChunkSource(new Uint8Array([1])),
+        new Uint8Array(16),
+        new Uint8Array(0),
+      )).rejects.toThrow(/error_code=921/);
+      const messages = highwayTrace(entries).map((entry) => entry.message);
+      expect(messages).toEqual(expect.arrayContaining([
+        expect.stringContaining('branch=chunk_control_response offset=0'),
+        expect.stringContaining('errorCode=921'),
+        expect.stringContaining('outcome=failed reason=server_rejected'),
+      ]));
+      expect(messages.filter((message) => message.startsWith('highway_put_terminal '))).toHaveLength(1);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('records malformed control bytes before the decode failure terminal', async () => {
+    const malformed = buildMalformedHighwayResponseFrame();
+    installFactory(() => new FakeSocket(malformed, 'keepalive'));
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      await expect(uploadHighwayHttp(
+        makeBridge(), makeSession(), 1004,
+        new BufferChunkSource(new Uint8Array([1])),
+        new Uint8Array(16), new Uint8Array(0),
+      )).rejects.toThrow();
+      const messages = highwayTrace(entries).map((entry) => entry.message);
+      expect(messages).toContainEqual(expect.stringContaining(
+        `responseBytes=${malformed.byteLength} responseHex=${malformed.toString('hex')}`,
+      ));
+      const terminals = messages.filter((message) => message.startsWith('highway_put_terminal '));
+      expect(terminals).toHaveLength(1);
+      expect(terminals[0]).toContain('outcome=failed reason=control_decode_failed');
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('records transport exhaustion after exactly three attempts', async () => {
+    installFactory(() => new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive', 1));
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      await expect(uploadHighwayHttp(
+        makeBridge(), makeSession(), 1004,
+        new BufferChunkSource(new Uint8Array([1])),
+        new Uint8Array(16), new Uint8Array(0),
+      )).rejects.toThrow(/transport failed after 3 attempts/);
+      const messages = highwayTrace(entries).map((entry) => entry.message);
+      expect(messages.filter((message) => message.includes('branch=chunk_attempt offset=0'))).toHaveLength(3);
+      expect(messages.filter((message) => message.includes('branch=chunk_retry offset=0'))).toHaveLength(2);
+      const terminals = messages.filter((message) => message.startsWith('highway_put_terminal '));
+      expect(terminals).toHaveLength(1);
+      expect(terminals[0]).toContain('outcome=failed reason=transport_exhausted');
+      expect(terminals[0]).toContain('connections=3');
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('records source read and close failures with truthful unique terminals', async () => {
+    installFactory(() => new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive'));
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      const readFailure: ChunkSource = {
+        size: 1,
+        read: vi.fn(async () => { throw new Error('fixture read failed'); }),
+        close: vi.fn(async () => undefined),
+      };
+      await expect(uploadHighwayHttp(
+        makeBridge(), makeSession(), 1004, readFailure,
+        new Uint8Array(16), new Uint8Array(0),
+      )).rejects.toThrow('fixture read failed');
+      let terminals = highwayTrace(entries)
+        .filter((entry) => entry.message.startsWith('highway_put_terminal '));
+      expect(terminals).toHaveLength(1);
+      expect(terminals[0]!.message).toContain('outcome=failed reason=source_read_failed');
+
+      entries.length = 0;
+      const closeFailure: ChunkSource = {
+        size: 0,
+        read: vi.fn(async () => new Uint8Array(0)),
+        close: vi.fn(async () => { throw new Error('fixture close failed'); }),
+      };
+      await expect(uploadHighwayHttp(
+        makeBridge(), makeSession(), 1004, closeFailure,
+        new Uint8Array(16), new Uint8Array(0),
+      )).rejects.toThrow('fixture close failed');
+      terminals = highwayTrace(entries)
+        .filter((entry) => entry.message.startsWith('highway_put_terminal '));
+      expect(terminals).toHaveLength(1);
+      expect(terminals[0]!.message).toContain('outcome=failed reason=source_close_failed');
+    } finally {
+      unsubscribe();
+    }
+  });
+
+
+  it('reuses ONE connection for a multi-block payload when keep-alive holds', async () => {
+    installFactory(() => new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive'));
+    const bytes = new Uint8Array(Math.floor(2.5 * HIGHWAY_BLOCK_SIZE)); // 3 blocks
     await uploadHighwayHttp(
-      makeBridge(), makeSession(), 1004, bytes, new Uint8Array(16), new Uint8Array(0),
+      makeBridge(), makeSession(), 1004, new BufferChunkSource(bytes), new Uint8Array(16), new Uint8Array(0),
     );
+    // The whole file went over a single warm connection — the #211 win.
+    expect(createConnectionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('single sub-block payload uses one connection', async () => {
+    installFactory(() => new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive'));
+    const bytes = new Uint8Array(512 * 1024); // 1 block (PTT / small image)
+    await uploadHighwayHttp(
+      makeBridge(), makeSession(), 1003, new BufferChunkSource(bytes), new Uint8Array(16), new Uint8Array(0),
+    );
+    expect(createConnectionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a zero-length source opens ZERO connections (empty-input invariant)', async () => {
+    installFactory(() => new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive'));
+    await uploadHighwayHttp(
+      makeBridge(), makeSession(), 1003, new BufferChunkSource(new Uint8Array(0)), new Uint8Array(16), new Uint8Array(0),
+    );
+    expect(createConnectionMock).not.toHaveBeenCalled();
+  });
+
+  it('degrades to one connection per block when the server FINs after every response (#118 regime)', async () => {
+    installFactory(() => new FakeSocket(buildEmptyHighwayResponseFrame(), 'closeafter'));
+    const bytes = new Uint8Array(Math.floor(2.5 * HIGHWAY_BLOCK_SIZE)); // 3 blocks
+    await uploadHighwayHttp(
+      makeBridge(), makeSession(), 1004, new BufferChunkSource(bytes), new Uint8Array(16), new Uint8Array(0),
+    );
+    // Server closes after each response → adaptively reconnects per block, but
+    // the upload still completes. No worse than the old one-conn-per-chunk.
     expect(createConnectionMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('reconnects and re-sends the SAME block on a mid-stream transport error', async () => {
+    // First connection dies while handling its first POST; a fresh connection
+    // must re-send that same block (offset unchanged, idempotent) and finish.
+    installFactory((idx) =>
+      idx === 0
+        ? new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive', /* failOnPost */ 1)
+        : new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive'),
+    );
+    const bytes = new Uint8Array(Math.floor(2.5 * HIGHWAY_BLOCK_SIZE)); // 3 blocks
+    await uploadHighwayHttp(
+      makeBridge(), makeSession(), 1004, new BufferChunkSource(bytes), new Uint8Array(16), new Uint8Array(0),
+    );
+    // Connection #0 failed on block 0 → reconnect (#1) resumes and keep-alives
+    // the rest: exactly two connections total.
+    expect(createConnectionMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('reconnects and preserves partial control-response bytes when a body is truncated', async () => {
+    // Peer FINs after the HTTP header but before the highway body is complete.
+    // That truncation must be treated as a retryable transport failure (reject
+    // in readHttpResponseBody), NOT resolved as a partial frame — otherwise
+    // unpackHighwayFrame throws OUTSIDE the retry loop and fails the upload.
+    const frame = buildEmptyHighwayResponseFrame();
+    installFactory((idx) =>
+      idx === 0
+        ? new FakeSocket(frame, 'keepalive', -1, /* truncateOnPost */ 1)
+        : new FakeSocket(frame, 'keepalive'),
+    );
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      const bytes = new Uint8Array(Math.floor(2.5 * HIGHWAY_BLOCK_SIZE)); // 3 blocks
+      await uploadHighwayHttp(
+        makeBridge(), makeSession(), 1004, new BufferChunkSource(bytes), new Uint8Array(16), new Uint8Array(0),
+      );
+      // conn #0 truncated block 0 → reconnect (#1) re-sends it and finishes.
+      expect(createConnectionMock).toHaveBeenCalledTimes(2);
+      const partial = frame.subarray(0, frame.length - 3);
+      expect(highwayTrace(entries).map((entry) => entry.message)).toEqual(expect.arrayContaining([
+        expect.stringContaining(
+          `branch=chunk_control_response_partial offset=0 attempt=1 responseBytes=${partial.byteLength} responseHex=${partial.toString('hex')}`,
+        ),
+      ]));
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('reconnects and preserves partial control-response bytes when the socket errors', async () => {
+    const frame = buildEmptyHighwayResponseFrame();
+    installFactory((idx) =>
+      idx === 0
+        ? new FakeSocket(frame, 'keepalive', -1, -1, 1)
+        : new FakeSocket(frame, 'keepalive'),
+    );
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      await uploadHighwayHttp(
+        makeBridge(), makeSession(), 1004,
+        new BufferChunkSource(new Uint8Array(Math.floor(2.5 * HIGHWAY_BLOCK_SIZE))),
+        new Uint8Array(16), new Uint8Array(0),
+      );
+      expect(createConnectionMock).toHaveBeenCalledTimes(2);
+      const partial = frame.subarray(0, frame.length - 3);
+      expect(highwayTrace(entries).map((entry) => entry.message)).toEqual(expect.arrayContaining([
+        expect.stringContaining(
+          `branch=chunk_control_response_partial offset=0 attempt=1 responseBytes=${partial.byteLength} responseHex=${partial.toString('hex')}`,
+        ),
+      ]));
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('does not preserve diagnostic response copies while TRACE is disabled', async () => {
+    const frame = buildEmptyHighwayResponseFrame();
+    installFactory((idx) =>
+      idx === 0
+        ? new FakeSocket(frame, 'keepalive', -1, -1, 1)
+        : new FakeSocket(frame, 'keepalive'),
+    );
+    const entries: LogEntry[] = [];
+    setLogLevel('info');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      await uploadHighwayHttp(
+        makeBridge(), makeSession(), 1004,
+        new BufferChunkSource(new Uint8Array(Math.floor(2.5 * HIGHWAY_BLOCK_SIZE))),
+        new Uint8Array(16), new Uint8Array(0),
+      );
+      expect(createConnectionMock).toHaveBeenCalledTimes(2);
+      expect(highwayTrace(entries)).toEqual([]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('reads every offset exactly once, in order, and closes the source once (data safety)', async () => {
+    installFactory(() => new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive'));
+    const size = 4 * HIGHWAY_BLOCK_SIZE + 4321; // 4 full + 1 ragged
+    const source = new RecordingChunkSource(size);
+    await uploadHighwayHttp(
+      makeBridge(), makeSession(), 1004, source, new Uint8Array(16), new Uint8Array(0),
+    );
+    const offsets = source.reads.map((r) => r.offset);
+    // Strictly increasing, gap-free, exactly-once coverage of [0, size).
+    expect(offsets).toEqual([0, HIGHWAY_BLOCK_SIZE, 2 * HIGHWAY_BLOCK_SIZE, 3 * HIGHWAY_BLOCK_SIZE, 4 * HIGHWAY_BLOCK_SIZE]);
+    expect(source.reads[source.reads.length - 1]!.length).toBe(4321); // ragged tail
+    expect(source.reads.reduce((n, r) => n + r.length, 0)).toBe(size);
+    expect(source.closeCount).toBe(1);
+    expect(source.closedWhileReading).toBe(false);
+  });
+
+  it('rejects on a definitive server error_code and closes the source once (no retry)', async () => {
+    installFactory(() => new FakeSocket(buildErrorCodeFrame(), 'keepalive'));
+    const source = new RecordingChunkSource(3 * HIGHWAY_BLOCK_SIZE);
+    await expect(uploadHighwayHttp(
+      makeBridge(), makeSession(), 1004, source, new Uint8Array(16), new Uint8Array(0),
+    )).rejects.toThrow(/error_code=921/);
+    expect(source.closeCount).toBe(1);
+    expect(source.closedWhileReading).toBe(false);
+    // Definitive reject on block 0 → stop immediately, don't PUT later blocks.
+    expect(source.reads.length).toBeLessThan(3);
+  });
+
+  it('delay-retries 102902 on the same offset, then completes (#352)', async () => {
+    // QQ BDH NeedDelayRetry: 102902 is backpressure, not a fatal reject.
+    // Official client delays, switches sender, and re-PUTs the same piece.
+    installFactory((idx) => idx === 0
+      ? new FakeSocket(buildErrorCodeFrame(102902), 'keepalive')
+      : new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive'));
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    try {
+      const bytes = new Uint8Array(Math.floor(2.5 * HIGHWAY_BLOCK_SIZE));
+      await uploadHighwayHttp(
+        makeBridge(), makeSession(), 71, new BufferChunkSource(bytes),
+        new Uint8Array(16), new Uint8Array(0),
+      );
+      expect(createConnectionMock).toHaveBeenCalledTimes(2);
+      const messages = highwayTrace(entries).map((entry) => entry.message);
+      expect(messages).toEqual(expect.arrayContaining([
+        expect.stringContaining('branch=chunk_delay_retry offset=0'),
+        expect.stringContaining('errorCode=102902'),
+        expect.stringContaining('outcome=completed reason=upload_complete'),
+      ]));
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('delay-retries 302902 the same way as 102902', async () => {
+    installFactory((idx) => idx === 0
+      ? new FakeSocket(buildErrorCodeFrame(302902), 'keepalive')
+      : new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive'));
+    await uploadHighwayHttp(
+      makeBridge(), makeSession(), 71,
+      new BufferChunkSource(new Uint8Array(512 * 1024)),
+      new Uint8Array(16), new Uint8Array(0),
+    );
+    expect(createConnectionMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('delay-retries 102902 on a later in-order block after keep-alive was already warm (#352 shape)', async () => {
+    // Mirrors the report: sequential upload is healthy, then a later offset
+    // returns 102902. Recovery must re-PUT that offset, not abort the file.
+    installFactory((idx) => idx === 0
+      ? new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive', -1, -1, -1, {
+        3: buildErrorCodeFrame(102902),
+      })
+      : new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive'));
+    const bytes = new Uint8Array(Math.floor(2.5 * HIGHWAY_BLOCK_SIZE)); // 3 blocks
+    await uploadHighwayHttp(
+      makeBridge(), makeSession(), 71, new BufferChunkSource(bytes),
+      new Uint8Array(16), new Uint8Array(0),
+    );
+    expect(createConnectionMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('exhausts delay-retries when 102902 keeps coming back', async () => {
+    installFactory(() => new FakeSocket(buildErrorCodeFrame(102902), 'keepalive'));
+    await expect(uploadHighwayHttp(
+      makeBridge(), makeSession(), 71,
+      new BufferChunkSource(new Uint8Array(16)),
+      new Uint8Array(16), new Uint8Array(0),
+    )).rejects.toThrow(/error_code=102902/);
+    expect(createConnectionMock.mock.calls.length).toBeGreaterThan(1);
   });
 });

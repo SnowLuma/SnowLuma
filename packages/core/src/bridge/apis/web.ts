@@ -2,13 +2,20 @@ import { loadBinarySource } from '@snowluma/protocol/highway/utils';
 import { ForceFetchClientKey, type ClientKeyInfo as NamespaceClientKeyInfo } from '@snowluma/protocol/oidb-services/web/force-fetch-client-key';
 import { GetPskey } from '@snowluma/protocol/oidb-services/web/get-pskey';
 import { getGroupEssenceMsg, getGroupEssenceMsgAll, type GroupEssenceMsgRet } from '@snowluma/protocol/web/group-essence';
+import { getFriendDressWebAPI, type WebFriendDress } from '@snowluma/protocol/web/friend-dress';
 import { getHonorListWebAPI, WebHonorType, type WebHonorItem } from '@snowluma/protocol/web/group-honor';
+import { getDaySignedListWebAPI, type SignedListMember } from '@snowluma/protocol/web/group-signin';
 import {
   deleteGroupNotice as deleteGroupNoticeHttp,
+  GROUP_NOTICE_TYPE_NEW_MEMBERS,
+  GROUP_NOTICE_TYPE_NORMAL,
   getGroupNoticeWebAPI,
   setGroupNoticeWebAPI,
   uploadGroupNoticeImage,
   type SetNoticeRetSuccess,
+  type WebApiGroupNoticeCollection,
+  type WebApiGroupNoticeFeed,
+  type WebApiGroupNoticeRet,
 } from '@snowluma/protocol/web/group-notice';
 import { RequestUtil } from '@snowluma/protocol/web/request-util';
 import type { Bridge } from '../bridge';
@@ -41,6 +48,113 @@ export interface WebNoticeInfo {
   };
   settings: import('@snowluma/common/json').JsonValue;
   read_num: number;
+  /** Server response type. Regular notices are commonly returned as 6. */
+  type: number;
+  pinned: number;
+  send_to_new_members: boolean;
+}
+
+export interface SendNoticeOptions {
+  image?: string;
+  pinned?: number;
+  type?: number;
+  sendToNewMembers?: boolean;
+  isShowEditCard?: number;
+  tipWindowType?: number;
+  confirmRequired?: number;
+}
+
+function finiteNumber(value: unknown, field: string): number {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : Number.NaN;
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`invalid group notice response: ${field} must be a finite number`);
+  }
+  return parsed;
+}
+
+function collectionValues(
+  collection: WebApiGroupNoticeCollection | undefined,
+  field: 'feeds' | 'inst',
+): WebApiGroupNoticeFeed[] {
+  if (collection === undefined) return [];
+  if (Array.isArray(collection)) return collection;
+  if (collection === null || typeof collection !== 'object') {
+    throw new Error(`invalid group notice response: ${field} must be an array or object`);
+  }
+  return Object.values(collection);
+}
+
+function mapGroupNoticeFeed(feed: WebApiGroupNoticeFeed, sendToNewMembers: boolean): WebNoticeInfo {
+  if (!feed || typeof feed !== 'object') {
+    throw new Error('invalid group notice response: feed must be an object');
+  }
+  if (typeof feed.fid !== 'string' || feed.fid.length === 0) {
+    throw new Error('invalid group notice response: feed.fid must be a non-empty string');
+  }
+  if (!feed.msg || typeof feed.msg !== 'object' || typeof feed.msg.text !== 'string') {
+    throw new Error(`invalid group notice response: feed ${feed.fid} has no message text`);
+  }
+  if (feed.settings === undefined) {
+    throw new Error(`invalid group notice response: feed ${feed.fid} has no settings`);
+  }
+
+  const image = (feed.msg.pics ?? []).map((pic, index) => {
+    if (!pic || typeof pic !== 'object' || typeof pic.id !== 'string') {
+      throw new Error(`invalid group notice response: feed ${feed.fid} image ${index} is malformed`);
+    }
+    return {
+      id: pic.id,
+      height: finiteNumber(pic.h, `feed ${feed.fid} image ${index}.h`),
+      width: finiteNumber(pic.w, `feed ${feed.fid} image ${index}.w`),
+    };
+  });
+  const responseType = feed.type === undefined
+    ? sendToNewMembers ? GROUP_NOTICE_TYPE_NEW_MEMBERS : GROUP_NOTICE_TYPE_NORMAL
+    : finiteNumber(feed.type, `feed ${feed.fid}.type`);
+
+  return {
+    notice_id: feed.fid,
+    sender_id: finiteNumber(feed.u, `feed ${feed.fid}.u`),
+    publish_time: finiteNumber(feed.pubt, `feed ${feed.fid}.pubt`),
+    message: {
+      text: feed.msg.text,
+      image,
+      images: image,
+    },
+    settings: feed.settings,
+    read_num: finiteNumber(feed.read_num, `feed ${feed.fid}.read_num`),
+    type: responseType,
+    pinned: feed.pinned === undefined ? 0 : finiteNumber(feed.pinned, `feed ${feed.fid}.pinned`),
+    send_to_new_members: sendToNewMembers || responseType === GROUP_NOTICE_TYPE_NEW_MEMBERS,
+  };
+}
+
+/** Merge QQ's regular (`feeds`) and new-member (`inst`) announcement lists. */
+export function mapGroupNoticeResponse(ret: WebApiGroupNoticeRet): WebNoticeInfo[] {
+  if (ret.ec !== 0) {
+    throw new Error(`获取公告失败: ec=${ret.ec}, em=${ret.em ?? 'missing'}`);
+  }
+
+  const notices: WebNoticeInfo[] = [];
+  const indexByNoticeId = new Map<string, number>();
+  const append = (collection: WebApiGroupNoticeCollection | undefined, sendToNewMembers: boolean, field: 'feeds' | 'inst') => {
+    for (const feed of collectionValues(collection, field)) {
+      const mapped = mapGroupNoticeFeed(feed, sendToNewMembers);
+      const existingIndex = indexByNoticeId.get(mapped.notice_id);
+      if (existingIndex === undefined) {
+        indexByNoticeId.set(mapped.notice_id, notices.length);
+        notices.push(mapped);
+      } else if (sendToNewMembers) {
+        // If QQ returns the same item in both collections, `inst` is the
+        // authoritative signal that it targets new members.
+        notices[existingIndex] = mapped;
+      }
+    }
+  };
+
+  append(ret.feeds, false, 'feeds');
+  append(ret.inst, true, 'inst');
+  return notices;
 }
 
 // ─────────────── private helpers (cookie acquisition) ───────────────
@@ -227,17 +341,22 @@ export class WebApi {
     return honorInfo;
   }
 
+  // ─────────────── group sign-in (打卡) ───────────────
+
+  /** Today's group sign-in list via qun.qq.com. [] when the group has no
+   *  sign-ins; THROWS on transport / auth failure (caller maps to failed). */
+  async getSignedList(groupId: number): Promise<SignedListMember[]> {
+    const bridge = asBridge(this.ctx);
+    const cookieObject = await getCookies(bridge, 'qun.qq.com');
+    return getDaySignedListWebAPI(cookieObject, groupId.toString(), bridge.identity.uin.toString());
+  }
+
   // ─────────────── group notice ───────────────
 
   async sendNotice(
     groupId: number,
     content: string,
-    options?: {
-      image?: string;  // local path, http URL, or undefined (text-only)
-      pinned?: number;
-      type?: number;
-      confirm_required?: number;
-    },
+    options?: SendNoticeOptions,
   ): Promise<SetNoticeRetSuccess> {
     const bridge = asBridge(this.ctx);
     const groupCode = groupId.toString();
@@ -255,29 +374,30 @@ export class WebApi {
       const imageBuffer = Buffer.from(loaded.bytes);
 
       const picInfo = await uploadGroupNoticeImage(cookieObject, imageBuffer);
-      if (picInfo) {
-        picId = picInfo.id;
-        imgWidth = picInfo.width;
-        imgHeight = picInfo.height;
-      }
+      picId = picInfo.id;
+      imgWidth = picInfo.width;
+      imgHeight = picInfo.height;
     }
 
     const ret = await setGroupNoticeWebAPI(
       cookieObject,
       groupCode,
       content,
-      options?.pinned ?? 0,
-      options?.type ?? 1,
-      1,
-      1,
-      options?.confirm_required ?? 1,
-      picId,
-      imgWidth,
-      imgHeight,
+      {
+        pinned: options?.pinned,
+        type: options?.type,
+        sendToNewMembers: options?.sendToNewMembers,
+        isShowEditCard: options?.isShowEditCard,
+        tipWindowType: options?.tipWindowType,
+        confirmRequired: options?.confirmRequired,
+        picId,
+        imgWidth,
+        imgHeight,
+      },
     );
 
-    if (!ret || ret.ec !== 0) {
-      throw new Error(`设置群公告失败: ${ret?.em || '未知错误(Cookie过期或权限不足)'}`);
+    if (ret.ec !== 0) {
+      throw new Error(`设置群公告失败: ec=${ret.ec ?? 'missing'}, em=${ret.em ?? 'missing'}`);
     }
 
     return ret;
@@ -289,39 +409,7 @@ export class WebApi {
     const cookieObject = await getCookies(bridge, 'qun.qq.com');
 
     const ret = await getGroupNoticeWebAPI(cookieObject, groupCode);
-    if (!ret) {
-      throw new Error('获取公告失败');
-    }
-
-    const retNotices: WebNoticeInfo[] = [];
-
-    if (ret.feeds) {
-      for (const key in ret.feeds) {
-        const feed = ret.feeds[key];
-        if (!feed) continue;
-
-        const image = feed.msg?.pics?.map((pic) => ({
-          id: pic.id,
-          height: pic.h,
-          width: pic.w,
-        })) || [];
-
-        retNotices.push({
-          notice_id: feed.fid,
-          sender_id: feed.u,
-          publish_time: feed.pubt,
-          message: {
-            text: feed.msg?.text || '',
-            image,
-            images: image,
-          },
-          settings: feed.settings,
-          read_num: feed.read_num,
-        });
-      }
-    }
-
-    return retNotices;
+    return mapGroupNoticeResponse(ret);
   }
 
   async deleteNotice(groupId: number, fid: string): Promise<boolean> {
@@ -329,5 +417,16 @@ export class WebApi {
     const groupCode = groupId.toString();
     const cookieObject = await getCookies(bridge, 'qun.qq.com');
     return await deleteGroupNoticeHttp(cookieObject, groupCode, fid);
+  }
+
+  // ─────────────── friend dress (好友装扮) ───────────────
+
+  /** 查某人正在用的好友装扮（挂件/名片/来电/输入状态等）。走 vip.qq.com 域，
+   *  纯 cookie 鉴权、抓 SSR HTML。「查到但没装扮」返回空 items；网络/未登录态/
+   *  风控/页面改版/串号数据抛 FriendDressError（kind 区分具体环节）。 */
+  async getFriendDress(targetUin: number): Promise<WebFriendDress> {
+    const bridge = asBridge(this.ctx);
+    const cookieObject = await getCookies(bridge, 'vip.qq.com');
+    return getFriendDressWebAPI(cookieObject, targetUin.toString());
   }
 }

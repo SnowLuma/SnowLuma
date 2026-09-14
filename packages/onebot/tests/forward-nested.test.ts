@@ -17,6 +17,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { BridgeInterface } from '../../src/bridge/bridge-interface';
 import type { OneBotInstanceContext } from '../src/instance-context';
 import {
+  forwardSingleMessage,
   sendGroupForwardMessage,
   sendPrivateForwardMessage,
 } from '../src/modules/message-actions';
@@ -33,6 +34,7 @@ function fakeBridge(overrides: Partial<BridgeInterface> = {}): BridgeInterface {
 function makeCtx(bridge: BridgeInterface): OneBotInstanceContext {
   return {
     uin: '10001',
+    selfId: 10001,
     bridge,
     messageStore: { findEvent: () => null } as any,
     cacheMessageMeta: vi.fn(),
@@ -94,6 +96,31 @@ describe('forward — nested {type:"node"} content', () => {
 
     expect(result.forwardId).toBe('OUTER_RESID');
     expect(sendGroupMessage).toHaveBeenCalledOnce();
+  });
+
+  it('threads an explicit data.time onto the node payload, leaving absent ones for the default (#209)', async () => {
+    const uploadForwardNodes = vi.fn(async (_nodes: any[], _groupId?: number, _userId?: number) => 'RESID');
+    const sendGroupMessage = vi.fn(async () => ({
+      messageId: 1, sequence: 100, clientSequence: 0, random: 1, timestamp: 1700000000,
+    }));
+
+    const bridge = fakeBridge({ apis: { message: { sendGroup: sendGroupMessage }, forward: { upload: uploadForwardNodes } } } as any);
+    const ctx = makeCtx(bridge);
+
+    const messages = [
+      { type: 'node', data: { user_id: 111, nickname: 'a', time: 1600000000, content: [{ type: 'text', data: { text: 'hi' } }] } },
+      { type: 'node', data: { user_id: 222, nickname: 'b', content: [{ type: 'text', data: { text: 'yo' } }] } },
+      { type: 'node', data: { user_id: 333, nickname: 'c', time: 1700000000000, content: [{ type: 'text', data: { text: 'ms' } }] } }, // ms → out of uint32 range
+      { type: 'node', data: { user_id: 444, nickname: 'd', time: -5, content: [{ type: 'text', data: { text: 'neg' } }] } },
+    ];
+
+    await sendGroupForwardMessage(ctx, 12345, messages as any);
+
+    const [nodes] = uploadForwardNodes.mock.calls[0]!;
+    expect((nodes as any[])[0].time).toBe(1600000000); // explicit seconds carried through
+    expect((nodes as any[])[1].time).toBeUndefined();   // absent → default to now
+    expect((nodes as any[])[2].time).toBeUndefined();   // millisecond input rejected (uint32 overflow guard)
+    expect((nodes as any[])[3].time).toBeUndefined();   // negative rejected → default to now
   });
 
   it('private: nested forward threads userId into uploadForwardNodes', async () => {
@@ -183,14 +210,240 @@ describe('forward — nested {type:"node"} content', () => {
     expect((nodes as any[])[1]!.elements).toEqual([{ type: 'text', text: 'two' }]);
   });
 
-  it('mixed content (some {type:"node"} + non-node) falls back to flat parsing — does NOT recurse', async () => {
+  it('rejects video with hidden siblings before uploading a forward', async () => {
+    const uploadForwardNodes = vi.fn(async () => 'RES');
+    const sendGroupMessage = vi.fn();
+    const bridge = fakeBridge({
+      apis: { message: { sendGroup: sendGroupMessage }, forward: { upload: uploadForwardNodes } },
+    } as any);
+    const ctx = makeCtx(bridge);
+
+    await expect(sendGroupForwardMessage(ctx, 12345, [{
+      type: 'node',
+      data: {
+        user_id: 111,
+        nickname: 'mixed-video',
+        content: [
+          { type: 'video', data: { file: 'https://example.com/video.mp4' } },
+          { type: 'text', data: { text: 'must not survive bot forwarding' } },
+        ],
+      },
+    }] as any)).rejects.toMatchObject({
+      code: 'UNSENDABLE_TYPE',
+      elementType: 'video',
+    });
+
+    expect(uploadForwardNodes).not.toHaveBeenCalled();
+    expect(sendGroupMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects hidden siblings before forwarding a cached video message', async () => {
+    const sendGroupMessage = vi.fn();
+    const findVideo = vi.fn();
+    const bridge = fakeBridge({ apis: { message: { sendGroup: sendGroupMessage } } } as any);
+    const ctx = makeCtx(bridge);
+    (ctx as any).messageStore = {
+      findEvent: () => ({
+        message: [
+          { type: 'video', data: { file: 'cached-video-id' } },
+          { type: 'text', data: { text: 'must not survive bot forwarding' } },
+        ],
+      }),
+    };
+    (ctx as any).mediaStore = { findVideo };
+
+    await expect(forwardSingleMessage(ctx, 77, { groupId: 12345 }))
+      .rejects.toMatchObject({
+        code: 'UNSENDABLE_TYPE',
+        elementType: 'video',
+      });
+
+    expect(findVideo).not.toHaveBeenCalled();
+    expect(sendGroupMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown top-level entry before uploading valid siblings', async () => {
+    const uploadForwardNodes = vi.fn(async () => 'RES');
+    const sendGroupMessage = vi.fn();
+    const bridge = fakeBridge({
+      apis: { message: { sendGroup: sendGroupMessage }, forward: { upload: uploadForwardNodes } },
+    } as any);
+    const ctx = makeCtx(bridge);
+    const messages = [
+      {
+        type: 'node',
+        data: {
+          user_id: 111,
+          nickname: 'valid',
+          content: [{ type: 'text', data: { text: 'must not upload' } }],
+        },
+      },
+      { type: 'surprise', data: { content: 'silently dropped before' } },
+    ];
+
+    await expect(sendGroupForwardMessage(ctx, 12345, messages as any)).rejects.toMatchObject({
+      code: 'UNKNOWN_TYPE',
+      elementType: 'surprise',
+    });
+    expect(uploadForwardNodes).not.toHaveBeenCalled();
+    expect(sendGroupMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects object-valued node metadata before uploading', async () => {
+    const uploadForwardNodes = vi.fn(async () => 'RES');
+    const sendGroupMessage = vi.fn();
+    const bridge = fakeBridge({
+      apis: { message: { sendGroup: sendGroupMessage }, forward: { upload: uploadForwardNodes } },
+    } as any);
+    const ctx = makeCtx(bridge);
+
+    await expect(sendGroupForwardMessage(ctx, 12345, [{
+      type: 'node',
+      data: {
+        user_id: { accidental: 111 },
+        nickname: 'invalid',
+        content: [{ type: 'text', data: { text: 'must not upload' } }],
+      },
+    }] as any)).rejects.toMatchObject({
+      code: 'INVALID_FIELD',
+      elementType: 'node',
+      field: 'user_id',
+    });
+    expect(uploadForwardNodes).not.toHaveBeenCalled();
+    expect(sendGroupMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects a cached message node with no valid sender instead of dropping it', async () => {
+    const uploadForwardNodes = vi.fn(async () => 'RES');
+    const sendGroupMessage = vi.fn();
+    const bridge = fakeBridge({
+      apis: { message: { sendGroup: sendGroupMessage }, forward: { upload: uploadForwardNodes } },
+    } as any);
+    const ctx = makeCtx(bridge);
+    (ctx as any).messageStore = {
+      findEvent: () => ({
+        user_id: 0,
+        message_type: 'group',
+        message: [{ type: 'text', data: { text: 'cached' } }],
+        sender: { nickname: 'missing-id' },
+      }),
+    };
+
+    await expect(sendGroupForwardMessage(ctx, 12345, [
+      { type: 'node', data: { id: 7 } },
+      { type: 'node', data: { user_id: 222, content: [{ type: 'text', data: { text: 'sibling' } }] } },
+    ] as any)).rejects.toMatchObject({
+      code: 'INVALID_FIELD',
+      elementType: 'node',
+      field: 'user_id',
+    });
+    expect(uploadForwardNodes).not.toHaveBeenCalled();
+    expect(sendGroupMessage).not.toHaveBeenCalled();
+  });
+
+  it('resolves a cached node by a signed negative OneBot message_id', async () => {
+    const uploadForwardNodes = vi.fn(async () => 'RES');
+    const sendGroupMessage = vi.fn(async () => ({
+      messageId: 1, sequence: 1, clientSequence: 0, random: 1, timestamp: 1,
+    }));
+    const findEvent = vi.fn((id: number) => id === -123 ? ({
+      user_id: 111,
+      message_id: -123,
+      message_seq: 42,
+      message_type: 'group',
+      group_id: 12345,
+      time: 1700000000,
+      message: [{ type: 'text', data: { text: 'cached negative id' } }],
+      sender: { nickname: 'alice' },
+    }) : null);
+    const bridge = fakeBridge({
+      apis: { message: { sendGroup: sendGroupMessage }, forward: { upload: uploadForwardNodes } },
+    } as any);
+    const ctx = makeCtx(bridge);
+    (ctx as any).messageStore = { findEvent };
+
+    await sendGroupForwardMessage(ctx, 12345, [
+      { type: 'node', data: { id: -123 } },
+    ] as any);
+
+    expect(findEvent).toHaveBeenCalledWith(-123);
+    const [nodes] = uploadForwardNodes.mock.calls[0]!;
+    expect((nodes as any[])[0]).toMatchObject({
+      userUin: 111,
+      msgId: -123,
+      elements: [{ type: 'text', text: 'cached negative id' }],
+    });
+  });
+
+  it('[#372] empty group card does not replace a cached sender nickname with the QQ number', async () => {
+    // Group events always store sender.card as "" when the member has no
+    // card. `??` treats that empty string as present and then
+    // `nickname || String(userUin)` collapses the display name to the QQ
+    // number — the get_forward_msg symptom in #372.
+    const uploadForwardNodes = vi.fn(async () => 'RES');
+    const sendGroupMessage = vi.fn(async () => ({
+      messageId: 1, sequence: 1, clientSequence: 0, random: 1, timestamp: 1,
+    }));
+    const findEvent = vi.fn((id: number) => id === 7 ? ({
+      user_id: 22222,
+      message_id: 7,
+      message_seq: 42,
+      message_type: 'group',
+      group_id: 12345,
+      time: 1700000000,
+      message: [{ type: 'text', data: { text: 'cached' } }],
+      sender: { user_id: 22222, nickname: 'alice', card: '' },
+    }) : id === 8 ? ({
+      user_id: 33333,
+      message_id: 8,
+      message_seq: 43,
+      message_type: 'group',
+      group_id: 12345,
+      time: 1700000000,
+      message: [{ type: 'text', data: { text: 'nameless' } }],
+      sender: { user_id: 33333, nickname: '', card: '' },
+    }) : null);
+    const bridge = fakeBridge({
+      apis: { message: { sendGroup: sendGroupMessage }, forward: { upload: uploadForwardNodes } },
+    } as any);
+    const ctx = makeCtx(bridge);
+    (ctx as any).messageStore = { findEvent };
+
+    await sendGroupForwardMessage(ctx, 12345, [
+      { type: 'node', data: { id: 7, nickname: 'node-override' } },
+      { type: 'node', data: { id: 8, nickname: 'node-fallback' } },
+    ] as any);
+
+    const [nodes] = uploadForwardNodes.mock.calls[0]!;
+    expect((nodes as any[])[0]).toMatchObject({ userUin: 22222, nickname: 'alice' });
+    expect((nodes as any[])[1]).toMatchObject({ userUin: 33333, nickname: 'node-fallback' });
+  });
+
+  it('reports a missing cached message_id as caller-invalid before upload', async () => {
+    const uploadForwardNodes = vi.fn(async () => 'RES');
+    const sendGroupMessage = vi.fn();
+    const bridge = fakeBridge({
+      apis: { message: { sendGroup: sendGroupMessage }, forward: { upload: uploadForwardNodes } },
+    } as any);
+    const ctx = makeCtx(bridge);
+
+    await expect(sendGroupForwardMessage(ctx, 12345, [
+      { type: 'node', data: { id: -404 } },
+    ] as any)).rejects.toMatchObject({
+      code: 'INVALID_FIELD',
+      elementType: 'node',
+      field: 'message_id',
+    });
+    expect(uploadForwardNodes).not.toHaveBeenCalled();
+    expect(sendGroupMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects mixed node/non-node content instead of partially dropping the node', async () => {
     // Recursion only kicks in when *all* content entries are nodes —
     // mixed content is ambiguous (do the non-node parts belong to the
     // outer node or are they parallel siblings?), so we keep the legacy
-    // behaviour and let parseMessage handle it. Non-node parts come
-    // through, node parts get parsed via `case 'node':` and then
-    // dropped by element-builder. A user who wants nested forward
-    // should pass a pure node list.
+    // behaviour is ambiguous, so reject it before upload. A user who wants a
+    // nested forward must pass a pure node list.
     const uploadForwardNodes = vi.fn(async (_nodes: any[], _groupId?: number, _userId?: number) => 'RES');
     const sendGroupMessage = vi.fn(async () => ({
       messageId: 1, sequence: 100, clientSequence: 0, random: 1, timestamp: 0,
@@ -209,12 +462,34 @@ describe('forward — nested {type:"node"} content', () => {
       },
     }];
 
+    await expect(sendGroupForwardMessage(ctx, 12345, messages as any)).rejects.toMatchObject({
+      code: 'UNSENDABLE_TYPE',
+      elementType: 'node',
+    });
+    expect(uploadForwardNodes).not.toHaveBeenCalled();
+    expect(sendGroupMessage).not.toHaveBeenCalled();
+  });
+
+  it('[#203] node with user_id "0" or missing falls back to the bot self_id', async () => {
+    // Upstream frameworks (AstrBot etc.) send fake forward nodes with
+    // user_id "0" or omit it; the protocol端 knows self_id, so default to it
+    // instead of rejecting (matches NapCat/LLBot + the core builder).
+    const uploadForwardNodes = vi.fn(async (_nodes: any[]) => 'RESID');
+    const sendGroupMessage = vi.fn(async () => ({
+      messageId: 1, sequence: 100, clientSequence: 0, random: 1, timestamp: 1700000000,
+    }));
+    const bridge = fakeBridge({ apis: { message: { sendGroup: sendGroupMessage }, forward: { upload: uploadForwardNodes } } } as any);
+    const ctx = makeCtx(bridge);
+
+    const messages = [
+      { type: 'node', data: { user_id: '0', nickname: 'PixivBot', content: [{ type: 'text', data: { text: 'a' } }] } },
+      { type: 'node', data: { nickname: 'PixivBot', content: [{ type: 'text', data: { text: 'b' } }] } }, // user_id omitted
+    ];
+
     await sendGroupForwardMessage(ctx, 12345, messages as any);
-    expect(uploadForwardNodes).toHaveBeenCalledOnce();
-    // Only the text element survives — the legacy "node MessageElement"
-    // that parseMessage produces is opaque to the element-builder.
     const [nodes] = uploadForwardNodes.mock.calls[0]!;
-    const elements = (nodes as any[])[0]!.elements;
-    expect(elements.some((e: any) => e.type === 'text' && e.text === 'a sibling')).toBe(true);
+    expect((nodes as any[])[0].userUin).toBe(10001);       // "0" → self_id
+    expect((nodes as any[])[0].nickname).toBe('PixivBot');  // custom nickname preserved
+    expect((nodes as any[])[1].userUin).toBe(10001);       // omitted → self_id
   });
 });

@@ -41,12 +41,25 @@ describe('SetAddRequest namespace', () => {
     expect(env.body?.accept).toBe(2);
   });
 
-  it('defaults reason to empty string', async () => {
+  it('writes a space when the reason is empty so field 4 stays present', async () => {
     const deps = makeDeps();
-    await SetAddRequest.invoke(deps, { groupId: 1, sequence: 1, eventType: 0, approve: true });
+    await SetAddRequest.invoke(deps, { groupId: 1, sequence: 1, eventType: 1, approve: true });
     const [, bytes] = deps.sendRawPacket.mock.calls[0]!;
     const env = protobuf_decode<OidbBase<OidbGroupRequestAction>>(bytes);
-    // proto3 empty string omitted on the wire.
-    expect(env.body?.body?.message ?? '').toBe('');
+    expect(env.body?.body?.message).toBe(' ');
+    const arr = Array.from(bytes);
+    const hasMessageField = arr.some((_, i) => arr[i] === 0x22 && arr[i + 1] === 0x01 && arr[i + 2] === 0x20);
+    expect(hasMessageField).toBe(true);
+  });
+
+  it('forwards operateTransInfo as body field 7', async () => {
+    const deps = makeDeps();
+    const operateTransInfo = Uint8Array.from([0x01, 0x02, 0x03]);
+    await SetAddRequest.invoke(deps, {
+      groupId: 1, sequence: 1, eventType: 1, approve: true, reason: 'ok', operateTransInfo,
+    });
+    const [, bytes] = deps.sendRawPacket.mock.calls[0]!;
+    const env = protobuf_decode<OidbBase<OidbGroupRequestAction>>(bytes);
+    expect(env.body?.body?.operateTransInfo).toEqual(operateTransInfo);
   });
 });

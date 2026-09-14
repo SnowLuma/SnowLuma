@@ -1,194 +1,192 @@
-import { WebSocket, WebSocketServer } from '@snowluma/websocket';
-import type { IncomingMessage } from 'http';
-import { createLogger, type Logger } from '@snowluma/common/logger';
+import { WebSocketServer } from '@snowluma/websocket';
+import { createLogger } from '@snowluma/common/logger';
+import type { IncomingMessage } from 'node:http';
+import type { DispatchPayload } from '../event-filter';
+import type { JsonObject, WsServerNetwork } from '../types';
+import { IOneBotNetworkAdapter, type AdapterStatus, type NetworkAdapterContext } from './adapter';
+import { normalizePath, parseRequestPath } from './utils';
 import {
-  pickDispatchJson,
-  resolveReportOptions,
-  shapeEventForAdapter,
-  type DispatchPayload,
-  type EventReportOptions,
-} from '../event-filter';
-import type { JsonObject, WsRole, WsServerNetwork } from '../types';
-import { IOneBotNetworkAdapter, NetworkReloadType, type AdapterStatus, type NetworkAdapterContext } from './adapter';
-import { isAuthorized, normalizePath, parseRequestPath, rawDataToString, safeClose, safeSend } from './utils';
+  WsServerConnections,
+  type WsServerConnectionConfig,
+} from './ws-server-connections';
 
 const moduleLog = createLogger('OneBot.WS-Server');
-
-interface ForwardConn {
-  socket: WebSocket;
-  role: WsRole;
-  options: EventReportOptions;
-}
 
 export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
   private wss: WebSocketServer | null = null;
   private listening = false;
-  private connections = new Map<WebSocket, ForwardConn>();
-  private options: EventReportOptions;
-  private readonly log: Logger;
+  private closePromise: Promise<void> | null = null;
+  private readonly connections: WsServerConnections;
 
   constructor(name: string, config: WsServerNetwork, ctx: NetworkAdapterContext) {
-    super(name, config, ctx);
-    this.options = resolveReportOptions(config);
-    const uinNum = Number.parseInt(ctx.uin, 10);
-    this.log = Number.isFinite(uinNum) && uinNum > 0 ? moduleLog.child({ uin: uinNum }) : moduleLog;
+    super(name, config, ctx, moduleLog);
+    this.connections = new WsServerConnections(name, standaloneConnectionConfig(config), ctx, this.log, {
+      frame: (event, options) => this.metaFrame(event, options),
+      bootstrap: (options) => this.bootstrapMetaFrames(options),
+    });
   }
 
-  override get isActive(): boolean {
-    return this.isEnabled;
-  }
-
-  open(): void {
-    if (this.isEnabled) return;
+  async open(): Promise<void> {
+    if (this.isEnabled && this.listening) return;
     if (this.config.enabled === false) return;
-    this.startServer();
+    if (this.wss) throw new Error(`WebSocket adapter [${this.name}] still owns a previous server`);
+    await this.startServer();
     this.isEnabled = true;
+    this.clearApplyFailure();
   }
 
-  close(): void {
-    if (!this.isEnabled && this.connections.size === 0 && !this.wss) return;
-    // Final lifecycle broadcast before tearing down so attached event clients
-    // see the disable transition.
-    const lifecycle = this.ctx.buildLifecycleEvent('disable');
-    for (const conn of this.connections.values()) {
-      if (conn.role === 'Api') continue;
-      const shaped = shapeEventForAdapter(lifecycle, conn.options);
-      if (!shaped) continue;
-      safeSend(conn.socket, JSON.stringify(shaped));
-    }
+  async close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
+    if (
+      !this.isEnabled &&
+      this.connections.connectionCount === 0 &&
+      !this.wss &&
+      !this.connections.hasInFlightActions
+    ) return;
+    const wasEnabled = this.isEnabled;
+    const wasListening = this.listening;
+    const wasAcceptingActions = this.connections.isAcceptingActions;
 
     this.isEnabled = false;
     this.listening = false;
-    for (const ws of [...this.connections.keys()]) safeClose(ws);
-    this.connections.clear();
-    this.wss?.close();
-    this.wss = null;
+    const connectionDrain = this.connections.closeConnections();
+    const wss = this.wss;
+    const releaseResult: Promise<{ error?: Error }> = wss
+      ? new Promise<{ error?: Error }>((resolve) => {
+        wss.close((error) => resolve(error && !isAlreadyClosedError(error) ? { error } : {}));
+      })
+      : Promise.resolve({});
+    const attempt = (async () => {
+      await connectionDrain;
+      const release = await releaseResult;
+      if (release.error) throw release.error;
+    })();
+    this.closePromise = attempt;
+    try {
+      await attempt;
+      if (wss && this.wss === wss) this.wss = null;
+    } catch (error) {
+      // A failed close callback leaves release ambiguous. Retain the server
+      // reference and active binding state so a later shutdown can retry.
+      this.isEnabled = wasEnabled;
+      this.listening = wasListening;
+      if (wasAcceptingActions) this.connections.startAccepting();
+      throw error;
+    } finally {
+      this.closePromise = null;
+    }
   }
 
   override describeStatus(): AdapterStatus {
     if (!this.isEnabled) return { name: this.name, kind: 'wsServer', status: 'disabled', detail: '未启用' };
     if (!this.listening) return { name: this.name, kind: 'wsServer', status: 'down', detail: '未监听（端口被占用？）' };
-    return { name: this.name, kind: 'wsServer', status: 'ok', detail: `${this.connections.size} 个客户端` };
+    return {
+      name: this.name,
+      kind: 'wsServer',
+      status: 'ok',
+      detail: `${this.connections.connectionCount} 个客户端`,
+    };
   }
 
-  async reload(next: WsServerNetwork): Promise<NetworkReloadType> {
-    const prevSig = bindingSignature(this.config);
-    const wasEnabled = this.isEnabled;
-    const willEnable = next.enabled !== false;
+  protected override bindingSignature(config: WsServerNetwork): string {
+    return `${config.host ?? '0.0.0.0'}:${config.port}${normalizePath(config.path)}#${config.role ?? 'auto'}#${config.accessToken ?? ''}`;
+  }
 
-    this.config = structuredClone(next);
-    this.options = resolveReportOptions(next);
-    for (const conn of this.connections.values()) conn.options = this.options;
-
-    const sigChanged = prevSig !== bindingSignature(next);
-    if (sigChanged && wasEnabled) {
-      this.close();
-      if (willEnable) {
-        this.open();
-        return NetworkReloadType.Reopened;
-      }
-      return NetworkReloadType.Closed;
-    }
-    if (!wasEnabled && willEnable) {
-      this.open();
-      return NetworkReloadType.Opened;
-    }
-    if (wasEnabled && !willEnable) {
-      this.close();
-      return NetworkReloadType.Closed;
-    }
-    return NetworkReloadType.Normal;
+  protected override onConfigReplaced(next: WsServerNetwork): void {
+    this.connections.updateConfig(standaloneConnectionConfig(next));
   }
 
   onEvent(_event: JsonObject, payload: DispatchPayload): void {
-    if (!this.isEnabled || this.connections.size === 0) return;
-    for (const conn of this.connections.values()) {
-      if (conn.role !== 'Event' && conn.role !== 'Universal') continue;
-      const json = pickDispatchJson(payload, conn.options);
-      if (json === null) continue;
-      safeSend(conn.socket, json);
-    }
+    if (!this.isEnabled) return;
+    this.connections.onEvent(payload);
   }
 
-  private startServer(): void {
-    const wss = new WebSocketServer({
-      host: this.config.host ?? '0.0.0.0',
-      port: this.config.port,
-      path: this.config.path ?? '/',
-    });
-    this.wss = wss;
+  private startServer(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let wss: WebSocketServer;
+      try {
+        wss = new WebSocketServer({
+          host: this.config.host ?? '0.0.0.0',
+          port: this.config.port,
+          verifyClient: (
+            { req }: { req: IncomingMessage },
+            done: (allow: boolean, code?: number, message?: string) => void,
+          ) => {
+            const requestPath = parseRequestPath(req.url ?? '/');
+            if (!this.connections.acceptsUpgradePath(requestPath)) {
+              this.log.debug('[%s] rejected unknown WebSocket path %s', this.name, requestPath);
+              done(false, 400, 'Bad path for WebSocket');
+              return;
+            }
+            if (!this.connections.authorizeUpgrade(req)) {
+              done(false, 401, 'Unauthorized');
+              return;
+            }
+            done(true);
+          },
+        });
+      } catch (error) {
+        this.recordTransportFailure(error);
+        reject(error);
+        return;
+      }
+      this.wss = wss;
+      let opening = true;
 
-    wss.on('listening', () => {
-      this.listening = true;
-      this.log.success(
-        '[%s] listening %s:%d%s',
-        this.name,
-        this.config.host ?? '0.0.0.0',
-        this.config.port,
-        this.config.path ?? '/',
-      );
-    });
+      wss.once('listening', () => {
+        opening = false;
+        if (this.wss !== wss || this.closePromise) {
+          wss.close();
+          reject(new Error(`WebSocket adapter [${this.name}] was closed while binding`));
+          return;
+        }
+        this.listening = true;
+        this.isEnabled = true;
+        this.connections.startAccepting();
+        this.log.success(
+          '[%s] listening %s:%d%s',
+          this.name,
+          this.config.host ?? '0.0.0.0',
+          this.config.port,
+          this.config.path ?? '/',
+        );
+        resolve();
+      });
 
-    wss.on('error', (err: Error) => {
-      this.listening = false;
-      this.log.warn('[%s] server error: %s', this.name, err instanceof Error ? err.message : String(err));
-    });
+      wss.on('error', (error: Error) => {
+        if (this.wss === wss) {
+          this.listening = false;
+          this.isEnabled = false;
+          this.connections.stopAccepting();
+          this.recordTransportFailure(error);
+          if (opening) this.wss = null;
+        }
+        this.log.error('[%s] server error: %s', this.name, error instanceof Error ? error.message : String(error));
+        if (opening) {
+          opening = false;
+          reject(error);
+        }
+      });
 
-    wss.on('connection', (socket: WebSocket, request: IncomingMessage) => this.onConnection(socket, request));
+      wss.on('connection', (socket, request) => this.connections.accept(socket, request));
+    });
   }
 
-  private onConnection(socket: WebSocket, request: IncomingMessage): void {
-    if (!isAuthorized(request, this.config.accessToken ?? '')) {
-      safeClose(socket, 1008, 'invalid access token');
-      return;
-    }
-
-    const role = this.config.role ?? classifyForwardRole(request);
-    const conn: ForwardConn = { socket, role, options: this.options };
-    this.connections.set(socket, conn);
-
-    socket.on('message', (raw: Buffer) => {
-      void this.handleApiMessage(socket, role, raw);
-    });
-    socket.on('close', () => this.connections.delete(socket));
-    socket.on('error', (err: Error) => {
-      this.log.warn('[%s] socket error: %s', this.name, err instanceof Error ? err.message : String(err));
-    });
-
-    if (role === 'Event' || role === 'Universal') {
-      this.sendBootstrapMetaEvents(socket);
-    }
+  /** Kept as the adapter-level lifecycle test seam. */
+  protected get acceptingActions(): boolean {
+    return this.connections.isAcceptingActions;
   }
 
-  private async handleApiMessage(socket: WebSocket, role: WsRole, raw: Buffer | string): Promise<void> {
-    if (role !== 'Api' && role !== 'Universal') return;
-    const text = rawDataToString(raw);
-    if (!text) return;
-    const response = await this.ctx.api.processRequest(text);
-    safeSend(socket, response);
-  }
-
-  private sendBootstrapMetaEvents(socket: WebSocket): void {
-    const events = [
-      this.ctx.buildLifecycleEvent('connect'),
-      this.ctx.buildLifecycleEvent('enable'),
-      this.ctx.buildHeartbeatEvent(),
-    ];
-    for (const event of events) {
-      const shaped = shapeEventForAdapter(event, this.options);
-      if (!shaped) continue;
-      safeSend(socket, JSON.stringify(shaped));
-    }
+  /** Kept as the adapter-level lifecycle test seam. */
+  protected trackInboundAction(start: () => Promise<void>): void {
+    this.connections.trackInboundAction(start);
   }
 }
 
-function classifyForwardRole(request: IncomingMessage): WsRole {
-  const path = parseRequestPath(request.url ?? '/');
-  if (path.endsWith('/api')) return 'Api';
-  if (path.endsWith('/event')) return 'Event';
-  return 'Universal';
+function isAlreadyClosedError(error: Error): boolean {
+  return (error as NodeJS.ErrnoException).code === 'ERR_SERVER_NOT_RUNNING';
 }
 
-function bindingSignature(net: WsServerNetwork): string {
-  return `${net.host ?? '0.0.0.0'}:${net.port}${normalizePath(net.path)}#${net.role ?? 'auto'}#${net.accessToken ?? ''}`;
+function standaloneConnectionConfig(config: WsServerNetwork): WsServerConnectionConfig {
+  return { ...config, role: config.role ?? 'Universal' };
 }

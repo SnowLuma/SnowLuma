@@ -3,8 +3,7 @@
 // Symptom in the wild: bot called `send_private_msg` with a
 // `{type:'file', file_id}` segment; the OneBot module passed it
 // straight to `bridge.sendPrivateMessage(userId, [fileElement])`;
-// `buildSendElems` warned ("file send via elems[] is group-only")
-// and dropped it; the resulting wire send had 0 elems and the chat
+// `buildSendElems` used to warn and drop it; the resulting wire send had 0 elems and the chat
 // rendered "[空消息]".
 //
 // Fix: c2c file segments are split out at the OneBot layer in
@@ -60,7 +59,7 @@ describe('send_private_msg with {type:"file"} segment', () => {
 
     await sendPrivateMessage(ctx, 67890, [{
       type: 'file',
-      data: { file_id: 'uuid-abc', name: 'doc.txt', size: 123, md5: '00112233' },
+      data: { file_id: 'uuid-abc', name: 'doc.txt', size: 123, md5: '00112233445566778899aabbccddeeff' },
     }] as any, false);
 
     expect(sendC2cFileMessage).toHaveBeenCalledOnce();
@@ -74,8 +73,7 @@ describe('send_private_msg with {type:"file"} segment', () => {
       fileName: 'doc.txt',
       fileSize: 123,
     });
-    // md5 decoded from hex (4 bytes for '00112233')
-    expect(info.fileMd5).toEqual(Buffer.from('00112233', 'hex'));
+    expect(info.fileMd5).toEqual(Buffer.from('00112233445566778899aabbccddeeff', 'hex'));
   });
 
   it('file-only with just file_id hydrates fileName/size/md5 from the upload cache', async () => {
@@ -142,7 +140,13 @@ describe('send_private_msg with {type:"file"} segment', () => {
     const ctx = makeCtx(bridge);
 
     await sendPrivateMessage(ctx, 67890, [{
-      type: 'file', data: { file_id: 'uuid-x', name: 'inline.txt', size: 200, md5: '11223344', file_hash: 'inline-hash' },
+      type: 'file', data: {
+        file_id: 'uuid-x',
+        name: 'inline.txt',
+        size: 200,
+        md5: '11223344556677889900aabbccddeeff',
+        file_hash: 'inline-hash',
+      },
     }] as any, false);
 
     const [, , info] = sendC2cFileMessage.mock.calls[0]!;
@@ -151,7 +155,7 @@ describe('send_private_msg with {type:"file"} segment', () => {
       fileSize: 200,
       fileHash: 'inline-hash',
     });
-    expect(info.fileMd5).toEqual(Buffer.from('11223344', 'hex'));
+    expect(info.fileMd5).toEqual(Buffer.from('11223344556677889900aabbccddeeff', 'hex'));
   });
 
   it('mixed file + text splits across two sends (text first, file second)', async () => {
@@ -185,10 +189,7 @@ describe('send_private_msg with {type:"file"} segment', () => {
     expect(fileInfo).toMatchObject({ fileId: 'uuid-xyz', fileName: 'pkg.zip' });
   });
 
-  it('file segment without file_id is skipped (with a warn-level log)', async () => {
-    // OneBot11 file segments are upload-by-reference — without a
-    // file_id there's nothing to send. Previously these slipped
-    // through to the elems[] path and shipped empty messages.
+  it('rejects the whole message when a file segment has neither file_id nor url', async () => {
     const sendPrivateMessage_bridge = vi.fn(async (_uin: number, _elements: any[]) => goodReceipt);
     const sendC2cFileMessage = vi.fn();
     const bridge = fakeBridge({
@@ -198,13 +199,15 @@ describe('send_private_msg with {type:"file"} segment', () => {
     } as any);
     const ctx = makeCtx(bridge);
 
-    await sendPrivateMessage(ctx, 67890, [
+    await expect(sendPrivateMessage(ctx, 67890, [
       { type: 'text', data: { text: 'with bad file segment' } },
       { type: 'file', data: {} }, // no file_id
-    ] as any, false);
+    ] as any, false)).rejects.toMatchObject({
+      code: 'MISSING_FIELD',
+      elementType: 'file',
+    });
 
-    // Text still went out, file dropped (no c2c file call).
-    expect(sendPrivateMessage_bridge).toHaveBeenCalledOnce();
+    expect(sendPrivateMessage_bridge).not.toHaveBeenCalled();
     expect(sendC2cFileMessage).not.toHaveBeenCalled();
   });
 
@@ -226,5 +229,148 @@ describe('send_private_msg with {type:"file"} segment', () => {
     ] as any, false)).rejects.toThrow(/could not resolve uid/);
 
     expect(sendC2cFileMessage).not.toHaveBeenCalled();
+  });
+
+  it('does not send preceding text when a mixed file message cannot resolve uid', async () => {
+    const sendPrivateMessage_bridge = vi.fn(async () => goodReceipt);
+    const sendC2cFileMessage = vi.fn();
+    const bridge = fakeBridge({
+      apis: { message: { sendPrivate: sendPrivateMessage_bridge, sendC2cFile: sendC2cFileMessage } } as any,
+      resolveUserUid: vi.fn(async () => ''),
+      recallUploadedFile: vi.fn(() => undefined),
+    } as any);
+    const ctx = makeCtx(bridge);
+
+    await expect(sendPrivateMessage(ctx, 67890, [
+      { type: 'text', data: { text: 'must remain unsent' } },
+      { type: 'file', data: { file_id: 'uuid-orphan', name: 'x.txt' } },
+    ] as any, false)).rejects.toThrow(/could not resolve uid/);
+
+    expect(sendPrivateMessage_bridge).not.toHaveBeenCalled();
+    expect(sendC2cFileMessage).not.toHaveBeenCalled();
+  });
+
+  it('file segment with url uploads without publishing, then sends once with the cached metadata', async () => {
+    const uploadPrivate = vi.fn(async (_uid: number, _src: string, _name: string, _doUpload: boolean) =>
+      ({ fileId: 'auto-fid', fileHash: 'auto-hash' }));
+    const sendC2cFileMessage = vi.fn(async () => goodReceipt);
+    const bridge = fakeBridge({
+      apis: {
+        message: { sendPrivate: vi.fn(), sendC2cFile: sendC2cFileMessage },
+        groupFile: { uploadPrivate },
+      } as any,
+      resolveUserUid: vi.fn(async () => 'u_peer'),
+      recallUploadedFile: vi.fn(() => ({
+        fileId: 'auto-fid',
+        scope: 'private',
+        userId: 67890,
+        fileName: 'audio.wav',
+        fileSize: 3,
+        fileMd5: new Uint8Array(16),
+        fileSha1: new Uint8Array(20),
+        fileHash: 'auto-hash',
+        rememberedAt: Date.now(),
+      })),
+    } as any);
+    const ctx = makeCtx(bridge);
+
+    await sendPrivateMessage(ctx, 67890, [{
+      type: 'file', data: { file: '/tmp/audio.wav', name: 'audio.wav' },
+    }] as any, false);
+
+    expect(uploadPrivate).toHaveBeenCalledOnce();
+    const [uid, src, name, doUpload] = uploadPrivate.mock.calls[0]!;
+    expect(uid).toBe(67890);
+    expect(src).toBe('/tmp/audio.wav');
+    expect(name).toBe('audio.wav');
+    expect(doUpload).toBe(true);
+    expect(uploadPrivate).toHaveBeenCalledWith(67890, '/tmp/audio.wav', 'audio.wav', true, false);
+    expect(sendC2cFileMessage).toHaveBeenCalledOnce();
+    expect(sendC2cFileMessage).toHaveBeenCalledWith(67890, 'u_peer', expect.objectContaining({
+      fileId: 'auto-fid',
+      fileName: 'audio.wav',
+      fileSize: 3,
+      fileHash: 'auto-hash',
+    }));
+  });
+
+  it('surfaces a failed chat post after uploading a file source', async () => {
+    const uploadPrivate = vi.fn(async () => ({
+      fileId: 'uploaded-but-unsent',
+      fileHash: 'upload-hash',
+    }));
+    const sendC2cFile = vi.fn(async () => {
+      throw new Error('chat post rejected');
+    });
+    const bridge = fakeBridge({
+      apis: {
+        message: { sendPrivate: vi.fn(), sendC2cFile },
+        groupFile: { uploadPrivate },
+      } as any,
+      resolveUserUid: vi.fn(async () => 'u_peer'),
+      recallUploadedFile: vi.fn(() => ({
+        fileId: 'uploaded-but-unsent',
+        scope: 'private',
+        userId: 67890,
+        fileName: 'failed.txt',
+        fileSize: 3,
+        fileMd5: new Uint8Array(16),
+        fileSha1: new Uint8Array(20),
+        fileHash: 'upload-hash',
+        rememberedAt: Date.now(),
+      })),
+    } as any);
+    const ctx = makeCtx(bridge);
+
+    await expect(sendPrivateMessage(ctx, 67890, [{
+      type: 'file',
+      data: { file: 'base64://AQID', name: 'failed.txt' },
+    }] as any, false)).rejects.toThrow('chat post rejected');
+
+    expect(uploadPrivate).toHaveBeenCalledWith(
+      67890,
+      'base64://AQID',
+      'failed.txt',
+      true,
+      false,
+    );
+    expect(sendC2cFile).toHaveBeenCalledOnce();
+  });
+
+  it('percent-decodes a file:// URL basename when name is omitted (#354)', async () => {
+    const uploadPrivate = vi.fn(async () => ({ fileId: 'auto-fid', fileHash: 'auto-hash' }));
+    const sendC2cFileMessage = vi.fn(async () => goodReceipt);
+    const bridge = fakeBridge({
+      apis: {
+        message: { sendPrivate: vi.fn(), sendC2cFile: sendC2cFileMessage },
+        groupFile: { uploadPrivate },
+      } as any,
+      resolveUserUid: vi.fn(async () => 'u_peer'),
+      recallUploadedFile: vi.fn(() => ({
+        fileId: 'auto-fid',
+        scope: 'private',
+        userId: 67890,
+        fileName: '测试文件.xlsx',
+        fileSize: 3,
+        fileMd5: new Uint8Array(16),
+        fileSha1: new Uint8Array(20),
+        fileHash: 'auto-hash',
+        rememberedAt: Date.now(),
+      })),
+    } as any);
+    const ctx = makeCtx(bridge);
+
+    await sendPrivateMessage(ctx, 67890, [{
+      type: 'file',
+      data: { file: 'file:///D:/test/%E6%B5%8B%E8%AF%95%E6%96%87%E4%BB%B6.xlsx' },
+    }] as any, false);
+
+    expect(uploadPrivate).toHaveBeenCalledWith(
+      67890,
+      'file:///D:/test/%E6%B5%8B%E8%AF%95%E6%96%87%E4%BB%B6.xlsx',
+      '测试文件.xlsx',
+      true,
+      false,
+    );
   });
 });

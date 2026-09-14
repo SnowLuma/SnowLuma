@@ -12,10 +12,29 @@ export interface OperatorInfo {
   operatorField?: pb<1, OperatorField1>;
 }
 
+export interface FriendRemarkChangedTarget {
+  uin?: pb<3, uint_64>;
+  uid?: pb<7, string>;
+}
+
+export interface FriendRemarkChangedValue {
+  target?: pb<1, FriendRemarkChangedTarget>;
+  remark?: pb<2, string>;
+}
+
+/** Event0x210 / subType 364 — server-authoritative friend remark update. */
+export interface FriendRemarkChangedNotify {
+  change?:     pb<1, FriendRemarkChangedValue>;
+  updateTime?: pb<3, uint_32>;
+  nickname?:   pb<4, string>;
+  changeType?: pb<5, uint_32>;
+}
+
 export interface GroupChange {
   groupUin?:      pb<1, uint_32>;
   flag?:          pb<2, uint_32>;
   memberUid?:     pb<3, string>;
+  /** Shared member-change operation code; used by both increase and decrease pushes. */
   decreaseType?:  pb<4, uint_32>;
   operatorBytes?: pb<5, bytes>;
   increaseType?:  pb<6, uint_32>;
@@ -92,6 +111,30 @@ export interface FriendRequestInfo {
 
 export interface FriendRequest {
   info?: pb<1, FriendRequestInfo>;
+}
+
+/**
+ * Online-device snapshot carried by Event 0x210 / subType 349.
+ *
+ * Field numbers were recovered from QQ NT's OnRecvOnLineDev decoder. The
+ * outer four fields describe the current client, while field 5 contains the
+ * online-device entries exposed by getOnLineDev's kernel cache.
+ */
+export interface OnlineDeviceNotifyItem {
+  appId?:        pb<1, uint_32>;
+  instanceId?:   pb<2, uint_32>;
+  /** Packed terminal value; QQ normalizes it to the low byte before use. */
+  clientType?:   pb<3, uint_32>;
+  platform?:     pb<4, uint_32>;
+  deviceName?:   pb<5, string>;
+}
+
+export interface OnlineDeviceNotify {
+  appId?:        pb<1, uint_32>;
+  instanceId?:   pb<2, uint_32>;
+  clientType?:   pb<3, uint_32>;
+  platform?:     pb<4, uint_32>;
+  devices?:      pb_repeated<5, OnlineDeviceNotifyItem>;
 }
 
 export interface FriendRecallTipInfo {
@@ -261,4 +304,81 @@ export interface GroupReactNotify {
   groupUin?:          pb<4, uint_64>;
   field13?:           pb<13, uint_32>;
   groupReactionData?: pb<44, GroupReactionData>;
+}
+
+// Forced-offline ("被迫下线") push — SSO cmd
+// `trpc.qq_new_tech.status_svc.StatusService.KickNT`. QQ NT's unified offline
+// notification (kick / login-elsewhere / risk-control-triggered offline all
+// arrive here; the reason is in the strings). Field layout RE'd from
+// wrapper.linux.node (log fmt "tips_title:{} tips_content:{}") + Lagrange's
+// ServiceKickNTResponse: f4 = tips_title (short title), f3 = tips_content (desc).
+export interface KickNTResponse {
+  uin?:   pb<1, uint_32>;
+  tips?:  pb<3, string>;   // tips_content — the longer description
+  title?: pb<4, string>;   // tips_title — the short title
+}
+
+// Group-name change (Event 0x2DC subType 16, NotifyMessageBody.field13 == 12).
+// Rides in `NotifyMessageBody.eventParam` (field 5). Field layout matches
+// Lagrange's `GroupNameChange` (RE'd from wrapper.linux.node): only the new
+// name at field 2. The operator uid is `NotifyMessageBody.operatorUid` (f21).
+export interface GroupNameChange {
+  name?: pb<2, string>;
+}
+
+// Group special-title granted (Event 0x2DC subType 16, NotifyMessageBody.field13
+// == 6). Rides in `NotifyMessageBody.eventParam` (field 5). Field layout captured
+// on-wire: f2 = the gray-tip template text ("恭喜<{…}>获得群主授予的<{…"text":TITLE…}>头衔"),
+// f5 = the member uin who received the title. The title text itself is embedded in
+// the last `<{…}>` rich token of f2 (the kernel parses that template into a clean
+// string; on the raw wire we parse it ourselves).
+export interface GroupSpecialTitleChange {
+  tipText?:   pb<2, string>;
+  memberUin?: pb<5, uint_32>;
+}
+
+// Profile-like ("名片赞") notify — Event 0x210 subType 39, whose body.msgContent
+// decodes as this ProfileLikeTip. subType 39 is multiplexed; only inner
+// msgType==0 && subType==203 is a like. Field numbers CONFIRMED byte-exact against
+// real on-wire captures (detail.txt = "赞了我的资料卡N次", f3=liker uin, f5=nick);
+// the like count is parsed from `detail.txt`.
+export interface ProfileLikeDetail {
+  txt?:      pb<1, string>;
+  uin?:      pb<3, uint_64>;
+  nickname?: pb<5, string>;
+}
+
+export interface ProfileLikeMsg {
+  times?:  pb<1, int_32>;
+  time?:   pb<2, int_32>;
+  detail?: pb<3, ProfileLikeDetail>;
+}
+
+export interface ProfileLikeSubTip {
+  msg?: pb<14, ProfileLikeMsg>;
+}
+
+export interface ProfileLikeTip {
+  msgType?: pb<1, int_32>;
+  subType?: pb<2, int_32>;
+  content?: pb<203, ProfileLikeSubTip>;
+}
+
+// C2C input-status notify — the "对方正在输入…" push. Delivered as a system
+// message (msgType 0x210 / subMsgType 0x115) whose `MsgBody.msgContent` carries
+// this body. Field layout RE'd from `wrapper.linux.node`
+// `aio_input_state_worker.cc::ProcessInputStateNotifySysMsg` (reads f1=fromUid,
+// f2=toUid, f3=notifyItem; the item's f4 is the event type).
+export interface InputStatusNotifyItem {
+  field2?:     pb<2, uint_32>;
+  field3?:     pb<3, uint_64>;
+  eventType?:  pb<4, uint_32>;   // 1 = 正在输入 (typing), 3 = 正在讲话 (recording voice)
+  field5?:     pb<5, uint_32>;
+  statusText?: pb<6, string>;
+}
+
+export interface InputStatusNotify {
+  fromUid?:    pb<1, string>;
+  toUid?:      pb<2, string>;
+  notifyItem?: pb<3, InputStatusNotifyItem>;
 }

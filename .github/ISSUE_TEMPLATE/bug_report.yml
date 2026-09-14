@@ -18,13 +18,15 @@ body:
           required: true
         - label: 我使用的是 [最新 Release](https://github.com/SnowLuma/SnowLuma/releases) 或当前 `dev` 分支构建
           required: true
+        - label: 我已将日志级别调到 TRACE，并在下方「TRACE 日志」一栏附上了复现期间的完整日志
+          required: true
 
   - type: input
     id: snowluma-version
     attributes:
       label: SnowLuma 版本
       description: 启动日志首行或 `package.json` 里的版本号
-      placeholder: "例如 1.8.5"
+      placeholder: "例如 1.10.2"
     validations:
       required: true
 
@@ -50,6 +52,19 @@ body:
     attributes:
       label: 操作系统
       placeholder: "例如 Windows 11 23H2 / macOS 14.5 / Ubuntu 22.04"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deploy
+    attributes:
+      label: 部署方式
+      description: 如何运行 SnowLuma
+      options:
+        - 源码运行（pnpm dev / start）
+        - 预构建包
+        - Docker
+        - 其他 / 不确定
     validations:
       required: true
 
@@ -106,11 +121,21 @@ body:
   - type: textarea
     id: logs
     attributes:
-      label: 相关日志 / 错误堆栈
+      label: TRACE 日志 / 错误堆栈
       description: |
-        粘贴控制台日志、SSE 实时日志或错误堆栈。
-        请注意脱敏：移除 access token、账号密码、私聊内容等敏感信息。
+        **必须提供 TRACE 级别日志**，否则我们几乎无法定位问题。SnowLuma 默认日志级别是 `info`，TRACE 不会输出，请务必先开启再复现。
+
+        开启 TRACE 的两种方式（任选其一）：
+        - **WebUI（推荐）**：进入「日志」页 →「服务端日志级别」切到 `TRACE` → 显示过滤切到「开发」预设（确保 TRACE 行可见，否则导出不含 trace）→ 复现问题 → 点「导出当前视图」得到 `snowluma-logs-*.log`，拖到本输入框上传。
+        - **环境变量**：启动前设置 `SNOWLUMA_LOG_LEVEL=trace` 再运行，复现后复制控制台输出。
+
+        贴出的日志里应当能看到 `TRACE` 字样。请注意脱敏：移除 access token、账号密码、私聊内容等敏感信息。
+      placeholder: |
+        [2026-06-26 12:00:00.000] TRACE [core] ...
+        [2026-06-26 12:00:00.001] DEBUG [bridge] ...
       render: shell
+    validations:
+      required: true
 
   - type: textarea
     id: extra

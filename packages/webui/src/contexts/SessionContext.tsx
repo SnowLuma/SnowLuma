@@ -9,6 +9,8 @@ export interface SessionValue {
   status: string;
   /** Invoked by AppLayout's logout handler after it has scrubbed its own state. */
   onLogoutComplete: () => void;
+  /** Replays the first-run wizard without changing persisted account state. */
+  restartOnboarding: () => void;
 }
 
 const SessionContext = createContext<SessionValue | null>(null);

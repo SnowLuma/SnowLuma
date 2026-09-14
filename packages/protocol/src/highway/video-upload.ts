@@ -1,7 +1,6 @@
 import crypto from 'crypto';
 import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import { promises as fsp } from 'fs';
 import { createLogger } from '@snowluma/common/logger';
 import type { BridgeContext } from '../bridge-context';
 import type { MessageElement } from '../events';
@@ -18,6 +17,9 @@ import {
   loadBinarySource,
   resolveLocalFilePath,
 } from './utils';
+import { stageSourceToDisk } from './stage';
+import { hashFileStreaming } from './hash-file';
+import { Sha1Stream } from './sha1-stream';
 
 const moduleLog = createLogger('Highway.Video');
 
@@ -32,24 +34,59 @@ export const PRIVATE_VIDEO_THUMB_CMD_ID = 1002;
 export const GROUP_VIDEO_CMD_ID = 1005;
 export const GROUP_VIDEO_THUMB_CMD_ID = 1006;
 
-const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
+// Videos up to 1.5 GiB send through the Highway video path (matches the
+// file-upload ceiling). Real-machine verified up to ~500 MB rendering and
+// playing fine as a video; the old 100 MB cap existed only to dodge the
+// width/height=0 → 已过期 bug (fixed above), not any real QQ size limit.
+// Above this the OneBot layer re-routes to the file pipeline. NOTE: the
+// whole video is buffered in RAM here (fs.readFileSync), so a 1.5 GiB send
+// costs ~1.5 GiB+ of process memory.
+export const MAX_VIDEO_SIZE = 1536 * 1024 * 1024;
 const SHA1_STREAM_BLOCK_SIZE = 1024 * 1024;
 
+const SHA1_BLOCK_SIZE = 64;
+
+export function getVideoSourceSize(element: MessageElement): number | null {
+  if (element.fileSize && element.fileSize > 0) return element.fileSize;
+  const source = element.url || element.fileId || '';
+  if (!source) return null;
+  const local = resolveLocalFilePath(source);
+  if (local && fs.existsSync(local)) {
+    return fs.statSync(local).size;
+  }
+  return null;
+}
+
 const FALLBACK_THUMB = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+  'iVBORw0KGgoAAAANSUhEUgAAAtAAAAUACAIAAADhrPJqAAAACXBIWXMAAAABAAAAAQBPJcTWAAAQAElEQVR4nO3WQQkAMAzAwOqYf6FVEQblTkGemQcAEJvfAQDAfYYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGgi6AggAABVxJREFUAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACBnOACAnOEAAHKGAwDIGQ4AIGc4AICc4QAAcoYDAMgZDgAgZzgAgJzhAAByhgMAyBkOACC3fMQgSD2JVRsAAAAASUVORK5CYII=',
   'base64',
 );
 
+// [#145] The fast-upload (fingerprint / forward) path has no video bytes to
+// probe, so every field it ships is caller-supplied and untrusted — a video
+// that arrived on the wire with no metadata caches 0s, and re-forwarding it
+// with width/height=0 makes QQ-NT receivers render 文件已过期. FALLBACK_THUMB is
+// a real 720x1280 cover; we derive the fallback video/cover dimensions FROM it
+// so the declared video size, the declared cover size and the actual cover
+// pixels are the same numbers by construction — never a 1x1 image lying about
+// its size. Real cached dimensions always win over these.
+const FALLBACK_THUMB_FORMAT = detectImageFormat(new Uint8Array(FALLBACK_THUMB));
+const FAST_UPLOAD_FALLBACK_WIDTH = FALLBACK_THUMB_FORMAT.width || 720;
+const FAST_UPLOAD_FALLBACK_HEIGHT = FALLBACK_THUMB_FORMAT.height || 1280;
+
 interface VideoPayload {
-  /** Video bytes. Empty when forwarding from cached fingerprints. */
+  /** Main-file bytes. Empty on the normal path (streamed from `fileSource`)
+   *  and when forwarding from cached fingerprints (fastOnly). */
   bytes: Uint8Array;
+  /** Normal path: the staged video streams from this disk file instead of
+   *  buffering `bytes`. Absent for the fingerprint fast path. */
+  fileSource?: { filePath: string; fileSize: number };
   md5: Uint8Array;
   sha1: Uint8Array;
   sha1Blocks: Uint8Array[];
   md5Hex: string;
   sha1Hex: string;
   fileName: string;
-  filePath: string;
   fileSize: number;
   width: number;
   height: number;
@@ -61,7 +98,12 @@ interface VideoPayload {
    *  always present (FALLBACK_THUMB at worst) so its sub-file uploads
    *  normally regardless. */
   fastOnly: boolean;
-  cleanups: Array<() => void>;
+  /** Baseline stat of the staged file captured before hashing; re-checked
+   *  before the upload to fail cleanly if the source was mutated mid-send.
+   *  Absent for the fingerprint fast path. */
+  guard?: { size: number; mtimeMs: number };
+  /** Release the staged temp (hardlink / download). Best-effort, idempotent. */
+  cleanup: () => Promise<void>;
 }
 
 function makeFallbackThumb(): ThumbPayload {
@@ -73,8 +115,10 @@ function makeFallbackThumb(): ThumbPayload {
     sha1: hashes.sha1,
     md5Hex: hashes.md5Hex,
     sha1Hex: hashes.sha1Hex,
-    width: 1,
-    height: 1,
+    // Declared cover dims == FALLBACK_THUMB's real pixels (same source as the
+    // video fallback), so content and declared size always agree.
+    width: FAST_UPLOAD_FALLBACK_WIDTH,
+    height: FAST_UPLOAD_FALLBACK_HEIGHT,
   };
 }
 
@@ -87,15 +131,17 @@ function videoPayloadFromFingerprint(element: MessageElement): VideoPayload {
     md5Hex: element.md5Hex ?? '',
     sha1Hex: element.sha1Hex ?? '',
     fileName: element.fileName || `${element.md5Hex ?? 'video'}.mp4`,
-    filePath: '',
     fileSize: element.fileSize ?? 0,
-    width: element.width ?? 0,
-    height: element.height ?? 0,
-    duration: element.duration ?? 1,
+    // Zero-trust on the fast-upload path (no bytes to probe): `|| fallback` not
+    // `??`, so a cached-but-zero value is replaced too. width/height=0 → the
+    // receiver shows 文件已过期; duration=0 → every client renders 00:00 (#145).
+    width: element.width || FAST_UPLOAD_FALLBACK_WIDTH,
+    height: element.height || FAST_UPLOAD_FALLBACK_HEIGHT,
+    duration: element.duration || 1,
     videoFormat: element.videoFormat ?? 0,
     thumb: makeFallbackThumb(),
     fastOnly: true,
-    cleanups: [],
+    cleanup: async () => { /* nothing staged */ },
   };
 }
 
@@ -111,198 +157,30 @@ interface ThumbPayload {
 
 // ─────────────── 1MB-block sha1 (Highway main-video extend) ───────────────
 
-// Highway expects sha1 computed over each 1 MB block of the file, plus
-// the final overall sha1. This is a streaming implementation that doesn't
-// reuse Node's crypto because Node only exposes the final digest.
-
-class Sha1StreamState {
-  readonly blockSize = 64;
-  private readonly padding = Buffer.concat([Buffer.from([0x80]), Buffer.alloc(63)]);
-  private readonly state = new Uint32Array(5);
-  private readonly count = new Uint32Array(2);
-  private readonly buffer = Buffer.allocUnsafe(this.blockSize);
-  private readonly w = new Uint32Array(80);
-
-  constructor() {
-    this.reset();
-  }
-
-  private reset(): void {
-    this.state[0] = 0x67452301;
-    this.state[1] = 0xEFCDAB89;
-    this.state[2] = 0x98BADCFE;
-    this.state[3] = 0x10325476;
-    this.state[4] = 0xC3D2E1F0;
-    this.count[0] = 0;
-    this.count[1] = 0;
-    this.buffer.fill(0);
-  }
-
-  private rotateLeft(value: number, offset: number): number {
-    return ((value << offset) | (value >>> (32 - offset))) >>> 0;
-  }
-
-  private transform(chunk: Uint8Array, offset: number): void {
-    const view = new DataView(chunk.buffer, chunk.byteOffset + offset, this.blockSize);
-
-    for (let i = 0; i < 16; i++) {
-      this.w[i] = view.getUint32(i * 4, false);
-    }
-    for (let i = 16; i < 80; i++) {
-      this.w[i] = this.rotateLeft(this.w[i - 3] ^ this.w[i - 8] ^ this.w[i - 14] ^ this.w[i - 16], 1);
-    }
-
-    let a = this.state[0];
-    let b = this.state[1];
-    let c = this.state[2];
-    let d = this.state[3];
-    let e = this.state[4];
-
-    for (let i = 0; i < 80; i++) {
-      let temp: number;
-      if (i < 20) {
-        temp = ((b & c) | (~b & d)) + 0x5A827999;
-      } else if (i < 40) {
-        temp = (b ^ c ^ d) + 0x6ED9EBA1;
-      } else if (i < 60) {
-        temp = ((b & c) | (b & d) | (c & d)) + 0x8F1BBCDC;
-      } else {
-        temp = (b ^ c ^ d) + 0xCA62C1D6;
-      }
-      temp += (this.rotateLeft(a, 5) + e + this.w[i]) >>> 0;
-      e = d;
-      d = c;
-      c = this.rotateLeft(b, 30);
-      b = a;
-      a = temp >>> 0;
-    }
-
-    this.state[0] = (this.state[0] + a) >>> 0;
-    this.state[1] = (this.state[1] + b) >>> 0;
-    this.state[2] = (this.state[2] + c) >>> 0;
-    this.state[3] = (this.state[3] + d) >>> 0;
-    this.state[4] = (this.state[4] + e) >>> 0;
-  }
-
-  update(data: Uint8Array): void {
-    let index = (this.count[0] >>> 3) & 0x3F;
-    const dataLen = data.length;
-    this.count[0] = (this.count[0] + (dataLen << 3)) >>> 0;
-    if (this.count[0] < (dataLen << 3)) this.count[1] = (this.count[1] + 1) >>> 0;
-    this.count[1] = (this.count[1] + (dataLen >>> 29)) >>> 0;
-
-    const partLen = this.blockSize - index;
-    let i = 0;
-
-    if (dataLen >= partLen) {
-      this.buffer.set(data.subarray(0, partLen), index);
-      this.transform(this.buffer, 0);
-      for (i = partLen; i + this.blockSize <= dataLen; i += this.blockSize) {
-        this.transform(data, i);
-      }
-      index = 0;
-    }
-
-    if (i < dataLen) {
-      this.buffer.set(data.subarray(i, dataLen), index);
-    }
-  }
-
-  hash(bigEndian = true): Uint8Array {
-    const digest = Buffer.allocUnsafe(20);
-    for (let i = 0; i < 5; i++) {
-      if (bigEndian) digest.writeUInt32BE(this.state[i], i * 4);
-      else digest.writeUInt32LE(this.state[i], i * 4);
-    }
-    return new Uint8Array(digest);
-  }
-
-  final(): Uint8Array {
-    const bits = Buffer.allocUnsafe(8);
-    bits.writeUInt32BE(this.count[1], 0);
-    bits.writeUInt32BE(this.count[0], 4);
-
-    const index = (this.count[0] >>> 3) & 0x3F;
-    const padLen = index < 56 ? 56 - index : 120 - index;
-    this.update(this.padding.subarray(0, padLen));
-    this.update(bits);
-    return this.hash(true);
-  }
-}
-
-function computeVideoSha1Blocks(bytes: Uint8Array): Uint8Array[] {
-  const sha1 = new Sha1StreamState();
+// Highway expects the sha1 of each 1 MB block (intermediate un-finalized state,
+// little-endian) plus the overall sha1. Reuses the well-tested streaming
+// Sha1Stream for the block states and Node crypto for the overall digest (same
+// split as computeSha1StateV), replacing a ~110-line hand-rolled, untested
+// SHA1 duplicate.
+export function computeVideoSha1Blocks(bytes: Uint8Array): Uint8Array[] {
+  const sha1 = new Sha1Stream();
   const blocks: Uint8Array[] = [];
   let bytesRead = 0;
   let offset = 0;
-
-  while (offset + sha1.blockSize <= bytes.length) {
-    const block = bytes.subarray(offset, offset + sha1.blockSize);
-    sha1.update(block);
-    offset += sha1.blockSize;
-    bytesRead += sha1.blockSize;
+  while (offset + SHA1_BLOCK_SIZE <= bytes.length) {
+    sha1.update(bytes.subarray(offset, offset + SHA1_BLOCK_SIZE));
+    offset += SHA1_BLOCK_SIZE;
+    bytesRead += SHA1_BLOCK_SIZE;
     if (bytesRead % SHA1_STREAM_BLOCK_SIZE === 0) {
-      blocks.push(sha1.hash(false));
+      blocks.push(sha1.hash(true)); // little-endian intermediate state
     }
   }
-
-  if (offset < bytes.length) sha1.update(bytes.subarray(offset));
-  blocks.push(sha1.final());
+  // Overall SHA1 (finalized) via Node crypto — the reference impl.
+  blocks.push(new Uint8Array(crypto.createHash('sha1').update(Buffer.from(bytes)).digest()));
   return blocks;
 }
 
-// ─────────────── source staging + thumb extraction ───────────────
-
-function defaultVideoTempDir(): string {
-  return path.join(os.tmpdir(), 'snowluma-video');
-}
-
-function sourceExtension(fileName: string, source: string): string {
-  const fromName = path.extname(fileName);
-  if (fromName) return fromName;
-
-  const local = resolveLocalFilePath(source);
-  const fromSource = local ? path.extname(local) : '';
-  return fromSource || '.mp4';
-}
-
-async function stageVideoSource(element: MessageElement, tempDir: string, cleanups: Array<() => void>): Promise<{
-  bytes: Uint8Array;
-  filePath: string;
-  fileName: string;
-}> {
-  const source = element.url || element.fileId || '';
-  if (!source) throw new Error('video source is empty');
-
-  const local = resolveLocalFilePath(source);
-  if (local && fs.existsSync(local)) {
-    // Pre-check on disk size BEFORE reading bytes into memory. The later
-    // `staged.bytes.length > MAX_VIDEO_SIZE` guard would otherwise only
-    // run after we'd already allocated the entire file (so a 10 GiB
-    // local path still OOMs us before the check fires).
-    const stat = fs.statSync(local);
-    if (stat.size > MAX_VIDEO_SIZE) {
-      throw new Error(`video file too large: ${(stat.size / (1024 * 1024)).toFixed(2)} MB > ${MAX_VIDEO_SIZE / (1024 * 1024)} MB. Use upload_group_file / upload_private_file for files larger than 100 MB.`);
-    }
-    return {
-      bytes: new Uint8Array(fs.readFileSync(local)),
-      filePath: local,
-      fileName: element.fileName || path.basename(local),
-    };
-  }
-
-  const loaded = await loadBinarySource(source, 'video', MAX_VIDEO_SIZE);
-  const fileName = element.fileName || loaded.fileName || '';
-  const stagedPath = path.join(tempDir, `snowluma-video-in-${crypto.randomUUID()}${sourceExtension(fileName, source)}`);
-  fs.writeFileSync(stagedPath, Buffer.from(loaded.bytes));
-  cleanups.push(() => { try { fs.unlinkSync(stagedPath); } catch { /* ignore */ } });
-
-  return {
-    bytes: loaded.bytes,
-    filePath: stagedPath,
-    fileName,
-  };
-}
+// ─────────────── thumb extraction ───────────────
 
 async function loadThumb(element: MessageElement, videoPath: string): Promise<{
   thumb: ThumbPayload;
@@ -346,6 +224,14 @@ async function loadThumb(element: MessageElement, videoPath: string): Promise<{
   height = height || fmt.height || 1;
   duration = duration || 1;
 
+  // The cover sub-file must declare its OWN pixel size, which can be smaller
+  // than the video: the ffmpeg addon downscales large frames (4K/8K → ≤1080p)
+  // so the JPEG cover stays under QQ's 1 MiB cover limit. Fall back to the video
+  // dims when the format can't be read. For 1080p and custom-thumb sends the
+  // cover already equals the video size, so this is a no-op there.
+  const thumbWidth = fmt.width || width;
+  const thumbHeight = fmt.height || height;
+
   const hashes = computeHashes(thumbBytes);
   return {
     width,
@@ -357,8 +243,8 @@ async function loadThumb(element: MessageElement, videoPath: string): Promise<{
       sha1: hashes.sha1,
       md5Hex: hashes.md5Hex,
       sha1Hex: hashes.sha1Hex,
-      width,
-      height,
+      width: thumbWidth,
+      height: thumbHeight,
     },
   };
 }
@@ -371,42 +257,44 @@ async function loadVideo(element: MessageElement): Promise<VideoPayload> {
     return videoPayloadFromFingerprint(element);
   }
 
-  const tempDir = defaultVideoTempDir();
-  const cleanups: Array<() => void> = [];
-  fs.mkdirSync(tempDir, { recursive: true });
+  const source = element.url || element.fileId || '';
+  if (!source) throw new Error('video source is empty');
 
+  // Stage onto a local disk path (hardlink / streamed download) and hash it in
+  // one streaming pass — the video is never fully buffered in RAM. maxBytes =
+  // MAX_VIDEO_SIZE; oversize sources throw here and the OneBot layer re-routes
+  // them to the file pipeline (matches the message-actions size fallback).
+  const staged = await stageSourceToDisk(source, MAX_VIDEO_SIZE);
   try {
-    const staged = await stageVideoSource(element, tempDir, cleanups);
-    if (staged.bytes.length === 0) throw new Error('video file is empty');
-    if (staged.bytes.length > MAX_VIDEO_SIZE) {
-      throw new Error(`video file too large: ${(staged.bytes.length / (1024 * 1024)).toFixed(2)} MB > 100 MB. Use upload_group_file / upload_private_file for files larger than 100 MB.`);
-    }
+    if (staged.fileSize === 0) throw new Error('video file is empty');
 
-    const hashes = computeHashes(staged.bytes);
+    // Baseline stat captured BEFORE hashing; re-checked before the upload so a
+    // source mutated mid-send fails cleanly (see uploadVideoMsgInfo).
+    const g = await fsp.stat(staged.filePath);
+    const hashes = await hashFileStreaming(staged.filePath);
     const { thumb, width, height, duration } = await loadThumb(element, staged.filePath);
 
     return {
-      bytes: staged.bytes,
+      bytes: new Uint8Array(0),
+      fileSource: { filePath: staged.filePath, fileSize: staged.fileSize },
       md5: hashes.md5,
       sha1: hashes.sha1,
-      sha1Blocks: computeVideoSha1Blocks(staged.bytes),
+      sha1Blocks: hashes.sha1Blocks,
       md5Hex: hashes.md5Hex,
       sha1Hex: hashes.sha1Hex,
-      fileName: staged.fileName || `${hashes.md5Hex}.mp4`,
-      filePath: staged.filePath,
-      fileSize: staged.bytes.length,
+      fileName: (element.fileName || staged.fileName) || `${hashes.md5Hex}.mp4`,
+      fileSize: staged.fileSize,
       width,
       height,
       duration,
       videoFormat: 0,
       thumb,
       fastOnly: false,
-      cleanups: [...cleanups],
+      guard: { size: g.size, mtimeMs: g.mtimeMs },
+      cleanup: staged.cleanup,
     };
   } catch (err) {
-    for (const fn of cleanups.reverse()) {
-      try { fn(); } catch { /* best-effort cleanup */ }
-    }
+    await staged.cleanup();
     throw err;
   }
 }
@@ -439,6 +327,7 @@ export async function uploadVideoMsgInfo(
         source: 'top',
         cmdId: isGroup ? GROUP_VIDEO_CMD_ID : PRIVATE_VIDEO_CMD_ID,
         bytes: video.bytes,
+        fileSource: video.fileSource, // streamed from disk (undefined on the fingerprint fast path)
         md5: video.md5,
         sha1: video.sha1Blocks,
         subFileIndex: 0,
@@ -454,6 +343,19 @@ export async function uploadVideoMsgInfo(
         // No fastOnlyError: thumb always has bytes (FALLBACK_THUMB at worst).
       },
     ];
+
+    // Mutation guard: the streaming path reads the staged file twice (hash pass
+    // in loadVideo, then the highway PUT). For a hardlinked local source a
+    // concurrent in-place write would make the uploaded bytes disagree with the
+    // hashes we already sent. Re-stat before the PUT and fail cleanly if the
+    // file changed since the baseline (the server's per-chunk md5 check is the
+    // backstop during the PUT itself).
+    if (video.guard && video.fileSource) {
+      const now = await fsp.stat(video.fileSource.filePath);
+      if (now.size !== video.guard.size || now.mtimeMs !== video.guard.mtimeMs) {
+        throw new Error('video source changed during send (mutated between hashing and upload)');
+      }
+    }
 
     const upload = await runNtv2Upload({
       bridge,
@@ -471,13 +373,16 @@ export async function uploadVideoMsgInfo(
             fileSha1: video.sha1Hex,
             fileName: 'nya.mp4',
             type: { type: 2, picFormat: 0, videoFormat: 0, voiceFormat: 0 },
-            // Width/height kept at 0 — NapCat does the same and the QQ-NT
-            // server has been observed to reject non-zero dimensions
-            // here on c2c sends with a schema-mismatch error. acidify
-            // *does* fill them (`payload.videoWidth/Height`) but we
-            // leave that alone until c2c regression coverage exists.
-            height: 0,
-            width: 0,
+            // [#145] Group video MUST carry real width/height. A real QQ
+            // group video's MsgInfo has them (e.g. 296x640); sending 0x0
+            // makes QQ-NT receivers (Android especially) fail to lay out
+            // the video tile and render 文件已过期 even though the resource
+            // is fresh and downloadable (iOS is lenient — shows expired but
+            // still opens). c2c is left at 0 because the QQ-NT server has
+            // been observed to reject non-zero dimensions there with a
+            // schema-mismatch error (no c2c regression coverage yet).
+            height: isGroup ? video.height : 0,
+            width: isGroup ? video.width : 0,
             // `time` MUST be the real duration in seconds, otherwise
             // every receiving client renders "00:00" on the video.
             // NapCat ships `time: 0` because it sits on top of QQ-NT's
@@ -534,8 +439,6 @@ export async function uploadVideoMsgInfo(
     log.debug('video upload completed: md5=%s scene=%s', video.md5Hex, isGroup ? 'group' : 'c2c');
     return finalizeMediaMsgInfo(upload);
   } finally {
-    for (const fn of video.cleanups) {
-      try { fn(); } catch { /* best-effort cleanup */ }
-    }
+    await video.cleanup();
   }
 }

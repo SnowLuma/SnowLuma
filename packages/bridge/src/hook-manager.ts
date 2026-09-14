@@ -1,4 +1,9 @@
-import { createLogger, type Logger } from '@snowluma/common/logger';
+import {
+  createLogger,
+  runWithTraceRequest,
+  type Logger,
+} from '@snowluma/common/logger';
+import { renderParamsVerbose } from '@snowluma/common/log-summary';
 import type { PacketSender } from '@snowluma/common/packet-sender';
 import type { PacketInfo, PacketSink } from '@snowluma/common/protocol-types';
 import fs from 'fs';
@@ -6,15 +11,22 @@ import { HookSession, type HookSessionDeps } from './hook-session';
 import {
   injectHookProcess,
   listHookProcesses,
+  resolveHookNativePath,
   unloadHookProcess,
   type HookProcessBaseInfo,
 } from './injector';
 import { PipeWatcher } from './pipe-watcher';
+import { createNativeProcessEnumerator, type ProcessEnumerator } from './process-enumerator';
 import { QqHookClient } from './qq-hook-client';
 import { probeQqLoginInfo, type QqPortLoginInfo } from './qq-port-probe';
 import type { HookProcessInfo } from './types';
 
+const AUTO_LOAD_MAX_ATTEMPTS = 3;
 
+type AutoLoadAttempt = {
+  attempts: number;
+  inFlight: boolean;
+};
 
 /**
  * Sink that the hook layer calls back into when it observes a new login,
@@ -27,6 +39,7 @@ export interface BridgeManagerSink {
   onHookLogin(pid: number, uin: string, packetClient: PacketSender): void;
   onPacket(pkt: PacketInfo): void;
   onPidDisconnected(pid: number): void;
+  onPidReceiveHealthChanged(pid: number, healthy: boolean): void;
 }
 
 export type HookManagerDeps = {
@@ -47,8 +60,17 @@ export type HookManagerDeps = {
   listProcesses?: () => HookProcessBaseInfo[];
   /** When true, every newly-discovered QQ process is auto-injected (fires
    * `loadProcess(pid)` from the watcher's 'process-discovered' handler).
-   * Failed loads are logged and leave the session in the 'error' state. */
+   * Failed loads are logged and leave the session in the 'error' state.
+   * A narrowly-classified early-process mapping race is retried on later
+   * watcher ticks with a fixed attempt limit. */
   autoLoadOnDiscovery?: boolean;
+  /** Optional hook fired whenever the set of HookProcessInfo observable to
+   * `listProcesses()` changes — new process discovered, process gone, or
+   * any session's status mutated. Used by the WebUI SSE wiring to push a
+   * fresh processes snapshot to connected clients without REST polling.
+   * Exceptions thrown by the callback are caught and logged; they do not
+   * break the watcher / session event loops. */
+  onSessionsChanged?: () => void;
   log?: Logger;
 };
 
@@ -59,9 +81,11 @@ export type HookManagerDeps = {
  * Responsibilities:
  *   - Route user commands (load/unload/refresh) to the matching session.
  *   - Route watcher diff events to the matching session.
- *   - Forward session events ('login' / 'disconnected') to BridgeManager.
+ *   - Forward session events ('login' / 'disconnected' / transport health) to BridgeManager.
  *   - Retry stuck-in-connecting sessions on every watcher tick (so a
  *     failed connect eventually recovers without a manual refresh).
+ *   - Retry the bounded early-process auto-load race without retrying
+ *     permanent injector errors.
  *
  * The native injector, native pipe-client, and native process/pipe
  * listings are all swappable dependencies so tests can run without a
@@ -74,10 +98,18 @@ export class HookManager {
   private readonly makeClient: HookSessionDeps['makeClient'];
   private readonly pipeWatcher: PipeWatcher;
   private readonly ownsPipeWatcher: boolean;
-  private readonly listProcessesNative: () => HookProcessBaseInfo[];
+  /** Watcher/API process enumeration — isolated + timeout-bounded by default
+   *  so a blocked native /proc walk can't freeze the loop (issue #158).
+   *  Resolves to `null` (UNKNOWN) on timeout/failure. */
+  private readonly enumerate: () => Promise<HookProcessBaseInfo[] | null>;
+  /** The owned enumerator (worker lifecycle), or null when a custom lister was
+   *  injected (tests) — nothing to tear down in that case. */
+  private readonly enumerator: ProcessEnumerator | null;
   private readonly autoLoadOnDiscovery: boolean;
+  private readonly onSessionsChangedRaw?: () => void;
   private readonly log: Logger;
   private readonly sessions = new Map<number, HookSession>();
+  private readonly autoLoadAttempts = new Map<number, AutoLoadAttempt>();
   private readonly startPromise: Promise<void>;
 
   private disposed = false;
@@ -85,6 +117,7 @@ export class HookManager {
   constructor(deps: HookManagerDeps) {
     this.bridgeManager = deps.bridgeManager;
     this.onPacket = deps.onPacket ?? ((pkt) => deps.bridgeManager.onPacket(pkt));
+    this.onSessionsChangedRaw = deps.onSessionsChanged;
     this.log = deps.log ?? createLogger('Hook');
 
     this.injector = deps.injector ?? {
@@ -95,16 +128,39 @@ export class HookManager {
       },
     };
     this.makeClient = deps.makeClient ?? ((pid: number) => new QqHookClient(pid));
-    this.listProcessesNative = deps.listProcesses ?? listHookProcesses;
     this.autoLoadOnDiscovery = deps.autoLoadOnDiscovery ?? false;
+
+    // A custom lister (tests) is used directly — no worker, no isolation, just
+    // an async wrap that maps a throw to the UNKNOWN sentinel. The default path
+    // wraps the native enumerator in a worker with a timeout.
+    if (deps.listProcesses) {
+      const lister = deps.listProcesses;
+      this.enumerator = null;
+      this.enumerate = async () => {
+        try {
+          return await lister();
+        } catch (error) {
+          this.log.warn('listProcesses failed: %s', errMsg(error));
+          return null;
+        }
+      };
+    } else {
+      this.enumerator = createNativeProcessEnumerator({
+        addonPath: resolveHookNativePath('node'),
+        fallbackSync: listHookProcesses,
+        processName: defaultProcessName(),
+        log: this.log,
+      });
+      this.enumerate = () => this.enumerator!.enumerate();
+    }
 
     if (deps.pipeWatcher) {
       this.pipeWatcher = deps.pipeWatcher;
       this.ownsPipeWatcher = false;
     } else {
       this.pipeWatcher = new PipeWatcher({
-        listProcesses: this.listProcessesNative,
-        listLivePipes: () => QqHookClient.listLivePipes(),
+        listProcesses: this.enumerate,
+        listLivePipes: processes => QqHookClient.listLivePipes(processes.map(({ pid }) => pid)),
         intervalMs: deps.watcherIntervalMs,
         log: this.log,
       });
@@ -119,12 +175,13 @@ export class HookManager {
 
   async listProcesses(): Promise<HookProcessInfo[]> {
     await this.startPromise;
-    let processes: HookProcessBaseInfo[];
-    try {
-      processes = this.listProcessesNative();
-    } catch (error) {
-      this.log.warn('listProcesses failed: %s', errMsg(error));
-      processes = [];
+    const processes = await this.enumerate();
+    if (processes === null) {
+      // Enumeration timed out / failed — report the last-known sessions rather
+      // than an empty list (which the WebUI would render as "no QQ").
+      return [...this.sessions.values()]
+        .map((s) => s.toInfo())
+        .sort((a, b) => a.pid - b.pid);
     }
     const result: HookProcessInfo[] = [];
     for (const proc of processes) {
@@ -138,6 +195,7 @@ export class HookManager {
   async loadProcess(pid: number): Promise<HookProcessInfo> {
     this.assertValidPid(pid);
     await this.startPromise;
+    this.autoLoadAttempts.delete(pid);
     const session = this.ensureSession(pid);
     const info = await session.load();
     // Pull the next tick forward so a freshly-injected pipe gets noticed
@@ -149,6 +207,7 @@ export class HookManager {
   async unloadProcess(pid: number): Promise<HookProcessInfo> {
     this.assertValidPid(pid);
     await this.startPromise;
+    this.autoLoadAttempts.delete(pid);
     const session = this.ensureSession(pid);
     return session.unload();
   }
@@ -172,6 +231,8 @@ export class HookManager {
       session.dispose();
     }
     this.sessions.clear();
+    this.autoLoadAttempts.clear();
+    this.enumerator?.dispose();
     if (this.ownsPipeWatcher) {
       this.pipeWatcher.dispose();
     }
@@ -182,22 +243,38 @@ export class HookManager {
   private bindWatcher(): void {
     this.pipeWatcher.on('process-discovered', (info: HookProcessBaseInfo) => {
       if (this.disposed) return;
-      const session = this.ensureSession(info.pid);
-      session.attachProcessInfo(info);
-      // Headless/Docker deployments enable autoLoadOnDiscovery so QQ gets
-      // injected without a human clicking "Load" in WebUI. Fire-and-forget:
-      // failures are already captured inside loadInternal and surfaced via
-      // the session's status field.
-      if (this.autoLoadOnDiscovery && shouldAutoLoadPid(info.pid, this.log)) {
-        void session.load().catch((err) => {
-          this.log.warn('auto-load failed: PID=%d err=%s', info.pid, errMsg(err));
-        });
-      }
+      runWithTraceRequest(() => {
+        const session = this.ensureSession(info.pid);
+        session.attachProcessInfo(info);
+        this.log.trace(() => [
+          'hook_manager_fact event=process_discovered pid=%d info=%s autoLoad=%s',
+          info.pid,
+          renderParamsVerbose(info),
+          this.autoLoadOnDiscovery,
+        ]);
+        // Headless/Docker deployments enable autoLoadOnDiscovery so QQ gets
+        // injected without a human clicking "Load" in WebUI. Fire-and-forget:
+        // failures are already captured inside loadInternal and surfaced via
+        // the session's status field.
+        if (this.autoLoadOnDiscovery && shouldAutoLoadPid(info.pid, this.log)) {
+          this.runAutoLoad(session);
+        }
+        this.notifySessionsChanged();
+      });
     });
     this.pipeWatcher.on('process-gone', (pid: number) => {
       if (this.disposed) return;
-      const session = this.sessions.get(pid);
-      if (session) session.notifyProcessGone();
+      runWithTraceRequest(() => {
+        this.autoLoadAttempts.delete(pid);
+        const session = this.sessions.get(pid);
+        this.log.trace(
+          'hook_manager_fact event=process_gone pid=%d tracked=%s',
+          pid,
+          session !== undefined,
+        );
+        if (session) session.notifyProcessGone();
+        this.notifySessionsChanged();
+      });
     });
     this.pipeWatcher.on('pipe-up', (pid: number) => {
       if (this.disposed) return;
@@ -226,10 +303,129 @@ export class HookManager {
     this.pipeWatcher.on('tick', () => {
       if (this.disposed) return;
       for (const session of this.sessions.values()) {
+        const autoLoad = this.autoLoadAttempts.get(session.pid);
+        if (autoLoad && !autoLoad.inFlight && session.status === 'error'
+          && isTransientLibcMappingError(session.error)) {
+          this.runAutoLoad(session, autoLoad);
+          continue;
+        }
         if ((session.status === 'connecting' || session.status === 'disconnected')
           && this.pipeWatcher.isPipeLive(session.pid)) {
           session.onPipeUp();
         }
+      }
+    });
+  }
+
+  private runAutoLoad(session: HookSession, existing?: AutoLoadAttempt): void {
+    if (this.disposed || session.isDisposed) return;
+    const state = existing ?? { attempts: 0, inFlight: false };
+    if (state.inFlight || state.attempts >= AUTO_LOAD_MAX_ATTEMPTS) return;
+
+    state.attempts += 1;
+    state.inFlight = true;
+    this.autoLoadAttempts.set(session.pid, state);
+    const attempt = state.attempts;
+
+    void runWithTraceRequest(async () => {
+      const startedAt = Date.now();
+      this.log.trace(
+        'hook_autoload_start pid=%d attempt=%d maxAttempts=%d',
+        session.pid,
+        attempt,
+        AUTO_LOAD_MAX_ATTEMPTS,
+      );
+      try {
+        const info = await session.load();
+        if (this.autoLoadAttempts.get(session.pid) !== state) {
+          this.log.trace(
+            'hook_autoload_terminal pid=%d attempt=%d outcome=dropped reason=superseded elapsedMs=%d',
+            session.pid,
+            attempt,
+            Date.now() - startedAt,
+          );
+          return;
+        }
+        state.inFlight = false;
+
+        if (info.status !== 'error') {
+          this.autoLoadAttempts.delete(session.pid);
+          const reason = attempt > 1 ? 'recovered' : 'loaded';
+          this.log.trace(() => [
+            'hook_autoload_terminal pid=%d attempt=%d outcome=completed reason=%s state=%s elapsedMs=%d',
+            session.pid,
+            attempt,
+            reason,
+            renderParamsVerbose(info),
+            Date.now() - startedAt,
+          ]);
+          if (attempt > 1) {
+            this.log.info(
+              'auto-load recovered: PID=%d attempt=%d/%d',
+              session.pid,
+              attempt,
+              AUTO_LOAD_MAX_ATTEMPTS,
+            );
+          }
+          return;
+        }
+
+        if (!isTransientLibcMappingError(info.error)) {
+          this.autoLoadAttempts.delete(session.pid);
+          this.log.trace(
+            'hook_autoload_terminal pid=%d attempt=%d outcome=failed reason=permanent_failure error=%j elapsedMs=%d',
+            session.pid,
+            attempt,
+            info.error,
+            Date.now() - startedAt,
+          );
+          return;
+        }
+
+        if (attempt >= AUTO_LOAD_MAX_ATTEMPTS) {
+          this.autoLoadAttempts.delete(session.pid);
+          this.log.trace(
+            'hook_autoload_terminal pid=%d attempt=%d outcome=failed reason=retry_exhausted error=%j elapsedMs=%d',
+            session.pid,
+            attempt,
+            info.error,
+            Date.now() - startedAt,
+          );
+          this.log.warn(
+            'auto-load retry exhausted: PID=%d attempts=%d err=%s',
+            session.pid,
+            attempt,
+            info.error,
+          );
+          return;
+        }
+
+        this.log.trace(
+          'hook_autoload_terminal pid=%d attempt=%d outcome=failed reason=retry_pending error=%j elapsedMs=%d',
+          session.pid,
+          attempt,
+          info.error,
+          Date.now() - startedAt,
+        );
+        this.log.warn(
+          'auto-load retry pending: PID=%d attempt=%d/%d err=%s',
+          session.pid,
+          attempt,
+          AUTO_LOAD_MAX_ATTEMPTS,
+          info.error,
+        );
+      } catch (err) {
+        if (this.autoLoadAttempts.get(session.pid) === state) {
+          this.autoLoadAttempts.delete(session.pid);
+        }
+        this.log.trace(
+          'hook_autoload_terminal pid=%d attempt=%d outcome=failed reason=unexpected_failure error=%j elapsedMs=%d',
+          session.pid,
+          attempt,
+          errMsg(err),
+          Date.now() - startedAt,
+        );
+        this.log.warn('auto-load failed: PID=%d err=%s', session.pid, errMsg(err));
       }
     });
   }
@@ -253,12 +449,34 @@ export class HookManager {
     session.on('disconnected', (wasLoggedIn: boolean) => {
       if (wasLoggedIn) this.bridgeManager.onPidDisconnected(pid);
     });
+    session.on('receive-health-changed', (healthy: boolean) => {
+      this.bridgeManager.onPidReceiveHealthChanged(pid, healthy);
+    });
+    // status-changed fires on EVERY internal status mutation, including the
+    // ones reached via login / disconnected / refresh — subscribing here
+    // alone covers every transition the WebUI processes view cares about.
+    session.on('status-changed', () => {
+      this.notifySessionsChanged();
+    });
     session.on('disposed', () => {
       this.sessions.delete(pid);
     });
 
     this.sessions.set(pid, session);
     return session;
+  }
+
+  /** Fire the optional sessions-changed hook with exceptions isolated.
+   * A throwing subscriber must not abort the watcher's emit loop or break
+   * a HookSession event handler in flight. */
+  private notifySessionsChanged(): void {
+    if (this.disposed) return;
+    if (!this.onSessionsChangedRaw) return;
+    try {
+      this.onSessionsChangedRaw();
+    } catch (err) {
+      this.log.warn('onSessionsChanged threw: %s', errMsg(err));
+    }
   }
 
   private assertValidPid(pid: number): void {
@@ -272,6 +490,10 @@ function defaultProcessName(): string {
 
 function errMsg(value: unknown): string {
   return value instanceof Error ? value.message : String(value);
+}
+
+function isTransientLibcMappingError(error: string): boolean {
+  return /^target process does not map \S*\/libc\.so\.6 while resolving mmap$/.test(error);
 }
 
 /**

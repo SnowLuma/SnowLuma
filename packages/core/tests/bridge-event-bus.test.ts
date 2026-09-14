@@ -17,7 +17,7 @@ function makeFriendMessage(): FriendMessage {
 
 function makeGroupMessage(): GroupMessage {
   return {
-    kind: 'group_message',
+    kind: 'group_message', groupName: '',
     time: 1700000000,
     selfUin: 10001,
     groupId: 99999,

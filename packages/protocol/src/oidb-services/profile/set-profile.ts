@@ -19,6 +19,7 @@ export namespace SetProfile {
   export interface Params {
     nickname?: string;
     personalNote?: string;
+    sex?: number;
   }
 
   /** Needs identity to read `uin` for the request body. */
@@ -26,9 +27,15 @@ export namespace SetProfile {
 
   export const serialize = (ctx: Deps, p: Params): OidbSetProfile => {
     const stringProfiles: { fieldId: number; value: string }[] = [];
+    const intProfiles: { fieldId: number; value: bigint }[] = [];
     if (p.nickname !== undefined) stringProfiles.push({ fieldId: 20002, value: p.nickname });
     if (p.personalNote !== undefined) stringProfiles.push({ fieldId: 102, value: p.personalNote });
-    return { uin: BigInt(ctx.identity.uin), stringProfiles };
+    if (p.sex !== undefined) intProfiles.push({ fieldId: 20009, value: BigInt(p.sex) });
+    return {
+      uin: BigInt(ctx.identity.uin),
+      ...(stringProfiles.length > 0 ? { stringProfiles } : {}),
+      ...(intProfiles.length > 0 ? { intProfiles } : {}),
+    };
   };
 
   export const deserialize = (_ctx: Deps, _: Oidb0x112aResp): void => {};
@@ -42,7 +49,11 @@ export namespace SetProfile {
   export const invoke = (deps: Deps, params: Params): Promise<void> => {
     // No-op when there's nothing to write — preserves the facade's
     // historic short-circuit (avoid a wasted SSO round-trip).
-    if (params.nickname === undefined && params.personalNote === undefined) {
+    if (
+      params.nickname === undefined
+      && params.personalNote === undefined
+      && params.sex === undefined
+    ) {
       return Promise.resolve();
     }
     return invokeOidb(deps, SetProfile, params);

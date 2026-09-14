@@ -1,0 +1,131 @@
+SnowLuma Source-Available Non-Commercial License
+SnowLuma 源码可见非商业许可
+
+Version 1.0 · 2026-06-19
+Copyright (C) 2026 SnowLumaDevs
+Contact: motricseven@foxmail.com
+
+中英文如有冲突，以中文为准。
+In case of any conflict between the Chinese and English text, the Chinese
+version prevails.
+
+This is NOT an open-source license as defined by the Open Source Initiative:
+it restricts commercial use and the public release of modifications. The
+source is published for transparency, study, and non-commercial self-hosting.
+本许可不是 OSI 定义的开源许可：它限制商业用途与修改版的公开发布。源码公开
+仅用于透明、学习与非商业的自托管。
+
+===============================================================================
+1. Definitions / 定义
+===============================================================================
+- "Software" / "本软件": the SnowLuma source code and assets in this
+  repository, excluding the Native Addon (defined below) and any third-party
+  components.
+- "You" / "你": any individual or entity exercising rights under this License.
+- "Commercial Use" / "商业用途": any use primarily intended for or directed
+  toward commercial advantage or monetary compensation. This includes, without
+  limitation, selling or reselling the Software; offering paid hosting,
+  deployment, setup, or operation services based on the Software; bundling it
+  into a paid product or service; or running it to provide a service for a fee.
+  包括但不限于：出售或转售本软件；提供基于本软件的付费托管、部署、代搭、代运营
+  服务；将其并入付费产品或服务；或以收费方式运行本软件对外提供服务。
+- "Native Addon" / "原生附加组件": the SnowLuma native binary components shipped
+  with the Software (e.g. `snowluma-*.node`, `snowluma-*.dll`, `snowluma-*.so`).
+  These are a separate, proprietary component and are NOT licensed under this
+  License — see Section 5.
+
+===============================================================================
+2. Grant / 授权
+===============================================================================
+Subject to the conditions and restrictions below, the copyright holder grants
+You a worldwide, royalty-free, non-exclusive, non-transferable, revocable
+license to:
+在下列条件与限制下，著作权人授予你一项全球、免费、非独占、不可转让、可撤销的
+许可，允许你：
+  (a) view and study the Software; 查看与学习本软件；
+  (b) use and run the Software for personal or other Non-Commercial purposes;
+      为个人或其他非商业目的使用与运行本软件；
+  (c) modify the Software for Your own Non-Commercial use; 为自己的非商业使用
+      修改本软件；
+  (d) redistribute the Software under the conditions in Section 3.
+      在第 3 条的条件下再分发本软件。
+
+===============================================================================
+3. Redistribution Conditions / 再分发条件
+===============================================================================
+You may redistribute the Software (modified or unmodified) ONLY if ALL of the
+following are met. 仅当同时满足以下全部条件时，你方可再分发本软件（无论是否修改）：
+  (a) it is Non-Commercial; 属非商业性质；
+  (b) the complete text of this License is included; 附带本许可的完整文本；
+  (c) all copyright, attribution, and notices are retained unaltered;
+      保留全部著作权、署名与声明，且不得改动；
+  (d) PUBLIC release of a modified or derivative version requires the prior
+      written permission of the copyright holder. Private, non-public
+      modifications for Your own Non-Commercial use are permitted.
+      公开发布修改版或衍生版，须事先获得著作权人书面许可；为你自己非商业使用
+      而作的、不公开的修改则被允许。
+
+===============================================================================
+4. Restrictions / 限制
+===============================================================================
+  (a) Commercial Use of the Software in any form is PROHIBITED without the
+      prior written authorization of the copyright holder.
+      未经著作权人事先书面授权，禁止以任何形式对本软件进行商业使用。
+  (b) You may not develop, publish, or distribute another project based on the
+      Software without the prior written authorization of the copyright holder.
+      未经著作权人事先书面授权，不得基于本软件开发、发布或分发另一个项目。
+  (c) You may not remove, obscure, or alter any copyright, attribution, license,
+      or notice. 不得移除、遮蔽或更改任何著作权、署名、许可或声明。
+
+===============================================================================
+5. Native Addon / 原生附加组件
+===============================================================================
+The Native Addon is proprietary and is NOT covered by this License. It is
+distributed only as a precompiled binary bundled with the Software. No rights
+are granted to it other than to run it as bundled for the Non-Commercial use
+permitted above; in particular, no right to reverse engineer, reproduce,
+modify, redistribute separately, or relicense it is granted.
+原生附加组件为专有组件，不在本许可范围内，仅以随本软件分发的预编译二进制形式提供。
+除按上文允许的非商业用途以其随附形式运行外，不授予任何权利；尤其不授予对其进行逆向、
+复制、修改、单独再分发或再许可的权利。
+
+===============================================================================
+6. Additional Permissions / 额外授权
+===============================================================================
+Any use not granted by this License — including Commercial Use and the public
+release of derivative works — requires prior written permission, which must be
+requested from and granted by the copyright holder (Contact above).
+本许可未授予的任何用途——包括商业使用及公开发布衍生作品——均须事先取得著作权人的
+书面许可（见上方联系方式）。
+
+===============================================================================
+7. Third-Party Components / 第三方组件
+===============================================================================
+Third-party code and components retain their own original licenses, which
+govern those parts. 第三方代码与组件遵循其各自的原始许可，并以其许可为准。
+
+===============================================================================
+8. Termination / 终止
+===============================================================================
+Any breach of this License automatically terminates the rights granted to You
+under it. 任何违反本许可的行为将自动终止你依本许可获得的权利。
+
+===============================================================================
+9. Disclaimer / 免责声明
+===============================================================================
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE
+OR OTHER DEALINGS IN THE SOFTWARE.
+本软件按“现状”提供，不附带任何明示或默示的担保，包括但不限于适销性、特定用途
+适用性及不侵权的担保。在任何情况下，作者或著作权人均不对因本软件或其使用所引起
+的任何索赔、损害或其他责任负责。
+
+===============================================================================
+10. Governing Law / 适用法律
+===============================================================================
+This License is governed by the laws of the mainland of the People's Republic
+of China, excluding its conflict-of-laws rules.
+本许可适用中华人民共和国大陆地区法律（不含其冲突法规则）。

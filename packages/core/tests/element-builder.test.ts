@@ -27,7 +27,12 @@ vi.mock('@snowluma/protocol/highway/video-upload', () => ({
   uploadVideoMsgInfo: vi.fn(async () => new Uint8Array([1, 2, 3])),
 }));
 
+import { protobuf_encode } from '@snowluma/proton';
+import type { MsgInfo } from '@snowluma/proto-defs/element';
 import { buildSendElems } from '@snowluma/protocol/element-builder';
+import { MessageElementValidationError } from '@snowluma/protocol/element-manifest';
+import { uploadImageMsgInfo } from '@snowluma/protocol/highway/image-upload';
+import { uploadVideoMsgInfo } from '@snowluma/protocol/highway/video-upload';
 
 const fakeBridge = {} as any;
 
@@ -73,6 +78,40 @@ describe('element-builder / rich card encoding', () => {
 });
 
 describe('element-builder / commonElem.businessType per scene', () => {
+  describe('private window shake', () => {
+    it('encodes poke type 1 as CommonElem service 2 with the verified payload', async () => {
+      const [elem] = await buildSendElems(
+        [{ type: 'poke', subType: 1 }],
+        { bridge: fakeBridge, userUid: 'u_peer', scene: 'direct-private' },
+      );
+
+      expect(commonElem(elem)).toMatchObject({
+        serviceType: 2,
+        businessType: 1,
+      });
+      expect(Array.from(commonElem(elem).pbElem)).toEqual([0x08, 0x01]);
+    });
+
+    it('rejects mixed window-shake content before uploading an earlier media segment', async () => {
+      vi.mocked(uploadImageMsgInfo).mockClear();
+
+      await expect(buildSendElems([
+        { type: 'image', url: 'file:///tmp/must-not-upload.png' },
+        { type: 'poke', subType: 1 },
+      ], {
+        bridge: fakeBridge,
+        userUid: 'u_peer',
+        scene: 'direct-private',
+      })).rejects.toMatchObject({
+        code: 'UNSENDABLE_TYPE',
+        elementType: 'poke',
+        message: expect.stringContaining('only segment'),
+      });
+
+      expect(uploadImageMsgInfo).not.toHaveBeenCalled();
+    });
+  });
+
   describe('image', () => {
     it('c2c → businessType 10', async () => {
       const [elem] = await buildSendElems(
@@ -131,6 +170,153 @@ describe('element-builder / commonElem.businessType per scene', () => {
   });
 });
 
+describe('element-builder / all-message validation preflight', () => {
+  it('rejects hidden siblings and duplicate videos before uploading', async () => {
+    vi.mocked(uploadVideoMsgInfo).mockClear();
+
+    await expect(buildSendElems([
+      { type: 'video', url: 'file:///tmp/clip.mp4' },
+      { type: 'text', text: 'must not become hidden content' },
+    ], { bridge: fakeBridge, groupId: 12345 })).rejects.toMatchObject({
+      code: 'UNSENDABLE_TYPE',
+      elementType: 'video',
+      message: expect.stringContaining('only segment'),
+    });
+
+    await expect(buildSendElems([
+      { type: 'video', url: 'file:///tmp/first.mp4' },
+      { type: 'video', url: 'file:///tmp/second.mp4' },
+    ], { bridge: fakeBridge, groupId: 12345 })).rejects.toMatchObject({
+      code: 'UNSENDABLE_TYPE',
+      elementType: 'video',
+      message: expect.stringContaining('only once'),
+    });
+
+    expect(uploadVideoMsgInfo).not.toHaveBeenCalled();
+  });
+
+  it('keeps empty canonical text invalid instead of sending it beside a video', async () => {
+    vi.mocked(uploadVideoMsgInfo).mockClear();
+
+    await expect(buildSendElems([
+      { type: 'text', text: '' },
+      { type: 'video', url: 'file:///tmp/clip.mp4' },
+    ], { bridge: fakeBridge, groupId: 12345 })).rejects.toMatchObject({
+      code: 'INVALID_FIELD',
+      elementType: 'text',
+    });
+
+    expect(uploadVideoMsgInfo).not.toHaveBeenCalled();
+  });
+
+  it('applies standalone-video validation to forward nodes', async () => {
+    vi.mocked(uploadVideoMsgInfo).mockClear();
+
+    await expect(buildSendElems([
+      { type: 'video', url: 'file:///tmp/clip.mp4' },
+      { type: 'text', text: 'must not survive bot forwarding' },
+    ], {
+      bridge: fakeBridge,
+      groupId: 12345,
+      forwardFake: true,
+      scene: 'forward',
+    })).rejects.toMatchObject({
+      code: 'UNSENDABLE_TYPE',
+      elementType: 'video',
+    });
+
+    expect(uploadVideoMsgInfo).not.toHaveBeenCalled();
+  });
+
+  it('does not upload an early image when a later segment is unsendable', async () => {
+    vi.mocked(uploadImageMsgInfo).mockClear();
+
+    await expect(buildSendElems([
+      { type: 'image', url: 'file:///tmp/valid-before-invalid.png' },
+      { type: 'poke', subType: 1 },
+    ] as any, { bridge: fakeBridge, groupId: 12345 })).rejects.toMatchObject({
+      code: 'UNSENDABLE_TYPE',
+      elementType: 'poke',
+    });
+
+    expect(uploadImageMsgInfo).not.toHaveBeenCalled();
+  });
+
+  it('emits a customFace sibling for forwardFake group images (#441)', async () => {
+    const md5Hex = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const msgInfo = protobuf_encode<MsgInfo>({
+      msgInfoBody: [{
+        index: {
+          fileUuid: 'EhRimg',
+          info: {
+            fileHash: md5Hex,
+            fileName: `${md5Hex}.png`,
+            fileSize: 12,
+            width: 10,
+            height: 10,
+            type: { picFormat: 1001 },
+          },
+        },
+      }],
+    });
+    vi.mocked(uploadImageMsgInfo).mockResolvedValueOnce(msgInfo);
+
+    const elems = await buildSendElems(
+      [{ type: 'image', url: 'file:///tmp/a.png' }],
+      { bridge: fakeBridge, groupId: 12345, forwardFake: true, scene: 'forward' },
+    );
+
+    expect(elems).toHaveLength(2);
+    expect(elems[0]!.commonElem).toBeDefined();
+    expect(elems[1]!.customFace?.filePath).toBe(`${md5Hex}.png`);
+    expect(elems[1]!.customFace?.md5).toHaveLength(16);
+  });
+
+  it('does not emit a legacy sibling on a live group image send', async () => {
+    vi.mocked(uploadImageMsgInfo).mockResolvedValueOnce(new Uint8Array([7, 8, 9]));
+    const elems = await buildSendElems(
+      [{ type: 'image', url: 'file:///tmp/a.png' }],
+      { bridge: fakeBridge, groupId: 12345 },
+    );
+    expect(elems).toHaveLength(1);
+    expect(elems[0]!.commonElem).toBeDefined();
+    expect(elems[0]!.customFace).toBeUndefined();
+  });
+
+  it('accepts a received imageUrl-only element for re-send', async () => {
+    vi.mocked(uploadImageMsgInfo).mockClear();
+    await buildSendElems(
+      [{ type: 'image', imageUrl: 'https://gchat.qpic.cn/received.jpg' }],
+      { bridge: fakeBridge, groupId: 12345 },
+    );
+    expect(uploadImageMsgInfo).toHaveBeenCalledWith(
+      fakeBridge,
+      true,
+      12345,
+      expect.objectContaining({ imageUrl: 'https://gchat.qpic.cn/received.jpg' }),
+    );
+  });
+
+  it('does not upload an early image when a later fast-only media element lacks hashes', async () => {
+    vi.mocked(uploadImageMsgInfo).mockClear();
+
+    await expect(buildSendElems([
+      { type: 'image', url: 'file:///tmp/valid-before-invalid.png' },
+      {
+        type: 'image',
+        url: 'file:///tmp/must-not-fallback.png',
+        noByteFallback: true,
+      },
+    ] as any, { bridge: fakeBridge, groupId: 12345 })).rejects.toMatchObject({
+      code: 'MISSING_FIELD',
+      elementType: 'image',
+      field: 'md5Hex',
+    });
+
+    expect(uploadImageMsgInfo).not.toHaveBeenCalled();
+  });
+});
+
 describe('element-builder / file element is no longer carried in elems[]', () => {
   // Regression for the `result=79` class: previously the element-builder
   // emitted a `transElem(elemType=24, ...)` for `{type:'file'}` segments
@@ -141,8 +327,8 @@ describe('element-builder / file element is no longer carried in elems[]', () =>
   // segment is split off. The element-builder therefore must NOT emit
   // any element for `{type:'file'}` anymore — if it does, the message
   // ships with a transElem(24) payload and result=79 returns.
-  it('produces an empty elems[] for a {type:"file"} segment (must be split out at OneBot layer)', async () => {
-    const result = await buildSendElems(
+  it('fails fast when a live {type:"file"} reaches the element builder', async () => {
+    await expect(buildSendElems(
       [{
         type: 'file',
         fileId: 'fid-abc',
@@ -152,8 +338,11 @@ describe('element-builder / file element is no longer carried in elems[]', () =>
         sha1Hex: '0102030405060708090a0b0c0d0e0f1011121314',
       } as any],
       { bridge: fakeBridge, groupId: 12345 },
-    );
-    expect(result).toEqual([]);
+    )).rejects.toMatchObject({
+      name: 'MessageElementValidationError',
+      code: 'UNSENDABLE_TYPE',
+      elementType: 'file',
+    });
   });
 });
 
@@ -228,15 +417,10 @@ describe('element-builder / forward preview (com.tencent.multimsg LightApp)', ()
     expect(JSON.parse(json.extra).tsum).toBe(3);
   });
 
-  it('drops the forward element when resId is missing (preview unrenderable, fail open)', async () => {
-    // The dispatcher's `case 'forward': if (elem.resId) ...` short-
-    // circuits when resId is empty so a malformed segment from the
-    // OneBot client doesn't blow up the whole send. Receiver sees
-    // no forward bubble — same outcome as omitting the segment.
-    const out = await buildSendElems(
+  it('rejects a forward element when resId is missing', async () => {
+    await expect(buildSendElems(
       [{ type: 'forward' } as any],
       { bridge: fakeBridge, groupId: 12345 },
-    );
-    expect(out).toEqual([]);
+    )).rejects.toBeInstanceOf(MessageElementValidationError);
   });
 });

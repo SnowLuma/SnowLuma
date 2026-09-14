@@ -9,7 +9,45 @@ permissions:
   contents: write
 
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.28.0
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: '.node-version'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run all package tests
+        run: pnpm test
+
+      - name: Type check all packages
+        run: pnpm typecheck
+
+      - name: Verify generated action catalog is up to date
+        run: |
+          catalog_status="$(git status --porcelain=v1 --untracked-files=all -- packages/mcp/src/generated)"
+          if [ -n "$catalog_status" ]; then
+            git diff -- packages/mcp/src/generated
+            printf '%s\n' "$catalog_status"
+            echo '::error::Generated action catalog is stale. Run `pnpm --filter @snowluma/mcp gen` and commit packages/mcp/src/generated/.' >&2
+            exit 1
+          fi
+
   build:
+    needs: preflight
     strategy:
       fail-fast: false
       matrix:
@@ -39,11 +77,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version-file: '.node-version'
           cache: 'pnpm'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Run native smoke tests
+        run: pnpm test:native
 
       # Always builds the WebUI flavor — no separate "core-only" artifact.
       - name: Build project
@@ -55,9 +96,12 @@ jobs:
         working-directory: dist
         run: npm install --omit=dev
 
+      - name: Verify release layout
+        run: pnpm check:release-layout
+
       # Naming convention:
       #   SnowLuma-<tag>-<arch>.zip|tar.gz        – zero-install (node bundled)
-      #   SnowLuma-<tag>-<arch>-lite.zip|tar.gz   – user provides Node >= 22
+      #   SnowLuma-<tag>-<arch>-lite.zip|tar.gz   – user provides Node 22.13+ (23.x requires 23.4+)
       - name: Package (windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -109,42 +153,42 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           previousTag="$(git describe --tags --abbrev=0 "${tag}^" 2>/dev/null || true)"
           if [[ -n "$previousTag" ]]; then
-            changes="$(git log --pretty=format:'- %s (%h)' "$previousTag..$tag")"
+            range="$previousTag..$tag"
+            comparison="[查看 ${previousTag} → ${tag} 的完整差异](https://github.com/${GITHUB_REPOSITORY}/compare/${previousTag}...${tag})"
           else
-            changes="$(git log --pretty=format:'- %s (%h)' "$tag")"
+            range="$tag"
+            comparison=""
           fi
+          changes="$(git log --no-merges --invert-grep --grep='^chore(release):' --pretty=format:"- %s ([%h](https://github.com/${GITHUB_REPOSITORY}/commit/%H))" "$range")"
           [[ -z "$changes" ]] && changes="- No commit changes detected."
           cat > release-notes.md <<EOF
           # SnowLuma ${tag}
 
-          ## 发布概览
-          本次发布提供 SnowLuma 的 Windows x64 / Linux x64 / Linux arm64 构建产物，默认包含 WebUI。
+          > **跨平台正式支持：** Windows x64、Linux x64 与 Linux arm64 均可完整运行 SnowLuma，包含 QQ 接入、OneBot v11 与 WebUI 管理能力。
 
-          ## 下载说明
-          命名约定：
-          - 无后缀 \`.zip/.tar.gz\`：完整版本，内置 \`node\`/\`node.exe\` 与运行时依赖，解压即可使用。
-          - \`-lite\` 后缀：精简版本，不含 Node.js 运行时，需自行安装 Node.js 22+。
+          ## 选择下载
 
-          Windows：
-          - \`SnowLuma-${tag}-win-x64.zip\`
-          - \`SnowLuma-${tag}-win-x64-lite.zip\`
+          | 平台 | 完整版（内置 Node.js，推荐） | Lite（Node.js 22.13+；23 系需 23.4+） |
+          | --- | --- | --- |
+          | Windows x64 | \`SnowLuma-${tag}-win-x64.zip\` | \`SnowLuma-${tag}-win-x64-lite.zip\` |
+          | Linux x64 | \`SnowLuma-${tag}-linux-x64.tar.gz\` | \`SnowLuma-${tag}-linux-x64-lite.tar.gz\` |
+          | Linux arm64 | \`SnowLuma-${tag}-linux-arm64.tar.gz\` | \`SnowLuma-${tag}-linux-arm64-lite.tar.gz\` |
 
-          Linux x64：
-          - \`SnowLuma-${tag}-linux-x64.tar.gz\`
-          - \`SnowLuma-${tag}-linux-x64-lite.tar.gz\`
+          完整版适合直接解压运行；Lite 版不包含 Node.js，但其余运行时依赖和 WebUI 静态资源保持一致。
 
-          Linux arm64：
-          - \`SnowLuma-${tag}-linux-arm64.tar.gz\`
-          - \`SnowLuma-${tag}-linux-arm64-lite.tar.gz\`
+          ## 快速开始
 
-          ## 更新内容
+          1. 解压与你的系统架构匹配的压缩包。
+          2. Windows 运行 \`launcher.bat\`；Linux 运行 \`./launcher.sh\`。
+          3. 浏览器访问 http://localhost:5099，初始账号为 \`admin\`，密码见启动日志。
+
+          无人值守部署可同时设置 \`SNOWLUMA_ACCEPT_EULA=1\` 与 \`SNOWLUMA_ACCEPT_PRIVACY=1\` 完成协议确认。设置这些变量即表示运营者已阅读并同意发行包内的 EULA 与隐私政策；缺少任意一项时仍会显示同意页面。
+
+          ## 本次更新
+
           ${changes}
 
-          ## 使用说明
-          - Windows x64：\`launcher.bat\` 或 \`node index.mjs\`。
-          - Linux：\`./launcher.sh\` 或 \`node index.mjs\`。
-          - 所有压缩包均已内置 WebUI 静态资源；启动后访问 http://localhost:5099。
-          - Linux 版本仅提供 OneBot 桥接能力，NTQQ 进程注入仅在 Windows 下生效。
+          ${comparison}
           EOF
 
       - name: Create GitHub Release
@@ -196,7 +240,7 @@ jobs:
             const platforms = process.env.DOCKER_PLATFORMS || 'linux/amd64,linux/arm64';
             const workflowId = process.env.DOCKER_WORKFLOW || 'docker-image.yml';
             const ref = process.env.DOCKER_REF || 'main';
-            const ghcrImage = process.env.GHCR_IMAGE || '';
+            const ghcrImage = process.env.GHCR_IMAGE || 'ghcr.io/snowluma/snowluma';
 
             await github.rest.actions.createWorkflowDispatch({
               owner,

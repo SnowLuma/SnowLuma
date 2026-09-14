@@ -1,10 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import {
   describeTrustProxy,
+  isLoopbackClientIp,
   parseTrustProxy,
   pickClientIp,
   type TrustProxyMode,
 } from '../src/webui/client-ip';
+
+describe('isLoopbackClientIp', () => {
+  it.each(['127.0.0.1', '127.0.0.2', '::1', '0:0:0:0:0:0:0:1', '::ffff:127.0.0.9'])(
+    'accepts loopback address %s',
+    (address) => expect(isLoopbackClientIp(address)).toBe(true),
+  );
+
+  it.each(['', 'localhost', '0.0.0.0', '192.168.1.2', '::ffff:192.168.1.2'])(
+    'rejects non-loopback or unverified address %s',
+    (address) => expect(isLoopbackClientIp(address)).toBe(false),
+  );
+});
 
 function mockCtx(headers: Record<string, string> = {}) {
   return {
@@ -78,6 +91,23 @@ describe('pickClientIp', () => {
   it('survives a socket resolver that throws', () => {
     const mode: TrustProxyMode = { kind: 'none' };
     expect(pickClientIp(mockCtx({}), mode, () => { throw new Error('boom'); })).toBe('127.0.0.1');
+  });
+
+  it('can fail closed when a security decision cannot resolve the socket peer', () => {
+    const mode: TrustProxyMode = { kind: 'none' };
+    expect(pickClientIp(mockCtx({}), mode, () => { throw new Error('boom'); }, '')).toBe('');
+  });
+
+  it('does not trust forwarded headers when the socket peer is unknown', () => {
+    const mode: TrustProxyMode = { kind: 'all' };
+    expect(
+      pickClientIp(
+        mockCtx({ 'x-real-ip': '127.0.0.1' }),
+        mode,
+        () => { throw new Error('boom'); },
+        '',
+      ),
+    ).toBe('');
   });
 });
 

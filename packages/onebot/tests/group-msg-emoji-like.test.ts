@@ -6,10 +6,12 @@
 //   - formatEvent prints something readable in the [Event] log
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { PacketInfo } from '@snowluma/common/protocol-types';
 import { protobuf_encode } from '@snowluma/proton';
 import type { GroupReactNotify } from '@snowluma/proto-defs/notify';
+import { MSG_PUSH_CMD, parseMsgPush } from '@snowluma/protocol/msg-push';
 import { decodeEvent0x2DC } from '@snowluma/protocol/msg-push/decoders/event-0x2dc';
-import type { MsgPushContext } from '@snowluma/protocol/msg-push/context';
+import { buildContext, type MsgPushContext } from '@snowluma/protocol/msg-push/context';
 import { IdentityService } from '@snowluma/protocol/identity-service';
 import type { GroupMsgEmojiLikeEvent, QQEventVariant } from '@snowluma/protocol/events';
 import { convertGroupMsgEmojiLike } from '../src/event-converter/to-notice';
@@ -35,6 +37,64 @@ function buildReactContent(notify: Record<string, unknown>): Uint8Array {
   return out;
 }
 
+function encodeVarint(value: bigint): number[] {
+  const out: number[] = [];
+  let remaining = value;
+  do {
+    let byte = Number(remaining & 0x7fn);
+    remaining >>= 7n;
+    if (remaining !== 0n) byte |= 0x80;
+    out.push(byte);
+  } while (remaining !== 0n);
+  return out;
+}
+
+function encodeSignedInt32Varint(value: number): number[] {
+  return encodeVarint(BigInt.asUintN(64, BigInt(value | 0)));
+}
+
+function varintField(fieldNumber: number, value: number[] | bigint): number[] {
+  const bytes = Array.isArray(value) ? value : encodeVarint(value);
+  return [...encodeVarint(BigInt(fieldNumber << 3)), ...bytes];
+}
+
+function messageField(fieldNumber: number, payload: number[] | Uint8Array): number[] {
+  const bytes = Array.from(payload);
+  return [
+    ...encodeVarint(BigInt((fieldNumber << 3) | 2)),
+    ...encodeVarint(BigInt(bytes.length)),
+    ...bytes,
+  ];
+}
+
+function buildPushPacket(
+  content: Uint8Array,
+  options: { sequence: number[] | bigint; msgId: number[] | bigint },
+): PacketInfo {
+  const contentHead = [
+    ...varintField(1, 732n),
+    ...varintField(2, 16n),
+    ...varintField(4, options.msgId),
+    ...varintField(5, options.sequence),
+    ...varintField(6, 1735000000n),
+  ];
+  const body = messageField(2, content);
+  const message = [
+    ...messageField(2, contentHead),
+    ...messageField(3, body),
+  ];
+
+  return {
+    pid: 1,
+    uin: SELF_UIN,
+    serviceCmd: MSG_PUSH_CMD,
+    seqId: 1,
+    retCode: 0,
+    fromClient: false,
+    body: Uint8Array.from(messageField(1, message)),
+  };
+}
+
 function makeCtx(content: Uint8Array, identity = makeIdentity()): MsgPushContext {
   return {
     head: { msgType: 732, subType: 16, sequence: 0, timestamp: 1735000000, msgId: 0 },
@@ -49,6 +109,76 @@ function makeCtx(content: Uint8Array, identity = makeIdentity()): MsgPushContext
 }
 
 describe('decodeEvent0x2DC subType=16 — GroupMsgEmojiLike', () => {
+  it('decodes a full PushMsg whose envelope sequence uses a sign-extended 10-byte varint', () => {
+    const content = buildReactContent({
+      groupUin: BigInt(GROUP_ID),
+      field13: 35,
+      groupReactionData: {
+        data: {
+          data: {
+            groupReactionTarget: { seq: 4242n },
+            groupReactionDataContent: {
+              code: '76', count: 1, operatorUid: 'u_operator_xxx', type: 1,
+            },
+          },
+        },
+      },
+    });
+    const packet = buildPushPacket(content, {
+      msgId: 123n,
+      sequence: encodeSignedInt32Varint(-2),
+    });
+
+    const [event] = parseMsgPush(packet, makeIdentity()) as GroupMsgEmojiLikeEvent[];
+    expect(event).toMatchObject({
+      kind: 'group_msg_emoji_like',
+      groupId: GROUP_ID,
+      msgSeq: 4242,
+      emojiId: '76',
+    });
+  });
+
+  it('decodes a full PushMsg whose envelope sequence carries high uint32 bits', () => {
+    const content = buildReactContent({
+      groupUin: BigInt(GROUP_ID),
+      field13: 35,
+      groupReactionData: {
+        data: {
+          data: {
+            groupReactionTarget: { seq: 4242n },
+            groupReactionDataContent: {
+              code: '76', count: 1, operatorUid: 'u_operator_xxx', type: 1,
+            },
+          },
+        },
+      },
+    });
+    const packet = buildPushPacket(content, {
+      msgId: 123n,
+      sequence: 0x1_0000_0007n,
+    });
+
+    const [event] = parseMsgPush(packet, makeIdentity()) as GroupMsgEmojiLikeEvent[];
+    expect(event).toMatchObject({
+      kind: 'group_msg_emoji_like',
+      groupId: GROUP_ID,
+      msgSeq: 4242,
+      emojiId: '76',
+    });
+    expect(buildContext(packet, makeIdentity())?.head.sequence).toBe(7);
+  });
+
+  it('accepts a sign-extended negative ContentHead field 4 without losing its low 32 bits', () => {
+    const packet = buildPushPacket(new Uint8Array(0), {
+      msgId: encodeSignedInt32Varint(-1),
+      sequence: 7n,
+    });
+    const ctx = buildContext(packet, makeIdentity());
+
+    expect(ctx?.head.msgId).toBe(0xffffffff);
+    expect(ctx?.head.sequence).toBe(7);
+  });
+
   it('decodes a field13=35 react add into a GroupMsgEmojiLikeEvent', () => {
     const content = buildReactContent({
       groupUin: BigInt(GROUP_ID),

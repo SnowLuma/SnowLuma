@@ -1,9 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { Check, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { InlineValidation } from '@/components/interior/inline-validation';
+import {
+  PasswordStrength,
+  type PasswordRule as InteriorPasswordRule,
+} from '@/components/interior/password-strength';
+import { PasswordVisibilityIcon } from '@/components/ui/password-visibility-icon';
+import { actionErrorMessage, useActionFeedback } from '@/contexts/ActionFeedbackContext';
+import { useTheme } from '@/contexts/ThemeContext';
 import { cn } from '@/lib/utils';
 
 export interface PasswordRule {
@@ -12,7 +18,36 @@ export interface PasswordRule {
   ok: boolean;
 }
 
+const EMPTY_RULES: readonly PasswordRule[] = [
+  { id: 'length', label: '长度不少于 10 位', ok: false },
+  { id: 'lower', label: '包含小写字母', ok: false },
+  { id: 'upper', label: '包含大写字母', ok: false },
+  { id: 'special', label: '包含特殊符号 (!@#$%…)', ok: false },
+  { id: 'no-space', label: '不包含空格', ok: false },
+];
+
+const STRENGTH_LABELS = ['未输入', '很弱', '较弱', '一般', '良好', '强'] as const;
+
+/** Shown under the new-password field only while the animated rule list is hidden. */
+export function passwordRequirementHint(options: {
+  focused: boolean;
+  value: string;
+  checked: boolean;
+  valid: boolean;
+  rules: readonly PasswordRule[];
+  checkError: string;
+}): string | null {
+  if (options.focused || options.value.length === 0) return null;
+  if (options.checkError) return `密码强度校验失败：${options.checkError}`;
+  if (!options.checked || options.valid) return null;
+  const unmet = options.rules.filter((rule) => !rule.ok);
+  if (unmet.length === 0) return '密码尚未满足全部要求';
+  return `仍需满足：${unmet.map((rule) => rule.label).join('、')}`;
+}
+
 export interface ChangePasswordFormProps {
+  /** Selects whether the form changes credentials or only rehearses validation. */
+  mode?: 'change' | 'rehearsal';
   /**
    * When provided, the "current password" field is omitted entirely and this
    * value is used as the old password.
@@ -36,9 +71,18 @@ export interface ChangePasswordFormProps {
   /** Disambiguates input ids if two instances ever mount at once. */
   idPrefix?: string;
   submitLabel?: string;
+  className?: string;
+  renderActions?: (state: {
+    canSubmit: boolean;
+    /** Fields are filled enough to try saving; strength may still be unmet. */
+    canAttempt: boolean;
+    submitting: boolean;
+    submitLabel: string;
+  }) => ReactNode;
 }
 
 export function ChangePasswordForm({
+  mode = 'change',
   knownOldPassword,
   checkStrength,
   submit,
@@ -46,35 +90,89 @@ export function ChangePasswordForm({
   onCancel,
   idPrefix = 'cpw',
   submitLabel = '保存新密码',
+  className,
+  renderActions,
 }: ChangePasswordFormProps) {
-  const carriesOld = knownOldPassword !== undefined;
+  const rehearsing = mode === 'rehearsal';
+  const carriesOld = rehearsing || knownOldPassword !== undefined;
+  const { runAction } = useActionFeedback();
+  const { appearance } = useTheme();
+  const reduceMotion = appearance.reduceMotion || appearance.disableMotion;
 
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showOld, setShowOld] = useState(false);
   const [showNew, setShowNew] = useState(false);
-  const [rules, setRules] = useState<PasswordRule[]>([]);
-  const [valid, setValid] = useState(false);
+  const [newPasswordFocused, setNewPasswordFocused] = useState(false);
+  const [strengthResult, setStrengthResult] = useState<{
+    password: string;
+    rules: PasswordRule[];
+    valid: boolean;
+  }>({ password: '', rules: [], valid: false });
+  const [strengthFailure, setStrengthFailure] = useState<{
+    password: string;
+    message: string;
+  } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  const effectiveOld = carriesOld ? (knownOldPassword as string) : oldPassword;
+  const effectiveOld = rehearsing ? '' : carriesOld ? (knownOldPassword as string) : oldPassword;
+  const checkedCurrentPassword = strengthResult.password === newPassword;
+  const valid = checkedCurrentPassword && strengthResult.valid;
+  const strengthError = strengthFailure?.password === newPassword
+    ? strengthFailure.message
+    : '';
+  const checkingStrength =
+    newPassword.length > 0 && !checkedCurrentPassword && strengthError.length === 0;
+  const displayedRules = checkedCurrentPassword && strengthResult.rules.length > 0
+    ? strengthResult.rules
+    : EMPTY_RULES;
+  const strengthRules = useMemo<readonly InteriorPasswordRule[]>(
+    () => displayedRules.map((rule) => ({
+      id: rule.id,
+      label: rule.label,
+      test: () => rule.ok,
+    })),
+    [displayedRules],
+  );
   const confirmMatches = newPassword.length > 0 && newPassword === confirmPassword;
-  const canSubmit =
-    !submitting && effectiveOld.length > 0 && valid && confirmMatches && effectiveOld !== newPassword;
+  const canAttempt =
+    !submitting
+    && (rehearsing || effectiveOld.length > 0)
+    && confirmMatches
+    && (rehearsing || effectiveOld !== newPassword);
+  const canSubmit = canAttempt && valid;
+  const requirementHint = passwordRequirementHint({
+    focused: newPasswordFocused,
+    value: newPassword,
+    checked: checkedCurrentPassword,
+    valid,
+    rules: displayedRules,
+    checkError: strengthError,
+  });
 
   // Debounce the strength check so we don't slam the API on every keystroke.
   useEffect(() => {
+    if (newPassword.length === 0) {
+      setStrengthFailure(null);
+      return;
+    }
     let cancelled = false;
     const handle = window.setTimeout(async () => {
       try {
         const res = await checkStrength(newPassword);
         if (cancelled) return;
-        setRules(res.rules);
-        setValid(res.valid);
-      } catch {
-        /* ignore – the form will just stay disabled */
+        if (res.rules.length === 0) {
+          throw new Error('服务器未返回密码强度规则');
+        }
+        setStrengthResult({ password: newPassword, rules: res.rules, valid: res.valid });
+        setStrengthFailure(null);
+      } catch (caught) {
+        if (cancelled) return;
+        const message = actionErrorMessage(caught);
+        console.error('check password strength failed', caught);
+        setStrengthFailure({ password: newPassword, message });
       }
     }, 180);
     return () => {
@@ -85,11 +183,26 @@ export function ChangePasswordForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canSubmit) return;
+    if (!canAttempt) return;
+    if (!valid) {
+      setNewPasswordFocused(true);
+      document.getElementById(`${idPrefix}-new`)?.focus();
+      return;
+    }
     setSubmitting(true);
     setError('');
     try {
-      const res = await submit(effectiveOld, newPassword);
+      const res = await runAction(
+        {
+          title: rehearsing ? '正在验证密码设置步骤' : '正在更新访问密码',
+          detail: rehearsing ? '演练内容不会保存' : '正在保存新密码并使其他会话失效',
+          successTitle: rehearsing ? '密码设置演练已完成' : '访问密码已更新',
+          successDetail: rehearsing ? '未修改真实访问密码' : '其他会话已失效',
+          errorTitle: rehearsing ? '密码设置演练失败' : '访问密码更新失败',
+          resultError: (result) => result.success ? null : result.message || '修改失败',
+        },
+        () => submit(effectiveOld, newPassword),
+      );
       if (res.success) {
         onSuccess();
       } else {
@@ -103,74 +216,103 @@ export function ChangePasswordForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+    <form onSubmit={handleSubmit} className={cn('flex flex-col gap-3', className)}>
       {!carriesOld && (
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor={`${idPrefix}-old`}>当前密码</Label>
-          <div className="relative">
-            <Input
-              id={`${idPrefix}-old`}
-              type={showOld ? 'text' : 'password'}
-              autoComplete="current-password"
-              value={oldPassword}
-              onChange={(e) => setOldPassword(e.target.value)}
-              placeholder="输入当前访问密码"
-              className="h-10 pr-10 text-sm"
+        <InlineValidation
+          id={`${idPrefix}-old`}
+          label="当前密码"
+          type={showOld ? 'text' : 'password'}
+          autoComplete="current-password"
+          spellCheck={false}
+          required
+          value={oldPassword}
+          onChange={setOldPassword}
+          validate={(value) => value.length > 0 ? null : '请输入当前密码'}
+          hint="用于确认当前管理员身份"
+          showValidIcon={false}
+          endAdornment={(
+            <PasswordVisibilityButton
+              visible={showOld}
+              reduceMotion={reduceMotion}
+              onToggle={() => setShowOld((current) => !current)}
             />
-            <button
-              type="button"
-              onClick={() => setShowOld((v) => !v)}
-              aria-label={showOld ? '隐藏密码' : '显示密码'}
-              tabIndex={-1}
-              className="absolute right-2 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              {showOld ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-            </button>
-          </div>
-        </div>
+          )}
+        />
       )}
 
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor={`${idPrefix}-new`}>新密码</Label>
-        <div className="relative">
-          <Input
-            id={`${idPrefix}-new`}
-            type={showNew ? 'text' : 'password'}
-            autoComplete="new-password"
+      <div>
+        <InlineValidation
+          id={`${idPrefix}-new`}
+          label="新密码"
+          type={showNew ? 'text' : 'password'}
+          autoComplete="new-password"
+          spellCheck={false}
+          required
+          value={newPassword}
+          onChange={setNewPassword}
+          onFocus={() => setNewPasswordFocused(true)}
+          onBlur={() => setNewPasswordFocused(false)}
+          validationKey={`${effectiveOld}\0${newPasswordFocused}\0${valid}\0${strengthError}\0${requirementHint ?? ''}`}
+          reserveLines={2}
+          validate={(value) => {
+            if (value.length === 0) return '请输入新密码';
+            if (!rehearsing && value === effectiveOld) return '新密码不能与当前密码相同';
+            return requirementHint;
+          }}
+          showValidIcon={false}
+          endAdornment={(
+            <PasswordVisibilityButton
+              visible={showNew}
+              reduceMotion={reduceMotion}
+              onToggle={() => setShowNew((current) => !current)}
+            />
+          )}
+        />
+
+        <div aria-busy={checkingStrength || undefined}>
+          <PasswordStrength
             value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            placeholder="设置新的强密码"
-            className="h-10 pr-10 text-sm"
+            rules={strengthRules}
+            labels={STRENGTH_LABELS}
+            visible={newPasswordFocused}
+            className="mt-1"
+            status={
+              checkingStrength ? (
+                <span className="text-muted-foreground">正在校验密码强度…</span>
+              ) : strengthError ? (
+                <span role="alert" className="text-destructive">
+                  密码强度校验失败：{strengthError}
+                </span>
+              ) : null
+            }
           />
-          <button
-            type="button"
-            onClick={() => setShowNew((v) => !v)}
-            aria-label={showNew ? '隐藏密码' : '显示密码'}
-            tabIndex={-1}
-            className="absolute right-2 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            {showNew ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-          </button>
         </div>
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor={`${idPrefix}-confirm`}>确认新密码</Label>
-        <Input
-          id={`${idPrefix}-confirm`}
-          type={showNew ? 'text' : 'password'}
-          autoComplete="new-password"
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-          placeholder="再次输入新密码"
-          className="h-10 text-sm"
-        />
-        {confirmPassword.length > 0 && !confirmMatches && (
-          <span className="text-[11px] text-destructive">两次输入的密码不一致</span>
+      <InlineValidation
+        id={`${idPrefix}-confirm`}
+        label="确认新密码"
+        type={showNew ? 'text' : 'password'}
+        autoComplete="new-password"
+        spellCheck={false}
+        required
+        value={confirmPassword}
+        onChange={setConfirmPassword}
+        validationKey={newPassword}
+        validate={(value) => {
+          if (value.length === 0) return '请再次输入新密码';
+          if (value !== newPassword) return '两次输入的密码不一致';
+          return null;
+        }}
+        hint="需要与新密码完全一致"
+        endAdornment={(
+          <PasswordVisibilityButton
+            visible={showNew}
+            reduceMotion={reduceMotion}
+            onToggle={() => setShowNew((current) => !current)}
+          />
         )}
-      </div>
-
-      <RuleList rules={rules} />
+      />
 
       <AnimatePresence>
         {error && (
@@ -185,78 +327,45 @@ export function ChangePasswordForm({
         )}
       </AnimatePresence>
 
-      <div className="flex items-center gap-2">
-        {onCancel && (
-          <Button type="button" variant="ghost" onClick={onCancel} className="h-10">
-            取消
-          </Button>
-        )}
-        <Button type="submit" disabled={!canSubmit} className="ml-auto h-10">
-          {submitting ? (
-            <>
-              <Loader2 className="size-4 animate-spin" /> 提交中…
-            </>
-          ) : (
-            submitLabel
+      {renderActions ? renderActions({ canSubmit, canAttempt, submitting, submitLabel }) : (
+        <div className="flex items-center gap-2 pt-1">
+          {onCancel && (
+            <Button type="button" variant="ghost" onClick={onCancel} className="h-10">
+              取消
+            </Button>
           )}
-        </Button>
-      </div>
+          <Button type="submit" disabled={!canAttempt} className="ml-auto h-10">
+            {submitting ? (
+              <>
+                <Loader2 className="size-4 animate-spin" /> 提交中…
+              </>
+            ) : (
+              submitLabel
+            )}
+          </Button>
+        </div>
+      )}
     </form>
   );
 }
 
-function RuleList({ rules }: { rules: PasswordRule[] }) {
-  // Initial empty state: show a placeholder set so the user knows the rules
-  // exist even before any input.
-  const display = useMemo<PasswordRule[]>(() => {
-    if (rules.length > 0) return rules;
-    return [
-      { id: 'length', label: '长度不少于 10 位', ok: false },
-      { id: 'lower', label: '至少包含一个小写字母', ok: false },
-      { id: 'upper', label: '至少包含一个大写字母', ok: false },
-      { id: 'special', label: '至少包含一个特殊字符', ok: false },
-      { id: 'no-space', label: '不得包含空格', ok: false },
-    ];
-  }, [rules]);
-
+function PasswordVisibilityButton({
+  visible,
+  reduceMotion,
+  onToggle,
+}: {
+  visible: boolean;
+  reduceMotion: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <ul className="grid gap-1.5 rounded-lg border bg-muted/30 p-3">
-      {display.map((rule) => (
-        <li key={rule.id} className="flex items-center gap-2">
-          <motion.span
-            initial={false}
-            animate={{
-              backgroundColor: rule.ok ? 'color-mix(in oklab, var(--primary) 20%, transparent)' : 'transparent',
-              borderColor: rule.ok ? 'var(--primary)' : 'var(--border)',
-              scale: rule.ok ? [1, 1.18, 1] : 1,
-            }}
-            transition={{ duration: 0.25 }}
-            className={cn('flex size-4 items-center justify-center rounded-full border')}
-          >
-            <AnimatePresence>
-              {rule.ok && (
-                <motion.span
-                  key="check"
-                  initial={{ opacity: 0, scale: 0.4 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.4 }}
-                  transition={{ duration: 0.18 }}
-                >
-                  <Check className="size-3 text-primary" strokeWidth={3} />
-                </motion.span>
-              )}
-            </AnimatePresence>
-          </motion.span>
-          <motion.span
-            initial={false}
-            animate={{ color: rule.ok ? 'var(--foreground)' : 'var(--muted-foreground)' }}
-            transition={{ duration: 0.2 }}
-            className="text-xs"
-          >
-            {rule.label}
-          </motion.span>
-        </li>
-      ))}
-    </ul>
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label={visible ? '隐藏密码' : '显示密码'}
+      className="flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary sm:size-7"
+    >
+      <PasswordVisibilityIcon visible={visible} reduceMotion={reduceMotion} />
+    </button>
   );
 }

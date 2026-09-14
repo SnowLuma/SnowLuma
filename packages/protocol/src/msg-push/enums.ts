@@ -37,6 +37,14 @@ export enum Event0x2DCSubType {
 export enum Event0x210SubType {
   FriendRequestNotice = 35,
   /**
+   * Voice-to-text (语音转文字) async result push, fired after a
+   * `pttTrans.Trans{C2C,Group}PttReq` once the server finishes transcribing.
+   * Live-verified body: `{ f1:uint, f2:{ f1=msgId, f8=text, ... } }`. There's
+   * no static sys_msg_0x210_0x3d handler — the ptt-trans subsystem registers
+   * it dynamically; we decode it into an internal `ptt_trans_result` event.
+   */
+  PttTransResult = 61,
+  /**
    * Outgoing friend-message recall — bot recalled its own message that
    * was sent to a friend. Same `FriendRecall` wire shape as 138; the
    * difference is direction (138 = friend recalled their own message
@@ -59,6 +67,31 @@ export enum Event0x210SubType {
    */
   NewFriendNotice = 179,
   NewFriendNoticeAlt = 226,
+  /**
+   * Multiplexed subType (Lagrange calls it FriendDeleteOrPinChanged=39). One of
+   * its variants is the profile-like ("名片赞") push: body.msgContent decodes as
+   * `ProfileLikeTip` and is a like only when inner msgType==0 && subType==203.
+   * NapCat routes 528/39 → parseLikeEvent (`api/msg.ts:1547`); other 39 variants
+   * (multi-device sync etc.) fall through.
+   */
+  ProfileLikeNotice = 39,
+  /**
+   * C2C input-status notify — the "对方正在输入…" push. subMsgType 0x115 (277).
+   * RE-confirmed against `wrapper.linux.node`
+   * `aio_input_state_worker.cc::IsInputStateNotifySysMsg`, which matches exactly
+   * `(msg_type ^ 0x210) | (sub_msg_type ^ 0x115) == 0`. The payload
+   * (`InputStatusNotify`) rides in `body.msgContent`. Mirrors NapCat's
+   * `onInputStatusPush`.
+   */
+  InputStatusNotice = 277,
+  /**
+   * QQ NT online-device cache update. The payload is a snapshot with repeated
+   * device entries; the kernel's getOnLineDev call only replays this cache and
+   * does not issue a separate network request.
+   */
+  OnlineDevicesNotice = 349,
+  /** Server-authoritative friend/stranger remark synchronization push. */
+  FriendRemarkChangedNotice = 364,
   /**
    * Group-app state push (troop shortcut bar / discussion app).
    *

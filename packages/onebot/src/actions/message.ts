@@ -1,7 +1,22 @@
+import { createLogger } from '@snowluma/common/logger';
 import type { JsonObject, JsonValue } from '../types';
-import type { ApiHandler, ApiActionContext } from '../api-handler';
-import { asNumber, asString, asBoolean, asMessage } from '../api-handler';
+import type { ApiActionContext } from '../api-handler';
+import { defineAction, groupAction, f, type Field } from '../action-kit';
 import { RETCODE, failedResponse, okResponse } from '../types';
+
+/** send_msg only (#426). Some clients send `group_id: ""` on private chats.
+ *  Treat that exact empty string as absent. Do not change `f.groupId()`. */
+function sendMsgOptionalGroupId(): Field<number | undefined> {
+  const inner = f.groupId().optional();
+  return Object.assign(Object.create(inner) as Field<number | undefined>, {
+    coerce(raw: Parameters<Field<number | undefined>['coerce']>[0], field: string) {
+      if (raw === '') return { ok: true as const, value: undefined };
+      return inner.coerce(raw, field);
+    },
+  });
+}
+
+const log = createLogger('OneBot');
 
 /**
  * Re-sign image URLs in a stored message event at read time. `get_msg`
@@ -32,96 +47,101 @@ async function refreshStoredImageUrls(event: JsonObject, ctx: ApiActionContext):
   }
 }
 
-export function register(h: ApiHandler, ctx: ApiActionContext): void {
-  h.registerAction('send_msg', async (params) => {
-    const messageType = asString(params.message_type);
-    const message = asMessage(params.message);
-    const autoEscape = asBoolean(params.auto_escape, false);
-
-    if (message === undefined) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'message is required');
-    }
-
-    if (messageType === 'group' || params.group_id !== undefined) {
-      const groupId = asNumber(params.group_id);
-      if (!Number.isInteger(groupId) || groupId <= 0) {
-        return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
+export const actions = [
+  // send_msg routes on message_type / group_id presence, so the *required*
+  // id is conditional — that branch stays in run(). The fields themselves
+  // (message required; group_id/user_id valid uints when present) are
+  // validated by the spec; message_type is left lenient for parity.
+  defineAction({
+    name: 'send_msg',
+    summary: '发送消息（按 message_type/群号 自动路由群聊或私聊）',
+    returns: '{ message_id: number }',
+    params: {
+      message: f.message(),
+      message_type: f.string().optional(),
+      group_id: sendMsgOptionalGroupId(),
+      user_id: f.userId().optional(),
+      auto_escape: f.bool().default(false),
+    },
+    run: async (p, ctx) => {
+      // Group temp-session reply: message_type=private with BOTH a user_id and
+      // a group_id (the source group). Detect it first so a group_id here
+      // doesn't get misrouted to a group message.
+      const isTempReply = p.message_type === 'private' && p.user_id !== undefined && p.group_id !== undefined;
+      if (!isTempReply && (p.message_type === 'group' || p.group_id !== undefined)) {
+        if (p.group_id === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
+        const result = await ctx.sendGroupMessage(p.group_id, p.message, p.auto_escape);
+        return okResponse({ message_id: result.messageId });
       }
-      const result = await ctx.sendGroupMessage(groupId, message, autoEscape);
+      if (p.user_id === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
+      const result = await ctx.sendPrivateMessage(p.user_id, p.message, p.auto_escape, isTempReply ? p.group_id : undefined);
       return okResponse({ message_id: result.messageId });
-    }
+    },
+  }),
 
-    const userId = asNumber(params.user_id);
-    if (!Number.isInteger(userId) || userId <= 0) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
-    }
-    const result = await ctx.sendPrivateMessage(userId, message, autoEscape);
-    return okResponse({ message_id: result.messageId });
-  });
+  defineAction({
+    name: 'send_private_msg',
+    summary: '发送私聊消息',
+    returns: '{ message_id: number }',
+    params: {
+      user_id: f.userId(),
+      message: f.message(),
+      // Optional source group: reply into that group's temp session (临时会话)
+      // instead of a friend chat. int({min:0}) rather than groupId (which
+      // rejects 0): a client that fills every field with group_id:0 must keep
+      // working as a plain private send, so 0/absent means "no temp session".
+      group_id: f.int({ min: 0 }).optional(),
+      auto_escape: f.bool().default(false),
+    },
+    run: async (p, ctx) => {
+      const tempGroupId = p.group_id && p.group_id > 0 ? p.group_id : undefined;
+      const result = await ctx.sendPrivateMessage(p.user_id, p.message, p.auto_escape, tempGroupId);
+      return okResponse({ message_id: result.messageId });
+    },
+  }),
 
-  h.registerAction('send_private_msg', async (params) => {
-    const userId = asNumber(params.user_id);
-    const message = asMessage(params.message);
-    const autoEscape = asBoolean(params.auto_escape, false);
+  groupAction({
+    name: 'send_group_msg',
+    summary: '发送群消息',
+    returns: '{ message_id: number }',
+    params: { message: f.message(), auto_escape: f.bool().default(false) },
+    run: async (p, ctx) => {
+      const result = await ctx.sendGroupMessage(p.group_id, p.message, p.auto_escape);
+      return okResponse({ message_id: result.messageId });
+    },
+  }),
 
-    if (!Number.isInteger(userId) || userId <= 0) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
-    }
-    if (message === undefined) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'message is required');
-    }
+  defineAction({
+    name: 'get_msg',
+    summary: '获取消息',
+    readOnly: true,
+    returns: '消息事件对象（首次收到时存储的副本，已去除 post_type/self_id、附带 real_id 字段并刷新图片 URL）。',
+    params: { message_id: f.messageId() },
+    run: async (p, ctx) => {
+      const data = ctx.getMessage(p.message_id);
+      if (!data) {
+        log.warn('[get_msg] miss message_id=%d', p.message_id);
+        return failedResponse(RETCODE.ACTION_FAILED, 'message not found');
+      }
+      const result: JsonObject = { ...data };
+      delete result.post_type;
+      delete result.self_id;
+      result.real_id = (result.message_id ?? p.message_id) as JsonValue;
+      await refreshStoredImageUrls(result, ctx);
+      return okResponse(result);
+    },
+  }),
 
-    const result = await ctx.sendPrivateMessage(userId, message, autoEscape);
-    return okResponse({ message_id: result.messageId });
-  });
+  defineAction({
+    name: 'delete_msg',
+    summary: '撤回消息',
+    params: { message_id: f.messageId() },
+    run: async (p, ctx) => {
+      const meta = ctx.getMessageMeta(p.message_id);
+      if (!meta) return failedResponse(RETCODE.ACTION_FAILED, 'message not found or not retractable');
+      await ctx.deleteMessage(p.message_id, meta);
+      return okResponse();
+    },
+  }),
+];
 
-  h.registerAction('send_group_msg', async (params) => {
-    const groupId = asNumber(params.group_id);
-    const message = asMessage(params.message);
-    const autoEscape = asBoolean(params.auto_escape, false);
-
-    if (!Number.isInteger(groupId) || groupId <= 0) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-    }
-    if (message === undefined) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'message is required');
-    }
-
-    const result = await ctx.sendGroupMessage(groupId, message, autoEscape);
-    return okResponse({ message_id: result.messageId });
-  });
-
-  h.registerAction('get_msg', async (params) => {
-    const messageId = asNumber(params.message_id);
-    if (!Number.isInteger(messageId) || messageId === 0) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'message_id is required');
-    }
-
-    const data = ctx.getMessage(messageId);
-    if (!data) {
-      return failedResponse(RETCODE.ACTION_FAILED, 'message not found');
-    }
-
-    const result: JsonObject = { ...data };
-    delete result.post_type;
-    delete result.self_id;
-    result.real_id = (result.message_id ?? messageId) as JsonValue;
-    await refreshStoredImageUrls(result, ctx);
-    return okResponse(result);
-  });
-
-  h.registerAction('delete_msg', async (params) => {
-    const messageId = asNumber(params.message_id);
-    if (!Number.isInteger(messageId) || messageId === 0) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'message_id is required');
-    }
-
-    const meta = ctx.getMessageMeta(messageId);
-    if (!meta) {
-      return failedResponse(RETCODE.ACTION_FAILED, 'message not found or not retractable');
-    }
-
-    await ctx.deleteMessage(messageId, meta);
-    return okResponse();
-  });
-}

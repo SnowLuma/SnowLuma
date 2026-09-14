@@ -3,8 +3,11 @@
 // namespace so proton can monomorphize independently.
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { OidbBase, OidbEmpty } from '@snowluma/proto-defs/oidb';
-import type { Oidb0x8a0Req } from '@snowluma/proto-defs/oidb-actions/base';
+import type { OidbBase } from '@snowluma/proto-defs/oidb';
+import type {
+  Oidb0x8a0Req,
+  OidbKickMemberResponse,
+} from '@snowluma/proto-defs/oidb-actions/base';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 import type { BridgeContext } from '../../bridge-context';
 
@@ -28,13 +31,20 @@ export namespace KickMembers {
     field12: 0,
   });
 
-  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
+  export const deserialize = (_ctx: Deps, body: OidbKickMemberResponse): void => {
+    for (const item of body.results ?? []) {
+      const code = item.result ?? 0;
+      if (code !== 0) {
+        throw new Error(`kick members failed: result=${code}`);
+      }
+    }
+  };
 
   export const encode = (env: OidbBase<Oidb0x8a0Req>): Uint8Array =>
     protobuf_encode<OidbBase<Oidb0x8a0Req>>(env);
 
-  export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
-    protobuf_decode<OidbBase<OidbEmpty>>(bytes);
+  export const decode = (bytes: Uint8Array): OidbBase<OidbKickMemberResponse> =>
+    protobuf_decode<OidbBase<OidbKickMemberResponse>>(bytes);
 
   export const invoke = (deps: Deps, params: Params): Promise<void> =>
     invokeOidb(deps, KickMembers, params);

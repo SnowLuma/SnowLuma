@@ -20,6 +20,13 @@ export interface LoadedBinary {
 const DEFAULT_MAX_BINARY_SIZE = 1024 * 1024 * 1024; // 1 GiB
 /** Hard ceiling QQ's file protocol supports — used by group/private files. */
 export const FILE_UPLOAD_MAX_BYTES = 4 * 1024 * 1024 * 1024; // 4 GiB
+/** Local / HTTP flash sources. Official fileset max is unknown; reuse the
+ *  group/private file ceiling so create_flash_task is not stuck on
+ *  `loadBinarySource`'s 1 GiB default. */
+export const FLASH_TRANSFER_MAX_BYTES = FILE_UPLOAD_MAX_BYTES;
+/** Inline `base64://` / `data:` flash sources still decode into RAM inside
+ *  `stageSourceToDisk`, so they keep the 1 GiB buffered-load ceiling. */
+export const FLASH_TRANSFER_INLINE_MAX_BYTES = DEFAULT_MAX_BINARY_SIZE;
 const FETCH_TIMEOUT_MS = 60_000;
 
 /**
@@ -50,9 +57,31 @@ export interface ImageFormat {
 
 // --- Binary source loading ---
 
+/**
+ * Return the encoded payload for an inline Base64 source.
+ *
+ * OneBot historically accepts the shorthand `base64://...`; media elements
+ * also accept RFC 2397 Data URLs such as `data:audio/webm;base64,...`. Keep
+ * their classification in one place so Data URLs can never fall through to
+ * the local-file path.
+ */
+export function inlineBase64Payload(source: string): string | null {
+  if (/^base64:\/\//i.test(source)) return source.slice(9);
+  if (!/^data:/i.test(source)) return null;
+
+  const comma = source.indexOf(',');
+  if (comma < 0) throw new Error('data URL source is missing its payload separator');
+
+  const metadata = source.slice(5, comma);
+  if (!/;base64$/i.test(metadata)) {
+    throw new Error('data URL source must use base64 encoding');
+  }
+  return source.slice(comma + 1);
+}
+
 export function resolveLocalFilePath(source: string): string | null {
   if (!source) return null;
-  if (/^base64:\/\//i.test(source)) return null;
+  if (/^(?:base64:\/\/|data:)/i.test(source)) return null;
   if (/^https?:\/\//i.test(source)) return null;
 
   let filePath = source;
@@ -82,8 +111,102 @@ export function resolveLocalFilePath(source: string): string | null {
  * Tag a size-limit error so the HTTP retry path leaves it alone — retrying
  * a too-large response just re-downloads the same oversized body.
  */
-function tooLarge(message: string): Error {
+export function tooLarge(message: string): Error {
   return Object.assign(new Error(message), { noRetry: true });
+}
+
+/**
+ * Where a download's bytes go. `loadBinarySource` uses an in-memory sink;
+ * `stageSourceToDisk` uses a disk-file sink. A fresh sink is built per fetch
+ * attempt and `discard()`ed on failure so a Referer retry starts clean.
+ */
+export interface DownloadSink<T> {
+  write(chunk: Uint8Array): Promise<void> | void;
+  done(): Promise<T> | T;
+  discard(): Promise<void> | void;
+}
+
+/**
+ * Shared HTTP download engine for both the buffered and the disk-streaming
+ * paths — the single owner of the observable download behavior: browser UA +
+ * Accept, redirect follow, 60s timeout, incremental `maxBytes` enforcement
+ * (declared Content-Length AND streamed total, `noRetry`-tagged), and one
+ * Referer retry on a non-size failure. Bytes are delivered chunk-by-chunk to a
+ * caller-provided sink so the same length-checking transport feeds either RAM
+ * or disk.
+ */
+export async function downloadHttp<T>(
+  source: string,
+  resourceName: string,
+  maxBytes: number,
+  makeSink: () => DownloadSink<T>,
+): Promise<{ result: T; fileName: string }> {
+  const fileName = guessFileNameFromUrl(source);
+
+  const attempt = async (headers: Record<string, string>): Promise<T> => {
+    const resp = await fetch(source, {
+      headers,
+      redirect: 'follow',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!resp.ok) throw new Error(`HTTP download failed: ${resp.status}`);
+    const declared = Number(resp.headers.get('content-length') ?? '0');
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      throw tooLarge(`${resourceName} too large: ${declared} > ${maxBytes}`);
+    }
+
+    const sink = makeSink();
+    try {
+      const reader = resp.body?.getReader();
+      if (!reader) {
+        const buf = new Uint8Array(await resp.arrayBuffer());
+        if (buf.length > maxBytes) {
+          throw tooLarge(`${resourceName} too large: ${buf.length} > ${maxBytes}`);
+        }
+        await sink.write(buf);
+      } else {
+        let total = 0;
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (!value) continue;
+            total += value.byteLength;
+            if (total > maxBytes) {
+              await reader.cancel().catch(() => { /* ignore */ });
+              throw tooLarge(`${resourceName} too large: > ${maxBytes}`);
+            }
+            await sink.write(value);
+          }
+        } finally {
+          reader.releaseLock();
+        }
+      }
+      return await sink.done();
+    } catch (e) {
+      await sink.discard();
+      throw e;
+    }
+  };
+
+  // First try with a browser UA only. On any non-size failure — a
+  // network-level `fetch failed` (connection reset by an anti-bot front-end)
+  // or a 403/4xx from anti-hotlink — retry once with a Referer pointing at the
+  // resource itself, the common bypass for same-origin hotlink checks.
+  const baseHeaders: Record<string, string> = {
+    'User-Agent': DOWNLOAD_USER_AGENT,
+    Accept: '*/*',
+  };
+  try {
+    return { result: await attempt(baseHeaders), fileName };
+  } catch (err) {
+    if ((err as { noRetry?: boolean } | null)?.noRetry) throw err;
+    try {
+      return { result: await attempt({ ...baseHeaders, Referer: source }), fileName };
+    } catch {
+      throw err;
+    }
+  }
 }
 
 export async function loadBinarySource(
@@ -93,8 +216,9 @@ export async function loadBinarySource(
 ): Promise<LoadedBinary> {
   if (!source) throw new Error(`${resourceName} source is empty`);
 
-  if (/^base64:\/\//i.test(source)) {
-    const bytes = Buffer.from(source.slice(9), 'base64');
+  const inlinePayload = inlineBase64Payload(source);
+  if (inlinePayload !== null) {
+    const bytes = Buffer.from(inlinePayload, 'base64');
     if (bytes.length > maxBytes) {
       throw new Error(`${resourceName} too large: ${bytes.length} > ${maxBytes}`);
     }
@@ -102,79 +226,25 @@ export async function loadBinarySource(
   }
 
   if (/^https?:\/\//i.test(source)) {
-    const fileName = guessFileNameFromUrl(source);
-
-    // A single fetch attempt with the given headers. Streams the body
-    // incrementally so a server that omits or understates Content-Length
-    // can't make us buffer a chunked response past maxBytes — `await
-    // resp.arrayBuffer()` would happily allocate the entire payload before
-    // we get a chance to length-check it. Size-limit rejections are tagged
-    // `noRetry` so the outer retry doesn't re-download an oversized body.
-    const attempt = async (headers: Record<string, string>): Promise<LoadedBinary> => {
-      const resp = await fetch(source, {
-        headers,
-        redirect: 'follow',
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      });
-      if (!resp.ok) throw new Error(`HTTP download failed: ${resp.status}`);
-      const declared = Number(resp.headers.get('content-length') ?? '0');
-      if (Number.isFinite(declared) && declared > maxBytes) {
-        throw tooLarge(`${resourceName} too large: ${declared} > ${maxBytes}`);
-      }
-      const reader = resp.body?.getReader();
-      if (!reader) {
-        const bytes = new Uint8Array(await resp.arrayBuffer());
-        if (bytes.length > maxBytes) {
-          throw tooLarge(`${resourceName} too large: ${bytes.length} > ${maxBytes}`);
-        }
-        return { bytes, fileName };
-      }
+    // Buffered sink: accumulate the streamed chunks and assemble them into one
+    // contiguous buffer. The shared `downloadHttp` owns the transport, the
+    // incremental length check, and the Referer retry.
+    const memorySink = (): DownloadSink<Uint8Array> => {
       const chunks: Uint8Array[] = [];
       let total = 0;
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (!value) continue;
-          total += value.byteLength;
-          if (total > maxBytes) {
-            await reader.cancel().catch(() => { /* ignore */ });
-            throw tooLarge(`${resourceName} too large: > ${maxBytes}`);
-          }
-          chunks.push(value);
-        }
-      } finally {
-        reader.releaseLock();
-      }
-      const bytes = new Uint8Array(total);
-      let offset = 0;
-      for (const chunk of chunks) {
-        bytes.set(chunk, offset);
-        offset += chunk.byteLength;
-      }
-      return { bytes, fileName };
+      return {
+        write(chunk) { chunks.push(chunk); total += chunk.byteLength; },
+        done() {
+          const bytes = new Uint8Array(total);
+          let offset = 0;
+          for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+          return bytes;
+        },
+        discard() { chunks.length = 0; },
+      };
     };
-
-    // First try with a browser UA only. On any non-size failure — a
-    // network-level `fetch failed` (connection reset by an anti-bot
-    // front-end) or a 403/4xx from anti-hotlink — retry once with a
-    // Referer pointing at the resource itself, the common bypass for
-    // same-origin hotlink checks. Mirrors NapCat's with/without-Referer
-    // strategy.
-    const baseHeaders: Record<string, string> = {
-      'User-Agent': DOWNLOAD_USER_AGENT,
-      Accept: '*/*',
-    };
-    try {
-      return await attempt(baseHeaders);
-    } catch (err) {
-      if ((err as { noRetry?: boolean } | null)?.noRetry) throw err;
-      try {
-        return await attempt({ ...baseHeaders, Referer: source });
-      } catch {
-        throw err;
-      }
-    }
+    const { result, fileName } = await downloadHttp(source, resourceName, maxBytes, memorySink);
+    return { bytes: result, fileName };
   }
 
   const filePath = resolveLocalFilePath(source);
@@ -189,11 +259,17 @@ export async function loadBinarySource(
   return { bytes, fileName };
 }
 
-function guessFileNameFromUrl(url: string): string {
+export function guessFileNameFromUrl(url: string): string {
   const queryPos = url.search(/[?#]/);
   const pathPart = queryPos >= 0 ? url.slice(0, queryPos) : url;
   const lastSlash = pathPart.lastIndexOf('/');
-  return lastSlash >= 0 ? pathPart.slice(lastSlash + 1) : '';
+  const raw = lastSlash >= 0 ? pathPart.slice(lastSlash + 1) : '';
+  if (!raw) return '';
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
 }
 
 // --- Hashing ---
@@ -231,8 +307,8 @@ function readLE32(data: Uint8Array, offset: number): number {
   return (data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24)) >>> 0;
 }
 
-function readBE24(data: Uint8Array, offset: number): number {
-  return (data[offset] << 16) | (data[offset + 1] << 8) | data[offset + 2];
+function readLE24(data: Uint8Array, offset: number): number {
+  return data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16);
 }
 
 export function detectImageFormat(bytes: Uint8Array): ImageFormat {
@@ -279,8 +355,11 @@ export function detectImageFormat(bytes: Uint8Array): ImageFormat {
       return { format: 1002, width, height };
     }
     if (bytes[12] === 0x56 && bytes[13] === 0x50 && bytes[14] === 0x38 && bytes[15] === 0x58) {
-      width = readBE24(bytes, 24) + 1;
-      height = readBE24(bytes, 27) + 1;
+      // VP8X canvas width/height are 24-bit LITTLE-endian (Minus-One). Reading
+      // them big-endian inflated dims to absurd values (e.g. 1920×1080 →
+      // 8324865×3605505), cropping the QQ thumbnail. (issue #112)
+      width = readLE24(bytes, 24) + 1;
+      height = readLE24(bytes, 27) + 1;
       return { format: 1002, width, height };
     }
   }

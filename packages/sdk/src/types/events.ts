@@ -57,6 +57,8 @@ export interface OneBotRequestEvent extends OneBotBaseEvent {
   sub_type?: string;
   group_id?: number;
   user_id?: number;
+  /** Invitee QQ number on `request.group` / `invite`. */
+  invited_id?: number;
   comment?: string;
 }
 

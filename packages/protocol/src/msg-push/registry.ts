@@ -22,21 +22,54 @@ export class MsgPushRegistry {
   }
 
   decode(ctx: MsgPushContext): QQEventVariant[] {
+    try {
+      return this.runDecoder(ctx);
+    } catch (e) {
+      this.traceDecoderException(ctx, e);
+      log.error('decoder error for PkgType=%d subType=%d: %s',
+        ctx.head.msgType, ctx.head.subType,
+        e instanceof Error ? (e.stack ?? e.message) : String(e));
+      return [];
+    }
+  }
+
+  decodeOrThrow(ctx: MsgPushContext): QQEventVariant[] {
+    try {
+      return this.runDecoder(ctx);
+    } catch (e) {
+      this.traceDecoderException(ctx, e);
+      throw e;
+    }
+  }
+
+  private runDecoder(ctx: MsgPushContext): QQEventVariant[] {
     const decoder = this.decoders_.get(ctx.head.msgType as PkgType);
     if (!decoder) {
+      unknownLog.trace(() => [
+        'packet_branch branch=decoder_unregistered msgType=%d subType=%d messageSeq=%d',
+        ctx.head.msgType,
+        ctx.head.subType,
+        ctx.head.sequence,
+      ]);
       // Unrecognized PkgType: either we don't care about this notify, or
       // the QQ NT client added a new variant. Surface at debug so a
       // protocol change can be spotted without spamming production logs.
       unknownLog.debug('no decoder for PkgType=%d subType=%d', ctx.head.msgType, ctx.head.subType);
       return [];
     }
-    try {
-      return decoder(ctx);
-    } catch (e) {
-      log.error('decoder error for PkgType=%d subType=%d: %s',
-        ctx.head.msgType, ctx.head.subType,
-        e instanceof Error ? (e.stack ?? e.message) : String(e));
-      return [];
-    }
+    return decoder(ctx);
+  }
+
+  private traceDecoderException(
+    ctx: MsgPushContext,
+    error: unknown,
+  ): void {
+    log.trace(() => [
+      'packet_branch branch=decoder_exception msgType=%d subType=%d messageSeq=%d error=%j',
+      ctx.head.msgType,
+      ctx.head.subType,
+      ctx.head.sequence,
+      error instanceof Error ? error.message : String(error),
+    ]);
   }
 }

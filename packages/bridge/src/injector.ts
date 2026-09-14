@@ -2,6 +2,8 @@ import { existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { listSnowlumaPipePidsSync } from './qq-hook-client';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export interface ManualMapHandle {
@@ -13,7 +15,7 @@ export interface ManualMapHandle {
 
 interface NativeHookAddon {
   getAllMainProcess(): number[];
-  loadModuleManual(pid: number, dylibPath: string): ManualMapHandle;
+  loadModuleManual(pid: number, dylibPath: string): ManualMapHandle | Promise<ManualMapHandle>;
   unloadModuleManual(pid: number, handle: ManualMapHandle): void;
 }
 
@@ -98,6 +100,17 @@ export function getNativeHookLoadError(): string | null {
 }
 
 export function listHookProcesses(): HookProcessBaseInfo[] {
+  // macOS: no native enumerate-QQ addon. The DYLD_INSERT injection model
+  // means QQ ran with our dylib already mapped, so the dylib's listener
+  // socket IS the discovery signal. Treat every `mojo.<pid>.control.sock`
+  // in the runtime dir as a known process (the watcher's subsequent
+  // connectable-probe gates the pipe-up emit, so a stale dangling socket
+  // here doesn't drive a false connect).
+  if (process.platform === 'darwin') {
+    return [...listSnowlumaPipePidsSync()]
+      .sort((a, b) => a - b)
+      .map(pid => ({ pid, name: defaultProcessName(), path: '' }));
+  }
   const addon = getNativeHookAddon();
   if (!addon) return [];
   return [...new Set(addon.getAllMainProcess())]
@@ -106,7 +119,7 @@ export function listHookProcesses(): HookProcessBaseInfo[] {
     .map(pid => ({ pid, name: defaultProcessName(), path: '' }));
 }
 
-export function injectHookProcess(pid: number): HookInjectResult {
+export async function injectHookProcess(pid: number): Promise<HookInjectResult> {
   const addon = getNativeHookAddon();
   if (!addon) {
     throw new Error(getNativeHookLoadError() ?? 'hook native addon is not available');
@@ -116,7 +129,7 @@ export function injectHookProcess(pid: number): HookInjectResult {
   if (!dllPath) {
     throw new Error(`No hook ${injectableExt} found for ${process.platform}-${process.arch}`);
   }
-  return { method: 'loadModuleManual', handle: addon.loadModuleManual(pid, dllPath) };
+  return { method: 'loadModuleManual', handle: await addon.loadModuleManual(pid, dllPath) };
 }
 
 export function unloadHookProcess(pid: number, handle: ManualMapHandle): void {

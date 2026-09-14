@@ -82,10 +82,11 @@ class Utf8Validator {
         }
       } else {
         if (b < this.minNext || b > 0xBF) return false;
-        if (this.state === 2 && this.codepoint === 0xD && (b & 0x20)) {
-          return false;
-        }
-        if (this.codepoint === 0xD && this.state === 2 && b >= 0xA0) {
+        // Reject UTF-16 surrogates (U+D800–U+DFFF), encoded as 0xED 0xA0–0xBF ….
+        // Here b is already constrained to 0x80–0xBF by the guard above, and in
+        // that range `b & 0x20` is true iff `b >= 0xA0` — so a single check
+        // covers it (the former second `if` was unreachable dead code).
+        if (this.state === 2 && this.codepoint === 0xD && b >= 0xA0) {
           return false;
         }
         this.codepoint = (this.codepoint << 6) | (b & 0x3F);

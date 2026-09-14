@@ -37,4 +37,28 @@ describe('CreateGroupFolder namespace', () => {
     await expect(CreateGroupFolder.invoke(deps, { groupId: 1, parentId: '/', folderName: 'f' }))
       .rejects.toThrow(/code=7/);
   });
+
+  it('returns the new folder info from the response folderInfo (#195)', async () => {
+    const deps = makeDeps({ create: {
+      retcode: 0,
+      folderInfo: {
+        folderId: '/0f1e2d', folderPath: '/docs', folderName: 'docs',
+        createTime: 100, modifyTime: 200, createUin: 111, modifyUin: 222,
+      },
+    } as any });
+    const r = await CreateGroupFolder.invoke(deps, { groupId: 1, parentId: '/', folderName: 'docs' });
+    expect(r).toEqual({
+      folderId: '/0f1e2d', folderName: 'docs', folderPath: '/docs',
+      createTime: 100, modifyTime: 200, createUin: 111, modifyUin: 222,
+    });
+  });
+
+  it('defaults every field when the response omits folderInfo (#195)', async () => {
+    const deps = makeDeps({ create: { retcode: 0 } as any });
+    const r = await CreateGroupFolder.invoke(deps, { groupId: 1, parentId: '/', folderName: 'f' });
+    expect(r).toEqual({
+      folderId: '', folderName: '', folderPath: '',
+      createTime: 0, modifyTime: 0, createUin: 0, modifyUin: 0,
+    });
+  });
 });

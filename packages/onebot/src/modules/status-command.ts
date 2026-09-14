@@ -1,32 +1,24 @@
 import type { JsonObject, JsonValue } from '../types';
 
 /**
- * Hardcoded trigger for the built-in status command — exact match,
- * case-insensitive, after trimming. Intentionally NOT configurable: the
- * `statusCommand.enabled` toggle is the only knob (the gate is on/off, not
- * the word).
- */
-export const STATUS_COMMAND_TRIGGER = '#sl';
-
-/**
- * True iff `message` is exactly the trigger: a single `text` segment (or a
- * bare string for string-format adapters) whose trimmed, lowercased content
- * equals {@link STATUS_COMMAND_TRIGGER}.
+ * True iff `message` matches the given trigger using exact match.
  *
- * Reads the segment array rather than `raw_message` to avoid CQ-encoding
- * ambiguity, and rejects mixed-segment messages (`#sl` + image/at/reply) so
- * only a pure `#sl` triggers — no `startsWith`, so `#slogan` never matches.
+ * Only a single text segment (or a bare string) is accepted — mixed-segment
+ * messages (e.g. `#sl` + image) never match.
  */
-export function matchesStatusCommand(message: JsonValue | undefined): boolean {
+export function matchesStatusCommand(
+  message: JsonValue | undefined,
+  trigger: string,
+): boolean {
   if (typeof message === 'string') {
-    return normalize(message) === STATUS_COMMAND_TRIGGER;
+    return normalize(message) === normalize(trigger);
   }
   if (!Array.isArray(message) || message.length !== 1) return false;
   const seg = message[0];
   if (!isObject(seg) || seg.type !== 'text') return false;
   const data = isObject(seg.data) ? seg.data : null;
   const text = data && typeof data.text === 'string' ? data.text : '';
-  return normalize(text) === STATUS_COMMAND_TRIGGER;
+  return normalize(text) === normalize(trigger);
 }
 
 function normalize(s: string): string {
@@ -58,7 +50,7 @@ export interface StatusInfo {
   uptimeMs: number;
 }
 
-/** Render the public-safe `#sl` reply: version + platform/arch + uptime. */
+/** Render the status reply. */
 export function buildStatusText(info: StatusInfo): string {
   return [
     'SnowLuma 状态',

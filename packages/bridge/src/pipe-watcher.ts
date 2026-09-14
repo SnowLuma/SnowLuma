@@ -6,10 +6,14 @@ const DEFAULT_INTERVAL_MS = 1500;
 const MIN_INTERVAL_MS = 250;
 
 export type PipeWatcherDeps = {
-  /** Native: list QQ.exe processes currently running. */
-  listProcesses: () => HookProcessBaseInfo[];
-  /** Native: PIDs that currently have a live SnowLuma named pipe. */
-  listLivePipes: () => Promise<Set<number>>;
+  /** Native: list QQ.exe processes currently running. May be async and may
+   *  return `null` (UNKNOWN) when enumeration timed out / failed — in which
+   *  case this tick keeps the prior process+pipe state instead of treating the
+   *  missing data as "everything disappeared" (issue #158). */
+  listProcesses: () => HookProcessBaseInfo[] | null | Promise<HookProcessBaseInfo[] | null>;
+  /** Native: PIDs that currently have a live SnowLuma named pipe. The current
+   *  process snapshot lets Linux inspect each target user's runtime directory. */
+  listLivePipes: (processes: readonly HookProcessBaseInfo[]) => Promise<Set<number>>;
   /** Polling interval in ms. Defaults to 1500, floored to 250. */
   intervalMs?: number;
   log?: Logger;
@@ -138,19 +142,29 @@ export class PipeWatcher extends EventEmitter {
     }
     this.ticking = true;
     try {
-      let processes: HookProcessBaseInfo[];
+      let processes: HookProcessBaseInfo[] | null;
       try {
-        processes = this.listProcesses();
+        processes = await this.listProcesses();
       } catch (error) {
         this.log.warn('listProcesses failed: %s', errMsg(error));
-        processes = [];
+        processes = null;
       }
-      let livePipes: Set<number>;
+      // UNKNOWN (timeout / failure): keep the prior process + pipe snapshot.
+      // Treating missing data as "everything disappeared" would fire
+      // process-gone for every live PID and dispose healthy sessions — the
+      // freeze-then-teardown footgun behind issue #158. Still emit 'tick' so
+      // the manager's per-tick reconnect retries keep running off last-known
+      // live pipes.
+      if (processes === null) {
+        this.emit('tick');
+        return;
+      }
+      let livePipes: Set<number> | null;
       try {
-        livePipes = await this.listLivePipes();
+        livePipes = await this.listLivePipes(processes);
       } catch (error) {
         this.log.warn('listLivePipes failed: %s', errMsg(error));
-        livePipes = new Set();
+        livePipes = null;
       }
 
       const newKnownPids = new Set<number>();
@@ -166,11 +180,19 @@ export class PipeWatcher extends EventEmitter {
       // 2. Pipes that came up. Ignore pipes for processes we don't know
       //    about (would race against an out-of-order tick).
       const newLivePipes = new Set<number>();
-      for (const pid of livePipes) {
-        if (!newKnownPids.has(pid)) continue;
-        newLivePipes.add(pid);
-        if (!this.livePipes.has(pid)) {
-          this.emit('pipe-up', pid);
+      if (livePipes === null) {
+        // Keep the last known pipe state for processes that still exist, while
+        // allowing confirmed process exits to complete their normal teardown.
+        for (const pid of this.livePipes) {
+          if (newKnownPids.has(pid)) newLivePipes.add(pid);
+        }
+      } else {
+        for (const pid of livePipes) {
+          if (!newKnownPids.has(pid)) continue;
+          newLivePipes.add(pid);
+          if (!this.livePipes.has(pid)) {
+            this.emit('pipe-up', pid);
+          }
         }
       }
 

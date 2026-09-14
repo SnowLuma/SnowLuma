@@ -86,7 +86,7 @@ export function ErrorPage({ error, reset }: { error?: Error; reset?: () => void 
         <Home className="size-4" /> 返回首页
       </Button>
       {message && (
-        <pre className="mt-3 max-h-32 w-full overflow-auto rounded-md border bg-muted/40 px-3 py-2 text-left text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
+        <pre className="mt-3 max-h-32 w-full overflow-auto rounded-md border bg-muted/40 px-3 py-2 text-left text-meta leading-relaxed text-muted-foreground whitespace-pre-wrap">
           {message}
         </pre>
       )}

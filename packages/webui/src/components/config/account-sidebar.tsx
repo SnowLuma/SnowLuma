@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useTheme } from '@/contexts/ThemeContext';
 import { cn } from '@/lib/utils';
 import type { QQInfo } from '@/types';
 
@@ -31,11 +32,14 @@ export function AccountSidebar({
   collapsed,
   onToggleCollapsed,
 }: AccountSidebarProps) {
+  const { appearance } = useTheme();
+  const reduceMotion = appearance.reduceMotion || appearance.disableMotion;
+
   return (
     <motion.aside
       animate={{ width: collapsed ? 56 : 248 }}
       transition={{ type: 'spring', stiffness: 300, damping: 32 }}
-      className="shrink-0 rounded-lg border bg-card/40"
+      className="shrink-0 rounded-xl border bg-card/40"
     >
       <div className={cn('flex items-center', collapsed ? 'justify-center px-1.5 py-2' : 'justify-between px-3 py-2')}>
         {!collapsed && <span className="text-xs font-medium text-muted-foreground">在线连接</span>}
@@ -46,7 +50,9 @@ export function AccountSidebar({
           aria-label={collapsed ? '展开账号列表' : '收起账号列表'}
           className="text-muted-foreground"
         >
-          {collapsed ? <ChevronRight className="size-4" /> : <ChevronLeft className="size-4" />}
+          {collapsed
+            ? <ChevronRight className="optical-forward size-4" />
+            : <ChevronLeft className="optical-back size-4" />}
         </Button>
       </div>
 
@@ -64,8 +70,8 @@ export function AccountSidebar({
                   <motion.button
                     key={q.uin}
                     type="button"
-                    whileHover={{ scale: 1.01 }}
-                    whileTap={{ scale: 0.98 }}
+                    whileHover={reduceMotion ? undefined : { scale: 1.01 }}
+                    whileTap={reduceMotion ? undefined : { scale: 0.96 }}
                     onClick={() => onSelect(q.uin)}
                     className={cn(
                       'flex items-center gap-2.5 rounded-lg border text-left transition-colors cursor-pointer',
@@ -84,7 +90,7 @@ export function AccountSidebar({
                         >
                           {q.nickname || q.uin}
                         </div>
-                        <div className="truncate font-mono text-[10px] text-muted-foreground tabular-nums">
+                        <div className="truncate font-mono text-micro text-muted-foreground tabular-nums">
                           {q.uin}
                         </div>
                       </div>
@@ -97,7 +103,7 @@ export function AccountSidebar({
                     <TooltipContent side="right" sideOffset={8}>
                       <div className="flex flex-col leading-tight">
                         <span className="font-medium">{q.nickname || q.uin}</span>
-                        <span className="font-mono text-[10px] text-muted-foreground tabular-nums">{q.uin}</span>
+                        <span className="font-mono text-micro text-muted-foreground tabular-nums">{q.uin}</span>
                       </div>
                     </TooltipContent>
                   </Tooltip>

@@ -66,11 +66,13 @@ body:
         - OneBot v11 规范: https://github.com/botuniverse/onebot-11/...
         - 相关讨论: #xxx
 
-  - type: checkboxes
+  - type: dropdown
     id: willingness
     attributes:
       label: 您是否愿意提交 PR 来实现这个功能？
       options:
-        - label: 愿意，且需要维护者讨论方案后再动手
-        - label: 愿意，已有大致实现思路
-        - label: 暂时只提建议
+        - 愿意，但需要维护者讨论方案后再动手
+        - 愿意，已有大致实现思路
+        - 暂时只提建议
+    validations:
+      required: true

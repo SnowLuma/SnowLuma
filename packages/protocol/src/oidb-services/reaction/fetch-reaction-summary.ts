@@ -1,14 +1,7 @@
-// 0x9084_1 — fetch per-emoji reaction summary on a group message.
-//
-// Server returns the full summary unconditionally; the emoji_id /
-// emoji_type / count fields in the request body are ignored by the
-// summary handler but kept to mirror the working 0x9083_1 request shape
-// (same `Pick` of fields the wire format prefers).
-//
-// "Used" entries carry (lastReactionTime, count, emojiType, emojiId).
-// Catalog-tail entries (available reactions the server suggests but
-// nobody has reacted with) carry only emojiType + emojiId — filtered
-// out here so callers see only the meaningful subset.
+// 0x9084_1 — recent-used emoji catalog for C2C/group (GetRecentUseEmojiList).
+// Not the per-message reaction summary. get_msg_emoji_likes uses 0x9083_1
+// plus the local reaction cache. This namespace is kept for the catalog
+// command itself.
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';

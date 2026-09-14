@@ -7,12 +7,34 @@
 // We exercise the file transport via its real fs paths against tmpdirs
 // so the test catches integration regressions, not just unit shape.
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createLogger, getLogLevel, setLogLevel, subscribeLogs, type LogEntry } from '@snowluma/common/logger';
-import { _resetFileTransportForTesting } from '@snowluma/common/log-file-transport';
+
+const { externalFileLevel, externalLogLevel } = vi.hoisted(() => {
+  const savedFileLevel = process.env.SNOWLUMA_LOG_FILE_LEVEL;
+  const savedLogLevel = process.env.SNOWLUMA_LOG_LEVEL;
+  delete process.env.SNOWLUMA_LOG_FILE_LEVEL;
+  delete process.env.SNOWLUMA_LOG_LEVEL;
+  return {
+    externalFileLevel: savedFileLevel,
+    externalLogLevel: savedLogLevel,
+  };
+});
+
+import {
+  createLogger,
+  getLogLevel,
+  logInitialWebuiCredentials,
+  setLogLevel,
+  subscribeLogs,
+  type LogEntry,
+} from '@snowluma/common/logger';
+import {
+  _resetFileTransportForTesting,
+  configureFileTransport,
+} from '@snowluma/common/log-file-transport';
 
 let tmpDir: string;
 const ENV_KEYS = [
@@ -20,8 +42,10 @@ const ENV_KEYS = [
   'SNOWLUMA_LOG_PER_UIN',
   'SNOWLUMA_LOG_DIR',
   'SNOWLUMA_LOG_MAX_MB',
+  'SNOWLUMA_LOG_MAX_TOTAL_MB',
   'SNOWLUMA_LOG_RETAIN_DAYS',
   'SNOWLUMA_LOG_LEVEL',
+  'SNOWLUMA_LOG_FILE_LEVEL',
   'NO_COLOR',
 ] as const;
 const savedEnv: Record<string, string | undefined> = {};
@@ -41,6 +65,7 @@ beforeEach(async () => {
     SNOWLUMA_LOG_FILE: '1',
     SNOWLUMA_LOG_PER_UIN: '1',
     SNOWLUMA_LOG_MAX_MB: '5',
+    SNOWLUMA_LOG_MAX_TOTAL_MB: '100',
     SNOWLUMA_LOG_RETAIN_DAYS: '7',
     NO_COLOR: '1',
   });
@@ -54,6 +79,13 @@ afterEach(async () => {
     else process.env[k] = savedEnv[k];
   }
   fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+afterAll(() => {
+  if (externalFileLevel === undefined) delete process.env.SNOWLUMA_LOG_FILE_LEVEL;
+  else process.env.SNOWLUMA_LOG_FILE_LEVEL = externalFileLevel;
+  if (externalLogLevel === undefined) delete process.env.SNOWLUMA_LOG_LEVEL;
+  else process.env.SNOWLUMA_LOG_LEVEL = externalLogLevel;
 });
 
 describe('createLogger', () => {
@@ -176,6 +208,34 @@ describe('createLogger', () => {
 
     const entries = fs.readdirSync(tmpDir);
     expect(entries).toHaveLength(0);
+  });
+
+  it('SNOWLUMA_LOG_FILE=0 suppresses bootstrap notices too', async () => {
+    setEnv({ SNOWLUMA_LOG_FILE: '0' });
+    await _resetFileTransportForTesting();
+
+    logInitialWebuiCredentials('secret');
+    await _resetFileTransportForTesting();
+
+    expect(fs.readdirSync(tmpDir)).toHaveLength(0);
+  });
+
+  it('applies the runtime storage policy through the singleton before writing', async () => {
+    const status = await configureFileTransport({
+      maxTotalMb: 3,
+      retainDays: 0,
+      perUinEnabled: false,
+    });
+    expect(status).toMatchObject({
+      maxTotalBytes: 3 * 1024 * 1024,
+      retainDays: 0,
+      perUinEnabled: false,
+    });
+
+    createLogger('Bridge').child({ uin: 24680 }).info('runtime policy');
+    await _resetFileTransportForTesting();
+
+    expect(fs.existsSync(path.join(tmpDir, '24680'))).toBe(false);
   });
 });
 

@@ -1,7 +1,7 @@
 import { protobuf_decode } from '@snowluma/proton';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import type { IdentityService } from '../identity-service';
-import type { ContentHead, MessageBody, PushMsg, ResponseHead } from '@snowluma/proto-defs/message';
+import type { ContentHead, MessageBody, PushMsg, PushMsgBody as ProtoMessage, ResponseHead } from '@snowluma/proto-defs/message';
 
 export type PushMsgBody = MessageBody;
 export type PushMsgResponseHead = ResponseHead;
@@ -10,7 +10,13 @@ export type PushMsgContentHead = ContentHead;
 export interface MsgPushHead {
   readonly msgType: number;
   readonly subType: number;
+  /** C2C command (`contentHead` field 3). Discriminates control pushes — see
+   *  `isC2cControlPush` in ./blank-filter. */
+  readonly c2cCmd: number;
+  /** Sender-local C2C client sequence (field 5), or the group sequence. */
   readonly sequence: number;
+  /** Bidirectional C2C sequence (field 11); zero on groups/legacy packets. */
+  readonly ntMsgSeq: number;
   readonly timestamp: number;
   readonly msgId: number;
 }
@@ -24,6 +30,11 @@ export interface MsgPushContext {
   readonly body: PushMsgBody | undefined;
   readonly responseHead: PushMsgResponseHead | undefined;
   readonly identity: IdentityService;
+  /**
+   * Historical messages reuse the live decoder but must not replay
+   * live-only identity observations.
+   */
+  readonly isHistorical: boolean;
 }
 
 export function buildContext(pkt: PacketInfo, identity: IdentityService): MsgPushContext | null {
@@ -37,13 +48,36 @@ export function buildContext(pkt: PacketInfo, identity: IdentityService): MsgPus
   const push = protobuf_decode<PushMsg>(pkt.body);
   if (!push?.message) return null;
 
-  const msg = push.message;
+  let selfUin = 0;
+  if (pkt.uin) {
+    const n = parseInt(pkt.uin, 10);
+    if (!isNaN(n)) selfUin = n;
+  }
+
+  return buildContextFromMessage(push.message, selfUin, identity, false);
+}
+
+/**
+ * Build a push context from an already-extracted per-message struct (the same
+ * `PushMsgBody` shape that `PushMsg.message` carries). Used both by
+ * {@link buildContext} (live OlPush) and by the group-history fetch, whose
+ * `SsoGetGroupMsgResponse.body.messages` are these same structs — so the
+ * regular msg-push decoders parse fetched history unchanged.
+ */
+export function buildContextFromMessage(
+  msg: ProtoMessage,
+  selfUin: number,
+  identity: IdentityService,
+  isHistorical = true,
+): MsgPushContext | null {
   if (!msg.contentHead) return null;
 
   const head: MsgPushHead = {
     msgType: msg.contentHead.msgType ?? 0,
     subType: msg.contentHead.subType ?? 0,
+    c2cCmd: msg.contentHead.c2cCmd ?? 0,
     sequence: msg.contentHead.sequence ?? 0,
+    ntMsgSeq: msg.contentHead.ntMsgSeq ?? 0,
     timestamp: msg.contentHead.timestamp ?? 0,
     msgId: msg.contentHead.msgId ?? 0,
   };
@@ -53,12 +87,6 @@ export function buildContext(pkt: PacketInfo, identity: IdentityService): MsgPus
   if (msg.responseHead) {
     fromUin = msg.responseHead.fromUin ?? 0;
     fromUid = msg.responseHead.fromUid ?? '';
-  }
-
-  let selfUin = 0;
-  if (pkt.uin) {
-    const n = parseInt(pkt.uin, 10);
-    if (!isNaN(n)) selfUin = n;
   }
 
   const content = msg.body?.msgContent ?? new Uint8Array(0);
@@ -72,5 +100,6 @@ export function buildContext(pkt: PacketInfo, identity: IdentityService): MsgPus
     body: msg.body,
     responseHead: msg.responseHead,
     identity,
+    isHistorical,
   };
 }

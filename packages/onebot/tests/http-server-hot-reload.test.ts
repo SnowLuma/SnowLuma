@@ -53,8 +53,8 @@ async function waitForListen(adapter: HttpServerAdapter): Promise<number> {
 describe('HttpServerAdapter — accessToken hot reload', () => {
   let adapter: HttpServerAdapter | null = null;
 
-  afterEach(() => {
-    adapter?.close();
+  afterEach(async () => {
+    await adapter?.close();
     adapter = null;
   });
 
@@ -68,7 +68,7 @@ describe('HttpServerAdapter — accessToken hot reload', () => {
       messageFormat: 'array', reportSelfMessage: false,
     };
     adapter = new HttpServerAdapter('hot', config, ctx);
-    adapter.open();
+    await adapter.open();
     const portBefore = await waitForListen(adapter);
 
     // Sanity: old token authorizes, anything else 401s.
@@ -94,7 +94,7 @@ describe('HttpServerAdapter — accessToken hot reload', () => {
       messageFormat: 'array', reportSelfMessage: false,
     };
     adapter = new HttpServerAdapter('hot-clear', config, ctx);
-    adapter.open();
+    await adapter.open();
     const port = await waitForListen(adapter);
 
     expect((await get(port, '/')).status).toBe(401); // no token header → 401
@@ -111,7 +111,7 @@ describe('HttpServerAdapter — accessToken hot reload', () => {
       messageFormat: 'array', reportSelfMessage: false,
     };
     adapter = new HttpServerAdapter('hot-add', config, ctx);
-    adapter.open();
+    await adapter.open();
     const port = await waitForListen(adapter);
 
     expect((await get(port, '/')).status).toBe(200); // no auth configured
@@ -129,7 +129,7 @@ describe('HttpServerAdapter — accessToken hot reload', () => {
       messageFormat: 'array', reportSelfMessage: false,
     };
     adapter = new HttpServerAdapter('hot-type', config, ctx);
-    adapter.open();
+    await adapter.open();
     await waitForListen(adapter);
 
     const reloadType = await adapter.reload({ ...config, accessToken: 'b' });
@@ -137,5 +137,63 @@ describe('HttpServerAdapter — accessToken hot reload', () => {
     // `Reopened` / `Closed` is acceptable; we mostly care that nothing
     // touched the listener.
     expect(reloadType).toBe(NetworkReloadType.Normal);
+  });
+
+  it('rejects open only after an occupied-port bind actually fails', async () => {
+    const blocker = http.createServer();
+    await new Promise<void>((resolve, reject) => {
+      blocker.once('error', reject);
+      blocker.listen(0, '127.0.0.1', resolve);
+    });
+    const address = blocker.address() as AddressInfo;
+    const config: HttpServerNetwork = {
+      name: 'occupied',
+      host: '127.0.0.1',
+      port: address.port,
+      enabled: true,
+      messageFormat: 'array',
+      reportSelfMessage: false,
+    };
+    adapter = new HttpServerAdapter('occupied', config, fakeCtx());
+
+    try {
+      await expect(adapter.open()).rejects.toMatchObject({ code: 'EADDRINUSE' });
+      expect(adapter.describeManagedStatus()).toMatchObject({
+        status: 'degraded',
+        lastError: expect.stringContaining('EADDRINUSE'),
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        blocker.close((error) => error ? reject(error) : resolve());
+      });
+    }
+  });
+
+  it('close resolves only after the port can be rebound', async () => {
+    const config: HttpServerNetwork = {
+      name: 'release',
+      host: '127.0.0.1',
+      port: 0,
+      enabled: true,
+      messageFormat: 'array',
+      reportSelfMessage: false,
+    };
+    adapter = new HttpServerAdapter('release', config, fakeCtx());
+    await adapter.open();
+    const port = ((adapter as any).server as http.Server).address() as AddressInfo;
+    await adapter.close();
+    adapter = null;
+
+    const rebound = http.createServer();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        rebound.once('error', reject);
+        rebound.listen(port.port, '127.0.0.1', resolve);
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        rebound.close((error) => error ? reject(error) : resolve());
+      });
+    }
   });
 });

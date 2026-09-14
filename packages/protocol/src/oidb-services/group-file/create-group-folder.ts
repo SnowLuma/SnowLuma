@@ -17,6 +17,17 @@ export namespace CreateGroupFolder {
   export interface Params { groupId: number; parentId: string; folderName: string; }
   export type Deps = OidbSender;
 
+  /** The newly created folder, from the create response's folderInfo (#195). */
+  export type Result = {
+    folderId: string;
+    folderName: string;
+    folderPath: string;
+    createTime: number;
+    modifyTime: number;
+    createUin: number;
+    modifyUin: number;
+  };
+
   export const serialize = (_ctx: Deps, p: Params): OidbGroupFileFolderReq => ({
     create: {
       groupUin: p.groupId,
@@ -25,10 +36,20 @@ export namespace CreateGroupFolder {
     },
   });
 
-  export const deserialize = (_ctx: Deps, body: OidbGroupFileFolderResp): void => {
+  export const deserialize = (_ctx: Deps, body: OidbGroupFileFolderResp): Result => {
     const result = body.create;
     if (!result) throw new Error('group folder create response missing');
     ensureRetCodeZero('group folder create', result.retcode, result.retMsg, result.clientWording);
+    const info = result.folderInfo ?? {};
+    return {
+      folderId: info.folderId ?? '',
+      folderName: info.folderName ?? '',
+      folderPath: info.folderPath ?? '',
+      createTime: info.createTime ?? 0,
+      modifyTime: info.modifyTime ?? 0,
+      createUin: info.createUin ?? 0,
+      modifyUin: info.modifyUin ?? 0,
+    };
   };
 
   export const encode = (env: OidbBase<OidbGroupFileFolderReq>): Uint8Array =>
@@ -37,6 +58,6 @@ export namespace CreateGroupFolder {
   export const decode = (bytes: Uint8Array): OidbBase<OidbGroupFileFolderResp> =>
     protobuf_decode<OidbBase<OidbGroupFileFolderResp>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<void> =>
+  export const invoke = (deps: Deps, params: Params): Promise<Result> =>
     invokeOidb(deps, CreateGroupFolder, params);
 }

@@ -135,11 +135,35 @@ export function compressRaw(data: Buffer): Buffer {
 }
 
 export function decompressRaw(data: Buffer, maxPayload?: number): Buffer {
-  const inflated = zlib.inflateRawSync(Buffer.concat([data, TRAILER]), {
-    finishFlush: zlib.constants.Z_SYNC_FLUSH,
-  });
+  let inflated: Buffer;
+  try {
+    inflated = zlib.inflateRawSync(Buffer.concat([data, TRAILER]), {
+      finishFlush: zlib.constants.Z_SYNC_FLUSH,
+      // A post-inflate length check is too late for a compression bomb: zlib
+      // has already allocated the expanded buffer by then. Node enforces this
+      // limit while producing output. maxOutputLength cannot be zero, so keep
+      // the allocation ceiling at one byte for the maxPayload=0 edge case and
+      // let the exact check below reject any non-empty message.
+      ...(maxPayload === undefined
+        ? {}
+        : { maxOutputLength: Math.max(1, maxPayload) }),
+    });
+  } catch (cause) {
+    const zlibError = cause as Error & { code?: string };
+    if (maxPayload !== undefined && zlibError.code === 'ERR_BUFFER_TOO_LARGE') {
+      const err = new Error(
+        `Message too large after inflate (maxPayload=${maxPayload})`,
+        { cause },
+      ) as Error & { code?: number };
+      err.code = 1009;
+      throw err;
+    }
+    throw cause;
+  }
   if (maxPayload !== undefined && inflated.length > maxPayload) {
-    const err = new Error('Message too large after inflate') as Error & { code?: number };
+    const err = new Error(
+      `Message too large after inflate (maxPayload=${maxPayload})`,
+    ) as Error & { code?: number };
     err.code = 1009;
     throw err;
   }

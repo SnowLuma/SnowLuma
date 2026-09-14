@@ -1,11 +1,197 @@
 import { readFile } from 'node:fs/promises';
-import type { ApiActionContext, ApiHandler } from '../api-handler';
-import { asBoolean, asMessage, asNumber, asString } from '../api-handler';
+import { FriendDressError } from '@snowluma/protocol/web/friend-dress';
+import { formatGroupRequestFlag } from '@snowluma/protocol/qq-info';
+import type {
+  GroupEssenceContent,
+  GroupEssenceMessage,
+} from '@snowluma/protocol/web/group-essence';
+import type { ApiActionContext } from '../api-handler';
 import type { ForwardPreviewMeta } from '../modules/message-actions';
-import { JsonObject, RETCODE, failedResponse, okResponse } from '../types';
+import {
+  hasAuthoritativeSequence,
+  RETCODE,
+  failedResponse,
+  okResponse,
+  type JsonObject,
+  type JsonValue,
+  type MessageMeta,
+} from '../types';
+import { defineAction, groupAction, groupUserAction, f, type Field } from '../action-kit';
+import { groupInfoReturnsSchema } from './group-info';
+import { GROUP_MESSAGE_EVENT, hashMessageIdInt32 } from '../message-id';
 
 const DOWNLOAD_FILE_MAX_BYTES = 1024 * 1024 * 1024; // 1 GiB
 const DOWNLOAD_FILE_TIMEOUT_MS = 60_000;
+
+const profileLikeUserSchema = {
+  type: 'object',
+  properties: {
+    uid: { type: 'string', description: '用户 uid' },
+    uin: { type: 'integer', description: '用户 QQ 号；资料中没有有效号码时为 0' },
+    src: { type: 'integer', description: '来源类型' },
+    latestTime: { type: 'integer', description: '最近互动时间戳' },
+    count: { type: 'integer', description: '互动次数' },
+    giftCount: { type: 'integer', description: '礼物数量' },
+    customId: { type: 'integer', description: '自定义标识' },
+    lastCharged: { type: 'integer', description: '最近充能时间' },
+    bAvailableCnt: { type: 'integer', description: '可用次数' },
+    bTodayVotedCnt: { type: 'integer', description: '今日已点赞次数' },
+    nick: { type: 'string', description: '昵称' },
+    gender: { type: 'integer', description: '性别' },
+    age: { type: 'integer', description: '年龄' },
+    isFriend: { type: 'boolean', description: '是否为好友' },
+    isvip: { type: 'boolean', description: '是否为会员' },
+    isSvip: { type: 'boolean', description: '是否为超级会员' },
+  },
+  required: [
+    'uid', 'uin', 'src', 'latestTime', 'count', 'giftCount', 'customId',
+    'lastCharged', 'bAvailableCnt', 'bTodayVotedCnt', 'nick', 'gender',
+    'age', 'isFriend', 'isvip', 'isSvip',
+  ],
+};
+
+function essenceNumber(value: unknown, field: string): number {
+  if (typeof value !== 'number'
+    && (typeof value !== 'string' || !/^-?\d+$/.test(value))) {
+    throw new Error(`invalid group essence field ${field}: ${String(value)}`);
+  }
+
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`invalid group essence field ${field}: ${String(value)}`);
+  }
+  return parsed;
+}
+
+function essencePositiveNumber(value: unknown, field: string): number {
+  const parsed = essenceNumber(value, field);
+  if (parsed <= 0) {
+    throw new Error(`group essence field ${field} must be positive: ${parsed}`);
+  }
+  return parsed;
+}
+
+function essenceNonNegativeNumber(value: unknown, field: string): number {
+  const parsed = essenceNumber(value, field);
+  if (parsed < 0) {
+    throw new Error(`group essence field ${field} must not be negative: ${parsed}`);
+  }
+  return parsed;
+}
+
+function essenceString(value: unknown, field: string, allowEmpty: boolean): string {
+  if (typeof value !== 'string' || (!allowEmpty && value.trim().length === 0)) {
+    throw new Error(`invalid group essence field ${field}: ${String(value)}`);
+  }
+  return value;
+}
+
+function essenceContentToSegment(content: GroupEssenceContent): JsonObject {
+  switch (content.msg_type) {
+    case 1:
+      return {
+        type: 'text',
+        data: { text: essenceString(content.text, 'msg_content.text', true) },
+      };
+    case 2:
+      return {
+        type: 'face',
+        data: {
+          id: String(essenceNonNegativeNumber(
+            content.face_index,
+            'msg_content.face_index',
+          )),
+        },
+      };
+    case 3:
+      return {
+        type: 'image',
+        data: {
+          file: '',
+          url: essenceString(content.image_url, 'msg_content.image_url', false),
+        },
+      };
+    case 4: {
+      const fileName = essenceString(content.file_name, 'msg_content.file_name', false);
+      const fileId = essenceString(content.file_id, 'msg_content.file_id', false);
+      const fileSize = essenceNonNegativeNumber(
+        content.file_size,
+        'msg_content.file_size',
+      );
+      const busId = essenceNonNegativeNumber(
+        content.file_bus_id,
+        'msg_content.file_bus_id',
+      );
+      return {
+        type: 'file',
+        data: {
+          file: fileName,
+          file_id: fileId,
+          file_size: fileSize,
+          name: fileName,
+          id: fileId,
+          size: fileSize,
+          busid: busId,
+        },
+      };
+    }
+    default:
+      throw new Error(`unsupported group essence content type: ${content.msg_type}`);
+  }
+}
+
+function projectEssenceMessage(
+  message: GroupEssenceMessage,
+  groupId: number,
+): { messageId: number; meta: MessageMeta; result: JsonObject } {
+  const messageGroupId = essencePositiveNumber(message.group_code, 'group_code');
+  if (messageGroupId !== groupId) {
+    throw new Error(
+      `group essence field group_code does not match requested group: ${messageGroupId} !== ${groupId}`,
+    );
+  }
+
+  const sequence = essencePositiveNumber(message.msg_seq, 'msg_seq');
+  const random = essenceNonNegativeNumber(message.msg_random, 'msg_random');
+  const timestamp = essenceNonNegativeNumber(message.sender_time, 'sender_time');
+  const senderId = essencePositiveNumber(message.sender_uin, 'sender_uin');
+  const operatorId = essencePositiveNumber(message.add_digest_uin, 'add_digest_uin');
+  const operatorTime = essenceNonNegativeNumber(message.add_digest_time, 'add_digest_time');
+  const senderNick = essenceString(message.sender_nick, 'sender_nick', true);
+  const operatorNick = essenceString(message.add_digest_nick, 'add_digest_nick', true);
+  if (!Array.isArray(message.msg_content)) {
+    throw new Error(`invalid group essence field msg_content: ${String(message.msg_content)}`);
+  }
+  const content = message.msg_content.map(essenceContentToSegment);
+  const messageId = hashMessageIdInt32(sequence, groupId, GROUP_MESSAGE_EVENT);
+  const meta: MessageMeta = {
+    isGroup: true,
+    targetId: groupId,
+    sequence,
+    sequenceAuthoritative: true,
+    eventName: GROUP_MESSAGE_EVENT,
+    clientSequence: 0,
+    random,
+    timestamp,
+  };
+
+  return {
+    messageId,
+    meta,
+    result: {
+      msg_seq: sequence,
+      msg_random: random,
+      sender_id: senderId,
+      sender_nick: senderNick,
+      sender_time: timestamp,
+      operator_id: operatorId,
+      operator_nick: operatorNick,
+      operator_time: operatorTime,
+      message_id: messageId,
+      content,
+    },
+  };
+}
 
 async function fetchDownloadFile(
   url: string,
@@ -53,19 +239,80 @@ async function fetchDownloadFile(
   return Buffer.concat(chunks, total);
 }
 
-// 从 send_*_forward_msg 的参数里提取 NapCat 兼容的转发预览元信息。四个字段都是可选的——如果没有提供，模块层会根据实际消息节点列表推断出合理的默认值。
-function readForwardPreviewMeta(params: Record<string, unknown>): ForwardPreviewMeta | undefined {
-  const source = asString(params.source) || undefined;
-  const summary = asString(params.summary) || undefined;
-  const prompt = asString(params.prompt) || undefined;
+// 把下载好的字节落盘到 data/downloads。<preferredName> 缺省时用内容 md5 命名。
+// basename + relative 检查拦截目录穿越：名称里的路径分隔符被剥成纯文件名，
+// 再确认解析后仍在 downloads 目录下，避免 ../ 逃逸。
+async function saveDownloadBuffer(buf: Buffer, preferredName: string): Promise<string> {
+  const fs = await import('fs');
+  const pathMod = await import('path');
+  const cryptoMod = await import('crypto');
+  const tempDir = pathMod.resolve('data', 'downloads');
+  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+  const rawName = preferredName || cryptoMod.createHash('md5').update(buf).digest('hex');
+  const safeName = pathMod.basename(rawName);
+  if (!safeName || safeName === '.' || safeName === '..' || /[\\/]/.test(safeName)) {
+    throw new Error('invalid file name');
+  }
+  const resolved = pathMod.resolve(tempDir, safeName);
+  const rel = pathMod.relative(tempDir, resolved);
+  if (rel.startsWith('..') || pathMod.isAbsolute(rel)) {
+    throw new Error('invalid file name');
+  }
+  await fs.promises.writeFile(resolved, buf);
+  return resolved;
+}
+
+function optionalExactString(): Field<string | undefined> {
+  const inner = f.string().optional();
+  return Object.assign(Object.create(inner) as Field<string | undefined>, {
+    coerce(raw: unknown, field: string) {
+      if (typeof raw === 'number' || typeof raw === 'boolean' || raw === null
+        || (typeof raw === 'object' && raw !== null)) {
+        return { ok: false as const, field, reason: 'expected a string' };
+      }
+      return inner.coerce(raw as Parameters<Field<string | undefined>['coerce']>[0], field);
+    },
+  });
+}
+
+function integerFromDecimalString(value: string): number {
+  if (value.trim() === '') return 0;
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.trunc(n) : 0;
+}
+
+function primitiveText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return '';
+}
+
+const forwardPreviewParams = {
+  source: f.string().optional(),
+  summary: f.string().optional(),
+  prompt: f.string().optional(),
+  news: f.raw(),
+};
+
+// NapCat-compatible forward preview. All four fields are optional — if none
+// are provided, the message module infers defaults from the node list.
+function readForwardPreviewMeta(p: {
+  source?: string;
+  summary?: string;
+  prompt?: string;
+  news?: JsonValue;
+}): ForwardPreviewMeta | undefined {
+  const source = p.source || undefined;
+  const summary = p.summary || undefined;
+  const prompt = p.prompt || undefined;
   let news: Array<{ text: string }> | undefined;
-  if (Array.isArray(params.news)) {
+  if (Array.isArray(p.news)) {
     const collected: Array<{ text: string }> = [];
-    for (const item of params.news) {
+    for (const item of p.news) {
       if (typeof item === 'string') {
         collected.push({ text: item });
       } else if (item && typeof item === 'object' && !Array.isArray(item)) {
-        const text = asString((item as Record<string, unknown>).text);
+        const text = primitiveText((item as Record<string, unknown>).text);
         if (text) collected.push({ text });
       }
     }
@@ -75,724 +322,1099 @@ function readForwardPreviewMeta(params: Record<string, unknown>): ForwardPreview
   return { source, summary, prompt, news };
 }
 
-export function register(h: ApiHandler, ctx: ApiActionContext): void {
-  // 赞
-  h.registerAction('send_like', async (params) => {
-    const userId = asNumber(params.user_id);
-    const times = asNumber(params.times) || 1;
-    if (!userId) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
-    await ctx.bridge.apis.interaction.sendLike(userId, times);
-    return okResponse();
-  });
-  // 拍一拍
-  h.registerAction('friend_poke', async (params) => {
-    const userId = asNumber(params.user_id);
-    const targetId = asNumber(params.target_id) || undefined;
-    if (!userId) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
-    await ctx.bridge.apis.interaction.sendPoke(false, userId, targetId);
-    return okResponse();
-  });
+// 群待办三动作（set/complete/cancel）共享：按 message_id 查消息元数据 → 校验归属 → 执行 op。
+async function groupTodoRun(
+  p: { group_id: number; message_id: number },
+  ctx: ApiActionContext,
+  op: (groupId: number, msgSeq: bigint) => Promise<void>,
+) {
+  const meta = ctx.getMessageMeta(p.message_id);
+  if (!meta) return failedResponse(RETCODE.ACTION_FAILED, 'message not found');
+  if (!meta.isGroup || meta.targetId !== p.group_id) {
+    return failedResponse(RETCODE.ACTION_FAILED, 'message does not belong to this group');
+  }
+  if (!hasAuthoritativeSequence(meta)) {
+    return failedResponse(RETCODE.ACTION_FAILED, 'message has no authoritative QQ sequence');
+  }
+  await op(p.group_id, BigInt(meta.sequence));
+  return okResponse();
+}
 
-  h.registerAction('group_poke', async (params) => {
-    const groupId = asNumber(params.group_id);
-    const userId = asNumber(params.user_id);
-    if (!groupId || !userId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id and user_id are required');
-    await ctx.bridge.apis.interaction.sendPoke(true, groupId, userId);
-    return okResponse();
-  });
-
-  h.registerAction('send_poke', async (params) => {
-    const groupId = asNumber(params.group_id);
-    const userId = asNumber(params.user_id);
-    if (!userId) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
-    if (groupId) {
-      await ctx.bridge.apis.interaction.sendPoke(true, groupId, userId);
-    } else {
-      await ctx.bridge.apis.interaction.sendPoke(false, userId);
+function parseFlashTaskFiles(
+  raw: unknown,
+): { files: Array<{ file: string; name?: string }> } | { error: string } {
+  const items = Array.isArray(raw) ? raw : raw == null ? [] : [raw];
+  if (items.length === 0) return { error: 'files must not be empty' };
+  const files: Array<{ file: string; name?: string }> = [];
+  for (const item of items) {
+    if (typeof item === 'string') {
+      if (item === '') return { error: 'files must not be empty' };
+      files.push({ file: item });
+      continue;
     }
-    return okResponse();
-  });
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
+      const file = (item as { file?: unknown }).file;
+      const name = (item as { name?: unknown }).name;
+      if (typeof file !== 'string' || file === '') return { error: 'files must not be empty' };
+      if (name !== undefined && typeof name !== 'string') return { error: 'files[].name must be a string' };
+      files.push({ file, name });
+      continue;
+    }
+    return { error: 'files must be a path string, { file, name }, or an array of those' };
+  }
+  return { files };
+}
+
+/** FlashTransferApi 返回的 FlashFileInfo → OneBot JSON 响应（plain object，JsonObject 兼容）。
+ *  字段名对齐 NapCat（get_flash_file_list 用 size，非 file_size），便于客户端 drop-in 迁移。 */
+function flashFileInfoToJson(f: {
+  filesetUuid: string; fileName: string; origName: string; fileSize: number;
+  shareUrl: string; fileId: string; downloadUrl: string;
+}): JsonObject {
+  return {
+    fileset_id: f.filesetUuid,
+    file_name: f.fileName,
+    orig_name: f.origName,
+    size: f.fileSize,
+    share_url: f.shareUrl,
+    file_id: f.fileId,
+    download_url: f.downloadUrl,
+  };
+}
+
+export const actions = [
+  // 赞
+  defineAction({
+    name: 'send_like',
+    summary: '点赞',
+    params: {
+      user_id: f.userId(),
+      // 原实现用 `asNumber(times) || 1`，present 0 会被当作缺省 1。
+      times: f.int({ min: 0 }).default(1),
+    },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.interaction.sendLike(p.user_id, p.times);
+      return okResponse();
+    },
+  }),
+  // 拍一拍
+  defineAction({
+    name: 'friend_poke',
+    summary: '好友拍一拍',
+    params: {
+      user_id: f.userId(),
+      target_id: f.userId().optional(),
+    },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.interaction.sendPoke(false, p.user_id, p.target_id);
+      return okResponse();
+    },
+  }),
+
+  groupUserAction({
+    name: 'group_poke',
+    summary: '群拍一拍',
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.interaction.sendPoke(true, p.group_id, p.user_id);
+      return okResponse();
+    },
+  }),
+
+  defineAction({
+    name: 'send_poke',
+    summary: '拍一拍（群聊/私聊自动路由）',
+    params: {
+      user_id: f.userId(),
+      group_id: f.groupId().optional(),
+    },
+    run: async (p, ctx) => {
+      if (p.group_id) {
+        await ctx.bridge.apis.interaction.sendPoke(true, p.group_id, p.user_id);
+      } else {
+        await ctx.bridge.apis.interaction.sendPoke(false, p.user_id);
+      }
+      return okResponse();
+    },
+  }),
 
   // 精华消息
-  h.registerAction('set_essence_msg', async (params) => {
-    const messageId = asNumber(params.message_id);
-    if (!Number.isInteger(messageId) || messageId === 0) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'message_id is required');
-    }
-    await ctx.setEssenceMsg(messageId);
-    return okResponse();
-  });
+  defineAction({
+    name: 'set_essence_msg',
+    summary: '设置精华消息',
+    params: { message_id: f.messageId() },
+    run: async (p, ctx) => {
+      await ctx.setEssenceMsg(p.message_id);
+      return okResponse();
+    },
+  }),
 
-  h.registerAction('delete_essence_msg', async (params) => {
-    const messageId = asNumber(params.message_id);
-    if (!Number.isInteger(messageId) || messageId === 0) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'message_id is required');
-    }
-    await ctx.deleteEssenceMsg(messageId);
-    return okResponse();
-  });
+  defineAction({
+    name: 'delete_essence_msg',
+    summary: '移除精华消息',
+    params: { message_id: f.messageId() },
+    run: async (p, ctx) => {
+      await ctx.deleteEssenceMsg(p.message_id);
+      return okResponse();
+    },
+  }),
 
-  h.registerAction('get_essence_msg_list', async (params) => {
-    const groupId = asNumber(params.group_id);
-    if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
+  groupAction({
+    name: 'get_essence_msg_list',
+    summary: '获取精华消息列表',
+    readOnly: true,
+    run: async (p, ctx) => {
+      try {
+        const essenceDataAll = await ctx.bridge.apis.web.getEssenceAll(p.group_id);
 
+        const projections = essenceDataAll
+          .flatMap((res) => res.data.msg_list)
+          .filter((message): message is GroupEssenceMessage => message !== null)
+          .map((message) => projectEssenceMessage(message, p.group_id));
 
-    try {
-      const essenceDataAll = await ctx.bridge.apis.web.getEssenceAll(groupId);
+        ctx.cacheMessageMetas(projections.map(({ messageId, meta }) => ({
+          messageId,
+          meta,
+        })));
 
-      const allMsgs = essenceDataAll.flatMap((res) => res.data?.msg_list || []);
-
-      return okResponse(allMsgs);
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, `获取精华消息失败: ${e}`);
-    }
-  });
+        return okResponse(projections.map(({ result }) => result));
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, `获取精华消息失败: ${e}`);
+      }
+    },
+  }),
 
   // 群聊表情回应
-  h.registerAction('set_group_reaction', async (params) => {
-    const groupId = asNumber(params.group_id);
-    const messageId = asNumber(params.message_id);
-    const code = asString(params.code);
-    const isSet = asBoolean(params.is_set, true);
+  defineAction({
+    name: 'set_group_reaction',
+    summary: '群聊表情回应',
+    params: {
+      group_id: f.groupId().optional(),
+      message_id: f.messageId(),
+      code: f.string({ allowEmpty: false }),
+      is_set: f.bool().default(true),
+    },
+    run: async (p, ctx) => {
+      const meta = ctx.getMessageMeta(p.message_id);
+      if (!meta || !meta.isGroup) {
+        return failedResponse(RETCODE.ACTION_FAILED, 'message not found or not a group message');
+      }
 
-    if (!Number.isInteger(messageId) || messageId === 0 || !code) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'message_id and code are required');
-    }
+      if (p.group_id && p.group_id !== meta.targetId) {
+        return failedResponse(RETCODE.BAD_REQUEST, 'group_id does not match message session');
+      }
 
-    const meta = ctx.getMessageMeta(messageId);
-    if (!meta || !meta.isGroup) {
-      return failedResponse(RETCODE.ACTION_FAILED, 'message not found or not a group message');
-    }
+      if (!hasAuthoritativeSequence(meta)) {
+        return failedResponse(RETCODE.ACTION_FAILED, 'message has no authoritative QQ sequence');
+      }
 
-    if (groupId && groupId !== meta.targetId) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'group_id does not match message session');
-    }
+      await ctx.bridge.apis.interaction.setReaction(meta.targetId, meta.sequence, p.code, p.is_set);
+      return okResponse();
+    },
+  }),
 
-    await ctx.bridge.apis.interaction.setReaction(meta.targetId, meta.sequence, code, isSet);
-    return okResponse();
-  });
+  // 删除收藏表情（Faceroam.OpReq opType=2）
+  defineAction({
+    name: 'delete_custom_face',
+    summary: '删除收藏表情',
+    params: { emoji_id: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.profile.deleteCustomFace(p.emoji_id);
+      return okResponse();
+    },
+  }),
+
+  // 添加收藏表情（ImgStore.BDHExpressionRoam + highway HTTP 上传）
+  defineAction({
+    name: 'add_custom_face',
+    summary: '添加收藏表情',
+    params: { file: f.image() },
+    run: async (p, ctx) => {
+      const emojiId = await ctx.bridge.apis.profile.addCustomFace(p.file);
+      return okResponse({ emoji_id: emojiId });
+    },
+  }),
+
+  // 修改收藏表情备注（OIDB 0x902e_1 opType=3）
+  defineAction({
+    name: 'modify_custom_face',
+    summary: '修改收藏表情备注',
+    params: {
+      emoji_id: f.string({ allowEmpty: false }),
+      desc: f.string().default(''),
+    },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.profile.modifyCustomFace(p.emoji_id, p.desc);
+      return okResponse();
+    },
+  }),
+
+  // 收藏表情排序（OIDB 0x902f + 0x902e opType=2 两步）。把 emoji_id 移到
+  // position 位置（1=最前）。move_to_front 是 position=1 的语法糖。
+  // 收藏表情移到最前（OIDB 0x902f + 0x902e opType=2 两步）。QQ 客户端只有
+  // "移动到最前"操作，协议层也只支持最前——0x902f 的 f3=1 是固定标志，不是
+  // 位置变量，移到其他位置服务端不生效。所以这个 action 只做"移到最前"。
+  defineAction({
+    name: 'move_custom_face_to_front',
+    summary: '收藏表情移到最前',
+    params: { emoji_id: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.profile.moveCustomFaceToFront(p.emoji_id);
+      return okResponse();
+    },
+  }),
 
   // 消息历史
-  h.registerAction('get_group_msg_history', async (params) => {
-    const groupId = asNumber(params.group_id);
-    const messageId = asNumber(params.message_id) || 0;
-    const count = asNumber(params.count) || 20;
-    if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-    const messages = await ctx.getGroupMsgHistory(groupId, messageId, count);
-    return okResponse({ messages });
-  });
+  groupAction({
+    name: 'get_group_msg_history',
+    summary: '获取群消息历史',
+    readOnly: true,
+    returns: '{ messages }：群消息事件对象数组（每项为 OneBot 消息事件，内部字段不固定）。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        messages: { type: 'array', description: '消息事件对象数组', items: { type: 'object' } },
+      },
+      required: ['messages'],
+    },
+    params: {
+      // message_id is a signed int32 hash (hashMessageIdInt32) and is
+      // frequently NEGATIVE — a `{min:0}` validator rejects a real anchor at
+      // param-validation time (retcode 1400) before run() ever fires. Use a
+      // plain signed int; `.default(0)` keeps absent/present-0 → "fetch latest"
+      // (matches the original `asNumber(message_id) || 0`). `count` stays ≥0.
+      message_id: f.int().default(0).role('message_id'),
+      count: f.int({ min: 0 }).default(20),
+      reverse_order: f.bool().default(true).describe('仅在 message_id 非 0 时生效；true 返回锚点及更旧消息，false 返回锚点及更新消息'),
+    },
+    run: async (p, ctx) => {
+      const messages = await ctx.getGroupMsgHistory(p.group_id, p.message_id, p.count, p.reverse_order);
+      return okResponse({ messages });
+    },
+  }),
 
-  h.registerAction('get_friend_msg_history', async (params) => {
-    const userId = asNumber(params.user_id);
-    const messageId = asNumber(params.message_id) || 0;
-    const count = asNumber(params.count) || 20;
-    if (!userId) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
-    const messages = await ctx.getFriendMsgHistory(userId, messageId, count);
-    return okResponse({ messages });
-  });
+  defineAction({
+    name: 'get_friend_msg_history',
+    summary: '获取好友消息历史（无锚点时从服务器获取最新双向记录）',
+    readOnly: true,
+    returns: '{ messages }：好友消息事件对象数组（每项为 OneBot 消息事件，内部字段不固定）。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        messages: { type: 'array', description: '消息事件对象数组', items: { type: 'object' } },
+      },
+      required: ['messages'],
+    },
+    params: {
+      user_id: f.userId(),
+      // Signed int32 hash, frequently negative — see get_group_msg_history.
+      message_id: f.int().default(0).role('message_id'),
+      count: f.int({ min: 0 }).default(20).describe('无锚点时从 QQ 服务器获取最新双向历史；服务器或身份解析失败时动作失败，不返回不完整的本地缓存'),
+      reverse_order: f.bool().default(true).describe('仅在 message_id 非 0 时生效；true 返回锚点及更旧消息，false 返回锚点及更新消息'),
+    },
+    run: async (p, ctx) => {
+      const messages = await ctx.getFriendMsgHistory(p.user_id, p.message_id, p.count, p.reverse_order);
+      return okResponse({ messages });
+    },
+  }),
 
   // 标记消息已读
-  h.registerAction('mark_group_msg_as_read', async (params) => {
-    const messageId = asNumber(params.message_id);
-    const groupId = asNumber(params.group_id);
+  defineAction({
+    name: 'mark_group_msg_as_read',
+    summary: '标记群消息已读',
+    params: {
+      message_id: f.messageId(),
+      group_id: f.groupId().optional(),
+    },
+    run: async (p, ctx) => {
+      const meta = ctx.getMessageMeta(p.message_id);
+      if (!meta || !meta.isGroup) {
+        return failedResponse(RETCODE.ACTION_FAILED, 'message not found or not a group message');
+      }
 
-    if (!Number.isInteger(messageId) || messageId === 0) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'message_id is required');
-    }
-    const meta = ctx.getMessageMeta(messageId);
-    if (!meta || !meta.isGroup) {
-      return failedResponse(RETCODE.ACTION_FAILED, 'message not found or not a group message');
-    }
+      if (p.group_id && p.group_id !== meta.targetId) {
+        return failedResponse(RETCODE.BAD_REQUEST, 'group_id does not match message session');
+      }
 
-    if (groupId && groupId !== meta.targetId) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'group_id does not match message session');
-    }
+      await ctx.bridge.apis.message.markGroupRead(meta.targetId);
+      return okResponse();
+    },
+  }),
 
-    await ctx.bridge.apis.message.markGroupRead(meta.targetId, meta.sequence);
-    return okResponse();
-  });
+  defineAction({
+    name: 'mark_private_msg_as_read',
+    summary: '标记私聊消息已读',
+    params: {
+      message_id: f.messageId(),
+      user_id: f.userId().optional(),
+    },
+    run: async (p, ctx) => {
+      const meta = ctx.getMessageMeta(p.message_id);
+      if (!meta || meta.isGroup) {
+        return failedResponse(RETCODE.ACTION_FAILED, 'message not found or not a private message');
+      }
 
-  h.registerAction('mark_private_msg_as_read', async (params) => {
-    const messageId = asNumber(params.message_id);
-    const userId = asNumber(params.user_id);
+      if (p.user_id && p.user_id !== meta.targetId) {
+        return failedResponse(RETCODE.BAD_REQUEST, 'user_id does not match message session');
+      }
 
-    if (!Number.isInteger(messageId) || messageId === 0) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'message_id is required');
-    }
-    const meta = ctx.getMessageMeta(messageId);
-    if (!meta || meta.isGroup) {
-      return failedResponse(RETCODE.ACTION_FAILED, 'message not found or not a private message');
-    }
+      await ctx.bridge.apis.message.markPrivateRead(meta.targetId);
+      return okResponse();
+    },
+  }),
 
-    if (userId && userId !== meta.targetId) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'user_id does not match message session');
-    }
+  defineAction({
+    name: 'mark_msg_as_read',
+    summary: '标记消息已读（群聊/私聊自动路由）',
+    params: {
+      message_id: f.messageId(),
+      target_id: f.uint().optional(),
+    },
+    run: async (p, ctx) => {
+      const meta = ctx.getMessageMeta(p.message_id);
+      if (!meta) return failedResponse(RETCODE.ACTION_FAILED, 'message not found');
 
-    await ctx.bridge.apis.message.markPrivateRead(meta.targetId, meta.sequence);
-    return okResponse();
-  });
+      if (p.target_id && p.target_id !== meta.targetId) {
+        return failedResponse(RETCODE.BAD_REQUEST, 'target_id does not match message session');
+      }
 
-  h.registerAction('mark_msg_as_read', async (params) => {
-    const messageId = asNumber(params.message_id);
-    const targetId = asNumber(params.target_id);
-
-    if (!Number.isInteger(messageId) || messageId === 0) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'message_id is required');
-    }
-    const meta = ctx.getMessageMeta(messageId);
-    if (!meta) return failedResponse(RETCODE.ACTION_FAILED, 'message not found');
-
-    if (targetId && targetId !== meta.targetId) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'target_id does not match message session');
-    }
-
-    if (meta.isGroup) {
-      await ctx.bridge.apis.message.markGroupRead(meta.targetId, meta.sequence);
-    } else {
-      await ctx.bridge.apis.message.markPrivateRead(meta.targetId, meta.sequence);
-    }
-    return okResponse();
-  });
-
-
-  // 下载密钥
-  const handleGetRkey = async () => {
-    if (ctx.getDownloadRKeys) {
-      return okResponse(await ctx.getDownloadRKeys());
-    }
-    return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
-  };
-  h.registerAction('get_rkey', handleGetRkey);
-  h.registerAction('nc_get_rkey', handleGetRkey);
-
-  // OCR 兜底未实现。
-
-  h.registerAction('ocr_image', async () => {
-    return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
-  });
-
-  h.registerAction('.ocr_image', async () => {
-    return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
-  });
+      if (meta.isGroup) {
+        await ctx.bridge.apis.message.markGroupRead(meta.targetId);
+      } else {
+        await ctx.bridge.apis.message.markPrivateRead(meta.targetId);
+      }
+      return okResponse();
+    },
+  }),
 
   // 群公告
-  h.registerAction('_send_group_notice', async (params) => {
-    const groupId = asNumber(params.group_id);
-    const content = asString(params.content);
-    const image = asString(params.image);
-
-    if (!groupId || !content) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'group_id and content are required');
-    }
-
-
-    try {
+  groupAction({
+    name: '_send_group_notice',
+    summary: '发送群公告（支持置顶、弹窗、新成员、群昵称引导与确认）',
+    params: {
+      content: f.string({ allowEmpty: false }).describe('公告正文'),
+      image: f.string().default('').role('image').describe('可选公告图片（本地路径、URL 或 base64）'),
+      pinned: f.int({ min: 0, max: 1 }).default(0).describe('是否置顶：1=置顶，0=不置顶'),
+      type: f.int().optional().describe('发布类型：1=普通公告，20=新成员公告；建议使用 send_to_new_members'),
+      send_to_new_members: f.bool().optional().describe('是否在成员新加入群时发送（与 type=20 等价）'),
+      is_show_edit_card: f.int({ min: 0, max: 1 }).default(1).describe('是否引导群成员修改群昵称：1=是，0=否'),
+      tip_window_type: f.int({ min: 0, max: 1 }).default(1).describe('弹窗展示：0=开启弹窗，1=关闭弹窗（QQ 原始字段为反向语义）'),
+      confirm_required: f.int({ min: 0, max: 1 }).default(1).describe('是否需要群成员确认收到：1=是，0=否'),
+    },
+    rules: (r) => [
+      r.rule('type must be 1 (regular) or 20 (new members)', (p) => p.type === undefined || p.type === 1 || p.type === 20),
+      r.rule(
+        'send_to_new_members conflicts with type',
+        (p) => p.send_to_new_members === undefined || p.type === undefined || p.type === (p.send_to_new_members ? 20 : 1),
+      ),
+    ],
+    run: async (p, ctx) => {
       const options = {
-        image: image || undefined,
-        pinned: params.pinned !== undefined ? Number(params.pinned) : 0,
-        type: params.type !== undefined ? Number(params.type) : 1,
-        confirm_required: params.confirm_required !== undefined ? Number(params.confirm_required) : 1,
+        image: p.image || undefined,
+        pinned: p.pinned,
+        type: p.type,
+        sendToNewMembers: p.send_to_new_members,
+        isShowEditCard: p.is_show_edit_card,
+        tipWindowType: p.tip_window_type,
+        confirmRequired: p.confirm_required,
       };
 
-      await ctx.bridge.apis.web.sendNotice(groupId, content, options);
+      await ctx.bridge.apis.web.sendNotice(p.group_id, p.content, options);
       return okResponse();
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  });
+    },
+  }),
 
-  h.registerAction('_get_group_notice', async (params) => {
-    const groupId = asNumber(params.group_id);
-    if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-
-
-    try {
-      const notices = await ctx.bridge.apis.web.getNotice(groupId);
+  groupAction({
+    name: '_get_group_notice',
+    summary: '获取群公告',
+    returns: '普通公告与新成员公告的合并数组；send_to_new_members 标识后者',
+    readOnly: true,
+    run: async (p, ctx) => {
+      const notices = await ctx.bridge.apis.web.getNotice(p.group_id);
       return okResponse(notices);
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  });
+    },
+  }),
 
-  h.registerAction('_del_group_notice', async (params) => {
-    const groupId = asNumber(params.group_id);
-    const fid = asString(params.fid) || asString(params.notice_id);
+  // 转发消息。messages/message 互为别名键，两者皆缺省视为未提供。
+  defineAction({
+    name: 'upload_forward_msg',
+    summary: '上传转发消息',
+    params: {
+      messages: f.message().optional(),
+      message: f.message().optional(),
+      group_id: f.groupId().optional(),
+    },
+    run: async (p, ctx) => {
+      const messages = p.messages ?? p.message;
+      const groupId = p.group_id ?? 0;
+      if (messages === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'message/messages is required');
+      // 群聊和私聊转发消息的 resId 是分开的（前者是 type=3+groupUin，后者是 type=1+selfUid），
+      const result = await ctx.sendForwardMsg(messages, groupId > 0 ? groupId : undefined);
+      const data: Record<string, unknown> = {
+        res_id: result.forwardId,
+        forward_id: result.forwardId,
+        message_id: 0,
+      };
+      if (groupId > 0) data.group_id = groupId;
+      return okResponse(data as import('../types').JsonObject);
+    },
+  }),
 
-    if (!groupId || !fid) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'group_id and fid/notice_id are required');
-    }
-
-
-    try {
-      const success = await ctx.bridge.apis.web.deleteNotice(groupId, fid);
-      if (success) {
-        return okResponse();
-      } else {
-        return failedResponse(RETCODE.ACTION_FAILED, 'delete failed');
-      }
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  });
-
-  // 转发消息。
-  h.registerAction('upload_forward_msg', async (params) => {
-    const messages = asMessage(params.messages ?? params.message);
-    const groupId = asNumber(params.group_id);
-    if (messages === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'message/messages is required');
-    // 群聊和私聊转发消息的 resId 是分开的（前者是 type=3+groupUin，后者是 type=1+selfUid），
-    const result = await ctx.sendForwardMsg(messages, groupId > 0 ? groupId : undefined);
-    const data: Record<string, unknown> = {
-      res_id: result.forwardId,
-      forward_id: result.forwardId,
-      message_id: 0,
-    };
-    if (groupId > 0) data.group_id = groupId;
-    return okResponse(data as import('../types').JsonObject);
-  });
-
-  h.registerAction('upload_foward_msg', async (params) => {
-    const messages = asMessage(params.messages ?? params.message);
-    const groupId = asNumber(params.group_id);
-    if (messages === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'message/messages is required');
-    const result = await ctx.sendForwardMsg(messages, groupId > 0 ? groupId : undefined);
-    return okResponse({ res_id: result.forwardId, forward_id: result.forwardId, message_id: 0 });
-  });
-
-  h.registerAction('send_forward_msg', async (params) => {
-    const messageType = asString(params.message_type);
-    const groupId = asNumber(params.group_id);
-    const userId = asNumber(params.user_id);
-    const messages = asMessage(params.messages ?? params.message);
-    const meta = readForwardPreviewMeta(params);
-
-    if (messages === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'message/messages is required');
-
-    if ((messageType === 'group' || groupId > 0) && ctx.sendGroupForwardMsg) {
-      if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-      const result = await ctx.sendGroupForwardMsg(groupId, messages, meta);
-      return okResponse({ message_id: result.messageId, res_id: result.forwardId, forward_id: result.forwardId });
-    }
-
-    if ((messageType === 'private' || userId > 0) && ctx.sendPrivateForwardMsg) {
-      if (!userId) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
-      const result = await ctx.sendPrivateForwardMsg(userId, messages, meta);
-      return okResponse({ message_id: result.messageId, res_id: result.forwardId, forward_id: result.forwardId });
-    }
-
-    const result = await ctx.sendForwardMsg(messages);
-    return okResponse({ message_id: 0, res_id: result.forwardId, forward_id: result.forwardId });
-  });
-
-  h.registerAction('send_group_forward_msg', async (params) => {
-    const groupId = asNumber(params.group_id);
-    const messages = asMessage(params.messages ?? params.message);
-    if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-    if (messages === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'message/messages is required');
-
-    const result = await ctx.sendGroupForwardMsg(groupId, messages, readForwardPreviewMeta(params));
-    return okResponse({ message_id: result.messageId, res_id: result.forwardId, forward_id: result.forwardId });
-  });
-
-  h.registerAction('send_private_forward_msg', async (params) => {
-    const userId = asNumber(params.user_id);
-    const messages = asMessage(params.messages ?? params.message);
-    if (!userId) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
-    if (messages === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'message/messages is required');
-
-    const result = await ctx.sendPrivateForwardMsg(userId, messages, readForwardPreviewMeta(params));
-    return okResponse({ message_id: result.messageId, res_id: result.forwardId, forward_id: result.forwardId });
-  });
-
-  h.registerAction('get_forward_msg', async (params) => {
-    let id = asString(params.id);
-    if (!id) {
-      const rawMessageId = params.message_id;
-      const numericMessageId = asNumber(rawMessageId);
-      if (numericMessageId > 0) {
-        const event = ctx.getMessage(numericMessageId);
-        const segments = Array.isArray(event?.message) ? event.message : [];
-        for (const seg of segments) {
-          if (typeof seg !== 'object' || seg === null || Array.isArray(seg)) continue;
-          const so = seg as Record<string, unknown>;
-          if (String(so.type ?? '') !== 'forward') continue;
-          const data = (typeof so.data === 'object' && so.data !== null && !Array.isArray(so.data))
-            ? so.data as Record<string, unknown>
-            : null;
-          const candidate = asString(data?.id) || asString(data?.res_id) || asString(data?.forward_id);
-          if (candidate) {
-            id = candidate;
-            break;
-          }
-        }
-      }
-
-      if (!id) {
-        id = asString(rawMessageId);
-      }
-    }
-
-    if (!id) return failedResponse(RETCODE.BAD_REQUEST, 'id or message_id is required');
-
-    const messages = await ctx.getForwardMsg(id);
-    return okResponse({ messages });
-  });
+  defineAction({
+    name: 'upload_foward_msg',
+    summary: '上传转发消息（别名拼写）',
+    params: {
+      messages: f.message().optional(),
+      message: f.message().optional(),
+      group_id: f.groupId().optional(),
+    },
+    run: async (p, ctx) => {
+      const messages = p.messages ?? p.message;
+      const groupId = p.group_id ?? 0;
+      if (messages === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'message/messages is required');
+      const result = await ctx.sendForwardMsg(messages, groupId > 0 ? groupId : undefined);
+      return okResponse({ res_id: result.forwardId, forward_id: result.forwardId, message_id: 0 });
+    },
+  }),
 
   // 文件信息
+  defineAction({
+    name: 'get_image',
+    summary: '获取图片信息',
+    readOnly: true,
+    params: {
+      file: f.string().default('').role('image'),
+      file_id: f.string().default('').role('file_id'),
+    },
+    run: async (p, ctx) => {
+      const file = p.file || p.file_id;
+      if (!file) return failedResponse(RETCODE.BAD_REQUEST, 'file is required');
+      const info = await ctx.getImageInfo(file);
+      if (info) return okResponse(info);
+      return failedResponse(RETCODE.ACTION_FAILED, 'image not found in cache');
+    },
+  }),
 
-  h.registerAction('get_image', async (params) => {
-    const file = asString(params.file) || asString(params.file_id);
-    if (!file) return failedResponse(RETCODE.BAD_REQUEST, 'file is required');
-    const info = await ctx.getImageInfo(file);
-    if (info) return okResponse(info);
-    return failedResponse(RETCODE.ACTION_FAILED, 'image not found in cache');
-  });
+  defineAction({
+    name: 'get_record',
+    summary: '获取语音信息；传 out_format 则服务端转码并附带 base64',
+    readOnly: true,
+    params: {
+      file: f.string().default('').role('record'),
+      file_id: f.string().default('').role('file_id'),
+      // Optional server-side transcode (#165): SILK/AMR → the requested
+      // container, returned as `data.base64`. Absent ⇒ behaviour unchanged.
+      out_format: f.enum('mp3', 'amr', 'wma', 'm4a', 'spx', 'ogg', 'wav', 'flac').optional(),
+    },
+    run: async (p, ctx) => {
+      const file = p.file || p.file_id;
+      if (!file) return failedResponse(RETCODE.BAD_REQUEST, 'file is required');
+      const info = await ctx.getRecordInfo(file);
+      if (!info) return failedResponse(RETCODE.ACTION_FAILED, 'record not found in cache');
+      if (!p.out_format) return okResponse(info);
+      // Transcode from the record's download URL (fall back to file field).
+      const source = String(info.url || info.file || '');
+      if (!source) return failedResponse(RETCODE.ACTION_FAILED, 'record has no downloadable source');
+      try {
+        // Keep the original record info (file_size stays the source size, like
+        // NapCat) and just attach the transcoded payload.
+        const { base64 } = await ctx.bridge.apis.extras.convertRecord(source, p.out_format);
+        return okResponse({ ...info, out_format: p.out_format, base64 });
+      } catch (e) {
+        return failedResponse(RETCODE.ACTION_FAILED, `语音转码失败：${e instanceof Error ? e.message : String(e)}`);
+      }
+    },
+  }),
 
-  h.registerAction('get_record', async (params) => {
-    const file = asString(params.file) || asString(params.file_id);
-    if (!file) return failedResponse(RETCODE.BAD_REQUEST, 'file is required');
-    const info = await ctx.getRecordInfo(file);
-    if (info) return okResponse(info);
-    return failedResponse(RETCODE.ACTION_FAILED, 'record not found in cache');
-  });
+  defineAction({
+    // Primary name matches NapCat for drop-in migration; the rest are aliases.
+    name: ['fetch_ptt_text', 'get_ptt_text', 'get_record_text'],
+    summary: '获取语音转文字结果',
+    readOnly: true,
+    returns: '{ text }：语音识别出的文本。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: '语音转写文本' },
+      },
+      required: ['text'],
+    },
+    params: {
+      message_id: f.messageId(),
+    },
+    run: async (p, ctx) => {
+      return okResponse(await ctx.fetchPttText(p.message_id));
+    },
+  }),
 
   // Cookie、CSRF 令牌和账号信息
-
-  h.registerAction('get_cookies', async (params) => {
-    const domain = asString(params.domain) || 'qun.qq.com';
-
-
-    try {
-      const cookies = await ctx.bridge.apis.web.getCookiesStr(domain);
+  defineAction({
+    name: 'get_cookies',
+    summary: '获取 Cookies',
+    readOnly: true,
+    returns: '{ cookies }：指定域名的 Cookie 字符串。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        cookies: { type: 'string', description: '该域名的 Cookie 字符串' },
+      },
+      required: ['cookies'],
+    },
+    params: { domain: f.string().default('qun.qq.com') },
+    run: async (p, ctx) => {
+      const cookies = await ctx.bridge.apis.web.getCookiesStr(p.domain || 'qun.qq.com');
       return okResponse({ cookies });
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  });
+    },
+  }),
 
-  h.registerAction('get_csrf_token', async () => {
-
-    try {
+  defineAction({
+    name: 'get_csrf_token',
+    summary: '获取 CSRF 令牌',
+    readOnly: true,
+    returns: '{ token }：CSRF 令牌（bkn，数值）。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        token: { type: 'integer', description: 'CSRF 令牌（bkn）' },
+      },
+      required: ['token'],
+    },
+    params: {},
+    run: async (_p, ctx) => {
       const token = await ctx.bridge.apis.web.getCsrfToken();
       return okResponse({ token });
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  });
+    },
+  }),
 
-  h.registerAction('get_credentials', async (params) => {
-    const domain = asString(params.domain) || 'qun.qq.com';
-
-
-    try {
-      const creds = await ctx.bridge.apis.web.getCredentials(domain);
+  defineAction({
+    name: 'get_credentials',
+    summary: '获取凭证',
+    readOnly: true,
+    returns: '{ cookies, token, csrf_token }：Cookie 字符串与 CSRF 令牌（token 与 csrf_token 同值）。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        cookies: { type: 'string', description: '该域名的 Cookie 字符串' },
+        token: { type: 'integer', description: 'CSRF 令牌（bkn）' },
+        csrf_token: { type: 'integer', description: 'CSRF 令牌（同 token）' },
+      },
+      required: ['cookies', 'token', 'csrf_token'],
+    },
+    params: { domain: f.string().default('qun.qq.com') },
+    run: async (p, ctx) => {
+      const creds = await ctx.bridge.apis.web.getCredentials(p.domain || 'qun.qq.com');
       return okResponse(creds);
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  });
+    },
+  }),
+
   // 重启和清理缓存
+  defineAction({
+    name: 'set_restart',
+    summary: '重启（不支持）',
+    params: {},
+    run: async () => {
+      return failedResponse(RETCODE.ACTION_FAILED, 'not supported');
+    },
+  }),
 
-  h.registerAction('set_restart', async () => {
-    return failedResponse(RETCODE.ACTION_FAILED, 'not supported');
-  });
-
-  h.registerAction('clean_cache', async () => {
-    return okResponse();
-  });
-
-  h.registerAction('.handle_quick_operation', async (params) => {
-    const context = params.context as import('../types').JsonObject | undefined;
-    const operation = params.operation as Record<string, unknown> | undefined;
-    if (!context || !operation) return failedResponse(RETCODE.BAD_REQUEST, 'context and operation are required');
-    const { executeQuickOperation } = await import('../network/quick-operation');
-    await executeQuickOperation(context, operation, h);
-    return okResponse();
-  });
+  defineAction({
+    name: 'clean_cache',
+    summary: '清理缓存',
+    params: {},
+    run: async () => {
+      return okResponse();
+    },
+  }),
 
   // 以下接口在方便用户迁移和兼容现有的 OneBot/NapCat 客户端。
-  h.registerAction('set_friend_remark', async (params) => {
-    const userId = asNumber(params.user_id);
-    if (!userId) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
-    if (params.remark === undefined) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'remark is required (pass an empty string to clear)');
-    }
-    await ctx.bridge.apis.friend.setRemark(userId, asString(params.remark));
-    return okResponse();
-  });
-
-  h.registerAction('set_group_remark', async (params) => {
-    const groupId = asNumber(params.group_id);
-    if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-    if (params.remark === undefined) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'remark is required (pass an empty string to clear)');
-    }
-    await ctx.bridge.apis.groupAdmin.setRemark(groupId, asString(params.remark));
-    return okResponse();
-  });
-
-  h.registerAction('set_msg_emoji_like', async (params) => {
-    const messageId = asNumber(params.message_id);
-    const emojiId = asString(params.emoji_id);
-    const set = asBoolean(params.set, true);
-    if (!Number.isInteger(messageId) || messageId === 0 || !emojiId) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'message_id and emoji_id are required');
-    }
-    await ctx.setMsgEmojiLike(messageId, emojiId, set);
-    return okResponse();
-  });
-
-
-  h.registerAction('_mark_all_as_read', async () => {
-    return okResponse();
-  });
-
-  h.registerAction('get_group_file_system_info', async (params) => {
-    const groupId = asNumber(params.group_id);
-    if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-    const info = await ctx.bridge.apis.groupFile.getCount(groupId);
-    return okResponse({
-      file_count: info.fileCount,
-      limit_count: info.maxCount,
-      used_space: 0,
-      total_space: 10737418240,
-    });
-  });
-
-  h.registerAction('check_url_safely', async () => {
-    return okResponse({ level: 1 });
-  });
-
-  h.registerAction('download_file', async (params) => {
-    const url = asString(params.url);
-    const base64 = asString(params.base64);
-    const name = asString(params.name);
-    if (!url && !base64) return failedResponse(RETCODE.BAD_REQUEST, 'url or base64 is required');
-
-    const fs = await import('fs');
-    const pathMod = await import('path');
-    const cryptoMod = await import('crypto');
-    const tempDir = pathMod.resolve('data', 'downloads');
-    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-
-    // 清理文件名：移除所有路径部分，并拒绝任何会解析到 tempDir 外部的路径。
-    // 如果没有这个保护，name = "../../config/onebot_x.json" 会让已认证的 OneBot 客户端覆盖工作目录下的任意文件。
-    // 例如 config、dist、node_modules 等目录中的文件。
-    const resolveSafePath = (preferredName: string, fallbackBuf: Buffer): string | null => {
-      const raw = preferredName || cryptoMod.createHash('md5').update(fallbackBuf).digest('hex');
-      const safeName = pathMod.basename(raw);
-      if (!safeName || safeName === '.' || safeName === '..' || /[\\/]/.test(safeName)) return null;
-      const resolved = pathMod.resolve(tempDir, safeName);
-      const rel = pathMod.relative(tempDir, resolved);
-      if (rel.startsWith('..') || pathMod.isAbsolute(rel)) return null;
-      return resolved;
-    };
-
-    let buf: Buffer;
-    if (base64) {
-      // 每 4 个 base64 字符最多解码成 3 个字节。
-      // 在 Buffer.from 分配内存前先拒绝过大的载荷，避免最终也无法通过解码后检查的大载荷导致内存溢出。
-      const upperBound = Math.floor((base64.length * 3) / 4);
-      if (upperBound > DOWNLOAD_FILE_MAX_BYTES) {
-        return failedResponse(RETCODE.BAD_REQUEST, `base64 payload too large: > ${DOWNLOAD_FILE_MAX_BYTES} bytes`);
-      }
-      buf = Buffer.from(base64, 'base64');
-      if (buf.length > DOWNLOAD_FILE_MAX_BYTES) {
-        return failedResponse(RETCODE.BAD_REQUEST, `base64 payload too large: ${buf.length} > ${DOWNLOAD_FILE_MAX_BYTES} bytes`);
-      }
-    } else {
-      try {
-        buf = await fetchDownloadFile(
-          url!,
-          parseDownloadHeaders(params.headers),
-          DOWNLOAD_FILE_MAX_BYTES,
-          DOWNLOAD_FILE_TIMEOUT_MS,
-        );
-      } catch (err) {
-        return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-      }
-    }
-
-    const safe = resolveSafePath(name, buf);
-    if (!safe) return failedResponse(RETCODE.BAD_REQUEST, 'invalid file name');
-    // 使用异步写入，避免 GiB 级下载阻塞事件循环。
-    // 之前的 writeFileSync 会在运行期间卡住其他所有机器人动作。
-    await fs.promises.writeFile(safe, buf);
-    return okResponse({ file: safe });
-  });
-
-  h.registerAction('set_qq_profile', async (params) => {
-
-    const nickname = params.nickname !== undefined ? asString(params.nickname) : undefined;
-    const personalNote = params.personal_note !== undefined ? asString(params.personal_note) : undefined;
-
-
-    try {
-      await ctx.bridge.apis.profile.setProfile(nickname, personalNote);
+  defineAction({
+    name: 'set_friend_remark',
+    summary: '设置好友备注',
+    params: {
+      user_id: f.userId(),
+      remark: f.string(),
+    },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.friend.setRemark(p.user_id, p.remark);
       return okResponse();
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  });
+    },
+  }),
 
-  h.registerAction('set_online_status', async (params) => {
-    const status = asNumber(params.status);
-    const extStatus = asNumber(params.ext_status) || 0;
-    const batteryStatus = asNumber(params.battery_status) || 100;
-
-    // 参数校验
-    if (status === undefined || status === 0) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'status is required');
-    }
-
-
-    try {
-      await ctx.bridge.apis.profile.setOnlineStatus(status, extStatus, batteryStatus);
+  defineAction({
+    name: 'set_group_remark',
+    summary: '设置群备注',
+    params: {
+      group_id: f.groupId(),
+      remark: f.string(),
+    },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.groupAdmin.setRemark(p.group_id, p.remark);
       return okResponse();
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  });
+    },
+  }),
+
+  defineAction({
+    name: 'set_msg_emoji_like',
+    summary: '设置消息表情回应',
+    params: {
+      message_id: f.messageId(),
+      emoji_id: f.string({ allowEmpty: false }),
+      set: f.bool().default(true),
+    },
+    run: async (p, ctx) => {
+      await ctx.setMsgEmojiLike(p.message_id, p.emoji_id, p.set);
+      return okResponse();
+    },
+  }),
+
+  defineAction({
+    name: '_mark_all_as_read',
+    summary: '标记全部已读',
+    params: {},
+    run: async (_p, ctx) => {
+      const sessions = ctx.listReadSessions();
+      await ctx.bridge.apis.message.markAllRead(sessions.groupIds, sessions.privateUserIds);
+      return okResponse();
+    },
+  }),
+
+  groupAction({
+    name: 'get_group_file_system_info',
+    summary: '获取群文件系统信息',
+    readOnly: true,
+    returns: '{ file_count, limit_count, used_space, total_space }：群文件数量与容量信息（均为服务端实际值）。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        file_count: { type: 'integer', description: '当前文件数' },
+        limit_count: { type: 'integer', description: '文件数上限' },
+        used_space: { type: 'integer', description: '已用空间（字节）' },
+        total_space: { type: 'integer', description: '总空间（字节）' },
+      },
+      required: ['file_count', 'limit_count', 'used_space', 'total_space'],
+    },
+    run: async (p, ctx) => {
+      // 0x6D8 count (subcmd 2) + space (subcmd 3) are separate queries (#196).
+      const [count, space] = await Promise.all([
+        ctx.bridge.apis.groupFile.getCount(p.group_id),
+        ctx.bridge.apis.groupFile.getSpace(p.group_id),
+      ]);
+      return okResponse({
+        file_count: count.fileCount,
+        limit_count: count.maxCount,
+        used_space: space.usedSpace,
+        total_space: space.totalSpace,
+      });
+    },
+  }),
+
+  defineAction({
+    name: 'check_url_safely',
+    summary: '检查链接安全性',
+    readOnly: true,
+    returns: '{ level }：安全等级（占位实现，恒为 1）。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        level: { type: 'integer', description: '安全等级（占位，恒 1）' },
+      },
+      required: ['level'],
+    },
+    params: {},
+    run: async () => {
+      return okResponse({ level: 1 });
+    },
+  }),
+
+  defineAction({
+    name: 'set_qq_profile',
+    summary: '设置 QQ 资料',
+    params: {
+      nickname: f.string().optional(),
+      personal_note: f.string().optional(),
+      sex: f.int({ min: 0, max: 2 }).optional().describe('0 未知，1 男，2 女'),
+    },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.profile.setProfile(p.nickname, p.personal_note, p.sex);
+      return okResponse();
+    },
+  }),
+
+  defineAction({
+    name: 'set_online_status',
+    summary: '设置在线状态',
+    params: {
+      // 原实现用 asNumber+`status===0` 拒绝，等价于必填非零整数。
+      status: f.int({ nonZero: true }),
+      ext_status: f.int({ min: 0 }).default(0),
+      battery_status: f.int({ min: 0 }).default(100),
+    },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.profile.setOnlineStatus(p.status, p.ext_status, p.battery_status);
+      return okResponse();
+    },
+  }),
 
   // 自定义在线状态：与 set_online_status 使用相同的网络包。
   // 这里只填充 customExt 子消息，并将 status/extStatus 强制设为 QQ 定义的“我有自定义状态”取值（10 / 2000）。
   // face_id 和 face_type 可接受数字或数字字符串，以兼容 NapCat；wording 是图标旁展示的可读文本。
-  h.registerAction('set_diy_online_status', async (params) => {
-    const faceId = asNumber(params.face_id);
-    const faceType = asNumber(params.face_type) || 1;
-    const wording = asString(params.wording);
-    if (!faceId) return failedResponse(RETCODE.BAD_REQUEST, 'face_id is required');
-    try {
-      await ctx.bridge.apis.profile.setDiyOnlineStatus(faceId, wording, faceType);
+  defineAction({
+    name: 'set_diy_online_status',
+    summary: '设置自定义在线状态',
+    params: {
+      face_id: f.faceId(),
+      // 原实现用 `asNumber(face_type) || 1`，present 0 会被当作缺省 1。
+      face_type: f.int({ min: 0 }).default(1),
+      wording: f.string().default(''),
+    },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.profile.setDiyOnlineStatus(p.face_id, p.wording, p.face_type);
       return okResponse();
-    } catch (err) {
-      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-    }
-  });
+    },
+  }),
 
-  // 已过滤（机器人/被忽略）的入群请求。
-  // SnowLuma 已通过 fetchGroupRequests 实现底层 oidb 0x10c8_2 拉取。
-  // 这几个动作只是为实际使用中的 OneBot 方言客户端重命名并投影相同数据。
-  const fetchFilteredGroupRequests = async () => {
-    try {
-      return await ctx.bridge.apis.contacts.fetchGroupRequests(true);
-    } catch {
-      return [];
-    }
-  };
-
-  h.registerAction('get_group_ignored_notifies', async () => {
-    const reqs = await fetchFilteredGroupRequests();
-    return okResponse(reqs.map((r) => ({
-      group_id: r.groupId,
-      group_name: r.groupName,
-      request_id: r.sequence,
-      requester_uin: r.targetUin,
-      requester_nick: r.targetName,
-      message: r.comment,
-      checked: r.state !== 1,
-      actor: r.operatorUin,
-      invitor_uin: r.invitorUin,
-      invitor_nick: r.invitorName,
-      flag: `${r.eventType}:${r.groupId}:${r.targetUid}:filtered`,
-    })));
-  });
+  defineAction({
+    name: 'get_group_ignored_notifies',
+    summary: '获取被过滤的入群请求',
+    readOnly: true,
+    returns: '被过滤的入群请求数组，每项含群号、申请人、邀请人、留言与处理标记。',
+    returnsSchema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          group_id: { type: 'integer', description: '群号' },
+          group_name: { type: 'string', description: '群名称' },
+          request_id: { type: 'integer', description: '请求序列号' },
+          requester_uin: { type: 'integer', description: '申请人 QQ 号' },
+          requester_nick: { type: 'string', description: '申请人昵称' },
+          message: { type: 'string', description: '验证留言' },
+          checked: { type: 'boolean', description: '是否已处理' },
+          actor: { type: 'integer', description: '处理人 QQ 号' },
+          invitor_uin: { type: 'integer', description: '邀请人 QQ 号' },
+          invitor_nick: { type: 'string', description: '邀请人昵称' },
+          flag: { type: 'string', description: '处理请求使用的规范 flag' },
+        },
+        required: ['group_id', 'group_name', 'request_id', 'requester_uin', 'requester_nick', 'message', 'checked', 'actor', 'invitor_uin', 'invitor_nick', 'flag'],
+      },
+    },
+    params: {},
+    run: async (_p, ctx) => {
+      const reqs = await fetchFilteredGroupRequests(ctx);
+      return okResponse(reqs.map((r) => ({
+        group_id: r.groupId,
+        group_name: r.groupName,
+        request_id: r.sequence,
+        requester_uin: r.targetUin,
+        requester_nick: r.targetName,
+        message: r.comment,
+        checked: r.state !== 1,
+        actor: r.operatorUin,
+        invitor_uin: r.invitorUin,
+        invitor_nick: r.invitorName,
+        flag: formatGroupRequestFlag(r),
+      })));
+    },
+  }),
 
   // NapCat 对“被忽略通知中属于入群请求的子集”的命名（notify type == 7）。
-  // 这里把经过过滤的 0x10c8_2 每一项映射成 NapCat 结构。
+  // 这里把经过过滤的申请收件箱项目映射成 NapCat 结构。
   // eventType 已经在当前流水线中编码了请求类别。
-  h.registerAction('get_group_ignore_add_request', async () => {
-    const reqs = await fetchFilteredGroupRequests();
-    return okResponse(reqs.map((r) => ({
-      request_id: r.sequence,
-      invitor_uin: r.invitorUin,
-      invitor_nick: r.invitorName,
-      group_id: r.groupId,
-      message: r.comment,
-      group_name: r.groupName,
-      checked: r.state !== 1,
-      actor: r.operatorUin,
-      requester_nick: r.targetName,
-    })));
-  });
+  defineAction({
+    name: 'get_group_ignore_add_request',
+    summary: '获取被忽略的入群请求（NapCat）',
+    readOnly: true,
+    returns: '被忽略的入群请求数组（NapCat 字段命名），每项含请求序列、邀请人、群信息与处理标记。',
+    returnsSchema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          request_id: { type: 'integer', description: '请求序列号' },
+          invitor_uin: { type: 'integer', description: '邀请人 QQ 号' },
+          invitor_nick: { type: 'string', description: '邀请人昵称' },
+          group_id: { type: 'integer', description: '群号' },
+          message: { type: 'string', description: '验证留言' },
+          group_name: { type: 'string', description: '群名称' },
+          checked: { type: 'boolean', description: '是否已处理' },
+          actor: { type: 'integer', description: '处理人 QQ 号' },
+          requester_nick: { type: 'string', description: '申请人昵称' },
+        },
+        required: ['request_id', 'invitor_uin', 'invitor_nick', 'group_id', 'message', 'group_name', 'checked', 'actor', 'requester_nick'],
+      },
+    },
+    params: {},
+    run: async (_p, ctx) => {
+      const reqs = await fetchFilteredGroupRequests(ctx);
+      return okResponse(reqs.map((r) => ({
+        request_id: r.sequence,
+        invitor_uin: r.invitorUin,
+        invitor_nick: r.invitorName,
+        group_id: r.groupId,
+        message: r.comment,
+        group_name: r.groupName,
+        checked: r.state !== 1,
+        actor: r.operatorUin,
+        requester_nick: r.targetName,
+      })));
+    },
+  }),
 
-  // get_group_shut_list 依赖尚未封装的 oidb。
-  // 这里遵循 NapCat 约定返回空列表，避免调用方出错。
-  h.registerAction('get_group_shut_list', async () => {
-    return okResponse([]);
-  });
+  // get_group_shut_list — SnowLuma 无独立"禁言列表"cmd，按成员列表的
+  // shutUpTime 字段（绝对到期时间戳，秒）派生：保留仍在禁言中的成员。
+  // 走带 TTL 缓存的 fetchGroupMemberList（风控友好，0xfe7 高频会触发腾讯封号），
+  // 与 NapCat 文档返回形状 {user_id,nickname,shut_up_time} 对齐。
+  // 取舍：NapCat 此接口实时，本实现复用成员缓存，故结果最长有 ~60s 延迟——
+  // 刚下/解的禁言可能在该窗口内未反映，属可接受的低频运维查询取舍。
+  groupAction({
+    name: 'get_group_shut_list',
+    summary: '获取群禁言列表',
+    readOnly: true,
+    returns: '仍在禁言中的成员数组，每项含 QQ 号、昵称与禁言到期时间戳（秒）。',
+    returnsSchema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          user_id: { type: 'integer', description: '成员 QQ 号' },
+          nickname: { type: 'string', description: '成员昵称' },
+          shut_up_time: { type: 'integer', description: '禁言到期时间戳（秒）' },
+        },
+        required: ['user_id', 'nickname', 'shut_up_time'],
+      },
+    },
+    run: async (p, ctx) => {
+      const members = await ctx.bridge.apis.contacts.fetchGroupMemberList(p.group_id);
+      const nowSec = Math.floor(Date.now() / 1000);
+      const list = members
+        .filter((m) => (m.shutUpTime ?? 0) > nowSec)
+        .map((m) => ({ user_id: m.uin, nickname: m.nickname, shut_up_time: m.shutUpTime }));
+      return okResponse(list);
+    },
+  }),
 
-  h.registerAction('forward_friend_single_msg', async (params) => {
-    const messageId = asNumber(params.message_id);
-    const userId = asNumber(params.user_id);
-    if (!messageId) return failedResponse(RETCODE.BAD_REQUEST, 'message_id is required');
-    if (!userId) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
-    try {
-      const result = await ctx.forwardSingleMsg(messageId, { userId });
+  // get_group_signed_list — 群今日打卡名单。NapCat 走 qun.qq.com 的
+  // v2/signin/trpc/GetDaySignedList（HTTP + PSKey），非 OIDB；SnowLuma 复用
+  // 现有 web cookie/bkn 基建（与群公告/精华同套路），故无需 RE。失败/无打卡返回空表。
+  groupAction({
+    name: 'get_group_signed_list',
+    summary: '获取群今日打卡列表',
+    readOnly: true,
+    run: async (p, ctx) => {
+      const list = await ctx.bridge.apis.web.getSignedList(p.group_id);
+      return okResponse(list);
+    },
+  }),
+
+  defineAction({
+    name: 'forward_friend_single_msg',
+    summary: '转发单条消息给好友',
+    params: {
+      message_id: f.messageId(),
+      user_id: f.userId(),
+    },
+    run: async (p, ctx) => {
+      const result = await ctx.forwardSingleMsg(p.message_id, { userId: p.user_id });
       return okResponse({ message_id: result.messageId });
-    } catch (err) {
-      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-    }
-  });
+    },
+  }),
 
-  h.registerAction('forward_group_single_msg', async (params) => {
-    const messageId = asNumber(params.message_id);
-    const groupId = asNumber(params.group_id);
-    if (!messageId) return failedResponse(RETCODE.BAD_REQUEST, 'message_id is required');
-    if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-    try {
-      const result = await ctx.forwardSingleMsg(messageId, { groupId });
+  defineAction({
+    name: 'forward_group_single_msg',
+    summary: '转发单条消息到群',
+    params: {
+      message_id: f.messageId(),
+      group_id: f.groupId(),
+    },
+    run: async (p, ctx) => {
+      const result = await ctx.forwardSingleMsg(p.message_id, { groupId: p.group_id });
       return okResponse({ message_id: result.messageId });
-    } catch (err) {
-      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-    }
-  });
+    },
+  }),
 
-  h.registerAction('get_profile_like', async (params) => {
-    const userId = asNumber(params.user_id);
-    const start = asNumber(params.start) || 0;
-    const count = asNumber(params.count) || 10;
-    try {
-      const data = await ctx.bridge.apis.profile.getLike(userId, start, count);
+  defineAction({
+    name: 'get_profile_like',
+    summary: '获取资料点赞',
+    readOnly: true,
+    returns: '点赞资料：uid、最近点赞时间、收藏与点赞统计及用户明细。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        uid: { type: 'string', description: '用户 uid' },
+        time: { type: 'integer', description: '最近点赞时间戳' },
+        favoriteInfo: {
+          type: 'object',
+          description: '收藏统计',
+          properties: {
+            total_count: { type: 'integer', description: '收藏总数' },
+            last_time: { type: 'integer', description: '最近收藏时间戳' },
+            today_count: { type: 'integer', description: '今日收藏数' },
+            userInfos: {
+              type: 'array',
+              description: '收藏用户列表',
+              items: profileLikeUserSchema,
+            },
+          },
+        },
+        voteInfo: {
+          type: 'object',
+          description: '点赞统计',
+          properties: {
+            total_count: { type: 'integer', description: '点赞总数' },
+            new_count: { type: 'integer', description: '新增点赞数' },
+            new_nearby_count: { type: 'integer', description: '附近的人新增点赞数' },
+            last_visit_time: { type: 'integer', description: '最近访问时间戳' },
+            userInfos: {
+              type: 'array',
+              description: '点赞用户列表',
+              items: profileLikeUserSchema,
+            },
+          },
+        },
+      },
+      required: ['uid', 'time', 'favoriteInfo', 'voteInfo'],
+    },
+    params: {
+      // 原实现 user_id 经 asNumber，无校验（0 也透传）。
+      user_id: f.int({ min: 0 }).default(0).role('user_id'),
+      start: f.int({ min: 0 }).default(0),
+      count: f.int({ min: 0 }).default(10),
+    },
+    run: async (p, ctx) => {
+      const data = await ctx.bridge.apis.profile.getLike(p.user_id, p.start, p.count);
       return okResponse(data);
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  });
+    },
+  }),
 
-  h.registerAction('fetch_custom_face', async (params) => {
-    const count = asNumber(params.count) || 10;
-    try {
-      const urls = await ctx.bridge.apis.profile.fetchCustomFace(count);
-      return okResponse(urls);
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  });
+  defineAction({
+    name: 'fetch_custom_face',
+    summary: '获取自定义表情',
+    readOnly: true,
+    returns: '字符串数组：return_type=url 时为图片 URL，return_type=id 时为 emoji_id。',
+    returnsSchema: {
+      type: 'array',
+      items: { type: 'string', description: '图片 URL 或 emoji_id（取决于 return_type）' },
+    },
+    params: {
+      count: f.int({ min: 0 }).default(10),
+      // return_type=url 返回图片 URL（默认，给前端显示）；
+      // return_type=id 返回 emoji_id（给 delete/add 用）。
+      return_type: f.string().default('url'),
+    },
+    run: async (p, ctx) => {
+      if (p.return_type === 'id') {
+        return okResponse(await ctx.bridge.apis.profile.fetchCustomFaceIds(p.count));
+      }
+      return okResponse(await ctx.bridge.apis.profile.fetchCustomFace(p.count));
+    },
+  }),
 
-  h.registerAction('get_emoji_likes', async (params) => {
-    const messageId = asNumber(params.message_id);
-    const emojiId = asString(params.emoji_id) || '';
-    if (!messageId || !emojiId) return failedResponse(RETCODE.BAD_REQUEST, 'message_id and emoji_id are required');
-    try {
-      const result = await ctx.fetchEmojiLikeUsers(messageId, emojiId, 1000);
+  defineAction({
+    name: 'fetch_custom_face_detail',
+    summary: '获取自定义表情详情',
+    readOnly: true,
+    returns: '自定义表情详情数组，包含资源标识、图片地址、摘要与描述。',
+    returnsSchema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          emoji_id: { type: 'string', description: '可传给 SnowLuma 表情管理接口的资源标识' },
+          resId: { type: 'string', description: '兼容 NapCat 的资源标识' },
+          url: { type: 'string', description: '表情图片地址' },
+          md5: { type: 'string', description: '表情内容摘要' },
+          desc: { type: 'string', description: '自定义表情描述；未设置时为空字符串' },
+        },
+        required: ['emoji_id', 'resId', 'url', 'md5', 'desc'],
+      },
+    },
+    params: {
+      count: f.int({ min: 0 }).default(48),
+    },
+    run: async (p, ctx) => {
+      const details = await ctx.bridge.apis.profile.fetchCustomFaceDetails(p.count);
+      return okResponse(details.map((detail) => ({
+        emoji_id: detail.emojiId,
+        resId: detail.emojiId,
+        url: detail.url,
+        md5: detail.md5,
+        desc: detail.desc,
+      })));
+    },
+  }),
+
+  defineAction({
+    name: 'get_emoji_likes',
+    summary: '获取表情回应用户',
+    readOnly: true,
+    returns: '{ emoji_like_list }：回应该表情的用户列表（nick_name 恒为空串）。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        emoji_like_list: {
+          type: 'array',
+          description: '回应用户列表',
+          items: {
+            type: 'object',
+            properties: {
+              user_id: { type: 'string', description: '用户 QQ 号（字符串）' },
+              nick_name: { type: 'string', description: '昵称（当前实现恒为空串）' },
+            },
+            required: ['user_id', 'nick_name'],
+          },
+        },
+      },
+      required: ['emoji_like_list'],
+    },
+    params: {
+      message_id: f.messageId(),
+      emoji_id: f.string({ allowEmpty: false }),
+    },
+    run: async (p, ctx) => {
+      const result = await ctx.fetchEmojiLikeUsers(p.message_id, p.emoji_id, 1000);
       return okResponse({
         emoji_like_list: result.users.map(u => ({ user_id: String(u.uin), nick_name: '' })),
       });
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  });
+    },
+  }),
 
-  h.registerAction('fetch_emoji_like', async (params) => {
-    const messageId = asNumber(params.message_id);
-    const emojiId = asString(params.emojiId) || '';
-    const count = asNumber(params.count) || 10;
-    const cookie = asString(params.cookie) || '';
-    if (!messageId || !emojiId) return failedResponse(RETCODE.BAD_REQUEST, 'message_id and emojiId are required');
-    try {
-      const offset = cookie ? Number.parseInt(cookie, 10) || 0 : 0;
-      const result = await ctx.fetchEmojiLikeUsers(messageId, emojiId, count, offset);
+  defineAction({
+    name: 'fetch_emoji_like',
+    summary: '获取表情回应用户（NapCat 分页）',
+    readOnly: true,
+    returns: '分页的表情回应用户列表（NapCat 形状），含分页游标 cookie 与首/末页标记。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        result: { type: 'integer', description: '结果码（恒 0）' },
+        errMsg: { type: 'string', description: '错误信息（恒空串）' },
+        emojiLikesList: {
+          type: 'array',
+          description: '回应用户列表',
+          items: {
+            type: 'object',
+            properties: {
+              tinyId: { type: 'string', description: '用户 QQ 号（字符串）' },
+              nickName: { type: 'string', description: '昵称（恒空串）' },
+              headUrl: { type: 'string', description: '头像 URL（恒空串）' },
+            },
+            required: ['tinyId', 'nickName', 'headUrl'],
+          },
+        },
+        cookie: { type: 'string', description: '下一页游标（末页为空串）' },
+        isLastPage: { type: 'boolean', description: '是否末页' },
+        isFirstPage: { type: 'boolean', description: '是否首页' },
+      },
+      required: ['result', 'errMsg', 'emojiLikesList', 'cookie', 'isLastPage', 'isFirstPage'],
+    },
+    params: {
+      message_id: f.messageId(),
+      emojiId: f.string({ allowEmpty: false }),
+      count: f.int({ min: 0 }).default(10),
+      cookie: f.string().default(''),
+    },
+    run: async (p, ctx) => {
+      const offset = p.cookie ? Number.parseInt(p.cookie, 10) || 0 : 0;
+      const result = await ctx.fetchEmojiLikeUsers(p.message_id, p.emojiId, p.count, offset);
       const nextOffset = offset + result.users.length;
       const isLastPage = nextOffset >= result.cachedCount;
       return okResponse({
@@ -803,331 +1425,811 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
         isLastPage,
         isFirstPage: offset === 0,
       });
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  });
+    },
+  }),
 
-  h.registerAction('get_friends_with_category', async () => {
-    if (ctx.getFriendList) {
-      return okResponse(await ctx.getFriendList());
-    }
-    return okResponse([]);
-  });
+  defineAction({
+    name: 'get_msg_emoji_likes',
+    summary: '获取一条消息的全部表情回应',
+    readOnly: true,
+    returns: '该消息上每个表情回应的编号、数量与用户列表。',
+    returnsSchema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          emoji_id: { type: 'string', description: '表情编号' },
+          emoji_type: { type: 'integer', description: '表情类型' },
+          count: { type: 'integer', description: '回应数量' },
+          last_reaction_time: { type: 'integer', description: '最近一次回应时间' },
+          users: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { user_id: { type: 'integer', description: '用户 QQ 号' } },
+              required: ['user_id'],
+            },
+          },
+        },
+        required: ['emoji_id', 'emoji_type', 'count', 'last_reaction_time', 'users'],
+      },
+    },
+    params: { message_id: f.messageId() },
+    run: async (p, ctx) => {
+      if (!ctx.fetchEmojiLikeSummary) {
+        return failedResponse(RETCODE.ACTION_FAILED, 'emoji reaction summary is unavailable');
+      }
+      return okResponse(await ctx.fetchEmojiLikeSummary(p.message_id));
+    },
+  }),
 
-  // NapCat 似乎也用不了，暂时不处理。
-  h.registerAction('get_online_clients', async () => {
-    return okResponse({ clients: [] });
-  });
+  defineAction({
+    name: 'get_friends_with_category',
+    summary: '获取分组好友列表',
+    readOnly: true,
+    returns: '好友分组数组；每组包含 categoryId、categoryName、categoryMbCount 和 buddyList。',
+    returnsSchema: {
+      type: 'array',
+      description: '带分组的好友列表',
+      items: {
+        type: 'object',
+        properties: {
+          categoryId: { type: 'integer', description: '分组 ID' },
+          categoryName: { type: 'string', description: '分组名称' },
+          categoryMbCount: { type: 'integer', description: '服务端报告的分组好友数' },
+          buddyList: {
+            type: 'array',
+            description: '该分组内的好友',
+            items: {
+              type: 'object',
+              properties: {
+                user_id: { type: 'integer', description: 'QQ 号' },
+                nickname: { type: 'string', description: '昵称' },
+                remark: { type: 'string', description: '好友备注' },
+              },
+              required: ['user_id', 'nickname', 'remark'],
+            },
+          },
+        },
+        required: ['categoryId', 'categoryName', 'categoryMbCount', 'buddyList'],
+      },
+    },
+    params: {},
+    run: async (_p, ctx) => {
+      const categories = await ctx.bridge.apis.contacts.fetchFriendCategories();
+      return okResponse(categories.map(category => ({
+        categoryId: category.categoryId,
+        categoryName: category.categoryName,
+        categoryMbCount: category.memberCount,
+        buddyList: category.friends.map(friend => ({
+          user_id: friend.uin,
+          nickname: friend.nickname,
+          remark: friend.remark,
+        })),
+      })));
+    },
+  }),
 
-  h.registerAction('_get_model_show', async () => {
-    return okResponse({ variants: [] });
-  });
+  defineAction({
+    name: 'set_friends_category',
+    summary: '移动好友到指定分组',
+    returns: '成功时返回空数据。',
+    params: {
+      uin: f.userId().describe('要移动的好友 QQ 号'),
+      categoryId: f.int({ min: 0 }).optional().describe('目标分组 ID'),
+      categoryName: f.string({ allowEmpty: false }).optional().describe('目标分组名称（必须唯一且完全匹配）'),
+    },
+    rules: (rules) => [rules.exactlyOneOf('categoryId', 'categoryName')],
+    run: async (params, ctx) => {
+      await ctx.bridge.apis.contacts.setFriendCategory({
+        uin: params.uin,
+        categoryId: params.categoryId,
+        categoryName: params.categoryName,
+      });
+      return okResponse();
+    },
+  }),
 
-  h.registerAction('_set_model_show', async () => {
-    return okResponse();
-  });
+  // get_recent_contact — 最近会话列表（占位）。QQ 原生该接口是内核本地快照
+  // （getRecentContactListSnapShot），返回带 peerName/remark/lastestMsg 等丰富
+  // 元信息；SnowLuma 既无对应 SSO/packet wire，自有 message store 也只覆盖
+  // 「机器人观测到的会话」且缺这些字段，无法忠实复现。故诚实返回空表（而非
+  // 用同名接口给出语义有偏差的近似），接受 count 入参以兼容客户端盲调。
+  defineAction({
+    name: 'get_recent_contact',
+    summary: '获取最近会话（占位）',
+    readOnly: true,
+    returns: '占位实现，恒返回空数组。',
+    returnsSchema: { type: 'array', description: '最近会话列表（占位，恒空）' },
+    params: {
+      count: f.int({ min: 0 }).default(10),
+    },
+    run: async () => {
+      return okResponse([]);
+    },
+  }),
 
-  h.registerAction('.get_word_slices', async () => {
-    return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
-  });
+  defineAction({
+    name: 'get_online_clients',
+    summary: '获取在线客户端',
+    readOnly: true,
+    returns: '{ clients }：QQ 本次会话最近推送的在线设备快照。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        clients: {
+          type: 'array',
+          description: '在线设备列表',
+          items: {
+            type: 'object',
+            properties: {
+              app_id: { type: 'integer', description: '客户端 ID' },
+              device_name: { type: 'string', description: '设备名称' },
+              device_kind: {
+                type: 'string',
+                enum: ['电脑', 'Pad', '手机', '未知设备'],
+                description: '设备类别',
+              },
+            },
+            required: ['app_id', 'device_name', 'device_kind'],
+          },
+        },
+      },
+      required: ['clients'],
+    },
+    params: {
+      no_cache: f.bool().default(false).describe('是否强制刷新；QQ 当前仅暴露本地快照，true 会明确失败'),
+    },
+    run: async (p, ctx) => {
+      if (p.no_cache) {
+        return failedResponse(RETCODE.ACTION_FAILED,
+          'online-client fresh refresh is unavailable; QQ exposes only its local snapshot');
+      }
+      const snapshot = ctx.bridge.getOnlineClients();
+      if (snapshot === null) {
+        return failedResponse(RETCODE.ACTION_FAILED,
+          'online-client snapshot has not been observed in this session');
+      }
+      const kindLabels = {
+        computer: '电脑',
+        pad: 'Pad',
+        phone: '手机',
+        unknown: '未知设备',
+      } as const;
+      return okResponse({
+        clients: snapshot.map((device) => ({
+          app_id: device.appId,
+          device_name: device.deviceName,
+          device_kind: kindLabels[device.deviceKind],
+        })),
+      });
+    },
+  }),
 
-  h.registerAction('get_group_at_all_remain', async (params) => {
-    const groupId = asNumber(params.group_id);
+  // _get_model_show — NapCat 纯内核无 packet wire，其实现是硬编码 mock
+  // （无视入参，model_show 恒返回字面量 'napcat'）。SnowLuma 同样无对应单包
+  // SSO cmd，故只复用 NapCat 的*外层形状*：data 为数组 [{ variants: {...} }]、
+  // need_pay 恒 false；但刻意不照搬其固定字面量——回显请求的 model（缺省
+  // 'snowluma'），对调用方更有信息量。属有意的行为分歧，仅形状对齐。
+  defineAction({
+    name: '_get_model_show',
+    summary: '获取机型展示（兼容 mock）',
+    readOnly: true,
+    returns: '数组，每项含 variants（回显请求的机型名与 need_pay 标记）。',
+    returnsSchema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          variants: {
+            type: 'object',
+            properties: {
+              model_show: { type: 'string', description: '机型展示名（回显请求的 model，缺省 snowluma）' },
+              need_pay: { type: 'boolean', description: '是否需付费（恒 false）' },
+            },
+            required: ['model_show', 'need_pay'],
+          },
+        },
+        required: ['variants'],
+      },
+    },
+    params: {
+      model: f.string().default(''),
+    },
+    run: async (p) => {
+      const modelShow = p.model || 'snowluma';
+      return okResponse([{ variants: { model_show: modelShow, need_pay: false } }]);
+    },
+  }),
 
-    if (!groupId) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'invalid group_id');
-    }
-    try {
-      const data = await ctx.bridge.apis.groupAdmin.getAtAllRemain(groupId);
+  defineAction({
+    name: '_set_model_show',
+    summary: '设置机型展示（占位）',
+    params: {},
+    run: async () => {
+      return okResponse();
+    },
+  }),
+
+  groupAction({
+    name: 'get_group_at_all_remain',
+    summary: '获取群 @全体成员 剩余次数',
+    readOnly: true,
+    returns: '{ can_at_all, remain_at_all_count_for_group, remain_at_all_count_for_uin }：@全体可用性与剩余次数。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        can_at_all: { type: 'boolean', description: '当前是否可 @全体成员' },
+        remain_at_all_count_for_group: { type: 'integer', description: '本群今日剩余 @全体次数' },
+        remain_at_all_count_for_uin: { type: 'integer', description: '本账号今日剩余 @全体次数' },
+      },
+      required: ['can_at_all', 'remain_at_all_count_for_group', 'remain_at_all_count_for_uin'],
+    },
+    run: async (p, ctx) => {
+      const data = await ctx.bridge.apis.groupAdmin.getAtAllRemain(p.group_id);
       return okResponse(data);
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  });
+    },
+  }),
 
-  h.registerAction('get_unidirectional_friend_list', async () => {
-
-    try {
+  defineAction({
+    name: 'get_unidirectional_friend_list',
+    summary: '获取单向好友列表',
+    readOnly: true,
+    params: {},
+    run: async (_p, ctx) => {
       const data = await ctx.bridge.apis.profile.getUnidirectionalFriendList();
       return okResponse(data);
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  });
+    },
+  }),
 
-  h.registerAction('set_self_longnick', async (params) => {
-    const longNick = params.longNick || params.long_nick;
-
-    if (typeof longNick !== 'string') {
-      return failedResponse(RETCODE.BAD_REQUEST, 'invalid longNick');
-    }
-    try {
-      await ctx.bridge.apis.profile.setSelfLongNick(longNick);
-      return okResponse({});
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  });
-
-  h.registerAction('get_collection_list', async () => {
-    return okResponse([]);
-  });
-
-  h.registerAction('create_collection', async () => {
-    return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
-  });
-
-  h.registerAction('set_qq_avatar', async (params) => {
-    const file = asString(params.file);
-    if (!file) return failedResponse(RETCODE.BAD_REQUEST, 'file is required');
-
-
-    try {
-      await ctx.bridge.apis.profile.setAvatar(file);
-      return okResponse();
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  });
-
-  h.registerAction('set_input_status', async (params) => {
-    const userId = asNumber(params.user_id);
-    const eventType = asNumber(params.event_type);
-
-    if (!userId) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'invalid user_id');
-    }
-
-    // event_type 有可能是 0 (取消输入状态)，所以这里严格判断 undefined 或 isNaN
-    if (eventType === undefined || isNaN(eventType)) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'invalid event_type');
-    }
-
-    try {
-      await ctx.bridge.apis.profile.setInputStatus(userId, eventType);
-      return okResponse({});
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  });
-
-  h.registerAction('translate_en2zh', async (params) => {
-    const rawWords = params.words;
-
-    if (!Array.isArray(rawWords)) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'invalid words array');
-    }
-
-    const words = rawWords.map(w => String(w));
-
-
-    try {
-      const translated = await ctx.bridge.apis.misc.translateEn2Zh(words);
-      return okResponse({ words: translated });
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  });
-
-  h.registerAction('get_clientkey', async () => {
-    const clientKeyInfo = await ctx.bridge.apis.web.forceFetchClientKey();
-    if (!clientKeyInfo.clientKey) {
-      return failedResponse(RETCODE.ACTION_FAILED, 'get clientkey error');
-    }
-    return okResponse({ ...clientKeyInfo });
-  });
-
-  h.registerAction('get_mini_app_ark', async (params) => {
-    const type = params.type || 'bili';
-    const title = params.title || '';
-    const desc = params.desc || '';
-    const picUrl = params.picUrl || params.pic_url || '';
-    const jumpUrl = params.jumpUrl || params.jump_url || '';
-
-
-    try {
-      const data = await ctx.bridge.apis.misc.getMiniAppArk(
-        String(type),
-        String(title),
-        String(desc),
-        String(picUrl),
-        String(jumpUrl)
-      );
-      return okResponse(data);
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  });
-
-  h.registerAction('click_inline_keyboard_button', async (params) => {
-    const groupId = asNumber(params.group_id);
-    const botAppid = asNumber(params.bot_appid);
-    const buttonId = params.button_id;
-    const callbackData = params.callback_data || '';
-    const msgSeq = asNumber(params.msg_seq);
-
-    if (!groupId || !botAppid || !buttonId || !msgSeq) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'missing required parameters');
-    }
-
-
-    try {
-      const data = await ctx.bridge.apis.misc.clickInlineKeyboardButton(
-        groupId,
-        botAppid,
-        String(buttonId),
-        String(callbackData),
-        msgSeq
-      );
-      return okResponse(data);
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  });
-
-  const handleGroupSign = async (params: import('../types').JsonObject) => {
-    const groupId = asNumber(params.group_id);
-
-    if (!groupId) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'invalid group_id');
-    }
-
-
-    try {
-      await ctx.bridge.apis.misc.sendGroupSign(groupId);
-      return okResponse({});
-    } catch (e) {
-      return failedResponse(RETCODE.ACTION_FAILED, String(e));
-    }
-  };
-
-  h.registerAction('set_group_sign', handleGroupSign);
-  h.registerAction('send_group_sign', handleGroupSign);
-
-  h.registerAction('get_group_info_ex', async (params) => {
-    const groupId = asNumber(params.group_id);
-    if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-    if (ctx.getGroupInfo) {
-      return okResponse(await ctx.getGroupInfo(groupId));
-    }
-    return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
-  });
-
-  h.registerAction('get_group_detail_info', async (params) => {
-    const groupId = asNumber(params.group_id);
-    if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-    if (ctx.getGroupInfo) {
-      return okResponse(await ctx.getGroupInfo(groupId));
-    }
-    return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
-  });
-
-  h.registerAction('trans_group_file', async () => {
-    return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
-  });
-
-  h.registerAction('rename_group_file', async () => {
-    return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
-  });
-
-  h.registerAction('get_file', async (params) => {
-    const fileId = asString(params.file_id) || asString(params.file);
-    if (!fileId) return failedResponse(RETCODE.BAD_REQUEST, 'file_id is required');
-    return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
-  });
-
-  const handleSendPacket = async (params: JsonObject) => {
-    const cmd = asString(params.cmd);
-    const dataHex = asString(params.data);
-    const rsp = asBoolean(params.rsp, true);
-    if (!cmd) return failedResponse(RETCODE.BAD_REQUEST, 'cmd is required');
-    if (!/^[0-9a-fA-F]*$/.test(dataHex) || dataHex.length % 2 !== 0) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'data must be a hex string of even length');
-    }
-    try {
-      const body = hexToBytes(dataHex);
-      const result = await ctx.bridge.sendRawPacket(cmd, body);
-      if (!result.success) {
-        return failedResponse(RETCODE.ACTION_FAILED, result.errorMessage || 'send failed');
+  defineAction({
+    name: 'get_clientkey',
+    summary: '获取 clientkey',
+    readOnly: true,
+    returns: '{ clientKey, expireTime, keyIndex }：clientkey 及其过期时间与索引。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        clientKey: { type: 'string', description: 'clientkey' },
+        expireTime: { type: 'string', description: '过期时间' },
+        keyIndex: { type: 'string', description: 'key 索引' },
+      },
+      required: ['clientKey', 'expireTime', 'keyIndex'],
+    },
+    params: {},
+    run: async (_p, ctx) => {
+      const clientKeyInfo = await ctx.bridge.apis.web.forceFetchClientKey();
+      if (!clientKeyInfo.clientKey) {
+        return failedResponse(RETCODE.ACTION_FAILED, 'get clientkey error');
       }
-      if (!rsp) return okResponse(null);
-      const respHex = result.responseData ? bytesToHex(result.responseData) : '';
-      return okResponse(respHex);
-    } catch (err) {
-      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-    }
-  };
-  h.registerAction('send_packet', handleSendPacket);
-  h.registerAction('.send_packet', handleSendPacket);
+      return okResponse({ ...clientKeyInfo });
+    },
+  }),
+
+  // ─── TierB ③: RE'd OIDB-backed actions (self-constructed packets) ───
+  // Recovered from QQNT wrapper.linux.node via IDA (no NapCat packet wire
+  // existed to port). All low-frequency/benign ops. See each OIDB service
+  // file for the cmd + protobuf provenance.
+
+  // share_peer / send_ark_share — get a "recommend contact" Ark card for a
+  // friend (0x9130_0) or group (0x8b7_5). NapCat's SharePeerBase routes by
+  // which id is present; we mirror that. Returns the server-built ark JSON.
+  defineAction({
+    name: 'share_peer',
+    summary: '分享用户/群 Ark 卡片',
+    readOnly: true,
+    returns: '{ arkMsg }：服务端生成的推荐联系人 Ark 卡片 JSON 字符串。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        arkMsg: { type: 'string', description: 'Ark 卡片 JSON 字符串' },
+      },
+      required: ['arkMsg'],
+    },
+    params: {
+      user_id: f.userId().optional(),
+      group_id: f.groupId().optional(),
+      phone_number: f.string().default(''),
+    },
+    run: async (p, ctx) => {
+      if (p.group_id) {
+        return okResponse({ arkMsg: await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id) });
+      }
+      if (p.user_id) {
+        return okResponse({ arkMsg: await ctx.bridge.apis.contacts.getBuddyRecommendArk(p.user_id, p.phone_number) });
+      }
+      return failedResponse(RETCODE.BAD_REQUEST, 'user_id or group_id is required');
+    },
+  }),
+  defineAction({
+    name: 'send_ark_share',
+    summary: '分享用户/群 Ark 卡片（NapCat 标准名）',
+    readOnly: true,
+    returns: '{ arkMsg }：服务端生成的推荐联系人 Ark 卡片 JSON 字符串。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        arkMsg: { type: 'string', description: 'Ark 卡片 JSON 字符串' },
+      },
+      required: ['arkMsg'],
+    },
+    params: {
+      user_id: f.userId().optional(),
+      group_id: f.groupId().optional(),
+      phone_number: f.string().default(''),
+    },
+    run: async (p, ctx) => {
+      if (p.group_id) {
+        return okResponse({ arkMsg: await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id) });
+      }
+      if (p.user_id) {
+        return okResponse({ arkMsg: await ctx.bridge.apis.contacts.getBuddyRecommendArk(p.user_id, p.phone_number) });
+      }
+      return failedResponse(RETCODE.BAD_REQUEST, 'user_id or group_id is required');
+    },
+  }),
+
+  // send_tuwen_ark — send a custom 图文 (URL-share) ark card to a C2C peer or group (0xdc2_34).
+  // targetId at AppInfo[11] and Meta[2]; Meta.peerType: 0=C2C, 1=group.
+  // 与 send_ark_share 的区别：send_ark_share 只获取推荐联系人 JSON 不发送；
+  // 与 send_msg share/json 的区别：后者发送 structmsg 图文卡且有 message_id，
+  // 本 action 发送固定图文 ark 模板，返回 null（无法用于撤回/设精华）。
+  defineAction({
+    name: 'send_tuwen_ark',
+    summary: '发送图文 Ark 卡片（私聊/群聊）',
+    readOnly: false,
+    returns: 'null',
+    returnsSchema: { type: 'null' },
+    params: {
+      user_id:     f.userId().optional(),
+      group_id:    f.groupId().optional(),
+      title:       f.string(),
+      desc:        f.string(),
+      summary:     f.string().default('[分享]'),
+      preview_url: f.string().default('https://tangram-1251316161.file.myqcloud.com/files/20210721/e50a8e37e08f29bf1ffc7466e1950690.png'),
+      jump_url:    f.string(),
+    },
+    run: async (p, ctx) => {
+      if (p.group_id) {
+        await ctx.bridge.apis.contacts.sendTuwenArk({
+          targetId:   p.group_id,
+          peerType:   1,
+          title:      p.title,
+          desc:       p.desc,
+          summary:    p.summary,
+          previewUrl: p.preview_url,
+          jumpUrl:    p.jump_url,
+        });
+        return okResponse(null);
+      }
+      if (p.user_id) {
+        await ctx.bridge.apis.contacts.sendTuwenArk({
+          targetId:   p.user_id,
+          peerType:   0,
+          title:      p.title,
+          desc:       p.desc,
+          summary:    p.summary,
+          previewUrl: p.preview_url,
+          jumpUrl:    p.jump_url,
+        });
+        return okResponse(null);
+      }
+      return failedResponse(RETCODE.BAD_REQUEST, 'user_id or group_id is required');
+    },
+  }),
+
+  // share_group_ex / send_group_ark_share — group-only Ark share. NapCat uses
+  // a distinct kernel API (getArkJsonGroupShare) we did NOT RE; we route to
+  // the fully-RE'd group recommend-contact ark (0x8b7_5), the closest
+  // confident equivalent. The card may differ slightly from NapCat's.
+  defineAction({
+    name: 'share_group_ex',
+    summary: '分享群 Ark 卡片',
+    readOnly: true,
+    returns: '服务端生成的群推荐 Ark 卡片 JSON 字符串。',
+    returnsSchema: { type: 'string', description: '群 Ark 卡片 JSON 字符串' },
+    params: { group_id: f.groupId() },
+    run: async (p, ctx) => {
+      return okResponse(await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id));
+    },
+  }),
+  defineAction({
+    name: 'send_group_ark_share',
+    summary: '分享群 Ark 卡片（NapCat 标准名）',
+    readOnly: true,
+    returns: '服务端生成的群推荐 Ark 卡片 JSON 字符串。',
+    returnsSchema: { type: 'string', description: '群 Ark 卡片 JSON 字符串' },
+    params: { group_id: f.groupId() },
+    run: async (p, ctx) => {
+      return okResponse(await ctx.bridge.apis.contacts.getGroupRecommendArk(p.group_id));
+    },
+  }),
+
+  // get_doubt_friends_add_request — list 可能认识的人 / 被过滤好友申请 (0xd69_0).
+  // The list item's `uid` is what set_doubt_friends_add_request takes as flag.
+  defineAction({
+    name: 'get_doubt_friends_add_request',
+    summary: '获取可疑好友申请',
+    readOnly: true,
+    returns: '可疑好友申请数组，每项含 uid（作为处理用 flag）、昵称、来源、留言与申请时间。',
+    returnsSchema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          uid: { type: 'string', description: '申请人 uid（回传作 set_doubt_friends_add_request 的 flag）' },
+          user_id: { type: 'integer', description: '申请人 QQ 号' },
+          nick: { type: 'string', description: '申请人昵称' },
+          source: { type: 'string', description: '申请来源' },
+          reason: { type: 'string', description: '附加说明' },
+          msg: { type: 'string', description: '验证留言' },
+          group_code: { type: 'string', description: '来源群号，无则为空串' },
+          reqTime: { type: 'integer', description: '申请时间戳' },
+        },
+        required: ['uid', 'user_id', 'nick', 'source', 'reason', 'msg', 'group_code', 'reqTime'],
+      },
+    },
+    params: { count: f.int({ min: 0 }).default(50) },
+    run: async (p, ctx) => {
+      const list = await ctx.bridge.apis.friend.getDoubtRequests(p.count);
+      return okResponse(list);
+    },
+  }),
+  // set_doubt_friends_add_request — handle a 可疑好友申请 (0xd69_0). `flag` is
+  // the uid from the get list. approve → approvalDoubtBuddyReq; approve:false
+  // → delDoubtBuddyReq (reject/decline). NapCat only ever approves; we add the
+  // reject path since we RE'd delDoubtBuddyReq too.
+  defineAction({
+    name: 'set_doubt_friends_add_request',
+    summary: '处理可疑好友申请',
+    params: {
+      flag: f.string({ allowEmpty: false }),
+      approve: f.bool().default(true),
+    },
+    run: async (p, ctx) => {
+      // approve → approvalDoubtBuddyReq (0xd69_0); reject → delDoubtBuddyReq
+      // (also 0xd69_0, distinct body) — both RE'd from the binary.
+      if (p.approve) {
+        await ctx.bridge.apis.friend.approveDoubtRequest(p.flag);
+      } else {
+        await ctx.bridge.apis.friend.rejectDoubtRequest(p.flag);
+      }
+      return okResponse();
+    },
+  }),
+
+  // set_group_robot_add_option — group robot-add switch/examine via group
+  // ext-info (0xf00_3). Omitted params leave the field unchanged.
+  groupAction({
+    name: 'set_group_robot_add_option',
+    summary: '设置群机器人加群选项',
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.groupAdmin.setRobotAddOption(
+        p.group_id, p.robot_member_switch, p.robot_member_examine,
+      );
+      return okResponse();
+    },
+    params: {
+      robot_member_switch: f.int({ min: 0 }).optional(),
+      robot_member_examine: f.int({ min: 0 }).optional(),
+    },
+  }),
+
+  defineAction({
+    name: 'get_collection_list',
+    summary: '获取收藏列表',
+    readOnly: true,
+    returns: '返回收藏条目、是否还有更多数据及底部时间游标。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        errCode: { type: 'integer' },
+        errMsg: { type: 'string' },
+        collectionSearchList: {
+          type: 'object',
+          properties: {
+            collectionItemList: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  cid: { type: 'string' },
+                  type: { type: 'integer' },
+                  status: { type: 'integer' },
+                  author: {
+                    type: 'object',
+                    properties: {
+                      type: { type: 'integer' },
+                      numId: { type: 'string' },
+                      strId: { type: 'string' },
+                      groupId: { type: 'string' },
+                      groupName: { type: 'string' },
+                      uid: { type: 'string' },
+                    },
+                    required: ['type', 'numId', 'strId', 'groupId', 'groupName', 'uid'],
+                  },
+                  bid: { type: 'integer' },
+                  category: { type: 'integer' },
+                  createTime: { type: 'string' },
+                  collectTime: { type: 'string' },
+                  modifyTime: { type: 'string' },
+                  sequence: { type: 'string' },
+                  shareUrl: { type: 'string' },
+                  customGroupId: { type: 'integer' },
+                  securityBeat: { type: 'boolean' },
+                  summary: {
+                    type: 'object',
+                    properties: {
+                      textSummary: { type: ['object', 'null'] },
+                      linkSummary: { type: ['object', 'null'] },
+                      gallerySummary: { type: ['object', 'null'] },
+                      audioSummary: { type: ['object', 'null'] },
+                      videoSummary: { type: ['object', 'null'] },
+                      fileSummary: { type: ['object', 'null'] },
+                      locationSummary: { type: ['object', 'null'] },
+                      richMediaSummary: { type: ['object', 'null'] },
+                    },
+                    required: [
+                      'textSummary',
+                      'linkSummary',
+                      'gallerySummary',
+                      'audioSummary',
+                      'videoSummary',
+                      'fileSummary',
+                      'locationSummary',
+                      'richMediaSummary',
+                    ],
+                  },
+                },
+                required: [
+                  'cid',
+                  'type',
+                  'status',
+                  'author',
+                  'bid',
+                  'category',
+                  'createTime',
+                  'collectTime',
+                  'modifyTime',
+                  'sequence',
+                  'shareUrl',
+                  'customGroupId',
+                  'securityBeat',
+                  'summary',
+                ],
+              },
+            },
+            hasMore: { type: 'boolean' },
+            bottomTimeStamp: { type: 'string' },
+          },
+          required: ['collectionItemList', 'hasMore', 'bottomTimeStamp'],
+        },
+      },
+      required: ['errCode', 'errMsg', 'collectionSearchList'],
+    },
+    params: {
+      category: f.int({ min: 0 }).describe('收藏分类 ID；0 表示全部分类').default(0),
+      count: f.int({ min: 1, max: 500 }).describe('最多返回的收藏数量').default(50),
+    },
+    run: async (p, ctx) => {
+      return okResponse(await ctx.bridge.apis.collection.list(p.category, p.count));
+    },
+  }),
+
+  defineAction({
+    name: 'create_collection',
+    summary: '创建收藏（未实现）',
+    params: {},
+    run: async () => {
+      return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
+    },
+  }),
+
+  defineAction({
+    name: '.get_word_slices',
+    summary: '分词（未实现）',
+    readOnly: true,
+    params: {},
+    run: async () => {
+      return failedResponse(RETCODE.ACTION_FAILED, 'not yet implemented');
+    },
+  }),
+
+  defineAction({
+    name: 'set_qq_avatar',
+    summary: '设置 QQ 头像',
+    params: { file: f.image() },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.profile.setAvatar(p.file);
+      return okResponse();
+    },
+  }),
+
+  defineAction({
+    name: 'set_input_status',
+    summary: '设置输入状态',
+    params: {
+      user_id: f.userId(),
+      // event_type 可能为 0（取消输入状态）；缺省也按 0 处理（与旧 asNumber 行为一致）。
+      event_type: f.int().default(0),
+    },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.profile.setInputStatus(p.user_id, p.event_type);
+      return okResponse({});
+    },
+  }),
+
+  defineAction({
+    name: 'get_group_info_ex',
+    summary: '获取群信息（扩展）',
+    readOnly: true,
+    returnsSchema: groupInfoReturnsSchema,
+    params: {
+      group_id: f.groupId(),
+      no_cache: f.bool().default(false),
+    },
+    run: async (p, ctx) => {
+      if (ctx.getGroupInfo) {
+        return okResponse(await ctx.getGroupInfo(p.group_id, p.no_cache));
+      }
+      return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+    },
+  }),
+
+  defineAction({
+    name: 'get_group_detail_info',
+    summary: '获取群详细信息',
+    readOnly: true,
+    returnsSchema: groupInfoReturnsSchema,
+    params: {
+      group_id: f.groupId(),
+      no_cache: f.bool().default(false),
+    },
+    run: async (p, ctx) => {
+      if (ctx.getGroupInfo) {
+        return okResponse(await ctx.getGroupInfo(p.group_id, p.no_cache));
+      }
+      return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+    },
+  }),
+
+  defineAction({
+    name: 'trans_group_file',
+    summary: '转存群文件',
+    returns: '{ ok: true }',
+    params: {
+      group_id: f.groupId(),
+      file_id: f.fileId(),
+    },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.groupFile.trans(p.group_id, p.file_id);
+      return okResponse({ ok: true });
+    },
+  }),
+
+  // get_file — 统一文件信息入口。SnowLuma 按 file_id 解析媒体缓存：
+  // 先图片、后语音（两者已带 url 重签与 file_size/file_name）。
+  // 局限：群文件/普通文件的 file_id 无法在此解析——OneBot `get_file` 单参
+  // 签名不含 group_id，而 SnowLuma 群文件下载需要 group 上下文（用
+  // get_group_file_url / get_private_file_url）。故此处仅覆盖图片/语音，
+  // 不为群文件伪造结果。
+  // 注意：缓存双 miss 时无法在此区分"传入的是群文件 file_id"与"图片/语音
+  // 确实未缓存（如进程重启丢失）"——run() 不解析 id 形态。故错误信息保持
+  // 中性：先陈述"未命中缓存"的事实，再把群文件改用别的接口作为指引，
+  // 而非武断断言"不支持"。（summary 仅进离线文档，调用方运行时只看到 wording。）
+  defineAction({
+    name: 'get_file',
+    summary: '获取文件信息（仅图片/语音缓存；群文件请用 get_group_file_url）',
+    readOnly: true,
+    params: {
+      file_id: f.string().default('').role('file_id'),
+      file: f.string().default('').role('file'),
+    },
+    run: async (p, ctx) => {
+      const fileId = p.file || p.file_id;
+      if (!fileId) return failedResponse(RETCODE.BAD_REQUEST, 'file_id is required');
+      const image = await ctx.getImageInfo(fileId);
+      if (image) return okResponse(image);
+      const record = await ctx.getRecordInfo(fileId);
+      if (record) return okResponse(record);
+      return failedResponse(
+        RETCODE.ACTION_FAILED,
+        'file_id not found in the image/voice cache. get_file only resolves cached '
+        + 'image/voice ids; for group/normal files use get_group_file_url or get_private_file_url',
+      );
+    },
+  }),
 
   // 机器人生命周期（兼容 NapCat）。
-  h.registerAction('bot_exit', async () => {
-    setTimeout(() => process.exit(0), 50);
-    return okResponse();
-  });
+  defineAction({
+    name: 'bot_exit',
+    summary: '退出机器人',
+    params: {},
+    run: async () => {
+      setTimeout(() => process.exit(0), 50);
+      return okResponse();
+    },
+  }),
 
-  h.registerAction('nc_get_packet_status', async () => {
-    return okResponse(null);
-  });
+  defineAction({
+    name: 'nc_get_packet_status',
+    summary: '获取 packet 状态（占位）',
+    readOnly: true,
+    returns: '占位实现，恒返回 null。',
+    returnsSchema: { type: 'null', description: 'packet 状态（占位，恒 null）' },
+    params: {},
+    run: async () => {
+      return okResponse(null);
+    },
+  }),
 
   // NapCat 暴露 delete_group_folder。
   // SnowLuma 现有的 delete_group_file_folder 是相同操作。
   // 添加别名以便遵循 NapCat 文档的客户端无需重写载荷。
-  h.registerAction('delete_group_folder', async (params) => {
-    const groupId = asNumber(params.group_id);
-    const folderId = asString(params.folder_id);
-    if (!groupId || !folderId) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'group_id and folder_id are required');
-    }
-    await ctx.bridge.apis.groupFile.deleteFolder(groupId, folderId);
-    return okResponse();
-  });
-
-  // 群待办（oidb 0xF90）。
-  // 三个子命令共享相同载荷（群号 + msgSeq）。
-  // 这里统一提取一次，并按动作名称分发。
-  // msgSeq 来自消息元数据缓存；设置、完成、取消总是指向机器人见过的真实消息。
-  type GroupTodoOp = (groupId: number, msgSeq: bigint | number | string) => Promise<void>;
-  const handleGroupTodo = (op: GroupTodoOp) => async (params: import('../types').JsonObject) => {
-    const groupId = asNumber(params.group_id);
-    const messageId = asNumber(params.message_id);
-    if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-    if (!messageId) return failedResponse(RETCODE.BAD_REQUEST, 'message_id is required');
-    const meta = ctx.getMessageMeta(messageId);
-    if (!meta) return failedResponse(RETCODE.ACTION_FAILED, 'message not found');
-    if (!meta.isGroup || meta.targetId !== groupId) {
-      return failedResponse(RETCODE.ACTION_FAILED, 'message does not belong to this group');
-    }
-    try {
-      await op(groupId, BigInt(meta.sequence));
+  groupAction({
+    name: 'delete_group_folder',
+    summary: '删除群文件夹',
+    params: { folder_id: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.groupFile.deleteFolder(p.group_id, p.folder_id);
       return okResponse();
-    } catch (err) {
-      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-    }
-  };
-  h.registerAction('set_group_todo', handleGroupTodo((g, s) => ctx.bridge.apis.extras.setGroupTodo(g, BigInt(s))));
-  h.registerAction('complete_group_todo', handleGroupTodo((g, s) => ctx.bridge.apis.extras.completeGroupTodo(g, BigInt(s))));
-  h.registerAction('cancel_group_todo', handleGroupTodo((g, s) => ctx.bridge.apis.extras.cancelGroupTodo(g, BigInt(s))));
+    },
+  }),
 
   // 用户在线/扩展状态（NapCat：nc_get_user_status）。
-
-  h.registerAction('nc_get_user_status', async (params) => {
-    const userId = asNumber(params.user_id);
-    if (!userId) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
-    const status = await ctx.bridge.apis.extras.getStrangerStatus(userId);
-    if (!status) return failedResponse(RETCODE.ACTION_FAILED, 'failed to fetch user status');
-    return okResponse({ ...status });
-  });
+  defineAction({
+    name: 'nc_get_user_status',
+    summary: '获取用户在线/扩展状态',
+    readOnly: true,
+    returns: '{ status, ext_status }：用户在线状态码与扩展状态码。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        status: { type: 'integer', description: '在线状态码' },
+        ext_status: { type: 'integer', description: '扩展状态码' },
+      },
+      required: ['status', 'ext_status'],
+    },
+    params: { user_id: f.userId() },
+    run: async (p, ctx) => {
+      const status = await ctx.bridge.apis.extras.getStrangerStatus(p.user_id);
+      if (!status) return failedResponse(RETCODE.ACTION_FAILED, 'failed to fetch user status');
+      return okResponse({ ...status });
+    },
+  }),
 
   // AI 语音（oidb 0x929D / 0x929B）。
-
-  h.registerAction('get_ai_characters', async (params) => {
-    const groupId = asNumber(params.group_id);
-    const chatType = asNumber(params.chat_type) || 1;
-    if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
-    try {
-      const list = await ctx.bridge.apis.extras.fetchAiVoiceList(groupId, chatType);
+  groupAction({
+    name: 'get_ai_characters',
+    summary: '获取 AI 语音角色',
+    readOnly: true,
+    returns: '按分类分组的 AI 语音角色列表，每组含分类名与角色（id、名称、试听 URL）。',
+    returnsSchema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          type: { type: 'string', description: '角色分类名' },
+          characters: {
+            type: 'array',
+            description: '该分类下的角色列表',
+            items: {
+              type: 'object',
+              properties: {
+                character_id: { type: 'string', description: '角色 ID' },
+                character_name: { type: 'string', description: '角色显示名' },
+                preview_url: { type: 'string', description: '试听音频 URL' },
+              },
+              required: ['character_id', 'character_name', 'preview_url'],
+            },
+          },
+        },
+        required: ['type', 'characters'],
+      },
+    },
+    params: { chat_type: f.int({ min: 0 }).default(1) },
+    run: async (p, ctx) => {
+      const list = await ctx.bridge.apis.extras.fetchAiVoiceList(p.group_id, p.chat_type);
       return okResponse(list.map((cat) => ({
         type: cat.category,
         characters: cat.voices.map((v) => ({
@@ -1136,56 +2238,53 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
           preview_url: v.voiceExampleUrl,
         })),
       })));
-    } catch (err) {
-      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-    }
-  });
+    },
+  }),
 
-  h.registerAction('get_ai_record', async (params) => {
-    const groupId = asNumber(params.group_id);
-    const character = asString(params.character);
-    const text = asString(params.text);
-    const chatType = asNumber(params.chat_type) || 1;
-    if (!groupId || !character || !text) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'group_id, character and text are required');
-    }
-    try {
-      const node = await ctx.bridge.apis.extras.fetchAiVoice(groupId, character, text, chatType);
-      const url = await ctx.bridge.apis.groupFile.getPttUrl(groupId, node);
+  groupAction({
+    name: 'get_ai_record',
+    summary: '生成 AI 语音',
+    params: {
+      character: f.string({ allowEmpty: false }),
+      text: f.string({ allowEmpty: false }),
+      chat_type: f.int({ min: 0 }).default(1),
+    },
+    run: async (p, ctx) => {
+      const node = await ctx.bridge.apis.extras.fetchAiVoice(p.group_id, p.character, p.text, p.chat_type);
+      const url = await ctx.bridge.apis.groupFile.getPttUrl(p.group_id, node);
       return okResponse(url);
-    } catch (err) {
-      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-    }
-  });
+    },
+  }),
 
-  // NapCat 的 send_group_ai_record 是仅产生副作用的调用。
-  // 调用 fetchAiVoice 会把语音发布到群里。
-  // 返回的 message_id 始终为 0，因为 oidb 调用不会回显消息 ID。
-  h.registerAction('send_group_ai_record', async (params) => {
-    const groupId = asNumber(params.group_id);
-    const character = asString(params.character);
-    const text = asString(params.text);
-    const chatType = asNumber(params.chat_type) || 1;
-    if (!groupId || !character || !text) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'group_id, character and text are required');
-    }
-    try {
-      await ctx.bridge.apis.extras.fetchAiVoice(groupId, character, text, chatType);
-      return okResponse({ message_id: 0 });
-    } catch (err) {
-      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-    }
-  });
+  groupAction({
+    name: 'send_group_ai_record',
+    summary: '发送 AI 语音到群',
+    returns: '{ message_id }：已发送 AI 语音的 OneBot 消息 ID。',
+    params: {
+      character: f.string({ allowEmpty: false }),
+      text: f.string({ allowEmpty: false }),
+      chat_type: f.int({ min: 0 }).default(1),
+    },
+    run: async (p, ctx) => {
+      const receipt = await ctx.bridge.apis.extras.sendAiVoice(
+        p.group_id,
+        p.character,
+        p.text,
+        p.chat_type,
+      );
+      return okResponse({
+        message_id: hashMessageIdInt32(receipt.sequence, p.group_id, GROUP_MESSAGE_EVENT),
+      });
+    },
+  }),
 
-  h.registerAction('request_decrypt_key', async (params) => {
-    const dbPath = asString(params.db_path);
-    if (!dbPath) {
-      return failedResponse(RETCODE.BAD_REQUEST, 'db_path is required');
-    }
-
-    try {
+  defineAction({
+    name: 'request_decrypt_key',
+    summary: '请求数据库解密密钥',
+    params: { db_path: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
       const buffer = Buffer.alloc(128);
-      const fileHandle = await readFile(dbPath);
+      const fileHandle = await readFile(p.db_path);
 
       if (fileHandle.length < 0xaf) {
         return failedResponse(RETCODE.ACTION_FAILED, 'Database file too short');
@@ -1201,11 +2300,644 @@ export function register(h: ApiHandler, ctx: ApiActionContext): void {
       const dbKey = await ctx.bridge.apis.misc.getDecryptKey(dbSalt.toLowerCase());
 
       return okResponse({ db_key: dbKey });
-    } catch (err) {
-      return failedResponse(RETCODE.ACTION_FAILED, err instanceof Error ? err.message : String(err));
-    }
-  });
+    },
+  }),
+
+  // ===== 原 legacy registerAction，现并入 kit =====
+
+  defineAction({
+    name: ['get_rkey', 'nc_get_rkey'],
+    summary: '获取下载 rkey',
+    readOnly: true,
+    params: {},
+    run: async (_p, ctx) =>
+      ctx.getDownloadRKeys
+        ? okResponse(await ctx.getDownloadRKeys())
+        : failedResponse(RETCODE.ACTION_FAILED, 'not implemented'),
+  }),
+
+  // get_rkey_server — 把下载 rkey 列表（type 10=私聊 / 20=群聊，同 0x9067 来源）
+  // 收敛成 NapCat 的 server 形状。expired_time = now + 在场 rkey ttl 的最小值。
+  defineAction({
+    name: 'get_rkey_server',
+    summary: '获取 rkey 服务器信息',
+    readOnly: true,
+    returns: '{ expired_time, name, private_rkey?, group_rkey? }：rkey 过期时间与（存在时的）私聊/群聊 rkey。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        expired_time: { type: 'integer', description: '过期时间戳（秒）' },
+        name: { type: 'string', description: '服务器名（恒 SnowLuma）' },
+        private_rkey: { type: 'string', description: '私聊 rkey（存在时返回）' },
+        group_rkey: { type: 'string', description: '群聊 rkey（存在时返回）' },
+      },
+      required: ['expired_time', 'name'],
+    },
+    params: {},
+    run: async (_p, ctx) => {
+      if (!ctx.getDownloadRKeys) return failedResponse(RETCODE.ACTION_FAILED, 'not implemented');
+      const rkeys = await ctx.getDownloadRKeys();
+      const pick = (type: number) =>
+        rkeys.find((r) => (r as { type?: number }).type === type) as
+          { rkey?: string; ttl?: number } | undefined;
+      const priv = pick(10);
+      const group = pick(20);
+      // No rkey at all → fail rather than hand back an "expired_time = now,
+      // no keys" shell that a caching caller would misread as a valid-but-empty
+      // (already-expired) result.
+      if (!priv?.rkey && !group?.rkey) {
+        return failedResponse(RETCODE.ACTION_FAILED, 'no download rkey available');
+      }
+      const ttls = [priv?.ttl, group?.ttl].filter((t): t is number => typeof t === 'number' && t > 0);
+      const minTtl = ttls.length ? Math.min(...ttls) : 0;
+      const data: JsonObject = {
+        expired_time: Math.floor(Date.now() / 1000) + minTtl,
+        name: 'SnowLuma',
+      };
+      if (priv?.rkey) data.private_rkey = priv.rkey;
+      if (group?.rkey) data.group_rkey = group.rkey;
+      return okResponse(data);
+    },
+  }),
+
+  // ocr_image — 服务端 OCR via OIDB 0xE07_0（port 自 Lagrange/NapCat proto）。
+  // 该 cmd 接收图片 URL（服务端拉取），故 image 支持：http(s) URL 直用，或
+  // 已缓存图片的 file_id（经 getImageInfo 解析出 URL）。base64/本地文件需先
+  // 上传换 URL，本实现不覆盖（NapCat 走的是 Windows-only 内核 OCR，不可移植）。
+  defineAction({
+    name: ['ocr_image', '.ocr_image'],
+    summary: 'OCR 图片（服务端，需图片 URL 或已缓存的图片 file_id）',
+    readOnly: true,
+    returns: '{ texts, language }：识别文本数组（含置信度与坐标）与识别语言。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        texts: {
+          type: 'array',
+          description: '识别出的文本块',
+          items: {
+            type: 'object',
+            properties: {
+              text: { type: 'string', description: '文本内容' },
+              confidence: { type: 'number', description: '置信度' },
+              coordinates: {
+                type: 'array',
+                description: '文本框顶点坐标',
+                items: {
+                  type: 'object',
+                  properties: {
+                    x: { type: 'number', description: 'X 坐标' },
+                    y: { type: 'number', description: 'Y 坐标' },
+                  },
+                  required: ['x', 'y'],
+                },
+              },
+            },
+            required: ['text', 'confidence', 'coordinates'],
+          },
+        },
+        language: { type: 'string', description: '识别语言' },
+      },
+      required: ['texts', 'language'],
+    },
+    params: { image: f.image() },
+    run: async (p, ctx) => {
+      // A passed-in http(s) URL is used verbatim (NOT re-signed) — if it is a
+      // stale CDN URL with an expired rkey the server fetch fails and surfaces
+      // the server's retCode. The file_id path below re-signs via getImageInfo.
+      let url = /^https?:\/\//i.test(p.image) ? p.image : '';
+      if (!url) {
+        const info = await ctx.getImageInfo(p.image);
+        const resolved = info && typeof info.url === 'string' ? info.url : '';
+        if (resolved) url = resolved;
+      }
+      if (!url) {
+        return failedResponse(
+          RETCODE.ACTION_FAILED,
+          'ocr_image needs an http(s) image url or a cached image file_id; '
+          + 'base64/local-file input is not supported',
+        );
+      }
+      const result = await ctx.bridge.apis.misc.ocrImage(url);
+      // OcrResult is plain JSON data; the interface just lacks an index
+      // signature, so coerce for the JsonValue-typed response.
+      return okResponse(result as unknown as JsonObject);
+    },
+  }),
+
+  groupAction({
+    name: '_del_group_notice',
+    summary: '删除群公告（fid 或 notice_id 二选一）',
+    params: { fid: f.string().optional(), notice_id: f.string().optional() },
+    run: async (p, ctx) => {
+      const fid = p.fid || p.notice_id;
+      if (!fid) return failedResponse(RETCODE.BAD_REQUEST, 'group_id and fid/notice_id are required');
+      const success = await ctx.bridge.apis.web.deleteNotice(p.group_id, fid);
+      return success ? okResponse() : failedResponse(RETCODE.ACTION_FAILED, 'delete failed');
+    },
+  }),
+
+  defineAction({
+    name: 'send_forward_msg',
+    summary: '发送合并转发（按 message_type/群号自动路由）',
+    returns: '{ message_id, res_id, forward_id }',
+    // group_id/user_id are routing hints, not identity: 0 means "this branch
+    // does not apply" and must not error. int({min:0}) optional, not groupId.
+    params: {
+      messages: f.message().optional(),
+      message: f.message().optional(),
+      message_type: f.string().optional(),
+      group_id: f.int({ min: 0 }).optional(),
+      user_id: f.int({ min: 0 }).optional(),
+      ...forwardPreviewParams,
+    },
+    run: async (p, ctx) => {
+      const messageType = p.message_type ?? '';
+      const groupId = p.group_id ?? 0;
+      const userId = p.user_id ?? 0;
+      const messages = p.messages ?? p.message;
+      const meta = readForwardPreviewMeta(p);
+      if (messages === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'message/messages is required');
+      if ((messageType === 'group' || groupId > 0) && ctx.sendGroupForwardMsg) {
+        if (!groupId) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
+        const result = await ctx.sendGroupForwardMsg(groupId, messages, meta);
+        return okResponse({ message_id: result.messageId, res_id: result.forwardId, forward_id: result.forwardId });
+      }
+      if ((messageType === 'private' || userId > 0) && ctx.sendPrivateForwardMsg) {
+        if (!userId) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
+        const result = await ctx.sendPrivateForwardMsg(userId, messages, meta);
+        return okResponse({ message_id: result.messageId, res_id: result.forwardId, forward_id: result.forwardId });
+      }
+      const result = await ctx.sendForwardMsg(messages);
+      return okResponse({ message_id: 0, res_id: result.forwardId, forward_id: result.forwardId });
+    },
+  }),
+
+  groupAction({
+    name: 'send_group_forward_msg',
+    summary: '发送群合并转发',
+    returns: '{ message_id, res_id, forward_id }',
+    params: {
+      messages: f.message().optional(),
+      message: f.message().optional(),
+      ...forwardPreviewParams,
+    },
+    run: async (p, ctx) => {
+      const messages = p.messages ?? p.message;
+      if (messages === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'message/messages is required');
+      const result = await ctx.sendGroupForwardMsg(p.group_id, messages, readForwardPreviewMeta(p));
+      return okResponse({ message_id: result.messageId, res_id: result.forwardId, forward_id: result.forwardId });
+    },
+  }),
+
+  defineAction({
+    name: 'send_private_forward_msg',
+    summary: '发送私聊合并转发',
+    returns: '{ message_id, res_id, forward_id }',
+    params: {
+      user_id: f.userId(),
+      messages: f.message().optional(),
+      message: f.message().optional(),
+      ...forwardPreviewParams,
+    },
+    run: async (p, ctx) => {
+      const messages = p.messages ?? p.message;
+      if (messages === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'message/messages is required');
+      const result = await ctx.sendPrivateForwardMsg(p.user_id, messages, readForwardPreviewMeta(p));
+      return okResponse({ message_id: result.messageId, res_id: result.forwardId, forward_id: result.forwardId });
+    },
+  }),
+
+  defineAction({
+    name: 'get_forward_msg',
+    summary: '获取合并转发消息（id 或 message_id）',
+    readOnly: true,
+    returns: '{ messages }：转发内的消息节点数组（每项为 OneBot 消息事件，内部字段不固定）。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        messages: { type: 'array', description: '转发消息节点数组', items: { type: 'object' } },
+      },
+      required: ['messages'],
+    },
+    params: { id: f.string().optional(), message_id: f.string().optional() },
+    run: async (p, ctx) => {
+      let id = p.id || '';
+      if (!id && p.message_id !== undefined) {
+        const numericMessageId = integerFromDecimalString(p.message_id);
+        if (numericMessageId > 0) {
+          const event = ctx.getMessage(numericMessageId);
+          const segments = Array.isArray(event?.message) ? event.message : [];
+          for (const seg of segments) {
+            if (typeof seg !== 'object' || seg === null || Array.isArray(seg)) continue;
+            const so = seg as Record<string, unknown>;
+            if (String(so.type ?? '') !== 'forward') continue;
+            const data = (typeof so.data === 'object' && so.data !== null && !Array.isArray(so.data))
+              ? so.data as Record<string, unknown>
+              : null;
+            const candidate = primitiveText(data?.id) || primitiveText(data?.res_id) || primitiveText(data?.forward_id);
+            if (candidate) { id = candidate; break; }
+          }
+        }
+        if (!id) id = p.message_id;
+      }
+      if (!id) return failedResponse(RETCODE.BAD_REQUEST, 'id or message_id is required');
+      const messages = await ctx.getForwardMsg(id);
+      return okResponse({ messages });
+    },
+  }),
+
+  defineAction({
+    name: 'download_file',
+    summary: '下载文件（url 或 base64）到 data/downloads',
+    returns: '{ file }',
+    params: {
+      url: f.string().default(''),
+      base64: f.string().default(''),
+      name: f.string().default(''),
+      headers: f.raw(),
+    },
+    run: async (p) => {
+      const url = p.url;
+      const base64 = p.base64;
+      const name = p.name;
+      if (!url && !base64) return failedResponse(RETCODE.BAD_REQUEST, 'url or base64 is required');
+      let buf: Buffer;
+      if (base64) {
+        const upperBound = Math.floor((base64.length * 3) / 4);
+        if (upperBound > DOWNLOAD_FILE_MAX_BYTES) return failedResponse(RETCODE.BAD_REQUEST, `base64 payload too large: > ${DOWNLOAD_FILE_MAX_BYTES} bytes`);
+        buf = Buffer.from(base64, 'base64');
+        if (buf.length > DOWNLOAD_FILE_MAX_BYTES) return failedResponse(RETCODE.BAD_REQUEST, `base64 payload too large: ${buf.length} > ${DOWNLOAD_FILE_MAX_BYTES} bytes`);
+      } else {
+        buf = await fetchDownloadFile(url, parseDownloadHeaders(p.headers), DOWNLOAD_FILE_MAX_BYTES, DOWNLOAD_FILE_TIMEOUT_MS);
+      }
+      try {
+        const safe = await saveDownloadBuffer(buf, name);
+        return okResponse({ file: safe });
+      } catch (err) {
+        return failedResponse(RETCODE.BAD_REQUEST, err instanceof Error ? err.message : String(err));
+      }
+    },
+  }),
+
+  defineAction({
+    name: 'translate_en2zh',
+    summary: '英译中',
+    readOnly: true,
+    returns: '{ words }：与输入等长的中文译文字符串数组。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        words: { type: 'array', description: '译文数组', items: { type: 'string' } },
+      },
+      required: ['words'],
+    },
+    params: { words: f.array(f.string()) },
+    run: async (p, ctx) => {
+      const translated = await ctx.bridge.apis.misc.translateEn2Zh(p.words);
+      return okResponse({ words: translated });
+    },
+  }),
+
+  defineAction({
+    name: 'set_self_longnick',
+    summary: '设置个性签名（longNick/long_nick，严格 string）',
+    params: { longNick: optionalExactString(), long_nick: optionalExactString() },
+    run: async (p, ctx) => {
+      const longNick = p.longNick !== undefined ? p.longNick : p.long_nick;
+      if (typeof longNick !== 'string') return failedResponse(RETCODE.BAD_REQUEST, 'invalid longNick');
+      await ctx.bridge.apis.profile.setSelfLongNick(longNick);
+      return okResponse({});
+    },
+  }),
+
+  defineAction({
+    name: 'get_mini_app_ark',
+    summary: '获取小程序卡片 ark',
+    readOnly: true,
+    params: {
+      type: f.string().optional(),
+      title: f.string().optional(),
+      desc: f.string().optional(),
+      picUrl: f.string().optional(),
+      pic_url: f.string().optional(),
+      jumpUrl: f.string().optional(),
+      jump_url: f.string().optional(),
+    },
+    run: async (p, ctx) => {
+      const type = p.type || 'bili';
+      const title = p.title || '';
+      const desc = p.desc || '';
+      const picUrl = p.picUrl || p.pic_url || '';
+      const jumpUrl = p.jumpUrl || p.jump_url || '';
+      const data = await ctx.bridge.apis.misc.getMiniAppArk(type, title, desc, picUrl, jumpUrl);
+      return okResponse(data);
+    },
+  }),
+
+  groupAction({
+    name: 'click_inline_keyboard_button',
+    summary: '点击内联键盘按钮',
+    params: {
+      bot_appid: f.uint(),
+      msg_seq: f.uint(),
+      button_id: f.string({ allowEmpty: false }),
+      callback_data: f.string().default(''),
+    },
+    run: async (p, ctx) => {
+      const data = await ctx.bridge.apis.misc.clickInlineKeyboardButton(
+        p.group_id,
+        p.bot_appid,
+        p.button_id,
+        p.callback_data,
+        p.msg_seq,
+      );
+      return okResponse(data);
+    },
+  }),
+
+  groupAction({
+    name: ['set_group_sign', 'send_group_sign'],
+    summary: '群签到',
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.misc.sendGroupSign(p.group_id);
+      return okResponse({});
+    },
+  }),
+
+  defineAction({
+    name: ['send_packet', '.send_packet'],
+    summary: '发送原始 SSO 包（cmd + hex data）',
+    params: { cmd: f.string({ allowEmpty: false }), data: f.string().default(''), rsp: f.bool().default(true) },
+    run: async (p, ctx) => {
+      if (!/^[0-9a-fA-F]*$/.test(p.data) || p.data.length % 2 !== 0) {
+        return failedResponse(RETCODE.BAD_REQUEST, 'data must be a hex string of even length');
+      }
+      const body = hexToBytes(p.data);
+      const result = await ctx.bridge.sendRawPacket(p.cmd, body);
+      if (!result.success) return failedResponse(RETCODE.ACTION_FAILED, result.errorMessage || 'send failed');
+      if (!p.rsp) return okResponse(null);
+      const respHex = result.responseData ? bytesToHex(result.responseData) : '';
+      return okResponse(respHex);
+    },
+  }),
+
+  groupAction({
+    name: 'get_group_todo_list',
+    summary: '获取群待办列表',
+    returns: '群待办数组，包含可用于待办操作的消息标识、服务端摘要与时间',
+    readOnly: true,
+    run: async (p, ctx) => {
+      const todos = await ctx.bridge.apis.extras.getGroupTodoList(p.group_id);
+      const projections = todos.map((todo) => {
+        const messageId = hashMessageIdInt32(
+          todo.sequence,
+          p.group_id,
+          GROUP_MESSAGE_EVENT,
+        );
+        const meta: MessageMeta = {
+          isGroup: true,
+          targetId: p.group_id,
+          sequence: todo.sequence,
+          sequenceAuthoritative: true,
+          eventName: GROUP_MESSAGE_EVENT,
+          clientSequence: 0,
+          random: todo.random,
+          timestamp: todo.createdAt,
+        };
+        return { todo, messageId, meta };
+      });
+
+      ctx.cacheMessageMetas(projections.map(({ messageId, meta }) => ({
+        messageId,
+        meta,
+      })));
+
+      return okResponse(projections.map(({ todo, messageId }) => {
+        const cached = ctx.getMessage(messageId)?.message;
+        return {
+          message_id: messageId,
+          message_seq: todo.sequence,
+          message_random: todo.random,
+          message: Array.isArray(cached) ? cached : null,
+          text: todo.text,
+          create_time: todo.createdAt,
+          update_time: todo.updatedAt,
+        };
+      }));
+    },
+  }),
+
+  groupAction({
+    name: 'set_group_todo',
+    summary: '设置群待办',
+    params: { message_id: f.messageId() },
+    run: (p, ctx) => groupTodoRun(p, ctx, (g, s) => ctx.bridge.apis.extras.setGroupTodo(g, s)),
+  }),
+
+  groupAction({
+    name: 'complete_group_todo',
+    summary: '完成群待办',
+    params: { message_id: f.messageId() },
+    run: (p, ctx) => groupTodoRun(p, ctx, (g, s) => ctx.bridge.apis.extras.completeGroupTodo(g, s)),
+  }),
+
+  groupAction({
+    name: 'cancel_group_todo',
+    summary: '取消群待办',
+    params: { message_id: f.messageId() },
+    run: (p, ctx) => groupTodoRun(p, ctx, (g, s) => ctx.bridge.apis.extras.cancelGroupTodo(g, s)),
+  }),
+
+  // ─────────────── 闪传（FlashTransfer / fileset） ───────────────
+
+  defineAction({
+    name: 'create_flash_task',
+    summary: '创建闪传任务',
+    params: {
+      // 路径、{ file, name }，或它们的数组；name 是该文件在闪传里的显示名
+      files: f.raw().describe('路径、{ file, name }，或它们的数组'),
+      name: f.string().optional(),
+      thumb_path: f.string().optional(),
+    },
+    run: async (p, ctx) => {
+      const parsed = parseFlashTaskFiles(p.files);
+      if ('error' in parsed) return failedResponse(RETCODE.BAD_REQUEST, parsed.error);
+      const result = await ctx.bridge.apis.flashTransfer.createFlashTask(parsed.files, p.name, p.thumb_path);
+      return okResponse({ fileset_id: result.filesetId, task_id: result.filesetId });
+    },
+  }),
+
+  defineAction({
+    name: 'get_fileset_info',
+    summary: '获取文件集信息',
+    params: { fileset_id: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      const list = await ctx.bridge.apis.flashTransfer.getFilesetInfo(p.fileset_id);
+      return okResponse({ fileset_id: p.fileset_id, file_list: list.map(flashFileInfoToJson) });
+    },
+  }),
+
+  defineAction({
+    name: 'get_flash_file_list',
+    summary: '获取闪传文件列表',
+    params: { fileset_id: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      const list = await ctx.bridge.apis.flashTransfer.getFlashFileList(p.fileset_id);
+      return okResponse(list.map(flashFileInfoToJson));
+    },
+  }),
+
+  defineAction({
+    name: 'list_filesets',
+    summary: '列出当前账号的所有闪传文件集',
+    params: {},
+    run: async (_p, ctx) => {
+      const list = await ctx.bridge.apis.flashTransfer.listFilesets();
+      return okResponse(list.map(flashFileInfoToJson));
+    },
+  }),
+
+  defineAction({
+    name: 'get_flash_file_url',
+    summary: '获取闪传文件链接',
+    params: {
+      fileset_id: f.string({ allowEmpty: false }),
+      file_name: f.string().optional(),
+      file_index: f.number().optional(),
+    },
+    run: async (p, ctx) => {
+      const url = await ctx.bridge.apis.flashTransfer.getFlashFileUrl(p.fileset_id, p.file_index);
+      return okResponse({ url });
+    },
+  }),
+
+  defineAction({
+    name: 'get_share_link',
+    summary: '获取文件分享链接',
+    params: { fileset_id: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      const url = await ctx.bridge.apis.flashTransfer.getShareLink(p.fileset_id);
+      return okResponse(url);
+    },
+  }),
+
+  defineAction({
+    name: 'delete_flash_file',
+    summary: '删除闪传文件',
+    params: { fileset_id: f.string({ allowEmpty: false }) },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.flashTransfer.deleteFlashFile(p.fileset_id);
+      return okResponse();
+    },
+  }),
+
+  defineAction({
+    name: 'rename_flash_file',
+    summary: '重命名闪传文件',
+    params: {
+      fileset_id: f.string({ allowEmpty: false }),
+      new_name: f.string({ allowEmpty: false }),
+    },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.flashTransfer.renameFlashFile(p.fileset_id, p.new_name);
+      return okResponse();
+    },
+  }),
+
+  defineAction({
+    name: 'download_fileset',
+    summary: '解析闪传文件下载直链（不下载，由调用方实现下载）',
+    returns: '{ url, file_name, file_size }',
+    params: {
+      fileset_id: f.string({ allowEmpty: false }),
+      file_name: f.string().optional(),
+      file_index: f.number().optional(),
+    },
+    run: async (p, ctx) => {
+      const target = await ctx.bridge.apis.flashTransfer.downloadFileset(p.fileset_id, {
+        fileName: p.file_name,
+        fileIndex: p.file_index,
+      });
+      return okResponse({
+        url: target.url,
+        file_name: target.fileName,
+        file_size: target.fileSize,
+      });
+    },
+  }),
+
+  defineAction({
+    name: 'send_flash_msg',
+    summary: '发送闪传消息（私聊或群聊，引用 fileset_id 让对端下载）',
+    returns: '{ message_id }',
+    params: {
+      fileset_id: f.string({ allowEmpty: false }),
+      user_id: f.userId().optional(),
+      group_id: f.groupId().optional(),
+    },
+    run: async (p, ctx) => {
+      if (!p.user_id && !p.group_id) {
+        return failedResponse(RETCODE.BAD_REQUEST, 'user_id or group_id is required');
+      }
+      await ctx.bridge.apis.flashTransfer.sendFlashMsg(p.fileset_id, {
+        userId: p.user_id,
+        groupId: p.group_id,
+      });
+      // 0x93d7 响应无 message_id（分享 fileset，非传统消息），返回 0 兼容 OneBot 形状。
+      return okResponse({ message_id: 0 });
+    },
+  }),
+
+  defineAction({
+    name: 'get_fileset_id',
+    summary: '从 QQ 闪传分享码或官方分享链接获取 fileset_id',
+    readOnly: true,
+    returns: '{ fileset_id }：解析出的文件集 ID。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        fileset_id: { type: 'string', description: '文件集 ID' },
+      },
+      required: ['fileset_id'],
+    },
+    params: {
+      share_code: f.string({ allowEmpty: false })
+        .describe('QQ 闪传分享码，或 https://qfile.qq.com/q/... 官方分享链接'),
+    },
+    run: async (p, ctx) => {
+      const filesetId = await ctx.bridge.apis.flashTransfer.getFilesetIdByCode(p.share_code);
+      return okResponse({ fileset_id: filesetId });
+    },
+  }),
+
+  // 好友个性装扮
+  defineAction({
+    name: '_get_friend_dress',
+    summary: '获取指定 QQ 号正在使用的个性装扮（挂件/名片/来电/输入状态等）',
+    returns: '装扮信息；目标未使用任何可查询装扮时 items 为空数组。网络失败、未登录态/风控、页面改版、返回账号与请求不一致时返回失败并附具体原因',
+    readOnly: true,
+    params: { user_id: f.userId().describe('目标 QQ 号') },
+    run: async (p, ctx) => {
+      try {
+        return okResponse(await ctx.bridge.apis.web.getFriendDress(p.user_id));
+      } catch (e) {
+        if (e instanceof FriendDressError) {
+          return failedResponse(RETCODE.ACTION_FAILED, `failed to get friend dress (${e.kind}): ${e.message}`);
+        }
+        return failedResponse(RETCODE.ACTION_FAILED, `failed to get friend dress: ${(e as Error).message}`);
+      }
+    },
+  }),
+];
+
+// 已过滤（机器人/被忽略）的入群请求。
+// 与标准群系统消息共用过滤收件箱，只保留方言动作的返回形状。
+// 这几个动作只是为实际使用中的 OneBot 方言客户端重命名并投影相同数据。
+async function fetchFilteredGroupRequests(ctx: ApiActionContext) {
+  return ctx.bridge.apis.contacts.fetchGroupRequests(true);
 }
+
 
 function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);

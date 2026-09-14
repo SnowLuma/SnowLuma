@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="440" viewBox="0 0 1200 440" role="img" aria-labelledby="map-title map-desc">
+  <title id="map-title">SnowLuma 运行链路</title>
+  <desc id="map-desc">QQ 进程接入后，数据经过协议桥接、OneBot 标准化，再分发到 WebSocket、HTTP、WebUI、SDK 与 MCP。</desc>
+
+  <defs>
+    <linearGradient id="map-rule" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#54bde9"/>
+      <stop offset="0.55" stop-color="#9e88ef"/>
+      <stop offset="1" stop-color="#e4a8c6"/>
+    </linearGradient>
+    <linearGradient id="consumer-border" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#54bde9"/>
+      <stop offset="0.5" stop-color="#9e88ef"/>
+      <stop offset="1" stop-color="#e4a8c6"/>
+    </linearGradient>
+    <linearGradient id="consumer-flow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#a5e7ff"/>
+      <stop offset="0.5" stop-color="#d1c5ff"/>
+      <stop offset="1" stop-color="#ffd4e8"/>
+    </linearGradient>
+    <style>
+      .sans { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+      .mono { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; }
+      @media (prefers-reduced-motion: reduce) { .consumer-flow { display: none; } }
+    </style>
+  </defs>
+
+  <rect width="1200" height="440" rx="28" fill="#f6f9fd"/>
+  <rect x="0.75" y="0.75" width="1198.5" height="438.5" rx="27.25" fill="none" stroke="#cbd8e8" stroke-width="1.5"/>
+
+  <g transform="translate(54 42)">
+    <text class="mono" x="0" y="0" fill="#6e819b" font-size="13" letter-spacing="2">RUNTIME MAP · FROM SESSION TO CONSUMER</text>
+    <text class="sans" x="0" y="45" fill="#14223a" font-size="34" font-weight="720">一条事件如何穿过 SnowLuma</text>
+    <text class="sans" x="0" y="75" fill="#63758e" font-size="16">每层只承担一种职责，多个 QQ 账号各自拥有独立、可追踪的会话链路。</text>
+  </g>
+
+  <g id="connection-labels" class="mono" fill="#7c8ca2" font-size="10" letter-spacing="1.5" text-anchor="middle">
+    <text x="305" y="210">PIPE</text>
+    <text x="577" y="210">MAP</text>
+    <text x="849" y="210">OUT</text>
+  </g>
+  <g aria-hidden="true" fill="none" stroke="url(#map-rule)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M284 225H316L309 218M316 225L309 232"/>
+    <path d="M556 225H588L581 218M588 225L581 232"/>
+    <path d="M828 225H860L853 218M860 225L853 232"/>
+  </g>
+
+  <g id="stage-session" transform="translate(54 138)">
+    <rect width="230" height="218" rx="20" fill="#ffffff" stroke="#c9d8e8" stroke-width="1.5"/>
+    <path d="M20 0H210" fill="none" stroke="#54bde9" stroke-width="4" stroke-linecap="round"/>
+    <text class="mono" x="20" y="32" fill="#5582a0" font-size="11" letter-spacing="1.4">01 · 会话接入</text>
+
+    <g transform="translate(20 48)">
+      <rect width="190" height="54" rx="13" fill="#edf8fd" stroke="#afd9eb"/>
+      <circle cx="25" cy="19" r="5" fill="#47b7e6"/>
+      <circle cx="25" cy="35" r="5" fill="#92d8f3"/>
+      <text class="mono" x="42" y="23" fill="#315a77" font-size="11">QQ · ACCOUNT 01</text>
+      <text class="mono" x="42" y="39" fill="#6d92a8" font-size="11">QQ · ACCOUNT 02</text>
+    </g>
+
+    <text class="sans" x="115" y="132" fill="#15243a" font-size="20" font-weight="680" text-anchor="middle">多个 QQ 进程</text>
+    <text class="sans" x="115" y="158" fill="#687c95" font-size="14" text-anchor="middle">独立接入、独立登录状态</text>
+    <text class="sans" x="115" y="181" fill="#687c95" font-size="14" text-anchor="middle">每个账号单独路由</text>
+  </g>
+
+  <g id="stage-bridge" transform="translate(326 138)">
+    <rect width="230" height="218" rx="20" fill="#ffffff" stroke="#d0c9ed" stroke-width="1.5"/>
+    <path d="M20 0H210" fill="none" stroke="#9e88ef" stroke-width="4" stroke-linecap="round"/>
+    <text class="mono" x="20" y="32" fill="#7163aa" font-size="11" letter-spacing="1.4">02 · 协议桥接</text>
+
+    <g transform="translate(20 42)">
+      <rect x="10" y="14" width="170" height="48" rx="12" fill="#f2effd" stroke="#cfc5f2"/>
+      <rect x="5" y="7" width="180" height="48" rx="12" fill="#eeeafd" stroke="#c3b7ee"/>
+      <rect width="190" height="48" rx="12" fill="#e9e3fb" stroke="#b6a7e9"/>
+      <text class="mono" x="95" y="21" fill="#544584" text-anchor="middle" font-size="11">PACKET → EVENT</text>
+      <text class="mono" x="95" y="37" fill="#77699c" text-anchor="middle" font-size="10">PROTOCOL · BRIDGE</text>
+    </g>
+
+    <text class="sans" x="115" y="132" fill="#15243a" font-size="20" font-weight="680" text-anchor="middle">解析与身份映射</text>
+    <text class="sans" x="115" y="158" fill="#687c95" font-size="14" text-anchor="middle">协议数据转换为内部事件</text>
+    <text class="sans" x="115" y="181" fill="#687c95" font-size="14" text-anchor="middle">异常路径保留可观察信息</text>
+  </g>
+
+  <g id="stage-onebot" transform="translate(598 138)">
+    <rect width="230" height="218" rx="20" fill="#ffffff" stroke="#d9c8e1" stroke-width="1.5"/>
+    <path d="M20 0H210" fill="none" stroke="#cf9bc0" stroke-width="4" stroke-linecap="round"/>
+    <text class="mono" x="20" y="32" fill="#916382" font-size="11" letter-spacing="1.4">03 · 标准化</text>
+
+    <g transform="translate(20 49)">
+      <rect width="190" height="55" rx="13" fill="#faeff6" stroke="#e6bfd5"/>
+      <text class="sans" x="95" y="25" fill="#753e62" text-anchor="middle" font-size="17" font-weight="700">OneBot v11</text>
+      <text class="mono" x="95" y="42" fill="#a37792" text-anchor="middle" font-size="10">ACTIONS ↔ EVENTS</text>
+    </g>
+
+    <text class="sans" x="115" y="132" fill="#15243a" font-size="20" font-weight="680" text-anchor="middle">统一动作与事件</text>
+    <text class="sans" x="115" y="158" fill="#687c95" font-size="14" text-anchor="middle">参数校验、动作执行</text>
+    <text class="sans" x="115" y="181" fill="#687c95" font-size="14" text-anchor="middle">事件转换与消息存储</text>
+  </g>
+
+  <g id="stage-consumers" transform="translate(870 138)">
+    <rect x="2" y="2" width="272" height="214" rx="18" fill="#101a2d" stroke="url(#consumer-border)" stroke-width="4"/>
+    <rect class="consumer-flow" x="2" y="2" width="272" height="214" rx="18" fill="none" stroke="url(#consumer-flow)" stroke-width="5" stroke-linecap="round" stroke-dasharray="108 838" aria-hidden="true">
+      <animate attributeName="stroke-dashoffset" from="0" to="-946" dur="4.8s" repeatCount="indefinite"/>
+    </rect>
+    <text class="mono" x="20" y="32" fill="#91a5c2" font-size="11" letter-spacing="1.4">04 · 消费端</text>
+    <text class="sans" x="20" y="65" fill="#f2f7ff" font-size="20" font-weight="680">按场景自由组合</text>
+
+    <g class="mono" font-size="11" text-anchor="middle">
+      <g transform="translate(20 84)">
+        <rect width="70" height="32" rx="10" fill="#17304a" stroke="#315b7a"/>
+        <text x="35" y="21" fill="#bce8fb">WS</text>
+      </g>
+      <g transform="translate(102 84)">
+        <rect width="70" height="32" rx="10" fill="#242244" stroke="#514e7c"/>
+        <text x="35" y="21" fill="#ddd5ff">HTTP</text>
+      </g>
+      <g transform="translate(184 84)">
+        <rect width="70" height="32" rx="10" fill="#34233c" stroke="#67465e"/>
+        <text x="35" y="21" fill="#f6d9e7">WebUI</text>
+      </g>
+      <g transform="translate(20 128)">
+        <rect width="111" height="32" rx="10" fill="#182a43" stroke="#334f70"/>
+        <text x="55.5" y="21" fill="#c4def5">SDK</text>
+      </g>
+      <g transform="translate(143 128)">
+        <rect width="111" height="32" rx="10" fill="#2b2447" stroke="#554d7e"/>
+        <text x="55.5" y="21" fill="#dfd7ff">MCP</text>
+      </g>
+    </g>
+
+    <text class="sans" x="20" y="190" fill="#8196b5" font-size="13">多个适配器可同时启用</text>
+  </g>
+
+  <g transform="translate(54 392)">
+    <rect width="1092" height="1" fill="#d4dfeb"/>
+    <circle cx="5" cy="24" r="4" fill="#54bde9"/>
+    <text class="sans" x="18" y="29" fill="#60738c" font-size="14">一次接入，统一管理运行状态、日志、连接与动作调用。</text>
+    <text class="mono" x="1092" y="29" fill="#8191a6" text-anchor="end" font-size="11">SNOWLUMA / RUNTIME MAP</text>
+  </g>
+</svg>

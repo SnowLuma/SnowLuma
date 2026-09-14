@@ -1,11 +1,16 @@
 import type {
-  FaceroamOpReq,
-  FaceroamOpResp,
   GroupAvatarExtra,
   SetStatusReq,
   SetStatusResp,
 } from '@snowluma/proto-defs/oidb-actions/base';
-import { fetchHighwaySession, uploadHighwayHttp } from '@snowluma/protocol/highway';
+import { AddCustomFace } from '@snowluma/protocol/oidb-services/custom-face/add-custom-face';
+import { DeleteCustomFace } from '@snowluma/protocol/oidb-services/custom-face/delete-custom-face';
+import { FetchCustomFaceDetail } from '@snowluma/protocol/oidb-services/custom-face/fetch-custom-face-detail';
+import { FetchCustomFaceList } from '@snowluma/protocol/oidb-services/custom-face/fetch-custom-face-list';
+import { ModifyCustomFace } from '@snowluma/protocol/oidb-services/custom-face/modify-custom-face';
+import { MoveCustomFace } from '@snowluma/protocol/oidb-services/custom-face/move-custom-face';
+import { OrderCustomFace } from '@snowluma/protocol/oidb-services/custom-face/order-custom-face';
+import { BufferChunkSource, fetchHighwaySession, uploadHighwayHttp } from '@snowluma/protocol/highway';
 import { computeHashes, loadBinarySource } from '@snowluma/protocol/highway/utils';
 import { GetLike, type LikeInfo } from '@snowluma/protocol/oidb-services/profile/get-like';
 import { GetUnidirectionalFriendList, type UnidirectionalFriendEntry } from '@snowluma/protocol/oidb-services/profile/get-unidirectional-friend-list';
@@ -17,6 +22,13 @@ import type { Bridge } from '../bridge';
 import type { BridgeContext } from '../bridge-context';
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
+
+export interface CustomFaceDetail {
+  emojiId: string;
+  url: string;
+  md5: string;
+  desc: string;
+}
 
 export class ProfileApi {
   constructor(private readonly ctx: BridgeContext) { }
@@ -63,14 +75,15 @@ export class ProfileApi {
       if (!resp) {
         throw new Error(result.errorMessage || 'set online status failed (network/timeout)');
       }
-      if (resp.errCode !== undefined && resp.errCode !== 0) {
-        throw new Error(resp.errMsg || `set online status failed with errCode: ${resp.errCode}`);
+      const message = resp.errMsg ?? '';
+      if (message !== '' && message !== 'set status success') {
+        throw new Error(message);
       }
     }
   }
 
-  setProfile(nickname?: string, personalNote?: string): Promise<void> {
-    return SetProfile.invoke(this.ctx, { nickname, personalNote });
+  setProfile(nickname?: string, personalNote?: string, sex?: number): Promise<void> {
+    return SetProfile.invoke(this.ctx, { nickname, personalNote, sex });
   }
 
   setSelfLongNick(longNick: string): Promise<void> {
@@ -88,7 +101,7 @@ export class ProfileApi {
 
     const hashes = computeHashes(loaded.bytes);
     const session = await fetchHighwaySession(bridge);
-    await uploadHighwayHttp(bridge, session, 90, loaded.bytes, hashes.md5, new Uint8Array(0));
+    await uploadHighwayHttp(bridge, session, 90, new BufferChunkSource(loaded.bytes), hashes.md5, new Uint8Array(0));
   }
 
   /**
@@ -115,7 +128,7 @@ export class ProfileApi {
       field5: 3,
       field6: 1,
     });
-    await uploadHighwayHttp(bridge, session, 3000, loaded.bytes, hashes.md5, extra);
+    await uploadHighwayHttp(bridge, session, 3000, new BufferChunkSource(loaded.bytes), hashes.md5, extra);
   }
 
   // ─────────────── queries on me / my contacts ───────────────
@@ -129,22 +142,105 @@ export class ProfileApi {
   }
 
   async fetchCustomFace(count = 10): Promise<string[]> {
-    const req = {
-      inner: { field1: 1, osVersion: '10.0.26200', qqVersion: '9.9.28-46928' },
-      uin: BigInt(this.ctx.identity.uin),
-      field3: 1,
-      field6: 1,
-    };
-    const request = protobuf_encode<FaceroamOpReq>(req);
-    const result = await this.ctx.sendRawPacket('Faceroam.OpReq', request);
-    if (!result.success || !result.gotResponse || !result.responseData) {
-      throw new Error(result.errorMessage || 'fetch custom face failed');
-    }
-    const resp = protobuf_decode<FaceroamOpResp>(result.responseData);
-    if (!resp || resp.retCode !== 0) {
-      throw new Error(`fetch custom face error: ${resp?.message || 'unknown'}`);
-    }
-    const faceIds = resp.item?.faceIds || [];
-    return faceIds.slice(0, count).map((id: string) => `https://p.qpic.cn/qq_expression/${this.ctx.identity.uin}/${id}/0`);
+    const faceIds = await this.fetchCustomFaceIds(count);
+    return faceIds.map((id) => this.customFaceUrl(id));
   }
+
+  async fetchCustomFaceDetails(count = 10): Promise<CustomFaceDetail[]> {
+    const faceIds = await this.fetchCustomFaceIds(count);
+    if (faceIds.length === 0) return [];
+
+    const emojis = faceIds.map((emojiId) => ({
+      emojiId,
+      md5: md5FromEmojiId(emojiId),
+    }));
+    const details = await FetchCustomFaceDetail.invoke(this.ctx, { emojis });
+    const descriptions = new Map(details.map((detail) => [detail.emojiId, detail.desc]));
+
+    return emojis.map(({ emojiId, md5 }) => ({
+      emojiId,
+      url: this.customFaceUrl(emojiId),
+      md5,
+      // The detail response may omit entries which have never had a remark.
+      desc: descriptions.get(emojiId) ?? '',
+    }));
+  }
+
+  async fetchCustomFaceIds(count = 10): Promise<string[]> {
+    if (!Number.isInteger(count) || count < 0) {
+      throw new Error('custom face count must be a non-negative integer');
+    }
+    if (count === 0) return [];
+
+    const faceIds = await FetchCustomFaceList.invoke(this.ctx, { uin: this.ctx.identity.uin });
+    return faceIds.slice(0, count);
+  }
+
+  private customFaceUrl(emojiId: string): string {
+    return `https://p.qpic.cn/qq_expression/${this.ctx.identity.uin}/${emojiId}/0`;
+  }
+
+  /** 删除一个收藏表情（custom face）。emoji_id 来自收藏列表。 */
+  deleteCustomFace(emojiId: string): Promise<void> {
+    return DeleteCustomFace.invoke(this.ctx, { uin: this.ctx.identity.uin, emojiId });
+  }
+
+  /**
+   * 添加收藏表情（custom face）。imageSource 支持 file:///、base64://、http(s)://
+   * （复用 highway utils 的 loadBinarySource）。返回新 emoji_id。
+   */
+  async addCustomFace(imageSource: string): Promise<string> {
+    const { bytes } = await loadBinarySource(imageSource, 'custom-face');
+    return AddCustomFace.invoke(this.ctx, { uin: this.ctx.identity.uin, imageBytes: bytes });
+  }
+
+  /**
+   * 修改收藏表情（custom face）备注。emoji_id 来自收藏列表；md5 从 emoji_id
+   * 中段解析，无需调用方单独提供。desc 为空串则清空备注。
+   */
+  modifyCustomFace(emojiId: string, desc: string): Promise<void> {
+    return ModifyCustomFace.invoke(this.ctx, {
+      emojiId,
+      md5: md5FromEmojiId(emojiId),
+      desc,
+    });
+  }
+
+  /**
+   * 收藏表情（custom face）移到最前。QQ 客户端只有"移动到最前"，协议层
+   * （0x902f 的 f3=1）也只支持最前，不支持移到其他位置。两步流程：先 0x902f
+   * 移动指令，再 0x902e opType=2 上传新顺序（fetch 当前列表把目标挪到第一）。
+   * 两步都发才生效。
+   */
+  async moveCustomFaceToFront(emojiId: string): Promise<void> {
+    // 1. fetch 当前完整列表（fetch 顺序即可，不需要 DB 显示顺序）
+    const ids = await this.fetchCustomFaceIds(1000);
+    const idx = ids.indexOf(emojiId);
+    if (idx < 0) throw new Error(`emoji_id not in list: ${emojiId}`);
+    // 新顺序：目标挪到第一，其余按原顺序
+    const reordered = ids.slice();
+    reordered.splice(idx, 1);
+    reordered.unshift(emojiId);
+    // 2. 0x902f 移动指令（f3=1 = 移到最前）
+    await OrderCustomFace.invoke(this.ctx, { emojiId, position: 1 });
+    // 3. 0x902e opType=2 上传新顺序
+    await MoveCustomFace.invoke(this.ctx, {
+      emojis: reordered.map((id) => ({ emojiId: id, md5: md5FromEmojiId(id) })),
+    });
+  }
+}
+
+/**
+ * 从 emoji_id `<uin>_0_0_0_<MD5>_0_0` 提取中段 32 位大写 hex MD5。
+ * 格式固定（fetch/delete/move 共用），取第 5 段。解析失败抛错——比静默
+ * 传空串让服务端拒绝更早定位问题。
+ */
+function md5FromEmojiId(emojiId: string): string {
+  const parts = emojiId.split('_');
+  // 期望形如 `<uin>_0_0_0_<md5>_0_0`，共 7 段，md5 在 index 4。
+  const md5 = parts[4];
+  if (!md5 || md5.length !== 32 || !/^[0-9a-fA-F]{32}$/.test(md5)) {
+    throw new Error(`invalid emoji_id (cannot extract md5): ${emojiId}`);
+  }
+  return md5.toUpperCase();
 }

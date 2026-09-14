@@ -1,0 +1,94 @@
+name: 校验 Bug 反馈日志
+
+# 表单只能强制「非空」，强制不了「内容真的是 TRACE 级别」。
+# 这个 workflow 在 bug issue 打开/编辑时解析正文里的 TRACE 日志小节，
+# 缺日志就打 needs-logs 标签 + 评论，补齐后自动移除标签。
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+jobs:
+  require-trace-logs:
+    runs-on: ubuntu-latest
+    # 只校验 Bug 反馈（表单会自动打 bug 标签）
+    if: contains(join(github.event.issue.labels.*.name, ','), 'bug')
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const NEEDS = 'needs-logs';
+            const MARKER = '<!-- needs-logs-bot -->';
+            const { owner, repo } = context.repo;
+            const issue = context.payload.issue;
+            const number = issue.number;
+            const body = issue.body || '';
+
+            // 抽取「TRACE 日志 / 错误堆栈」小节（issue form 渲染成 ### 标题）
+            const m = body.match(/###\s*TRACE 日志[^\n]*\n([\s\S]*?)(?:\n###\s|$)/);
+            const section = (m ? m[1] : '').trim();
+
+            // 粘贴的终端日志常带 ANSI 颜色码（如 \x1b[90mTRACE\x1b[0m），
+            // 颜色码结尾的 'm' 紧贴 TRACE 会吃掉 \b 单词边界，先剥掉再判定。
+            const clean = section.replace(/\x1b\[[0-9;]*m/g, '');
+
+            const empty = section === '' || /^_no response_$/i.test(section);
+            const hasTrace = /\bTRACE\b/i.test(clean);
+            // 去掉代码围栏后过短，基本等于没给
+            const stripped = clean.replace(/```[a-z]*|```|`/gi, '').trim();
+            const tooShort = stripped.length < 40;
+            const ok = !empty && hasTrace && !tooShort;
+
+            const hasLabel = (issue.labels || []).some((l) => (l.name || l) === NEEDS);
+
+            if (ok) {
+              if (hasLabel) {
+                try {
+                  await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name: NEEDS });
+                } catch (e) { /* 已被手动移除则忽略 */ }
+              }
+              return;
+            }
+
+            // 确保标签存在再添加（addLabels 不会自动建标签）
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: NEEDS });
+            } catch (e) {
+              try {
+                await github.rest.issues.createLabel({
+                  owner, repo, name: NEEDS, color: 'd93f0b',
+                  description: '缺少有效的 TRACE 日志',
+                });
+              } catch (e2) { /* 并发下可能已被建出 */ }
+            }
+            await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels: [NEEDS] });
+
+            // 已经提示过就不再刷屏
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number: number,
+            });
+            if (comments.some((c) => (c.body || '').includes(MARKER))) return;
+
+            const reasons = [];
+            if (empty) reasons.push('- 日志字段为空');
+            else if (!hasTrace) reasons.push('- 日志里没有 `TRACE` 字样（默认级别 `info` 不输出 TRACE，需先开启）');
+            else if (tooShort) reasons.push('- 日志内容过短，疑似未提供完整日志');
+
+            const comment = [
+              MARKER,
+              `@${issue.user.login} 这条反馈缺少有效的 **TRACE 级别日志**，已标记为 \`${NEEDS}\`：`,
+              '',
+              reasons.join('\n'),
+              '',
+              '请按以下任一方式开启 TRACE 后复现，再 **编辑本 issue** 把完整日志补到「TRACE 日志 / 错误堆栈」一栏：',
+              '',
+              '- **WebUI**：「日志」页 → 服务端日志级别切到 `TRACE` → 显示过滤用「开发」预设 → 复现 → 导出当前视图。',
+              '- **环境变量**：`SNOWLUMA_LOG_LEVEL=trace` 启动后复现。',
+              '',
+              '补齐后机器人会自动移除该标记。若你以附件形式上传了 `.log` 文件，请在正文里也贴一段关键日志（机器人只能识别正文）。',
+            ].join('\n');
+
+            await github.rest.issues.createComment({ owner, repo, issue_number: number, body: comment });

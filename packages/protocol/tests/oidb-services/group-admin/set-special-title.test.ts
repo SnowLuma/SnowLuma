@@ -30,7 +30,9 @@ describe('SetSpecialTitle namespace', () => {
     expect(env.body?.groupUin).toBe(12345);
     expect(env.body?.body?.targetUid).toBe('resolved-uid');
     expect(env.body?.body?.specialTitle).toBe('crown');
-    // -1 (int_32) round-trips as 0xFFFFFFFF after the proton decoder reinterprets.
-    expect(env.body?.body?.expireTime).toBe(0xFFFFFFFF);
+    // uinName (tag 7) must mirror specialTitle or the server silently no-ops.
+    expect(env.body?.body?.uinName).toBe('crown');
+    // int_32 preserves the signed -1 sentinel after the wire round-trip.
+    expect(env.body?.body?.expireTime).toBe(-1);
   });
 });

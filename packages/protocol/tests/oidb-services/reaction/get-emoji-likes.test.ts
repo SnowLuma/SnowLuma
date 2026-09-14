@@ -5,6 +5,7 @@ import type { Oidb0x9083Req, Oidb0x9083Resp } from '@snowluma/proto-defs/oidb-ac
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 
 import { GetEmojiLikes } from '../../../src/oidb-services/reaction/get-emoji-likes';
+import { env, s, v } from '../_pb-oracle';
 
 function makeSender(resp?: Buffer) {
   const defaultResp: SendPacketResult = {
@@ -54,39 +55,32 @@ describe('GetEmojiLikes namespace', () => {
       expect(out.count).toBe(50);
     });
 
-    it('decodes base64 cookie into the bytes field for continuation', () => {
-      const cookie = Buffer.from([0xCA, 0xFE]).toString('base64');
-      const out = GetEmojiLikes.serialize({} as any, { groupId: 1, sequence: 1, emojiId: 'x', cookie });
-      expect(out.cookie).toBeInstanceOf(Uint8Array);
-      expect(Buffer.from(out.cookie!).equals(Buffer.from([0xCA, 0xFE]))).toBe(true);
+    it('passes the continuation cookie through as a string', () => {
+      const out = GetEmojiLikes.serialize({} as any, { groupId: 1, sequence: 1, emojiId: 'x', cookie: 'next' });
+      expect(out.cookie).toBe('next');
     });
 
-    it('emits a 0-length cookie buffer for the first page (no cookie supplied)', () => {
+    it('emits an empty cookie for the first page', () => {
       const out = GetEmojiLikes.serialize({} as any, { groupId: 1, sequence: 1, emojiId: 'x' });
-      expect(out.cookie!.length).toBe(0);
-    });
-
-    it('sets field7=0 and field12=1 (magic values matching the historic wire shape)', () => {
-      const out = GetEmojiLikes.serialize({} as any, { groupId: 1, sequence: 1, emojiId: 'x' });
-      expect(out.field7).toBe(0);
-      expect(out.field12).toBe(1);
+      expect(out.cookie).toBe('');
     });
   });
 
   describe('deserialize', () => {
-    it('extracts users from inner.userInfo and base64-encodes the cookie', () => {
+    it('extracts users from the repeated list and returns the cookie', () => {
       const result = GetEmojiLikes.deserialize({} as any, {
-        inner: { userInfo: [{ uin: 10001n }, { uin: 20002n }] },
-        cookie: new Uint8Array([0xCA, 0xFE]),
+        users: [{ uin: 10001n }, { uin: 20002n }],
+        cookie: 'next',
+        isLast: false,
       });
       expect(result.users).toEqual([{ uin: 10001 }, { uin: 20002 }]);
-      expect(result.cookie).toBe(Buffer.from([0xCA, 0xFE]).toString('base64'));
+      expect(result.cookie).toBe('next');
       expect(result.isLast).toBe(false);
     });
 
     it('filters out users with uin=0 (placeholder / zero-value)', () => {
       const result = GetEmojiLikes.deserialize({} as any, {
-        inner: { userInfo: [{ uin: 10001n }, { uin: 0n }, { uin: 20002n }] },
+        users: [{ uin: 10001n }, { uin: 0n }, { uin: 20002n }],
       });
       expect(result.users).toEqual([{ uin: 10001 }, { uin: 20002 }]);
     });
@@ -100,13 +94,13 @@ describe('GetEmojiLikes namespace', () => {
 
     it('returns isLast=true when cookie is absent (final page)', () => {
       const result = GetEmojiLikes.deserialize({} as any, {
-        inner: { userInfo: [{ uin: 10001n }] },
+        users: [{ uin: 10001n }],
       });
       expect(result.isLast).toBe(true);
     });
 
-    it('handles missing userInfo entries field', () => {
-      const result = GetEmojiLikes.deserialize({} as any, { inner: {} });
+    it('handles a missing users field', () => {
+      const result = GetEmojiLikes.deserialize({} as any, {});
       expect(result.users).toEqual([]);
     });
   });
@@ -122,14 +116,15 @@ describe('GetEmojiLikes namespace', () => {
       const respEnvelope = Buffer.from(protobuf_encode<OidbBase<Oidb0x9083Resp>>({
         command: 0x9083, subCommand: 1,
         body: {
-          inner: { userInfo: [{ uin: 10001n }] },
-          cookie: new Uint8Array([0xDE, 0xAD]),
-        } as any,
+          users: [{ uin: 10001n }],
+          cookie: 'next',
+          isLast: false,
+        },
       }));
       const sender = makeSender(respEnvelope);
       const result = await GetEmojiLikes.invoke(sender, { groupId: 1, sequence: 1, emojiId: '76' });
       expect(result.users).toEqual([{ uin: 10001 }]);
-      expect(result.cookie).toBe(Buffer.from([0xDE, 0xAD]).toString('base64'));
+      expect(result.cookie).toBe('next');
       expect(result.isLast).toBe(false);
     });
 
@@ -153,6 +148,22 @@ describe('GetEmojiLikes namespace', () => {
       expect(env.body?.emojiId).toBe('128516');
       expect(env.body?.emojiType).toBe(2);
       expect(env.body?.count).toBe(20);
+    });
+
+    it('byte-oracle: request body uses type then emoji id, not the set-reaction order', async () => {
+      const sender = makeSender();
+      await GetEmojiLikes.invoke(sender, {
+        groupId: 12345, sequence: 99, emojiId: '76', emojiType: 1, count: 20,
+      });
+      const [, reqBytes] = sender.sendRawPacket.mock.calls[0]!;
+      const body = [
+        ...v(2, 12345),
+        ...v(3, 99),
+        ...v(4, 1),
+        ...s(5, '76'),
+        ...v(8, 20),
+      ];
+      expect(Buffer.from(reqBytes).toString('hex')).toBe(env(0x9083, 1, body, false));
     });
   });
 });

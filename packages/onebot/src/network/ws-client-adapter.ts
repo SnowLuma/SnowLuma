@@ -1,18 +1,24 @@
 import { WebSocket } from '@snowluma/websocket';
-import { createLogger, type Logger } from '@snowluma/common/logger';
+import { createLogger } from '@snowluma/common/logger';
 import {
   pickDispatchJson,
   resolveReportOptions,
-  shapeEventForAdapter,
   type DispatchPayload,
   type EventReportOptions,
 } from '../event-filter';
 import type { JsonObject, WsClientNetwork, WsRole } from '../types';
-import { IOneBotNetworkAdapter, NetworkReloadType, type AdapterStatus, type NetworkAdapterContext } from './adapter';
-import { rawDataToString, safeClose, safeSend } from './utils';
+import { IOneBotNetworkAdapter, type AdapterStatus, type NetworkAdapterContext } from './adapter';
+import { rawDataToString, safeClose, safeSend, safeSendAsync, startHeartbeat } from './utils';
 
 const moduleLog = createLogger('OneBot.WS-Client');
 const DEFAULT_RECONNECT_INTERVAL_MS = 5000;
+// Transport-level keepalive: ping every 30s, declare the link dead only after 2
+// consecutive pings go unanswered — ~90s of total silence (see startHeartbeat
+// for the +1-interval timing). Conservative on purpose so transient jitter/GC
+// never reaps a healthy connection. See issue #208.
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const HEARTBEAT_MAX_MISSED = 2;
+const HEARTBEAT_DEAD_AFTER_S = (HEARTBEAT_INTERVAL_MS * (HEARTBEAT_MAX_MISSED + 1)) / 1000;
 
 export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
   private socket: WebSocket | null = null;
@@ -21,18 +27,18 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
   private options: EventReportOptions;
   private role: WsRole;
   private explicitlyClosed = false;
-  private readonly log: Logger;
+  private acceptingActions = false;
+  private readonly inFlightActions = new Set<Promise<void>>();
+  // Stop fn for the CURRENT socket's keepalive, so close()/reload can halt it
+  // immediately instead of waiting for the deferred 'close' event. The per-socket
+  // closure in connect() still owns the #97 stale-socket case; this is idempotent
+  // with it (both call the same stop).
+  private heartbeatStop: (() => void) | null = null;
 
   constructor(name: string, config: WsClientNetwork, ctx: NetworkAdapterContext) {
-    super(name, config, ctx);
+    super(name, config, ctx, moduleLog);
     this.options = resolveReportOptions(config);
     this.role = config.role ?? 'Universal';
-    const uinNum = Number.parseInt(ctx.uin, 10);
-    this.log = Number.isFinite(uinNum) && uinNum > 0 ? moduleLog.child({ uin: uinNum }) : moduleLog;
-  }
-
-  override get isActive(): boolean {
-    return this.isEnabled;
   }
 
   open(): void {
@@ -41,18 +47,32 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
     if (!this.config.url) return;
     this.explicitlyClosed = false;
     this.isEnabled = true;
-    this.connect();
+    try {
+      this.connect();
+      this.acceptingActions = true;
+      this.clearApplyFailure();
+    } catch (error) {
+      this.isEnabled = false;
+      this.explicitlyClosed = true;
+      this.acceptingActions = false;
+      this.recordTransportFailure(error);
+      throw error;
+    }
   }
 
-  close(): void {
+  async close(): Promise<void> {
     this.explicitlyClosed = true;
+    this.acceptingActions = false;
     this.isEnabled = false;
     this.connected = false;
     this.cancelReconnect();
+    this.heartbeatStop?.();
+    this.heartbeatStop = null;
     if (this.socket) {
       safeClose(this.socket);
       this.socket = null;
     }
+    await Promise.all(this.inFlightActions);
   }
 
   override describeStatus(): AdapterStatus {
@@ -61,33 +81,17 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
     return { name: this.name, kind: 'wsClient', status: 'warn', detail: this.reconnectTimer ? '重连中' : '连接中' };
   }
 
-  async reload(next: WsClientNetwork): Promise<NetworkReloadType> {
-    const prevSig = bindingSignature(this.config);
-    const wasEnabled = this.isEnabled;
-    const willEnable = next.enabled !== false && !!next.url;
+  protected override bindingSignature(config: WsClientNetwork): string {
+    return `${config.url}#${config.role ?? 'Universal'}#${Math.max(1000, config.reconnectIntervalMs ?? DEFAULT_RECONNECT_INTERVAL_MS)}#${config.accessToken ?? ''}`;
+  }
 
-    this.config = structuredClone(next);
+  protected override willEnable(config: WsClientNetwork): boolean {
+    return config.enabled !== false && !!config.url;
+  }
+
+  protected override onConfigReplaced(next: WsClientNetwork): void {
     this.options = resolveReportOptions(next);
     this.role = next.role ?? 'Universal';
-
-    const sigChanged = prevSig !== bindingSignature(next);
-    if (sigChanged && wasEnabled) {
-      this.close();
-      if (willEnable) {
-        this.open();
-        return NetworkReloadType.Reopened;
-      }
-      return NetworkReloadType.Closed;
-    }
-    if (!wasEnabled && willEnable) {
-      this.open();
-      return NetworkReloadType.Opened;
-    }
-    if (wasEnabled && !willEnable) {
-      this.close();
-      return NetworkReloadType.Closed;
-    }
-    return NetworkReloadType.Normal;
   }
 
   onEvent(_event: JsonObject, payload: DispatchPayload): void {
@@ -114,20 +118,62 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
 
     const socket = new WebSocket(this.config.url, { headers });
     this.socket = socket;
+    // Per-socket so a hot-reload overlap (old close firing after the new socket
+    // is assigned, see #97) can only ever stop its own keepalive.
+    let stopHeartbeat: (() => void) | null = null;
 
     socket.on('open', () => {
+      // Symmetric with the 'close' guard (#97): if this socket was already
+      // replaced, a late 'open' must not flip `connected` or install a stale
+      // heartbeat onto the current connection's slot.
+      if (this.socket !== socket) return;
       this.connected = true;
       this.log.info('[%s] connected %s', this.name, this.config.url);
       this.sendBootstrapMetaEvents(socket);
+      // Only meaningful once OPEN — ping() no-ops before the handshake completes.
+      stopHeartbeat = startHeartbeat(
+        socket,
+        { intervalMs: HEARTBEAT_INTERVAL_MS, maxMissed: HEARTBEAT_MAX_MISSED },
+        () => {
+          if (this.explicitlyClosed || !this.isEnabled) return;
+          this.log.warn('[%s] no inbound response for ~%ds, reconnecting half-open connection %s', this.name, HEARTBEAT_DEAD_AFTER_S, this.config.url);
+          // terminate → 'close' → scheduleReconnect, reusing the normal path.
+          socket.terminate();
+        },
+      );
+      this.heartbeatStop = stopHeartbeat;
     });
 
     socket.on('message', (raw: Buffer) => {
-      void this.handleApiMessage(socket, raw).catch((err) => {
-        this.log.warn('[%s] handleApiMessage threw: %s', this.name, err instanceof Error ? (err.stack ?? err.message) : String(err));
-      });
+      if (this.socket !== socket) {
+        this.log.warn('[%s] rejected inbound action from stale socket', this.name);
+        return;
+      }
+      if (this.ctx.api.isAcceptingActions === false) {
+        this.log.warn('[%s] rejected inbound action after instance quiesce', this.name);
+        if (this.role === 'Api' || this.role === 'Universal') {
+          const text = rawDataToString(raw);
+          if (text) this.ctx.api.traceQuiescedStreamRequest(text);
+        }
+        return;
+      }
+      this.trackInboundAction(() => this.handleApiMessage(socket, raw));
     });
 
     socket.on('close', () => {
+      stopHeartbeat?.();
+      // Drop the instance handle only if it still points at THIS socket's stop
+      // (a newer socket may already own it after a hot-reload overlap).
+      if (this.heartbeatStop === stopHeartbeat) this.heartbeatStop = null;
+      stopHeartbeat = null;
+      // Ignore close events from a socket that is no longer the current
+      // connection. A hot reload (signature change) calls close() then open()
+      // back-to-back; the old socket's `'close'` event fires AFTER the new
+      // one is already assigned to `this.socket`, and without this guard it
+      // would null out `this.socket`, drop `connected`, and schedule an
+      // unwanted reconnect — observable as a reconnect storm against a
+      // single-connection backend that kicks duplicates. See issue #97.
+      if (this.socket !== socket) return;
       this.socket = null;
       this.connected = false;
       if (this.explicitlyClosed || !this.isEnabled) return;
@@ -162,25 +208,42 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
     if (this.role !== 'Api' && this.role !== 'Universal') return;
     const text = rawDataToString(raw);
     if (!text) return;
-    const response = await this.ctx.api.processRequest(text);
-    safeSend(socket, response);
+    // Stream API (#163): one frame for a normal action, N for a streaming one.
+    // Async send = backpressure; liveness check aborts on disconnect.
+    await this.ctx.api.processStreamRequest(
+      text,
+      (frame) => safeSendAsync(socket, frame),
+      () => socket.readyState === 1,
+    );
+  }
+
+  private trackInboundAction(start: () => Promise<void>): void {
+    if (
+      !this.acceptingActions
+      || this.ctx.api.isAcceptingActions === false
+    ) {
+      this.log.warn('[%s] rejected inbound action while adapter is closing', this.name);
+      return;
+    }
+    let action: Promise<void>;
+    try {
+      action = start();
+    } catch (error) {
+      this.log.error('[%s] inbound action start failed: %s', this.name, error instanceof Error ? (error.stack ?? error.message) : String(error));
+      return;
+    }
+    const tracked = action.then(
+      () => undefined,
+      (error) => {
+        this.log.error('[%s] inbound action failed: %s', this.name, error instanceof Error ? (error.stack ?? error.message) : String(error));
+      },
+    );
+    this.inFlightActions.add(tracked);
+    void tracked.then(() => { this.inFlightActions.delete(tracked); });
   }
 
   private sendBootstrapMetaEvents(socket: WebSocket): void {
     if (this.role !== 'Event' && this.role !== 'Universal') return;
-    const events = [
-      this.ctx.buildLifecycleEvent('connect'),
-      this.ctx.buildLifecycleEvent('enable'),
-      this.ctx.buildHeartbeatEvent(),
-    ];
-    for (const event of events) {
-      const shaped = shapeEventForAdapter(event, this.options);
-      if (!shaped) continue;
-      safeSend(socket, JSON.stringify(shaped));
-    }
+    for (const frame of this.bootstrapMetaFrames(this.options)) safeSend(socket, frame);
   }
-}
-
-function bindingSignature(net: WsClientNetwork): string {
-  return `${net.url}#${net.role ?? 'Universal'}#${Math.max(1000, net.reconnectIntervalMs ?? DEFAULT_RECONNECT_INTERVAL_MS)}#${net.accessToken ?? ''}`;
 }

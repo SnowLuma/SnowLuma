@@ -27,6 +27,7 @@ export interface MockMessageApi {
   recallPrivate: ReturnType<typeof vi.fn>;
   markGroupRead: ReturnType<typeof vi.fn>;
   markPrivateRead: ReturnType<typeof vi.fn>;
+  markAllRead: ReturnType<typeof vi.fn>;
 }
 
 export function mockMessageApi(): MockMessageApi {
@@ -38,6 +39,7 @@ export function mockMessageApi(): MockMessageApi {
     recallPrivate: vi.fn(async () => undefined),
     markGroupRead: vi.fn(async () => undefined),
     markPrivateRead: vi.fn(async () => undefined),
+    markAllRead: vi.fn(async () => undefined),
   };
 }
 
@@ -65,6 +67,7 @@ export interface MockGroupFileApi {
   upload: ReturnType<typeof vi.fn>;
   uploadPrivate: ReturnType<typeof vi.fn>;
   publish: ReturnType<typeof vi.fn>;
+  trans: ReturnType<typeof vi.fn>;
   getCount: ReturnType<typeof vi.fn>;
   list: ReturnType<typeof vi.fn>;
   getUrl: ReturnType<typeof vi.fn>;
@@ -85,6 +88,7 @@ export function mockGroupFileApi(): MockGroupFileApi {
     upload: vi.fn(async () => ({ fileId: 'stub-fid' })),
     uploadPrivate: vi.fn(async () => ({ fileId: 'stub-pfid', fileHash: 'stub-hash' })),
     publish: vi.fn(async () => undefined),
+    trans: vi.fn(async () => ({ saveBusId: 102, saveFilePath: '/stub-path' })),
     getCount: vi.fn(async () => ({ fileCount: 0, maxCount: 10000 })),
     list: vi.fn(async () => ({ files: [], folders: [] })),
     getUrl: vi.fn(async () => 'stub://url'),
@@ -123,8 +127,13 @@ export interface MockBridge {
     nickname: string;
     findUidByUin: ReturnType<typeof vi.fn>;
     findUinByUid: ReturnType<typeof vi.fn>;
+    resolveUin: ReturnType<typeof vi.fn>;
     findGroupMember: ReturnType<typeof vi.fn>;
+    updateFriendRemark: ReturnType<typeof vi.fn>;
+    updateGroupRemark: ReturnType<typeof vi.fn>;
+    forgetGroup: ReturnType<typeof vi.fn>;
   };
+  events: { emit: ReturnType<typeof vi.fn> };
   apis: MockApiHub;
   sendRawPacket: ReturnType<typeof vi.fn>;
   fetchFriendList: ReturnType<typeof vi.fn>;
@@ -153,9 +162,14 @@ export function mockBridge(overrides: Partial<MockBridge> = {}): MockBridge {
       nickname: 'self-nick',
       findUidByUin: vi.fn(() => 'cached-uid'),
       findUinByUid: vi.fn(() => 0),
+      resolveUin: vi.fn(async () => null),
       findGroupMember: vi.fn(() => null),
+      updateFriendRemark: vi.fn(() => true),
+      updateGroupRemark: vi.fn(() => true),
+      forgetGroup: vi.fn(),
       ...(overrides.identity ?? {}),
     } as MockBridge['identity'],
+    events: overrides.events ?? { emit: vi.fn(async () => undefined) },
     apis: overrides.apis ?? mockApiHub(),
     sendRawPacket: vi.fn(async () => defaultResp),
     fetchFriendList: vi.fn(async () => []),

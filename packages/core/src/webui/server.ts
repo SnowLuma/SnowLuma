@@ -1,19 +1,105 @@
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import type { HookManager, HookProcessInfo } from '@snowluma/bridge';
-import { createLogger, getLogLevel, getRecentLogs, LOG_LEVELS, setLogLevel, subscribeLogs } from '@snowluma/common/logger';
-import { loadOneBotConfig, saveOneBotConfig } from '@snowluma/onebot/config';
+import {
+  clearManagedLogs,
+  configureFileTransport,
+  getLogStorageStatus,
+} from '@snowluma/common/log-file-transport';
+import {
+  createLogger,
+  getLogLevel,
+  getLogSnapshot,
+  getRecentLogs,
+  logInitialWebuiCredentials,
+  LOG_LEVELS,
+  setLogLevel,
+  subscribeLogs,
+} from '@snowluma/common/logger';
+import {
+  assertValidOneBotConfig,
+  loadOneBotConfig,
+  OneBotConfigValidationError,
+  saveOneBotConfig,
+} from '@snowluma/onebot/config';
+import { loadGlobalSettings, saveGlobalSettings } from '@snowluma/onebot/global-config';
 import type { OneBotManager } from '@snowluma/onebot/manager';
-import type { OneBotConfig } from '@snowluma/onebot/types';
+import {
+  clearInactiveStreamStorage,
+  snapshotStreamStorage,
+} from '@snowluma/onebot/stream-storage';
+import type { OneBotConfig, JsonObject as OneBotJsonObject } from '@snowluma/onebot/types';
+import { readRuntimeConfig, updateRuntimeConfig, resolveRuntimeEnvOverrides } from '@snowluma/common/runtime';
+import { execSync } from 'child_process';
 import { randomBytes } from 'crypto';
-import { existsSync, readFileSync } from 'fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { createServer as createHttpsServer } from 'https';
 import { Hono, type Context } from 'hono';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { evaluatePasswordRules, isStrongPassword, WebuiAuth } from './auth';
+import { completeWebuiLogin, invalidateOtherSessions } from './webui-login';
+import {
+  beginTotpEnrollment,
+  confirmTotpEnrollment,
+  decideSecondFactorLogin,
+  regenerateRecoveryCodes,
+} from './totp';
+import {
+  EULA_ACCEPT_ENV,
+  getAgreementsPayload,
+  isConsentRequired,
+  loadAgreements,
+  PRIVACY_ACCEPT_ENV,
+  recordConsent,
+  resolveEnvironmentConsent,
+} from './consent';
+import { requireTlsContext, resolveTlsContext, validateTlsPair } from './tls';
+import { coerceSettingsPatch, evaluateSettingsSave, tlsCertDeletionBlocked } from './system-settings';
+import { checkListenerExposure } from './listener-exposure';
+import { buildBackup } from './backup';
+import { restoreBackup, RestoreTransactionError, type RestorePhase } from './restore';
+import { collectActionDocs, collectCategories } from '@snowluma/onebot/action-docs';
+import { createFramePusher } from './debug-stream';
+import { buildStreamInvokeResponse, streamUploadToDisk } from './debug-tools';
+import { sseResponse } from './sse-response';
+import { bindStateStream } from './state-stream';
+import type { StateBus, StateResource } from './state-bus';
+import { startConnectionDiffLoop } from './connection-diff-loop';
+import { comparableConnectionSnapshot } from './connection-snapshot';
+import { traceAuthenticatedWebuiMutation } from './mutation-trace';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
+import {
+  OneBotAccessTokenPolicyError,
+  validateOneBotAccessTokenChanges,
+} from './onebot-token-policy';
 import { findAvailablePort } from './port';
+import {
+  clearBackgroundImage,
+  loadUiConfig,
+  MAX_BACKGROUND_BYTES,
+  publicAppearance,
+  readBackgroundImage,
+  saveUiConfig,
+  sniffImageMime,
+  writeBackgroundImage,
+} from './ui-config';
+import { currentVersion, getUpdateInfo } from './update-check';
+import { buildFullTraceDownload } from './log-export';
+import { loadNotificationsConfig, saveNotificationsConfig } from '../notifications/config';
+import type { NotificationManager } from '../notifications/manager';
+import { StorageManagementService } from './storage-management';
+import { registerStorageRoutes } from './storage-routes';
+import { LogStorageSettingsManager } from './storage-settings';
+import {
+  clearAvatarSessionCookie,
+  extractBearerToken,
+  readAvatarSessionToken,
+  registerLoginRequestSecurity,
+  setAvatarSessionCookie,
+  webuiSecurityHeaders,
+} from './request-security';
 
 const log = createLogger('WebUI');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -25,12 +111,96 @@ interface SessionInfo {
 
 const sessionTokens = new Map<string, SessionInfo>();
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+const totpEnrollments = new Map<string, {
+  secret: string;
+  issuer: string;
+  accountName: string;
+  expiresAt: number;
+}>();
 
 const LOGIN_MAX_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+const TOTP_ENROLL_TTL_MS = 10 * 60 * 1000;
+const DEFAULT_TOTP_ISSUER = 'SnowLuma';
 const AVATAR_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const AVATAR_BROWSER_CACHE_SECONDS = 30 * 24 * 60 * 60;
+
+export interface RestoreFailureBody {
+  success: false;
+  message: string;
+  transactionId: string;
+  phase: RestorePhase;
+  committed: boolean;
+  rollbackSucceeded?: boolean;
+  snapshotDir?: string;
+  failedFiles: string[];
+}
+
+/** Translate transaction facts into an operator-facing HTTP failure. */
+export function describeRestoreFailure(error: RestoreTransactionError): {
+  status: 400 | 500;
+  body: RestoreFailureBody;
+} {
+  const detail = error.cause instanceof Error ? error.cause.message : error.message;
+  let message: string;
+
+  if (error.phase === 'preflight') {
+    message = `备份校验失败：${detail}`;
+  } else if (error.rollbackSucceeded === false) {
+    const recovery = error.snapshotDir ? `，恢复资料保留在 ${error.snapshotDir}` : '';
+    message = `恢复失败，且自动回滚不完整。请勿重启或继续修改配置；事务 ID：${error.transactionId}${recovery}。请检查服务器日志。`;
+  } else if (error.committed) {
+    const retained = error.snapshotDir ? `，临时事务资料保留在 ${error.snapshotDir}` : '';
+    message = `配置已恢复，但临时事务目录清理失败；重启后配置仍会生效。事务 ID：${error.transactionId}${retained}。请检查服务器日志。`;
+  } else if (error.phase === 'cleanup') {
+    const configState = error.rollbackSucceeded === true ? '当前配置已自动回滚' : '当前配置未改动';
+    const retained = error.snapshotDir ? `，临时事务资料保留在 ${error.snapshotDir}` : '';
+    message = `恢复失败，${configState}，但临时事务目录清理失败；事务 ID：${error.transactionId}${retained}。请检查服务器日志。`;
+  } else if (error.rollbackSucceeded === true) {
+    message = `恢复失败，当前配置已自动回滚。事务 ID：${error.transactionId}。请检查服务器日志。`;
+  } else {
+    message = `恢复失败，当前配置未改动。事务 ID：${error.transactionId}。请检查服务器日志。`;
+  }
+
+  return {
+    status: error.phase === 'preflight' ? 400 : 500,
+    body: {
+      success: false,
+      message,
+      transactionId: error.transactionId,
+      phase: error.phase,
+      committed: error.committed,
+      ...(error.rollbackSucceeded === undefined ? {} : { rollbackSucceeded: error.rollbackSucceeded }),
+      ...(error.snapshotDir === undefined ? {} : { snapshotDir: error.snapshotDir }),
+      failedFiles: error.failedFiles,
+    },
+  };
+}
+
+function isMissingPath(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT';
+}
+
+/** Read one allowlisted config file; I/O failures other than absence are fatal. */
+export function readBackupConfigFile(configDir: string, name: string): Buffer | null {
+  try {
+    return readFileSync(path.join(configDir, name));
+  } catch (error) {
+    if (isMissingPath(error)) return null;
+    throw error;
+  }
+}
+
+/** List per-account OneBot config candidates; an unreadable directory is fatal. */
+export function listPerUinOneBotConfigFiles(configDir: string): string[] {
+  try {
+    return readdirSync(configDir).filter((name) => /^onebot_\d+\.json$/.test(name));
+  } catch (error) {
+    if (isMissingPath(error)) return [];
+    throw error;
+  }
+}
 
 // Endpoints that an auth-required-but-must-change-password session can still hit.
 const MUST_CHANGE_ALLOWLIST = new Set([
@@ -38,20 +208,32 @@ const MUST_CHANGE_ALLOWLIST = new Set([
   '/api/auth/state',
   '/api/auth/check-strength',
   '/api/auth/change-password',
+  // Consent is collected AFTER login but BEFORE the forced password change, so
+  // reading + recording it must be reachable while the session mustChangePassword.
+  '/api/agreements',
+  '/api/agreements/record-consent',
   '/api/logout',
 ]);
 
-// Endpoints that may authenticate via `?token=` query parameter. Only the
-// SSE log stream is here because EventSource cannot set custom headers; all
-// other endpoints MUST use the Authorization header so tokens never leak
-// into access logs / Referer / browser history.
-const TOKEN_QUERY_ALLOWLIST = new Set([
-  '/api/logs/stream',
+// Endpoints reachable while consent is still pending. Everything else is 403'd
+// with consentRequired:true until the operator accepts — the same server-side
+// enforcement pattern as MUST_CHANGE_ALLOWLIST, so the consent gate is real and
+// not merely a frontend convention. Ordered BEFORE the must-change gate so a
+// fresh install must consent first, then set its password.
+const CONSENT_ALLOWLIST = new Set([
+  '/api/status',
+  '/api/auth/state',
+  '/api/agreements',
+  '/api/agreements/record-consent',
+  '/api/logout',
 ]);
 
-// uin = QQ number; 5–12 digits. Used to construct config file paths,
-// so we MUST refuse anything else (path traversal, NUL bytes, etc.).
-const UIN_REGEX = /^\d{5,12}$/;
+// uin = QQ number; 5–10 digits (real QQ UINs fit in uint32, max 4294967295).
+// Used to construct config file paths, so we MUST refuse anything else (path
+// traversal, NUL bytes, etc.) — and the 10-digit cap also rejects the garbage
+// timestamp-shaped UINs the native hook can emit (issue #162). Mirrors
+// isRealUin in @snowluma/common/uin.
+const UIN_REGEX = /^\d{5,10}$/;
 
 const avatarCache = new Map<string, { body: Uint8Array; contentType: string; expiresAt: number }>();
 
@@ -63,16 +245,23 @@ function purgeExpiredTokens() {
   for (const [ip, attempt] of loginAttempts) {
     if (now > attempt.resetAt) loginAttempts.delete(ip);
   }
+  for (const [token, enrollment] of totpEnrollments) {
+    if (now > enrollment.expiresAt) totpEnrollments.delete(token);
+  }
 }
 
-/**
- * Resolve the client IP for per-IP rate limiting. Default is the TCP
- * socket peer (cannot be spoofed by the client). Operators behind a
- * reverse proxy must opt in via the `SNOWLUMA_WEBUI_TRUST_PROXY` env
- * var; see `./client-ip.ts` for the accepted values.
- */
-const trustProxyMode = parseTrustProxy(process.env.SNOWLUMA_WEBUI_TRUST_PROXY);
-const getClientIp = makeClientIpResolver(trustProxyMode);
+function sanitizeTotpLabelPart(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.replace(/[\r\n\t]/g, '').trim();
+  if (!trimmed) return fallback;
+  return trimmed.slice(0, 64);
+}
+
+function defaultTotpAccountName(): string {
+  const host = os.hostname().trim();
+  return host || 'admin';
+}
+
 
 async function fetchQqAvatar(uin: string): Promise<{ body: Uint8Array; contentType: string }> {
   const response = await fetch(`https://q1.qlogo.cn/g?b=qq&nk=${encodeURIComponent(uin)}&s=100`, {
@@ -87,15 +276,267 @@ async function fetchQqAvatar(uin: string): Promise<{ body: Uint8Array; contentTy
   return { body, contentType };
 }
 
+// ── Host system info (cached at module level, invariant over process lifetime) ──
+
+function detectDistro(): string {
+  // Helper: extract major.minor.patch from a kernel version string
+  const parseKernel = (v: string): string | null => { const m = v.match(/(\d+\.\d+\.\d+)/); return m?.[1] ?? null; };
+
+  // ── Linux ──────────────────────────────────────────────────────────
+  if (os.platform() === 'linux') {
+    const kernelRelease = os.release();
+    const kernelVer = parseKernel(kernelRelease);
+
+    // Normalize RHEL-family distro names before comparison.
+    // /proc/version typically shows "Red Hat" (GCC build tag) even on
+    // Rocky / Alma / Oracle Linux, while /etc/os-release carries the
+    // actual distro name.  Treat the whole family as a single group so
+    // they are never considered "disagreeing".
+    const isRhelFamily = (name: string): boolean =>
+      /^(red hat|centos|rocky|alma|oracle|scientific|anolis|tencentos|bclinux|opencloudos)/.test(name);
+
+    // Extract distro version from kernel release string.
+    // Distros embed their version in the kernel ABI / build tag:
+    //   Debian: "6.8.12-1-deb13-amd64"             → 13
+    //   RHEL family: "4.18.0-513.el9.x86_64"        → 9
+    //   Fedora: "6.8.12-300.fc40.x86_64"            → 40
+    //   Amazon Linux: "6.1.158-178.288.amzn2023"    → 2023
+    //   Mageia: "6.8.12-1.mga10"                    → 10
+    const kernelDistroVer = (distro: string | null): string | null => {
+      if (!distro) return null;
+      const lr = kernelRelease.toLowerCase();
+      const ld = distro.toLowerCase();
+      if (ld === 'debian') { const m = lr.match(/deb(\d+)/); if (m) return m[1]; }
+      if (isRhelFamily(ld)) { const m = lr.match(/el(\d+)/); if (m) return m[1]; }
+      if (ld === 'fedora') { const m = lr.match(/fc(\d+)/); if (m) return m[1]; }
+      if (ld === 'amazon' || ld.includes('amazon')) { const m = lr.match(/amzn(\d+)/); if (m) return m[1]; }
+      if (ld === 'mageia') { const m = lr.match(/mga(\d+)/); if (m) return m[1]; }
+      if (ld === 'armbian') { const m = lr.match(/armbian(\d+)/); if (m) return m[1]; }
+      if (ld === 'dietpi') { const m = lr.match(/dietpi(\d+)/); if (m) return m[1]; }
+      if (ld.includes('libreelec')) { const m = lr.match(/libreelec(\d+)/); if (m) return m[1]; }
+      if (ld.includes('coreelec')) { const m = lr.match(/coreelec(\d+)/); if (m) return m[1]; }
+      return null;
+    };
+
+    // Source A: /proc/version (host kernel build, crosses container boundary)
+    let hostName: string | null = null;
+    try {
+      const raw = readFileSync('/proc/version', 'utf8').trim();
+      const vm = raw.match(/^Linux version\s+(\S+)/);
+      if (vm) {
+        // Step 1: kernel release string — embedded distros embed their name
+        // here (e.g. "6.6.16-armbian", "6.1.60-dietpi"). More reliable than
+        // the GCC build tag, which often shows the cross-compilation toolchain
+        // (e.g. "Ubuntu" for Armbian / DietPi) rather than the actual OS.
+        const releaseStr = vm[1].toLowerCase();
+        const releaseNameMatch = releaseStr.match(/(armbian|dietpi|libreelec|coreelec)/);
+        if (releaseNameMatch) {
+          const nameMap: Record<string, string> = {
+            armbian: 'Armbian',
+            dietpi: 'DietPi',
+            libreelec: 'LibreELEC',
+            coreelec: 'CoreELEC',
+          };
+          hostName = nameMap[releaseNameMatch[1]] ?? releaseNameMatch[1];
+        } else {
+          // Step 2: GCC build tag — matches the distribution that compiled
+          // the running kernel (e.g. "(Ubuntu ...)", "(Debian ...)",
+          // "(Red Hat ...)").
+          const dm = raw.match(/\b(Debian|Ubuntu|Red Hat|CentOS|Fedora|Alpine|Arch|Gentoo|SUSE|Proxmox|OpenWrt|Deepin|Kylin|openEuler|Anolis|UOS|Linux Mint|Slackware|Manjaro|NixOS|Void|Mageia|Kali|Amazon|Solus|Alibaba|Armbian|DietPi|Raspbian)\b/i);
+          hostName = dm ? dm[1] : null;
+        }
+      }
+    } catch { /* source A unavailable */ }
+
+    // Source B: /etc/os-release (container / local OS)
+    let osReleaseName: string | null = null;
+    let osReleaseVer: string | null = null;
+    try {
+      for (const f of ['/etc/os-release', '/usr/lib/os-release']) {
+        if (!existsSync(f)) continue;
+        const raw = readFileSync(f, 'utf8');
+        const get = (k: string) => { const m = raw.match(new RegExp(`^${k}=("?)(.+?)\\1$`, 'm')); return m?.[2] ?? null; };
+        const pretty = get('PRETTY_NAME') || get('NAME');
+        const ver = get('VERSION_ID');
+        if (pretty) {
+          const nm = pretty.match(/^([^0-9]+)/);
+          osReleaseName = nm ? nm[1].trim() : pretty;
+          osReleaseVer = ver;
+          break;
+        }
+      }
+    } catch { /* source B unavailable */ }
+
+    // Decide which source to trust for the distro name & version
+    let finalName: string;
+    let finalVer: string | null;
+
+    if (hostName && osReleaseName) {
+      // Normalize and compare: e.g. "Debian" vs "Debian GNU/Linux" → match.
+      // RHEL family members (Red Hat, CentOS, Rocky, Alma, Oracle, Scientific)
+      // are normalised to the same group — /proc/version usually shows "Red Hat"
+      // (GCC build tag) even when the actual distro is Rocky / Alma / Oracle.
+      const a = hostName.toLowerCase();
+      const b = osReleaseName.toLowerCase();
+      if (a.includes(b) || b.includes(a) || (isRhelFamily(a) && isRhelFamily(b))) {
+        // Agree → prefer version from kernel release, fall back to os-release
+        finalName = osReleaseName;
+        finalVer = kernelDistroVer(hostName) ?? osReleaseVer;
+      } else {
+        // Disagree → host kernel build wins (crosses container boundary)
+        finalName = hostName;
+        finalVer = kernelDistroVer(hostName);
+      }
+    } else if (hostName) {
+      finalName = hostName;
+      finalVer = kernelDistroVer(hostName);
+    } else if (osReleaseName) {
+      finalName = osReleaseName;
+      finalVer = kernelDistroVer(osReleaseName) ?? osReleaseVer;
+    } else {
+      // Source C: legacy release files
+      for (const [path, prefix] of [
+        ['/etc/alpine-release', 'Alpine Linux '],
+        ['/etc/redhat-release', ''],
+        ['/etc/debian_version', 'Debian '],
+      ] as [string, string][]) {
+        try {
+          if (existsSync(path)) {
+            const raw = prefix + readFileSync(path, 'utf8').trim();
+            return kernelVer ? `${raw} (kernel ${kernelVer})` : raw;
+          }
+        } catch { /* try next */ }
+      }
+      return kernelVer ? `Linux (kernel ${kernelVer})` : 'Linux';
+    }
+
+    // Unified output: <Name> <version> (kernel <kernel>)
+    const base = finalVer ? `${finalName} ${finalVer}` : finalName;
+    return kernelVer ? `${base} (kernel ${kernelVer})` : base;
+  }
+
+  // ── Windows ────────────────────────────────────────────────────────
+  if (os.platform() === 'win32') {
+    try {
+      const productName = execSync(
+        'reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion" /v ProductName',
+        { encoding: 'utf8', timeout: 3000, stdio: 'pipe' },
+      );
+      const m = productName.match(/ProductName\s+REG_SZ\s+(.+)/);
+      let name = m ? m[1].trim() : `Windows ${os.release()}`;
+      // ProductName is still "Windows 10 Pro" on Windows 11 — check build number.
+      try {
+        const buildOut = execSync(
+          'reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion" /v CurrentBuildNumber',
+          { encoding: 'utf8', timeout: 3000, stdio: 'pipe' },
+        );
+        const bm = buildOut.match(/CurrentBuildNumber\s+REG_SZ\s+(\d+)/);
+        if (bm && parseInt(bm[1], 10) >= 22000) {
+          name = name.replace(/^Windows 10/, 'Windows 11');
+        }
+      } catch { /* keep name as-is */ }
+      return name;
+    } catch { /* fall through */ }
+    return `Windows ${os.release()}`;
+  }
+
+  return os.platform();
+}
+
+function normalizeArch(arch: string): string {
+  const map: Record<string, string> = {
+    loong64: 'LoongArch',
+    riscv64: 'RISC-V',
+    mips: 'MIPS',
+    mipsel: 'MIPS (LE)',
+    arm: 'ARM',
+    arm64: 'ARM64',
+    x64: 'x86_64',
+    ia32: 'x86',
+    s390: 'S/390',
+    s390x: 'S/390x',
+    ppc: 'PowerPC',
+    ppc64: 'PowerPC64',
+    ppc64le: 'PowerPC64 (LE)',
+  };
+  return map[arch] ?? arch;
+}
+
+const CACHED_DISTRO = (() => { try { return detectDistro(); } catch { return os.platform(); } })();
+const CACHED_ARCH_LABEL = normalizeArch(os.arch());
+
 export async function initWebUI(
   desiredPort: number = 5099,
   oneBotManager: OneBotManager,
   hookManager?: HookManager,
-): Promise<{ port: number }> {
+  notificationManager?: NotificationManager,
+  listener: { host?: string; tlsEnabled?: boolean; trustProxy?: string; stateBus?: StateBus } = {},
+): Promise<{ port: number; stop: () => Promise<void> }> {
+  const host = listener.host || '127.0.0.1';
+  const tlsEnabled = listener.tlsEnabled === true;
+  const bootCheck = checkListenerExposure({
+    webuiHost: host,
+    tlsEnabled,
+    pairOk: resolveTlsContext('config').ok,
+  });
+  if (!bootCheck.ok) {
+    const reason = bootCheck.code === 'invalid-bind-host'
+      ? `bind host is not a valid TCP address: ${host}`
+      : 'TLS is enabled but the certificate/private-key pair is unusable';
+    throw new Error(`WebUI listener cannot start: ${reason}`);
+  }
+  // Resolve the client IP for per-IP rate limiting from the configured
+  // trust-proxy directive (runtime.json `trustProxy`, env-overridable via
+  // SNOWLUMA_WEBUI_TRUST_PROXY which loadRuntimeConfig already merged in).
+  // Default ('') = trust the TCP socket peer only (cannot be spoofed).
+  const trustProxyMode = parseTrustProxy(listener.trustProxy);
+  const getClientIp = makeClientIpResolver(trustProxyMode);
+  // Security decisions must not silently turn an unreadable socket peer into
+  // localhost. The regular resolver keeps its compatibility fallback for
+  // rate-limit bucketing; this resolver fails closed with an empty address.
+  const getSecurityClientIp = makeClientIpResolver(trustProxyMode, '');
+
+  // Connection-status diff loop: OneBot adapters don't emit events for
+  // listening/connected/client-count changes, so we poll the snapshot at
+  // 500ms and publish 'connections' to the StateBus when it actually
+  // moves. One loop per server lifetime, lives until process exit (the
+  // setInterval is .unref'd inside the loop so it doesn't pin the event
+  // loop on shutdown).
+  //
+  // `pickComparable` strips `adapter.detail` — that's a localised human
+  // string assembled with HH:MM:SS timestamps from the last webhook
+  // delivery; including it in the diff would make every webhook event
+  // produce a publish (defeating the diff). We compare name + kind + status,
+  // plus the structured `lastErrorAt`: a new apply failure must refresh its
+  // error/time even when the adapter was already degraded. The SSE handler
+  // still ships the FULL snapshot (with `detail` and `lastError`) — it's only
+  // the diff key that's pruned.
+  //
+  // Trade-off: the rendered detail string (e.g. "3 个客户端", "上次推送
+  // 14:53:01") only refreshes on the next SSE push or on the 30s REST
+  // reconcile — not in real time. The user's original reported bugs were
+  // about process / account edges (which DO push instantly); refreshing
+  // adapter detail strings at sub-second cadence wasn't required. If it
+  // becomes one, surface client-count as a structured field on
+  // AdapterStatus and include it in the comparable.
+  let connectionDiffLoop: ReturnType<typeof startConnectionDiffLoop> | undefined;
+  if (listener.stateBus) {
+    connectionDiffLoop = startConnectionDiffLoop({
+      bus: listener.stateBus,
+      getSnapshot: () => oneBotManager.getConnectionStatuses(),
+      pickComparable: comparableConnectionSnapshot,
+      intervalMs: 500,
+    });
+  }
+
+  // Actual bound port (set just before serve; findAvailablePort may bump it).
+  // Read by GET /api/system/settings so the panel shows what's really live.
+  let boundPort = desiredPort;
+
   const auth = WebuiAuth.load();
   const initialPassword = auth.takeInitialPassword();
   if (auth.isDevMode()) {
-    log.warn('dev mode enabled: password=%s', WebuiAuth.devPassword);
+    log.warn('dev mode enabled with the configured development credential');
     log.warn('dev mode skips config/webui.json and password rotation');
   } else if (initialPassword) {
     log.info('════════════════════════════════════════════════════════════════');
@@ -104,7 +545,7 @@ export async function initWebUI(
     log.info('  若跳过初始改密，下次启动将自动生成新的随机密码。');
     log.info('  Log in and change the password now; it will not be shown again.');
     log.info('────────────────────────────────────────────────────────────────');
-    log.info('initial credentials: user=admin password=%s', initialPassword);
+    logInitialWebuiCredentials(initialPassword);
     log.info('════════════════════════════════════════════════════════════════');
   } else if (auth.mustChangePassword()) {
     log.warn('password change is still required');
@@ -114,7 +555,52 @@ export async function initWebUI(
     log.warn('SNOWLUMA_WEBUI_TRUST_PROXY=1 — only safe behind a reverse proxy that strips client-set X-Real-IP / X-Forwarded-For');
   }
 
+  // Memoized once at startup (agreements version is fixed per process; a text
+  // change ships with a redeploy that restarts us). Flipped to false the moment
+  // consent is recorded, so the middleware never touches disk per request.
+  const environmentConsent = resolveEnvironmentConsent();
+  let consentGatePending = isConsentRequired();
+  if (environmentConsent.accepted) {
+    log.info(
+      'EULA/PRIVACY consent supplied by %s and %s (agreements version=%s)',
+      EULA_ACCEPT_ENV,
+      PRIVACY_ACCEPT_ENV,
+      loadAgreements().version,
+    );
+  } else if (environmentConsent.eulaAccepted || environmentConsent.privacyAccepted) {
+    log.warn(
+      'partial environment consent ignored; set both %s=1 and %s=1 to accept the agreements',
+      EULA_ACCEPT_ENV,
+      PRIVACY_ACCEPT_ENV,
+    );
+  } else if (consentGatePending) {
+    log.info('awaiting EULA/PRIVACY consent before the panel unlocks');
+  }
+
   const app = new Hono();
+  app.use('*', webuiSecurityHeaders);
+  registerLoginRequestSecurity(app);
+  const storageManagement = new StorageManagementService({
+    dataDir: 'data',
+    getLogStatus: getLogStorageStatus,
+    clearLogs: clearManagedLogs,
+    temporary: {
+      snapshot: snapshotStreamStorage,
+      clearInactive: clearInactiveStreamStorage,
+    },
+    // Connection statuses include active and still-retiring generations.
+    // A retiring instance may still hold SQLite handles after disappearing
+    // from getInstances(), so it must continue to block destructive cleanup.
+    listOnlineAccounts: () => oneBotManager.getConnectionStatuses()
+      .map((account) => ({ uin: account.uin, nickname: account.nickname })),
+  });
+  const logStorageSettings = new LogStorageSettingsManager({
+    readPersisted: readRuntimeConfig,
+    readEnvOverrides: () => resolveRuntimeEnvOverrides(process.env),
+    readEffective: getLogStorageStatus,
+    persist: updateRuntimeConfig,
+    apply: configureFileTransport,
+  });
 
   // ─── Anti-indexing ───────────────────────────────────────────────────────
   // The WebUI is an admin surface that has no business showing up in
@@ -139,12 +625,12 @@ export async function initWebUI(
   // ─── Auth middleware ─────────────────────────────────────────────────────
   app.use('/api/*', async (c, next) => {
     const reqPath = c.req.path;
-    if (reqPath === '/api/login') return next();
+    // `/api/ui/public` serves the cosmetic appearance subset to the
+    // pre-auth login page, so it must skip the bearer check. It exposes
+    // nothing sensitive (no layout, no secrets) — see ui-config.ts.
+    if (reqPath === '/api/login' || reqPath === '/api/ui/public') return next();
 
-    const authHeader = c.req.header('Authorization');
-    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
-    const queryToken = TOKEN_QUERY_ALLOWLIST.has(reqPath) ? (c.req.query('token') ?? '') : '';
-    const token = bearerToken || queryToken;
+    const token = extractBearerToken(c.req.raw);
     if (!token) return c.json({ status: 'failed', message: 'Unauthorized' }, 401);
 
     const info = sessionTokens.get(token);
@@ -152,12 +638,26 @@ export async function initWebUI(
       return c.json({ status: 'failed', message: 'Token expired or invalid' }, 401);
     }
 
+    // Consent gate (before the password gate): block everything outside the
+    // consent allowlist until the operator has accepted the current agreements.
+    // `consentGatePending` is memoized (see below) so this is a Set lookup, not
+    // a disk read, on the hot path.
+    if (consentGatePending && !CONSENT_ALLOWLIST.has(reqPath)) {
+      return c.json(
+        { status: 'failed', message: '请先阅读并同意用户协议与隐私政策', consentRequired: true },
+        403,
+      );
+    }
+
     if (info.mustChangePassword && !MUST_CHANGE_ALLOWLIST.has(reqPath)) {
       return c.json({ status: 'failed', message: '请先修改密码', mustChangePassword: true }, 403);
     }
 
     c.set('sessionToken' as never, token);
-    await next();
+    c.res = await traceAuthenticatedWebuiMutation(c.req.raw, async () => {
+      await next();
+      return c.res;
+    });
   });
 
   // Periodic janitor — keeps sessionTokens / loginAttempts from growing
@@ -175,31 +675,48 @@ export async function initWebUI(
       return c.json({ success: false, message: `登录尝试过多，请 ${waitSec} 秒后重试` }, 429);
     }
 
-    let body: { password?: unknown };
+    let body: unknown;
     try {
       body = await c.req.json();
     } catch {
       return c.json({ success: false, message: '请求格式错误' }, 400);
     }
-    const password = typeof body.password === 'string' ? body.password : '';
-    if (!auth.verify(password)) {
+
+    const result = completeWebuiLogin(auth, body, now);
+    if (result.kind === 'bad-request') {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    if (result.kind === 'bad-password' || result.kind === 'bad-second-factor') {
       const current = loginAttempts.get(ip) ?? { count: 0, resetAt: now + LOGIN_LOCKOUT_MS };
       current.count += 1;
       if (current.count === 1) current.resetAt = now + LOGIN_LOCKOUT_MS;
       loginAttempts.set(ip, current);
-      return c.json({ success: false, message: '密码错误' }, 401);
+      const message = result.kind === 'bad-second-factor' ? '验证码不正确' : '密码错误';
+      return c.json({ success: false, message }, 401);
+    }
+    if (result.kind === 'needs-totp') {
+      return c.json({ success: false, needsTotp: true });
     }
 
     loginAttempts.delete(ip);
+    if (result.totpState) {
+      try {
+        auth.persistTotp(result.totpState);
+      } catch (err) {
+        log.warn('persist totp after login failed: %s', err instanceof Error ? err.message : String(err));
+        return c.json({ success: false, message: '登录失败' }, 500);
+      }
+    }
     const token = randomBytes(32).toString('hex');
-    const mustChange = auth.mustChangePassword();
-    sessionTokens.set(token, { expiresAt: now + TOKEN_TTL_MS, mustChangePassword: mustChange });
-    return c.json({ success: true, token, mustChangePassword: mustChange });
+    sessionTokens.set(token, { expiresAt: now + TOKEN_TTL_MS, mustChangePassword: result.mustChangePassword });
+    setAvatarSessionCookie(c, token, listener.tlsEnabled === true);
+    return c.json({ success: true, token, mustChangePassword: result.mustChangePassword });
   });
 
   app.post('/api/logout', (c) => {
     const token = c.get('sessionToken' as never) as string | undefined;
     if (token) sessionTokens.delete(token);
+    clearAvatarSessionCookie(c, listener.tlsEnabled === true);
     return c.json({ success: true });
   });
 
@@ -244,7 +761,7 @@ export async function initWebUI(
       return c.json({ success: false, message: '新密码不得与旧密码相同' }, 400);
     }
     try {
-      auth.setPassword(newPassword);
+      auth.setPassword(newPassword, oldPassword);
     } catch (err) {
       log.warn('change password failed: %s', err instanceof Error ? err.message : String(err));
       return c.json({ success: false, message: '密码修改失败' }, 400);
@@ -253,12 +770,215 @@ export async function initWebUI(
     // password was compromised, the attacker may already hold the current
     // token; rotating credentials must rotate sessions too.
     sessionTokens.clear();
+    clearAvatarSessionCookie(c, listener.tlsEnabled === true);
     log.info('password updated; all sessions invalidated');
     return c.json({ success: true, requireRelogin: true });
   });
 
+  const totpDisabledInDev = () => auth.isDevMode();
+
+  app.get('/api/auth/totp', (c) => {
+    if (totpDisabledInDev()) {
+      return c.json({ success: false, message: '开发模式已禁用 2FA' }, 400);
+    }
+    return c.json(auth.totpStatus());
+  });
+
+  app.post('/api/auth/totp/begin', async (c) => {
+    if (totpDisabledInDev()) {
+      return c.json({ success: false, message: '开发模式已禁用 2FA' }, 400);
+    }
+    if (auth.totpEnabled()) {
+      return c.json({ success: false, message: '2FA 已开启' }, 409);
+    }
+    const token = c.get('sessionToken' as never) as string;
+    let body: Record<string, unknown> = {};
+    try {
+      const parsed = await c.req.json();
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        body = parsed as Record<string, unknown>;
+      }
+    } catch {
+      body = {};
+    }
+    const issuer = sanitizeTotpLabelPart(body.issuer, DEFAULT_TOTP_ISSUER);
+    const accountName = sanitizeTotpLabelPart(body.accountName, defaultTotpAccountName());
+    const now = Date.now();
+    const existing = totpEnrollments.get(token);
+    const secret = existing && existing.expiresAt > now ? existing.secret : undefined;
+    const enrollment = beginTotpEnrollment({ issuer, accountName, secret });
+    totpEnrollments.set(token, {
+      secret: enrollment.secret,
+      issuer,
+      accountName,
+      expiresAt: now + TOTP_ENROLL_TTL_MS,
+    });
+    return c.json({
+      success: true,
+      secret: enrollment.secret,
+      otpauthUrl: enrollment.otpauthUrl,
+      issuer: enrollment.issuer,
+      accountName: enrollment.accountName,
+    });
+  });
+
+  app.post('/api/auth/totp/confirm', async (c) => {
+    if (totpDisabledInDev()) {
+      return c.json({ success: false, message: '开发模式已禁用 2FA' }, 400);
+    }
+    if (auth.totpEnabled()) {
+      return c.json({ success: false, message: '2FA 已开启' }, 409);
+    }
+    const token = c.get('sessionToken' as never) as string;
+    let body: { password?: unknown; code?: unknown };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const password = typeof body.password === 'string' ? body.password : '';
+    const code = typeof body.code === 'string' ? body.code : '';
+    if (!auth.verify(password)) {
+      return c.json({ success: false, message: '当前密码不正确' }, 401);
+    }
+    const pending = totpEnrollments.get(token);
+    if (!pending || pending.expiresAt <= Date.now()) {
+      totpEnrollments.delete(token);
+      return c.json({ success: false, message: '请先开始绑定' }, 400);
+    }
+    try {
+      const enabled = confirmTotpEnrollment({
+        password,
+        secret: pending.secret,
+        code,
+        label: `${pending.issuer} (${pending.accountName})`,
+        atMs: Date.now(),
+      });
+      auth.persistTotp(enabled.state);
+      totpEnrollments.delete(token);
+      invalidateOtherSessions(sessionTokens, token);
+      log.info('webui 2FA enabled; other sessions invalidated');
+      return c.json({ success: true, recoveryCodes: enabled.recoveryCodes });
+    } catch (err) {
+      log.warn('totp confirm failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '验证码不正确' }, 401);
+    }
+  });
+
+  app.post('/api/auth/totp/disable', async (c) => {
+    if (totpDisabledInDev()) {
+      return c.json({ success: false, message: '开发模式已禁用 2FA' }, 400);
+    }
+    if (!auth.totpEnabled()) {
+      return c.json({ success: false, message: '2FA 未开启' }, 400);
+    }
+    const token = c.get('sessionToken' as never) as string;
+    let body: { password?: unknown; totp?: unknown; recoveryCode?: unknown };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const password = typeof body.password === 'string' ? body.password : '';
+    if (!auth.verify(password)) {
+      return c.json({ success: false, message: '当前密码不正确' }, 401);
+    }
+    const decision = decideSecondFactorLogin({
+      totpEnabled: true,
+      state: auth.totpState(),
+      password,
+      totp: typeof body.totp === 'string' ? body.totp : undefined,
+      recoveryCode: typeof body.recoveryCode === 'string' ? body.recoveryCode : undefined,
+      atMs: Date.now(),
+    });
+    if (decision.kind !== 'ok') {
+      return c.json({ success: false, message: '验证码不正确' }, 401);
+    }
+    auth.persistTotp(undefined);
+    totpEnrollments.delete(token);
+    invalidateOtherSessions(sessionTokens, token);
+    log.info('webui 2FA disabled; other sessions invalidated');
+    return c.json({ success: true });
+  });
+
+  app.post('/api/auth/totp/recovery-codes', async (c) => {
+    if (totpDisabledInDev()) {
+      return c.json({ success: false, message: '开发模式已禁用 2FA' }, 400);
+    }
+    const state = auth.totpState();
+    if (!state) {
+      return c.json({ success: false, message: '2FA 未开启' }, 400);
+    }
+    let body: { password?: unknown; totp?: unknown };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const password = typeof body.password === 'string' ? body.password : '';
+    const totp = typeof body.totp === 'string' ? body.totp : '';
+    if (!auth.verify(password)) {
+      return c.json({ success: false, message: '当前密码不正确' }, 401);
+    }
+    try {
+      const next = regenerateRecoveryCodes({
+        password,
+        state,
+        totp,
+        atMs: Date.now(),
+      });
+      auth.persistTotp(next.state);
+      log.info('webui 2FA recovery codes regenerated');
+      return c.json({ success: true, recoveryCodes: next.recoveryCodes });
+    } catch (err) {
+      log.warn('totp recovery regenerate failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '验证码不正确' }, 401);
+    }
+  });
+
+  // ─── EULA / PRIVACY consent ──────────────────────────────────────────────
+  // Both are bearer-gated (consent is collected AFTER login) and live in the
+  // consent + must-change allowlists so they're reachable during onboarding.
+  // The version is content-derived, so consent is stable across app upgrades
+  // and re-prompted only when the agreement text itself changes.
+  app.get('/api/agreements', (c) => c.json(getAgreementsPayload()));
+
+  app.post('/api/agreements/record-consent', async (c) => {
+    let body: { version?: unknown };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const version = typeof body.version === 'string' ? body.version : '';
+    const current = loadAgreements().version;
+    // Reject a stale/blank version so a client that read an older agreement set
+    // can't record consent that the server would then treat as current.
+    if (!version || version !== current) {
+      return c.json(
+        { success: false, message: '协议版本已更新，请刷新后重新确认', currentVersion: current },
+        409,
+      );
+    }
+    try {
+      recordConsent(version);
+    } catch (err) {
+      log.warn('record consent failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '保存失败，请检查服务器日志' }, 500);
+    }
+    consentGatePending = false; // unlock the rest of the API for this process
+    log.info('agreements consent recorded (version=%s)', version);
+    return c.json({ success: true, version });
+  });
+
   // ─── Avatar proxy (uin validated) ────────────────────────────────────────
   app.get('/avatar/:uin', async (c) => {
+    const sessionToken = readAvatarSessionToken(c);
+    const session = sessionTokens.get(sessionToken);
+    if (!session || Date.now() > session.expiresAt) {
+      if (sessionToken) sessionTokens.delete(sessionToken);
+      return c.text('unauthorized', 401);
+    }
     const uin = c.req.param('uin');
     if (!UIN_REGEX.test(uin)) return c.text('invalid uin', 400);
 
@@ -277,15 +997,50 @@ export async function initWebUI(
     return new Response(cached.body, {
       headers: {
         'Content-Type': cached.contentType,
-        'Cache-Control': `public, max-age=${AVATAR_BROWSER_CACHE_SECONDS}, immutable`,
+        'Cache-Control': `private, max-age=${AVATAR_BROWSER_CACHE_SECONDS}, immutable`,
+        Vary: 'Cookie',
+      },
+    });
+  });
+
+  // ─── Background image (unauth, like /avatar) ─────────────────────────────
+  // The login page needs to render the operator's background before auth, so
+  // this route is intentionally public. It only serves a file the operator
+  // themselves uploaded. Cache-busting is via the `?v=` version the client
+  // appends; the bytes for a given version are immutable.
+  app.get('/ui-asset/background', (c) => {
+    const asset = readBackgroundImage();
+    if (!asset) return c.text('no background', 404);
+    return new Response(new Uint8Array(asset.bytes), {
+      headers: {
+        'Content-Type': asset.mime,
+        'Cache-Control': 'public, max-age=31536000, immutable',
+        // Defence-in-depth: never let an uploaded blob be interpreted as
+        // anything but the sniffed image type.
+        'X-Content-Type-Options': 'nosniff',
       },
     });
   });
 
   // ─── Read-only API ───────────────────────────────────────────────────────
-  app.get('/api/status', (c) => c.json({ status: 'running' }));
+  app.get('/api/status', (c) => {
+    // Refresh the path-scoped avatar cookie for a still-valid localStorage
+    // session (for example after upgrading from a version without the cookie).
+    const token = c.get('sessionToken' as never) as string;
+    setAvatarSessionCookie(c, token, listener.tlsEnabled === true);
+    return c.json({ status: 'running' });
+  });
 
-  // Host system info
+  // Advisory update check — compares the running build against the latest
+  // GitHub stable release and links the user to it. Read-only: SnowLuma
+  // never downloads or applies the update itself. `?force=1` bypasses the
+  // server-side cache (the "立即检查" button). Never errors out — a failed
+  // check returns `{ hasUpdate: false, error }` and the UI degrades quietly.
+  app.get('/api/update/check', async (c) => {
+    const force = c.req.query('force') === 'true' || c.req.query('force') === '1';
+    return c.json(await getUpdateInfo(force));
+  });
+
   let lastCpuTimes: { idle: number; total: number }[] | null = null;
   function sampleCpuLoad(): number[] {
     const cpus = os.cpus();
@@ -320,7 +1075,9 @@ export async function initWebUI(
       hostname: os.hostname(),
       platform: os.platform(),
       arch: os.arch(),
+      archLabel: CACHED_ARCH_LABEL,
       release: os.release(),
+      distro: CACHED_DISTRO,
       uptime: os.uptime(),
       processUptime: process.uptime(),
       nodeVersion: process.version,
@@ -349,6 +1106,260 @@ export async function initWebUI(
     });
   });
 
+  // ── System settings (WebUI listener) — Wave A1 ──
+  // Listener-level changes (port/host/TLS) are persisted but apply only on the
+  // next restart (no supervisor → no self-restart). The panel surfaces which
+  // fields are currently overridden by env so edits that won't take effect are
+  // visible.
+  const SYSTEM_CERT_PATH = path.join('config', 'cert.pem');
+  const SYSTEM_KEY_PATH = path.join('config', 'key.pem');
+  const hasCert = (): boolean => existsSync(SYSTEM_CERT_PATH) && existsSync(SYSTEM_KEY_PATH);
+
+  app.get('/api/system/settings', (c) => {
+    const disk = readRuntimeConfig();
+    const envOverrides = Object.keys(resolveRuntimeEnvOverrides(process.env));
+    return c.json({
+      settings: {
+        webuiPort: disk.webuiPort,
+        webuiHost: disk.webuiHost,
+        tlsEnabled: disk.webuiTls?.enabled ?? false,
+        trustProxy: disk.trustProxy ?? '',
+      },
+      hasCert: hasCert(),
+      envOverrides, // field names currently pinned by SNOWLUMA_* env vars
+      listeningPort: boundPort,
+      restartRequiredToApply: true,
+    });
+  });
+
+  app.post('/api/system/settings', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const coerced = coerceSettingsPatch(body);
+    if (!coerced.ok) return c.json({ success: false, message: coerced.error }, 400);
+    const evaluated = evaluateSettingsSave(
+      readRuntimeConfig(),
+      coerced.patch,
+      resolveTlsContext('config').ok,
+    );
+    if (!evaluated.ok) return c.json({ success: false, message: evaluated.error }, 400);
+    const saved = updateRuntimeConfig(evaluated.patch);
+    return c.json({
+      success: true,
+      settings: {
+        webuiPort: saved.webuiPort,
+        webuiHost: saved.webuiHost,
+        tlsEnabled: saved.webuiTls?.enabled ?? false,
+        trustProxy: saved.trustProxy ?? '',
+      },
+      restartRequiredToApply: true,
+    });
+  });
+
+  registerStorageRoutes(app, {
+    storage: storageManagement,
+    settings: logStorageSettings,
+    audit: (event) => {
+      log.info(
+        'storage cleanup scope=%s accountScope=%s category=%s uin=%s deletedFiles=%d freedBytes=%d failures=%d',
+        event.scope,
+        event.accountScope,
+        event.category ?? '-',
+        event.uin ?? '-',
+        event.deletedFiles,
+        event.freedBytes,
+        event.failureCount,
+      );
+    },
+    reportError: (operation, error) => {
+      log.error(
+        '%s failed: %s',
+        operation,
+        error instanceof Error ? (error.stack ?? error.message) : String(error),
+      );
+    },
+  });
+
+  app.post('/api/system/tls/cert', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const cert = (body as { cert?: unknown }).cert;
+    const key = (body as { key?: unknown }).key;
+    if (typeof cert !== 'string' || typeof key !== 'string') {
+      return c.json({ success: false, message: 'cert 和 key 必须为 PEM 字符串' }, 400);
+    }
+    const valid = validateTlsPair(cert, key);
+    if (!valid.ok) return c.json({ success: false, message: valid.reason }, 400);
+    try {
+      mkdirSync('config', { recursive: true });
+      writeFileSync(SYSTEM_CERT_PATH, cert.endsWith('\n') ? cert : cert + '\n', 'utf8');
+      // Private key must not be world-readable (mirrors auth.ts's webui.json
+      // 0600). writeFileSync's mode is ignored for an existing file, so chmod
+      // explicitly afterwards.
+      writeFileSync(SYSTEM_KEY_PATH, key.endsWith('\n') ? key : key + '\n', { encoding: 'utf8', mode: 0o600 });
+      // Best-effort (mirrors auth.ts): the key is already written 0600 above, so
+      // a rare chmod failure must not fail the request.
+      try { chmodSync(SYSTEM_KEY_PATH, 0o600); } catch { /* best-effort */ }
+    } catch (err) {
+      log.warn('write cert/key failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '写入证书失败，请检查服务器日志' }, 500);
+    }
+    return c.json({ success: true, restartRequiredToApply: true });
+  });
+
+  app.delete('/api/system/tls/cert', (c) => {
+    if (tlsCertDeletionBlocked(readRuntimeConfig().webuiTls?.enabled === true)) {
+      return c.json({ success: false, message: '请先关闭 TLS 再删除证书' }, 400);
+    }
+    try {
+      rmSync(SYSTEM_CERT_PATH, { force: true });
+      rmSync(SYSTEM_KEY_PATH, { force: true });
+    } catch (err) {
+      log.warn('remove cert/key failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '删除证书失败' }, 500);
+    }
+    return c.json({ success: true });
+  });
+
+  // ── Config backup / restore (Wave A2) ──
+  app.get('/api/system/backup/export', (c) => {
+    try {
+      const includeCredentials = c.req.query('credentials') === '1';
+      const ts = new Date().toISOString();
+      const bundle = buildBackup(
+        (name) => readBackupConfigFile('config', name),
+        listPerUinOneBotConfigFiles('config'),
+        { includeCredentials },
+        ts,
+      );
+      c.header('Content-Disposition', `attachment; filename="snowluma-backup-${ts.replace(/[:.]/g, '-')}.json"`);
+      // Bundle may carry the TLS private key / password hash — never cache it.
+      c.header('Cache-Control', 'no-store, max-age=0');
+      c.header('Pragma', 'no-cache');
+      return c.json(bundle);
+    } catch (error) {
+      log.error('backup export failed: %s', error instanceof Error ? error.stack ?? error.message : String(error));
+      return c.json({ success: false, message: '导出失败，请检查服务器日志' }, 500);
+    }
+  });
+
+  app.post('/api/system/backup/import', async (c) => {
+    const declaredLen = Number(c.req.header('content-length'));
+    if (Number.isFinite(declaredLen) && declaredLen > 32 * 1024 * 1024) {
+      return c.json({ success: false, message: '备份文件过大' }, 413);
+    }
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    if (typeof body !== 'object' || body === null) {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const { backup, restoreCredentials } = body as { backup?: unknown; restoreCredentials?: unknown };
+    try {
+      const result = restoreBackup(backup, {
+        configDir: 'config',
+        restoreCredentials: restoreCredentials === true,
+      });
+      return c.json({ success: true, ...result });
+    } catch (err) {
+      if (err instanceof RestoreTransactionError) {
+        const failure = describeRestoreFailure(err);
+        return c.json(failure.body, failure.status);
+      }
+      log.error('backup import failed unexpectedly: %s', err instanceof Error ? err.stack ?? err.message : String(err));
+      return c.json({ success: false, message: '恢复遇到未预期错误，请检查服务器日志' }, 500);
+    }
+  });
+
+  // ── Debug tools (Wave A3) ──
+  // Action schemas for the tester form (declarative actions only; legacy ones
+  // are invoked freeform).
+  app.get('/api/debug/actions', (c) =>
+    c.json({ actions: collectActionDocs(), categories: collectCategories() }));
+
+  // Manually invoke an action against one account. Real side effects — gated by
+  // the same /api/* auth.
+  app.post('/api/debug/invoke', async (c) => {
+    let body: unknown;
+    try { body = await c.req.json(); } catch { return c.json({ status: 'failed', message: '请求格式错误' }, 400); }
+    const { uin, action, params } = (body ?? {}) as { uin?: unknown; action?: unknown; params?: unknown };
+    if (typeof uin !== 'string' || !UIN_REGEX.test(uin)) return c.json({ status: 'failed', message: '无效的账号' }, 400);
+    if (typeof action !== 'string' || !action) return c.json({ status: 'failed', message: 'action 必填' }, 400);
+    if (params !== undefined && (typeof params !== 'object' || params === null || Array.isArray(params))) {
+      return c.json({ status: 'failed', message: 'params 必须是对象' }, 400);
+    }
+    const inst = oneBotManager.getInstance(uin);
+    if (!inst) return c.json({ status: 'failed', message: '账号不在线' }, 404);
+    const result = await inst.invokeAction(action, (params ?? {}) as OneBotJsonObject);
+    return c.json(result);
+  });
+
+  // Invoke a Stream API action (or any action) and relay every frame to the
+  // browser over an SSE body. The frontend reads this with fetch()+a stream
+  // reader (Bearer auth in the header), so — unlike /api/debug/stream — it does
+  // NOT need a query-token allowlist entry. Frames are never dropped.
+  app.post('/api/debug/invoke-stream', async (c) => {
+    let body: unknown;
+    try { body = await c.req.json(); } catch { return c.json({ status: 'failed', message: '请求格式错误' }, 400); }
+    const { uin, action, params } = (body ?? {}) as { uin?: unknown; action?: unknown; params?: unknown };
+    if (typeof uin !== 'string' || !UIN_REGEX.test(uin)) return c.json({ status: 'failed', message: '无效的账号' }, 400);
+    if (typeof action !== 'string' || !action) return c.json({ status: 'failed', message: 'action 必填' }, 400);
+    if (params !== undefined && (typeof params !== 'object' || params === null || Array.isArray(params))) {
+      return c.json({ status: 'failed', message: 'params 必须是对象' }, 400);
+    }
+    const inst = oneBotManager.getInstance(uin);
+    if (!inst) return c.json({ status: 'failed', message: '账号不在线' }, 404);
+    const rawRequest = JSON.stringify({ action, params: params ?? {} });
+    return buildStreamInvokeResponse(
+      (rq, emit, alive) => inst.invokeStream(rq, emit, alive),
+      rawRequest,
+      c.req.raw.signal,
+    );
+  });
+
+  // Stream a browser-selected file to a temp path on THIS server (the bot runs
+  // here, not on the operator's machine), so the returned path can be fed to a
+  // send action's file/image/record/video param. Raw bytes in the body,
+  // `?filename=` for a human-readable suffix; streamed to disk with a byte cap.
+  app.post('/api/debug/upload', async (c) => {
+    try {
+      const result = await streamUploadToDisk(c.req.raw.body as ReadableStream<Uint8Array> | null, c.req.query('filename'));
+      return c.json({ status: 'ok', path: result.path, size: result.size });
+    } catch (err) {
+      return c.json({ status: 'failed', message: err instanceof Error ? err.message : '上传失败' }, 400);
+    }
+  });
+
+  // Live merged SSE of OneBot events + action calls across all accounts. Taps
+  // are attached only while a client is connected (on-demand). A slow client is
+  // dropped (not back-pressured onto the bot) with a periodic drop marker.
+  app.get('/api/debug/stream', (c) => sseResponse(c, (ch) => {
+    // Drop-under-backpressure framing (unit-tested in debug-stream.ts).
+    const pushFrame = createFramePusher({
+      desiredSize: ch.desiredSize,
+      enqueue: ch.raw,
+      encode: ch.encode,
+    });
+    const send = (payload: unknown) => { if (!ch.isClosed()) pushFrame(payload); };
+    send({ kind: 'ready' });
+    for (const inst of oneBotManager.getInstances()) {
+      const uin = inst.uin;
+      ch.onClose(inst.subscribeDebugEvents((event) => send({ kind: 'event', uin, event })));
+      ch.onClose(inst.observeActions((rec) => send({ kind: 'action', uin, ...rec })));
+    }
+  }));
+
   app.get('/api/qq-list', (c) => {
     const instances = oneBotManager.getInstances();
     const list = instances.map((inst) => ({ uin: inst.uin, nickname: inst.nickname }));
@@ -361,9 +1372,74 @@ export async function initWebUI(
     return c.json({ list: oneBotManager.getConnectionStatuses() });
   });
 
+  // Combined SSE feed for the dashboard's three live resources — processes,
+  // qq-list, connections. Replaces the 3s REST polling tick in
+  // app-layout.tsx; the REST endpoints above stay for the initial fetch
+  // before SSE connects and for the slow (30s) reconciliation fallback.
+  //
+  // On connect: one frame per resource with the current snapshot. After
+  // that: a fresh snapshot per resource only when the StateBus signals a
+  // change (HookSession status-changed, BridgeManager session edges, the
+  // connection-status diff loop). 50ms per-resource debounce coalesces a
+  // burst (e.g. multiple HookSessions flipping status simultaneously).
+  const stateBus = listener.stateBus;
+  app.get('/api/state/stream', (c) => {
+    if (!stateBus) {
+      // Build without state-wiring (e.g. a future headless mode) — clients
+      // fall back to the REST endpoints. Treat as endpoint-not-here.
+      return c.text('state stream not configured', 503);
+    }
+    const liveBus = stateBus;
+    return sseResponse(c, (ch) => {
+      const pushFrame = createFramePusher({
+        desiredSize: ch.desiredSize,
+        enqueue: ch.raw,
+        encode: ch.encode,
+      });
+      const send = (payload: unknown) => { if (!ch.isClosed()) pushFrame(payload); };
+      send({ kind: 'ready' });
+
+      const handle = bindStateStream({
+        bus: liveBus,
+        snapshot: async (resource: StateResource): Promise<unknown> => {
+          if (resource === 'processes') {
+            if (!hookManager) return [];
+            return hookManager.listProcesses();
+          }
+          if (resource === 'qq-list') {
+            return oneBotManager.getInstances().map((inst) => ({ uin: inst.uin, nickname: inst.nickname }));
+          }
+          return oneBotManager.getConnectionStatuses();
+        },
+        send: (frame) => send(frame),
+        debounceMs: 50,
+      });
+      ch.onClose(() => handle.dispose());
+      // Prime with the initial snapshot; if the client never sees the
+      // bus publish (idle system) it still has the current state.
+      void handle.sendAllInitial();
+    });
+  });
+
   app.get('/api/logs', (c) => {
     const limit = Number(c.req.query('limit') ?? 300);
     return c.json({ list: getRecentLogs(limit) });
+  });
+
+  app.get('/api/logs/export/trace', (c) => {
+    const exportedAt = new Date().toISOString();
+    const download = buildFullTraceDownload(getLogSnapshot(), {
+      version: currentVersion(),
+      operatingSystem: os.platform(),
+      architecture: os.arch(),
+      nodeVersion: process.version,
+      logLevel: getLogLevel(),
+      exportedAt,
+    });
+    for (const [name, value] of Object.entries(download.headers)) {
+      c.header(name, value);
+    }
+    return c.body(download.body);
   });
 
   app.get('/api/logs/level', (c) => {
@@ -380,49 +1456,10 @@ export async function initWebUI(
     return c.json({ level: getLogLevel(), levels: [...LOG_LEVELS] });
   });
 
-  app.get('/api/logs/stream', (c) => {
-    const stream = new ReadableStream({
-      start(controller) {
-        const encoder = new TextEncoder();
-        let closed = false;
-        let unsubscribe: (() => void) | undefined;
-        let heartbeat: NodeJS.Timeout | undefined;
-        const teardown = () => {
-          if (closed) return;
-          closed = true;
-          if (heartbeat) clearInterval(heartbeat);
-          unsubscribe?.();
-          try { controller.close(); } catch { /* ignore */ }
-        };
-        const safeEnqueue = (chunk: Uint8Array) => {
-          if (closed) return;
-          try {
-            controller.enqueue(chunk);
-          } catch {
-            // The peer dropped between abort and the next enqueue —
-            // treat as end-of-stream so we don't leak listeners.
-            teardown();
-          }
-        };
-        const send = (event: unknown) => {
-          safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-        };
-        send({ type: 'ready' });
-        unsubscribe = subscribeLogs((entry) => send(entry));
-        heartbeat = setInterval(() => {
-          safeEnqueue(encoder.encode(': heartbeat\n\n'));
-        }, 15000);
-        c.req.raw.signal.addEventListener('abort', teardown);
-      },
-    });
-    return new Response(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      },
-    });
-  });
+  app.get('/api/logs/stream', (c) => sseResponse(c, (ch) => {
+    ch.send({ type: 'ready' });
+    ch.onClose(subscribeLogs((entry) => ch.send(entry)));
+  }));
 
   app.get('/api/processes', async (c) => {
     if (!hookManager) return c.json({ list: [] });
@@ -484,19 +1521,252 @@ export async function initWebUI(
   app.post('/api/config/:uin', async (c) => {
     const uin = c.req.param('uin');
     if (!UIN_REGEX.test(uin)) return c.json({ success: false, message: 'invalid uin' }, 400);
+    let body: unknown;
     try {
-      const body = (await c.req.json()) as OneBotConfig;
-      saveOneBotConfig(uin, body);
-      const reloaded = oneBotManager.reloadConfig(uin);
-      log.info('Updated OneBot config for UIN: %s%s', uin, reloaded ? ' and reloaded' : '');
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, saved: false, applied: false, message: '请求格式错误' }, 400);
+    }
+
+    let nextConfig: OneBotConfig;
+    try {
+      assertValidOneBotConfig(body);
+      nextConfig = body;
+
+      let previousConfig: OneBotConfig | null = null;
+      try {
+        previousConfig = loadOneBotConfig(uin);
+      } catch (err) {
+        // A damaged existing file must not strand the recovery UI. Treat the
+        // submitted endpoints as new, apply the full policy, and let the
+        // subsequent atomic save either repair the file or fail visibly.
+        log.warn(
+          'could not read prior OneBot config for uin=%s before save: %s',
+          uin,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+
+      validateOneBotAccessTokenChanges(previousConfig, nextConfig, {
+        clientIp: getSecurityClientIp(c),
+        uin,
+      });
+      saveOneBotConfig(uin, nextConfig);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (
+        err instanceof OneBotConfigValidationError
+        || err instanceof OneBotAccessTokenPolicyError
+      ) {
+        log.warn('reject invalid config for uin=%s: %s', uin, message);
+        return c.json({ success: false, saved: false, applied: false, message }, 400);
+      }
+      log.error('persist config for uin=%s failed: %s', uin, message);
+      return c.json({ success: false, saved: false, applied: false, message: '配置保存失败，请检查服务器日志' }, 500);
+    }
+
+    try {
+      // Apply the exact validated value that was persisted above. Re-reading
+      // the path here would race concurrent POSTs (request A could load B and
+      // falsely report that A was applied).
+      const apply = await oneBotManager.reloadConfig(uin, nextConfig);
+      const message = !apply.online
+        ? '配置保存成功，当前会话未在线，将在下次连接时生效。'
+        : apply.applied
+          ? '配置保存成功，已热重载当前会话。'
+          : '配置已保存，但部分网络节点未能应用；旧节点已尽力恢复，请查看错误详情。';
+      log.info(
+        'Updated OneBot config for UIN=%s saved=true online=%s applied=%s failures=%d',
+        uin,
+        String(apply.online),
+        String(apply.applied),
+        apply.errors.length,
+      );
       return c.json({
         success: true,
-        reloaded,
-        message: reloaded ? '配置保存成功，已热重载当前会话。' : '配置保存成功，当前会话未在线，将在下次连接时生效。',
+        saved: true,
+        applied: apply.applied,
+        online: apply.online,
+        errors: apply.errors,
+        adapters: apply.adapters,
+        config: body,
+        // Legacy compatibility: this field used to mean "a live instance was
+        // asked to reload". It now only claims success after the awaitable
+        // reconcile actually completed.
+        reloaded: apply.online && apply.applied,
+        message,
       });
     } catch (err) {
-      log.warn('save config for uin=%s failed: %s', uin, err instanceof Error ? err.message : String(err));
-      return c.json({ success: false, message: '配置保存失败，请检查服务器日志' }, 400);
+      const message = err instanceof Error ? err.message : String(err);
+      log.error('config saved but apply crashed for uin=%s: %s', uin, message);
+      return c.json({
+        success: true,
+        saved: true,
+        applied: false,
+        online: oneBotManager.getInstance(uin) !== null,
+        reloaded: false,
+        errors: [{ name: 'network-manager', phase: 'reload', message, at: Date.now() }],
+        config: body,
+        message: '配置已保存，但热重载失败，请检查服务器日志。',
+      });
+    }
+  });
+
+  // ─── Notifications (account up/down → webhook) ───────────────────────────
+  // Global channel store (config/notifications.json); per-UIN opt-in lives in
+  // OneBotConfig.notifications.channelIds. All bearer-gated — channel URLs can
+  // embed secrets, so none of this is exposed unauthenticated.
+  app.get('/api/notifications/config', (c) => c.json({ config: loadNotificationsConfig() }));
+
+  app.post('/api/notifications/config', async (c) => {
+    const declaredLen = Number(c.req.header('content-length'));
+    if (Number.isFinite(declaredLen) && declaredLen > 512 * 1024) {
+      return c.json({ success: false, message: '配置过大' }, 413);
+    }
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    try {
+      const config = saveNotificationsConfig(body);
+      return c.json({ success: true, config });
+    } catch (err) {
+      log.warn('save notifications config failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '保存失败，请检查服务器日志' }, 500);
+    }
+  });
+
+  app.get('/api/notifications/recent', (c) => {
+    if (!notificationManager) return c.json({ recent: [] });
+    const limitRaw = Number(c.req.query('limit'));
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.trunc(limitRaw), 100) : 100;
+    return c.json({ recent: notificationManager.getRecent(limit) });
+  });
+
+  app.post('/api/notifications/test', async (c) => {
+    if (!notificationManager) return c.json({ success: false, message: '通知子系统不可用' }, 503);
+    let body: { channelId?: unknown };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    const channelId = typeof body.channelId === 'string' ? body.channelId : '';
+    if (!channelId) return c.json({ success: false, message: '缺少 channelId' }, 400);
+    const result = await notificationManager.testSend(channelId);
+    if (!result.found) return c.json({ success: false, message: '渠道不存在' }, 404);
+    return c.json({
+      success: result.ok,
+      status: result.status,
+      message: result.ok
+        ? '测试发送成功'
+        : `测试发送失败：${result.error ?? (result.status ? `HTTP ${result.status}` : '未知错误')}`,
+    });
+  });
+
+  // ─── Global deployment config (config/snowluma.json) ─────────────────────
+  // All-accounts SnowLuma knobs (rkey fallback servers + musicSignUrl). Saving
+  // section-merges + normalizes server-side, then hot-reloads every instance.
+  app.get('/api/global-config', (c) => c.json({ config: loadGlobalSettings() }));
+
+  app.post('/api/global-config', async (c) => {
+    const declaredLen = Number(c.req.header('content-length'));
+    if (Number.isFinite(declaredLen) && declaredLen > 512 * 1024) {
+      return c.json({ success: false, message: '配置过大' }, 413);
+    }
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    try {
+      const config = saveGlobalSettings(body);
+      oneBotManager.reloadGlobalSettings();
+      return c.json({ success: true, config });
+    } catch (err) {
+      log.warn('save global config failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '保存失败，请检查服务器日志' }, 500);
+    }
+  });
+
+  // ─── WebUI customization config (config/ui.json) ─────────────────────────
+  // Appearance (A) + layout (C). The full config is bearer-gated; only the
+  // cosmetic appearance subset is exposed unauthenticated for the login page.
+  app.get('/api/ui', (c) => c.json({ config: loadUiConfig() }));
+
+  app.get('/api/ui/public', (c) => c.json({ appearance: publicAppearance() }));
+
+  app.post('/api/ui', async (c) => {
+    // Reject oversized bodies before buffering — the normalizer caps individual
+    // fields (customCss 50KB, per-widget config 4KB) but not the whole payload.
+    const declaredLen = Number(c.req.header('content-length'));
+    if (Number.isFinite(declaredLen) && declaredLen > 256 * 1024) {
+      return c.json({ success: false, message: '配置过大' }, 413);
+    }
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ success: false, message: '请求格式错误' }, 400);
+    }
+    try {
+      const config = saveUiConfig(body);
+      return c.json({ success: true, config });
+    } catch (err) {
+      log.warn('save ui.json failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '保存失败，请检查服务器日志' }, 400);
+    }
+  });
+
+  app.post('/api/ui/background', async (c) => {
+    // Early reject by Content-Length BEFORE parseBody() buffers the whole
+    // multipart body into memory — otherwise a multi-GB upload is fully
+    // materialized before the post-parse size check fires. The slack covers
+    // the multipart envelope (boundary + part headers); the exact decoded
+    // size is still enforced below. A chunked request with no Content-Length
+    // skips this coarse guard, but the endpoint is bearer-gated to the single
+    // admin, so that residual is acceptable.
+    const declaredLen = Number(c.req.header('content-length'));
+    if (Number.isFinite(declaredLen) && declaredLen > MAX_BACKGROUND_BYTES + 1024 * 1024) {
+      return c.json({ success: false, message: '图片过大（上限 5MB）' }, 413);
+    }
+    let file: unknown;
+    try {
+      const form = await c.req.parseBody();
+      file = form['file'];
+    } catch {
+      return c.json({ success: false, message: '上传解析失败' }, 400);
+    }
+    if (!(file instanceof File)) {
+      return c.json({ success: false, message: '缺少图片文件' }, 400);
+    }
+    if (file.size > MAX_BACKGROUND_BYTES) {
+      return c.json({ success: false, message: '图片过大（上限 5MB）' }, 413);
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const mime = sniffImageMime(bytes);
+    if (!mime) {
+      return c.json({ success: false, message: '仅支持 PNG / JPEG / WebP 图片' }, 415);
+    }
+    try {
+      const config = writeBackgroundImage(bytes, mime);
+      return c.json({ success: true, config });
+    } catch (err) {
+      log.warn('write background image failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '保存图片失败，请检查服务器日志' }, 500);
+    }
+  });
+
+  app.delete('/api/ui/background', (c) => {
+    try {
+      const config = clearBackgroundImage();
+      return c.json({ success: true, config });
+    } catch (err) {
+      log.warn('clear background image failed: %s', err instanceof Error ? err.message : String(err));
+      return c.json({ success: false, message: '删除图片失败' }, 500);
     }
   });
 
@@ -509,7 +1779,11 @@ export async function initWebUI(
   const indexHtmlPath = path.join(staticRoot, 'index.html');
   app.get('*', (c) => {
     // SPA fallback: only for navigations that didn't hit a static asset.
-    if (c.req.path.startsWith('/api/') || c.req.path.startsWith('/avatar/')) {
+    if (
+      c.req.path.startsWith('/api/') ||
+      c.req.path.startsWith('/avatar/') ||
+      c.req.path.startsWith('/ui-asset/')
+    ) {
       return c.text('not found', 404);
     }
     if (existsSync(indexHtmlPath)) {
@@ -522,16 +1796,35 @@ export async function initWebUI(
     );
   });
 
-  const finalPort = await findAvailablePort(desiredPort);
+  const finalPort = await findAvailablePort(desiredPort, { host });
   if (finalPort !== desiredPort) {
     log.warn('port %d is in use, using %d instead', desiredPort, finalPort);
   }
+  boundPort = finalPort;
 
-  await new Promise<void>((resolve) => {
-    serve({ fetch: app.fetch, port: finalPort }, (info) => {
-      log.info(`listening http://localhost:${info.port}`);
-      resolve();
+  // TLS is an explicit transport promise. Once enabled, an unusable pair must
+  // abort startup instead of silently exposing the listener over plaintext.
+  let tlsServe: { createServer: typeof createHttpsServer; serverOptions: { cert: Buffer; key: Buffer } } | undefined;
+  let scheme = 'http';
+  if (listener.tlsEnabled) {
+    const tls = requireTlsContext('config');
+    tlsServe = { createServer: createHttpsServer, serverOptions: tls };
+    scheme = 'https';
+  }
+
+  const listeningServer = await new Promise<ReturnType<typeof serve>>((resolve) => {
+    const server = serve({ fetch: app.fetch, port: finalPort, hostname: host, ...(tlsServe ?? {}) }, (info) => {
+      log.info(`listening ${scheme}://${host}:${info.port}`);
+      resolve(server);
     });
   });
-  return { port: finalPort };
+  return {
+    port: finalPort,
+    async stop() {
+      connectionDiffLoop?.dispose();
+      await new Promise<void>((resolve, reject) => {
+        listeningServer.close((err) => (err ? reject(err) : resolve()));
+      });
+    },
+  };
 }

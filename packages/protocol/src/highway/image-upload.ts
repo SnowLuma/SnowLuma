@@ -70,7 +70,7 @@ function loadImage(element: MessageElement): Promise<ImageData> {
     return Promise.resolve(imageDataFromFingerprint(element));
   }
   return loadImageFromSource(
-    element.url || element.fileId || '',
+    element.url || element.imageUrl || element.fileId || '',
     element.fileName ?? '',
     element.subType ?? 0,
     element.summary ?? '',

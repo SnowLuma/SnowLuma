@@ -221,8 +221,15 @@ export async function uploadImageToGroupAlbum(
   filePath: string,
   uin: string
 ): Promise<void> {
-  const { loadBinarySource } = await import('../highway/utils');
+  const { detectImageFormat, loadBinarySource } = await import('../highway/utils');
   const loaded = await loadBinarySource(filePath, 'album image');
+  const format = detectImageFormat(loaded.bytes);
+  const isJpeg = loaded.bytes.length >= 2
+    && loaded.bytes[0] === 0xFF
+    && loaded.bytes[1] === 0xD8;
+  if (format.format === 1000 && !isJpeg) {
+    throw new Error('群相册上传仅支持 JPEG、PNG、GIF、WebP 或 BMP 图片');
+  }
 
   let tempFile: string | null = null;
   let actualPath = filePath;

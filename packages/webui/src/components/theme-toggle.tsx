@@ -1,6 +1,6 @@
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { motion } from 'motion/react';
-import { useTheme, type ThemeMode } from '@/contexts/ThemeContext';
+import { paletteResolved, useTheme, type ThemeMode } from '@/contexts/ThemeContext';
 import { cn } from '@/lib/utils';
 
 const OPTIONS: { mode: ThemeMode; icon: typeof Sun; label: string }[] = [
@@ -10,11 +10,15 @@ const OPTIONS: { mode: ThemeMode; icon: typeof Sun; label: string }[] = [
 ];
 
 export function ThemeToggle({ className }: { className?: string }) {
-  const { mode, setMode } = useTheme();
+  const { appearance, mode, setMode } = useTheme();
+  // A Catppuccin flavor fixes light/dark, so this quick toggle would be inert
+  // (and its pill would desync from the forced scheme) — hide it. Light/dark is
+  // then changed by switching the palette back to “默认” in settings.
+  if (paletteResolved(appearance.palette)) return null;
   return (
     <div
       className={cn(
-        'relative inline-flex items-center gap-0.5 rounded-full border bg-card/60 p-0.5 shadow-xs',
+        'relative inline-flex shrink-0 items-center rounded-full border bg-card/60 p-0 shadow-xs md:p-0.5',
         className
       )}
     >
@@ -27,15 +31,16 @@ export function ThemeToggle({ className }: { className?: string }) {
             title={label}
             aria-label={label}
             onClick={() => setMode(m)}
+            data-press-scale=""
             className={cn(
-              'relative flex size-7 items-center justify-center rounded-full transition-colors cursor-pointer',
+              'relative flex size-[44px] items-center justify-center rounded-full transition-[color,scale] duration-150 ease-out active:scale-[0.96] motion-reduce:active:scale-100 md:size-10 cursor-pointer',
               active ? 'text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
             )}
           >
             {active && (
               <motion.span
                 layoutId="theme-toggle-pill"
-                className="absolute inset-0 rounded-full bg-primary"
+                className="absolute inset-[8px] rounded-full bg-primary md:inset-1.5"
                 transition={{ type: 'spring', stiffness: 380, damping: 30 }}
               />
             )}

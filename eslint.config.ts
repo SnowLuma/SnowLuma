@@ -14,9 +14,12 @@ export default defineConfig([
     '**/coverage/**',
     '**/.turbo/**',
     '**/.vite/**',
+    '.claude/**',
+    'dev/**',
     '**/*.tsbuildinfo',
     '**/test/fixtures/**',
     'packages/runtime/native/**',
+    'packages/mcp/src/generated/**',
   ]),
   {
     files: ['**/*.{js,mjs,cjs,ts,tsx}'],

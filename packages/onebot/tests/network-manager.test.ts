@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { IOneBotNetworkAdapter, NetworkReloadType, OneBotNetworkManager } from '../src/network';
+import {
+  getLogLevel,
+  runWithRequestId,
+  setLogLevel,
+  subscribeLogs,
+  type LogEntry,
+} from '@snowluma/common/logger';
+import { IOneBotNetworkAdapter, NetworkReloadType, OneBotNetworkManager, type AdapterStatus } from '../src/network';
 import type { NetworkAdapterContext } from '../src/network';
 import type { JsonObject, NetworkBase } from '../src/types';
 import type { DispatchPayload } from '../src/event-filter';
@@ -16,6 +23,7 @@ class FakeAdapter extends IOneBotNetworkAdapter<FakeNetworkConfig> {
   reloads = 0;
   // Last dispatch payload object identity, to assert it was reused per emit.
   lastPayloads: DispatchPayload[] = [];
+  waitForEvent: Promise<void> | undefined;
 
   open(): void {
     this.opens++;
@@ -25,7 +33,9 @@ class FakeAdapter extends IOneBotNetworkAdapter<FakeNetworkConfig> {
     this.closes++;
     this.isEnabled = false;
   }
-  reload(next: FakeNetworkConfig): NetworkReloadType {
+  // Keeps its own reload — this is a manager test double, not a reload test;
+  // base.reload became concrete so this is now a genuine override.
+  override reload(next: FakeNetworkConfig): NetworkReloadType {
     this.reloads++;
     this.config = structuredClone(next);
     if (next.enabled === false && this.isEnabled) {
@@ -38,16 +48,28 @@ class FakeAdapter extends IOneBotNetworkAdapter<FakeNetworkConfig> {
     }
     return NetworkReloadType.Normal;
   }
-  onEvent(event: JsonObject, payload: DispatchPayload): void {
+  protected bindingSignature(config: FakeNetworkConfig): string {
+    return JSON.stringify(config);
+  }
+  describeStatus(): AdapterStatus {
+    return {
+      name: this.name,
+      kind: 'httpClient',
+      status: this.isActive ? 'ok' : 'disabled',
+      detail: this.isActive ? 'active' : 'disabled',
+    };
+  }
+  async onEvent(event: JsonObject, payload: DispatchPayload): Promise<void> {
     this.events.push(event);
     this.lastPayloads.push(payload);
     if (this.config.failOnEvent) throw new Error('boom');
+    await this.waitForEvent;
   }
 }
 
 const NULL_CTX: NetworkAdapterContext = {
   uin: '10001',
-  api: { handle: async () => ({ status: 'failed', retcode: 0, data: null }), processRequest: async () => '' } as never,
+  api: { handle: async () => ({ status: 'failed', retcode: 0, data: null }), processStreamRequest: async () => {} } as never,
   buildLifecycleEvent: () => ({}),
   buildHeartbeatEvent: () => ({}),
 };
@@ -78,7 +100,7 @@ const SAMPLE_EVENT: JsonObject = {
 };
 
 describe('OneBotNetworkManager', () => {
-  it('opens and emits to every active adapter in parallel', async () => {
+  it('opens every adapter and emits to every active adapter', async () => {
     const mgr = new OneBotNetworkManager();
     const a = makeAdapter('a');
     const b = makeAdapter('b');
@@ -124,17 +146,57 @@ describe('OneBotNetworkManager', () => {
     expect(bad.events).toHaveLength(1);
   });
 
-  it('replaces an existing adapter under the same name and closes the old one', async () => {
+  it('traces active targets, isolated failures, settlement, and no-target conclusion', async () => {
+    const previousLevel = getLogLevel();
+    const entries: LogEntry[] = [];
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    setLogLevel('trace');
+    try {
+      const mgr = new OneBotNetworkManager();
+      const ok = makeAdapter('ok-target');
+      const bad = makeAdapter('bad-target', { failOnEvent: true });
+      mgr.register(ok);
+      mgr.register(bad);
+      await mgr.openAll();
+
+      await runWithRequestId(7001, () => mgr.emitEvent(SAMPLE_EVENT));
+      const report = entries.filter((entry) => (
+        entry.scope === 'OneBot.Network'
+        && entry.level === 'trace'
+        && entry.req === 7001
+      ));
+      expect(report.find((entry) => entry.message.startsWith('report_targets'))?.message)
+        .toContain('["ok-target","bad-target"]');
+      expect(report.find((entry) => entry.message.startsWith('report_target_failed'))?.message)
+        .toContain('target=bad-target');
+      expect(report.filter((entry) => entry.message === 'report_terminal outcome=settled'))
+        .toHaveLength(1);
+
+      entries.length = 0;
+      const empty = new OneBotNetworkManager();
+      await runWithRequestId(7002, () => empty.emitEvent(SAMPLE_EVENT));
+      expect(entries.filter((entry) => (
+        entry.scope === 'OneBot.Network'
+        && entry.req === 7002
+        && entry.message === 'report_terminal outcome=no_active_targets'
+      ))).toHaveLength(1);
+    } finally {
+      unsubscribe();
+      setLogLevel(previousLevel);
+    }
+  });
+
+  it('rejects duplicate registration instead of detaching the old close', async () => {
     const mgr = new OneBotNetworkManager();
     const first = makeAdapter('dup');
     mgr.register(first);
     await mgr.openAll();
 
     const second = makeAdapter('dup');
-    mgr.register(second);
+    expect(() => mgr.register(second)).toThrow(/already registered/);
 
-    expect(mgr.get('dup')).toBe(second);
-    expect(first.closes).toBe(1);
+    expect(mgr.get('dup')).toBe(first);
+    expect(first.closes).toBe(0);
   });
 
   it('closeOne shuts down a single adapter and removes it', async () => {
@@ -176,5 +238,36 @@ describe('OneBotNetworkManager', () => {
     expect(mgr.hasActiveAdapters()).toBe(true);
     await mgr.closeAll();
     expect(mgr.hasActiveAdapters()).toBe(false);
+  });
+
+  it('rejects compatibility registration after shutdown', async () => {
+    const mgr = new OneBotNetworkManager();
+    await mgr.shutdown();
+
+    expect(() => mgr.register(makeAdapter('late'))).toThrow(/shutting down/);
+    await expect(mgr.shutdown()).resolves.toEqual({ closed: true, errors: [] });
+    expect(mgr.list()).toEqual([]);
+  });
+
+  it('stops new emits and drains an in-flight emit before adapter close', async () => {
+    let release!: () => void;
+    const eventGate = new Promise<void>((resolve) => { release = resolve; });
+    const mgr = new OneBotNetworkManager();
+    const adapter = makeAdapter('slow');
+    adapter.waitForEvent = eventGate;
+    mgr.register(adapter);
+    await mgr.openAll();
+
+    const emitting = mgr.emitEvent(SAMPLE_EVENT);
+    const closing = mgr.shutdown();
+    await expect(mgr.emitEvent(SAMPLE_EVENT)).rejects.toThrow(/shutting down/);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(adapter.closes).toBe(0);
+
+    release();
+    await emitting;
+    await closing;
+    expect(adapter.closes).toBe(1);
   });
 });

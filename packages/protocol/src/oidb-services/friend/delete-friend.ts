@@ -35,8 +35,9 @@ export namespace DeleteFriend {
         field2: 109,
         field3: { field1: 8, field2: 8, field3: 50 },
       },
+      // DelBuddyWorker receives both booleans explicitly from current QQ.
       block: p.block ?? false,
-      field4: false,
+      field4: true,
     },
   });
 

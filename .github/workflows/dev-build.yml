@@ -7,6 +7,15 @@ on:
     tags-ignore:
       - 'v*'
 
+# Only `dev` gets a shared, self-cancelling group so a newer dev commit
+# supersedes the in-flight one (and its Docker dispatch) before it publishes.
+# Every other branch falls back to a unique per-run group (github.run_id), so
+# their concurrency behavior is unchanged — no shared-group pending-run
+# replacement, no accidental serialization.
+concurrency:
+  group: ${{ github.ref == 'refs/heads/dev' && format('{0}-{1}', github.workflow, github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/dev' }}
+
 jobs:
   cleanup:
     runs-on: ubuntu-latest
@@ -14,10 +23,20 @@ jobs:
       actions: write
       contents: read
     steps:
+      # Delete only artifacts older than 24h. The dev Docker hand-off relies on
+      # this run's fresh `snowluma-dev-docker-*` artifact still existing when the
+      # downstream (cross-repo) Docker build downloads it; a blanket "delete all"
+      # here — which also runs on every other branch's push — could race-delete
+      # an in-flight hand-off artifact. Age-gating keeps recent ones safe while
+      # still reaping the backlog.
       - name: Delete old artifacts
         uses: actions/github-script@v8
         with:
           script: |
+            const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+            // Collect every artifact first, THEN delete — deleting mid-pagination
+            // shifts the list and would skip ~a page of old artifacts per delete.
+            const all = [];
             let page = 1;
             while (true) {
               const { data: { artifacts } } = await github.rest.actions.listArtifactsForRepo({
@@ -27,15 +46,19 @@ jobs:
                 page,
               });
               if (artifacts.length === 0) break;
-              for (const artifact of artifacts) {
-                await github.rest.actions.deleteArtifact({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  artifact_id: artifact.id,
-                });
-                console.log(`Deleted artifact: ${artifact.name}`);
-              }
+              all.push(...artifacts);
               page++;
+            }
+            for (const artifact of all) {
+              if (new Date(artifact.created_at).getTime() >= cutoff) {
+                continue; // keep recent artifacts (may be in-flight dev hand-offs)
+              }
+              await github.rest.actions.deleteArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifact.id,
+              });
+              console.log(`Deleted artifact: ${artifact.name}`);
             }
 
   typecheck:
@@ -55,7 +78,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version-file: '.node-version'
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -98,11 +121,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version-file: '.node-version'
           cache: 'pnpm'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Run native smoke tests
+        run: pnpm test:native
 
       # Always builds the WebUI flavor — no separate "core-only" artifact.
       - name: Build project
@@ -110,9 +136,19 @@ jobs:
           SNOWLUMA_TARGET: ${{ matrix.target }}
         run: pnpm run build:all
 
+      # Bundle production node_modules into dist/ before packaging — mirrors
+      # release.yml. Without this the `-lite` tarball has no runtime deps and the
+      # Docker image (which bakes the lite tarball) can't start.
+      - name: Bundle runtime dependencies
+        working-directory: dist
+        run: npm install --omit=dev
+
+      - name: Verify release layout
+        run: pnpm check:release-layout
+
       # Naming convention:
       #   SnowLuma-dev-<arch>.zip|tar.gz        – zero-install (node bundled)
-      #   SnowLuma-dev-<arch>-lite.zip|tar.gz   – user provides Node >= 22
+      #   SnowLuma-dev-<arch>-lite.zip|tar.gz   – user provides Node 22.13+ (23.x requires 23.4+)
       - name: Package (windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -140,3 +176,110 @@ jobs:
           retention-days: 3
           overwrite: true
           if-no-files-found: error
+
+      # Deterministic-name hand-off artifact consumed by the cross-repo dev
+      # Docker build (SnowLuma.Docker.Framework/docker-image.yml downloads it by
+      # this exact name). linux-x64 only — dev images are amd64-only. Just the
+      # lite tarball; the container already ships its own Node runtime.
+      - name: Upload dev Docker hand-off artifact
+        if: matrix.name == 'linux-x64' && github.ref == 'refs/heads/dev'
+        uses: actions/upload-artifact@v7
+        with:
+          name: snowluma-dev-docker-linux-x64
+          path: SnowLuma-dev-linux-x64-lite.tar.gz
+          retention-days: 3
+          overwrite: true
+          if-no-files-found: error
+
+  # Fire the "latest dev" Docker build on SnowLuma.Docker.Framework — but only
+  # for `dev`. Mirrors release.yml's dispatch-docker, parameterized for dev:
+  # tag=dev (rolling) + sha_tag=dev-<12sha> (immutable), also_latest=false so it
+  # never touches the stable :latest, platforms=amd64, and artifact_run_id so the
+  # downstream build pulls THIS run's hand-off artifact instead of a Release.
+  dispatch-dev-docker:
+    needs: [build]
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    environment: SnowLuma
+    permissions:
+      contents: read
+    steps:
+      - name: Compute short SHA
+        id: sha
+        run: echo "short=${GITHUB_SHA:0:12}" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch dev Docker build
+        uses: actions/github-script@v8
+        env:
+          RELEASE_REPOSITORY: ${{ vars.DOCKER_RELEASE_REPOSITORY }}
+          DOCKER_IMAGE: ${{ vars.DOCKER_IMAGE }}
+          DOCKER_WORKFLOW: ${{ vars.DOCKER_WORKFLOW }}
+          DOCKER_REF: ${{ vars.DOCKER_REF }}
+          SHA_TAG: dev-${{ steps.sha.outputs.short }}
+          ARTIFACT_RUN_ID: ${{ github.run_id }}
+        with:
+          github-token: ${{ secrets.SNOWLUMA_TOKEN }}
+          script: |
+            const target = process.env.RELEASE_REPOSITORY;
+            if (!target || !target.includes('/')) {
+              throw new Error('Set SnowLuma environment variable DOCKER_RELEASE_REPOSITORY to owner/repo.');
+            }
+            const [owner, repo] = target.split('/');
+            const sourceRepo = context.repo.owner + '/' + context.repo.repo;
+            const image = process.env.DOCKER_IMAGE || 'motricseven7/snowluma';
+            const workflowId = process.env.DOCKER_WORKFLOW || 'docker-image.yml';
+            const ref = process.env.DOCKER_REF || 'main';
+            const runId = String(process.env.ARTIFACT_RUN_ID);
+            const shaTag = process.env.SHA_TAG;
+
+            await github.rest.actions.createWorkflowDispatch({
+              owner,
+              repo,
+              workflow_id: workflowId,
+              ref,
+              inputs: {
+                image,
+                tag: 'dev',
+                push: 'true',
+                platforms: 'linux/amd64',
+                also_latest: 'false',
+                snowluma_repository: sourceRepo,
+                artifact_run_id: runId,
+                sha_tag: shaTag,
+              },
+            });
+            core.info(`Dispatched ${workflowId}@${ref} on ${target} for dev (image=${image}:dev + :${shaTag}, src run ${runId}).`);
+
+            // Best-effort: resolve the dispatched run by its unique run-name
+            // marker so the summary links straight to it (every dev dispatch is
+            // tag=dev, so we key on the source run id, not the tag).
+            const marker = `(src-run ${runId})`;
+            let runUrl = '';
+            for (let i = 0; i < 6 && !runUrl; i++) {
+              await new Promise((r) => setTimeout(r, 5000));
+              try {
+                const { data } = await github.rest.actions.listWorkflowRuns({
+                  owner,
+                  repo,
+                  workflow_id: workflowId,
+                  event: 'workflow_dispatch',
+                  per_page: 30,
+                });
+                const hit = data.workflow_runs.find(
+                  (r) => (r.display_title || r.name || '').includes(marker),
+                );
+                if (hit) runUrl = hit.html_url;
+              } catch (e) {
+                core.warning(`Downstream run lookup failed: ${e.message}`);
+              }
+            }
+            const workflowUrl = `https://github.com/${owner}/${repo}/actions/workflows/${workflowId}`;
+            await core.summary
+              .addHeading('dev Docker dispatch', 3)
+              .addList([
+                `source SHA: ${context.sha}`,
+                `source run id: ${runId}`,
+                `image: ${image}:dev + ${image}:${shaTag}`,
+                `downstream run: ${runUrl || `(not resolved yet — see ${workflowUrl}, look for ${marker})`}`,
+              ])
+              .write();

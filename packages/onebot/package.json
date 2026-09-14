@@ -1,6 +1,7 @@
 {
+  "license": "SEE LICENSE IN LICENSE",
   "name": "@snowluma/onebot",
-  "version": "1.9.4",
+  "version": "1.14.16",
   "private": true,
   "type": "module",
   "description": "SnowLuma OneBot v11 adapter — the protocol translation layer that maps the public OneBot vocabulary (HTTP / WebSocket actions, message segments, post events) onto @snowluma/core's typed Api hub (`bridge.apis.<area>.method()`). Owns network adapters (HTTP server / HTTP client / WS server / WS client), the registered action handlers, the receive-side event→OneBot converter, message-id hashing, message store (SQLite-backed event history), media store, and the OneBot instance + manager that ties one OneBotConfig to one Bridge. Per-file subpath exports mirror the legacy `core/src/onebot/*` layout 1:1 so the previous `import { … } from '../onebot/<x>'` collapses to `import { … } from '@snowluma/onebot/<x>'`.",
@@ -10,6 +11,14 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./action-kit": {
+      "types": "./src/action-kit.ts",
+      "default": "./src/action-kit.ts"
+    },
+    "./action-docs": {
+      "types": "./src/action-docs.ts",
+      "default": "./src/action-docs.ts"
     },
     "./manager": {
       "types": "./src/manager.ts",
@@ -31,6 +40,10 @@
       "types": "./src/config.ts",
       "default": "./src/config.ts"
     },
+    "./global-config": {
+      "types": "./src/global-config.ts",
+      "default": "./src/global-config.ts"
+    },
     "./types": {
       "types": "./src/types.ts",
       "default": "./src/types.ts"
@@ -46,6 +59,10 @@
     "./message-store": {
       "types": "./src/message-store.ts",
       "default": "./src/message-store.ts"
+    },
+    "./message-store-migration-worker": {
+      "types": "./src/message-store-migration-worker.ts",
+      "default": "./src/message-store-migration-worker.ts"
     },
     "./media-store": {
       "types": "./src/media-store.ts",
@@ -78,6 +95,10 @@
     "./instance-rkey": {
       "types": "./src/instance-rkey.ts",
       "default": "./src/instance-rkey.ts"
+    },
+    "./stream-storage": {
+      "types": "./src/stream-storage.ts",
+      "default": "./src/stream-storage.ts"
     }
   },
   "scripts": {
@@ -94,7 +115,7 @@
     "@snowluma/websocket": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^24.12.2",
+    "@types/node": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "^4.1.4"

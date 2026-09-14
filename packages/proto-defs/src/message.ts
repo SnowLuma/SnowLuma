@@ -4,12 +4,23 @@ import type { Elem } from './element';
 // ResponseHead.Grp 
 export interface ResponseGrp {
   groupUin?:   pb<1, uint_32>;
+  /** Sender display name as populated by the group-history fetch (SsoGetGroupMsg).
+   *  Empty on live OlPush pushes and merged-forward nodes — those use `memberCard`
+   *  (field 4) instead. */
   memberName?: pb<2, string>;
-  groupName?:  pb<4, string>;
+  /** Sender display name (group card if set, else nickname) as populated on live
+   *  group pushes AND merged-forward nodes. Verified on-target (#201): a live
+   *  message shows "星屿"/"墨梓柒111" (the card) here while field 2 is empty, and
+   *  forward nodes carry per-node sender names here. Lagrange labels this
+   *  `MemberName`; we keep `memberName` for the field-2 group-history slot. */
+  memberCard?: pb<4, string>;
+  /** The real group name (Lagrange: GroupName). "测试123" on-target. */
+  groupName?:  pb<7, string>;
 }
 
 export interface ResponseForward {
-  friendName?: pb<6, string>;
+  tempGroupUin?: pb<5, uint_32>;
+  friendName?:   pb<6, string>;
 }
 
 // ResponseHead 
@@ -28,11 +39,20 @@ export interface ResponseHead {
 export interface ContentHead {
   msgType?:   pb<1, uint_32>;
   subType?:   pb<2, uint_32>;
-  divSeq?:    pb<3, uint_32>;
+  // C2C command / sub-message-type. QQ NT (msg_header_codec_helper.cc::
+  // DecodeRoutingHead) reads this as `c2c_cmd` and uses it to route C2C-family
+  // pushes (msgType 141/166/167) as system/control signals via OnRecvSysMsg
+  // rather than chat bubbles. A fixed set of values is excluded from the chat
+  // list — see `isC2cControlPush` in msg-push/blank-filter.ts.
+  c2cCmd?:    pb<3, uint_32>;
   msgId?:     pb<4, uint_32>;
   sequence?:  pb<5, uint_32>;
   timestamp?: pb<6, uint_32>;
   field7?:    pb<7, uint_64>;
+  /** Conversation-wide C2C sequence. Unlike field 5, this advances across
+   *  messages sent by either participant and is the sequence accepted by
+   *  SsoGetC2cMsg. It is absent on group messages. */
+  ntMsgSeq?:  pb<11, uint_32>;
   newId?:     pb<12, uint_64>;
 }
 
@@ -54,15 +74,17 @@ export interface Ptt {
 // 1. 发送端必填：字段 9/50/55（subcmd=1, dangerEvel=0, expireTime=当前时间+7天）。
 // 2. 接收端只读：核心标识槽位（Uuid/Md5/Name/Size/Hash）。
 export interface NotOnlineFile {
-  fileType?:   pb<1, uint_32>;
-  fileUuid?:   pb<3, string>;
-  fileMd5?:    pb<4, bytes>;
-  fileName?:   pb<5, string>;
-  fileSize?:   pb<6, uint_64>;
-  subcmd?:     pb<9, uint_32>;   // 发送必填：固定为 1
-  dangerEvel?: pb<50, uint_32>;  // 发送必填：固定为 0
-  expireTime?: pb<55, uint_32>;  // 发送必填：过期时间戳（now + 7 days）
-  fileHash?:   pb<57, string>;
+  fileType?:     pb<1, uint_32>;
+  fileUuid?:     pb<3, string>;
+  fileMd5?:      pb<4, bytes>;
+  fileName?:     pb<5, string>;
+  fileSize?:     pb<6, uint_64>;
+  subcmd?:       pb<9, uint_32>;   // 发送必填：固定为 1
+  downloadFlag?: pb<12, uint_32>;  // 2 = 对方已下载的回执，不是一条新文件消息
+  dangerEvel?:   pb<50, uint_32>;  // 发送必填：固定为 0
+  expireTime?:   pb<55, uint_32>;  // 发送必填：过期时间戳（now + 7 days）
+  pbReserve?:    pb<56, bytes>;
+  fileHash?:     pb<57, string>;
 }
 
 // RichText 
@@ -80,8 +102,29 @@ export interface MessageBody {
 
 // C2C 文件附加信息
 // 统一使用与线上数据对齐的 NotOnlineFile 结构，修复收发双向的解析问题。
+//
+// `field6` 携带服务器签发的下载路由（来自 0xE37_800 finalize 响应的
+// metadata）。发送 c2c 文件时缺了它，接收方点开会"文件传输失败"——
+// `file` 只是元数据，真正的下载凭证在这里。字段 tag 对照 NapCat
+// `message/component.ts: PrivateFileExtra / PrivateFileExtraField2`。
+export interface PrivateFileExtraField2 {
+  field1?:     pb<1, uint_32>;   // ← finalize metadata.field110
+  fileUuid?:   pb<4, string>;
+  fileName?:   pb<5, string>;
+  field6?:     pb<6, uint_32>;   // ← finalize metadata.field3
+  field7?:     pb<7, bytes>;     // ← finalize metadata.field101
+  field8?:     pb<8, bytes>;     // ← finalize metadata.field100
+  timestamp1?: pb<9, uint_32>;   // ← finalize metadata.timestamp1
+  fileHash?:   pb<14, string>;
+  selfUid?:    pb<15, string>;
+  destUid?:    pb<16, string>;
+}
+export interface PrivateFileExtra {
+  field2?: pb<2, PrivateFileExtraField2>;
+}
 export interface FileExtra {
-  file?: pb<1, NotOnlineFile>;
+  file?:   pb<1, NotOnlineFile>;
+  field6?: pb<6, PrivateFileExtra>;
 }
 
 // PushMsgBody 

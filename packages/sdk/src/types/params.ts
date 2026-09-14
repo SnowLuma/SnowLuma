@@ -36,6 +36,8 @@ export interface NoCacheParams extends JsonObject {
   no_cache?: boolean;
 }
 
+export interface GetOnlineClientsParams extends NoCacheParams {}
+
 export interface GetGroupListParams extends NoCacheParams {}
 
 export interface GetGroupInfoParams extends GroupIdParams {
@@ -53,6 +55,12 @@ export interface GetGroupMemberInfoParams extends GroupIdParams {
 
 export interface GetGroupHonorInfoParams extends GroupIdParams {
   type?: 'talkative' | 'performer' | 'legend' | 'strong_newbie' | 'emotion' | 'all' | string;
+}
+
+export interface GetGroupSystemMsgParams extends JsonObject {
+  group_id?: number;
+  only_pending?: boolean;
+  count?: number;
 }
 
 export interface DeleteFriendParams extends UserIdParams {
@@ -80,6 +88,8 @@ export interface SetGroupWholeBanParams extends GroupIdParams {
 
 export interface SetGroupAddOptionParams extends GroupIdParams {
   add_type: number;
+  group_question?: string;
+  group_answer?: string;
 }
 
 export interface SetGroupAdminParams extends GroupIdParams {
@@ -100,6 +110,11 @@ export interface SetGroupSpecialTitleParams extends GroupIdParams {
   user_id: number;
   special_title?: string;
 }
+
+export type SetFriendsCategoryParams = JsonObject & (
+  | { uin: number; categoryId: number; categoryName?: never }
+  | { uin: number; categoryId?: never; categoryName: string }
+);
 
 export interface UploadGroupFileParams extends GroupIdParams {
   file: string;
@@ -194,6 +209,8 @@ export interface SetGroupReactionParams extends JsonObject {
 export interface GetMessageHistoryParams extends JsonObject {
   message_id?: number;
   count?: number;
+  /** With a non-zero message_id, include the anchor and query older (`true`) or newer (`false`) messages. Defaults to `true`. */
+  reverse_order?: boolean;
 }
 
 export interface GetGroupMessageHistoryParams extends GroupIdParams, GetMessageHistoryParams {}
@@ -217,9 +234,14 @@ export interface MarkMsgAsReadParams extends JsonObject {
 export interface GroupNoticeParams extends GroupIdParams {
   content: string;
   image?: string;
-  pinned?: number;
-  type?: number;
-  confirm_required?: number;
+  pinned?: 0 | 1;
+  /** Compatibility field: 1=regular announcement, 20=new-member announcement. */
+  type?: 1 | 20;
+  send_to_new_members?: boolean;
+  is_show_edit_card?: 0 | 1;
+  /** QQ's raw inverted field: 0=show popup, 1=do not show popup. */
+  tip_window_type?: 0 | 1;
+  confirm_required?: 0 | 1;
 }
 
 export interface ForwardPreviewParams {
@@ -288,6 +310,25 @@ export interface FetchCustomFaceParams extends JsonObject {
   count?: number;
 }
 
+export interface FetchSysFacesParams extends JsonObject {
+  refresh?: boolean;
+}
+
+export interface FetchFaceEntityParams extends FetchSysFacesParams {
+  face_id: number;
+}
+
+export interface SearchSysFacesParams extends JsonObject {
+  query: string;
+}
+
+export interface GetCollectionListParams extends JsonObject {
+  /** Collection category ID; 0 returns every category. */
+  category?: number;
+  /** Maximum number of collection items to return (1-500). */
+  count?: number;
+}
+
 export interface GetEmojiLikesParams extends MessageIdParams {
   emoji_id: string;
 }
@@ -309,6 +350,7 @@ export interface DownloadFileParams extends JsonObject {
 export interface SetQqProfileParams extends JsonObject {
   nickname?: string;
   personal_note?: string;
+  sex?: number;
 }
 
 export interface SetOnlineStatusParams extends JsonObject {

@@ -33,11 +33,13 @@ describe('FetchAiVoice namespace', () => {
   });
 
   describe('deserialize', () => {
-    it('returns the first msgInfoBody index when present', () => {
+    it('returns the first msgInfoBody index', () => {
       const node = { fileUuid: 'uuid', subType: 1 };
       expect(FetchAiVoice.deserialize({} as any, {
+        field2: 319,
+        field3: 20,
         msgInfo: { msgInfoBody: [{ index: node }] },
-      } as any)).toMatchObject(node);
+      } as any)).toEqual(node);
     });
 
     it('returns null when msgInfo is empty / missing', () => {
@@ -54,9 +56,13 @@ describe('FetchAiVoice namespace', () => {
       expect(sender.sendRawPacket.mock.calls[0]![0]).toBe('OidbSvcTrpcTcp.0x929b_0');
     });
 
-    it('returns the parsed index node', async () => {
+    it('returns the parsed media node', async () => {
       const node = { fileUuid: 'uuid', subType: 1 };
-      const sender = makeSender({ msgInfo: { msgInfoBody: [{ index: node }] } } as any);
+      const sender = makeSender({
+        field2: 319,
+        field3: 20,
+        msgInfo: { msgInfoBody: [{ index: node }] },
+      } as any);
       const out = await FetchAiVoice.invoke(sender, { groupId: 1, voiceId: 'v', text: 't', chatType: 1, sessionId: 1 });
       expect(out).toMatchObject(node);
     });

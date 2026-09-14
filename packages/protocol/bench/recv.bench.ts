@@ -134,7 +134,8 @@ function makePipeline(identity: IdentityService): IncomingPacketPipeline {
   const pipeline = new IncomingPacketPipeline({
     identity,
     events,
-    refreshMemberCache: async () => false,
+    fetchGroupList: async () => {},
+    fetchGroupMemberList: async () => {},
   });
   pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
   return pipeline;

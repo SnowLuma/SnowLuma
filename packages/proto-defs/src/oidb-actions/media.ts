@@ -75,6 +75,47 @@ export interface OidbPrivateFileUploadRespBody {
 export interface OidbPrivateFileUploadResp {
   upload?: pb<19, OidbPrivateFileUploadRespBody>;
 }
+// 0xE37_800 — c2c offline-file finalize / download-credential fetch.
+// Called AFTER the Highway upload completes (NapCat runs it even when the
+// file already exists server-side). The response metadata (`field30`)
+// supplies the download-routing fields the receiver needs; those ride
+// along in `FileExtra.field6` on the PbSendMsg. Without this step the file
+// uploads + PbSendMsg returns ok but the recipient sees "文件传输失败".
+// Ported byte-for-byte from NapCat `Oidb.0XE37_800` + `Oidb.0xE37_1200`.
+export interface OidbOfflineFileFinalizeReqBody {
+  senderUid?:   pb<10, string>;
+  receiverUid?: pb<20, string>;
+  fileUuid?:    pb<30, string>;
+  fileHash?:    pb<40, string>;
+}
+export interface OidbOfflineFileFinalizeReq {
+  subCommand?: pb<1, uint_32>;
+  field2?:     pb<2, int_32>;
+  body?:       pb<10, OidbOfflineFileFinalizeReqBody>;
+  field101?:   pb<101, int_32>;
+  field102?:   pb<102, int_32>;
+  field200?:   pb<200, int_32>;
+}
+// Server-issued download routing for the just-uploaded c2c file. Only the
+// fields consumed by `FileExtra.field6` are modelled (NapCat names them
+// field3/field100/field101/field110/timestamp1; tags verified).
+export interface OidbOfflineFileMetadata {
+  field3?:     pb<3, uint_32>;
+  field100?:   pb<100, bytes>;
+  field101?:   pb<101, bytes>;
+  field110?:   pb<110, uint_32>;
+  timestamp1?: pb<130, uint_32>;
+}
+export interface OidbOfflineFileFinalizeRespBody {
+  field10?:  pb<10, uint_32>;
+  metadata?: pb<30, OidbOfflineFileMetadata>;
+}
+export interface OidbOfflineFileFinalizeResp {
+  command?:    pb<1, uint_32>;
+  subCommand?: pb<2, uint_32>;
+  body?:       pb<10, OidbOfflineFileFinalizeRespBody>;
+  field50?:    pb<50, uint_32>;
+}
 export interface NTV2CommonHead {
   requestId?: pb<1, uint_32>;
   command?:   pb<2, uint_32>;

@@ -9,7 +9,7 @@ const Avatar = React.forwardRef<HTMLDivElement, AvatarProps>(
   ({ className, size = 36, style, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn('relative inline-flex shrink-0 overflow-hidden rounded-full bg-muted', className)}
+      className={cn('media-outline relative inline-flex shrink-0 overflow-hidden rounded-full bg-muted', className)}
       style={{ width: size, height: size, ...style }}
       {...props}
     />

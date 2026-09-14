@@ -22,6 +22,8 @@ export interface OidbGroupFileListFolderResp {
   creatorUin?:        pb<6, uint_32>;
   creatorName?:       pb<7, string>;
   totalFileCount?:    pb<8, uint_32>;
+  modifierUin?:       pb<9, uint_64>;
+  modifierName?:      pb<10, string>;
 }
 export interface OidbGroupFileListFileResp {
   fileId?:          pb<1, string>;
@@ -84,10 +86,18 @@ export interface OidbGroupFileMoveReq {
   parentDirectory?: pb<5, string>;
   targetDirectory?: pb<6, string>;
 }
+export interface OidbGroupFileRenameReq {
+  groupUin?:     pb<1, uint_32>;
+  busId?:        pb<3, uint_32>;
+  fileId?:       pb<4, string>;
+  parentFolder?: pb<5, string>;
+  newFileName?:  pb<6, string>;
+}
 export interface OidbGroupFileReq {
   file?:     pb<1, OidbGroupFileUploadReq>;
   download?: pb<3, OidbGroupFileDownloadReq>;
   delete?:   pb<4, OidbGroupFileDeleteReq>;
+  rename?:   pb<5, OidbGroupFileRenameReq>;
   move?:     pb<6, OidbGroupFileMoveReq>;
 }
 export interface OidbGroupFileUploadResp {
@@ -121,7 +131,21 @@ export interface OidbGroupFileResp {
   upload?:   pb<1, OidbGroupFileUploadResp>;
   download?: pb<3, OidbGroupFileDownloadResp>;
   delete?:   pb<4, OidbGroupFileRetResp>;
+  rename?:   pb<5, OidbGroupFileRetResp>;
   move?:     pb<6, OidbGroupFileRetResp>;
+}
+export interface OidbGroupTransFileReq {
+  groupUin?: pb<1, uint_64>;
+  appId?:    pb<2, uint_32>;
+  busId?:    pb<3, uint_32>;
+  fileId?:   pb<4, string>;
+}
+export interface OidbGroupTransFileResp {
+  retCode?:       pb<1, int_32>;
+  retMsg?:        pb<2, string>;
+  clientWording?: pb<3, string>;
+  saveBusId?:     pb<4, uint_32>;
+  saveFilePath?:  pb<5, string>;
 }
 export interface OidbGroupSendFileInfo {
   busiType?: pb<1, uint_32>;
@@ -136,7 +160,11 @@ export interface OidbGroupSendFileBody {
   info?:     pb<3, OidbGroupSendFileInfo>;
 }
 export interface OidbGroupSendFileReq {
+  transFile?: pb<1, OidbGroupTransFileReq>;
   body?: pb<5, OidbGroupSendFileBody>;
+}
+export interface OidbGroupSendFileResp {
+  transFile?: pb<1, OidbGroupTransFileResp>;
 }
 export interface OidbGroupFileCreateFolderReq {
   groupUin?:      pb<1, uint_32>;
@@ -157,10 +185,25 @@ export interface OidbGroupFileFolderReq {
   delete?: pb<2, OidbGroupFileDeleteFolderReq>;
   rename?: pb<3, OidbGroupFileRenameFolderReq>;
 }
+// The create (0x6D7_0) response also carries the new folder's info at field 4
+// — the source of folderId (#195). delete/rename responses leave it empty.
+// Tags confirmed against a live create response (bot creating a folder in a
+// test group): modifyUin is field 9, NOT 7 as Lagrange's
+// OidbSvcTrpcTcp0x6D7_0ResponseFolderInfo has it.
+export interface OidbGroupFileFolderInfoResp {
+  folderId?:   pb<1, string>;
+  folderPath?: pb<2, string>;
+  folderName?: pb<3, string>;
+  createTime?: pb<4, uint_32>;
+  modifyTime?: pb<5, uint_32>;
+  createUin?:  pb<6, uint_32>;
+  modifyUin?:  pb<9, uint_32>;
+}
 export interface OidbGroupFileFolderRetResp {
   retcode?:       pb<1, uint_32>;
   retMsg?:        pb<2, string>;
   clientWording?: pb<3, string>;
+  folderInfo?:    pb<4, OidbGroupFileFolderInfoResp>;
 }
 export interface OidbGroupFileFolderResp {
   create?: pb<1, OidbGroupFileFolderRetResp>;
@@ -172,14 +215,30 @@ export interface OidbGroupFileCountReq {
   appId?:    pb<2, uint_32>;
   busId?:    pb<3, uint_32>;
 }
+// Count response (0x6D8_2): fileCount is field 4 and maxCount (the group's file
+// ceiling, e.g. 1500) field 6 — RE'd from a live count query (#196). The old
+// pb<1>/pb<2> tags matched nothing, so file_count always decoded to 0.
 export interface OidbGroupFileCountResp {
-  fileCount?: pb<1, uint_32>;
-  maxCount?:  pb<2, uint_32>;
-  isEnd?:     pb<3, bool>;
+  fileCount?: pb<4, uint_32>;
+  maxCount?:  pb<6, uint_32>;
+  isFull?:    pb<7, bool>;
 }
+// Space request/response (0x6D8_3). Both values are 64-bit — the 10 GiB ceiling
+// already exceeds uint32.
+export interface OidbGroupFileSpaceReq {
+  groupUin?: pb<1, uint_32>;
+  appId?:    pb<2, uint_32>;
+}
+export interface OidbGroupFileSpaceResp {
+  totalSpace?: pb<4, uint_64>;
+  usedSpace?:  pb<5, uint_64>;
+}
+// count → subCommand 2, space → subCommand 3 (List is subCommand 1).
 export interface OidbGroupFileCountViewReq {
   count?: pb<3, OidbGroupFileCountReq>;
+  space?: pb<4, OidbGroupFileSpaceReq>;
 }
 export interface OidbGroupFileCountViewResp {
   count?: pb<3, OidbGroupFileCountResp>;
+  space?: pb<4, OidbGroupFileSpaceResp>;
 }

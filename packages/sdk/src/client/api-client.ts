@@ -132,8 +132,16 @@ export abstract class SnowLumaApiClient {
     return this.call('get_group_honor_info', params, options);
   }
 
-  getGroupSystemMessages(options?: RequestOptions) {
-    return this.call('get_group_system_msg', {}, options);
+  getGroupSystemMessages(options?: RequestOptions & {
+    groupId?: number;
+    onlyPending?: boolean;
+    count?: number;
+  }) {
+    return this.call('get_group_system_msg', {
+      group_id: options?.groupId,
+      only_pending: options?.onlyPending,
+      count: options?.count,
+    }, options);
   }
 
   setGroupKick(groupId: number, userId: number, options?: RequestOptions & { rejectAddRequest?: boolean }) {
@@ -326,9 +334,13 @@ export abstract class SnowLumaApiClient {
 
   sendGroupNotice(groupId: number, content: string, options: RequestOptions & {
     image?: string;
-    pinned?: number;
-    type?: number;
-    confirmRequired?: number;
+    pinned?: 0 | 1;
+    type?: 1 | 20;
+    sendToNewMembers?: boolean;
+    isShowEditCard?: 0 | 1;
+    /** QQ's raw inverted field: 0=show popup, 1=do not show popup. */
+    tipWindowType?: 0 | 1;
+    confirmRequired?: 0 | 1;
   } = {}) {
     return this.call('_send_group_notice', {
       group_id: groupId,
@@ -336,6 +348,9 @@ export abstract class SnowLumaApiClient {
       image: options.image,
       pinned: options.pinned,
       type: options.type,
+      send_to_new_members: options.sendToNewMembers,
+      is_show_edit_card: options.isShowEditCard,
+      tip_window_type: options.tipWindowType,
       confirm_required: options.confirmRequired,
     }, options);
   }
@@ -402,6 +417,28 @@ export abstract class SnowLumaApiClient {
     return this.call('set_msg_emoji_like', { message_id: messageId, emoji_id: emojiId, set }, options);
   }
 
+  fetchSysFaces(refresh = false, options?: RequestOptions) {
+    return this.call('fetch_sys_faces', { refresh }, options);
+  }
+
+  fetchFaceEntity(faceId: number, options: RequestOptions & { refresh?: boolean } = {}) {
+    return this.call('fetch_face_entity', {
+      face_id: faceId,
+      refresh: options.refresh ?? false,
+    }, options);
+  }
+
+  searchSysFaces(query: string, options?: RequestOptions) {
+    return this.call('search_sys_faces', { query }, options);
+  }
+
+  fetchSuperFaceId(faceId: number, options: RequestOptions & { refresh?: boolean } = {}) {
+    return this.call('fetch_super_face_id', {
+      face_id: faceId,
+      refresh: options.refresh ?? false,
+    }, options);
+  }
+
   markAllAsRead(options?: RequestOptions) {
     return this.call('_mark_all_as_read', {}, options);
   }
@@ -418,10 +455,11 @@ export abstract class SnowLumaApiClient {
     return this.call('download_file', params, options);
   }
 
-  setQqProfile(params: { nickname?: string; personalNote?: string }, options?: RequestOptions) {
+  setQqProfile(params: { nickname?: string; personalNote?: string; sex?: number }, options?: RequestOptions) {
     return this.call('set_qq_profile', {
       nickname: params.nickname,
       personal_note: params.personalNote,
+      ...(params.sex !== undefined ? { sex: params.sex } : {}),
     }, options);
   }
 
@@ -437,12 +475,18 @@ export abstract class SnowLumaApiClient {
     return this.call('get_clientkey', {}, options);
   }
 
-  getGroupInfoEx(groupId: number, options?: RequestOptions) {
-    return this.call('get_group_info_ex', { group_id: groupId }, options);
+  getGroupInfoEx(groupId: number, options?: RequestOptions & { noCache?: boolean }) {
+    return this.call('get_group_info_ex', {
+      group_id: groupId,
+      no_cache: options?.noCache,
+    }, options);
   }
 
-  getGroupDetailInfo(groupId: number, options?: RequestOptions) {
-    return this.call('get_group_detail_info', { group_id: groupId }, options);
+  getGroupDetailInfo(groupId: number, options?: RequestOptions & { noCache?: boolean }) {
+    return this.call('get_group_detail_info', {
+      group_id: groupId,
+      no_cache: options?.noCache,
+    }, options);
   }
 
   /** Calls any registered SnowLuma action and returns the response data. */

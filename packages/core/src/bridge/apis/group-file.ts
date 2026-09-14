@@ -1,9 +1,11 @@
-import { toHexUpper } from '@snowluma/common/hex';
 import { createLogger } from '@snowluma/common/logger';
 import type { FileUploadExt } from '@snowluma/proto-defs/highway';
-import { fetchHighwaySession, uploadHighwayHttp } from '@snowluma/protocol/highway';
-import { computeHashes, computeMd5, FILE_UPLOAD_MAX_BYTES, loadBinarySource } from '@snowluma/protocol/highway/utils';
+import { FileChunkSource, fetchHighwaySession, uploadHighwayHttp } from '@snowluma/protocol/highway';
+import { FILE_UPLOAD_MAX_BYTES } from '@snowluma/protocol/highway/utils';
+import { stageSourceToDisk } from '@snowluma/protocol/highway/stage';
+import { hashFileStreaming } from '@snowluma/protocol/highway/hash-file';
 import { protobuf_encode } from '@snowluma/proton';
+import { promises as fsp } from 'fs';
 import type { Bridge } from '../bridge';
 import type { BridgeContext } from '../bridge-context';
 import { resolveSelfUid, toInt, type MediaIndexNode } from './shared';
@@ -12,6 +14,7 @@ import { CreateGroupFolder } from '@snowluma/protocol/oidb-services/group-file/c
 import { DeleteGroupFile } from '@snowluma/protocol/oidb-services/group-file/delete-group-file';
 import { DeleteGroupFolder } from '@snowluma/protocol/oidb-services/group-file/delete-group-folder';
 import { GetGroupFileCount } from '@snowluma/protocol/oidb-services/group-file/get-group-file-count';
+import { GetGroupFileSpace } from '@snowluma/protocol/oidb-services/group-file/get-group-file-space';
 import { GetGroupFileUrl } from '@snowluma/protocol/oidb-services/group-file/get-group-file-url';
 import { GetGroupPttUrl } from '@snowluma/protocol/oidb-services/group-file/get-group-ptt-url';
 import { GetGroupVideoUrl } from '@snowluma/protocol/oidb-services/group-file/get-group-video-url';
@@ -21,7 +24,9 @@ import { GetPrivateVideoUrl } from '@snowluma/protocol/oidb-services/group-file/
 import { ListGroupFilesPage } from '@snowluma/protocol/oidb-services/group-file/list-group-files-page';
 import { MoveGroupFile } from '@snowluma/protocol/oidb-services/group-file/move-group-file';
 import { PublishGroupFile } from '@snowluma/protocol/oidb-services/group-file/publish-group-file';
+import { RenameGroupFile } from '@snowluma/protocol/oidb-services/group-file/rename-group-file';
 import { RenameGroupFolder } from '@snowluma/protocol/oidb-services/group-file/rename-group-folder';
+import { TransGroupFile, type TransGroupFileResult } from '@snowluma/protocol/oidb-services/group-file/trans-group-file';
 import { UploadGroupFileRequest } from '@snowluma/protocol/oidb-services/group-file/upload-group-file-request';
 import { UploadPrivateFileRequest } from '@snowluma/protocol/oidb-services/group-file/upload-private-file-request';
 import { ensureRetCodeZero } from '@snowluma/protocol/oidb-services/shared';
@@ -52,6 +57,9 @@ export interface GroupFolderInfo {
   creator: number;
   creatorName: string;
   totalFileCount: number;
+  lastUploadTime: number;
+  lastUploader: number;
+  lastUploaderName: string;
 }
 
 export interface GroupFilesResult {
@@ -74,11 +82,6 @@ function normalizeDirectory(dir?: string): string {
   return dir;
 }
 
-function bytesToHexUpper(data: unknown): string {
-  if (!(data instanceof Uint8Array) || data.length === 0) return '';
-  return toHexUpper(data);
-}
-
 // Reverses acidify's `Int.toIpString()`: the 32-bit IP arrives
 // little-endian-packed (byte0 = first dotted octet) and we unpack it the
 // same way. Force-unsigned the shift to keep negative ints (high bit set)
@@ -99,9 +102,20 @@ function normalizeUploadFileName(name: string, fallback: string): string {
   return safeFallback || 'file.bin';
 }
 
-function md5First10MB(bytes: Uint8Array): Uint8Array {
-  const limit = Math.min(bytes.length, 10 * 1024 * 1024);
-  return computeMd5(bytes.subarray(0, limit));
+// QQ's "first 10 MB" checksum uses the magic limit 0x98A000 (10002432) —
+// NOT 10*1024*1024 and not 10^7. Using the wrong limit makes the server's
+// first-block verification fail for files larger than 0x98A000, so the
+// offline file uploads but never finalises as downloadable (#157).
+const MD5_HEAD_LIMIT = 10002432;
+
+/** Fail cleanly if the staged file changed since the streaming hash pass (a
+ *  local source mutated mid-send). The server's per-chunk md5 during the PUT is
+ *  the backstop; this is the cheap early check. */
+async function assertUnchanged(filePath: string, baseline: { size: number; mtimeMs: number }): Promise<void> {
+  const now = await fsp.stat(filePath);
+  if (now.size !== baseline.size || now.mtimeMs !== baseline.mtimeMs) {
+    throw new Error('file source changed during send (mutated between hashing and upload)');
+  }
 }
 
 function buildGroupFileUploadExt(
@@ -176,7 +190,12 @@ function buildPrivateFileUploadExt(
     unknown2: 1,
     entry: {
       busiBuff: {
-        busId: 102,
+        // #157: NapCat/Lagrange (and the QQ client, confirmed by packet
+        // capture) emit a busiBuff with ONLY senderUin — no busId. A stale
+        // busId:102 here made the offline-file server accept the highway
+        // upload but never finalise it as downloadable once the file got
+        // big (>5 MiB): the receiver saw the file but every download failed.
+        // (The other half of that bug was the wrong md5-head limit above.)
         senderUin: BigInt(senderUin),
         receiverUin: 0n,
         groupCode: 0n,
@@ -226,10 +245,19 @@ export class GroupFileApi {
     return PublishGroupFile.invoke(this.ctx, { groupId, fileId });
   }
 
+  trans(groupId: number, fileId: string): Promise<TransGroupFileResult> {
+    if (!fileId) throw new Error('trans requires fileId');
+    return TransGroupFile.invoke(this.ctx, { groupId, fileId });
+  }
+
   // ─────────────── count ───────────────
 
   getCount(groupId: number): Promise<{ fileCount: number; maxCount: number }> {
     return GetGroupFileCount.invoke(this.ctx, { groupId });
+  }
+
+  getSpace(groupId: number): Promise<{ usedSpace: number; totalSpace: number }> {
+    return GetGroupFileSpace.invoke(this.ctx, { groupId });
   }
 
   // ─────────────── upload (3-stage: OIDB preflight → highway → publish) ───────────────
@@ -240,99 +268,113 @@ export class GroupFileApi {
     name = '',
     folderId = '/',
     uploadFile = true,
+    publishFile = uploadFile,
   ): Promise<UploadFileResult> {
     const bridge = asBridge(this.ctx);
-    // Group/private files may legitimately be up to 4 GiB on QQ's wire,
-    // so override the default 1 GiB cap with the protocol ceiling.
-    const loaded = await loadBinarySource(source, 'file', FILE_UPLOAD_MAX_BYTES);
-    if (!loaded.bytes.length) throw new Error('group file is empty');
+    // Group/private files may legitimately be up to 4 GiB on QQ's wire, so
+    // override the default 1 GiB cap with the protocol ceiling. Stage onto a
+    // local disk path and stream-hash it — the (up to 4 GiB) file is never
+    // buffered in RAM.
+    const staged = await stageSourceToDisk(source, FILE_UPLOAD_MAX_BYTES);
+    try {
+      if (staged.fileSize === 0) throw new Error('group file is empty');
 
-    const fileName = normalizeUploadFileName(name, loaded.fileName);
-    const hashes = computeHashes(loaded.bytes);
+      const fileName = normalizeUploadFileName(name, staged.fileName);
+      const guardStat = await fsp.stat(staged.filePath); // mutation-guard baseline
+      const hashes = await hashFileStreaming(staged.filePath);
 
-    const upload = await UploadGroupFileRequest.invoke(this.ctx, {
-      groupId,
-      fileName,
-      folderId: normalizeDirectory(folderId),
-      fileSize: loaded.bytes.length,
-      fileSha1: hashes.sha1,
-      fileMd5: hashes.md5,
-    });
-    ensureRetCodeZero('group file upload', upload.retCode, upload.retMsg, upload.clientWording);
-
-    const fileId = typeof upload.fileId === 'string' && upload.fileId ? upload.fileId : null;
-    if (!fileId) throw new Error('group file upload response missing file_id');
-
-    // Remember the upload so a later `send_group_msg` carrying just the
-    // file_id can route via `publish` without forcing the OneBot caller
-    // to thread fileName/size/md5 separately. For groups the wire
-    // publish (OIDB 0x6d9_4) only needs the file_id itself, so this is
-    // mainly for log-line correctness; the c2c counterpart in
-    // `uploadPrivate` is where the cache is actually load-bearing.
-    this.ctx.rememberUploadedFile({
-      fileId,
-      scope: 'group',
-      groupId,
-      fileName,
-      fileSize: loaded.bytes.length,
-      fileMd5: hashes.md5,
-      fileSha1: hashes.sha1,
-      rememberedAt: Date.now(),
-    });
-
-    if (!upload.boolFileExist && uploadFile) {
-      const senderUin = toInt(this.ctx.identity.uin);
-      if (senderUin <= 0) throw new Error('invalid self uin for group file upload');
-
-      const uploadHost = (typeof upload.uploadIp === 'string' && upload.uploadIp)
-        || (typeof upload.serverDns === 'string' && upload.serverDns)
-        || '';
-      const uploadPort = toInt(upload.uploadPort);
-      if (!uploadHost || uploadPort <= 0) {
-        throw new Error('group file upload host is invalid');
-      }
-
-      const ext = buildGroupFileUploadExt(
-        senderUin,
+      const upload = await UploadGroupFileRequest.invoke(this.ctx, {
         groupId,
         fileName,
-        loaded.bytes.length,
-        hashes.md5,
+        folderId: normalizeDirectory(folderId),
+        fileSize: staged.fileSize,
+        fileSha1: hashes.sha1,
+        fileMd5: hashes.md5,
+      });
+      ensureRetCodeZero('group file upload', upload.retCode, upload.retMsg, upload.clientWording);
+
+      const fileId = typeof upload.fileId === 'string' && upload.fileId ? upload.fileId : null;
+      if (!fileId) throw new Error('group file upload response missing file_id');
+
+      // Remember the upload so a later `send_group_msg` carrying just the
+      // file_id can route via `publish` without forcing the OneBot caller
+      // to thread fileName/size/md5 separately. For groups the wire
+      // publish (OIDB 0x6d9_4) only needs the file_id itself, so this is
+      // mainly for log-line correctness; the c2c counterpart in
+      // `uploadPrivate` is where the cache is actually load-bearing.
+      this.ctx.rememberUploadedFile({
         fileId,
-        upload.fileKey instanceof Uint8Array ? upload.fileKey : new Uint8Array(0),
-        upload.checkKey instanceof Uint8Array ? upload.checkKey : new Uint8Array(0),
-        uploadHost,
-        uploadPort,
-      );
+        scope: 'group',
+        groupId,
+        fileName,
+        fileSize: staged.fileSize,
+        fileMd5: hashes.md5,
+        fileSha1: hashes.sha1,
+        rememberedAt: Date.now(),
+      });
 
-      const session = await fetchHighwaySession(bridge);
-      await uploadHighwayHttp(bridge, session, 71, loaded.bytes, hashes.md5, ext);
-    }
+      if (!upload.boolFileExist && uploadFile) {
+        const senderUin = toInt(this.ctx.identity.uin);
+        if (senderUin <= 0) throw new Error('invalid self uin for group file upload');
 
-    // Stage 3: file is on the server, now publish it as a chat message.
-    //
-    // Without this, OIDB 0x6D6_0 + highway PUT only stages the bytes —
-    // the chat shows nothing. The publish step goes via a dedicated OIDB
-    // call (0x6D9_4), NOT via `MessageSvc.PbSendMsg` with a transElem(24)
-    // payload — the QQ-NT server rejects that with `result=79`. Mirrors
-    // Lagrange.Core V2's `GroupSendFileService.cs`. Suppressed when the
-    // caller opts out via `uploadFile=false` (treat that as "I only
-    // wanted the slot allocated, hold the chat post"). Routes through
-    // `this.publish` so tests can mock at the same Api boundary.
-    if (uploadFile) {
-      try {
-        await this.publish(groupId, fileId);
-      } catch (err) {
-        // The bytes are already on the server and the fileId is valid —
-        // fail loud but don't lose the upload result the action handler
-        // committed to returning. Callers can still resolve the file by
-        // id; they'll just have to re-publish it themselves.
-        log.warn('group file uploaded (fileId=%s) but chat post failed: %s',
-          fileId, err instanceof Error ? err.message : String(err));
+        const uploadHost = (typeof upload.uploadIp === 'string' && upload.uploadIp)
+          || (typeof upload.serverDns === 'string' && upload.serverDns)
+          || '';
+        const uploadPort = toInt(upload.uploadPort);
+        if (!uploadHost || uploadPort <= 0) {
+          throw new Error('group file upload host is invalid');
+        }
+
+        const ext = buildGroupFileUploadExt(
+          senderUin,
+          groupId,
+          fileName,
+          staged.fileSize,
+          hashes.md5,
+          fileId,
+          upload.fileKey instanceof Uint8Array ? upload.fileKey : new Uint8Array(0),
+          upload.checkKey instanceof Uint8Array ? upload.checkKey : new Uint8Array(0),
+          uploadHost,
+          uploadPort,
+        );
+
+        // Fail cleanly if the source changed since hashing, then stream the PUT
+        // from disk. Fetch the session BEFORE opening the handle so
+        // uploadHighwayHttp (the handle's owner) is the next call and always
+        // closes it.
+        await assertUnchanged(staged.filePath, guardStat);
+        const session = await fetchHighwaySession(bridge);
+        const chunkSource = await FileChunkSource.open(staged.filePath, staged.fileSize);
+        await uploadHighwayHttp(bridge, session, 71, chunkSource, hashes.md5, ext);
       }
-    }
 
-    return { fileId };
+      // Stage 3: file is on the server, now publish it as a chat message.
+      //
+      // Without this, OIDB 0x6D6_0 + highway PUT only stages the bytes —
+      // the chat shows nothing. The publish step goes via a dedicated OIDB
+      // call (0x6D9_4), NOT via `MessageSvc.PbSendMsg` with a transElem(24)
+      // payload — the QQ-NT server rejects that with `result=79`. Mirrors
+      // Lagrange.Core V2's `GroupSendFileService.cs`. Suppressed when a
+      // caller only needs a valid file_id embedded elsewhere, e.g. a
+      // forward-message long-msg payload. Routes through `this.publish` so
+      // tests can mock at the same Api boundary.
+      if (publishFile) {
+        try {
+          await this.publish(groupId, fileId);
+        } catch (err) {
+          // The bytes are already on the server and the fileId is valid —
+          // fail loud but don't lose the upload result the action handler
+          // committed to returning. Callers can still resolve the file by
+          // id; they'll just have to re-publish it themselves.
+          log.warn('group file uploaded (fileId=%s) but chat post failed: %s',
+            fileId, err instanceof Error ? err.message : String(err));
+        }
+      }
+
+      return { fileId };
+    } finally {
+      await staged.cleanup();
+    }
   }
 
   async uploadPrivate(
@@ -340,60 +382,59 @@ export class GroupFileApi {
     source: string,
     name = '',
     uploadFile = true,
+    publishFile = uploadFile,
   ): Promise<UploadFileResult> {
     const bridge = asBridge(this.ctx);
-    const loaded = await loadBinarySource(source, 'file', FILE_UPLOAD_MAX_BYTES);
-    if (!loaded.bytes.length) throw new Error('private file is empty');
+    // Stage onto a local disk path + stream-hash — the (up to 4 GiB) file is
+    // never buffered in RAM. headLimit = MD5_HEAD_LIMIT yields the offline-file
+    // md510MCheckSum in the same single pass.
+    const staged = await stageSourceToDisk(source, FILE_UPLOAD_MAX_BYTES);
+    try {
+      if (staged.fileSize === 0) throw new Error('private file is empty');
 
-    const targetUid = await this.ctx.resolveUserUid(userId);
-    let selfUid = this.ctx.identity.selfUid;
-    if (!selfUid) {
-      const selfUin = toInt(this.ctx.identity.uin);
-      if (selfUin > 0) {
-        selfUid = await this.ctx.resolveUserUid(selfUin);
-      }
-    }
-    if (!selfUid) throw new Error('self uid is unavailable');
+      const targetUid = await this.ctx.resolveUserUid(userId);
+      const selfUid = await resolveSelfUid(this.ctx);
 
-    const senderUin = toInt(this.ctx.identity.uin);
-    if (senderUin <= 0) throw new Error('invalid self uin for private file upload');
+      const senderUin = toInt(this.ctx.identity.uin);
+      if (senderUin <= 0) throw new Error('invalid self uin for private file upload');
 
-    const fileName = normalizeUploadFileName(name, loaded.fileName);
-    const hashes = computeHashes(loaded.bytes);
+      const fileName = normalizeUploadFileName(name, staged.fileName);
+      const guardStat = await fsp.stat(staged.filePath); // mutation-guard baseline
+      const hashes = await hashFileStreaming(staged.filePath, { headLimit: MD5_HEAD_LIMIT });
 
-    const upload = await UploadPrivateFileRequest.invoke(this.ctx, {
-      senderUid: selfUid,
-      receiverUid: targetUid,
-      fileName,
-      fileSize: loaded.bytes.length,
-      fileSha1: hashes.sha1,
-      fileMd5: hashes.md5,
-      md510MCheckSum: md5First10MB(loaded.bytes),
-    });
-    ensureRetCodeZero('private file upload', upload.retCode, upload.retMsg, undefined);
+      const upload = await UploadPrivateFileRequest.invoke(this.ctx, {
+        senderUid: selfUid,
+        receiverUid: targetUid,
+        fileName,
+        fileSize: staged.fileSize,
+        fileSha1: hashes.sha1,
+        fileMd5: hashes.md5,
+        md510MCheckSum: hashes.headMd5!,
+      });
+      ensureRetCodeZero('private file upload', upload.retCode, upload.retMsg, undefined);
 
-    const fileId = typeof upload.uuid === 'string' && upload.uuid ? upload.uuid : null;
-    const fileHash = typeof upload.fileAddon === 'string' && upload.fileAddon ? upload.fileAddon : null;
-    if (!fileId) throw new Error('private file upload response missing file_id');
+      const fileId = typeof upload.uuid === 'string' && upload.uuid ? upload.uuid : null;
+      const fileHash = typeof upload.fileAddon === 'string' && upload.fileAddon ? upload.fileAddon : null;
+      if (!fileId) throw new Error('private file upload response missing file_id');
 
-    // Cache the metadata so a later `send_private_msg` carrying just
-    // `{type:'file', file_id}` can resurrect the full c2c-file packet
-    // (NotOnlineFile { fileSize, fileMd5, fileName, fileHash }). Without
-    // this the recipient sees a 0-byte file because the OneBot send path
-    // has no way to recover those fields from the file_id alone.
-    this.ctx.rememberUploadedFile({
-      fileId,
-      scope: 'private',
-      userId,
-      fileName,
-      fileSize: loaded.bytes.length,
-      fileMd5: hashes.md5,
-      fileSha1: hashes.sha1,
-      fileHash: fileHash ?? '',
-      rememberedAt: Date.now(),
-    });
+      // Cache the metadata so a later `send_private_msg` carrying just
+      // `{type:'file', file_id}` can resurrect the full c2c-file packet
+      // (NotOnlineFile { fileSize, fileMd5, fileName, fileHash }). Without
+      // this the recipient sees a 0-byte file because the OneBot send path
+      // has no way to recover those fields from the file_id alone.
+      this.ctx.rememberUploadedFile({
+        fileId,
+        scope: 'private',
+        userId,
+        fileName,
+        fileSize: staged.fileSize,
+        fileMd5: hashes.md5,
+        fileSha1: hashes.sha1,
+        fileHash: fileHash ?? '',
+        rememberedAt: Date.now(),
+      });
 
-    if (!upload.boolFileExist && uploadFile) {
+      if (!upload.boolFileExist && uploadFile) {
       // Host selection.
       //
       // Current QQ-NT server rollout has stopped populating the legacy
@@ -415,88 +456,96 @@ export class GroupFileApi {
       // uploadDns), so we fall through to those after rtpMediaPlatform.
       // Pair an HTTPS-flavored host with `uploadHttpsPort` if that's
       // what we picked.
-      const rtpFirst = (Array.isArray(upload.rtpMediaPlatformUploadAddress)
+        const rtpFirst = (Array.isArray(upload.rtpMediaPlatformUploadAddress)
         && upload.rtpMediaPlatformUploadAddress[0])
-        ? upload.rtpMediaPlatformUploadAddress[0] : null;
-      const rtpInIP = rtpFirst && typeof rtpFirst.inIP === 'number' && rtpFirst.inIP !== 0
-        ? int32ToIpv4Dotted(rtpFirst.inIP) : '';
-      const rtpInPort = rtpFirst && typeof rtpFirst.inPort === 'number'
-        ? rtpFirst.inPort : 0;
-      const ipListFirst = (Array.isArray(upload.uploadIpList) && upload.uploadIpList[0])
-        ? upload.uploadIpList[0] : '';
-      const uploadHost = (rtpInIP)
+          ? upload.rtpMediaPlatformUploadAddress[0] : null;
+        const rtpInIP = rtpFirst && typeof rtpFirst.inIP === 'number' && rtpFirst.inIP !== 0
+          ? int32ToIpv4Dotted(rtpFirst.inIP) : '';
+        const rtpInPort = rtpFirst && typeof rtpFirst.inPort === 'number'
+          ? rtpFirst.inPort : 0;
+        const ipListFirst = (Array.isArray(upload.uploadIpList) && upload.uploadIpList[0])
+          ? upload.uploadIpList[0] : '';
+        const uploadHost = (rtpInIP)
         || (typeof upload.uploadIp === 'string' && upload.uploadIp)
         || (typeof upload.uploadDomain === 'string' && upload.uploadDomain)
         || (ipListFirst)
         || (typeof upload.uploadHttpsDomain === 'string' && upload.uploadHttpsDomain)
         || (typeof upload.uploadDns === 'string' && upload.uploadDns)
         || '';
-      const httpsHostUsed = !rtpInIP && !upload.uploadIp && !upload.uploadDomain && !ipListFirst
+        const httpsHostUsed = !rtpInIP && !upload.uploadIp && !upload.uploadDomain && !ipListFirst
         && typeof upload.uploadHttpsDomain === 'string' && !!upload.uploadHttpsDomain;
-      const uploadPort = rtpInIP && rtpInPort > 0
-        ? rtpInPort
-        : httpsHostUsed && toInt(upload.uploadHttpsPort) > 0
-          ? toInt(upload.uploadHttpsPort)
-          : toInt(upload.uploadPort);
-      if (!uploadHost || uploadPort <= 0) {
-        const rtpDump = Array.isArray(upload.rtpMediaPlatformUploadAddress)
-          ? JSON.stringify(upload.rtpMediaPlatformUploadAddress.map((e) => ({
-            outIP: e.outIP, outPort: e.outPort, inIP: e.inIP, inPort: e.inPort,
-            iPType: e.iPType,
-          })))
-          : '[]';
-        log.warn(
-          'private file upload host missing — rtp=%s ip=%s domain=%s ipList=%s httpsDomain=%s dns=%s lanip=%s port=%s httpsPort=%s',
-          rtpDump,
-          upload.uploadIp ?? '', upload.uploadDomain ?? '',
-          JSON.stringify(upload.uploadIpList ?? []),
-          upload.uploadHttpsDomain ?? '', upload.uploadDns ?? '',
-          upload.uploadLanip ?? '', upload.uploadPort ?? 0,
-          upload.uploadHttpsPort ?? 0,
-        );
-        throw new Error('private file upload host is invalid');
-      }
+        const uploadPort = rtpInIP && rtpInPort > 0
+          ? rtpInPort
+          : httpsHostUsed && toInt(upload.uploadHttpsPort) > 0
+            ? toInt(upload.uploadHttpsPort)
+            : toInt(upload.uploadPort);
+        if (!uploadHost || uploadPort <= 0) {
+          const rtpDump = Array.isArray(upload.rtpMediaPlatformUploadAddress)
+            ? JSON.stringify(upload.rtpMediaPlatformUploadAddress.map((e) => ({
+              outIP: e.outIP, outPort: e.outPort, inIP: e.inIP, inPort: e.inPort,
+              iPType: e.iPType,
+            })))
+            : '[]';
+          log.warn(
+            'private file upload host missing — rtp=%s ip=%s domain=%s ipList=%s httpsDomain=%s dns=%s lanip=%s port=%s httpsPort=%s',
+            rtpDump,
+            upload.uploadIp ?? '', upload.uploadDomain ?? '',
+            JSON.stringify(upload.uploadIpList ?? []),
+            upload.uploadHttpsDomain ?? '', upload.uploadDns ?? '',
+            upload.uploadLanip ?? '', upload.uploadPort ?? 0,
+            upload.uploadHttpsPort ?? 0,
+          );
+          throw new Error('private file upload host is invalid');
+        }
 
-      const ext = buildPrivateFileUploadExt(
-        senderUin,
-        fileName,
-        loaded.bytes.length,
-        hashes.md5,
-        hashes.sha1,
-        fileId,
-        upload.mediaPlatformUploadKey instanceof Uint8Array
-          ? upload.mediaPlatformUploadKey
-          : (upload.uploadKey instanceof Uint8Array ? upload.uploadKey : new Uint8Array(0)),
-        uploadHost,
-        uploadPort,
-      );
-
-      const session = await fetchHighwaySession(bridge);
-      await uploadHighwayHttp(bridge, session, 95, loaded.bytes, hashes.md5, ext);
-    }
-
-    // Stage 3: publish the file as a c2c chat message. C2C files use
-    // `RichText.notOnlineFile` (parallel to `elems`), so we go through
-    // the dedicated `sendC2cFile` on MessageApi instead of `sendPrivate`
-    // which only knows about elems[]. NapCat does the same atomic
-    // upload+send dance — without it the file sits on the server and
-    // the recipient sees nothing.
-    if (uploadFile) {
-      try {
-        await this.ctx.apis.message.sendC2cFile(userId, targetUid, {
-          fileId,
+        const ext = buildPrivateFileUploadExt(
+          senderUin,
           fileName,
-          fileSize: loaded.bytes.length,
-          fileMd5: hashes.md5,
-          fileHash: fileHash ?? '',
-        });
-      } catch (err) {
-        log.warn('private file uploaded (fileId=%s) but chat post failed: %s',
-          fileId, err instanceof Error ? err.message : String(err));
-      }
-    }
+          staged.fileSize,
+          hashes.md5,
+          hashes.sha1,
+          fileId,
+          upload.mediaPlatformUploadKey instanceof Uint8Array
+            ? upload.mediaPlatformUploadKey
+            : (upload.uploadKey instanceof Uint8Array ? upload.uploadKey : new Uint8Array(0)),
+          uploadHost,
+          uploadPort,
+        );
 
-    return { fileId, fileHash };
+        // Fail cleanly if the source changed since hashing, then stream the PUT
+        // from disk. Session BEFORE opening the handle so uploadHighwayHttp (the
+        // handle's owner) is the next call and always closes it.
+        await assertUnchanged(staged.filePath, guardStat);
+        const session = await fetchHighwaySession(bridge);
+        const chunkSource = await FileChunkSource.open(staged.filePath, staged.fileSize);
+        await uploadHighwayHttp(bridge, session, 95, chunkSource, hashes.md5, ext);
+      }
+
+      // Stage 3: publish the file as a c2c chat message. C2C files use
+      // `RichText.notOnlineFile` (parallel to `elems`), so we go through
+      // the dedicated `sendC2cFile` on MessageApi instead of `sendPrivate`
+      // which only knows about elems[]. NapCat does the same atomic
+      // upload+send dance — without it the file sits on the server and
+      // the recipient sees nothing.
+      if (publishFile) {
+        try {
+          await this.ctx.apis.message.sendC2cFile(userId, targetUid, {
+            fileId,
+            fileName,
+            fileSize: staged.fileSize,
+            fileMd5: hashes.md5,
+            fileHash: fileHash ?? '',
+          });
+        } catch (err) {
+          log.warn('private file uploaded (fileId=%s) but chat post failed: %s',
+            fileId, err instanceof Error ? err.message : String(err));
+        }
+      }
+
+      return { fileId, fileHash };
+    } finally {
+      await staged.cleanup();
+    }
   }
 
   // ─────────────── list (paginated loop) ───────────────
@@ -513,9 +562,8 @@ export class GroupFileApi {
         groupId, targetDirectory, startIndex, pageSize,
       });
       if (!list) break;
-      ensureRetCodeZero('group file list', list.retCode, list.retMsg, list.clientWording);
 
-      for (const item of list.items ?? []) {
+      for (const item of list.items) {
         const type = toInt(item?.type);
         if (type === 1 && item?.fileInfo) {
           const file = item.fileInfo;
@@ -540,6 +588,8 @@ export class GroupFileApi {
           const folder = item.folderInfo;
           const creator = toInt(folder.creatorUin);
           const cached = this.ctx.identity.findGroupMember(groupId, creator);
+          const lastUploader = toInt(folder.modifierUin);
+          const lastUploaderCached = this.ctx.identity.findGroupMember(groupId, lastUploader);
           folders.push({
             folderId: typeof folder.folderId === 'string' ? folder.folderId : '',
             folderName: typeof folder.folderName === 'string' ? folder.folderName : '',
@@ -550,6 +600,12 @@ export class GroupFileApi {
               || cached?.nickname
               || '',
             totalFileCount: toInt(folder.totalFileCount),
+            lastUploadTime: toInt(folder.modifiedTime),
+            lastUploader,
+            lastUploaderName: (typeof folder.modifierName === 'string' && folder.modifierName)
+              || lastUploaderCached?.card
+              || lastUploaderCached?.nickname
+              || '',
           });
         }
       }
@@ -564,34 +620,14 @@ export class GroupFileApi {
   // ─────────────── url fetch (group / private files) ───────────────
 
   async getUrl(groupId: number, fileId: string, busId = 102): Promise<string> {
-    const download = await GetGroupFileUrl.invoke(this.ctx, { groupId, fileId, busId });
-    ensureRetCodeZero('group file url', download.retCode, download.retMsg, download.clientWording);
-
-    const dns = (typeof download.downloadDns === 'string' && download.downloadDns)
-      || (typeof download.downloadIp === 'string' && download.downloadIp)
-      || '';
-    const hexUrl = bytesToHexUpper(download.downloadUrl);
-    if (!dns || !hexUrl) {
-      throw new Error('group file url response invalid');
-    }
-
-    // Keep the same behavior as Lagrange: append file_id after ?fname=
-    return `https://${dns}/ftn_handler/${hexUrl}/?fname=${fileId}`;
+    return GetGroupFileUrl.invoke(this.ctx, { groupId, fileId, busId });
   }
 
   async getPrivateUrl(userId: number, fileId: string, fileHash: string): Promise<string> {
     const bridge = asBridge(this.ctx);
     const selfUid = await resolveSelfUid(bridge);
     void userId;
-    const result = await GetPrivateFileUrl.invoke(this.ctx, { selfUid, fileId, fileHash });
-
-    const server = typeof result?.server === 'string' ? result.server : '';
-    const port = toInt(result?.port);
-    const url = typeof result?.url === 'string' ? result.url : '';
-    if (!server || !port || !url) {
-      throw new Error('private file url response invalid');
-    }
-    return `http://${server}:${port}${url}&isthumb=0`;
+    return GetPrivateFileUrl.invoke(this.ctx, { selfUid, fileId, fileHash });
   }
 
   // ─────────────── delete / move ───────────────
@@ -604,9 +640,13 @@ export class GroupFileApi {
     return MoveGroupFile.invoke(this.ctx, { groupId, fileId, parentDirectory, targetDirectory });
   }
 
+  rename(groupId: number, fileId: string, parentDirectory: string, newFileName: string): Promise<void> {
+    return RenameGroupFile.invoke(this.ctx, { groupId, fileId, parentDirectory, newFileName });
+  }
+
   // ─────────────── folders ───────────────
 
-  createFolder(groupId: number, name: string, parentId = '/'): Promise<void> {
+  createFolder(groupId: number, name: string, parentId = '/'): Promise<CreateGroupFolder.Result> {
     return CreateGroupFolder.invoke(this.ctx, {
       groupId, parentId: normalizeDirectory(parentId), folderName: name,
     });

@@ -2,6 +2,7 @@ import { createLogger } from '@snowluma/common/logger';
 import type { DownloadRKeyInfo } from '@snowluma/core/bridge';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import type { MessageElement } from '@snowluma/protocol/events';
+import type { RKeyConfig } from './types';
 
 const log = createLogger('OneBot');
 
@@ -15,6 +16,11 @@ interface CachedRKey {
 
 const RKEY_REFRESH_SKEW = 60;
 const RKEY_REFRESH_COOLDOWN = 30;
+// When the cache holds NO usable image rkey, the alternative to refreshing is
+// handing out a bare URL the CDN rejects with `invalid rkey` (issue #156). So
+// retry far more eagerly than the 30s steady-state backoff — but still throttled
+// so a persistently-failing fetch isn't hammered once per inbound image.
+const RKEY_EMPTY_COOLDOWN = 10;
 // Upper bound on how long URL resolution may block on a refresh round-trip.
 // A stuck packet send must never wedge message conversion — past this we
 // fall back to whatever the cache holds (possibly nothing).
@@ -31,6 +37,17 @@ export class RKeyCache {
   private cache = new Map<number, CachedRKey>();
   private lastRefreshAttempt = 0;
   private refreshInflight: Promise<void> | null = null;
+  /** Opt-in remote rkey endpoints; empty = feature off (the default). */
+  private fallbackServers: string[];
+
+  constructor(config?: RKeyConfig) {
+    this.fallbackServers = config?.fallbackServers ?? [];
+  }
+
+  /** Replace the fallback endpoint list (global-config hot-reload). */
+  setFallbackServers(servers: string[]): void {
+    this.fallbackServers = servers;
+  }
 
   warmUp(bridge: BridgeInterface, uin: string): void {
     this.ensureFresh(bridge).then(
@@ -101,6 +118,13 @@ export class RKeyCache {
     }
   }
 
+  /** True when at least one common image rkey (group or private) is cached and
+   *  still valid — i.e. we can sign a typical image without a fresh fetch. */
+  private hasUsableRkey(): boolean {
+    return this.findInCache(GROUP_IMAGE_RKEY_TYPE) !== null
+      || this.findInCache(PRIVATE_IMAGE_RKEY_TYPE) !== null;
+  }
+
   /** Pull a still-valid rkey out of the cache, or null if missing/expiring. */
   private findInCache(primaryType: number): string | null {
     const now = Math.floor(Date.now() / 1000);
@@ -128,21 +152,20 @@ export class RKeyCache {
 
   /**
    * Refresh the rkey cache via OIDB 0x9067_202, coalescing concurrent
-   * callers onto one in-flight request and backing off for
-   * RKEY_REFRESH_COOLDOWN after a failed attempt so a persistently
-   * unreachable server isn't hammered once per inbound image. The await is
-   * bounded by RKEY_REFRESH_TIMEOUT_MS.
+   * callers onto one in-flight request and backing off (RKEY_REFRESH_COOLDOWN
+   * when a usable rkey is held, RKEY_EMPTY_COOLDOWN while none is) so a
+   * persistently-failing fetch isn't hammered once per inbound image. The await
+   * is bounded by RKEY_REFRESH_TIMEOUT_MS.
    */
   private async ensureFresh(bridge: BridgeInterface): Promise<void> {
     if (!this.refreshInflight) {
       const now = Math.floor(Date.now() / 1000);
-      if (now - this.lastRefreshAttempt < RKEY_REFRESH_COOLDOWN) return;
+      // Back off hard once we hold a usable rkey; retry quickly while we don't,
+      // so a transient empty/failed fetch self-heals in seconds, not 30s (#156).
+      const cooldown = this.hasUsableRkey() ? RKEY_REFRESH_COOLDOWN : RKEY_EMPTY_COOLDOWN;
+      if (now - this.lastRefreshAttempt < cooldown) return;
       this.lastRefreshAttempt = now;
-      this.refreshInflight = bridge.apis.contacts.fetchDownloadRKeys()
-        .then((rkeys) => { this.updateCache(rkeys); })
-        .catch((err) => {
-          log.warn('rkey refresh failed: %s', err instanceof Error ? err.message : String(err));
-        })
+      this.refreshInflight = this.runRefresh(bridge)
         .finally(() => { this.refreshInflight = null; });
     }
 
@@ -157,6 +180,77 @@ export class RKeyCache {
       if (timer) clearTimeout(timer);
     }
   }
+
+  /** One refresh round: native OIDB fetch, then — only if that left us without
+   *  a usable image rkey AND fallback servers are configured — the remote
+   *  fallback. Never throws; logs and degrades to whatever the cache holds. */
+  private async runRefresh(bridge: BridgeInterface): Promise<void> {
+    try {
+      const rkeys = await bridge.apis.contacts.fetchDownloadRKeys();
+      this.updateCache(rkeys);
+    } catch (err) {
+      log.warn('rkey refresh failed: %s', err instanceof Error ? err.message : String(err));
+    }
+    if (this.fallbackServers.length > 0 && !this.hasUsableRkey()) {
+      await this.refreshFromFallback();
+    }
+  }
+
+  /** Ask each configured fallback server in turn for an rkey, stopping at the
+   *  first that yields one. Populates the group/private image rkey types. */
+  private async refreshFromFallback(): Promise<void> {
+    for (const server of this.fallbackServers) {
+      try {
+        const data = await fetchFallbackRkey(server);
+        if (!data) continue;
+        const now = Math.floor(Date.now() / 1000);
+        const expiresAt = data.expiredTime > now ? data.expiredTime : now + 3600;
+        if (data.groupRkey) this.setFallbackRkey(GROUP_IMAGE_RKEY_TYPE, data.groupRkey, expiresAt);
+        if (data.privateRkey) this.setFallbackRkey(PRIVATE_IMAGE_RKEY_TYPE, data.privateRkey, expiresAt);
+        if (data.groupRkey || data.privateRkey) {
+          log.info('rkey loaded from fallback server %s', server);
+          return;
+        }
+      } catch (err) {
+        log.warn('rkey fallback server %s failed: %s', server, err instanceof Error ? err.message : String(err));
+      }
+    }
+  }
+
+  private setFallbackRkey(type: number, value: string, expiresAt: number): void {
+    this.cache.set(type, { value, type, createTime: 0, ttlSeconds: 0, expiresAt });
+  }
+}
+
+interface FallbackRkeyData {
+  groupRkey: string;
+  privateRkey: string;
+  /** Absolute unix-seconds expiry (0 when the server omits it). */
+  expiredTime: number;
+}
+
+/** Fetch + parse one fallback server's response. Accepts the bare
+ *  `{ group_rkey, private_rkey, expired_time }` shape and an OneBot
+ *  `{ retcode, data: {...} }` wrapper. Returns null when neither rkey is
+ *  present. The stored values keep any leading `&rkey=`/`?rkey=` — resolveImageUrl
+ *  strips it before re-appending, so both prefixed and bare tokens work. */
+async function fetchFallbackRkey(server: string): Promise<FallbackRkeyData | null> {
+  const res = await fetch(server, { signal: AbortSignal.timeout(RKEY_REFRESH_TIMEOUT_MS) });
+  if (!res.ok) throw new Error(`http ${res.status}`);
+  let body = await res.json() as Record<string, unknown>;
+  if (body && typeof body === 'object' && 'retcode' in body && isRecord(body.data)) {
+    body = body.data;
+  }
+  if (!isRecord(body)) return null;
+  const groupRkey = typeof body.group_rkey === 'string' ? body.group_rkey : '';
+  const privateRkey = typeof body.private_rkey === 'string' ? body.private_rkey : '';
+  if (!groupRkey && !privateRkey) return null;
+  const expiredTime = typeof body.expired_time === 'number' ? body.expired_time : 0;
+  return { groupRkey, privateRkey, expiredTime };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 // QQ-NT download appids embedded in the image URL query string. The scene

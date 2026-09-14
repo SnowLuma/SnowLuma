@@ -1,8 +1,20 @@
 import type { PacketSender, SendPacketResult } from '@snowluma/common/packet-sender';
-import { QqHookClient, type QqHookSendReply } from './qq-hook-client';
+import {
+  HookPipeRequestError,
+  PIPE_STATUS_CONNECTION_UNAVAILABLE,
+  QqHookClient,
+  type QqHookSendReply,
+} from './qq-hook-client';
+
+export type OutboundHealthListener = (healthy: boolean) => void;
 
 export class HookPacketClient implements PacketSender {
-  constructor(private readonly client: QqHookClient) { }
+  private outboundHealthy = true;
+
+  constructor(
+    private readonly client: QqHookClient,
+    private readonly onOutboundHealthChanged?: OutboundHealthListener,
+  ) { }
 
   async sendPacket(serviceCmd: string, body: Buffer, timeoutMs = 15000): Promise<SendPacketResult> {
     if (!this.client.isLoggedIn) {
@@ -14,6 +26,7 @@ export class HookPacketClient implements PacketSender {
         wantReply: true,
         replyTimeoutMs: timeoutMs,
       }) as QqHookSendReply;
+      this.setOutboundHealthy(true);
       return {
         success: reply.error === 0,
         gotResponse: true,
@@ -22,6 +35,10 @@ export class HookPacketClient implements PacketSender {
         responseData: reply.body,
       };
     } catch (error) {
+      if (error instanceof HookPipeRequestError
+          && error.status === PIPE_STATUS_CONNECTION_UNAVAILABLE) {
+        this.setOutboundHealthy(false);
+      }
       return {
         success: false,
         gotResponse: false,
@@ -30,5 +47,11 @@ export class HookPacketClient implements PacketSender {
         responseData: null,
       };
     }
+  }
+
+  private setOutboundHealthy(healthy: boolean): void {
+    if (this.outboundHealthy === healthy) return;
+    this.outboundHealthy = healthy;
+    this.onOutboundHealthChanged?.(healthy);
   }
 }

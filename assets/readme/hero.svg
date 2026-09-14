@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" role="img" aria-labelledby="hero-title hero-desc">
+  <title id="hero-title">SnowLuma — QQ 到 OneBot 的现代协议桥</title>
+  <desc id="hero-desc">SnowLuma 将多个 QQ 原生会话经过协议、桥接与 OneBot 三层处理，连接到 WebSocket、HTTP、WebUI、SDK 与 MCP。</desc>
+
+  <defs>
+    <linearGradient id="hero-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#08111f"/>
+      <stop offset="0.58" stop-color="#101b31"/>
+      <stop offset="1" stop-color="#17223d"/>
+    </linearGradient>
+    <linearGradient id="brand-line" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#75d2ff"/>
+      <stop offset="0.55" stop-color="#bba7ff"/>
+      <stop offset="1" stop-color="#f4bfd9"/>
+    </linearGradient>
+    <linearGradient id="bridge-fill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#192c4e"/>
+      <stop offset="1" stop-color="#2a2550"/>
+    </linearGradient>
+    <filter id="soft-glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="16"/>
+    </filter>
+    <style>
+      .sans { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+      .mono { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; }
+      .hero-star { animation: hero-star-float 4s ease-in-out infinite; }
+      .hero-star-main { transform-origin: 16px 14px; }
+      .hero-star-secondary { transform-origin: 38px 38px; animation-delay: 0.5s; }
+      @keyframes hero-star-float {
+        0% { transform: translateY(0) rotate(0deg); opacity: 0.9; }
+        50% { transform: translateY(-8px) rotate(10deg); opacity: 1; }
+        100% { transform: translateY(0) rotate(0deg); opacity: 0.9; }
+      }
+      @media (prefers-reduced-motion: reduce) { .hero-star { animation: none; } }
+    </style>
+  </defs>
+
+  <rect width="1200" height="400" rx="28" fill="url(#hero-bg)"/>
+  <circle cx="1112" cy="28" r="138" fill="#63c9f6" opacity="0.08" filter="url(#soft-glow)"/>
+  <circle cx="705" cy="392" r="120" fill="#b59cff" opacity="0.06" filter="url(#soft-glow)"/>
+
+  <g aria-hidden="true" fill="none" stroke-linecap="round">
+    <path d="M694 28H1154" stroke="#5f7192" stroke-opacity="0.28"/>
+    <path d="M694 372H1154" stroke="#5f7192" stroke-opacity="0.2"/>
+    <path d="M708 14V386" stroke="#5f7192" stroke-opacity="0.16"/>
+    <path d="M1140 14V386" stroke="#5f7192" stroke-opacity="0.16"/>
+  </g>
+
+  <g id="title-block" transform="translate(64 54)">
+    <text class="mono" x="0" y="0" fill="#8da1c0" font-size="14" letter-spacing="2.2">QQ INTEROPERABILITY · ONEBOT V11 · MULTI-ACCOUNT</text>
+
+    <text class="sans" x="0" y="92" font-size="74" font-weight="760" letter-spacing="-3">
+      <tspan fill="#f7fbff">Snow</tspan><tspan fill="#82d7ff">Luma</tspan>
+    </text>
+    <rect x="2" y="110" width="148" height="5" rx="2.5" fill="url(#brand-line)"/>
+
+    <text class="sans" x="0" y="162" fill="#dce7f7" font-size="27" font-weight="590">把 QQ 原生会话，稳定地桥接到</text>
+    <text class="sans" x="0" y="199" fill="#dce7f7" font-size="27" font-weight="590">OneBot、WebUI 与自动化工具。</text>
+
+    <text class="sans" x="0" y="244" fill="#92a6c5" font-size="16">一个运行时，管理多账号、动作调用、事件分发与实时状态。</text>
+
+    <g transform="translate(0 274)">
+      <rect width="128" height="34" rx="17" fill="#172942" stroke="#315173"/>
+      <circle cx="18" cy="17" r="4" fill="#75d2ff"/>
+      <text class="mono" x="31" y="22" fill="#b9dfff" font-size="13">Windows x64</text>
+
+      <g transform="translate(140 0)">
+        <rect width="174" height="34" rx="17" fill="#211f41" stroke="#4d4777"/>
+        <circle cx="18" cy="17" r="4" fill="#bba7ff"/>
+        <text class="mono" x="31" y="22" fill="#d8cdfd" font-size="13">Linux x64 / arm64</text>
+      </g>
+
+      <g transform="translate(326 0)">
+        <rect width="120" height="34" rx="17" fill="#302037" stroke="#68435c"/>
+        <circle cx="18" cy="17" r="4" fill="#f4bfd9"/>
+        <text class="mono" x="31" y="22" fill="#f7d7e6" font-size="13">TypeScript</text>
+      </g>
+    </g>
+  </g>
+
+  <g id="project-proof" transform="translate(734 58)">
+    <text class="mono" x="0" y="0" fill="#8398b8" font-size="13" letter-spacing="1.8">LIVE SESSION ROUTING</text>
+
+    <g transform="translate(0 24)">
+      <g>
+        <rect width="116" height="45" rx="12" fill="#12253d" stroke="#2d5274"/>
+        <circle cx="19" cy="17" r="5" fill="#74d2ff"/>
+        <text class="mono" x="31" y="21" fill="#c7e9fb" font-size="12">QQ · 01</text>
+        <text class="mono" x="16" y="36" fill="#7189a9" font-size="10">ONLINE</text>
+      </g>
+      <g transform="translate(132 0)">
+        <rect width="116" height="45" rx="12" fill="#1b2342" stroke="#4a4c78"/>
+        <circle cx="19" cy="17" r="5" fill="#bba7ff"/>
+        <text class="mono" x="31" y="21" fill="#ddd4ff" font-size="12">QQ · 02</text>
+        <text class="mono" x="16" y="36" fill="#8186ad" font-size="10">ONLINE</text>
+      </g>
+      <g transform="translate(264 0)">
+        <rect width="116" height="45" rx="12" fill="#292039" stroke="#67445d"/>
+        <circle cx="19" cy="17" r="5" fill="#f4bfd9"/>
+        <text class="mono" x="31" y="21" fill="#f8dbea" font-size="12">QQ · N</text>
+        <text class="mono" x="16" y="36" fill="#a17f95" font-size="10">READY</text>
+      </g>
+    </g>
+
+    <g aria-hidden="true" fill="none" stroke="url(#brand-line)" stroke-width="2" stroke-linecap="round" opacity="0.85">
+      <path d="M58 69V90C58 102 78 104 94 104H190"/>
+      <path d="M190 69V104"/>
+      <path d="M322 69V90C322 102 302 104 286 104H190"/>
+    </g>
+
+    <g transform="translate(0 104)">
+      <rect x="12" y="16" width="356" height="88" rx="18" fill="#0d1729" stroke="#263853" opacity="0.72"/>
+      <rect x="6" y="8" width="368" height="88" rx="18" fill="#111f35" stroke="#364865" opacity="0.88"/>
+      <rect width="380" height="88" rx="18" fill="url(#bridge-fill)" stroke="#6684ae" stroke-opacity="0.74"/>
+
+      <text class="mono" x="22" y="25" fill="#90a6c6" font-size="11" letter-spacing="1.4">SNOWLUMA RUNTIME</text>
+      <text class="sans" x="22" y="53" fill="#f4f8ff" font-size="20" font-weight="680">Protocol → Bridge → OneBot</text>
+      <text class="sans" x="22" y="74" fill="#93a8c7" font-size="13">独立会话 · 类型化动作 · 可追踪事件</text>
+
+      <g transform="translate(326 13)" aria-hidden="true">
+        <path class="hero-star hero-star-main" d="M16 0L19.5 10.5L30 14L19.5 17.5L16 28L12.5 17.5L2 14L12.5 10.5Z" fill="#c8b7ff"/>
+        <path class="hero-star hero-star-secondary" d="M38 30L40 36L46 38L40 40L38 46L36 40L30 38L36 36Z" fill="#f2c2da" opacity="0.9"/>
+      </g>
+    </g>
+
+    <g aria-hidden="true" fill="none" stroke="#6881a4" stroke-width="1.5" stroke-linecap="round">
+      <path d="M58 208V224"/>
+      <path d="M190 208V224"/>
+      <path d="M322 208V224"/>
+    </g>
+
+    <g transform="translate(0 224)">
+      <g>
+        <rect width="116" height="68" rx="15" fill="#10253b" stroke="#315d7c"/>
+        <text class="sans" x="58" y="29" fill="#bfe8fb" text-anchor="middle" font-size="15" font-weight="650">OneBot v11</text>
+        <text class="mono" x="58" y="50" fill="#6685a3" text-anchor="middle" font-size="10">ACTIONS · EVENTS</text>
+      </g>
+      <g transform="translate(132 0)">
+        <rect width="116" height="68" rx="15" fill="#201f42" stroke="#504d7a"/>
+        <text class="sans" x="58" y="29" fill="#ded5ff" text-anchor="middle" font-size="15" font-weight="650">WebUI</text>
+        <text class="mono" x="58" y="50" fill="#8483ad" text-anchor="middle" font-size="10">STATUS · LOGS</text>
+      </g>
+      <g transform="translate(264 0)">
+        <rect width="116" height="68" rx="15" fill="#2a2038" stroke="#65455e"/>
+        <text class="sans" x="58" y="29" fill="#f6d6e6" text-anchor="middle" font-size="15" font-weight="650">SDK / MCP</text>
+        <text class="mono" x="58" y="50" fill="#9d7e93" text-anchor="middle" font-size="10">TOOLS · STREAMS</text>
+      </g>
+    </g>
+  </g>
+</svg>

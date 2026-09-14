@@ -1,27 +1,37 @@
 import { createLogger } from '@snowluma/common/logger';
 import type { MessageElement } from '@snowluma/protocol/events';
+import {
+  assertVideoSendPolicy,
+  assertWindowShakeSendPolicy,
+  assertValidMessageElement,
+  ELEMENT_MANIFEST,
+  MessageElementValidationError,
+  type OutboundMessageScene,
+} from '@snowluma/protocol/element-manifest';
 import { parseFromCQString } from './helper/cq';
+import { getElementCodec, intOr } from './event-converter/element-codecs';
 import type { JsonValue } from './types';
 
 const log = createLogger('MsgParser');
 
+export { MessageElementValidationError } from '@snowluma/protocol/element-manifest';
+
 export interface ParseMessageOptions {
   resolveReplySequence?: (replyMessageId: number) => number | null;
-  resolveReplyMeta?: (replyMessageId: number) => { senderUin: number; time: number; random: number } | null;
+  resolveReplyMeta?: (replyMessageId: number) => {
+    senderUin: number;
+    time: number;
+    random: number;
+    sequenceAuthoritative?: boolean;
+  } | null;
   resolveMentionUid?: (targetUin: number) => string | null | Promise<string | null>;
+  resolveContactArk?: (contactType: string, contactId: number) => string | null | Promise<string | null>;
   musicSignUrl?: string;
 }
 
 // --- CQ Code parsing ---
 
-export const CQ_REGEX = /\[CQ:([A-Za-z]+)(?:,([^\]]*))?\]/g;
-
-function intOr(value: unknown, fallback = 0): number {
-  if (value === undefined || value === null) return fallback;
-  if (typeof value === 'number') return Number.isFinite(value) ? Math.trunc(value) : fallback;
-  const n = parseInt(String(value), 10);
-  return Number.isFinite(n) ? n : fallback;
-}
+export const CQ_REGEX = /\[CQ:([A-Za-z][A-Za-z0-9_]*)(?:,([^\]]*))?\]/g;
 
 export function parseCQParams(raw: string): Record<string, string> {
   const params: Record<string, string> = {};
@@ -43,149 +53,230 @@ export function parseCQParams(raw: string): Record<string, string> {
 
 interface MessageSegment {
   type: string;
-  data?: Record<string, unknown>;
+  data?: unknown;
   [key: string]: unknown;
 }
 
 function isSegmentArray(val: unknown): val is MessageSegment[] {
   return Array.isArray(val) && val.every(
-    (item) => typeof item === 'object' && item !== null && 'type' in item
+    (item) => typeof item === 'object' && item !== null && !Array.isArray(item)
+      && typeof (item as { type?: unknown }).type === 'string'
+      && (item as { type: string }).type.trim().length > 0,
   );
 }
 
+function normalizeSegmentType(type: string): string {
+  return type.toLowerCase();
+}
+
+interface OutboundInputSegmentSummary {
+  rawTypes: string[];
+  effectiveVideoTypes: string[];
+}
+
+function isExplicitEmptyTextPlaceholder(segment: MessageSegment): boolean {
+  return normalizeSegmentType(segment.type) === 'text'
+    && segmentPayload(segment).text === '';
+}
+
+/**
+ * True when the OneBot payload is a forward: every effective segment is
+ * `node` (explicit empty-text placeholders ignored). `send_msg` routes
+ * this list through the forward upload path instead of parseMessage.
+ */
+export function isExclusiveForwardNodeMessage(
+  message: JsonValue,
+  autoEscape: boolean,
+): boolean {
+  return exclusiveForwardNodeList(message, autoEscape) !== null;
+}
+
+/** Node segments from an exclusive forward payload, or null if it is not one. */
+export function exclusiveForwardNodeList(
+  message: JsonValue,
+  autoEscape: boolean,
+): JsonValue[] | null {
+  if (autoEscape && typeof message === 'string') return null;
+  if (typeof message === 'object' && message !== null && !Array.isArray(message)) {
+    const type = (message as { type?: unknown }).type;
+    return typeof type === 'string' && normalizeSegmentType(type) === 'node'
+      ? [message]
+      : null;
+  }
+  if (!Array.isArray(message) || message.length === 0) return null;
+  const nodes: JsonValue[] = [];
+  for (const item of message) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) return null;
+    const type = (item as { type?: unknown }).type;
+    if (typeof type !== 'string' || type.trim().length === 0) return null;
+    const segment = item as MessageSegment;
+    if (isExplicitEmptyTextPlaceholder(segment)) continue;
+    if (normalizeSegmentType(type) !== 'node') return null;
+    nodes.push(item);
+  }
+  return nodes.length > 0 ? nodes : null;
+}
+
+function outboundInputSegmentSummary(
+  message: JsonValue,
+  autoEscape: boolean,
+): OutboundInputSegmentSummary {
+  if (typeof message === 'string') {
+    if (autoEscape) return { rawTypes: ['text'], effectiveVideoTypes: ['text'] };
+    const types: string[] = [];
+    let lastIndex = 0;
+    for (const match of message.matchAll(CQ_REGEX)) {
+      if (match.index! > lastIndex) types.push('text');
+      types.push(normalizeSegmentType(match[1] ?? ''));
+      lastIndex = match.index! + match[0].length;
+    }
+    if (lastIndex < message.length) types.push('text');
+    return { rawTypes: types, effectiveVideoTypes: types };
+  }
+  if (Array.isArray(message)) {
+    const rawTypes: string[] = [];
+    const effectiveVideoTypes: string[] = [];
+    for (const item of message) {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) continue;
+      const type = (item as { type?: unknown }).type;
+      if (typeof type !== 'string') continue;
+      const normalizedType = normalizeSegmentType(type);
+      rawTypes.push(normalizedType);
+      if (!isExplicitEmptyTextPlaceholder(item as MessageSegment)) {
+        effectiveVideoTypes.push(normalizedType);
+      }
+    }
+    return { rawTypes, effectiveVideoTypes };
+  }
+  if (typeof message === 'object' && message !== null) {
+    const type = (message as { type?: unknown }).type;
+    const types = typeof type === 'string' ? [normalizeSegmentType(type)] : [];
+    return { rawTypes: types, effectiveVideoTypes: types };
+  }
+  return { rawTypes: [], effectiveVideoTypes: [] };
+}
+
+/**
+ * Reject unsupported message combinations before parsers can resolve
+ * identities, fetch cards, sign music, or perform any other externally
+ * visible work.
+ */
+export function assertOutboundMessageInput(
+  message: JsonValue,
+  autoEscape: boolean,
+  scene: OutboundMessageScene,
+): void {
+  const { rawTypes, effectiveVideoTypes } = outboundInputSegmentSummary(message, autoEscape);
+  assertVideoSendPolicy(
+    effectiveVideoTypes.filter((type) => type === 'video').length,
+    effectiveVideoTypes.length,
+  );
+  const shakeCount = rawTypes.filter((type) => type === 'poke' || type === 'shake').length;
+  assertWindowShakeSendPolicy(shakeCount, rawTypes.length, scene);
+}
+
+function invalidMessageShape(message: string): MessageElementValidationError {
+  return new MessageElementValidationError('MISSING_FIELD', message, undefined, 'message');
+}
+
+function validatedOutboundElement(element: MessageElement): MessageElement {
+  // P validates the OneBot→MessageElement conversion; W ensures the resulting
+  // element can actually enter QQ's message-element send pipeline. Keeping
+  // both checks here makes parseMessage all-or-nothing before any send starts.
+  assertValidMessageElement(element, 'P');
+  assertValidMessageElement(element, 'W');
+  return element;
+}
+
+function assertScalarSegmentData(type: string, data: Record<string, unknown>): void {
+  for (const [field, value] of Object.entries(data)) {
+    const isJsonObjectField = type === 'json'
+      && (field === 'data' || field === 'config')
+      && typeof value === 'object'
+      && value !== null
+      && !Array.isArray(value);
+    if (
+      value === undefined
+      || value === null
+      || typeof value === 'string'
+      || typeof value === 'number'
+      || typeof value === 'boolean'
+      || isJsonObjectField
+    ) continue;
+    throw new MessageElementValidationError(
+      'INVALID_FIELD',
+      `message segment "${type}" field "${field}" must be a scalar value`,
+      type,
+      field,
+    );
+  }
+}
+
+function requireNonEmptyStringField(
+  type: string,
+  data: Record<string, unknown>,
+  field: string,
+): string {
+  const value = data[field];
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new MessageElementValidationError(
+      'INVALID_FIELD',
+      `message segment "${type}" field "${field}" must be a non-empty string`,
+      type,
+      field,
+    );
+  }
+  return value;
+}
+
+function requireCoordinate(
+  data: Record<string, unknown>,
+  field: 'lat' | 'lon',
+): string {
+  const raw = data[field];
+  const text = typeof raw === 'number' ? String(raw) : typeof raw === 'string' ? raw : '';
+  const value = Number(text);
+  const limit = field === 'lat' ? 90 : 180;
+  if (!text.trim() || text !== text.trim() || !Number.isFinite(value) || value < -limit || value > limit) {
+    throw new MessageElementValidationError(
+      'INVALID_FIELD',
+      `message segment "location" field "${field}" must be a finite coordinate between ${String(-limit)} and ${String(limit)}`,
+      'location',
+      field,
+    );
+  }
+  return text;
+}
+
 export async function segmentToElement(type: string, data: Record<string, unknown>, options?: ParseMessageOptions): Promise<MessageElement | null> {
-  const normalizedType = type.toLowerCase();
+  const normalizedType = normalizeSegmentType(type);
+
+  // Ordinary OneBot segment fields are scalar. JSON deliberately accepts its
+  // object-valued data/config compatibility fields; every other object/array
+  // is rejected before a codec can coerce it and alter caller intent. Forward
+  // nodes own nested content but are rejected by their dedicated normal-send
+  // branch below; anonymous is rejected regardless of payload.
+  if (normalizedType !== 'node' && normalizedType !== 'anonymous') {
+    assertScalarSegmentData(normalizedType, data);
+  }
+
+  // 纯 OneBot 输入词：可执行的塌缩成 json/face/poke。整条消息都是 node 时由
+  // send 路径交给 parseForwardNodes；混进普通消息的 node、以及 anonymous，
+  // 在这里明确拒绝。真实元素（收发同名）走下方的 ELEMENT_CODECS。
   switch (normalizedType) {
-    case 'text': {
-      const text = String(data.text ?? '');
-      return text ? { type: 'text', text } : null;
-    }
-    case 'face': {
-      const id = intOr(data.id, -1);
-      if (id < 0) return null;
-      return { type: 'face', faceId: id };
-    }
-    case 'at': {
-      const qq = String(data.qq ?? '').trim();
-      if (qq === 'all') {
-        return { type: 'at', targetUin: 0, uid: 'all', text: '@全体成员 ' };
-      }
-      const uin = intOr(qq, 0);
-      if (uin <= 0) return null;
-
-      const name = String(data.name ?? data.nickname ?? data.card ?? '').trim();
-      let uid = String(data.uid ?? '').trim();
-      if (!uid && options?.resolveMentionUid) {
-        uid = (await options.resolveMentionUid(uin))?.trim() ?? '';
-      }
-      const element: MessageElement = { type: 'at', targetUin: uin };
-      if (uid) element.uid = uid;
-      if (name) element.text = `@${name} `;
-      return element;
-    }
-    case 'reply': {
-      const id = intOr(data.id, 0);
-      if (id === 0) return null;
-
-      if (options?.resolveReplySequence) {
-        const resolved = options.resolveReplySequence(id);
-        if (typeof resolved === 'number' && resolved > 0) {
-          const element: MessageElement = {
-            type: 'reply',
-            replySeq: resolved,
-            replyMessageId: id  // Keep the original messageId for logging
-          };
-
-          // Try to get additional meta info for better reply display
-          if (options?.resolveReplyMeta) {
-            const meta = options.resolveReplyMeta(id);
-            if (meta) {
-              element.replySenderUin = meta.senderUin;
-              element.replyTime = meta.time;
-              element.replyRandom = meta.random;
-            }
-          }
-
-          return element;
-        }
-      }
-
-      // Backward-compatible path: allow direct seq reply IDs.
-      return id > 0 ? { type: 'reply', replySeq: id } : null;
-    }
-    case 'image': {
-      return {
-        type: 'image',
-        url: String(data.file ?? data.url ?? data.path ?? data.media ?? ''),
-        flash: data.type === 'flash',
-        subType: intOr(data.subType, 0),
-        summary: data.summary ? String(data.summary) : undefined,
-      };
-    }
-    case 'record': {
-      const source = String(data.file ?? data.url ?? data.path ?? data.media ?? '');
-      if (!source) return null;
-      return {
-        type: 'record',
-        url: source,
-      };
-    }
-    case 'video': {
-      const source = String(data.file ?? data.url ?? data.path ?? data.media ?? '');
-      if (!source) return null;
-      return {
-        type: 'video',
-        url: source,
-        thumbUrl: data.thumb ? String(data.thumb) : undefined,
-      };
-    }
-    case 'json': {
-      return {
-        type: 'json',
-        text: String(data.data ?? ''),
-      };
-    }
-    case 'xml': {
-      return {
-        type: 'xml',
-        text: String(data.data ?? ''),
-        subType: intOr(data.id, 0),
-      };
-    }
-    case 'poke': {
-      return {
-        type: 'poke',
-        faceId: intOr(data.type ?? data.id, 0),
-      };
-    }
-    case 'forward': {
-      return {
-        type: 'forward',
-        resId: String(data.id ?? ''),
-      };
-    }
     case 'node': {
-      // Fake forward node segment — store the raw data for later processing
-      // The content field may be a segment array, a single segment, or a CQ string
-      const name = String(data.nickname ?? data.name ?? '');
-      return {
-        type: 'node',
-        targetUin: intOr(data.user_id ?? data.uin, 0),
-        text: name,
-        // Raw content is stored as JSON string in resId for later processing
-        resId: JSON.stringify(data.content ?? ''),
-      };
-    }
-    case 'markdown': {
-      return {
-        type: 'markdown',
-        text: String(data.content ?? ''),
-      };
+      // Exclusive node arrays never reach this function. A node mixed into a
+      // normal message is not sendable.
+      throw new MessageElementValidationError(
+        'UNSENDABLE_TYPE',
+        'message segment "node" is only valid inside a forward node list',
+        normalizedType,
+      );
     }
     case 'share': {
       // Link share — map to json card message
-      const url = String(data.url ?? '');
-      const title = String(data.title ?? '');
+      const url = requireNonEmptyStringField(normalizedType, data, 'url');
+      const title = requireNonEmptyStringField(normalizedType, data, 'title');
       const content = String(data.content ?? '');
       const image = String(data.image ?? '');
       const jsonData = JSON.stringify({
@@ -194,17 +285,39 @@ export async function segmentToElement(type: string, data: Record<string, unknow
         prompt: title,
         meta: { news: { title, desc: content, jumpUrl: url, preview: image } },
       });
-      return { type: 'json', text: jsonData };
+      return validatedOutboundElement({ type: 'json', text: jsonData });
     }
     case 'music': {
       // Music share — uses external signing service (NapCat-compatible)
-      const musicType = String(data.type ?? '');
+      const musicType = requireNonEmptyStringField(normalizedType, data, 'type');
+      // Non-custom platform names are deliberately open: musicSignUrl is
+      // configurable and private signers may support platforms beyond the
+      // built-in NapCat set. NapCat also treats an id-less platform-labelled
+      // segment as custom music data, so presence of id selects platform mode.
+      const hasMusicId = data.id !== undefined
+        && data.id !== null
+        && String(data.id).trim() !== '';
+      const hasCustomMusicData = ['url', 'audio', 'title', 'image', 'content']
+        .some((field) => Object.prototype.hasOwnProperty.call(data, field));
+      const usesCustomMusicData = musicType === 'custom' || (!hasMusicId && hasCustomMusicData);
+      if (usesCustomMusicData) {
+        requireNonEmptyStringField(normalizedType, data, 'url');
+        requireNonEmptyStringField(normalizedType, data, 'audio');
+        requireNonEmptyStringField(normalizedType, data, 'title');
+      } else if (!hasMusicId) {
+        throw new MessageElementValidationError(
+          'MISSING_FIELD',
+          'message segment "music" requires field "id" for a platform card',
+          normalizedType,
+          'id',
+        );
+      }
       const signUrl = options?.musicSignUrl || 'https://ss.xingzhige.com/music_card/card';
       try {
         let postData: Record<string, unknown>;
-        if (musicType === 'custom') {
+        if (usesCustomMusicData) {
           postData = {
-            type: 'custom',
+            type: musicType,
             id: undefined,
             url: String(data.url ?? ''),
             audio: String(data.audio ?? ''),
@@ -222,7 +335,7 @@ export async function segmentToElement(type: string, data: Record<string, unknow
         });
         if (!resp.ok) throw new Error(`music sign HTTP ${resp.status}`);
         const musicJson = await resp.text();
-        return { type: 'json', text: musicJson };
+        return validatedOutboundElement({ type: 'json', text: musicJson });
       } catch (e) {
         log.warn('music sign failed: %s, falling back to local card', e instanceof Error ? e.message : String(e));
         // Fallback: build a basic card locally
@@ -241,13 +354,13 @@ export async function segmentToElement(type: string, data: Record<string, unknow
             },
           },
         });
-        return { type: 'json', text: jsonData };
+        return validatedOutboundElement({ type: 'json', text: jsonData });
       }
     }
     case 'location': {
       // Location — map to json card
-      const lat = String(data.lat ?? '');
-      const lon = String(data.lon ?? '');
+      const lat = requireCoordinate(data, 'lat');
+      const lon = requireCoordinate(data, 'lon');
       const title = String(data.title ?? '位置');
       const content = String(data.content ?? `${lat},${lon}`);
       const jsonData = JSON.stringify({
@@ -256,65 +369,104 @@ export async function segmentToElement(type: string, data: Record<string, unknow
         prompt: `[位置]${title}`,
         meta: { Location: { lat, lng: lon, title, address: content } },
       });
-      return { type: 'json', text: jsonData };
+      return validatedOutboundElement({ type: 'json', text: jsonData });
     }
     case 'contact': {
       // Contact card — map to json card
-      const contactType = String(data.type ?? 'qq');
-      const contactId = String(data.id ?? '');
+      const contactType = requireNonEmptyStringField(normalizedType, data, 'type');
+      if (contactType !== 'qq' && contactType !== 'group') {
+        throw new MessageElementValidationError(
+          'INVALID_FIELD',
+          'message segment "contact" field "type" must be "qq" or "group"',
+          normalizedType,
+          'type',
+        );
+      }
+      const contactId = String(data.id ?? '').trim();
+      const numericId = intOr(contactId, 0);
+      if (numericId <= 0) {
+        throw new MessageElementValidationError(
+          'INVALID_FIELD',
+          'message segment "contact" field "id" must be a positive integer',
+          normalizedType,
+          'id',
+        );
+      }
+      const normalizedContactType = contactType.trim().toLowerCase();
+      if (numericId > 0 && options?.resolveContactArk && (normalizedContactType === 'qq' || normalizedContactType === 'group')) {
+        const ark = await options.resolveContactArk(contactType, numericId);
+        if (!ark) throw new Error(`contact ark unavailable for ${contactType}:${numericId}`);
+        return validatedOutboundElement({ type: 'json', text: ark });
+      }
       const jsonData = JSON.stringify({
         app: 'com.tencent.contact.lua',
         view: 'contact',
         prompt: `[推荐${contactType === 'group' ? '群' : '好友'}]`,
         meta: { contact: { type: contactType, id: contactId } },
       });
-      return { type: 'json', text: jsonData };
+      return validatedOutboundElement({ type: 'json', text: jsonData });
     }
     case 'rps': {
       // Rock-paper-scissors — map to dice-like face
-      return { type: 'face', faceId: 359 };
+      return validatedOutboundElement({ type: 'face', faceId: 359 });
     }
     case 'dice': {
       // Dice — map to dice face
-      return { type: 'face', faceId: 358 };
+      return validatedOutboundElement({ type: 'face', faceId: 358 });
     }
     case 'shake': {
-      // Window shake — map to poke
-      return { type: 'poke', faceId: 1 };
+      // Legacy OneBot window-shake sugar. The destination guard later limits
+      // the normalized poke element to ordinary friend private messages.
+      return validatedOutboundElement({ type: 'poke', subType: 1 });
     }
     case 'anonymous': {
-      // Anonymous flag — ignored during send, the protocol handles anonymity
-      return null;
+      throw new MessageElementValidationError(
+        'UNSENDABLE_TYPE',
+        'message segment "anonymous" has no executable send semantics',
+        normalizedType,
+      );
     }
-    case 'file': {
-      const fileId = String(data.file_id ?? data.fileId ?? '').trim();
-      if (!fileId) {
-        log.warn('[MsgParser] file segment without file_id is unsupported (upload first via upload_group_file / upload_private_file)');
-        return null;
-      }
-      const fileName = String(data.name ?? data.filename ?? data.fileName ?? '').trim();
-      const fileSize = intOr(data.size ?? data.fileSize, 0);
-      const md5Hex = String(data.md5 ?? data.md5Hex ?? '').trim();
-      const sha1Hex = String(data.sha1 ?? data.sha1Hex ?? '').trim();
-      const fileHash = String(data.file_hash ?? data.fileHash ?? '').trim();
-      const elem: MessageElement = { type: 'file', fileId };
-      if (fileName) elem.fileName = fileName;
-      if (fileSize > 0) elem.fileSize = fileSize;
-      if (md5Hex) elem.md5Hex = md5Hex;
-      if (sha1Hex) elem.sha1Hex = sha1Hex;
-      if (fileHash) elem.fileHash = fileHash;
-      return elem;
-    }
-    default:
-      console.warn(`[MsgParser] unsupported segment type: ${type}`);
-      return null;
   }
+
+  // 真实元素（P 发·解，段 type 与 element.type 同名）：查 codec 表。
+  // 见 event-converter/element-codecs.ts。
+  const codec = getElementCodec(normalizedType);
+  if (codec?.fromSegment) {
+    const element = await codec.fromSegment(data, options);
+    if (!element) {
+      // A reply decorates another sendable segment. NapCat-compatible clients
+      // treat an unusable reply target as best-effort and still deliver the
+      // remaining content; a reply-only message is rejected by parseMessage's
+      // final non-empty check below.
+      if (normalizedType === 'reply') return null;
+      throw new MessageElementValidationError(
+        'MISSING_FIELD',
+        `message segment "${normalizedType}" is missing required or usable fields`,
+        normalizedType,
+      );
+    }
+    return validatedOutboundElement(element);
+  }
+
+  if (Object.hasOwn(ELEMENT_MANIFEST, normalizedType)) {
+    // Known receive-only/by-design-no type (currently flash_file). Ask the
+    // executable manifest for the stable error + dedicated-Action hint.
+    assertValidMessageElement({ type: normalizedType }, 'P');
+  }
+  throw new MessageElementValidationError(
+    'UNKNOWN_TYPE',
+    `unknown message segment type: ${type}`,
+    normalizedType,
+  );
 }
 
 function segmentPayload(seg: MessageSegment): Record<string, unknown> {
   const topLevel = { ...seg } as Record<string, unknown>;
   delete topLevel.type;
   delete topLevel.data;
+  if (normalizeSegmentType(seg.type) === 'json' && typeof seg.data === 'string') {
+    return { ...topLevel, data: seg.data };
+  }
   const nested = (seg.data && typeof seg.data === 'object' && !Array.isArray(seg.data))
     ? seg.data
     : {};
@@ -325,31 +477,63 @@ function segmentPayload(seg: MessageSegment): Record<string, unknown> {
 
 export async function parseMessage(message: JsonValue, autoEscape: boolean, options?: ParseMessageOptions): Promise<MessageElement[]> {
   if (typeof message === 'string') {
+    if (message.length === 0) throw invalidMessageShape('message must not be empty');
     if (autoEscape) {
-      return message ? [{ type: 'text', text: message }] : [];
+      return [validatedOutboundElement({ type: 'text', text: message })];
     }
-    return parseFromCQString(message, options);
+    const elements = await parseFromCQString(message, options);
+    if (elements.length === 0) throw invalidMessageShape('message must contain at least one sendable segment');
+    return elements;
   }
 
-  if (isSegmentArray(message)) {
+  if (Array.isArray(message)) {
+    if (!isSegmentArray(message)) {
+      throw new MessageElementValidationError(
+        'INVALID_FIELD',
+        'message segment array entries must be objects with a non-empty string type',
+        undefined,
+        'message',
+      );
+    }
+    if (message.length === 0) throw invalidMessageShape('message segment array must not be empty');
     const elements: MessageElement[] = [];
     for (const seg of message) {
       const data = segmentPayload(seg);
+      // Some OneBot clients insert empty text between media as a separator.
+      // Only the exact empty string is a no-op; malformed and whitespace text
+      // must still pass through strict element validation.
+      if (isExplicitEmptyTextPlaceholder(seg)) {
+        log.debug('ignored explicit empty text placeholder in message segment array');
+        continue;
+      }
       const elem = await segmentToElement(seg.type, data, options);
       if (elem) elements.push(elem);
     }
+    if (elements.length === 0) throw invalidMessageShape('message must contain at least one sendable segment');
     return elements;
   }
 
   // Single segment object
   if (typeof message === 'object' && message !== null && !Array.isArray(message)) {
     const seg = message as unknown as MessageSegment;
-    if (seg.type) {
+    if (typeof seg.type === 'string' && seg.type.trim()) {
       const data = segmentPayload(seg);
       const elem = await segmentToElement(seg.type, data, options);
-      return elem ? [elem] : [];
+      if (elem) return [elem];
+      throw invalidMessageShape('message must contain at least one sendable segment');
     }
+    throw new MessageElementValidationError(
+      'MISSING_FIELD',
+      'single message segment requires a non-empty string type',
+      undefined,
+      'type',
+    );
   }
 
-  return [];
+  throw new MessageElementValidationError(
+    'INVALID_FIELD',
+    'message must be a string, a segment object, or a segment array',
+    undefined,
+    'message',
+  );
 }

@@ -1,4 +1,6 @@
 import type { PacketInfo } from '@snowluma/common/protocol-types';
+import { mapWithConcurrency } from '@snowluma/common/concurrency';
+import { createLogger } from '@snowluma/common/logger';
 import type {
   LongMsgResult,
   RecvLongMsgReq,
@@ -8,13 +10,17 @@ import type {
 } from '@snowluma/proto-defs/longmsg';
 import type { FileExtra, PushMsg, PushMsgBody } from '@snowluma/proto-defs/message';
 import { buildSendElems } from '@snowluma/protocol/element-builder';
-import type { ForwardNodePayload, MessageElement } from '@snowluma/protocol/events';
+import type { ForwardNodePayload, MessageElement, MessageElementOf } from '@snowluma/protocol/events';
+import {
+  assertWindowShakeSendPolicy,
+  MessageElementValidationError,
+} from '@snowluma/protocol/element-manifest';
 import { parseMsgPush } from '@snowluma/protocol/msg-push';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { randomUUID } from 'crypto';
 import { gunzipSync, gzipSync } from 'zlib';
 import type { Bridge } from '../bridge';
-import type { BridgeContext } from '../bridge-context';
+import type { BridgeContext, UploadedFileMeta } from '../bridge-context';
 import { resolveSelfUid, toInt } from './shared';
 
 function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge; }
@@ -23,6 +29,25 @@ function asBridge(ctx: BridgeContext): Bridge { return ctx as unknown as Bridge;
 // of the process — that's enough because OneBot clients typically
 // resolve a forward immediately after receiving the parent message.
 const forwardResCache = new Map<string, ForwardNodePayload[]>();
+
+const log = createLogger('Bridge.Forward');
+
+// Forward bodies are gzip-compressed by QQ. Bound decompression while zlib is
+// producing output so a small server response cannot expand until the process
+// exhausts its heap. 32 MiB leaves ample room for legitimate merged forwards
+// while making the maximum per-fetch allocation explicit.
+const FORWARD_LONG_MSG_MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
+
+/** QQ's placeholder when it doesn't hand back a real sender name — treated as
+ *  "missing" so #174's enrichment resolves the real nickname. */
+const FORWARD_NAME_PLACEHOLDER = 'QQ用户';
+
+/** Bounds on the L4 (per-uin profile) fallback when enriching forward senders.
+ *  Profile lookups are un-cached single-point OIDB calls Tencent rate-limits
+ *  aggressively, so cap how many distinct uins one forward resolves and how
+ *  many run at once — the rest keep the placeholder. */
+const FORWARD_PROFILE_MAX = 20;
+const FORWARD_PROFILE_CONCURRENCY = 4;
 
 // Per-layer piggyback entry. Each level of a nested forward attaches
 // its own msgBody under a uuid `actionCommand`, so when the receiver
@@ -84,10 +109,10 @@ async function buildForwardPushBody(
   // long-msg upload service stores the bytes verbatim and the
   // receiver decodes them through the normal msg-push path.
   const sendCtx = groupId !== undefined
-    ? { bridge, groupId, forwardFake: true }
+    ? { bridge, groupId, forwardFake: true, scene: 'forward' as const }
     : userUid
-      ? { bridge, userUid, forwardFake: true }
-      : { bridge, forwardFake: true };
+      ? { bridge, userUid, forwardFake: true, scene: 'forward' as const }
+      : { bridge, forwardFake: true, scene: 'forward' as const };
   const elems = await buildSendElems(node.elements, sendCtx);
   const now = Math.floor(Date.now() / 1000);
   const random = Math.floor(Math.random() * 0x7fffffff) >>> 0;
@@ -139,7 +164,9 @@ async function buildForwardPushBody(
   return {
     responseHead: {
       fromUin,
-      toUid: bridge.identity.selfUid ?? '',
+      // Resolve our own uid rather than ship an empty one — a blank toUid is a
+      // broken packet if this runs before warmup populated selfUid.
+      toUid: await resolveSelfUid(bridge),
       forward: {
         friendName: nickname,
       },
@@ -149,8 +176,10 @@ async function buildForwardPushBody(
       subType: 4,
       msgId: random,
       sequence: seq,
-      timestamp: now,
-      divSeq: 0,
+      // Honour a custom per-node display time (#209); default to now. `now`
+      // still drives the c2c-file expireTime above, which must stay real.
+      timestamp: node.time && node.time > 0 ? node.time : now,
+      c2cCmd: 0,
     },
     body: {
       richText: {
@@ -202,12 +231,179 @@ function previewFromElements(elements: MessageElement[]): string {
   return '';
 }
 
+function cloneNodeWithElements(node: ForwardNodePayload, elements: MessageElement[]): ForwardNodePayload {
+  return {
+    userUin: node.userUin,
+    nickname: node.nickname,
+    elements,
+    time: node.time,
+    msgId: node.msgId,
+    msgSeq: node.msgSeq,
+    groupId: node.groupId,
+    senderCard: node.senderCard,
+    messageType: node.messageType,
+    innerForward: node.innerForward,
+  };
+}
+
+function stripFileSource(element: MessageElementOf<'file'>): MessageElementOf<'file'> {
+  const next: MessageElementOf<'file'> = { ...element };
+  delete next.url;
+  return next;
+}
+
+function isCachedFileUsableInTarget(
+  cached: UploadedFileMeta | undefined,
+  groupId?: number,
+  userId?: number,
+): boolean {
+  if (!cached) return true;
+  if (groupId !== undefined) {
+    return cached.scope === 'group' && cached.groupId === groupId;
+  }
+  if (userId !== undefined) {
+    return cached.scope === 'private' && cached.userId === userId;
+  }
+  return true;
+}
+
+function fileNameForUpload(element: MessageElement, cached?: UploadedFileMeta): string {
+  return (element.fileName ?? cached?.fileName ?? '').trim();
+}
+
+function assertPrivateForwardFileCapacity(nodes: ForwardNodePayload[]): void {
+  for (const node of nodes) {
+    const fileCount = node.elements.filter((element) => element.type === 'file').length;
+    if (fileCount > 1) {
+      throw new MessageElementValidationError(
+        'UNSENDABLE_TYPE',
+        'a private forward node can contain at most one file element',
+        'file',
+      );
+    }
+    if (node.innerForward) assertPrivateForwardFileCapacity(node.innerForward);
+  }
+}
+
+function assertNoWindowShakeInForward(nodes: ForwardNodePayload[]): void {
+  for (const node of nodes) {
+    assertWindowShakeSendPolicy(
+      node.elements.filter((element) => element.type === 'poke').length,
+      node.elements.length,
+      'forward',
+    );
+    if (node.innerForward) assertNoWindowShakeInForward(node.innerForward);
+  }
+}
+
 export class ForwardApi {
   constructor(private readonly ctx: BridgeContext) { }
 
   async upload(nodes: ForwardNodePayload[], groupId?: number, userId?: number): Promise<string> {
+    // Reject the complete recursive tree before identity resolution, media
+    // upload, or long-message upload. Window shake has no forward wire form.
+    assertNoWindowShakeInForward(nodes);
+    // A c2c RichText owns exactly one msgContent/FileExtra payload. Validate
+    // the entire recursive tree before any file/media/long-message upload so a
+    // second file cannot be uploaded and then silently discarded.
+    if (groupId === undefined) assertPrivateForwardFileCapacity(nodes);
     const { resId } = await this.uploadRecursive(nodes, groupId, userId);
     return resId;
+  }
+
+  private async downloadSourceFromCachedFile(cached: UploadedFileMeta): Promise<string> {
+    if (cached.scope === 'group' && cached.groupId !== undefined) {
+      return this.ctx.apis.groupFile.getUrl(cached.groupId, cached.fileId);
+    }
+    if (cached.scope === 'private' && cached.userId !== undefined && cached.fileHash) {
+      return this.ctx.apis.groupFile.getPrivateUrl(cached.userId, cached.fileId, cached.fileHash);
+    }
+    throw new Error('forward file_id belongs to another scope; pass file/base64/url so SnowLuma can re-upload it');
+  }
+
+  private async uploadForwardFileSource(
+    source: string,
+    name: string,
+    groupId?: number,
+    userId?: number,
+  ): Promise<MessageElementOf<'file'>> {
+    if (groupId !== undefined) {
+      const uploaded = await this.ctx.apis.groupFile.upload(groupId, source, name, '/', true, false);
+      if (!uploaded.fileId) throw new Error('forward group file upload returned no file_id');
+      const cached = this.ctx.recallUploadedFile(uploaded.fileId);
+      const element: MessageElement = {
+        type: 'file',
+        fileId: uploaded.fileId,
+      };
+      const fileName = cached?.fileName || name;
+      if (fileName) element.fileName = fileName;
+      if (cached?.fileSize !== undefined) element.fileSize = cached.fileSize;
+      return element;
+    }
+    if (userId !== undefined) {
+      const uploaded = await this.ctx.apis.groupFile.uploadPrivate(userId, source, name, true, false);
+      if (!uploaded.fileId) throw new Error('forward private file upload returned no file_id');
+      const cached = this.ctx.recallUploadedFile(uploaded.fileId);
+      const element: MessageElement = {
+        type: 'file',
+        fileId: uploaded.fileId,
+      };
+      const fileName = cached?.fileName || name;
+      const fileHash = uploaded.fileHash ?? cached?.fileHash ?? '';
+      if (fileName) element.fileName = fileName;
+      if (cached?.fileSize !== undefined) element.fileSize = cached.fileSize;
+      if (fileHash) element.fileHash = fileHash;
+      return element;
+    }
+    throw new Error('forward file source requires group_id or user_id');
+  }
+
+  private async prepareForwardFileElement(
+    element: MessageElement,
+    groupId?: number,
+    userId?: number,
+  ): Promise<MessageElement> {
+    if (element.type !== 'file') return element;
+
+    const source = (element.url ?? '').trim();
+    if (source && !element.fileId) {
+      const uploaded = await this.uploadForwardFileSource(source, fileNameForUpload(element), groupId, userId);
+      return {
+        ...stripFileSource(element),
+        ...uploaded,
+      };
+    }
+
+    if (element.fileId) {
+      const cached = this.ctx.recallUploadedFile(element.fileId);
+      if (isCachedFileUsableInTarget(cached, groupId, userId)) return element;
+      const sourceFromCache = await this.downloadSourceFromCachedFile(cached!);
+      const uploaded = await this.uploadForwardFileSource(
+        sourceFromCache,
+        fileNameForUpload(element, cached),
+        groupId,
+        userId,
+      );
+      return {
+        ...stripFileSource(element),
+        ...uploaded,
+      };
+    }
+
+    return element;
+  }
+
+  private async prepareForwardFiles(
+    nodes: ForwardNodePayload[],
+    groupId?: number,
+    userId?: number,
+  ): Promise<ForwardNodePayload[]> {
+    return Promise.all(nodes.map(async (node) => {
+      const elements = await Promise.all(node.elements.map(
+        element => this.prepareForwardFileElement(element, groupId, userId),
+      ));
+      return cloneNodeWithElements(node, elements);
+    }));
   }
 
   /**
@@ -304,8 +500,10 @@ export class ForwardApi {
       }
     }
 
+    const uploadReadyNodes = await this.prepareForwardFiles(processedNodes, groupId, userId);
+
     // Encode this level's msgBody.
-    const msgBody = await Promise.all(processedNodes.map(
+    const msgBody = await Promise.all(uploadReadyNodes.map(
       node => buildForwardPushBody(bridge, node, groupId, userUid),
     ));
 
@@ -349,7 +547,7 @@ export class ForwardApi {
       throw new Error('upload forward message response missing res_id');
     }
 
-    forwardResCache.set(resId, processedNodes.map(node => ({
+    forwardResCache.set(resId, uploadReadyNodes.map(node => ({
       userUin: node.userUin,
       nickname: node.nickname,
       elements: [...node.elements],
@@ -381,7 +579,7 @@ export class ForwardApi {
     const bridge = asBridge(this.ctx);
     const cached = forwardResCache.get(resId);
     if (cached) {
-      return cached.map(node => ({
+      const nodes = cached.map(node => ({
         userUin: node.userUin,
         nickname: node.nickname,
         elements: [...node.elements],
@@ -392,6 +590,10 @@ export class ForwardApi {
         senderCard: node.senderCard,
         messageType: node.messageType,
       }));
+      // Inner nodes seeded by consumePiggybacks are cached un-enriched; enrich
+      // on read (a no-op once names are present) and persist so later hits skip.
+      if (await this.enrichSenders(nodes)) forwardResCache.set(resId, cloneNodes(nodes));
+      return nodes;
     }
 
     const selfUid = await resolveSelfUid(bridge);
@@ -420,7 +622,27 @@ export class ForwardApi {
       throw new Error('download forward message payload is empty');
     }
 
-    const inflate = gunzipSync(Buffer.from(payload));
+    let inflate: Buffer;
+    try {
+      inflate = gunzipSync(Buffer.from(payload), {
+        maxOutputLength: FORWARD_LONG_MSG_MAX_OUTPUT_BYTES,
+      });
+    } catch (cause) {
+      const reason = cause instanceof Error ? cause.message : String(cause);
+      log.warn(
+        'forward long-msg decompression failed: res_id=%s compressed_bytes=%d max_output_bytes=%d error=%s',
+        resId,
+        payload.byteLength,
+        FORWARD_LONG_MSG_MAX_OUTPUT_BYTES,
+        reason,
+      );
+      throw new Error(
+        `download forward message decompression failed ` +
+          `(res_id=${resId}, compressed_bytes=${payload.byteLength}, ` +
+          `max_output_bytes=${FORWARD_LONG_MSG_MAX_OUTPUT_BYTES}): ${reason}`,
+        { cause },
+      );
+    }
     const longMsg = protobuf_decode<LongMsgResult>(inflate);
     const actions = Array.isArray(longMsg?.action) ? longMsg!.action! : [];
     const mainAction = actions.find(item => item?.actionCommand === 'MultiMsg');
@@ -451,10 +673,92 @@ export class ForwardApi {
       this.consumePiggybacks(nodes, piggybackByUuid);
     }
 
+    // Fill sender nickname/card for nodes the SsoRecvLongMsg payload left empty
+    // or stamped with the "QQ用户" placeholder (#174) — the long-msg member name
+    // isn't always populated, and the sync decode only consults the L1 cache.
+    await this.enrichSenders(nodes);
+
     if (nodes.length > 0) {
       forwardResCache.set(resId, cloneNodes(nodes));
     }
     return nodes;
+  }
+
+  /** A node whose display name the server didn't give us (empty or the QQ
+   *  placeholder) and that we can resolve (has a uin). */
+  private needsName(n: ForwardNodePayload): boolean {
+    return !!n.userUin && (!n.nickname || n.nickname === FORWARD_NAME_PLACEHOLDER);
+  }
+
+  /** Backfill sender nickname/card on forward nodes the long-msg payload left
+   *  nameless. Resolves group senders via one member-list fetch per group (L3,
+   *  inflight+TTL cached in ContactsApi), then any residue + private nodes via
+   *  the user-profile lookup (L4). Best-effort: a failed lookup keeps the
+   *  placeholder rather than failing the whole forward. Returns true if any
+   *  node was changed (so callers can persist the enriched cache). */
+  private async enrichSenders(nodes: ForwardNodePayload[]): Promise<boolean> {
+    const pending = nodes.filter(n => this.needsName(n));
+    if (pending.length === 0) return false;
+    let changed = false;
+
+    // L3 — group member lists (one fetch resolves every sender from that group).
+    const byGroup = new Map<number, ForwardNodePayload[]>();
+    const residue: ForwardNodePayload[] = [];
+    for (const n of pending) {
+      if (n.messageType === 'group' && n.groupId) {
+        const arr = byGroup.get(n.groupId) ?? [];
+        arr.push(n);
+        byGroup.set(n.groupId, arr);
+      } else {
+        residue.push(n);
+      }
+    }
+    for (const [groupId, groupNodes] of byGroup) {
+      let byUin: Map<number, { nickname: string; card: string }>;
+      try {
+        const members = await this.ctx.apis.contacts.fetchGroupMemberList(groupId);
+        byUin = new Map(members.map(m => [m.uin, { nickname: m.nickname, card: m.card }]));
+      } catch {
+        // Member list (one cheap, cached call) failed — keep the placeholder
+        // rather than fanning the whole group out to per-uin profile lookups.
+        // That error path is exactly what would amplify into a rate-limit ban.
+        continue;
+      }
+      for (const n of groupNodes) {
+        const m = byUin.get(n.userUin);
+        const name = m?.card || m?.nickname;
+        if (name) {
+          n.senderCard = m!.card || n.senderCard || '';
+          n.nickname = name;
+          changed = true;
+        } else {
+          residue.push(n); // in-group sender that left the group → profile fallback
+        }
+      }
+    }
+
+    // L4 — user profile for the residue (members who left the group, private
+    // nodes). fetchUserProfile is an un-cached single-point OIDB 0xFE1_2, and
+    // Tencent rate-limits these hard (see ContactsApi's member-list note), so:
+    // dedupe by uin, CAP the count (drop the rest to placeholder), and resolve
+    // in small concurrency-limited batches. Best-effort.
+    const uins = [...new Set(residue.filter(n => this.needsName(n)).map(n => n.userUin))]
+      .slice(0, FORWARD_PROFILE_MAX);
+    if (uins.length > 0) {
+      const byUin = new Map<number, string>();
+      const results = await mapWithConcurrency(uins, FORWARD_PROFILE_CONCURRENCY,
+        async (uin): Promise<readonly [number, string]> => {
+          try { return [uin, (await this.ctx.apis.contacts.fetchUserProfile(uin)).nickname] as const; }
+          catch { return [uin, ''] as const; }
+        });
+      for (const [uin, nick] of results) byUin.set(uin, nick);
+      for (const n of residue) {
+        if (!this.needsName(n)) continue;
+        const nick = byUin.get(n.userUin);
+        if (nick) { n.nickname = nick; changed = true; }
+      }
+    }
+    return changed;
   }
 
   /** Walk a list of PushMsgBody, run each through the regular msg-push
@@ -479,6 +783,9 @@ export class ForwardApi {
       if (!event) continue;
 
       if (event.kind === 'group_message') {
+        // [#201] The merged-forward sender name now comes through the group
+        // decoder (event.senderNick), which reads grp.memberCard (field 4) when
+        // there's no member cache — exactly the forward-node case.
         out.push({
           userUin: event.senderUin,
           nickname: event.senderCard || event.senderNick,

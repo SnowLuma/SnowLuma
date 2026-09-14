@@ -30,6 +30,27 @@ function captureEvents(watcher: PipeWatcher): EventRow[] {
 }
 
 describe('PipeWatcher', () => {
+  it('passes the current process snapshot to pipe discovery', async () => {
+    const processes = [
+      { pid: 1234, name: 'qq', path: '/opt/QQ/qq' },
+      { pid: 5678, name: 'qq', path: '/opt/QQ/qq' },
+    ];
+    let observed: readonly HookProcessBaseInfo[] | undefined;
+    const watcher = new PipeWatcher({
+      listProcesses: () => processes,
+      listLivePipes: async current => {
+        observed = current;
+        return new Set();
+      },
+      intervalMs: 60_000,
+    });
+
+    await watcher.start();
+
+    expect(observed).toEqual(processes);
+    watcher.stop();
+  });
+
   it('start() emits process-discovered + pipe-up for live PIDs on first tick', async () => {
     const ctx = setupWatcher({
       processes: [{ pid: 1234, name: 'QQ.exe', path: '' }],
@@ -190,6 +211,74 @@ describe('PipeWatcher', () => {
     await watcher.tickNow();
 
     expect(events).toEqual([['discovered', 1234], ['up', 1234]]);
+    watcher.stop();
+  });
+
+  it('preserves live sessions when pipe discovery temporarily fails', async () => {
+    let processes = [{ pid: 1234, name: 'QQ.exe', path: '' }];
+    let failPipeDiscovery = false;
+    const watcher = new PipeWatcher({
+      listProcesses: () => processes,
+      listLivePipes: async () => {
+        if (failPipeDiscovery) throw new Error('permission denied');
+        return new Set([1234]);
+      },
+      intervalMs: 60_000,
+    });
+
+    await watcher.start();
+    expect(watcher.isPipeLive(1234)).toBe(true);
+    const events = captureEvents(watcher);
+
+    failPipeDiscovery = true;
+    await watcher.tickNow();
+
+    expect(events).toEqual([]);
+    expect(watcher.isProcessAlive(1234)).toBe(true);
+    expect(watcher.isPipeLive(1234)).toBe(true);
+
+    processes = [];
+    await watcher.tickNow();
+
+    expect(events).toEqual([['down', 1234], ['gone', 1234]]);
+    expect(watcher.isProcessAlive(1234)).toBe(false);
+    expect(watcher.isPipeLive(1234)).toBe(false);
+    watcher.stop();
+  });
+
+  it('UNKNOWN (null) enumeration keeps prior state — no false process-gone (issue #158)', async () => {
+    let result: HookProcessBaseInfo[] | null = [{ pid: 1234, name: 'qq', path: '' }];
+    let live = new Set<number>([1234]);
+    const watcher = new PipeWatcher({
+      listProcesses: () => result,
+      listLivePipes: async () => new Set(live),
+      intervalMs: 60_000,
+    });
+
+    await watcher.start();
+    expect(watcher.isProcessAlive(1234)).toBe(true);
+    expect(watcher.isPipeLive(1234)).toBe(true);
+
+    const events = captureEvents(watcher);
+
+    // Enumeration goes UNKNOWN (e.g. native /proc walk timed out during a QQ
+    // hot-update). Prior process + pipe state MUST be preserved — no teardown.
+    result = null;
+    await watcher.tickNow();
+    expect(events).toEqual([]);
+    expect(watcher.isProcessAlive(1234)).toBe(true);
+    expect(watcher.isPipeLive(1234)).toBe(true);
+
+    // Enumeration recovers with the same set → still no churn.
+    result = [{ pid: 1234, name: 'qq', path: '' }];
+    await watcher.tickNow();
+    expect(events).toEqual([]);
+
+    // A REAL disappearance (empty list, not null) still fires the teardown.
+    result = [];
+    live = new Set();
+    await watcher.tickNow();
+    expect(events).toEqual([['down', 1234], ['gone', 1234]]);
     watcher.stop();
   });
 });

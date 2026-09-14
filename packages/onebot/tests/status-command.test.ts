@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  STATUS_COMMAND_TRIGGER,
   buildStatusText,
   formatUptime,
   matchesStatusCommand,
@@ -12,25 +11,26 @@ function textSeg(text: string): JsonValue {
   return [{ type: 'text', data: { text } }] as unknown as JsonValue;
 }
 
+const ANY_TRIGGER = '#sl';
+
 describe('matchesStatusCommand', () => {
   it('matches a single text segment equal to the trigger', () => {
-    expect(matchesStatusCommand(textSeg('#sl'))).toBe(true);
+    expect(matchesStatusCommand(textSeg('#sl'), ANY_TRIGGER)).toBe(true);
   });
 
   it('is case-insensitive and trims surrounding whitespace', () => {
-    expect(matchesStatusCommand(textSeg('#SL'))).toBe(true);
-    expect(matchesStatusCommand(textSeg('  #Sl  '))).toBe(true);
+    expect(matchesStatusCommand(textSeg('#SL'), ANY_TRIGGER)).toBe(true);
+    expect(matchesStatusCommand(textSeg('  #Sl  '), ANY_TRIGGER)).toBe(true);
   });
 
   it('matches a bare string (string-format adapters)', () => {
-    expect(matchesStatusCommand('#sl' as unknown as JsonValue)).toBe(true);
-    expect(matchesStatusCommand(' #SL ' as unknown as JsonValue)).toBe(true);
+    expect(matchesStatusCommand('#sl' as unknown as JsonValue, ANY_TRIGGER)).toBe(true);
+    expect(matchesStatusCommand(' #SL ' as unknown as JsonValue, ANY_TRIGGER)).toBe(true);
   });
 
   it('does NOT match as a prefix — only exact', () => {
-    expect(matchesStatusCommand(textSeg('#slogan'))).toBe(false);
-    expect(matchesStatusCommand(textSeg('#sl help'))).toBe(false);
-    expect(matchesStatusCommand(textSeg('你好 #sl'))).toBe(false);
+    expect(matchesStatusCommand(textSeg('#slogan'), ANY_TRIGGER)).toBe(false);
+    expect(matchesStatusCommand(textSeg('#sl help'), ANY_TRIGGER)).toBe(false);
   });
 
   it('rejects mixed-segment messages', () => {
@@ -38,18 +38,20 @@ describe('matchesStatusCommand', () => {
       { type: 'text', data: { text: '#sl' } },
       { type: 'image', data: { file: 'x.png' } },
     ] as unknown as JsonValue;
-    expect(matchesStatusCommand(mixed)).toBe(false);
+    expect(matchesStatusCommand(mixed, ANY_TRIGGER)).toBe(false);
   });
 
   it('rejects non-text leading segments and empty/garbage input', () => {
-    expect(matchesStatusCommand([{ type: 'at', data: { qq: '1' } }] as unknown as JsonValue)).toBe(false);
-    expect(matchesStatusCommand([] as unknown as JsonValue)).toBe(false);
-    expect(matchesStatusCommand(undefined)).toBe(false);
-    expect(matchesStatusCommand(123 as unknown as JsonValue)).toBe(false);
+    expect(matchesStatusCommand([{ type: 'at', data: { qq: '1' } }] as unknown as JsonValue, ANY_TRIGGER)).toBe(false);
+    expect(matchesStatusCommand([] as unknown as JsonValue, ANY_TRIGGER)).toBe(false);
+    expect(matchesStatusCommand(undefined, ANY_TRIGGER)).toBe(false);
+    expect(matchesStatusCommand(123 as unknown as JsonValue, ANY_TRIGGER)).toBe(false);
   });
 
-  it('exposes the hardcoded trigger', () => {
-    expect(STATUS_COMMAND_TRIGGER).toBe('#sl');
+  it('works with custom trigger words', () => {
+    expect(matchesStatusCommand(textSeg('/status'), '/status')).toBe(true);
+    expect(matchesStatusCommand(textSeg('.ping'), '.ping')).toBe(true);
+    expect(matchesStatusCommand(textSeg('/status'), '#sl')).toBe(false);
   });
 });
 

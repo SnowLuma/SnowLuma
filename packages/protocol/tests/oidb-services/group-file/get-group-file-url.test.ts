@@ -34,17 +34,31 @@ describe('GetGroupFileUrl namespace', () => {
     });
   });
 
-  it('returns the download sub-message verbatim (URL composition lives on the facade)', async () => {
-    const deps = makeDeps({ download: { downloadDns: 'cdn', downloadUrl: new Uint8Array([0x01]) } as any });
-    const out = await GetGroupFileUrl.invoke(deps, { groupId: 1, fileId: 'f', busId: 102 });
-    expect(out.downloadDns).toBe('cdn');
-    // proton round-trips bytes through a Node Buffer; assert the byte values, not the wrapper class.
-    expect(Array.from(out.downloadUrl ?? new Uint8Array())).toEqual([0x01]);
+  it('composes the https ftn_handler URL and checks download.retCode', async () => {
+    const deps = makeDeps({ download: { downloadDns: 'cdn', downloadUrl: new Uint8Array([0x01, 0x02]) } as any });
+    await expect(GetGroupFileUrl.invoke(deps, { groupId: 1, fileId: 'fid-xyz', busId: 102 }))
+      .resolves.toBe('https://cdn/ftn_handler/0102/?fname=fid-xyz');
+  });
+
+  it('throws when download.retCode is non-zero', async () => {
+    const deps = makeDeps({
+      download: { retCode: 1, retMsg: 'denied', downloadDns: 'cdn', downloadUrl: new Uint8Array([1]) } as any,
+    });
+    await expect(GetGroupFileUrl.invoke(deps, { groupId: 1, fileId: 'f', busId: 102 }))
+      .rejects.toThrow(/group file url failed: code=1/);
   });
 
   it('throws when the download sub-message is missing', async () => {
     const deps = makeDeps({});
     await expect(GetGroupFileUrl.invoke(deps, { groupId: 1, fileId: 'f', busId: 102 }))
       .rejects.toThrow(/url response missing/);
+  });
+
+  it('falls back to downloadIp when downloadDns is empty', async () => {
+    const deps = makeDeps({
+      download: { downloadIp: '1.2.3.4', downloadUrl: new Uint8Array([0xab]) } as any,
+    });
+    await expect(GetGroupFileUrl.invoke(deps, { groupId: 1, fileId: 'fid', busId: 102 }))
+      .resolves.toBe('https://1.2.3.4/ftn_handler/AB/?fname=fid');
   });
 });

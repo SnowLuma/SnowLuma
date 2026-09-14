@@ -1,7 +1,16 @@
 import { format } from 'util';
 import { getFileTransport } from './log-file-transport';
+import { redactLogMessage } from './log-summary';
+import { sanitizeLogLine } from './log-sanitize';
+import {
+  currentRequestId,
+  nextRequestId,
+  runWithoutRequestContext,
+  runWithRequestId,
+} from './request-context';
 
-type LogLevel = 'debug' | 'info' | 'success' | 'warn' | 'error';
+type LogLevel = 'trace' | 'debug' | 'info' | 'success' | 'warn' | 'error';
+type FileLogLevel = Exclude<LogLevel, 'trace'>;
 
 export interface LogEntry {
   id: number;
@@ -10,6 +19,8 @@ export interface LogEntry {
   scope: string;
   /** QQ uin, when the source logger was derived via `.child({ uin })`. */
   uin?: number;
+  /** Correlation id, when emitted inside a `runWithRequestId(...)` scope. */
+  req?: number;
   message: string;
   line: string;
 }
@@ -26,6 +37,7 @@ interface LogOptions {
 const UIN_SLOT_WIDTH = 12;
 
 const LEVEL_WEIGHT: Record<LogLevel, number> = {
+  trace: 5,
   debug: 10,
   info: 20,
   success: 25,
@@ -34,6 +46,7 @@ const LEVEL_WEIGHT: Record<LogLevel, number> = {
 };
 
 const LEVEL_LABEL: Record<LogLevel, string> = {
+  trace: 'TRACE',
   debug: 'DEBUG',
   info: 'INFO',
   success: 'OK',
@@ -42,6 +55,7 @@ const LEVEL_LABEL: Record<LogLevel, string> = {
 };
 
 const COLOR_CODE: Record<LogLevel, number> = {
+  trace: 90,
   debug: 90,
   info: 36,
   success: 32,
@@ -53,39 +67,102 @@ const COLOR_SCOPE = 35;
 const COLOR_DIM = 2;
 const COLOR_RESET = '\x1b[0m';
 const MAX_LOG_ENTRIES = 1000;
-const logEntries: LogEntry[] = [];
+
+/** Trace ring cap — env-tunable since trace is the high-volume stream. */
+function resolveTraceBufferMax(): number {
+  const raw = Number.parseInt(process.env.SNOWLUMA_TRACE_BUFFER ?? '', 10);
+  return Number.isFinite(raw) && raw >= 100 ? raw : 5000;
+}
+const TRACE_BUFFER_MAX = resolveTraceBufferMax();
+
+/**
+ * Fixed-capacity circular buffer. O(1) push + eviction (no array `.shift()`),
+ * so the high-throughput trace stream never pays an O(n) shift per overflow.
+ */
+class RingBuffer<T> {
+  private readonly buf: (T | undefined)[];
+  private start = 0;
+  private count = 0;
+  constructor(private readonly cap: number) {
+    this.buf = new Array<T | undefined>(cap);
+  }
+  push(item: T): void {
+    const end = (this.start + this.count) % this.cap;
+    this.buf[end] = item;
+    if (this.count < this.cap) this.count += 1;
+    else this.start = (this.start + 1) % this.cap; // full → overwrite oldest
+  }
+  /** Most recent `n` items, oldest→newest. */
+  recent(n: number): T[] {
+    const take = Math.max(0, Math.min(Math.trunc(n), this.count));
+    const out: T[] = new Array<T>(take);
+    const first = this.start + (this.count - take);
+    for (let i = 0; i < take; i += 1) out[i] = this.buf[(first + i) % this.cap]!;
+    return out;
+  }
+  toArray(): T[] {
+    return this.recent(this.count);
+  }
+  get size(): number {
+    return this.count;
+  }
+}
+
+const logRing = new RingBuffer<LogEntry>(MAX_LOG_ENTRIES);
+const traceRing = new RingBuffer<LogEntry>(TRACE_BUFFER_MAX);
 const logSubscribers = new Set<(entry: LogEntry) => void>();
 let nextLogId = 1;
 
 function resolveMinLevel(): LogLevel {
   const raw = (process.env.SNOWLUMA_LOG_LEVEL ?? 'info').toLowerCase();
-  if (raw === 'debug' || raw === 'info' || raw === 'success' || raw === 'warn' || raw === 'error') {
+  if (raw === 'trace' || raw === 'debug' || raw === 'info' || raw === 'success' || raw === 'warn' || raw === 'error') {
     return raw;
   }
   return 'info';
 }
 
+function resolveFileMinLevel(): FileLogLevel {
+  const raw = process.env.SNOWLUMA_LOG_FILE_LEVEL;
+  if (raw === undefined || raw.trim() === '') return 'debug';
+
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === 'debug' || normalized === 'info' || normalized === 'success' ||
+      normalized === 'warn' || normalized === 'error') {
+    return normalized;
+  }
+  throw new TypeError(
+    'SNOWLUMA_LOG_FILE_LEVEL must be one of: debug, info, success, warn, error',
+  );
+}
+
 // Mutable — seeded from SNOWLUMA_LOG_LEVEL at module load, but
 // setLogLevel() lets WebUI / SDK callers flip it without a restart.
-// Only governs console + ring buffer + subscribers; the file
-// transport always sees debug-and-up regardless.
+// Only governs console + ring buffer + subscribers;
+// the file transport level is seeded independently from
+// SNOWLUMA_LOG_FILE_LEVEL (default debug)
+// and is not affected by setLogLevel().
 let currentLevel: LogLevel = resolveMinLevel();
+const currentFileLevel: FileLogLevel = resolveFileMinLevel();
 
 function shouldLog(level: LogLevel): boolean {
   return LEVEL_WEIGHT[level] >= LEVEL_WEIGHT[currentLevel];
 }
 
-export const LOG_LEVELS: readonly LogLevel[] = ['debug', 'info', 'success', 'warn', 'error'];
+function shouldLogToFile(level: LogLevel): boolean {
+  return LEVEL_WEIGHT[level] >= LEVEL_WEIGHT[currentFileLevel];
+}
+
+export const LOG_LEVELS: readonly LogLevel[] = ['trace', 'debug', 'info', 'success', 'warn', 'error'];
 
 export function getLogLevel(): LogLevel {
   return currentLevel;
 }
 
-/**
- * Change the console / subscriber level at runtime. Invalid input is
- * a no-op (returns false). File transport is unaffected — it always
- * sees every level so post-mortems remain useful.
- */
+
+// Change the console / subscriber level at runtime.
+// Invalid input is a no-op (returns false).
+// Does not affect the file transport log level.
+
 export function setLogLevel(level: string): boolean {
   const lower = String(level).toLowerCase();
   if (!LOG_LEVELS.includes(lower as LogLevel)) return false;
@@ -110,15 +187,15 @@ function currentTime(): string {
   return `${hh}:${mm}:${ss}`;
 }
 
-function render(level: LogLevel, options: LogOptions, args: unknown[]): string {
-  const message = format(...args);
+function render(level: LogLevel, options: LogOptions, message: string, reqId?: number): string {
   const ts = currentTime();
   const label = LEVEL_LABEL[level].padEnd(5, ' ');
   const uinTag = options.uin !== undefined ? `[${options.uin}]` : '';
   const uinSlot = uinTag.padEnd(UIN_SLOT_WIDTH);
+  const reqTag = reqId !== undefined ? `[req#${reqId}]` : '';
 
   if (!useColor()) {
-    return `${ts} ${label} ${uinSlot} [${options.scope}] ${message}`;
+    return `${ts} ${label} ${uinSlot} [${options.scope}] ${reqTag ? `${reqTag} ` : ''}${message}`;
   }
 
   const cTs = ansi(COLOR_DIM, ts);
@@ -126,31 +203,59 @@ function render(level: LogLevel, options: LogOptions, args: unknown[]): string {
   // Pad first, then color only the visible tag so escape codes don't eat
   // into the alignment width.
   const cUin = uinTag
-    ? ansi(COLOR_DIM, uinTag) + ' '.repeat(UIN_SLOT_WIDTH - uinTag.length)
+    ? ansi(COLOR_DIM, uinTag) + ' '.repeat(Math.max(0, UIN_SLOT_WIDTH - uinTag.length))
     : ' '.repeat(UIN_SLOT_WIDTH);
   const cScope = ansi(COLOR_SCOPE, `[${options.scope}]`);
-  return `${cTs} ${cLabel} ${cUin} ${cScope} ${message}`;
+  const cReq = reqTag ? `${ansi(COLOR_DIM, reqTag)} ` : '';
+  return `${cTs} ${cLabel} ${cUin} ${cScope} ${cReq}${message}`;
 }
 
-function emit(level: LogLevel, options: LogOptions, args: unknown[]): void {
-  // Console / subscriber level filter. File output is debug-and-up always;
-  // see log-file-transport.ts.
+function emit(
+  level: LogLevel,
+  options: LogOptions,
+  args: unknown[],
+): void {
+  // Console / subscriber and file filters are independent. If no destination
+  // accepts the record, stop before formatting or building a LogEntry.
   const passesConsole = shouldLog(level);
-  const message = format(...args);
-  const line = render(level, options, args);
+  const passesFile = level !== 'trace'
+    && shouldLogToFile(level);
+  if (!passesConsole && !passesFile) return;
+
+  // `trace` is the high-volume full-chain diagnostic stream, intentionally
+  // excluded from disk to avoid I/O saturation. When console is not dialed
+  // to trace, the early return below skips format/render/disk entirely.
+  // Set SNOWLUMA_LOG_LEVEL=trace to inspect trace output in console/memory;
+  // trace never reaches disk regardless.
+  if (level === 'trace' && !passesConsole) return;
+
+  // Lazy trace form: `log.trace(() => ['…', deepRender(x)])`. The producer
+  // (and its expensive deep render) only runs now that trace is confirmed live.
+  let realArgs = args;
+  if (level === 'trace' && args.length === 1 && typeof args[0] === 'function') {
+    realArgs = (args[0] as () => unknown[])();
+  }
+
+  const reqId = currentRequestId();
+  const formattedMessage = format(...realArgs);
+  const message = level === 'trace'
+    ? formattedMessage
+    : redactLogMessage(formattedMessage);
+  const line = render(level, options, message, reqId);
   const entry: LogEntry = {
     id: nextLogId++,
     time: new Date().toISOString(),
     level,
     scope: options.scope,
     ...(options.uin !== undefined ? { uin: options.uin } : {}),
+    ...(reqId !== undefined ? { req: reqId } : {}),
     message,
-    line,
+    line: sanitizeLogLine(line),
   };
 
   if (passesConsole) {
-    logEntries.push(entry);
-    if (logEntries.length > MAX_LOG_ENTRIES) logEntries.shift();
+    // Trace gets its own ring so its volume never evicts the normal log buffer.
+    (level === 'trace' ? traceRing : logRing).push(entry);
     for (const subscriber of logSubscribers) subscriber(entry);
     const stream = level === 'warn' || level === 'error' ? process.stderr : process.stdout;
     // Strip ASCII control characters before writing to terminal to prevent
@@ -159,13 +264,22 @@ function emit(level: LogLevel, options: LogOptions, args: unknown[]): void {
     // and ESC (0x1B) so multi-line records (stack traces) and ANSI color
     // sequences emitted by render() pass through intact.
     // eslint-disable-next-line no-control-regex
-    stream.write(line.replace(/[\x00-\x08\x0B-\x1A\x1C-\x1F\x7F]/g, '') + '\n');
+    const consoleLine = line.replace(/[\x00-\x08\x0B-\x1A\x1C-\x1F\x7F]/g, '') + '\n';
+    try {
+      stream.write(consoleLine);
+    } catch {
+      // A full Docker json-file log volume can make stdout/stderr throw.
+      // Logging must not take down message handling or the WebUI.
+    }
   }
 
-  // File transport always sees every level (debug-and-up) for post-mortem
-  // value; ANSI stripping happens inside the transport. UIN routes the
-  // line to its per-account sub-file in addition to the shared one.
-  getFileTransport().write(line, options.uin);
+  // File transport sees levels >= currentFileLevel (SNOWLUMA_LOG_FILE_LEVEL,
+  // default debug). `trace` is memory / WebUI only (omitted here to avoid huge
+  // on-disk volume). ANSI stripping happens inside the transport. UIN routes
+  // the line to its per-account sub-file in addition to the shared one.
+  if (passesFile) {
+    getFileTransport().write(line, options.uin);
+  }
 }
 
 /**
@@ -178,9 +292,19 @@ export function closeLogger(): Promise<void> {
   return getFileTransport().close();
 }
 
+function mergeLogRings(): LogEntry[] {
+  return traceRing.size > 0
+    ? [...logRing.toArray(), ...traceRing.toArray()].sort((a, b) => a.id - b.id)
+    : logRing.toArray();
+}
+
+export function getLogSnapshot(): LogEntry[] {
+  return mergeLogRings();
+}
+
 export function getRecentLogs(limit = 300): LogEntry[] {
-  const n = Math.max(1, Math.min(Math.trunc(limit), MAX_LOG_ENTRIES));
-  return logEntries.slice(-n);
+  const n = Math.max(1, Math.trunc(limit));
+  return mergeLogRings().slice(-n);
 }
 
 export function subscribeLogs(callback: (entry: LogEntry) => void): () => void {
@@ -191,6 +315,13 @@ export function subscribeLogs(callback: (entry: LogEntry) => void): () => void {
 }
 
 export interface Logger {
+  /**
+   * High-volume, memory-only diagnostic level (never written to disk). Pass a
+   * lazy producer — `trace(() => ['msg %s', expensiveRender(x)])` — so the
+   * arguments (and any costly rendering) are built only when trace is active.
+   * A plain `trace('msg', x)` works too but evaluates its args eagerly.
+   */
+  trace: (...args: unknown[]) => void;
   debug: (...args: unknown[]) => void;
   info: (...args: unknown[]) => void;
   success: (...args: unknown[]) => void;
@@ -207,6 +338,7 @@ export interface Logger {
 
 function makeLogger(opts: LogOptions): Logger {
   return {
+    trace: (...args: unknown[]) => emit('trace', opts, args),
     debug: (...args: unknown[]) => emit('debug', opts, args),
     info: (...args: unknown[]) => emit('info', opts, args),
     success: (...args: unknown[]) => emit('success', opts, args),
@@ -226,3 +358,31 @@ function makeLogger(opts: LogOptions): Logger {
 export function createLogger(scope: string): Logger {
   return makeLogger({ scope });
 }
+
+export function renderTraceBytes(body: Uint8Array): string {
+  return Buffer.from(body.buffer, body.byteOffset, body.byteLength).toString('hex');
+}
+
+export function runWithTraceRequest<T>(fn: () => T): T {
+  if (currentRequestId() !== undefined || currentLevel !== 'trace') return fn();
+  return runWithRequestId(nextRequestId(), fn);
+}
+
+export function logInitialWebuiCredentials(password: string): void {
+  // This is deliberately not a LogEntry: application logs can be retained on
+  // disk, exported through WebUI, and delivered to subscribers. First-run
+  // credentials must only cross the process terminal boundary.
+  const line = render(
+    'info',
+    { scope: 'WebUI' },
+    format('initial credentials: user=admin password=%s', password),
+  );
+  // Keep the same terminal control-character policy as regular console logs.
+  // eslint-disable-next-line no-control-regex
+  process.stdout.write(line.replace(/[\x00-\x08\x0B-\x1A\x1C-\x1F\x7F]/g, '') + '\n');
+}
+
+// Request-correlation primitives remain available for callers that already own
+// an explicit request id. New semantic entrypoints should prefer
+// runWithTraceRequest() so disabled TRACE does not allocate one.
+export { nextRequestId, runWithoutRequestContext, runWithRequestId, currentRequestId };

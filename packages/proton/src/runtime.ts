@@ -12,6 +12,49 @@ import {
 type DynamicEncode = (params: unknown) => Uint8Array;
 type DynamicDecode = (data: Uint8Array) => unknown;
 
+export interface ProtobufUnknownField {
+  fieldNumber: number;
+  wireType: number;
+  count: number;
+  totalByteLength: number;
+}
+
+export interface ProtobufUnknownFieldMetadata {
+  fields: readonly ProtobufUnknownField[];
+  totalOccurrences: number;
+  omittedOccurrences: number;
+  omittedByteLength: number;
+}
+
+const PROTOBUF_UNKNOWN_FIELDS = Symbol.for('snowluma.proton.unknownFields');
+const EMPTY_UNKNOWN_FIELD_METADATA: ProtobufUnknownFieldMetadata = Object.freeze({
+  fields: Object.freeze([]),
+  totalOccurrences: 0,
+  omittedOccurrences: 0,
+  omittedByteLength: 0,
+});
+
+/** Unknown wire tags retained by generated decoders. The symbol-backed
+ * metadata is non-enumerable, so decoded object shapes and re-encoding remain
+ * unchanged while protocol boundaries can make schema drift observable. */
+export function protobuf_getUnknownFields(value: unknown): readonly ProtobufUnknownField[] {
+  return protobuf_getUnknownFieldMetadata(value).fields;
+}
+
+export function protobuf_getUnknownFieldMetadata(value: unknown): ProtobufUnknownFieldMetadata {
+  if (typeof value !== 'object' || value === null) return EMPTY_UNKNOWN_FIELD_METADATA;
+  const metadata = (value as Record<PropertyKey, unknown>)[PROTOBUF_UNKNOWN_FIELDS];
+  if (typeof metadata !== 'object' || metadata === null) return EMPTY_UNKNOWN_FIELD_METADATA;
+  const candidate = metadata as Partial<ProtobufUnknownFieldMetadata>;
+  if (!Array.isArray(candidate.fields)) return EMPTY_UNKNOWN_FIELD_METADATA;
+  return {
+    fields: candidate.fields,
+    totalOccurrences: candidate.totalOccurrences ?? candidate.fields.length,
+    omittedOccurrences: candidate.omittedOccurrences ?? 0,
+    omittedByteLength: candidate.omittedByteLength ?? 0,
+  };
+}
+
 interface DynamicTypeFns {
   encode?: DynamicEncode;
   decode?: DynamicDecode;

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
@@ -8,6 +8,7 @@ import type {
   OidbGroupFileViewResp,
   OidbGroupFileFolderResp,
   OidbGroupSendFileReq,
+  OidbGroupSendFileResp,
 } from '@snowluma/proto-defs/oidb-actions/group-file';
 import type {
   OidbPrivateFileUploadResp,
@@ -25,19 +26,32 @@ import type {
 vi.mock('@snowluma/protocol/highway', () => ({
   fetchHighwaySession: vi.fn(async () => ({})),
   uploadHighwayHttp: vi.fn(async () => undefined),
+  FileChunkSource: { open: vi.fn(async () => ({ size: 3, read: vi.fn(), close: vi.fn(async () => undefined) })) },
 }));
 
 vi.mock('@snowluma/protocol/highway/utils', () => ({
-  loadBinarySource: vi.fn(async (_src: string, fallback: string) => ({
-    bytes: new Uint8Array([1, 2, 3]),
-    fileName: `${fallback}.bin`,
-  })),
-  computeHashes: vi.fn(() => ({ md5: new Uint8Array(16), sha1: new Uint8Array(20) })),
-  computeMd5: vi.fn(() => new Uint8Array(16)),
   FILE_UPLOAD_MAX_BYTES: 4 * 1024 * 1024 * 1024,
 }));
 
+// The upload path now stages the source to disk + stream-hashes it; mock those
+// two seams. stageSourceToDisk's filePath must be a REAL file so the mutation
+// guard's fsp.stat succeeds (configured per-test in beforeEach → STAGED_FILE).
+vi.mock('@snowluma/protocol/highway/stage', () => ({
+  stageSourceToDisk: vi.fn(),
+}));
+vi.mock('@snowluma/protocol/highway/hash-file', () => ({
+  hashFileStreaming: vi.fn(async () => ({
+    md5: new Uint8Array(16), sha1: new Uint8Array(20),
+    md5Hex: '00'.repeat(16), sha1Hex: '00'.repeat(20),
+    sha1Blocks: [], headMd5: new Uint8Array(16),
+  })),
+}));
+
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import * as highwayClient from '@snowluma/protocol/highway';
+import * as stageMod from '@snowluma/protocol/highway/stage';
 import { GroupFileApi } from '../../src/bridge/apis/group-file';
 import { mockBridge } from './_helpers';
 
@@ -48,10 +62,23 @@ function packResponse(body: Uint8Array) {
   };
 }
 
+let STAGED_FILE: string;
+
 describe('apis/group-file', () => {
+  beforeAll(() => {
+    STAGED_FILE = path.join(os.tmpdir(), `sl-gf-staged-${process.pid}.bin`);
+    fs.writeFileSync(STAGED_FILE, Buffer.from([1, 2, 3])); // real 3-byte file for the guard stat
+  });
+  afterAll(() => { try { fs.unlinkSync(STAGED_FILE); } catch { /* ignore */ } });
+
   beforeEach(() => {
     vi.mocked(highwayClient.fetchHighwaySession).mockClear();
     vi.mocked(highwayClient.uploadHighwayHttp).mockClear();
+    vi.mocked(highwayClient.FileChunkSource.open).mockClear();
+    vi.mocked(stageMod.stageSourceToDisk).mockResolvedValue({
+      filePath: STAGED_FILE, fileSize: 3, fileName: 'file.bin',
+      cleanup: vi.fn(async () => undefined),
+    } as any);
   });
 
   it('getCount returns { fileCount, maxCount } from the OIDB response', async () => {
@@ -117,6 +144,32 @@ describe('apis/group-file', () => {
     expect(highwayClient.uploadHighwayHttp).toHaveBeenCalledOnce();
   });
 
+  it('[stream] PUTs from the staged disk file via FileChunkSource and releases the temp', async () => {
+    const cleanup = vi.fn(async () => undefined);
+    vi.mocked(stageMod.stageSourceToDisk).mockResolvedValueOnce({
+      filePath: STAGED_FILE, fileSize: 3, fileName: 'file.bin', cleanup,
+    } as any);
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
+      protobuf_encode<OidbBase<OidbGroupFileResp>>({
+        body: {
+          upload: {
+            fileId: 'fid-xyz', uploadIp: '1.2.3.4', uploadPort: 8080,
+            fileKey: new Uint8Array([9]), checkKey: new Uint8Array([8]),
+          },
+        } as any,
+      }),
+    ));
+    const api = new GroupFileApi(bridge as any);
+    vi.spyOn(api, 'publish').mockResolvedValue();
+    await api.upload(12345, '/path/file.bin');
+    // Main file streamed from the staged path (not buffered), and the temp is
+    // released afterward.
+    expect(highwayClient.FileChunkSource.open).toHaveBeenCalledWith(STAGED_FILE, 3);
+    expect(vi.mocked(highwayClient.uploadHighwayHttp).mock.calls[0]![3]).toBeDefined();
+    expect(cleanup).toHaveBeenCalled();
+  });
+
   it('upload throws on missing upload response', async () => {
     const bridge = mockBridge();
     bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
@@ -167,6 +220,28 @@ describe('apis/group-file', () => {
     const api = new GroupFileApi(bridge as any);
     const publishSpy = vi.spyOn(api, 'publish').mockResolvedValue();
     await api.upload(12345, '/path/file.bin', '', '/', false);
+    expect(publishSpy).not.toHaveBeenCalled();
+  });
+
+  it('upload can PUT bytes without publishing a separate group file message', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
+      protobuf_encode<OidbBase<OidbGroupFileResp>>({
+        body: {
+          upload: {
+            fileId: 'fid-forward',
+            uploadIp: '127.0.0.1',
+            uploadPort: 443,
+            fileKey: new Uint8Array([1]),
+            checkKey: new Uint8Array([2]),
+          } as any,
+        },
+      }),
+    ));
+    const api = new GroupFileApi(bridge as any);
+    const publishSpy = vi.spyOn(api, 'publish').mockResolvedValue();
+    await api.upload(12345, 'base64://AQID', 'forward.txt', '/', true, false);
+    expect(highwayClient.uploadHighwayHttp).toHaveBeenCalledOnce();
     expect(publishSpy).not.toHaveBeenCalled();
   });
 
@@ -224,6 +299,26 @@ describe('apis/group-file', () => {
     });
   });
 
+  it('trans hits OIDB 0x6d9_0 and returns the saved path metadata', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
+      protobuf_encode<OidbBase<OidbGroupSendFileResp>>({
+        body: { transFile: { saveBusId: 102, saveFilePath: '/saved/path' } },
+      }),
+    ));
+    const out = await new GroupFileApi(bridge as any).trans(12345, 'fid-trans');
+    expect(out).toEqual({ saveBusId: 102, saveFilePath: '/saved/path' });
+    const [wire, bytes] = bridge.sendRawPacket.mock.calls[0]!;
+    expect(wire).toBe('OidbSvcTrpcTcp.0x6d9_0');
+    const env = protobuf_decode<OidbBase<OidbGroupSendFileReq>>(bytes);
+    expect(env.body?.transFile).toMatchObject({
+      groupUin: 12345n,
+      appId: 7,
+      busId: 102,
+      fileId: 'fid-trans',
+    });
+  });
+
   it('uploadPrivate resolves both target + self UID before OIDB call', async () => {
     const bridge = mockBridge({
       identity: {
@@ -232,7 +327,11 @@ describe('apis/group-file', () => {
         nickname: 'self-nick',
         findUidByUin: vi.fn(() => 'cached-uid'),
         findUinByUid: vi.fn(() => 0),
+        resolveUin: vi.fn(async () => null),
         findGroupMember: vi.fn(() => null),
+        updateFriendRemark: vi.fn(() => true),
+        updateGroupRemark: vi.fn(() => true),
+        forgetGroup: vi.fn(),
       },
     });
     vi.mocked(bridge.resolveUserUid)
@@ -297,6 +396,54 @@ describe('apis/group-file', () => {
     expect(bridge.apis.message.sendC2cFile).not.toHaveBeenCalled();
   });
 
+  it('uploadPrivate can PUT bytes without publishing a separate c2c file message', async () => {
+    const bridge = mockBridge();
+    vi.mocked(bridge.resolveUserUid).mockResolvedValueOnce('target-uid');
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
+      protobuf_encode<OidbBase<OidbPrivateFileUploadResp>>({
+        body: {
+          upload: {
+            uuid: 'pfid-forward',
+            fileAddon: 'phash-forward',
+            rtpMediaPlatformUploadAddress: [
+              { outIP: 0, outPort: 0, inIP: 16885952, inPort: 8080, iPType: 1 },
+            ],
+            mediaPlatformUploadKey: new Uint8Array([1, 2, 3]),
+          } as any,
+        },
+      }),
+    ));
+    await new GroupFileApi(bridge as any).uploadPrivate(67890, 'base64://AQID', 'forward.txt', true, false);
+    expect(highwayClient.uploadHighwayHttp).toHaveBeenCalledOnce();
+    expect(bridge.apis.message.sendC2cFile).not.toHaveBeenCalled();
+  });
+
+  it('[stream] uploadPrivate PUTs from the staged disk file via FileChunkSource and releases the temp', async () => {
+    const cleanup = vi.fn(async () => undefined);
+    vi.mocked(stageMod.stageSourceToDisk).mockResolvedValueOnce({
+      filePath: STAGED_FILE, fileSize: 3, fileName: 'file.bin', cleanup,
+    } as any);
+    const bridge = mockBridge();
+    vi.mocked(bridge.resolveUserUid).mockResolvedValueOnce('target-uid');
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
+      protobuf_encode<OidbBase<OidbPrivateFileUploadResp>>({
+        body: {
+          upload: {
+            uuid: 'pfid-stream', fileAddon: 'phash',
+            rtpMediaPlatformUploadAddress: [
+              { outIP: 0, outPort: 0, inIP: 16885952, inPort: 8080, iPType: 1 },
+            ],
+            mediaPlatformUploadKey: new Uint8Array([1, 2, 3]),
+          } as any,
+        },
+      }),
+    ));
+    await new GroupFileApi(bridge as any).uploadPrivate(67890, '/path/file', 'doc.pdf', true, false);
+    expect(highwayClient.FileChunkSource.open).toHaveBeenCalledWith(STAGED_FILE, 3);
+    expect(highwayClient.uploadHighwayHttp).toHaveBeenCalledOnce();
+    expect(cleanup).toHaveBeenCalled();
+  });
+
   it('uploadPrivate reads host from rtpMediaPlatformUploadAddress[0].inIP when populated', async () => {
     const bridge = mockBridge();
     vi.mocked(bridge.resolveUserUid).mockResolvedValueOnce('target-uid');
@@ -359,7 +506,18 @@ describe('apis/group-file', () => {
             isEnd: true,
             items: [
               { type: 1, fileInfo: { fileId: 'f1', fileName: 'a.txt', uploaderUin: 1, uploaderName: 'alice' } },
-              { type: 2, folderInfo: { folderId: 'd1', folderName: 'dir', creatorUin: 2, creatorName: 'bob' } },
+              {
+                type: 2,
+                folderInfo: {
+                  folderId: 'd1',
+                  folderName: 'dir',
+                  creatorUin: 2,
+                  creatorName: 'bob',
+                  modifiedTime: 200,
+                  modifierUin: 5_000_000_001n,
+                  modifierName: 'alice',
+                },
+              },
             ],
           } as any,
         },
@@ -369,7 +527,15 @@ describe('apis/group-file', () => {
     expect(out.files).toHaveLength(1);
     expect(out.files[0]).toMatchObject({ fileId: 'f1', fileName: 'a.txt', uploader: 1, uploaderName: 'alice' });
     expect(out.folders).toHaveLength(1);
-    expect(out.folders[0]).toMatchObject({ folderId: 'd1', folderName: 'dir', creator: 2, creatorName: 'bob' });
+    expect(out.folders[0]).toMatchObject({
+      folderId: 'd1',
+      folderName: 'dir',
+      creator: 2,
+      creatorName: 'bob',
+      lastUploadTime: 200,
+      lastUploader: 5_000_000_001,
+      lastUploaderName: 'alice',
+    });
   });
 
   it('getUrl builds the https URL from downloadDns + hex-encoded path', async () => {

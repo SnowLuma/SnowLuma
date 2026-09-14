@@ -32,6 +32,22 @@ export type bytes = Uint8Array;
 export function protobuf_encode<T>(params: T): Uint8Array;
 export function protobuf_decode<T>(data: Uint8Array): T;
 
+/** Non-enumerable metadata retained for protobuf tags unknown to the schema. */
+export interface ProtobufUnknownField {
+	fieldNumber: number;
+	wireType: number;
+	count: number;
+	totalByteLength: number;
+}
+export interface ProtobufUnknownFieldMetadata {
+	fields: readonly ProtobufUnknownField[];
+	totalOccurrences: number;
+	omittedOccurrences: number;
+	omittedByteLength: number;
+}
+export function protobuf_getUnknownFields(value: unknown): readonly ProtobufUnknownField[];
+export function protobuf_getUnknownFieldMetadata(value: unknown): ProtobufUnknownFieldMetadata;
+
 // ── Optional runtime map fallback (disabled by default) ───────────────
 export interface ProtobufRuntimeField {
 	name: string;

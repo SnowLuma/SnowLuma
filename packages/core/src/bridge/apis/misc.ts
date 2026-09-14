@@ -10,12 +10,17 @@ import { ClickInlineKeyboardButton } from '@snowluma/protocol/oidb-services/misc
 import { SendGroupSign } from '@snowluma/protocol/oidb-services/misc/send-group-sign';
 import { TranslateEnToZh } from '@snowluma/protocol/oidb-services/misc/translate-en-to-zh';
 import { RequestDbKey } from '@snowluma/protocol/oidb-services/misc/request-decrypt-key';
+import { ImageOcr, type OcrResult } from '@snowluma/protocol/oidb-services/misc/image-ocr';
 
 export class MiscApi {
   constructor(private readonly ctx: BridgeContext) { }
 
   translateEn2Zh(words: string[]): Promise<string[]> {
     return TranslateEnToZh.invoke(this.ctx, { words });
+  }
+
+  ocrImage(imageUrl: string): Promise<OcrResult> {
+    return ImageOcr.invoke(this.ctx, { imageUrl });
   }
 
   async getMiniAppArk(type: string, title: string, desc: string, picUrl: string, jumpUrl: string): Promise<JsonObject> {

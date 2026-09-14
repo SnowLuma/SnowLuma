@@ -17,6 +17,7 @@ vi.mock('@snowluma/protocol/highway', () => ({
   fetchHighwaySession: vi.fn(async () => ({ sessionId: 'fake-session' })),
   uploadHighwayHttp: vi.fn(async () => undefined),
   buildHighwayExtend: vi.fn(() => new Uint8Array([0xAA, 0xBB])),
+  BufferChunkSource: class BufferChunkSource { constructor(readonly bytes: Uint8Array) {} },
   PRIVATE_IMAGE_CMD_ID: 1003,
   GROUP_IMAGE_CMD_ID: 1004,
 }));

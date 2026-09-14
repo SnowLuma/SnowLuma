@@ -153,9 +153,12 @@ describe('runNtv2Upload — two images in one message (sequential)', () => {
 
     // The PUT receives image-2's bytes, image-2's md5, and the
     // image-2-derived extend (NOT image-1's data).
-    const [, , cmdId, putBytes, putMd5, putExtend] = vi.mocked(highway.uploadHighwayHttp).mock.calls[0]!;
+    const [, , cmdId, putSource, putMd5, putExtend] = vi.mocked(highway.uploadHighwayHttp).mock.calls[0]!;
     expect(cmdId).toBe(1004);
-    expect(putBytes).toBe(image2Bytes);
+    // The PUT source is a ChunkSource wrapping image-2's bytes — verify it
+    // yields image-2 exactly (not image-1) through its public read().
+    expect(putSource.size).toBe(image2Bytes.length);
+    expect(Buffer.from(await putSource.read(0, putSource.size)).equals(Buffer.from(image2Bytes))).toBe(true);
     expect(putMd5).toBe(image2Md5);
 
     // Decode the extend bytes; uKey + fileUuid must come from image-2's

@@ -1,0 +1,34 @@
+name: 关闭长期缺日志的反馈
+
+# needs-logs 的 issue 若长期不补 TRACE 日志，先标 stale，再自动关闭。
+# 补齐日志后 issue-require-logs 会移除 needs-logs，这里 only-labels 过滤即跳过。
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          only-labels: 'needs-logs'
+          days-before-stale: 7
+          days-before-close: 7
+          stale-issue-label: 'stale'
+          close-issue-reason: 'not_planned'
+          ascending: true
+          # 不处理 PR
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+          stale-issue-message: >
+            这条反馈因长期缺少有效的 TRACE 日志被标记为 `stale`。
+            若 7 天内仍未补充日志，将自动关闭。补充后请编辑 issue 贴上日志或留言。
+          close-issue-message: >
+            因长期缺少定位所需的 TRACE 日志，已自动关闭。
+            如果问题仍然存在，欢迎补齐 TRACE 日志后重新打开本 issue 或新开一个。

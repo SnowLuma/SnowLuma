@@ -7,6 +7,8 @@ import type {
   DomainParams,
   DownloadFileParams,
   FetchCustomFaceParams,
+  FetchFaceEntityParams,
+  FetchSysFacesParams,
   FetchEmojiLikeParams,
   ForwardMessageParams,
   FriendPokeParams,
@@ -16,12 +18,14 @@ import type {
   GetGroupFilesParams,
   GetGroupFileUrlParams,
   GetGroupHonorInfoParams,
+  GetGroupSystemMsgParams,
   GetGroupInfoParams,
   GetGroupListParams,
   GetGroupMemberInfoParams,
   GetGroupMemberListParams,
   GetGroupMessageHistoryParams,
   GetMediaParams,
+  GetOnlineClientsParams,
   GetPrivateFileUrlParams,
   GroupForwardMessageParams,
   GroupIdParams,
@@ -41,6 +45,7 @@ import type {
   SendPrivateMsgParams,
   SetFriendAddRequestParams,
   SetFriendRemarkParams,
+  SetFriendsCategoryParams,
   SetGroupAddRequestParams,
   SetGroupAddOptionParams,
   SetGroupAdminParams,
@@ -64,9 +69,11 @@ import type {
   NcGetUserStatusParams,
   GroupTodoParams,
   GetAiCharactersParams,
+  GetCollectionListParams,
   AiVoiceParams,
   DeleteGroupFolderParams,
   SendPacketParams,
+  SearchSysFacesParams,
 } from './params';
 import type {
   CapabilityInfo,
@@ -77,11 +84,15 @@ import type {
   DownloadFileResult,
   EmptyData,
   ForwardMessageResult,
+  FriendCategoryResult,
   FriendMessageHistory,
+  GroupAdminSettings,
   GroupAtAllRemainInfo,
   GroupFileSystemInfo,
   GroupFileUrl,
   GroupMessageHistory,
+  GroupNoticeInfo,
+  GroupTodoListItem,
   LoginInfo,
   MediaInfo,
   OnlineClientsInfo,
@@ -94,6 +105,11 @@ import type {
   AiCharacterCategory,
   UserOnlineStatus,
   SendGroupAiRecordResult,
+  CollectionListInfo,
+  SuperFaceInfo,
+  SystemFaceCatalogInfo,
+  SystemFaceInfo,
+  SystemFaceSearchInfo,
 } from './results';
 
 export type ActionData = JsonValue;
@@ -117,13 +133,14 @@ export interface SnowLumaActionMap {
   get_group_member_list: { params: GetGroupMemberListParams; data: JsonObject[] };
   get_group_member_info: { params: GetGroupMemberInfoParams; data: JsonObject };
   get_group_honor_info: { params: GetGroupHonorInfoParams; data: JsonValue };
-  get_group_system_msg: { params: JsonObject; data: JsonObject[] };
+  get_group_system_msg: { params: GetGroupSystemMsgParams; data: JsonObject[] };
   set_group_kick: { params: SetGroupKickParams; data: EmptyData };
   set_group_kick_members: { params: SetGroupKickMembersParams; data: EmptyData };
   set_group_ban: { params: SetGroupBanParams; data: EmptyData };
   set_group_whole_ban: { params: SetGroupWholeBanParams; data: EmptyData };
   set_group_add_option: { params: SetGroupAddOptionParams; data: EmptyData };
   set_group_search: { params: GroupIdParams; data: EmptyData };
+  get_group_admin_settings: { params: GroupIdParams; data: GroupAdminSettings };
   set_group_admin: { params: SetGroupAdminParams; data: EmptyData };
   set_group_card: { params: SetGroupCardParams; data: EmptyData };
   set_group_name: { params: SetGroupNameParams; data: EmptyData };
@@ -162,7 +179,7 @@ export interface SnowLumaActionMap {
   ocr_image: { params: JsonObject; data: JsonValue };
   '.ocr_image': { params: JsonObject; data: JsonValue };
   _send_group_notice: { params: GroupNoticeParams; data: EmptyData };
-  _get_group_notice: { params: GroupIdParams; data: JsonArray };
+  _get_group_notice: { params: GroupIdParams; data: GroupNoticeInfo[] };
   _del_group_notice: { params: JsonObject; data: EmptyData };
   upload_forward_msg: { params: ForwardMessageParams; data: UploadForwardResult };
   upload_foward_msg: { params: ForwardMessageParams; data: UploadForwardResult };
@@ -194,17 +211,22 @@ export interface SnowLumaActionMap {
   get_recent_contact: { params: JsonObject; data: JsonArray };
   get_profile_like: { params: JsonObject; data: JsonObject };
   fetch_custom_face: { params: FetchCustomFaceParams; data: string[] };
+  fetch_sys_faces: { params: FetchSysFacesParams; data: SystemFaceCatalogInfo };
+  fetch_face_entity: { params: FetchFaceEntityParams; data: SystemFaceInfo | null };
+  search_sys_faces: { params: SearchSysFacesParams; data: SystemFaceSearchInfo };
+  fetch_super_face_id: { params: FetchFaceEntityParams; data: SuperFaceInfo };
   get_emoji_likes: { params: GetEmojiLikesParams; data: JsonObject };
   fetch_emoji_like: { params: FetchEmojiLikeParams; data: JsonObject };
-  get_friends_with_category: { params: JsonObject; data: JsonObject[] };
-  get_online_clients: { params: JsonObject; data: OnlineClientsInfo };
+  get_friends_with_category: { params: JsonObject; data: FriendCategoryResult[] };
+  set_friends_category: { params: SetFriendsCategoryParams; data: EmptyData };
+  get_online_clients: { params: GetOnlineClientsParams; data: OnlineClientsInfo };
   _get_model_show: { params: JsonObject; data: { variants: JsonArray } };
   _set_model_show: { params: JsonObject; data: EmptyData };
   '.get_word_slices': { params: JsonObject; data: JsonValue };
   get_group_at_all_remain: { params: JsonObject; data: GroupAtAllRemainInfo };
   get_unidirectional_friend_list: { params: JsonObject; data: JsonArray };
   set_self_longnick: { params: JsonObject; data: EmptyData };
-  get_collection_list: { params: JsonObject; data: JsonArray };
+  get_collection_list: { params: GetCollectionListParams; data: CollectionListInfo };
   create_collection: { params: JsonObject; data: JsonValue };
   set_qq_avatar: { params: JsonObject; data: EmptyData };
   set_input_status: { params: JsonObject; data: EmptyData };
@@ -214,8 +236,8 @@ export interface SnowLumaActionMap {
   click_inline_keyboard_button: { params: JsonObject; data: JsonValue };
   set_group_sign: { params: JsonObject; data: EmptyData };
   send_group_sign: { params: JsonObject; data: EmptyData };
-  get_group_info_ex: { params: GroupIdParams; data: JsonObject };
-  get_group_detail_info: { params: GroupIdParams; data: JsonObject };
+  get_group_info_ex: { params: GetGroupInfoParams; data: JsonObject };
+  get_group_detail_info: { params: GetGroupInfoParams; data: JsonObject };
   trans_group_file: { params: JsonObject; data: JsonValue };
   rename_group_file: { params: JsonObject; data: JsonValue };
   get_file: { params: GetMediaParams; data: JsonValue };
@@ -229,6 +251,7 @@ export interface SnowLumaActionMap {
   nc_get_user_status: { params: NcGetUserStatusParams; data: UserOnlineStatus };
   get_group_ignore_add_request: { params: JsonObject; data: JsonArray };
   delete_group_folder: { params: DeleteGroupFolderParams; data: EmptyData };
+  get_group_todo_list: { params: GroupIdParams; data: GroupTodoListItem[] };
   set_group_todo: { params: GroupTodoParams; data: EmptyData };
   complete_group_todo: { params: GroupTodoParams; data: EmptyData };
   cancel_group_todo: { params: GroupTodoParams; data: EmptyData };

@@ -1,11 +1,13 @@
-// "通用设置" tab — fields that apply to the whole OneBotInstance rather
-// than any specific adapter: the music-sign service URL and the built-in
-// `#sl` status command. Edits here mark the config dirty and are persisted
-// via the page's explicit top-right 保存 (a continuously-edited surface).
+// "通用设置" tab — per-account fields that apply to the whole OneBotInstance
+// rather than any specific adapter: the built-in `#sl` status command and the
+// notification opt-in. Edits here mark the config dirty and are auto-saved with
+// debounce by the parent ConfigPage. (Deployment-wide knobs like the music-sign
+// URL live in Settings → 全局配置, not here.)
 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
+import { NotificationOptIn } from '@/components/config/notification-opt-in';
 import type { OneBotConfig, StatusCommandConfig } from '@/types';
 
 interface GeneralSettingsTabProps {
@@ -20,17 +22,22 @@ export function GeneralSettingsTab({ config, onChange }: GeneralSettingsTabProps
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1.5 rounded-lg border bg-card/40 p-4">
-        <Label>音乐签名服务 URL</Label>
-        <Input
-          type="url"
-          placeholder="留空则不启用"
-          value={config.musicSignUrl ?? ''}
-          onChange={(e) => onChange({ ...config, musicSignUrl: e.target.value || undefined })}
+      <div className="flex items-start justify-between gap-3 rounded-lg border bg-card/40 p-4">
+        <div className="min-w-0">
+          <Label>登录时补齐云端历史记录</Label>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            下次账号登录或重启后生效。只静默写入本地消息库，不重放历史事件，也不改变 QQ 已读状态。
+            每次最多处理 3 个群和 3 个好友、每个会话 20 条，自动请求至少间隔 2 秒。
+          </p>
+        </div>
+        <ToggleSwitch
+          value={config.historySync.enabled}
+          onChange={(enabled) => onChange({
+            ...config,
+            historySync: { enabled },
+          })}
+          ariaLabel="登录时补齐云端历史记录"
         />
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
-          用于音乐分享卡片签名。未配置时音乐相关消息段会回落为普通文本。
-        </p>
       </div>
 
       <div className="flex flex-col gap-4 rounded-lg border bg-card/40 p-4">
@@ -39,7 +46,7 @@ export function GeneralSettingsTab({ config, onChange }: GeneralSettingsTabProps
             <Label>
               内置状态命令 <code className="font-mono text-xs">#sl</code>
             </Label>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
               收到纯文本 <code className="font-mono">#sl</code> 时回复 SnowLuma 版本 / 平台 / 运行时长。任何人可触发，关闭后完全不响应。
             </p>
           </div>
@@ -50,10 +57,24 @@ export function GeneralSettingsTab({ config, onChange }: GeneralSettingsTabProps
           />
         </div>
 
+        <div className="flex flex-col gap-1.5 border-t pt-3">
+          <Label className={sc.enabled ? undefined : 'text-muted-foreground'}>触发词</Label>
+          <Input
+            className="w-full font-mono"
+            value={sc.trigger}
+            disabled={!sc.enabled}
+            maxLength={32}
+            onChange={(e) => setStatusCommand({ trigger: e.target.value })}
+          />
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            自定义触发词，默认 <code className="font-mono">#sl</code>。最长 32 字符，匹配前会去除首尾空格并转为小写。
+          </p>
+        </div>
+
         <div className="flex items-start justify-between gap-3 border-t pt-3">
           <div className="min-w-0">
             <Label className={sc.enabled ? undefined : 'text-muted-foreground'}>不转发给下游（swallow）</Label>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
               开启后，命中的 <code className="font-mono">#sl</code> 不再投递给已连接的 Bot（仍会回复并本地记录）。默认关闭即透传。
             </p>
           </div>
@@ -78,11 +99,16 @@ export function GeneralSettingsTab({ config, onChange }: GeneralSettingsTabProps
               setStatusCommand({ cooldownSeconds: Number.isFinite(n) && n >= 0 ? n : 0 });
             }}
           />
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
+          <p className="text-xs leading-relaxed text-muted-foreground">
             同一会话在该秒数内重复 <code className="font-mono">#sl</code> 不再回复，防刷屏。<code className="font-mono">0</code> 表示不限制。
           </p>
         </div>
       </div>
+
+      <NotificationOptIn
+        selectedIds={config.notifications?.channelIds ?? []}
+        onChange={(channelIds) => onChange({ ...config, notifications: { channelIds } })}
+      />
     </div>
   );
 }

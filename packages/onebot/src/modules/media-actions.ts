@@ -3,9 +3,77 @@ import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import type { MessageElement } from '@snowluma/protocol/events';
 import type { ImageUrlResolver } from '../event-converter';
 import type { MediaStore } from '../media-store';
+import type { MessageStore } from '../message-store';
+import {
+  deliverPttTransText,
+  failPttTransWaiter,
+  pttTransKey,
+  waitPttTransText,
+} from './ptt-trans-waiter';
 import type { JsonObject } from '../types';
 
 const log = createLogger('OneBot');
+
+/**
+ * Voice-to-text for a received ptt (issue #79 / NapCat `fetch_ptt_text`).
+ * Resolves the message's `record` segment to its cached fingerprint
+ * (uuid + md5 + duration/size/format), then drives QQ's native
+ * `pttTrans.Trans{C2C,Group}PttReq` via the bridge and returns the text.
+ */
+export async function fetchPttText(
+  messageStore: MessageStore,
+  mediaStore: MediaStore,
+  bridge: BridgeInterface,
+  selfId: number,
+  messageId: number,
+): Promise<{ text: string }> {
+  const event = messageStore.findEvent(messageId);
+  if (!event) throw new Error('消息不存在或已被撤回');
+
+  const segments = Array.isArray(event.message) ? event.message : [];
+  let file = '';
+  for (const seg of segments) {
+    if (typeof seg !== 'object' || seg === null || Array.isArray(seg)) continue;
+    const so = seg as JsonObject;
+    if (so.type !== 'record') continue;
+    const data = (typeof so.data === 'object' && so.data !== null && !Array.isArray(so.data)) ? so.data as JsonObject : {};
+    file = String(data.file ?? data.url ?? '');
+    break;
+  }
+  if (!file) throw new Error('消息中不包含语音');
+
+  const cached = mediaStore.findRecord(file);
+  if (!cached) throw new Error('语音不在缓存中，无法转写');
+
+  const isGroup = event.message_type === 'group' || cached.isGroup;
+  const senderUin = Number(event.user_id) || 0;
+  // c2c: receiver is self (inbound voice); group: the group uin.
+  const peerUin = isGroup ? (Number(event.group_id) || cached.sessionId) : selfId;
+
+  // Register the waiter BEFORE triggering, so a fast async push can't race
+  // ahead of us. The trigger response may carry the text inline (already
+  // transcribed) — settle immediately then; otherwise the Event 0x210
+  // subType-61 push resolves the waiter via the event-pipeline subscription.
+  const key = pttTransKey(selfId, messageId);
+  const waiter = waitPttTransText(key, 20000);
+  try {
+    const syncText = await bridge.apis.extras.translatePttToText({
+      isGroup,
+      msgId: messageId,
+      senderUin,
+      peerUin,
+      uuid: cached.fileId || '',
+      md5Hex: cached.md5Hex ?? '',
+      duration: cached.duration ?? 0,
+      size: cached.fileSize ?? 0,
+      format: cached.voiceFormat ?? 0,
+    });
+    if (syncText) deliverPttTransText(key, syncText);
+  } catch (e) {
+    failPttTransWaiter(key, e instanceof Error ? e : new Error(String(e)));
+  }
+  return { text: await waiter };
+}
 
 export async function getImageInfo(
   mediaStore: MediaStore,

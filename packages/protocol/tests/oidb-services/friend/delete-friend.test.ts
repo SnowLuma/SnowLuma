@@ -5,6 +5,7 @@ import type { OidbDeleteFriend } from '@snowluma/proto-defs/oidb-actions/base';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 
 import { DeleteFriend } from '../../../src/oidb-services/friend/delete-friend';
+import { env, m, s, v } from '../_pb-oracle';
 
 function makeDeps() {
   const r: SendPacketResult = { success: true, gotResponse: true, errorCode: 0, errorMessage: '', responseData: Buffer.alloc(0) };
@@ -49,13 +50,33 @@ describe('DeleteFriend namespace', () => {
       });
     });
 
-    it('defaults block to false (no block flag)', async () => {
+    it('matches the current QQ wire for a non-blocking delete', async () => {
       const deps = makeDeps();
       await DeleteFriend.invoke(deps, { userId: 10001 });
-      const [, bytes] = deps.sendRawPacket.mock.calls[0]!;
-      const env = protobuf_decode<OidbBase<OidbDeleteFriend>>(bytes);
-      // proto3 false omitted on wire — decoded as null/undefined.
-      expect(env.body?.field1?.block ?? false).toBe(false);
+      const [wireName, bytes] = deps.sendRawPacket.mock.calls[0]!;
+      const discriminator = [
+        ...v(1, 130),
+        ...v(2, 109),
+        ...m(3, [
+          ...v(1, 8),
+          ...v(2, 8),
+          ...v(3, 50),
+        ]),
+      ];
+      const body = m(1, [
+        ...s(1, 'resolved-uid'),
+        ...m(2, discriminator),
+        // Current QQ explicitly emits both booleans.
+        ...v(3, 0),
+        ...v(4, 1),
+      ]);
+      expect({
+        wireName,
+        hex: Buffer.from(bytes).toString('hex'),
+      }).toEqual({
+        wireName: 'OidbSvcTrpcTcp.0x126b_0',
+        hex: env(0x126B, 0, body, false),
+      });
     });
   });
 });

@@ -1,13 +1,34 @@
 import type {
   AccountConnections,
+  BackupBundle,
+  BackupImportResult,
+  DebugActionDoc,
+  DebugInvokeResult,
+  DebugStreamFrame,
+  DebugStreamMessage,
+  DebugUploadResult,
+  GlobalSettings,
   HookProcessInfo,
   LogEntry,
   LogLevel,
+  NotificationDeliveryRecord,
+  NotificationsConfig,
   OneBotConfig,
   QQInfo,
   SystemInfo,
+  LogStorageSettingsPatch,
+  StorageCleanupRequest,
+  StorageCleanupResponse,
+  StorageOverviewResponse,
+  StorageSettingsUpdateResponse,
+  SystemSettings,
+  SystemSettingsPatch,
+  SystemSettingsResponse,
+  UiAppearance,
+  UiConfig,
+  UpdateInfo,
 } from '@/types';
-import type { PasswordRule } from '@/components/pages/change-password-page';
+import type { PasswordRule } from '@/components/pages/change-password-form';
 
 export class ApiError extends Error {
   status: number;
@@ -22,13 +43,74 @@ export class ApiError extends Error {
 
 export type LoginResult =
   | { ok: true; mustChangePassword: boolean }
+  | { ok: false; needsTotp: true }
   | { ok: false; message: string };
 
+export type TotpStatus =
+  | { enabled: false }
+  | { enabled: true; remainingRecoveryCodes: number; label: string };
+
+export type TotpEnrollment = {
+  secret: string;
+  otpauthUrl: string;
+  issuer: string;
+  accountName: string;
+};
+
+export type TotpBeginResult =
+  | { success: true } & TotpEnrollment
+  | { success: false; message: string };
+
+export type TotpConfirmResult =
+  | { success: true; recoveryCodes: string[] }
+  | { success: false; message: string };
+
 export type ChangePasswordResult = { success: boolean; message?: string };
+
+export interface AgreementDoc {
+  id: 'eula' | 'privacy';
+  title: string;
+  declaredVersion: string;
+  effectiveDate: string;
+  text: string;
+}
+
+export interface AgreementsPayload {
+  /** Content-hash version of the current agreement set. */
+  version: string;
+  /** Whether the operator must (re-)accept before using the panel. */
+  consentRequired: boolean;
+  documents: AgreementDoc[];
+}
+
+export type RecordConsentResult = {
+  success: boolean;
+  message?: string;
+  /** On a 409 version-mismatch, the server's current version to re-fetch. */
+  currentVersion?: string;
+};
 
 export type ProcessActionResult = {
   process?: HookProcessInfo & { error?: string };
 };
+
+export interface ConfigApplyError {
+  name: string;
+  kind?: 'httpServer' | 'httpClient' | 'wsServer' | 'wsClient';
+  phase: string;
+  message: string;
+  at: number;
+  restored?: boolean;
+}
+
+export interface ConfigSaveResult {
+  config: OneBotConfig;
+  saved: boolean;
+  applied: boolean;
+  online: boolean;
+  errors: ConfigApplyError[];
+  message: string;
+}
 
 export type StreamStatus = 'open' | 'reconnecting' | 'closed';
 
@@ -37,9 +119,23 @@ export interface LogsStreamOptions {
   onStatus?: (status: StreamStatus) => void;
 }
 
+/** A single frame from /api/state/stream — either a control frame or a
+ *  fresh snapshot for one of the three live dashboard resources. */
+export type StateStreamEvent =
+  | { kind: 'ready' }
+  | { kind: 'dropped'; count: number }
+  | { resource: 'processes'; data: HookProcessInfo[] }
+  | { resource: 'qq-list'; data: QQInfo[] }
+  | { resource: 'connections'; data: AccountConnections[] };
+
+export interface StateStreamOptions {
+  onEvent: (event: StateStreamEvent) => void;
+  onStatus?: (status: StreamStatus) => void;
+}
+
 export interface ApiClient {
   // ---- auth ----
-  login(password: string): Promise<LoginResult>;
+  login(password: string, secondFactor?: { totp?: string; recoveryCode?: string }): Promise<LoginResult>;
   logout(): Promise<void>;
   /** True if the current token is still valid. */
   status(): Promise<boolean>;
@@ -47,6 +143,21 @@ export interface ApiClient {
   mustChangePassword(): Promise<boolean>;
   checkPasswordStrength(password: string): Promise<{ rules: PasswordRule[]; valid: boolean }>;
   changePassword(oldPassword: string, newPassword: string): Promise<ChangePasswordResult>;
+  totp: {
+    status(): Promise<TotpStatus>;
+    begin(options?: { issuer?: string; accountName?: string }): Promise<TotpBeginResult>;
+    confirm(password: string, code: string): Promise<TotpConfirmResult>;
+    disable(password: string, secondFactor: { totp?: string; recoveryCode?: string }): Promise<{ success: boolean; message?: string }>;
+    regenerateRecoveryCodes(password: string, totp: string): Promise<TotpConfirmResult>;
+  };
+
+  // ---- EULA / PRIVACY consent (shown after login, before set-password) ----
+  agreements: {
+    /** Fetch agreement texts + current version + whether consent is required. */
+    get(): Promise<AgreementsPayload>;
+    /** Record acceptance of `version`. success:false (409) carries currentVersion. */
+    recordConsent(version: string): Promise<RecordConsentResult>;
+  };
 
   // ---- system ----
   qqList(): Promise<QQInfo[]>;
@@ -54,19 +165,110 @@ export interface ApiClient {
   /** Live OneBot adapter health per account. */
   connections(): Promise<AccountConnections[]>;
 
+  /** Subscribe to the unified SSE feed pushing fresh snapshots whenever
+   *  processes / qq-list / connections change. Initial frames on connect
+   *  give the current snapshot for all three resources. Returns a disposer.
+   *  REST endpoints above remain for the pre-SSE first paint and the slow
+   *  reconcile fallback if the SSE drops. */
+  stateStream(options: StateStreamOptions): () => void;
+
   // ---- hook processes ----
   processes: {
     list(): Promise<HookProcessInfo[]>;
     load(pid: number): Promise<ProcessActionResult>;
     unload(pid: number): Promise<ProcessActionResult>;
     refresh(pid: number): Promise<ProcessActionResult>;
-    probeLoginInfo(pid: number): Promise<unknown>;
+    probeLoginInfo(pid: number, signal?: AbortSignal): Promise<unknown>;
   };
 
   // ---- OneBotInstance per-UIN config ----
   config: {
     get(uin: string): Promise<OneBotConfig>;
-    save(uin: string, config: OneBotConfig): Promise<OneBotConfig>;
+    save(uin: string, config: OneBotConfig): Promise<ConfigSaveResult>;
+  };
+
+  // ---- WebUI listener self-config (port / host / TLS / trust-proxy) ----
+  systemSettings: {
+    get(): Promise<SystemSettingsResponse>;
+    save(patch: SystemSettingsPatch): Promise<{ settings: SystemSettings; restartRequiredToApply: boolean }>;
+    /** Validate + write config/cert.pem + key.pem (restart to apply). */
+    uploadCert(cert: string, key: string): Promise<void>;
+    deleteCert(): Promise<void>;
+    /** Download the config backup bundle (credentials gated). */
+    exportBackup(includeCredentials: boolean): Promise<BackupBundle>;
+    /** Validate + restore a bundle as one process-level transaction. */
+    importBackup(backup: BackupBundle, restoreCredentials: boolean): Promise<BackupImportResult>;
+  };
+
+  // ---- managed storage (logs / stream temp / per-account databases) ----
+  storage: {
+    get(): Promise<StorageOverviewResponse>;
+    saveSettings(patch: LogStorageSettingsPatch): Promise<StorageSettingsUpdateResponse>;
+    cleanup(request: StorageCleanupRequest): Promise<StorageCleanupResponse>;
+  };
+
+  // ---- debug tools (action tester + live event/action stream) ----
+  debug: {
+    actions(): Promise<{ actions: DebugActionDoc[]; categories: { category: string; count: number }[] }>;
+    invoke(uin: string, action: string, params: Record<string, unknown>): Promise<DebugInvokeResult>;
+    /** Invoke a Stream API action (or any action) and receive every frame.
+     *  Resolves when the stream ends; pass a signal to cancel. */
+    invokeStream(
+      uin: string,
+      action: string,
+      params: Record<string, unknown>,
+      onFrame: (frame: DebugStreamFrame) => void,
+      signal?: AbortSignal,
+    ): Promise<void>;
+    /** Stream a browser file to a temp path on the server; returns the path to
+     *  feed a send action. `onProgress` reports 0..1 of bytes uploaded. */
+    upload(
+      file: File,
+      opts?: { filename?: string; onProgress?: (fraction: number) => void; signal?: AbortSignal },
+    ): Promise<DebugUploadResult>;
+    /** Live merged SSE; returns an unsubscribe. */
+    stream(onMessage: (m: DebugStreamMessage) => void, onStatus?: (s: StreamStatus) => void): () => void;
+  };
+
+  // ---- notifications (account up/down webhooks) ----
+  notifications: {
+    /** Global channel store (channels + debounce). Bearer-gated. */
+    getConfig(): Promise<NotificationsConfig>;
+    /** Persist the global store (whole-config; server normalizes). */
+    saveConfig(config: Partial<NotificationsConfig>): Promise<NotificationsConfig>;
+    /** Recent in-memory delivery history, most-recent-first (≤100). */
+    recent(limit?: number): Promise<NotificationDeliveryRecord[]>;
+    /** Fire a one-off test to a single channel by id. */
+    test(channelId: string): Promise<{ success: boolean; message?: string; status?: number }>;
+  };
+
+  // ---- global deployment config (rkey fallback servers + musicSignUrl) ----
+  globalConfig: {
+    /** Fetch the all-accounts global settings (config/snowluma.json). Bearer-gated. */
+    get(): Promise<GlobalSettings>;
+    /** Persist global settings (section-merged + normalized server-side). */
+    save(config: Partial<GlobalSettings>): Promise<GlobalSettings>;
+  };
+
+  // ---- update check ----
+  update: {
+    /** Advisory check for a newer stable release. Read-only — never downloads. */
+    check(force?: boolean): Promise<UpdateInfo>;
+  };
+
+  // ---- WebUI customization (config/ui.json) ----
+  ui: {
+    /** Full config (appearance + layout). Bearer-gated. */
+    get(): Promise<UiConfig>;
+    /** Persist config. Section-level merge: a payload with only `appearance`
+     *  or only `layout` keeps the other section. Returns the normalized view. */
+    save(config: Partial<UiConfig>): Promise<UiConfig>;
+    /** Cosmetic appearance subset, usable pre-auth (login page theming). */
+    getPublic(): Promise<UiAppearance>;
+    /** Upload a background image (PNG/JPEG/WebP, ≤5MB). Returns updated config. */
+    uploadBackground(file: File): Promise<UiConfig>;
+    /** Remove the background image. Returns updated config. */
+    deleteBackground(): Promise<UiConfig>;
   };
 
   // ---- logs ----
@@ -74,7 +276,10 @@ export interface ApiClient {
     list(limit?: number): Promise<LogEntry[]>;
     /** Subscribe to the SSE log stream. Returns a disposer. */
     stream(options: LogsStreamOptions): () => void;
-    /** Current console / subscriber level. File output is always debug. */
+    /** Download the complete server-side snapshot of retained normal and TRACE records. */
+    exportTrace(): Promise<{ text: string; filename: string }>;
+    /** Current console / subscriber level. File logging level is set via
+     *  SNOWLUMA_LOG_FILE_LEVEL (default: debug), independent of this method. */
     getLevel(): Promise<{ level: LogLevel; levels: LogLevel[] }>;
     /** Change the console / subscriber level at runtime. No restart needed. */
     setLevel(level: LogLevel): Promise<{ level: LogLevel; levels: LogLevel[] }>;

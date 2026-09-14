@@ -2,21 +2,37 @@
 // copy of the adapter until the user clicks save (so cancel really does
 // throw away changes). Validation is minimal — blank-name and dup-name
 // disable the save button; everything else is best-effort coercion.
+//
+// Visual language: Apple-HIG grouped-list flavour (matches debug-page) —
+// captioned sections, soft rounded cards, settings rows with a label on the
+// left and a control (toggle / custom dropdown) on the right.
 
-import { useRef, useState } from 'react';
-import { Check, Copy, Eye, EyeOff } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { motion } from 'motion/react';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+  ArrowLeftRight,
+  ArrowUpRight,
+  Check,
+  Copy,
+  Eye,
+  EyeOff,
+  Radio,
+  RefreshCw,
+  Server,
+  type LucideIcon,
+} from 'lucide-react';
+import { Modal } from '@/components/interior/modal';
+import { Button } from '@/components/ui/button';
+import { DropdownSelect, type DropdownOption } from '@/components/ui/dropdown-select';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { cn } from '@/lib/utils';
+import {
+  accessTokenFeedback,
+  type AccessTokenFeedback,
+} from '@/lib/access-token-feedback';
+import { allowEmptyInboundAccessToken } from '@/lib/transport-security';
 import type {
   HttpClientNetwork,
   HttpServerNetwork,
@@ -27,9 +43,16 @@ import type {
   WsRole,
   WsServerNetwork,
 } from '@/types';
-import { NETWORK_TABS } from './defaults';
+import { generateAccessToken, NETWORK_TABS } from './defaults';
 
 type AnyAdapter<K extends NetworkKind> = OneBotNetworks[K][number];
+
+const KIND_ICON: Record<NetworkKind, LucideIcon> = {
+  httpServers: Server,
+  httpClients: ArrowUpRight,
+  wsServers: Radio,
+  wsClients: ArrowLeftRight,
+};
 
 interface NodeEditDialogProps<K extends NetworkKind> {
   open: boolean;
@@ -42,12 +65,15 @@ interface NodeEditDialogProps<K extends NetworkKind> {
   isEdit: boolean;
   /** Names of every other adapter in the same list, for duplicate check. */
   otherNames: string[];
+  /** Account context used when evaluating user-chosen access tokens. */
+  uin: string;
   onSubmit: (item: AnyAdapter<K>) => void;
 }
 
 export function NodeEditDialog<K extends NetworkKind>(props: NodeEditDialogProps<K>) {
-  const { open, onOpenChange, kind, initial, isEdit, otherNames, onSubmit } = props;
+  const { open, onOpenChange, kind, initial, isEdit, otherNames, uin, onSubmit } = props;
   const tab = NETWORK_TABS[kind];
+  const Icon: LucideIcon = KIND_ICON[kind];
 
   // Local draft. The parent unmounts this component on close so each
   // open gets a fresh `initial` via useState's lazy init — no effect-based
@@ -58,69 +84,49 @@ export function NodeEditDialog<K extends NetworkKind>(props: NodeEditDialogProps
   const blankName = trimmedName.length === 0;
   const duplicateName = !blankName && otherNames.includes(trimmedName);
 
-  const canSave = !blankName && !duplicateName;
+  const isInboundServer = kind === 'httpServers' || kind === 'wsServers';
+  const tokenChanged = (draft.accessToken ?? '') !== (initial.accessToken ?? '');
+  const enforceTokenPolicy = isInboundServer && (!isEdit || tokenChanged);
+  const inbound = isInboundServer ? draft as HttpServerNetwork | WsServerNetwork : null;
+  const allowEmptyToken = typeof window !== 'undefined'
+    && allowEmptyInboundAccessToken(window.location.hostname, inbound?.host);
+  const tokenFeedback = useMemo(
+    () => enforceTokenPolicy
+      ? accessTokenFeedback(
+        draft.accessToken ?? '',
+        [uin, draft.name ?? '', kind, inbound?.host ?? '', inbound?.port ?? 0],
+        allowEmptyToken,
+      )
+      : undefined,
+    [allowEmptyToken, draft.accessToken, draft.name, enforceTokenPolicy, inbound?.host, inbound?.port, kind, uin],
+  );
+
+  const canSave = !blankName && !duplicateName && (tokenFeedback?.valid ?? true);
 
   const patch = (changes: Partial<AnyAdapter<K>>) => setDraft({ ...draft, ...changes } as AnyAdapter<K>);
 
+  const isWs = kind === 'wsServers' || kind === 'wsClients';
+  const isHttpServer = kind === 'httpServers';
+  const role = ((draft as WsServerNetwork | WsClientNetwork).role ?? 'Universal') as WsRole;
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
-        <DialogHeader>
-          <DialogTitle>{isEdit ? `编辑 ${tab.noun}` : `新建 ${tab.noun}`}</DialogTitle>
-          <DialogDescription>{tab.description}</DialogDescription>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-3">
-          <Field
-            label="名称"
-            placeholder="自定义"
-            value={draft.name}
-            onChange={(v) => patch({ name: v } as Partial<AnyAdapter<K>>)}
-            error={blankName ? '请填写名称' : duplicateName ? '名称与其它节点重复' : undefined}
-          />
-
-          <KindFields kind={kind} draft={draft} patch={patch} />
-
-          <TokenField
-            label="授权 Token"
-            placeholder="不填则无密码"
-            value={draft.accessToken}
-            onChange={(v) => patch({ accessToken: v || undefined } as Partial<AnyAdapter<K>>)}
-          />
-
-          <div className="grid gap-3 border-t pt-3 sm:grid-cols-2">
-            <SegmentedField
-              label="消息格式"
-              value={(draft.messageFormat ?? 'array') as MessageFormat}
-              options={FORMAT_OPTIONS}
-              onChange={(v) => patch({ messageFormat: v } as Partial<AnyAdapter<K>>)}
-            />
-            <SegmentedField
-              label="上报自身消息"
-              value={draft.reportSelfMessage ? 'on' : 'off'}
-              options={REPORT_OPTIONS}
-              onChange={(v) => patch({ reportSelfMessage: v === 'on' } as Partial<AnyAdapter<K>>)}
-            />
-          </div>
-
-          <div className="flex items-center justify-between rounded-lg border bg-card/40 p-3">
-            <div>
-              <Label className="text-sm">启用</Label>
-              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                关闭后保存即可保留配置但不启动该节点
-              </p>
-            </div>
-            <ToggleSwitch
-              value={draft.enabled !== false}
-              onChange={(v) =>
-                patch({ enabled: v ? undefined : false } as Partial<AnyAdapter<K>>)
-              }
-              ariaLabel="启用"
-            />
-          </div>
-        </div>
-
-        <DialogFooter>
+    <Modal
+      open={open}
+      onClose={() => onOpenChange(false)}
+      title={(
+        <span className="inline-flex items-center gap-2">
+          <span className="grid size-8 place-items-center rounded-[10px] bg-primary/10 text-primary">
+            <Icon className="size-4" />
+          </span>
+          {isEdit ? `编辑 ${tab.noun}` : `新建 ${tab.noun}`}
+        </span>
+      )}
+      description={tab.description}
+      closeLabel="关闭节点编辑弹窗"
+      maxWidth={576}
+      maxHeight="calc(100dvh - 2rem)"
+      footer={(
+        <>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             取消
           </Button>
@@ -134,9 +140,130 @@ export function NodeEditDialog<K extends NetworkKind>(props: NodeEditDialogProps
           >
             {isEdit ? '保存修改' : '创建节点'}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </>
+      )}
+    >
+      <div className="flex flex-col gap-5">
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0 }}
+          className="flex items-center justify-between gap-4 rounded-2xl border border-border/60 bg-card/60 px-4 py-3.5 shadow-[0_1px_2px_rgb(0_0_0/0.04)]"
+        >
+          <div className="min-w-0">
+            <Label className="text-sm font-medium text-foreground">启用</Label>
+            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                  关闭后保存即可保留配置但不启动该节点
+            </p>
+          </div>
+          <ToggleSwitch
+            value={draft.enabled !== false}
+            onChange={(v) => patch({ enabled: v ? undefined : false } as Partial<AnyAdapter<K>>)}
+            ariaLabel="启用"
+          />
+        </motion.div>
+
+        <Section caption="连接" delay={0.05}>
+          <div className="flex flex-col gap-3 p-4">
+            <Field
+              label="名称"
+              placeholder="自定义"
+              value={draft.name}
+              onChange={(v) => patch({ name: v } as Partial<AnyAdapter<K>>)}
+              error={blankName ? '请填写名称' : duplicateName ? '名称与其它节点重复' : undefined}
+            />
+            <KindFields kind={kind} draft={draft} patch={patch} />
+          </div>
+        </Section>
+
+        <Section caption="鉴权" delay={0.1}>
+          <div className="p-4">
+            <TokenField
+              label="授权 Token"
+              placeholder={isInboundServer ? '留空则关闭鉴权（监听本机或从本机打开页面时可保存）' : '按对端要求填写'}
+              value={draft.accessToken}
+              onChange={(v) => patch({ accessToken: v || undefined } as Partial<AnyAdapter<K>>)}
+              onGenerate={() => patch({ accessToken: generateAccessToken() } as Partial<AnyAdapter<K>>)}
+              feedback={tokenFeedback}
+            />
+          </div>
+        </Section>
+
+        <Section caption="行为" delay={0.15}>
+          <div className="divide-y divide-border/60">
+            {isHttpServer && (
+              <SettingRow label="启用 WebSocket" desc="复用当前 HTTP 端口和授权 Token 接收 WebSocket 连接">
+                <ToggleSwitch
+                  value={(draft as HttpServerNetwork).enableWebSocket === true}
+                  onChange={(v) => patch({ enableWebSocket: v } as unknown as Partial<AnyAdapter<K>>)}
+                  ariaLabel="启用 WebSocket"
+                />
+              </SettingRow>
+            )}
+
+            <SettingRow label="消息格式" desc="数组为标准 OneBot 段，CQ 码为兼容字符串">
+              <DropdownSelect
+                className="w-32"
+                ariaLabel="消息格式"
+                value={(draft.messageFormat ?? 'array') as MessageFormat}
+                options={FORMAT_OPTIONS}
+                onChange={(v) => patch({ messageFormat: v } as Partial<AnyAdapter<K>>)}
+              />
+            </SettingRow>
+
+            {isWs && (
+              <SettingRow label="角色" desc="Universal 收发合一，Event / Api 分离">
+                <DropdownSelect
+                  className="w-32"
+                  ariaLabel="角色"
+                  value={role}
+                  options={WS_ROLE_OPTIONS}
+                  onChange={(v) => patch({ role: v } as unknown as Partial<AnyAdapter<K>>)}
+                />
+              </SettingRow>
+            )}
+
+            <SettingRow label="上报自身消息" desc="将机器人自己发送的消息也作为 message_sent 事件上报">
+              <ToggleSwitch
+                value={!!draft.reportSelfMessage}
+                onChange={(v) => patch({ reportSelfMessage: v } as Partial<AnyAdapter<K>>)}
+                ariaLabel="上报自身消息"
+              />
+            </SettingRow>
+          </div>
+        </Section>
+      </div>
+    </Modal>
+  );
+}
+
+// ─────────────── grouped-list scaffolding ───────────────
+
+/** Captioned inset section — the iOS "grouped list" unit. */
+function Section({ caption, delay, children }: { caption: string; delay: number; children: ReactNode }) {
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay }}
+      className="flex flex-col gap-1.5"
+    >
+      <span className="px-1 text-xs font-medium text-muted-foreground">{caption}</span>
+      <div className="overflow-hidden rounded-2xl border border-border/60 bg-card/40">{children}</div>
+    </motion.section>
+  );
+}
+
+/** Settings row — label (+ optional subtitle) on the left, control on the right. */
+function SettingRow({ label, desc, children }: { label: string; desc?: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4 px-4 py-3">
+      <div className="min-w-0">
+        <Label className="text-[13px] text-foreground">{label}</Label>
+        {desc && <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{desc}</p>}
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
   );
 }
 
@@ -150,7 +277,8 @@ interface KindFieldsProps<K extends NetworkKind> {
 
 function KindFields<K extends NetworkKind>({ kind, draft, patch }: KindFieldsProps<K>) {
   // Per-branch narrowing — TS can't follow the generic relationship so
-  // each arm casts once. Field components receive specific shapes.
+  // each arm casts once. Field components receive specific shapes. The WS
+  // `role` lives in the behaviour section, so it is intentionally absent here.
   if (kind === 'httpServers') {
     const it = draft as HttpServerNetwork;
     const set = patch as (c: Partial<HttpServerNetwork>) => void;
@@ -158,7 +286,7 @@ function KindFields<K extends NetworkKind>({ kind, draft, patch }: KindFieldsPro
       <div className="grid gap-3 sm:grid-cols-[1fr_120px_140px]">
         <Field
           label="主机"
-          placeholder="0.0.0.0"
+          placeholder="127.0.0.1"
           value={it.host}
           onChange={(v) => set({ host: v || undefined })}
         />
@@ -203,41 +331,33 @@ function KindFields<K extends NetworkKind>({ kind, draft, patch }: KindFieldsPro
     const it = draft as WsServerNetwork;
     const set = patch as (c: Partial<WsServerNetwork>) => void;
     return (
-      <>
-        <div className="grid gap-3 sm:grid-cols-[1fr_120px_140px]">
-          <Field
-            label="主机"
-            placeholder="0.0.0.0"
-            value={it.host}
-            onChange={(v) => set({ host: v || undefined })}
-          />
-          <Field
-            label="端口"
-            type="number"
-            value={it.port}
-            onChange={(v) => set({ port: Number(v) || 0 })}
-          />
-          <Field
-            label="路径"
-            placeholder="/"
-            value={it.path}
-            onChange={(v) => set({ path: v || undefined })}
-          />
-        </div>
-        <SelectField
-          label="角色"
-          value={(it.role ?? 'Universal') as WsRole}
-          options={WS_ROLE_OPTIONS}
-          onChange={(v) => set({ role: v })}
+      <div className="grid gap-3 sm:grid-cols-[1fr_120px_140px]">
+        <Field
+          label="主机"
+          placeholder="127.0.0.1"
+          value={it.host}
+          onChange={(v) => set({ host: v || undefined })}
         />
-      </>
+        <Field
+          label="端口"
+          type="number"
+          value={it.port}
+          onChange={(v) => set({ port: Number(v) || 0 })}
+        />
+        <Field
+          label="路径"
+          placeholder="/"
+          value={it.path}
+          onChange={(v) => set({ path: v || undefined })}
+        />
+      </div>
     );
   }
   if (kind === 'wsClients') {
     const it = draft as WsClientNetwork;
     const set = patch as (c: Partial<WsClientNetwork>) => void;
     return (
-      <>
+      <div className="grid gap-3 sm:grid-cols-[1fr_160px]">
         <Field
           label="目标 URL"
           type="url"
@@ -245,21 +365,13 @@ function KindFields<K extends NetworkKind>({ kind, draft, patch }: KindFieldsPro
           value={it.url}
           onChange={(v) => set({ url: v })}
         />
-        <div className="grid gap-3 sm:grid-cols-2">
-          <SelectField
-            label="角色"
-            value={(it.role ?? 'Universal') as WsRole}
-            options={WS_ROLE_OPTIONS}
-            onChange={(v) => set({ role: v })}
-          />
-          <Field
-            label="重连间隔 (ms)"
-            type="number"
-            value={it.reconnectIntervalMs}
-            onChange={(v) => set({ reconnectIntervalMs: Number(v) || undefined })}
-          />
-        </div>
-      </>
+        <Field
+          label="重连间隔 (ms)"
+          type="number"
+          value={it.reconnectIntervalMs}
+          onChange={(v) => set({ reconnectIntervalMs: Number(v) || undefined })}
+        />
+      </div>
     );
   }
   return null;
@@ -287,7 +399,7 @@ function Field({ label, value, onChange, placeholder, type = 'text', error }: Fi
         placeholder={placeholder}
         className={cn(error && 'border-destructive focus-visible:ring-destructive/40')}
       />
-      {error && <p className="text-[11px] text-destructive">{error}</p>}
+      {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );
 }
@@ -296,7 +408,9 @@ interface TokenFieldProps {
   label: string;
   value: string | undefined;
   onChange: (v: string) => void;
+  onGenerate: () => void;
   placeholder?: string;
+  feedback?: AccessTokenFeedback;
 }
 
 /** Insecure-context clipboard fallback. Returns true on success.
@@ -326,10 +440,11 @@ function legacyCopyToClipboard(value: string): boolean {
  * unmasks it and a copy button shoves the current value to the system
  * clipboard with a short "已复制" confirmation flash.
  */
-function TokenField({ label, value, onChange, placeholder }: TokenFieldProps) {
+function TokenField({ label, value, onChange, onGenerate, placeholder, feedback }: TokenFieldProps) {
   const [visible, setVisible] = useState(false);
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef<number | null>(null);
+  const feedbackId = useId();
 
   const handleCopy = async () => {
     if (!value) return;
@@ -364,8 +479,20 @@ function TokenField({ label, value, onChange, placeholder }: TokenFieldProps) {
           placeholder={placeholder}
           autoComplete="off"
           spellCheck={false}
+          aria-invalid={feedback?.tone === 'error' || undefined}
+          aria-describedby={feedback ? feedbackId : undefined}
           className="flex-1 font-mono"
         />
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          onClick={onGenerate}
+          aria-label="生成新的随机令牌"
+          title="生成新的随机令牌"
+        >
+          <RefreshCw className="size-4" />
+        </Button>
         <Button
           type="button"
           variant="outline"
@@ -388,120 +515,32 @@ function TokenField({ label, value, onChange, placeholder }: TokenFieldProps) {
           {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
         </Button>
       </div>
-    </div>
-  );
-}
-
-interface SegmentedOption<T extends string> {
-  value: T;
-  label: string;
-}
-
-function SegmentedField<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: T;
-  options: ReadonlyArray<SegmentedOption<T>>;
-  onChange: (v: T) => void;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <Label>{label}</Label>
-      <div className="flex flex-wrap gap-1 rounded-md border bg-muted/30 p-1">
-        {options.map((opt) => {
-          const active = value === opt.value;
-          return (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => onChange(opt.value)}
-              className={cn(
-                'flex-1 rounded px-2.5 py-1 text-xs transition-colors cursor-pointer',
-                active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent/50',
-              )}
-            >
-              {opt.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function SelectField<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: T;
-  options: ReadonlyArray<SegmentedOption<T>>;
-  onChange: (v: T) => void;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <Label>{label}</Label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value as T)}
-        className="h-9 rounded-md border bg-background px-2 text-sm shadow-xs"
-      >
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-interface ToggleSwitchProps {
-  value: boolean;
-  onChange: (v: boolean) => void;
-  ariaLabel: string;
-}
-
-function ToggleSwitch({ value, onChange, ariaLabel }: ToggleSwitchProps) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={value ? 'true' : 'false'}
-      aria-label={ariaLabel}
-      onClick={() => onChange(!value)}
-      className={cn(
-        'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border transition-colors',
-        value ? 'border-primary bg-primary' : 'border-input bg-muted',
+      {feedback && (
+        <p
+          id={feedbackId}
+          aria-live="polite"
+          className={cn(
+            'text-xs',
+            feedback.tone === 'error'
+              ? 'text-destructive'
+              : feedback.tone === 'warning'
+                ? 'text-warning'
+                : 'text-success',
+          )}
+        >
+          {feedback.message}
+        </p>
       )}
-    >
-      <span
-        className={cn(
-          'inline-block size-4 rounded-full bg-background shadow-sm transition-transform',
-          value ? 'translate-x-[22px]' : 'translate-x-1',
-        )}
-      />
-    </button>
+    </div>
   );
 }
 
-const FORMAT_OPTIONS: ReadonlyArray<SegmentedOption<MessageFormat>> = [
+const FORMAT_OPTIONS: ReadonlyArray<DropdownOption<MessageFormat>> = [
   { value: 'array', label: '数组' },
   { value: 'string', label: 'CQ 码' },
 ];
 
-const REPORT_OPTIONS: ReadonlyArray<SegmentedOption<'on' | 'off'>> = [
-  { value: 'on', label: '开启' },
-  { value: 'off', label: '关闭' },
-];
-
-const WS_ROLE_OPTIONS: ReadonlyArray<SegmentedOption<WsRole>> = [
+const WS_ROLE_OPTIONS: ReadonlyArray<DropdownOption<WsRole>> = [
   { value: 'Universal', label: 'Universal' },
   { value: 'Event', label: 'Event' },
   { value: 'Api', label: 'Api' },

@@ -17,21 +17,21 @@ function makeDeps(body?: OidbGroupFileCountViewResp) {
 }
 
 describe('GetGroupFileCount namespace', () => {
-  it('declares 0x6D8_3', () => {
+  it('declares 0x6D8_2 (Count subcommand)', () => {
     expect(GetGroupFileCount.command).toBe(0x6D8);
-    expect(GetGroupFileCount.subCommand).toBe(3);
+    expect(GetGroupFileCount.subCommand).toBe(2);
   });
 
-  it('routes to 0x6d8_3 with groupUin + appId=7 + busId=0', async () => {
+  it('routes to 0x6d8_2 with groupUin + appId=7 + busId=6 (#196)', async () => {
     const deps = makeDeps({ count: { fileCount: 1, maxCount: 100 } });
     await GetGroupFileCount.invoke(deps, { groupId: 12345 });
     const [wire, bytes] = deps.sendRawPacket.mock.calls[0]!;
-    expect(wire).toBe('OidbSvcTrpcTcp.0x6d8_3');
+    expect(wire).toBe('OidbSvcTrpcTcp.0x6d8_2');
     const env = protobuf_decode<OidbBase<OidbGroupFileCountViewReq>>(bytes);
-    expect(env.body?.count).toMatchObject({ groupUin: 12345, appId: 7 });
+    expect(env.body?.count).toMatchObject({ groupUin: 12345, appId: 7, busId: 6 });
   });
 
-  it('decodes both counters as plain numbers', async () => {
+  it('decodes fileCount (field 4) + maxCount (field 6) as plain numbers', async () => {
     const deps = makeDeps({ count: { fileCount: 42, maxCount: 1000 } });
     const out = await GetGroupFileCount.invoke(deps, { groupId: 1 });
     expect(out).toEqual({ fileCount: 42, maxCount: 1000 });

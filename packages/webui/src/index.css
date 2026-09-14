@@ -37,6 +37,16 @@
   --success: oklch(70% 0.15 160);
   --warning: oklch(78% 0.16 80);
 
+  /* Log-level TEXT colors. The accent tokens above are tuned as fills (white
+     text on them passes AA); as small text on the light canvas they fail WCAG
+     AA (info 2.6:1, success 2.4:1, warn 2.0:1, error 4.3:1). These darker
+     variants restore >=4.5:1 for the log viewer without darkening the app-wide
+     accent. Dark theme keeps the bright values (they already pass on dark). */
+  --log-info: oklch(50% 0.155 230);
+  --log-success: oklch(50% 0.15 160);
+  --log-warn: oklch(52% 0.16 80);
+  --log-error: oklch(55% 0.22 27);
+
   --border: oklch(92% 0.01 240);
   --input: oklch(94% 0.012 240);
   --ring: oklch(68.5% 0.155 230);
@@ -49,6 +59,14 @@
   --sidebar-accent-foreground: oklch(35% 0.08 230);
   --sidebar-border: oklch(92% 0.01 240);
   --sidebar-ring: oklch(68.5% 0.155 230);
+  --media-outline: oklch(0% 0 0 / 0.1);
+
+  /* Cards need depth without turning every surface into a hard outlined box.
+     The short shadow separates the edge; the long, faint shadow establishes
+     elevation without looking like a floating modal. */
+  --shadow-card:
+    0 1px 2px oklch(20% 0.03 250 / 0.05),
+    0 12px 32px -22px oklch(20% 0.03 250 / 0.28);
 }
 
 .dark {
@@ -79,6 +97,13 @@
   --success: oklch(72% 0.15 160);
   --warning: oklch(80% 0.16 80);
 
+  /* On the dark canvas the bright accents already clear AA as text, so the
+     log-level text tokens mirror them (see the :root note above). */
+  --log-info: oklch(75% 0.14 230);
+  --log-success: oklch(72% 0.15 160);
+  --log-warn: oklch(80% 0.16 80);
+  --log-error: oklch(62% 0.2 27);
+
   --border: oklch(28% 0.02 250);
   --input: oklch(26% 0.02 250);
   --ring: oklch(75% 0.14 230);
@@ -91,6 +116,12 @@
   --sidebar-accent-foreground: oklch(85% 0.1 230);
   --sidebar-border: oklch(26% 0.02 250);
   --sidebar-ring: oklch(75% 0.14 230);
+  --media-outline: oklch(100% 0 0 / 0.12);
+
+  --shadow-card:
+    0 1px 2px oklch(0% 0 0 / 0.36),
+    0 16px 38px -24px oklch(0% 0 0 / 0.72),
+    inset 0 1px oklch(100% 0 0 / 0.025);
 }
 
 @theme inline {
@@ -112,6 +143,10 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-success: var(--success);
   --color-warning: var(--warning);
+  --color-log-info: var(--log-info);
+  --color-log-success: var(--log-success);
+  --color-log-warn: var(--log-warn);
+  --color-log-error: var(--log-error);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -129,8 +164,15 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 
-  --font-sans: 'Inter', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+
+  /* Dense metadata is the only content allowed below Tailwind's 12px text-xs
+     floor. Named tokens make that exception explicit at each call site. */
+  --text-meta: 0.6875rem;
+  --text-meta--line-height: 1rem;
+  --text-micro: 0.625rem;
+  --text-micro--line-height: 0.875rem;
 }
 
 @layer base {
@@ -145,6 +187,7 @@
     background-color: var(--background);
     color: var(--foreground);
     font-family: var(--font-sans);
+    font-synthesis: none;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     line-height: 1.5;
@@ -153,12 +196,942 @@
     background-color: color-mix(in oklab, var(--primary) 28%, transparent);
     color: var(--foreground);
   }
-  /* Density: compact tightens the global rhythm a touch. */
+  /* Density: compact tightens the global rhythm a touch. Use rem (not px) so
+     it still tracks the UI-scale root font-size. */
   html[data-density="compact"] body {
-    font-size: 13.5px;
+    font-size: 0.84rem;
     line-height: 1.45;
   }
   html[data-density="compact"] {
     --tw-leading: 1.4;
   }
+}
+
+@layer components {
+  /* Shared media keyline: an inset outline remains visible on both pale and
+     dark images without changing layout or shrinking the image content. */
+  .media-outline {
+    outline: 1px solid var(--media-outline);
+    outline-offset: -1px;
+  }
+
+  .ui-card {
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Skeleton Swap reserves a fixed box by default. Data panels that can grow
+     after the swap keep the original timing/motion but release that box once
+     real content is present, so the component never becomes an inner scroller. */
+  .skeleton-swap-fluid {
+    height: auto !important;
+    overflow-y: visible !important;
+  }
+
+  .skeleton-swap-fill {
+    height: 100% !important;
+    overflow-y: visible !important;
+  }
+
+  /* Triangles and forward-pointing glyphs carry more visual mass on the left.
+     A one-pixel optical correction centers them without changing hit areas. */
+  .optical-forward {
+    position: relative;
+    left: 1px;
+  }
+
+  .optical-back {
+    position: relative;
+    right: 1px;
+  }
+}
+
+/* ──────────────────────────────────────────────
+   Adaptive cursor system
+
+   CSS is the single source of truth for cursor semantics. The React layer
+   only reads --snowluma-cursor-mode, follows the pointer, and supplies the
+   hovered target's bounds. Coarse pointers and reduced-motion environments
+   never receive data-cursor-system="custom", so native cursors remain intact.
+   ────────────────────────────────────────────── */
+@media (hover: hover) and (pointer: fine) {
+  html {
+    --snowluma-cursor-mode: default;
+  }
+
+  /* Native textarea resize handles are pseudo-elements, so the tracker reads
+     this CSS-owned regional mode only inside the bottom-right 18px hot zone. */
+  .resize-y { --snowluma-cursor-resize-mode: ns-resize; }
+  .resize-x { --snowluma-cursor-resize-mode: ew-resize; }
+  .resize { --snowluma-cursor-resize-mode: nwse-resize; }
+  .resize-none { --snowluma-cursor-resize-mode: initial; }
+
+  /* Clickable targets morph the dot into the complete hit surface. */
+  :where(
+    button,
+    a[href],
+    summary,
+    select,
+    label[for],
+    input[type="button"],
+    input[type="submit"],
+    input[type="reset"],
+    input[type="checkbox"],
+    input[type="radio"],
+    input[type="file"],
+    input[type="image"],
+    [role="button"],
+    [role="link"],
+    [role="tab"],
+    [role="checkbox"],
+    [role="radio"],
+    [role="switch"],
+    [role="menuitem"],
+    [role="option"],
+    [data-cursor-target],
+    .cursor-pointer
+  ) {
+    --snowluma-cursor-mode: target;
+  }
+
+  /* Text entry and selectable/editor surfaces use a narrow I-beam capsule. */
+  :where(
+    input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="image"]):not([type="hidden"]),
+    textarea,
+    [contenteditable]:not([contenteditable="false"]),
+    pre,
+    code,
+    .font-mono,
+    .select-text,
+    .cursor-text
+  ) {
+    --snowluma-cursor-mode: text;
+  }
+
+  :where(input[type="color"], .cursor-crosshair, .cursor-cell) {
+    --snowluma-cursor-mode: crosshair;
+  }
+
+  :where(input[type="range"], [draggable="true"], .slider-root, .cursor-grab) {
+    --snowluma-cursor-mode: grab;
+  }
+  :where(input[type="range"], [draggable="true"], .slider-root, .cursor-grab):active,
+  :where([aria-grabbed="true"], .cursor-grabbing, .ui-draggable-dragging) {
+    --snowluma-cursor-mode: grabbing;
+  }
+
+  :where(.cursor-move, .cursor-all-scroll) {
+    --snowluma-cursor-mode: move;
+  }
+  :where(.cursor-ew-resize, .cursor-col-resize, .ui-resizable-e, .ui-resizable-w) {
+    --snowluma-cursor-mode: ew-resize;
+  }
+  :where(.cursor-ns-resize, .cursor-row-resize, .ui-resizable-n, .ui-resizable-s) {
+    --snowluma-cursor-mode: ns-resize;
+  }
+  :where(.cursor-nwse-resize, .cursor-nw-resize, .cursor-se-resize, .ui-resizable-nw, .ui-resizable-se) {
+    --snowluma-cursor-mode: nwse-resize;
+  }
+  :where(.cursor-nesw-resize, .cursor-ne-resize, .cursor-sw-resize, .ui-resizable-ne, .ui-resizable-sw) {
+    --snowluma-cursor-mode: nesw-resize;
+  }
+
+  :where([aria-busy="true"], .cursor-wait, .cursor-progress) {
+    --snowluma-cursor-mode: wait;
+  }
+  :where(.cursor-copy) { --snowluma-cursor-mode: copy; }
+  :where(.cursor-zoom-in) { --snowluma-cursor-mode: zoom-in; }
+  :where(.cursor-zoom-out) { --snowluma-cursor-mode: zoom-out; }
+  :where(.cursor-help) { --snowluma-cursor-mode: help; }
+  :where(:disabled, [aria-disabled="true"], .cursor-not-allowed, .cursor-no-drop) {
+    --snowluma-cursor-mode: not-allowed;
+  }
+
+  /* Explicit data attributes are the escape hatch for third-party widgets. */
+  [data-cursor="default"] { --snowluma-cursor-mode: default; }
+  [data-cursor="target"] { --snowluma-cursor-mode: target; }
+  [data-cursor="text"] { --snowluma-cursor-mode: text; }
+  [data-cursor="grab"] { --snowluma-cursor-mode: grab; }
+  [data-cursor="grabbing"] { --snowluma-cursor-mode: grabbing; }
+  [data-cursor="move"] { --snowluma-cursor-mode: move; }
+  [data-cursor="ew-resize"] { --snowluma-cursor-mode: ew-resize; }
+  [data-cursor="ns-resize"] { --snowluma-cursor-mode: ns-resize; }
+  [data-cursor="nwse-resize"] { --snowluma-cursor-mode: nwse-resize; }
+  [data-cursor="nesw-resize"] { --snowluma-cursor-mode: nesw-resize; }
+  [data-cursor="not-allowed"] { --snowluma-cursor-mode: not-allowed; }
+  [data-cursor="wait"] { --snowluma-cursor-mode: wait; }
+  [data-cursor="crosshair"] { --snowluma-cursor-mode: crosshair; }
+  [data-cursor="copy"] { --snowluma-cursor-mode: copy; }
+  [data-cursor="zoom-in"] { --snowluma-cursor-mode: zoom-in; }
+  [data-cursor="zoom-out"] { --snowluma-cursor-mode: zoom-out; }
+  [data-cursor="help"] { --snowluma-cursor-mode: help; }
+  [data-cursor="hidden"] { --snowluma-cursor-mode: hidden; }
+
+  /* Applied only after the tracker mounts, so a JavaScript failure can never
+     strand the application without a usable native pointer. */
+  html[data-cursor-system="custom"],
+  html[data-cursor-system="custom"] body,
+  html[data-cursor-system="custom"] *,
+  html[data-cursor-system="custom"] *::before,
+  html[data-cursor-system="custom"] *::after {
+    cursor: none !important;
+  }
+}
+
+.adaptive-cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2147483647;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform, opacity;
+  transition-property: opacity;
+  transition-duration: 120ms;
+  transition-timing-function: ease-out;
+}
+
+html[data-cursor-system="custom"] .adaptive-cursor[data-visible="true"] {
+  opacity: 1;
+}
+
+.adaptive-cursor-shape {
+  --cursor-width: 1.125rem;
+  --cursor-height: 1.125rem;
+  --cursor-radius: 9999px;
+  --cursor-scale: 1;
+  --cursor-fill: color-mix(in oklab, var(--primary) 82%, var(--foreground));
+  --cursor-stroke: color-mix(in oklab, var(--primary) 34%, transparent);
+
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: var(--cursor-width);
+  height: var(--cursor-height);
+  border: 1px solid var(--cursor-stroke);
+  border-radius: var(--cursor-radius);
+  background: var(--cursor-fill);
+  box-shadow:
+    0 1px 3px oklch(0% 0 0 / 0.16),
+    0 0 0 3px color-mix(in oklab, var(--background) 34%, transparent);
+  opacity: 1;
+  translate: -50% -50%;
+  scale: var(--cursor-scale);
+  transition-property: width, height, border-radius, background-color, border-color, box-shadow, opacity, scale;
+  transition-duration: 180ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.adaptive-cursor-shape::before,
+.adaptive-cursor-shape::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  opacity: 0;
+  pointer-events: none;
+  transition-property: opacity, transform;
+  transition-duration: 140ms;
+  transition-timing-function: ease-out;
+}
+
+.adaptive-cursor[data-pressed="true"] .adaptive-cursor-shape {
+  --cursor-scale: 0.8;
+}
+
+/* Mikk-style target morph: bounds and radius come from the hovered element. */
+.adaptive-cursor[data-mode="target"] .adaptive-cursor-shape {
+  --cursor-width: var(--cursor-target-width, 1.125rem);
+  --cursor-height: var(--cursor-target-height, 1.125rem);
+  --cursor-radius: var(--cursor-target-radius, var(--radius));
+  --cursor-fill: color-mix(in oklab, var(--primary) 14%, transparent);
+  --cursor-stroke: color-mix(in oklab, var(--primary) 28%, transparent);
+  box-shadow:
+    0 4px 18px -10px color-mix(in oklab, var(--primary) 56%, transparent),
+    inset 0 1px color-mix(in oklab, var(--primary-foreground) 16%, transparent);
+}
+.adaptive-cursor[data-mode="target"][data-pressed="true"] .adaptive-cursor-shape {
+  --cursor-scale: 0.96;
+  --cursor-fill: color-mix(in oklab, var(--primary) 23%, transparent);
+}
+
+/* Narrow but visibly substantial text caret capsule. */
+.adaptive-cursor[data-mode="text"] .adaptive-cursor-shape {
+  --cursor-width: 0.25rem;
+  --cursor-height: 1.75rem;
+  --cursor-fill: color-mix(in oklab, var(--primary) 84%, var(--foreground));
+  --cursor-stroke: color-mix(in oklab, var(--background) 48%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--background) 52%, transparent),
+    0 2px 8px color-mix(in oklab, var(--primary) 46%, transparent);
+}
+
+/* Grab / grabbing: a compact four-dot grip compresses under load. */
+.adaptive-cursor[data-mode="grab"] .adaptive-cursor-shape,
+.adaptive-cursor[data-mode="grabbing"] .adaptive-cursor-shape {
+  --cursor-width: 1.5rem;
+  --cursor-height: 1.5rem;
+  --cursor-fill: color-mix(in oklab, var(--primary) 16%, var(--background));
+  --cursor-stroke: color-mix(in oklab, var(--primary) 52%, transparent);
+}
+.adaptive-cursor[data-mode="grabbing"] .adaptive-cursor-shape {
+  --cursor-width: 1.2rem;
+  --cursor-height: 1.2rem;
+  --cursor-fill: color-mix(in oklab, var(--primary) 28%, var(--background));
+}
+.adaptive-cursor[data-mode="grab"] .adaptive-cursor-shape::before,
+.adaptive-cursor[data-mode="grabbing"] .adaptive-cursor-shape::before {
+  width: 0.1875rem;
+  height: 0.1875rem;
+  border-radius: 9999px;
+  background: var(--primary);
+  box-shadow: 0.375rem 0 var(--primary), 0 0.375rem var(--primary), 0.375rem 0.375rem var(--primary);
+  opacity: 0.88;
+  transform: translate(-0.28125rem, -0.28125rem);
+}
+.adaptive-cursor[data-mode="grabbing"] .adaptive-cursor-shape::before {
+  box-shadow: 0.3rem 0 var(--primary), 0 0.3rem var(--primary), 0.3rem 0.3rem var(--primary);
+  transform: translate(-0.24375rem, -0.24375rem);
+}
+
+/* Move and all resize directions share one CSS arrow glyph. */
+.adaptive-cursor[data-mode="move"] .adaptive-cursor-shape,
+.adaptive-cursor[data-mode$="resize"] .adaptive-cursor-shape {
+  --cursor-width: 1.625rem;
+  --cursor-height: 0.875rem;
+  --cursor-fill: color-mix(in oklab, var(--primary) 15%, var(--background));
+  --cursor-stroke: color-mix(in oklab, var(--primary) 48%, transparent);
+}
+.adaptive-cursor[data-mode="move"] .adaptive-cursor-shape {
+  --cursor-width: 1.625rem;
+  --cursor-height: 1.625rem;
+}
+.adaptive-cursor[data-mode="move"] .adaptive-cursor-shape::before,
+.adaptive-cursor[data-mode$="resize"] .adaptive-cursor-shape::before {
+  width: 1rem;
+  height: 1rem;
+  background: var(--primary);
+  opacity: 0.9;
+  transform: translate(-50%, -50%);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 8h12M5 5 2 8l3 3m6-6 3 3-3 3' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 8h12M5 5 2 8l3 3m6-6 3 3-3 3' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.adaptive-cursor[data-mode="move"] .adaptive-cursor-shape::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1v14M1 8h14M5 4 8 1l3 3m-6 8 3 3 3-3M4 5 1 8l3 3m8-6 3 3-3 3' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1v14M1 8h14M5 4 8 1l3 3m-6 8 3 3 3-3M4 5 1 8l3 3m8-6 3 3-3 3' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+.adaptive-cursor[data-mode="ns-resize"] .adaptive-cursor-shape::before { transform: translate(-50%, -50%) rotate(90deg); }
+.adaptive-cursor[data-mode="nwse-resize"] .adaptive-cursor-shape::before { transform: translate(-50%, -50%) rotate(45deg); }
+.adaptive-cursor[data-mode="nesw-resize"] .adaptive-cursor-shape::before { transform: translate(-50%, -50%) rotate(-45deg); }
+
+/* Disabled / forbidden action. */
+.adaptive-cursor[data-mode="not-allowed"] .adaptive-cursor-shape {
+  --cursor-width: 1.45rem;
+  --cursor-height: 1.45rem;
+  --cursor-fill: color-mix(in oklab, var(--destructive) 8%, var(--background));
+  --cursor-stroke: color-mix(in oklab, var(--destructive) 76%, transparent);
+  border-width: 2px;
+  box-shadow: 0 2px 8px color-mix(in oklab, var(--destructive) 22%, transparent);
+}
+.adaptive-cursor[data-mode="not-allowed"] .adaptive-cursor-shape::after {
+  width: 1rem;
+  height: 2px;
+  border-radius: 9999px;
+  background: var(--destructive);
+  opacity: 0.9;
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+/* Busy state: a CSS-only spinner, used only while motion is allowed. */
+.adaptive-cursor[data-mode="wait"] .adaptive-cursor-shape {
+  --cursor-width: 1.4rem;
+  --cursor-height: 1.4rem;
+  --cursor-fill: color-mix(in oklab, var(--background) 84%, transparent);
+  --cursor-stroke: color-mix(in oklab, var(--primary) 22%, transparent);
+  border-width: 2px;
+}
+.adaptive-cursor[data-mode="wait"] .adaptive-cursor-shape::before {
+  inset: -2px;
+  border: 2px solid transparent;
+  border-top-color: var(--primary);
+  border-right-color: color-mix(in oklab, var(--primary) 55%, transparent);
+  border-radius: 9999px;
+  opacity: 1;
+  transform: none;
+  animation: adaptive-cursor-spin 700ms linear infinite;
+}
+@keyframes adaptive-cursor-spin { to { rotate: 1turn; } }
+
+/* Precision selection. */
+.adaptive-cursor[data-mode="crosshair"] .adaptive-cursor-shape {
+  --cursor-width: 1.25rem;
+  --cursor-height: 1.25rem;
+  --cursor-fill: transparent;
+  --cursor-stroke: color-mix(in oklab, var(--primary) 45%, transparent);
+  box-shadow: none;
+}
+.adaptive-cursor[data-mode="crosshair"] .adaptive-cursor-shape::before,
+.adaptive-cursor[data-mode="crosshair"] .adaptive-cursor-shape::after {
+  border-radius: 9999px;
+  background: var(--primary);
+  opacity: 0.9;
+  transform: translate(-50%, -50%);
+}
+.adaptive-cursor[data-mode="crosshair"] .adaptive-cursor-shape::before { width: 1.6rem; height: 2px; }
+.adaptive-cursor[data-mode="crosshair"] .adaptive-cursor-shape::after { width: 2px; height: 1.6rem; }
+
+/* Copy uses two offset sheets. */
+.adaptive-cursor[data-mode="copy"] .adaptive-cursor-shape {
+  --cursor-width: 1.45rem;
+  --cursor-height: 1.45rem;
+  --cursor-fill: color-mix(in oklab, var(--primary) 13%, var(--background));
+  --cursor-stroke: color-mix(in oklab, var(--primary) 45%, transparent);
+}
+.adaptive-cursor[data-mode="copy"] .adaptive-cursor-shape::before,
+.adaptive-cursor[data-mode="copy"] .adaptive-cursor-shape::after {
+  width: 0.55rem;
+  height: 0.65rem;
+  border: 1.5px solid var(--primary);
+  border-radius: 0.15rem;
+  background: var(--background);
+  opacity: 0.95;
+}
+.adaptive-cursor[data-mode="copy"] .adaptive-cursor-shape::before { transform: translate(-65%, -65%); }
+.adaptive-cursor[data-mode="copy"] .adaptive-cursor-shape::after { transform: translate(-30%, -30%); }
+
+/* Zoom modes share a lens; the second line appears only for zoom-in. */
+.adaptive-cursor[data-mode="zoom-in"] .adaptive-cursor-shape,
+.adaptive-cursor[data-mode="zoom-out"] .adaptive-cursor-shape {
+  --cursor-width: 1.3rem;
+  --cursor-height: 1.3rem;
+  --cursor-fill: color-mix(in oklab, var(--primary) 10%, var(--background));
+  --cursor-stroke: color-mix(in oklab, var(--primary) 62%, transparent);
+  border-width: 2px;
+  box-shadow: 0 2px 8px color-mix(in oklab, var(--primary) 18%, transparent);
+}
+.adaptive-cursor[data-mode="zoom-in"] .adaptive-cursor-shape::before,
+.adaptive-cursor[data-mode="zoom-out"] .adaptive-cursor-shape::before {
+  width: 0.55rem;
+  height: 2px;
+  border-radius: 9999px;
+  background: var(--primary);
+  opacity: 0.9;
+  transform: translate(-50%, -50%);
+}
+.adaptive-cursor[data-mode="zoom-in"] .adaptive-cursor-shape::after {
+  width: 2px;
+  height: 0.55rem;
+  border-radius: 9999px;
+  background: var(--primary);
+  opacity: 0.9;
+  transform: translate(-50%, -50%);
+}
+
+.adaptive-cursor[data-mode="help"] .adaptive-cursor-shape {
+  --cursor-width: 1.35rem;
+  --cursor-height: 1.35rem;
+  --cursor-fill: color-mix(in oklab, var(--primary) 14%, var(--background));
+  --cursor-stroke: color-mix(in oklab, var(--primary) 55%, transparent);
+}
+.adaptive-cursor[data-mode="help"] .adaptive-cursor-shape::before {
+  content: '?';
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0.95;
+  transform: translate(-50%, -52%);
+}
+
+.adaptive-cursor[data-mode="hidden"] .adaptive-cursor-shape {
+  opacity: 0;
+}
+
+/* ──────────────────────────────────────────────
+   Global context menu
+   ────────────────────────────────────────────── */
+.global-context-menu {
+  padding: 5px;
+  border: 1px solid color-mix(in oklab, var(--border) 74%, transparent);
+  border-radius: 14px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow:
+    0 1px 2px color-mix(in oklab, var(--foreground) 6%, transparent),
+    0 16px 36px -18px color-mix(in oklab, var(--foreground) 50%, transparent);
+  outline: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.global-context-menu-group {
+  display: grid;
+}
+
+.global-context-menu-separator {
+  height: 1px;
+  margin: 4px;
+  background: var(--border);
+}
+
+.global-context-menu-item {
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  height: 32px;
+  padding: 0 0.625rem;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--popover-foreground);
+  font: inherit;
+  text-align: left;
+  scale: 1;
+  outline: none;
+}
+.global-context-menu-item:hover,
+.global-context-menu-item:focus-visible {
+  background: color-mix(in oklab, var(--primary) 12%, var(--accent));
+  color: var(--foreground);
+}
+.global-context-menu-item:focus-visible {
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ring) 45%, transparent);
+}
+.global-context-menu-item:active:not(:disabled) {
+  background: color-mix(in oklab, var(--primary) 16%, var(--accent));
+}
+.global-context-menu-item:disabled {
+  color: color-mix(in oklab, var(--muted-foreground) 62%, transparent);
+  opacity: 0.62;
+}
+
+.global-context-menu-icon {
+  width: 1rem;
+  height: 1rem;
+  justify-self: center;
+  color: var(--muted-foreground);
+  stroke-width: 1.8;
+}
+.global-context-menu-item:hover .global-context-menu-icon,
+.global-context-menu-item:focus-visible .global-context-menu-icon {
+  color: var(--primary);
+}
+
+.global-context-menu-label {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.global-context-menu-shortcut {
+  color: var(--muted-foreground);
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1rem;
+}
+
+.global-context-menu-error {
+  margin: 0.375rem 0.25rem 0.125rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: calc(var(--radius) - 0.25rem);
+  background: color-mix(in oklab, var(--destructive) 10%, transparent);
+  color: var(--destructive);
+  font-size: 0.75rem;
+  line-height: 1.125rem;
+  overflow-wrap: anywhere;
+}
+
+/* ──────────────────────────────────────────────
+   Customization layers (driven by ThemeContext via
+   data-* attributes + CSS vars on <html>)
+   ────────────────────────────────────────────── */
+
+/* Dark intensity: "black" pushes the dark palette toward true black for
+   OLED screens. Only meaningful in dark mode. */
+.dark[data-dark-intensity="black"] {
+  --background: oklch(0% 0 0);
+  --foreground: oklch(97% 0.01 240);
+  --card: oklch(13% 0.008 250);
+  --card-foreground: oklch(96% 0.01 240);
+  --popover: oklch(13% 0.008 250);
+  --popover-foreground: oklch(96% 0.01 240);
+  --secondary: oklch(17% 0.012 250);
+  --muted: oklch(15% 0.01 250);
+  --muted-foreground: oklch(66% 0.02 240);
+  --border: oklch(22% 0.012 250);
+  --input: oklch(19% 0.012 250);
+}
+/* OLED's near-black sidebar applies only when the sidebar follows the canvas;
+   scoping it to "follow" lets the panel/accent styles below win in OLED too
+   (otherwise this higher-specificity block would override them). */
+.dark[data-dark-intensity="black"][data-sidebar-style="follow"] {
+  --sidebar: oklch(5% 0.006 250);
+  --sidebar-border: oklch(20% 0.012 250);
+}
+
+/* Sidebar style: how distinct the sidebar surface is from the main canvas. */
+html[data-sidebar-style="panel"] {
+  --sidebar: color-mix(in oklab, var(--card) 90%, var(--primary) 4%);
+}
+html[data-sidebar-style="accent"] {
+  --sidebar: color-mix(in oklab, var(--background) 76%, var(--primary) 24%);
+  --sidebar-foreground: color-mix(in oklab, var(--foreground) 85%, var(--primary));
+  --sidebar-border: color-mix(in oklab, var(--border) 60%, var(--primary) 40%);
+}
+
+/* High contrast: strengthen borders + dim-text contrast for legibility. */
+html[data-contrast="high"] {
+  --border: color-mix(in oklab, var(--foreground) 55%, var(--border));
+  --input: color-mix(in oklab, var(--foreground) 45%, var(--input));
+  --muted-foreground: color-mix(in oklab, var(--foreground) 78%, var(--muted-foreground));
+  --sidebar-border: color-mix(in oklab, var(--foreground) 55%, var(--sidebar-border));
+}
+
+/* Kiosk ("展示模式"): hide any in-content edit/config entry points marked with
+   data-kiosk-hide (the chrome itself is removed in MainLayout). */
+html[data-kiosk="1"] [data-kiosk-hide] {
+  display: none !important;
+}
+
+/* Log stream row entrance — a subtle fade + rise for a genuinely new tail line.
+   transform+opacity only (composited, cheap at high rate); the virtual row's own
+   translateY positioning lives on the OUTER wrapper, so this INNER animation
+   never fights it or perturbs measureElement. Applied only to real arrivals and
+   auto-suppressed in bursts; gated in JS on reduce/disable-motion, and the rules
+   below also neutralise it. */
+@keyframes log-row-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.log-row-in {
+  animation: log-row-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Soft edge fade for the log scroll viewport — rows dissolve at a boundary as
+   they scroll past it (Apple-style). Scroll-position-aware: each edge only fades
+   when there is actually hidden content in that direction, so a fully-scrolled
+   top/bottom row is never dimmed (readability). A static mask, not motion: kept
+   under reduce-motion, dropped only on the hard 关闭全部动效 switch. */
+.log-fade-top {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 100%);
+}
+.log-fade-bottom {
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 18px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 18px), transparent 100%);
+}
+.log-fade-both {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 18px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 18px), transparent 100%);
+}
+
+/* Reduce motion: a CSS fallback for non-Framer transitions/animations.
+   Framer Motion itself is handled by <MotionConfig reducedMotion>. */
+html[data-reduce-motion="1"] *,
+html[data-reduce-motion="1"] *::before,
+html[data-reduce-motion="1"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Press feedback is useful motion, but never essential. The app-level reduce
+   switch and the OS preference both disable it without changing hit areas. */
+html[data-reduce-motion="1"] :is(.ui-button, [data-press-scale]) {
+  scale: 1 !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.ui-button, [data-press-scale]) { scale: 1 !important; }
+}
+
+/* Keep shared form controls at 16px on narrow touch screens even when a page
+   supplies a smaller desktop typography utility. This prevents iOS Safari
+   from zooming the viewport when the control receives focus. */
+@media (max-width: 767px) {
+  .ui-button {
+    min-width: max(2.75rem, 44px);
+    min-height: max(2.75rem, 44px);
+  }
+  .ui-button-icon { min-width: max(2.75rem, 44px); }
+  .topbar-control {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+  [data-ui-control] {
+    min-height: max(2.75rem, 44px);
+    font-size: max(1rem, 16px);
+  }
+}
+
+/* 关闭全部动效: harder than reduce — remove CSS animations outright (e.g. the
+   pulsing status dots) rather than just collapsing their duration. Framer
+   entrance fades are gated in components on `disableMotion`. */
+html[data-no-motion="1"] *:not(.animate-spin),
+html[data-no-motion="1"] *::before,
+html[data-no-motion="1"] *::after {
+  /* Exclude .animate-spin: loading spinners encode "busy", not decoration —
+     freezing them reads as a hang. Everything else (e.g. pulse dots) stops. */
+  animation: none !important;
+}
+
+/* Hide the browser-native password reveal / clear controls (Edge & IE render
+   an extra eye / × on inputs) so only our own show-password toggle shows. */
+input::-ms-reveal,
+input::-ms-clear {
+  display: none;
+}
+
+/* ──────────────────────────────────────────────
+   Light/dark reveal — a circular wipe from the click point, via the View
+   Transitions API (Chromium/Edge/Safari; Firefox falls back to an instant
+   swap). Gated in JS on the motion settings, so this only runs when allowed.
+   ────────────────────────────────────────────── */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) { z-index: 0; }
+::view-transition-new(root) {
+  z-index: 1;
+  animation: snowluma-theme-reveal 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes snowluma-theme-reveal {
+  from { clip-path: circle(0 at var(--vt-x, 50%) var(--vt-y, 50%)); }
+  to { clip-path: circle(var(--vt-r, 150%) at var(--vt-x, 50%) var(--vt-y, 50%)); }
+}
+
+/* ──────────────────────────────────────────────
+   Native scrollbars — themed to match. Radix ScrollArea hides its own
+   native bar and renders a custom thumb, so this only styles plain overflow
+   containers (textareas, <pre>, the settings rail, grid widget bodies…).
+   ────────────────────────────────────────────── */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--foreground) 22%, transparent) transparent;
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklab, var(--foreground) 22%, transparent);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklab, var(--foreground) 38%, transparent);
+}
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* ──────────────────────────────────────────────
+   Login background — wavy SVG line field (see <LoginWaves>). Themed to the
+   accent so it reads as a subtle decorative backdrop behind the login card.
+   ────────────────────────────────────────────── */
+.login-waves {
+  color: color-mix(in oklab, var(--primary) 26%, transparent);
+}
+.login-waves path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1px;
+}
+
+/* ──────────────────────────────────────────────
+   Elastic range slider. Interaction and geometry intentionally follow the
+   Mikk Martin slider demo; only the palette and focus treatment are themed.
+   ────────────────────────────────────────────── */
+.slider-root {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  height: 3rem;
+  align-items: center;
+  overflow: clip;
+  border: 0.5px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--muted);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  backdrop-filter: blur(20px);
+  transition-property: background-color, border-color, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.slider-root:hover {
+  border-color: color-mix(in oklab, var(--primary) 24%, var(--border));
+  background: color-mix(in oklab, var(--primary) 6%, var(--muted));
+}
+.slider-root:active { cursor: grabbing; }
+.slider-root:has(.slider-native-thumb:focus-visible) {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
+}
+.slider-root[data-disabled] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.slider-radix-root {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+}
+.slider-native-thumb {
+  width: 1.25rem;
+  height: 2.75rem;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  opacity: 0;
+  outline: none;
+}
+.slider-active-range {
+  height: 100%;
+  border-radius: 0.75rem;
+  background: color-mix(in oklab, var(--primary) 18%, var(--muted));
+  transition-property: background-color;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.slider-root:hover .slider-active-range {
+  background: color-mix(in oklab, var(--primary) 26%, var(--muted));
+}
+.slider-handle-slot {
+  margin-left: auto;
+  display: flex;
+  width: 1.5rem;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+}
+.slider-root:active .slider-handle-slot { cursor: grabbing; }
+.slider-handle-line {
+  display: block;
+  width: 0.125rem;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--primary) 64%, transparent);
+  transition-property: background-color;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.slider-root:hover .slider-handle-line {
+  background: var(--primary);
+}
+.slider-ticks {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+.slider-tick {
+  position: absolute;
+  top: 50%;
+  width: 0.25rem;
+  height: 0.25rem;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--muted-foreground) 24%, transparent);
+  transform: translate(-50%, -50%);
+}
+.slider-root:hover .slider-tick {
+  background: color-mix(in oklab, var(--primary) 34%, transparent);
+}
+.slider-labels {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: space-between;
+  padding-inline: 1.25rem;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  line-height: 1.5rem;
+  pointer-events: none;
+  transition-property: color;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.slider-root:hover .slider-labels {
+  color: var(--foreground);
+}
+.slider-value-label {
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.025em;
+  text-transform: capitalize;
+}
+
+html[data-reduce-motion="1"] .slider-root,
+html[data-reduce-motion="1"] .slider-active-range,
+html[data-reduce-motion="1"] .slider-handle-line,
+html[data-reduce-motion="1"] .slider-labels {
+  transition-duration: 0s !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .slider-root,
+  .slider-active-range,
+  .slider-handle-line,
+  .slider-labels {
+    transition-duration: 0s !important;
+  }
+}
+
+/* ──────────────────────────────────────────────
+   gridstack dashboard — mesh the library's item shell with our cards.
+   The widget content (a Card) owns its own bg/border/rounding, so the
+   gridstack content box is just a transparent, full-bleed container.
+   ────────────────────────────────────────────── */
+.grid-stack {
+  /* Negative inset cancels gridstack's per-item margin at the edges so the
+     grid lines up with surrounding page padding. */
+  background: transparent;
+}
+.grid-stack-item-content {
+  inset: 0;
+  overflow: visible;
+  background: transparent;
+  display: block;
+}
+/* The drag placeholder (drop target preview). */
+.grid-stack > .grid-stack-placeholder > .placeholder-content {
+  border: 2px dashed var(--primary);
+  background: color-mix(in oklab, var(--primary) 8%, transparent);
+  border-radius: var(--radius);
+}
+/* Resize handle — only present while editing (grid is interactive). Make the
+   bottom-right grip obvious so it's clearly draggable. */
+.grid-stack-item > .ui-resizable-se {
+  width: 18px;
+  height: 18px;
+  right: 5px;
+  bottom: 5px;
+  background-image: none;
+  transform: none;
+  border-right: 3px solid var(--primary);
+  border-bottom: 3px solid var(--primary);
+  border-bottom-right-radius: 5px;
+  opacity: 0.65;
+  z-index: 30;
+}
+.grid-stack-item:hover > .ui-resizable-se {
+  opacity: 1;
 }

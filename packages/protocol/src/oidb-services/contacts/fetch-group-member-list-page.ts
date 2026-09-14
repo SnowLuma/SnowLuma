@@ -9,7 +9,21 @@
 import type { OidbBase, OidbSvcTrpcTcp0xFE7_3Response } from '@snowluma/proto-defs/oidb';
 import type { OidbGroupMemberListRequest } from '@snowluma/proto-defs/oidb-actions/base';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import type { GroupMemberInfo } from '../../qq-info';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
+
+export interface GroupMemberListPage {
+  members: GroupMemberInfo[];
+  token: string;
+}
+
+function permissionToRole(permission: number): string {
+  switch (permission) {
+    case 1: return 'owner';
+    case 2: return 'admin';
+    default: return 'member';
+  }
+}
 
 export namespace FetchGroupMemberListPage {
   export const command = 0xFE7;
@@ -41,7 +55,22 @@ export namespace FetchGroupMemberListPage {
     return body;
   };
 
-  export const deserialize = (_ctx: Deps, body: OidbSvcTrpcTcp0xFE7_3Response): OidbSvcTrpcTcp0xFE7_3Response => body;
+  export const deserialize = (_ctx: Deps, body: OidbSvcTrpcTcp0xFE7_3Response): GroupMemberListPage => ({
+    members: (body.members ?? []).map((raw) => ({
+      uin: raw.uin?.uin ?? 0,
+      uid: raw.uin?.uid ?? '',
+      nickname: raw.memberName ?? '',
+      card: raw.memberCard?.memberCard ?? '',
+      isRobot: false,
+      role: permissionToRole(raw.permission ?? 0),
+      level: raw.level?.level ?? 0,
+      title: raw.specialTitle ?? '',
+      joinTime: raw.joinTimestamp ?? 0,
+      lastSentTime: raw.lastMsgTimestamp ?? 0,
+      shutUpTime: raw.shutUpTimestamp ?? 0,
+    })),
+    token: body.token ?? '',
+  });
 
   export const encode = (env: OidbBase<OidbGroupMemberListRequest>): Uint8Array =>
     protobuf_encode<OidbBase<OidbGroupMemberListRequest>>(env);
@@ -49,6 +78,6 @@ export namespace FetchGroupMemberListPage {
   export const decode = (bytes: Uint8Array): OidbBase<OidbSvcTrpcTcp0xFE7_3Response> =>
     protobuf_decode<OidbBase<OidbSvcTrpcTcp0xFE7_3Response>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<OidbSvcTrpcTcp0xFE7_3Response> =>
+  export const invoke = (deps: Deps, params: Params): Promise<GroupMemberListPage> =>
     invokeOidb(deps, FetchGroupMemberListPage, params);
 }
