@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
+import type { DatalineMsgBody, DatalineTextMsg } from '@snowluma/proto-defs/dataline';
 import type { SendMessageRequest, SendMessageResponse } from '@snowluma/proto-defs/action';
 import type { FileExtra } from '@snowluma/proto-defs/message';
+import { DATALINE_UIN_PHONE } from '@snowluma/protocol/dataline/device-contacts';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type { OidbOfflineFileFinalizeResp } from '@snowluma/proto-defs/oidb-actions/media';
 
@@ -200,5 +202,63 @@ describe('Bridge private media routing', () => {
     const fileExtra = protobuf_decode<FileExtra>(request!.messageBody!.msgContent as Uint8Array);
     expect(fileExtra?.file?.fileUuid).toBe('uuid-abc-123');
     expect(fileExtra?.field6 ?? undefined).toBeUndefined();
+  });
+
+  it('sends my-device text through trans0x211 instead of ordinary c2c', async () => {
+    class TestBridge extends Bridge {
+      capturedBody: Uint8Array | null = null;
+
+      override async sendRawPacket(serviceCmd: string, body: Uint8Array): Promise<SendPacketResult> {
+        expect(serviceCmd).toBe('MessageSvc.PbSendMsg');
+        this.capturedBody = body;
+        return {
+          success: true,
+          gotResponse: true,
+          errorCode: 0,
+          errorMessage: '',
+          responseData: Buffer.from(protobuf_encode<SendMessageResponse>({
+            result: 0,
+            errMsg: '',
+            privateSequence: 88,
+            timestamp1: 1710000000,
+          })),
+        };
+      }
+    }
+
+    const bridge = new TestBridge(IdentityService.memory('10000'));
+    await bridge.apis.message.sendPrivate(DATALINE_UIN_PHONE, [{ type: 'text', text: 'hello phone' }]);
+
+    const request = protobuf_decode<SendMessageRequest>(bridge.capturedBody as Uint8Array);
+    expect(request?.routingHead?.trans0x211).toMatchObject({
+      ccCmd: 7,
+      uid: 'u_Wcc5rknRRqRO8y5gxMD6sA',
+      toUin: 10000n,
+    });
+    expect(request?.routingHead?.c2c ?? undefined).toBeUndefined();
+    const body = protobuf_decode<DatalineMsgBody>(request!.messageBody!.msgContent as Uint8Array);
+    expect(body?.subCmd).toBe(4);
+    expect(body?.header).toMatchObject({
+      srcAppId: 1,
+      dstAppId: 1001,
+      srcTerType: 1,
+      dstTerType: 2,
+      srcUin: 10000n,
+      dstUin: 10000n,
+    });
+    const text = protobuf_decode<DatalineTextMsg>(body!.generic!.buf as Uint8Array);
+    expect(new TextDecoder().decode(text!.items![0]!.text as Uint8Array)).toBe('hello phone');
+  });
+
+  it('rejects non-text my-device sends', async () => {
+    class TestBridge extends Bridge {
+      override async sendRawPacket(): Promise<SendPacketResult> {
+        throw new Error('should not send');
+      }
+    }
+    const bridge = new TestBridge(IdentityService.memory('10000'));
+    await expect(bridge.apis.message.sendPrivate(DATALINE_UIN_PHONE, [
+      { type: 'image', url: 'file:///tmp/a.png' } as any,
+    ])).rejects.toThrow('only accepts text');
   });
 });

@@ -20,6 +20,10 @@
       "types": "./src/collection.ts",
       "default": "./src/collection.ts"
     },
+    "./dataline": {
+      "types": "./src/dataline.ts",
+      "default": "./src/dataline.ts"
+    },
     "./element": {
       "types": "./src/element.ts",
       "default": "./src/element.ts"

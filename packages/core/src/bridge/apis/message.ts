@@ -14,6 +14,14 @@ import type {
 import { buildSendElems } from '@snowluma/protocol/element-builder';
 import { assertWindowShakeSendPolicy } from '@snowluma/protocol/element-manifest';
 import { FinalizeOfflineFile } from '@snowluma/protocol/oidb-services/group-file/finalize-offline-file';
+import {
+  datalineTextFromElements,
+  encodeDatalineText,
+} from '@snowluma/protocol/dataline/codec';
+import {
+  findDatalineDeviceByUin,
+  type DatalineDeviceContact,
+} from '@snowluma/protocol/dataline/device-contacts';
 import type { MessageElement, QQEventVariant } from '@snowluma/protocol/events';
 import {
   fetchC2cMessageRange,
@@ -417,6 +425,8 @@ export class MessageApi {
    * (and optionally `c2c.uid` for the media case).
    */
   async sendPrivate(userUin: number, elements: MessageElement[]): Promise<SendMessageReceipt> {
+    const device = findDatalineDeviceByUin(userUin);
+    if (device) return this.sendDatalineText(device, elements);
     if (elements.length === 0) throw new Error('message is empty');
     assertWindowShakeSendPolicy(
       elements.filter((element) => element.type === 'poke').length,
@@ -477,6 +487,67 @@ export class MessageApi {
       throw new Error(`send private message rejected: result=${response.result} err=${response.errMsg ?? ''}`);
     }
 
+    const seq = response.privateSequence ?? 0;
+    const messageId = (random & 0x7FFFFFFF) || seq;
+    const timestamp = response.timestamp1 ?? Math.floor(Date.now() / 1000);
+    return { messageId, sequence: seq, clientSequence: clientSeq, random, timestamp };
+  }
+
+  /**
+   * Send text to an official my-device contact. These peers are not
+   * ordinary friends — they use the same trans0x211 send path as c2c
+   * files, with a device-chat body instead of FileExtra.
+   */
+  private async sendDatalineText(
+    device: DatalineDeviceContact,
+    elements: MessageElement[],
+  ): Promise<SendMessageReceipt> {
+    const text = datalineTextFromElements(elements);
+    const selfUin = parseInt(this.ctx.identity.uin, 10);
+    if (!Number.isSafeInteger(selfUin) || selfUin <= 0) {
+      throw new Error('self uin unavailable');
+    }
+
+    const random = this.ctx.nextMessageRandom();
+    const clientSeq = this.ctx.nextClientSequence();
+    const nowSec = Math.floor(Date.now() / 1000);
+    const request = protobuf_encode<SendMessageRequest>({
+      routingHead: {
+        trans0x211: {
+          toUin: BigInt(selfUin),
+          ccCmd: 7,
+          uid: device.uid,
+        },
+      },
+      contentHead: {
+        type: 1,
+        subType: 0,
+      },
+      messageBody: {
+        msgContent: encodeDatalineText({
+          selfUin,
+          dstTerType: device.terType,
+          text,
+        }),
+      },
+      clientSequence: clientSeq,
+      random,
+      syncCookie: new Uint8Array(0),
+      via: 0,
+      dataStatist: 0,
+      ctrl: { msgFlag: nowSec },
+      multiSendSeq: 0,
+    });
+
+    const result = await this.ctx.sendRawPacket(SEND_MSG_CMD, request);
+    if (!result.success || !result.gotResponse || !result.responseData) {
+      throw new Error(`send device message failed: ${result.errorMessage || 'no response'}`);
+    }
+    const response = protobuf_decode<SendMessageResponse>(result.responseData);
+    if (!response) throw new Error('failed to decode SendMessageResponse');
+    if (response.result != null && response.result !== 0) {
+      throw new Error(`send device message rejected: result=${response.result} err=${response.errMsg ?? ''}`);
+    }
     const seq = response.privateSequence ?? 0;
     const messageId = (random & 0x7FFFFFFF) || seq;
     const timestamp = response.timestamp1 ?? Math.floor(Date.now() / 1000);

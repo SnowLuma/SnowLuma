@@ -99,6 +99,10 @@
     "./web/*": {
       "types": "./src/web/*.ts",
       "default": "./src/web/*.ts"
+    },
+    "./dataline/*": {
+      "types": "./src/dataline/*.ts",
+      "default": "./src/dataline/*.ts"
     }
   },
   "scripts": {

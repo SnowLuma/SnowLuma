@@ -1,6 +1,7 @@
 import { mapWithConcurrency } from '@snowluma/common/concurrency';
 import { createLogger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
+import { datalineFriendListEntries, findDatalineDeviceByUin } from '@snowluma/protocol/dataline/device-contacts';
 import {
   formatGroupRequestFlag,
   type GroupMemberInfo,
@@ -45,21 +46,31 @@ async function fetchSingleGroupMembers(
   }
 }
 
+function toFriendRow(friend: { uin: number; nickname: string; remark: string }): JsonObject {
+  return {
+    user_id: friend.uin,
+    nickname: friend.nickname,
+    remark: friend.remark,
+  };
+}
+
 export async function getFriendList(bridge: BridgeInterface): Promise<JsonObject[]> {
+  let rows: JsonObject[];
   try {
-    const friends = await bridge.apis.contacts.fetchFriendList();
-    return friends.map(f => ({
-      user_id: f.uin,
-      nickname: f.nickname,
-      remark: f.remark,
-    }));
+    rows = (await bridge.apis.contacts.fetchFriendList()).map(toFriendRow);
   } catch {
-    return bridge.identity.friends.map(f => ({
-      user_id: f.uin,
-      nickname: f.nickname,
-      remark: f.remark,
-    }));
+    rows = bridge.identity.friends.map(toFriendRow);
   }
+  const occupied = new Set(rows.map((row) => Number(row.user_id)));
+  for (const extra of datalineFriendListEntries()) {
+    if (occupied.has(extra.user_id)) continue;
+    rows.push({
+      user_id: extra.user_id,
+      nickname: extra.nickname,
+      remark: extra.remark,
+    });
+  }
+  return rows;
 }
 
 export async function getGroupList(
@@ -332,6 +343,17 @@ export async function getStrangerInfo(
   bridge: BridgeInterface,
   userId: number,
 ): Promise<JsonObject | null> {
+  const device = findDatalineDeviceByUin(userId);
+  if (device) {
+    return {
+      user_id: device.uin,
+      nickname: device.name,
+      remark: device.name,
+      sex: 'unknown',
+      age: 0,
+      long_nick: '',
+    };
+  }
   try {
     const p = await bridge.apis.contacts.fetchUserProfile(userId);
     const corp = await strangerCorpInfo(bridge, p);

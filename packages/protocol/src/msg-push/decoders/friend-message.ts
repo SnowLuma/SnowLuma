@@ -1,3 +1,4 @@
+import { tryDecodeDatalineFriendMessage } from '../../dataline/decode-push';
 import type { FriendMessage } from '../../events';
 import type { MsgPushDecoder } from '../registry';
 import { decodeRichBody } from '../rich-body-decoder';
@@ -24,6 +25,9 @@ function parseGroupInviteCard(jsonText: string): { groupUin: number; sequence: n
 }
 
 export const decodeFriendMessage: MsgPushDecoder = (ctx) => {
+  const dataline = tryDecodeDatalineFriendMessage(ctx);
+  if (dataline) return [dataline];
+
   const elements = decodeRichBody(ctx.body, false);
   const sentBySelf = ctx.fromUin > 0 && ctx.fromUin === ctx.selfUin;
   const peerUin = sentBySelf ? (ctx.responseHead?.toUin ?? 0) : ctx.fromUin;

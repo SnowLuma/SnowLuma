@@ -5,6 +5,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import type { BridgeInterface } from '../../src/bridge/bridge-interface';
+import { datalineFriendListEntries, DATALINE_UIN_PAD } from '@snowluma/protocol/dataline/device-contacts';
 import type {
   FriendInfo, GroupMemberInfo, GroupRequestInfo, QQGroupInfo, UserProfileInfo,
 } from '@snowluma/protocol/qq-info';
@@ -158,7 +159,10 @@ describe('onebot/contact-actions / getFriendList', () => {
       fetchFriendList: vi.fn(async () => [makeFriend(22222, 'alice', 'best-friend')]),
     });
     const out = await getFriendList(bridge);
-    expect(out).toEqual([{ user_id: 22222, nickname: 'alice', remark: 'best-friend' }]);
+    expect(out).toEqual([
+      { user_id: 22222, nickname: 'alice', remark: 'best-friend' },
+      ...datalineFriendListEntries(),
+    ]);
     expect(bridge.apis.contacts.fetchFriendList).toHaveBeenCalledOnce();
   });
 
@@ -169,7 +173,10 @@ describe('onebot/contact-actions / getFriendList', () => {
       identity: fakeIdentity({ friends: cached }),
     });
     const out = await getFriendList(bridge);
-    expect(out).toEqual([{ user_id: 33333, nickname: 'bob', remark: '' }]);
+    expect(out).toEqual([
+      { user_id: 33333, nickname: 'bob', remark: '' },
+      ...datalineFriendListEntries(),
+    ]);
   });
 });
 
@@ -708,6 +715,20 @@ describe('onebot/contact-actions / getStrangerInfo', () => {
       identity: fakeIdentity({ findUserProfile: () => null, findFriend: () => null }),
     });
     expect(await getStrangerInfo(bridge, 99999)).toBeNull();
+  });
+
+  it('returns the official my-device contact without a profile fetch', async () => {
+    const fetchUserProfile = vi.fn(async () => { throw new Error('should not fetch'); });
+    const bridge = fakeBridge({ fetchUserProfile });
+    expect(await getStrangerInfo(bridge, DATALINE_UIN_PAD)).toEqual({
+      user_id: DATALINE_UIN_PAD,
+      nickname: '我的Pad',
+      remark: '我的Pad',
+      sex: 'unknown',
+      age: 0,
+      long_nick: '',
+    });
+    expect(fetchUserProfile).not.toHaveBeenCalled();
   });
 });
 

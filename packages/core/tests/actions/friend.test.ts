@@ -12,6 +12,7 @@ import type {
 // namespaces under @snowluma/protocol/oidb-services/friend. Tests assert
 // against the bridge mock's sendRawPacket directly — no need for
 // module-level bridge-oidb mocks anymore.
+import { DATALINE_UIN_PAD } from '@snowluma/protocol/dataline/device-contacts';
 import { FriendApi } from '../../src/bridge/apis/friend';
 import { mockBridge } from './_helpers';
 
@@ -87,6 +88,14 @@ describe('apis/friend', () => {
       .toBe('OidbSvcTrpcTcp.0x912e_0');
     expect(bridge.identity.updateFriendRemark)
       .toHaveBeenCalledWith('resolved-uid', 10001, 'best-friend');
+  });
+
+  it('refuses to delete or rename a my-device contact', async () => {
+    const bridge = mockBridge();
+    const api = new FriendApi(bridge as any);
+    await expect(api.delete(DATALINE_UIN_PAD)).rejects.toThrow('cannot be deleted');
+    await expect(api.setRemark(DATALINE_UIN_PAD, 'pad')).rejects.toThrow('does not support remarks');
+    expect(bridge.sendRawPacket).not.toHaveBeenCalled();
   });
 
   it('setRemark uses the dedicated clear command for an empty remark', async () => {

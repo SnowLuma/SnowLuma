@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { datalineFriendListEntries } from '@snowluma/protocol/dataline/device-contacts';
 import type { GroupMemberInfo, GroupRequestInfo, QQGroupInfo } from '@snowluma/protocol/qq-info';
 import { buildApiContext, type OneBotInstanceContext } from '../src/instance-context';
 import {
@@ -688,6 +689,7 @@ describe('buildApiContext contact reads', () => {
 
     await expect(api.getFriendList()).resolves.toEqual([
       { user_id: 22222, nickname: 'alice', remark: 'best-friend' },
+      ...datalineFriendListEntries(),
     ]);
   });
 

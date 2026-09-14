@@ -1,5 +1,6 @@
 import { createLogger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
+import { findDatalineDeviceByUin } from '@snowluma/protocol/dataline/device-contacts';
 import type { ForwardNodePayload, FriendMessage, GroupMessage, MessageElement, MessageElementOf, QQEventVariant } from '@snowluma/protocol/events';
 import { getVideoSourceSize, MAX_VIDEO_SIZE } from '@snowluma/protocol/highway/video-upload';
 import { guessFileNameFromUrl } from '@snowluma/protocol/highway/utils';
@@ -868,6 +869,17 @@ export async function sendPrivateMessage(
       'message element "at" cannot be sent in a private chat',
       'at',
     );
+  }
+
+  if (findDatalineDeviceByUin(userId)) {
+    const unsupported = elements.find((element) => element.type !== 'text');
+    if (unsupported) {
+      throw new MessageElementValidationError(
+        'UNSENDABLE_TYPE',
+        `message element "${unsupported.type}" cannot be sent to this contact`,
+        unsupported.type,
+      );
+    }
   }
 
   // Temp sessions only have the message-element transport. File elements use

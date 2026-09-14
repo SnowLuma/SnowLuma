@@ -1,4 +1,5 @@
 import { createLogger } from '@snowluma/common/logger';
+import { findDatalineDeviceByUin } from '@snowluma/protocol/dataline/device-contacts';
 import { ApproveDoubtBuddyReq } from '@snowluma/protocol/oidb-services/friend/approve-doubt-buddy-req';
 import { ClearFriendRemark } from '@snowluma/protocol/oidb-services/friend/clear-friend-remark';
 import { DeleteFriend } from '@snowluma/protocol/oidb-services/friend/delete-friend';
@@ -24,6 +25,9 @@ export class FriendApi {
   }
 
   async delete(userId: number, block = false): Promise<void> {
+    if (findDatalineDeviceByUin(userId)) {
+      throw new Error('this contact cannot be deleted');
+    }
     await DeleteFriend.invoke(this.ctx, { userId, block });
 
     // The server-side delete has already completed. A refresh failure must be
@@ -40,11 +44,15 @@ export class FriendApi {
     }
   }
 
-  setRemark(userId: number, remark: string): Promise<void> {
-    if (remark === '') {
-      return ClearFriendRemark.invoke(this.ctx, { userId });
+  async setRemark(userId: number, remark: string): Promise<void> {
+    if (findDatalineDeviceByUin(userId)) {
+      throw new Error('this contact does not support remarks');
     }
-    return SetFriendRemark.invoke(this.ctx, { userId, remark });
+    if (remark === '') {
+      await ClearFriendRemark.invoke(this.ctx, { userId });
+      return;
+    }
+    await SetFriendRemark.invoke(this.ctx, { userId, remark });
   }
 
   /** List doubtful friend-add requests (可能认识的人). */
