@@ -1,20 +1,13 @@
 name: Promote Dev to Main
+
+# `dev` is the working branch. `main` is a pointer to the same history, moved
+# only by this workflow. Merge commits from dev → main are what painted the
+# GitHub network graph; this job moves the `main` ref to `dev` instead.
 on:
   push:
     branches: [dev]
     tags: ['chore.*']
   workflow_dispatch:
-    inputs:
-      auto_merge:
-        description: Enable auto-merge on the resulting PR
-        type: choice
-        options: ['true', 'false']
-        default: 'true'
-      merge_method:
-        description: Merge strategy when auto-merging
-        type: choice
-        options: ['merge', 'squash', 'rebase']
-        default: 'merge'
 
 permissions:
   contents: read
@@ -28,8 +21,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       run: ${{ steps.check.outputs.run }}
-      auto_merge: ${{ steps.check.outputs.auto_merge }}
-      merge_method: ${{ steps.check.outputs.merge_method }}
       reason: ${{ steps.check.outputs.reason }}
     steps:
       - name: Decide whether to promote
@@ -39,32 +30,24 @@ jobs:
           REF: ${{ github.ref }}
           REF_TYPE: ${{ github.ref_type }}
           HEAD_COMMIT_MSG: ${{ github.event.head_commit.message }}
-          INPUT_AUTO_MERGE: ${{ inputs.auto_merge }}
-          INPUT_MERGE_METHOD: ${{ inputs.merge_method }}
         run: |
           set -euo pipefail
           run='false'
-          auto_merge='true'
-          merge_method='merge'
           reason=''
 
           case "${EVENT_NAME}" in
             workflow_dispatch)
               run='true'
-              auto_merge="${INPUT_AUTO_MERGE:-true}"
-              merge_method="${INPUT_MERGE_METHOD:-merge}"
               reason='Manual workflow_dispatch'
               ;;
             push)
               if [ "${REF_TYPE}" = 'tag' ]; then
                 run='true'
-                merge_method='merge'
                 reason="Tag push: ${REF}"
               elif [ "${REF}" = 'refs/heads/dev' ]; then
                 msg="${HEAD_COMMIT_MSG:-}"
                 if printf '%s' "${msg}" | grep -qiE '^\[merge\]|^chore\(release\):'; then
                   run='true'
-                  merge_method='merge'
                   reason='Commit message prefix on dev ([merge] or chore(release):)'
                 else
                   reason='Commit on dev without [merge] / chore(release): prefix'
@@ -80,8 +63,6 @@ jobs:
 
           {
             echo "run=${run}"
-            echo "auto_merge=${auto_merge}"
-            echo "merge_method=${merge_method}"
             echo "reason=${reason}"
           } >> "${GITHUB_OUTPUT}"
 
@@ -93,8 +74,6 @@ jobs:
             echo "| Event | \`${EVENT_NAME}\` |"
             echo "| Ref | \`${REF}\` |"
             echo "| Run | \`${run}\` |"
-            echo "| Auto-merge | \`${auto_merge}\` |"
-            echo "| Merge method | \`${merge_method}\` |"
             echo "| Reason | ${reason} |"
           } >> "${GITHUB_STEP_SUMMARY}"
 
@@ -123,123 +102,49 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
 
-      - name: Resolve bot identity
-        id: bot
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
-        run: |
-          set -euo pipefail
-          bot_login="${APP_SLUG}[bot]"
-          bot_id="$(gh api "/users/${bot_login}" --jq .id)"
-          bot_email="${bot_id}+${bot_login}@users.noreply.github.com"
-          {
-            echo "login=${bot_login}"
-            echo "id=${bot_id}"
-            echo "email=${bot_email}"
-          } >> "${GITHUB_OUTPUT}"
-          echo "Resolved bot: ${bot_login} <${bot_email}>"
-
-      - name: Checkout main
+      - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: main
+          ref: dev
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Compare dev to main
-        id: diff
-        run: |
-          set -euo pipefail
-          git fetch origin dev:dev
-          ahead="$(git rev-list --count main..dev)"
-          behind="$(git rev-list --count dev..main)"
-          dev_sha="$(git rev-parse dev)"
-          dev_short="$(git rev-parse --short dev)"
-          {
-            echo "ahead=${ahead}"
-            echo "behind=${behind}"
-            echo "dev_sha=${dev_sha}"
-            echo "dev_short=${dev_short}"
-          } >> "${GITHUB_OUTPUT}"
-          if [ "${ahead}" = '0' ]; then
-            echo "skip=true" >> "${GITHUB_OUTPUT}"
-            echo "::notice::dev has no commits ahead of main; nothing to promote."
-          else
-            echo "skip=false" >> "${GITHUB_OUTPUT}"
-            echo "dev is ${ahead} ahead, ${behind} behind main."
-          fi
-
-      - name: Ensure automation label exists
-        if: steps.diff.outputs.skip != 'true'
+      - name: Point main at dev
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          gh label create automation --color 0E8A16 --description 'Automated bot PRs' 2>/dev/null || true
-
-      - name: Create or update Pull Request
-        id: pr
-        if: steps.diff.outputs.skip != 'true'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          DEV_SHA: ${{ steps.diff.outputs.dev_sha }}
-          DEV_SHORT: ${{ steps.diff.outputs.dev_short }}
-          AHEAD: ${{ steps.diff.outputs.ahead }}
-          BEHIND: ${{ steps.diff.outputs.behind }}
           REASON: ${{ needs.decide.outputs.reason }}
-          REF: ${{ github.ref }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          title="chore: promote dev → main (${DEV_SHORT})"
+          git fetch origin dev main
+          dev_sha="$(git rev-parse origin/dev)"
+          main_sha="$(git rev-parse origin/main)"
+          dev_short="$(git rev-parse --short origin/dev)"
+          main_short="$(git rev-parse --short origin/main)"
 
+          if [ "${dev_sha}" = "${main_sha}" ]; then
+            echo "::notice::main already equals dev @ ${dev_short}; nothing to promote."
+            {
+              echo "main already equals dev @ ${dev_short}"
+            } >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
+          unique="$(git cherry origin/dev origin/main | awk '/^\+/ { print $2 }' || true)"
+          if [ -n "${unique}" ]; then
+            echo '::error::main has unique commits that dev does not. Cherry-pick them onto dev first.' >&2
+            git log --oneline --no-walk ${unique}
+            exit 1
+          fi
+
+          git push --force-with-lease="refs/heads/main:${main_sha}" origin "origin/dev:refs/heads/main"
+          echo "::notice::Updated main ${main_short} → dev@${dev_short}"
           {
-            echo "Automated promotion of \`dev\` into \`main\`."
+            echo "## Promote"
             echo
             echo "| Key | Value |"
             echo "| --- | --- |"
-            echo "| Source | \`dev\` @ \`${DEV_SHA}\` |"
-            echo "| Trigger ref | \`${REF}\` |"
-            echo "| Trigger reason | ${REASON} |"
+            echo "| \`main\` was | \`${main_sha}\` |"
+            echo "| \`main\` now | \`dev\` @ \`${dev_sha}\` |"
+            echo "| Reason | ${REASON} |"
             echo "| Workflow run | ${RUN_URL} |"
-            echo "| Ahead / Behind | ${AHEAD} / ${BEHIND} |"
-            echo
-            echo "Created by SnowLuma Bot."
-          } > pr-body.md
-
-          existing="$(gh pr list --base main --head dev --state open --json number --jq '.[0].number' 2>/dev/null || true)"
-          if [ -n "${existing}" ]; then
-            gh pr edit "${existing}" --title "${title}" --body-file pr-body.md
-            pr_number="${existing}"
-            echo "Updated existing PR #${pr_number}"
-          else
-            url="$(gh pr create --base main --head dev --title "${title}" --body-file pr-body.md --label automation)"
-            pr_number="${url##*/}"
-            echo "Opened new PR #${pr_number} (${url})"
-          fi
-
-          echo "number=${pr_number}" >> "${GITHUB_OUTPUT}"
-          {
-            echo "## Promote PR"
-            echo
-            echo "- Number: #${pr_number}"
-            echo "- Source: \`dev@${DEV_SHORT}\`"
-            echo "- Ahead/Behind: ${AHEAD}/${BEHIND}"
           } >> "${GITHUB_STEP_SUMMARY}"
-
-      - name: Enable auto-merge
-        if: steps.diff.outputs.skip != 'true' && needs.decide.outputs.auto_merge == 'true'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
-          MERGE_METHOD: ${{ needs.decide.outputs.merge_method }}
-        run: |
-          set -euo pipefail
-          method_flag='--merge'
-          case "${MERGE_METHOD}" in
-            squash) method_flag='--squash' ;;
-            rebase) method_flag='--rebase' ;;
-            *)      method_flag='--merge' ;;
-          esac
-          gh pr merge "${PR_NUMBER}" --auto ${method_flag}
-          echo "::notice::Auto-merge enabled on PR #${PR_NUMBER} with strategy: ${MERGE_METHOD}"

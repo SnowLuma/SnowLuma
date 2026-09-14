@@ -1,0 +1,20 @@
+name: Main PR target guard
+
+# `main` is a pointer moved by Promote Dev to Main. Contributor and bot
+# feature work lands on dev. A PR opened against main (like the GHCR
+# fork PR) is what puts unique commits on main and fans the network graph.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  reject:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject pull requests targeting main
+        run: |
+          echo '::error::Open this PR against dev, not main. main is updated only by Promote Dev to Main.'
+          exit 1
