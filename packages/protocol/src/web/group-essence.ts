@@ -14,6 +14,10 @@ export interface GroupEssenceContent {
   file_id?: string;
   file_thumbnail_url?: string;
   file_size?: number | string;
+  share_title?: string;
+  share_summary?: string;
+  share_brief?: string;
+  share_url?: string;
 }
 
 export interface GroupEssenceMessage {

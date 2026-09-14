@@ -489,26 +489,48 @@ describe('extended-actions / get_essence_msg_list', () => {
     expect(cacheMessageMetas).not.toHaveBeenCalled();
   });
 
-  it('fails explicitly when QQ returns an unknown digest content type', async () => {
+  it('degrades unknown digest content types to text instead of failing the list', async () => {
     const getEssenceAll = vi.fn(async () => [{
       retcode: 0,
       data: {
         is_end: true,
-        msg_list: [fakeEssenceMessage({
-          msg_content: [{ msg_type: 99 }],
-        })],
+        msg_list: [
+          fakeEssenceMessage(),
+          fakeEssenceMessage({
+            msg_seq: 31416,
+            msg_content: [{
+              msg_type: 5,
+              share_title: '茶百道换换乐统计',
+              share_summary: '腾讯文档',
+              share_brief: '[腾讯文档] 茶百道换换乐统计',
+              share_url: 'https://docs.qq.com/sheet/example',
+            }],
+          }),
+          fakeEssenceMessage({
+            msg_seq: 31417,
+            msg_content: [{ msg_type: 99 }],
+          }),
+        ],
       },
     }]);
+    const cacheMessageMetas = vi.fn();
     const bridge = fakeBridge({ apis: { web: { getEssenceAll } } });
 
-    const response = await makeHandler(fakeCtx(bridge))
+    const response = await makeHandler(fakeCtx(bridge, { cacheMessageMetas }))
       .handle('get_essence_msg_list', { group_id: 123456789 });
 
-    expect(response).toMatchObject({
-      status: 'failed',
-      retcode: 100,
-      wording: expect.stringContaining('unsupported group essence content type: 99'),
-    });
+    expect(response).toMatchObject({ status: 'ok', retcode: 0 });
+    const rows = response.data as JsonObject[];
+    expect(rows).toHaveLength(3);
+    expect(rows[0]?.content).toEqual([{ type: 'text', data: { text: 'hello essence' } }]);
+    expect(rows[1]?.content).toEqual([{
+      type: 'text',
+      data: {
+        text: '[腾讯文档] 茶百道换换乐统计\n茶百道换换乐统计\n腾讯文档\nhttps://docs.qq.com/sheet/example',
+      },
+    }]);
+    expect(rows[2]?.content).toEqual([{ type: 'text', data: { text: '[essence type 99]' } }]);
+    expect(cacheMessageMetas).toHaveBeenCalledOnce();
   });
 
   it('does not cache message metadata when projection fails', async () => {
@@ -540,7 +562,7 @@ describe('extended-actions / get_essence_msg_list', () => {
           fakeEssenceMessage(),
           fakeEssenceMessage({
             msg_seq: 31416,
-            msg_content: [{ msg_type: 99 }],
+            add_digest_uin: 'not-a-uin',
           }),
         ],
       },
