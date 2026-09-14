@@ -6,6 +6,8 @@ import type {
   DoQunCommentResponse,
   GetAlbumListResponse,
   GetMediaListResponse,
+  GetQunFeedDetailRequest,
+  GetQunFeedDetailResponse,
 } from '@snowluma/proto-defs/oidb-actions/group-album';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { GroupAlbumApi } from '../../src/bridge/apis/group-album';
@@ -579,6 +581,54 @@ describe('apis/group-album', () => {
     };
   }
 
+  function packFeedDetail(
+    feedId = 'official-feed-id',
+    time = 1700000123n,
+  ): ReturnType<typeof packDeleteOk> {
+    return {
+      success: true,
+      gotResponse: true,
+      errorCode: 0,
+      errorMessage: '',
+      responseData: Buffer.from(protobuf_encode<GetQunFeedDetailResponse>({
+        result: 0,
+        data: {
+          feed: {
+            feed: {
+              cellCommon: { time, feedId },
+            },
+          },
+        },
+      })),
+    };
+  }
+
+  function packPhotoMedia(lloc = 'photo-lloc', batchId = 77n) {
+    return packMediaList({
+      mediaList: [{ type: 1, image: { lloc }, batchId }],
+    });
+  }
+
+  function commentMocks(
+    extra: (cmd: string) => ReturnType<typeof packDeleteOk> | undefined = () => undefined,
+  ) {
+    return async (cmd: string) => {
+      const override = extra(cmd);
+      if (override) return override;
+      if (cmd.endsWith('GetMediaList')) return packPhotoMedia();
+      if (cmd.endsWith('GetQunFeedDetail')) return packFeedDetail();
+      return packCommentOk({
+        data: {
+          id: 'cmt-1',
+          user: { uin: '10001' },
+          content: [{ type: 0, content: 'hello' }],
+          time: 1700000000n,
+          clientKey: 'ck',
+        },
+      });
+    };
+  }
+
   function commentRequestOf(bridge: ReturnType<typeof mockBridge>): DoQunCommentRequest {
     const commentCall = bridge.sendRawPacket.mock.calls.find((call) =>
       String(call[0]).endsWith('DoQunComment'),
@@ -589,35 +639,19 @@ describe('apis/group-album', () => {
     return protobuf_decode<DoQunCommentRequest>(commentCall![1] as Uint8Array);
   }
 
-  it('encodes a photo comment with the official MediaInfo cell and batch id', async () => {
+  function feedDetailRequestOf(bridge: ReturnType<typeof mockBridge>): GetQunFeedDetailRequest {
+    const feedCall = bridge.sendRawPacket.mock.calls.find((call) =>
+      String(call[0]).endsWith('GetQunFeedDetail'),
+    );
+    expect(feedCall?.[0]).toBe(
+      'QunAlbum.trpc.qzone.webapp_qun_feeds.FeedsReader.GetQunFeedDetail',
+    );
+    return protobuf_decode<GetQunFeedDetailRequest>(feedCall![1] as Uint8Array);
+  }
+
+  it('looks up the official feed then comments with its header and slim photo cell', async () => {
     const bridge = mockBridge();
-    bridge.sendRawPacket.mockImplementation(async (cmd: string) => {
-      if (cmd.endsWith('GetMediaList')) {
-        return packMediaList({
-          mediaList: [{
-            type: 1,
-            image: {
-              name: 'photo.jpg',
-              sloc: 'small-loc',
-              lloc: 'photo-lloc',
-              isGif: false,
-              hasRaw: true,
-            },
-            uploader: '10001',
-            batchId: 77n,
-          }],
-        });
-      }
-      return packCommentOk({
-        data: {
-          id: 'cmt-1',
-          user: { uin: '10001' },
-          content: [{ type: 0, content: 'hello' }],
-          time: 1700000000n,
-          clientKey: 'ck',
-        },
-      });
-    });
+    bridge.sendRawPacket.mockImplementation(commentMocks());
 
     await expect(new GroupAlbumApi(bridge as never).comment(12345, 'album-id', 'photo-lloc', 'hello'))
       .resolves.toEqual({
@@ -628,25 +662,32 @@ describe('apis/group-album', () => {
         clientKey: 'ck',
       });
 
+    expect(feedDetailRequestOf(bridge).data).toMatchObject({
+      groupId: '12345',
+      commentCount: 20,
+      albumId: 'album-id',
+      batchId: '77',
+      lloc: 'photo-lloc',
+    });
+    expect(feedDetailRequestOf(bridge).data?.feedId ?? '').toBe('');
+    expect(feedDetailRequestOf(bridge).data?.attachInfo ?? '').toBe('');
+
     const request = commentRequestOf(bridge);
     expect(request.field1).toBe(8527);
     expect(request.body).toMatchObject({
       groupId: '12345',
       field3: 2,
       reqBody: {
+        field1: {
+          time: 1700000123n,
+          feedId: 'official-feed-id',
+        },
         field2: { field1: { uin: '10001' } },
         field5: {
           albumId: 'album-id',
           batchId: 77n,
           medias: [{
-            type: 1,
-            image: {
-              name: 'photo.jpg',
-              sloc: 'small-loc',
-              lloc: 'photo-lloc',
-            },
-            uploader: '10001',
-            batchId: 77n,
+            image: { lloc: 'photo-lloc' },
           }],
         },
       },
@@ -655,23 +696,101 @@ describe('apis/group-album', () => {
         contents: [{ content: 'hello' }],
       },
     });
-    expect(request.body?.reqBody?.field1 ?? null).toBeNull();
+    expect(request.body?.reqBody?.field5?.medias?.[0]?.type ?? 0).toBe(0);
+  });
+
+  it('comments a video with the cover location and video media type', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockImplementation(commentMocks((cmd) => {
+      if (cmd.endsWith('GetMediaList')) {
+        return packMediaList({
+          mediaList: [{
+            type: 2,
+            video: { id: 'video-id', cover: { lloc: 'cover-lloc' } },
+            batchId: 88n,
+          }],
+        });
+      }
+      return undefined;
+    }));
+
+    await new GroupAlbumApi(bridge as never).comment(12345, 'album-id', 'video-id', 'hello');
+
+    expect(feedDetailRequestOf(bridge).data?.lloc).toBe('cover-lloc');
+    expect(commentRequestOf(bridge).body?.reqBody?.field5).toMatchObject({
+      albumId: 'album-id',
+      batchId: 88n,
+      medias: [{
+        type: 1,
+        video: { cover: { lloc: 'cover-lloc' } },
+      }],
+    });
+  });
+
+  it('rejects a comment when the album media cannot be resolved', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockImplementation(commentMocks((cmd) => {
+      if (cmd.endsWith('GetMediaList')) return packMediaList({ mediaList: [] });
+      return undefined;
+    }));
+
+    await expect(new GroupAlbumApi(bridge as never).comment(12345, 'album-id', 'missing-lloc', 'hello'))
+      .rejects.toThrow('comment album media error: media not found');
+    expect(bridge.sendRawPacket.mock.calls.some((call) => String(call[0]).endsWith('DoQunComment')))
+      .toBe(false);
+  });
+
+  it('rejects a comment when the official feed lookup fails', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockImplementation(commentMocks((cmd) => {
+      if (cmd.endsWith('GetQunFeedDetail')) {
+        return {
+          success: true,
+          gotResponse: true,
+          errorCode: 0,
+          errorMessage: '',
+          responseData: Buffer.from(protobuf_encode<GetQunFeedDetailResponse>({
+            result: 10016,
+            errorText: '服务器繁忙',
+          })),
+        };
+      }
+      return undefined;
+    }));
+
+    await expect(new GroupAlbumApi(bridge as never).comment(12345, 'album-id', 'photo-lloc', 'hello'))
+      .rejects.toThrow('fetch album feed error: retCode 10016, 服务器繁忙');
+    expect(bridge.sendRawPacket.mock.calls.some((call) => String(call[0]).endsWith('DoQunComment')))
+      .toBe(false);
+  });
+
+  it('rejects a comment when the official feed has no id', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockImplementation(commentMocks((cmd) => {
+      if (cmd.endsWith('GetQunFeedDetail')) return packFeedDetail('');
+      return undefined;
+    }));
+
+    await expect(new GroupAlbumApi(bridge as never).comment(12345, 'album-id', 'photo-lloc', 'hello'))
+      .rejects.toThrow('comment album media error: empty feed');
+    expect(bridge.sendRawPacket.mock.calls.some((call) => String(call[0]).endsWith('DoQunComment')))
+      .toBe(false);
   });
 
   it('rejects a seq-echo 8527 packet that has no comment body', async () => {
     const bridge = mockBridge();
-    bridge.sendRawPacket.mockImplementation(async (cmd: string) => {
-      if (cmd.endsWith('GetMediaList')) {
-        return packMediaList({ mediaList: [{ type: 1, image: { lloc: 'photo-lloc' } }] });
+    bridge.sendRawPacket.mockImplementation(commentMocks((cmd) => {
+      if (cmd.endsWith('DoQunComment')) {
+        return {
+          success: true,
+          gotResponse: true,
+          errorCode: 0,
+          errorMessage: '',
+          responseData: Buffer.from(protobuf_encode<DoQunCommentResponse>({ field1: 8527 })),
+        };
       }
-      return {
-        success: true,
-        gotResponse: true,
-        errorCode: 0,
-        errorMessage: '',
-        responseData: Buffer.from(protobuf_encode<DoQunCommentResponse>({ field1: 8527 })),
-      };
-    });
+      return undefined;
+    }));
 
     await expect(new GroupAlbumApi(bridge as never).comment(12345, 'album-id', 'photo-lloc', 'hello'))
       .rejects.toThrow('comment album media error: empty comment');
@@ -679,22 +798,22 @@ describe('apis/group-album', () => {
 
   it('surfaces the album result code instead of treating seq 8527 as success', async () => {
     const bridge = mockBridge();
-    bridge.sendRawPacket.mockImplementation(async (cmd: string) => {
-      if (cmd.endsWith('GetMediaList')) {
-        return packMediaList({ mediaList: [{ type: 1, image: { lloc: 'photo-lloc' } }] });
+    bridge.sendRawPacket.mockImplementation(commentMocks((cmd) => {
+      if (cmd.endsWith('DoQunComment')) {
+        return {
+          success: true,
+          gotResponse: true,
+          errorCode: 0,
+          errorMessage: '',
+          responseData: Buffer.from(protobuf_encode<DoQunCommentResponse>({
+            field1: 8527,
+            result: 1001,
+            errorText: 'permission denied',
+          })),
+        };
       }
-      return {
-        success: true,
-        gotResponse: true,
-        errorCode: 0,
-        errorMessage: '',
-        responseData: Buffer.from(protobuf_encode<DoQunCommentResponse>({
-          field1: 8527,
-          result: 1001,
-          errorText: 'permission denied',
-        })),
-      };
-    });
+      return undefined;
+    }));
 
     await expect(new GroupAlbumApi(bridge as never).comment(12345, 'album-id', 'photo-lloc', 'hello'))
       .rejects.toThrow('comment album media error: retCode 1001, permission denied');
@@ -702,17 +821,17 @@ describe('apis/group-album', () => {
 
   it('accepts a comment written directly on envelope field 4', async () => {
     const bridge = mockBridge();
-    bridge.sendRawPacket.mockImplementation(async (cmd: string) => {
-      if (cmd.endsWith('GetMediaList')) {
-        return packMediaList({ mediaList: [{ type: 1, image: { lloc: 'photo-lloc' } }] });
+    bridge.sendRawPacket.mockImplementation(commentMocks((cmd) => {
+      if (cmd.endsWith('DoQunComment')) {
+        return packCommentOk({
+          id: 'flat-id',
+          content: [{ type: 0, content: 'hello' }],
+          time: 123n,
+          clientKey: 'ck',
+        });
       }
-      return packCommentOk({
-        id: 'flat-id',
-        content: [{ type: 0, content: 'hello' }],
-        time: 123n,
-        clientKey: 'ck',
-      });
-    });
+      return undefined;
+    }));
 
     await expect(new GroupAlbumApi(bridge as never).comment(12345, 'album-id', 'photo-lloc', 'hello'))
       .resolves.toMatchObject({

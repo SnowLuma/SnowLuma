@@ -11,6 +11,8 @@ import type {
   DoQunLikeResponse,
   GetAlbumListRequest,
   GetAlbumListResponse,
+  GetQunFeedDetailRequest,
+  GetQunFeedDetailResponse,
   GroupAlbumInfo as GroupAlbumInfoWire,
   GetMediaListRequest,
   GetMediaListResponse,
@@ -26,6 +28,8 @@ const GET_ALBUM_LIST_CMD = 'QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetAlb
 const GET_ALBUM_LIST_SEQ = 3331;
 const DO_QUN_COMMENT_CMD = 'QunAlbum.trpc.qzone.webapp_qun_operation.FeedsWriter.DoQunComment';
 const DO_QUN_COMMENT_SEQ = 8527;
+const GET_QUN_FEED_DETAIL_CMD = 'QunAlbum.trpc.qzone.webapp_qun_feeds.FeedsReader.GetQunFeedDetail';
+const GET_QUN_FEED_DETAIL_COMMENT_COUNT = 20;
 
 function uint64ToString(value: bigint | undefined): string {
   return (value ?? 0n).toString();
@@ -316,8 +320,13 @@ export class GroupAlbumApi {
     const clientKey = Date.now().toString();
     const uin = this.ctx.identity.uin;
     const resolved = await this.resolveCommentMedia(groupId, albumId, lloc);
-    const media = mediaInfoForComment(resolved, lloc);
-    const batchId = media.batchId ?? optionalBatchId(resolved?.batchId);
+    const batchId = optionalBatchId(resolved?.batchId);
+    if (batchId === undefined) {
+      throw new Error('comment album media error: media not found');
+    }
+    const mediaLloc = commentMediaLloc(resolved, lloc);
+    const feed = await this.getQunFeedDetail(groupId, albumId, batchId, mediaLloc);
+    const media = mediaInfoForComment(resolved, mediaLloc);
 
     const body = protobuf_encode<DoQunCommentRequest>({
       field1: DO_QUN_COMMENT_SEQ,
@@ -327,13 +336,17 @@ export class GroupAlbumApi {
         groupId: groupId.toString(),
         field3: 2,
         reqBody: {
+          field1: {
+            time: feed.time,
+            feedId: feed.feedId,
+          },
           field2: {
             field1: { uin },
           },
           field5: {
             medias: [media],
             albumId,
-            ...(batchId !== undefined ? { batchId } : {}),
+            batchId,
           },
         },
         field5: {
@@ -517,36 +530,75 @@ export class GroupAlbumApi {
   }
 
   /**
-   * Official DoQunComment attaches the GetMediaList MediaInfo cell plus batch id.
-   * Page the album when the caller only has a lloc / video id.
+   * Page the album when the caller only has a lloc / video id, so the
+   * comment can carry the official batch id and media kind.
    */
   private async resolveCommentMedia(
     groupId: number,
     albumId: string,
     mediaKey: string,
   ): Promise<AlbumCommentMediaItem | undefined> {
-    try {
-      const seenCursors = new Set<string>();
-      let attachInfo = '';
-      while (true) {
-        const page = await this.getMediaList(groupId, albumId, attachInfo);
-        const hit = findCommentMedia(page.mediaList, mediaKey);
-        if (hit) return hit;
+    const seenCursors = new Set<string>();
+    let attachInfo = '';
+    while (true) {
+      const page = await this.getMediaList(groupId, albumId, attachInfo);
+      const hit = findCommentMedia(page.mediaList, mediaKey);
+      if (hit) return hit;
 
-        const next = page.nextAttachInfo ?? '';
-        if (!next || seenCursors.has(next)) return undefined;
-        seenCursors.add(next);
-        attachInfo = next;
-      }
-    } catch (err) {
-      log.debug(
-        'resolve album comment media failed, using lloc only: group=%d album=%s err=%s',
-        groupId,
-        albumId,
-        err instanceof Error ? err.message : String(err),
-      );
-      return undefined;
+      const next = page.nextAttachInfo ?? '';
+      if (!next || seenCursors.has(next)) return undefined;
+      seenCursors.add(next);
+      attachInfo = next;
     }
+  }
+
+  private async getQunFeedDetail(
+    groupId: number,
+    albumId: string,
+    batchId: bigint,
+    lloc: string,
+  ): Promise<{ time: bigint; feedId: string }> {
+    const traceId = `_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+    const body = protobuf_encode<GetQunFeedDetailRequest>({
+      seq: 0,
+      field2: new Uint8Array(0),
+      field3: new Uint8Array(0),
+      data: {
+        groupId: groupId.toString(),
+        feedId: '',
+        commentCount: GET_QUN_FEED_DETAIL_COMMENT_COUNT,
+        attachInfo: '',
+        albumId,
+        batchId: batchId.toString(),
+        lloc,
+      },
+      traceId,
+      extMap: [{ key: 'fc-appid', value: '100' }],
+    });
+
+    const result = await this.ctx.sendRawPacket(GET_QUN_FEED_DETAIL_CMD, body, 15000);
+    if (!result.success || !result.gotResponse || !result.responseData) {
+      throw new Error(result.errorMessage || 'failed to fetch album feed');
+    }
+
+    const resp = protobuf_decode<GetQunFeedDetailResponse>(result.responseData);
+    const resultCode = resp.result ?? 0;
+    if (resultCode !== 0) {
+      throw new Error(
+        `fetch album feed error: retCode ${resultCode}`
+        + (resp.errorText ? `, ${resp.errorText}` : ''),
+      );
+    }
+
+    const cell = resp.data?.feed?.feed?.cellCommon;
+    const feedId = cell?.feedId ?? '';
+    if (!feedId) {
+      throw new Error('comment album media error: empty feed');
+    }
+    return {
+      time: cell?.time ?? 0n,
+      feedId,
+    };
   }
 }
 
@@ -608,37 +660,23 @@ function optionalBatchId(value: unknown): bigint | undefined {
   }
 }
 
-function mediaInfoForComment(item: AlbumCommentMediaItem | undefined, lloc: string): MediaInfo {
-  if (!item) return { type: 1, image: { lloc } };
+function commentMediaLloc(item: AlbumCommentMediaItem | undefined, lloc: string): string {
+  if (item?.video?.cover?.lloc) return item.video.cover.lloc;
+  if (item?.image?.lloc) return item.image.lloc;
+  return lloc;
+}
 
-  const info: MediaInfo = {
-    type: item.type ?? (item.video ? 2 : 1),
+function mediaInfoForComment(item: AlbumCommentMediaItem | undefined, lloc: string): MediaInfo {
+  if (item?.video) {
+    return {
+      type: 1,
+      video: { cover: { lloc: item.video.cover?.lloc || lloc } },
+    };
+  }
+  return {
+    type: 0,
+    image: { lloc: item?.image?.lloc || lloc },
   };
-  if (item.image) {
-    info.image = {
-      name: item.image.name ?? '',
-      sloc: item.image.sloc ?? '',
-      lloc: item.image.lloc ?? '',
-      isGif: item.image.isGif ?? false,
-      hasRaw: item.image.hasRaw ?? false,
-    };
-  }
-  if (item.video) {
-    info.video = {
-      id: item.video.id ?? '',
-      ...(item.video.cover ? {
-        cover: {
-          name: item.video.cover.name ?? '',
-          sloc: item.video.cover.sloc ?? '',
-          lloc: item.video.cover.lloc ?? '',
-        },
-      } : {}),
-    };
-  }
-  if (item.uploader) info.uploader = String(item.uploader);
-  const batchId = optionalBatchId(item.batchId);
-  if (batchId !== undefined) info.batchId = batchId;
-  return info;
 }
 
 function findCommentMedia(
