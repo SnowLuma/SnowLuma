@@ -126,6 +126,16 @@ function headIsThisRelease() {
   return headSubject() === releaseCommit && packageVersion() === version;
 }
 
+/** The bump commit for this version, even if later tooling commits sit on top. */
+function thisReleaseSha() {
+  try {
+    const sha = shCapture(`git log -1 --format=%H --grep=${JSON.stringify(`^${releaseCommit}$`)}`);
+    return sha || null;
+  } catch {
+    return null;
+  }
+}
+
 function shCapture(cmd) {
   return execSync(cmd, { cwd: repoRoot, encoding: 'utf-8' }).trim();
 }
@@ -353,7 +363,9 @@ async function waitUntilMainIs(expectedSha) {
 }
 
 async function waitAndTag() {
-  const expectedSha = dryRun ? 'dry-run' : shCapture('git rev-parse dev');
+  const expectedSha = dryRun
+    ? 'dry-run'
+    : (thisReleaseSha() || shCapture('git rev-parse dev'));
 
   if (dryRun) {
     info(`would wait until origin/main equals dev @ ${expectedSha.slice(0, 12)}`);
