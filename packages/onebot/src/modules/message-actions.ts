@@ -26,6 +26,27 @@ import { hasAuthoritativeSequence, type JsonArray, type JsonObject, type JsonVal
 
 const log = createLogger('OneBot');
 
+function replyPreviewElements(message: unknown): MessageElement[] {
+  if (!Array.isArray(message)) return [];
+  const labels: Record<string, string> = {
+    image: '[图片]', record: '[语音]', video: '[视频]', file: '[文件]',
+    face: '[表情]', mface: '[表情]', forward: '[聊天记录]',
+    json: '[卡片]', xml: '[卡片]', markdown: '[Markdown]',
+  };
+  const parts: string[] = [];
+  for (const segment of message) {
+    if (!segment || typeof segment !== 'object') continue;
+    const data = segment.data;
+    if (!data || typeof data !== 'object') continue;
+    if (segment.type === 'text' && typeof data.text === 'string') parts.push(data.text);
+    else if (segment.type === 'at') parts.push(data.qq === 'all' ? '@全体成员' : `@${data.qq ?? ''}`);
+    else if (typeof segment.type === 'string' && labels[segment.type]) parts.push(labels[segment.type]);
+  }
+  const text = parts.join('');
+  return text ? [{ type: 'text', text }] : [];
+}
+
+
 // A video larger than QQ's Highway video ceiling can't be sent through the
 // element pipeline — it must fall back to a regular file upload. The fallback
 // is decided at the OneBot layer (not element-builder) because building a
@@ -840,6 +861,7 @@ export async function sendPrivateMessage(
           senderUin,
           time,
           random: meta?.random ?? 0,
+          elements: replyPreviewElements(event.message),
           sequenceAuthoritative: meta?.sequenceAuthoritative,
         };
       }
@@ -1081,6 +1103,7 @@ export async function sendGroupMessage(
             ? event.time
             : parseInt(String(event.time || '0'), 10),
           random: meta?.random ?? 0,
+          elements: replyPreviewElements(event.message),
           sequenceAuthoritative: meta?.sequenceAuthoritative,
         };
       }

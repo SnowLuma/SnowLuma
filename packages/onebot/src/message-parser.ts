@@ -22,6 +22,7 @@ export interface ParseMessageOptions {
     senderUin: number;
     time: number;
     random: number;
+    elements?: MessageElement[];
     sequenceAuthoritative?: boolean;
   } | null;
   resolveMentionUid?: (targetUin: number) => string | null | Promise<string | null>;
