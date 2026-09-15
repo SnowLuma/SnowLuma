@@ -60,6 +60,18 @@ describe('GetDoubtBuddyReq namespace', () => {
     expect(GetDoubtBuddyReq.deserialize({} as any, { status: 1 })).toEqual([]);
   });
 
+  it('keeps an empty uid when the reply only carries the account number', () => {
+    expect(GetDoubtBuddyReq.deserialize({} as any, {
+      status: 1,
+      body: { list: [{ nick: 'Alice', uin: 12345n, reqTime: 1700000000n }] },
+    })).toEqual([
+      {
+        uid: '', user_id: 12345, nick: 'Alice', source: '',
+        reason: '', msg: '', group_code: '', reqTime: 1700000000,
+      },
+    ]);
+  });
+
   it('keeps the uid string and does not reread it as the account number', async () => {
     const respEnv: OidbBase<OidbDoubtGetResp> = {
       command: 0xD69, subCommand: 0,

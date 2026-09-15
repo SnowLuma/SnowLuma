@@ -1903,7 +1903,8 @@ export const actions = [
     },
   }),
   // set_doubt_friends_add_request — handle a 可疑好友申请 (0xd69_0). `flag` is
-  // the uid from the get list. approve → approvalDoubtBuddyReq; approve:false
+  // the uid from the get list, or the applicant's account number (resolved
+  // before the packet is built). approve → approvalDoubtBuddyReq; approve:false
   // → delDoubtBuddyReq (reject/decline). NapCat only ever approves; we add the
   // reject path since we RE'd delDoubtBuddyReq too.
   defineAction({
