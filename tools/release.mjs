@@ -30,7 +30,6 @@
 
 import { execSync, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -155,24 +154,8 @@ function printManualFinish() {
   info(`Re-run the same command to resume: pnpm release ${version}`);
 }
 
-function syncMain() {
-  // Use a fully qualified refspec and an explicit fast-forward so release
-  // behavior cannot be changed by the caller's pull/rebase configuration.
-  shRetry('git fetch origin refs/heads/main:refs/remotes/origin/main');
-  sh('git switch main');
-  sh('git merge --ff-only origin/main');
-
-  if (dryRun) return;
-
-  const localMain = shCapture('git rev-parse refs/heads/main');
-  const remoteMain = shCapture('git rev-parse refs/remotes/origin/main');
-  if (localMain !== remoteMain) {
-    throw new Error(
-      `Refusing to tag: local main (${localMain.slice(0, 12)}) does not exactly match ` +
-      `origin/main (${remoteMain.slice(0, 12)}).`,
-    );
-  }
-  ok('main matches origin/main');
+function packageVersionAt(sha) {
+  return JSON.parse(shCapture(`git show ${sha}:package.json`)).version;
 }
 
 // ───────────── step 1: preflight ─────────────
@@ -384,23 +367,16 @@ async function waitAndTag() {
     const ready = await waitUntilMainIs(expectedSha);
     if (!ready) return;
   } else {
-    ok(`origin/main already equals dev @ ${expectedSha.slice(0, 12)}`);
+    ok(`origin/main already equals the release commit @ ${expectedSha.slice(0, 12)}`);
   }
 
-  syncMain();
-
-  const mainPkg = JSON.parse(await readFile(path.join(repoRoot, 'package.json'), 'utf-8'));
-  if (mainPkg.version !== version) {
-    warn(`main package.json is ${mainPkg.version} but you asked for ${version}.`);
+  const taggedVersion = packageVersionAt(expectedSha);
+  if (taggedVersion !== version) {
+    warn(`release commit package.json is ${taggedVersion} but you asked for ${version}.`);
     warn('Tagging anyway, but the release artifact name may not match.');
   }
 
-  try {
-    ensureTag(expectedSha);
-  } finally {
-    sh('git checkout dev');
-    ok('back on dev');
-  }
+  ensureTag(expectedSha);
 }
 
 // ───────────── go ─────────────
