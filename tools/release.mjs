@@ -7,10 +7,12 @@
 //
 // What it does, in order:
 //   1. Sanity-check: on `dev`, clean tree. Must not be behind origin/dev.
-//      Ahead-by-one is allowed when HEAD is already this version's
-//      `chore(release):` commit (resume after a dropped push).
+//      Already being this version's `chore(release):` commit is a resume
+//      (after a dropped push, a failed fetch-while-waiting, or a failed
+//      tag push). Re-run `pnpm release <version>` as many times as needed.
 //   2. Full CI suite (`node tools/ci-check.mjs`) — the same commands as
-//      `.github/workflows/ci.yml`. Fail here instead of after the bump.
+//      `.github/workflows/ci.yml`. Skipped on resume. Fail here instead
+//      of after the bump.
 //   3. `pnpm bump <version>` (writes every package.json).
 //   4. Commit `chore(release): vX.Y.Z` — that prefix triggers the
 //      Promote workflow, which points `main` at the dev tip. Skipped
@@ -23,8 +25,8 @@
 //   7. Switch back to `dev` so the next `git log` view is back where
 //      you were.
 //
-// Re-run the same `pnpm release <version>` after a dropped push; do
-// not amend the release commit.
+// Re-run the same `pnpm release <version>` after any mid-pipeline
+// failure (push, wait, tag). Do not amend the release commit.
 
 import { execSync, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -79,9 +81,18 @@ function sleepSync(ms) {
   execSync(`sleep ${Math.max(1, Math.ceil(ms / 1000))}`);
 }
 
+function gitOk(cmd) {
+  if (dryRun) {
+    console.log(`[dry-run] $ ${cmd}`);
+    return true;
+  }
+  const result = spawnSync(cmd, { cwd: repoRoot, shell: true, stdio: 'inherit' });
+  return result.status === 0;
+}
+
 /** Retry git fetch / push. TLS drops after a successful commit used to abort
- *  the whole pipeline with no way to resume except by hand. */
-function shRetry(cmd, { attempts = 5 } = {}) {
+ *  the whole pipeline; re-run `pnpm release <version>` to resume. */
+function shRetry(cmd, { attempts = 8 } = {}) {
   if (dryRun) {
     console.log(`[dry-run] $ ${cmd}`);
     return '';
@@ -89,17 +100,16 @@ function shRetry(cmd, { attempts = 5 } = {}) {
   let delayMs = 2000;
   for (let i = 1; i <= attempts; i++) {
     if (i > 1) info(`retry ${i}/${attempts}: ${cmd}`);
-    const result = spawnSync(cmd, { cwd: repoRoot, shell: true, stdio: 'inherit' });
-    if (result.status === 0) return '';
+    if (gitOk(cmd)) return '';
     if (i === attempts) {
-      const hint = cmd.includes('git push origin dev')
-        ? `\nRelease commit is already local. Fix the network and re-run: pnpm release ${version}`
-        : '';
-      throw new Error(`Command failed after ${attempts} attempts: ${cmd}${hint}`);
+      throw new Error(
+        `Command failed after ${attempts} attempts: ${cmd}\n` +
+        `Re-run: pnpm release ${version}`,
+      );
     }
-    warn(`failed (exit ${result.status}), retrying in ${delayMs / 1000}s`);
+    warn(`failed, retrying in ${delayMs / 1000}s`);
     sleepSync(delayMs);
-    delayMs *= 2;
+    delayMs = Math.min(delayMs * 2, 30_000);
   }
   return '';
 }
@@ -132,19 +142,13 @@ function info(msg) { console.log(`\x1b[36mi\x1b[0m ${msg}`); }
 function warn(msg) { console.log(`\x1b[33m!\x1b[0m ${msg}`); }
 
 function printManualFinish() {
-  info('Once origin/main equals the dev tip, finish with:');
-  info(`  pnpm release ${version}`);
-  info('or by hand:');
-  info('  git fetch origin refs/heads/main:refs/remotes/origin/main');
-  info('  git switch main');
-  info('  git merge --ff-only origin/main');
-  info(`  git tag ${tag} && git push origin ${tag}`);
+  info(`Re-run the same command to resume: pnpm release ${version}`);
 }
 
 function syncMain() {
   // Use a fully qualified refspec and an explicit fast-forward so release
   // behavior cannot be changed by the caller's pull/rebase configuration.
-  shRetry('git fetch origin refs/heads/main:refs/remotes/origin/main --quiet');
+  shRetry('git fetch origin refs/heads/main:refs/remotes/origin/main');
   sh('git switch main');
   sh('git merge --ff-only origin/main');
 
@@ -181,9 +185,9 @@ function preflight() {
   }
 
   // Make sure we're not behind origin/dev so the bump commit doesn't
-  // collide with someone else's push. Ahead-by-one is a resume: the
-  // previous run committed the bump then dropped the push.
-  shRetry('git fetch origin refs/heads/dev:refs/remotes/origin/dev --quiet');
+  // collide with someone else's push. Already being this release commit
+  // (in sync, or ahead by the unpushed bump) is a resume.
+  shRetry('git fetch origin refs/heads/dev:refs/remotes/origin/dev');
   const local = shCapture('git rev-parse dev');
   const remote = shCapture('git rev-parse origin/dev');
   if (local !== remote) {
@@ -192,8 +196,8 @@ function preflight() {
     if (behind !== '0') {
       preflightFail(`dev is behind origin/dev (behind=${behind}). Pull first.`);
     }
-    if (ahead === '1' && headIsThisRelease()) {
-      warn(`dev is ahead of origin/dev by 1; HEAD is ${releaseCommit}, will resume from push`);
+    if (headIsThisRelease()) {
+      warn(`dev is ahead of origin/dev by ${ahead}; HEAD is ${releaseCommit}, will resume`);
     } else {
       preflightFail(`dev is not in sync with origin/dev (ahead=${ahead}, behind=${behind}). Pull / push first.`);
     }
@@ -203,6 +207,10 @@ function preflight() {
 }
 
 function runCiSuite() {
+  if (!dryRun && headIsThisRelease()) {
+    warn(`HEAD is already ${releaseCommit}; skipping CI suite (resume)`);
+    return;
+  }
   info('running the full CI suite (same commands as .github/workflows/ci.yml)');
   sh('node tools/ci-check.mjs');
   if (!dryRun) ok('CI suite passed');
@@ -232,6 +240,12 @@ function bumpAndPushDev() {
     }
   }
 
+  const local = shCapture('git rev-parse dev');
+  const remote = shCapture('git rev-parse origin/dev');
+  if (!dryRun && local === remote) {
+    info('origin/dev already has this tip; skipping push');
+    return;
+  }
   shRetry('git push origin dev');
   ok(`pushed to origin/dev — Promote workflow should kick off shortly`);
 }
@@ -250,70 +264,131 @@ function promoteRunFailed(expectedSha) {
   }
 }
 
+function localTagSha() {
+  const result = spawnSync('git', ['rev-parse', '-q', '--verify', `${tag}^{commit}`], {
+    cwd: repoRoot,
+    encoding: 'utf-8',
+  });
+  if (result.status !== 0) return null;
+  return (result.stdout || '').trim();
+}
+
+function remoteTagSha() {
+  try {
+    const out = shCapture(`git ls-remote --tags origin refs/tags/${tag} refs/tags/${tag}^{}`);
+    if (!out) return null;
+    const lines = out.split('\n').filter(Boolean);
+    const peeled = lines.find((line) => line.includes('^{}'));
+    return (peeled || lines[0]).split(/\s+/)[0];
+  } catch {
+    return null;
+  }
+}
+
+function originMainSha() {
+  try {
+    return shCapture('git rev-parse refs/remotes/origin/main');
+  } catch {
+    return null;
+  }
+}
+
+function ensureTag(expectedSha) {
+  const local = localTagSha();
+  if (local && local !== expectedSha) {
+    throw new Error(
+      `Local tag ${tag} points at ${local.slice(0, 12)}, expected ${expectedSha.slice(0, 12)}. ` +
+      `Delete it first if you meant to retarget: git tag -d ${tag}`,
+    );
+  }
+  if (!local) sh(`git tag ${tag} ${expectedSha}`);
+  else info(`tag ${tag} already points at ${expectedSha.slice(0, 12)}`);
+
+  const remote = remoteTagSha();
+  if (remote === expectedSha) {
+    info(`origin already has ${tag} at ${expectedSha.slice(0, 12)}`);
+    return;
+  }
+  if (remote && remote !== expectedSha) {
+    throw new Error(
+      `origin ${tag} points at ${remote.slice(0, 12)}, expected ${expectedSha.slice(0, 12)}. ` +
+      `Not moving a live tag.`,
+    );
+  }
+  shRetry(`git push origin ${tag}`);
+  ok(`tagged and pushed ${tag} — release workflow will pick it up`);
+}
+
+async function waitUntilMainIs(expectedSha) {
+  info(`waiting until origin/main equals dev @ ${expectedSha.slice(0, 12)}...`);
+  info('press Ctrl-C if you want to stop; re-run the same command to resume.');
+
+  const startedAt = Date.now();
+  const TIMEOUT_MS = 30 * 60 * 1000;
+  const POLL_MS = 15 * 1000;
+
+  while (Date.now() - startedAt < TIMEOUT_MS) {
+    if (gitOk('git fetch origin refs/heads/main:refs/remotes/origin/main')) {
+      const mainSha = originMainSha();
+      if (mainSha === expectedSha) {
+        ok(`origin/main is dev @ ${expectedSha.slice(0, 12)}`);
+        return true;
+      }
+    } else {
+      warn('fetch origin/main failed; will keep waiting (re-run this command if you abort)');
+    }
+
+    const failed = promoteRunFailed(expectedSha);
+    if (failed) {
+      warn(`a Promote run failed for ${expectedSha.slice(0, 12)}: ${failed.url}`);
+      warn('still waiting in case a later Promote succeeds');
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+  }
+
+  warn('30-minute timeout reached without origin/main matching dev.');
+  printManualFinish();
+  return false;
+}
+
 async function waitAndTag() {
   const expectedSha = dryRun ? 'dry-run' : shCapture('git rev-parse dev');
 
   if (dryRun) {
     info(`would wait until origin/main equals dev @ ${expectedSha.slice(0, 12)}`);
+    info(`would tag ${tag} and push origin ${tag}`);
+    return;
+  }
+
+  const alreadyTagged = remoteTagSha() === expectedSha || localTagSha() === expectedSha;
+  if (alreadyTagged && remoteTagSha() === expectedSha) {
+    ok(`origin already has ${tag} at ${expectedSha.slice(0, 12)}; nothing to do`);
+    return;
+  }
+
+  gitOk('git fetch origin refs/heads/main:refs/remotes/origin/main');
+  if (originMainSha() !== expectedSha) {
+    const ready = await waitUntilMainIs(expectedSha);
+    if (!ready) return;
   } else {
-    info(`waiting until origin/main equals dev @ ${expectedSha.slice(0, 12)}...`);
-    info('press Ctrl-C if you want to handle main / tag manually.');
-
-    const startedAt = Date.now();
-    const TIMEOUT_MS = 30 * 60 * 1000;
-    const POLL_MS = 15 * 1000;
-    let promoted = false;
-
-    while (Date.now() - startedAt < TIMEOUT_MS) {
-      const failed = promoteRunFailed(expectedSha);
-      if (failed) {
-        console.error(`Promote failed for ${expectedSha.slice(0, 12)}: ${failed.url}`);
-        process.exit(1);
-      }
-
-      shRetry('git fetch origin refs/heads/main:refs/remotes/origin/main --quiet');
-      const mainSha = shCapture('git rev-parse origin/main');
-      if (mainSha === expectedSha) {
-        ok(`origin/main is dev @ ${expectedSha.slice(0, 12)}`);
-        promoted = true;
-        break;
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-    }
-
-    if (!promoted) {
-      warn('30-minute timeout reached without origin/main matching dev.');
-      printManualFinish();
-      return;
-    }
+    ok(`origin/main already equals dev @ ${expectedSha.slice(0, 12)}`);
   }
 
   syncMain();
 
-  // Sanity: package.json on main matches version
   const mainPkg = JSON.parse(await readFile(path.join(repoRoot, 'package.json'), 'utf-8'));
   if (mainPkg.version !== version) {
     warn(`main package.json is ${mainPkg.version} but you asked for ${version}.`);
     warn('Tagging anyway, but the release artifact name may not match.');
   }
 
-  if (dryRun) {
-    info(`would tag ${tag} and push origin ${tag}`);
-  } else {
-    const exists = spawnSync('git', ['rev-parse', '-q', '--verify', `refs/tags/${tag}`], {
-      cwd: repoRoot,
-      stdio: 'ignore',
-    }).status === 0;
-    if (exists) warn(`tag ${tag} already exists locally`);
-    else sh(`git tag ${tag}`);
-    shRetry(`git push origin ${tag}`);
-    ok(`tagged and pushed ${tag} — release workflow will pick it up`);
+  try {
+    ensureTag(expectedSha);
+  } finally {
+    sh('git checkout dev');
+    ok('back on dev');
   }
-
-  // Hop back to dev so the user lands where they started.
-  sh('git checkout dev');
-  ok('back on dev');
 }
 
 // ───────────── go ─────────────
