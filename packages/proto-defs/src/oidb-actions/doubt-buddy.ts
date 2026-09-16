@@ -5,8 +5,11 @@
 // GET request (EncodeRequest sub_3F3DC20): {1:const 1, 2:{1:num, 2:uk}}.
 //   reqId is NOT serialized (kernel uses it only for JS callback correlation).
 // GET response: status (==1 ok) + body{1:repeated item, 2:reason}.
-//   Per-item: uid(1) and reqTime(9,u64) are HIGH confidence (read verbatim
-//   from the codec). The string tags' semantic NAMES (nick/source/msg) come
+//   Linux 3.2.32 sends the account number at tag 1 (varint), request time at
+//   tag 8, and source group at tag 9; it carries no string uid. Some builds
+//   send a string uid at tag 1 instead, so the service decodes both wire
+//   types and keeps whichever is present.
+//   The string tags' semantic NAMES (nick/source/msg) come
 //   from the GENERIC buddy serializer registry, not a doubt-specific table,
 //   so they are MEDIUM confidence — but this is a READ, so a mislabel is
 //   cosmetic, never a malformed-packet/ban risk. We model the ones NapCat
@@ -34,10 +37,9 @@ export interface OidbDoubtItem {
   msg?:           pb<5, string>;
   source?:        pb<6, string>;
   reason?:        pb<7, string>;
-  uin?:           pb<8, uint_64>;
-  reqTime?:       pb<9, uint_64>;
+  reqTime?:       pb<8, uint_64>;
+  groupCode?:     pb<9, uint_64>;
   commFriendNum?: pb<10, uint_32>;
-  groupCode?:     pb<11, string>;
 }
 export interface OidbDoubtGetRespBody {
   list?:   pb_repeated<1, OidbDoubtItem>;

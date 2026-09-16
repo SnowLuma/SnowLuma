@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type { OidbDoubtGetResp } from '@snowluma/proto-defs/oidb-actions/doubt-buddy';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 import { GetDoubtBuddyReq } from '../../../src/oidb-services/friend/get-doubt-buddy-req';
-import { env, v, m } from '../_pb-oracle';
+import { env, v, s, m } from '../_pb-oracle';
 
 function makeSender(): { sendRawPacket: ReturnType<typeof vi.fn> } {
   const respEnv: OidbBase<OidbDoubtGetResp> = {
@@ -12,7 +14,7 @@ function makeSender(): { sendRawPacket: ReturnType<typeof vi.fn> } {
     body: { status: 1, body: { list: [
       {
         uid: 'u_alice', nick: 'Alice', source: '可能认识', reason: '',
-        msg: 'hi', uin: 12345n, groupCode: '', reqTime: 1700000000n,
+        msg: 'hi', reqTime: 1700000000n,
       },
     ], reason: '' } },
   };
@@ -46,11 +48,11 @@ describe('GetDoubtBuddyReq namespace', () => {
     expect(Buffer.from(bytes).toString('hex')).toBe(env(0xD69, 0, body, true));
   });
 
-  it('deserializes the item list to the OneBot shape (uid + reqTime high-confidence)', async () => {
+  it('deserializes the string uid item to the OneBot shape', async () => {
     const list = await GetDoubtBuddyReq.invoke(makeSender(), { count: 10 });
     expect(list).toEqual([
       {
-        uid: 'u_alice', user_id: 12345, nick: 'Alice', source: '可能认识',
+        uid: 'u_alice', user_id: 0, nick: 'Alice', source: '可能认识',
         reason: '', msg: 'hi', group_code: '', reqTime: 1700000000,
       },
     ]);
@@ -73,16 +75,20 @@ describe('GetDoubtBuddyReq namespace', () => {
   });
 
   it('keeps the uid string and does not reread it as the account number', async () => {
-    const respEnv: OidbBase<OidbDoubtGetResp> = {
-      command: 0xD69, subCommand: 0,
-      body: { status: 1, body: { list: [
-        { uid: 'u_alice', nick: 'Alice', msg: 'hi', source: 'QQ号查找', reason: 'caution' },
-      ] } },
-    };
+    const item = [
+      ...s(1, 'u_alice'),
+      ...s(2, 'Alice'),
+      ...s(5, 'hi'),
+      ...s(6, 'QQ号查找'),
+      ...s(7, 'caution'),
+    ];
     const sender = {
       sendRawPacket: vi.fn(async () => ({
         success: true, gotResponse: true, errorCode: 0, errorMessage: '',
-        responseData: Buffer.from(protobuf_encode<OidbBase<OidbDoubtGetResp>>(respEnv)),
+        responseData: Buffer.from(env(0xD69, 0, [
+          ...v(1, 1),
+          ...m(2, m(1, item)),
+        ], false), 'hex'),
       })),
     };
     const list = await GetDoubtBuddyReq.invoke(sender, { count: 10 });
@@ -92,5 +98,45 @@ describe('GetDoubtBuddyReq namespace', () => {
         reason: 'caution', msg: 'hi', group_code: '', reqTime: 0,
       },
     ]);
+  });
+
+  // Live capture from QQ 3.2.32-52194 on Linux. Locks the real wire shape:
+  // tag1 is the applicant's account number (not a string uid), tag8 is the
+  // request unix time, and tag9 is the source group. Before this, a tag8-as-uin
+  // read made the uin->uid fallback query the request time as an account.
+  it('decodes a captured Linux reply: account at tag1, time at tag8, group at tag9', () => {
+    const hex = readFileSync(
+      fileURLToPath(new URL('./fixtures/d69-linux-3.2.32.hex', import.meta.url)),
+      'utf8',
+    ).trim();
+    const list = GetDoubtBuddyReq.deserialize(
+      {} as any,
+      GetDoubtBuddyReq.decode(Buffer.from(hex, 'hex')).body!,
+    );
+
+    expect(list).toHaveLength(12);
+    expect(list[0]).toMatchObject({
+      uid: '',
+      user_id: 100000000,
+      nick: 'nick00',
+      source: 'QQ group',
+      reason: 'filtered friend request',
+      msg: 'msg00',
+      group_code: '700000000',
+      reqTime: 1750000000,
+    });
+    expect(list[1]).toMatchObject({
+      uid: '',
+      user_id: 101111111,
+      group_code: '700000013',
+      reqTime: 1750086400,
+    });
+    // Account numbers stay in the QQ range; request times land in 2025-2026.
+    for (const item of list) {
+      expect(item.user_id).toBeGreaterThan(100000);
+      expect(item.user_id).toBeLessThan(4294967296);
+      expect(item.reqTime).toBeGreaterThan(1700000000);
+      expect(item.reqTime).toBeLessThan(2000000000);
+    }
   });
 });
