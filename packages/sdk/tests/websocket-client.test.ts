@@ -140,4 +140,36 @@ describe('SnowLumaWebSocketClient', () => {
 
     await expect(request).rejects.toBeInstanceOf(SnowLumaAbortError);
   });
+
+  it('dispatches bot_status notices to onBotStatus', async () => {
+    MockWebSocket.instances = [];
+    const client = new SnowLumaWebSocketClient({
+      url: 'ws://127.0.0.1:3001/',
+      webSocket: MockWebSocket,
+    });
+    const handler = vi.fn();
+    client.onBotStatus(handler);
+
+    const connecting = client.connect();
+    const socket = MockWebSocket.instances[0]!;
+    socket.open();
+    await connecting;
+    socket.message(JSON.stringify({
+      time: 1_710_000_000,
+      self_id: 10000,
+      post_type: 'notice',
+      notice_type: 'bot_status',
+      sub_type: 'offline',
+      user_id: 10000,
+    }));
+
+    await vi.waitFor(() => {
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler.mock.calls[0]![0]).toMatchObject({
+        notice_type: 'bot_status',
+        sub_type: 'offline',
+        user_id: 10000,
+      });
+    });
+  });
 });

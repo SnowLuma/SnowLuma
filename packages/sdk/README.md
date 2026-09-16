@@ -91,6 +91,10 @@ bot.onRequest('friend', async (_event, ctx) => {
   await ctx.approve();
 });
 
+bot.onBotStatus((event) => {
+  console.log(event.sub_type, event.user_id);
+});
+
 await bot.connect();
 await bot.sendPrivateMessage(10001, text('ready'));
 ```

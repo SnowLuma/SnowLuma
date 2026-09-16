@@ -7,6 +7,7 @@ import {
 import { Emitter } from '../emitter';
 import {
   createEventContext,
+  isBotStatusEvent,
   isGroupMessageEvent,
   isMessageEvent,
   isMetaEvent,
@@ -41,6 +42,7 @@ import type {
   ApiResponse,
   JsonObject,
   JsonValue,
+  OneBotBotStatusEvent,
   OneBotMessageEvent,
   OneBotMetaEvent,
   OneBotNoticeEvent,
@@ -177,6 +179,10 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
       return this.when(noticeType(typeOrHandler), handler);
     }
     return this.when(isNoticeEvent, typeOrHandler);
+  }
+
+  onBotStatus(handler: EventHandler<OneBotBotStatusEvent>): () => void {
+    return this.when(isBotStatusEvent, handler);
   }
 
   onRequest(handler: EventHandler<OneBotRequestEvent>): () => void;
