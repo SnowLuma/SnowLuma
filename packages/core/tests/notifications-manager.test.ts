@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   NotificationManager,
   selectChannels,
+  type MailPayload,
   type NotificationManagerDeps,
   type PostResult,
 } from '../src/notifications/manager';
@@ -11,9 +12,30 @@ function ch(over: Partial<NotificationChannel> = {}): NotificationChannel {
   return {
     id: 'c1',
     name: 'C1',
+    type: 'webhook',
     url: 'https://hook.example/c1',
     bodyTemplate: '{event}:{uin}:{nickname}',
     enabled: true,
+    ...over,
+  };
+}
+
+function emailCh(over: Partial<NotificationChannel> = {}): NotificationChannel {
+  return {
+    id: 'mail',
+    name: 'Mail',
+    type: 'email',
+    url: '',
+    bodyTemplate: '{event}:{uin}:{nickname}',
+    enabled: true,
+    smtpHost: 'smtp.example.com',
+    smtpPort: 465,
+    smtpSecure: true,
+    smtpUser: 'bot@example.com',
+    smtpPass: 'secret',
+    from: 'bot@example.com',
+    to: 'ops@example.com',
+    subjectTemplate: '{event} {uin}',
     ...over,
   };
 }
@@ -163,6 +185,82 @@ describe('NotificationManager.testSend', () => {
   it('surfaces a failed delivery without throwing', async () => {
     const { mgr } = setup({ post: async (): Promise<PostResult> => ({ ok: false, status: 500, error: 'nope' }) });
     expect(await mgr.testSend('c1')).toMatchObject({ found: true, ok: false, status: 500 });
+  });
+});
+
+describe('NotificationManager — email channels', () => {
+  it('sends mail instead of POSTing, with rendered subject and body', async () => {
+    const posts: unknown[] = [];
+    const mails: MailPayload[] = [];
+    const mgr = new NotificationManager({
+      loadConfig: () => ({ version: 1, debounceSeconds: 30, channels: [emailCh()] }),
+      loadChannelIds: () => ['mail'],
+      post: async (url, body) => {
+        posts.push({ url, body });
+        return { ok: true, status: 200 };
+      },
+      sendMail: async (mail) => {
+        mails.push(mail);
+        return { ok: true };
+      },
+      now: () => 1000,
+    });
+    await mgr.notify('123', 'offline');
+    expect(posts).toEqual([]);
+    expect(mails).toEqual([{
+      host: 'smtp.example.com',
+      port: 465,
+      secure: true,
+      user: 'bot@example.com',
+      pass: 'secret',
+      from: 'bot@example.com',
+      to: 'ops@example.com',
+      subject: 'offline 123',
+      text: 'offline:123:123',
+    }]);
+  });
+
+  it('records a failed sendMail without calling post', async () => {
+    const mgr = new NotificationManager({
+      loadConfig: () => ({ version: 1, debounceSeconds: 30, channels: [emailCh()] }),
+      loadChannelIds: () => ['mail'],
+      post: async () => {
+        throw new Error('webhook must not run');
+      },
+      sendMail: async () => ({ ok: false, error: 'SMTP 认证失败' }),
+      now: () => 1000,
+    });
+    await mgr.notify('123', 'offline');
+    expect(mgr.getRecent()[0]).toMatchObject({ ok: false, error: 'SMTP 认证失败', channelId: 'mail' });
+  });
+
+  it('fails closed when sendMail is not wired', async () => {
+    const mgr = new NotificationManager({
+      loadConfig: () => ({ version: 1, debounceSeconds: 30, channels: [emailCh()] }),
+      loadChannelIds: () => ['mail'],
+      post: async () => ({ ok: true, status: 200 }),
+      now: () => 1000,
+    });
+    await mgr.notify('123', 'offline');
+    expect(mgr.getRecent()[0]).toMatchObject({ ok: false, error: 'email delivery is not configured' });
+  });
+
+  it('testSend uses sendMail and still skips history', async () => {
+    const mails: MailPayload[] = [];
+    const mgr = new NotificationManager({
+      loadConfig: () => ({ version: 1, debounceSeconds: 30, channels: [emailCh({ enabled: false })] }),
+      loadChannelIds: () => [],
+      post: async () => ({ ok: true, status: 200 }),
+      sendMail: async (mail) => {
+        mails.push(mail);
+        return { ok: true };
+      },
+      now: () => 1000,
+    });
+    expect(await mgr.testSend('mail')).toMatchObject({ found: true, ok: true });
+    expect(mails[0]?.subject).toBe('offline 10000');
+    expect(mails[0]?.text).toBe('offline:10000:测试账号');
+    expect(mgr.getRecent()).toEqual([]);
   });
 });
 

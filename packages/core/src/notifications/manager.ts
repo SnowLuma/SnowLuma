@@ -2,16 +2,17 @@
 //
 // Subscribes to BridgeManager session online/offline edges, runs a per-UIN
 // debounce state machine (see debounce.ts), and on a fired transition renders
-// each opted-in + enabled channel's body template and POSTs it — recording the
+// each opted-in + enabled channel's template and delivers it — recording the
 // outcome in a bounded in-memory history (lost on restart, by design).
 //
-// Side-effecting collaborators (config load, per-UIN channel ids, the outbound
-// POST, the clock) are injected so the class is fully unit-testable; the real
-// wiring lives in `createNotificationManager()` at the bottom.
+// Side-effecting collaborators (config load, per-UIN channel ids, webhook POST,
+// SMTP send, the clock) are injected so the class is fully unit-testable; the
+// real wiring lives in `createNotificationManager()` at the bottom.
 import { createLogger } from '@snowluma/common/logger';
 import { loadOneBotConfig } from '@snowluma/onebot/config';
 import type { BridgeManager } from '../bridge/manager';
 import {
+  isEmailChannel,
   loadNotificationsConfig,
   renderTemplate,
   type NotificationChannel,
@@ -19,6 +20,7 @@ import {
   type NotificationsConfig,
 } from './config';
 import { DebounceMachine, type DebounceDecision } from './debounce';
+import { formatSmtpError, parseRecipients, sendSmtpMail } from './smtp';
 
 const log = createLogger('Notifications');
 
@@ -43,13 +45,27 @@ export interface PostResult {
   error?: string;
 }
 
+export interface MailPayload {
+  host: string;
+  port: number;
+  secure: boolean;
+  user?: string;
+  pass?: string;
+  from: string;
+  to: string;
+  subject: string;
+  text: string;
+}
+
 export interface NotificationManagerDeps {
   /** Global channel store (channels + debounceSeconds). */
   loadConfig: () => NotificationsConfig;
   /** The channel ids a UIN has opted into. */
   loadChannelIds: (uin: string) => string[];
-  /** Outbound delivery — never throws; failures come back as `{ ok: false }`. */
+  /** Webhook delivery — never throws; failures come back as `{ ok: false }`. */
   post: (url: string, body: string, headers?: Record<string, string>) => Promise<PostResult>;
+  /** SMTP delivery — optional so webhook-only tests stay lean. */
+  sendMail?: (mail: MailPayload) => Promise<PostResult>;
   now: () => number;
   historyLimit?: number;
 }
@@ -140,7 +156,7 @@ export class NotificationManager {
     }
   }
 
-  /** Render + POST a transition to every opted-in, enabled channel and record
+  /** Render + deliver a transition to every opted-in, enabled channel and record
    *  the outcome. Never throws (a bad channel can't break the others). */
   async notify(uin: string, event: NotificationEvent): Promise<void> {
     let channels: NotificationChannel[];
@@ -162,14 +178,7 @@ export class NotificationManager {
     };
 
     for (const ch of channels) {
-      const body = renderTemplate(ch.bodyTemplate, vars);
-      let result: PostResult;
-      try {
-        result = await this.deps.post(ch.url, body, ch.headers);
-      } catch (err) {
-        // The injected post is contracted not to throw, but guard anyway.
-        result = { ok: false, error: errMsg(err) };
-      }
+      const result = await this.deliver(ch, vars);
       this.record({
         time: this.deps.now(),
         uin,
@@ -185,9 +194,33 @@ export class NotificationManager {
     }
   }
 
+  private async deliver(ch: NotificationChannel, vars: Record<string, string>): Promise<PostResult> {
+    try {
+      if (isEmailChannel(ch)) {
+        const send = this.deps.sendMail;
+        if (!send) return { ok: false, error: 'email delivery is not configured' };
+        return await send({
+          host: ch.smtpHost,
+          port: ch.smtpPort,
+          secure: ch.smtpSecure,
+          user: ch.smtpUser,
+          pass: ch.smtpPass,
+          from: ch.from,
+          to: ch.to,
+          subject: renderTemplate(ch.subjectTemplate, vars),
+          text: renderTemplate(ch.bodyTemplate, vars),
+        });
+      }
+      return await this.deps.post(ch.url, renderTemplate(ch.bodyTemplate, vars), ch.headers);
+    } catch (err) {
+      // Injected collaborators are contracted not to throw, but guard anyway.
+      return { ok: false, error: errMsg(err) };
+    }
+  }
+
   /** Send a one-off test to a single channel by id — ignores `enabled` and the
    *  per-UIN opt-in (you test a channel before wiring it up), with sample
-   *  variables. Reuses the real render+POST path; NOT recorded to history.
+   *  variables. Reuses the real render+deliver path; NOT recorded to history.
    *  `found:false` means the channel id is unknown. */
   async testSend(channelId: string): Promise<PostResult & { found: boolean }> {
     let channel: NotificationChannel | undefined;
@@ -197,17 +230,13 @@ export class NotificationManager {
       return { ok: false, found: false, error: errMsg(err) };
     }
     if (!channel) return { ok: false, found: false };
-    const body = renderTemplate(channel.bodyTemplate, {
+    const vars = {
       uin: '10000',
       nickname: '测试账号',
-      event: 'offline',
+      event: 'offline' as const,
       time: new Date(this.deps.now()).toISOString(),
-    });
-    try {
-      return { ...(await this.deps.post(channel.url, body, channel.headers)), found: true };
-    } catch (err) {
-      return { ok: false, found: true, error: errMsg(err) };
-    }
+    };
+    return { ...(await this.deliver(channel, vars)), found: true };
   }
 
   private record(rec: DeliveryRecord): void {
@@ -249,12 +278,37 @@ export function createDefaultPost(timeoutMs = DEFAULT_POST_TIMEOUT_MS): Notifica
   };
 }
 
+const DEFAULT_SMTP_TIMEOUT_MS = 15_000;
+
+/** Default SMTP send. Never throws. */
+export function createDefaultSendMail(timeoutMs = DEFAULT_SMTP_TIMEOUT_MS): NonNullable<NotificationManagerDeps['sendMail']> {
+  return async (mail) => {
+    try {
+      await sendSmtpMail({
+        host: mail.host,
+        port: mail.port,
+        secure: mail.secure,
+        user: mail.user,
+        pass: mail.pass,
+        from: mail.from,
+        to: parseRecipients(mail.to),
+        subject: mail.subject,
+        body: mail.text,
+      }, { timeoutMs });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: formatSmtpError(err, mail.host, mail.port) };
+    }
+  };
+}
+
 /** The real, fully-wired singleton. */
 export function createNotificationManager(): NotificationManager {
   return new NotificationManager({
     loadConfig: loadNotificationsConfig,
     loadChannelIds: (uin) => loadOneBotConfig(uin).notifications?.channelIds ?? [],
     post: createDefaultPost(),
+    sendMail: createDefaultSendMail(),
     now: () => Date.now(),
   });
 }

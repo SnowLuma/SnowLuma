@@ -11,6 +11,7 @@ import { boolOr, clampInt, isObject } from '@snowluma/common/coerce';
 import { createLogger } from '@snowluma/common/logger';
 import fs from 'fs';
 import path from 'path';
+import { extractAddress, parseRecipients } from './smtp';
 
 const log = createLogger('Notifications.Config');
 
@@ -39,14 +40,37 @@ const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 /** event ∈ {offline, online}; rendered verbatim into `{event}`. */
 export type NotificationEvent = 'offline' | 'online';
 
+export type NotificationChannelType = 'webhook' | 'email';
+
 export interface NotificationChannel {
   id: string;
   name: string;
+  type: NotificationChannelType;
+  /** http(s) webhook target. Empty on email channels. */
   url: string;
   bodyTemplate: string;
   enabled: boolean;
-  /** Extra outbound request headers (Authorization, etc.). */
+  /** Extra outbound request headers (Authorization, etc.). Webhook only. */
   headers?: Record<string, string>;
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpSecure?: boolean;
+  smtpUser?: string;
+  smtpPass?: string;
+  from?: string;
+  to?: string;
+  subjectTemplate?: string;
+}
+
+export function isEmailChannel(ch: NotificationChannel): ch is NotificationChannel & {
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecure: boolean;
+  from: string;
+  to: string;
+  subjectTemplate: string;
+} {
+  return ch.type === 'email';
 }
 
 export interface NotificationsConfig {
@@ -62,6 +86,23 @@ export const DEFAULT_BODY_TEMPLATE = `{
   "title": "账号状态通知：{event}",
   "desp": "您的账号状态发生了改变。\\n\\n**昵称**：{nickname}\\n**QQ号**：{uin}\\n**当前状态**：{event}\\n**时间**：{time}"
 }`;
+
+export const DEFAULT_SUBJECT_TEMPLATE = '账号{event}：{nickname} ({uin})';
+
+export const DEFAULT_EMAIL_BODY_TEMPLATE = `账号状态发生了改变。
+
+昵称：{nickname}
+QQ号：{uin}
+当前状态：{event}
+时间：{time}`;
+
+const SMTP_HOST_MAX = 253;
+const SMTP_USER_MAX = 256;
+const SMTP_PASS_MAX = 256;
+const EMAIL_FIELD_MAX = 1024;
+const SUBJECT_TEMPLATE_MAX = 256;
+const SMTP_PORT_MIN = 1;
+const SMTP_PORT_MAX = 65535;
 
 export function defaultNotificationsConfig(): NotificationsConfig {
   return {
@@ -124,8 +165,6 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-/** A channel is usable only with a valid id AND an http(s) target — anything
- *  else is unusable, so the whole entry is dropped (total normalize). */
 function normalizeHeaders(value: unknown): Record<string, string> | undefined {
   if (!isObject(value)) return undefined;
   const out: Record<string, string> = {};
@@ -147,17 +186,93 @@ function normalizeHeaders(value: unknown): Record<string, string> | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+function normalizeSmtpHost(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const v = value.trim();
+  if (!v || v.length > SMTP_HOST_MAX) return null;
+  if (/\s/.test(v) || v.includes('/') || v.includes('://')) return null;
+  return v;
+}
+
+function normalizeFrom(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const v = value.trim().slice(0, EMAIL_FIELD_MAX);
+  return extractAddress(v) ? v : null;
+}
+
+function normalizeTo(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const addrs = parseRecipients(value.trim().slice(0, EMAIL_FIELD_MAX));
+  return addrs.length > 0 ? addrs.join(', ') : null;
+}
+
+function normalizeChannelType(value: unknown): NotificationChannelType | null {
+  if (value === 'email') return 'email';
+  if (value === 'webhook' || value === undefined || value === '') return 'webhook';
+  return null;
+}
+
+function normalizeEmailChannel(
+  raw: Record<string, unknown>,
+  id: string,
+  name: string,
+): NotificationChannel | null {
+  const smtpHost = normalizeSmtpHost(raw.smtpHost);
+  const from = normalizeFrom(raw.from);
+  const to = normalizeTo(raw.to);
+  if (!smtpHost || !from || !to) return null;
+
+  const portRaw = raw.smtpPort;
+  const portProvided = portRaw !== undefined && portRaw !== null && portRaw !== '';
+  const secureProvided = typeof raw.smtpSecure === 'boolean';
+  const port = portProvided
+    ? clampInt(portRaw, SMTP_PORT_MIN, SMTP_PORT_MAX, 0)
+    : 0;
+  if (portProvided && port === 0) return null;
+
+  const smtpSecure = secureProvided ? Boolean(raw.smtpSecure) : port === 465 || port === 0;
+  const smtpPort = port === 0 ? (smtpSecure ? 465 : 587) : port;
+
+  const smtpUser = typeof raw.smtpUser === 'string' ? raw.smtpUser.trim().slice(0, SMTP_USER_MAX) : '';
+  const smtpPass = typeof raw.smtpPass === 'string' ? raw.smtpPass.slice(0, SMTP_PASS_MAX) : '';
+
+  return {
+    id,
+    name,
+    type: 'email',
+    url: '',
+    bodyTemplate: strOr(raw.bodyTemplate, DEFAULT_EMAIL_BODY_TEMPLATE, BODY_TEMPLATE_MAX),
+    enabled: boolOr(raw.enabled, true),
+    smtpHost,
+    smtpPort,
+    smtpSecure,
+    ...(smtpUser ? { smtpUser } : {}),
+    ...(smtpPass ? { smtpPass } : {}),
+    from,
+    to,
+    subjectTemplate: strOr(raw.subjectTemplate, DEFAULT_SUBJECT_TEMPLATE, SUBJECT_TEMPLATE_MAX) || DEFAULT_SUBJECT_TEMPLATE,
+  };
+}
+
+/** A channel is usable only with a valid id AND a deliverable target —
+ *  http(s) URL for webhooks, SMTP host + from/to for email. Anything else
+ *  is dropped (total normalize). */
 function normalizeChannel(raw: unknown): NotificationChannel | null {
   if (!isObject(raw)) return null;
   const id = normalizeChannelId(raw.id);
   if (!id) return null;
+  const type = normalizeChannelType(raw.type);
+  if (!type) return null;
+  const name = strOr(raw.name, id, CHANNEL_NAME_MAX).trim() || id;
+  if (type === 'email') return normalizeEmailChannel(raw, id, name);
+
   const url = typeof raw.url === 'string' ? raw.url.trim() : '';
   if (!isHttpUrl(url)) return null;
-  const name = strOr(raw.name, id, CHANNEL_NAME_MAX).trim() || id;
   const headers = normalizeHeaders(raw.headers);
   return {
     id,
     name,
+    type: 'webhook',
     url,
     bodyTemplate: strOr(raw.bodyTemplate, DEFAULT_BODY_TEMPLATE, BODY_TEMPLATE_MAX),
     enabled: boolOr(raw.enabled, true),

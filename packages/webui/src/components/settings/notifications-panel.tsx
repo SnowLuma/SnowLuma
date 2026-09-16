@@ -16,20 +16,15 @@ import { useApi } from '@/lib/api';
 import { useFlashMessage } from '@/hooks/use-flash-message';
 import { useTheme } from '@/contexts/ThemeContext';
 import { cn } from '@/lib/utils';
-import type { NotificationChannel, NotificationsConfig } from '@/types';
-import { NotificationChannelDialog } from './notification-channel-dialog';
-
-const DEFAULT_TEMPLATE = `{
-  "title": "账号状态通知：{event}",
-  "desp": "您的账号状态发生了改变。\\n\\n**昵称**：{nickname}\\n**QQ号**：{uin}\\n**当前状态**：{event}\\n**时间**：{time}"
-}`;
+import { notificationChannelType, type NotificationChannel, type NotificationsConfig } from '@/types';
+import { DEFAULT_WEBHOOK_BODY, NotificationChannelDialog } from './notification-channel-dialog';
 
 /** A fresh channel with a non-colliding default id. */
 function blankChannel(existing: NotificationChannel[]): NotificationChannel {
   const used = new Set(existing.map((c) => c.id));
   let n = existing.length + 1;
   while (used.has(`channel-${n}`)) n += 1;
-  return { id: `channel-${n}`, name: '', url: '', bodyTemplate: DEFAULT_TEMPLATE, enabled: true };
+  return { id: `channel-${n}`, name: '', type: 'webhook', url: '', bodyTemplate: DEFAULT_WEBHOOK_BODY, enabled: true };
 }
 
 interface DialogState {
@@ -200,7 +195,7 @@ export function NotificationsPanel() {
           <div className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
             <Bell className="mt-0.5 size-3.5 shrink-0" />
             <p>
-            账号上线 / 下线时向启用的渠道 POST 一条通知（机械转发，仅去抖防刷屏）。渠道在此全局定义，每个账号在其「配置」页勾选启用哪些。
+            账号上线 / 下线时向启用的渠道发送通知（Webhook POST 或邮件，仅去抖防刷屏）。渠道在此全局定义，每个账号在其「配置」页勾选启用哪些。
             </p>
           </div>
           <div className="flex flex-col gap-1.5 border-t pt-3">
@@ -307,10 +302,21 @@ function ChannelCard({ channel, testing, onToggle, onTest, onEdit, onDelete }: C
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-medium">{channel.name || channel.id}</span>
           <Badge variant="secondary" className="font-mono font-normal">{channel.id}</Badge>
+          <Badge variant="outline" className="font-normal">
+            {notificationChannelType(channel) === 'email' ? '邮件' : 'Webhook'}
+          </Badge>
           {!channel.enabled && <Badge variant="secondary" className="font-normal">已停用</Badge>}
         </div>
-        <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{channel.url}</div>
-        <div className="mt-1 truncate font-mono text-meta text-muted-foreground/80">{channel.bodyTemplate}</div>
+        <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
+          {notificationChannelType(channel) === 'email'
+            ? [channel.to, channel.smtpHost].filter(Boolean).join(' · ')
+            : channel.url}
+        </div>
+        <div className="mt-1 truncate font-mono text-meta text-muted-foreground/80">
+          {notificationChannelType(channel) === 'email'
+            ? (channel.subjectTemplate || channel.bodyTemplate)
+            : channel.bodyTemplate}
+        </div>
       </div>
 
       <div className="flex items-center gap-1.5 sm:justify-end">

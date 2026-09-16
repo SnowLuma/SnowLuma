@@ -5,6 +5,8 @@ import path from 'path';
 import {
   DEFAULT_BODY_TEMPLATE,
   DEFAULT_DEBOUNCE_SECONDS,
+  DEFAULT_EMAIL_BODY_TEMPLATE,
+  DEFAULT_SUBJECT_TEMPLATE,
   defaultNotificationsConfig,
   normalizeNotificationsConfig,
   renderTemplate,
@@ -100,6 +102,7 @@ describe('normalizeNotificationsConfig — total normalize', () => {
       {
         id: 'dingtalk',
         name: 'DingTalk',
+        type: 'webhook',
         url: 'https://oapi.dingtalk.com/robot/send',
         bodyTemplate: '{event}',
         enabled: true,
@@ -132,10 +135,11 @@ describe('normalizeNotificationsConfig — total normalize', () => {
     expect(channels[0].url).toBe('https://a.com');
   });
 
-  it('defaults enabled=true, name→id, and bodyTemplate→default', () => {
+  it('defaults enabled=true, name→id, type=webhook, and bodyTemplate→default', () => {
     const { channels } = normalizeNotificationsConfig({ channels: [{ id: 'c1', url: 'https://a.com' }] });
     expect(channels[0].enabled).toBe(true);
     expect(channels[0].name).toBe('c1');
+    expect(channels[0].type).toBe('webhook');
     expect(channels[0].bodyTemplate).toBe(DEFAULT_BODY_TEMPLATE);
     expect(channels[0].headers).toBeUndefined();
   });
@@ -167,6 +171,92 @@ describe('normalizeNotificationsConfig — total normalize', () => {
       channels: [{ id: 'c1', url: 'https://a.com', headers: { 'Bad Name': 'x' } }],
     });
     expect(channels[0].headers).toBeUndefined();
+  });
+
+  it('keeps an email channel without a webhook url and fills SMTP defaults', () => {
+    const { channels } = normalizeNotificationsConfig({
+      channels: [{
+        id: 'ops-mail',
+        type: 'email',
+        smtpHost: 'smtp.qq.com',
+        from: 'SnowLuma <bot@qq.com>',
+        to: 'a@example.com; b@example.com, a@example.com',
+      }],
+    });
+    expect(channels).toEqual([{
+      id: 'ops-mail',
+      name: 'ops-mail',
+      type: 'email',
+      url: '',
+      bodyTemplate: DEFAULT_EMAIL_BODY_TEMPLATE,
+      enabled: true,
+      smtpHost: 'smtp.qq.com',
+      smtpPort: 465,
+      smtpSecure: true,
+      from: 'SnowLuma <bot@qq.com>',
+      to: 'a@example.com, b@example.com',
+      subjectTemplate: DEFAULT_SUBJECT_TEMPLATE,
+    }]);
+  });
+
+  it('defaults port 587 when smtpSecure is explicitly false', () => {
+    const { channels } = normalizeNotificationsConfig({
+      channels: [{
+        id: 'relay',
+        type: 'email',
+        smtpHost: 'relay.internal',
+        smtpSecure: false,
+        from: 'bot@internal',
+        to: 'ops@internal',
+      }],
+    });
+    expect(channels[0]).toMatchObject({ smtpPort: 587, smtpSecure: false });
+  });
+
+  it('treats port 587 without smtpSecure as STARTTLS (secure=false)', () => {
+    const { channels } = normalizeNotificationsConfig({
+      channels: [{
+        id: 'gmail',
+        type: 'email',
+        smtpHost: 'smtp.gmail.com',
+        smtpPort: 587,
+        from: 'bot@gmail.com',
+        to: 'ops@gmail.com',
+      }],
+    });
+    expect(channels[0]).toMatchObject({ smtpPort: 587, smtpSecure: false });
+  });
+
+  it('drops email channels missing host / from / to, and unknown types', () => {
+    const { channels } = normalizeNotificationsConfig({
+      channels: [
+        { id: 'no-host', type: 'email', from: 'a@b.com', to: 'c@d.com' },
+        { id: 'no-from', type: 'email', smtpHost: 'smtp.example.com', to: 'c@d.com' },
+        { id: 'bad-to', type: 'email', smtpHost: 'smtp.example.com', from: 'a@b.com', to: 'not-an-email' },
+        { id: 'sms', type: 'sms', url: 'https://a.com' },
+        { id: 'ok', type: 'email', smtpHost: 'smtp.example.com', from: 'a@b.com', to: 'c@d.com', smtpUser: 'a@b.com', smtpPass: 'p' },
+      ],
+    });
+    expect(channels.map((c) => c.id)).toEqual(['ok']);
+    expect(channels[0]).toMatchObject({ smtpUser: 'a@b.com', smtpPass: 'p' });
+  });
+
+  it('does not keep webhook-only fields on an email channel', () => {
+    const { channels } = normalizeNotificationsConfig({
+      channels: [{
+        id: 'mail',
+        type: 'email',
+        url: 'https://should.be.ignored',
+        headers: { Authorization: 'Bearer x' },
+        smtpHost: 'smtp.example.com',
+        from: 'a@b.com',
+        to: 'c@d.com',
+        evil: 'x',
+      }],
+    });
+    expect(channels[0].url).toBe('');
+    expect(channels[0].headers).toBeUndefined();
+    expect(channels[0]).not.toHaveProperty('evil');
   });
 });
 

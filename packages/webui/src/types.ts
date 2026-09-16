@@ -147,13 +147,28 @@ export interface GlobalSettings {
 // ─── Notifications (account up/down webhooks) ───────────────────────────────
 export type NotificationEventKind = 'offline' | 'online';
 
+export type NotificationChannelType = 'webhook' | 'email';
+
 export interface NotificationChannel {
   id: string;
   name: string;
+  type?: NotificationChannelType;
   url: string;
   bodyTemplate: string;
   enabled: boolean;
   headers?: Record<string, string>;
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpSecure?: boolean;
+  smtpUser?: string;
+  smtpPass?: string;
+  from?: string;
+  to?: string;
+  subjectTemplate?: string;
+}
+
+export function notificationChannelType(ch: Pick<NotificationChannel, 'type'>): NotificationChannelType {
+  return ch.type === 'email' ? 'email' : 'webhook';
 }
 
 export interface NotificationsConfig {

@@ -82,7 +82,10 @@ export function NotificationOptIn({ selectedIds, onChange }: NotificationOptInPr
     const list = channels ?? [];
     const q = query.trim().toLowerCase();
     if (!q) return list;
-    return list.filter((c) => (c.name || c.id).toLowerCase().includes(q) || c.url.toLowerCase().includes(q));
+    return list.filter((c) => {
+      const hay = [c.name, c.id, c.url, c.smtpHost, c.to, c.from].filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(q);
+    });
   }, [channels, query]);
 
   const total = channels?.length ?? 0;
@@ -217,7 +220,9 @@ export function NotificationOptIn({ selectedIds, onChange }: NotificationOptInPr
                                       <span className="shrink-0 text-micro text-muted-foreground">（已全局禁用）</span>
                                     )}
                                   </div>
-                                  <p className="truncate text-meta text-muted-foreground">{ch.url}</p>
+                                  <p className="truncate text-meta text-muted-foreground">
+                                    {ch.type === 'email' ? (ch.to || ch.smtpHost || '邮件') : ch.url}
+                                  </p>
                                 </div>
                                 <ToggleSwitch
                                   // Globally-disabled channel: lock the switch and force it off

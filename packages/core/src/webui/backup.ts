@@ -5,7 +5,7 @@
 //
 // Credentials are gated by a toggle on both export and import. The credential
 // set is: webui.json (password hash), key.pem (TLS private key),
-// notifications.json (webhook URLs may embed secrets), AND every OneBot config
+// notifications.json (webhook URLs / SMTP passwords), AND every OneBot config
 // (onebot.json + per-account onebot_<uin>.json) — those carry access tokens, so
 // a no-credentials backup must NOT include them.
 // cert.pem is public so it always travels.
