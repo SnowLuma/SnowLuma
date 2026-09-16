@@ -1,4 +1,5 @@
 import type {
+  OneBotBotStatusEvent,
   OneBotGroupMessageEvent,
   OneBotMessageEvent,
   OneBotMetaEvent,
@@ -24,6 +25,13 @@ export function isGroupMessageEvent(event: SnowLumaEvent): event is OneBotGroupM
 
 export function isNoticeEvent(event: SnowLumaEvent): event is OneBotNoticeEvent {
   return event.post_type === 'notice' && typeof event.notice_type === 'string';
+}
+
+export function isBotStatusEvent(event: SnowLumaEvent): event is OneBotBotStatusEvent {
+  return isNoticeEvent(event)
+    && event.notice_type === 'bot_status'
+    && (event.sub_type === 'online' || event.sub_type === 'offline')
+    && typeof event.user_id === 'number';
 }
 
 export function isRequestEvent(event: SnowLumaEvent): event is OneBotRequestEvent {

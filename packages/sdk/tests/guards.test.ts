@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  isBotStatusEvent,
   isGroupMessageEvent,
   isMessageEvent,
   isMetaEvent,
@@ -246,6 +247,34 @@ describe('isNoticeEvent', () => {
     expect(isNoticeEvent(missing)).toBe(false);
     expect(isNoticeEvent(numeric)).toBe(false);
     expect(isNoticeEvent(nulled)).toBe(false);
+  });
+
+  it('accepts bot_status notices and rejects incomplete ones', () => {
+    expect(isBotStatusEvent({
+      time: 19,
+      self_id: 10000,
+      post_type: 'notice',
+      notice_type: 'bot_status',
+      sub_type: 'online',
+      user_id: 10000,
+    })).toBe(true);
+    expect(isBotStatusEvent({
+      time: 20,
+      self_id: 10000,
+      post_type: 'notice',
+      notice_type: 'bot_status',
+      sub_type: 'offline',
+      user_id: 10000,
+    })).toBe(true);
+    expect(isBotStatusEvent(NOTICE)).toBe(false);
+    expect(isBotStatusEvent({
+      time: 21,
+      self_id: 10000,
+      post_type: 'notice',
+      notice_type: 'bot_status',
+      sub_type: 'flap',
+      user_id: 10000,
+    })).toBe(false);
   });
 
   it('rejects other post types', () => {

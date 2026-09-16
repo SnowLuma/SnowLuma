@@ -31,6 +31,7 @@ function fakeInstance(
     nickname: `retiring-${uin}`,
     quiesce,
     dispose,
+    emitBotStatus: vi.fn(async () => undefined),
     startGroupRequestPolling: vi.fn(),
     getConnectionStatuses: () => statuses,
   } as unknown as OneBotInstance;

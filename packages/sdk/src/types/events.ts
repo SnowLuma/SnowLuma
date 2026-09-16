@@ -50,6 +50,15 @@ export interface OneBotNoticeEvent extends OneBotBaseEvent {
   notice_type: string;
 }
 
+export type BotStatusSubType = 'online' | 'offline';
+
+/** Bridge session edge. Not KickNT `bot_offline`. */
+export interface OneBotBotStatusEvent extends OneBotNoticeEvent {
+  notice_type: 'bot_status';
+  sub_type: BotStatusSubType;
+  user_id: number;
+}
+
 export interface OneBotRequestEvent extends OneBotBaseEvent {
   post_type: 'request';
   request_type: string;

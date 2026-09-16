@@ -16,6 +16,7 @@ export {
 } from './errors';
 export {
   createEventContext,
+  isBotStatusEvent,
   isGroupMessageEvent,
   isMessageEvent,
   isMetaEvent,

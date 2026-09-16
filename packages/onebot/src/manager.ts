@@ -9,7 +9,7 @@ import {
   createMessageStoreMigrationTask,
   estimateRemainingSeconds,
 } from './message-store-migration-task';
-import type { AdapterStatus, NetworkApplyError } from './network';
+import type { AdapterStatus, NetworkApplyError, NetworkShutdownResult } from './network';
 import type { OneBotConfig } from './types';
 
 const log = createLogger('OneBot');
@@ -351,10 +351,20 @@ export class OneBotManager {
 
     this.instances.set(uin, instance);
     log.info('session started: UIN=%s', uin);
-    this.trackLifecycle(`network startup UIN=${uin}`, instance.waitUntilNetworkReady().then((result) => {
+    this.trackLifecycle(`network startup UIN=${uin}`, instance.waitUntilNetworkReady().then(async (result) => {
       if (result.applied) log.info('network startup applied: UIN=%s adapters=%d', uin, result.statuses.length);
       else log.warn('network startup degraded: UIN=%s failures=%d', uin, result.errors.length);
       instance.startGroupRequestPolling();
+      if (this.disposed || this.instances.get(uin) !== instance) return;
+      try {
+        await instance.emitBotStatus('online');
+      } catch (error) {
+        log.warn(
+          'bot_status online failed: UIN=%s: %s',
+          uin,
+          error instanceof Error ? (error.stack ?? error.message) : String(error),
+        );
+      }
     }));
     void this.armLoginHistorySync(uin, instance, bridge);
   }
@@ -412,13 +422,25 @@ export class OneBotManager {
     this.retiringInstances.add(instance);
     this.trackLifecycle(
       `network shutdown UIN=${uin}`,
-      instance.dispose().then((result) => {
-        this.retirementSucceeded(instance);
-        return result;
-      }),
+      this.emitOfflineThenDispose(instance),
       [instance],
     );
     log.info('session closed: UIN=%s', uin);
+  }
+
+  private async emitOfflineThenDispose(instance: OneBotInstance): Promise<NetworkShutdownResult> {
+    try {
+      await instance.emitBotStatus('offline');
+    } catch (error) {
+      log.warn(
+        'bot_status offline failed: UIN=%s: %s',
+        instance.uin,
+        error instanceof Error ? (error.stack ?? error.message) : String(error),
+      );
+    }
+    const result = await instance.dispose();
+    this.retirementSucceeded(instance);
+    return result;
   }
 
   private async finishRetiringBeforeStart(
