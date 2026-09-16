@@ -2,6 +2,7 @@ import type { JsonObject, JsonValue } from '@snowluma/common/json';
 import { createLogger } from '@snowluma/common/logger';
 import type {
   AlbumCreator,
+  CommentReqPhotoInfo,
   CommentRespData,
   DeleteMediasRequest,
   DeleteMediasResponse,
@@ -326,7 +327,13 @@ export class GroupAlbumApi {
     }
     const mediaLloc = commentMediaLloc(resolved, lloc);
     const feed = await this.getQunFeedDetail(groupId, albumId, batchId, mediaLloc);
-    const media = mediaInfoForComment(resolved, mediaLloc);
+    const ownerUin = feed.ownerUin || resolved?.uploader || '';
+    const photoInfo = commentPhotoInfo(
+      feed.media,
+      mediaInfoForComment(resolved, mediaLloc),
+      albumId,
+      batchId,
+    );
 
     const body = protobuf_encode<DoQunCommentRequest>({
       field1: DO_QUN_COMMENT_SEQ,
@@ -340,14 +347,8 @@ export class GroupAlbumApi {
             time: feed.time,
             feedId: feed.feedId,
           },
-          field2: {
-            field1: { uin },
-          },
-          field5: {
-            medias: [media],
-            albumId,
-            batchId,
-          },
+          ...(ownerUin ? { field2: { field1: { uin: ownerUin } } } : {}),
+          field5: photoInfo,
         },
         field5: {
           user: { uin },
@@ -557,7 +558,7 @@ export class GroupAlbumApi {
     albumId: string,
     batchId: bigint,
     lloc: string,
-  ): Promise<{ time: bigint; feedId: string }> {
+  ): Promise<{ time: bigint; feedId: string; ownerUin: string; media?: CommentReqPhotoInfo }> {
     const traceId = `_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
     const body = protobuf_encode<GetQunFeedDetailRequest>({
       seq: 0,
@@ -590,7 +591,8 @@ export class GroupAlbumApi {
       );
     }
 
-    const cell = resp.data?.feed?.feed?.cellCommon;
+    const feed = resp.data?.feed?.feed;
+    const cell = feed?.cellCommon;
     const feedId = cell?.feedId ?? '';
     if (!feedId) {
       throw new Error('comment album media error: empty feed');
@@ -598,6 +600,8 @@ export class GroupAlbumApi {
     return {
       time: cell?.time ?? 0n,
       feedId,
+      ownerUin: feed?.cellUserInfo?.user?.uin ?? '',
+      media: feed?.cellMedia,
     };
   }
 }
@@ -667,16 +671,39 @@ function commentMediaLloc(item: AlbumCommentMediaItem | undefined, lloc: string)
 }
 
 function mediaInfoForComment(item: AlbumCommentMediaItem | undefined, lloc: string): MediaInfo {
+  const batchId = optionalBatchId(item?.batchId);
+  const shared: MediaInfo = {
+    ...(item?.uploader ? { uploader: item.uploader } : {}),
+    ...(batchId !== undefined ? { batchId } : {}),
+  };
   if (item?.video) {
     return {
+      ...shared,
       type: 1,
       video: { cover: { lloc: item.video.cover?.lloc || lloc } },
     };
   }
   return {
+    ...shared,
     type: 0,
     image: { lloc: item?.image?.lloc || lloc },
   };
+}
+
+function commentPhotoInfo(
+  feedMedia: CommentReqPhotoInfo | undefined,
+  fallback: MediaInfo,
+  albumId: string,
+  batchId: bigint,
+): CommentReqPhotoInfo {
+  if (feedMedia?.medias?.length) {
+    return {
+      medias: feedMedia.medias,
+      albumId: feedMedia.albumId || albumId,
+      batchId: feedMedia.batchId ?? batchId,
+    };
+  }
+  return { medias: [fallback], albumId, batchId };
 }
 
 function findCommentMedia(

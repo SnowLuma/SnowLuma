@@ -179,8 +179,8 @@ export interface DoQunCommentRequestBody {
 }
 export interface DoQunCommentRequest {
   field1?:  pb<1, int_32>;
-  field2?:  pb<2, bytes>;
-  field3?:  pb<3, bytes>;
+  field2?:  pb_optional<2, bytes>;
+  field3?:  pb_optional<3, bytes>;
   body?:    pb<4, DoQunCommentRequestBody>;
   traceId?: pb<5, string>;
   extMap?:  pb_repeated<10, ExtMapEntry>;
@@ -284,8 +284,17 @@ export interface QunFeedCellCommon {
   time?:   pb<3, uint_64>;
   feedId?: pb<4, string>;
 }
+export interface QunFeedCellUser {
+  uin?: pb<13, string>;
+}
+export interface QunFeedCellUserInfo {
+  user?: pb<1, QunFeedCellUser>;
+}
 export interface QunFeed {
-  cellCommon?: pb<1, QunFeedCellCommon>;
+  cellCommon?:   pb<1, QunFeedCellCommon>;
+  cellUserInfo?: pb<2, QunFeedCellUserInfo>;
+  // FeedWorker copies this cell into DoQunComment body.4.5.
+  cellMedia?:    pb<5, CommentReqPhotoInfo>;
 }
 export interface QunClientFeed {
   feed?: pb<1, QunFeed>;
