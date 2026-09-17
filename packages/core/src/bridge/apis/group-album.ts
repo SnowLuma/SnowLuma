@@ -15,6 +15,7 @@ import type {
   GetQunFeedDetailRequest,
   GetQunFeedDetailResponse,
   GroupAlbumInfo as GroupAlbumInfoWire,
+  QunFeedCellCommon,
   GetMediaListRequest,
   GetMediaListResponse,
   MediaInfo,
@@ -343,10 +344,7 @@ export class GroupAlbumApi {
         groupId: groupId.toString(),
         field3: 2,
         reqBody: {
-          field1: {
-            time: feed.time,
-            feedId: feed.feedId,
-          },
+          field1: commentReqHeader(feed.cellCommon, groupId, albumId, batchId, mediaLloc),
           ...(ownerUin ? { field2: { field1: { uin: ownerUin } } } : {}),
           field5: photoInfo,
         },
@@ -399,12 +397,7 @@ export class GroupAlbumApi {
     const type = isLike ? 2 : 1;
     const status = isLike ? 0 : 1;
 
-    let id = '';
-    if (lloc) {
-      id = `421_1_0_${groupId}|${albumId}|${batchId}^||^421_1_0_${groupId}|${albumId}|${lloc}^||^0`;
-    } else {
-      id = `421_1_0_${groupId}|${albumId}|${batchId}`;
-    }
+    const id = qunFeedCellId(groupId, albumId, batchId, lloc);
 
     const body = protobuf_encode<DoQunLikeRequest>({
       field1: 5495,
@@ -558,7 +551,7 @@ export class GroupAlbumApi {
     albumId: string,
     batchId: bigint,
     lloc: string,
-  ): Promise<{ time: bigint; feedId: string; ownerUin: string; media?: CommentReqPhotoInfo }> {
+  ): Promise<{ cellCommon: QunFeedCellCommon; ownerUin: string; media?: CommentReqPhotoInfo }> {
     const traceId = `_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
     const body = protobuf_encode<GetQunFeedDetailRequest>({
       seq: 0,
@@ -598,8 +591,7 @@ export class GroupAlbumApi {
       throw new Error('comment album media error: empty feed');
     }
     return {
-      time: cell?.time ?? 0n,
-      feedId,
+      cellCommon: cell ?? { feedId },
       ownerUin: feed?.cellUserInfo?.user?.uin ?? '',
       media: feed?.cellMedia,
     };
@@ -687,6 +679,30 @@ function mediaInfoForComment(item: AlbumCommentMediaItem | undefined, lloc: stri
     ...shared,
     type: 0,
     image: { lloc: item?.image?.lloc || lloc },
+  };
+}
+
+function qunFeedCellId(
+  groupId: number,
+  albumId: string,
+  batchId: string | number | bigint,
+  lloc?: string,
+): string {
+  const head = `421_1_0_${groupId}|${albumId}|${batchId}`;
+  if (!lloc) return head;
+  return `${head}^||^421_1_0_${groupId}|${albumId}|${lloc}^||^0`;
+}
+
+function commentReqHeader(
+  cell: QunFeedCellCommon,
+  groupId: number,
+  albumId: string,
+  batchId: bigint,
+  lloc: string,
+): QunFeedCellCommon {
+  return {
+    ...cell,
+    cellId: cell.cellId || qunFeedCellId(groupId, albumId, batchId, lloc),
   };
 }
 

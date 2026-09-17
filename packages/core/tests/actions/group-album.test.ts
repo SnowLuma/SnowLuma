@@ -8,6 +8,7 @@ import type {
   GetMediaListResponse,
   GetQunFeedDetailRequest,
   GetQunFeedDetailResponse,
+  QunFeedCellCommon,
 } from '@snowluma/proto-defs/oidb-actions/group-album';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { GroupAlbumApi } from '../../src/bridge/apis/group-album';
@@ -586,6 +587,7 @@ describe('apis/group-album', () => {
     time = 1700000123n,
     extra: {
       ownerUin?: string;
+      cellCommon?: Omit<QunFeedCellCommon, 'time' | 'feedId'>;
       cellMedia?: {
         medias?: Array<{ type?: number; image?: { lloc?: string }; video?: { cover?: { lloc?: string } } }>;
         albumId?: string;
@@ -603,7 +605,7 @@ describe('apis/group-album', () => {
         data: {
           feed: {
             feed: {
-              cellCommon: { time, feedId },
+              cellCommon: { time, feedId, ...extra.cellCommon },
               ...(extra.ownerUin ? { cellUserInfo: { user: { uin: extra.ownerUin } } } : {}),
               ...(extra.cellMedia ? { cellMedia: extra.cellMedia } : {}),
             },
@@ -627,7 +629,14 @@ describe('apis/group-album', () => {
       if (override) return override;
       if (cmd.endsWith('GetMediaList')) return packPhotoMedia();
       if (cmd.endsWith('GetQunFeedDetail')) {
-        return packFeedDetail('official-feed-id', 1700000123n, { ownerUin: '3119936551' });
+        return packFeedDetail('official-feed-id', 1700000123n, {
+          ownerUin: '3119936551',
+          cellCommon: {
+            type: 422,
+            cellId: '421_1_0_12345|album-id|77^||^421_1_0_12345|album-id|photo-lloc^||^0',
+            field6: 3,
+          },
+        });
       }
       return packCommentOk({
         data: {
@@ -695,8 +704,11 @@ describe('apis/group-album', () => {
       field3: 2,
       reqBody: {
         field1: {
+          type: 422,
           time: 1700000123n,
           feedId: 'official-feed-id',
+          cellId: '421_1_0_12345|album-id|77^||^421_1_0_12345|album-id|photo-lloc^||^0',
+          field6: 3,
         },
         field2: { field1: { uin: '3119936551' } },
         field5: {
@@ -762,6 +774,48 @@ describe('apis/group-album', () => {
       medias: [{
         image: { lloc: 'feed-lloc' },
       }],
+    });
+  });
+
+  it('copies the official feed cell_common locator into the comment header', async () => {
+    const cellId = '421_1_0_964445447|album-id|2147483665^||^421_1_0_964445447|album-id|photo-lloc^||^0';
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockImplementation(commentMocks((cmd) => {
+      if (cmd.endsWith('GetQunFeedDetail')) {
+        return packFeedDetail('422_0_2147483665', 1789315793n, {
+          ownerUin: '3119936551',
+          cellCommon: { type: 422, cellId, field6: 3 },
+        });
+      }
+      return undefined;
+    }));
+
+    await new GroupAlbumApi(bridge as never).comment(964445447, 'album-id', 'photo-lloc', 'hello');
+
+    expect(commentRequestOf(bridge).body?.reqBody?.field1).toEqual({
+      type: 422,
+      time: 1789315793n,
+      feedId: '422_0_2147483665',
+      cellId,
+      field6: 3,
+    });
+  });
+
+  it('synthesizes the 421 locator when the official feed omits cell_common field 5', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockImplementation(commentMocks((cmd) => {
+      if (cmd.endsWith('GetQunFeedDetail')) {
+        return packFeedDetail('422_0_77', 1700000123n, { ownerUin: '3119936551' });
+      }
+      return undefined;
+    }));
+
+    await new GroupAlbumApi(bridge as never).comment(12345, 'album-id', 'photo-lloc', 'hello');
+
+    expect(commentRequestOf(bridge).body?.reqBody?.field1).toMatchObject({
+      time: 1700000123n,
+      feedId: '422_0_77',
+      cellId: '421_1_0_12345|album-id|77^||^421_1_0_12345|album-id|photo-lloc^||^0',
     });
   });
 

@@ -160,8 +160,13 @@ export interface CommentReqPhotoInfo {
   batchId?: pb<5, uint_64>;
 }
 export interface CommentReqBodyHeader {
+  // Official feed cell_common: type 422, time, short feed id, composite
+  // 421_1_0 locator, and field 6 = 3. DoQunComment copies this cell.
+  type?:   pb<1, uint_32>;
   time?:   pb<3, uint_64>;
   feedId?: pb<4, string>;
+  cellId?: pb<5, string>;
+  field6?: pb<6, uint_32>;
 }
 export interface CommentReqBodyUserWrap {
   field1?: pb<1, CommentUser>;
@@ -281,8 +286,11 @@ export interface GetQunFeedDetailRequest {
   extMap?:  pb_repeated<10, ExtMapEntry>;
 }
 export interface QunFeedCellCommon {
+  type?:   pb<1, uint_32>;
   time?:   pb<3, uint_64>;
   feedId?: pb<4, string>;
+  cellId?: pb<5, string>;
+  field6?: pb<6, uint_32>;
 }
 export interface QunFeedCellUser {
   uin?: pb<13, string>;
