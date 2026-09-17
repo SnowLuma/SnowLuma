@@ -298,8 +298,8 @@ function foldMediaKey(value: string): string {
   return `inline:${createHash('sha256').update(value).digest('hex')}`;
 }
 
-function persistableMediaInfo<T extends object>(info: T): T {
-  const next = { ...info } as T & Record<string, unknown>;
+function persistableMediaInfo(info: object): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...info };
   for (const field of ['file', 'fileId', 'fileName'] as const) {
     const value = next[field];
     if (typeof value === 'string') next[field] = foldMediaKey(value);
