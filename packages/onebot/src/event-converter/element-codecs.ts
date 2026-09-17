@@ -118,6 +118,10 @@ export function marketFaceElement(emojiId: string, data: Record<string, unknown>
  * bytes, a remote url, or a filesystem path with a separator); otherwise, if a
  * real http(s) `url` accompanies it, prefer that. (issue #155)
  */
+export function isInlineMediaSource(value: string): boolean {
+  return /^(base64:\/\/|data:)/i.test(value);
+}
+
 export function pickMediaSource(data: Record<string, unknown>): string {
   const file = String(data.file ?? '').trim();
   const url = String(data.url ?? '').trim();
@@ -125,7 +129,7 @@ export function pickMediaSource(data: Record<string, unknown>): string {
   if (!file) return fallback;
   // `file` is itself loadable: inline bytes, a remote url, or a path (anything
   // carrying a `/` or `\` separator, incl. file:// and absolute/relative paths).
-  if (/^(base64:\/\/|data:|https?:\/\/|file:\/\/)/i.test(file) || /[\\/]/.test(file)) return file;
+  if (isInlineMediaSource(file) || /^(https?:\/\/|file:\/\/)/i.test(file) || /[\\/]/.test(file)) return file;
   // `file` is a bare token (QQ-internal id) — fall back to a real url if present.
   if (/^https?:\/\//i.test(url)) return url;
   return fallback;
@@ -260,17 +264,20 @@ export const ELEMENT_CODECS = {
       // pictures use `imageUrl`. get_forward_msg must accept either —
       // otherwise a just-sent merge comes back with empty file/url (#441).
       const source = (element.imageUrl || element.url || '').trim();
-      const resolved = source && !element.imageUrl
+      const inline = isInlineMediaSource(source);
+      const resolved = !inline && source && !element.imageUrl
         ? { ...element, imageUrl: source }
         : element;
-      const url = ctx.imageUrlResolver
-        ? await ctx.imageUrlResolver(resolved, ctx.isGroup)
-        : source;
+      const url = inline
+        ? ''
+        : ctx.imageUrlResolver
+          ? await ctx.imageUrlResolver(resolved, ctx.isGroup)
+          : source;
       const data: JsonObject = {
         url,
         file: element.fileId
           || (element.md5Hex ? `${element.md5Hex.toLowerCase()}.png` : '')
-          || source,
+          || (inline ? '' : source),
         sub_type: element.subType ?? 0,
         summary: element.summary ?? '',
       };
@@ -296,7 +303,10 @@ export const ELEMENT_CODECS = {
 
   record: {
     async toSegment(element, ctx) {
-      const url = ctx.mediaUrlResolver ? await ctx.mediaUrlResolver(element, ctx.isGroup, ctx.sessionId) : (element.url ?? '');
+      const rawUrl = ctx.mediaUrlResolver
+        ? await ctx.mediaUrlResolver(element, ctx.isGroup, ctx.sessionId)
+        : (element.url ?? '');
+      const url = isInlineMediaSource(rawUrl) ? '' : rawUrl;
       const data: JsonObject = {
         file: element.fileName ?? element.fileId ?? '',
         url,
@@ -316,7 +326,10 @@ export const ELEMENT_CODECS = {
 
   video: {
     async toSegment(element, ctx) {
-      const url = ctx.mediaUrlResolver ? await ctx.mediaUrlResolver(element, ctx.isGroup, ctx.sessionId) : (element.url ?? '');
+      const rawUrl = ctx.mediaUrlResolver
+        ? await ctx.mediaUrlResolver(element, ctx.isGroup, ctx.sessionId)
+        : (element.url ?? '');
+      const url = isInlineMediaSource(rawUrl) ? '' : rawUrl;
       const data: JsonObject = {
         file: element.fileName ?? element.fileId ?? '',
         url,

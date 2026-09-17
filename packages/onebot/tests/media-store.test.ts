@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { DatabaseSync } from 'node:sqlite';
 import fs from 'fs';
 import path from 'path';
-import { MediaStore } from '../src/media-store';
+import { MEDIA_DATA_MAX_CHARS, MEDIA_KEY_MAX_CHARS, MediaStore } from '../src/media-store';
 import { convertEvent, type ConverterContext } from '../src/event-converter';
 import type { GroupMessage, FriendMessage, MessageElement } from '@snowluma/protocol/events';
 
@@ -205,7 +206,156 @@ describe('MediaStore basic semantics', () => {
     expect(store.findImage('file-199.png')?.fileSize).toBe(199);
     store.close();
   });
+
+  it('does not persist inline base64 as a key or JSON payload (#463)', () => {
+    const store = open('inline-b64');
+    const payload = `base64://${'A'.repeat(8192)}`;
+    store.rememberImage({
+      file: payload,
+      url: payload,
+      fileSize: 99,
+      fileName: '',
+      subType: 0,
+      summary: '',
+      imageUrl: payload,
+      isGroup: true,
+      sessionId: GROUP_ID,
+      md5Hex: 'aa'.repeat(16),
+      width: 800,
+      height: 600,
+    });
+
+    const found = store.findImage(payload);
+    expect(found).not.toBeNull();
+    expect(found!.fileSize).toBe(99);
+    expect(found!.md5Hex).toBe('aa'.repeat(16));
+    expect(found!.url).toBe('');
+    expect(found!.imageUrl).toBe('');
+    expect(found!.file.startsWith('inline:')).toBe(true);
+    expect(found!.file.includes('base64://')).toBe(false);
+
+    store.close();
+    const rows = inspectMediaDb(dbs[dbs.length - 1]!);
+    expect(rows.longestKey).toBeLessThanOrEqual(MEDIA_KEY_MAX_CHARS);
+    expect(rows.longestData).toBeLessThanOrEqual(MEDIA_DATA_MAX_CHARS);
+    expect(rows.longestKey).toBeLessThan(100);
+    expect(rows.concatenated).not.toContain('base64://');
+    expect(rows.concatenated).not.toContain('A'.repeat(64));
+  });
+
+  it('folds oversized non-inline keys the same way', () => {
+    const store = open('long-url');
+    const url = `https://cdn.example/${'a'.repeat(3000)}.png`;
+    store.rememberImage({
+      file: 'short.png',
+      url,
+      fileSize: 12,
+      fileName: 'short.png',
+      subType: 0,
+      summary: '',
+      imageUrl: url,
+      isGroup: true,
+      sessionId: GROUP_ID,
+    });
+
+    expect(store.findImage('short.png')?.fileSize).toBe(12);
+    expect(store.findImage(url)?.fileSize).toBe(12);
+    expect(store.findImage('short.png')?.url).toBe('');
+    store.close();
+    const rows = inspectMediaDb(dbs[dbs.length - 1]!);
+    expect(rows.longestKey).toBeLessThanOrEqual(MEDIA_KEY_MAX_CHARS);
+    expect(rows.concatenated).not.toContain('a'.repeat(64));
+  });
+
+  it('ignores an inline URL refresh so eviction cannot be re-poisoned', () => {
+    const store = open('no-inline-refresh');
+    store.rememberImage({
+      file: 'abc.png',
+      url: 'https://example.com/abc.png',
+      fileSize: 7,
+      fileName: 'abc.png',
+      subType: 0,
+      summary: '',
+      imageUrl: '',
+      isGroup: true,
+      sessionId: GROUP_ID,
+    });
+    store.updateImageUrl('abc.png', `base64://${'B'.repeat(100)}`);
+    expect(store.findImage('abc.png')?.url).toBe('https://example.com/abc.png');
+    store.close();
+  });
+
+  it('drops oversized rows left by older builds on open', () => {
+    const dbPath = tempDbPath('legacy-overflow');
+    dbs.push(dbPath);
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const raw = new DatabaseSync(dbPath);
+    raw.exec(`
+      CREATE TABLE media_entries (
+        type TEXT NOT NULL,
+        primary_key TEXT NOT NULL,
+        data TEXT NOT NULL,
+        last_seen INTEGER NOT NULL,
+        PRIMARY KEY (type, primary_key)
+      );
+      CREATE TABLE media_keys (
+        type TEXT NOT NULL,
+        key TEXT NOT NULL,
+        primary_key TEXT NOT NULL,
+        PRIMARY KEY (type, key)
+      );
+    `);
+    const poisonKey = 'k'.repeat(MEDIA_KEY_MAX_CHARS + 8);
+    raw.prepare(
+      `INSERT INTO media_entries (type, primary_key, data, last_seen) VALUES ('image', ?, ?, 1)`,
+    ).run(poisonKey, '{"file":"poison"}');
+    raw.prepare(
+      `INSERT INTO media_keys (type, key, primary_key) VALUES ('image', ?, ?)`,
+    ).run(poisonKey, poisonKey);
+    raw.close();
+
+    const store = new MediaStore(dbPath);
+    expect(store.findImage(poisonKey)).toBeNull();
+    expect(store.size().images).toBe(0);
+    store.close();
+    const rows = inspectMediaDb(dbPath);
+    expect(rows.entryCount).toBe(0);
+    expect(rows.keyCount).toBe(0);
+  });
 });
+
+function inspectMediaDb(dbPath: string): {
+  longestKey: number;
+  longestData: number;
+  concatenated: string;
+  entryCount: number;
+  keyCount: number;
+} {
+  const db = new DatabaseSync(dbPath);
+  const entries = db.prepare(
+    `SELECT primary_key, data FROM media_entries`,
+  ).all() as Array<{ primary_key: string; data: string }>;
+  const keys = db.prepare(
+    `SELECT key, primary_key FROM media_keys`,
+  ).all() as Array<{ key: string; primary_key: string }>;
+  db.close();
+  const keyLens = [
+    ...entries.map((row) => row.primary_key.length),
+    ...keys.map((row) => row.key.length),
+    ...keys.map((row) => row.primary_key.length),
+    0,
+  ];
+  return {
+    longestKey: Math.max(...keyLens),
+    longestData: Math.max(0, ...entries.map((row) => row.data.length)),
+    concatenated: [
+      ...entries.map((row) => row.primary_key + row.data),
+      ...keys.map((row) => row.key + row.primary_key),
+    ].join('\n'),
+    entryCount: entries.length,
+    keyCount: keys.length,
+  };
+}
 
 describe('convertEvent media segment sink → MediaStore wiring', () => {
   const dbs: string[] = [];

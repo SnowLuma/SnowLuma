@@ -436,6 +436,30 @@ describe('convertEvent — message elements', () => {
     });
   });
 
+  it('image: does not emit inline base64 as file/url (#463)', async () => {
+    const source = `base64://${'A'.repeat(32)}`;
+    const seg = await segment({ type: 'image', url: source });
+    expect(seg).toEqual({
+      type: 'image',
+      data: {
+        url: '',
+        file: '',
+        sub_type: 0,
+        summary: '',
+      },
+    });
+  });
+
+  it('image: keeps fileId when the only source is inline (#463)', async () => {
+    const seg = await segment({
+      type: 'image',
+      fileId: 'fid',
+      url: `base64://${'A'.repeat(32)}`,
+    });
+    expect((seg.data as Record<string, unknown>).file).toBe('fid');
+    expect((seg.data as Record<string, unknown>).url).toBe('');
+  });
+
   it('image: resolver sees the upload source when only url is present (#441)', async () => {
     const source = 'https://cdn.example/bot-built.png';
     const seen: string[] = [];

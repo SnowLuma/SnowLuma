@@ -1,4 +1,5 @@
 import type { MessageElement } from '@snowluma/protocol/events';
+import { createHash } from 'node:crypto';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import { openSqliteDb } from './sqlite-open';
 
@@ -59,6 +60,11 @@ const TYPE_IMAGE = 'image';
 const TYPE_RECORD = 'record';
 const TYPE_VIDEO = 'video';
 const DEFAULT_KEEP_ENTRIES = 4096;
+/** SQLite keys / aliases longer than this are folded to a short digest. */
+export const MEDIA_KEY_MAX_CHARS = 2048;
+/** Persisted JSON must stay well under a page-overflow storm. */
+export const MEDIA_DATA_MAX_CHARS = 64 * 1024;
+const INLINE_MEDIA_SOURCE = /^(base64:\/\/|data:)/i;
 
 export class MediaStore {
   private readonly db: DatabaseSync;
@@ -78,6 +84,7 @@ export class MediaStore {
 
     this.db = openSqliteDb(dbPath);
     this.initSchema();
+    this.purgeOversizedRows();
 
     this.upsertEntry = this.db.prepare(
       `INSERT INTO media_entries (type, primary_key, data, last_seen)
@@ -157,21 +164,21 @@ export class MediaStore {
   }
 
   updateImageUrl(key: string, url: string): void {
-    if (!url) return;
+    if (!url || mustFoldMediaKey(url)) return;
     const cached = this.findImage(key);
     if (!cached || cached.url === url) return;
     this.rememberImage({ ...cached, url });
   }
 
   updateRecordUrl(key: string, url: string): void {
-    if (!url) return;
+    if (!url || mustFoldMediaKey(url)) return;
     const cached = this.findRecord(key);
     if (!cached || cached.url === url) return;
     this.rememberRecord({ ...cached, url });
   }
 
   updateVideoUrl(key: string, url: string): void {
-    if (!url) return;
+    if (!url || mustFoldMediaKey(url)) return;
     const cached = this.findVideo(key);
     if (!cached || cached.url === url) return;
     this.rememberVideo({ ...cached, url });
@@ -209,13 +216,29 @@ export class MediaStore {
     `);
   }
 
-  private upsertWithAliases<T>(
+  private purgeOversizedRows(): void {
+    // Older builds could persist a whole inline payload as the key / JSON.
+    // Drop those rows on open so later eviction does not walk overflow pages.
+    this.db.exec(`
+      DELETE FROM media_keys
+      WHERE length(key) > ${MEDIA_KEY_MAX_CHARS}
+         OR length(primary_key) > ${MEDIA_KEY_MAX_CHARS};
+      DELETE FROM media_entries
+      WHERE length(primary_key) > ${MEDIA_KEY_MAX_CHARS}
+         OR length(data) > ${MEDIA_DATA_MAX_CHARS};
+      DELETE FROM media_keys
+      WHERE primary_key NOT IN (SELECT primary_key FROM media_entries);
+    `);
+  }
+
+  private upsertWithAliases<T extends object>(
     type: string,
     primaryKey: string,
     info: T,
     aliases: (string | undefined)[],
   ): void {
-    const data = JSON.stringify(info);
+    const data = JSON.stringify(persistableMediaInfo(info));
+    if (data.length > MEDIA_DATA_MAX_CHARS) return;
     const lastSeen = Math.floor(Date.now() / 1000);
 
     // Run the writes in a transaction so concurrent readers always see a
@@ -226,9 +249,10 @@ export class MediaStore {
       const seen = new Set<string>();
       for (const raw of aliases) {
         if (!raw) continue;
-        if (seen.has(raw)) continue;
-        seen.add(raw);
-        this.upsertKey.run(type, raw, primaryKey);
+        const key = foldMediaKey(raw);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        this.upsertKey.run(type, key, primaryKey);
       }
       this.db.exec('COMMIT');
     } catch (err) {
@@ -236,24 +260,26 @@ export class MediaStore {
       throw err;
     }
 
-    // Eager eviction. The DELETE is a no-op when row count <= cap so
-    // there is no measurable cost while we are below the limit.
+    // Eager eviction. Skip the DELETE entirely while we are under the cap.
     this.evictOldEntries(type);
   }
 
   private findByAnyKey<T>(type: string, key: string): T | null {
-    if (!key) return null;
-    const row = this.findEntryByKey.get(type, key) as { data: string } | undefined;
+    const lookup = foldMediaKey(key);
+    if (!lookup) return null;
+    const row = this.findEntryByKey.get(type, lookup) as { data: string } | undefined;
     if (row?.data) return safeParse<T>(row.data);
     // Fall back to looking up by primary_key directly so callers that pass
     // the canonical identifier still hit (e.g. when the alias index is yet
     // to be built for that key in this session).
-    const fallback = this.findEntryByPrimary.get(type, key) as { data: string } | undefined;
+    const fallback = this.findEntryByPrimary.get(type, lookup) as { data: string } | undefined;
     return fallback?.data ? safeParse<T>(fallback.data) : null;
   }
 
   private evictOldEntries(type: string): void {
     try {
+      const row = this.countByType.get(type) as { n: number } | undefined;
+      if ((row?.n ?? 0) <= this.maxEntriesPerType) return;
       this.evictByType.run(type, type, this.maxEntriesPerType);
       this.purgeOrphanKeys.run(type, type);
     } catch {
@@ -262,9 +288,32 @@ export class MediaStore {
   }
 }
 
+function mustFoldMediaKey(value: string): boolean {
+  return value.length > MEDIA_KEY_MAX_CHARS || INLINE_MEDIA_SOURCE.test(value);
+}
+
+function foldMediaKey(value: string): string {
+  if (!value) return '';
+  if (!mustFoldMediaKey(value)) return value;
+  return `inline:${createHash('sha256').update(value).digest('hex')}`;
+}
+
+function persistableMediaInfo<T extends object>(info: T): T {
+  const next = { ...info } as T & Record<string, unknown>;
+  for (const field of ['file', 'fileId', 'fileName'] as const) {
+    const value = next[field];
+    if (typeof value === 'string') next[field] = foldMediaKey(value);
+  }
+  for (const field of ['url', 'imageUrl'] as const) {
+    const value = next[field];
+    if (typeof value === 'string' && mustFoldMediaKey(value)) next[field] = '';
+  }
+  return next;
+}
+
 function pickPrimary(candidates: (string | undefined)[]): string {
   for (const c of candidates) {
-    if (c && c.length > 0) return c;
+    if (c && c.length > 0) return foldMediaKey(c);
   }
   return '';
 }
