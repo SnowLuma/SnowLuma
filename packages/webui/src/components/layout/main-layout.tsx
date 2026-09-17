@@ -104,14 +104,17 @@ export function MainLayout({ status, onLogout, notice, children }: MainLayoutPro
         </button>
       )}
 
-      {/* Main column — a content "canvas" nested into the chrome with a rounded
-          top-left corner at the sidebar/topbar junction. It's a flex sibling of
-          the rail, so as the rail expands/collapses the whole canvas (and its
-          rounded corner) is pushed along with it. Depth comes from a soft shadow
-          + the canvas tone sitting on the (sidebar-toned) chrome, not a border. */}
+      {/* Main column — a content "canvas" nested into the chrome. The rounded
+          top-left corner only exists when the desktop rail is beside it; on
+          mobile the rail becomes a sheet, so a leftover corner would float
+          against the full-bleed canvas. It's a flex sibling of the rail, so as
+          the rail expands/collapses the whole canvas is pushed along with it.
+          Depth comes from a soft shadow + the canvas tone sitting on the
+          (sidebar-toned) chrome, not a border. */}
       <div
         className={cn(
-          'flex min-w-0 flex-1 flex-col overflow-hidden rounded-tl-2xl',
+          'flex min-w-0 flex-1 flex-col overflow-hidden',
+          !isMobile && !kiosk && 'rounded-tl-2xl',
           !customBg && 'bg-background shadow-[0_0_18px_-6px_rgb(0_0_0/0.14)]',
         )}
       >
