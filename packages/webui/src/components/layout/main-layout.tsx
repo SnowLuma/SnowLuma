@@ -98,7 +98,7 @@ export function MainLayout({ status, onLogout, notice, children }: MainLayoutPro
           onClick={exitKiosk}
           title="退出展示模式 (Esc)"
           aria-label="退出展示模式"
-          className="fixed right-3 top-3 z-50 inline-flex size-9 items-center justify-center rounded-full border bg-background/70 text-muted-foreground opacity-30 backdrop-blur transition-opacity outline-none hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/40"
+          className="fixed right-3 top-3 z-50 inline-flex size-9 items-center justify-center rounded-full border bg-background/85 text-foreground opacity-70 backdrop-blur transition-opacity outline-none hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/40"
         >
           <Minimize2 className="size-4" />
         </button>
