@@ -384,7 +384,8 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
       respond(200, response);
     } catch (error) {
       const wording = error instanceof Error ? error.message : 'internal error';
-      respond(500, { status: 'failed', retcode: 1200, data: null, wording });
+      const tooLarge = error instanceof RequestBodyTooLargeError;
+      respond(tooLarge ? 413 : 500, { status: 'failed', retcode: tooLarge ? 1413 : 1200, data: null, wording });
     }
   }
 
@@ -435,15 +436,22 @@ function isAlreadyClosedError(error: Error): boolean {
   return (error as NodeJS.ErrnoException).code === 'ERR_SERVER_NOT_RUNNING';
 }
 
-function readRequestBody(req: IncomingMessage, maxBytes = 2 * 1024 * 1024): Promise<string> {
+class RequestBodyTooLargeError extends Error {}
+
+// Base64 media expands binary size by 4/3, before the JSON envelope.
+function readRequestBody(req: IncomingMessage, maxBytes = 64 * 1024 * 1024): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let total = 0;
+    let exceeded = false;
     req.on('data', (chunk: Buffer) => {
+      if (exceeded) return;
       total += chunk.length;
       if (total > maxBytes) {
-        reject(new Error('request body too large'));
-        req.destroy();
+        exceeded = true;
+        chunks.length = 0;
+        reject(new RequestBodyTooLargeError('request body too large'));
+        // Drain without retaining bytes; keep the socket alive for the 413 response.
         return;
       }
       chunks.push(chunk);
