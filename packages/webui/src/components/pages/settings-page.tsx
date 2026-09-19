@@ -44,7 +44,7 @@ import { SkeletonSwap } from '@/components/interior/skeleton-swap';
 import { SegmentedControl } from '@/components/interior/segmented-control';
 import { useApi } from '@/lib/api';
 import { useAppState } from '@/contexts/AppStateContext';
-import { cn } from '@/lib/utils';
+import { cn, downloadBlob, toColorInputValue } from '@/lib/utils';
 import { settingsRoute, type SettingsTab } from '@/router';
 import { NotificationsPanel } from '@/components/settings/notifications-panel';
 import { GlobalConfigPanel } from '@/components/settings/global-config-panel';
@@ -138,7 +138,7 @@ function SettingsNav({ tab, onChange }: { tab: SettingsTab; onChange: (t: Settin
       aria-label="设置导航"
       className={cn(
         'flex flex-wrap gap-1 rounded-xl border bg-card p-1.5',
-        'lg:w-52 lg:shrink-0 lg:flex-col lg:flex-nowrap lg:self-start lg:sticky lg:top-4 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto',
+        'lg:w-52 lg:shrink-0 lg:flex-col lg:flex-nowrap lg:self-start lg:sticky lg:top-4 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto lg:overscroll-y-contain',
       )}
     >
       {TAB_GROUPS.map((group, gi) => (
@@ -476,12 +476,12 @@ function AppearancePanel() {
             >
               <input
                 type="color"
-                value={a.accentCustom}
+                value={toColorInputValue(a.accentCustom)}
                 onChange={(e) => pickCustomAccent(e.target.value)}
                 className="absolute inset-0 cursor-pointer opacity-0"
                 aria-label="自定义强调色"
               />
-              {a.accentMode === 'custom' && <Check className="size-4 text-white drop-shadow-sm" strokeWidth={3} />}
+              {a.accentMode === 'custom' && <Check className="pointer-events-none size-4 text-white drop-shadow-sm" strokeWidth={3} />}
             </label>
           </div>
         </SettingRow>
@@ -636,7 +636,7 @@ function BackgroundCard({
             <label className="relative size-10 cursor-pointer overflow-hidden rounded-lg border" style={{ backgroundColor: a.background.color }}>
               <input
                 type="color"
-                value={a.background.color}
+                value={toColorInputValue(a.background.color)}
                 onChange={(e) => setAppearance({ background: { color: e.target.value } })}
                 className="absolute inset-0 cursor-pointer opacity-0"
                 aria-label="背景颜色"
@@ -786,7 +786,8 @@ function FontField({
             spellCheck={false}
             autoComplete="off"
             style={custom ? { fontFamily: custom } : undefined}
-            className="w-full rounded-lg border bg-card/40 px-3 py-2 text-sm outline-none focus:border-primary"
+            data-ui-control=""
+            className="w-full rounded-lg border bg-card/40 px-3 py-2 text-base outline-none focus:border-primary md:text-sm"
           />
           {canQuery && fonts && fonts.length > 0 && (
             <datalist id={listId}>
@@ -877,7 +878,7 @@ function ThemeVarsPanel({
               >
                 <input
                   type="color"
-                  value={override || '#888888'}
+                  value={toColorInputValue(override || '#888888', '#888888')}
                   onChange={(e) => set(f.token, e.target.value)}
                   className="absolute inset-0 cursor-pointer opacity-0"
                   aria-label={`${f.label}颜色`}
@@ -956,8 +957,8 @@ function DataPanel() {
 // native Cmd/Ctrl+Z undoes. Each is a complete, valid rule.
 const CSS_SNIPPETS: { label: string; css: string }[] = [
   { label: '侧栏字号', css: '.text-sidebar-foreground {\n  font-size: 1.05em;\n}' },
-  { label: '卡片毛玻璃', css: '.bg-card {\n  backdrop-filter: blur(8px);\n  background-color: color-mix(in oklab, var(--card) 80%, transparent);\n}' },
-  { label: '隐藏滚动条', css: '*::-webkit-scrollbar {\n  width: 0;\n  height: 0;\n}' },
+  { label: '卡片毛玻璃', css: '.bg-card {\n  -webkit-backdrop-filter: blur(8px);\n  backdrop-filter: blur(8px);\n  background-color: color-mix(in oklab, var(--card) 80%, transparent);\n}' },
+  { label: '隐藏滚动条', css: '* {\n  scrollbar-width: none;\n}\n*::-webkit-scrollbar {\n  width: 0;\n  height: 0;\n}' },
   { label: '加粗标题', css: 'h1, h2, h3 {\n  font-weight: 700;\n  letter-spacing: -0.01em;\n}' },
   { label: '紧凑卡片', css: '.rounded-xl {\n  border-radius: 0.5rem;\n}' },
 ];
@@ -1009,13 +1010,7 @@ function AdvancedPanel() {
         },
         () => api.ui.get(),
       );
-      const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'snowluma-ui-config.json';
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' }), 'snowluma-ui-config.json');
     } catch (error) {
       console.error('export UI config failed', error);
       setMsg({ kind: 'err', text: '导出失败' });
@@ -1135,7 +1130,7 @@ function AdvancedPanel() {
             maxLength={50000}
             spellCheck={false}
             placeholder={'/* 例如：放大侧栏字号 */\n.text-sidebar-foreground { font-size: 1.05em; }'}
-            className="h-64 resize-y rounded-lg bg-card/40 p-3 font-mono text-[12px] leading-relaxed"
+            className="h-64 resize-y rounded-lg bg-card/40 p-3 font-mono text-base leading-relaxed md:text-[12px]"
           />
           {cssWarn && (
             <p className="flex items-start gap-1.5 text-xs text-warning">

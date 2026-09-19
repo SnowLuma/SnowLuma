@@ -4,7 +4,7 @@
 // preview toggle. Read-only; no external deps.
 import { useState, type ReactNode } from 'react';
 import { Check, ChevronRight, Copy, Image as ImageIcon } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, copyText } from '@/lib/utils';
 
 const IMAGE_URL_RE = /^https?:\/\/[^\s]+?\.(?:png|jpe?g|gif|webp|bmp)(?:[?#][^\s]*)?$/i;
 // QQ multimedia rkey image URLs don't end in an extension but carry these hints.
@@ -121,24 +121,10 @@ export function JsonTree({ data, className, maxHeight = '20rem' }: { data: unkno
     // Stringify lazily, only on an actual copy — not on every render (a large
     // payload would otherwise re-serialise the whole tree each commit).
     const text = (() => { try { return JSON.stringify(data, null, 2); } catch { return String(data); } })();
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        // navigator.clipboard is undefined on http LAN deployments — fall back
-        // to the legacy execCommand path so copy still works (and shows feedback).
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-      }
+    if (await copyText(text)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
-    } catch { /* clipboard blocked */ }
+    }
   };
 
   return (

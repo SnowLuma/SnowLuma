@@ -272,7 +272,10 @@ export function ActionFeedbackViewport() {
   const runningActivity = activity?.phase === 'running' ? activity : null;
 
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-[80] flex w-[min(360px,calc(100vw-2rem))] flex-col items-end gap-2">
+    <div
+      className="pointer-events-none fixed z-[80] flex w-[min(360px,calc(100vw-2rem))] flex-col items-end gap-2"
+      style={{ bottom: 'max(1rem, env(safe-area-inset-bottom))', right: 'max(1rem, env(safe-area-inset-right))' }}
+    >
       {notices.map((notice) => (
         <ActionNoticeBanner
           key={notice.id}

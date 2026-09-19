@@ -8,7 +8,7 @@ import { Activity, ChevronRight, Download, Pause, Play, RadioTower, Search, Tras
 import { JsonTree } from '@/components/ui/json-tree';
 import { Segmented } from '@/components/debug/segmented';
 import { useApi } from '@/lib/api';
-import { cn } from '@/lib/utils';
+import { cn, downloadBlob } from '@/lib/utils';
 import type { DebugStreamMessage } from '@/types';
 
 const STREAM_CAP = 300;
@@ -133,17 +133,10 @@ export function LiveActivity() {
   }, [rows, kindFilter, query]);
 
   const exportJson = () => {
-    const blob = new Blob([JSON.stringify(visible.map((r) => ({ at: r.at, ...r.msg })), null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `debug-activity-${visible.length}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    // Revoke after the download has had a chance to start (immediate revoke
-    // cancels it in some browsers).
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadBlob(
+      new Blob([JSON.stringify(visible.map((r) => ({ at: r.at, ...r.msg })), null, 2)], { type: 'application/json' }),
+      `debug-activity-${visible.length}.json`,
+    );
   };
 
   return (

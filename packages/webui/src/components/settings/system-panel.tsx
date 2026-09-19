@@ -19,7 +19,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import { useApi } from '@/lib/api';
 import { useFlashMessage } from '@/hooks/use-flash-message';
-import { cn } from '@/lib/utils';
+import { cn, downloadBlob } from '@/lib/utils';
 import type { SystemSettingsResponse } from '@/types';
 
 export function SystemPanel() {
@@ -157,13 +157,10 @@ export function SystemPanel() {
         },
         () => api.systemSettings.exportBackup(exportCreds),
       );
-      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `snowluma-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(
+        new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' }),
+        `snowluma-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`,
+      );
       flash('ok', '已导出备份');
     } catch (e) {
       flash('err', e instanceof Error ? e.message : '导出失败');

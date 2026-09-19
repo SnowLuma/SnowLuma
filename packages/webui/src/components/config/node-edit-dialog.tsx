@@ -27,7 +27,7 @@ import { DropdownSelect, type DropdownOption } from '@/components/ui/dropdown-se
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
-import { cn } from '@/lib/utils';
+import { cn, copyText } from '@/lib/utils';
 import {
   accessTokenFeedback,
   type AccessTokenFeedback,
@@ -413,27 +413,6 @@ interface TokenFieldProps {
   feedback?: AccessTokenFeedback;
 }
 
-/** Insecure-context clipboard fallback. Returns true on success.
- *  Cast through a local alias so ts(6387) doesn't flag the call site —
- *  the deprecation tag is on the live signature and we know we're using
- *  the still-supported legacy form on purpose. */
-function legacyCopyToClipboard(value: string): boolean {
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = value;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    const exec = (document as unknown as { execCommand(cmd: string): boolean }).execCommand;
-    const ok = exec.call(document, 'copy');
-    document.body.removeChild(ta);
-    return ok;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Password-style input for the access token. Hidden by default to keep
  * the value out of over-the-shoulder reads / screenshots; an eye toggle
@@ -448,16 +427,7 @@ function TokenField({ label, value, onChange, onGenerate, placeholder, feedback 
 
   const handleCopy = async () => {
     if (!value) return;
-    try {
-      await navigator.clipboard.writeText(value);
-    } catch {
-      // navigator.clipboard is undefined on insecure origins (LAN HTTP
-      // outside localhost). Fall back to a transient textarea +
-      // document.execCommand('copy'). The latter is deprecated but every
-      // current browser still honours it and there is no modern
-      // replacement for non-secure-context clipboard writes.
-      if (!legacyCopyToClipboard(value)) return;
-    }
+    if (!await copyText(value)) return;
     setCopied(true);
     if (copiedTimerRef.current != null) window.clearTimeout(copiedTimerRef.current);
     copiedTimerRef.current = window.setTimeout(() => {

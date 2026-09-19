@@ -9,6 +9,7 @@ import type { TotpEnrollment, TotpStatus } from '@/lib/api/types';
 import { parseSecondFactor } from '@/lib/totp-second-factor';
 import { TotpQr } from '@/components/settings/totp-qr';
 import { TotpRecoveryCodes } from '@/components/settings/totp-recovery-codes';
+import { copyText } from '@/lib/utils';
 
 function SettingRow({
   label,
@@ -198,6 +199,22 @@ function TotpSetupDialog({
             <div className="flex flex-col items-center gap-3">
               <TotpQr value={enrollment.otpauthUrl} label="2FA 绑定二维码" />
               <p className="break-all text-center font-mono text-xs text-muted-foreground">{enrollment.secret}</p>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { void copyText(enrollment.secret); }}
+                >
+                  复制密钥
+                </Button>
+                <a
+                  href={enrollment.otpauthUrl}
+                  className="inline-flex h-8 items-center rounded-md border border-border px-3 text-xs font-medium text-foreground"
+                >
+                  在验证器中打开
+                </a>
+              </div>
             </div>
           )}
           <div className="grid grid-cols-2 gap-3">
@@ -220,6 +237,8 @@ function TotpSetupDialog({
           <Input
             inputMode="numeric"
             autoComplete="one-time-code"
+            maxLength={6}
+            pattern="[0-9]*"
             placeholder="6 位验证码"
             value={code}
             onChange={(e) => setCode(e.target.value)}

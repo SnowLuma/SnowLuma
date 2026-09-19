@@ -1,27 +1,7 @@
 import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-
-async function copyText(value: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(value);
-    return true;
-  } catch {
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = value;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(ta);
-      return ok;
-    } catch {
-      return false;
-    }
-  }
-}
+import { copyText } from '@/lib/utils';
 
 export function TotpRecoveryCodes({
   codes,
@@ -31,6 +11,7 @@ export function TotpRecoveryCodes({
   onConfirm: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
   const [saved, setSaved] = useState(false);
 
   return (
@@ -40,8 +21,13 @@ export function TotpRecoveryCodes({
       </p>
       <ol className="grid grid-cols-2 gap-2 font-mono text-sm">
         {codes.map((code) => (
-          <li key={code} className="rounded-md border bg-muted/40 px-3 py-2 text-center tracking-wide">
-            {code}
+          <li key={code}>
+            <input
+              readOnly
+              value={code}
+              className="w-full rounded-md border bg-muted/40 px-3 py-2 text-center tracking-wide outline-none"
+              onFocus={(e) => e.currentTarget.select()}
+            />
           </li>
         ))}
       </ol>
@@ -51,12 +37,18 @@ export function TotpRecoveryCodes({
         size="sm"
         className="self-start"
         onClick={async () => {
-          if (await copyText(codes.join('\n'))) setCopied(true);
+          const ok = await copyText(codes.join('\n'));
+          setCopied(ok);
+          setCopyError(!ok);
+          if (ok) window.setTimeout(() => setCopied(false), 1600);
         }}
       >
         {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
         {copied ? '已复制' : '复制全部'}
       </Button>
+      {copyError && (
+        <p className="text-xs text-destructive">复制失败，请长按上面的码手动拷贝。</p>
+      )}
       <label className="flex items-start gap-2 text-sm">
         <input
           type="checkbox"

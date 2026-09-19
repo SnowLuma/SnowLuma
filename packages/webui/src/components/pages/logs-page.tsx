@@ -10,7 +10,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { SkeletonSwap } from '@/components/interior/skeleton-swap';
-import { cn } from '@/lib/utils';
+import { cn, downloadBlob } from '@/lib/utils';
 import type { LogEntry, LogLevel, LogsPreset, UiHighlightRule } from '@/types';
 import { useApi } from '@/lib/api';
 import {
@@ -370,13 +370,8 @@ export function LogsPage() {
       l.line || `${l.time} ${l.level.toUpperCase().padEnd(7)} [${l.scope}] ${l.message}`,
     ));
     const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    a.href = url;
-    a.download = `snowluma-logs-${ts}.log`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, `snowluma-logs-${ts}.log`);
   }, [filtered]);
 
   const exportFullTrace = useCallback(async () => {
@@ -392,13 +387,7 @@ export function LogsPage() {
         },
         () => api.logs.exportTrace(),
       );
-      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(new Blob([text], { type: 'text/plain;charset=utf-8' }), filename);
     } catch (err) {
       console.error('exportTrace', err);
     } finally {
@@ -421,7 +410,7 @@ export function LogsPage() {
   const levelsFiltered = enabled.size < LEVELS.length;
 
   return (
-    <Card className="flex h-[calc(100vh-7rem)] min-h-[480px] flex-col overflow-hidden">
+    <Card className="flex h-[calc(100dvh-7rem)] min-h-[480px] flex-col overflow-hidden">
       {/* ── Toolbar ─────────────────────────────────────────────── */}
       <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 flex-col gap-1">
