@@ -414,7 +414,9 @@ class HttpApiClient implements ApiClient {
       ...((init.headers as Record<string, string> | undefined) ?? {}),
     };
     if (this.currentToken) headers['Authorization'] = `Bearer ${this.currentToken}`;
-    if (init.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+    if (init.body && !(init.body instanceof FormData) && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
 
     const res = await this.fetchWithDeadline(url, { ...init, headers });
     if (res.status === 401) {
@@ -626,9 +628,11 @@ class HttpApiClient implements ApiClient {
       active = controller;
       try {
         const response = await fetch(path, {
+          cache: 'no-store',
           headers: {
             Accept: 'text/event-stream',
             Authorization: `Bearer ${token}`,
+            'Cache-Control': 'no-cache',
           },
           signal: controller.signal,
         });
@@ -650,7 +654,10 @@ class HttpApiClient implements ApiClient {
         try {
           while (!disposed) {
             const { done, value } = await reader.read();
-            if (done) break;
+            if (done) {
+              buffer += decoder.decode();
+              break;
+            }
             buffer += decoder.decode(value, { stream: true });
             if (buffer.length > 1024 * 1024) throw new Error('SSE frame buffer exceeded 1 MiB');
             for (;;) {
@@ -678,7 +685,8 @@ class HttpApiClient implements ApiClient {
             }
           }
         } finally {
-          reader.releaseLock();
+          try { await reader.cancel(); } catch { /* already closed */ }
+          try { reader.releaseLock(); } catch { /* already released */ }
         }
         if (!disposed) scheduleReconnect();
       } catch {
@@ -688,10 +696,43 @@ class HttpApiClient implements ApiClient {
       }
     };
 
+    const onPageHide = () => { active?.abort(); };
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted && !disposed) {
+        if (reconnectTimer !== null) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        void connect();
+      }
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && !disposed && !active) {
+        if (reconnectTimer !== null) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        void connect();
+      }
+    };
+    const page = typeof window !== 'undefined' && typeof document !== 'undefined';
+    if (page) {
+      window.addEventListener('pagehide', onPageHide);
+      window.addEventListener('pageshow', onPageShow);
+      document.addEventListener('visibilitychange', onVisible);
+      document.addEventListener('freeze', onPageHide);
+    }
+
     void connect();
     return () => {
       if (disposed) return;
       disposed = true;
+      if (page) {
+        window.removeEventListener('pagehide', onPageHide);
+        window.removeEventListener('pageshow', onPageShow);
+        document.removeEventListener('visibilitychange', onVisible);
+        document.removeEventListener('freeze', onPageHide);
+      }
       if (reconnectTimer !== null) clearTimeout(reconnectTimer);
       reconnectTimer = null;
       active?.abort();
@@ -770,10 +811,15 @@ class HttpApiClient implements ApiClient {
     onFrame: (frame: import('@/types').DebugStreamFrame) => void,
     signal?: AbortSignal,
   ): Promise<void> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      'Cache-Control': 'no-cache',
+    };
     if (this.currentToken) headers['Authorization'] = `Bearer ${this.currentToken}`;
     const res = await fetch('/api/debug/invoke-stream', {
       method: 'POST',
+      cache: 'no-store',
       headers,
       body: JSON.stringify({ uin, action, params }),
       signal,
@@ -790,18 +836,46 @@ class HttpApiClient implements ApiClient {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = '';
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      let sep: number;
-      while ((sep = buf.indexOf('\n\n')) >= 0) {
-        const block = buf.slice(0, sep);
-        buf = buf.slice(sep + 2);
-        const line = block.startsWith('data: ') ? block.slice(6) : block;
-        if (!line.trim()) continue;
-        try { onFrame(JSON.parse(line) as import('@/types').DebugStreamFrame); } catch { /* skip malformed */ }
+    const takeFrames = (raw: string) => {
+      for (;;) {
+        const lf = raw.indexOf('\n\n');
+        const crlf = raw.indexOf('\r\n\r\n');
+        let separator = -1;
+        let separatorLength = 0;
+        if (lf >= 0 && (crlf < 0 || lf < crlf)) {
+          separator = lf;
+          separatorLength = 2;
+        } else if (crlf >= 0) {
+          separator = crlf;
+          separatorLength = 4;
+        }
+        if (separator < 0) return raw;
+        const block = raw.slice(0, separator);
+        raw = raw.slice(separator + separatorLength);
+        const data = block
+          .split(/\r?\n/u)
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).replace(/^ /u, ''))
+          .join('\n');
+        if (!data) continue;
+        try { onFrame(JSON.parse(data) as import('@/types').DebugStreamFrame); } catch { /* skip malformed */ }
       }
+    };
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+          buf += decoder.decode();
+          takeFrames(buf);
+          break;
+        }
+        buf += decoder.decode(value, { stream: true });
+        if (buf.length > 1024 * 1024) throw new Error('SSE frame buffer exceeded 1 MiB');
+        buf = takeFrames(buf);
+      }
+    } finally {
+      try { await reader.cancel(); } catch { /* already closed */ }
+      try { reader.releaseLock(); } catch { /* already released */ }
     }
   }
 
