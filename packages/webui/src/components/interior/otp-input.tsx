@@ -42,6 +42,7 @@ export type OtpCellProps = {
   type: "text";
   inputMode: "numeric" | "text";
   autoComplete: string;
+  pattern?: string;
   autoCorrect: "off";
   autoCapitalize: "off";
   spellCheck: false;
@@ -166,7 +167,8 @@ export function useOtpInput({
       disabled,
       type: "text",
       inputMode: mode === "numeric" ? "numeric" : "text",
-      autoComplete: index === 0 ? "one-time-code" : "off",
+      autoComplete: index === 0 && mode === "numeric" ? "one-time-code" : "off",
+      pattern: mode === "numeric" ? "[0-9]*" : undefined,
       autoCorrect: "off",
       autoCapitalize: "off",
       spellCheck: false,
@@ -430,21 +432,13 @@ export function OtpInput({
                   aria-hidden
                   className="pointer-events-none absolute inset-0 grid place-items-center"
                 >
-                  <AnimatePresence initial={false} mode="popLayout">
+                  <AnimatePresence initial={false}>
                     {char ? (
                       <motion.span
                         key={char}
-                        initial={
-                          reduced
-                            ? false
-                            : { opacity: 0, scale: 0.97, y: 10, filter: "blur(6px)" }
-                        }
-                        animate={{ opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }}
-                        exit={
-                          reduced
-                            ? { opacity: 0 }
-                            : { opacity: 0, scale: 0.98, y: -6, filter: "blur(3px)" }
-                        }
+                        initial={reduced ? false : { opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
                         transition={enter}
                         className="col-start-1 row-start-1 font-mono text-[22px] tabular-nums text-foreground"
                       >

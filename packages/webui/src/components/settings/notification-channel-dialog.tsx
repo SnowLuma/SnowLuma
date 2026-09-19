@@ -204,7 +204,7 @@ export function NotificationChannelDialog(props: NotificationChannelDialogProps)
         : '账号上线 / 下线时向该 Webhook POST 一条渲染后的通知。'}
       closeLabel="关闭渠道编辑弹窗"
       maxWidth={576}
-      maxHeight="min(86vh, 780px)"
+      maxHeight="min(86dvh, 780px)"
       footer={(
         <>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

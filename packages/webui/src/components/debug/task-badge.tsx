@@ -51,7 +51,10 @@ export function TaskBadge() {
   const ringPct = progress === null ? null : Math.round(progress * 100);
 
   return (
-    <div className="fixed bottom-4 right-4 z-[60] flex flex-col items-end gap-2">
+    <div
+      className="fixed z-[60] flex flex-col items-end gap-2"
+      style={{ bottom: 'max(1rem, env(safe-area-inset-bottom))', right: 'max(1rem, env(safe-area-inset-right))' }}
+    >
       <AnimatePresence>
         {open && (
           <motion.div

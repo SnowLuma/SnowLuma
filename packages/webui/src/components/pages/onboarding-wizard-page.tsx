@@ -143,7 +143,7 @@ export function OnboardingWizardPage({
   if (total === 0) return null;
 
   return (
-    <div className="relative min-h-dvh overflow-x-clip bg-background antialiased">
+    <div className="relative min-h-svh overflow-x-hidden bg-background antialiased">
       <div
         className="pointer-events-none absolute inset-0"
         style={{
@@ -151,10 +151,10 @@ export function OnboardingWizardPage({
             'radial-gradient(80% 60% at 50% 0%, color-mix(in oklab, var(--primary) 18%, transparent) 0%, transparent 70%)',
         }}
       />
-      <div className="absolute right-4 top-4 z-20 sm:right-6 sm:top-6">
+      <div className="absolute right-[max(1rem,env(safe-area-inset-right))] top-[max(1rem,env(safe-area-inset-top))] z-20 sm:right-6">
         <ThemeToggle />
       </div>
-      <main className="relative z-10 mx-auto flex h-dvh min-h-0 w-full max-w-5xl flex-col overflow-hidden px-4 pb-4 pt-14 sm:px-6 sm:pb-5 sm:pt-4">
+      <main className="relative z-10 mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-14 sm:px-6 sm:pb-5 sm:pt-4">
         <header className="mx-auto mb-2 w-full max-w-2xl shrink-0 text-center">
           <p className="text-xs font-semibold tracking-wide text-primary">SnowLuma WebUI</p>
           <h1 className="mt-1 text-balance text-2xl font-semibold tracking-tight sm:text-3xl">完成首次使用设置</h1>
@@ -333,7 +333,7 @@ function PasswordStep({
   const { back } = useWizardNavigation();
 
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-xl flex-col justify-center py-2 sm:py-5">
+    <div className="mx-auto flex min-h-full w-full max-w-xl flex-col justify-start py-2 sm:py-5">
       <div className="mb-8 flex items-start gap-4">
         <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20">
           <ShieldAlert className="size-5 text-primary" />

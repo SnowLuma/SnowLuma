@@ -120,8 +120,6 @@ export function SkeletonSwap({
             ? { opacity: showSkeleton ? 0 : 1 }
             : {
               opacity: showSkeleton ? 0 : 1,
-              scale: showSkeleton ? 0.99 : 1,
-              filter: showSkeleton ? 'blur(4px)' : 'blur(0px)',
             }
         }
         transition={reduced ? { duration: 0 } : CROSSFADE}
@@ -141,7 +139,7 @@ export function SkeletonSwap({
             className="pointer-events-none col-start-1 row-start-1 w-full self-start"
             initial={reduced ? { opacity: 1 } : { opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={reduced ? { opacity: 0 } : { opacity: 0, filter: 'blur(3px)' }}
+            exit={{ opacity: 0 }}
             transition={reduced ? { duration: 0 } : CROSSFADE}
           >
             {skeleton ?? (

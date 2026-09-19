@@ -51,20 +51,41 @@ function lockDocumentScroll() {
   locks += 1;
   if (locks > 1) return;
 
+  const html = document.documentElement;
   const body = document.body;
-  const gap = window.innerWidth - document.documentElement.clientWidth;
+  const gap = window.innerWidth - html.clientWidth;
+  const scrollY = window.scrollY;
+  const htmlOverflow = html.style.overflow;
+  const htmlOverscroll = html.style.overscrollBehavior;
   const overflow = body.style.overflow;
+  const overscroll = body.style.overscrollBehavior;
   const paddingRight = body.style.paddingRight;
+  const position = body.style.position;
+  const top = body.style.top;
+  const insetInline = body.style.insetInline;
   const base = Number.parseFloat(window.getComputedStyle(body).paddingRight);
 
+  html.style.overflow = "hidden";
+  html.style.overscrollBehavior = "none";
   body.style.overflow = "hidden";
+  body.style.overscrollBehavior = "none";
+  body.style.position = "fixed";
+  body.style.insetInline = "0";
+  body.style.top = `-${scrollY}px`;
   if (gap > 0) {
     body.style.paddingRight = `${(Number.isFinite(base) ? base : 0) + gap}px`;
   }
 
   releaseLock = () => {
+    html.style.overflow = htmlOverflow;
+    html.style.overscrollBehavior = htmlOverscroll;
     body.style.overflow = overflow;
+    body.style.overscrollBehavior = overscroll;
     body.style.paddingRight = paddingRight;
+    body.style.position = position;
+    body.style.top = top;
+    body.style.insetInline = insetInline;
+    window.scrollTo(0, scrollY);
   };
 }
 
@@ -332,10 +353,32 @@ export function Modal({
   initialFocusRef,
   container,
   maxWidth = 440,
-  maxHeight = "min(78vh, 620px)",
+  maxHeight = "min(78dvh, 620px)",
   className = "",
 }: ModalProps) {
   const reduced = useReducedMotion();
+  const [viewport, setViewport] = useState({ top: 0, height: "100%", alignStart: false });
+
+  useEffect(() => {
+    if (!open) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      const keyboard = window.innerHeight - vv.height > 80;
+      setViewport({
+        top: vv.offsetTop,
+        height: `${vv.height}px`,
+        alignStart: keyboard,
+      });
+    };
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, [open]);
 
   const { target, titleId, descriptionId, overlayProps, panelProps } = useModal({
     open,
@@ -399,7 +442,10 @@ export function Modal({
           animate="open"
           exit="gone"
           variants={{ closed: {}, open: {}, gone: {} }}
-          className="fixed inset-0 z-50 grid place-items-center p-4 sm:p-6"
+          className={`fixed inset-x-0 z-50 grid overscroll-none p-4 sm:p-6 ${
+            viewport.alignStart ? "place-items-start" : "place-items-center"
+          }`}
+          style={{ top: viewport.top, height: viewport.height }}
         >
           <motion.div
             aria-hidden="true"

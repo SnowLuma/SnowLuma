@@ -162,6 +162,21 @@ export function LoginPage({
               onChange={() => setOtpStatus((s) => (s === 'rejected' ? 'idle' : s))}
               onComplete={(code) => { void submitTotp(code); }}
             />
+            {!useRecovery && (
+              <input
+                type="text"
+                name="one-time-code"
+                autoComplete="one-time-code"
+                inputMode="numeric"
+                className="sr-only"
+                tabIndex={-1}
+                aria-hidden="true"
+                onChange={(e) => {
+                  const digits = e.currentTarget.value.replace(/\D/g, '').slice(0, 6);
+                  if (digits.length === 6) void submitTotp(digits);
+                }}
+              />
+            )}
 
             <div className="flex items-center justify-between text-[12px]">
               <button
@@ -197,13 +212,15 @@ export function LoginPage({
             >
               <KeyRound className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                id="login-password"
+                name="password"
                 type={showPwd ? 'text' : 'password'}
                 placeholder="输入访问令牌"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoFocus
                 autoComplete="current-password"
-                className="h-12 rounded-xl bg-background/40 pl-10 pr-11 text-sm"
+                className="h-12 rounded-xl bg-background/40 pl-10 pr-11 text-base"
               />
               <button
                 type="button"
@@ -277,7 +294,7 @@ function LoginShell({
   children: ReactNode;
 }) {
   return (
-    <div className={cn('relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-8', customBg ? 'bg-transparent' : 'bg-background')}>
+    <div className={cn('relative flex min-h-dvh items-center justify-center overflow-x-hidden px-4 py-8 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[max(2rem,env(safe-area-inset-top))]', customBg ? 'bg-transparent' : 'bg-background')}>
       {fxOn && <LoginWaves />}
 
       <div
@@ -288,7 +305,7 @@ function LoginShell({
         }}
       />
 
-      <div className="absolute right-4 top-4 z-20">
+      <div className="absolute right-[max(1rem,env(safe-area-inset-right))] top-[max(1rem,env(safe-area-inset-top))] z-20">
         <ThemeToggle />
       </div>
 
