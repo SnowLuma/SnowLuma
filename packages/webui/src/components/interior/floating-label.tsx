@@ -203,6 +203,7 @@ export function FloatingLabelInput({
             ref={attach}
             id={fieldId}
             name={name}
+            data-ui-control=""
             type={type}
             value={value}
             defaultValue={defaultValue}
@@ -228,7 +229,7 @@ export function FloatingLabelInput({
               fieldProps.onChange(event);
               onChange?.(event.currentTarget.value, event);
             }}
-            className={`absolute inset-0 h-full w-full rounded-[9px] bg-transparent px-3 py-0 text-base leading-5 text-foreground outline-none focus-visible:outline-none disabled:cursor-not-allowed sm:text-[13px] ${
+            className={`absolute inset-0 h-full w-full appearance-none rounded-[9px] bg-transparent px-3 py-0 text-base leading-5 text-foreground outline-none focus-visible:outline-none disabled:cursor-not-allowed ${
               endAdornment ? "pr-16" : ""
             }`}
           />
@@ -248,7 +249,7 @@ export function FloatingLabelInput({
             scale: raised ? SHRINK : 1,
           }}
           transition={move}
-          style={{ originX: 0, originY: 0, willChange: "transform" }}
+          style={{ originX: 0, originY: 0 }}
           className={`absolute left-3 top-[32px] block cursor-text select-none text-base leading-5 sm:text-[13px] sm:leading-[16px] ${
             invalid
               ? "text-destructive"

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { FINE_POINTER_QUERY } from '@/lib/utils';
 
 export function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState(() => {
@@ -15,4 +16,8 @@ export function useMediaQuery(query: string): boolean {
   }, [query]);
 
   return matches;
+}
+
+export function useFinePointer(): boolean {
+  return useMediaQuery(FINE_POINTER_QUERY);
 }

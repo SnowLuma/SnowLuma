@@ -18,24 +18,26 @@
       (function () {
         try {
           var raw = localStorage.getItem('snowluma_ui_appearance');
-          if (!raw) return;
-          var a = JSON.parse(raw);
-          if (!a || typeof a !== 'object') return;
+          var a = raw ? JSON.parse(raw) : {};
+          if (!a || typeof a !== 'object') a = {};
           var root = document.documentElement;
           var mode = a.mode;
           var pal = a.palette;
           // A non-default palette fixes light/dark; these flavors are light, the rest dark.
           var LIGHT_PAL = { 'catppuccin-latte': 1, 'rose-pine-dawn': 1, 'everforest-light': 1 };
           var isPal = typeof pal === 'string' && pal.length > 0 && pal !== 'default';
+          var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
           var resolved = isPal
             ? (LIGHT_PAL[pal] ? 'light' : 'dark')
             : (mode === 'light' || mode === 'dark'
                 ? mode
-                : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+                : (prefersDark ? 'dark' : 'light'));
           root.classList.remove('light', 'dark');
           root.classList.add(resolved);
           root.setAttribute('data-theme', resolved);
           root.style.colorScheme = resolved;
+          var themeMeta = document.querySelector('meta[name="theme-color"]');
+          if (themeMeta) themeMeta.setAttribute('content', resolved === 'dark' ? '#0a0f1a' : '#f4f7fb');
           if (isPal) root.setAttribute('data-palette', pal);
           if (a.density === 'compact' || a.density === 'cozy') root.setAttribute('data-density', a.density);
           // A palette forces soft so the OLED "black" rule can't fight it.
@@ -43,9 +45,13 @@
           if (intensity === 'black' || intensity === 'soft') root.setAttribute('data-dark-intensity', intensity);
           if (a.sidebarStyle === 'follow' || a.sidebarStyle === 'panel' || a.sidebarStyle === 'accent') root.setAttribute('data-sidebar-style', a.sidebarStyle);
           root.setAttribute('data-contrast', a.highContrast ? 'high' : 'normal');
-          root.setAttribute('data-reduce-motion', a.reduceMotion ? '1' : '0');
+          var systemReduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          root.setAttribute('data-reduce-motion', (a.reduceMotion || a.disableMotion || systemReduce) ? '1' : '0');
+          if (a.disableMotion) root.setAttribute('data-no-motion', '1');
           if (typeof a.radius === 'number' && a.radius >= 0 && a.radius <= 2) root.style.setProperty('--radius', a.radius + 'rem');
-          if (typeof a.uiScale === 'number' && a.uiScale >= 0.5 && a.uiScale <= 2) root.style.fontSize = 16 * a.uiScale + 'px';
+          if (typeof a.uiScale === 'number' && a.uiScale >= 0.5 && a.uiScale <= 2) {
+            root.style.fontSize = (Math.round(16 * a.uiScale * 100) / 100) + 'px';
+          }
         } catch (e) { /* ignore — fall back to default theme */ }
       })();
     </script>

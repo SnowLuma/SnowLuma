@@ -179,8 +179,14 @@
   * {
     border-color: var(--border);
   }
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
   html, body, #root {
     height: 100%;
+    height: 100dvh;
+    min-height: -webkit-fill-available;
   }
   body {
     margin: 0;
@@ -253,7 +259,7 @@
    hovered target's bounds. Coarse pointers and reduced-motion environments
    never receive data-cursor-system="custom", so native cursors remain intact.
    ────────────────────────────────────────────── */
-@media (hover: hover) and (pointer: fine) {
+@media (hover: hover) and (pointer: fine) and (not (any-pointer: coarse)) {
   html {
     --snowluma-cursor-mode: default;
   }
@@ -368,11 +374,11 @@
 
   /* Applied only after the tracker mounts, so a JavaScript failure can never
      strand the application without a usable native pointer. */
-  html[data-cursor-system="custom"],
-  html[data-cursor-system="custom"] body,
-  html[data-cursor-system="custom"] *,
-  html[data-cursor-system="custom"] *::before,
-  html[data-cursor-system="custom"] *::after {
+  html[data-cursor-system="custom"][data-cursor-armed="1"],
+  html[data-cursor-system="custom"][data-cursor-armed="1"] body,
+  html[data-cursor-system="custom"][data-cursor-armed="1"] *,
+  html[data-cursor-system="custom"][data-cursor-armed="1"] *::before,
+  html[data-cursor-system="custom"][data-cursor-armed="1"] *::after {
     cursor: none !important;
   }
 }
@@ -515,12 +521,14 @@ html[data-cursor-system="custom"] .adaptive-cursor[data-visible="true"] {
   background: var(--primary);
   opacity: 0.9;
   transform: translate(-50%, -50%);
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 8h12M5 5 2 8l3 3m6-6 3 3-3 3' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 8h12M5 5 2 8l3 3m6-6 3 3-3 3' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='M2 8h12M5 5 2 8l3 3m6-6 3 3-3 3' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='M2 8h12M5 5 2 8l3 3m6-6 3 3-3 3' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  -webkit-mask-source-type: alpha;
+  mask-mode: alpha;
 }
 .adaptive-cursor[data-mode="move"] .adaptive-cursor-shape::before {
-  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1v14M1 8h14M5 4 8 1l3 3m-6 8 3 3 3-3M4 5 1 8l3 3m8-6 3 3-3 3' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1v14M1 8h14M5 4 8 1l3 3m-6 8 3 3 3-3M4 5 1 8l3 3m8-6 3 3-3 3' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='M8 1v14M1 8h14M5 4 8 1l3 3m-6 8 3 3 3-3M4 5 1 8l3 3m8-6 3 3-3 3' fill='none' stroke='white' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='M8 1v14M1 8h14M5 4 8 1l3 3m-6 8 3 3 3-3M4 5 1 8l3 3m8-6 3 3-3 3' fill='none' stroke='white' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 .adaptive-cursor[data-mode="ns-resize"] .adaptive-cursor-shape::before { transform: translate(-50%, -50%) rotate(90deg); }
 .adaptive-cursor[data-mode="nwse-resize"] .adaptive-cursor-shape::before { transform: translate(-50%, -50%) rotate(45deg); }
@@ -822,17 +830,25 @@ html[data-kiosk="1"] [data-kiosk-hide] {
    when there is actually hidden content in that direction, so a fully-scrolled
    top/bottom row is never dimmed (readability). A static mask, not motion: kept
    under reduce-motion, dropped only on the hard 关闭全部动效 switch. */
+.log-fade-top,
+.log-fade-bottom,
+.log-fade-both {
+  -webkit-mask-image: none;
+  mask-image: none;
+  -webkit-mask-source-type: alpha;
+  mask-mode: alpha;
+}
 .log-fade-top {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 100%);
-  mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #fff 14px, #fff 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #fff 14px, #fff 100%);
 }
 .log-fade-bottom {
-  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 18px), transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 18px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #fff 0, #fff calc(100% - 18px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #fff 0, #fff calc(100% - 18px), transparent 100%);
 }
 .log-fade-both {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 18px), transparent 100%);
-  mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 18px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #fff 14px, #fff calc(100% - 18px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #fff 14px, #fff calc(100% - 18px), transparent 100%);
 }
 
 /* Reduce motion: a CSS fallback for non-Framer transitions/animations.
@@ -855,10 +871,10 @@ html[data-reduce-motion="1"] :is(.ui-button, [data-press-scale]) {
   :is(.ui-button, [data-press-scale]) { scale: 1 !important; }
 }
 
-/* Keep shared form controls at 16px on narrow touch screens even when a page
+/* Keep shared form controls at 16px on coarse pointers even when a page
    supplies a smaller desktop typography utility. This prevents iOS Safari
    from zooming the viewport when the control receives focus. */
-@media (max-width: 767px) {
+@media (hover: none) and (pointer: coarse) {
   .ui-button {
     min-width: max(2.75rem, 44px);
     min-height: max(2.75rem, 44px);
@@ -870,7 +886,11 @@ html[data-reduce-motion="1"] :is(.ui-button, [data-press-scale]) {
     height: 44px;
     min-height: 44px;
   }
-  [data-ui-control] {
+  input,
+  select,
+  textarea,
+  [data-ui-control],
+  [contenteditable]:not([contenteditable="false"]) {
     min-height: max(2.75rem, 44px);
     font-size: max(1rem, 16px);
   }
@@ -893,6 +913,19 @@ input::-ms-reveal,
 input::-ms-clear {
   display: none;
 }
+input::-webkit-credentials-auto-fill-button,
+input::-webkit-contacts-auto-fill-button,
+input::-webkit-strong-password-auto-fill-button {
+  visibility: hidden;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+}
+input::-webkit-search-decoration,
+input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
 
 /* ──────────────────────────────────────────────
    Light/dark reveal — a circular wipe from the click point, via the View
@@ -910,8 +943,24 @@ input::-ms-clear {
   animation: snowluma-theme-reveal 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 @keyframes snowluma-theme-reveal {
-  from { clip-path: circle(0 at var(--vt-x, 50%) var(--vt-y, 50%)); }
-  to { clip-path: circle(var(--vt-r, 150%) at var(--vt-x, 50%) var(--vt-y, 50%)); }
+  from {
+    -webkit-clip-path: circle(0px at var(--vt-x, 50%) var(--vt-y, 50%));
+    clip-path: circle(0px at var(--vt-x, 50%) var(--vt-y, 50%));
+  }
+  to {
+    -webkit-clip-path: circle(var(--vt-r, 150%) at var(--vt-x, 50%) var(--vt-y, 50%));
+    clip-path: circle(var(--vt-r, 150%) at var(--vt-x, 50%) var(--vt-y, 50%));
+  }
+}
+html[data-reduce-motion="1"]::view-transition-old(root),
+html[data-reduce-motion="1"]::view-transition-new(root) {
+  animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
+  }
 }
 
 /* ──────────────────────────────────────────────
@@ -960,13 +1009,14 @@ html {
   min-width: 0;
   height: 3rem;
   align-items: center;
-  overflow: clip;
+  overflow: hidden;
   border: 0.5px solid var(--border);
   border-radius: 0.75rem;
   background: var(--muted);
   cursor: grab;
-  touch-action: none;
+  touch-action: pan-y;
   user-select: none;
+  -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
   transition-property: background-color, border-color, box-shadow;
   transition-duration: 150ms;
@@ -1105,9 +1155,9 @@ html[data-reduce-motion="1"] .slider-labels {
      grid lines up with surrounding page padding. */
   background: transparent;
 }
-.grid-stack-item-content {
+.grid-stack > .grid-stack-item > .grid-stack-item-content {
   inset: 0;
-  overflow: visible;
+  overflow: clip;
   background: transparent;
   display: block;
 }
@@ -1120,10 +1170,11 @@ html[data-reduce-motion="1"] .slider-labels {
 /* Resize handle — only present while editing (grid is interactive). Make the
    bottom-right grip obvious so it's clearly draggable. */
 .grid-stack-item > .ui-resizable-se {
-  width: 18px;
-  height: 18px;
-  right: 5px;
-  bottom: 5px;
+  width: 44px;
+  height: 44px;
+  right: 0;
+  bottom: 0;
+  touch-action: none;
   background-image: none;
   transform: none;
   border-right: 3px solid var(--primary);
@@ -1132,6 +1183,8 @@ html[data-reduce-motion="1"] .slider-labels {
   opacity: 0.65;
   z-index: 30;
 }
-.grid-stack-item:hover > .ui-resizable-se {
-  opacity: 1;
+@media (hover: hover) and (pointer: fine) {
+  .grid-stack-item:hover > .ui-resizable-se {
+    opacity: 1;
+  }
 }
