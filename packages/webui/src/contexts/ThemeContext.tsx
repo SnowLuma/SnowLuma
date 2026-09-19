@@ -378,8 +378,14 @@ function applyAppearance(a: UiAppearance, resolved: 'light' | 'dark'): void {
   // 减弱动效 OR 关闭全部动效 both engage the reduce-motion CSS/Framer layer;
   // 关闭全部动效 additionally sets data-no-motion (kills CSS animations outright
   // and gates Framer entrance fades that reduce-motion leaves on).
-  root.setAttribute('data-reduce-motion', (a.reduceMotion || a.disableMotion) ? '1' : '0');
+  const systemReduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+  root.setAttribute('data-reduce-motion', (a.reduceMotion || a.disableMotion || systemReduce) ? '1' : '0');
   root.setAttribute('data-no-motion', a.disableMotion ? '1' : '0');
+  const themeMeta = document.querySelector('meta[name="theme-color"]');
+  if (themeMeta) {
+    const canvas = getComputedStyle(root).getPropertyValue('--background').trim();
+    themeMeta.setAttribute('content', canvas || (resolved === 'dark' ? '#0a0f1a' : '#f4f7fb'));
+  }
 
   // Mode-independent vars go inline on :root.
   root.style.setProperty('--radius', `${a.radius}rem`);
@@ -448,11 +454,13 @@ function applyBackgroundLayer(a: UiAppearance): void {
     layer.style.backgroundSize = 'cover';
     layer.style.backgroundPosition = 'center';
     layer.style.backgroundRepeat = 'no-repeat';
+    layer.style.overflow = 'hidden';
     document.body.insertBefore(layer, document.body.firstChild);
   }
   layer.style.display = 'block';
   layer.style.filter = '';
   layer.style.transform = '';
+  if (bg.type !== 'image') layer.replaceChildren();
 
   if (bg.type === 'solid') {
     layer.style.backgroundColor = bg.color;
@@ -462,16 +470,24 @@ function applyBackgroundLayer(a: UiAppearance): void {
     layer.style.backgroundColor = 'transparent';
     layer.style.backgroundImage = g.css;
   } else if (bg.type === 'image' && bg.hasImage) {
-    // Overlay (for readability) layered over the image; opacity 0..1 = how
-    // strongly the base background colour masks the wallpaper.
-    const overlay = `color-mix(in oklab, var(--background) ${Math.round(bg.imageOpacity * 100)}%, transparent)`;
+    // Keep url() and the readability overlay on separate nodes. WebKit drops
+    // a whole `background-image` when color-mix(oklab, oklch-var) sits inside
+    // a gradient that is comma-stacked with a url().
     layer.style.backgroundColor = 'transparent';
-    layer.style.backgroundImage = `linear-gradient(${overlay}, ${overlay}), url("/ui-asset/background?v=${bg.imageVersion}")`;
-    if (bg.imageBlur > 0) {
-      layer.style.filter = `blur(${bg.imageBlur}px)`;
-      // Scale up so the blurred edges don't reveal the viewport border.
-      layer.style.transform = 'scale(1.06)';
-    }
+    layer.style.backgroundImage = 'none';
+    layer.replaceChildren();
+    const image = document.createElement('div');
+    image.style.position = 'absolute';
+    image.style.inset = '-6%';
+    image.style.backgroundImage = `url("/ui-asset/background?v=${bg.imageVersion}")`;
+    image.style.backgroundSize = 'cover';
+    image.style.backgroundPosition = 'center';
+    if (bg.imageBlur > 0) image.style.filter = `blur(${bg.imageBlur}px)`;
+    const veil = document.createElement('div');
+    veil.style.position = 'absolute';
+    veil.style.inset = '0';
+    veil.style.backgroundColor = `color-mix(in oklab, var(--background) ${Math.round(bg.imageOpacity * 100)}%, transparent)`;
+    layer.append(image, veil);
   } else {
     // type === 'image' but no image on disk → nothing to show.
     layer.style.display = 'none';
@@ -586,8 +602,18 @@ let lastPointer: { x: number; y: number } | null = null;
  *  the transition callback so the "after" snapshot is captured. Falls back to
  *  an instant apply where View Transitions aren't supported (e.g. Firefox). */
 function runThemeReveal(apply: () => void): void {
-  const doc = document as Document & { startViewTransition?: (cb: () => void) => unknown };
-  if (typeof doc.startViewTransition !== 'function') { apply(); return; }
+  const doc = document as Document & {
+    startViewTransition?: (cb: () => void) => { finished?: Promise<unknown> };
+  };
+  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  if (
+    typeof doc.startViewTransition !== 'function'
+    || document.visibilityState === 'hidden'
+    || reduced
+  ) {
+    apply();
+    return;
+  }
   const root = document.documentElement;
   const x = lastPointer?.x ?? window.innerWidth / 2;
   const y = lastPointer?.y ?? window.innerHeight / 2;
@@ -595,7 +621,12 @@ function runThemeReveal(apply: () => void): void {
   root.style.setProperty('--vt-x', `${x}px`);
   root.style.setProperty('--vt-y', `${y}px`);
   root.style.setProperty('--vt-r', `${r}px`);
-  doc.startViewTransition(() => flushSync(apply));
+  try {
+    const transition = doc.startViewTransition(() => flushSync(apply));
+    void (transition?.finished ?? Promise.resolve()).catch(() => {});
+  } catch {
+    apply();
+  }
 }
 
 function readCache(): UiAppearance {
@@ -678,7 +709,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (cancelled) return;
       let next = server ?? readCache();
 
-      if (!localStorage.getItem(LS_MIGRATED)) {
+      let migrated = false;
+      try { migrated = Boolean(localStorage.getItem(LS_MIGRATED)); } catch { migrated = true; }
+      if (!migrated) {
         try { localStorage.setItem(LS_MIGRATED, '1'); } catch { /* ignore */ }
         const legacy = readLegacyOverlay();
         // Only migrate when the server has never been customized, so we don't

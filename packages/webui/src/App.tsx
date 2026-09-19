@@ -16,6 +16,7 @@ import { ApiProvider, createApiClient, useApi, type ApiClient } from '@/lib/api'
 import { DebugTaskProvider } from '@/contexts/DebugTaskContext';
 import { TaskBadge } from '@/components/debug/task-badge';
 import { AdaptivePointer } from '@/components/ui/adaptive-pointer';
+import { useFinePointer } from '@/hooks/use-media-query';
 import { GlobalContextMenu } from '@/components/ui/global-context-menu';
 import { InsecureRemoteAccessBanner } from '@/components/insecure-remote-access-banner';
 import {
@@ -73,6 +74,7 @@ function consumeUrlToken(): string | null {
 }
 
 function AuthBoundary({ onboardingSteps }: { onboardingSteps: AdditionalOnboardingStep[] }) {
+  const finePointer = useFinePointer();
   const [authChecked, setAuthChecked] = useState(false);
   const [authed, setAuthed] = useState(false);
   const [mustChange, setMustChange] = useState(false);
@@ -298,7 +300,7 @@ function AuthBoundary({ onboardingSteps }: { onboardingSteps: AdditionalOnboardi
   return (
     <ApiProvider client={client}>
       <DebugTaskProvider>
-        <TooltipProvider delayDuration={150}>{view}</TooltipProvider>
+        <TooltipProvider delayDuration={finePointer ? 150 : Infinity}>{view}</TooltipProvider>
         <TaskBadge />
       </DebugTaskProvider>
     </ApiProvider>
@@ -315,7 +317,7 @@ function AgreementLoadFailure({
   onLogout: () => void;
 }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
+    <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-8">
       <Card className="w-full max-w-lg border-destructive/30">
         <CardContent className="p-7 sm:p-9">
           <div className="flex items-start gap-3">
@@ -348,7 +350,7 @@ function AgreementLoadFailure({
 
 function Splash({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
+    <div className="flex min-h-dvh items-center justify-center bg-background text-sm text-muted-foreground">
       <SkeletonSwap
         ready={false}
         lines={3}

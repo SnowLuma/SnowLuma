@@ -364,7 +364,7 @@ export function WizardSteps({
             : "rounded-[11px] shadow-sm"
         }`}
       >
-        <AnimatePresence initial={false} custom={direction}>
+        <AnimatePresence initial={false} custom={direction} mode="wait">
           <motion.div
             key={complete ? "__complete" : step.id}
             custom={direction}
@@ -373,8 +373,7 @@ export function WizardSteps({
             animate="center"
             exit="exit"
             transition={panelTransition}
-            style={{ scrollbarGutter: "stable" }}
-            className={`absolute inset-0 overscroll-contain text-foreground ${
+            className={`absolute inset-0 h-full w-full overscroll-contain text-foreground ${
               step.scrollMode === "content" ? "overflow-hidden" : "overflow-y-auto"
             } ${spacious ? "p-4 text-sm leading-relaxed sm:p-5 lg:p-6" : "p-4 text-[13.5px] leading-relaxed"}`}
           >

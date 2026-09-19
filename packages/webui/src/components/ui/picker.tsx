@@ -80,12 +80,16 @@ export function Picker({
     if (!open) return;
     setScrollTop(0);
     setActive(0);
-    const t = setTimeout(() => searchRef.current?.focus(), 10);
+    const coarse = window.matchMedia('(pointer: coarse)').matches;
+    const t = coarse ? undefined : setTimeout(() => searchRef.current?.focus(), 10);
     const onPointer = (e: PointerEvent) => {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener('pointerdown', onPointer);
-    return () => { clearTimeout(t); document.removeEventListener('pointerdown', onPointer); };
+    return () => {
+      if (t !== undefined) clearTimeout(t);
+      document.removeEventListener('pointerdown', onPointer);
+    };
   }, [open]);
 
   const totalRows = filtered.length + (rawRow ? 1 : 0);
@@ -199,7 +203,7 @@ export function Picker({
                   if (listRef.current) listRef.current.scrollTop = 0;
                 }}
                 placeholder="搜索名称 / 号码…"
-                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground md:text-sm"
               />
               {onRefresh && (
                 <button type="button" title="刷新" onClick={onRefresh}

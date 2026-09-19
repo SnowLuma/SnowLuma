@@ -142,12 +142,9 @@ export function useDropdown({
     const onDown = (event: PointerEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) close(false);
     };
-    const onWindowBlur = () => close(false);
     document.addEventListener("pointerdown", onDown, true);
-    window.addEventListener("blur", onWindowBlur);
     return () => {
       document.removeEventListener("pointerdown", onDown, true);
-      window.removeEventListener("blur", onWindowBlur);
     };
   }, [open, close]);
 
@@ -344,7 +341,7 @@ export function Dropdown({
             <ul
               {...listProps}
               aria-label={label}
-              className="relative max-h-[216px] overflow-y-auto outline-none [scrollbar-gutter:stable]"
+              className="relative max-h-[216px] overflow-y-auto overscroll-contain outline-none [scrollbar-gutter:stable]"
             >
               <motion.span
                 aria-hidden

@@ -6,7 +6,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sidebar } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/top-bar';
-import { useMediaQuery } from '@/hooks/use-media-query';
+import { useFinePointer, useMediaQuery } from '@/hooks/use-media-query';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLayout } from '@/contexts/LayoutContext';
 import { useKiosk } from '@/contexts/KioskContext';
@@ -20,7 +20,9 @@ interface MainLayoutProps {
 }
 
 export function MainLayout({ status, onLogout, notice, children }: MainLayoutProps) {
-  const isMobile = !useMediaQuery('(min-width: 768px)');
+  const isWide = useMediaQuery('(min-width: 768px)');
+  const canHover = useFinePointer();
+  const isMobile = !isWide || !canHover;
   const { appearance } = useTheme();
   const customBg = appearance.background.type !== 'none';
   // Framer's reducedMotion only suppresses transforms, so the always-present
@@ -46,14 +48,14 @@ export function MainLayout({ status, onLogout, notice, children }: MainLayoutPro
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   return (
-    <div className={cn('flex h-screen w-screen overflow-hidden text-foreground', customBg ? 'bg-transparent' : 'bg-sidebar')}>
+    <div className={cn('flex h-dvh w-full max-w-full overflow-hidden text-foreground', customBg ? 'bg-transparent' : 'bg-sidebar')}>
       {/* Desktop sidebar (hidden in kiosk) */}
       {!isMobile && !kiosk && (
         <motion.aside
           initial={false}
           animate={{ width: showCollapsed ? 64 : 248 }}
           transition={reduce ? { duration: 0 } : { duration: 0.26, ease: [0.4, 0, 0.1, 1] }}
-          onMouseEnter={() => setHovered(true)}
+          onMouseEnter={() => { if (canHover) setHovered(true); }}
           onMouseLeave={() => setHovered(false)}
           onFocusCapture={(e) => {
             // Only *keyboard* focus (focus-visible) peeks the rail open. A mouse
@@ -80,7 +82,7 @@ export function MainLayout({ status, onLogout, notice, children }: MainLayoutPro
       {/* Mobile sidebar in sheet (hidden in kiosk) */}
       {isMobile && !kiosk && (
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetContent side="left" className="w-64 max-w-[80vw] p-0">
+          <SheetContent side="left" showClose={false} className="w-64 max-w-[80vw] p-0 overscroll-contain">
             {/* Radix Dialog (the Sheet primitive) requires an accessible name +
                 description; the nav itself is the visible content, so these are
                 screen-reader-only. */}
@@ -98,7 +100,8 @@ export function MainLayout({ status, onLogout, notice, children }: MainLayoutPro
           onClick={exitKiosk}
           title="退出展示模式 (Esc)"
           aria-label="退出展示模式"
-          className="fixed right-3 top-3 z-50 inline-flex size-9 items-center justify-center rounded-full border bg-background/85 text-foreground opacity-70 backdrop-blur transition-opacity outline-none hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/40"
+          className="fixed z-50 inline-flex size-9 items-center justify-center rounded-full border bg-background text-foreground opacity-70 transition-opacity outline-none hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/40"
+          style={{ top: 'max(0.75rem, env(safe-area-inset-top))', right: 'max(0.75rem, env(safe-area-inset-right))' }}
         >
           <Minimize2 className="size-4" />
         </button>

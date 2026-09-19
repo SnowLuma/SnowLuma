@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { ContextMenuSurface } from '@/components/interior/context-menu';
 import { useTheme } from '@/contexts/ThemeContext';
+import { FINE_POINTER_QUERY } from '@/lib/utils';
 
 type TextEditor = HTMLInputElement | HTMLTextAreaElement | HTMLElement;
 
@@ -326,7 +327,7 @@ export function GlobalContextMenu() {
     if (!enabled) return;
 
     const onContextMenu = (event: MouseEvent) => {
-      if (event.shiftKey || !window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+      if (event.shiftKey || !window.matchMedia(FINE_POINTER_QUERY).matches) return;
       if (!(event.target instanceof Element)) return;
       if (event.target.closest('[data-context-menu="native"]')) return;
       if (event.target.closest('.global-context-menu')) {

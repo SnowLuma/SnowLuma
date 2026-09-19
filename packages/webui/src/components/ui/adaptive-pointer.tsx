@@ -6,8 +6,10 @@ import {
   useSpring,
 } from 'motion/react';
 import { useTheme } from '@/contexts/ThemeContext';
+import { FINE_POINTER_QUERY } from '@/lib/utils';
+import { useMediaQuery } from '@/hooks/use-media-query';
 
-const POINTER_MEDIA = '(hover: hover) and (pointer: fine)';
+const POINTER_MEDIA = FINE_POINTER_QUERY;
 const MODE_PROPERTY = '--snowluma-cursor-mode';
 const RESIZE_MODE_PROPERTY = '--snowluma-cursor-resize-mode';
 const POINTER_SPRING = { stiffness: 1000, damping: 50 } as const;
@@ -39,20 +41,6 @@ interface CursorContext {
   mode: CursorMode;
   anchor: Element | null;
   tracksPointerRegion: boolean;
-}
-
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = React.useState(false);
-
-  React.useEffect(() => {
-    const media = window.matchMedia(query);
-    const update = () => setMatches(media.matches);
-    update();
-    media.addEventListener('change', update);
-    return () => media.removeEventListener('change', update);
-  }, [query]);
-
-  return matches;
 }
 
 function readCursorMode(element: Element): CursorMode {
@@ -148,7 +136,17 @@ export function AdaptivePointer() {
     let targetObserver: ResizeObserver | null = null;
 
     root.dataset.cursorSystem = 'custom';
+    delete root.dataset.cursorArmed;
     cursor.dataset.visible = 'false';
+
+    const arm = () => {
+      root.dataset.cursorArmed = '1';
+      cursor.dataset.visible = 'true';
+    };
+    const disarm = () => {
+      delete root.dataset.cursorArmed;
+      cursor.dataset.visible = 'false';
+    };
 
     const stopObservingTarget = () => {
       targetObserver?.disconnect();
@@ -215,7 +213,7 @@ export function AdaptivePointer() {
       if (event.pointerType === 'touch') return;
       lastPoint.x = event.clientX;
       lastPoint.y = event.clientY;
-      cursor.dataset.visible = 'true';
+      arm();
       if (event.target !== lastEventTarget || context.tracksPointerRegion) refreshContext(event.target);
       else positionAtPointer();
     };
@@ -224,12 +222,13 @@ export function AdaptivePointer() {
       if (event.pointerType === 'touch') return;
       lastPoint.x = event.clientX;
       lastPoint.y = event.clientY;
-      cursor.dataset.visible = 'true';
+      arm();
       refreshContext(event.target);
     };
 
     const onPointerOut = (event: PointerEvent) => {
-      if (event.relatedTarget === null) cursor.dataset.visible = 'false';
+      if (event.pointerType === 'touch') return;
+      if (event.relatedTarget === null) disarm();
     };
 
     const onPointerDown = (event: PointerEvent) => {
@@ -251,7 +250,7 @@ export function AdaptivePointer() {
     };
 
     const onViewportChange = () => positionTarget();
-    const hide = () => { cursor.dataset.visible = 'false'; };
+    const hide = () => { disarm(); };
     const onVisibilityChange = () => {
       if (document.visibilityState !== 'visible') hide();
     };
@@ -272,6 +271,7 @@ export function AdaptivePointer() {
     return () => {
       stopObservingTarget();
       delete root.dataset.cursorSystem;
+      delete root.dataset.cursorArmed;
       cursor.dataset.visible = 'false';
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerover', onPointerOver);

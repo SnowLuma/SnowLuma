@@ -110,7 +110,7 @@ export function ScrollableTabList({
         data-scroll-start={edges.start ? '' : undefined}
         data-scroll-end={edges.end ? '' : undefined}
         className={cn(
-          'flex min-w-0 max-w-full overflow-x-auto overscroll-x-contain scroll-px-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+          'flex min-w-0 max-w-full overflow-x-auto overscroll-x-contain scroll-px-6 touch-pan-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
           className,
         )}
         {...props}
