@@ -4,7 +4,7 @@
 // server, or a browser upload that we stream to a server temp path (and then
 // feed that path to the action). Upload progress flows through the app-level
 // task registry so it survives tab switches.
-import { useRef, useState } from 'react';
+import { useId, useState } from 'react';
 import { FileUp, Link2, Loader2, ServerCog, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useApi } from '@/lib/api';
@@ -15,9 +15,9 @@ import type { FieldRole } from '@/types';
 type Mode = 'url' | 'server' | 'upload';
 
 const ACCEPT: Partial<Record<FieldRole, string>> = {
-  image: 'image/*',
-  record: 'audio/*',
-  video: 'video/*',
+  image: 'image/*,.png,.jpg,.jpeg,.gif,.webp,.bmp,.heic,.heif',
+  record: 'audio/*,.silk,.amr,.mp3,.wav,.m4a,.ogg',
+  video: 'video/*,.mp4,.mov,.mkv,.webm',
 };
 
 function Seg({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
@@ -45,7 +45,7 @@ export function FileSource({ value, onChange, role, placeholder }: {
   const [uploading, setUploading] = useState(false);
   const [uploadName, setUploadName] = useState<string | null>(null);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputId = useId();
   const accept = role ? ACCEPT[role] : undefined;
 
   const doUpload = async (file: File) => {
@@ -93,20 +93,25 @@ export function FileSource({ value, onChange, role, placeholder }: {
       {mode === 'upload' && (
         <div className="flex flex-col gap-1.5">
           <input
-            ref={inputRef}
+            id={inputId}
             type="file"
             accept={accept}
-            className="hidden"
+            className="sr-only"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void doUpload(f); e.target.value = ''; }}
           />
-          <button
-            type="button"
-            disabled={uploading}
-            onClick={() => inputRef.current?.click()}
-            className={cn('flex items-center justify-center gap-2 rounded-xl border border-dashed border-border/70 px-3 py-3 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:opacity-60')}
+          <label
+            htmlFor={inputId}
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const file = e.dataTransfer.files[0];
+              if (file && !uploading) void doUpload(file);
+            }}
+            className={cn('flex items-center justify-center gap-2 rounded-xl border border-dashed border-border/70 px-3 py-3 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground', uploading && 'pointer-events-none opacity-60')}
           >
-            {uploading ? <><Loader2 className="h-4 w-4 animate-spin" /> 上传中…</> : <><FileUp className="h-4 w-4" /> 选择文件上传到服务器</>}
-          </button>
+            {uploading ? <><Loader2 className="h-4 w-4 animate-spin" /> 上传中…</> : <><FileUp className="h-4 w-4" /> 选择或拖入文件上传到服务器</>}
+          </label>
           {value && uploadName && !uploading && (
             <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-2.5 py-1.5 text-meta">
               <span className="truncate text-muted-foreground">已上传:{uploadName}</span>

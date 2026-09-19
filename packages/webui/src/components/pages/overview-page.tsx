@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
-import { motion, Reorder } from 'motion/react';
+import { motion, Reorder, useDragControls } from 'motion/react';
 import { Link } from '@tanstack/react-router';
 import {
   Activity, ArrowRight, Bell, Cable, Check, Cpu, ExternalLink, Eye, EyeOff, GripVertical,
@@ -147,7 +147,7 @@ export function OverviewPage() {
       {editing && (
         <p className="rounded-xl border border-primary/20 bg-primary/5 px-3.5 py-2.5 text-xs leading-relaxed text-muted-foreground">
           {isWide
-            ? '拖动卡片移动位置、拖右下角缩放，右上齿轮改设置；把卡片拖回右侧「部件库」即可移除，从部件库拖到画布即可添加。左侧导航也可在编辑态拖动排序。'
+            ? '拖动卡片移动位置、拖右下角缩放，右上齿轮改设置；把卡片拖回右侧「部件库」即可移除，从部件库点加号或拖到画布即可添加。左侧导航也可在编辑态拖动手柄排序。'
             : '拖动手柄调整卡片顺序，眼睛图标显隐，齿轮改设置。手机为单列布局，与桌面网格各自独立。'}
         </p>
       )}
@@ -198,7 +198,7 @@ export function OverviewPage() {
               />
             )}
           </div>
-          {editing && <WidgetGallery hidden={hiddenBlocks} />}
+          {editing && <WidgetGallery hidden={hiddenBlocks} onAdd={addWidget} />}
         </div>
       ) : (
         <MobileOverview
@@ -243,6 +243,61 @@ function EmptyLayout({ onReset }: { onReset: () => void }) {
   );
 }
 
+function MobileLayoutRow({
+  item,
+  onToggle,
+  onConfigOpen,
+}: {
+  item: UiLayoutItem;
+  onToggle: (id: string) => void;
+  onConfigOpen: (id: string) => void;
+}) {
+  const controls = useDragControls();
+  return (
+    <Reorder.Item
+      value={item.id}
+      dragListener={false}
+      dragControls={controls}
+      className={cn(
+        'flex select-none items-center gap-2 rounded-xl border bg-card/60 px-3 py-2.5',
+        !item.visible && 'opacity-50',
+      )}
+    >
+      <button
+        type="button"
+        aria-label="拖动排序"
+        className="inline-flex size-11 shrink-0 touch-none items-center justify-center text-muted-foreground"
+        onPointerDown={(e) => controls.start(e)}
+      >
+        <GripVertical className="size-4" />
+      </button>
+      <span className="min-w-0 flex-1 truncate text-sm font-medium">{widgetLabel(item.id)}</span>
+      {CONFIGURABLE_WIDGETS.has(item.id) && item.visible && (
+        <button
+          type="button"
+          onClick={() => onConfigOpen(item.id)}
+          onPointerDown={(e) => e.stopPropagation()}
+          title="设置"
+          aria-label="设置"
+          className="inline-flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground cursor-pointer"
+        >
+          <Settings2 className="size-3.5" />
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => onToggle(item.id)}
+        onPointerDown={(e) => e.stopPropagation()}
+        title={item.visible ? '隐藏' : '显示'}
+        aria-label={item.visible ? '隐藏' : '显示'}
+        className="inline-flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground cursor-pointer"
+      >
+        {item.visible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+      </button>
+    </Reorder.Item>
+  );
+}
+
 // ─────────────── mobile single-column overview ───────────────
 // Phones get a one-dimensional layout (`overviewMobile`), fully disjoint from
 // the desktop 2D grid. View mode reuses the grid renderer (drag disabled) so
@@ -262,37 +317,12 @@ function MobileOverview({
     return (
       <Reorder.Group axis="y" values={items.map((i) => i.id)} onReorder={onReorder} className="flex flex-col gap-2">
         {items.map((item) => (
-          <Reorder.Item
+          <MobileLayoutRow
             key={item.id}
-            value={item.id}
-            className={cn(
-              'flex select-none items-center gap-2 rounded-xl border bg-card/60 px-3 py-2.5 cursor-grab active:cursor-grabbing',
-              !item.visible && 'opacity-50',
-            )}
-          >
-            <GripVertical className="size-4 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate text-sm font-medium">{widgetLabel(item.id)}</span>
-            {CONFIGURABLE_WIDGETS.has(item.id) && item.visible && (
-              <button
-                type="button"
-                onClick={() => onConfigOpen(item.id)}
-                title="设置"
-                aria-label="设置"
-                className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground cursor-pointer"
-              >
-                <Settings2 className="size-3.5" />
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => onToggle(item.id)}
-              title={item.visible ? '隐藏' : '显示'}
-              aria-label={item.visible ? '隐藏' : '显示'}
-              className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground cursor-pointer"
-            >
-              {item.visible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
-            </button>
-          </Reorder.Item>
+            item={item}
+            onToggle={onToggle}
+            onConfigOpen={onConfigOpen}
+          />
         ))}
       </Reorder.Group>
     );
@@ -332,7 +362,7 @@ function MobileOverview({
 // tile onto the canvas adds it (HTML5 DnD); dragging a canvas card back onto
 // this panel removes it (gridstack `removable`, matched by the .widget-gallery
 // class). Edit-mode only, desktop only.
-function WidgetGallery({ hidden }: { hidden: UiLayoutItem[] }) {
+function WidgetGallery({ hidden, onAdd }: { hidden: UiLayoutItem[]; onAdd: (id: string, x: number, y: number) => void }) {
   return (
     <div className="widget-gallery w-56 shrink-0 self-stretch rounded-xl border border-dashed bg-muted/20 p-3">
       <div className="mb-1.5 flex items-center gap-1.5 px-1">
@@ -340,7 +370,7 @@ function WidgetGallery({ hidden }: { hidden: UiLayoutItem[] }) {
         <span className="text-xs font-semibold">部件库</span>
       </div>
       <p className="mb-3 px-1 text-xs leading-snug text-muted-foreground">
-        拖到左侧画布添加；把卡片拖回此处即可移除。
+        点加号或拖到左侧画布添加；把卡片拖回此处即可移除。
       </p>
       {hidden.length === 0 ? (
         <div className="rounded-lg border border-dashed px-2 py-8 text-center text-xs text-muted-foreground">
@@ -360,7 +390,15 @@ function WidgetGallery({ hidden }: { hidden: UiLayoutItem[] }) {
             >
               <GripVertical className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate">{widgetLabel(b.id)}</span>
-              <Plus className="size-3.5 shrink-0 text-muted-foreground/60" />
+              <button
+                type="button"
+                aria-label={`添加 ${widgetLabel(b.id)}`}
+                onClick={() => onAdd(b.id, 0, 0)}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent/50 hover:text-foreground"
+              >
+                <Plus className="size-3.5" />
+              </button>
             </div>
           ))}
         </div>
@@ -383,7 +421,7 @@ function DropPlaceholder({ onAdd }: { onAdd: (id: string, x: number, y: number) 
       className="flex min-h-60 flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed py-16 text-center text-muted-foreground"
     >
       <LayoutGrid className="size-8 opacity-40" strokeWidth={1.5} />
-      <p className="text-sm">从右侧「部件库」拖动部件到这里</p>
+      <p className="text-sm">从右侧「部件库」点加号或拖动部件到这里</p>
     </div>
   );
 }

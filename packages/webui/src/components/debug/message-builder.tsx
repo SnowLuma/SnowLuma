@@ -205,7 +205,12 @@ export function MessageBuilder({ segments, onChange, uin, groupId, depth = 0, mo
                 // stopPropagation keeps a nested (forward-node) builder's drag
                 // from reaching the parent row; onDragEnd lives here because the
                 // grip — not the row — is now the drag source.
-                onDragStart={(e) => { e.stopPropagation(); setDragFrom(i); }}
+                onDragStart={(e) => {
+                  e.stopPropagation();
+                  e.dataTransfer.setData('text/plain', String(i));
+                  e.dataTransfer.effectAllowed = 'move';
+                  setDragFrom(i);
+                }}
                 onDragEnd={() => setDragFrom(null)}
                 title="拖动此处排序" aria-label="拖动排序"
                 className="flex shrink-0 cursor-grab rounded-md p-0.5 text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground active:cursor-grabbing"

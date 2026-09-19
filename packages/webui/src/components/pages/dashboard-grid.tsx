@@ -78,6 +78,7 @@ export function DashboardGrid({
         float: true, // free placement — items stay where dropped (no auto-compact)
         disableDrag: !editing,
         disableResize: !editing,
+        handle: '.grid-drag-handle',
         // Drag a card onto the gallery to remove it (edit mode only). The whole
         // card is the drag target; the corner icons are just hints.
         removable: editing && removableSelector ? removableSelector : false,
@@ -150,30 +151,28 @@ export function DashboardGrid({
           <div className="relative h-full w-full">
             {editing && (
               <>
-                {/* Subtle drag hint — a small square, not a bar. The whole card
-                    is draggable; this just signals it (pointer-events-none so
-                    the drag passes through to gridstack). */}
-                <span
-                  aria-hidden
+                <button
+                  type="button"
                   title="拖动卡片调整位置 · 拖回右侧部件库可移除"
-                  className="pointer-events-none absolute left-1.5 top-1.5 z-20 inline-flex size-6 items-center justify-center rounded-md bg-background/70 text-muted-foreground opacity-50 backdrop-blur-sm"
+                  aria-label="拖动调整位置"
+                  className="grid-drag-handle pointer-events-auto absolute left-1.5 top-1.5 z-20 inline-flex size-11 items-center justify-center rounded-md bg-background/80 text-muted-foreground touch-none outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40"
                 >
                   <GripVertical className="size-3.5" />
-                </span>
+                </button>
                 {configurableIds.has(b.id) && (
                   <button
                     type="button"
                     onClick={() => onConfigOpen(b.id)}
                     title="设置"
                     aria-label="设置"
-                    className="pointer-events-auto absolute right-1.5 top-1.5 z-20 inline-flex size-6 items-center justify-center rounded-md bg-background/70 text-muted-foreground opacity-60 backdrop-blur-sm transition-[color,opacity,box-shadow] duration-150 ease-out outline-none hover:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/40 cursor-pointer"
+                    className="pointer-events-auto absolute right-1.5 top-1.5 z-20 inline-flex size-11 items-center justify-center rounded-md bg-background/80 text-muted-foreground transition-[color,box-shadow] duration-150 ease-out outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 cursor-pointer"
                   >
                     <Settings2 className="size-3.5" />
                   </button>
                 )}
               </>
             )}
-            <div className={cn('h-full w-full overflow-auto rounded-xl', editing && 'pointer-events-none select-none')}>
+            <div className={cn('h-full w-full overflow-auto overscroll-contain rounded-xl', editing && 'pointer-events-none select-none')}>
               {renderWidget(b)}
             </div>
           </div>,

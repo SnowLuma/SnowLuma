@@ -1,5 +1,5 @@
 import { Bug, Check, Eye, EyeOff, GripVertical, LayoutDashboard, Lock, Pin, PinOff, PlugZap, Settings, Sparkles, SlidersHorizontal, Terminal } from 'lucide-react';
-import { motion, Reorder } from 'motion/react';
+import { motion, Reorder, useDragControls } from 'motion/react';
 import { Link, useRouterState } from '@tanstack/react-router';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
@@ -9,6 +9,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { reconcileLayoutItems, useLayout } from '@/contexts/LayoutContext';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import type { AppPath } from '@/router';
+import type { UiLayoutItem } from '@/types';
 
 export interface NavItem {
   to: AppPath;
@@ -31,6 +32,58 @@ export const NAV_ITEMS: NavItem[] = [
 //                user with no way back to un-hide anything.
 //   '/settings'— account + appearance.
 export const PINNED_NAV: AppPath[] = ['/', '/settings'];
+
+function NavReorderRow({
+  item,
+  meta,
+  onToggle,
+}: {
+  item: UiLayoutItem;
+  meta: NavItem;
+  onToggle: (id: string) => void;
+}) {
+  const controls = useDragControls();
+  const Icon = meta.icon;
+  const itemPinned = (PINNED_NAV as string[]).includes(item.id);
+  return (
+    <Reorder.Item
+      value={item.id}
+      dragListener={false}
+      dragControls={controls}
+      className={cn(
+        'flex select-none items-center gap-2 rounded-lg bg-sidebar-accent/40 px-2 py-2',
+        !item.visible && 'opacity-50',
+      )}
+    >
+      <button
+        type="button"
+        aria-label="拖动排序"
+        className="inline-flex size-8 shrink-0 touch-none items-center justify-center text-muted-foreground"
+        onPointerDown={(e) => controls.start(e)}
+      >
+        <GripVertical className="size-3.5" />
+      </button>
+      <Icon className="size-4 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1 truncate text-sm">{meta.label}</span>
+      {itemPinned ? (
+        <span title="必选项，不可隐藏" className="inline-flex size-8 items-center justify-center text-muted-foreground/50">
+          <Lock className="size-3.5" />
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onToggle(item.id)}
+          onPointerDown={(e) => e.stopPropagation()}
+          title={item.visible ? '隐藏' : '显示'}
+          aria-label={item.visible ? '隐藏' : '显示'}
+          className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground cursor-pointer"
+        >
+          {item.visible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+        </button>
+      )}
+    </Reorder.Item>
+  );
+}
 
 interface SidebarProps {
   collapsed?: boolean;
@@ -98,36 +151,13 @@ export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
               {reconciled.map((item) => {
                 const meta = NAV_ITEMS.find((n) => n.to === item.id);
                 if (!meta) return null;
-                const Icon = meta.icon;
-                const itemPinned = (PINNED_NAV as string[]).includes(item.id);
                 return (
-                  <Reorder.Item
+                  <NavReorderRow
                     key={item.id}
-                    value={item.id}
-                    className={cn(
-                      'flex select-none items-center gap-2 rounded-lg bg-sidebar-accent/40 px-2 py-2 cursor-grab active:cursor-grabbing',
-                      !item.visible && 'opacity-50',
-                    )}
-                  >
-                    <GripVertical className="size-3.5 shrink-0 text-muted-foreground" />
-                    <Icon className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1 truncate text-sm">{meta.label}</span>
-                    {itemPinned ? (
-                      <span title="必选项，不可隐藏" className="inline-flex size-7 items-center justify-center text-muted-foreground/50">
-                        <Lock className="size-3.5" />
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => toggleNav(item.id)}
-                        title={item.visible ? '隐藏' : '显示'}
-                        aria-label={item.visible ? '隐藏' : '显示'}
-                        className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground cursor-pointer"
-                      >
-                        {item.visible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
-                      </button>
-                    )}
-                  </Reorder.Item>
+                    item={item}
+                    meta={meta}
+                    onToggle={toggleNav}
+                  />
                 );
               })}
             </Reorder.Group>
