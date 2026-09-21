@@ -709,8 +709,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (cancelled) return;
       let next = server ?? readCache();
 
-      let migrated = false;
-      try { migrated = Boolean(localStorage.getItem(LS_MIGRATED)); } catch { migrated = true; }
+      let migrated = true;
+      try {
+        migrated = Boolean(localStorage.getItem(LS_MIGRATED));
+      } catch {
+        /* storage unavailable: skip migration */
+      }
       if (!migrated) {
         try { localStorage.setItem(LS_MIGRATED, '1'); } catch { /* ignore */ }
         const legacy = readLegacyOverlay();
