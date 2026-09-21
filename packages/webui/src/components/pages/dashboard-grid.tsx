@@ -172,7 +172,9 @@ export function DashboardGrid({
                 )}
               </>
             )}
-            <div className={cn('h-full w-full overflow-auto overscroll-contain rounded-xl', editing && 'pointer-events-none select-none')}>
+            {/* Clip to the card radius. A tile-wide scrollport would eat the
+                page wheel even when the widget already fits on screen. */}
+            <div className={cn('h-full w-full overflow-hidden rounded-xl', editing && 'pointer-events-none select-none')}>
               {renderWidget(b)}
             </div>
           </div>,
