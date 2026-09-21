@@ -704,11 +704,8 @@ describe('apis/group-album', () => {
       field3: 2,
       reqBody: {
         field1: {
-          type: 422,
           time: 1700000123n,
           feedId: 'official-feed-id',
-          cellId: '421_1_0_12345|album-id|77^||^421_1_0_12345|album-id|photo-lloc^||^0',
-          field6: 3,
         },
         field2: { field1: { uin: '3119936551' } },
         field5: {
@@ -777,7 +774,7 @@ describe('apis/group-album', () => {
     });
   });
 
-  it('copies the official feed cell_common locator into the comment header', async () => {
+  it('writes only the official comment header fields even when the feed cell has extra locator data', async () => {
     const cellId = '421_1_0_964445447|album-id|2147483665^||^421_1_0_964445447|album-id|photo-lloc^||^0';
     const bridge = mockBridge();
     bridge.sendRawPacket.mockImplementation(commentMocks((cmd) => {
@@ -792,31 +789,13 @@ describe('apis/group-album', () => {
 
     await new GroupAlbumApi(bridge as never).comment(964445447, 'album-id', 'photo-lloc', 'hello');
 
-    expect(commentRequestOf(bridge).body?.reqBody?.field1).toEqual({
-      type: 422,
+    expect(commentRequestOf(bridge).body?.reqBody?.field1).toMatchObject({
       time: 1789315793n,
       feedId: '422_0_2147483665',
-      cellId,
-      field6: 3,
     });
-  });
-
-  it('synthesizes the 421 locator when the official feed omits cell_common field 5', async () => {
-    const bridge = mockBridge();
-    bridge.sendRawPacket.mockImplementation(commentMocks((cmd) => {
-      if (cmd.endsWith('GetQunFeedDetail')) {
-        return packFeedDetail('422_0_77', 1700000123n, { ownerUin: '3119936551' });
-      }
-      return undefined;
-    }));
-
-    await new GroupAlbumApi(bridge as never).comment(12345, 'album-id', 'photo-lloc', 'hello');
-
-    expect(commentRequestOf(bridge).body?.reqBody?.field1).toMatchObject({
-      time: 1700000123n,
-      feedId: '422_0_77',
-      cellId: '421_1_0_12345|album-id|77^||^421_1_0_12345|album-id|photo-lloc^||^0',
-    });
+    expect(commentRequestOf(bridge).body?.reqBody?.field1?.type ?? 0).toBe(0);
+    expect(commentRequestOf(bridge).body?.reqBody?.field1?.cellId ?? '').toBe('');
+    expect(commentRequestOf(bridge).body?.reqBody?.field1?.field6 ?? 0).toBe(0);
   });
 
   it('comments a video with the cover location and video media type', async () => {

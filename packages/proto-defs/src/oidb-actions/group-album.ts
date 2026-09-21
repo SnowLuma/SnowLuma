@@ -160,8 +160,7 @@ export interface CommentReqPhotoInfo {
   batchId?: pb<5, uint_64>;
 }
 export interface CommentReqBodyHeader {
-  // Official feed cell_common: type 422, time, short feed id, composite
-  // 421_1_0 locator, and field 6 = 3. DoQunComment copies this cell.
+  // FeedWorker encode writes only time and feed id into this cell.
   type?:   pb<1, uint_32>;
   time?:   pb<3, uint_64>;
   feedId?: pb<4, string>;

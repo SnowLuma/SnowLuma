@@ -2,6 +2,7 @@ import type { JsonObject, JsonValue } from '@snowluma/common/json';
 import { createLogger } from '@snowluma/common/logger';
 import type {
   AlbumCreator,
+  CommentReqBodyHeader,
   CommentReqPhotoInfo,
   CommentRespData,
   DeleteMediasRequest,
@@ -344,7 +345,7 @@ export class GroupAlbumApi {
         groupId: groupId.toString(),
         field3: 2,
         reqBody: {
-          field1: commentReqHeader(feed.cellCommon, groupId, albumId, batchId, mediaLloc),
+          field1: commentReqHeader(feed.cellCommon),
           ...(ownerUin ? { field2: { field1: { uin: ownerUin } } } : {}),
           field5: photoInfo,
         },
@@ -693,16 +694,10 @@ function qunFeedCellId(
   return `${head}^||^421_1_0_${groupId}|${albumId}|${lloc}^||^0`;
 }
 
-function commentReqHeader(
-  cell: QunFeedCellCommon,
-  groupId: number,
-  albumId: string,
-  batchId: bigint,
-  lloc: string,
-): QunFeedCellCommon {
+function commentReqHeader(cell: QunFeedCellCommon): CommentReqBodyHeader {
   return {
-    ...cell,
-    cellId: cell.cellId || qunFeedCellId(groupId, albumId, batchId, lloc),
+    ...(cell.time !== undefined ? { time: cell.time } : {}),
+    ...(cell.feedId ? { feedId: cell.feedId } : {}),
   };
 }
 
