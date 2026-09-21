@@ -143,7 +143,7 @@ export function OnboardingWizardPage({
   if (total === 0) return null;
 
   return (
-    <div className="relative min-h-svh overflow-x-hidden bg-background antialiased">
+    <div className="relative flex h-svh min-h-svh flex-col overflow-x-hidden bg-background antialiased">
       <div
         className="pointer-events-none absolute inset-0"
         style={{
