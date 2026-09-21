@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { subscribeLogs, type LogEntry } from '@snowluma/common/logger';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import type { pb, pb_repeated, uint_32, uint_64 } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   OidbDeleteFriend,
@@ -117,7 +118,7 @@ describe('apis/friend', () => {
         gotResponse: true,
         errorCode: 0,
         errorMessage: '',
-        responseData: encodeDoubtList([{ nick: 'Alice', uin: 12345n, reqTime: 1700000000n }]),
+        responseData: encodeNumericDoubtList([{ nick: 'Alice', uin: 12345n, reqTime: 1700000000n }]),
       })),
     });
     const list = await new FriendApi(bridge as any).getDoubtRequests(10);
@@ -132,13 +133,14 @@ describe('apis/friend', () => {
 
   it('getDoubtRequests keeps a wire uid and does not resolve', async () => {
     const bridge = mockBridge({
+      identity: { findUinByUid: vi.fn(() => 12345) } as any,
       sendRawPacket: vi.fn(async () => ({
         success: true,
         gotResponse: true,
         errorCode: 0,
         errorMessage: '',
         responseData: encodeDoubtList([
-          { uid: 'u_alice', nick: 'Alice', uin: 12345n, reqTime: 1700000000n },
+          { uid: 'u_alice', nick: 'Alice', reqTime: 1700000000n },
         ]),
       })),
     });
@@ -156,7 +158,7 @@ describe('apis/friend', () => {
         gotResponse: true,
         errorCode: 0,
         errorMessage: '',
-        responseData: encodeDoubtList([{ nick: 'Alice', uin: 12345n }]),
+        responseData: encodeNumericDoubtList([{ nick: 'Alice', uin: 12345n }]),
       })),
     });
     const captured: LogEntry[] = [];
@@ -209,6 +211,27 @@ function encodeDoubtList(
   list: NonNullable<NonNullable<OidbDoubtGetResp['body']>['list']>,
 ): Buffer {
   return Buffer.from(protobuf_encode<OidbBase<OidbDoubtGetResp>>({
+    command: 0xD69,
+    subCommand: 0,
+    body: { status: 1, body: { list } },
+  }));
+}
+
+interface NumericDoubtItem {
+  uin?: pb<1, uint_64>;
+  nick?: pb<2, string>;
+  reqTime?: pb<8, uint_64>;
+}
+interface NumericDoubtBody {
+  list?: pb_repeated<1, NumericDoubtItem>;
+}
+interface NumericDoubtResponse {
+  status?: pb<1, uint_32>;
+  body?: pb<2, NumericDoubtBody>;
+}
+
+function encodeNumericDoubtList(list: NumericDoubtItem[]): Buffer {
+  return Buffer.from(protobuf_encode<OidbBase<NumericDoubtResponse>>({
     command: 0xD69,
     subCommand: 0,
     body: { status: 1, body: { list } },
