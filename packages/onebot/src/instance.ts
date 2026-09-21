@@ -15,6 +15,7 @@ import { MediaUrlResolver } from './media-url-resolver';
 import {
   GROUP_MESSAGE_EVENT,
   PRIVATE_MESSAGE_EVENT,
+  PRIVATE_NT_MESSAGE_EVENT,
   PRIVATE_SENT_MESSAGE_EVENT,
   hashMessageIdInt32,
   privateMessageEventName,
@@ -157,7 +158,13 @@ export class OneBotInstance {
           );
           if (storedId !== null) return storedId;
         }
-        return hashMessageIdInt32(sequence, sessionId, resolvedEventName);
+        return hashMessageIdInt32(
+          sequence,
+          sessionId,
+          resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT
+            ? PRIVATE_NT_MESSAGE_EVENT
+            : resolvedEventName,
+        );
       },
       mediaSegmentSink: (mediaType, element, data, isGroup, sessionId) =>
         mediaIndexer.remember(mediaType, element, data, isGroup, sessionId),

@@ -43,6 +43,8 @@ export class MessageStore {
   private readonly stmtListIncomingC2CSessions: StatementSync;
   private readonly stmtFindPrivateRecall: StatementSync;
   private readonly stmtFindPrivateMessageAtTime: StatementSync;
+  private readonly stmtFindPrivateMessageBySequence: StatementSync;
+  private readonly stmtFindPrivateOutgoingNearTime: StatementSync;
   private readonly stmtFindPrivateRecallTombstone: StatementSync;
   private readonly stmtUpsertPrivateRecallTombstone: StatementSync;
   private readonly stmtDeleteMessage: StatementSync;
@@ -194,6 +196,23 @@ export class MessageStore {
        WHERE is_group = 0 AND session_id = ? AND private_direction = ? AND timestamp = ?
        ORDER BY sequence DESC
        LIMIT 1`,
+    );
+
+    this.stmtFindPrivateMessageBySequence = this.db.prepare(
+      `SELECT message_hash
+       FROM messages
+       WHERE is_group = 0 AND session_id = ? AND sequence = ?
+         AND private_direction = ? AND sequence_authoritative = 1
+       LIMIT 1`,
+    );
+
+    this.stmtFindPrivateOutgoingNearTime = this.db.prepare(
+      `SELECT message_hash
+       FROM messages
+       WHERE is_group = 0 AND session_id = ? AND private_direction = ?
+         AND timestamp BETWEEN ? AND ?
+       ORDER BY ABS(timestamp - ?) ASC, sequence DESC
+       LIMIT 2`,
     );
 
     this.stmtFindPrivateRecallTombstone = this.db.prepare(
@@ -485,9 +504,10 @@ export class MessageStore {
 
   /**
    * Resolve a private quote to a stored OneBot id. Prefer the quoted
-   * sender-local sequence; for a self-sent target, also match the send
-   * receipt's timestamp because QQ's quote sequence is not the local
-   * client sequence recorded at send time.
+   * sender-local sequence, then the conversation sequence. For a
+   * self-sent target, also match the send receipt by time because QQ's
+   * quote sequence is often neither of those stored values, and the
+   * quote time can drift a few seconds from the send receipt.
    */
   resolvePrivateReplyMessageId(
     sessionId: number,
@@ -496,29 +516,35 @@ export class MessageStore {
     timestamp?: number,
   ): number | null {
     if (Number.isSafeInteger(replySequence) && replySequence > 0) {
-      const bySequence = this.findPrivateMessageId(
+      const byClientSequence = this.findPrivateMessageId(
         sessionId,
         replySequence,
         sentBySelf,
         timestamp,
       );
-      if (bySequence !== null) return bySequence;
+      if (byClientSequence !== null) return byClientSequence;
+      const byConversationSequence = this.findPrivateMessageIdBySequence(
+        sessionId,
+        replySequence,
+        sentBySelf,
+      );
+      if (byConversationSequence !== null) return byConversationSequence;
     }
-    if (sentBySelf && timestamp !== undefined) {
-      return this.findPrivateMessageIdAtTime(sessionId, true, timestamp);
-    }
+    if (!sentBySelf) return null;
+    const byExactTime = this.findPrivateMessageIdAtTime(sessionId, true, timestamp);
+    if (byExactTime !== null) return byExactTime;
+    const byNearbyTime = this.findUniquePrivateOutgoingNearTime(sessionId, timestamp);
+    if (byNearbyTime !== null) return byNearbyTime;
     return null;
   }
 
   findPrivateMessageIdAtTime(
     sessionId: number,
     sentBySelf: boolean,
-    timestamp: number,
+    timestamp?: number,
   ): number | null {
     if (!Number.isSafeInteger(sessionId) || sessionId <= 0) return null;
-    if (!Number.isSafeInteger(timestamp) || timestamp <= 0 || timestamp >= Number.MAX_SAFE_INTEGER) {
-      return null;
-    }
+    if (!isUsablePrivateQuoteTime(timestamp)) return null;
     const row = this.stmtFindPrivateMessageAtTime.get(
       sessionId,
       sentBySelf ? 1 : 0,
@@ -529,6 +555,48 @@ export class MessageStore {
       throw new Error(`private message lookup matched invalid message id ${String(row.message_hash)}`);
     }
     return row.message_hash;
+  }
+
+  findPrivateMessageIdBySequence(
+    sessionId: number,
+    sequence: number,
+    sentBySelf: boolean,
+  ): number | null {
+    if (!Number.isSafeInteger(sessionId) || sessionId <= 0) return null;
+    if (!Number.isSafeInteger(sequence) || sequence <= 0) return null;
+    const row = this.stmtFindPrivateMessageBySequence.get(
+      sessionId,
+      sequence,
+      sentBySelf ? 1 : 0,
+    ) as { message_hash: number } | undefined;
+    if (!row) return null;
+    if (!isValidMessageId(row.message_hash)) {
+      throw new Error(`private message lookup matched invalid message id ${String(row.message_hash)}`);
+    }
+    return row.message_hash;
+  }
+
+  findUniquePrivateOutgoingNearTime(
+    sessionId: number,
+    timestamp?: number,
+  ): number | null {
+    if (!Number.isSafeInteger(sessionId) || sessionId <= 0) return null;
+    if (!isUsablePrivateQuoteTime(timestamp)) return null;
+    for (const windowSeconds of PRIVATE_REPLY_TIME_WINDOWS_SECONDS) {
+      const rows = this.stmtFindPrivateOutgoingNearTime.all(
+        sessionId,
+        1,
+        timestamp - windowSeconds,
+        timestamp + windowSeconds,
+        timestamp,
+      ) as Array<{ message_hash: number }>;
+      if (rows.length !== 1) continue;
+      if (!isValidMessageId(rows[0].message_hash)) {
+        throw new Error(`private message lookup matched invalid message id ${String(rows[0].message_hash)}`);
+      }
+      return rows[0].message_hash;
+    }
+    return null;
   }
 
   listSessionEvents(
@@ -750,6 +818,15 @@ function eventPrivateDirection(isGroup: boolean, event: JsonObject): number {
   if (event.post_type === 'message') return 0;
   if (event.post_type === 'message_sent') return 1;
   return -1;
+}
+
+const PRIVATE_REPLY_TIME_WINDOWS_SECONDS = [5, 30] as const;
+
+function isUsablePrivateQuoteTime(timestamp: number | undefined): timestamp is number {
+  return timestamp !== undefined
+    && Number.isSafeInteger(timestamp)
+    && timestamp > 0
+    && timestamp < Number.MAX_SAFE_INTEGER;
 }
 
 function validatePrivateRecallKey(

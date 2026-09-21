@@ -32,7 +32,13 @@ function productionResolver(store: MessageStore): ConverterContext['messageIdRes
       );
       if (storedId !== null) return storedId;
     }
-    return hashMessageIdInt32(sequence, sessionId, resolvedEventName);
+    return hashMessageIdInt32(
+      sequence,
+      sessionId,
+      resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT
+        ? PRIVATE_NT_MESSAGE_EVENT
+        : resolvedEventName,
+    );
   };
 }
 
@@ -111,6 +117,121 @@ describe('private reply id matches send receipt (#417, #433)', () => {
           replySeq: fixture.quoteSeq,
           replySenderUin: SELF_ID,
           replyTime: fixture.sentAt,
+        },
+        { type: 'text', text: '这是对bot消息的回复消息' },
+      ],
+    };
+
+    const json = await convertFriendMessage(ctx, event);
+    const reply = (json.message as Array<{ type: string; data: { id: string } }>)[0];
+    expect(reply).toEqual({ type: 'reply', data: { id: String(sendId) } });
+  });
+
+  it('resolves a bot quote when the quote time drifts from the send receipt (#465)', async () => {
+    const ntSeq = 6008;
+    const localClientSeq = 567_154_552;
+    const quoteSeq = 6008;
+    const sentAt = 1_789_720_450;
+    const quoteTime = sentAt + 2;
+    const sendId = hashMessageIdInt32(ntSeq, PEER_ID, PRIVATE_NT_MESSAGE_EVENT);
+    expect(sendId).not.toBe(hashMessageIdInt32(quoteSeq, PEER_ID, PRIVATE_SENT_MESSAGE_EVENT));
+
+    store.storeMeta(sendId, {
+      isGroup: false,
+      targetId: PEER_ID,
+      sequence: ntSeq,
+      sequenceAuthoritative: true,
+      eventName: PRIVATE_NT_MESSAGE_EVENT,
+      clientSequence: localClientSeq,
+      privateDirection: 'outgoing',
+      random: 1,
+      timestamp: sentAt,
+    });
+
+    const ctx: ConverterContext = {
+      selfId: SELF_ID,
+      imageUrlResolver: null,
+      mediaUrlResolver: null,
+      mediaSegmentSink: null,
+      messageIdResolver: productionResolver(store),
+    };
+
+    const event: FriendMessage = {
+      kind: 'friend_message',
+      time: quoteTime + 1,
+      selfUin: SELF_ID,
+      senderUin: PEER_ID,
+      peerUin: PEER_ID,
+      senderUid: 'u_peer',
+      senderNick: 'peer',
+      msgSeq: 6010,
+      ntMsgSeq: ntSeq + 1,
+      clientSeq: 6010,
+      sequenceAuthoritative: true,
+      msgId: 2,
+      elements: [
+        {
+          type: 'reply',
+          replySeq: quoteSeq,
+          replySenderUin: SELF_ID,
+          replyTime: quoteTime,
+        },
+        { type: 'text', text: '111' },
+      ],
+    };
+
+    const json = await convertFriendMessage(ctx, event);
+    const reply = (json.message as Array<{ type: string; data: { id: string } }>)[0];
+    expect(reply).toEqual({ type: 'reply', data: { id: String(sendId) } });
+  });
+
+  it('resolves a bot quote by nearby send time when the quote sequence is unrelated', async () => {
+    const ntSeq = 682;
+    const localClientSeq = 201_616_628;
+    const quoteSeq = 27_892;
+    const sentAt = 1_788_102_428;
+    const quoteTime = sentAt + 2;
+    const sendId = hashMessageIdInt32(ntSeq, PEER_ID, PRIVATE_NT_MESSAGE_EVENT);
+
+    store.storeMeta(sendId, {
+      isGroup: false,
+      targetId: PEER_ID,
+      sequence: ntSeq,
+      sequenceAuthoritative: true,
+      eventName: PRIVATE_NT_MESSAGE_EVENT,
+      clientSequence: localClientSeq,
+      privateDirection: 'outgoing',
+      random: 1,
+      timestamp: sentAt,
+    });
+
+    const ctx: ConverterContext = {
+      selfId: SELF_ID,
+      imageUrlResolver: null,
+      mediaUrlResolver: null,
+      mediaSegmentSink: null,
+      messageIdResolver: productionResolver(store),
+    };
+
+    const event: FriendMessage = {
+      kind: 'friend_message',
+      time: quoteTime + 1,
+      selfUin: SELF_ID,
+      senderUin: PEER_ID,
+      peerUin: PEER_ID,
+      senderUid: 'u_peer',
+      senderNick: 'peer',
+      msgSeq: 2773,
+      ntMsgSeq: ntSeq + 1,
+      clientSeq: 2773,
+      sequenceAuthoritative: true,
+      msgId: 2,
+      elements: [
+        {
+          type: 'reply',
+          replySeq: quoteSeq,
+          replySenderUin: SELF_ID,
+          replyTime: quoteTime,
         },
         { type: 'text', text: '这是对bot消息的回复消息' },
       ],

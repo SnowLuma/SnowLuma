@@ -900,6 +900,32 @@ describe('MessageStore', () => {
       storeOutgoing(201_616_628, 'incoming');
       expect(store.resolvePrivateReplyMessageId(peerId, 27_892, false, sentAt)).toBeNull();
     });
+
+    it('returns the send id when the quote sequence matches the stored conversation sequence', () => {
+      storeOutgoing(201_616_628);
+      expect(store.resolvePrivateReplyMessageId(peerId, 682, true, sentAt + 2)).toBe(sendId);
+    });
+
+    it('returns the send id when the quote time drifts a few seconds from the send receipt', () => {
+      storeOutgoing(201_616_628);
+      expect(store.resolvePrivateReplyMessageId(peerId, 27_892, true, sentAt + 2)).toBe(sendId);
+    });
+
+    it('does not guess by time when two outgoing messages share the quote window', () => {
+      storeOutgoing(201_616_628);
+      store.storeMeta(sendId + 1, {
+        isGroup: false,
+        targetId: peerId,
+        sequence: 683,
+        sequenceAuthoritative: true,
+        eventName: PRIVATE_MESSAGE_EVENT,
+        clientSequence: 201_616_629,
+        privateDirection: 'outgoing',
+        random: 2,
+        timestamp: sentAt + 1,
+      });
+      expect(store.resolvePrivateReplyMessageId(peerId, 27_892, true, sentAt + 2)).toBeNull();
+    });
   });
 
   it('lets a real group event replace an older non-authoritative placeholder', () => {
