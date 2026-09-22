@@ -34,7 +34,10 @@ Examples:
 
 ## Automated npm Publish
 
-`.github/workflows/sdk-npm-publish.yml` publishes `@snowluma/sdk` when SDK-related files reach `main`, including the automated `dev` to `main` promotion flow. The publish job uses the GitHub Environment named `SnowLuma` and expects an environment secret named `NPM_TOKEN`.
+`.github/workflows/sdk-npm-publish.yml` publishes `@snowluma/sdk` when SDK-related files reach `main`, including the automated `dev` to `main` promotion flow. The publish job uses npm Trusted Publishing with the GitHub Environment named `SnowLuma`; it authenticates through GitHub Actions OIDC and does not require an `NPM_TOKEN` secret.
+
+The one-time npm settings for SDK, UI, and MCP are documented in
+[`.github/npm-trusted-publishing.md`](../../.github/npm-trusted-publishing.md).
 
 If the package version already exists on npm, the workflow skips publishing that run. Bump `packages/sdk/package.json` before merging SDK changes that should create a new npm release.
 

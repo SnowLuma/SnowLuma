@@ -40,7 +40,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version-file: '.node-version'
+          # Trusted Publishing requires Node >=22.14 and npm >=11.5.1.
+          # Node 24 ships a supported npm CLI; the application runtime stays
+          # pinned separately by .node-version.
+          node-version: '24'
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
 
@@ -77,21 +80,17 @@ jobs:
             echo "already_published=false" >> "${GITHUB_OUTPUT}"
           fi
 
-      - name: Validate npm token
+      - name: Show Trusted Publishing toolchain
         if: steps.npm.outputs.already_published != 'true'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          if [ -z "${NODE_AUTH_TOKEN}" ]; then
-            echo 'Missing NPM_TOKEN in the SnowLuma environment secrets.' >&2
-            exit 1
-          fi
+          node --version
+          npm --version
 
       - name: Publish MCP to npm
         if: steps.npm.outputs.already_published != 'true'
         working-directory: packages/mcp
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # Authentication is supplied by npm Trusted Publishing through the
+        # GitHub OIDC token (permissions.id-token: write above).
         run: npm publish --access public --provenance
 
       - name: Summary
@@ -106,4 +105,5 @@ jobs:
             echo "| Version | \`${{ steps.npm.outputs.package_version }}\` |"
             echo "| Already published | \`${{ steps.npm.outputs.already_published }}\` |"
             echo "| Environment | \`SnowLuma\` |"
+            echo "| Authentication | npm Trusted Publishing (GitHub OIDC) |"
           } >> "${GITHUB_STEP_SUMMARY}"
