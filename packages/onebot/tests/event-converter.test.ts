@@ -596,6 +596,31 @@ describe('convertEvent — message elements', () => {
     expect(seg).toEqual({ type: 'markdown', data: { content: '# Bot answer' } });
   });
 
+  it.each([true, false])('markdown: adds readable text while retaining rich content (group=%s)', async (isGroup) => {
+    const content = '# Bot answer\n**天气**：晴 ☀️';
+    const segments = await elementsToOneBotSegments(bareCtx(), [
+      { type: 'at', targetUin: PEER_UIN },
+      { type: 'markdown', text: content },
+      { type: 'text', text: 'after' },
+    ], isGroup, isGroup ? GROUP_ID : PEER_UIN);
+    expect(segments).toEqual([
+      { type: 'at', data: { qq: String(PEER_UIN) } },
+      { type: 'markdown', data: { content } },
+      { type: 'text', data: { text: content } },
+      { type: 'text', data: { text: 'after' } },
+    ]);
+    expect(segments.filter((s) => typeof s === 'object' && s?.type === 'text')
+      .map((s) => (s as { data: { text: string } }).data.text).join('')).toBe(`${content}after`);
+  });
+
+  it('markdown: does not add empty text or text copies of unrelated rich elements', async () => {
+    const segments = await elementsToOneBotSegments(bareCtx(), [
+      { type: 'markdown', text: '' },
+      { type: 'json', text: '{"title":"card"}' },
+    ], true, GROUP_ID);
+    expect(segments.map((s) => (s as { type: string }).type)).toEqual(['markdown', 'json']);
+  });
+
   it('inline keyboard: exposes rows and actionable button metadata', async () => {
     const seg = await segment({
       type: 'inline_keyboard',

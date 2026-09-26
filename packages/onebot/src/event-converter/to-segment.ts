@@ -36,6 +36,9 @@ export async function elementsToOneBotSegments(
     // breadcrumb) and keep converting the rest.
     try {
       result.push(await elementToSegment(element, segmentCtx));
+      if (element.type === 'markdown' && element.text) {
+        result.push({ type: 'text', data: { text: element.text } });
+      }
     } catch (err) {
       log.warn('segment convert skipped type=%s (%s)', element.type,
         err instanceof Error ? err.message : String(err));
