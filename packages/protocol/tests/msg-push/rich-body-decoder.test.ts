@@ -594,6 +594,26 @@ describe('decodeRichBody / unknown wire element observability', () => {
     ]);
   });
 
+  it.each(['/打call', '[蛇年快乐]', 'name'])('recognizes native compatibility text independently of the face label prefix (%s)', (faceText) => {
+    const reserve = protobuf_encode<TextElem>({
+      str: `[${faceText.slice(1)}]请使用最新版手机QQ体验新功能`,
+    });
+    const body: MessageBody = {
+      richText: {
+        elems: [
+          { commonElem: { serviceType: 37, businessType: 3,
+            pbElem: protobuf_encode<QFaceExtra>({ qsid: 429, text: faceText }) } } as never,
+          { text: { str: faceText, pbReserve: reserve } } as never,
+          { text: { str: faceText } } as never,
+        ],
+      },
+    };
+    expect(decodeRichBody(body, false)).toEqual([
+      { type: 'face', faceId: 429 },
+      { type: 'text', text: faceText },
+    ]);
+  });
+
   it('[#289] preserves compatibility text when the big face has no valid face id', () => {
     const body: MessageBody = {
       richText: {

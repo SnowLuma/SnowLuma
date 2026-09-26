@@ -395,7 +395,7 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
 function isBigFaceCompatibilityText(extra: QFaceExtra, text: TextElem): boolean {
   const faceText = extra.text ?? '';
   const reserveData = text.pbReserve;
-  if (!faceText.startsWith('/') || faceText.length === 1 || text.str !== faceText || !reserveData?.length) {
+  if (!faceText || text.str !== faceText || !reserveData?.length) {
     return false;
   }
 
