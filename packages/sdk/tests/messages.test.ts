@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   atAll,
+  chain,
+  face,
   fromCQString,
   message,
   parseSegments,
@@ -9,6 +11,20 @@ import {
 } from '../src';
 
 describe('MessageChain', () => {
+  it.each([false, true])('preserves face animation selection through builders and CQ, large=%s', (large) => {
+    const expected = [{ type: 'face', data: { id: '451', large } }];
+    const built = face(451, { large });
+    expect(built.toSegments()).toEqual(expected);
+    expect(chain().face(451, { large }).toSegments()).toEqual(expected);
+    expect(message.face(451, { large })).toEqual(expected[0]);
+    expect(parseSegments(toCQString(built))).toEqual(expected);
+    expect(parseSegments(`[CQ:face,id=451,large=${large ? 1 : 0}]`)).toEqual(expected);
+  });
+
+  it('rejects an invalid face animation choice instead of discarding it', () => {
+    expect(() => parseSegments('[CQ:face,id=451,large=invalid]')).toThrow('face.large');
+  });
+
   it('builds fluent segment chains', () => {
     const chain = text('hello').at(10001).br().image('/tmp/a.png');
 

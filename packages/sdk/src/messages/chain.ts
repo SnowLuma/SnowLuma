@@ -1,6 +1,7 @@
 import type {
   AnyMessageSegment,
   ContactSegment,
+  FaceSegment,
   ImageSegment,
   JsonObject,
   LocationSegment,
@@ -51,8 +52,8 @@ export class MessageChain<THasReply extends boolean = false> implements MessageC
     return this.text('\n');
   }
 
-  face(id: number | string): MessageChain<THasReply> {
-    return this.addSegment(segments.face(id));
+  face(id: number | string, options: Omit<FaceSegment['data'], 'id'> = {}): MessageChain<THasReply> {
+    return this.addSegment(segments.face(id, options));
   }
 
   at(qq: number | 'all', options: { name?: string; uid?: string } = {}): MessageChain<THasReply> {
@@ -203,8 +204,8 @@ export function br(): MessageChain<false> {
   return chain().br();
 }
 
-export function face(id: number | string): MessageChain<false> {
-  return chain().face(id);
+export function face(id: number | string, options: Omit<FaceSegment['data'], 'id'> = {}): MessageChain<false> {
+  return chain().face(id, options);
 }
 
 export function at(qq: number | 'all', options: { name?: string; uid?: string } = {}): MessageChain<false> {

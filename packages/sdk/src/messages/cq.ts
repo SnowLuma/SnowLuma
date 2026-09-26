@@ -70,7 +70,10 @@ function segmentFromCq(type: string, data: Record<string, string>): AnyMessageSe
     case 'text':
       return segments.text(data.text ?? '');
     case 'face':
-      return segments.face(data.id ?? '0');
+      if (data.large === undefined) return segments.face(data.id ?? '0');
+      if (data.large === 'true' || data.large === '1') return segments.face(data.id ?? '0', { large: true });
+      if (data.large === 'false' || data.large === '0') return segments.face(data.id ?? '0', { large: false });
+      throw new Error('face.large must be true, false, 1, or 0');
     case 'at':
       if (data.qq === 'all') return segments.at('all');
       {

@@ -29,8 +29,8 @@ export const segments = {
     return seg('text', { text });
   },
 
-  face(id: number | string): FaceSegment {
-    return seg('face', { id: String(id) });
+  face(id: number | string, options: Omit<FaceSegment['data'], 'id'> = {}): FaceSegment {
+    return seg('face', { id: String(id), ...options });
   },
 
   at(qq: number | 'all', options: { name?: string; uid?: string } = {}): AtSegment {

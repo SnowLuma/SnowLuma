@@ -9,7 +9,7 @@ export interface MessageSegment<
 }
 
 export type TextSegment = MessageSegment<'text', { text: string }>;
-export type FaceSegment = MessageSegment<'face', { id: string }>;
+export type FaceSegment = MessageSegment<'face', { id: string; large?: boolean }>;
 export type AtSegment = MessageSegment<'at', { qq: string; name?: string; uid?: string }>;
 export type ReplySegment = MessageSegment<'reply', { id: string }>;
 export type ImageSegment = MessageSegment<'image', {
