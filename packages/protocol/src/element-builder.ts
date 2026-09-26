@@ -252,16 +252,24 @@ function makeMarketFaceElem(element: MessageElement): ProtoElem {
   };
 }
 
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
 function makeForwardElem(element: MessageElement): ProtoElem {
   const resId = (element.resId ?? '').trim();
   if (!resId) {
     throw new Error('forward resId is required');
   }
 
-  // `uniseq` MUST round-trip between the preview JSON and the outer
-  // upload's piggyback `actionCommand` for nested forwards to resolve
-  // without an extra server hit. Generate one fresh if absent (flat
-  // forwards don't piggyback anyway, so the value is cosmetic there).
+  // Nested forwards must round-trip this value between the LightApp preview
+  // and the outer upload's piggyback `actionCommand`. Flat forwards have no
+  // piggyback entry and use the generated value as the RichMsg `m_fileName`.
   const uniseq = (element.forwardUuid ?? '').trim() || randomUUID();
 
   const source = element.forwardSource && element.forwardSource.length > 0
@@ -278,14 +286,32 @@ function makeForwardElem(element: MessageElement): ProtoElem {
     ? element.forwardTSum
     : Math.max(news.length, 1);
 
-  // LightApp / `com.tencent.multimsg` is the modern wire shape both
-  // QQ-NT, Lagrange.Core, and NapCat emit and decode. The older
-  // `richMsg serviceID=35 m_resid=…` XML still renders on mobile QQ
-  // but it doesn't carry `uniseq`, so nested forwards lose the link
-  // between the inner preview and the piggybacked actions on the
-  // outer's LongMsgResult — cross-checked against
-  // `dev/Lagrange.Core/.../Message/Entity/MultiMsgEntity.cs:43-115`
-  // and `dev/NapCatQQ/.../helper/forward-msg-builder.ts:52-122`.
+  // Flat outer forwards use serviceID=35 RichMsg. Nested previews keep
+  // LightApp because their forwardUuid must match a piggyback actionCommand
+  // in the outer long-message body.
+  if (!element.forwardUuid) {
+    const titles = news.map((item) =>
+      '<title color="#777777" size="26">' + escapeXml(item.text ?? '') + '</title>',
+    ).join('');
+    const xml = "<?xml version='1.0' encoding='UTF-8' standalone='yes'?> "
+      + '<msg serviceID="35" templateID="1" action="viewMultiMsg"'
+      + ' brief="' + escapeXml(prompt) + '"'
+      + ' m_fileName="' + escapeXml(uniseq) + '"'
+      + ' m_resid="' + escapeXml(resId) + '"'
+      + ' tSum="' + tSum + '" flag="3">'
+      + '<item layout="1"> '
+      + '<title color="#000000" size="34">' + escapeXml(source) + '</title>'
+      + titles
+      + ' <hr></hr> <summary color="#808080">' + escapeXml(summary) + '</summary>'
+      + '</item> <source name="' + escapeXml(source) + '"></source> </msg>';
+    return {
+      richMsg: {
+        template1: makeDeflatedPayload(xml),
+        serviceId: 35,
+      },
+    };
+  }
+
   const lightApp = {
     app: 'com.tencent.multimsg',
     config: {
