@@ -6,7 +6,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sidebar } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/top-bar';
-import { useFinePointer, useMediaQuery } from '@/hooks/use-media-query';
+import { useDesktopSidebar } from '@/hooks/use-media-query';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLayout } from '@/contexts/LayoutContext';
 import { useKiosk } from '@/contexts/KioskContext';
@@ -20,9 +20,7 @@ interface MainLayoutProps {
 }
 
 export function MainLayout({ status, onLogout, notice, children }: MainLayoutProps) {
-  const isWide = useMediaQuery('(min-width: 768px)');
-  const canHover = useFinePointer();
-  const isMobile = !isWide || !canHover;
+  const isMobile = !useDesktopSidebar();
   const { appearance } = useTheme();
   const customBg = appearance.background.type !== 'none';
   // Framer's reducedMotion only suppresses transforms, so the always-present
@@ -55,7 +53,7 @@ export function MainLayout({ status, onLogout, notice, children }: MainLayoutPro
           initial={false}
           animate={{ width: showCollapsed ? 64 : 248 }}
           transition={reduce ? { duration: 0 } : { duration: 0.26, ease: [0.4, 0, 0.1, 1] }}
-          onMouseEnter={() => { if (canHover) setHovered(true); }}
+          onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
           onFocusCapture={(e) => {
             // Only *keyboard* focus (focus-visible) peeks the rail open. A mouse

@@ -21,3 +21,9 @@ export function useMediaQuery(query: string): boolean {
 export function useFinePointer(): boolean {
   return useMediaQuery(FINE_POINTER_QUERY);
 }
+
+export function useDesktopSidebar(): boolean {
+  const isWide = useMediaQuery('(min-width: 768px)');
+  const canHover = useFinePointer();
+  return isWide && canHover;
+}

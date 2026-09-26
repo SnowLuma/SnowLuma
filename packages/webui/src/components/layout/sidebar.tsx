@@ -7,7 +7,7 @@ import { APP_NAME, APP_VERSION } from '@/types';
 import { useAppState } from '@/contexts/AppStateContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { reconcileLayoutItems, useLayout } from '@/contexts/LayoutContext';
-import { useMediaQuery } from '@/hooks/use-media-query';
+import { useDesktopSidebar } from '@/hooks/use-media-query';
 import type { AppPath } from '@/router';
 import type { UiLayoutItem } from '@/types';
 
@@ -95,7 +95,7 @@ export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
   const { updateInfo } = useAppState();
   const { navItems, setNavItems, editing, setEditing } = useLayout();
   const { appearance, setAppearance } = useTheme();
-  const isDesktop = useMediaQuery('(min-width: 768px)');
+  const isDesktop = useDesktopSidebar();
   const pinned = appearance.sidebarPinned;
 
   // Full reconciled nav (incl. hidden) — pinned forced visible, forward-compat.

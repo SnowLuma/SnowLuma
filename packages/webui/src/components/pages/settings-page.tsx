@@ -35,6 +35,7 @@ import {
 import { DEFAULT_LAYOUT, DEFAULT_PAGES, reconcileLayoutItems, useLayout } from '@/contexts/LayoutContext';
 import { useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import { useSession } from '@/contexts/SessionContext';
+import { useDesktopSidebar } from '@/hooks/use-media-query';
 import { NAV_ITEMS } from '@/components/layout/sidebar';
 import { TOPBAR_CATALOGUE } from '@/components/layout/top-bar';
 import { TotpPanel } from '@/components/settings/totp-panel';
@@ -375,6 +376,7 @@ function TopbarPanel() {
 }
 
 function AppearancePanel() {
+  const isDesktop = useDesktopSidebar();
   const { appearance, setAppearance, uploadBackground, removeBackground, resolved } = useTheme();
   const a = appearance;
   // A Catppuccin flavor fixes its own light/dark + darkness, so the mode and
@@ -566,9 +568,11 @@ function AppearancePanel() {
         <SettingRow label="高对比模式" hint="加强边框与次要文字的对比度。" layout="inline">
           <ToggleSwitch value={a.highContrast} onChange={(highContrast) => setAppearance({ highContrast })} ariaLabel="高对比模式" />
         </SettingRow>
-        <SettingRow label="钉住侧栏展开" hint="侧栏常驻展开，不再收成图标轨、也不随悬停自动收起。" layout="inline">
-          <ToggleSwitch value={a.sidebarPinned} onChange={(sidebarPinned) => setAppearance({ sidebarPinned })} ariaLabel="钉住侧栏展开" />
-        </SettingRow>
+        {isDesktop && (
+          <SettingRow label="钉住侧栏展开" hint="侧栏常驻展开，不再收成图标轨、也不随悬停自动收起。" layout="inline">
+            <ToggleSwitch value={a.sidebarPinned} onChange={(sidebarPinned) => setAppearance({ sidebarPinned })} ariaLabel="钉住侧栏展开" />
+          </SettingRow>
+        )}
       </Group>
 
       <ConfirmDialog
