@@ -36,6 +36,20 @@ const params: Ntv2UploadRequest.Params = {
 };
 
 describe('Ntv2UploadRequest', () => {
+  it.each([
+    { tempGroupId: 0 },
+    { tempGroupId: -1 },
+    { tempGroupId: 1.5 },
+    { tempGroupId: 700, isGroup: true },
+    { tempGroupId: 700, targetIdOrUid: '' },
+    { tempGroupId: 700, targetIdOrUid: 1001 },
+  ])('rejects invalid temp context before sending: %j', async (invalid) => {
+    const sendRawPacket = vi.fn();
+    await expect(Ntv2UploadRequest.invoke({ sendRawPacket }, { ...params, ...invalid }))
+      .rejects.toThrow('invalid temp-session image upload context');
+    expect(sendRawPacket).not.toHaveBeenCalled();
+  });
+
   it('sends the resolved command on the default OIDB wire name', async () => {
     const sendRawPacket = vi.fn(async () => packet({
       upload: { msgInfo: { msgInfoBody: [] } },

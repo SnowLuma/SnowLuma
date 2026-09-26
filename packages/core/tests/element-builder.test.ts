@@ -294,6 +294,7 @@ describe('element-builder / all-message validation preflight', () => {
       true,
       12345,
       expect.objectContaining({ imageUrl: 'https://gchat.qpic.cn/received.jpg' }),
+      undefined,
     );
   });
 

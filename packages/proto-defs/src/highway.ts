@@ -254,6 +254,7 @@ export interface NTV2UploadReq {
 export interface NTV2C2CUserInfo {
   accountType?: pb<1, uint_32>;
   targetUid?:   pb<2, string>;
+  routingHead?: pb<3, bytes>;
 }
 
 export interface NTV2GroupInfo {

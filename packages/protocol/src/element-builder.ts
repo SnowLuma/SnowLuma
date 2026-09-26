@@ -27,6 +27,8 @@ export interface SendContext {
   bridge: BridgeContext;
   groupId?: number;
   userUid?: string;
+  /** Source group of an already authorized passive temp-session reply. */
+  tempGroupId?: number;
   /** Explicit transport scene used by scene-limited message elements. */
   scene?: OutboundMessageScene;
   /**
@@ -386,7 +388,11 @@ async function makeImageElem(ctx: SendContext, element: MessageElement): Promise
     throw new Error('private image target uid is missing');
   }
 
-  const msgInfo = await uploadImageMsgInfo(ctx.bridge, isGroup, targetIdOrUid, element);
+  const tempGroupId = ctx.scene === 'group-temp' ? ctx.tempGroupId : undefined;
+  if (ctx.scene === 'group-temp' && tempGroupId === undefined) {
+    throw new Error('temp-session image source group is missing');
+  }
+  const msgInfo = await uploadImageMsgInfo(ctx.bridge, isGroup, targetIdOrUid, element, tempGroupId);
   const nt: ProtoElem = {
     commonElem: {
       serviceType: 48,

@@ -66,6 +66,8 @@ export interface NtV2UploadParams {
   isGroup: boolean;
   /** Group uin when isGroup, otherwise the recipient's uid string. */
   targetIdOrUid: string | number;
+  /** Existing passive group temp session; never creates or refreshes a session. */
+  tempGroupId?: number;
   /** OIDB command id (e.g. 0x11C4 / 0x11C5 / 0x126E / 0x126D / 0x11EA / 0x11E9). */
   oidbCmd: number;
   /** Service cmd (e.g. 'OidbSvcTrpcTcp.0x11c4_100'). */
@@ -147,10 +149,11 @@ export function runNtv2Upload(params: NtV2UploadParams): Promise<NTV2UploadRespB
   let didPut = false;
   return runWithTraceRequest(async () => {
     moduleLog.trace(() => [
-      'highway_media_start label=%j scope=%s target=%j oidbCmd=%d serviceCmd=%j requestId=%d businessType=%d uploads=%s',
+      'highway_media_start label=%j scope=%s target=%j sourceGroup=%s oidbCmd=%d serviceCmd=%j requestId=%d businessType=%d uploads=%s',
       label,
-      params.isGroup ? 'group' : 'private',
+      params.isGroup ? 'group' : params.tempGroupId !== undefined ? 'group-temp' : 'private',
       String(params.targetIdOrUid),
+      params.tempGroupId === undefined ? '-' : String(params.tempGroupId),
       params.oidbCmd,
       params.serviceCmd,
       params.requestId,
@@ -209,6 +212,7 @@ async function runNtv2UploadOperation(
         oidbCmd,
         isGroup,
         targetIdOrUid,
+        tempGroupId: params.tempGroupId,
         requestId: params.requestId,
         businessType: params.businessType,
         uploadInfo: params.uploadInfo,

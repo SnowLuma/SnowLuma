@@ -116,6 +116,7 @@ export async function uploadImageMsgInfo(
   isGroup: boolean,
   targetIdOrUid: string | number,
   element: MessageElement,
+  tempGroupId?: number,
 ): Promise<Uint8Array> {
   const log = loggerFor(bridge);
   const image = await loadImage(element);
@@ -128,11 +129,12 @@ export async function uploadImageMsgInfo(
         subType: image.subType, summary: image.summary,
       }) }),
   };
-  log.debug('uploading %d bytes md5=%s... → %s %s',
+  log.debug('uploading %d bytes md5=%s... → %s %s%s',
     image.fileSize,
     image.md5Hex.slice(0, 8),
-    isGroup ? 'group' : 'c2c',
-    String(targetIdOrUid));
+    isGroup ? 'group' : tempGroupId !== undefined ? 'group-temp' : 'c2c',
+    String(targetIdOrUid),
+    tempGroupId !== undefined ? ` sourceGroup=${tempGroupId}` : '');
 
   const uploads: MediaSubFileUpload[] = [{
     source: 'top',
@@ -147,6 +149,7 @@ export async function uploadImageMsgInfo(
     bridge,
     isGroup,
     targetIdOrUid,
+    tempGroupId,
     oidbCmd: isGroup ? 0x11C4 : 0x11C5,
     serviceCmd: isGroup ? 'OidbSvcTrpcTcp.0x11c4_100' : 'OidbSvcTrpcTcp.0x11c5_100',
     requestId: 1,

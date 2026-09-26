@@ -1111,6 +1111,22 @@ describe('buildApiContext send and forward dispatch', () => {
     expect(dispatchEvent).not.toHaveBeenCalled();
   });
 
+  it('replies with an image only through the recorded temp session without refreshing it', async () => {
+    const { api, ref } = makeRef();
+    ref.tempSessions.record(PEER_ID, GROUP_ID);
+    const record = vi.spyOn(ref.tempSessions, 'record');
+    const source = 'base64://iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jFZkAAAAASUVORK5CYII=';
+    await api.sendPrivateMessage(PEER_ID, [
+      { type: 'image', data: { file: source } },
+    ], false, GROUP_ID);
+
+    expect(ref.bridge.apis.message.sendGroupTempMessage).toHaveBeenCalledWith(
+      PEER_ID, GROUP_ID, [expect.objectContaining({ type: 'image', url: source })],
+    );
+    expect(ref.bridge.apis.message.sendPrivate).not.toHaveBeenCalled();
+    expect(record).not.toHaveBeenCalled();
+  });
+
   it('sends a group message without a self-sent dispatch callback', async () => {
     const { api, dispatchEvent, ref } = makeRef();
 

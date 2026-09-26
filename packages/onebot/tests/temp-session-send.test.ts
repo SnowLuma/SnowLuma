@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { sendPrivateMessage } from '../src/modules/message-actions';
-import { TempSessionStore } from '../src/temp-session-store';
+import { TempSessionStore, TEMP_SESSION_TTL_MS } from '../src/temp-session-store';
 import type { OneBotInstanceContext } from '../src/instance-context';
 
 // The passive gate lives at the very top of sendPrivateMessage, before any
@@ -21,6 +21,25 @@ function refWith(store: TempSessionStore): OneBotInstanceContext {
 }
 
 describe('sendPrivateMessage temp-session gate (passive-only)', () => {
+  it.each(['missing', 'other-user', 'other-group', 'expired'])(
+    'refuses an image before parsing or uploading when the session is %s', async (state) => {
+      const store = new TempSessionStore();
+      if (state === 'other-user') store.record(1002, 700);
+      if (state === 'other-group') store.record(1001, 701);
+      if (state === 'expired') store.record(1001, 700, Date.now() - TEMP_SESSION_TTL_MS);
+      const record = vi.spyOn(store, 'record');
+      const ref = refWith(store);
+
+      await expect(sendPrivateMessage(ref, 1001, [
+        { type: 'image', data: { file: 'https://must-not-fetch.invalid/image.png' } },
+      ], false, 700)).rejects.toThrow('no such temp session');
+
+      expect(ref.bridge.apis.message.sendGroupTempMessage).not.toHaveBeenCalled();
+      expect(ref.bridge.apis.message.sendPrivate).not.toHaveBeenCalled();
+      expect(record).not.toHaveBeenCalled();
+    },
+  );
+
   it('refuses a temp reply to an unrecorded (user, group) and never sends', async () => {
     const store = new TempSessionStore();
     const ref = refWith(store);

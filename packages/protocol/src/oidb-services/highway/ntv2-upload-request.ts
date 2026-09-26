@@ -1,5 +1,6 @@
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
+import type { RoutingHead } from '@snowluma/proto-defs/action';
 import type {
   NTV2ExtBizInfo,
   NTV2UploadInfo,
@@ -23,6 +24,7 @@ export namespace Ntv2UploadRequest {
     oidbCmd: number;
     isGroup: boolean;
     targetIdOrUid: string | number;
+    tempGroupId?: number;
     requestId: number;
     businessType: number;
     uploadInfo: NTV2UploadInfo[];
@@ -37,30 +39,42 @@ export namespace Ntv2UploadRequest {
 
   export const resolveCommand = (params: Params): number => params.oidbCmd;
 
-  export const serialize = (_ctx: Deps, params: Params): NTV2UploadRichMediaReq => ({
-    reqHead: {
-      common: { requestId: params.requestId, command: 100 },
-      scene: {
-        requestType: 2,
-        businessType: params.businessType,
-        sceneType: params.isGroup ? 2 : 1,
-        ...(params.isGroup
-          ? { group: { groupUin: Number(params.targetIdOrUid) } }
-          : { c2c: { accountType: 2, targetUid: String(params.targetIdOrUid) } }),
+  export const serialize = (_ctx: Deps, params: Params): NTV2UploadRichMediaReq => {
+    let routingHead: Uint8Array | undefined;
+    if (params.tempGroupId !== undefined) {
+      if (params.isGroup || !Number.isSafeInteger(params.tempGroupId) || params.tempGroupId <= 0
+        || typeof params.targetIdOrUid !== 'string' || !params.targetIdOrUid.trim()) {
+        throw new Error('invalid temp-session image upload context');
+      }
+      routingHead = protobuf_encode<RoutingHead>({
+        grpTmp: { groupUin: BigInt(params.tempGroupId), toUid: params.targetIdOrUid },
+      });
+    }
+    return {
+      reqHead: {
+        common: { requestId: params.requestId, command: 100 },
+        scene: {
+          requestType: 2,
+          businessType: params.businessType,
+          sceneType: params.isGroup ? 2 : 1,
+          ...(params.isGroup
+            ? { group: { groupUin: Number(params.targetIdOrUid) } }
+            : { c2c: { accountType: 2, targetUid: String(params.targetIdOrUid), routingHead } }),
+        },
+        client: { agentType: 2 },
       },
-      client: { agentType: 2 },
-    },
-    upload: {
-      uploadInfo: params.uploadInfo,
-      tryFastUploadCompleted: params.tryFast,
-      srvSendMsg: false,
-      clientRandomId: params.clientRandomId,
-      compatQmsgSceneType: params.compatQmsgSceneType,
-      extBizInfo: params.extBizInfo,
-      clientSeq: 0,
-      noNeedCompatMsg: false,
-    },
-  });
+      upload: {
+        uploadInfo: params.uploadInfo,
+        tryFastUploadCompleted: params.tryFast,
+        srvSendMsg: false,
+        clientRandomId: params.clientRandomId,
+        compatQmsgSceneType: params.compatQmsgSceneType,
+        extBizInfo: params.extBizInfo,
+        clientSeq: 0,
+        noNeedCompatMsg: false,
+      },
+    };
+  };
 
   export const deserializeUpload = (body: NTV2UploadRichMediaResp, label = 'media'): NTV2UploadRespBody => {
     if (!body) throw new Error(`${label} upload response body missing`);

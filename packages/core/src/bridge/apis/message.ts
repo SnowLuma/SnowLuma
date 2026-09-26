@@ -577,6 +577,7 @@ export class MessageApi {
       bridge: this.ctx as unknown as Bridge,
       userUid,
       scene: 'group-temp',
+      tempGroupId: groupUin,
     });
     const random = this.ctx.nextMessageRandom();
     const clientSeq = this.ctx.nextClientSequence();
