@@ -123,6 +123,7 @@ describe('parseMsgPush — empty message drop (#102)', () => {
   it('keeps a real incoming c2c file (#442)', () => {
     const extra = protobuf_encode<FileExtra>({
       file: {
+        fileType: 1,
         fileUuid: 'fid-from-user',
         fileName: 'doc.bin',
         fileSize: 10n,
@@ -139,6 +140,26 @@ describe('parseMsgPush — empty message drop (#102)', () => {
       kind: 'friend_message',
       elements: [{ type: 'file', fileId: 'fid-from-user', fileName: 'doc.bin' }],
     });
+  });
+
+  it.each(['msgContent', 'richText'] as const)('drops a subcommand receipt in %s without a download flag (#477)', (location) => {
+    const entries: LogEntry[] = [];
+    setLogLevel('trace');
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    const file = { fileType: 1, subcmd: 2, fileUuid: 'already-sent', fileName: 'test.json', fileSize: 42n };
+    try {
+      const out = parseMsgPush(pushPacket({
+        responseHead: { fromUin: 10001, fromUid: 'u_x' },
+        contentHead: { msgType: 529, subType: 4, c2cCmd: 4, sequence: 10, timestamp: 1, msgId: 1 },
+        body: location === 'msgContent'
+          ? { msgContent: protobuf_encode<FileExtra>({ file }) }
+          : { richText: { notOnlineFile: file } },
+      }), identity);
+      expect(out).toEqual([]);
+      expect(traceMessages(entries).some((message) => message.includes('branch=offline_file_receipt'))).toBe(true);
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('records the precise branch for a C2C control push with content', () => {

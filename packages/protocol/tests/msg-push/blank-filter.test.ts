@@ -51,4 +51,17 @@ describe('classifyMessageSurvival', () => {
     };
     expect(classifyMessageSurvival(privateHead, [{ type: 'file' }], body)).toBe('drop-receipt');
   });
+
+  it('classifies subcommand receipts consistently for history and push consumers (#477)', () => {
+    const file = { fileType: 1, subcmd: 2, fileUuid: 'already-sent', fileName: 'test.json', fileSize: 42n };
+    for (const body of [
+      { msgContent: protobuf_encode<FileExtra>({ file }) },
+      { richText: { notOnlineFile: file } },
+    ]) {
+      expect(classifyMessageSurvival(privateHead, [{ type: 'file' }], body)).toBe('drop-receipt');
+    }
+    expect(classifyMessageSurvival(privateHead, [{ type: 'file' }], {
+      richText: { notOnlineFile: { ...file, fileType: 3 } },
+    })).toBe('keep');
+  });
 });

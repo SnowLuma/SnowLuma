@@ -16,7 +16,7 @@ import type {
   TextElem,
 } from '@snowluma/proto-defs/element';
 import type { MarkdownData } from '@snowluma/proto-defs/action';
-import type { FileExtra, MessageBody, PushMsgBody as PushMsgBodyFull, RichText } from '@snowluma/proto-defs/message';
+import type { FileExtra, MessageBody, NotOnlineFile, PushMsgBody as PushMsgBodyFull, RichText } from '@snowluma/proto-defs/message';
 import {
   decompressData,
   imageUrlFromMd5,
@@ -1200,7 +1200,7 @@ function extractRichtextExtras(
   }
 
   // NotOnlineFile (C2C file)
-  if (rt.notOnlineFile && !isOfflineFileReceiptFlag(rt.notOnlineFile.downloadFlag)) {
+  if (rt.notOnlineFile && !isOfflineFileReceiptMetadata(rt.notOnlineFile)) {
     const f = rt.notOnlineFile;
     elements.push({
       type: 'file', fileId: f.fileUuid ?? '',
@@ -1228,7 +1228,7 @@ function extractMsgContent(msgContent: Uint8Array, elements: MessageElement[]): 
   );
   if (!extra?.file) return;
   const f = extra.file;
-  if (isOfflineFileReceiptFlag(f.downloadFlag)) return;
+  if (isOfflineFileReceiptMetadata(f)) return;
   if (!f.fileUuid) return;
   elements.push({
     type: 'file',
@@ -1239,19 +1239,19 @@ function extractMsgContent(msgContent: Uint8Array, elements: MessageElement[]): 
   });
 }
 
-/** QQ treats downloadFlag=2 as an offline-file receipt gray tip, not a chat bubble. */
-function isOfflineFileReceiptFlag(flag: number | undefined): boolean {
-  return flag === 2;
+/** Download acknowledgements can use either the receipt flag or the file subcommand. */
+function isOfflineFileReceiptMetadata(file: NotOnlineFile | null | undefined): boolean {
+  return file?.downloadFlag === 2 || (file?.fileType === 1 && file.subcmd === 2);
 }
 
 /** True when this body is an offline-file download receipt, not a new file message. */
 export function isOfflineFileReceipt(body: PushMsgBody | undefined): boolean {
-  if (isOfflineFileReceiptFlag(body?.richText?.notOnlineFile?.downloadFlag)) return true;
+  if (isOfflineFileReceiptMetadata(body?.richText?.notOnlineFile)) return true;
   if (!body?.msgContent || body.msgContent.length === 0) return false;
   const extra = decodeProtobufPayload(
     'messageBody.msgContent',
     body.msgContent,
     () => protobuf_decode<FileExtra>(body.msgContent!),
   );
-  return isOfflineFileReceiptFlag(extra?.file?.downloadFlag);
+  return isOfflineFileReceiptMetadata(extra?.file);
 }
