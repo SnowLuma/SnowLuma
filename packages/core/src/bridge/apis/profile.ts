@@ -180,6 +180,19 @@ export class ProfileApi {
     return `https://p.qpic.cn/qq_expression/${this.ctx.identity.uin}/${emojiId}/0`;
   }
 
+  /** Resolve an existing saved sticker by its resource id or content MD5. */
+  async resolveCustomFace(identifier: string): Promise<Pick<CustomFaceDetail, 'emojiId' | 'url' | 'md5'>> {
+    const wanted = identifier.trim();
+    if (!wanted) throw new Error('custom face identifier is empty');
+    const ids = await FetchCustomFaceList.invoke(this.ctx, { uin: this.ctx.identity.uin });
+    const byMd5 = /^[a-fA-F0-9]{32}$/.test(wanted);
+    const emojiId = ids.find((id) => byMd5
+      ? md5FromEmojiId(id).toLowerCase() === wanted.toLowerCase()
+      : id === wanted);
+    if (!emojiId) throw new Error('custom face is not in the saved sticker list');
+    return { emojiId, url: this.customFaceUrl(emojiId), md5: md5FromEmojiId(emojiId) };
+  }
+
   /** 删除一个收藏表情（custom face）。emoji_id 来自收藏列表。 */
   deleteCustomFace(emojiId: string): Promise<void> {
     return DeleteCustomFace.invoke(this.ctx, { uin: this.ctx.identity.uin, emojiId });

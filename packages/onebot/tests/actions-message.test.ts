@@ -20,8 +20,9 @@ const getMsg = requireAction('get_msg');
 const deleteMsg = requireAction('delete_msg');
 
 describe('message actions catalog', () => {
-  it('exports the five public message actions in source order', () => {
+  it('exports the public message actions in source order', () => {
     expect(actions.map((entry) => entry.names[0])).toEqual([
+      'send_custom_face',
       'send_msg',
       'send_private_msg',
       'send_group_msg',
@@ -36,6 +37,47 @@ describe('message actions catalog', () => {
     expect(sendGroupMsg.describe().readOnly).toBe(false);
     expect(getMsg.describe().readOnly).toBe(true);
     expect(deleteMsg.describe().readOnly).toBe(false);
+  });
+});
+
+describe('send_custom_face', () => {
+  const action = requireAction('send_custom_face');
+  const url = 'https://p.qpic.cn/qq_expression/10001/saved-sticker/0';
+  const image = { type: 'image', data: { file: url, sub_type: 1, summary: '[动画表情]' } };
+
+  function context() {
+    const resolveCustomFace = vi.fn(async () => ({ emojiId: 'saved-sticker', url, md5: 'a'.repeat(32) }));
+    const sendGroupMessage = vi.fn(async () => ({ messageId: 7 }));
+    const sendPrivateMessage = vi.fn(async () => ({ messageId: 8 }));
+    const ctx = asCtx({
+      bridge: { apis: { profile: { resolveCustomFace } } } as unknown as ApiActionContext['bridge'],
+      sendGroupMessage, sendPrivateMessage,
+    });
+    return { ctx, resolveCustomFace, sendGroupMessage, sendPrivateMessage };
+  }
+
+  it('resolves the saved id and sends a sticker with an optional reply', async () => {
+    const { ctx, resolveCustomFace, sendGroupMessage } = context();
+    expect(await action.toHandler(ctx)({ emoji_id: 'saved-sticker', group_id: 123, reply_to: -42 }))
+      .toMatchObject({ status: 'ok', data: { message_id: 7 } });
+    expect(resolveCustomFace).toHaveBeenCalledWith('saved-sticker');
+    expect(sendGroupMessage).toHaveBeenCalledWith(123, [{ type: 'reply', data: { id: '-42' } }, image], false);
+  });
+
+  it('supports a private destination and propagates lookup failures', async () => {
+    const { ctx, resolveCustomFace, sendPrivateMessage } = context();
+    expect(await action.toHandler(ctx)({ emoji_id: 'a'.repeat(32), user_id: 456 }))
+      .toMatchObject({ status: 'ok', data: { message_id: 8 } });
+    expect(sendPrivateMessage).toHaveBeenCalledWith(456, [image], false);
+    resolveCustomFace.mockRejectedValueOnce(new Error('sticker missing'));
+    await expect(action.toHandler(ctx)({ emoji_id: 'missing', user_id: 456 })).rejects.toThrow('sticker missing');
+    expect(sendPrivateMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([{}, { group_id: 123, user_id: 456 }])('rejects an ambiguous destination before lookup', async (target) => {
+    const { ctx, resolveCustomFace } = context();
+    expect(await action.toHandler(ctx)({ emoji_id: 'saved-sticker', ...target })).toMatchObject({ retcode: 1400 });
+    expect(resolveCustomFace).not.toHaveBeenCalled();
   });
 });
 

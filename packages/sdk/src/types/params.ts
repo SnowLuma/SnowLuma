@@ -310,6 +310,12 @@ export interface FetchCustomFaceParams extends JsonObject {
   count?: number;
 }
 
+export type SendCustomFaceParams = JsonObject & {
+  /** Saved sticker resource ID or its 32-character content MD5. */
+  emoji_id: string;
+  reply_to?: number;
+} & ({ group_id: number; user_id?: never } | { user_id: number; group_id?: never });
+
 export interface FetchSysFacesParams extends JsonObject {
   refresh?: boolean;
 }

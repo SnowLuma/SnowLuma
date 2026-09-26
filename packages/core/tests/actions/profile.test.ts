@@ -334,6 +334,24 @@ describe('apis/profile', () => {
     ]);
   });
 
+  it.each(['resource', 'md5'])('resolves a saved sticker by %s without fetching every description', async (kind) => {
+    const bridge = mockBridge();
+    const md5 = 'ABCDEF0123456789ABCDEF0123456789';
+    const emojiId = `10001_0_0_0_${md5}_0_0`;
+    bridge.sendRawPacket.mockResolvedValue({
+      success: true, gotResponse: true, errorCode: 0, errorMessage: '',
+      responseData: Buffer.from(protobuf_encode<FaceroamOpResp>({ item: { faceIds: [emojiId] } })),
+    } as any);
+    const api = new ProfileApi(bridge as any);
+    expect(await api.resolveCustomFace(kind === 'md5' ? md5.toLowerCase() : emojiId)).toEqual({
+      emojiId, md5, url: `https://p.qpic.cn/qq_expression/10001/${emojiId}/0`,
+    });
+    expect(bridge.sendRawPacket).toHaveBeenCalledTimes(1);
+    await expect(api.resolveCustomFace('missing')).rejects.toThrow(/not in the saved sticker list/);
+    await expect(api.resolveCustomFace(' ')).rejects.toThrow(/identifier is empty/);
+    expect(bridge.sendRawPacket).toHaveBeenCalledTimes(2);
+  });
+
   it('rejects a negative custom-face count before sending', async () => {
     const bridge = mockBridge();
     await expect(new ProfileApi(bridge as any).fetchCustomFaceIds(-1)).rejects.toThrow(

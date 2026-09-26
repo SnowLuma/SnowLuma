@@ -48,6 +48,32 @@ async function refreshStoredImageUrls(event: JsonObject, ctx: ApiActionContext):
 }
 
 export const actions = [
+  defineAction({
+    name: 'send_custom_face',
+    summary: '发送账号收藏表情（emoji_id 或 MD5），保留表情显示样式',
+    returns: '{ message_id: number }',
+    params: {
+      emoji_id: f.string().describe('当前账号收藏表情的完整 ID 或 32 位 MD5'),
+      group_id: f.groupId().optional().describe('目标群号；与 user_id 二选一'),
+      user_id: f.userId().optional().describe('目标 QQ 号；与 group_id 二选一'),
+      reply_to: f.messageId().optional().describe('可选回复消息 ID'),
+    },
+    run: async (p, ctx) => {
+      if ((p.group_id === undefined) === (p.user_id === undefined)) {
+        return failedResponse(RETCODE.BAD_REQUEST, 'exactly one of group_id and user_id is required');
+      }
+      if (!p.emoji_id.trim()) return failedResponse(RETCODE.BAD_REQUEST, 'emoji_id is required');
+      const face = await ctx.bridge.apis.profile.resolveCustomFace(p.emoji_id);
+      const message: JsonObject[] = [];
+      if (p.reply_to !== undefined) message.push({ type: 'reply', data: { id: String(p.reply_to) } });
+      message.push({ type: 'image', data: { file: face.url, sub_type: 1, summary: '[动画表情]' } });
+      const result = p.group_id !== undefined
+        ? await ctx.sendGroupMessage(p.group_id, message, false)
+        : await ctx.sendPrivateMessage(p.user_id!, message, false);
+      return okResponse({ message_id: result.messageId });
+    },
+  }),
+
   // send_msg routes on message_type / group_id presence, so the *required*
   // id is conditional — that branch stays in run(). The fields themselves
   // (message required; group_id/user_id valid uints when present) are
@@ -144,4 +170,3 @@ export const actions = [
     },
   }),
 ];
-

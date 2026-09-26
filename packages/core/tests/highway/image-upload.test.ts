@@ -45,8 +45,8 @@ describe('image-upload', () => {
     expect(args.businessType).toBe(1);
     expect(args.compatQmsgSceneType).toBe(2);
     expect(args.uploads[0]!.cmdId).toBe(GROUP_IMAGE_CMD_ID);
-    expect((args.extBizInfo as any).pic.reserveTroop).toBeDefined();
-    expect((args.extBizInfo as any).pic.reserveC2c).toBeUndefined();
+    expect(args.extBizInfo.pic?.extData).toBeDefined();
+    expect(args.extBizInfo.pic?.bytesPbReserveC2c).toBeUndefined();
   });
 
   it('c2c: uses 0x11C5_100 + PRIVATE_IMAGE_CMD_ID and tags scene as c2c', async () => {
@@ -56,8 +56,8 @@ describe('image-upload', () => {
     expect(args.serviceCmd).toBe('OidbSvcTrpcTcp.0x11c5_100');
     expect(args.compatQmsgSceneType).toBe(1);
     expect(args.uploads[0]!.cmdId).toBe(PRIVATE_IMAGE_CMD_ID);
-    expect((args.extBizInfo as any).pic.reserveC2c).toBeDefined();
-    expect((args.extBizInfo as any).pic.reserveTroop).toBeUndefined();
+    expect(args.extBizInfo.pic?.bytesPbReserveC2c).toBeDefined();
+    expect(args.extBizInfo.pic?.extData).toBeUndefined();
   });
 
   it('uses receive-side imageUrl when url/fileId are absent', async () => {
@@ -110,7 +110,7 @@ describe('image-upload', () => {
     await uploadImageMsgInfo({} as any, true, 12345, { url: 'http://x', subType: 0 } as any);
     expect(pipeline.finalizeMediaMsgInfo).toHaveBeenCalledOnce();
     const [, defaultPic] = vi.mocked(pipeline.finalizeMediaMsgInfo).mock.calls[0]!;
-    expect(defaultPic).toEqual({ bizType: 0, textSummary: '[图片]' });
+    expect(defaultPic).toEqual({ bizType: 0, textSummary: '[图片]', extData: { subType: 0, textSummary: '[图片]' } });
   });
 
   it('caller-supplied summary wins over the Chinese default', async () => {
@@ -120,6 +120,6 @@ describe('image-upload', () => {
       url: 'http://x', subType: 0, summary: '[custom-bubble]',
     } as any);
     const [, defaultPic] = vi.mocked(pipeline.finalizeMediaMsgInfo).mock.calls[0]!;
-    expect(defaultPic).toEqual({ bizType: 0, textSummary: '[custom-bubble]' });
+    expect(defaultPic).toEqual({ bizType: 0, textSummary: '[custom-bubble]', extData: { subType: 0, textSummary: '[custom-bubble]' } });
   });
 });

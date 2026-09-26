@@ -8799,6 +8799,94 @@
       "category": "扩展"
     },
     {
+      "name": "send_custom_face",
+      "aliases": [],
+      "summary": "发送账号收藏表情（emoji_id 或 MD5），保留表情显示样式",
+      "returns": "{ message_id: number }",
+      "readOnly": false,
+      "params": [
+        {
+          "name": "emoji_id",
+          "type": "string",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "desc": "当前账号收藏表情的完整 ID 或 32 位 MD5"
+        },
+        {
+          "name": "group_id",
+          "type": "uint",
+          "required": false,
+          "role": "group_id",
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "desc": "目标群号；与 user_id 二选一"
+        },
+        {
+          "name": "user_id",
+          "type": "uint",
+          "required": false,
+          "role": "user_id",
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "desc": "目标 QQ 号；与 group_id 二选一"
+        },
+        {
+          "name": "reply_to",
+          "type": "messageId",
+          "required": false,
+          "role": "message_id",
+          "schema": {
+            "type": "integer",
+            "not": {
+              "const": 0
+            }
+          },
+          "desc": "可选回复消息 ID"
+        }
+      ],
+      "invariants": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "emoji_id": {
+            "type": "string",
+            "description": "当前账号收藏表情的完整 ID 或 32 位 MD5"
+          },
+          "group_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "目标群号；与 user_id 二选一",
+            "x-role": "group_id"
+          },
+          "user_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "目标 QQ 号；与 group_id 二选一",
+            "x-role": "user_id"
+          },
+          "reply_to": {
+            "type": "integer",
+            "not": {
+              "const": 0
+            },
+            "description": "可选回复消息 ID",
+            "x-role": "message_id"
+          }
+        },
+        "required": [
+          "emoji_id"
+        ],
+        "additionalProperties": true
+      },
+      "category": "消息"
+    },
+    {
       "name": "send_flash_msg",
       "aliases": [],
       "summary": "发送闪传消息（私聊或群聊，引用 fileset_id 让对端下载）",
@@ -12989,7 +13077,7 @@
     },
     {
       "category": "消息",
-      "count": 5
+      "count": 6
     },
     {
       "category": "好友",

@@ -7,6 +7,7 @@ import type {
   DomainParams,
   DownloadFileParams,
   FetchCustomFaceParams,
+  SendCustomFaceParams,
   FetchFaceEntityParams,
   FetchSysFacesParams,
   FetchEmojiLikeParams,
@@ -211,6 +212,7 @@ export interface SnowLumaActionMap {
   get_recent_contact: { params: JsonObject; data: JsonArray };
   get_profile_like: { params: JsonObject; data: JsonObject };
   fetch_custom_face: { params: FetchCustomFaceParams; data: string[] };
+  send_custom_face: { params: SendCustomFaceParams; data: SendMessageResult };
   fetch_sys_faces: { params: FetchSysFacesParams; data: SystemFaceCatalogInfo };
   fetch_face_entity: { params: FetchFaceEntityParams; data: SystemFaceInfo | null };
   search_sys_faces: { params: SearchSysFacesParams; data: SystemFaceSearchInfo };

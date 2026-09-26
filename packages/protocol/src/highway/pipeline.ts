@@ -11,6 +11,7 @@ import type {
   NTV2UploadRespBody,
 } from '@snowluma/proto-defs/highway';
 import { protobuf_encode } from '@snowluma/proton';
+import type { PicExtBizInfo } from '@snowluma/proto-defs/element';
 import crypto from 'crypto';
 import type { BridgeContext } from '../bridge-context';
 import { OidbError } from '../oidb-service';
@@ -342,14 +343,12 @@ async function runNtv2UploadOperation(
 /**
  * Build the encoded MsgInfo bytes that go inside the outgoing commonElem.
  *
- * `defaultPic` is the image-only fall-back: image uploads inject
- * `bizType` + `textSummary` defaults when the server response omits the
- * `pic` ext-biz-info. PTT and video pass `undefined` here — they leave
- * pic alone unless the server populates it.
+ * `requestedPic` carries image presentation for this send, including the
+ * scene-specific compatibility reserve. PTT and video omit it.
  */
 export function finalizeMediaMsgInfo(
   upload: NTV2UploadRespBody,
-  defaultPic?: { bizType: number; textSummary: string },
+  requestedPic?: PicExtBizInfo,
 ): Uint8Array {
   if (!upload?.msgInfo) throw new Error('upload response missing msgInfo');
 
@@ -358,14 +357,10 @@ export function finalizeMediaMsgInfo(
   }));
 
   const extBizInfo: NonNullable<EncodableMediaMsgInfo['extBizInfo']> = {};
-  if (upload.msgInfo.extBizInfo?.pic) {
-    extBizInfo.pic = { ...upload.msgInfo.extBizInfo.pic };
-    if (defaultPic) {
-      extBizInfo.pic.bizType = extBizInfo.pic.bizType ?? defaultPic.bizType;
-      extBizInfo.pic.textSummary = extBizInfo.pic.textSummary ?? defaultPic.textSummary;
-    }
-  } else if (defaultPic) {
-    extBizInfo.pic = { bizType: defaultPic.bizType, textSummary: defaultPic.textSummary };
+  if (upload.msgInfo.extBizInfo?.pic || requestedPic) {
+    // Upload responses can reuse cached image metadata. Presentation belongs
+    // to this send, so retain resource metadata but apply the requested style.
+    extBizInfo.pic = { ...upload.msgInfo.extBizInfo?.pic, ...requestedPic };
   }
   if (upload.msgInfo.extBizInfo?.video) extBizInfo.video = upload.msgInfo.extBizInfo.video;
   if (upload.msgInfo.extBizInfo?.ptt) extBizInfo.ptt = upload.msgInfo.extBizInfo.ptt;
