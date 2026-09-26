@@ -32,15 +32,6 @@ export interface OidbFaceContent {
   resourceUrl?: pb<2, OidbFaceResourceUrl>;
 }
 
-export interface OidbFaceMagicContentList {
-  emojiList?: pb_repeated<2, OidbFaceEmoji>;
-}
-
-export interface OidbFaceMagicContent {
-  field1?:      pb<1, OidbFaceMagicContentList>;
-  resourceUrl?: pb<2, OidbFaceResourceUrl>;
-}
-
 export interface OidbFetchSysFacesExpInfo {
   field1?: pb<1, string>;
 }
@@ -56,5 +47,5 @@ export interface OidbFetchSysFacesResp {
   field1?:           pb<1, int_32>;
   commonFace?:       pb<2, OidbFaceContent>;
   specialBigFace?:   pb<3, OidbFaceContent>;
-  specialMagicFace?: pb<4, OidbFaceMagicContent>;
+  specialMagicFace?: pb<4, OidbFaceContent>;
 }

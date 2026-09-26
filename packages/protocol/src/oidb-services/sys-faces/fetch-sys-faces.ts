@@ -123,29 +123,19 @@ export namespace FetchSysFaces {
   export const deserialize = (_ctx: Deps, body: OidbFetchSysFacesResp): SysFacePackEntry[] => {
     const packs: SysFacePackEntry[] = [];
 
-    // common + special-big share the same content shape.
+    // All panels contain repeated groups, including unnamed/hidden groups.
     for (const [source, content] of [
       ['common', body.commonFace],
       ['special-big', body.specialBigFace],
+      ['magic', body.specialMagicFace],
     ] as const) {
       for (const list of content?.emojiList ?? []) {
         const packIndex = packs.length;
         packs.push({
-          packName: list.emojiPackName ?? '',
+          packName: list.emojiPackName || (source === 'magic' ? 'MagicFace' : ''),
           emojis: emojisToEntries(list.emojiDetail ?? [], source, packIndex),
         });
       }
-    }
-
-    // QQ returns magic faces as a single unnamed bundle. Keep a stable local
-    // name so callers can identify the group across refreshes.
-    const magicEmojis = body.specialMagicFace?.field1?.emojiList ?? [];
-    if (magicEmojis.length > 0) {
-      const packIndex = packs.length;
-      packs.push({
-        packName: 'MagicFace',
-        emojis: emojisToEntries(magicEmojis, 'magic', packIndex),
-      });
     }
 
     return packs;

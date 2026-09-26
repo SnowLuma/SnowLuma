@@ -46,12 +46,9 @@ interface IndexedCatalog {
   overlapCount: number;
 }
 
-/** Pure classification once an authoritative entry is known. */
+/** Use animation metadata when available; any numeric id has a small-face encoding. */
 export function faceWireFor(entry: SysFaceEntry | null | undefined, faceId: number): FaceWire {
-  if (!entry) {
-    throw new Error(`QQ system face id ${faceId} is absent from the current catalog`);
-  }
-  if (isSuperFaceEntry(entry)) {
+  if (entry && isSuperFaceEntry(entry)) {
     if (entry.aniStickerPackId == null
       || entry.aniStickerId == null
       || entry.aniStickerType == null) {
@@ -133,8 +130,7 @@ export class SysFaceStore {
     return matches;
   }
 
-  /** Synchronous classification for callers that already established catalog
-   * readiness. Unknown ids fail instead of guessing a QQ wire shape. */
+  /** Synchronous classification, including IDs no longer listed in a panel. */
   classify(faceId: number): FaceWire {
     return faceWireFor(this.lookup(faceId), faceId);
   }
@@ -226,7 +222,7 @@ export class SysFaceStore {
   async resolveWire(sender: OidbSender, faceId: number): Promise<FaceWire> {
     const entry = await this.resolve(sender, faceId);
     if (!entry) {
-      throw new Error(`QQ system face id ${faceId} is absent from the current catalog`);
+      log.debug('system face id %d is not listed in the catalog; sending its small representation', faceId);
     }
     return faceWireFor(entry, faceId);
   }

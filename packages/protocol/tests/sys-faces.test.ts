@@ -100,9 +100,9 @@ describe('faceWireFor — classification', () => {
       kind: 'super', packId: '1', stickerId: '52', stickerType: 1,
     });
   });
-  it('rejects an unknown id instead of guessing a wire shape', () => {
-    expect(() => faceWireFor(null, 14)).toThrow(/absent from the current catalog/);
-    expect(() => faceWireFor(undefined, 424)).toThrow(/absent from the current catalog/);
+  it('permits uncatalogued ids using their small representation', () => {
+    expect(faceWireFor(null, 14)).toEqual({ kind: 'classic' });
+    expect(faceWireFor(undefined, 504)).toEqual({ kind: 'small' });
   });
 });
 
@@ -128,11 +128,25 @@ describe('FetchSysFaces protocol contract', () => {
 });
 
 describe('FetchSysFaces.deserialize', () => {
+  it('decodes every group in the third panel, including unnamed and hidden faces (#482)', () => {
+    const wire = protobuf_encode<OidbFetchSysFacesResp>({
+      specialMagicFace: { emojiList: [
+        { emojiPackName: 'MagicFace', emojiDetail: [{ qSid: '358' }] },
+        { emojiDetail: [{ qSid: '504', unknown10: 1 }, { qSid: '505' }] },
+        { emojiPackName: 'Limited', emojiDetail: [{ qSid: '506' }, { qSid: '507' }] },
+      ] },
+    });
+    const packs = FetchSysFaces.deserialize({} as never, protobuf_decode<OidbFetchSysFacesResp>(wire));
+    expect(packs.map((pack) => pack.packName)).toEqual(['MagicFace', 'MagicFace', 'Limited']);
+    expect(packs.flatMap((pack) => pack.emojis.map((face) => face.qSid)))
+      .toEqual(['358', '504', '505', '506', '507']);
+  });
+
   it('flattens common + big + magic packs', () => {
     const packs = FetchSysFaces.deserialize({} as never, {
       commonFace: { emojiList: [{ emojiPackName: '经典', emojiDetail: [{ qSid: '14' }] }] },
       specialBigFace: { emojiList: [{ emojiPackName: '超级', emojiDetail: [{ qSid: '392', aniStickerType: 3, aniStickerPackId: 2 }] }] },
-      specialMagicFace: { field1: { emojiList: [{ qSid: '999' }] } },
+      specialMagicFace: { emojiList: [{ emojiDetail: [{ qSid: '999' }] }] },
     } as never);
     expect(packs.map((p) => p.packName)).toEqual(['经典', '超级', 'MagicFace']);
     expect(packs[1].emojis[0].aniStickerType).toBe(3);
@@ -171,7 +185,7 @@ describe('FetchSysFaces.deserialize', () => {
     });
 
     expect(() => FetchSysFaces.deserialize({} as never, {
-      specialMagicFace: { field1: { emojiList: [driftedFace] } },
+      specialMagicFace: { emojiList: [{ emojiDetail: [driftedFace] }] },
     } as never)).toThrow(/unsupported wire encoding.*wireTypes=0/);
   });
 });
@@ -352,12 +366,12 @@ describe('SysFaceStore — persistent catalog and query seam', () => {
         }],
       },
       specialMagicFace: {
-        field1: {
-          emojiList: [
+        emojiList: [{
+          emojiDetail: [
             { qDes: '/目录占位' },
             { qSid: '999', qDes: '/魔法表情' },
           ],
-        },
+        }],
       },
     } as never);
     const store = new SysFaceStore({
@@ -390,6 +404,7 @@ describe('SysFaceStore — persistent catalog and query seam', () => {
     expect((await store.resolve(sender, 392))?.qSid).toBe('392');
     expect(await store.resolve(sender, 99999)).toBeNull();
     expect(await store.resolve(sender, 99999)).toBeNull();
+    expect(await store.resolveWire(sender, 99999)).toEqual({ kind: 'small' });
     expect(fetches).toBe(1);
   });
 
@@ -527,10 +542,10 @@ describe('makeFaceElem (via buildSendElems) — three-way wire encoding', () => 
     expect(protobuf_decode<QSmallFaceExtra>(small.commonElem!.pbElem!).faceId).toBe(504);
   });
 
-  it('rejects an unknown id even when building without a live send context', async () => {
+  it('sends uncatalogued ids without inventing animation metadata', async () => {
     sysFaceStore.load(CATALOG);
-
-    await expect(buildSendElems([{ type: 'face', faceId: 99999 }]))
-      .rejects.toThrow(/absent from the current catalog/);
+    const [element] = await buildSendElems([{ type: 'face', faceId: 504 }]);
+    expect(element.commonElem?.serviceType).toBe(33);
+    expect(protobuf_decode<QSmallFaceExtra>(element.commonElem!.pbElem!).faceId).toBe(504);
   });
 });
