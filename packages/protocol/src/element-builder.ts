@@ -150,6 +150,10 @@ function makeReplyElem(element: MessageElement): ProtoElem {
     srcMsg.time = element.replyTime;
   }
 
+  const previews = (element.replyElements ?? []).filter(e => e.type === 'text' && e.text);
+  if (previews.length) {
+    srcMsg.elemsRaw = previews.map(e => protobuf_encode<Elem>({ text: { str: e.text! } }));
+  }
   return { srcMsg };
 }
 

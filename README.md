@@ -78,6 +78,10 @@ pnpm test
 
 贡献流程见 [`CONTRIBUTING.md`](CONTRIBUTING.md)；模块边界与项目词汇见 [`CONTEXT.md`](CONTEXT.md)；开发方向见 [`RoadMap.md`](RoadMap.md)。
 
+## 引用消息预览
+
+OneBot 发送 `reply` 段时，会将本地消息缓存中的原文附入 QQ 引用预览，保留文字、换行与引用关系。图片、语音等非文字段以类型提示显示，不重新上传媒体；原消息中的嵌套引用不递归展开。只有消息元数据而没有缓存正文时，不生成虚构的预览内容。
+
 ## 使用边界与许可
 
 > [!IMPORTANT]

@@ -246,6 +246,7 @@ export const ELEMENT_CODECS = {
             element.replySenderUin = meta.senderUin;
             element.replyTime = meta.time;
             element.replyRandom = meta.random;
+            element.replyElements = meta.elements;
           }
 
           return element;
