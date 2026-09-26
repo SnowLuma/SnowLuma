@@ -7,7 +7,7 @@ import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { randomUUID } from 'crypto';
 import { deflateSync } from 'zlib';
 import type { BridgeContext } from './bridge-context';
-import { sysFaceStore } from './sys-face-store';
+import { sysFaceStore, type FaceWire } from './sys-face-store';
 import type { MessageElement } from './events';
 import {
   assertVideoSendPolicy,
@@ -53,15 +53,16 @@ function makeTextElem(text: string): ProtoElem {
 // renders classic small faces; newer "super" / animated faces sent that way are
 // silently remapped by the server (e.g. 424→168, issue #168). The split is
 // data-driven off the system-face catalog (0x9154_1, see sys-face-store):
-//   super (animated, aniSticker not pack (1,1)) → CommonElem 37 + QFaceExtra
+//   animated (unless large=false)              → CommonElem 37 + QFaceExtra
 //   other id ≥ 260                              → CommonElem 33 + QSmallFaceExtra
 //   classic id < 260                            → legacy FaceElem
-async function makeFaceElem(faceId: number, ctx?: SendContext): Promise<ProtoElem> {
+async function makeFaceElem(faceId: number, large: boolean, ctx?: SendContext): Promise<ProtoElem> {
   // With a live bridge, wait for the authoritative catalog. Login normally
   // preloads it, while this await closes the reconnect / first-send race.
-  const wire = ctx
+  const resolved = ctx
     ? await sysFaceStore.resolveWire(ctx.bridge, faceId)
     : sysFaceStore.classify(faceId);
+  const wire: FaceWire = large ? resolved : { kind: faceId < 260 ? 'classic' : 'small' };
   if (wire.kind === 'super') {
     return {
       commonElem: {
@@ -74,7 +75,7 @@ async function makeFaceElem(faceId: number, ctx?: SendContext): Promise<ProtoEle
           stickerType: wire.stickerType,
           randomType: 1,
         }),
-        businessType: 1,
+        businessType: wire.stickerType < 4 ? wire.stickerType : 1,
       },
     };
   }
@@ -567,7 +568,7 @@ export async function buildSendElems(elements: MessageElement[], ctx?: SendConte
         break;
 
       case 'face':
-        result.push(await makeFaceElem(elem.faceId, ctx));
+        result.push(await makeFaceElem(elem.faceId, elem.large ?? true, ctx));
         break;
 
       case 'poke':

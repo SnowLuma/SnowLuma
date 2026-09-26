@@ -43,6 +43,18 @@ describe('parseMessage', () => {
       expect(result[0].faceId).toBe(123);
     });
 
+    it.each([true, false, 'true', 'false', 1, 0, '1', '0'])('preserves face animation choice %s', async (large) => {
+      const result = await parseMessage([{ type: 'face', data: { id: '424', large } }], false);
+      expect(result).toEqual([{ type: 'face', faceId: 424, large: [true, 'true', 1, '1'].includes(large) }]);
+    });
+
+    it('accepts the CQ animation switch and rejects invalid booleans', async () => {
+      expect(await parseMessage('[CQ:face,id=424,large=false]', false))
+        .toEqual([{ type: 'face', faceId: 424, large: false }]);
+      await expect(parseMessage('[CQ:face,id=424,large=maybe]', false))
+        .rejects.toMatchObject({ code: 'INVALID_FIELD' });
+    });
+
     it('parses at CQ code', async () => {
       const result = await parseMessage('[CQ:at,qq=12345]', false);
       expect(result).toHaveLength(1);

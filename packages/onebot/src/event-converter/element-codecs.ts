@@ -155,7 +155,17 @@ export const ELEMENT_CODECS = {
     async fromSegment(data) {
       const id = intOr(data.id, -1);
       if (id < 0) return null;
-      return { type: 'face', faceId: id };
+      const element: MessageElementOf<'face'> = { type: 'face', faceId: id };
+      if (data.large !== undefined) {
+        if (data.large === true || data.large === 'true' || data.large === 1 || data.large === '1') {
+          element.large = true;
+        } else if (data.large === false || data.large === 'false' || data.large === 0 || data.large === '0') {
+          element.large = false;
+        } else {
+          throw new MessageElementValidationError('INVALID_FIELD', 'face.large must be a boolean');
+        }
+      }
+      return element;
     },
   },
 

@@ -38,12 +38,12 @@ function entry(
   };
 }
 
-// 392 is a real non-(1,1) super face; 424 is a real (1,1) "new small" face.
+// Animated faces include ordinary type-1 stickers as well as special types.
 const CATALOG: SysFacePackEntry[] = [
   { packName: '经典', emojis: [entry('14', null, null, null, '/微笑', ['smile'])] },
   { packName: '超级表情', emojis: [
     entry('392', 3, 2, 38, '/龙年快乐'),   // super → CommonElem 37
-    entry('424', 1, 1, 52),   // (1,1) → small → CommonElem 33
+    entry('424', 1, 1, 52),
     entry('358', 2, 1, 33),   // super (packId 1 but type 2) → CommonElem 37
   ] },
 ];
@@ -62,18 +62,19 @@ class MemoryCatalogStorage implements SysFaceCatalogStorage {
   }
 }
 
-describe('isSuperFaceEntry / isSuperFaceId — the (1,1) rule', () => {
-  it('treats only non-(1,1) aniSticker faces as super', () => {
+describe('isSuperFaceEntry / isSuperFaceId', () => {
+  it('recognizes every animated sticker type', () => {
     expect(isSuperFaceEntry(entry('x', 3, 2, 1))).toBe(true);
     expect(isSuperFaceEntry(entry('x', 2, 1, 1))).toBe(true);  // type≠1
     expect(isSuperFaceEntry(entry('x', 1, 2, 1))).toBe(true);  // pack≠1
-    expect(isSuperFaceEntry(entry('x', 1, 1, 52))).toBe(false); // the (1,1) pack
+    expect(isSuperFaceEntry(entry('x', 1, 1, 52))).toBe(true);
+    expect(isSuperFaceEntry(entry('x', 0, 0, 0))).toBe(false);
     expect(isSuperFaceEntry(entry('x', null, null, null))).toBe(false); // not aniSticker
   });
 
   it('isSuperFaceId walks the packs by id', () => {
     expect(isSuperFaceId(CATALOG, 392)).toBe(true);
-    expect(isSuperFaceId(CATALOG, 424)).toBe(false);
+    expect(isSuperFaceId(CATALOG, 424)).toBe(true);
     expect(isSuperFaceId(CATALOG, 14)).toBe(false);
     expect(isSuperFaceId(CATALOG, 99999)).toBe(false); // unknown
   });
@@ -94,8 +95,10 @@ describe('faceWireFor — classification', () => {
     expect(() => faceWireFor(entry('392', 3, 2, null), 392))
       .toThrow(/incomplete super-face metadata/);
   });
-  it('(1,1) face → small/classic by id range, not super', () => {
-    expect(faceWireFor(entry('424', 1, 1, 52), 424)).toEqual({ kind: 'small' });
+  it('uses the animation metadata for type-1 stickers too', () => {
+    expect(faceWireFor(entry('424', 1, 1, 52), 424)).toEqual({
+      kind: 'super', packId: '1', stickerId: '52', stickerType: 1,
+    });
   });
   it('rejects an unknown id instead of guessing a wire shape', () => {
     expect(() => faceWireFor(null, 14)).toThrow(/absent from the current catalog/);
@@ -499,14 +502,29 @@ describe('makeFaceElem (via buildSendElems) — three-way wire encoding', () => 
     expect(big.qsid).toBe(392);
     expect(big.packId).toBe('2');
     expect(big.stickerId).toBe('38');
+    expect(superElem.commonElem?.businessType).toBe(3);
 
-    const [smallElem] = await buildSendElems([{ type: 'face', faceId: 424 }], ctx);
+    const [animated] = await buildSendElems([{ type: 'face', faceId: 424 }], ctx);
+    expect(animated.commonElem?.serviceType).toBe(37);
+    expect(protobuf_decode<QFaceExtra>(animated.commonElem!.pbElem!).stickerId).toBe('52');
+
+    const [smallElem] = await buildSendElems([{ type: 'face', faceId: 424, large: false }], ctx);
     expect(smallElem.commonElem?.serviceType).toBe(33);
     const small = protobuf_decode<QSmallFaceExtra>(smallElem.commonElem!.pbElem!);
     expect(small.faceId).toBe(424);
 
     const [classicElem] = await buildSendElems([{ type: 'face', faceId: 14 }], ctx);
     expect(classicElem.face?.index).toBe(14);
+  });
+
+  it('allows special animated faces to be sent small and normalizes newer business types', async () => {
+    sysFaceStore.load([{ packName: 'special', emojis: [entry('504', 4, 1, 90)] }]);
+    const [large] = await buildSendElems([{ type: 'face', faceId: 504, large: true }]);
+    expect(large.commonElem?.businessType).toBe(1);
+    expect(protobuf_decode<QFaceExtra>(large.commonElem!.pbElem!).stickerType).toBe(4);
+    const [small] = await buildSendElems([{ type: 'face', faceId: 504, large: false }]);
+    expect(small.commonElem?.serviceType).toBe(33);
+    expect(protobuf_decode<QSmallFaceExtra>(small.commonElem!.pbElem!).faceId).toBe(504);
   });
 
   it('rejects an unknown id even when building without a live send context', async () => {

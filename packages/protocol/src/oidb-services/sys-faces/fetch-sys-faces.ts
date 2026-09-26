@@ -172,10 +172,9 @@ export function findFaceEntity(packs: SysFacePackEntry[], faceId: number): SysFa
   return null;
 }
 
-/** True when the catalog metadata selects the existing super-face send path. */
+/** True when the catalog declares an animated sticker representation. */
 export function isSuperFaceEntry(emoji: SysFaceEntry): boolean {
-  if (emoji.aniStickerType == null || emoji.aniStickerPackId == null) return false;
-  return !(emoji.aniStickerType === 1 && emoji.aniStickerPackId === 1);
+  return emoji.aniStickerType != null && emoji.aniStickerType > 0;
 }
 
 export function isSuperFaceId(packs: SysFacePackEntry[], faceId: number): boolean {

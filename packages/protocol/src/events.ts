@@ -39,6 +39,8 @@ export interface AtElement {
 export interface FaceElement {
   type: 'face';
   faceId: number;
+  /** Send the catalog animation when available (default true). */
+  large?: boolean;
 }
 
 export interface ReplyElement {

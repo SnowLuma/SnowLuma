@@ -141,7 +141,7 @@ export const ELEMENT_MANIFEST = {
   },
   face: {
     directions: { D: 'yes', S: 'yes', P: 'yes', W: 'yes' },
-    fields: fieldsFor<'face'>()(['faceId']),
+    fields: fieldsFor<'face'>()(['faceId', 'large']),
     requiredFields: ['faceId'],
   },
   reply: {
@@ -258,7 +258,7 @@ const NUMBER_FIELDS: ReadonlySet<string> = new Set([
   'width', 'height', 'emojiPackageId', 'sceneType', 'forwardTSum',
   'picFormat', 'videoFormat', 'voiceFormat',
 ]);
-const BOOLEAN_FIELDS: ReadonlySet<string> = new Set(['flash', 'noByteFallback']);
+const BOOLEAN_FIELDS: ReadonlySet<string> = new Set(['flash', 'noByteFallback', 'large']);
 
 function throwValidation(
   code: MessageElementValidationCode,
