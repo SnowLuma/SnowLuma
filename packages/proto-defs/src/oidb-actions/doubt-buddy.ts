@@ -1,24 +1,7 @@
-// Doubt-buddy (可能认识的人 / 被过滤的好友申请) protobufs, RE'd from QQNT
-// wrapper.linux.node. Both get + approval ride OidbSvcTrpcTcp.0xd69_0
-// (worker ctors both pass cmd=0xd69, sub=0; codec `doubt_codec.cc`).
-//
-// GET request (EncodeRequest sub_3F3DC20): {1:const 1, 2:{1:num, 2:uk}}.
-//   reqId is NOT serialized (kernel uses it only for JS callback correlation).
-// GET response: status (==1 ok) + body{1:repeated item, 2:reason}.
-//   Linux 3.2.32 sends the account number at tag 1 (varint), request time at
-//   tag 8, and source group at tag 9; it carries no string uid. Some builds
-//   send a string uid at tag 1 instead, so the service decodes both wire
-//   types and keeps whichever is present.
-//   The string tags' semantic NAMES (nick/source/msg) come
-//   from the GENERIC buddy serializer registry, not a doubt-specific table,
-//   so they are MEDIUM confidence — but this is a READ, so a mislabel is
-//   cosmetic, never a malformed-packet/ban risk. We model the ones NapCat
-//   surfaces and leave the rest unmapped.
-// APPROVAL request (EncodeRequest sub_3F3EC90): {1:uid, 2:uid, [3:u32],
-//   [4:str]}. tags 3/4 are emitted only when present; NapCat passes empty
-//   str1/str2, so the approve flow is just {1:uid, 2:uid}.
+// Filtered friend requests: listing, approval, and rejection have distinct
+// request contracts. List responses can carry an account number or a UID.
 
-import type { pb, pb_repeated, uint_32, uint_64 } from '@snowluma/proton';
+import type { pb, pb_optional, pb_repeated, uint_32, uint_64 } from '@snowluma/proton';
 
 export interface OidbDoubtGetReqInner {
   num?: pb<1, uint_32>;
@@ -50,18 +33,14 @@ export interface OidbDoubtGetResp {
   body?:   pb<2, OidbDoubtGetRespBody>;
 }
 
-// tag1 and tag2 come from two DIFFERENT kernel attrs (21503 vs 21001), but
-// both are uid-class and NapCat sends the same friendUid into both — so the
-// service sets them to the same value. They are NOT equal by schema design.
 export interface OidbDoubtApprovalReq {
-  uid?:       pb<1, string>;
+  selfUid?:   pb<1, string>;
   targetUid?: pb<2, string>;
+  field3?:    pb_optional<3, uint_32>;
+  field4?:    pb_optional<4, string>;
 }
 
-// delDoubtBuddyReq (reject/decline) — same cmd 0xd69_0 as get/approval, but a
-// distinct body. RE'd from doubt_buddy_del_worker.cc EncodeRequest sub_3F3E860:
-//   {1: varint const 3 (op discriminator; get uses 1), 3: {1: string uid}}.
-// The uid comes from kernel attr 21001.
+// Reject an existing filtered friend request.
 export interface OidbDoubtDelReqInner {
   uid?: pb<1, string>;
 }

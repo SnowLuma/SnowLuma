@@ -1902,11 +1902,8 @@ export const actions = [
       return okResponse(list);
     },
   }),
-  // set_doubt_friends_add_request — handle a 可疑好友申请 (0xd69_0). `flag` is
-  // the uid from the get list, or the applicant's account number (resolved
-  // before the packet is built). approve → approvalDoubtBuddyReq; approve:false
-  // → delDoubtBuddyReq (reject/decline). NapCat only ever approves; we add the
-  // reject path since we RE'd delDoubtBuddyReq too.
+  // Accept the list UID or resolve the applicant's account number.
+  // Approval and rejection use their respective friend API operations.
   defineAction({
     name: 'set_doubt_friends_add_request',
     summary: '处理可疑好友申请',
@@ -1915,8 +1912,6 @@ export const actions = [
       approve: f.bool().default(true),
     },
     run: async (p, ctx) => {
-      // approve → approvalDoubtBuddyReq (0xd69_0); reject → delDoubtBuddyReq
-      // (also 0xd69_0, distinct body) — both RE'd from the binary.
       if (p.approve) {
         await ctx.bridge.apis.friend.approveDoubtRequest(p.flag);
       } else {

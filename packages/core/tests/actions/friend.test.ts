@@ -19,6 +19,7 @@ import type {
 // against the bridge mock's sendRawPacket directly — no need for
 // module-level bridge-oidb mocks anymore.
 import { DATALINE_UIN_PAD } from '@snowluma/protocol/dataline/device-contacts';
+import { IdentityService } from '@snowluma/protocol/identity-service';
 import { FriendApi } from '../../src/bridge/apis/friend';
 import { mockBridge } from './_helpers';
 
@@ -183,9 +184,9 @@ describe('apis/friend', () => {
     await new FriendApi(bridge as any).approveDoubtRequest('12345');
     expect(bridge.resolveUserUid).toHaveBeenCalledWith(12345);
     const [cmd, bytes] = bridge.sendRawPacket.mock.calls[0]!;
-    expect(cmd).toBe('OidbSvcTrpcTcp.0xd69_0');
+    expect(cmd).toBe('OidbSvcTrpcTcp.0xd72_0');
     const env = protobuf_decode<OidbBase<OidbDoubtApprovalReq>>(bytes);
-    expect(env.body).toMatchObject({ uid: 'resolved-uid', targetUid: 'resolved-uid' });
+    expect(env.body).toMatchObject({ selfUid: 'self-uid', targetUid: 'resolved-uid', field3: 0, field4: '' });
   });
 
   it('approveDoubtRequest forwards a uid flag without resolving', async () => {
@@ -194,7 +195,37 @@ describe('apis/friend', () => {
     expect(bridge.resolveUserUid).not.toHaveBeenCalled();
     const [, bytes] = bridge.sendRawPacket.mock.calls[0]!;
     const env = protobuf_decode<OidbBase<OidbDoubtApprovalReq>>(bytes);
-    expect(env.body).toMatchObject({ uid: 'u_abc', targetUid: 'u_abc' });
+    expect(env.body).toMatchObject({ selfUid: 'self-uid', targetUid: 'u_abc' });
+  });
+
+  it('approves a filtered stranger through Identity without requiring a shared roster', async () => {
+    const identity = new IdentityService('10001', null);
+    const bridge = mockBridge();
+    const fetchProfile = vi.fn(async (uin: number) => ({
+      uin, uid: uin === 10001 ? 'u_self' : 'u_stranger',
+    }));
+    identity.setFetcher({ fetchProfile: fetchProfile as any });
+    bridge.identity = identity as any;
+    bridge.resolveUserUid = vi.fn((uin: number) => identity.resolveUid(uin));
+    try {
+      await new FriendApi(bridge as any).approveDoubtRequest('12345');
+      expect(fetchProfile.mock.calls.map(([uin]) => uin)).toEqual([12345, 10001]);
+      expect(bridge.sendRawPacket).toHaveBeenCalledOnce();
+      const [, bytes] = bridge.sendRawPacket.mock.calls[0]!;
+      const env = protobuf_decode<OidbBase<OidbDoubtApprovalReq>>(bytes);
+      expect(env.body).toMatchObject({ selfUid: 'u_self', targetUid: 'u_stranger' });
+    } finally {
+      identity.close();
+    }
+  });
+
+  it('does not send an approval when the applicant cannot be resolved', async () => {
+    const bridge = mockBridge({
+      resolveUserUid: vi.fn(async () => { throw new Error('applicant lookup failed'); }),
+    });
+    await expect(new FriendApi(bridge as any).approveDoubtRequest('12345'))
+      .rejects.toThrow('applicant lookup failed');
+    expect(bridge.sendRawPacket).not.toHaveBeenCalled();
   });
 
   it('rejectDoubtRequest resolves a digit-only flag before sending', async () => {

@@ -2162,6 +2162,16 @@ describe('extended-actions / TierB ③ share + doubt + robot-option', () => {
     expect(approveDoubtRequest).not.toHaveBeenCalled();
   });
 
+  it('set_doubt_friends_add_request reports an approval error without rejecting the applicant', async () => {
+    const approveDoubtRequest = vi.fn(async () => { throw new Error('approval denied'); });
+    const rejectDoubtRequest = vi.fn(async () => {});
+    const bridge = fakeBridge({ apis: { friend: { approveDoubtRequest, rejectDoubtRequest } } });
+    const res = await makeHandler(fakeCtx(bridge)).handle('set_doubt_friends_add_request', { flag: 'u_abc' });
+    expect(res).toMatchObject({ status: 'failed', wording: 'approval denied' });
+    expect(approveDoubtRequest).toHaveBeenCalledOnce();
+    expect(rejectDoubtRequest).not.toHaveBeenCalled();
+  });
+
   it('set_group_robot_add_option forwards group + switch/examine', async () => {
     const setRobotAddOption = vi.fn(async () => {});
     const bridge = fakeBridge({ apis: { groupAdmin: { setRobotAddOption } } });

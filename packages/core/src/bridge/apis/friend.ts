@@ -64,11 +64,8 @@ export class FriendApi {
       if (userId <= 0 && uid) {
         userId = this.ctx.identity.findUinByUid(uid) ?? 0;
       }
-      // Current Linux replies often omit the account id even though the
-      // official decoder still reads it as a string. The approval packet
-      // cannot accept a raw number, so fill from the same uin→uid path
-      // used by ordinary friend requests. Cache-only lookup is not
-      // enough: filtered applicants are not friends or group members.
+      // Applicants need not be friends or share a group. Use Identity's
+      // profile lookup when the list only supplies an account number.
       if (!uid && userId > 0) {
         try {
           uid = await this.ctx.resolveUserUid(userId);
@@ -86,9 +83,11 @@ export class FriendApi {
 
   /** Approve a doubtful friend-add request. `uidOrFlag` is the list uid, or a digit-only account number. */
   async approveDoubtRequest(uidOrFlag: string): Promise<void> {
-    return ApproveDoubtBuddyReq.invoke(this.ctx, {
-      uid: await this.resolveDoubtFlag(uidOrFlag),
-    });
+    log.trace('doubt-request approval: resolving applicant');
+    const uid = await this.resolveDoubtFlag(uidOrFlag);
+    log.trace('doubt-request approval: submitting request');
+    await ApproveDoubtBuddyReq.invoke(this.ctx, { uid });
+    log.trace('doubt-request approval: completed');
   }
 
   /** Reject (delete/decline) a doubtful friend-add request. `uidOrFlag` matches `approveDoubtRequest`. */

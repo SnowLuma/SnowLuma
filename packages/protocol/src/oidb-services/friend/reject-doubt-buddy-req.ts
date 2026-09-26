@@ -2,7 +2,7 @@
 // request. RE'd from QQNT doubt_buddy_del_worker.cc (worker ctor sub_3F3F320
 // → cmd 0xd69 sub 0; EncodeRequest sub_3F3E860 writes {1: const 3, 3:{1:uid}}).
 // The top-level tag-1 constant 3 is the op discriminator (getDoubtBuddyReq
-// uses 1). Same OIDB cmd as get/approval; the server routes by body shape.
+// uses 1). Rejection shares the listing command, not the approval command.
 // uin-form OIDB (envelope reserved=1).
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
