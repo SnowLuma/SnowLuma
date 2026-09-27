@@ -1656,6 +1656,11 @@ function assertForwardNodeMetadataIsScalar(
       value === undefined || value === null || typeof value === 'string'
       || typeof value === 'number' || typeof value === 'boolean'
     ) continue;
+    // OneBot 生态兼容：多个上游框架（NapCat / LLOneBot / AstrBot 等）
+    // 允许 forward node 携带 `news` 预览元数据（数组形态，
+    // `[{ text: string }]`，与 ForwardPreviewMeta.news 同构）。这些字段
+    // 仅用于生成卡片预览，不影响上传；直接放行而非拒绝整个转发。
+    if (field === 'news' && isForwardNewsArray(value)) continue;
     throw new MessageElementValidationError(
       'INVALID_FIELD',
       `forward messages[${index}].${field} must be a scalar value`,
@@ -1663,6 +1668,16 @@ function assertForwardNodeMetadataIsScalar(
       field,
     );
   }
+}
+
+/** Whether a value looks like OneBot preview news: `Array<{ text: string }>`. */
+function isForwardNewsArray(value: JsonValue): boolean {
+  if (!Array.isArray(value)) return false;
+  for (const item of value) {
+    const obj = asJsonObject(item);
+    if (!obj || typeof obj.text !== 'string') return false;
+  }
+  return true;
 }
 
 function assertForwardMessageInputPolicies(

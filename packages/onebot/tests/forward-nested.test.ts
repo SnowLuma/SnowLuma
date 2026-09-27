@@ -610,4 +610,63 @@ describe('forward — nested {type:"node"} content', () => {
     expect((nodes as any[])[0].nickname).toBe('PixivBot');  // custom nickname preserved
     expect((nodes as any[])[1].userUin).toBe(10001);       // omitted → self_id
   });
+
+  it('accepts node metadata `news` preview arrays (OneBot ecosystem compat)', async () => {
+    // Upstream frameworks (NapCat / LLOneBot / AstrBot etc.) attach
+    // `news: [{ text }]` preview metadata to forward nodes. Only scalar
+    // metadata was allowed before, so a standard OneBot-style node was
+    // rejected with `forward messages[i].news must be a scalar value`.
+    const uploadForwardNodes = vi.fn(async (_nodes: any[]) => 'RESID');
+    const sendGroupMessage = vi.fn(async () => ({
+      messageId: 1, sequence: 100, clientSequence: 0, random: 1, timestamp: 1700000000,
+    }));
+    const bridge = fakeBridge({ apis: { message: { sendGroup: sendGroupMessage }, forward: { upload: uploadForwardNodes } } } as any);
+    const ctx = makeCtx(bridge);
+
+    const messages = [{
+      type: 'node',
+      data: {
+        user_id: 111,
+        nickname: 'outer',
+        news: [{ text: '预览行 1' }, { text: '预览行 2' }],
+        summary: '共 2 条',
+        content: [{ type: 'node', data: { user_id: 222, nickname: 'inner', content: [{ type: 'text', data: { text: 'hi' } }] } }],
+      },
+    }];
+
+    await sendGroupForwardMessage(ctx, 12345, messages as any);
+    expect(uploadForwardNodes).toHaveBeenCalledOnce();
+    const [nodes] = uploadForwardNodes.mock.calls[0]!;
+    expect((nodes as any[])[0].userUin).toBe(111);
+    expect((nodes as any[])[0].innerForward).toHaveLength(1);
+  });
+
+  it('rejects non-scalar node metadata that is not an accepted preview field', async () => {
+    // The news carve-out must stay narrow: any other non-scalar metadata
+    // (e.g. an accidental nested object) is still rejected up front.
+    const uploadForwardNodes = vi.fn(async (_nodes: any[]) => 'RESID');
+    const sendGroupMessage = vi.fn();
+    const bridge = fakeBridge({
+      apis: { message: { sendGroup: sendGroupMessage }, forward: { upload: uploadForwardNodes } },
+    } as any);
+    const ctx = makeCtx(bridge);
+
+    const messages = [{
+      type: 'node',
+      data: {
+        user_id: 111,
+        nickname: 'bad',
+        arbitrary: { nested: true },
+        content: [{ type: 'text', data: { text: 'hi' } }],
+      },
+    }];
+
+    await expect(sendGroupForwardMessage(ctx, 12345, messages as any)).rejects.toMatchObject({
+      code: 'INVALID_FIELD',
+      elementType: 'node',
+      field: 'arbitrary',
+    });
+    expect(uploadForwardNodes).not.toHaveBeenCalled();
+    expect(sendGroupMessage).not.toHaveBeenCalled();
+  });
 });
