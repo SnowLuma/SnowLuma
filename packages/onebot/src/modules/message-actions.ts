@@ -1508,6 +1508,9 @@ export async function getForwardMessage(
       nickname: node.nickname,
     };
     if (isGroup) sender.card = node.senderCard ?? '';
+    if (node.title !== undefined && node.title.length > 0) {
+      sender.title = node.title;
+    }
 
     const message: JsonObject = {
       self_id: ref.selfId,
@@ -1913,6 +1916,13 @@ async function parseForwardNodes(
     if (isForwardNewsArray(nodeData.news)) {
       node.news = nodeData.news as Array<{ text: string }>;
     }
+    // Forward optional OneBot bubble-preview metadata so nested-forward
+    // cards can prefer caller-supplied titles/source/summary/prompt over
+    // auto-derived ones (all scalar, already asserted above).
+    if (nodeData.title !== undefined && typeof nodeData.title === 'string') node.title = nodeData.title;
+    if (nodeData.source !== undefined && typeof nodeData.source === 'string') node.source = nodeData.source;
+    if (nodeData.summary !== undefined && typeof nodeData.summary === 'string') node.summary = nodeData.summary;
+    if (nodeData.prompt !== undefined && typeof nodeData.prompt === 'string') node.prompt = nodeData.prompt;
     // Honour an explicit per-node display time (OneBot `data.time`, unix
     // seconds) so a custom forward can set/back-date each node's timestamp
     // (#209). The wire field is uint32, so reject a millisecond value or any

@@ -244,6 +244,10 @@ function cloneNodeWithElements(node: ForwardNodePayload, elements: MessageElemen
     messageType: node.messageType,
     innerForward: node.innerForward,
     news: node.news,
+    title: node.title,
+    source: node.source,
+    summary: node.summary,
+    prompt: node.prompt,
   };
 }
 
@@ -479,9 +483,15 @@ export class ForwardApi {
           type: 'forward',
           resId: inner.resId,
           forwardUuid: inner.uuid,
-          forwardSource: deriveInnerSource(node.innerForward, isGroup),
-          forwardSummary: `查看${node.innerForward.length}条转发消息`,
-          forwardPrompt: '[聊天记录]',
+          forwardSource: node.source && node.source.length > 0
+            ? node.source
+            : deriveInnerSource(node.innerForward, isGroup),
+          forwardSummary: node.summary && node.summary.length > 0
+            ? node.summary
+            : `查看${node.innerForward.length}条转发消息`,
+          forwardPrompt: node.prompt && node.prompt.length > 0
+            ? node.prompt
+            : '[聊天记录]',
           forwardNews: node.news && node.news.length > 0 ? node.news : previewLinesFromNodes(node.innerForward),
           forwardTSum: node.innerForward.length,
         };

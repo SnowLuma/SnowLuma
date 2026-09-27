@@ -59,7 +59,7 @@ function decodeOuterLongMsg(rawBytes: Uint8Array): LongMsgResult {
   return protobuf_decode<LongMsgResult>(gunzipSync(Buffer.from(payload)));
 }
 
-function findLightAppJson(msgBody: PushMsgBody[]): { resid?: string; uniseq?: string; app?: string; news?: Array<{ text: string }> } | null {
+function findLightAppJson(msgBody: PushMsgBody[]): { resid?: string; uniseq?: string; app?: string; news?: Array<{ text: string }>; source?: string; summary?: string } | null {
   for (const body of msgBody) {
     const elems: Elem[] = body.body?.richText?.elems ?? [];
     for (const elem of elems) {
@@ -75,6 +75,8 @@ function findLightAppJson(msgBody: PushMsgBody[]): { resid?: string; uniseq?: st
               resid: parsed.meta?.detail?.resid,
               uniseq: parsed.meta?.detail?.uniseq,
               news: parsed.meta?.detail?.news,
+              source: parsed.meta?.detail?.source,
+              summary: parsed.meta?.detail?.summary,
             };
           }
         } catch { /* ignore */ }
@@ -228,5 +230,37 @@ describe('forward / nested upload wire alignment', () => {
 
     expect(preview).not.toBeNull();
     expect(preview!.news).toEqual([{ text: '内层说话人: 第一句台词' }]);
+  });
+
+  it('inner forward card prefers caller-supplied source/summary/prompt metadata', async () => {
+    const responses = ['inner-res', 'outer-res'];
+    const sendRawPacket = vi.fn(async () =>
+      uploadResponseWithResId(responses.shift()!)) as any;
+    const bridge = mockBridge({ sendRawPacket });
+
+    await new ForwardApi(bridge as any).upload([{
+      userUin: 111,
+      nickname: 'outer',
+      elements: [],
+      source: '万叶的手记',
+      summary: '共 12 条剧情消息',
+      prompt: '查看剧情',
+      innerForward: [
+        { userUin: 222, nickname: 'inner', elements: [{ type: 'text', text: 'hi' }] },
+      ],
+    }]);
+
+    const outerBytes = sendRawPacket.mock.calls[1]![1] as Uint8Array;
+    const outerMsgBody = decodeOuterLongMsg(outerBytes).action![0]!.actionData!.msgBody!;
+    const preview = findLightAppJson(outerMsgBody);
+
+    expect(preview).not.toBeNull();
+    // decodeOuterLongMsg → lightApp meta.detail as built by element-builder
+    expect(preview!.app).toBe('com.tencent.multimsg');
+    // The plaintext preview lines of the wire bubble.
+    // Caller metadata wins: source = 万叶的手记, summary used instead of
+    // the auto-generated `查看N条转发消息`.
+    expect(preview!.source).toBe('万叶的手记');
+    expect(preview!.summary).toBe('共 12 条剧情消息');
   });
 });

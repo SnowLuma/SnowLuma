@@ -259,6 +259,16 @@ export interface ForwardNodePayload {
   // lines over auto-generated ones for the inner forward's bubble
   // preview, matching NapCat / LLOneBot behaviour.
   news?: Array<{ text: string }>;
+  // Optional bubble-preview metadata carried on this node (OneBot
+  // `data.title` / `data.source` / `data.summary` / `data.prompt`).
+  // When this node embeds a nested forward, the upload pipeline uses
+  // these to label the inner forward's card (source line, summary,
+  // prompt) instead of deriving them from the inner nodes. title is
+  // exposed back through get_forward_msg for OneBot compatibility.
+  title?: string;
+  source?: string;
+  summary?: string;
+  prompt?: string;
 }
 
 export interface QQEvent {
