@@ -41,6 +41,8 @@ export interface FaceElement {
   faceId: number;
   /** Send the catalog animation when available (default true). */
   large?: boolean;
+  /** Selected animation result; omitted to keep the default animation choice. */
+  resultId?: string;
 }
 
 export interface ReplyElement {

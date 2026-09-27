@@ -58,7 +58,7 @@ function makeTextElem(text: string): ProtoElem {
 //   animated (unless large=false)              → CommonElem 37 + QFaceExtra
 //   other id ≥ 260                              → CommonElem 33 + QSmallFaceExtra
 //   classic id < 260                            → legacy FaceElem
-async function makeFaceElem(faceId: number, large: boolean, ctx?: SendContext): Promise<ProtoElem> {
+async function makeFaceElem(faceId: number, large: boolean, resultId: string | undefined, ctx?: SendContext): Promise<ProtoElem> {
   // With a live bridge, wait for the authoritative catalog. Login normally
   // preloads it, while this await closes the reconnect / first-send race.
   const resolved = ctx
@@ -75,11 +75,20 @@ async function makeFaceElem(faceId: number, large: boolean, ctx?: SendContext): 
           qsid: faceId,
           sourceType: 1,
           stickerType: wire.stickerType,
+          resultId,
           randomType: 1,
         }),
         businessType: wire.stickerType < 4 ? wire.stickerType : 1,
       },
     };
+  }
+  if (resultId !== undefined) {
+    throw new MessageElementValidationError(
+      'INVALID_FIELD',
+      `face.resultId requires animation metadata for face ${faceId}`,
+      'face',
+      'resultId',
+    );
   }
   if (wire.kind === 'small') {
     return {
@@ -578,7 +587,7 @@ export async function buildSendElems(elements: MessageElement[], ctx?: SendConte
         break;
 
       case 'face':
-        result.push(await makeFaceElem(elem.faceId, elem.large ?? true, ctx));
+        result.push(await makeFaceElem(elem.faceId, elem.large ?? true, elem.resultId, ctx));
         break;
 
       case 'poke':

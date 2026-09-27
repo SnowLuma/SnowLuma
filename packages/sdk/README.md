@@ -126,6 +126,8 @@ bot.when(
 
 ## Raw Action
 
+动画系统表情可通过 `face(id, { resultId: '0' })` 指定结果，收到的结果保留在 `face.data.resultId` 中。不传时沿用默认选择；有效结果取决于具体表情，不能与 `large: false` 同用。
+
 `await bot.getStatus()` 的 `time` 为当前账号服务实例的运行秒数，与 `#sl` 使用相同计时起点；实例重建后重新计时。
 
 高频接口提供 camelCase 方法；其它 SnowLuma action 可以用 `raw` 或 `rawResponse`：

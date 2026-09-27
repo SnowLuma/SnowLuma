@@ -466,6 +466,33 @@ describe('SysFaceStore — persistent catalog and query seam', () => {
 describe('makeFaceElem (via buildSendElems) — three-way wire encoding', () => {
   const ctx = { bridge: {} as never };
 
+  it.each(['0', '2', 'variant'])('preserves an explicit animation result %s', async (resultId) => {
+    sysFaceStore.load(CATALOG);
+    const [element] = await buildSendElems([{ type: 'face', faceId: 392, resultId }], ctx);
+    expect(protobuf_decode<QFaceExtra>(element.commonElem!.pbElem!)).toMatchObject({
+      qsid: 392, resultId, randomType: 1,
+    });
+  });
+
+  it('keeps the default animation choice when no result is supplied', async () => {
+    sysFaceStore.load(CATALOG);
+    const [element] = await buildSendElems([{ type: 'face', faceId: 392 }], ctx);
+    const payload = protobuf_decode<QFaceExtra>(element.commonElem!.pbElem!);
+    expect(payload.resultId).toBeNull();
+    expect(payload.randomType).toBe(1);
+  });
+
+  it.each([14, 504])('rejects an animation result without animation metadata for %i', async (faceId) => {
+    sysFaceStore.load(CATALOG);
+    await expect(buildSendElems([{ type: 'face', faceId, resultId: '0' }]))
+      .rejects.toMatchObject({ code: 'INVALID_FIELD', elementType: 'face', field: 'resultId' });
+  });
+
+  it('rejects incompatible animation options before loading the catalog', async () => {
+    await expect(buildSendElems([{ type: 'face', faceId: 392, large: false, resultId: '0' }], ctx))
+      .rejects.toMatchObject({ code: 'INVALID_FIELD', field: 'resultId' });
+  });
+
   it('awaits an authoritative refresh when the first send misses the persisted catalog', async () => {
     sysFaceStore.load(CATALOG.slice(0, 1));
     let requests = 0;

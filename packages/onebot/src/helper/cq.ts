@@ -10,7 +10,7 @@ export function segmentToCQ(seg: JsonObject): string {
     case 'text':
       return cqEscape(String(data.text ?? ''));
     case 'face':
-      return `[CQ:face,id=${data.id ?? 0}]`;
+      return `[CQ:face,id=${data.id ?? 0}${data.resultId !== undefined ? `,resultId=${cqEscape(String(data.resultId))}` : ''}]`;
     case 'image':
       return `[CQ:image,file=${cqEscape(String(data.file ?? ''))},url=${cqEscape(String(data.url ?? ''))}]`;
     case 'at':
@@ -77,4 +77,3 @@ export async function parseFromCQString(message: string, options?: ParseMessageO
 
   return elements;
 }
-

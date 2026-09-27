@@ -921,7 +921,11 @@ function convertElements(elems: ElemDecoded[], isGroup: boolean): MessageElement
         // this protobuf twice.
         const extra = decodedBigFaces.get(elem);
         if (isValidBigFace(extra)) {
-          result.push({ type: 'face', faceId: extra.qsid });
+          result.push({
+            type: 'face',
+            faceId: extra.qsid,
+            ...(extra.resultId != null ? { resultId: extra.resultId } : {}),
+          });
         }
       } else if (svcType === 45 && ce.pbElem && ce.pbElem.length > 0) {
         const markdown = decodedMarkdown.get(elem);

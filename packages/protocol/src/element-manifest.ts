@@ -141,7 +141,7 @@ export const ELEMENT_MANIFEST = {
   },
   face: {
     directions: { D: 'yes', S: 'yes', P: 'yes', W: 'yes' },
-    fields: fieldsFor<'face'>()(['faceId', 'large']),
+    fields: fieldsFor<'face'>()(['faceId', 'large', 'resultId']),
     requiredFields: ['faceId'],
   },
   reply: {
@@ -250,7 +250,7 @@ const STRING_FIELDS: ReadonlySet<string> = new Set([
   'text', 'uid', 'imageUrl', 'fileId', 'fileName', 'fileHash', 'url',
   'thumbUrl', 'summary', 'emojiId', 'emojiKey', 'resId', 'filesetId',
   'forwardSource', 'forwardSummary', 'forwardPrompt', 'forwardUuid',
-  'md5Hex', 'sha1Hex', 'botAppid',
+  'md5Hex', 'sha1Hex', 'botAppid', 'resultId',
 ]);
 const NUMBER_FIELDS: ReadonlySet<string> = new Set([
   'faceId', 'targetUin', 'fileSize', 'replySeq', 'replyMessageId',
@@ -451,6 +451,14 @@ function validateSemantics(
     case 'face':
       if (!Number.isInteger(element.faceId) || element.faceId < 0) {
         throwValidation('INVALID_FIELD', 'message element "face" field "faceId" must be a non-negative integer', element.type, 'faceId');
+      }
+      if (element.resultId !== undefined && (direction === 'P' || direction === 'W')) {
+        if (!element.resultId.trim()) {
+          throwValidation('INVALID_FIELD', 'face.resultId must not be empty', element.type, 'resultId');
+        }
+        if (element.large === false) {
+          throwValidation('INVALID_FIELD', 'face.resultId requires an animated face; large cannot be false', element.type, 'resultId');
+        }
       }
       return;
     case 'reply':

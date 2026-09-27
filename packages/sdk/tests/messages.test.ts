@@ -11,6 +11,15 @@ import {
 } from '../src';
 
 describe('MessageChain', () => {
+  it.each([undefined, true])('preserves animation results through builders and CQ with large=%s', (large) => {
+    const options = { resultId: '0', ...(large !== undefined ? { large } : {}) };
+    const expected = [{ type: 'face', data: { id: '114', ...options } }];
+    expect(face(114, options).toSegments()).toEqual(expected);
+    expect(chain().face(114, options).toSegments()).toEqual(expected);
+    expect(message.face(114, options)).toEqual(expected[0]);
+    expect(parseSegments(toCQString(face(114, options)))).toEqual(expected);
+  });
+
   it.each([false, true])('preserves face animation selection through builders and CQ, large=%s', (large) => {
     const expected = [{ type: 'face', data: { id: '451', large } }];
     const built = face(451, { large });

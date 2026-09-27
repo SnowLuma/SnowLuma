@@ -150,12 +150,27 @@ export const ELEMENT_CODECS = {
 
   face: {
     async toSegment(element) {
-      return { type: 'face', data: { id: String(element.faceId ?? 0) } };
+      return {
+        type: 'face',
+        data: {
+          id: String(element.faceId ?? 0),
+          ...(element.resultId !== undefined ? { resultId: element.resultId } : {}),
+        },
+      };
     },
     async fromSegment(data) {
       const id = intOr(data.id, -1);
       if (id < 0) return null;
       const element: MessageElementOf<'face'> = { type: 'face', faceId: id };
+      if (data.resultId !== undefined) {
+        if (typeof data.resultId === 'string') {
+          element.resultId = data.resultId;
+        } else if (typeof data.resultId === 'number' && Number.isSafeInteger(data.resultId) && data.resultId >= 0) {
+          element.resultId = String(data.resultId);
+        } else {
+          throw new MessageElementValidationError('INVALID_FIELD', 'face.resultId must be a string or non-negative safe integer', 'face', 'resultId');
+        }
+      }
       if (data.large !== undefined) {
         if (data.large === true || data.large === 'true' || data.large === 1 || data.large === '1') {
           element.large = true;

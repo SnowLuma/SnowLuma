@@ -36,6 +36,21 @@ describe('parseMessage', () => {
   });
 
   describe('CQ code parsing', () => {
+    it.each(['0', '2', 0, 2])('preserves an animation result %s', async (resultId) => {
+      expect(await parseMessage([{ type: 'face', data: { id: 114, resultId } }], false))
+        .toEqual([{ type: 'face', faceId: 114, resultId: String(resultId) }]);
+    });
+
+    it.each([null, false, {}, [], '', '   ', -1, 1.5, Number.MAX_SAFE_INTEGER + 1])('rejects an invalid animation result %j', async (resultId) => {
+      await expect(parseMessage([{ type: 'face', data: { id: 114, resultId } }], false))
+        .rejects.toMatchObject({ code: 'INVALID_FIELD', field: 'resultId' });
+    });
+
+    it('rejects a selected animation on a small face', async () => {
+      await expect(parseMessage('[CQ:face,id=114,large=false,resultId=0]', false))
+        .rejects.toMatchObject({ code: 'INVALID_FIELD', field: 'resultId' });
+    });
+
     it('parses face CQ code', async () => {
       const result = await parseMessage('[CQ:face,id=123]', false);
       expect(result).toHaveLength(1);

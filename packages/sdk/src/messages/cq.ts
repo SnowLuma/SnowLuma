@@ -1,7 +1,7 @@
 import { normalizeMessage, chain } from './chain';
 import { escapeCqText, segmentsToCQString } from './cq-format';
 import { segments } from './segments';
-import type { AnyMessageSegment, OutgoingMessage } from '../types/index';
+import type { AnyMessageSegment, FaceSegment, OutgoingMessage } from '../types/index';
 
 const CQ_REGEX = /\[CQ:([a-zA-Z0-9_.-]+)(?:,([^\]]*))?\]/g;
 
@@ -69,11 +69,16 @@ function segmentFromCq(type: string, data: Record<string, string>): AnyMessageSe
   switch (type) {
     case 'text':
       return segments.text(data.text ?? '');
-    case 'face':
-      if (data.large === undefined) return segments.face(data.id ?? '0');
-      if (data.large === 'true' || data.large === '1') return segments.face(data.id ?? '0', { large: true });
-      if (data.large === 'false' || data.large === '0') return segments.face(data.id ?? '0', { large: false });
-      throw new Error('face.large must be true, false, 1, or 0');
+    case 'face': {
+      const options: Omit<FaceSegment['data'], 'id'> = {};
+      if (data.resultId !== undefined) options.resultId = data.resultId;
+      if (data.large !== undefined) {
+        if (data.large === 'true' || data.large === '1') options.large = true;
+        else if (data.large === 'false' || data.large === '0') options.large = false;
+        else throw new Error('face.large must be true, false, 1, or 0');
+      }
+      return segments.face(data.id ?? '0', options);
+    }
     case 'at':
       if (data.qq === 'all') return segments.at('all');
       {
