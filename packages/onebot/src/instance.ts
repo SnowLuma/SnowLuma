@@ -62,7 +62,7 @@ export class OneBotInstance {
   private lifecycleTail: Promise<void>;
   private readonly rkeyCache: RKeyCache;
   private readonly ctx: OneBotInstanceContext;
-  /** Process-uptime baseline for the `#sl` status reply. */
+  /** Account-session uptime shared by the status action and `#sl`. */
   private readonly startedAt = Date.now();
   /** Per-conversation last-reply timestamp for the `#sl` cooldown. */
   private readonly statusCommandCooldown = new Map<string, number>();
@@ -180,6 +180,7 @@ export class OneBotInstance {
       converterCtx: this.converterCtx,
       config,
       musicSignUrl: globalSettings.musicSignUrl,
+      getUptimeMs: () => Math.max(0, Date.now() - this.startedAt),
       cacheMessageMeta: (messageId, meta) => this.cacheMessageMeta(messageId, meta),
       dispatchEvent: (event, source = 'bridge', startedAt) => this.dispatchEvent(event, source, startedAt),
     };
@@ -477,7 +478,7 @@ export class OneBotInstance {
       version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev',
       platform: process.platform,
       arch: process.arch,
-      uptimeMs: Date.now() - this.startedAt,
+      uptimeMs: this.ctx.getUptimeMs(),
     });
     if (isGroup) await sendGroupMessage(this.ctx, sessionId, text, true);
     else await sendPrivateMessage(this.ctx, sessionId, text, true);

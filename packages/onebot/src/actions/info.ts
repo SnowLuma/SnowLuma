@@ -27,19 +27,20 @@ export const actions = [
   defineAction({
     name: 'get_status',
     readOnly: true,
-    returns: '运行状态。`online` 表示账号在线；`good` 表示已确认的收发链路健康状态。',
+    returns: '运行状态。`online` 表示账号在线；`good` 表示已确认的收发链路健康状态；`time` 为当前账号服务实例运行秒数，与 #sl 同源。',
     returnsSchema: {
       type: 'object',
       properties: {
         online: { type: 'boolean', description: '是否在线' },
         good: { type: 'boolean', description: '收发链路健康状态；确认接收停滞或主动请求连接失效时为 false' },
+        time: { type: 'integer', description: '当前账号服务实例运行秒数，与 #sl 同源；实例重建后重新计时' },
       },
-      required: ['online', 'good'],
+      required: ['online', 'good', 'time'],
     },
     params: {},
     run: (_p, ctx) => {
       const online = ctx.isOnline();
-      return okResponse({ online, good: online && ctx.bridge.receiveHealthy });
+      return okResponse({ online, good: online && ctx.bridge.receiveHealthy, time: Math.floor(ctx.getUptimeMs() / 1000) });
     },
   }),
 

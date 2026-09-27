@@ -52,6 +52,7 @@ export interface OneBotInstanceContext {
   converterCtx: ConverterContext;
   config: OneBotConfig;
   musicSignUrl?: string;
+  getUptimeMs(): number;
   cacheMessageMeta(messageId: number, meta: MessageMeta): void;
   dispatchEvent(
     event: JsonObject,
@@ -68,6 +69,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
 
     getLoginInfo: () => getLoginInfo(ref),
     isOnline: () => true,
+    getUptimeMs: () => ref.getUptimeMs(),
     getMessage: (messageId) => messageStore.findEvent(messageId),
     getMessageMeta: (messageId) => messageStore.findMeta(messageId),
     cacheMessageMetas: (entries) => messageStore.storeMetas(entries),

@@ -126,6 +126,8 @@ bot.when(
 
 ## Raw Action
 
+`await bot.getStatus()` 的 `time` 为当前账号服务实例的运行秒数，与 `#sl` 使用相同计时起点；实例重建后重新计时。
+
 高频接口提供 camelCase 方法；其它 SnowLuma action 可以用 `raw` 或 `rawResponse`：
 
 ```ts

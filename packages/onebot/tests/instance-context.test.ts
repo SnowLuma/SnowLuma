@@ -112,6 +112,7 @@ function makeRef(overrides: {
   reactionStore?: Record<string, unknown>;
   converterCtx?: Record<string, unknown>;
   extraBridge?: Record<string, unknown>;
+  getUptimeMs?: () => number;
 } = {}): {
   ref: OneBotInstanceContext;
   api: ReturnType<typeof buildApiContext>;
@@ -253,6 +254,7 @@ function makeRef(overrides: {
     } as OneBotConfig,
     cacheMessageMeta,
     dispatchEvent,
+    getUptimeMs: overrides.getUptimeMs ?? (() => 0),
   } as unknown as OneBotInstanceContext;
 
   return {
@@ -266,6 +268,17 @@ function makeRef(overrides: {
 }
 
 describe('buildApiContext capabilities', () => {
+  it('reads current uptime from each account session independently', () => {
+    let firstUptime = 1_999;
+    const first = makeRef({ getUptimeMs: () => firstUptime });
+    const second = makeRef({ getUptimeMs: () => 0 });
+    expect(first.api.getUptimeMs()).toBe(1_999);
+    expect(second.api.getUptimeMs()).toBe(0);
+    firstUptime = 3_001;
+    expect(first.api.getUptimeMs()).toBe(3_001);
+    expect(makeRef({ getUptimeMs: () => 0 }).api.getUptimeMs()).toBe(0);
+  });
+
   it('reports the account as online and able to send image or record', () => {
     const { api } = makeRef();
     expect(api.isOnline()).toBe(true);

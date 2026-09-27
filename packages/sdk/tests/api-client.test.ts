@@ -146,6 +146,13 @@ describe('SnowLumaApiClient.rawResponse', () => {
 });
 
 describe('SnowLumaApiClient typed actions', () => {
+  it('exposes account-session uptime through getStatus', async () => {
+    const client = okClient({ online: true, good: true, time: 90 });
+    const status = await client.getStatus();
+    const seconds: number = status.time;
+    expect(seconds).toBe(90);
+  });
+
   it('maps session helpers to empty-param OneBot actions', async () => {
     const client = okClient();
     const timeout = { timeoutMs: 2500 };

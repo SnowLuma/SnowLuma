@@ -25,6 +25,8 @@ export interface LoginInfo {
 export interface StatusInfo {
   online: boolean;
   good: boolean;
+  /** Current account-session uptime in seconds, matching #sl. */
+  time: number;
 }
 
 export interface VersionInfo {

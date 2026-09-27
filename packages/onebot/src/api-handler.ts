@@ -49,6 +49,7 @@ export interface ApiActionContext {
   bridge: BridgeInterface;
   getLoginInfo: () => { userId: number; nickname: string };
   isOnline: () => boolean;
+  getUptimeMs: () => number;
   getMessage: (messageId: number) => JsonObject | null;
   getMessageMeta: (messageId: number) => MessageMeta | null;
   cacheMessageMetas: (
