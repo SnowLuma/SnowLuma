@@ -1906,6 +1906,13 @@ async function parseForwardNodes(
     }
 
     const node: ForwardNodePayload = { userUin, nickname, elements };
+    // Forward optional preview news lines (OneBot `data.news`) onto the
+    // payload so nested-forward bubble previews can prefer caller-supplied
+    // lines over auto-generated ones. Only accepted when the array shape
+    // is valid (already asserted by assertForwardNodeMetadataIsScalar).
+    if (isForwardNewsArray(nodeData.news)) {
+      node.news = nodeData.news as Array<{ text: string }>;
+    }
     // Honour an explicit per-node display time (OneBot `data.time`, unix
     // seconds) so a custom forward can set/back-date each node's timestamp
     // (#209). The wire field is uint32, so reject a millisecond value or any

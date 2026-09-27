@@ -243,6 +243,7 @@ function cloneNodeWithElements(node: ForwardNodePayload, elements: MessageElemen
     senderCard: node.senderCard,
     messageType: node.messageType,
     innerForward: node.innerForward,
+    news: node.news,
   };
 }
 
@@ -481,7 +482,7 @@ export class ForwardApi {
           forwardSource: deriveInnerSource(node.innerForward, isGroup),
           forwardSummary: `查看${node.innerForward.length}条转发消息`,
           forwardPrompt: '[聊天记录]',
-          forwardNews: previewLinesFromNodes(node.innerForward),
+          forwardNews: node.news && node.news.length > 0 ? node.news : previewLinesFromNodes(node.innerForward),
           forwardTSum: node.innerForward.length,
         };
         processedNodes.push({

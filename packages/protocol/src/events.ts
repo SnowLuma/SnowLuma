@@ -253,6 +253,12 @@ export interface ForwardNodePayload {
   // Caller never sets this on top-level OneBot input — `parseForward
   // Nodes` synthesises it when it detects a nested-node array.
   innerForward?: ForwardNodePayload[];
+  // Optional preview news lines carried on this node (OneBot
+  // `data.news`, `Array<{ text: string }>`). When this node embeds a
+  // nested forward (`innerForward`), the upload pipeline prefers these
+  // lines over auto-generated ones for the inner forward's bubble
+  // preview, matching NapCat / LLOneBot behaviour.
+  news?: Array<{ text: string }>;
 }
 
 export interface QQEvent {

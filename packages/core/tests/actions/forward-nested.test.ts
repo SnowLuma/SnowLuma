@@ -59,7 +59,7 @@ function decodeOuterLongMsg(rawBytes: Uint8Array): LongMsgResult {
   return protobuf_decode<LongMsgResult>(gunzipSync(Buffer.from(payload)));
 }
 
-function findLightAppJson(msgBody: PushMsgBody[]): { resid?: string; uniseq?: string; app?: string } | null {
+function findLightAppJson(msgBody: PushMsgBody[]): { resid?: string; uniseq?: string; app?: string; news?: Array<{ text: string }> } | null {
   for (const body of msgBody) {
     const elems: Elem[] = body.body?.richText?.elems ?? [];
     for (const elem of elems) {
@@ -74,6 +74,7 @@ function findLightAppJson(msgBody: PushMsgBody[]): { resid?: string; uniseq?: st
               app: parsed.app,
               resid: parsed.meta?.detail?.resid,
               uniseq: parsed.meta?.detail?.uniseq,
+              news: parsed.meta?.detail?.news,
             };
           }
         } catch { /* ignore */ }
@@ -177,5 +178,55 @@ describe('forward / nested upload wire alignment', () => {
     expect(outermost.action![1]!.actionCommand).not.toBe('MultiMsg');
     expect(outermost.action![2]!.actionCommand).not.toBe('MultiMsg');
     expect(outermost.action![1]!.actionCommand).not.toBe(outermost.action![2]!.actionCommand);
+  });
+
+  it('inner forward bubble prefers caller-supplied node news over auto-generated lines', async () => {
+    const responses = ['inner-res', 'outer-res'];
+    const sendRawPacket = vi.fn(async () =>
+      uploadResponseWithResId(responses.shift()!)) as any;
+    const bridge = mockBridge({ sendRawPacket });
+
+    const customNews = [{ text: '自定义预览行 1' }, { text: '自定义预览行 2' }];
+    await new ForwardApi(bridge as any).upload([{
+      userUin: 111,
+      nickname: 'outer',
+      elements: [],
+      news: customNews,
+      innerForward: [
+        { userUin: 222, nickname: 'inner', elements: [{ type: 'text', text: '会被覆盖的正文' }] },
+      ],
+    }]);
+
+    const outerBytes = sendRawPacket.mock.calls[1]![1] as Uint8Array;
+    const outerMsgBody = decodeOuterLongMsg(outerBytes).action![0]!.actionData!.msgBody!;
+    const preview = findLightAppJson(outerMsgBody);
+
+    expect(preview).not.toBeNull();
+    // Caller-supplied news wins over `inner: 会被覆盖的正文`.
+    expect(preview!.news).toEqual(customNews);
+  });
+
+  it('inner forward bubble falls back to auto-generated lines when node has no news', async () => {
+    const responses = ['inner-res', 'outer-res'];
+    const sendRawPacket = vi.fn(async () =>
+      uploadResponseWithResId(responses.shift()!)) as any;
+    const bridge = mockBridge({ sendRawPacket });
+
+    await new ForwardApi(bridge as any).upload([{
+      userUin: 111,
+      nickname: 'outer',
+      elements: [],
+      // no `news` field — auto-generate from inner nodes
+      innerForward: [
+        { userUin: 222, nickname: '内层说话人', elements: [{ type: 'text', text: '第一句台词' }] },
+      ],
+    }]);
+
+    const outerBytes = sendRawPacket.mock.calls[1]![1] as Uint8Array;
+    const outerMsgBody = decodeOuterLongMsg(outerBytes).action![0]!.actionData!.msgBody!;
+    const preview = findLightAppJson(outerMsgBody);
+
+    expect(preview).not.toBeNull();
+    expect(preview!.news).toEqual([{ text: '内层说话人: 第一句台词' }]);
   });
 });
