@@ -4428,6 +4428,10 @@
             "type": "string",
             "description": "群简介 / 公告预览"
           },
+          "group_description": {
+            "type": "string",
+            "description": "群简介（公告不算；未加入的群为空）"
+          },
           "group_all_shut": {
             "type": "integer",
             "enum": [
@@ -5036,6 +5040,10 @@
             "type": "string",
             "description": "群简介 / 公告预览"
           },
+          "group_description": {
+            "type": "string",
+            "description": "群简介（公告不算；未加入的群为空）"
+          },
           "group_all_shut": {
             "type": "integer",
             "enum": [
@@ -5137,6 +5145,10 @@
           "group_memo": {
             "type": "string",
             "description": "群简介 / 公告预览"
+          },
+          "group_description": {
+            "type": "string",
+            "description": "群简介（公告不算；未加入的群为空）"
           },
           "group_all_shut": {
             "type": "integer",
@@ -5240,6 +5252,10 @@
             "group_memo": {
               "type": "string",
               "description": "群简介 / 公告预览"
+            },
+            "group_description": {
+              "type": "string",
+              "description": "群简介（公告不算；未加入的群为空）"
             },
             "group_all_shut": {
               "type": "integer",

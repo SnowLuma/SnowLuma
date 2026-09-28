@@ -117,6 +117,23 @@ describe('group information actions', () => {
     });
   });
 
+  // #490: group_memo prefers the announcement, so the group description needs
+  // its own documented field.
+  it('documents the group description on both group-info results', async () => {
+    const infoSchema = getGroupInfo.describe().returnsSchema;
+    const listSchema = getGroupList.describe().returnsSchema;
+
+    expect(infoSchema?.properties).toHaveProperty('group_description');
+    expect(listSchema?.items?.properties).toHaveProperty('group_description');
+    // Never required: only the group list carries it, so a non-member lookup
+    // legitimately returns ''.
+    expect(infoSchema?.required ?? []).not.toContain('group_description');
+
+    // The no-provider fallback must still carry the key.
+    const response = await getGroupInfo.toHandler({} as any)({ group_id: 123456 });
+    expect(response).toMatchObject({ status: 'ok', data: { group_description: '' } });
+  });
+
   it('documents qidian flags on both member-list and single-member results', () => {
     const listSchema = getGroupMemberList.describe().returnsSchema;
     const infoSchema = getGroupMemberInfo.describe().returnsSchema;
