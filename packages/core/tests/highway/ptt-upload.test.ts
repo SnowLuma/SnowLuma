@@ -2,8 +2,8 @@
 // regular load path goes through ffmpeg's silk encoder + the OS temp
 // directory, which we don't want to exercise in a unit test. The
 // fingerprint path covers most of what makes ptt-upload distinct
-// (group/c2c requestId difference, command id mapping, NapCat-style
-// bytesGeneralFlags, voiceFormat honouring).
+// (group/c2c requestId difference, command id mapping, the group-only
+// bytesGeneralFlags blob, voiceFormat honouring).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -45,7 +45,7 @@ describe('ptt-upload', () => {
     );
   });
 
-  it('c2c: 0x126D_100 + PRIVATE_PTT_CMD_ID + requestId=4 + c2c-flavored flags', async () => {
+  it('c2c: 0x126D_100 + PRIVATE_PTT_CMD_ID + requestId=4 + no generalFlags', async () => {
     await uploadPttMsgInfo({} as any, false, 'recipient-uid', FINGERPRINT);
     const args = vi.mocked(pipeline.runNtv2Upload).mock.calls[0]![0];
     expect(args.oidbCmd).toBe(0x126D);
@@ -53,10 +53,14 @@ describe('ptt-upload', () => {
     expect(args.requestId).toBe(4);
     expect(args.uploads[0]!.cmdId).toBe(PRIVATE_PTT_CMD_ID);
 
-    const c2cFlags = (args.extBizInfo as any).ptt.bytesGeneralFlags;
-    expect(c2cFlags.length).toBe(14);
-    expect(c2cFlags[0]).toBe(0x9a);
+    // Private voice must not carry a generalFlags blob: with the NapCat c2c
+    // one present the receiver drops the progress bar even though the waveform
+    // is in the payload. Group keeps its 10-byte blob (covered above).
+    expect((args.extBizInfo as any).ptt.bytesGeneralFlags).toBeUndefined();
     expect((args.extBizInfo as any).ptt.waveform).toBeUndefined();
+
+    // Reserve stays the bare legacy 4 bytes, same as group voice.
+    expect([...(args.extBizInfo as any).ptt.bytesReserve]).toEqual([0x08, 0x00, 0x38, 0x00]);
   });
 
   it('fingerprint path does not invent a waveform', async () => {
