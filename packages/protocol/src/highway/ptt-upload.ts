@@ -219,11 +219,19 @@ export async function uploadPttMsgInfo(
         ptt: {
           bytesReserve: new Uint8Array([0x08, 0x00, 0x38, 0x00]),
           bytesPbReserve: new Uint8Array(0),
-          // `bytesGeneralFlags` differs between group / c2c voice. Lifted
-          // verbatim from NapCat (UploadGroupPtt.ts / UploadPrivatePtt.ts).
-          bytesGeneralFlags: isGroup
-            ? new Uint8Array([0x9a, 0x01, 0x07, 0xaa, 0x03, 0x04, 0x08, 0x08, 0x12, 0x00])
-            : new Uint8Array([0x9a, 0x01, 0x0b, 0xaa, 0x03, 0x08, 0x08, 0x04, 0x12, 0x04, 0x00, 0x00, 0x00, 0x00]),
+          // `bytesGeneralFlags` is the group blob lifted verbatim from NapCat
+          // (UploadGroupPtt.ts). Private chat must send **none**: with the
+          // NapCat c2c blob (UploadPrivatePtt.ts) present the receiving client
+          // draws the voice bubble without its progress bar, and the waveform
+          // we ship is silently dropped. Confirmed by A/B-ing this single field
+          // against an otherwise identical send (present → flat, absent → drawn).
+          ...(isGroup
+            ? {
+              bytesGeneralFlags: new Uint8Array([
+                0x9a, 0x01, 0x07, 0xaa, 0x03, 0x04, 0x08, 0x08, 0x12, 0x00,
+              ]),
+            }
+            : {}),
           ...(ptt.waveform ? { waveform: ptt.waveform } : {}),
         },
       },
