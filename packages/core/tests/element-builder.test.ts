@@ -347,26 +347,25 @@ describe('element-builder / file element is no longer carried in elems[]', () =>
   });
 });
 
-describe('element-builder / forward preview (com.tencent.multimsg LightApp)', () => {
-  // The forward preview is the bubble the recipient renders in chat
-  // before tapping to expand. It MUST be the modern LightApp /
-  // `com.tencent.multimsg` JSON (not the older `richMsg serviceID=35`
-  // XML) because nested forwards rely on `meta.detail.uniseq` to link
-  // each inner preview to the matching `actionCommand` piggyback on
-  // the outer's LongMsgResult — without uniseq the QQ-NT client has
-  // no way to walk the tree and has to re-fetch each inner resId.
+describe('element-builder / forward preview', () => {
+  // Flat outer forwards use the serviceID=35 RichMsg shape accepted by NTQQ.
+  // Nested previews keep the modern LightApp JSON because their
+  // meta.detail.uniseq must match an actionCommand piggyback in the outer
+  // LongMsgResult.
   function decodeLightApp(elem: any): unknown {
     return JSON.parse(inflatePrefixedPayload(elem.lightApp.data));
   }
 
-  it('emits a lightApp.data blob with prefix=0x01 (deflated JSON, not XML/serviceID=35)', async () => {
+  it('emits a serviceID=35 richMsg XML for a flat outer forward', async () => {
     const [elem] = await buildSendElems(
       [{ type: 'forward', resId: 'res-XYZ' } as any],
       { bridge: fakeBridge, groupId: 12345 },
     );
-    expect(elem.lightApp).toBeDefined();
-    expect((elem as any).richMsg).toBeUndefined();
-    expect(elem.lightApp!.data![0]).toBe(0x01);
+    expect(elem.richMsg?.serviceId).toBe(35);
+    expect(elem.lightApp).toBeUndefined();
+    const xml = inflatePrefixedPayload(elem.richMsg!.template1!);
+    expect(xml).toContain('action="viewMultiMsg"');
+    expect(xml).toContain('m_resid="res-XYZ"');
   });
 
   it('places resid + uniseq inside meta.detail (and uniseq matches extra.filename)', async () => {
@@ -374,6 +373,8 @@ describe('element-builder / forward preview (com.tencent.multimsg LightApp)', ()
       [{ type: 'forward', resId: 'res-XYZ', forwardUuid: 'fixed-uuid-1234' } as any],
       { bridge: fakeBridge, groupId: 12345 },
     );
+    expect(elem.lightApp).toBeDefined();
+    expect(elem.richMsg).toBeUndefined();
     const json = decodeLightApp(elem) as any;
     expect(json.app).toBe('com.tencent.multimsg');
     expect(json.meta.detail.resid).toBe('res-XYZ');
@@ -384,17 +385,40 @@ describe('element-builder / forward preview (com.tencent.multimsg LightApp)', ()
     expect(extra.filename).toBe('fixed-uuid-1234');
   });
 
-  it('autogenerates a uniseq when the element omits forwardUuid (flat forward — cosmetic)', async () => {
+  it('autogenerates m_fileName for a flat outer forward', async () => {
     const [elem] = await buildSendElems(
       [{ type: 'forward', resId: 'res-flat' } as any],
       { bridge: fakeBridge, groupId: 12345 },
     );
-    const json = decodeLightApp(elem) as any;
-    expect(json.meta.detail.resid).toBe('res-flat');
-    // Auto-generated UUID — non-empty, non-trivial.
-    expect(json.meta.detail.uniseq).toMatch(/^[0-9a-f-]{36}$/i);
-    const extra = JSON.parse(json.extra);
-    expect(extra.filename).toBe(json.meta.detail.uniseq);
+    const xml = inflatePrefixedPayload(elem.richMsg!.template1!);
+    expect(xml).toContain('m_resid="res-flat"');
+    expect(xml).toMatch(/m_fileName="[0-9a-f-]{36}"/i);
+  });
+
+  it('escapes dynamic XML fields in a flat outer forward', async () => {
+    const [elem] = await buildSendElems(
+      [{
+        type: 'forward',
+        resId: 'res&<>"\'',
+        forwardSource: 'Alice & <Bob>',
+        forwardSummary: 'summary "quoted" & more',
+        forwardPrompt: '[A & B]',
+        forwardNews: [
+          { text: 'Alice: <hello>' },
+          { text: 'Bob: it\'s "ok"' },
+        ],
+        forwardTSum: 2,
+      } as any],
+      { bridge: fakeBridge, groupId: 12345 },
+    );
+    const xml = inflatePrefixedPayload(elem.richMsg!.template1!);
+    expect(xml).toContain('m_resid="res&amp;&lt;&gt;&quot;&apos;"');
+    expect(xml).toContain('brief="[A &amp; B]"');
+    expect(xml).toContain('Alice &amp; &lt;Bob&gt;');
+    expect(xml).toContain('summary &quot;quoted&quot; &amp; more');
+    expect(xml).toContain('Alice: &lt;hello&gt;');
+    expect(xml).toContain('Bob: it&apos;s &quot;ok&quot;');
+    expect(xml).toContain('tSum="2"');
   });
 
   it('threads forwardSource / forwardSummary / forwardPrompt / forwardNews / forwardTSum verbatim', async () => {
