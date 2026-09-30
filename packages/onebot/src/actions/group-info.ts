@@ -13,6 +13,7 @@ export const groupInfoReturnsSchema = {
     group_create_time: { type: 'integer', description: '建群时间戳（秒）' },
     group_level: { type: 'integer', description: '群等级' },
     group_memo: { type: 'string', description: '群简介 / 公告预览' },
+    group_description: { type: 'string', description: '群简介（公告不算；未加入的群为空）' },
     group_all_shut: { type: 'integer', enum: [-1, 0], description: '是否开启全员禁言（-1 开启，0 关闭）' },
   },
   required: [
@@ -40,6 +41,7 @@ export const actions = [
           group_create_time: { type: 'integer', description: '建群时间戳（秒）' },
           group_level: { type: 'integer', description: '群等级（列表批量场景恒 0，详见 get_group_info）' },
           group_memo: { type: 'string', description: '群简介 / 公告预览' },
+          group_description: { type: 'string', description: '群简介（公告不算；未加入的群为空）' },
           group_all_shut: { type: 'integer', enum: [-1, 0], description: '是否开启全员禁言（-1 开启，0 关闭）' },
         },
         required: [
@@ -77,6 +79,7 @@ export const actions = [
         group_create_time: 0,
         group_level: 0,
         group_memo: '',
+        group_description: '',
         group_all_shut: 0,
       };
       if (ctx.getGroupInfo) {
