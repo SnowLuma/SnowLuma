@@ -228,6 +228,7 @@ export const ELEMENT_CODECS = {
         element.replyTime && element.replyTime > 0
           ? element.replyTime
           : Number.MAX_SAFE_INTEGER,
+        element.replyElements,
       );
       return { type: 'reply', data: { id: String(id) } };
     },

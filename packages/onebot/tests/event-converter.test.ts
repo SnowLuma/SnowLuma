@@ -546,7 +546,30 @@ describe('convertEvent — message elements', () => {
       5,
       PRIVATE_SENT_MESSAGE_EVENT,
       1234,
+      undefined,
     ]);
+  });
+
+  it('reply: the quoted elements are handed to the resolver for tie-breaking', async () => {
+    const calls: unknown[][] = [];
+    const quoted = [{ type: 'text', text: 'quoted body' }];
+    await segment(
+      {
+        type: 'reply',
+        replySeq: 5,
+        replySenderUin: SELF_ID,
+        replyTime: 1234,
+        replyElements: quoted,
+      },
+      {
+        messageIdResolver: (...args) => {
+          calls.push(args);
+          return 9999;
+        },
+      },
+    );
+
+    expect(calls[0]?.[5]).toBe(quoted);
   });
 
   it('reply: replySeq=0 -> id "0", no resolver call', async () => {

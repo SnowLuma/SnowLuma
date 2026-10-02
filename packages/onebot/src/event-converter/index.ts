@@ -39,6 +39,8 @@ export type MessageIdResolver = (
   sequence: number,
   eventName: string,
   timestamp?: number,
+  /** Quoted message's own elements (`SrcMsg.elems`), for reply targets only. */
+  quotedElements?: readonly MessageElement[],
 ) => number;
 
 export type MediaSegmentSink = (

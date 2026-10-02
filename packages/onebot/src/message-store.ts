@@ -1,5 +1,6 @@
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import { createLogger } from '@snowluma/common/logger';
+import type { MessageElement } from '@snowluma/protocol/events';
 import type { JsonObject, MessageMeta } from './types';
 import { openSqliteDb } from './sqlite-open';
 import {
@@ -42,7 +43,7 @@ export class MessageStore {
   private readonly stmtFindLatestPersistedAuthoritativeSequence: StatementSync;
   private readonly stmtListIncomingC2CSessions: StatementSync;
   private readonly stmtFindPrivateRecall: StatementSync;
-  private readonly stmtFindPrivateMessageAtTime: StatementSync;
+  private readonly stmtFindPrivateMessagesAtTime: StatementSync;
   private readonly stmtFindPrivateMessageBySequence: StatementSync;
   private readonly stmtFindPrivateOutgoingNearTime: StatementSync;
   private readonly stmtFindPrivateRecallTombstone: StatementSync;
@@ -190,12 +191,11 @@ export class MessageStore {
        LIMIT 1`,
     );
 
-    this.stmtFindPrivateMessageAtTime = this.db.prepare(
+    this.stmtFindPrivateMessagesAtTime = this.db.prepare(
       `SELECT message_hash
        FROM messages
        WHERE is_group = 0 AND session_id = ? AND private_direction = ? AND timestamp = ?
-       ORDER BY sequence DESC
-       LIMIT 1`,
+       ORDER BY sequence DESC`,
     );
 
     this.stmtFindPrivateMessageBySequence = this.db.prepare(
@@ -508,12 +508,18 @@ export class MessageStore {
    * self-sent target, also match the send receipt by time because QQ's
    * quote sequence is often neither of those stored values, and the
    * quote time can drift a few seconds from the send receipt.
+   *
+   * `quotedElements` are the quoted message's own elements as QQ echoed them
+   * back in the reply (`SrcMsg.elems`). They only break ties between
+   * same-second send receipts, where the timestamp alone cannot say which of
+   * the two messages was quoted.
    */
   resolvePrivateReplyMessageId(
     sessionId: number,
     replySequence: number,
     sentBySelf: boolean,
     timestamp?: number,
+    quotedElements?: readonly MessageElement[],
   ): number | null {
     if (Number.isSafeInteger(replySequence) && replySequence > 0) {
       const byClientSequence = this.findPrivateMessageId(
@@ -531,11 +537,100 @@ export class MessageStore {
       if (byConversationSequence !== null) return byConversationSequence;
     }
     if (!sentBySelf) return null;
-    const byExactTime = this.findPrivateMessageIdAtTime(sessionId, true, timestamp);
-    if (byExactTime !== null) return byExactTime;
+    const sameSecond = this.listPrivateMessageIdsAtTime(sessionId, true, timestamp);
+    if (sameSecond.length > 0) {
+      // A single receipt keeps the historical answer untouched; only a genuine
+      // same-second tie is worth consulting the quoted content for.
+      if (sameSecond.length === 1) return sameSecond[0];
+      return this.findPrivateMessageIdByQuotedContent(sameSecond, quotedElements) ?? sameSecond[0];
+    }
     const byNearbyTime = this.findUniquePrivateOutgoingNearTime(sessionId, timestamp);
     if (byNearbyTime !== null) return byNearbyTime;
     return null;
+  }
+
+  /**
+   * Every outgoing private id stored at exactly this timestamp, newest first.
+   * QQ's send receipt has second granularity, so a TTS flow that sends a text
+   * caption and its voice as two separate messages lands both in one bucket.
+   */
+  private listPrivateMessageIdsAtTime(
+    sessionId: number,
+    sentBySelf: boolean,
+    timestamp?: number,
+  ): number[] {
+    if (!Number.isSafeInteger(sessionId) || sessionId <= 0) return [];
+    if (!isUsablePrivateQuoteTime(timestamp)) return [];
+    const rows = this.stmtFindPrivateMessagesAtTime.all(
+      sessionId,
+      sentBySelf ? 1 : 0,
+      timestamp,
+    ) as Array<{ message_hash: number }>;
+    const ids: number[] = [];
+    for (const row of rows) {
+      if (!isValidMessageId(row.message_hash)) {
+        throw new Error(`private message lookup matched invalid message id ${String(row.message_hash)}`);
+      }
+      ids.push(row.message_hash);
+    }
+    return ids;
+  }
+
+  /**
+   * Break a same-second tie with the quoted message's own elements, which QQ
+   * echoes back inside the reply (`SrcMsg.elems`). The element kinds alone
+   * separate the common text-caption + voice pair; the echoed text separates
+   * two text sends. Returns null unless exactly one candidate matches — an
+   * unreadable candidate or a tie keeps the caller's existing answer rather
+   * than becoming a new guess.
+   */
+  private findPrivateMessageIdByQuotedContent(
+    candidates: readonly number[],
+    quotedElements?: readonly MessageElement[],
+  ): number | null {
+    if (!quotedElements || quotedElements.length === 0) return null;
+    const shapes: Array<{ types: string[]; text: string }> = [];
+    for (const messageId of candidates) {
+      const shape = this.readStoredContentShape(messageId);
+      // Comparing a quote against only *some* of the bucket would let a
+      // body-less sibling look like a non-match, so bail out entirely.
+      if (shape === null) return null;
+      shapes.push(shape);
+    }
+
+    const quotedTypes = quotedElements.map((element) => element.type);
+    const quotedText = quotedElements
+      .map((element) => (element.type === 'text' ? element.text : ''))
+      .join('');
+
+    const matched = candidates.filter((_messageId, index) => {
+      const stored = shapes[index];
+      if (stored.types.length !== quotedTypes.length) return false;
+      if (!stored.types.every((type, at) => type === quotedTypes[at])) return false;
+      if (quotedText === '' || stored.text === '') return quotedText === '' && stored.text === '';
+      // QQ may shorten a long quote preview, so accept either containment side.
+      return stored.text.startsWith(quotedText) || quotedText.startsWith(stored.text);
+    });
+    return matched.length === 1 ? matched[0] : null;
+  }
+
+  /** Segment kinds and concatenated text of a stored event, or null without one. */
+  private readStoredContentShape(messageId: number): { types: string[]; text: string } | null {
+    const event = this.findEvent(messageId);
+    const message = event?.message;
+    if (!Array.isArray(message)) return null;
+    const types: string[] = [];
+    const parts: string[] = [];
+    for (const segment of message) {
+      if (segment === null || typeof segment !== 'object' || Array.isArray(segment)) continue;
+      const { type, data } = segment as JsonObject;
+      if (typeof type !== 'string') continue;
+      types.push(type);
+      if (type !== 'text' || data === null || typeof data !== 'object' || Array.isArray(data)) continue;
+      const text = (data as JsonObject).text;
+      if (typeof text === 'string') parts.push(text);
+    }
+    return { types, text: parts.join('') };
   }
 
   findPrivateMessageIdAtTime(
@@ -543,18 +638,8 @@ export class MessageStore {
     sentBySelf: boolean,
     timestamp?: number,
   ): number | null {
-    if (!Number.isSafeInteger(sessionId) || sessionId <= 0) return null;
-    if (!isUsablePrivateQuoteTime(timestamp)) return null;
-    const row = this.stmtFindPrivateMessageAtTime.get(
-      sessionId,
-      sentBySelf ? 1 : 0,
-      timestamp,
-    ) as { message_hash: number } | undefined;
-    if (!row) return null;
-    if (!isValidMessageId(row.message_hash)) {
-      throw new Error(`private message lookup matched invalid message id ${String(row.message_hash)}`);
-    }
-    return row.message_hash;
+    const ids = this.listPrivateMessageIdsAtTime(sessionId, sentBySelf, timestamp);
+    return ids.length > 0 ? ids[0] : null;
   }
 
   findPrivateMessageIdBySequence(

@@ -397,6 +397,7 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
     reply?.replyTime && reply.replyTime > 0
       ? reply.replyTime
       : Number.MAX_SAFE_INTEGER,
+    reply?.replyElements,
   );
   const targetId = Number.isInteger(resolvedId) && resolvedId !== 0
     ? resolvedId as number

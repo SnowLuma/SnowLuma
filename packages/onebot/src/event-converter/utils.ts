@@ -1,4 +1,5 @@
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT } from '../message-id';
+import type { MessageElement } from '@snowluma/protocol/events';
 import type { MessageIdResolver } from './index';
 
 export function parseSelfId(instanceUin: string): number {
@@ -39,12 +40,13 @@ export function resolveReplyId(
   resolver?: MessageIdResolver | null,
   eventName = isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT,
   timestamp?: number,
+  quotedElements?: readonly MessageElement[],
 ): number {
   const seq = Math.trunc(sequence);
   if (seq === 0) return 0;
 
   if (resolver) {
-    const resolved = resolver(isGroup, sessionId, seq, eventName, timestamp);
+    const resolved = resolver(isGroup, sessionId, seq, eventName, timestamp, quotedElements);
     if (Number.isInteger(resolved) && resolved !== 0) return resolved;
   }
 
