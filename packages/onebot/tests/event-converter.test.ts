@@ -18,6 +18,7 @@ import type {
   TempMessage,
 } from '@snowluma/protocol/events';
 import { PRIVATE_SENT_MESSAGE_EVENT } from '../src/message-id';
+import { parseMessage } from '../src/message-parser';
 
 const SELF_ID = 10001;
 const PEER_UIN = 22222;
@@ -458,6 +459,51 @@ describe('convertEvent — message elements', () => {
     });
     expect((seg.data as Record<string, unknown>).file).toBe('fid');
     expect((seg.data as Record<string, unknown>).url).toBe('');
+  });
+
+  it('record: keeps an inline source as the segment reference (#463 follow-up)', async () => {
+    // A framework can send private voice as an inline payload without any
+    // fileName/fileId (AstrBot does). Blanking `url` left the segment with no
+    // media reference at all, so a consumer quoting it could not resolve it.
+    const source = `base64://${'A'.repeat(64)}`;
+    const seg = await segment({ type: 'record', url: source });
+    expect(seg).toEqual({ type: 'record', data: { file: '', url: source } });
+  });
+
+  it('record: the emitted inline source round-trips back into a sendable element', async () => {
+    const source = `base64://${'A'.repeat(64)}`;
+    const seg = await segment({ type: 'record', url: source });
+    expect(await parseMessage([seg] as never, false))
+      .toEqual([{ type: 'record', url: source }]);
+  });
+
+  it('video: keeps an inline source as the segment reference (#463 follow-up)', async () => {
+    const source = `base64://${'A'.repeat(64)}`;
+    const seg = await segment({ type: 'video', url: source });
+    expect(seg).toEqual({ type: 'video', data: { file: '', url: source } });
+  });
+
+  it('record/video: a bare QQ-internal id still yields to a sibling url (#155)', async () => {
+    const rec = await segment({
+      type: 'record',
+      fileName: 'ABCD1234.amr',
+      url: 'https://example.com/v.amr',
+    });
+    expect(rec).toEqual({
+      type: 'record',
+      data: { file: 'ABCD1234.amr', url: 'https://example.com/v.amr' },
+    });
+    // The send path must keep preferring the loadable url over the bare id.
+    expect(await parseMessage([rec] as never, false))
+      .toEqual([{ type: 'record', url: 'https://example.com/v.amr' }]);
+
+    const vid = await segment({
+      type: 'video',
+      fileName: 'EF567890.mp4',
+      url: 'https://example.com/v.mp4',
+    });
+    expect(await parseMessage([vid] as never, false))
+      .toEqual([{ type: 'video', url: 'https://example.com/v.mp4', thumbUrl: undefined }]);
   });
 
   it('image: resolver sees the upload source when only url is present (#441)', async () => {
