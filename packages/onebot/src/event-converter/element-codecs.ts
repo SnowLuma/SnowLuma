@@ -329,10 +329,15 @@ export const ELEMENT_CODECS = {
 
   record: {
     async toSegment(element, ctx) {
-      const rawUrl = ctx.mediaUrlResolver
+      // A voice sent from an inline source (`base64://`, `data:`) keeps that
+      // source on the segment: with no fileName/fileId it is the only media
+      // reference a consumer can resend or resolve, and blanking it left the
+      // segment empty. The media cache folds inline keys and clears long url
+      // fields itself (see media-store.ts), so emitting it cannot re-poison
+      // media.db (#463).
+      const url = ctx.mediaUrlResolver
         ? await ctx.mediaUrlResolver(element, ctx.isGroup, ctx.sessionId)
         : (element.url ?? '');
-      const url = isInlineMediaSource(rawUrl) ? '' : rawUrl;
       const data: JsonObject = {
         file: element.fileName ?? element.fileId ?? '',
         url,
@@ -352,10 +357,10 @@ export const ELEMENT_CODECS = {
 
   video: {
     async toSegment(element, ctx) {
-      const rawUrl = ctx.mediaUrlResolver
+      // Same inline-source rule as record.
+      const url = ctx.mediaUrlResolver
         ? await ctx.mediaUrlResolver(element, ctx.isGroup, ctx.sessionId)
         : (element.url ?? '');
-      const url = isInlineMediaSource(rawUrl) ? '' : rawUrl;
       const data: JsonObject = {
         file: element.fileName ?? element.fileId ?? '',
         url,

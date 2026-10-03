@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'fs';
 import path from 'path';
 import { MEDIA_DATA_MAX_CHARS, MEDIA_KEY_MAX_CHARS, MediaStore } from '../src/media-store';
+import { MediaIndexer } from '../src/media-indexer';
 import { convertEvent, type ConverterContext } from '../src/event-converter';
 import type { GroupMessage, FriendMessage, MessageElement } from '@snowluma/protocol/events';
 
@@ -464,5 +465,50 @@ describe('convertEvent media segment sink → MediaStore wiring', () => {
     };
     await convertEvent(ctx, makeGroupMessage([{ type: 'text', text: 'hello' }]));
     expect(calls).toBe(0);
+  });
+
+  it('keeps an inline voice reference on the event without persisting it (#463 follow-up)', async () => {
+    const dbPath = tempDbPath('inline-voice');
+    dbs.push(dbPath);
+    const store = new MediaStore(dbPath);
+    const indexer = new MediaIndexer(store);
+    const ctx: ConverterContext = {
+      selfId: SELF_ID,
+      imageUrlResolver: null,
+      // The self-sent copy is built with no resolvers, exactly like
+      // cacheSelfSentMessage in message-actions.
+      mediaUrlResolver: null,
+      messageIdResolver: null,
+      mediaSegmentSink: (type, element, data, isGroup, sessionId) =>
+        indexer.remember(type, element, data, isGroup, sessionId),
+    };
+    const payload = `base64://${'A'.repeat(8192)}`;
+
+    // AstrBot-style private voice: the inline payload is the ONLY reference —
+    // no fileName, no fileId.
+    const inlineOnly = await convertEvent(
+      ctx,
+      makeFriendMessage([{ type: 'record', fileName: '', fileId: undefined, url: payload } as MessageElement]),
+    );
+    expect(inlineOnly!.message).toEqual([{ type: 'record', data: { file: '', url: payload } }]);
+    // Nothing to key a cache row on, so the store stays untouched.
+    expect(store.size().records).toBe(0);
+
+    // With a fileId present the row IS written — and must still not carry the
+    // inline payload as key or row data.
+    await convertEvent(
+      ctx,
+      makeFriendMessage([recordElement({ url: payload })]),
+    );
+    const cached = store.findRecord('silk_test.amr');
+    expect(cached).not.toBeNull();
+    expect(cached!.url).toBe('');
+
+    store.close();
+    const rows = inspectMediaDb(dbPath);
+    expect(rows.longestKey).toBeLessThan(100);
+    expect(rows.longestData).toBeLessThanOrEqual(MEDIA_DATA_MAX_CHARS);
+    expect(rows.concatenated).not.toContain('base64://');
+    expect(rows.concatenated).not.toContain('A'.repeat(64));
   });
 });
