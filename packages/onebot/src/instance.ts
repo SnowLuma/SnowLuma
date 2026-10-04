@@ -143,7 +143,7 @@ export class OneBotInstance {
         this.rkeyCache.resolveImageUrl(this.bridge, element, isGroup),
       mediaUrlResolver: (element, isGroup, sessionId) =>
         mediaUrlResolver.resolve(element, isGroup, sessionId),
-      messageIdResolver: (isGroup, sessionId, sequence, eventName, timestamp) => {
+      messageIdResolver: (isGroup, sessionId, sequence, eventName, timestamp, replyElements) => {
         const resolvedEventName = eventName
           || (isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT);
         if (!isGroup
@@ -155,6 +155,7 @@ export class OneBotInstance {
             sequence,
             resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT,
             timestamp,
+            replyElements,
           );
           if (storedId !== null) return storedId;
         }

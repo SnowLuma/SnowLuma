@@ -1,6 +1,8 @@
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import { createLogger } from '@snowluma/common/logger';
 import type { JsonObject, MessageMeta } from './types';
+import type { MessageElement } from '@snowluma/protocol/events';
+import { cqUnescape } from './helper/cq';
 import { openSqliteDb } from './sqlite-open';
 import {
   createMessageStoreIndexes,
@@ -191,11 +193,9 @@ export class MessageStore {
     );
 
     this.stmtFindPrivateMessageAtTime = this.db.prepare(
-      `SELECT message_hash
+      `SELECT message_hash, data
        FROM messages
-       WHERE is_group = 0 AND session_id = ? AND private_direction = ? AND timestamp = ?
-       ORDER BY sequence DESC
-       LIMIT 1`,
+       WHERE is_group = 0 AND session_id = ? AND private_direction = ? AND timestamp = ?`,
     );
 
     this.stmtFindPrivateMessageBySequence = this.db.prepare(
@@ -514,6 +514,7 @@ export class MessageStore {
     replySequence: number,
     sentBySelf: boolean,
     timestamp?: number,
+    replyElements?: readonly MessageElement[],
   ): number | null {
     if (Number.isSafeInteger(replySequence) && replySequence > 0) {
       const byClientSequence = this.findPrivateMessageId(
@@ -531,7 +532,7 @@ export class MessageStore {
       if (byConversationSequence !== null) return byConversationSequence;
     }
     if (!sentBySelf) return null;
-    const byExactTime = this.findPrivateMessageIdAtTime(sessionId, true, timestamp);
+    const byExactTime = this.findPrivateMessageIdAtTime(sessionId, true, timestamp, replyElements);
     if (byExactTime !== null) return byExactTime;
     const byNearbyTime = this.findUniquePrivateOutgoingNearTime(sessionId, timestamp);
     if (byNearbyTime !== null) return byNearbyTime;
@@ -542,15 +543,29 @@ export class MessageStore {
     sessionId: number,
     sentBySelf: boolean,
     timestamp?: number,
+    replyElements?: readonly MessageElement[],
   ): number | null {
     if (!Number.isSafeInteger(sessionId) || sessionId <= 0) return null;
     if (!isUsablePrivateQuoteTime(timestamp)) return null;
-    const row = this.stmtFindPrivateMessageAtTime.get(
+    const rows = this.stmtFindPrivateMessageAtTime.all(
       sessionId,
       sentBySelf ? 1 : 0,
       timestamp,
-    ) as { message_hash: number } | undefined;
-    if (!row) return null;
+    ) as { message_hash: number; data: string | null }[];
+    if (rows.length === 0) return null;
+    let matches = rows;
+    if (rows.length > 1) {
+      const text = replyElements?.length && replyElements.every(e => e.type === 'text')
+        ? replyElements.map(e => e.text ?? '').join('')
+        : null;
+      matches = text ? rows.filter(row => cachedPlainText(row.data) === text) : [];
+      if (matches.length !== 1) {
+        log.debug('private quote time is ambiguous: peer=%d time=%d candidates=%d contentMatches=%d',
+          sessionId, timestamp, rows.length, matches.length);
+        return null;
+      }
+    }
+    const row = matches[0]!;
     if (!isValidMessageId(row.message_hash)) {
       throw new Error(`private message lookup matched invalid message id ${String(row.message_hash)}`);
     }
@@ -821,6 +836,20 @@ function eventPrivateDirection(isGroup: boolean, event: JsonObject): number {
 }
 
 const PRIVATE_REPLY_TIME_WINDOWS_SECONDS = [5, 30] as const;
+
+/** Only compare complete plain text; media labels and truncated previews are ambiguous. */
+function cachedPlainText(data: string | null): string | null {
+  if (!data) return null;
+  const event = JSON.parse(data) as JsonObject;
+  if (typeof event.message === 'string') {
+    return event.message.includes('[CQ:') ? null : cqUnescape(event.message);
+  }
+  if (!Array.isArray(event.message) || event.message.length === 0) return null;
+  const segments = event.message as JsonObject[];
+  if (!segments.every(segment => segment?.type === 'text'
+    && typeof (segment.data as JsonObject | undefined)?.text === 'string')) return null;
+  return segments.map(segment => (segment.data as JsonObject).text).join('');
+}
 
 function isUsablePrivateQuoteTime(timestamp: number | undefined): timestamp is number {
   return timestamp !== undefined

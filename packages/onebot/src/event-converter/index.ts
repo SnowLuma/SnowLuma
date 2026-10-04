@@ -39,6 +39,7 @@ export type MessageIdResolver = (
   sequence: number,
   eventName: string,
   timestamp?: number,
+  replyElements?: readonly MessageElement[],
 ) => number;
 
 export type MediaSegmentSink = (
@@ -119,5 +120,4 @@ export async function convertEvent(
   // runtime `event.kind` loses that correlation — one localized cast restores it.
   return (converter as (ctx: ConverterContext, event: QQEventVariant) => JsonObject | Promise<JsonObject>)(ctx, event);
 }
-
 

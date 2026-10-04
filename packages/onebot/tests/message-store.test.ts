@@ -926,6 +926,27 @@ describe('MessageStore', () => {
       });
       expect(store.resolvePrivateReplyMessageId(peerId, 27_892, true, sentAt + 2)).toBeNull();
     });
+
+    it('does not choose the latest same-second message without unique quoted content', () => {
+      for (const id of [101, 102]) {
+        store.storeMeta(id, {
+          isGroup: false, targetId: peerId, sequence: id, sequenceAuthoritative: true,
+          eventName: PRIVATE_MESSAGE_EVENT, clientSequence: id + 1000,
+          privateDirection: 'outgoing', random: id, timestamp: sentAt,
+        });
+        store.storeEvent(id, false, peerId, id, PRIVATE_MESSAGE_EVENT, {
+          time: sentAt, post_type: 'message_sent', message_type: 'private', sub_type: 'friend',
+          message: [{ type: 'text', data: { text: 'same text' } }],
+        });
+      }
+      expect(store.resolvePrivateReplyMessageId(peerId, 999, true, sentAt)).toBeNull();
+      expect(store.resolvePrivateReplyMessageId(peerId, 999, true, sentAt,
+        [{ type: 'text', text: 'same text' }])).toBeNull();
+      expect(store.resolvePrivateReplyMessageId(peerId, 999, true, sentAt,
+        [{ type: 'text', text: 'same' }])).toBeNull();
+      expect(store.resolvePrivateReplyMessageId(peerId, 1101, true, sentAt,
+        [{ type: 'text', text: 'same text' }])).toBe(101);
+    });
   });
 
   it('lets a real group event replace an older non-authoritative placeholder', () => {

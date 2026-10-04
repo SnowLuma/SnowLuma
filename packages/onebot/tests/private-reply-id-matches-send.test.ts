@@ -17,7 +17,7 @@ const SELF_ID = 3961840894;
 const PEER_ID = 2705892349;
 
 function productionResolver(store: MessageStore): ConverterContext['messageIdResolver'] {
-  return (isGroup, sessionId, sequence, eventName, timestamp) => {
+  return (isGroup, sessionId, sequence, eventName, timestamp, replyElements) => {
     const resolvedEventName = eventName
       || (isGroup ? 'group_message' : PRIVATE_MESSAGE_EVENT);
     if (!isGroup
@@ -29,6 +29,7 @@ function productionResolver(store: MessageStore): ConverterContext['messageIdRes
         sequence,
         resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT,
         timestamp,
+        replyElements,
       );
       if (storedId !== null) return storedId;
     }
@@ -54,6 +55,39 @@ describe('private reply id matches send receipt (#417, #433)', () => {
   afterEach(() => {
     store.close();
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('matches quoted text instead of a later voice message in the same second (#502)', async () => {
+    const sentAt = 1_790_000_000;
+    for (const [id, message] of [
+      [101, [{ type: 'text', data: { text: 'the quoted text' } }]],
+      [102, [{ type: 'record', data: { file: 'voice.amr' } }]],
+    ] as const) {
+      store.storeMeta(id, {
+        isGroup: false, targetId: PEER_ID, sequence: id, sequenceAuthoritative: true,
+        eventName: PRIVATE_NT_MESSAGE_EVENT, clientSequence: id + 1000,
+        privateDirection: 'outgoing', random: id, timestamp: sentAt,
+      });
+      store.storeEvent(id, false, PEER_ID, id, PRIVATE_NT_MESSAGE_EVENT, {
+        time: sentAt, post_type: 'message_sent', message_type: 'private', sub_type: 'friend',
+        message: JSON.parse(JSON.stringify(message)),
+      });
+    }
+    store.close();
+    store = new MessageStore(path.join(dir, 'messages.db'));
+    const ctx: ConverterContext = {
+      selfId: SELF_ID, imageUrlResolver: null, mediaUrlResolver: null, mediaSegmentSink: null,
+      messageIdResolver: productionResolver(store),
+    };
+    const event: FriendMessage = {
+      kind: 'friend_message', time: sentAt + 2, selfUin: SELF_ID,
+      senderUin: PEER_ID, peerUin: PEER_ID, senderUid: 'u_peer', senderNick: 'peer',
+      msgSeq: 2773, ntMsgSeq: 103, clientSeq: 2773, sequenceAuthoritative: true, msgId: 2,
+      elements: [{ type: 'reply', replySeq: 9999, replySenderUin: SELF_ID, replyTime: sentAt,
+        replyElements: [{ type: 'text', text: 'the quoted text' }] }],
+    };
+    const json = await convertFriendMessage(ctx, event);
+    expect(json.message).toEqual([{ type: 'reply', data: { id: '101' } }]);
   });
 
   it.each([
