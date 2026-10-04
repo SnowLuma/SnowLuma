@@ -101,6 +101,9 @@ export async function getGroupList(
     group_create_time: g.createTime ?? 0,
     group_level: g.level ?? 0,
     group_memo: g.memo ?? '',
+    // #490: the description is its own field; group_memo prefers the
+    // announcement, so it can't be used to recover the description.
+    group_description: g.description ?? '',
     group_all_shut: g.allMuted ? -1 : 0,
   }));
 }
@@ -175,6 +178,7 @@ export async function getGroupInfo(
       group_create_time: g.createTime ?? 0,
       group_level: await getGroupLevel(bridge, groupId, noCache),
       group_memo: g.memo ?? '',
+      group_description: g.description ?? '',
       group_all_shut: g.allMuted ? -1 : 0,
     };
   }
@@ -198,6 +202,10 @@ export async function getGroupInfo(
         group_create_time: detail.createTime ?? 0,
         group_level: detail.level ?? 0,
         group_memo: detail.memo ?? '',
+        // #490: always '' here — the non-member detail lookup has no
+        // description to read (see QQGroupInfo.description). The key is still
+        // returned so the response shape doesn't change with membership.
+        group_description: detail.description ?? '',
         group_all_shut: detail.allMuted ? -1 : 0,
       };
       nonMemberGroupCache.set(cacheKey, { info, at: Date.now() });

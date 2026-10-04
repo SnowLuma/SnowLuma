@@ -228,8 +228,42 @@ describe('onebot/contact-actions / getGroupList', () => {
       group_remark: '工作群',
       member_count: 0, max_member_count: 500,
       group_create_time: 0, group_level: 0, group_memo: '',
+      group_description: '',
       group_all_shut: -1,
     }]);
+  });
+
+  // #490: group_description must carry the description itself, not a copy of
+  // group_memo (which prefers the announcement).
+  it('exposes the group description separately from the memo (#490)', async () => {
+    const fetched = [{
+      ...makeGroup(150, 'Both Set'),
+      memo: '公告正文',
+      description: '简介正文',
+    }];
+    const bridge = fakeBridge({
+      fetchGroupList: vi.fn(async () => fetched),
+      identity: fakeIdentity({ groups: fetched }),
+    });
+
+    const out = await getGroupList(bridge);
+
+    expect(out[0]).toMatchObject({
+      group_memo: '公告正文',
+      group_description: '简介正文',
+    });
+  });
+
+  it('reports an empty group_description when QQ returns no description (#490)', async () => {
+    const fetched = [makeGroup(160, 'No Description')];
+    const bridge = fakeBridge({
+      fetchGroupList: vi.fn(async () => fetched),
+      identity: fakeIdentity({ groups: fetched }),
+    });
+
+    const out = await getGroupList(bridge);
+
+    expect(out[0]).toMatchObject({ group_memo: '', group_description: '' });
   });
 
   it('skips fetch when cache is populated and noCache is omitted', async () => {

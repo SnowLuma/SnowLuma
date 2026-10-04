@@ -730,6 +730,7 @@ describe('buildApiContext contact reads', () => {
       group_create_time: 100,
       group_level: 2,
       group_memo: 'rules',
+      group_description: '',
       group_all_shut: -1,
     }]);
     expect(fetchGroupList).not.toHaveBeenCalled();
@@ -758,6 +759,7 @@ describe('buildApiContext contact reads', () => {
       group_create_time: 0,
       group_level: 6,
       group_memo: '',
+      group_description: '',
       group_all_shut: 0,
     });
   });

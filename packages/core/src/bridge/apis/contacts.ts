@@ -272,6 +272,10 @@ export class ContactsApi {
         // is not in the list (0x88D_0 detail only), so it stays undefined here.
         createTime: raw.info?.createdTime ?? 0,
         memo: raw.info?.announcement || raw.info?.description || '',
+        // #490: expose the description alongside `memo`. QQ fills in either
+        // field alone, so folding both into `memo` made the description
+        // unreachable whenever an announcement was also set.
+        description: raw.info?.description ?? '',
         allMuted: isGroupAllMuted(raw.info?.shutUpAllTimestamp),
       });
     }
@@ -299,7 +303,9 @@ export class ContactsApi {
       memberMax: Number(r.maxMemberCount ?? 0n),
       members: new Map(),
       // #197: the detail is the only source of `level`; it also carries
-      // createTime + the notice preview (memo).
+      // createTime + the notice preview (memo). `description` is deliberately
+      // left unset — 0x88D_0 has no description tag, so for a group the bot
+      // hasn't joined there is nothing to report (#490).
       createTime: Number(r.createTime ?? 0n),
       level: Number(r.level ?? 0n),
       memo: r.noticePreview ?? '',

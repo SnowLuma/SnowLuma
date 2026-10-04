@@ -4431,6 +4431,10 @@ export const ACTIONS: CatalogAction[] = [
           "type": "string",
           "description": "群简介 / 公告预览"
         },
+        "group_description": {
+          "type": "string",
+          "description": "群简介（公告不算；未加入的群为空）"
+        },
         "group_all_shut": {
           "type": "integer",
           "enum": [
@@ -5039,6 +5043,10 @@ export const ACTIONS: CatalogAction[] = [
           "type": "string",
           "description": "群简介 / 公告预览"
         },
+        "group_description": {
+          "type": "string",
+          "description": "群简介（公告不算；未加入的群为空）"
+        },
         "group_all_shut": {
           "type": "integer",
           "enum": [
@@ -5140,6 +5148,10 @@ export const ACTIONS: CatalogAction[] = [
         "group_memo": {
           "type": "string",
           "description": "群简介 / 公告预览"
+        },
+        "group_description": {
+          "type": "string",
+          "description": "群简介（公告不算；未加入的群为空）"
         },
         "group_all_shut": {
           "type": "integer",
@@ -5243,6 +5255,10 @@ export const ACTIONS: CatalogAction[] = [
           "group_memo": {
             "type": "string",
             "description": "群简介 / 公告预览"
+          },
+          "group_description": {
+            "type": "string",
+            "description": "群简介（公告不算；未加入的群为空）"
           },
           "group_all_shut": {
             "type": "integer",

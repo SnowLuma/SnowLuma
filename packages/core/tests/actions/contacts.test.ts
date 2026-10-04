@@ -249,6 +249,63 @@ describe('apis/contacts / group roster', () => {
     expect(rememberGroups).toHaveBeenCalledWith(groups);
   });
 
+  // #490: `memo` prefers the announcement, so a group with both fields set used
+  // to lose its description entirely. The description must stay readable.
+  it('keeps the group description readable when an announcement is also set (#490)', async () => {
+    const sendRawPacket = vi.fn(async () => groupListPacket({
+      groups: [{
+        groupUin: 123456789,
+        info: {
+          groupName: 'Both Set',
+          description: '简介正文',
+          announcement: '公告正文',
+        },
+      }],
+    }));
+    const api = new ContactsApi({
+      sendRawPacket,
+      identity: { rememberGroups: vi.fn() },
+    } as any);
+
+    const [group] = await api.fetchGroupList();
+
+    expect(group?.memo).toBe('公告正文');
+    expect(group?.description).toBe('简介正文');
+  });
+
+  it('reports the description for a group that has no announcement (#490)', async () => {
+    const sendRawPacket = vi.fn(async () => groupListPacket({
+      groups: [{
+        groupUin: 123456789,
+        info: { groupName: 'Description Only', description: '只有简介' },
+      }],
+    }));
+    const api = new ContactsApi({
+      sendRawPacket,
+      identity: { rememberGroups: vi.fn() },
+    } as any);
+
+    const [group] = await api.fetchGroupList();
+
+    // memo still falls back to the description (unchanged pre-#490 behaviour).
+    expect(group?.memo).toBe('只有简介');
+    expect(group?.description).toBe('只有简介');
+  });
+
+  it('leaves the description unset on a non-member detail lookup (#490)', async () => {
+    const sendRawPacket = vi.fn(async () => groupDetailPacket({
+      groupInfo: { uin: 123456789n, results: { name: 'Not Joined', noticePreview: '公告预览' } },
+    }));
+    const api = new ContactsApi({ sendRawPacket, identity: {} } as any);
+
+    const detail = await api.fetchGroupDetail(123456789);
+
+    // 0x88D_0 has no description tag, so there is nothing to expose — the field
+    // must stay absent rather than echo the announcement preview.
+    expect(detail?.memo).toBe('公告预览');
+    expect(detail?.description).toBeUndefined();
+  });
+
   it('maps the group-wide mute timestamp from a single-group detail', async () => {
     const sendRawPacket = vi.fn(async () => groupDetailPacket({
       groupInfo: {

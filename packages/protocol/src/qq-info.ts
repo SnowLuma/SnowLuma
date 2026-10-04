@@ -77,6 +77,16 @@ export interface QQGroupInfo {
   level?: number;
   /** Group memo / announcement preview. '' when unknown (#197). */
   memo?: string;
+  /**
+   * Group description (群简介 — `0xFE5_2` tag 18). '' when unknown.
+   *
+   * Kept apart from `memo` on purpose (#490): `memo` prefers the announcement,
+   * and QQ commonly has only one of the two set, so `memo` alone cannot tell a
+   * description from an announcement. Only the group list carries it — the
+   * `0x88D_0` detail has no description tag, so this stays undefined for a
+   * group the account hasn't joined.
+   */
+  description?: string;
   /** Whether group-wide mute is currently in effect (expire still in the future). */
   allMuted?: boolean;
 }
