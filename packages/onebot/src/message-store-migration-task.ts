@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { Worker, type WorkerOptions } from 'node:worker_threads';
+import { createLogger } from '@snowluma/common/logger';
 import type {
   DatabaseMigrationCallbacks,
   DatabaseMigrationTask,
@@ -29,6 +30,7 @@ export function createMessageStoreMigrationTask(
   uin: string,
   createWorker: CreateMigrationWorker = (filename, options) => new Worker(filename, options),
 ): DatabaseMigrationTask {
+  const log = createLogger('OneBot.MessageMigration').child({ uin: Number(uin) });
   let worker: MessageStoreMigrationWorkerHandle | null = null;
   let cancelled = false;
   let finished = false;
@@ -59,6 +61,15 @@ export function createMessageStoreMigrationTask(
         if (cancelled) return;
         if (message.kind === 'ready') {
           callbacks.onReady();
+        } else if (message.kind === 'preparation') {
+          const progress = message.progress;
+          if (progress.stage === 'started') {
+            log.info('preparing message history migration');
+          } else if (progress.stage === 'indexed') {
+            log.info('message history migration preparation finished in %dms', Math.round(progress.elapsedMs));
+          } else {
+            log.info('message history migration: pending=%d checked in %dms', progress.total, Math.round(progress.elapsedMs));
+          }
         } else if (message.kind === 'progress') {
           callbacks.onProgress(message.status, message.elapsedMs);
           if (message.status.phase === 'complete') finished = true;

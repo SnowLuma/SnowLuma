@@ -3,6 +3,7 @@ import { migrateLegacyMedia } from './media-store-migration';
 import {
   MessageStoreMigrator,
   prepareMessageStoreDatabase,
+  type MessageStoreMigrationPreparation,
   type MessageStoreMigrationStatus,
 } from './message-store-migration';
 
@@ -17,6 +18,7 @@ export interface MessageStoreMigrationWorkerData {
 
 export type MessageStoreMigrationWorkerMessage =
   | { kind: 'ready' }
+  | { kind: 'preparation'; progress: MessageStoreMigrationPreparation }
   | {
     kind: 'progress';
     status: MessageStoreMigrationStatus;
@@ -55,7 +57,9 @@ export async function runMessageStoreMigrationWorker(
     port.postMessage({ kind: 'ready' } satisfies MessageStoreMigrationWorkerMessage);
     await startRequested;
     if (cancelled) return;
-    migrator = new MessageStoreMigrator(data.dbPath);
+    migrator = new MessageStoreMigrator(data.dbPath, progress => {
+      port.postMessage({ kind: 'preparation', progress } satisfies MessageStoreMigrationWorkerMessage);
+    });
     let lastProgressAt: number | null = null;
 
     while (!cancelled) {

@@ -2,6 +2,7 @@ import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import { openSqliteDb } from './sqlite-open';
 
 const CLASSIFICATION_VERSION = 1;
+const PENDING_INDEX_NAME = `idx_messages_pending_classification_v${CLASSIFICATION_VERSION}`;
 const MIGRATION_NAME = 'message-classification-v1';
 const LEGACY_PRIVATE_SEQUENCE_MIGRATION = 'private-nt-sequence-v1';
 
@@ -12,6 +13,11 @@ export interface MessageStoreMigrationStatus {
   processed: number;
   total: number;
 }
+
+export type MessageStoreMigrationPreparation =
+  | { stage: 'started' }
+  | { stage: 'indexed'; elapsedMs: number }
+  | { stage: 'counted'; total: number; elapsedMs: number };
 
 interface MigrationStateRow {
   phase: MessageStoreMigrationPhase;
@@ -39,42 +45,47 @@ export class MessageStoreMigrator {
   private readonly updateState: StatementSync;
   private state: MigrationStateRow;
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, reportPreparation?: (progress: MessageStoreMigrationPreparation) => void) {
     this.db = openSqliteDb(dbPath.replace(/\.json$/, '.db'));
-    createMigrationStateTable(this.db);
-    this.state = this.loadOrCreateState();
-    this.selectInitialBatch = this.db.prepare(`
-      SELECT message_hash, is_group, sequence, sequence_authoritative, client_sequence, private_direction, random, data
-      FROM messages
-      WHERE classification_version < ?
-      ORDER BY message_hash ASC
-      LIMIT ?
-    `);
-    this.selectNextBatch = this.db.prepare(`
-      SELECT message_hash, is_group, sequence, sequence_authoritative, client_sequence, private_direction, random, data
-      FROM messages
-      WHERE classification_version < ? AND message_hash > ?
-      ORDER BY message_hash ASC
-      LIMIT ?
-    `);
-    this.updateRow = this.db.prepare(`
-      UPDATE messages
-      SET sequence_authoritative = ?, private_direction = ?, classification_version = ?
-      WHERE message_hash = ?
-        AND classification_version < ?
-        AND is_group = ?
-        AND sequence = ?
-        AND sequence_authoritative = ?
-        AND client_sequence = ?
-        AND private_direction = ?
-        AND random = ?
-        AND data IS ?
-    `);
-    this.updateState = this.db.prepare(`
-      UPDATE message_store_migration_state
-      SET phase = ?, processed = ?, total = ?, cursor = ?, updated_at = ?
-      WHERE name = ?
-    `);
+    try {
+      createMigrationStateTable(this.db);
+      this.state = this.loadOrCreateState(reportPreparation);
+      this.selectInitialBatch = this.db.prepare(`
+        SELECT message_hash, is_group, sequence, sequence_authoritative, client_sequence, private_direction, random, data
+        FROM messages
+        WHERE classification_version < ?
+        ORDER BY message_hash ASC
+        LIMIT ?
+      `);
+      this.selectNextBatch = this.db.prepare(`
+        SELECT message_hash, is_group, sequence, sequence_authoritative, client_sequence, private_direction, random, data
+        FROM messages
+        WHERE classification_version < ? AND message_hash > ?
+        ORDER BY message_hash ASC
+        LIMIT ?
+      `);
+      this.updateRow = this.db.prepare(`
+        UPDATE messages
+        SET sequence_authoritative = ?, private_direction = ?, classification_version = ?
+        WHERE message_hash = ?
+          AND classification_version < ?
+          AND is_group = ?
+          AND sequence = ?
+          AND sequence_authoritative = ?
+          AND client_sequence = ?
+          AND private_direction = ?
+          AND random = ?
+          AND data IS ?
+      `);
+      this.updateState = this.db.prepare(`
+        UPDATE message_store_migration_state
+        SET phase = ?, processed = ?, total = ?, cursor = ?, updated_at = ?
+        WHERE name = ?
+      `);
+    } catch (error) {
+      this.db.close();
+      throw error;
+    }
   }
 
   close(): void {
@@ -153,20 +164,32 @@ export class MessageStoreMigrator {
     return this.getStatus();
   }
 
-  private loadOrCreateState(): MigrationStateRow {
+  private loadOrCreateState(reportPreparation?: (progress: MessageStoreMigrationPreparation) => void): MigrationStateRow {
     const existing = this.db.prepare(`
       SELECT phase, processed, total, cursor
       FROM message_store_migration_state
       WHERE name = ?
     `).get(MIGRATION_NAME) as MigrationStateRow | undefined;
+    if (existing?.phase === 'complete') return existing;
+
+    reportPreparation?.({ stage: 'started' });
+    const preparationStartedAt = performance.now();
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS ${PENDING_INDEX_NAME}
+      ON messages(message_hash, classification_version)
+      WHERE classification_version < ${CLASSIFICATION_VERSION}
+    `);
+    reportPreparation?.({ stage: 'indexed', elapsedMs: Math.max(0, performance.now() - preparationStartedAt) });
     if (existing) return existing;
 
+    const countStartedAt = performance.now();
     const row = this.db.prepare(`
       SELECT COUNT(*) AS total
       FROM messages
       WHERE classification_version < ?
     `).get(CLASSIFICATION_VERSION) as { total: number };
     const total = Number(row.total);
+    reportPreparation?.({ stage: 'counted', total, elapsedMs: Math.max(0, performance.now() - countStartedAt) });
     const now = Math.floor(Date.now() / 1000);
     const state: MigrationStateRow = {
       phase: total === 0 ? 'complete' : 'migrating',
