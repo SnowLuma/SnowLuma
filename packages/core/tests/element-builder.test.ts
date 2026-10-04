@@ -16,6 +16,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { inflateSync } from 'zlib';
+import { subscribeLogs, type LogEntry } from '@snowluma/common/logger';
 
 vi.mock('@snowluma/protocol/highway/image-upload', () => ({
   uploadImageMsgInfo: vi.fn(async () => new Uint8Array([7, 8, 9])),
@@ -419,6 +420,53 @@ describe('element-builder / forward preview', () => {
     expect(xml).toContain('Alice: &lt;hello&gt;');
     expect(xml).toContain('Bob: it&apos;s &quot;ok&quot;');
     expect(xml).toContain('tSum="2"');
+  });
+
+  it('normalizes only unsupported preview characters and records the affected fields', async () => {
+    const logs: LogEntry[] = [];
+    const unsubscribe = subscribeLogs(entry => logs.push(entry));
+    const element = {
+      type: 'forward' as const,
+      resId: 'preview-controls',
+      forwardSource: 'source\u0000',
+      forwardSummary: 'summary\uFFFE',
+      forwardPrompt: 'prompt\uFFFF',
+      forwardNews: [{ text: 'a\u0001b\u000Bc\u001Fd\uD800e\uDC00f😀中文\t\n\r' }],
+    };
+    const original = structuredClone(element);
+    try {
+      const [elem] = await buildSendElems([element], { bridge: fakeBridge, groupId: 12345 });
+      const xml = inflatePrefixedPayload(elem.richMsg!.template1!);
+      expect(xml).toContain('brief="prompt�"');
+      expect(xml).toContain('source�</title>');
+      expect(xml).toContain('summary�</summary>');
+      expect(xml).toContain('a�b�c�d�e�f😀中文&#x9;&#xA;&#xD;</title>');
+      expect(element).toEqual(original);
+      expect(logs.filter(entry => entry.message.startsWith('forward preview characters normalized:'))
+        .map(entry => entry.message)).toEqual([
+        'forward preview characters normalized: field=source',
+        'forward preview characters normalized: field=news[0]',
+        'forward preview characters normalized: field=prompt',
+        'forward preview characters normalized: field=summary',
+      ]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('rejects an unrepresentable resource reference instead of rewriting its identity', async () => {
+    await expect(buildSendElems([{ type: 'forward', resId: 'res\u0001id' }], {
+      bridge: fakeBridge, groupId: 12345,
+    })).rejects.toMatchObject({ code: 'INVALID_FIELD', elementType: 'forward', field: 'resId' });
+  });
+
+  it('preserves valid Unicode boundaries and whitespace in preview text', async () => {
+    const text = '\u0009\u000A\u000D\u0020\uD7FF\uE000\uFFFD\u{10000}\u{10FFFF}';
+    const [elem] = await buildSendElems([{ type: 'forward', resId: 'valid-unicode', forwardNews: [{ text }] }], {
+      bridge: fakeBridge, groupId: 12345,
+    });
+    expect(inflatePrefixedPayload(elem.richMsg!.template1!))
+      .toContain('&#x9;&#xA;&#xD; \uD7FF\uE000\uFFFD\u{10000}\u{10FFFF}</title>');
   });
 
   it('threads forwardSource / forwardSummary / forwardPrompt / forwardNews / forwardTSum verbatim', async () => {

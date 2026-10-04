@@ -4,6 +4,7 @@ import type {
 } from '@snowluma/proto-defs/action';
 import type { Elem, GroupFileExtra, MarketFacePbReserve, MsgInfo, PokeExtra, QFaceExtra, QSmallFaceExtra } from '@snowluma/proto-defs/element';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import { createLogger } from '@snowluma/common/logger';
 import { randomUUID } from 'crypto';
 import { deflateSync } from 'zlib';
 import type { BridgeContext } from './bridge-context';
@@ -22,6 +23,7 @@ import { uploadPttMsgInfo } from './highway/ptt-upload';
 import { uploadVideoMsgInfo } from './highway/video-upload';
 
 type ProtoElem = Partial<Elem>;
+const log = createLogger('Protocol.Elements');
 
 export interface SendContext {
   bridge: BridgeContext;
@@ -271,7 +273,24 @@ function escapeXml(value: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+    .replace(/'/g, '&apos;')
+    .replace(/\t/g, '&#x9;')
+    .replace(/\n/g, '&#xA;')
+    .replace(/\r/g, '&#xD;');
+}
+
+function xmlPreviewText(value: string): string {
+  // Unicode mode preserves supplementary characters and replaces lone surrogates.
+  // eslint-disable-next-line no-control-regex
+  return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uD800-\uDFFF\uFFFE\uFFFF]/gu, '\uFFFD');
+}
+
+function escapeForwardPreview(value: string, field: string): string {
+  const normalized = xmlPreviewText(value);
+  if (normalized !== value) {
+    log.debug('forward preview characters normalized: field=%s', field);
+  }
+  return escapeXml(normalized);
 }
 
 function makeForwardElem(element: MessageElement): ProtoElem {
@@ -303,20 +322,26 @@ function makeForwardElem(element: MessageElement): ProtoElem {
   // LightApp because their forwardUuid must match a piggyback actionCommand
   // in the outer long-message body.
   if (!element.forwardUuid) {
-    const titles = news.map((item) =>
-      '<title color="#777777" size="26">' + escapeXml(item.text ?? '') + '</title>',
+    if (xmlPreviewText(resId) !== resId) {
+      throw new MessageElementValidationError(
+        'INVALID_FIELD', 'forward resId contains invalid characters', 'forward', 'resId',
+      );
+    }
+    const escapedSource = escapeForwardPreview(source, 'source');
+    const titles = news.map((item, index) =>
+      '<title color="#777777" size="26">' + escapeForwardPreview(item.text ?? '', `news[${index}]`) + '</title>',
     ).join('');
     const xml = "<?xml version='1.0' encoding='UTF-8' standalone='yes'?> "
       + '<msg serviceID="35" templateID="1" action="viewMultiMsg"'
-      + ' brief="' + escapeXml(prompt) + '"'
+      + ' brief="' + escapeForwardPreview(prompt, 'prompt') + '"'
       + ' m_fileName="' + escapeXml(uniseq) + '"'
       + ' m_resid="' + escapeXml(resId) + '"'
       + ' tSum="' + tSum + '" flag="3">'
       + '<item layout="1"> '
-      + '<title color="#000000" size="34">' + escapeXml(source) + '</title>'
+      + '<title color="#000000" size="34">' + escapedSource + '</title>'
       + titles
-      + ' <hr></hr> <summary color="#808080">' + escapeXml(summary) + '</summary>'
-      + '</item> <source name="' + escapeXml(source) + '"></source> </msg>';
+      + ' <hr></hr> <summary color="#808080">' + escapeForwardPreview(summary, 'summary') + '</summary>'
+      + '</item> <source name="' + escapedSource + '"></source> </msg>';
     return {
       richMsg: {
         template1: makeDeflatedPayload(xml),
