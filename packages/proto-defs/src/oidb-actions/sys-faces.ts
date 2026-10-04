@@ -1,6 +1,6 @@
 // 0x9154_1 — QQ system face / emoji catalog protobuf shapes.
 
-import type { pb, pb_repeated, int_32 } from '@snowluma/proton';
+import type { pb, pb_repeated, int_32, bool } from '@snowluma/proton';
 
 export interface OidbFaceResourceUrl {
   baseUrl?: pb<1, string>;
@@ -48,4 +48,13 @@ export interface OidbFetchSysFacesResp {
   commonFace?:       pb<2, OidbFaceContent>;
   specialBigFace?:   pb<3, OidbFaceContent>;
   specialMagicFace?: pb<4, OidbFaceContent>;
+}
+
+export interface OidbFetchSysFaceReq {
+  qSid?: pb<1, string>;
+}
+
+export interface OidbFetchSysFaceResp {
+  emoji?: pb<1, OidbFaceEmoji>;
+  field2?: pb<2, bool>;
 }

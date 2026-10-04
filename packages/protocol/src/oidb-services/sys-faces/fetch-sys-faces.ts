@@ -44,12 +44,12 @@ export interface SysFacePackEntry {
 }
 
 interface FaceLocation {
-  source: 'common' | 'special-big' | 'magic';
+  source: 'common' | 'special-big' | 'magic' | 'single';
   packIndex: number;
   faceIndex: number;
 }
 
-function emojiToEntry(e: OidbFaceEmoji, location: FaceLocation): SysFaceEntry | null {
+export function emojiToEntry(e: OidbFaceEmoji, location: FaceLocation): SysFaceEntry | null {
   const qSid = e.qSid;
   if (qSid == null || qSid === '') {
     const metadata = protobuf_getUnknownFieldMetadata(e);

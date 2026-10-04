@@ -1,10 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { QFaceExtra, QSmallFaceExtra } from '@snowluma/proto-defs/element';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
   OidbFetchSysFacesReq,
   OidbFetchSysFacesResp,
+  OidbFetchSysFaceReq,
+  OidbFetchSysFaceResp,
 } from '@snowluma/proto-defs/oidb-actions/sys-faces';
 import {
   FetchSysFaces,
@@ -22,6 +24,7 @@ import {
   type SysFaceCatalogStorage,
 } from '../src/sys-face-store';
 import { buildSendElems } from '../src/element-builder';
+import { FetchSysFace } from '../src/oidb-services/sys-faces/fetch-sys-face';
 
 function entry(
   qSid: string,
@@ -124,6 +127,36 @@ describe('FetchSysFaces protocol contract', () => {
       field3: null,
       field4: null,
     });
+  });
+});
+
+describe('FetchSysFace protocol contract', () => {
+  it('queries the requested id and preserves animation metadata from the response', async () => {
+    const sendRawPacket = vi.fn(async (_command: string, _body: Uint8Array) => ({
+      success: true, gotResponse: true, errorCode: 0, errorMessage: '',
+      responseData: protobuf_encode<OidbBase<OidbFetchSysFaceResp>>({
+        body: { emoji: {
+          qSid: '507', qDes: '/test', aniStickerType: 1,
+          aniStickerPackId: 4, aniStickerId: 107,
+          aniStickerWidth: 200, aniStickerHeight: 240,
+        } },
+      }),
+    }));
+    const store = new SysFaceStore({ fetchCatalog: async () => CATALOG });
+    await expect(store.resolveWire({ sendRawPacket }, 507)).resolves.toEqual({
+      kind: 'super', packId: '4', stickerId: '107', stickerType: 1,
+    });
+    expect(sendRawPacket).toHaveBeenCalledOnce();
+    const [command, bytes] = sendRawPacket.mock.calls[0]!;
+    expect(command).toBe('OidbSvcTrpcTcp.0x9155_1');
+    expect(protobuf_decode<OidbBase<OidbFetchSysFaceReq>>(bytes)).toMatchObject({
+      command: 0x9155, subCommand: 1, body: { qSid: '507' },
+    });
+    expect(store.lookup(507)).toMatchObject({ aniStickerWidth: 200, aniStickerHeight: 240 });
+  });
+
+  it('does not invent metadata for an empty lookup result', () => {
+    expect(FetchSysFace.deserialize({} as never, {})).toBeNull();
   });
 });
 
@@ -394,6 +427,7 @@ describe('SysFaceStore — persistent catalog and query seam', () => {
     });
     let fetches = 0;
     const store = new SysFaceStore({
+      fetchFace: async () => null,
       storage,
       fetchCatalog: async () => {
         fetches += 1;
@@ -574,5 +608,36 @@ describe('makeFaceElem (via buildSendElems) — three-way wire encoding', () => 
     const [element] = await buildSendElems([{ type: 'face', faceId: 504 }]);
     expect(element.commonElem?.serviceType).toBe(33);
     expect(protobuf_decode<QSmallFaceExtra>(element.commonElem!.pbElem!).faceId).toBe(504);
+  });
+});
+
+describe('system faces outside visible panels', () => {
+  it('resolves missing animation metadata once and shares concurrent lookups', async () => {
+    const fetchFace = vi.fn(async () => entry('507', 1, 4, 107));
+    const store = new SysFaceStore({ fetchCatalog: async () => CATALOG, fetchFace });
+    const [first, second] = await Promise.all([
+      store.resolveWire({} as never, 507), store.resolveWire({} as never, 507),
+    ]);
+    expect(first).toEqual({ kind: 'super', packId: '4', stickerId: '107', stickerType: 1 });
+    expect(second).toEqual(first);
+    expect(store.lookup(507)?.qSid).toBe('507');
+    await store.resolveWire({} as never, 507);
+    expect(fetchFace).toHaveBeenCalledOnce();
+  });
+
+  it('does not silently send a small face after a lookup failure and permits retry', async () => {
+    const fetchFace = vi.fn().mockRejectedValueOnce(new Error('lookup failed'))
+      .mockResolvedValueOnce(entry('507', 1, 4, 107));
+    const store = new SysFaceStore({ fetchCatalog: async () => CATALOG, fetchFace });
+    await expect(store.resolveWire({} as never, 507)).rejects.toThrow('lookup failed');
+    await expect(store.resolveWire({} as never, 507)).resolves.toMatchObject({ kind: 'super' });
+  });
+
+  it('rejects mismatched or incomplete animation metadata', async () => {
+    for (const face of [entry('506', 1, 4, 107), entry('507', 1, 4, null)]) {
+      const store = new SysFaceStore({ fetchCatalog: async () => CATALOG, fetchFace: async () => face });
+      await expect(store.resolveWire({} as never, 507)).rejects.toThrow();
+      expect(store.lookup(507)).toBeNull();
+    }
   });
 });

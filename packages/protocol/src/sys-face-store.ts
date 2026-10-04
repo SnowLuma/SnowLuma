@@ -9,6 +9,7 @@ import {
   type SysFaceEntry,
   type SysFacePackEntry,
 } from './oidb-services/sys-faces/fetch-sys-faces';
+import { FetchSysFace } from './oidb-services/sys-faces/fetch-sys-face';
 import type { OidbSender } from './oidb-service';
 
 export type { SysFaceEntry, SysFacePackEntry } from './oidb-services/sys-faces/fetch-sys-faces';
@@ -36,6 +37,7 @@ export interface SysFaceCatalogStorage {
 export interface SysFaceStoreOptions {
   storage?: SysFaceCatalogStorage;
   fetchCatalog?: (sender: OidbSender) => Promise<SysFacePackEntry[]>;
+  fetchFace?: (sender: OidbSender, faceId: number) => Promise<SysFaceEntry | null>;
   now?: () => number;
 }
 
@@ -69,6 +71,9 @@ export class SysFaceStore {
   private storage: SysFaceCatalogStorage | null;
   private readonly fetchCatalog: (sender: OidbSender) => Promise<SysFacePackEntry[]>;
   private readonly now: () => number;
+  private readonly fetchFace: NonNullable<SysFaceStoreOptions['fetchFace']>;
+  private readonly singleFaces = new Map<number, SysFaceEntry | null>();
+  private readonly singleInflight = new Map<number, Promise<SysFaceEntry | null>>();
   private cacheLoadCompleted = false;
   private cacheLoadInflight: Promise<boolean> | null = null;
   private refreshInflight: Promise<SysFacePackEntry[]> | null = null;
@@ -80,6 +85,7 @@ export class SysFaceStore {
     this.storage = options.storage ?? null;
     this.fetchCatalog = options.fetchCatalog ?? ((sender) => FetchSysFaces.invoke(sender));
     this.now = options.now ?? Date.now;
+    this.fetchFace = options.fetchFace ?? ((sender, faceId) => FetchSysFace.invoke(sender, { faceId }));
   }
 
   /** Configure persistence before the shared store has been used. */
@@ -94,10 +100,11 @@ export class SysFaceStore {
    * obtained a full catalog and want to reuse the same query/send semantics. */
   load(packs: SysFacePackEntry[]): void {
     this.catalog = indexCatalog(validateCatalog(packs));
+    this.singleFaces.clear();
   }
 
   lookup(faceId: number): SysFaceEntry | null {
-    return this.catalog?.byId.get(String(faceId)) ?? null;
+    return this.catalog?.byId.get(String(faceId)) ?? this.singleFaces.get(faceId) ?? null;
   }
 
   /** Case-insensitive query over id, description, aliases, and pack name. */
@@ -183,6 +190,7 @@ export class SysFaceStore {
         };
         this.catalog = indexCatalog(validated);
         this.refreshedInProcess = true;
+        this.singleFaces.clear();
         if (this.storage) await this.storage.save(snapshot);
         log.info(
           'system face catalog refreshed: entries=%d uniqueFaces=%d overlaps=%d packs=%d elapsedMs=%d',
@@ -208,21 +216,44 @@ export class SysFaceStore {
     return this.refreshInflight;
   }
 
-  /** Resolve one id. A miss from a persisted snapshot causes exactly one
-   * authoritative refresh; a miss from that fresh catalog remains null. */
+  /** Panel membership does not determine whether a face can be animated. */
   async resolve(sender: OidbSender, faceId: number): Promise<SysFaceEntry | null> {
     await this.ensureReady(sender);
-    const cached = this.lookup(faceId);
-    if (cached || this.refreshedInProcess) return cached;
-
-    await this.refresh(sender);
-    return this.lookup(faceId);
+    let cached = this.lookup(faceId);
+    if (cached) return cached;
+    if (!this.refreshedInProcess) {
+      await this.refresh(sender);
+      cached = this.lookup(faceId);
+      if (cached) return cached;
+    }
+    if (this.singleFaces.has(faceId)) return this.singleFaces.get(faceId)!;
+    const pending = this.singleInflight.get(faceId);
+    if (pending) return pending;
+    const request = this.fetchFace(sender, faceId).then((entry) => {
+      if (entry) {
+        if (entry.qSid !== String(faceId)) {
+          throw new Error(`system face lookup id mismatch: requested=${faceId} received=${entry.qSid}`);
+        }
+        validateCatalog([{ packName: '', emojis: [entry] }]);
+        faceWireFor(entry, faceId);
+      }
+      this.singleFaces.set(faceId, entry);
+      log.debug('system face lookup completed: id=%d found=%s animated=%s',
+        faceId, entry !== null, entry !== null && isSuperFaceEntry(entry));
+      return entry;
+    }).catch((error) => {
+      log.error('system face lookup failed: id=%d error=%s',
+        faceId, error instanceof Error ? error.message : String(error));
+      throw error;
+    }).finally(() => { this.singleInflight.delete(faceId); });
+    this.singleInflight.set(faceId, request);
+    return request;
   }
 
   async resolveWire(sender: OidbSender, faceId: number): Promise<FaceWire> {
     const entry = await this.resolve(sender, faceId);
     if (!entry) {
-      log.debug('system face id %d is not listed in the catalog; sending its small representation', faceId);
+      log.debug('system face id %d has no metadata after lookup; sending its small representation', faceId);
     }
     return faceWireFor(entry, faceId);
   }
