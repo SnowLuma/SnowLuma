@@ -810,6 +810,7 @@ describe('buildApiContext contact reads', () => {
             uin: 20002,
             uid: 'u_20002',
             nickname: 'stranger',
+            qid: 'qid_20002',
             remark: 'r',
             sex: 'female',
             age: 21,
@@ -822,12 +823,15 @@ describe('buildApiContext contact reads', () => {
 
     await expect(api.getStrangerInfo(20002)).resolves.toEqual({
       user_id: 20002,
+      uid: 'u_20002',
+      qid: 'qid_20002',
       nickname: 'stranger',
       remark: 'r',
       sex: 'female',
       age: 21,
       long_nick: 'hello sign',
       qq_level: 17,
+      qqLevel: 17,
       level: 17,
       status: 0,
       extStatus: 0,

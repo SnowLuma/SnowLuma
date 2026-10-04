@@ -12,6 +12,11 @@ export interface UserProfileInfo {
    *  Already requested in `fetchUserProfile` keys[]; LagrangeV2
    *  `FetchStrangerService.cs` confirms `// Level`. */
   level: number;
+  regTime?: number;
+  vipFlag?: boolean;
+  yearVipFlag?: boolean;
+  svipFlag?: boolean;
+  vipLevel?: number;
   status?: number;
   extStatus?: number;
   batteryStatus?: number;

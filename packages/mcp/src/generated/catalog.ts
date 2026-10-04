@@ -5345,6 +5345,14 @@ export const ACTIONS: CatalogAction[] = [
           "type": "string",
           "description": "群等级"
         },
+        "qq_level": {
+          "type": "integer",
+          "description": "QQ 等级，仅在账号资料可用时返回"
+        },
+        "qage": {
+          "type": "integer",
+          "description": "按注册时间计算的完整周年数（UTC），注册时间不可用时省略"
+        },
         "role": {
           "type": "string",
           "enum": [
@@ -5515,6 +5523,14 @@ export const ACTIONS: CatalogAction[] = [
           "level": {
             "type": "string",
             "description": "群等级"
+          },
+          "qq_level": {
+            "type": "integer",
+            "description": "QQ 等级，仅在账号资料可用时返回"
+          },
+          "qage": {
+            "type": "integer",
+            "description": "按注册时间计算的完整周年数（UTC），注册时间不可用时省略"
           },
           "role": {
             "type": "string",
@@ -7588,13 +7604,21 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_stranger_info",
     "aliases": [],
     "summary": "获取陌生人信息",
-    "returns": "用户资料：QQ 号、昵称、好友备注、性别、年龄与个性签名，命中资料时另含等级、企点标志与企业名称。",
+    "returns": "用户资料，含账号标识、等级别名和可用的注册时间、会员信息。注册时间或会员信息未返回时省略对应字段；登录天数暂无可靠来源，不返回占位值。",
     "returnsSchema": {
       "type": "object",
       "properties": {
         "user_id": {
           "type": "integer",
           "description": "QQ 号"
+        },
+        "uid": {
+          "type": "string",
+          "description": "账号唯一标识（仅查到资料时返回）"
+        },
+        "qid": {
+          "type": "string",
+          "description": "自定义账号标识（仅查到资料时返回）"
         },
         "nickname": {
           "type": "string",
@@ -7619,6 +7643,26 @@ export const ACTIONS: CatalogAction[] = [
         "qq_level": {
           "type": "integer",
           "description": "QQ 等级（仅查到资料时返回）"
+        },
+        "qqLevel": {
+          "type": "integer",
+          "description": "QQ 等级，同 qq_level"
+        },
+        "reg_time": {
+          "type": "integer",
+          "description": "注册时间戳（秒），不可用时省略"
+        },
+        "is_vip": {
+          "type": "boolean",
+          "description": "超级会员状态，兼容 NapCat；不可用时省略"
+        },
+        "is_years_vip": {
+          "type": "boolean",
+          "description": "年费会员状态，不可用时省略"
+        },
+        "vip_level": {
+          "type": "integer",
+          "description": "会员等级，不可用时省略"
         },
         "level": {
           "type": "integer",

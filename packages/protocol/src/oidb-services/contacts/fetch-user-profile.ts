@@ -52,9 +52,29 @@ export function applyOnlineStatus(
   }
 }
 
+export function applyProfileDetails(info: UserProfileInfo, numMap: Map<number, number>): void {
+  const registered = numMap.get(20026);
+  if (registered !== undefined && registered > 0) info.regTime = registered;
+  const flags = numMap.get(41756);
+  if (flags !== undefined) {
+    info.vipFlag = (flags & 1) !== 0;
+    info.yearVipFlag = (flags & 2) !== 0;
+    info.svipFlag = (flags & 0x100) !== 0;
+  }
+  const level = numMap.get(41757);
+  if (level !== undefined) {
+    const mask = level & 0xFFF;
+    if (mask !== 0) info.vipLevel = 33 - Math.clz32(mask);
+    else if (info.vipFlag || info.yearVipFlag || info.svipFlag || numMap.get(42241) === 1) {
+      info.vipLevel = 1;
+    } else if (flags !== undefined && numMap.has(42241)) info.vipLevel = 0;
+  }
+}
+
 const REQUESTED_KEYS = [
   20002, 27394, 20009, 20031, 101, 103, 102, 20020, 20003, 20026,
   105, 27372, 27406, 20037,
+  41756, 41757, 42241,
   // 企点标志（QQ 企点 / 企业版 QQ 账号）：员工号实测为 1，普通账号为 0
   40410, 42031,
 ];
@@ -119,6 +139,7 @@ export namespace FetchUserProfile {
       info.age = numMap.get(20037) ?? 0;
       info.level = numMap.get(105) ?? 0;
       applyOnlineStatus(info, bytesMap, numMap);
+      applyProfileDetails(info, numMap);
       // 企点标志：40410 / 42031，服务器仅在返回时才出现（普通账号缺省 → 0）
       info.qidianMasterFlag = numMap.get(42031) ?? 0;
       info.qidianCrewFlag = numMap.get(40410) ?? 0;

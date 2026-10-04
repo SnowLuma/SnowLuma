@@ -2,11 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
-  AvatarInfo, OidbUserInfoRequest, OidbUserInfoResponse,
+  AvatarInfo, OidbUserInfoRequest, OidbUserInfoByUidRequest, OidbUserInfoResponse,
 } from '@snowluma/proto-defs/oidb-actions/base';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 
 import { FetchUserProfile } from '../../../src/oidb-services/contacts/fetch-user-profile';
+import { FetchUserProfileByUid } from '../../../src/oidb-services/contacts/fetch-user-profile-by-uid';
 
 function makeSender(body?: OidbUserInfoResponse) {
   const responseData = body !== undefined
@@ -24,6 +25,48 @@ describe('FetchUserProfile namespace', () => {
   });
 
   describe('invoke (e2e)', () => {
+    it.each(['uin', 'uid'])('preserves registration and membership through the %s request', async form => {
+      const sender = makeSender({ body: { uin: 10001, uid: 'u_test', properties: {
+        numberProperties: [
+          { number1: 20026, number2: 1_200_000_000 },
+          { number1: 41756, number2: 0x103 },
+          { number1: 41757, number2: 1 << 5 },
+          { number1: 42241, number2: 0 },
+        ],
+      } } });
+      const profile = form === 'uin'
+        ? await FetchUserProfile.invoke(sender, { uin: 10001 })
+        : await FetchUserProfileByUid.invoke(sender, { uid: 'u_test' });
+      expect(profile).toMatchObject({
+        regTime: 1_200_000_000, vipFlag: true, yearVipFlag: true, svipFlag: true, vipLevel: 7,
+      });
+      const [, bytes] = sender.sendRawPacket.mock.calls[0]!;
+      const request = form === 'uin'
+        ? protobuf_decode<OidbBase<OidbUserInfoRequest>>(bytes)
+        : protobuf_decode<OidbBase<OidbUserInfoByUidRequest>>(bytes);
+      expect(request.body?.keys?.map(k => k.key))
+        .toEqual(expect.arrayContaining([20026, 41756, 41757, 42241]));
+    });
+
+    it.each([
+      [0, 0, 0], [1, 0, 1], [0x100, 1, 2], [0x103, 0x801, 13],
+    ])('decodes membership flags %i and level mask %i as level %i', async (flags, mask, level) => {
+      const sender = makeSender({ body: { uin: 10001, properties: { numberProperties: [
+        { number1: 41756, number2: flags }, { number1: 41757, number2: mask },
+        { number1: 42241, number2: 0 },
+      ] } } });
+      expect(await FetchUserProfile.invoke(sender, { uin: 10001 })).toMatchObject({
+        vipFlag: !!(flags & 1), yearVipFlag: !!(flags & 2), svipFlag: !!(flags & 0x100), vipLevel: level,
+      });
+    });
+
+    it('keeps missing registration and membership fields unavailable', async () => {
+      const profile = await FetchUserProfile.invoke(makeSender({ body: { uin: 10001 } }), { uin: 10001 });
+      for (const name of ['regTime', 'vipFlag', 'yearVipFlag', 'svipFlag', 'vipLevel']) {
+        expect(profile).not.toHaveProperty(name);
+      }
+    });
+
     it('routes to OidbSvcTrpcTcp.0xfe1_2 with reserved=1', async () => {
       const sender = makeSender({ body: { uin: 10001, uid: 'u' } as any });
       await FetchUserProfile.invoke(sender, { uin: 10001 });

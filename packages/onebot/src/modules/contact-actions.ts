@@ -256,11 +256,12 @@ export async function getGroupMemberInfo(
   // 企点标志（#404 后续 PR）：优先读身份缓存，无缓存时再按需拉取一次用户资料。
   // 均为 best-effort —— 失败时回退为 0，不影响成员信息主流程。
   let profile = cachedQidianProfile(bridge, userId);
-  if (!profile) {
+  if (noCache || !profile) {
     try {
       profile = await bridge.apis.contacts.fetchUserProfile(userId);
-    } catch {
-      // profile enrichment is best-effort; fall back to all-zero flags
+    } catch (error) {
+      log.warn('group member profile unavailable: group=%d member=%d error=%s',
+        groupId, userId, error instanceof Error ? error.message : String(error));
     }
   }
   return formatGroupMember(groupId, m, profile ?? undefined);
@@ -304,13 +305,20 @@ export async function getGroupFiles(
 function formatStrangerInfo(p: UserProfileInfo, corp?: QidianCorpInfo | null): JsonObject {
   return {
     user_id: p.uin,
+    uid: p.uid,
+    qid: p.qid,
     nickname: p.nickname,
     remark: p.remark,
     sex: p.sex,
     age: p.age,
     long_nick: p.sign,
     qq_level: p.level,
+    qqLevel: p.level,
     level: p.level,
+    ...(p.regTime !== undefined ? { reg_time: p.regTime } : {}),
+    ...(p.svipFlag !== undefined ? { is_vip: p.svipFlag } : {}),
+    ...(p.yearVipFlag !== undefined ? { is_years_vip: p.yearVipFlag } : {}),
+    ...(p.vipLevel !== undefined ? { vip_level: p.vipLevel } : {}),
     status: p.status ?? 0,
     extStatus: p.extStatus ?? 0,
     ext_status: p.extStatus ?? 0,
@@ -563,6 +571,7 @@ function formatGroupMember(
       `group member robot classification unavailable: group=${groupId} member=${member.uin}`,
     );
   }
+  const qage = accountAge(profile?.regTime);
   return {
     group_id: groupId,
     user_id: member.uin,
@@ -575,6 +584,8 @@ function formatGroupMember(
     last_sent_time: member.lastSentTime,
     shut_up_timestamp: member.shutUpTime,
     level: String(member.level),
+    ...(profile ? { qq_level: profile.level } : {}),
+    ...(qage !== undefined ? { qage } : {}),
     role: member.role,
     title: member.title,
     // OneBot v11 completeness (#197). QQ NT doesn't expose these, so they're
@@ -590,6 +601,17 @@ function formatGroupMember(
     qidian_crew_flag: profile?.qidianCrewFlag ?? 0,
     qidian_crew_flag_2: profile?.qidianCrewFlag2 ?? 0,
   };
+}
+
+/** Completed UTC calendar years since registration; unavailable dates stay absent. */
+function accountAge(regTime: number | undefined): number | undefined {
+  if (regTime === undefined || !Number.isSafeInteger(regTime) || regTime <= 0) return undefined;
+  const now = new Date();
+  const registered = new Date(regTime * 1000);
+  if (!Number.isFinite(registered.getTime()) || registered > now) return undefined;
+  const years = now.getUTCFullYear() - registered.getUTCFullYear();
+  registered.setUTCFullYear(now.getUTCFullYear());
+  return years - (registered > now ? 1 : 0);
 }
 
 /** Best-effort read of a cached user profile's qidian flags. Triggers no
