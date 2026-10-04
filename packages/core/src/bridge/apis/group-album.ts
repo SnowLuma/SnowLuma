@@ -3,6 +3,7 @@ import { createLogger } from '@snowluma/common/logger';
 import type {
   AlbumCreator,
   CommentReqBodyHeader,
+  CommentReqBodyUserWrap,
   CommentReqPhotoInfo,
   CommentRespData,
   DeleteMediasRequest,
@@ -336,6 +337,15 @@ export class GroupAlbumApi {
       albumId,
       batchId,
     );
+    const headerBytes = feed.rawCellCommon
+      ?? protobuf_encode<CommentReqBodyHeader>(commentReqHeader(feed.cellCommon));
+    const userBytes = feed.rawCellUser
+      ?? (ownerUin
+        ? protobuf_encode<CommentReqBodyUserWrap>({ field1: { uin: ownerUin } })
+        : undefined);
+    const mediaBytes = feed.rawCellMedia
+      ?? protobuf_encode<CommentReqPhotoInfo>(photoInfo);
+    const commenterUinNum = numericUin(uin);
 
     const body = protobuf_encode<DoQunCommentRequest>({
       field1: DO_QUN_COMMENT_SEQ,
@@ -345,12 +355,15 @@ export class GroupAlbumApi {
         groupId: groupId.toString(),
         field3: 2,
         reqBody: {
-          field1: commentReqHeader(feed.cellCommon),
-          ...(ownerUin ? { field2: { field1: { uin: ownerUin } } } : {}),
-          field5: photoInfo,
+          field1: headerBytes,
+          ...(userBytes ? { field2: userBytes } : {}),
+          field5: mediaBytes,
         },
         field5: {
-          user: { uin },
+          user: {
+            uin,
+            ...(commenterUinNum !== undefined ? { uinNum: commenterUinNum } : {}),
+          },
           contents: [{ type: 0, content }],
           clientKey,
         },
@@ -552,7 +565,14 @@ export class GroupAlbumApi {
     albumId: string,
     batchId: bigint,
     lloc: string,
-  ): Promise<{ cellCommon: QunFeedCellCommon; ownerUin: string; media?: CommentReqPhotoInfo }> {
+  ): Promise<{
+    cellCommon: QunFeedCellCommon;
+    ownerUin: string;
+    media?: CommentReqPhotoInfo;
+    rawCellCommon?: Uint8Array;
+    rawCellUser?: Uint8Array;
+    rawCellMedia?: Uint8Array;
+  }> {
     const traceId = `_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
     const body = protobuf_encode<GetQunFeedDetailRequest>({
       seq: 0,
@@ -591,10 +611,14 @@ export class GroupAlbumApi {
     if (!feedId) {
       throw new Error('comment album media error: empty feed');
     }
+    const responseBytes = toBytes(result.responseData);
     return {
       cellCommon: cell ?? { feedId },
       ownerUin: feed?.cellUserInfo?.user?.uin ?? '',
       media: feed?.cellMedia,
+      rawCellCommon: nonemptyBytes(protobufSubmessage(responseBytes, [4, 2, 1, 1])),
+      rawCellUser: nonemptyBytes(protobufSubmessage(responseBytes, [4, 2, 1, 2])),
+      rawCellMedia: nonemptyBytes(protobufSubmessage(responseBytes, [4, 2, 1, 5])),
     };
   }
 }
@@ -692,6 +716,72 @@ function qunFeedCellId(
   const head = `421_1_0_${groupId}|${albumId}|${batchId}`;
   if (!lloc) return head;
   return `${head}^||^421_1_0_${groupId}|${albumId}|${lloc}^||^0`;
+}
+
+function toBytes(value: Uint8Array): Uint8Array {
+  return value instanceof Uint8Array ? value : new Uint8Array(value);
+}
+
+function nonemptyBytes(value: Uint8Array | undefined): Uint8Array | undefined {
+  return value && value.byteLength > 0 ? value : undefined;
+}
+
+function numericUin(uin: string): bigint | undefined {
+  if (!/^\d+$/.test(uin)) return undefined;
+  try {
+    return BigInt(uin);
+  } catch {
+    return undefined;
+  }
+}
+
+function readProtobufVarint(buf: Uint8Array, offset: number): { value: number; next: number } {
+  let value = 0;
+  let shift = 0;
+  let next = offset;
+  while (next < buf.length && shift <= 28) {
+    const byte = buf[next++];
+    value += (byte & 0x7f) * (2 ** shift);
+    if ((byte & 0x80) === 0) return { value, next };
+    shift += 7;
+  }
+  throw new Error('truncated protobuf varint');
+}
+
+function protobufSubmessage(buf: Uint8Array, path: readonly number[]): Uint8Array | undefined {
+  let current: Uint8Array | undefined = buf;
+  for (const fieldNo of path) {
+    if (!current) return undefined;
+    current = firstLengthDelimitedField(current, fieldNo);
+  }
+  return current;
+}
+
+function firstLengthDelimitedField(buf: Uint8Array, fieldNo: number): Uint8Array | undefined {
+  let offset = 0;
+  while (offset < buf.length) {
+    const key = readProtobufVarint(buf, offset);
+    offset = key.next;
+    const field = Math.floor(key.value / 8);
+    const wire = key.value % 8;
+    if (wire === 0) {
+      offset = readProtobufVarint(buf, offset).next;
+    } else if (wire === 1) {
+      offset += 8;
+    } else if (wire === 5) {
+      offset += 4;
+    } else if (wire === 2) {
+      const len = readProtobufVarint(buf, offset);
+      offset = len.next;
+      const end = offset + len.value;
+      if (end > buf.length) return undefined;
+      if (field === fieldNo) return buf.slice(offset, end);
+      offset = end;
+    } else {
+      return undefined;
+    }
+  }
+  return undefined;
 }
 
 function commentReqHeader(cell: QunFeedCellCommon): CommentReqBodyHeader {

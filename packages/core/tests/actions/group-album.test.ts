@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type {
+  CommentReqBodyHeader,
+  CommentReqBodyUserWrap,
+  CommentReqPhotoInfo,
   DeleteMediasRequest,
   DeleteMediasResponse,
   DoQunCommentRequest,
@@ -664,6 +667,21 @@ describe('apis/group-album', () => {
     return protobuf_decode<DoQunCommentRequest>(commentCallBytes(bridge));
   }
 
+  function headerOf(request: DoQunCommentRequest): CommentReqBodyHeader {
+    const raw = request.body?.reqBody?.field1;
+    return raw ? protobuf_decode<CommentReqBodyHeader>(raw) : {};
+  }
+
+  function userWrapOf(request: DoQunCommentRequest): CommentReqBodyUserWrap {
+    const raw = request.body?.reqBody?.field2;
+    return raw ? protobuf_decode<CommentReqBodyUserWrap>(raw) : {};
+  }
+
+  function photoOf(request: DoQunCommentRequest): CommentReqPhotoInfo {
+    const raw = request.body?.reqBody?.field5;
+    return raw ? protobuf_decode<CommentReqPhotoInfo>(raw) : {};
+  }
+
   function feedDetailRequestOf(bridge: ReturnType<typeof mockBridge>): GetQunFeedDetailRequest {
     const feedCall = bridge.sendRawPacket.mock.calls.find((call) =>
       String(call[0]).endsWith('GetQunFeedDetail'),
@@ -702,26 +720,26 @@ describe('apis/group-album', () => {
     expect(request.body).toMatchObject({
       groupId: '12345',
       field3: 2,
-      reqBody: {
-        field1: {
-          time: 1700000123n,
-          feedId: 'official-feed-id',
-        },
-        field2: { field1: { uin: '3119936551' } },
-        field5: {
-          albumId: 'album-id',
-          batchId: 77n,
-          medias: [{
-            image: { lloc: 'photo-lloc' },
-          }],
-        },
-      },
       field5: {
-        user: { uin: '10001' },
-        contents: [{ content: 'hello' }],
+        user: { uin: '10001', uinNum: 10001n },
+        contents: [{ type: 0, content: 'hello' }],
       },
     });
-    expect(request.body?.reqBody?.field5?.medias?.[0]?.type ?? 0).toBe(0);
+    expect(headerOf(request)).toMatchObject({
+      time: 1700000123n,
+      feedId: 'official-feed-id',
+    });
+    expect(userWrapOf(request).field1?.uin).toBe('3119936551');
+    expect(photoOf(request)).toMatchObject({
+      albumId: 'album-id',
+      batchId: 77n,
+      medias: [{
+        image: { lloc: 'photo-lloc' },
+      }],
+    });
+    expect(photoOf(request).medias?.[0]?.type ?? 0).toBe(0);
+    const contentBytes = request.body?.field5?.contents;
+    expect(contentBytes?.[0]?.type).toBe(0);
     expect(Buffer.from(commentCallBytes(bridge)).subarray(0, 7).toString('hex'))
       .toBe('08cf4212001a00');
   });
@@ -740,8 +758,11 @@ describe('apis/group-album', () => {
 
     await new GroupAlbumApi(bridge as never).comment(12345, 'album-id', 'photo-lloc', 'hello');
 
-    expect(commentRequestOf(bridge).body?.reqBody?.field2?.field1?.uin).toBe('3119936551');
-    expect(commentRequestOf(bridge).body?.field5?.user?.uin).toBe('10001');
+    expect(userWrapOf(commentRequestOf(bridge)).field1?.uin).toBe('3119936551');
+    expect(commentRequestOf(bridge).body?.field5?.user).toMatchObject({
+      uin: '10001',
+      uinNum: 10001n,
+    });
   });
 
   it('copies the official feed media cell instead of a reconstructed lloc-only cell', async () => {
@@ -765,16 +786,63 @@ describe('apis/group-album', () => {
 
     await new GroupAlbumApi(bridge as never).comment(12345, 'album-id', 'photo-lloc', 'hello');
 
-    expect(commentRequestOf(bridge).body?.reqBody?.field5).toMatchObject({
+    const request = commentRequestOf(bridge);
+    expect(photoOf(request)).toMatchObject({
       albumId: 'feed-album',
       batchId: 88n,
       medias: [{
         image: { lloc: 'feed-lloc' },
       }],
     });
+    const feedBytes = new Uint8Array(packFeedDetail('official-feed-id', 1700000123n, {
+      ownerUin: '3119936551',
+      cellMedia: {
+        albumId: 'feed-album',
+        batchId: 88n,
+        medias: [{ type: 0, image: { lloc: 'feed-lloc' } }],
+      },
+    }).responseData);
+    expect(Buffer.from(request.body?.reqBody?.field5 ?? [])).toEqual(
+      Buffer.from(cellBytes(feedBytes, 5) ?? []),
+    );
   });
 
-  it('writes only the official comment header fields even when the feed cell has extra locator data', async () => {
+  it('copies an unknown media-cell field through unchanged', async () => {
+    const packed = packFeedDetail('official-feed-id', 1700000123n, {
+      ownerUin: '3119936551',
+      cellMedia: {
+        albumId: 'feed-album',
+        batchId: 88n,
+        medias: [{ type: 0, image: { lloc: 'feed-lloc' } }],
+      },
+    });
+    const base = new Uint8Array(packed.responseData);
+    const original = cellBytes(base, 5);
+    expect(original).toBeDefined();
+    const injected = concatBytes([original!, pbVarintField(99, 7)]);
+    const responseData = replaceLengthDelimited(base, [4, 2, 1, 5], injected);
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockImplementation(commentMocks((cmd) => {
+      if (cmd.endsWith('GetQunFeedDetail')) {
+        return {
+          success: true,
+          gotResponse: true,
+          errorCode: 0,
+          errorMessage: '',
+          responseData: Buffer.from(responseData),
+        };
+      }
+      return undefined;
+    }));
+
+    await new GroupAlbumApi(bridge as never).comment(12345, 'album-id', 'photo-lloc', 'hello');
+
+    expect(Buffer.from(commentRequestOf(bridge).body?.reqBody?.field5 ?? [])).toEqual(
+      Buffer.from(injected),
+    );
+  });
+
+  it('copies the official comment header, including locator fields', async () => {
     const cellId = '421_1_0_964445447|album-id|2147483665^||^421_1_0_964445447|album-id|photo-lloc^||^0';
     const bridge = mockBridge();
     bridge.sendRawPacket.mockImplementation(commentMocks((cmd) => {
@@ -789,13 +857,21 @@ describe('apis/group-album', () => {
 
     await new GroupAlbumApi(bridge as never).comment(964445447, 'album-id', 'photo-lloc', 'hello');
 
-    expect(commentRequestOf(bridge).body?.reqBody?.field1).toMatchObject({
+    const request = commentRequestOf(bridge);
+    expect(headerOf(request)).toMatchObject({
+      type: 422,
       time: 1789315793n,
       feedId: '422_0_2147483665',
+      cellId,
+      field6: 3,
     });
-    expect(commentRequestOf(bridge).body?.reqBody?.field1?.type ?? 0).toBe(0);
-    expect(commentRequestOf(bridge).body?.reqBody?.field1?.cellId ?? '').toBe('');
-    expect(commentRequestOf(bridge).body?.reqBody?.field1?.field6 ?? 0).toBe(0);
+    const feedBytes = new Uint8Array(packFeedDetail('422_0_2147483665', 1789315793n, {
+      ownerUin: '3119936551',
+      cellCommon: { type: 422, cellId, field6: 3 },
+    }).responseData);
+    expect(Buffer.from(request.body?.reqBody?.field1 ?? [])).toEqual(
+      Buffer.from(cellBytes(feedBytes, 1) ?? []),
+    );
   });
 
   it('comments a video with the cover location and video media type', async () => {
@@ -816,7 +892,7 @@ describe('apis/group-album', () => {
     await new GroupAlbumApi(bridge as never).comment(12345, 'album-id', 'video-id', 'hello');
 
     expect(feedDetailRequestOf(bridge).data?.lloc).toBe('cover-lloc');
-    expect(commentRequestOf(bridge).body?.reqBody?.field5).toMatchObject({
+    expect(photoOf(commentRequestOf(bridge))).toMatchObject({
       albumId: 'album-id',
       batchId: 88n,
       medias: [{
@@ -942,3 +1018,128 @@ describe('apis/group-album', () => {
       });
   });
 });
+
+function concatBytes(parts: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
+}
+
+function pbVarint(n: number): Uint8Array {
+  const bytes: number[] = [];
+  let value = n;
+  while (value > 0x7f) {
+    bytes.push((value & 0x7f) | 0x80);
+    value = Math.floor(value / 128);
+  }
+  bytes.push(value);
+  return Uint8Array.from(bytes);
+}
+
+function pbVarintField(field: number, n: number): Uint8Array {
+  return concatBytes([pbVarint((field << 3) | 0), pbVarint(n)]);
+}
+
+function readTestVarint(buf: Uint8Array, offset: number): { value: number; next: number } {
+  let value = 0;
+  let shift = 0;
+  let next = offset;
+  while (next < buf.length && shift <= 28) {
+    const byte = buf[next++];
+    value += (byte & 0x7f) * (2 ** shift);
+    if ((byte & 0x80) === 0) return { value, next };
+    shift += 7;
+  }
+  throw new Error('truncated protobuf varint');
+}
+
+function cellBytes(buf: Uint8Array, fieldNo: number): Uint8Array | undefined {
+  return lengthDelimitedAt(buf, [4, 2, 1, fieldNo]);
+}
+
+function lengthDelimitedAt(buf: Uint8Array, path: number[]): Uint8Array | undefined {
+  let current: Uint8Array | undefined = buf;
+  for (const fieldNo of path) {
+    if (!current) return undefined;
+    current = firstDelimited(current, fieldNo);
+  }
+  return current;
+}
+
+function firstDelimited(buf: Uint8Array, fieldNo: number): Uint8Array | undefined {
+  let offset = 0;
+  while (offset < buf.length) {
+    const key = readTestVarint(buf, offset);
+    offset = key.next;
+    const field = Math.floor(key.value / 8);
+    const wire = key.value % 8;
+    if (wire === 0) {
+      offset = readTestVarint(buf, offset).next;
+    } else if (wire === 1) {
+      offset += 8;
+    } else if (wire === 5) {
+      offset += 4;
+    } else if (wire === 2) {
+      const len = readTestVarint(buf, offset);
+      offset = len.next;
+      const end = offset + len.value;
+      if (end > buf.length) return undefined;
+      if (field === fieldNo) return buf.slice(offset, end);
+      offset = end;
+    } else {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function replaceLengthDelimited(buf: Uint8Array, path: number[], replacement: Uint8Array): Uint8Array {
+  const [fieldNo, ...rest] = path;
+  if (fieldNo === undefined) return replacement;
+  const parts: Uint8Array[] = [];
+  let offset = 0;
+  let replaced = false;
+  while (offset < buf.length) {
+    const keyStart = offset;
+    const key = readTestVarint(buf, offset);
+    offset = key.next;
+    const field = Math.floor(key.value / 8);
+    const wire = key.value % 8;
+    if (wire === 2) {
+      const len = readTestVarint(buf, offset);
+      const innerStart = len.next;
+      const innerEnd = innerStart + len.value;
+      const inner = buf.slice(innerStart, innerEnd);
+      if (!replaced && field === fieldNo) {
+        const nextInner = rest.length > 0
+          ? replaceLengthDelimited(inner, rest, replacement)
+          : replacement;
+        parts.push(concatBytes([
+          buf.slice(keyStart, offset),
+          pbVarint(nextInner.length),
+          nextInner,
+        ]));
+        replaced = true;
+      } else {
+        parts.push(buf.slice(keyStart, innerEnd));
+      }
+      offset = innerEnd;
+    } else if (wire === 0) {
+      offset = readTestVarint(buf, offset).next;
+      parts.push(buf.slice(keyStart, offset));
+    } else if (wire === 1) {
+      offset += 8;
+      parts.push(buf.slice(keyStart, offset));
+    } else if (wire === 5) {
+      offset += 4;
+      parts.push(buf.slice(keyStart, offset));
+    } else {
+      throw new Error(`unsupported wire type ${wire}`);
+    }
+  }
+  return concatBytes(parts);
+}
