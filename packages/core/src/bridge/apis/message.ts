@@ -412,6 +412,14 @@ export class MessageApi {
     }
 
     const seq = response.groupSequence ?? 0;
+    if (seq <= 0) {
+      log.warn(
+        'group message delivery unconfirmed: group=%d random=%d result=%s sequence=%s time=%s responseBytes=%d',
+        groupId, random, response.result, response.groupSequence,
+        response.timestamp1, result.responseData.length,
+      );
+      throw new Error('group message delivery was not confirmed: QQ returned no message receipt; check the conversation before retrying');
+    }
     const messageId = (random & 0x7FFFFFFF) || seq;
     const timestamp = response.timestamp1 ?? Math.floor(Date.now() / 1000);
     return { messageId, sequence: seq, clientSequence: 0, random, timestamp };
