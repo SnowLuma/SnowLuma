@@ -182,5 +182,12 @@ export async function uploadImageMsgInfo(
     label: 'image',
   });
 
-  return finalizeMediaMsgInfo(upload, pic);
+  const encoded = finalizeMediaMsgInfo(upload, pic);
+  // Retain successful upload metadata for the caller's self-sent history.
+  Object.assign(element, {
+    md5Hex: image.md5Hex, sha1Hex: image.sha1Hex, fileSize: image.fileSize,
+    fileName: image.fileName, width: image.width, height: image.height,
+    picFormat: image.picFormat, subType: image.subType, summary: image.summary,
+  });
+  return encoded;
 }

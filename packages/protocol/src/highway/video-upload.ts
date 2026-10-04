@@ -437,7 +437,14 @@ export async function uploadVideoMsgInfo(
     });
 
     log.debug('video upload completed: md5=%s scene=%s', video.md5Hex, isGroup ? 'group' : 'c2c');
-    return finalizeMediaMsgInfo(upload);
+    const encoded = finalizeMediaMsgInfo(upload);
+    const mediaNode = upload.msgInfo?.msgInfoBody?.[0]?.index;
+    Object.assign(element, {
+      md5Hex: video.md5Hex, sha1Hex: video.sha1Hex, fileSize: video.fileSize,
+      fileName: 'nya.mp4', duration: video.duration, width: video.width, height: video.height, videoFormat: 0,
+      fileId: mediaNode?.fileUuid, mediaNode,
+    });
+    return encoded;
   } finally {
     await video.cleanup();
   }

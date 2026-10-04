@@ -49,6 +49,15 @@ describe('video-upload', () => {
     vi.mocked(pipeline.finalizeMediaMsgInfo).mockClear();
   });
 
+  it('retains successful upload metadata for self-sent history', async () => {
+    const node = { fileUuid: 'uploaded-resource', storeId: 1, info: { fileSize: 1234 } };
+    vi.mocked(pipeline.runNtv2Upload).mockResolvedValueOnce({ msgInfo: { msgInfoBody: [{ index: node }] } } as any);
+    const element = { ...FINGERPRINT };
+    await uploadVideoMsgInfo({} as any, true, 12345, element);
+    expect(element).toMatchObject({ fileId: 'uploaded-resource', mediaNode: node, md5Hex: 'aa', sha1Hex: 'bb' });
+    expect(element.fileName).toBeTruthy();
+  });
+
   it('group: 0x11EA_100 + GROUP_VIDEO_CMD_ID for main, GROUP_VIDEO_THUMB_CMD_ID for thumb', async () => {
     await uploadVideoMsgInfo({} as any, true, 12345, FINGERPRINT);
     const args = vi.mocked(pipeline.runNtv2Upload).mock.calls[0]![0];

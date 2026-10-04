@@ -240,7 +240,14 @@ export async function uploadPttMsgInfo(
     });
 
     mergePttWaveform(upload, ptt.waveform);
-    return finalizeMediaMsgInfo(upload);
+    const encoded = finalizeMediaMsgInfo(upload);
+    const mediaNode = upload.msgInfo?.msgInfoBody?.[0]?.index;
+    Object.assign(element, {
+      md5Hex: ptt.md5Hex, sha1Hex: ptt.sha1Hex, fileSize: ptt.fileSize,
+      fileName: ptt.fileName, duration: ptt.duration, voiceFormat: ptt.voiceFormat,
+      fileId: mediaNode?.fileUuid, mediaNode,
+    });
+    return encoded;
   } finally {
     for (const fn of ptt.cleanups) {
       try { fn(); } catch { /* best-effort cleanup */ }

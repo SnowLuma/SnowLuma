@@ -1,3 +1,5 @@
+import type { MessageElement } from '../../src/events';
+import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
@@ -24,8 +26,13 @@ describe('image sticker presentation (#468)', () => {
       };
     });
     const bridge = { identity: { uin: '10001' }, sendRawPacket } as unknown as BridgeContext;
-    const bytes = await uploadImageMsgInfo(bridge, isGroup, isGroup ? 123 : 'u_peer', {
-      type: 'image', url: png, subType: 1, summary: '[收藏表情]',
+    const element: MessageElement = { type: 'image', url: png, subType: 1, summary: '[收藏表情]' };
+    const bytes = await uploadImageMsgInfo(bridge, isGroup, isGroup ? 123 : 'u_peer', element);
+    const imageBytes = Buffer.from(png.slice('base64://'.length), 'base64');
+    expect(element).toMatchObject({
+      md5Hex: createHash('md5').update(imageBytes).digest('hex'),
+      sha1Hex: createHash('sha1').update(imageBytes).digest('hex'),
+      fileSize: imageBytes.length, width: 1, height: 1, picFormat: 1001,
     });
     const sent = protobuf_decode<EncodableMediaMsgInfo>(bytes);
     expect(sendRawPacket).toHaveBeenCalledTimes(1);

@@ -30,6 +30,15 @@ describe('ptt-upload', () => {
     vi.mocked(pipeline.finalizeMediaMsgInfo).mockClear();
   });
 
+  it('retains successful upload metadata for self-sent history', async () => {
+    const node = { fileUuid: 'uploaded-resource', storeId: 1, info: { fileSize: 1234 } };
+    vi.mocked(pipeline.runNtv2Upload).mockResolvedValueOnce({ msgInfo: { msgInfoBody: [{ index: node }] } } as any);
+    const element = { ...FINGERPRINT };
+    await uploadPttMsgInfo({} as any, true, 12345, element);
+    expect(element).toMatchObject({ fileId: 'uploaded-resource', mediaNode: node, md5Hex: 'aa', sha1Hex: 'bb' });
+    expect(element.fileName).toBeTruthy();
+  });
+
   it('group: 0x126E_100 + GROUP_PTT_CMD_ID + group-flavored bytesGeneralFlags', async () => {
     await uploadPttMsgInfo({} as any, true, 12345, FINGERPRINT);
     const args = vi.mocked(pipeline.runNtv2Upload).mock.calls[0]![0];
