@@ -530,7 +530,8 @@ describe('convertEvent — message elements', () => {
   it('reply: self-sent private targets use the outgoing lookup namespace', async () => {
     const calls: unknown[][] = [];
     const seg = await segment(
-      { type: 'reply', replySeq: 5, replySenderUin: SELF_ID, replyTime: 1234 },
+      { type: 'reply', replySeq: 5, replySenderUin: SELF_ID, replyTime: 1234,
+        replyElements: [{ type: 'text', text: 'quoted text' }] },
       {
         messageIdResolver: (...args) => {
           calls.push(args);
@@ -546,6 +547,7 @@ describe('convertEvent — message elements', () => {
       5,
       PRIVATE_SENT_MESSAGE_EVENT,
       1234,
+      [{ type: 'text', text: 'quoted text' }],
     ]);
   });
 

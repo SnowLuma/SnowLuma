@@ -947,6 +947,25 @@ describe('MessageStore', () => {
       expect(store.resolvePrivateReplyMessageId(peerId, 1101, true, sentAt,
         [{ type: 'text', text: 'same text' }])).toBe(101);
     });
+
+    it.each([
+      ['truncated text', 'short', { type: 'text', data: { text: 'short but longer' } }],
+      ['media label', '[语音]', { type: 'record', data: { file: 'voice.amr' } }],
+    ])('does not confuse plain text with a competing %s preview', (_name, text, other) => {
+      for (const [id, message] of [[101, [{ type: 'text', data: { text } }]], [102, [other]]] as const) {
+        store.storeMeta(id, {
+          isGroup: false, targetId: peerId, sequence: id, sequenceAuthoritative: true,
+          eventName: PRIVATE_MESSAGE_EVENT, clientSequence: id + 1000,
+          privateDirection: 'outgoing', random: id, timestamp: sentAt,
+        });
+        store.storeEvent(id, false, peerId, id, PRIVATE_MESSAGE_EVENT, {
+          time: sentAt, post_type: 'message_sent', message_type: 'private', sub_type: 'friend',
+          message: JSON.parse(JSON.stringify(message)),
+        });
+      }
+      expect(store.resolvePrivateReplyMessageId(peerId, 999, true, sentAt, [{ type: 'text', text }]))
+        .toBeNull();
+    });
   });
 
   it('lets a real group event replace an older non-authoritative placeholder', () => {

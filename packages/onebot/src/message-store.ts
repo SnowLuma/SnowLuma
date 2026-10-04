@@ -558,7 +558,10 @@ export class MessageStore {
       const text = replyElements?.length && replyElements.every(e => e.type === 'text')
         ? replyElements.map(e => e.text ?? '').join('')
         : null;
-      matches = text ? rows.filter(row => cachedPlainText(row.data) === text) : [];
+      const candidates = text ? rows.map(row => ({ row, preview: cachedQuoteText(row.data) }))
+        .filter(({ preview }) => preview === null || preview.text.startsWith(text)) : [];
+      matches = candidates.length === 1 && candidates[0]!.preview?.plain
+        && candidates[0]!.preview.text === text ? [candidates[0]!.row] : [];
       if (matches.length !== 1) {
         log.debug('private quote time is ambiguous: peer=%d time=%d candidates=%d contentMatches=%d',
           sessionId, timestamp, rows.length, matches.length);
@@ -837,18 +840,30 @@ function eventPrivateDirection(isGroup: boolean, event: JsonObject): number {
 
 const PRIVATE_REPLY_TIME_WINDOWS_SECONDS = [5, 30] as const;
 
-/** Only compare complete plain text; media labels and truncated previews are ambiguous. */
-function cachedPlainText(data: string | null): string | null {
+/** Unknown, truncated, and media previews remain possible competing matches. */
+function cachedQuoteText(data: string | null): { text: string; plain: boolean } | null {
   if (!data) return null;
   const event = JSON.parse(data) as JsonObject;
   if (typeof event.message === 'string') {
-    return event.message.includes('[CQ:') ? null : cqUnescape(event.message);
+    return event.message.includes('[CQ:') ? null : { text: cqUnescape(event.message), plain: true };
   }
   if (!Array.isArray(event.message) || event.message.length === 0) return null;
   const segments = event.message as JsonObject[];
-  if (!segments.every(segment => segment?.type === 'text'
-    && typeof (segment.data as JsonObject | undefined)?.text === 'string')) return null;
-  return segments.map(segment => (segment.data as JsonObject).text).join('');
+  const labels: Record<string, string> = {
+    image: '[图片]', record: '[语音]', video: '[视频]', file: '[文件]',
+    face: '[表情]', mface: '[表情]', forward: '[聊天记录]', json: '[卡片]', xml: '[卡片]',
+  };
+  const parts: string[] = [];
+  let plain = true;
+  for (const segment of segments) {
+    const body = segment?.data as JsonObject | undefined;
+    if (segment?.type === 'text' && typeof body?.text === 'string') parts.push(body.text);
+    else if (typeof segment?.type === 'string' && labels[segment.type]) {
+      parts.push(typeof body?.summary === 'string' ? body.summary : labels[segment.type]!);
+      plain = false;
+    } else return null;
+  }
+  return { text: parts.join(''), plain };
 }
 
 function isUsablePrivateQuoteTime(timestamp: number | undefined): timestamp is number {
