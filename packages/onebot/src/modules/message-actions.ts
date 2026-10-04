@@ -1531,6 +1531,9 @@ export async function getForwardMessage(
       nickname: node.nickname,
     };
     if (isGroup) sender.card = node.senderCard ?? '';
+    if (node.title !== undefined && node.title.length > 0) {
+      sender.title = node.title;
+    }
 
     const message: JsonObject = {
       self_id: ref.selfId,
@@ -1679,6 +1682,11 @@ function assertForwardNodeMetadataIsScalar(
       value === undefined || value === null || typeof value === 'string'
       || typeof value === 'number' || typeof value === 'boolean'
     ) continue;
+    // OneBot 生态兼容：多个上游框架（NapCat / LLOneBot / AstrBot 等）
+    // 允许 forward node 携带 `news` 预览元数据（数组形态，
+    // `[{ text: string }]`，与 ForwardPreviewMeta.news 同构）。这些字段
+    // 仅用于生成卡片预览，不影响上传；直接放行而非拒绝整个转发。
+    if (field === 'news' && isForwardNewsArray(value)) continue;
     throw new MessageElementValidationError(
       'INVALID_FIELD',
       `forward messages[${index}].${field} must be a scalar value`,
@@ -1686,6 +1694,16 @@ function assertForwardNodeMetadataIsScalar(
       field,
     );
   }
+}
+
+/** Whether a value looks like OneBot preview news: `Array<{ text: string }>`. */
+function isForwardNewsArray(value: JsonValue): boolean {
+  if (!Array.isArray(value)) return false;
+  for (const item of value) {
+    const obj = asJsonObject(item);
+    if (!obj || typeof obj.text !== 'string') return false;
+  }
+  return true;
 }
 
 function assertForwardMessageInputPolicies(
@@ -1914,6 +1932,20 @@ async function parseForwardNodes(
     }
 
     const node: ForwardNodePayload = { userUin, nickname, elements };
+    // Forward optional preview news lines (OneBot `data.news`) onto the
+    // payload so nested-forward bubble previews can prefer caller-supplied
+    // lines over auto-generated ones. Only accepted when the array shape
+    // is valid (already asserted by assertForwardNodeMetadataIsScalar).
+    if (isForwardNewsArray(nodeData.news)) {
+      node.news = nodeData.news as Array<{ text: string }>;
+    }
+    // Forward optional OneBot bubble-preview metadata so nested-forward
+    // cards can prefer caller-supplied titles/source/summary/prompt over
+    // auto-derived ones (all scalar, already asserted above).
+    if (nodeData.title !== undefined && typeof nodeData.title === 'string') node.title = nodeData.title;
+    if (nodeData.source !== undefined && typeof nodeData.source === 'string') node.source = nodeData.source;
+    if (nodeData.summary !== undefined && typeof nodeData.summary === 'string') node.summary = nodeData.summary;
+    if (nodeData.prompt !== undefined && typeof nodeData.prompt === 'string') node.prompt = nodeData.prompt;
     // Honour an explicit per-node display time (OneBot `data.time`, unix
     // seconds) so a custom forward can set/back-date each node's timestamp
     // (#209). The wire field is uint32, so reject a millisecond value or any
