@@ -1672,21 +1672,35 @@ function isNestedNodeArray(value: JsonValue): boolean {
   return true;
 }
 
-function assertForwardNodeMetadataIsScalar(
+function assertForwardNodeMetadata(
   nodeData: JsonObject,
   index: number,
 ): void {
   for (const [field, value] of Object.entries(nodeData)) {
     if (field === 'content' || field === 'message') continue;
+    if (value === undefined) continue;
+    if (field === 'news') {
+      if (isForwardNewsArray(value)) continue;
+      throw new MessageElementValidationError(
+        'INVALID_FIELD',
+        `forward messages[${index}].news must be an array of objects with string text`,
+        'node',
+        field,
+      );
+    }
+    if (field === 'title' || field === 'source' || field === 'summary' || field === 'prompt') {
+      if (typeof value === 'string') continue;
+      throw new MessageElementValidationError(
+        'INVALID_FIELD',
+        `forward messages[${index}].${field} must be a string`,
+        'node',
+        field,
+      );
+    }
     if (
-      value === undefined || value === null || typeof value === 'string'
+      value === null || typeof value === 'string'
       || typeof value === 'number' || typeof value === 'boolean'
     ) continue;
-    // OneBot 生态兼容：多个上游框架（NapCat / LLOneBot / AstrBot 等）
-    // 允许 forward node 携带 `news` 预览元数据（数组形态，
-    // `[{ text: string }]`，与 ForwardPreviewMeta.news 同构）。这些字段
-    // 仅用于生成卡片预览，不影响上传；直接放行而非拒绝整个转发。
-    if (field === 'news' && isForwardNewsArray(value)) continue;
     throw new MessageElementValidationError(
       'INVALID_FIELD',
       `forward messages[${index}].${field} must be a scalar value`,
@@ -1697,7 +1711,7 @@ function assertForwardNodeMetadataIsScalar(
 }
 
 /** Whether a value looks like OneBot preview news: `Array<{ text: string }>`. */
-function isForwardNewsArray(value: JsonValue): boolean {
+function isForwardNewsArray(value: JsonValue): value is Array<{ text: string }> {
   if (!Array.isArray(value)) return false;
   for (const item of value) {
     const obj = asJsonObject(item);
@@ -1712,11 +1726,12 @@ function assertForwardMessageInputPolicies(
   depth = 0,
 ): void {
   if (!Array.isArray(messages) || depth >= MAX_FORWARD_DEPTH) return;
-  for (const item of messages) {
+  for (const [index, item] of messages.entries()) {
     const segment = asJsonObject(item);
     if (!segment) continue;
     const nodeData = segment.type === 'node' ? asJsonObject(segment.data) : segment;
     if (!nodeData) continue;
+    assertForwardNodeMetadata(nodeData, index);
 
     const messageId = parseForwardMessageId(nodeData.id ?? nodeData.message_id);
     if (messageId !== 0) {
@@ -1814,7 +1829,7 @@ async function parseForwardNodes(
           'data',
         );
       }
-      assertForwardNodeMetadataIsScalar(nodeData, index);
+      assertForwardNodeMetadata(nodeData, index);
       return { segment, nodeData };
     }
 
@@ -1828,7 +1843,7 @@ async function parseForwardNodes(
         'content',
       );
     }
-    assertForwardNodeMetadataIsScalar(segment, index);
+    assertForwardNodeMetadata(segment, index);
     return { segment, nodeData: segment };
   });
 
@@ -1935,13 +1950,13 @@ async function parseForwardNodes(
     // Forward optional preview news lines (OneBot `data.news`) onto the
     // payload so nested-forward bubble previews can prefer caller-supplied
     // lines over auto-generated ones. Only accepted when the array shape
-    // is valid (already asserted by assertForwardNodeMetadataIsScalar).
+    // is valid (already asserted by assertForwardNodeMetadata).
     if (isForwardNewsArray(nodeData.news)) {
-      node.news = nodeData.news as Array<{ text: string }>;
+      node.news = nodeData.news.map(item => ({ text: item.text }));
     }
     // Forward optional OneBot bubble-preview metadata so nested-forward
     // cards can prefer caller-supplied titles/source/summary/prompt over
-    // auto-derived ones (all scalar, already asserted above).
+    // auto-derived ones (types already asserted above).
     if (nodeData.title !== undefined && typeof nodeData.title === 'string') node.title = nodeData.title;
     if (nodeData.source !== undefined && typeof nodeData.source === 'string') node.source = nodeData.source;
     if (nodeData.summary !== undefined && typeof nodeData.summary === 'string') node.summary = nodeData.summary;

@@ -674,4 +674,39 @@ describe('forward — nested {type:"node"} content', () => {
     expect(uploadForwardNodes).not.toHaveBeenCalled();
     expect(sendGroupMessage).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['news', 123], ['news', 'preview'], ['news', null], ['news', [{ text: false }]],
+    ['news', [null]], ['title', 123], ['source', false], ['summary', []], ['prompt', null],
+  ])('rejects malformed %s preview metadata before upload', async (field, value) => {
+    const upload = vi.fn();
+    const sendGroup = vi.fn();
+    const ctx = makeCtx(fakeBridge({ apis: { message: { sendGroup }, forward: { upload } } } as any));
+    await expect(sendGroupForwardMessage(ctx, 12345, [{
+      type: 'node', data: {
+        user_id: 111, nickname: 'sender', [field as string]: value,
+        content: [{ type: 'text', data: { text: 'hello' } }],
+      },
+    }] as any)).rejects.toMatchObject({ code: 'INVALID_FIELD', field });
+    expect(upload).not.toHaveBeenCalled();
+    expect(sendGroup).not.toHaveBeenCalled();
+  });
+
+  it('validates nested preview metadata before parsing an earlier contact card', async () => {
+    const getGroupRecommendArk = vi.fn();
+    const upload = vi.fn();
+    const sendGroup = vi.fn();
+    const ctx = makeCtx(fakeBridge({ apis: {
+      message: { sendGroup }, forward: { upload }, contacts: { getGroupRecommendArk },
+    } } as any));
+    await expect(sendGroupForwardMessage(ctx, 12345, [
+      { type: 'node', data: { user_id: 111, content: [{ type: 'contact', data: { type: 'group', id: 12345 } }] } },
+      { type: 'node', data: { user_id: 222, content: [
+        { type: 'node', data: { user_id: 333, source: false, content: [{ type: 'text', data: { text: 'hello' } }] } },
+      ] } },
+    ])).rejects.toMatchObject({ code: 'INVALID_FIELD', field: 'source' });
+    expect(getGroupRecommendArk).not.toHaveBeenCalled();
+    expect(upload).not.toHaveBeenCalled();
+    expect(sendGroup).not.toHaveBeenCalled();
+  });
 });
