@@ -1,5 +1,5 @@
-import { currentRequestId, runWithRequestId } from '@snowluma/common/logger';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { currentRequestId, runWithRequestId, subscribeLogs } from '@snowluma/common/logger';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -10,6 +10,7 @@ import {
   type DatabaseMigrationCallbacks,
   type DatabaseMigrationTask,
 } from '../src/manager';
+import { makeDefaultOneBotConfig } from '../src/config';
 import { estimateRemainingSeconds } from '../src/message-store-migration-task';
 
 function fakeBridge(warmup?: Promise<{ friendsLoaded: boolean; groupsLoaded: boolean }>) {
@@ -209,7 +210,7 @@ describe('OneBotManager database preparation', () => {
       expect(manager.getConnectionStatuses()[0].databaseMigration).toMatchObject({
         phase: 'failed',
         usable: false,
-        error: '数据库迁移失败，将自动重试',
+        error: '数据库迁移失败：private worker detail；将自动重试',
       });
 
       vi.advanceTimersByTime(5_000);
@@ -260,7 +261,7 @@ describe('OneBotManager database preparation', () => {
       expect(manager.getConnectionStatuses()[0].databaseMigration).toMatchObject({
         phase: 'failed',
         usable: true,
-        error: '数据库迁移失败，将自动重试',
+        error: '数据库迁移失败：private signal detail；将自动重试',
       });
 
       vi.advanceTimersByTime(5_000);
@@ -302,7 +303,7 @@ describe('OneBotManager database preparation', () => {
       expect(manager.getConnectionStatuses()[0].databaseMigration).toMatchObject({
         phase: 'failed',
         usable: false,
-        error: '数据库迁移失败，将自动重试',
+        error: '账号启动失败：private startup detail；将自动重试',
       });
 
       vi.advanceTimersByTime(5_000);
@@ -311,6 +312,51 @@ describe('OneBotManager database preparation', () => {
       internals.onSessionClosed('10001');
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it('reports invalid account configuration and stops retrying after database readiness', async () => {
+    const originalCwd = process.cwd();
+    const root = mkdtempSync(path.join(tmpdir(), 'snowluma-invalid-startup-'));
+    const entries: string[] = [];
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry.message));
+    let callbacks!: DatabaseMigrationCallbacks;
+    const cancel = vi.fn();
+    const beginMigration = vi.fn();
+    const createTask = vi.fn(() => ({
+      start: (next: DatabaseMigrationCallbacks) => { callbacks = next; },
+      cancel, beginMigration,
+    }));
+    const createInstance = vi.fn();
+    const manager = new OneBotManager({ createDatabaseMigrationTask: createTask, createInstance });
+    vi.useFakeTimers();
+    try {
+      process.chdir(root);
+      mkdirSync('config');
+      const config = makeDefaultOneBotConfig();
+      config.networks.wsServers[0].port = config.networks.httpServers[0].port;
+      config.networks.wsServers[0].host = config.networks.httpServers[0].host;
+      writeFileSync('config/onebot_10001.json', JSON.stringify(config));
+      (manager as unknown as { onSessionStarted(uin: string, bridge: never): void })
+        .onSessionStarted('10001', fakeBridge() as never);
+      callbacks.onReady();
+      const state = manager.getConnectionStatuses()[0].databaseMigration!;
+      expect(state).toMatchObject({ phase: 'failed', usable: false });
+      expect(state.error).toContain('账号启动失败');
+      expect(state.error).toContain('conflicts with');
+      expect(entries.some((message) => message.includes('session startup failed')
+        && message.includes('OneBotConfigValidationError') && message.includes('conflicts with'))).toBe(true);
+      expect(createInstance).not.toHaveBeenCalled();
+      expect(beginMigration).not.toHaveBeenCalled();
+      expect(cancel).toHaveBeenCalledOnce();
+      vi.advanceTimersByTime(60_000);
+      expect(createTask).toHaveBeenCalledOnce();
+    } finally {
+      await manager.dispose();
+      unsubscribe();
+      vi.useRealTimers();
+      process.chdir(originalCwd);
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
@@ -340,7 +386,7 @@ describe('OneBotManager database preparation', () => {
       expect(manager.getConnectionStatuses()[0].databaseMigration).toMatchObject({
         phase: 'failed',
         usable: false,
-        error: '数据库迁移失败，将自动重试',
+        error: '数据库迁移失败：private detail；将自动重试',
       });
 
       vi.advanceTimersByTime(5_000);

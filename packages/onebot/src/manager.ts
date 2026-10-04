@@ -1,7 +1,7 @@
 import { createLogger, runWithoutRequestContext } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import type { BridgeManager } from '@snowluma/core/manager';
-import { loadOneBotConfig } from './config';
+import { loadOneBotConfig, OneBotConfigValidationError } from './config';
 import { loadGlobalSettings } from './global-config';
 import { OneBotInstance } from './instance';
 import type { MessageStoreMigrationStatus } from './message-store-migration';
@@ -269,18 +269,22 @@ export class OneBotManager {
     };
     this.databaseMigrations.set(uin, migration);
     const startTask = (): void => {
-      const handleFailure = (): void => {
+      const handleFailure = (error: unknown, stage = 'database migration'): void => {
         if (migration.cancelled || this.databaseMigrations.get(uin) !== migration) return;
+        const retryable = !(error instanceof OneBotConfigValidationError);
+        const detail = error instanceof Error ? error.message : String(error);
+        const label = stage === 'session startup' ? '账号启动失败' : '数据库迁移失败';
         migration.state = {
           ...migration.state,
           phase: 'failed',
           usable: migration.ready,
           estimatedRemainingSeconds: null,
-          error: '数据库迁移失败，将自动重试',
+          error: `${label}：${detail}${retryable ? '；将自动重试' : '；请修正配置后重启'}`,
         };
-        log.error('database migration failed: UIN=%s', uin);
+        log.error('%s failed: UIN=%s retryable=%s error=%s',
+          stage, uin, retryable, error instanceof Error ? (error.stack ?? error.message) : String(error));
         migration.task.cancel();
-        if (migration.retryTimer) return;
+        if (!retryable || migration.retryTimer) return;
         migration.retryTimer = setTimeout(() => {
           migration.retryTimer = null;
           if (migration.cancelled || this.databaseMigrations.get(uin) !== migration) return;
@@ -298,8 +302,8 @@ export class OneBotManager {
             if (migration.cancelled || this.databaseMigrations.get(uin) !== migration) return;
             try {
               this.startSession(uin, bridge);
-            } catch {
-              handleFailure();
+            } catch (error) {
+              handleFailure(error, 'session startup');
               return;
             }
             migration.ready = true;
@@ -311,8 +315,8 @@ export class OneBotManager {
             };
             try {
               migration.task.beginMigration();
-            } catch {
-              handleFailure();
+            } catch (error) {
+              handleFailure(error);
             }
           },
           onProgress: (status, elapsedMs) => {
@@ -330,8 +334,8 @@ export class OneBotManager {
           },
           onFailed: handleFailure,
         });
-      } catch {
-        handleFailure();
+      } catch (error) {
+        handleFailure(error);
       }
     };
     startTask();
