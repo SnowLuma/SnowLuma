@@ -4,6 +4,7 @@ import type { ToSegmentContext } from './element-codecs';
 import { getElementCodec } from './element-codecs';
 import { createLogger } from '@snowluma/common/logger';
 import type { ConverterContext } from './index';
+import { attachMessageMedia } from '../message-media';
 
 const log = createLogger('OneBot');
 
@@ -32,16 +33,24 @@ export async function elementsToOneBotSegments(
   const segmentCtx = toSegmentContext(ctx, isGroup, sessionId);
   const result: JsonArray = [];
   for (const element of elements) {
+    let segment: JsonObject;
     // One malformed element shouldn't drop the whole message — skip it (with a
     // breadcrumb) and keep converting the rest.
     try {
-      result.push(await elementToSegment(element, segmentCtx));
-      if (element.type === 'markdown' && element.text) {
-        result.push({ type: 'text', data: { text: element.text } });
-      }
+      segment = await elementToSegment(element, { ...segmentCtx, mediaSegmentSink: null });
     } catch (err) {
       log.warn('segment convert skipped type=%s (%s)', element.type,
         err instanceof Error ? err.message : String(err));
+      continue;
+    }
+    // Persistence failures must propagate, not masquerade as bad wire elements.
+    attachMessageMedia(segment, element);
+    if (element.type === 'image' || element.type === 'record' || element.type === 'video') {
+      ctx.mediaSegmentSink?.(element.type, element, segment.data as JsonObject, isGroup, sessionId);
+    }
+    result.push(segment);
+    if (element.type === 'markdown' && element.text) {
+      result.push({ type: 'text', data: { text: element.text } });
     }
   }
   return result;

@@ -132,7 +132,7 @@ export class OneBotInstance {
       : moduleLog;
 
     this.rkeyCache = new RKeyCache(globalSettings.rkey);
-    this.mediaStore = new MediaStore(path.join('data', this.uin, 'media.db'));
+    this.mediaStore = new MediaStore(path.join('data', this.uin, 'messages.db'));
     this.messageStore = new MessageStore(path.join('data', this.uin, 'messages.json'));
     this.reactionStore = new ReactionStore(path.join('data', this.uin, 'reactions.db'));
     const mediaUrlResolver = new MediaUrlResolver(this.bridge, this.rkeyCache);

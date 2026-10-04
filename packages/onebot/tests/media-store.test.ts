@@ -182,9 +182,8 @@ describe('MediaStore basic semantics', () => {
     }
   });
 
-  it('evicts old entries beyond the configured cap', () => {
-    // EVICT_EVERY_N_REMEMBERS = 64 inside the store; we exercise the eviction
-    // path by writing well past the cap so it triggers at least once.
+  it('retains durable entries beyond the memory cache cap', () => {
+    // Lookups can be evicted from memory, but historical metadata survives.
     const cap = 80;
     const store = open('evict', cap);
     for (let i = 0; i < 200; i++) {
@@ -201,7 +200,9 @@ describe('MediaStore basic semantics', () => {
       });
     }
     const { images } = store.size();
-    expect(images).toBeLessThanOrEqual(cap);
+    expect(images).toBe(200);
+    for (let i = 0; i < 200; i++) expect(store.findImage(`file-${i}.png`)?.fileSize).toBe(i);
+    expect(store.findImage('file-0.png')?.fileSize).toBe(0);
     // Most recent entries should still be present.
     expect(store.findImage('file-199.png')?.fileSize).toBe(199);
     store.close();
@@ -285,7 +286,7 @@ describe('MediaStore basic semantics', () => {
     store.close();
   });
 
-  it('drops oversized rows left by older builds on open', () => {
+  it('does not destructively purge existing metadata on open', () => {
     const dbPath = tempDbPath('legacy-overflow');
     dbs.push(dbPath);
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -316,11 +317,11 @@ describe('MediaStore basic semantics', () => {
 
     const store = new MediaStore(dbPath);
     expect(store.findImage(poisonKey)).toBeNull();
-    expect(store.size().images).toBe(0);
+    expect(store.size().images).toBe(1);
     store.close();
     const rows = inspectMediaDb(dbPath);
-    expect(rows.entryCount).toBe(0);
-    expect(rows.keyCount).toBe(0);
+    expect(rows.entryCount).toBe(1);
+    expect(rows.keyCount).toBe(1);
   });
 });
 

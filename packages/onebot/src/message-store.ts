@@ -4,6 +4,7 @@ import type { JsonObject, MessageMeta } from './types';
 import type { MessageElement } from '@snowluma/protocol/events';
 import { cqUnescape } from './helper/cq';
 import { openSqliteDb } from './sqlite-open';
+import { mergeMessageMedia, parseMessageMedia, serializeMessageMedia, type MessageMedia } from './message-media';
 import {
   createMessageStoreIndexes,
   prepareMessageStoreSchema,
@@ -34,6 +35,7 @@ export class MessageStore {
   private readonly stmtStoreEvent: StatementSync;
   private readonly stmtStoreMeta: StatementSync;
   private readonly stmtFindEvent: StatementSync;
+  private readonly stmtFindMedia: StatementSync;
   private readonly stmtFindMeta: StatementSync;
   private readonly stmtResolveReplyGroup: StatementSync;
   private readonly stmtResolveReplyPrivate: StatementSync;
@@ -61,8 +63,8 @@ export class MessageStore {
     // Database instance — `close()` finalizes them automatically.
     this.stmtStoreEvent = this.db.prepare(
       `INSERT INTO messages
-       (message_hash, is_group, session_id, sequence, sequence_authoritative, event_name, client_sequence, private_direction, random, timestamp, data, classification_version)
-       VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0, ?, ?, 1)
+       (message_hash, is_group, session_id, sequence, sequence_authoritative, event_name, client_sequence, private_direction, random, timestamp, data, media_data, classification_version)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0, ?, ?, ?, 1)
        ON CONFLICT(message_hash) DO UPDATE SET
          is_group = excluded.is_group,
          session_id = excluded.session_id,
@@ -78,6 +80,7 @@ export class MessageStore {
          END,
          timestamp = excluded.timestamp,
          data = excluded.data,
+         media_data = excluded.media_data,
          classification_version = CASE
            WHEN excluded.is_group = 1 THEN excluded.classification_version
            ELSE messages.classification_version
@@ -104,6 +107,8 @@ export class MessageStore {
     this.stmtFindEvent = this.db.prepare(
       'SELECT data FROM messages WHERE message_hash = ? AND data IS NOT NULL',
     );
+
+    this.stmtFindMedia = this.db.prepare('SELECT media_data FROM messages WHERE message_hash = ?');
 
     this.stmtFindMeta = this.db.prepare(
       'SELECT is_group, session_id, sequence, sequence_authoritative, event_name, client_sequence, private_direction, random, timestamp FROM messages WHERE message_hash = ?',
@@ -275,6 +280,8 @@ export class MessageStore {
       }
     }
 
+    const previous = this.stmtFindMedia.get(messageId) as { media_data: string | null } | undefined;
+    const media = mergeMessageMedia(previous?.media_data ?? null, serializeMessageMedia(event));
     this.stmtStoreEvent.run(
       messageId,
       isGroup ? 1 : 0,
@@ -285,7 +292,14 @@ export class MessageStore {
       privateDirection,
       timestamp,
       json,
+      media,
     );
+  }
+
+  findMedia(messageId: number): MessageMedia[] | null {
+    if (!isValidMessageId(messageId)) return null;
+    const row = this.stmtFindMedia.get(messageId) as { media_data: string | null } | undefined;
+    return row?.media_data != null ? parseMessageMedia(row.media_data) : null;
   }
 
   storeMeta(messageId: number, meta: MessageMeta): void {

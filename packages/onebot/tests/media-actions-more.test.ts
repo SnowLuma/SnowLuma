@@ -36,7 +36,7 @@ function trackPttKey(selfId: number, messageId: number): string {
 }
 
 function fakeMessageStore(event: JsonObject | null): MessageStore {
-  return { findEvent: () => event } as unknown as MessageStore;
+  return { findMedia: () => null, findEvent: () => event } as unknown as MessageStore;
 }
 
 function fakeImageStore(image: CachedImage | null): MediaStore {
@@ -177,7 +177,7 @@ describe('fetchPttText', () => {
       SELF_ID,
       40004,
     )).resolves.toEqual({ text: '跳过垃圾段落后转写' });
-    expect(store.findRecord).toHaveBeenCalledWith('keep.silk');
+    expect(store.findRecord).toHaveBeenCalledWith('keep.silk', 'legacy');
   });
 
   it('throws when the record segment has no file and no url', async () => {
@@ -248,7 +248,7 @@ describe('fetchPttText', () => {
       SELF_ID,
       40009,
     )).resolves.toEqual({ text: 'url 字段转写' });
-    expect(store.findRecord).toHaveBeenCalledWith('https://ptt.example/by-url.silk');
+    expect(store.findRecord).toHaveBeenCalledWith('https://ptt.example/by-url.silk', 'legacy');
   });
 
   it('uses the first record segment even when a later one exists', async () => {
@@ -272,8 +272,8 @@ describe('fetchPttText', () => {
       SELF_ID,
       40010,
     )).resolves.toEqual({ text: '第一段' });
-    expect(store.findRecord).toHaveBeenCalledWith('first.silk');
-    expect(store.findRecord).not.toHaveBeenCalledWith('second.silk');
+    expect(store.findRecord).toHaveBeenCalledWith('first.silk', 'legacy');
+    expect(store.findRecord).not.toHaveBeenCalledWith('second.silk', 'legacy');
   });
 
   it('stringifies a numeric file id before cache lookup', async () => {
@@ -292,7 +292,7 @@ describe('fetchPttText', () => {
       SELF_ID,
       40011,
     )).resolves.toEqual({ text: '数字 file' });
-    expect(store.findRecord).toHaveBeenCalledWith('9001');
+    expect(store.findRecord).toHaveBeenCalledWith('9001', 'legacy');
   });
 
   it('throws when the record is not in the media cache', async () => {

@@ -79,6 +79,7 @@ function makeContext(receiptOrReceipts: Receipt | Receipt[] = RECEIPT): {
     selfId: SELF_ID,
     bridge,
     messageStore: {
+      findMedia: () => null,
       findEvent: (messageId: number) => events.get(messageId) ?? null,
       findMeta: () => null,
       resolveReplySequence: () => null,
@@ -123,6 +124,7 @@ function makeInstanceHarness(options: {
     },
     log: options.logger ?? { success: vi.fn(), trace: vi.fn(), warn: vi.fn() },
     messageStore: {
+      findMedia: () => null,
       findEvent: (messageId: number) => stored.get(messageId) ?? null,
       storeEvent: (messageId: number, _isGroup: boolean, _sessionId: number, _sequence: number, _eventName: string, event: JsonObject) => {
         stored.set(messageId, event);

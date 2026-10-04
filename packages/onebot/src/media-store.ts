@@ -60,239 +60,171 @@ const TYPE_IMAGE = 'image';
 const TYPE_RECORD = 'record';
 const TYPE_VIDEO = 'video';
 const DEFAULT_KEEP_ENTRIES = 4096;
+export type MediaLookupSource = 'current' | 'legacy';
 /** SQLite keys / aliases longer than this are folded to a short digest. */
 export const MEDIA_KEY_MAX_CHARS = 2048;
 /** Persisted JSON must stay well under a page-overflow storm. */
 export const MEDIA_DATA_MAX_CHARS = 64 * 1024;
 const INLINE_MEDIA_SOURCE = /^(base64:\/\/|data:)/i;
 
+/** Durable media metadata. Production shares messages.db with MessageStore.
+ * Only the in-memory lookup cache is bounded; history dependencies never expire.
+ */
 export class MediaStore {
   private readonly db: DatabaseSync;
-  private readonly maxEntriesPerType: number;
-
-  // Prepared statements (pay the parsing cost once at startup).
+  private readonly cache = new Map<string, string>();
   private readonly upsertEntry: StatementSync;
   private readonly upsertKey: StatementSync;
-  private readonly findEntryByKey: StatementSync;
-  private readonly findEntryByPrimary: StatementSync;
-  private readonly evictByType: StatementSync;
-  private readonly purgeOrphanKeys: StatementSync;
-  private readonly countByType: StatementSync;
+  private readonly findEntry: StatementSync;
+  private readonly findLegacyEntry: StatementSync;
 
-  constructor(dbPath: string, maxEntriesPerType = DEFAULT_KEEP_ENTRIES) {
-    this.maxEntriesPerType = Math.max(64, maxEntriesPerType);
-
+  constructor(dbPath: string, private readonly maxCachedEntries = DEFAULT_KEEP_ENTRIES) {
     this.db = openSqliteDb(dbPath);
-    this.initSchema();
-    this.purgeOversizedRows();
-
-    this.upsertEntry = this.db.prepare(
-      `INSERT INTO media_entries (type, primary_key, data, last_seen)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(type, primary_key) DO UPDATE SET
-         data = excluded.data,
-         last_seen = excluded.last_seen`,
-    );
-    this.upsertKey = this.db.prepare(
-      `INSERT INTO media_keys (type, key, primary_key)
-       VALUES (?, ?, ?)
-       ON CONFLICT(type, key) DO UPDATE SET primary_key = excluded.primary_key`,
-    );
-    this.findEntryByKey = this.db.prepare(
-      `SELECT e.data FROM media_entries e
-       JOIN media_keys k ON k.type = e.type AND k.primary_key = e.primary_key
-       WHERE k.type = ? AND k.key = ?
-       LIMIT 1`,
-    );
-    this.findEntryByPrimary = this.db.prepare(
-      `SELECT data FROM media_entries WHERE type = ? AND primary_key = ?`,
-    );
-    this.evictByType = this.db.prepare(
-      // `rowid DESC` makes the tiebreaker match insertion order (newest first)
-      // so reproducible inserts within the same `last_seen` second still get
-      // the most recent rows retained, regardless of how the lexicographic
-      // sort would have ordered the synthetic primary_key.
-      `DELETE FROM media_entries WHERE type = ? AND rowid IN (
-         SELECT rowid FROM media_entries
-         WHERE type = ?
-         ORDER BY last_seen DESC, rowid DESC
-         LIMIT -1 OFFSET ?
-       )`,
-    );
-    this.purgeOrphanKeys = this.db.prepare(
-      `DELETE FROM media_keys WHERE type = ? AND primary_key NOT IN (
-         SELECT primary_key FROM media_entries WHERE type = ?
-       )`,
-    );
-    this.countByType = this.db.prepare(
-      `SELECT COUNT(*) AS n FROM media_entries WHERE type = ?`,
-    );
+    for (const prefix of ['', 'legacy_']) {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS ${prefix}media_entries (
+          type TEXT NOT NULL, primary_key TEXT NOT NULL, data TEXT NOT NULL,
+          last_seen INTEGER NOT NULL, PRIMARY KEY (type, primary_key)
+        );
+        CREATE TABLE IF NOT EXISTS ${prefix}media_keys (
+          type TEXT NOT NULL, key TEXT NOT NULL, primary_key TEXT NOT NULL,
+          PRIMARY KEY (type, key)
+        );
+      `);
+    }
+    this.upsertEntry = this.db.prepare(`
+      INSERT INTO media_entries (type, primary_key, data, last_seen) VALUES (?, ?, ?, ?)
+      ON CONFLICT(type, primary_key) DO UPDATE SET data = excluded.data, last_seen = excluded.last_seen
+    `);
+    this.upsertKey = this.db.prepare(`
+      INSERT INTO media_keys (type, key, primary_key) VALUES (?, ?, ?)
+      ON CONFLICT(type, key) DO UPDATE SET primary_key = excluded.primary_key
+    `);
+    this.findEntry = this.db.prepare(`
+      SELECT data FROM media_entries WHERE type = ? AND primary_key = COALESCE(
+        (SELECT primary_key FROM media_keys WHERE type = ? AND key = ?), ?
+      )
+    `);
+    this.findLegacyEntry = this.db.prepare(`
+      SELECT data FROM legacy_media_entries WHERE type = ? AND primary_key = COALESCE(
+        (SELECT primary_key FROM legacy_media_keys WHERE type = ? AND key = ?), ?
+      )
+    `);
   }
 
-  close(): void {
-    this.db.close();
-  }
+  close(): void { this.cache.clear(); this.db.close(); }
 
   rememberImage(info: CachedImage): void {
-    const primaryKey = pickPrimary([info.file, info.fileName]);
-    if (!primaryKey) return;
-    this.upsertWithAliases(TYPE_IMAGE, primaryKey, info, [info.file, info.fileName, info.url]);
+    this.remember(TYPE_IMAGE, info, [info.file, info.fileName, info.url]);
   }
 
   rememberRecord(info: CachedRecord): void {
-    const primaryKey = pickPrimary([info.file, info.fileName, info.fileId]);
-    if (!primaryKey) return;
-    this.upsertWithAliases(TYPE_RECORD, primaryKey, info, [info.file, info.fileName, info.fileId, info.url]);
+    this.remember(TYPE_RECORD, info, [info.file, info.fileName, info.fileId, info.url]);
   }
 
   rememberVideo(info: CachedVideo): void {
-    const primaryKey = pickPrimary([info.file, info.fileName, info.fileId]);
-    if (!primaryKey) return;
-    this.upsertWithAliases(TYPE_VIDEO, primaryKey, info, [info.file, info.fileName, info.fileId, info.url]);
+    this.remember(TYPE_VIDEO, info, [info.file, info.fileName, info.fileId, info.url]);
   }
 
-  findImage(key: string): CachedImage | null {
-    return this.findByAnyKey<CachedImage>(TYPE_IMAGE, key);
+  findImage(key: string, source: MediaLookupSource = 'current'): CachedImage | null {
+    return this.find(TYPE_IMAGE, key, source);
+  }
+  findRecord(key: string, source: MediaLookupSource = 'current'): CachedRecord | null {
+    return this.find(TYPE_RECORD, key, source);
+  }
+  findVideo(key: string, source: MediaLookupSource = 'current'): CachedVideo | null {
+    return this.find(TYPE_VIDEO, key, source);
   }
 
-  findRecord(key: string): CachedRecord | null {
-    return this.findByAnyKey<CachedRecord>(TYPE_RECORD, key);
-  }
+  updateImageUrl(key: string, url: string): void { this.updateUrl(TYPE_IMAGE, key, url); }
+  updateRecordUrl(key: string, url: string): void { this.updateUrl(TYPE_RECORD, key, url); }
+  updateVideoUrl(key: string, url: string): void { this.updateUrl(TYPE_VIDEO, key, url); }
 
-  findVideo(key: string): CachedVideo | null {
-    return this.findByAnyKey<CachedVideo>(TYPE_VIDEO, key);
-  }
-
-  updateImageUrl(key: string, url: string): void {
-    if (!url || mustFoldMediaKey(url)) return;
-    const cached = this.findImage(key);
-    if (!cached || cached.url === url) return;
-    this.rememberImage({ ...cached, url });
-  }
-
-  updateRecordUrl(key: string, url: string): void {
-    if (!url || mustFoldMediaKey(url)) return;
-    const cached = this.findRecord(key);
-    if (!cached || cached.url === url) return;
-    this.rememberRecord({ ...cached, url });
-  }
-
-  updateVideoUrl(key: string, url: string): void {
-    if (!url || mustFoldMediaKey(url)) return;
-    const cached = this.findVideo(key);
-    if (!cached || cached.url === url) return;
-    this.rememberVideo({ ...cached, url });
-  }
-
-  /** Snapshot count of distinct entries per type; mostly used by tests. */
+  /** Counts durable records, not the bounded lookup cache. */
   size(): { images: number; records: number; videos: number } {
-    const img = this.countByType.get(TYPE_IMAGE) as { n: number } | undefined;
-    const rec = this.countByType.get(TYPE_RECORD) as { n: number } | undefined;
-    const vid = this.countByType.get(TYPE_VIDEO) as { n: number } | undefined;
-    return { images: img?.n ?? 0, records: rec?.n ?? 0, videos: vid?.n ?? 0 };
+    const counts = this.db.prepare(`SELECT type, COUNT(*) AS n FROM (
+        SELECT type FROM media_entries UNION ALL SELECT type FROM legacy_media_entries
+      ) GROUP BY type`)
+      .all() as Array<{ type: string; n: number }>;
+    const count = (type: string) => counts.find(row => row.type === type)?.n ?? 0;
+    return { images: count(TYPE_IMAGE), records: count(TYPE_RECORD), videos: count(TYPE_VIDEO) };
   }
 
-  // --- internals ---
-
-  private initSchema(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS media_entries (
-        type        TEXT NOT NULL,
-        primary_key TEXT NOT NULL,
-        data        TEXT NOT NULL,
-        last_seen   INTEGER NOT NULL,
-        PRIMARY KEY (type, primary_key)
-      );
-      CREATE INDEX IF NOT EXISTS idx_media_entries_lastseen
-        ON media_entries(type, last_seen DESC);
-      CREATE TABLE IF NOT EXISTS media_keys (
-        type        TEXT NOT NULL,
-        key         TEXT NOT NULL,
-        primary_key TEXT NOT NULL,
-        PRIMARY KEY (type, key)
-      );
-      CREATE INDEX IF NOT EXISTS idx_media_keys_primary
-        ON media_keys(type, primary_key);
-    `);
-  }
-
-  private purgeOversizedRows(): void {
-    // Older builds could persist a whole inline payload as the key / JSON.
-    // Drop those rows on open so later eviction does not walk overflow pages.
-    this.db.exec(`
-      DELETE FROM media_keys
-      WHERE length(key) > ${MEDIA_KEY_MAX_CHARS}
-         OR length(primary_key) > ${MEDIA_KEY_MAX_CHARS};
-      DELETE FROM media_entries
-      WHERE length(primary_key) > ${MEDIA_KEY_MAX_CHARS}
-         OR length(data) > ${MEDIA_DATA_MAX_CHARS};
-      DELETE FROM media_keys
-      WHERE primary_key NOT IN (SELECT primary_key FROM media_entries);
-    `);
-  }
-
-  private upsertWithAliases<T extends object>(
-    type: string,
-    primaryKey: string,
-    info: T,
-    aliases: (string | undefined)[],
-  ): void {
-    const data = JSON.stringify(persistableMediaInfo(info));
-    if (data.length > MEDIA_DATA_MAX_CHARS) return;
-    const lastSeen = Math.floor(Date.now() / 1000);
-
-    // Run the writes in a transaction so concurrent readers always see a
-    // consistent (entry, keys) pair.
-    this.db.exec('BEGIN');
+  private remember(type: string, info: object, aliases: string[]): void {
+    const primary = pickPrimary(aliases);
+    if (!primary) throw new Error(`cannot store ${type} metadata without an identifier`);
+    const data = serializeMediaInfo(info);
+    this.db.exec('BEGIN IMMEDIATE');
     try {
-      this.upsertEntry.run(type, primaryKey, data, lastSeen);
-      const seen = new Set<string>();
-      for (const raw of aliases) {
-        if (!raw) continue;
-        const key = foldMediaKey(raw);
-        if (!key || seen.has(key)) continue;
-        seen.add(key);
-        this.upsertKey.run(type, key, primaryKey);
+      this.upsertEntry.run(type, primary, data, Math.floor(Date.now() / 1000));
+      for (const key of new Set(aliases.filter(Boolean).map(foldMediaKey))) {
+        this.upsertKey.run(type, key, primary);
       }
       this.db.exec('COMMIT');
-    } catch (err) {
-      try { this.db.exec('ROLLBACK'); } catch { /* ignore */ }
-      throw err;
+    } catch (error) {
+      rollbackMediaTransaction(this.db, error);
     }
-
-    // Eager eviction. Skip the DELETE entirely while we are under the cap.
-    this.evictOldEntries(type);
+    // Alias remapping can invalidate any cached lookup. JSON strings ensure
+    // callers cannot mutate the durable record through a returned object.
+    this.cache.clear();
   }
 
-  private findByAnyKey<T>(type: string, key: string): T | null {
+  private find<T>(type: string, key: string, source: MediaLookupSource = 'current'): T | null {
     const lookup = foldMediaKey(key);
     if (!lookup) return null;
-    const row = this.findEntryByKey.get(type, lookup) as { data: string } | undefined;
-    if (row?.data) return safeParse<T>(row.data);
-    // Fall back to looking up by primary_key directly so callers that pass
-    // the canonical identifier still hit (e.g. when the alias index is yet
-    // to be built for that key in this session).
-    const fallback = this.findEntryByPrimary.get(type, lookup) as { data: string } | undefined;
-    return fallback?.data ? safeParse<T>(fallback.data) : null;
+    const cacheKey = `${source}:${type}:${lookup}`;
+    let data = this.cache.get(cacheKey);
+    if (data === undefined) {
+      // Legacy history has no per-message snapshots. Its frozen migration
+      // index must never resolve through a later, mutable filename alias.
+      const current = source === 'current' ? this.findEntry.get(type, type, lookup, lookup) : undefined;
+      const row = (current ?? this.findLegacyEntry.get(type, type, lookup, lookup)) as { data: string } | undefined;
+      if (!row) return null;
+      data = row.data;
+    }
+    // Parse before caching: malformed persisted metadata is an observable error.
+    const result: unknown = JSON.parse(data);
+    if (!result || typeof result !== 'object' || Array.isArray(result)) {
+      throw new Error(`invalid persisted ${type} metadata`);
+    }
+    this.cache.delete(cacheKey);
+    this.cache.set(cacheKey, data);
+    while (this.cache.size > Math.max(0, this.maxCachedEntries)) {
+      this.cache.delete(this.cache.keys().next().value!);
+    }
+    return result as T;
   }
 
-  private evictOldEntries(type: string): void {
-    try {
-      const row = this.countByType.get(type) as { n: number } | undefined;
-      if ((row?.n ?? 0) <= this.maxEntriesPerType) return;
-      this.evictByType.run(type, type, this.maxEntriesPerType);
-      this.purgeOrphanKeys.run(type, type);
-    } catch {
-      // Best-effort eviction; don't propagate.
-    }
+  private updateUrl(type: string, key: string, url: string): void {
+    if (!url || mustFoldMediaKey(url)) return;
+    const info = this.find<Record<string, unknown>>(type, key);
+    if (!info || info.url === url) return;
+    this.remember(type, { ...info, url }, [info.file, info.fileName, info.fileId, url]
+      .filter((value): value is string => typeof value === 'string'));
   }
+}
+
+export function serializeMediaInfo(info: object): string {
+  const data = JSON.stringify(persistableMediaInfo(info));
+  if (data.length > MEDIA_DATA_MAX_CHARS) {
+    throw new Error(`media metadata exceeds storage limit (${data.length} characters)`);
+  }
+  return data;
+}
+
+export function rollbackMediaTransaction(db: DatabaseSync, error: unknown): never {
+  try { db.exec('ROLLBACK'); }
+  catch (rollbackError) {
+    throw new AggregateError([error, rollbackError], 'media write and rollback failed', { cause: error });
+  }
+  throw error;
 }
 
 function mustFoldMediaKey(value: string): boolean {
   return value.length > MEDIA_KEY_MAX_CHARS || INLINE_MEDIA_SOURCE.test(value);
 }
 
-function foldMediaKey(value: string): string {
+export function foldMediaKey(value: string): string {
   if (!value) return '';
   if (!mustFoldMediaKey(value)) return value;
   return `inline:${createHash('sha256').update(value).digest('hex')}`;
@@ -316,12 +248,4 @@ function pickPrimary(candidates: (string | undefined)[]): string {
     if (c && c.length > 0) return foldMediaKey(c);
   }
   return '';
-}
-
-function safeParse<T>(json: string): T | null {
-  try {
-    return JSON.parse(json) as T;
-  } catch {
-    return null;
-  }
 }

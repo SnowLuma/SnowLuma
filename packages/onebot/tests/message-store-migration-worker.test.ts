@@ -127,6 +127,7 @@ describe('runMessageStoreMigrationWorker', () => {
     const close = vi.spyOn(MessageStoreMigrator.prototype, 'close');
 
     const running = runMessageStoreMigrationWorker(workerPayload(dbPath), control.port);
+    await Promise.resolve(); // Account readiness follows asynchronous media preparation.
     expect(control.messages).toEqual([{ kind: 'ready' }]);
     expect(control.listenerCount()).toBe(1);
 
@@ -154,6 +155,7 @@ describe('runMessageStoreMigrationWorker', () => {
     const dbPath = path.join(tmpDir, 'messages.db');
     const control = createControlPort();
     const running = runMessageStoreMigrationWorker(workerPayload(dbPath), control.port);
+    await Promise.resolve(); // Account readiness follows asynchronous media preparation.
 
     control.send('go');
     control.send({ kind: 'start' });
@@ -178,6 +180,7 @@ describe('runMessageStoreMigrationWorker', () => {
     const control = createControlPort();
     const runBatch = vi.spyOn(MessageStoreMigrator.prototype, 'runBatch');
     const running = runMessageStoreMigrationWorker(workerPayload(dbPath), control.port);
+    await Promise.resolve(); // Account readiness follows asynchronous media preparation.
 
     control.send('cancel');
     await running;
@@ -198,6 +201,7 @@ describe('runMessageStoreMigrationWorker', () => {
     const control = createControlPort();
     const runBatch = vi.spyOn(MessageStoreMigrator.prototype, 'runBatch');
     const running = runMessageStoreMigrationWorker(workerPayload(dbPath), control.port);
+    await Promise.resolve(); // Account readiness follows asynchronous media preparation.
 
     control.send('start');
     control.send('cancel');
@@ -212,6 +216,7 @@ describe('runMessageStoreMigrationWorker', () => {
     seedUnclassified(dbPath, 1);
     const control = createControlPort();
     const running = runMessageStoreMigrationWorker(workerPayload(dbPath), control.port);
+    await Promise.resolve(); // Account readiness follows asynchronous media preparation.
 
     control.send('start');
     await running;
@@ -236,6 +241,7 @@ describe('runMessageStoreMigrationWorker', () => {
     seedUnclassified(dbPath, 201);
     const control = createControlPort();
     const running = runMessageStoreMigrationWorker(workerPayload(dbPath), control.port);
+    await Promise.resolve(); // Account readiness follows asynchronous media preparation.
 
     control.send('start');
     await running;
@@ -269,6 +275,7 @@ describe('runMessageStoreMigrationWorker', () => {
     seedUnclassified(dbPath, 201);
     const control = createControlPort();
     const running = runMessageStoreMigrationWorker(workerPayload(dbPath), control.port);
+    await Promise.resolve(); // Account readiness follows asynchronous media preparation.
 
     control.send('start');
     await Promise.resolve();
@@ -323,6 +330,7 @@ describe('runMessageStoreMigrationWorker', () => {
     const dbPath = path.join(tmpDir, 'messages.db');
     const control = createControlPort();
     const running = runMessageStoreMigrationWorker(workerPayload(dbPath), control.port);
+    await Promise.resolve(); // Account readiness follows asynchronous media preparation.
     expect(control.messages).toEqual([{ kind: 'ready' }]);
 
     const db = new DatabaseSync(dbPath);
@@ -353,6 +361,7 @@ describe('runMessageStoreMigrationWorker', () => {
     const control = createControlPort();
     const close = vi.spyOn(MessageStoreMigrator.prototype, 'close');
     const running = runMessageStoreMigrationWorker(workerPayload(dbPath), control.port);
+    await Promise.resolve(); // Account readiness follows asynchronous media preparation.
 
     control.send('start');
     await running;
@@ -371,6 +380,7 @@ describe('runMessageStoreMigrationWorker', () => {
     });
     const control = createControlPort();
     const running = runMessageStoreMigrationWorker(workerPayload(dbPath), control.port);
+    await Promise.resolve(); // Account readiness follows asynchronous media preparation.
 
     control.send('start');
     await running;

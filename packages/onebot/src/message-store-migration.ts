@@ -279,6 +279,9 @@ export function inspectMessageStoreMigration(dbPath: string): MessageStoreMigrat
 export function prepareMessageStoreSchema(db: DatabaseSync): void {
   const before = db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>;
   const existingColumns = new Set(before.map((column) => column.name));
+  if (!existingColumns.has('media_data')) {
+    db.exec('ALTER TABLE messages ADD COLUMN media_data TEXT');
+  }
   const existingRowsAreCurrent = existingColumns.has('sequence_authoritative')
     && existingColumns.has('private_direction')
     && hasLegacyPrivateSequenceMigration(db);

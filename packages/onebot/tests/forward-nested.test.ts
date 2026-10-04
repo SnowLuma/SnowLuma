@@ -36,7 +36,7 @@ function makeCtx(bridge: BridgeInterface): OneBotInstanceContext {
     uin: '10001',
     selfId: 10001,
     bridge,
-    messageStore: { findEvent: () => null } as any,
+    messageStore: { findMedia: () => null, findEvent: () => null } as any,
     cacheMessageMeta: vi.fn(),
     mediaStore: {} as any,
     musicSignUrl: '',
@@ -263,6 +263,7 @@ describe('forward — nested {type:"node"} content', () => {
     } as any);
     const ctx = makeCtx(bridge);
     (ctx as any).messageStore = {
+      findMedia: () => null,
       findEvent: () => ({
         message: [{ type: 'forward', data: { id: 'OLD_RES' } }],
       }),
@@ -290,6 +291,7 @@ describe('forward — nested {type:"node"} content', () => {
     } as any);
     const ctx = makeCtx(bridge);
     (ctx as any).messageStore = {
+      findMedia: () => null,
       findEvent: () => ({
         message: [{ type: 'forward', data: { id: 'OLD_RES' } }],
       }),
@@ -340,6 +342,7 @@ describe('forward — nested {type:"node"} content', () => {
     } as any);
     const ctx = makeCtx(bridge);
     (ctx as any).messageStore = {
+      findMedia: () => null,
       findEvent: () => ({
         message: [{ type: 'forward', data: { id: 'OUTER' } }],
       }),
@@ -361,6 +364,7 @@ describe('forward — nested {type:"node"} content', () => {
     const bridge = fakeBridge({ apis: { message: { sendGroup: sendGroupMessage } } } as any);
     const ctx = makeCtx(bridge);
     (ctx as any).messageStore = {
+      findMedia: () => null,
       findEvent: () => ({
         message: [
           { type: 'video', data: { file: 'cached-video-id' } },
@@ -439,6 +443,7 @@ describe('forward — nested {type:"node"} content', () => {
     } as any);
     const ctx = makeCtx(bridge);
     (ctx as any).messageStore = {
+      findMedia: () => null,
       findEvent: () => ({
         user_id: 0,
         message_type: 'group',
@@ -478,7 +483,7 @@ describe('forward — nested {type:"node"} content', () => {
       apis: { message: { sendGroup: sendGroupMessage }, forward: { upload: uploadForwardNodes } },
     } as any);
     const ctx = makeCtx(bridge);
-    (ctx as any).messageStore = { findEvent };
+    (ctx as any).messageStore = { findEvent, findMedia: () => null };
 
     await sendGroupForwardMessage(ctx, 12345, [
       { type: 'node', data: { id: -123 } },
@@ -525,7 +530,7 @@ describe('forward — nested {type:"node"} content', () => {
       apis: { message: { sendGroup: sendGroupMessage }, forward: { upload: uploadForwardNodes } },
     } as any);
     const ctx = makeCtx(bridge);
-    (ctx as any).messageStore = { findEvent };
+    (ctx as any).messageStore = { findEvent, findMedia: () => null };
 
     await sendGroupForwardMessage(ctx, 12345, [
       { type: 'node', data: { id: 7, nickname: 'node-override' } },

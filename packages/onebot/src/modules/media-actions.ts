@@ -42,7 +42,8 @@ export async function fetchPttText(
   }
   if (!file) throw new Error('消息中不包含语音');
 
-  const cached = mediaStore.findRecord(file);
+  const snapshot = messageStore.findMedia(messageId)?.find(element => element.type === 'record');
+  const cached = snapshot ? { ...snapshot, isGroup: event.message_type === 'group', sessionId: Number(event.group_id) || selfId } : mediaStore.findRecord(file, 'legacy');
   if (!cached) throw new Error('语音不在缓存中，无法转写');
 
   const isGroup = event.message_type === 'group' || cached.isGroup;

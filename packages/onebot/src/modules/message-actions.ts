@@ -1,3 +1,4 @@
+import { isMessageMedia, type MessageMedia } from '../message-media';
 import { createLogger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import { findDatalineDeviceByUin } from '@snowluma/protocol/dataline/device-contacts';
@@ -1287,7 +1288,7 @@ export async function forwardSingleMessage(
   const parsed = await parseMessage(content, false);
   if (parsed.length === 0) throw new Error('message has no content');
 
-  const elements = await prepareSingleForwardElements(ref, parsed, target);
+  const elements = await prepareSingleForwardElements(ref, restoreHistoricalMedia(ref, parsed, messageId), target);
 
   let receipt;
   let messageIdOut: number;
@@ -1319,7 +1320,7 @@ async function prepareSingleForwardElements(
   const out: MessageElement[] = [];
   for (const element of elements) {
     if (element.type !== 'forward') {
-      out.push(enrichForForward(ref, element));
+      out.push(isMessageMedia(element) ? element : enrichForForward(ref, element));
       continue;
     }
     const resId = element.resId.trim();
@@ -1395,7 +1396,29 @@ async function expandForwardNodeForTarget(
   return { ...node, elements };
 }
 
-function enrichForForward(ref: OneBotInstanceContext, element: MessageElement): MessageElement {
+function restoreHistoricalMedia(
+  ref: OneBotInstanceContext,
+  elements: MessageElement[],
+  messageId: number,
+): MessageElement[] {
+  if (!elements.some(isMessageMedia)) return elements;
+  const snapshots = ref.messageStore.findMedia(messageId);
+  let index = 0;
+  const restored = elements.map(element => {
+    if (!isMessageMedia(element)) return element;
+    const snapshot = snapshots?.[index++];
+    if (snapshots && (!snapshot || snapshot.type !== element.type)) {
+      throw new Error(`historical media metadata does not match message ${messageId}`);
+    }
+    return enrichForForward(ref, element, snapshot);
+  });
+  if (snapshots && index !== snapshots.length) {
+    throw new Error(`historical media metadata does not match message ${messageId}`);
+  }
+  return restored;
+}
+
+function enrichForForward(ref: OneBotInstanceContext, element: MessageElement, snapshot?: MessageMedia): MessageElement {
   if (element.type === 'forward') {
     throw new Error('merged forward must be regenerated for the target chat');
   }
@@ -1416,14 +1439,14 @@ function enrichForForward(ref: OneBotInstanceContext, element: MessageElement): 
   // the keys MediaStore aliases under. After parseMessage, the segment's
   // `data.file` lands on `element.url` for all three types.
   const lookupKey = element.url || element.fileName || element.fileId || '';
-  if (!lookupKey) {
+  if (!lookupKey && !snapshot) {
     throw new Error(`forward ${element.type} missing cache key`);
   }
 
   if (element.type === 'image') {
-    const cached = ref.mediaStore.findImage(lookupKey);
+    const cached = snapshot?.type === 'image' ? snapshot : ref.mediaStore.findImage(lookupKey, 'legacy');
     if (!cached || !cached.md5Hex || !cached.sha1Hex || !cached.width || !cached.height || !cached.picFormat) {
-      throw new Error('forward image fingerprint not cached (legacy image or expired)');
+      throw new Error('historical image metadata is incomplete; fetch the original message again');
     }
     return {
       ...element,
@@ -1442,9 +1465,9 @@ function enrichForForward(ref: OneBotInstanceContext, element: MessageElement): 
   }
 
   if (element.type === 'record') {
-    const cached = ref.mediaStore.findRecord(lookupKey);
+    const cached = snapshot?.type === 'record' ? snapshot : ref.mediaStore.findRecord(lookupKey, 'legacy');
     if (!cached || !cached.md5Hex || !cached.sha1Hex) {
-      throw new Error('forward record fingerprint not cached');
+      throw new Error('historical voice metadata is incomplete; fetch the original message again');
     }
     return {
       ...element,
@@ -1461,9 +1484,9 @@ function enrichForForward(ref: OneBotInstanceContext, element: MessageElement): 
   }
 
   if (element.type === 'video') {
-    const cached = ref.mediaStore.findVideo(lookupKey);
+    const cached = snapshot?.type === 'video' ? snapshot : ref.mediaStore.findVideo(lookupKey, 'legacy');
     if (!cached || !cached.md5Hex || !cached.sha1Hex) {
-      throw new Error('forward video fingerprint not cached');
+      throw new Error('historical video metadata is incomplete; fetch the original message again');
     }
     log.warn('video forward uses a fallback thumbnail (original thumb not cached)');
     return {
@@ -1825,7 +1848,7 @@ async function parseForwardNodes(
         );
       }
       const content = (event.message ?? event.raw_message ?? '') as JsonValue;
-      const elements = await parseMessage(content, false);
+      const elements = restoreHistoricalMedia(ref, await parseMessage(content, false), messageId);
       if (elements.length > 0) {
         const messageType = event.message_type === 'group' ? 'group' : 'private';
         const groupIdValue = toPositiveInt(event.group_id);

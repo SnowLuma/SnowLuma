@@ -1,4 +1,5 @@
 import { parentPort, workerData } from 'node:worker_threads';
+import { migrateLegacyMedia } from './media-store-migration';
 import {
   MessageStoreMigrator,
   prepareMessageStoreDatabase,
@@ -49,6 +50,8 @@ export async function runMessageStoreMigrationWorker(
 
   try {
     prepareMessageStoreDatabase(data.dbPath);
+    await migrateLegacyMedia(data.dbPath, () => cancelled);
+    if (cancelled) return;
     port.postMessage({ kind: 'ready' } satisfies MessageStoreMigrationWorkerMessage);
     await startRequested;
     if (cancelled) return;

@@ -129,6 +129,7 @@ function makeRef(overrides: {
   });
 
   const messageStore = {
+    findMedia: () => null,
     findEvent: (messageId: number) => events.get(messageId) ?? null,
     findMeta: (messageId: number) => metas.get(messageId) ?? null,
     storeMetas: (entries: ReadonlyArray<{ messageId: number; meta: MessageMeta }>) => {
