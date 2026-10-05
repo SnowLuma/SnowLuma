@@ -124,6 +124,17 @@ describe('resolveRuntimeEnvOverrides', () => {
     })).toThrow(/SNOWLUMA_LOG_RETAIN_DAYS/);
   });
 
+  it('parses SNOWLUMA_WEBUI_TLS over the saved switch', () => {
+    expect(resolveRuntimeEnvOverrides({ SNOWLUMA_WEBUI_TLS: '1' })).toEqual({
+      webuiTls: { enabled: true },
+    });
+    expect(resolveRuntimeEnvOverrides({ SNOWLUMA_WEBUI_TLS: '0' })).toEqual({
+      webuiTls: { enabled: false },
+    });
+    expect(() => resolveRuntimeEnvOverrides({ SNOWLUMA_WEBUI_TLS: 'maybe' }))
+      .toThrow(/SNOWLUMA_WEBUI_TLS/);
+  });
+
   it('ignores an out-of-range / non-numeric port env', () => {
     expect(resolveRuntimeEnvOverrides({ SNOWLUMA_WEBUI_PORT: '0' })).toEqual({});
     expect(resolveRuntimeEnvOverrides({ SNOWLUMA_WEBUI_PORT: 'abc' })).toEqual({});

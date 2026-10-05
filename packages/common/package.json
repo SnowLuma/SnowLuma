@@ -20,6 +20,10 @@
       "types": "./src/coerce.ts",
       "default": "./src/coerce.ts"
     },
+    "./env": {
+      "types": "./src/env.ts",
+      "default": "./src/env.ts"
+    },
     "./single-flight-cache": {
       "types": "./src/single-flight-cache.ts",
       "default": "./src/single-flight-cache.ts"

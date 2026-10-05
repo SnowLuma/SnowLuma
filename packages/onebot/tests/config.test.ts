@@ -640,3 +640,61 @@ describe('OneBotConfig login history sync', () => {
       .toThrow(/historySync\.enabled must be a boolean/);
   });
 });
+
+describe('OneBot listen port environment overrides', () => {
+  let tempDir = '';
+  let previous = '';
+  const saved: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snowluma-onebot-port-env-'));
+    previous = process.cwd();
+    process.chdir(tempDir);
+    for (const name of ['SNOWLUMA_ONEBOT_HTTP_PORT', 'SNOWLUMA_ONEBOT_WS_PORT']) {
+      saved[name] = process.env[name];
+      delete process.env[name];
+    }
+  });
+
+  afterEach(() => {
+    for (const name of ['SNOWLUMA_ONEBOT_HTTP_PORT', 'SNOWLUMA_ONEBOT_WS_PORT']) {
+      if (saved[name] === undefined) delete process.env[name];
+      else process.env[name] = saved[name];
+    }
+    process.chdir(previous);
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('overrides only the factory listeners and does not write the port back', () => {
+    process.env.SNOWLUMA_ONEBOT_HTTP_PORT = '3800';
+    process.env.SNOWLUMA_ONEBOT_WS_PORT = '3801';
+    const loaded = loadOneBotConfig('10001', { persistDefaults: true });
+    expect(loaded.networks.httpServers[0]?.port).toBe(3800);
+    expect(loaded.networks.wsServers[0]?.port).toBe(3801);
+
+    const onDisk = JSON.parse(fs.readFileSync(path.join(tempDir, 'config', 'onebot_10001.json'), 'utf8')) as {
+      networks: { httpServers: Array<{ port: number }>; wsServers: Array<{ port: number }> };
+    };
+    expect(onDisk.networks.httpServers[0]?.port).toBe(3000);
+    expect(onDisk.networks.wsServers[0]?.port).toBe(3001);
+  });
+
+  it('leaves a custom listener alone', () => {
+    const config = makeDefaultOneBotConfig();
+    config.networks.httpServers = [{
+      ...config.networks.httpServers[0]!,
+      name: 'public-http',
+      port: 4000,
+    }];
+    saveOneBotConfig('10001', config);
+    process.env.SNOWLUMA_ONEBOT_HTTP_PORT = '3800';
+    const loaded = loadOneBotConfig('10001');
+    expect(loaded.networks.httpServers.map((server) => server.port)).toEqual([4000]);
+  });
+
+  it('keeps the saved port when the override is not a port', () => {
+    process.env.SNOWLUMA_ONEBOT_HTTP_PORT = 'nope';
+    const loaded = loadOneBotConfig('10001', { persistDefaults: true });
+    expect(loaded.networks.httpServers[0]?.port).toBe(3000);
+  });
+});

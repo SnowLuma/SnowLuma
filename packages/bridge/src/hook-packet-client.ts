@@ -1,4 +1,5 @@
 import type { PacketSender, SendPacketResult } from '@snowluma/common/packet-sender';
+import { packetTimeoutMs } from './packet-timeout';
 import {
   HookPipeRequestError,
   PIPE_STATUS_CONNECTION_UNAVAILABLE,
@@ -16,7 +17,7 @@ export class HookPacketClient implements PacketSender {
     private readonly onOutboundHealthChanged?: OutboundHealthListener,
   ) { }
 
-  async sendPacket(serviceCmd: string, body: Buffer, timeoutMs = 15000): Promise<SendPacketResult> {
+  async sendPacket(serviceCmd: string, body: Buffer, timeoutMs = packetTimeoutMs()): Promise<SendPacketResult> {
     if (!this.client.isLoggedIn) {
       return { success: false, gotResponse: false, errorCode: -1, errorMessage: 'qq_hook client is not logged in', responseData: null };
     }

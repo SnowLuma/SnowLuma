@@ -1,3 +1,4 @@
+import { positiveIntEnv } from '@snowluma/common/env';
 import { readFile } from 'node:fs/promises';
 import { FriendDressError } from '@snowluma/protocol/web/friend-dress';
 import { formatGroupRequestFlag } from '@snowluma/protocol/qq-info';
@@ -21,7 +22,11 @@ import { groupInfoReturnsSchema } from './group-info';
 import { GROUP_MESSAGE_EVENT, hashMessageIdInt32 } from '../message-id';
 
 const DOWNLOAD_FILE_MAX_BYTES = 1024 * 1024 * 1024; // 1 GiB
-const DOWNLOAD_FILE_TIMEOUT_MS = 60_000;
+const DEFAULT_DOWNLOAD_FILE_TIMEOUT_MS = 60_000;
+
+function downloadFileTimeoutMs(): number {
+  return positiveIntEnv('SNOWLUMA_DOWNLOAD_FILE_TIMEOUT_MS', DEFAULT_DOWNLOAD_FILE_TIMEOUT_MS);
+}
 
 const profileLikeUserSchema = {
   type: 'object',
@@ -2592,7 +2597,7 @@ export const actions = [
         buf = Buffer.from(base64, 'base64');
         if (buf.length > DOWNLOAD_FILE_MAX_BYTES) return failedResponse(RETCODE.BAD_REQUEST, `base64 payload too large: ${buf.length} > ${DOWNLOAD_FILE_MAX_BYTES} bytes`);
       } else {
-        buf = await fetchDownloadFile(url, parseDownloadHeaders(p.headers), DOWNLOAD_FILE_MAX_BYTES, DOWNLOAD_FILE_TIMEOUT_MS);
+        buf = await fetchDownloadFile(url, parseDownloadHeaders(p.headers), DOWNLOAD_FILE_MAX_BYTES, downloadFileTimeoutMs());
       }
       try {
         const safe = await saveDownloadBuffer(buf, name);

@@ -1,4 +1,5 @@
 import type { JsonObject, JsonValue } from '@snowluma/common/json';
+import { packetTimeoutMs } from '@snowluma/bridge/packet-timeout';
 import { createLogger } from '@snowluma/common/logger';
 import type {
   AlbumCreator,
@@ -179,7 +180,7 @@ export class GroupAlbumApi {
       body.length,
     );
 
-    const result = await this.ctx.sendRawPacket(GET_ALBUM_LIST_CMD, body, 15000);
+    const result = await this.ctx.sendRawPacket(GET_ALBUM_LIST_CMD, body, packetTimeoutMs());
     if (!result.success || !result.gotResponse || !result.responseData) {
       throw new Error(
         `get group album list transport failed: ${result.errorMessage || `code ${result.errorCode}`}`,
@@ -297,7 +298,7 @@ export class GroupAlbumApi {
     const result = await this.ctx.sendRawPacket(
       'QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList',
       body,
-      15000,
+      packetTimeoutMs(),
     );
 
     if (!result.success || !result.gotResponse || !result.responseData) {
@@ -359,7 +360,7 @@ export class GroupAlbumApi {
       extMap: [{ key: 'fc-appid', value: '100' }],
     });
 
-    const result = await this.ctx.sendRawPacket(DO_QUN_COMMENT_CMD, body, 15000);
+    const result = await this.ctx.sendRawPacket(DO_QUN_COMMENT_CMD, body, packetTimeoutMs());
 
     if (!result.success || !result.gotResponse || !result.responseData) {
       throw new Error(result.errorMessage || 'failed to comment on album media');
@@ -431,7 +432,7 @@ export class GroupAlbumApi {
     const result = await this.ctx.sendRawPacket(
       'QunAlbum.trpc.qzone.webapp_qun_operation.FeedsWriter.DoQunLike',
       body,
-      15000,
+      packetTimeoutMs(),
     );
 
     if (!result.success || !result.gotResponse || !result.responseData) {
@@ -470,7 +471,7 @@ export class GroupAlbumApi {
     const result = await this.ctx.sendRawPacket(
       'QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.DeleteMedias',
       body,
-      15000,
+      packetTimeoutMs(),
     );
 
     if (!result.success || !result.gotResponse || !result.responseData) {
@@ -571,7 +572,7 @@ export class GroupAlbumApi {
       extMap: [{ key: 'fc-appid', value: '100' }],
     });
 
-    const result = await this.ctx.sendRawPacket(GET_QUN_FEED_DETAIL_CMD, body, 15000);
+    const result = await this.ctx.sendRawPacket(GET_QUN_FEED_DETAIL_CMD, body, packetTimeoutMs());
     if (!result.success || !result.gotResponse || !result.responseData) {
       throw new Error(result.errorMessage || 'failed to fetch album feed');
     }

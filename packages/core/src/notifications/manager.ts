@@ -8,6 +8,7 @@
 // Side-effecting collaborators (config load, per-UIN channel ids, webhook POST,
 // SMTP send, the clock) are injected so the class is fully unit-testable; the
 // real wiring lives in `createNotificationManager()` at the bottom.
+import { positiveIntEnv } from '@snowluma/common/env';
 import { createLogger } from '@snowluma/common/logger';
 import { loadOneBotConfig } from '@snowluma/onebot/config';
 import type { BridgeManager } from '../bridge/manager';
@@ -262,7 +263,9 @@ export class NotificationManager {
 
 /** Default outbound POST: a single attempt with a timeout, JSON content-type
  *  (the common case for 钉钉/Discord/飞书). Never throws. */
-export function createDefaultPost(timeoutMs = DEFAULT_POST_TIMEOUT_MS): NotificationManagerDeps['post'] {
+export function createDefaultPost(
+  timeoutMs = positiveIntEnv('SNOWLUMA_NOTIFICATION_HTTP_TIMEOUT_MS', DEFAULT_POST_TIMEOUT_MS),
+): NotificationManagerDeps['post'] {
   return async (url, body, headers) => {
     try {
       const res = await fetch(url, {

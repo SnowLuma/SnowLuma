@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   NotificationManager,
+  createDefaultPost,
   selectChannels,
   type MailPayload,
   type NotificationManagerDeps,
@@ -319,5 +320,30 @@ describe('NotificationManager — debounce integration (fake timers)', () => {
     mgr.handleOffline('123', 'Bob');
     await vi.advanceTimersByTimeAsync(0);
     expect(events).toEqual([]);
+  });
+});
+
+describe('createDefaultPost timeout', () => {
+  const name = 'SNOWLUMA_NOTIFICATION_HTTP_TIMEOUT_MS';
+  const saved = process.env[name];
+
+  afterEach(() => {
+    if (saved === undefined) delete process.env[name];
+    else process.env[name] = saved;
+    vi.unstubAllGlobals();
+  });
+
+  it('uses SNOWLUMA_NOTIFICATION_HTTP_TIMEOUT_MS', async () => {
+    process.env[name] = '1234';
+    const seen: number[] = [];
+    const timeout = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+      seen.push(ms);
+      return timeout(50);
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+    const post = createDefaultPost();
+    await post('http://127.0.0.1/hook', '{}');
+    expect(seen).toEqual([1234]);
   });
 });

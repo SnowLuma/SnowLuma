@@ -1,6 +1,9 @@
+import { createLogger } from '@snowluma/common/logger';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+const log = createLogger('OneBot.Stream');
 
 export interface StreamStorageSnapshot {
   totalBytes: number;
@@ -273,7 +276,23 @@ function resolveManagedRoot(input: string): string {
   return path.join(fs.realpathSync(parent), path.basename(absolute));
 }
 
-export const streamStorage = new StreamStorage(path.join(os.tmpdir(), 'onebot-stream'));
+export function createStreamStorage(env: NodeJS.ProcessEnv = process.env): StreamStorage {
+  const fallback = path.join(os.tmpdir(), 'onebot-stream');
+  const raw = env.SNOWLUMA_STREAM_DIR?.trim();
+  if (!raw) return new StreamStorage(fallback);
+  try {
+    return new StreamStorage(raw);
+  } catch (error) {
+    log.warn(
+      'SNOWLUMA_STREAM_DIR=%j is ignored: %s',
+      raw,
+      error instanceof Error ? error.message : String(error),
+    );
+    return new StreamStorage(fallback);
+  }
+}
+
+export const streamStorage = createStreamStorage();
 export const STREAM_ROOT = streamStorage.root;
 export const STREAM_UPLOAD_DIR = streamStorage.uploadDir;
 export const STREAM_DOWNLOAD_DIR = streamStorage.downloadDir;

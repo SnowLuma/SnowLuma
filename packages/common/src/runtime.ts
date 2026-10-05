@@ -108,6 +108,9 @@ export function resolveRuntimeEnvOverrides(env: NodeJS.ProcessEnv): Partial<Runt
   );
   if (logPerUin !== undefined) out.logPerUin = logPerUin;
 
+  const webuiTls = parseRequiredBoolEnv(env.SNOWLUMA_WEBUI_TLS, 'SNOWLUMA_WEBUI_TLS');
+  if (webuiTls !== undefined) out.webuiTls = { enabled: webuiTls };
+
   return out;
 }
 

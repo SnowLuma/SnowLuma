@@ -4,6 +4,7 @@ import {
   runWithTraceRequest,
 } from '@snowluma/common/logger';
 import type { PacketSender, SendPacketResult } from '@snowluma/common/packet-sender';
+import { packetTimeoutMs } from '@snowluma/bridge/packet-timeout';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import { BridgeEventBus } from '@snowluma/protocol/event-bus';
 import { IdentityService } from '@snowluma/protocol/identity-service';
@@ -296,7 +297,7 @@ export class Bridge implements BridgeInterface {
     this.msgRandom_ = (this.msgRandom_ + 0x9E3779B9) >>> 0;
     return this.msgRandom_ & 0x7FFFFFFF;
   }
-  async sendRawPacket(serviceCmd: string, body: Uint8Array, timeoutMs = 15000): Promise<SendPacketResult> {
+  async sendRawPacket(serviceCmd: string, body: Uint8Array, timeoutMs = packetTimeoutMs()): Promise<SendPacketResult> {
     if (!this.packetClient_) {
       return runWithTraceRequest(() => {
         const startedAt = Date.now();

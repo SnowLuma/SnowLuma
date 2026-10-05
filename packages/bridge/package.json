@@ -24,6 +24,10 @@
       "types": "./src/hook-packet-client.ts",
       "default": "./src/hook-packet-client.ts"
     },
+    "./packet-timeout": {
+      "types": "./src/packet-timeout.ts",
+      "default": "./src/packet-timeout.ts"
+    },
     "./injector": {
       "types": "./src/injector.ts",
       "default": "./src/injector.ts"

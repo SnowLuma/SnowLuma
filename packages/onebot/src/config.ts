@@ -1,3 +1,4 @@
+import { positiveIntEnv } from '@snowluma/common/env';
 import { createLogger } from '@snowluma/common/logger';
 import { isRealUin } from '@snowluma/common/uin';
 import { randomBytes } from 'crypto';
@@ -110,7 +111,69 @@ export function loadOneBotConfig(uin: string, options: LoadOneBotConfigOptions =
     saveOneBotConfig(uin, config, { mode: globalRaw ? 'overlay' : 'snapshot' });
   }
 
-  return config;
+  // Listen-port overrides stay in memory. Persisting them would bake a
+  // machine-specific port into onebot_<uin>.json.
+  return applyOneBotListenPortOverrides(config);
+}
+
+const HTTP_DEFAULT_SERVER = 'http-default';
+const WS_DEFAULT_SERVER = 'ws-default';
+
+/** Override only the factory listeners. Other adapters keep their saved ports. */
+export function applyOneBotListenPortOverrides(
+  config: OneBotConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): OneBotConfig {
+  const httpPort = readListenPort('SNOWLUMA_ONEBOT_HTTP_PORT', env);
+  const wsPort = readListenPort('SNOWLUMA_ONEBOT_WS_PORT', env);
+  if (httpPort === undefined && wsPort === undefined) return config;
+
+  const next = structuredClone(config);
+  const httpApplied = httpPort !== undefined && assignFactoryPort(
+    next.networks.httpServers,
+    HTTP_DEFAULT_SERVER,
+    httpPort,
+    'SNOWLUMA_ONEBOT_HTTP_PORT',
+  );
+  const wsApplied = wsPort !== undefined && assignFactoryPort(
+    next.networks.wsServers,
+    WS_DEFAULT_SERVER,
+    wsPort,
+    'SNOWLUMA_ONEBOT_WS_PORT',
+  );
+  if (!httpApplied && !wsApplied) return config;
+  try {
+    assertValidOneBotConfig(next);
+  } catch (error) {
+    log.warn(
+      'OneBot listen port override ignored: %s',
+      error instanceof Error ? error.message : String(error),
+    );
+    return config;
+  }
+  return next;
+}
+
+function readListenPort(name: string, env: NodeJS.ProcessEnv): number | undefined {
+  const raw = env[name];
+  if (typeof raw !== 'string' || !raw.trim()) return undefined;
+  const port = positiveIntEnv(name, 0, { max: 65535, env });
+  return port > 0 ? port : undefined;
+}
+
+function assignFactoryPort(
+  servers: Array<{ name: string; port: number }>,
+  name: string,
+  port: number,
+  envName: string,
+): boolean {
+  const server = servers.find((entry) => entry.name === name);
+  if (!server) {
+    log.warn('%s is ignored; no %s listener', envName, name);
+    return false;
+  }
+  server.port = port;
+  return true;
 }
 
 export interface SaveOneBotConfigOptions {

@@ -10,6 +10,7 @@ import { isRealUin } from '@snowluma/common/uin';
 import { readdirSync, promises as fs } from 'fs';
 import net from 'net';
 import path from 'path';
+import { positiveIntEnv } from '@snowluma/common/env';
 import { resolveHookRuntimeDir } from './hook-runtime-dir';
 
 export const PIPE_MAGIC = 0x31504851;
@@ -471,7 +472,7 @@ export class QqHookClient extends EventEmitter {
   private loginWaiters: Deferred<QqHookLoginState>[] = [];
 
   constructor(pid: number, {
-    ackTimeoutMs = DEFAULT_ACK_TIMEOUT_MS,
+    ackTimeoutMs = positiveIntEnv('SNOWLUMA_HOOK_ACK_TIMEOUT_MS', DEFAULT_ACK_TIMEOUT_MS),
     replyTimeoutMs = DEFAULT_REPLY_TIMEOUT_MS,
     runtimeDir = resolveHookRuntimeDir(pid),
   }: QqHookClientOptions = {}) {
