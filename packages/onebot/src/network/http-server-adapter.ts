@@ -25,6 +25,7 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
   private server: Server | null = null;
   private webSocketServer: WebSocketServer | null = null;
   private listening = false;
+  private releaseForced = false;
   private closePromise: Promise<void> | null = null;
   private acceptingActions = false;
   private readonly inFlightActions = new Set<Promise<void>>();
@@ -113,6 +114,7 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
     try {
       await attempt;
     } catch (error) {
+      if (this.releaseForced) return;
       if (!httpReleased && server?.listening === true) {
         // A failed HTTP close callback cannot prove the listener was released.
         // The upgrade handler is still attached, so the old ingress can accept
@@ -125,6 +127,26 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
       throw error;
     } finally {
       this.closePromise = null;
+    }
+  }
+
+  override forceClose(): void {
+    this.releaseForced = true;
+    this.acceptingActions = false;
+    this.webSocketConnections.stopAccepting();
+    this.isEnabled = false;
+    this.listening = false;
+    this.webSocketConnections.terminateAll();
+    const webSocketServer = this.webSocketServer;
+    this.webSocketServer = null;
+    const server = this.server;
+    this.server = null;
+    if (webSocketServer) {
+      try { webSocketServer.destroy(); } catch { /* already dropping */ }
+    }
+    if (server) {
+      try { server.closeAllConnections(); } catch { /* already closed */ }
+      try { server.close(() => undefined); } catch { /* already closed */ }
     }
   }
 

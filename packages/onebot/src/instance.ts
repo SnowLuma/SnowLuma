@@ -273,6 +273,20 @@ export class OneBotInstance {
     this.ctx.musicSignUrl = globalSettings.musicSignUrl;
   }
 
+  /** Drop listeners and sockets without waiting for shutdown to finish.
+   *  Used when dispose() does not settle and a replacement session must bind. */
+  forceRelease(): void {
+    try {
+      this.quiesce();
+    } catch (error) {
+      this.log.warn(
+        'quiesce during forced release failed: %s',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    this.networkManager.forceRelease();
+  }
+
   /** Synchronously stop every ingress seam for this instance generation.
    *
    * This operation is sticky and idempotent. It is intentionally separate

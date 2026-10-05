@@ -228,6 +228,20 @@ export class OneBotNetworkManager {
     return this.shutdown();
   }
 
+  /** Best-effort immediate release. Does not wait for the operation queue,
+   *  in-flight dispatches, or peer close handshakes. */
+  forceRelease(): void {
+    this.acceptingReconciles = false;
+    this.acceptingEvents = false;
+    for (const { adapter } of this.adapters.values()) {
+      try {
+        adapter.forceClose();
+      } catch (error) {
+        log.error('forced adapter release failed: %s', errMessage(error));
+      }
+    }
+  }
+
   emitEvent(event: JsonObject): Promise<void> {
     if (!this.acceptingEvents) {
       return Promise.reject(new Error('network manager is shutting down; event dispatch rejected'));

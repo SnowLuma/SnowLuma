@@ -569,6 +569,55 @@ describe('OneBotManager lifecycle failure accounting', () => {
     expect((manager as unknown as { pendingStarts: Map<string, unknown> }).pendingStarts.has('10001')).toBe(false);
   });
 
+  it('starts the replacement account when release never finishes', async () => {
+    const originalCwd = process.cwd();
+    const root = mkdtempSync(path.join(tmpdir(), 'snowluma-manager-release-'));
+    process.chdir(root);
+    const forceRelease = vi.fn();
+    const old = {
+      ...fakeInstance('10001', () => new Promise(() => undefined)),
+      forceRelease,
+    } as unknown as OneBotInstance;
+    const replacement = {
+      ...fakeInstance('10001', async () => undefined),
+      waitUntilNetworkReady: vi.fn(async () => ({ applied: true, statuses: [], errors: [] })),
+      startLoginHistorySync: vi.fn(),
+      startGroupRequestPolling: vi.fn(),
+    } as unknown as OneBotInstance;
+    let created = false;
+    const manager = new OneBotManager({
+      sessionReleaseDeadlineMs: 30,
+      createDatabaseMigrationTask: () => ({
+        beginMigration: vi.fn(),
+        cancel: vi.fn(),
+        start: (next) => { next.onReady(); },
+      }),
+      createInstance: () => {
+        created = true;
+        return replacement;
+      },
+    });
+    const internals = manager as unknown as {
+      retiringInstances: Set<OneBotInstance>;
+      onSessionStarted(uin: string, bridge: never): void;
+      pendingStarts: Map<string, unknown>;
+    };
+    try {
+      internals.retiringInstances.add(old);
+      internals.onSessionStarted('10001', fakeBridge() as never);
+      await vi.waitFor(() => {
+        expect(created).toBe(true);
+      });
+      expect(forceRelease).toHaveBeenCalledOnce();
+      expect(manager.getInstance('10001')).toBe(replacement);
+      expect(internals.pendingStarts.has('10001')).toBe(false);
+      expect(internals.retiringInstances.has(old)).toBe(false);
+    } finally {
+      process.chdir(originalCwd);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('allows a later same-UIN start observation to retry a failed handoff', async () => {
     const manager = new OneBotManager();
     let attempts = 0;

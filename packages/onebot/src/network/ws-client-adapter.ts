@@ -60,6 +60,21 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
     }
   }
 
+  override forceClose(): void {
+    this.explicitlyClosed = true;
+    this.acceptingActions = false;
+    this.isEnabled = false;
+    this.connected = false;
+    this.cancelReconnect();
+    this.heartbeatStop?.();
+    this.heartbeatStop = null;
+    const socket = this.socket;
+    this.socket = null;
+    if (socket) {
+      try { socket.terminate(); } catch { /* already gone */ }
+    }
+  }
+
   async close(): Promise<void> {
     this.explicitlyClosed = true;
     this.acceptingActions = false;

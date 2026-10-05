@@ -43,7 +43,13 @@ export interface DatabaseMigrationTask {
   cancel(): void;
 }
 
+/** A peer that never finishes a close handshake must not keep the next
+ *  account session offline. Ten seconds covers a normal drain. */
+const SESSION_RELEASE_DEADLINE_MS = 10_000;
+
 export interface OneBotManagerOptions {
+  /** How long a retiring instance may block the replacement session. */
+  sessionReleaseDeadlineMs?: number;
   createDatabaseMigrationTask?: (uin: string) => DatabaseMigrationTask;
   createInstance?: (
     uin: string,
@@ -91,8 +97,12 @@ export class OneBotManager {
   private readonly createInstance: NonNullable<OneBotManagerOptions['createInstance']>;
   private disposePromise: Promise<void> | null = null;
   private disposed = false;
+  private readonly sessionReleaseDeadlineMs: number;
 
   constructor(options: OneBotManagerOptions = {}) {
+    this.sessionReleaseDeadlineMs = options.sessionReleaseDeadlineMs && options.sessionReleaseDeadlineMs > 0
+      ? options.sessionReleaseDeadlineMs
+      : SESSION_RELEASE_DEADLINE_MS;
     this.createDatabaseMigrationTask = options.createDatabaseMigrationTask
       ?? createMessageStoreMigrationTask;
     this.createInstance = options.createInstance
@@ -447,20 +457,58 @@ export class OneBotManager {
     return result;
   }
 
+  private async releaseRetiringInstance(
+    uin: string,
+    pending: { bridge: BridgeInterface; cancelled: boolean },
+    instance: OneBotInstance,
+  ): Promise<void> {
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<'timeout'>((resolve) => {
+      timer = setTimeout(() => resolve('timeout'), this.sessionReleaseDeadlineMs);
+      timer.unref?.();
+    });
+    // Map rejection here so a dispose() that fails after the deadline still
+    // has a handler. The race may already have moved on.
+    const releasing = instance.dispose().then(
+      () => 'released' as const,
+      (error: unknown) => ({ failed: error }),
+    );
+    try {
+      const outcome = await Promise.race([releasing, timeout]);
+      if (outcome === 'timeout') {
+        log.error(
+          'session release timed out; forcing adapters closed and starting the replacement: UIN=%s',
+          uin,
+        );
+        try {
+          instance.forceRelease?.();
+        } catch (error) {
+          log.error(
+            'forced session release failed: UIN=%s: %s',
+            uin,
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        return;
+      }
+      if (typeof outcome === 'object') {
+        // Do not leave this UIN permanently guarded by a failed handoff. A
+        // later session-start observation may retry the still-visible retire.
+        if (this.pendingStarts.get(uin) === pending) this.pendingStarts.delete(uin);
+        throw new InstanceLifecycleError(instance, outcome.failed);
+      }
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   private async finishRetiringBeforeStart(
     uin: string,
     pending: { bridge: BridgeInterface; cancelled: boolean },
     retiring: OneBotInstance[],
   ): Promise<void> {
     for (const instance of retiring) {
-      try {
-        await instance.dispose();
-      } catch (error) {
-        // Do not leave this UIN permanently guarded by a failed handoff. A
-        // later session-start observation may retry the still-visible retire.
-        if (this.pendingStarts.get(uin) === pending) this.pendingStarts.delete(uin);
-        throw new InstanceLifecycleError(instance, error);
-      }
+      await this.releaseRetiringInstance(uin, pending, instance);
       this.retirementSucceeded(instance);
     }
     if (this.pendingStarts.get(uin) !== pending) return;

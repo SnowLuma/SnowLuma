@@ -61,6 +61,11 @@ export abstract class IOneBotNetworkAdapter<C extends NetworkBase> {
   abstract open(): void | Promise<void>;
   abstract close(): void | Promise<void>;
 
+  /** Drop sockets and listeners without waiting for a peer handshake.
+   *  Graceful `close()` can sit forever on a half-open connection; shutdown
+   *  uses this so the next account session can bind the same ports. */
+  forceClose(): void { /* adapters that own a listener override this */ }
+
   abstract onEvent(event: JsonObject, payload: DispatchPayload): void | Promise<void>;
 
   /** Report live connection health for the WebUI dashboard. */

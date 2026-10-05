@@ -212,6 +212,17 @@ export class WsServerConnections {
     this.connections.clear();
   }
 
+  /** Destroy sockets immediately. A graceful close frame can leave the
+   *  listener waiting on a peer that will never answer. */
+  terminateAll(): void {
+    this.stopAccepting();
+    for (const connection of this.connections.values()) {
+      connection.stopHeartbeat();
+      try { connection.socket.terminate(); } catch { /* already gone */ }
+    }
+    this.connections.clear();
+  }
+
   private async handleApiMessage(socket: WebSocket, role: WsRole, raw: Buffer | string): Promise<void> {
     const text = rawDataToString(raw);
     if (!text) {

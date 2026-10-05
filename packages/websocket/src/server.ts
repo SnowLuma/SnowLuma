@@ -282,4 +282,21 @@ export class WebSocketServer extends EventEmitter {
       setImmediate(cb);
     }
   }
+
+  /** Destroy clients and, when this server owns the HTTP listener, that
+   *  listener too. An external HTTP server is left to its owner. */
+  destroy(): void {
+    for (const ws of this.clients) {
+      try { ws.terminate(); } catch { /* noop */ }
+    }
+    if (this._externalServer && this._upgradeHandler) {
+      this._externalServer.removeListener('upgrade', this._upgradeHandler);
+      this._upgradeHandler = null;
+    }
+    if (this._server) {
+      try { this._server.closeAllConnections(); } catch { /* noop */ }
+      try { this._server.close(() => undefined); } catch { /* noop */ }
+      this._server = null;
+    }
+  }
 }

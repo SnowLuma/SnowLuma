@@ -15,6 +15,7 @@ const moduleLog = createLogger('OneBot.WS-Server');
 export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
   private wss: WebSocketServer | null = null;
   private listening = false;
+  private releaseForced = false;
   private closePromise: Promise<void> | null = null;
   private readonly connections: WsServerConnections;
 
@@ -66,6 +67,7 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
       await attempt;
       if (wss && this.wss === wss) this.wss = null;
     } catch (error) {
+      if (this.releaseForced) return;
       // A failed close callback leaves release ambiguous. Retain the server
       // reference and active binding state so a later shutdown can retry.
       this.isEnabled = wasEnabled;
@@ -74,6 +76,19 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
       throw error;
     } finally {
       this.closePromise = null;
+    }
+  }
+
+  override forceClose(): void {
+    this.releaseForced = true;
+    this.isEnabled = false;
+    this.listening = false;
+    this.connections.stopAccepting();
+    this.connections.terminateAll();
+    const wss = this.wss;
+    this.wss = null;
+    if (wss) {
+      try { wss.destroy(); } catch { /* already dropping */ }
     }
   }
 
