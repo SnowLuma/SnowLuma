@@ -7,6 +7,8 @@ import type { AdapterStatus } from '../src/network';
 import type { OneBotInstance } from '../src/instance';
 import {
   OneBotManager,
+  parseSessionReleaseDeadlineMs,
+  resolveSessionReleaseDeadlineMs,
   type DatabaseMigrationCallbacks,
   type DatabaseMigrationTask,
 } from '../src/manager';
@@ -37,6 +39,26 @@ function fakeInstance(
     getConnectionStatuses: () => statuses,
   } as unknown as OneBotInstance;
 }
+
+describe('session release deadline', () => {
+  it('keeps 10 seconds when nothing overrides it', () => {
+    expect(resolveSessionReleaseDeadlineMs(undefined, undefined)).toBe(10_000);
+    expect(resolveSessionReleaseDeadlineMs(undefined, '   ')).toBe(10_000);
+  });
+
+  it('lets SNOWLUMA_SESSION_RELEASE_DEADLINE_MS override a configured deadline', () => {
+    expect(resolveSessionReleaseDeadlineMs(30, '2500')).toBe(2500);
+    expect(parseSessionReleaseDeadlineMs('0')).toBeUndefined();
+    expect(parseSessionReleaseDeadlineMs('-5')).toBeUndefined();
+    expect(parseSessionReleaseDeadlineMs('1.5')).toBeUndefined();
+    expect(parseSessionReleaseDeadlineMs('nope')).toBeUndefined();
+  });
+
+  it('ignores an unusable environment value and keeps the configured deadline', () => {
+    expect(resolveSessionReleaseDeadlineMs(30, 'nope')).toBe(30);
+    expect(resolveSessionReleaseDeadlineMs(undefined, 'nope')).toBe(10_000);
+  });
+});
 
 describe('database migration estimates', () => {
   it('waits for measured throughput and reaches zero on completion', () => {
@@ -571,6 +593,8 @@ describe('OneBotManager lifecycle failure accounting', () => {
 
   it('starts the replacement account when release never finishes', async () => {
     const originalCwd = process.cwd();
+    const savedDeadline = process.env.SNOWLUMA_SESSION_RELEASE_DEADLINE_MS;
+    delete process.env.SNOWLUMA_SESSION_RELEASE_DEADLINE_MS;
     const root = mkdtempSync(path.join(tmpdir(), 'snowluma-manager-release-'));
     process.chdir(root);
     const forceRelease = vi.fn();
@@ -613,6 +637,57 @@ describe('OneBotManager lifecycle failure accounting', () => {
       expect(internals.pendingStarts.has('10001')).toBe(false);
       expect(internals.retiringInstances.has(old)).toBe(false);
     } finally {
+      if (savedDeadline === undefined) delete process.env.SNOWLUMA_SESSION_RELEASE_DEADLINE_MS;
+      else process.env.SNOWLUMA_SESSION_RELEASE_DEADLINE_MS = savedDeadline;
+      process.chdir(originalCwd);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('uses SNOWLUMA_SESSION_RELEASE_DEADLINE_MS instead of a longer configured deadline', async () => {
+    const originalCwd = process.cwd();
+    const savedDeadline = process.env.SNOWLUMA_SESSION_RELEASE_DEADLINE_MS;
+    process.env.SNOWLUMA_SESSION_RELEASE_DEADLINE_MS = '40';
+    const root = mkdtempSync(path.join(tmpdir(), 'snowluma-manager-release-env-'));
+    process.chdir(root);
+    const forceRelease = vi.fn();
+    const old = {
+      ...fakeInstance('10001', () => new Promise(() => undefined)),
+      forceRelease,
+    } as unknown as OneBotInstance;
+    let created = false;
+    const replacement = {
+      ...fakeInstance('10001', async () => undefined),
+      waitUntilNetworkReady: vi.fn(async () => ({ applied: true, statuses: [], errors: [] })),
+      startLoginHistorySync: vi.fn(),
+      startGroupRequestPolling: vi.fn(),
+    } as unknown as OneBotInstance;
+    const manager = new OneBotManager({
+      sessionReleaseDeadlineMs: 60_000,
+      createDatabaseMigrationTask: () => ({
+        beginMigration: vi.fn(),
+        cancel: vi.fn(),
+        start: (next) => { next.onReady(); },
+      }),
+      createInstance: () => {
+        created = true;
+        return replacement;
+      },
+    });
+    const internals = manager as unknown as {
+      retiringInstances: Set<OneBotInstance>;
+      onSessionStarted(uin: string, bridge: never): void;
+    };
+    try {
+      internals.retiringInstances.add(old);
+      internals.onSessionStarted('10001', fakeBridge() as never);
+      await vi.waitFor(() => {
+        expect(created).toBe(true);
+      });
+      expect(forceRelease).toHaveBeenCalledOnce();
+    } finally {
+      if (savedDeadline === undefined) delete process.env.SNOWLUMA_SESSION_RELEASE_DEADLINE_MS;
+      else process.env.SNOWLUMA_SESSION_RELEASE_DEADLINE_MS = savedDeadline;
       process.chdir(originalCwd);
       rmSync(root, { recursive: true, force: true });
     }

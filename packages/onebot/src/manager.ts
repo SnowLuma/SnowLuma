@@ -44,11 +44,41 @@ export interface DatabaseMigrationTask {
 }
 
 /** A peer that never finishes a close handshake must not keep the next
- *  account session offline. Ten seconds covers a normal drain. */
-const SESSION_RELEASE_DEADLINE_MS = 10_000;
+ *  account session offline. Ten seconds covers a normal drain.
+ *  SNOWLUMA_SESSION_RELEASE_DEADLINE_MS overrides the configured value. */
+const DEFAULT_SESSION_RELEASE_DEADLINE_MS = 10_000;
+const SESSION_RELEASE_DEADLINE_ENV = 'SNOWLUMA_SESSION_RELEASE_DEADLINE_MS';
+const MAX_SESSION_RELEASE_DEADLINE_MS = 2_147_483_647;
+
+/** Positive integer milliseconds, or `undefined` when the raw value is absent
+ *  or not usable. Callers decide the fallback. */
+export function parseSessionReleaseDeadlineMs(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = raw.trim();
+  if (!/^[1-9]\d*$/.test(value)) return undefined;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed > MAX_SESSION_RELEASE_DEADLINE_MS) return undefined;
+  return parsed;
+}
+
+/** Env wins over an explicit deadline. An unusable env value is ignored. */
+export function resolveSessionReleaseDeadlineMs(configured?: number, envRaw?: string): number {
+  const fromEnv = parseSessionReleaseDeadlineMs(envRaw);
+  if (fromEnv !== undefined) return fromEnv;
+  if (
+    configured !== undefined
+    && Number.isSafeInteger(configured)
+    && configured > 0
+    && configured <= MAX_SESSION_RELEASE_DEADLINE_MS
+  ) {
+    return configured;
+  }
+  return DEFAULT_SESSION_RELEASE_DEADLINE_MS;
+}
 
 export interface OneBotManagerOptions {
-  /** How long a retiring instance may block the replacement session. */
+  /** How long a retiring instance may block the replacement session.
+   *  SNOWLUMA_SESSION_RELEASE_DEADLINE_MS overrides this when it is set. */
   sessionReleaseDeadlineMs?: number;
   createDatabaseMigrationTask?: (uin: string) => DatabaseMigrationTask;
   createInstance?: (
@@ -100,9 +130,18 @@ export class OneBotManager {
   private readonly sessionReleaseDeadlineMs: number;
 
   constructor(options: OneBotManagerOptions = {}) {
-    this.sessionReleaseDeadlineMs = options.sessionReleaseDeadlineMs && options.sessionReleaseDeadlineMs > 0
-      ? options.sessionReleaseDeadlineMs
-      : SESSION_RELEASE_DEADLINE_MS;
+    const envRaw = process.env[SESSION_RELEASE_DEADLINE_ENV];
+    if (envRaw !== undefined && envRaw.trim() && parseSessionReleaseDeadlineMs(envRaw) === undefined) {
+      log.warn(
+        '%s=%j is ignored; expected a positive integer number of milliseconds',
+        SESSION_RELEASE_DEADLINE_ENV,
+        envRaw,
+      );
+    }
+    this.sessionReleaseDeadlineMs = resolveSessionReleaseDeadlineMs(
+      options.sessionReleaseDeadlineMs,
+      envRaw,
+    );
     this.createDatabaseMigrationTask = options.createDatabaseMigrationTask
       ?? createMessageStoreMigrationTask;
     this.createInstance = options.createInstance
