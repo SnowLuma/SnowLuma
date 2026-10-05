@@ -124,6 +124,15 @@ export async function getRecordInfo(
         ? await bridge.apis.groupFile.getPttUrl(cached.sessionId, cached.mediaNode)
         : await bridge.apis.groupFile.getPrivatePttUrl(cached.mediaNode);
       if (url) {
+        // TODO(record-rkey-expiry): the minted URL embeds an rkey whose
+        // lifetime nothing here tracks — `parseNtv2DownloadUrl` decodes
+        // `rKeyTtlSecond`/`rKeyCreateTime` (proto-defs oidb-actions/media.ts)
+        // but discards both, and RKeyCache never fetches the PTT rkey types.
+        // Writing the signed URL back therefore makes lookups 2..N return it
+        // verbatim through the `!url` guard above, until the CDN rejects the
+        // download with `invalid rkey`. The image path avoids this by storing
+        // a bare `imageUrl` and re-signing on every lookup (see getImageInfo
+        // above); records need the same treatment, or a stored expiry.
         mediaStore.updateRecordUrl(file, url);
       }
     } catch (err) {

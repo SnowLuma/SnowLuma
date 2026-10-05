@@ -722,13 +722,38 @@ async function cacheSelfSentMessage(
     // resolver is async and bound to the receive pipeline; skipping it
     // means /get_msg returns the segment with the original `file` path
     // and an empty `url`, which is what Lagrange does too.
+    //
+    // The media sink is not a URL resolver: it is synchronous and records
+    // the element's upload fingerprints (mediaNode/fileId/md5) in the media
+    // store. Skipping it left a self-sent voice with no usable media
+    // reference at all — `mediaUrlResolver: null` above makes the converter
+    // fall back to the element's own `url`, which the NTV2 upload never sets
+    // (`ptt-upload.ts:245-249` only annotates the fingerprints) and which is
+    // blanked for the wire when it is inline (`element-codecs.ts:336`), so for
+    // group and private alike `/get_msg` had nothing left to resolve and
+    // `get_record` had no `mediaNode` to mint a URL from.
+    //
+    // The receive path deliberately lets a sink failure propagate out of
+    // `elementsToOneBotSegments` ("persistence failures must propagate").
+    // Here the outer catch would swallow it *and* the whole self-sent event
+    // with it, hiding a message the caller just sent — so contain it and
+    // keep the loss observable instead.
     const segments = await elementsToOneBotSegments(
       {
         selfId: ref.selfId,
         imageUrlResolver: null,
         mediaUrlResolver: null,
         messageIdResolver: null,
-        mediaSegmentSink: null,
+        mediaSegmentSink: (mediaType, element, data, sinkIsGroup, sinkSessionId) => {
+          try {
+            ref.converterCtx.mediaSegmentSink?.(mediaType, element, data, sinkIsGroup, sinkSessionId);
+          } catch (err) {
+            // Name the affected message: the sink is per-element, so a media
+            // type alone does not tell an operator which send lost its index.
+            log.warn('[OneBot] failed to index self-sent media %s message_id=%d session=%s: %s',
+              mediaType, messageId, sessionId, err instanceof Error ? err.message : String(err));
+          }
+        },
       },
       elements,
       isGroup,

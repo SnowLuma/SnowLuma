@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { subscribeLogs, type LogEntry } from '@snowluma/common/logger';
 import type { ApiActionContext } from '../src/api-handler';
 import { actions } from '../src/actions/message';
 import type { JsonObject, MessageMeta } from '../src/types';
@@ -605,6 +606,226 @@ describe('get_msg', () => {
       },
     });
     expect(imageData.url).toBe('https://old.example/throw.jpg');
+  });
+
+  it('mints a URL for a stored record whose wire URL was blanked', async () => {
+    // A self-sent private voice is stored by `cacheSelfSentMessage` with the
+    // caller's inline source blanked for the wire (`element-codecs.ts:336`) —
+    // the persisted segment carries only `file` and `url: ''`. Consumers
+    // (AstrBot) read it back through `get_msg` and need a usable http URL.
+    const spoken: JsonObject = { file: 'aabbccddeeff00112233445566778899.amr', url: '' };
+    const getRecordInfo = vi.fn(async () => ({
+      file: 'https://ptt.example/c2c.silk?rkey=FRESH',
+      url: 'https://ptt.example/c2c.silk?rkey=FRESH',
+      file_size: '1024',
+      file_name: 'aabbccddeeff00112233445566778899.amr',
+    }));
+    const response = await getMsg.toHandler(asCtx({
+      getMessage: () => ({
+        message_id: 777003,
+        message: [{ type: 'record', data: spoken }],
+      }),
+      getRecordInfo,
+    }))({ message_id: 777003 });
+
+    expect(getRecordInfo.mock.calls).toEqual([['aabbccddeeff00112233445566778899.amr']]);
+    expect(spoken.url).toBe('https://ptt.example/c2c.silk?rkey=FRESH');
+    expect(spoken.file).toBe('aabbccddeeff00112233445566778899.amr');
+    expect(response).toEqual({
+      status: 'ok',
+      retcode: 0,
+      data: {
+        message_id: 777003,
+        real_id: 777003,
+        message: [{
+          type: 'record',
+          data: {
+            file: 'aabbccddeeff00112233445566778899.amr',
+            url: 'https://ptt.example/c2c.silk?rkey=FRESH',
+          },
+        }],
+      },
+    });
+  });
+
+  it('mints a group record URL from the group id, never the private endpoint', async () => {
+    // The same blank-URL segment shape reaches `get_msg` for group voices: the
+    // send path also passes `mediaUrlResolver: null`, and `record.toSegment`
+    // falls back to the element's own `url`, which the NTV2 ptt upload never
+    // sets and which is blanked when inline. What differs is the resolver: a
+    // group record must be minted against the group id via `getPttUrl`, not
+    // through the c2c endpoint.
+    const groupId = 314159;
+    const mediaNode = { fileUuid: 'ptt-group-uuid', storeId: 2 };
+    const spoken: JsonObject = { file: 'ffeeddccbbaa00998877665544332211.amr', url: '' };
+    const url = 'https://ptt.example/group.silk?rkey=FRESH';
+    // Mirrors the real `ctx.getRecordInfo`, which branches on the cached
+    // record's own isGroup/sessionId (`media-actions.ts`).
+    const getPttUrl = vi.fn(async () => url);
+    const getPrivatePttUrl = vi.fn(async () => 'https://ptt.example/c2c.silk?rkey=FRESH');
+    const getRecordInfo = vi.fn(async () => {
+      const cached = {
+        file: String(spoken.file),
+        url: '',
+        fileName: String(spoken.file),
+        fileSize: 2048,
+        isGroup: true,
+        sessionId: groupId,
+        mediaNode,
+      };
+      const minted = cached.url || (
+        cached.isGroup
+          ? await getPttUrl(cached.sessionId, cached.mediaNode)
+          : await getPrivatePttUrl(cached.mediaNode)
+      );
+      return { file: minted, url: minted, file_size: String(cached.fileSize), file_name: cached.fileName };
+    });
+    const response = await getMsg.toHandler(asCtx({
+      getMessage: () => ({
+        message_id: 777006,
+        message_type: 'group',
+        group_id: groupId,
+        message: [{ type: 'record', data: spoken }],
+      }),
+      getRecordInfo,
+    }))({ message_id: 777006 });
+
+    // The group id — not the message id, not the c2c peer — reaches the group
+    // resolver, together with the indexed mediaNode.
+    expect(getPttUrl.mock.calls).toEqual([[groupId, mediaNode]]);
+    expect(getPrivatePttUrl).not.toHaveBeenCalled();
+    expect(spoken.url).toBe(url);
+    expect(response).toEqual({
+      status: 'ok',
+      retcode: 0,
+      data: {
+        message_id: 777006,
+        real_id: 777006,
+        message_type: 'group',
+        group_id: groupId,
+        message: [{
+          type: 'record',
+          data: {
+            file: 'ffeeddccbbaa00998877665544332211.amr',
+            url,
+          },
+        }],
+      },
+    });
+  });
+
+  it('keeps the stored record untouched when the URL refresh fails', async () => {
+    const spoken: JsonObject = { file: 'THROW.amr', url: '' };
+    const entries: LogEntry[] = [];
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    const getRecordInfo = vi.fn(async () => {
+      throw new Error('ptt url fetch failed');
+    });
+
+    let response;
+    try {
+      response = await getMsg.toHandler(asCtx({
+        getMessage: () => ({
+          message_id: 777004,
+          message: [{ type: 'record', data: spoken }],
+        }),
+        getRecordInfo,
+      }))({ message_id: 777004 });
+    } finally {
+      unsubscribe();
+    }
+
+    expect(getRecordInfo.mock.calls).toEqual([['THROW.amr']]);
+    expect(response).toEqual({
+      status: 'ok',
+      retcode: 0,
+      data: {
+        message_id: 777004,
+        real_id: 777004,
+        message: [{ type: 'record', data: { file: 'THROW.amr', url: '' } }],
+      },
+    });
+    expect(spoken).toEqual({ file: 'THROW.amr', url: '' });
+    expect(entries.some((entry) => (
+      entry.scope === 'OneBot'
+      && entry.level === 'warn'
+      && entry.message.includes('record url refresh failed')
+    ))).toBe(true);
+  });
+
+  it('resolves only records that carry no URL yet', async () => {
+    const staleHttp: JsonObject = {
+      file: 'STALE.amr',
+      url: 'https://ptt.example/already-signed.silk?rkey=OLD',
+    };
+    const noFile: JsonObject = { url: '' };
+    const noData: JsonObject = {};
+    const emptyFile: JsonObject = { file: '', url: '' };
+    const resolveEmpty: JsonObject = { file: 'RESOLVE_EMPTY.amr', url: '' };
+    const resolveMissing: JsonObject = { file: 'RESOLVE_MISSING.amr' };
+    const resolveNull: JsonObject = { file: 'RESOLVE_NULL.amr', url: '' };
+    const resolveNonString: JsonObject = { file: 'RESOLVE_NONSTRING.amr', url: '' };
+    const getRecordInfo = vi.fn(async (file: string) => {
+      if (file === 'RESOLVE_NULL.amr') return null;
+      if (file === 'RESOLVE_NONSTRING.amr') return { url: 1 };
+      return { url: `https://ptt.example/${file}?rkey=FRESH` };
+    });
+    const imageData: JsonObject = { file: 'STILL.jpg', url: 'https://old.example/STILL.jpg' };
+    const getImageInfo = vi.fn(async () => ({ url: 'https://new.example/STILL.jpg?rkey=FRESH' }));
+    const response = await getMsg.toHandler(asCtx({
+      getMessage: () => ({
+        message_id: 777005,
+        message: [
+          { type: 'text', data: { text: 'plain' } },
+          { type: 'record', data: noData },
+          { type: 'record', data: staleHttp },
+          { type: 'record', data: noFile },
+          { type: 'record', data: emptyFile },
+          { type: 'record', data: resolveNull },
+          { type: 'record', data: resolveNonString },
+          { type: 'record', data: resolveEmpty },
+          { type: 'record', data: resolveMissing },
+          { type: 'image', data: imageData },
+        ],
+      }),
+      getRecordInfo,
+      getImageInfo,
+    }))({ message_id: 777005 });
+
+    // Records already carrying a URL never reach the resolver, and neither do
+    // segments without a `file` token to resolve.
+    expect(getRecordInfo.mock.calls).toEqual([
+      ['RESOLVE_NULL.amr'],
+      ['RESOLVE_NONSTRING.amr'],
+      ['RESOLVE_EMPTY.amr'],
+      ['RESOLVE_MISSING.amr'],
+    ]);
+    // The image refresh is untouched by the record pass.
+    expect(getImageInfo.mock.calls).toEqual([['STILL.jpg']]);
+    expect(response).toMatchObject({
+      status: 'ok',
+      retcode: 0,
+      data: {
+        message: [
+          { type: 'text', data: { text: 'plain' } },
+          { type: 'record', data: {} },
+          { type: 'record', data: staleHttp },
+          { type: 'record', data: noFile },
+          { type: 'record', data: emptyFile },
+          { type: 'record', data: resolveNull },
+          { type: 'record', data: resolveNonString },
+          { type: 'record', data: resolveEmpty },
+          { type: 'record', data: resolveMissing },
+          { type: 'image', data: imageData },
+        ],
+      },
+    });
+    expect(staleHttp.url).toBe('https://ptt.example/already-signed.silk?rkey=OLD');
+    expect(resolveNull.url).toBe('');
+    expect(resolveNonString.url).toBe('');
+    expect(resolveEmpty.url).toBe('https://ptt.example/RESOLVE_EMPTY.amr?rkey=FRESH');
+    expect(resolveMissing.url).toBe('https://ptt.example/RESOLVE_MISSING.amr?rkey=FRESH');
+    expect(imageData.url).toBe('https://new.example/STILL.jpg?rkey=FRESH');
   });
 });
 

@@ -47,6 +47,46 @@ async function refreshStoredImageUrls(event: JsonObject, ctx: ApiActionContext):
   }
 }
 
+/**
+ * Re-mint record URLs in a stored message event at read time. Any `record`
+ * segment stored with an empty `url` — private and group scenes alike — keeps
+ * only its `file` token (`<md5>.amr`), which no consumer can fetch.
+ * `ctx.getRecordInfo` resolves that token through the media store's cached
+ * `mediaNode` and mints a current URL. Best-effort and in-place; `findEvent`
+ * returns a fresh parse, so mutating the array is safe.
+ */
+async function refreshStoredRecordUrls(event: JsonObject, ctx: ApiActionContext): Promise<void> {
+  const segments = event.message;
+  if (!Array.isArray(segments)) return;
+  for (const seg of segments) {
+    if (!seg || typeof seg !== 'object') continue;
+    const segment = seg as { type?: unknown; data?: Record<string, JsonValue> };
+    if (segment.type !== 'record') continue;
+    const data = segment.data;
+    if (!data || typeof data !== 'object') continue;
+    // Only a segment with no URL at all needs one; anything already carrying
+    // one is left alone rather than paying for a needless OIDB round trip. An
+    // empty URL means the persisted segment holds no usable reference at all:
+    // its inline source is blanked for the wire, and the self-sent path into
+    // the converter passes `mediaUrlResolver: null`, so both private and group
+    // records land here with `url: ''`. The `file` token is then the only way
+    // back to the media store's `mediaNode`.
+    const url = typeof data.url === 'string' ? data.url : '';
+    if (url) continue;
+    const file = typeof data.file === 'string' ? data.file : '';
+    if (!file) continue;
+    try {
+      const info = await ctx.getRecordInfo(file);
+      if (info && typeof info.url === 'string' && info.url) data.url = info.url;
+    } catch (err) {
+      // Keep the stored segment — including its `file` token — when the
+      // refresh fails. The caller still gets a usable reference token.
+      log.warn('[get_msg] record url refresh failed file=%s: %s',
+        file, err instanceof Error ? err.message : String(err));
+    }
+  }
+}
+
 export const actions = [
   defineAction({
     name: 'send_custom_face',
@@ -154,6 +194,7 @@ export const actions = [
       delete result.self_id;
       result.real_id = (result.message_id ?? p.message_id) as JsonValue;
       await refreshStoredImageUrls(result, ctx);
+      await refreshStoredRecordUrls(result, ctx);
       return okResponse(result);
     },
   }),

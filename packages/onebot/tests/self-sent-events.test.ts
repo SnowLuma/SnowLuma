@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createLogger,
   getLogLevel,
@@ -7,10 +9,13 @@ import {
   subscribeLogs,
   type LogEntry,
 } from '@snowluma/common/logger';
+import type { MessageElement } from '@snowluma/protocol/events';
 import type { BridgeInterface } from '../../core/src/bridge/bridge-interface';
 import { ApiHandler } from '../src/api-handler';
 import { OneBotInstance } from '../src/instance';
 import { buildApiContext, type OneBotInstanceContext } from '../src/instance-context';
+import { MediaIndexer } from '../src/media-indexer';
+import { MediaStore } from '../src/media-store';
 import { hashMessageIdInt32, PRIVATE_NT_MESSAGE_EVENT } from '../src/message-id';
 import { TempSessionStore } from '../src/temp-session-store';
 import type { JsonObject, OneBotConfig } from '../src/types';
@@ -26,10 +31,53 @@ const RECEIPT = {
 };
 type Receipt = typeof RECEIPT;
 
-function makeContext(receiptOrReceipts: Receipt | Receipt[] = RECEIPT): {
+/** Upload fingerprints the NTV2 ptt pipeline writes onto a sent voice element. */
+const PTT_MD5 = 'aabbccddeeff00112233445566778899';
+const PTT_NODE = { fileUuid: 'ptt-resource-uuid', storeId: 1 };
+
+const mediaStores: Array<{ store: MediaStore; dbPath: string }> = [];
+
+/** A real store on a throwaway db — runtime state resolves under the per-worker
+ *  temp dir `tests/setup.ts` chdir-s into, so nothing lands in the package. */
+function openMediaStore(label: string): MediaStore {
+  const dbPath = path.join(
+    'data', 'test',
+    `self-sent-${label}-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.db`,
+  );
+  const store = new MediaStore(dbPath);
+  mediaStores.push({ store, dbPath });
+  return store;
+}
+
+afterEach(() => {
+  for (const { store, dbPath } of mediaStores.splice(0)) {
+    store.close();
+    for (const suffix of ['', '-wal', '-shm']) {
+      try { fs.unlinkSync(dbPath + suffix); } catch { /* already gone */ }
+    }
+  }
+});
+
+interface ContextOptions {
+  /** Real store for the tests that exercise media indexing. The default is a
+   *  spy-shaped store so unrelated sends stay side-effect free. */
+  mediaStore?: MediaStore;
+  /** Mirror the NTV2 upload's in-place element annotation
+   *  (`packages/protocol/src/highway/ptt-upload.ts:245-249`). The mocked bridge
+   *  performs no upload, so a test that needs the annotation asks for it. */
+  simulatePttUpload?: boolean;
+  getPttUrl?: ReturnType<typeof vi.fn>;
+  getPrivatePttUrl?: ReturnType<typeof vi.fn>;
+}
+
+function makeContext(
+  receiptOrReceipts: Receipt | Receipt[] = RECEIPT,
+  options: ContextOptions = {},
+): {
   ctx: OneBotInstanceContext;
   dispatchEvent: ReturnType<typeof vi.fn<(event: JsonObject) => void>>;
   events: Map<number, JsonObject>;
+  mediaStore: MediaStore;
 } {
   const receipts = Array.isArray(receiptOrReceipts) ? receiptOrReceipts : [receiptOrReceipts];
   let receiptIndex = 0;
@@ -40,11 +88,34 @@ function makeContext(receiptOrReceipts: Receipt | Receipt[] = RECEIPT): {
   };
   const events = new Map<number, JsonObject>();
   const dispatchEvent = vi.fn<(event: JsonObject) => void>();
+  const mediaStore = options.mediaStore ?? ({
+    rememberImage: vi.fn(),
+    rememberRecord: vi.fn(),
+    rememberVideo: vi.fn(),
+  } as unknown as MediaStore);
+  const mediaIndexer = new MediaIndexer(mediaStore);
   const bridge = {
     identity: { nickname: 'SnowLuma' },
     apis: {
       message: {
-        sendPrivate: vi.fn(async () => nextReceipt()),
+        sendPrivate: vi.fn(async (_userId: number, elements: MessageElement[]) => {
+          if (options.simulatePttUpload) {
+            for (const element of elements) {
+              if (element.type !== 'record') continue;
+              Object.assign(element, {
+                md5Hex: PTT_MD5,
+                sha1Hex: 'bb'.repeat(20),
+                fileSize: 1024,
+                fileName: `${PTT_MD5}.amr`,
+                duration: 3,
+                voiceFormat: 1,
+                fileId: PTT_NODE.fileUuid,
+                mediaNode: PTT_NODE,
+              });
+            }
+          }
+          return nextReceipt();
+        }),
         sendGroupTempMessage: vi.fn(async () => nextReceipt()),
         sendC2cFile: vi.fn(async () => nextReceipt()),
       },
@@ -53,6 +124,8 @@ function makeContext(receiptOrReceipts: Receipt | Receipt[] = RECEIPT): {
           fileId: 'uploaded-file-uuid',
           fileHash: 'uploaded-file-hash',
         })),
+        getPttUrl: options.getPttUrl ?? vi.fn(async () => ''),
+        getPrivatePttUrl: options.getPrivatePttUrl ?? vi.fn(async () => ''),
       },
       forward: {
         upload: vi.fn(async () => 'forward-res-id'),
@@ -87,10 +160,17 @@ function makeContext(receiptOrReceipts: Receipt | Receipt[] = RECEIPT): {
         events.set(messageId, event);
       },
     },
-    mediaStore: {},
+    mediaStore,
     reactionStore: {},
     tempSessions: new TempSessionStore(),
-    converterCtx: {},
+    converterCtx: {
+      selfId: SELF_ID,
+      imageUrlResolver: null,
+      mediaUrlResolver: null,
+      messageIdResolver: null,
+      mediaSegmentSink: (mediaType, element, data, isGroup, sessionId) =>
+        mediaIndexer.remember(mediaType, element, data, isGroup, sessionId),
+    },
     config: {
       networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
     } as OneBotConfig,
@@ -98,7 +178,7 @@ function makeContext(receiptOrReceipts: Receipt | Receipt[] = RECEIPT): {
     dispatchEvent,
   } as unknown as OneBotInstanceContext;
 
-  return { ctx, dispatchEvent, events };
+  return { ctx, dispatchEvent, events, mediaStore };
 }
 
 interface InstanceHarness {
@@ -263,6 +343,101 @@ describe('OneBot self-sent events', () => {
       target_id: PEER_ID,
       message_seq: RECEIPT.clientSequence,
     }), 'send');
+  });
+
+  it('indexes a self-sent private voice so get_msg can mint its URL', async () => {
+    // The bug: a self-sent voice reached the media store never, so
+    // `getRecordInfo` had no `mediaNode` to mint a URL from and `/get_msg`
+    // returned a segment whose only media reference was a dead file token.
+    const mediaStore = openMediaStore('ptt');
+    const getPrivatePttUrl = vi.fn(async () => 'https://ptt.example/c2c.silk?rkey=FRESH');
+    const { ctx } = makeContext(RECEIPT, {
+      mediaStore,
+      simulatePttUpload: true,
+      getPrivatePttUrl,
+    });
+    const api = buildApiContext(ctx);
+
+    const result = await api.sendPrivateMessage(PEER_ID, [{
+      type: 'record',
+      data: { file: 'base64://QUNBQ0E=' },
+    }], false);
+
+    // The NTV2 upload annotates the element in place; the sink must have run
+    // for that same element, not a copy taken before the upload.
+    const sent = vi.mocked(ctx.bridge.apis.message.sendPrivate).mock.calls[0]![1];
+    expect(sent[0]).toMatchObject({
+      type: 'record',
+      fileId: PTT_NODE.fileUuid,
+      mediaNode: PTT_NODE,
+    });
+    const cached = mediaStore.findRecord(`${PTT_MD5}.amr`);
+    expect(cached).toMatchObject({
+      file: `${PTT_MD5}.amr`,
+      fileId: PTT_NODE.fileUuid,
+      mediaNode: PTT_NODE,
+      isGroup: false,
+      sessionId: PEER_ID,
+    });
+
+    const handler = new ApiHandler(api);
+    const response = await handler.handle('get_msg', { message_id: result.messageId });
+
+    expect(getPrivatePttUrl).toHaveBeenCalledWith(PTT_NODE);
+    expect(response).toMatchObject({
+      status: 'ok',
+      retcode: 0,
+      data: {
+        message: [{
+          type: 'record',
+          data: {
+            file: `${PTT_MD5}.amr`,
+            url: 'https://ptt.example/c2c.silk?rkey=FRESH',
+          },
+        }],
+      },
+    });
+  });
+
+  it('keeps the self-sent event when the media store cannot index the voice', async () => {
+    // `MediaIndexer.remember` runs outside the converter's per-element
+    // try/catch on the receive path, where a persistence failure must stay
+    // loud. A self-sent echo has no such luxury: losing the event would hide
+    // the message the caller just sent, so the indexing failure is contained
+    // and reported instead.
+    const mediaStore = {
+      rememberRecord: vi.fn(() => { throw new Error('cannot store record metadata without an identifier'); }),
+    } as unknown as MediaStore;
+    const entries: LogEntry[] = [];
+    const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+    const { ctx, dispatchEvent } = makeContext(RECEIPT, { mediaStore });
+    const api = buildApiContext(ctx);
+
+    let result;
+    try {
+      result = await api.sendPrivateMessage(PEER_ID, [{
+        type: 'record',
+        data: { file: 'base64://QUNBQ0E=' },
+      }], false);
+    } finally {
+      unsubscribe();
+    }
+
+    expect(mediaStore.rememberRecord).toHaveBeenCalledOnce();
+    expect(result.messageId).not.toBe(0);
+    expect(dispatchEvent).toHaveBeenCalledOnce();
+    expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
+      post_type: 'message_sent',
+      message: [expect.objectContaining({
+        type: 'record',
+        data: { file: '', url: '' },
+      })],
+    }), 'send');
+    expect(entries.some((entry) => (
+      entry.scope === 'OneBot'
+      && entry.level === 'warn'
+      && entry.message.includes('failed to index self-sent media')
+    ))).toBe(true);
   });
 
   it('[#288] reports a private forward built through an action', async () => {
