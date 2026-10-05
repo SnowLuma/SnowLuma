@@ -219,6 +219,16 @@ export interface GroupAtAllRemainInfo {
   remain_at_all_count_for_uin: number;
 }
 
+export interface GroupCategoryTag {
+  id: number;
+  name: string;
+  type: number;
+}
+
+export interface GroupCategoryTagList {
+  tags: GroupCategoryTag[];
+}
+
 export type GroupAdminSettings = {
   add_type: number;
   group_question: string;

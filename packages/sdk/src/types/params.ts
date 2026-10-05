@@ -28,6 +28,14 @@ export interface GroupIdParams extends JsonObject {
   group_id: number;
 }
 
+export interface GroupClassParams extends JsonObject {
+  group_class: number;
+}
+
+export interface GroupCategoryTagNameParams extends GroupClassParams {
+  name: string;
+}
+
 export interface UserIdParams extends JsonObject {
   user_id: number;
 }

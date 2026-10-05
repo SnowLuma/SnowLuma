@@ -30,6 +30,8 @@ import type {
   GetPrivateFileUrlParams,
   GroupForwardMessageParams,
   GroupIdParams,
+  GroupClassParams,
+  GroupCategoryTagNameParams,
   GroupNoticeParams,
   GroupPokeParams,
   MarkGroupMsgAsReadParams,
@@ -88,6 +90,7 @@ import type {
   FriendCategoryResult,
   FriendMessageHistory,
   GroupAdminSettings,
+  GroupCategoryTagList,
   GroupAtAllRemainInfo,
   GroupFileSystemInfo,
   GroupFileUrl,
@@ -142,6 +145,9 @@ export interface SnowLumaActionMap {
   set_group_add_option: { params: SetGroupAddOptionParams; data: EmptyData };
   set_group_search: { params: GroupIdParams; data: EmptyData };
   get_group_admin_settings: { params: GroupIdParams; data: GroupAdminSettings };
+  get_group_tags: { params: GroupClassParams; data: GroupCategoryTagList };
+  add_group_tag: { params: GroupCategoryTagNameParams; data: EmptyData };
+  delete_group_tag: { params: GroupCategoryTagNameParams; data: EmptyData };
   set_group_admin: { params: SetGroupAdminParams; data: EmptyData };
   set_group_card: { params: SetGroupCardParams; data: EmptyData };
   set_group_name: { params: SetGroupNameParams; data: EmptyData };
