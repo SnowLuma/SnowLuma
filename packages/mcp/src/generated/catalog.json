@@ -441,6 +441,54 @@
       "category": "扩展"
     },
     {
+      "name": "add_group_tag",
+      "aliases": [],
+      "summary": "向某个群分类添加资料标签",
+      "readOnly": false,
+      "params": [
+        {
+          "name": "group_class",
+          "type": "int",
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          }
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "invariants": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "group_class": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "group_class",
+          "name"
+        ],
+        "additionalProperties": true
+      },
+      "category": "群管理"
+    },
+    {
       "name": "bot_exit",
       "aliases": [],
       "summary": "退出机器人",
@@ -1421,6 +1469,54 @@
         "additionalProperties": true
       },
       "category": "扩展"
+    },
+    {
+      "name": "delete_group_tag",
+      "aliases": [],
+      "summary": "从某个群分类移除资料标签",
+      "readOnly": false,
+      "params": [
+        {
+          "name": "group_class",
+          "type": "int",
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          }
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "invariants": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "group_class": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "group_class",
+          "name"
+        ],
+        "additionalProperties": true
+      },
+      "category": "群管理"
     },
     {
       "name": "delete_msg",
@@ -6106,6 +6202,75 @@
         "additionalProperties": true
       },
       "category": "群信息"
+    },
+    {
+      "name": "get_group_tags",
+      "aliases": [],
+      "summary": "读取某个群分类下的资料标签",
+      "returns": "该分类下的资料标签列表。",
+      "returnsSchema": {
+        "type": "object",
+        "properties": {
+          "tags": {
+            "type": "array",
+            "description": "资料标签",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer",
+                  "description": "标签编号"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "标签名"
+                },
+                "type": {
+                  "type": "integer",
+                  "description": "标签类型"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "type"
+              ]
+            }
+          }
+        },
+        "required": [
+          "tags"
+        ]
+      },
+      "readOnly": true,
+      "params": [
+        {
+          "name": "group_class",
+          "type": "int",
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          }
+        }
+      ],
+      "invariants": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "group_class": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          }
+        },
+        "required": [
+          "group_class"
+        ],
+        "additionalProperties": true
+      },
+      "category": "群管理"
     },
     {
       "name": "get_group_todo_list",
@@ -13154,7 +13319,7 @@
     },
     {
       "category": "群管理",
-      "count": 18
+      "count": 21
     },
     {
       "category": "群文件",

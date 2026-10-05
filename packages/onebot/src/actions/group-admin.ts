@@ -166,6 +166,60 @@ export const actions = [
     },
   }),
 
+  defineAction({
+    name: 'get_group_tags',
+    summary: '读取某个群分类下的资料标签',
+    readOnly: true,
+    returns: '该分类下的资料标签列表。',
+    returnsSchema: {
+      type: 'object',
+      properties: {
+        tags: {
+          type: 'array',
+          description: '资料标签',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'integer', description: '标签编号' },
+              name: { type: 'string', description: '标签名' },
+              type: { type: 'integer', description: '标签类型' },
+            },
+            required: ['id', 'name', 'type'],
+          },
+        },
+      },
+      required: ['tags'],
+    },
+    params: { group_class: f.int({ min: 0, max: 0xFFFFFFFF }) },
+    run: async (p, ctx) => okResponse(await ctx.bridge.apis.groupAdmin.listCategoryTags(p.group_class)),
+  }),
+
+  defineAction({
+    name: 'add_group_tag',
+    summary: '向某个群分类添加资料标签',
+    params: {
+      group_class: f.int({ min: 0, max: 0xFFFFFFFF }),
+      name: f.string({ allowEmpty: false }),
+    },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.groupAdmin.addCategoryTag(p.group_class, p.name);
+      return okResponse();
+    },
+  }),
+
+  defineAction({
+    name: 'delete_group_tag',
+    summary: '从某个群分类移除资料标签',
+    params: {
+      group_class: f.int({ min: 0, max: 0xFFFFFFFF }),
+      name: f.string({ allowEmpty: false }),
+    },
+    run: async (p, ctx) => {
+      await ctx.bridge.apis.groupAdmin.removeCategoryTag(p.group_class, p.name);
+      return okResponse();
+    },
+  }),
+
   groupUserAction({
     name: 'set_group_admin',
     summary: '设置/取消管理员',

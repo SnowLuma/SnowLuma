@@ -23,6 +23,11 @@ import type {
   OidbSetAdmin,
   OidbSpecialTitle,
 } from '@snowluma/proto-defs/oidb-actions/base';
+import type {
+  OidbChangeGroupCategoryTag,
+  OidbGetGroupCategoryTags,
+  OidbGetGroupCategoryTagsResp,
+} from '@snowluma/proto-defs/oidb-actions/group-category-tag';
 
 // Post-namespace migration: GroupAdminApi forwards through namespaces
 // under @snowluma/protocol/oidb-services/group-admin. Tests assert
@@ -704,5 +709,55 @@ describe('apis/group-admin', () => {
       remain_at_all_count_for_group: 0,
       remain_at_all_count_for_uin: 0,
     });
+  });
+
+  it('lists category tags and keeps category 0 on the wire', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
+      protobuf_encode<OidbBase<OidbGetGroupCategoryTagsResp>>({
+        body: { tags: [{ id: 7, name: '学习', type: 1 }, { name: '未编号' }] },
+      }),
+    ));
+
+    const out = await new GroupAdminApi(bridge as any).listCategoryTags(0);
+    expect(out).toEqual({
+      tags: [
+        { id: 7, name: '学习', type: 1 },
+        { id: 0, name: '未编号', type: 0 },
+      ],
+    });
+    expect(bridge.sendRawPacket.mock.calls[0]![0]).toBe('OidbSvcTrpcTcp.0x967c_0');
+    const env = protobuf_decode<OidbBase<OidbGetGroupCategoryTags>>(bridge.sendRawPacket.mock.calls[0]![1]);
+    expect(env.command).toBe(0x967C);
+    expect(env.body?.groupClass).toBe(0);
+  });
+
+  it('returns an empty tag list when the category has none', async () => {
+    const bridge = mockBridge();
+    bridge.sendRawPacket.mockResolvedValueOnce(packResponse(
+      protobuf_encode<OidbBase<OidbGetGroupCategoryTagsResp>>({ body: {} }),
+    ));
+    await expect(new GroupAdminApi(bridge as any).listCategoryTags(2)).resolves.toEqual({ tags: [] });
+  });
+
+  it('adds and removes a category tag by its name', async () => {
+    const bridge = mockBridge();
+    await new GroupAdminApi(bridge as any).addCategoryTag(3, '  户外 ');
+    await new GroupAdminApi(bridge as any).removeCategoryTag(3, '户外');
+    expect(bridge.sendRawPacket.mock.calls.map((call) => call[0])).toEqual([
+      'OidbSvcTrpcTcp.0x967d_0',
+      'OidbSvcTrpcTcp.0x967e_0',
+    ]);
+    const added = protobuf_decode<OidbBase<OidbChangeGroupCategoryTag>>(bridge.sendRawPacket.mock.calls[0]![1]);
+    expect(added.body).toMatchObject({ groupClass: 3, name: '  户外 ' });
+    const removed = protobuf_decode<OidbBase<OidbChangeGroupCategoryTag>>(bridge.sendRawPacket.mock.calls[1]![1]);
+    expect(removed.body).toMatchObject({ groupClass: 3, name: '户外' });
+  });
+
+  it('refuses an empty tag name instead of sending it', async () => {
+    const bridge = mockBridge();
+    await expect(new GroupAdminApi(bridge as any).addCategoryTag(1, '')).rejects.toThrow(/must not be empty/);
+    await expect(new GroupAdminApi(bridge as any).removeCategoryTag(1, '')).rejects.toThrow(/must not be empty/);
+    expect(bridge.sendRawPacket).not.toHaveBeenCalled();
   });
 });

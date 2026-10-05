@@ -40,6 +40,9 @@ const setGroupMemberInvitePolicy = requireAction('set_group_member_invite_policy
 const setGroupNewMemberHistoryVisibility = requireAction('set_group_new_member_history_visibility');
 const setGroupMemberPermissions = requireAction('set_group_member_permissions');
 const getGroupAdminSettings = requireAction('get_group_admin_settings');
+const getGroupTags = requireAction('get_group_tags');
+const addGroupTag = requireAction('add_group_tag');
+const deleteGroupTag = requireAction('delete_group_tag');
 const setGroupAdmin = requireAction('set_group_admin');
 const setGroupCard = requireAction('set_group_card');
 const setGroupName = requireAction('set_group_name');
@@ -62,6 +65,9 @@ describe('group admin actions catalog', () => {
       ['set_group_new_member_history_visibility'],
       ['set_group_member_permissions'],
       ['get_group_admin_settings'],
+      ['get_group_tags'],
+      ['add_group_tag'],
+      ['delete_group_tag'],
       ['set_group_admin'],
       ['set_group_card'],
       ['set_group_name'],
@@ -74,7 +80,7 @@ describe('group admin actions catalog', () => {
     expect(actions.map((action) => action.kind)).toEqual([
       'normal', 'normal', 'normal', 'normal', 'normal', 'normal', 'normal',
       'normal', 'normal', 'normal', 'normal', 'normal', 'normal', 'normal',
-      'normal', 'normal', 'normal', 'normal',
+      'normal', 'normal', 'normal', 'normal', 'normal', 'normal', 'normal',
     ]);
   });
 });
@@ -1221,5 +1227,94 @@ describe('set_group_portrait toHandler', () => {
       wording: 'file: must not be empty',
     });
     expect(setGroupAvatar).not.toHaveBeenCalled();
+  });
+});
+
+describe('get_group_tags parse', () => {
+  it('accepts category 0 and a numeric string', () => {
+    expect(getGroupTags.parse({ group_class: 0 })).toEqual({
+      ok: true,
+      value: { group_class: 0 },
+    });
+    expect(getGroupTags.parse({ group_class: '12' })).toEqual({
+      ok: true,
+      value: { group_class: 12 },
+    });
+  });
+
+  it('rejects a missing, negative, or oversized category', () => {
+    expect(getGroupTags.parse({})).toEqual({
+      ok: false,
+      field: 'group_class',
+      reason: 'is required',
+    });
+    expect(getGroupTags.parse({ group_class: -1 })).toEqual({
+      ok: false,
+      field: 'group_class',
+      reason: 'must be >= 0',
+    });
+    expect(getGroupTags.parse({ group_class: 0x1_0000_0000 })).toEqual({
+      ok: false,
+      field: 'group_class',
+      reason: 'must be <= 4294967295',
+    });
+  });
+});
+
+describe('get_group_tags toHandler', () => {
+  it('returns the tag list for the category', async () => {
+    const listCategoryTags = vi.fn(async () => ({
+      tags: [{ id: 7, name: '学习', type: 1 }],
+    }));
+    const { ctx } = adminCtx({ listCategoryTags });
+
+    await expect(getGroupTags.toHandler(ctx)({ group_class: 4 })).resolves.toEqual({
+      status: 'ok',
+      retcode: 0,
+      data: { tags: [{ id: 7, name: '学习', type: 1 }] },
+    });
+    expect(listCategoryTags.mock.calls).toEqual([[4]]);
+  });
+});
+
+describe('add_group_tag and delete_group_tag', () => {
+  it('rejects an empty name and does not call the bridge', async () => {
+    const addCategoryTag = vi.fn(async () => {});
+    const removeCategoryTag = vi.fn(async () => {});
+    const { ctx } = adminCtx({ addCategoryTag, removeCategoryTag });
+
+    await expect(addGroupTag.toHandler(ctx)({ group_class: 1, name: '' })).resolves.toEqual({
+      status: 'failed',
+      retcode: 1400,
+      data: null,
+      wording: 'name: must not be empty',
+    });
+    await expect(deleteGroupTag.toHandler(ctx)({ group_class: 1, name: '' })).resolves.toEqual({
+      status: 'failed',
+      retcode: 1400,
+      data: null,
+      wording: 'name: must not be empty',
+    });
+    expect(addCategoryTag).not.toHaveBeenCalled();
+    expect(removeCategoryTag).not.toHaveBeenCalled();
+  });
+
+  it('forwards the category and the exact name', async () => {
+    const addCategoryTag = vi.fn(async () => {});
+    const removeCategoryTag = vi.fn(async () => {});
+    const { ctx } = adminCtx({ addCategoryTag, removeCategoryTag });
+
+    await expect(addGroupTag.toHandler(ctx)({ group_class: 0, name: '  户外 ' })).resolves.toEqual({
+      status: 'ok',
+      retcode: 0,
+      data: null,
+    });
+    await expect(deleteGroupTag.toHandler(ctx)({ group_class: '2', name: '户外' })).resolves.toEqual({
+      status: 'ok',
+      retcode: 0,
+      data: null,
+    });
+    expect(addCategoryTag.mock.calls).toEqual([[0, '  户外 ']]);
+    expect(removeCategoryTag.mock.calls).toEqual([[2, '户外']]);
   });
 });

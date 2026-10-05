@@ -31,6 +31,9 @@ import {
   type GroupMemberPermission,
 } from '@snowluma/protocol/oidb-services/group-admin/set-member-permission';
 import { SetSearch } from '@snowluma/protocol/oidb-services/group-admin/set-search';
+import { GetGroupCategoryTags } from '@snowluma/protocol/oidb-services/group-admin/get-group-category-tags';
+import { AddGroupCategoryTag } from '@snowluma/protocol/oidb-services/group-admin/add-group-category-tag';
+import { DeleteGroupCategoryTag } from '@snowluma/protocol/oidb-services/group-admin/delete-group-category-tag';
 import { SetSpecialTitle } from '@snowluma/protocol/oidb-services/group-admin/set-special-title';
 import { ModifyGroupExtInfo } from '@snowluma/protocol/oidb-services/group-admin/modify-group-ext-info';
 import { OidbError } from '@snowluma/protocol/oidb-service';
@@ -115,6 +118,18 @@ export class GroupAdminApi {
 
   setSearch(groupId: number, noFingerOpen?: number, noCodeFingerOpen?: number): Promise<void> {
     return SetSearch.invoke(this.ctx, { groupId, noFingerOpen, noCodeFingerOpen });
+  }
+
+  listCategoryTags(groupClass: number): Promise<{ tags: { id: number; name: string; type: number }[] }> {
+    return GetGroupCategoryTags.invoke(this.ctx, { groupClass });
+  }
+
+  addCategoryTag(groupClass: number, name: string): Promise<void> {
+    return AddGroupCategoryTag.invoke(this.ctx, { groupClass, name });
+  }
+
+  removeCategoryTag(groupClass: number, name: string): Promise<void> {
+    return DeleteGroupCategoryTag.invoke(this.ctx, { groupClass, name });
   }
 
   async setMemberInvitePolicy(groupId: number, policy: GroupMemberInvitePolicy): Promise<void> {
