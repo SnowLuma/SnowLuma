@@ -1,4 +1,4 @@
-import type { pb, pb_repeated, int_32, uint_32, uint_64, bool, bytes } from '@snowluma/proton';
+import type { pb, pb_repeated, int_32, uint_32, uint_64, fixed_32, bool, bytes } from '@snowluma/proton';
 import type {
   IndexNode,
   PictureInfo,
@@ -185,7 +185,7 @@ export interface HttpConn0x6FF501Request {
 
 export interface ServerAddr {
   type?: pb<1, uint_32>;
-  ip?:   pb<2, uint_32>;
+  ip?:   pb<2, fixed_32>;
   port?: pb<3, uint_32>;
   area?: pb<4, uint_32>;
 }

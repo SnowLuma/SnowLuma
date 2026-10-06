@@ -302,6 +302,27 @@ describe('fetchHighwaySession trace lifecycle', () => {
     }
   });
 
+  it('keeps a server address encoded as a fixed 32-bit field', async () => {
+    // Address field 2 is four raw bytes. The fixture is not produced by the
+    // schema encoder, so a varint declaration cannot hide itself.
+    const responseData = Buffer.from('8a50150a02aabb1201cc1a0c08011208150102030418903f', 'hex');
+    const bridge = {
+      identity: { uin: '10001' },
+      sendRawPacket: vi.fn(async () => ({
+        success: true,
+        gotResponse: true,
+        errorCode: 0,
+        errorMessage: '',
+        responseData,
+      })),
+    } as unknown as BridgeContext;
+
+    const session = await fetchHighwaySession(bridge);
+
+    expect(session.host).toBe('1.2.3.4');
+    expect(session.port).toBe(8080);
+  });
+
   it('records a thrown control request as one failed terminal', async () => {
     const bridge = {
       identity: { uin: '10001' },
