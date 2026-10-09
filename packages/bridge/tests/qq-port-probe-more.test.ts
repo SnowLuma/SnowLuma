@@ -676,7 +676,8 @@ describe('probeQqLoginInfo — overall deadline', () => {
         uin: '',
         identityKnown: false,
       });
-      expect(warnings).toEqual([]);
+      await probeQqLoginInfo(9002);
+      expect(warnings).toEqual(['login probe: PID=9002 result=no-ports ports=0 processes=2']);
     } finally {
       unsubscribe();
       setLogLevel(previousLevel);

@@ -103,6 +103,7 @@ export class HookSession extends EventEmitter {
   private disposed = false;
   private loginProbeTimer: ReturnType<typeof setInterval> | null = null;
   private probing = false;
+  private lastProbeFailure = '';
   private acceptedLoginHintUin = '';
   private loginHintAttemptUin = '';
   private loginHintAttempts = 0;
@@ -670,6 +671,7 @@ export class HookSession extends EventEmitter {
 
   private startLoginReconcile(): void {
     if (this.loginProbeTimer || this.disposed) return;
+    this.log.info('awaiting login: PID=%d', this.pid);
     void this.probeLoginOnce(); // immediate — catch already-logged-in fast
     this.loginProbeTimer = setInterval(() => void this.probeLoginOnce(), LOGIN_RECONCILE_INTERVAL_MS);
     this.loginProbeTimer.unref?.();
@@ -694,11 +696,12 @@ export class HookSession extends EventEmitter {
       try {
         info = await this.probeLogin(this.pid);
       } catch (error) {
-        this.log.trace(
-          'login identity probe failed: PID=%d err=%s',
-          this.pid,
-          errMsg(error),
-        );
+        const message = errMsg(error);
+        const note = `${this.pid}:${message}`;
+        if (this.lastProbeFailure !== note) {
+          this.lastProbeFailure = note;
+          this.log.warn('login probe failed: PID=%d err=%s', this.pid, message);
+        }
         return; // best-effort; the interval retries
       }
       // The await yielded — re-check we still want this before mutating state.
@@ -764,6 +767,7 @@ export class HookSession extends EventEmitter {
     this.loginHintAttempts = 0;
     this.nextLoginHintAt = 0;
     this.nextLoginIdentityObservationAt = 0;
+    this.lastProbeFailure = '';
   }
 
   private handlePacket(packet: QqHookPacket): void {

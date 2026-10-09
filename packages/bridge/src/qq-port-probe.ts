@@ -6,6 +6,15 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 const log = createLogger('LoginProbe');
+const probeNotes = new Map<number, string>();
+
+function noteProbe(pid: number, result: string, ports: number, processes: number | null): void {
+  const processText = processes === null ? '' : ` processes=${processes}`;
+  const message = `login probe: PID=${pid} result=${result} ports=${ports}${processText}`;
+  if (probeNotes.get(pid) === message) return;
+  probeNotes.set(pid, message);
+  log.info(message);
+}
 
 const CONNECTION_TIMEOUT_MS = 500;
 const COMMAND_TIMEOUT_MS = 1500;
@@ -164,13 +173,18 @@ async function getProcessPorts(pid: number): Promise<number[] | null> {
 
 async function probeQqLoginInfoInternal(pid: number): Promise<QqPortLoginInfo | null> {
   const ports = await getProcessPorts(pid);
-  if (ports === null) return null;
+  if (ports === null) {
+    noteProbe(pid, 'unavailable', 0, null);
+    return null;
+  }
 
   if (ports.length === 0) {
     const totalPids = await getQqProcessCount();
     if (totalPids < LOGGED_OUT_PROCESS_COUNT_MAX) {
+      noteProbe(pid, 'no-ports', 0, totalPids);
       return { port: 0, uin: '', identityKnown: false };
     }
+    noteProbe(pid, 'inconclusive', 0, totalPids);
     return null;
   }
   const ODD_PT_PORTS = [4301, 4303, 4305, 4307, 4309];
@@ -196,16 +210,20 @@ async function probeQqLoginInfoInternal(pid: number): Promise<QqPortLoginInfo | 
   } else {
     const totalPids = await getQqProcessCount();
     if (totalPids < LOGGED_OUT_PROCESS_COUNT_MAX) {
+      noteProbe(pid, 'no-ports', ports.length, totalPids);
       return {
         port: ports[0] || 0,
         uin: '',
         identityKnown: false,
       };
     }
+    noteProbe(pid, 'inconclusive', ports.length, totalPids);
+    return null;
   }
 
   // Background discovery must remain passive. Interactive application
   // endpoints are deliberately excluded from automatic probing.
+  noteProbe(pid, 'no-match', ptPortsToTry.length, null);
   return null;
 }
 
