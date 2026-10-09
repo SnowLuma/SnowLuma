@@ -19,6 +19,7 @@ import { BridgeManager } from './bridge/manager';
 import { createNotificationManager } from './notifications/manager';
 import { createStateWiring } from './webui/state-wiring';
 import { bindSystemFaceCatalog } from './sys-face-catalog';
+import { readAppVersion, startNativeStageSync, tempStagePath } from './native-stage-sync';
 
 const log = createLogger('App');
 
@@ -48,6 +49,11 @@ async function main() {
     perUinEnabled: runtimeConfig.logPerUin ?? DEFAULT_LOG_PER_UIN,
   });
   log.info('SnowLuma starting');
+  const stopNativeStageSync = startNativeStageSync({
+    version: readAppVersion(import.meta.url),
+    dataDir: 'data',
+    tempPath: tempStagePath(),
+  });
 
   // One-shot: lift a legacy per-UIN musicSignUrl into the global store before
   // any session (and thus any per-UIN config rewrite) can drop it.
@@ -132,6 +138,10 @@ async function main() {
     try { stateWiring.dispose(); } catch (error) {
       exitCode = 1;
       log.error('state wiring shutdown failed: %s', error instanceof Error ? (error.stack ?? error.message) : String(error));
+    }
+    try { stopNativeStageSync.stop(); } catch (error) {
+      exitCode = 1;
+      log.error('stage sync shutdown failed: %s', error instanceof Error ? error.message : String(error));
     }
     try { hookManager.dispose(); } catch (error) {
       exitCode = 1;
