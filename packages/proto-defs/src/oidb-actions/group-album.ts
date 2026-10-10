@@ -141,11 +141,13 @@ export interface GetMediaListResponse {
   data?:   pb<4, GetMediaListRspData>;
 }
 export interface CommentContentItem {
-  type?:    pb<1, uint_32>;
+  // Text cells on the wire include type 0. A plain pb<> field would omit it.
+  type?:    pb_optional<1, uint_32>;
   content?: pb<2, string>;
 }
 export interface CommentUser {
-  uin?: pb<13, string>;
+  uin?:    pb<13, string>;
+  uinNum?: pb<14, uint_64>;
 }
 export interface CommentReqContent {
   user?:      pb<2, CommentUser>;
@@ -160,7 +162,8 @@ export interface CommentReqPhotoInfo {
   batchId?: pb<5, uint_64>;
 }
 export interface CommentReqBodyHeader {
-  // FeedWorker encode writes only time and feed id into this cell.
+  // Fallback only. A successful write copies the feed cellCommon bytes,
+  // which also carry type, the 421 locator, and field 6.
   type?:   pb<1, uint_32>;
   time?:   pb<3, uint_64>;
   feedId?: pb<4, string>;
@@ -171,9 +174,11 @@ export interface CommentReqBodyUserWrap {
   field1?: pb<1, CommentUser>;
 }
 export interface CommentReqBody {
-  field1?: pb<1, CommentReqBodyHeader>;
-  field2?: pb<2, CommentReqBodyUserWrap>;
-  field5?: pb<5, CommentReqPhotoInfo>;
+  // Raw length-delimited cells from GetQunFeedDetail. Re-encoding them
+  // through the typed schemas drops fields QZone requires.
+  field1?: pb<1, bytes>;
+  field2?: pb<2, bytes>;
+  field5?: pb<5, bytes>;
 }
 export interface DoQunCommentRequestBody {
   groupId?: pb<2, string>;
