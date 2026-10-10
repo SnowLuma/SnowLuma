@@ -205,6 +205,35 @@ describe('HookSession — runtime TRACE', () => {
     }
   });
 
+  it('connects when load fails but the pipe is already up', async () => {
+    let pipeLive = false;
+    const clients: FakeClient[] = [];
+    const session = new HookSession(7108, {
+      injector: {
+        inject: () => {
+          pipeLive = true;
+          throw new Error('component loading failed [COMPONENT_LOAD_FAILED]');
+        },
+        unload: () => undefined,
+      },
+      makeClient: () => {
+        const client = new FakeClient();
+        client.fireLogin('10001');
+        clients.push(client);
+        return client as unknown as QqHookClient;
+      },
+      pipeWatcher: {
+        isPipeLive: () => pipeLive,
+        tickNow: async () => undefined,
+      },
+    });
+    const info = await session.load();
+    expect(info.status).toBe('online');
+    expect(info.uin).toBe('10001');
+    expect(info.connected).toBe(true);
+    expect(clients).toHaveLength(1);
+  });
+
   it('records login, disconnect, and process-gone only when state changes', async () => {
     const entries: LogEntry[] = [];
     setLogLevel('trace');

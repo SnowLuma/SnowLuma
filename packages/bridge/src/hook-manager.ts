@@ -309,7 +309,9 @@ export class HookManager {
           this.runAutoLoad(session, autoLoad);
           continue;
         }
-        if ((session.status === 'connecting' || session.status === 'disconnected')
+        if ((session.status === 'connecting'
+            || session.status === 'disconnected'
+            || session.status === 'error')
           && this.pipeWatcher.isPipeLive(session.pid)) {
           session.onPipeUp();
         }

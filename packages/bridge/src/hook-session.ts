@@ -358,6 +358,15 @@ export class HookSession extends EventEmitter {
       this._error = errMsg(error);
       this.setStatus('error', this._error);
       this.log.error('load failed: PID=%d err=%s', this.pid, this._error);
+      // The module can already be listening even when this call returns
+      // failure: another load left it resident, or it came up after the
+      // call returned. A live pipe still has the account state, so connect
+      // instead of staying on the failed load.
+      await this.pipeWatcher.tickNow?.();
+      if (!this.disposed && this.pipeWatcher.isPipeLive(this.pid)) {
+        this.log.info('PID=%d load failed but pipe is up; connecting', this.pid);
+        await this.reconcilePipeUp();
+      }
     }
     return this.toInfo();
   }
