@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { defineConfig, PluginOption, UserConfig } from 'vite';
 import cp from 'vite-plugin-cp';
+import { storeWorkerPlugin } from './store-worker-plugin';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -97,6 +98,7 @@ if (missingAgreements.length > 0) {
 }
 
 const BaseConfigPlugin: PluginOption[] = [
+  storeWorkerPlugin(),
   // Proton substitutes every `protobuf_encode<T>` / `protobuf_decode<T>`
   // call site with a monomorphized codec at build time. WITHOUT this
   // plugin in the plugins array the runtime fallback in

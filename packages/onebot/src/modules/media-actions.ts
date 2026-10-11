@@ -1,3 +1,4 @@
+import type { StoreAccess } from '@snowluma/common/store-worker';
 import { createLogger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import type { MessageElement } from '@snowluma/protocol/events';
@@ -21,13 +22,13 @@ const log = createLogger('OneBot');
  * `pttTrans.Trans{C2C,Group}PttReq` via the bridge and returns the text.
  */
 export async function fetchPttText(
-  messageStore: MessageStore,
-  mediaStore: MediaStore,
+  messageStore: StoreAccess<MessageStore>,
+  mediaStore: StoreAccess<MediaStore>,
   bridge: BridgeInterface,
   selfId: number,
   messageId: number,
 ): Promise<{ text: string }> {
-  const event = messageStore.findEvent(messageId);
+  const event = await messageStore.findEvent(messageId);
   if (!event) throw new Error('消息不存在或已被撤回');
 
   const segments = Array.isArray(event.message) ? event.message : [];
@@ -42,8 +43,8 @@ export async function fetchPttText(
   }
   if (!file) throw new Error('消息中不包含语音');
 
-  const snapshot = messageStore.findMedia(messageId)?.find(element => element.type === 'record');
-  const cached = snapshot ? { ...snapshot, isGroup: event.message_type === 'group', sessionId: Number(event.group_id) || selfId } : mediaStore.findRecord(file, 'legacy');
+  const snapshot = (await messageStore.findMedia(messageId))?.find(element => element.type === 'record');
+  const cached = snapshot ? { ...snapshot, isGroup: event.message_type === 'group', sessionId: Number(event.group_id) || selfId } : (await mediaStore.findRecord(file, 'legacy'));
   if (!cached) throw new Error('语音不在缓存中，无法转写');
 
   const isGroup = event.message_type === 'group' || cached.isGroup;
@@ -77,11 +78,11 @@ export async function fetchPttText(
 }
 
 export async function getImageInfo(
-  mediaStore: MediaStore,
+  mediaStore: StoreAccess<MediaStore>,
   file: string,
   imageUrlResolver?: ImageUrlResolver | null,
 ): Promise<JsonObject | null> {
-  const cached = mediaStore.findImage(file);
+  const cached = await mediaStore.findImage(file);
   if (!cached) return null;
 
   let url = cached.url || cached.imageUrl || '';
@@ -112,10 +113,10 @@ export async function getImageInfo(
 
 export async function getRecordInfo(
   bridge: BridgeInterface,
-  mediaStore: MediaStore,
+  mediaStore: StoreAccess<MediaStore>,
   file: string,
 ): Promise<JsonObject | null> {
-  const cached = mediaStore.findRecord(file);
+  const cached = await mediaStore.findRecord(file);
   if (!cached) return null;
   let url = cached.url;
   if (!url && cached.mediaNode) {
@@ -124,7 +125,7 @@ export async function getRecordInfo(
         ? await bridge.apis.groupFile.getPttUrl(cached.sessionId, cached.mediaNode)
         : await bridge.apis.groupFile.getPrivatePttUrl(cached.mediaNode);
       if (url) {
-        mediaStore.updateRecordUrl(file, url);
+        await mediaStore.updateRecordUrl(file, url);
       }
     } catch (err) {
       log.warn('get_record url refetch failed: %s', err instanceof Error ? err.message : String(err));

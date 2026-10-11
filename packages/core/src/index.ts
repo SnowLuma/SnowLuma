@@ -1,6 +1,10 @@
 import { HookManager } from '@snowluma/bridge';
 import { configureFileTransport } from '@snowluma/common/log-file-transport';
 import { closeLogger, createLogger } from '@snowluma/common/logger';
+import { closeSqliteCheckpoints } from '@snowluma/common/sqlite-checkpoints';
+import { closeStoreWorkers, configureStoreWorkers } from '@snowluma/common/store-worker';
+import { IdentityService } from '@snowluma/protocol/identity-service';
+import { WorkerIdentityService } from '@snowluma/protocol/worker-identity-service';
 import {
   DEFAULT_LOG_MAX_TOTAL_MB,
   DEFAULT_LOG_PER_UIN,
@@ -22,6 +26,7 @@ import { bindSystemFaceCatalog } from './sys-face-catalog';
 import { readAppVersion, startNativeStageSync, tempStagePath } from './native-stage-sync';
 
 const log = createLogger('App');
+declare const __SQLITE_STORE_WORKER__: string | undefined;
 
 function installProcessGuards(): void {
   // Last-resort process guards. This is a long-running daemon: a hooked QQ pipe
@@ -42,6 +47,11 @@ function installProcessGuards(): void {
 }
 
 async function main() {
+  if (typeof __SQLITE_STORE_WORKER__ !== 'string') {
+    const { bundleStoreWorker } = await import('../store-worker-plugin');
+    configureStoreWorkers(await bundleStoreWorker());
+  }
+  IdentityService.configureWorkerFactory((uin, dataRoot) => new WorkerIdentityService(uin, dataRoot));
   const runtimeConfig = loadRuntimeConfig();
   await configureFileTransport({
     maxTotalMb: runtimeConfig.logMaxTotalMb ?? DEFAULT_LOG_MAX_TOTAL_MB,
@@ -146,6 +156,14 @@ async function main() {
     try { hookManager.dispose(); } catch (error) {
       exitCode = 1;
       log.error('hook shutdown failed: %s', error instanceof Error ? (error.stack ?? error.message) : String(error));
+    }
+    try { await closeStoreWorkers(); } catch (error) {
+      exitCode = 1;
+      log.error('SQLite store shutdown failed: %s', error instanceof Error ? error.message : String(error));
+    }
+    try { await closeSqliteCheckpoints(); } catch (error) {
+      exitCode = 1;
+      log.error('SQLite checkpoint shutdown failed: %s', error instanceof Error ? error.name : 'Error');
     }
     await closeLogger();
     process.exit(exitCode);

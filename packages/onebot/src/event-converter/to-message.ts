@@ -44,7 +44,7 @@ async function convertPrivateMessage(
   const eventName = event.kind === 'friend_message'
     ? privateMessageEventName(isSelf, hasCanonicalNtSequence)
     : PRIVATE_MESSAGE_EVENT;
-  const messageId = applyMessageIdResolver(
+  const messageId = await applyMessageIdResolver(
     ctx.messageIdResolver, false, sessionId, messageIdSequence, eventName,
   );
   const segments = await toSegments(ctx, event.elements, false, sessionId);
@@ -86,7 +86,7 @@ export function convertTempMessage(ctx: ConverterContext, event: TempMessage): P
 export async function convertGroupMessage(ctx: ConverterContext, event: GroupMessage): Promise<JsonObject> {
   const isSelf = event.senderUin === ctx.selfId;
   const postType = isSelf ? 'message_sent' : 'message';
-  const messageId = applyMessageIdResolver(
+  const messageId = await applyMessageIdResolver(
     ctx.messageIdResolver, true, event.groupId, event.msgSeq, GROUP_MESSAGE_EVENT,
   );
   const segments = await toSegments(ctx, event.elements, true, event.groupId);

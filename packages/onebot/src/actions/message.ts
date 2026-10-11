@@ -144,7 +144,7 @@ export const actions = [
     returns: '消息事件对象（首次收到时存储的副本，已去除 post_type/self_id、附带 real_id 字段并刷新图片 URL）。',
     params: { message_id: f.messageId() },
     run: async (p, ctx) => {
-      const data = ctx.getMessage(p.message_id);
+      const data = await ctx.getMessage(p.message_id);
       if (!data) {
         log.warn('[get_msg] miss message_id=%d', p.message_id);
         return failedResponse(RETCODE.ACTION_FAILED, 'message not found');
@@ -163,7 +163,7 @@ export const actions = [
     summary: '撤回消息',
     params: { message_id: f.messageId() },
     run: async (p, ctx) => {
-      const meta = ctx.getMessageMeta(p.message_id);
+      const meta = await ctx.getMessageMeta(p.message_id);
       if (!meta) return failedResponse(RETCODE.ACTION_FAILED, 'message not found or not retractable');
       await ctx.deleteMessage(p.message_id, meta);
       return okResponse();

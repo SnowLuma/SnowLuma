@@ -251,8 +251,8 @@ export class MessageStore {
     eventName: string,
     event: JsonObject,
     options: StoreEventOptions = {},
-  ): void {
-    if (!isValidMessageId(messageId)) return;
+  ): boolean {
+    if (!isValidMessageId(messageId)) return false;
     const json = JSON.stringify(event);
     const timestamp = toInt(event.time);
     const privateDirection = eventPrivateDirection(isGroup, event);
@@ -276,7 +276,7 @@ export class MessageStore {
           String(privateDirection === 1),
           messageId,
         );
-        return;
+        return false;
       }
     }
 
@@ -294,6 +294,7 @@ export class MessageStore {
       json,
       media,
     );
+    return true;
   }
 
   findMedia(messageId: number): MessageMedia[] | null {
@@ -387,10 +388,10 @@ export class MessageStore {
     eventName: string,
     event: JsonObject,
     options: StoreHistoryEventOptions = {},
-  ): void {
+  ): boolean {
     const { meta, ...eventOptions } = options;
     if (!meta) {
-      this.storeEvent(
+      return this.storeEvent(
         messageId,
         isGroup,
         sessionId,
@@ -399,12 +400,11 @@ export class MessageStore {
         event,
         eventOptions,
       );
-      return;
     }
 
-    this.runInImmediateTransaction(() => {
+    return this.runInImmediateTransaction(() => {
       this.storeMeta(messageId, meta);
-      this.storeEvent(
+      return this.storeEvent(
         messageId,
         isGroup,
         sessionId,

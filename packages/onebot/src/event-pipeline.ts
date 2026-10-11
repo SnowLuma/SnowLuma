@@ -170,7 +170,7 @@ async function convertAndDispatch(
     renderParamsVerbose(converted),
   ]);
 
-  if (event.kind === 'friend_message' && isFriendMessageRecalled(ctx, log, event)) {
+  if (event.kind === 'friend_message' && (await isFriendMessageRecalled(ctx, log, event))) {
     traceEventTerminal(log, event.kind, state, 'dropped', 'recalled_before_backfill');
     return;
   }
@@ -196,12 +196,12 @@ async function convertAndDispatch(
   }
   // Backfill can await several network/media operations. Re-check immediately
   // before dispatch so a recall that arrived during that gap wins the race.
-  if (event.kind === 'friend_message' && isFriendMessageRecalled(ctx, log, event)) {
+  if (event.kind === 'friend_message' && (await isFriendMessageRecalled(ctx, log, event))) {
     traceEventTerminal(log, event.kind, state, 'dropped', 'recalled_after_backfill');
     return;
   }
 
-  ctx.dispatchEvent(converted, 'bridge', state.startedAt);
+  await ctx.dispatchEvent(converted, 'bridge', state.startedAt);
   state.handedOff = true;
 }
 
@@ -227,9 +227,9 @@ function traceEventTerminal(
   ]);
 }
 
-function cacheGroupMessageMeta(ctx: OneBotInstanceContext, event: Extract<QQEventVariant, { kind: 'group_message' }>): void {
+async function cacheGroupMessageMeta(ctx: OneBotInstanceContext, event: Extract<QQEventVariant, { kind: 'group_message' }>): Promise<void> {
   const messageId = hashMessageIdInt32(event.msgSeq, event.groupId, GROUP_MESSAGE_EVENT);
-  ctx.cacheMessageMeta(messageId, {
+  await ctx.cacheMessageMeta(messageId, {
     isGroup: true,
     targetId: event.groupId,
     sequence: event.msgSeq,
@@ -241,7 +241,7 @@ function cacheGroupMessageMeta(ctx: OneBotInstanceContext, event: Extract<QQEven
   });
 }
 
-function cachePrivateMessageMeta(
+async function cachePrivateMessageMeta(
   ctx: OneBotInstanceContext,
   sessionId: number,
   messageSequence: number,
@@ -251,7 +251,7 @@ function cachePrivateMessageMeta(
   random: number,
   sequenceAuthoritative: boolean,
   privateDirection: MessageMeta['privateDirection'],
-): void {
+): Promise<void> {
   const isFriendMessage = privateDirection !== undefined;
   const hasNtSequence = isFriendMessage
     && sequenceAuthoritative
@@ -264,7 +264,7 @@ function cachePrivateMessageMeta(
     sessionId,
     eventName,
   );
-  ctx.cacheMessageMeta(messageId, {
+  await ctx.cacheMessageMeta(messageId, {
     isGroup: false,
     targetId: sessionId,
     sequence: serverSequence,
@@ -277,15 +277,15 @@ function cachePrivateMessageMeta(
   });
 }
 
-function isFriendMessageRecalled(
+async function isFriendMessageRecalled(
   ctx: OneBotInstanceContext,
   log: Logger,
   event: Extract<QQEventVariant, { kind: 'friend_message' }>,
-): boolean {
+): Promise<boolean> {
   const peerUin = event.peerUin ?? event.senderUin;
   const clientSequence = event.clientSeq ?? event.msgSeq;
   const sentBySelf = event.senderUin === ctx.selfId;
-  const recalled = ctx.messageStore.isPrivateMessageRecalled(
+  const recalled = await ctx.messageStore.isPrivateMessageRecalled(
     peerUin,
     clientSequence,
     sentBySelf,
@@ -302,13 +302,13 @@ function isFriendMessageRecalled(
   return recalled;
 }
 
-function cacheReaction(
+async function cacheReaction(
   ctx: OneBotInstanceContext,
   event: Extract<QQEventVariant, { kind: 'group_msg_emoji_like' }>,
-): void {
+): Promise<void> {
   if (!event.groupId || !event.msgSeq || !event.emojiId || !event.operatorUin) return;
   if (event.isAdd) {
-    ctx.reactionStore.recordAdd(
+    await ctx.reactionStore.recordAdd(
       event.groupId,
       event.msgSeq,
       event.emojiId,
@@ -318,7 +318,7 @@ function cacheReaction(
       event.time,
     );
   } else {
-    ctx.reactionStore.recordRemove(
+    await ctx.reactionStore.recordRemove(
       event.groupId,
       event.msgSeq,
       event.emojiId,
@@ -327,23 +327,23 @@ function cacheReaction(
   }
 }
 
-function handleGroupMessage(
+async function handleGroupMessage(
   ctx: OneBotInstanceContext,
   log: Logger,
   event: Extract<QQEventVariant, { kind: 'group_message' }>,
   state: EventTraceState,
 ): Promise<void> {
-  cacheGroupMessageMeta(ctx, event);
+  await cacheGroupMessageMeta(ctx, event);
   return convertAndDispatch(ctx, log, event, state);
 }
 
-function handleFriendMessage(
+async function handleFriendMessage(
   ctx: OneBotInstanceContext,
   log: Logger,
   event: Extract<QQEventVariant, { kind: 'friend_message' }>,
   state: EventTraceState,
 ): Promise<void> {
-  cachePrivateMessageMeta(
+  await cachePrivateMessageMeta(
     ctx,
     event.peerUin ?? event.senderUin,
     event.msgSeq,
@@ -357,13 +357,13 @@ function handleFriendMessage(
   return convertAndDispatch(ctx, log, event, state);
 }
 
-function handleTempMessage(
+async function handleTempMessage(
   ctx: OneBotInstanceContext,
   log: Logger,
   event: Extract<QQEventVariant, { kind: 'temp_message' }>,
   state: EventTraceState,
 ): Promise<void> {
-  cachePrivateMessageMeta(
+  await cachePrivateMessageMeta(
     ctx,
     event.senderUin,
     event.msgSeq,
@@ -378,14 +378,14 @@ function handleTempMessage(
   return convertAndDispatch(ctx, log, event, state);
 }
 
-function handleFriendRecall(
+async function handleFriendRecall(
   ctx: OneBotInstanceContext,
   log: Logger,
   event: Extract<QQEventVariant, { kind: 'friend_recall' }>,
   state: EventTraceState,
 ): Promise<void> {
   const clientSequence = event.clientSeq ?? event.msgSeq;
-  const recalled = ctx.messageStore.recordPrivateRecall(
+  const recalled = await ctx.messageStore.recordPrivateRecall(
     event.userUin,
     clientSequence,
     event.recalledBySelf === true,
@@ -404,13 +404,13 @@ function handleFriendRecall(
   return convertAndDispatch(ctx, log, event, state, messageIdOverride);
 }
 
-function handleGroupMsgEmojiLike(
+async function handleGroupMsgEmojiLike(
   ctx: OneBotInstanceContext,
   log: Logger,
   event: Extract<QQEventVariant, { kind: 'group_msg_emoji_like' }>,
   state: EventTraceState,
 ): Promise<void> {
-  cacheReaction(ctx, event);
+  await cacheReaction(ctx, event);
   return convertAndDispatch(ctx, log, event, state);
 }
 

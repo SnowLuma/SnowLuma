@@ -141,7 +141,10 @@ export class Bridge implements BridgeInterface {
     this.packetClientPid_ = null;
     this.onlineClients_ = null;
     try {
-      this.identity.close();
+      void Promise.resolve(this.identity.close()).catch(error => {
+        log.error('identity shutdown failed: uin=%s err=%s', this.identity.uin,
+          error instanceof Error ? error.message : String(error));
+      });
     } finally {
       // A close failure must remain visible to the caller, but must not leave
       // event subscribers attached to a Bridge that Manager already removed.
@@ -271,6 +274,11 @@ export class Bridge implements BridgeInterface {
   }
 
   onPacket(pkt: PacketInfo): Promise<void> {
+    const initialization = this.identity.initialization;
+    if (initialization) return initialization.then(() => {
+      if (!this.disposed_) return this.pipeline.process(pkt);
+      return undefined;
+    });
     return this.pipeline.process(pkt);
   }
 

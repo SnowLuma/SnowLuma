@@ -2,11 +2,12 @@ import { defineConfig } from 'vitest/config';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import protobufVitePlugin from '@snowluma/proton/vite';
+import { storeWorkerPlugin } from './store-worker-plugin';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  plugins: [protobufVitePlugin()],
+  plugins: [protobufVitePlugin(), storeWorkerPlugin()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src')

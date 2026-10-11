@@ -360,7 +360,7 @@ async function groupTodoRun(
   ctx: ApiActionContext,
   op: (groupId: number, msgSeq: bigint) => Promise<void>,
 ) {
-  const meta = ctx.getMessageMeta(p.message_id);
+  const meta = await ctx.getMessageMeta(p.message_id);
   if (!meta) return failedResponse(RETCODE.ACTION_FAILED, 'message not found');
   if (!meta.isGroup || meta.targetId !== p.group_id) {
     return failedResponse(RETCODE.ACTION_FAILED, 'message does not belong to this group');
@@ -503,7 +503,7 @@ export const actions = [
           .filter((message): message is GroupEssenceMessage => message !== null)
           .map((message) => projectEssenceMessage(message, p.group_id));
 
-        ctx.cacheMessageMetas(projections.map(({ messageId, meta }) => ({
+        await ctx.cacheMessageMetas(projections.map(({ messageId, meta }) => ({
           messageId,
           meta,
         })));
@@ -526,7 +526,7 @@ export const actions = [
       is_set: f.bool().default(true),
     },
     run: async (p, ctx) => {
-      const meta = ctx.getMessageMeta(p.message_id);
+      const meta = await ctx.getMessageMeta(p.message_id);
       if (!meta || !meta.isGroup) {
         return failedResponse(RETCODE.ACTION_FAILED, 'message not found or not a group message');
       }
@@ -658,7 +658,7 @@ export const actions = [
       group_id: f.groupId().optional(),
     },
     run: async (p, ctx) => {
-      const meta = ctx.getMessageMeta(p.message_id);
+      const meta = await ctx.getMessageMeta(p.message_id);
       if (!meta || !meta.isGroup) {
         return failedResponse(RETCODE.ACTION_FAILED, 'message not found or not a group message');
       }
@@ -680,7 +680,7 @@ export const actions = [
       user_id: f.userId().optional(),
     },
     run: async (p, ctx) => {
-      const meta = ctx.getMessageMeta(p.message_id);
+      const meta = await ctx.getMessageMeta(p.message_id);
       if (!meta || meta.isGroup) {
         return failedResponse(RETCODE.ACTION_FAILED, 'message not found or not a private message');
       }
@@ -702,7 +702,7 @@ export const actions = [
       target_id: f.uint().optional(),
     },
     run: async (p, ctx) => {
-      const meta = ctx.getMessageMeta(p.message_id);
+      const meta = await ctx.getMessageMeta(p.message_id);
       if (!meta) return failedResponse(RETCODE.ACTION_FAILED, 'message not found');
 
       if (p.target_id && p.target_id !== meta.targetId) {
@@ -1003,7 +1003,7 @@ export const actions = [
     summary: '标记全部已读',
     params: {},
     run: async (_p, ctx) => {
-      const sessions = ctx.listReadSessions();
+      const sessions = await ctx.listReadSessions();
       await ctx.bridge.apis.message.markAllRead(sessions.groupIds, sessions.privateUserIds);
       return okResponse();
     },
@@ -2554,7 +2554,7 @@ export const actions = [
       if (!id && p.message_id !== undefined) {
         const numericMessageId = integerFromDecimalString(p.message_id);
         if (numericMessageId > 0) {
-          const event = ctx.getMessage(numericMessageId);
+          const event = await ctx.getMessage(numericMessageId);
           const segments = Array.isArray(event?.message) ? event.message : [];
           for (const seg of segments) {
             if (typeof seg !== 'object' || seg === null || Array.isArray(seg)) continue;
@@ -2736,13 +2736,13 @@ export const actions = [
         return { todo, messageId, meta };
       });
 
-      ctx.cacheMessageMetas(projections.map(({ messageId, meta }) => ({
+      await ctx.cacheMessageMetas(projections.map(({ messageId, meta }) => ({
         messageId,
         meta,
       })));
 
-      return okResponse(projections.map(({ todo, messageId }) => {
-        const cached = ctx.getMessage(messageId)?.message;
+      return okResponse(await Promise.all(projections.map(async ({ todo, messageId }) => {
+        const cached = (await ctx.getMessage(messageId))?.message;
         return {
           message_id: messageId,
           message_seq: todo.sequence,
@@ -2752,7 +2752,7 @@ export const actions = [
           create_time: todo.createdAt,
           update_time: todo.updatedAt,
         };
-      }));
+      })));
     },
   }),
 

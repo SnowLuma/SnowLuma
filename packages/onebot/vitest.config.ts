@@ -4,6 +4,7 @@
 // invocation; they moved over wholesale in the Phase 3 split.
 import protobufVitePlugin from '@snowluma/proton/vite';
 import { defineConfig } from 'vitest/config';
+import { storeWorkerPlugin } from '../core/store-worker-plugin';
 
 export default defineConfig({
   // `@snowluma/proton` provides the bare-specifier resolver that turns
@@ -11,7 +12,7 @@ export default defineConfig({
   // a zero-runtime encoder/decoder at the call site. The same plugin
   // is loaded by `@snowluma/core`'s vite config — keep it here so the
   // OneBot tests resolve identically.
-  plugins: [protobufVitePlugin()],
+  plugins: [protobufVitePlugin(), storeWorkerPlugin()],
   test: {
     include: ['tests/**/*.test.ts'],
     setupFiles: ['./tests/setup.ts'],

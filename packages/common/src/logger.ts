@@ -25,6 +25,21 @@ export interface LogEntry {
   line: string;
 }
 
+export type WorkerLogRecord = Pick<LogEntry, 'level' | 'scope' | 'uin' | 'req' | 'message'>;
+let workerLogRelay: ((record: WorkerLogRecord) => void) | null = null;
+
+/** Store workers relay through the owning process so log rotation and WebUI
+ * subscribers keep a single owner. */
+export function setWorkerLogRelay(relay: (record: WorkerLogRecord) => void): void {
+  workerLogRelay = relay;
+}
+
+export function acceptWorkerLog(record: WorkerLogRecord): void {
+  const write = () => emit(record.level, { scope: record.scope, uin: record.uin }, ['%s', record.message]);
+  if (record.req === undefined) runWithoutRequestContext(write);
+  else runWithRequestId(record.req, write);
+}
+
 interface LogOptions {
   scope: string;
   uin?: number;
@@ -241,6 +256,10 @@ function emit(
   const message = level === 'trace'
     ? formattedMessage
     : redactLogMessage(formattedMessage);
+  if (workerLogRelay) {
+    workerLogRelay({ level, scope: options.scope, uin: options.uin, req: reqId, message });
+    return;
+  }
   const line = render(level, options, message, reqId);
   const entry: LogEntry = {
     id: nextLogId++,

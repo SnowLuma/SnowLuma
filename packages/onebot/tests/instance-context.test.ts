@@ -315,7 +315,7 @@ describe('buildApiContext getLoginInfo', () => {
 });
 
 describe('buildApiContext message-store passthroughs', () => {
-  it('reads events and metas through the message store', () => {
+  it('reads events and metas through the message store', async () => {
     const storedEvent = {
       post_type: 'message',
       message_type: 'group',
@@ -327,14 +327,14 @@ describe('buildApiContext message-store passthroughs', () => {
     events.set(-55, storedEvent);
     metas.set(-55, storedMeta);
 
-    expect(api.getMessage(-55)).toEqual({
+    expect((await api.getMessage(-55))).toEqual({
       post_type: 'message',
       message_type: 'group',
       message_id: -55,
       raw_message: 'stored',
     });
-    expect(api.getMessage(1)).toBeNull();
-    expect(api.getMessageMeta(-55)).toEqual({
+    expect((await api.getMessage(1))).toBeNull();
+    expect((await api.getMessageMeta(-55))).toEqual({
       isGroup: true,
       targetId: GROUP_ID,
       sequence: 91,
@@ -346,18 +346,18 @@ describe('buildApiContext message-store passthroughs', () => {
     });
   });
 
-  it('stores meta batches on the message store', () => {
+  it('stores meta batches on the message store', async () => {
     const storeMetas = vi.fn();
     const { api } = makeRef({ messageStore: { storeMetas } });
     const entries = [{ messageId: -12, meta: privateMeta({ sequence: 8 }) }];
 
-    api.cacheMessageMetas(entries);
+    await api.cacheMessageMetas(entries);
 
     expect(storeMetas).toHaveBeenCalledOnce();
     expect(storeMetas).toHaveBeenCalledWith(entries);
   });
 
-  it('lists read sessions from the current identity group ids', () => {
+  it('lists read sessions from the current identity group ids', async () => {
     const listReadSessions = vi.fn(() => ({
       groupIds: [710101, 710102],
       privateUserIds: [50001],
@@ -369,7 +369,7 @@ describe('buildApiContext message-store passthroughs', () => {
       messageStore: { listReadSessions },
     });
 
-    expect(api.listReadSessions()).toEqual({
+    expect((await api.listReadSessions())).toEqual({
       groupIds: [710101, 710102],
       privateUserIds: [50001],
     });

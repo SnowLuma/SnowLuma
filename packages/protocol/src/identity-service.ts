@@ -3,6 +3,7 @@ import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import path from 'path';
 
 import { createLogger, type Logger } from '@snowluma/common/logger';
+import { offloadSqliteCheckpoints } from '@snowluma/common/sqlite-checkpoints';
 import type {
   FriendInfo, GroupMemberInfo,
   GroupRequestInfo,
@@ -31,6 +32,14 @@ export interface IdentityPersistenceStatus {
   nextRetryAt: number | null;
   abandonedWrites: number;
   skippedWrites: number;
+}
+
+export interface IdentityWorkerSnapshot {
+  friends: FriendInfo[];
+  groups: QQGroupInfo[];
+  users: Array<{ uid: string; uin: number }>;
+  members: Array<{ group_id: number; uid: string; uin: number }>;
+  status: IdentityPersistenceStatus;
 }
 
 interface PendingIdentityWrite {
@@ -126,6 +135,11 @@ interface MemberRow {
  * exposed through persistenceStatus instead of rolling back observations.
  */
 export class IdentityService {
+  private static workerFactory: ((uin: string, dataRoot: string) => IdentityService) | undefined;
+
+  static configureWorkerFactory(factory: (uin: string, dataRoot: string) => IdentityService): void {
+    this.workerFactory = factory;
+  }
   // ─── Self identity ───
   private readonly uin_: string;
   private nickname_ = '';
@@ -185,6 +199,7 @@ export class IdentityService {
     this.initSchema();
     this.migrateSchema();
     this.loadSnapshot();
+    offloadSqliteCheckpoints(this.db, dbPath);
   }
 
   /** Cached `prepare(sql)`. First call per unique SQL parses; later
@@ -198,11 +213,30 @@ export class IdentityService {
   }
 
   static openForUin(uin: string, dataRoot = 'data'): IdentityService {
+    if (this.workerFactory) return this.workerFactory(uin, dataRoot);
     return new IdentityService(uin, path.join(dataRoot, uin, 'snowluma_identity.db'));
   }
 
   static memory(uin: string): IdentityService {
     return new IdentityService(uin, null);
+  }
+
+  /** Memory instances are immediately usable; worker instances override this. */
+  get initialization(): Promise<void> | null { return null; }
+
+  getPersistenceStatus(): IdentityPersistenceStatus { return this.persistenceStatus; }
+
+  /** Called only inside the persistence worker to restore its cached reader. */
+  getWorkerSnapshot(): IdentityWorkerSnapshot {
+    const users = (this.db?.prepare('SELECT uid, uin FROM users WHERE uid IS NOT NULL AND uin IS NOT NULL').all() ?? []) as IdentityWorkerSnapshot['users'];
+    const members = (this.db?.prepare('SELECT group_id, uid, uin FROM group_members WHERE uid IS NOT NULL AND uin IS NOT NULL').all() ?? []) as IdentityWorkerSnapshot['members'];
+    return {
+      friends: this.friends,
+      groups: this.groups,
+      users,
+      members,
+      status: this.persistenceStatus,
+    };
   }
 
   close(): void {
@@ -754,7 +788,7 @@ export class IdentityService {
     this.uidByUin.set(normalizedUin, normalizedUid);
   }
 
-  private isDatabaseMappingCurrent(uid: string, uin: number): boolean {
+  protected isDatabaseMappingCurrent(uid: string, uin: number): boolean {
     const currentUin = this.uinByUid.get(uid);
     const currentUid = this.uidByUin.get(uin);
     const current = (currentUin === undefined || currentUin === uin)

@@ -1,3 +1,4 @@
+import type { StoreAccess } from '@snowluma/common/store-worker';
 import type { MessageElement } from '@snowluma/protocol/events';
 import type { MediaStore } from './media-store';
 import type { JsonObject } from './types';
@@ -5,20 +6,20 @@ import type { JsonObject } from './types';
 export type MediaType = 'image' | 'record' | 'video';
 
 export class MediaIndexer {
-  constructor(private readonly mediaStore: MediaStore) { }
+  constructor(private readonly mediaStore: StoreAccess<MediaStore>) { }
 
-  remember(
+  async remember(
     mediaType: MediaType,
     element: MessageElement,
     data: JsonObject,
     isGroup: boolean,
     sessionId: number,
-  ): void {
+  ): Promise<void> {
     const url = typeof data.url === 'string' ? data.url : '';
     const file = typeof data.file === 'string' ? data.file : '';
 
     if (mediaType === 'image') {
-      this.mediaStore.rememberImage({
+      await this.mediaStore.rememberImage({
         file: file || element.fileId || '',
         url,
         fileSize: element.fileSize ?? 0,
@@ -38,7 +39,7 @@ export class MediaIndexer {
     }
 
     if (mediaType === 'record') {
-      this.mediaStore.rememberRecord({
+      await this.mediaStore.rememberRecord({
         file: file || element.fileName || element.fileId || '',
         fileId: element.fileId ?? '',
         url,
@@ -57,7 +58,7 @@ export class MediaIndexer {
     }
 
     // video
-    this.mediaStore.rememberVideo({
+    await this.mediaStore.rememberVideo({
       file: file || element.fileName || element.fileId || '',
       fileId: element.fileId ?? '',
       url,

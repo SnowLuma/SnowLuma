@@ -1,3 +1,4 @@
+import type { StoreAccess } from '@snowluma/common/store-worker';
 import type { FriendMessage } from '@snowluma/protocol/events';
 import {
   GROUP_MESSAGE_EVENT,
@@ -12,12 +13,12 @@ import type { JsonObject } from './types';
  * Private history needs the conversation peer explicitly because `user_id`
  * names the sender and therefore equals the bot account on outgoing messages.
  */
-export function persistHistoryEvent(
-  store: MessageStore,
+export async function persistHistoryEvent(
+  store: StoreAccess<MessageStore>,
   event: JsonObject,
   privatePeerId?: number,
   source?: FriendMessage,
-): void {
+): Promise<boolean> {
   const messageId = toHistoryInt(event.message_id);
   if (!Number.isSafeInteger(messageId) || messageId === 0) {
     throw new Error(`history event has invalid message_id ${String(event.message_id)}`);
@@ -57,9 +58,9 @@ export function persistHistoryEvent(
         : 'incoming',
       random: source.msgId,
       timestamp: source.time,
-    } satisfies Parameters<MessageStore['storeMeta']>[1]
+    } satisfies Parameters<StoreAccess<MessageStore>['storeMeta']>[1]
     : undefined;
-  store.storeHistoryEvent(
+  return (await store.storeHistoryEvent(
     messageId,
     isGroup,
     sessionId,
@@ -67,7 +68,7 @@ export function persistHistoryEvent(
     eventName,
     event,
     { sequenceAuthoritative, meta },
-  );
+  )) !== false;
 }
 
 export function toHistoryInt(value: unknown): number {

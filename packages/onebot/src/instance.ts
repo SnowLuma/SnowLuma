@@ -1,4 +1,5 @@
 import { createLogger, type Logger } from '@snowluma/common/logger';
+import { createAsyncStore, type AsyncStore } from '@snowluma/common/store-worker';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import { formatGroup, formatMessageSegments, formatReply, formatUser } from '@snowluma/protocol/format';
 import path from 'path';
@@ -10,7 +11,7 @@ import { TempSessionStore } from './temp-session-store';
 import { RKeyCache } from './instance-rkey';
 import type { GlobalSettings } from './global-config';
 import { MediaIndexer } from './media-indexer';
-import { MediaStore } from './media-store';
+import type { MediaStore } from './media-store';
 import { MediaUrlResolver } from './media-url-resolver';
 import {
   GROUP_MESSAGE_EVENT,
@@ -20,7 +21,7 @@ import {
   hashMessageIdInt32,
   privateMessageEventName,
 } from './message-id';
-import { MessageStore } from './message-store';
+import type { MessageStore } from './message-store';
 import { sendGroupMessage, sendPrivateMessage } from './modules/message-actions';
 import { buildStatusText, matchesStatusCommand, statusCooldownElapsed } from './modules/status-command';
 import { loginHistorySyncCoordinator } from './history-sync';
@@ -37,7 +38,7 @@ import {
   type NetworkReconcileResult,
   type NetworkShutdownResult,
 } from './network';
-import { ReactionStore } from './reaction-store';
+import type { ReactionStore } from './reaction-store';
 import {
   sameSelfSentMessage,
   selfSentEventKey,
@@ -53,9 +54,9 @@ export class OneBotInstance {
   private readonly bridge: BridgeInterface;
   private readonly apiHandler: ApiHandler;
   private readonly converterCtx: ConverterContext;
-  private readonly messageStore: MessageStore;
-  private readonly mediaStore: MediaStore;
-  private readonly reactionStore: ReactionStore;
+  private readonly messageStore: AsyncStore<MessageStore>;
+  private readonly mediaStore: AsyncStore<MediaStore>;
+  private readonly reactionStore: AsyncStore<ReactionStore>;
   private readonly networkManager: OneBotNetworkManager;
   private readonly networkReady: Promise<NetworkReconcileResult>;
   private readonly groupRequestPoller: GroupRequestPoller;
@@ -132,9 +133,9 @@ export class OneBotInstance {
       : moduleLog;
 
     this.rkeyCache = new RKeyCache(globalSettings.rkey);
-    this.mediaStore = new MediaStore(path.join('data', this.uin, 'messages.db'));
-    this.messageStore = new MessageStore(path.join('data', this.uin, 'messages.json'));
-    this.reactionStore = new ReactionStore(path.join('data', this.uin, 'reactions.db'));
+    this.mediaStore = createAsyncStore<MediaStore>(this.uin, 'media', [path.resolve('data', this.uin, 'messages.db')]);
+    this.messageStore = createAsyncStore<MessageStore>(this.uin, 'message', [path.resolve('data', this.uin, 'messages.db')]);
+    this.reactionStore = createAsyncStore<ReactionStore>(this.uin, 'reaction', [path.resolve('data', this.uin, 'reactions.db')]);
     const mediaUrlResolver = new MediaUrlResolver(this.bridge, this.rkeyCache);
     const mediaIndexer = new MediaIndexer(this.mediaStore);
     this.converterCtx = {
@@ -143,14 +144,14 @@ export class OneBotInstance {
         this.rkeyCache.resolveImageUrl(this.bridge, element, isGroup),
       mediaUrlResolver: (element, isGroup, sessionId) =>
         mediaUrlResolver.resolve(element, isGroup, sessionId),
-      messageIdResolver: (isGroup, sessionId, sequence, eventName, timestamp, replyElements) => {
+      messageIdResolver: async (isGroup, sessionId, sequence, eventName, timestamp, replyElements) => {
         const resolvedEventName = eventName
           || (isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT);
         if (!isGroup
           && timestamp !== undefined
           && (resolvedEventName === PRIVATE_MESSAGE_EVENT
             || resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT)) {
-          const storedId = this.messageStore.resolvePrivateReplyMessageId(
+          const storedId = await this.messageStore.resolvePrivateReplyMessageId(
             sessionId,
             sequence,
             resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT,
@@ -182,15 +183,20 @@ export class OneBotInstance {
       config,
       musicSignUrl: globalSettings.musicSignUrl,
       getUptimeMs: () => Math.max(0, Date.now() - this.startedAt),
-      cacheMessageMeta: (messageId, meta) => this.cacheMessageMeta(messageId, meta),
-      dispatchEvent: (event, source = 'bridge', startedAt) => this.dispatchEvent(event, source, startedAt),
+      cacheMessageMeta: async (messageId, meta) => (await this.cacheMessageMeta(messageId, meta)),
+      dispatchEvent: async (event, source = 'bridge', startedAt) => (await this.dispatchEvent(event, source, startedAt)),
     };
     this.ctx = ctx;
 
     this.apiHandler = new ApiHandler(buildApiContext(ctx), uinNum > 0 ? uinNum : undefined);
     const networkCtx = this.buildNetworkContext();
     this.networkManager = new OneBotNetworkManager((desired) => this.createNetworkAdapter(desired, networkCtx));
-    this.networkReady = this.networkManager.reconcile(config);
+    this.networkReady = Promise.all([
+      this.bridge.identity.initialization ?? Promise.resolve(),
+      this.mediaStore.initialization,
+      this.messageStore.initialization,
+      this.reactionStore.initialization,
+    ]).then(() => this.networkManager.reconcile(config));
     this.lifecycleTail = this.networkReady.then(
       () => undefined,
       () => undefined,
@@ -208,8 +214,8 @@ export class OneBotInstance {
 
   /** Bridge session edge → OneBot notice. Awaited so offline can leave
    *  adapters before this generation is disposed. */
-  emitBotStatus(subType: 'online' | 'offline'): Promise<void> {
-    return this.dispatchEvent(makeBotStatusEvent(parseInt(this.uin, 10) || 0, subType));
+  async emitBotStatus(subType: 'online' | 'offline'): Promise<void> {
+    return await this.dispatchEvent(makeBotStatusEvent(parseInt(this.uin, 10) || 0, subType));
   }
 
   /** Begin observing request-list-only group invitations after adapters exist. */
@@ -334,14 +340,14 @@ export class OneBotInstance {
       // reconcile and every transport have actually closed.
       const closeErrors: unknown[] = [];
       const stores = [
-        ['message', () => this.messageStore.close()],
-        ['media', () => this.mediaStore.close()],
-        ['reaction', () => this.reactionStore.close()],
+        ['message', async () => (await this.messageStore.close())],
+        ['media', async () => (await this.mediaStore.close())],
+        ['reaction', async () => (await this.reactionStore.close())],
       ] as const;
       for (const [name, close] of stores) {
         if (this.storeCloseState[name]) continue;
         try {
-          close();
+          await close();
           this.storeCloseState[name] = true;
         } catch (error) {
           closeErrors.push(error);
@@ -390,7 +396,10 @@ export class OneBotInstance {
     startedAt = Date.now(),
   ): Promise<void> {
     if (source === 'bridge') {
-      this.cacheMessageEvent(event);
+      if (!await this.cacheMessageEvent(event)) {
+        this.traceEventHandoffTerminal(event, startedAt, 'suppressed', 'private_recall');
+        return;
+      }
       if (this.consumePendingSelfSentEcho(event)) {
         this.log.trace(
           'duplicate self-message echo suppressed message_id=%d message_seq=%d',
@@ -401,13 +410,13 @@ export class OneBotInstance {
         return;
       }
     } else {
-      this.cacheMessageEvent(event);
+      await this.cacheMessageEvent(event);
       this.rememberPendingSelfSentEcho(event);
     }
     // The send path already logged the real peer and payload. Logging its
     // synthetic event here would produce a second, less accurate "received"
     // line whose private user_id points at the bot itself.
-    if (source === 'bridge') this.logReceivedMessage(event);
+    if (source === 'bridge') await this.logReceivedMessage(event);
     // Built-in `#sl` only consumes events observed from QQ. Action-originated
     // messages must not recursively trigger the command handler.
     if (source === 'bridge' && this.handleStatusCommand(event)) {
@@ -426,7 +435,7 @@ export class OneBotInstance {
     event: JsonObject,
     startedAt: number,
     outcome: 'suppressed' | 'reporting_started',
-    reason?: 'duplicate_self_echo' | 'status_command',
+    reason?: 'duplicate_self_echo' | 'status_command' | 'private_recall',
   ): void {
     this.log.trace(() => [
       'event_terminal post_type=%s outcome=%s%s ms=%d',
@@ -555,7 +564,7 @@ export class OneBotInstance {
     return rejected;
   }
 
-  private logReceivedMessage(event: JsonObject): void {
+  private async logReceivedMessage(event: JsonObject): Promise<void> {
     const isSelf = event.post_type === 'message_sent';
     if (event.post_type !== 'message' && !isSelf) return;
 
@@ -580,7 +589,8 @@ export class OneBotInstance {
           : {};
         if (type === 'reply') {
           const replyId = toInt(data.id);
-          renderedParts.push(formatReply(this.messageStore, identity, replyId));
+          const replyEvent = await this.messageStore.findEvent(replyId);
+          renderedParts.push(formatReply({ findEvent: () => replyEvent }, identity, replyId));
         } else {
           renderedParts.push(formatMessageSegments([seg as JsonValue]));
         }
@@ -614,11 +624,11 @@ export class OneBotInstance {
     }
   }
 
-  private cacheMessageEvent(event: JsonObject): void {
-    if (event.post_type !== 'message' && event.post_type !== 'message_sent') return;
+  private async cacheMessageEvent(event: JsonObject): Promise<boolean> {
+    if (event.post_type !== 'message' && event.post_type !== 'message_sent') return true;
 
     const messageId = toInt(event.message_id);
-    if (messageId === 0) return;
+    if (messageId === 0) return true;
 
     const isGroup = event.message_type === 'group';
     const sessionId = isGroup
@@ -633,13 +643,13 @@ export class OneBotInstance {
         ? privateMessageEventName(event.post_type === 'message_sent', false)
         : PRIVATE_MESSAGE_EVENT;
 
-    if (sessionId === 0) return;
-    this.messageStore.storeEvent(messageId, isGroup, sessionId, sequence, eventName, event);
+    if (sessionId === 0) return true;
+    return (await this.messageStore.storeEvent(messageId, isGroup, sessionId, sequence, eventName, event)) !== false;
   }
 
-  private cacheMessageMeta(messageId: number, meta: MessageMeta): void {
+  private async cacheMessageMeta(messageId: number, meta: MessageMeta): Promise<void> {
     if (!Number.isInteger(messageId) || messageId === 0) return;
-    this.messageStore.storeMeta(messageId, meta);
+    await this.messageStore.storeMeta(messageId, meta);
   }
 
   private makeLifecycleEvent(subType: 'connect' | 'enable' | 'disable'): JsonObject {
@@ -659,7 +669,9 @@ export class OneBotInstance {
   }
   private startHeartbeat(): void {
     this.heartbeatTimer = setInterval(() => {
-      this.dispatchEvent(this.makeHeartbeatEvent());
+      void this.dispatchEvent(this.makeHeartbeatEvent()).catch(error => {
+        this.log.warn('heartbeat dispatch failed: %s', error instanceof Error ? error.message : String(error));
+      });
     }, OneBotInstance.HEARTBEAT_INTERVAL);
     this.heartbeatTimer.unref?.();
   }

@@ -46,7 +46,8 @@ export class MessageStoreMigrator {
   private state: MigrationStateRow;
 
   constructor(dbPath: string, reportPreparation?: (progress: MessageStoreMigrationPreparation) => void) {
-    this.db = openSqliteDb(dbPath.replace(/\.json$/, '.db'));
+    // This migration already runs in a worker; keep its connection short-lived.
+    this.db = openSqliteDb(dbPath.replace(/\.json$/, '.db'), false);
     try {
       createMigrationStateTable(this.db);
       this.state = this.loadOrCreateState(reportPreparation);
@@ -245,7 +246,7 @@ export class MessageStoreMigrator {
 }
 
 export function prepareMessageStoreDatabase(dbPath: string): void {
-  const db = openSqliteDb(dbPath.replace(/\.json$/, '.db'));
+  const db = openSqliteDb(dbPath.replace(/\.json$/, '.db'), false);
   try {
     const messagesTableExists = db.prepare(`
       SELECT 1 AS present

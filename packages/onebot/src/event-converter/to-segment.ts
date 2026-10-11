@@ -46,7 +46,7 @@ export async function elementsToOneBotSegments(
     // Persistence failures must propagate, not masquerade as bad wire elements.
     attachMessageMedia(segment, element);
     if (element.type === 'image' || element.type === 'record' || element.type === 'video') {
-      ctx.mediaSegmentSink?.(element.type, element, segment.data as JsonObject, isGroup, sessionId);
+      await ctx.mediaSegmentSink?.(element.type, element, segment.data as JsonObject, isGroup, sessionId);
     }
     result.push(segment);
     if (element.type === 'markdown' && element.text) {

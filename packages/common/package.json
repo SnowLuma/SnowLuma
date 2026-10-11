@@ -28,6 +28,14 @@
       "types": "./src/single-flight-cache.ts",
       "default": "./src/single-flight-cache.ts"
     },
+    "./sqlite-checkpoints": {
+      "types": "./src/sqlite-checkpoints.ts",
+      "default": "./src/sqlite-checkpoints.ts"
+    },
+    "./store-worker": {
+      "types": "./src/store-worker.ts",
+      "default": "./src/store-worker.ts"
+    },
     "./concurrency": {
       "types": "./src/concurrency.ts",
       "default": "./src/concurrency.ts"

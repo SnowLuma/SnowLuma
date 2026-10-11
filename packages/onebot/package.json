@@ -99,6 +99,14 @@
     "./stream-storage": {
       "types": "./src/stream-storage.ts",
       "default": "./src/stream-storage.ts"
+    },
+    "./reaction-store": {
+      "types": "./src/reaction-store.ts",
+      "default": "./src/reaction-store.ts"
+    },
+    "./sqlite-open": {
+      "types": "./src/sqlite-open.ts",
+      "default": "./src/sqlite-open.ts"
     }
   },
   "scripts": {

@@ -24,6 +24,10 @@
       "types": "./src/identity-service.ts",
       "default": "./src/identity-service.ts"
     },
+    "./worker-identity-service": {
+      "types": "./src/worker-identity-service.ts",
+      "default": "./src/worker-identity-service.ts"
+    },
     "./packet-pipeline": {
       "types": "./src/packet-pipeline.ts",
       "default": "./src/packet-pipeline.ts"

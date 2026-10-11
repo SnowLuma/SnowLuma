@@ -16,15 +16,17 @@ const log = createLogger('MsgParser');
 
 export { MessageElementValidationError } from '@snowluma/protocol/element-manifest';
 
+interface ReplyMeta {
+  senderUin: number;
+  time: number;
+  random: number;
+  elements?: MessageElement[];
+  sequenceAuthoritative?: boolean;
+}
+
 export interface ParseMessageOptions {
-  resolveReplySequence?: (replyMessageId: number) => number | null;
-  resolveReplyMeta?: (replyMessageId: number) => {
-    senderUin: number;
-    time: number;
-    random: number;
-    elements?: MessageElement[];
-    sequenceAuthoritative?: boolean;
-  } | null;
+  resolveReplySequence?: (replyMessageId: number) => number | null | Promise<number | null>;
+  resolveReplyMeta?: (replyMessageId: number) => ReplyMeta | null | Promise<ReplyMeta | null>;
   resolveMentionUid?: (targetUin: number) => string | null | Promise<string | null>;
   resolveContactArk?: (contactType: string, contactId: number) => string | null | Promise<string | null>;
   musicSignUrl?: string;

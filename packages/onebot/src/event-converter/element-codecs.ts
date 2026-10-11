@@ -219,7 +219,7 @@ export const ELEMENT_CODECS = {
       const eventName = ctx.isGroup
         ? GROUP_MESSAGE_EVENT
         : privateMessageEventName(sentBySelf, false);
-      const id = resolveReplyId(
+      const id = await resolveReplyId(
         ctx.isGroup,
         ctx.sessionId,
         element.replySeq ?? 0,
@@ -246,10 +246,10 @@ export const ELEMENT_CODECS = {
         log.warn('could not quote the target message');
         return null;
       }
-      const meta = options?.resolveReplyMeta?.(id) ?? null;
+      const meta = (await options?.resolveReplyMeta?.(id)) ?? null;
 
       if (options?.resolveReplySequence) {
-        const resolved = options.resolveReplySequence(id);
+        const resolved = await options.resolveReplySequence(id);
         if (typeof resolved === 'number' && resolved > 0) {
           const element: MessageElement = {
             type: 'reply',
@@ -309,7 +309,7 @@ export const ELEMENT_CODECS = {
         summary: element.summary ?? '',
       };
       if (element.flash) data.type = 'flash';
-      if (ctx.mediaSegmentSink) ctx.mediaSegmentSink('image', element, data, ctx.isGroup, ctx.sessionId);
+      if (ctx.mediaSegmentSink) await ctx.mediaSegmentSink('image', element, data, ctx.isGroup, ctx.sessionId);
       return { type: 'image', data };
     },
     async fromSegment(data) {
@@ -338,7 +338,7 @@ export const ELEMENT_CODECS = {
         file: element.fileName ?? element.fileId ?? '',
         url,
       };
-      if (ctx.mediaSegmentSink) ctx.mediaSegmentSink('record', element, data, ctx.isGroup, ctx.sessionId);
+      if (ctx.mediaSegmentSink) await ctx.mediaSegmentSink('record', element, data, ctx.isGroup, ctx.sessionId);
       return { type: 'record', data };
     },
     async fromSegment(data) {
@@ -361,7 +361,7 @@ export const ELEMENT_CODECS = {
         file: element.fileName ?? element.fileId ?? '',
         url,
       };
-      if (ctx.mediaSegmentSink) ctx.mediaSegmentSink('video', element, data, ctx.isGroup, ctx.sessionId);
+      if (ctx.mediaSegmentSink) await ctx.mediaSegmentSink('video', element, data, ctx.isGroup, ctx.sessionId);
       return { type: 'video', data };
     },
     async fromSegment(data) {

@@ -1,3 +1,4 @@
+import type { StoreAccess } from '@snowluma/common/store-worker';
 import { isMessageMedia, type MessageMedia } from '../message-media';
 import { createLogger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
@@ -113,7 +114,7 @@ export function splitVideoFileFallback(
 }
 
 export async function getGroupMsgHistory(
-  messageStore: MessageStore,
+  messageStore: StoreAccess<MessageStore>,
   groupId: number,
   messageId?: number,
   count?: number,
@@ -125,12 +126,12 @@ export async function getGroupMsgHistory(
 
   let anchorSequence: number | undefined;
   if (hasAnchor) {
-    const meta = messageStore.findMeta(messageId as number);
+    const meta = await messageStore.findMeta(messageId as number);
     if (!hasAuthoritativeSequence(meta) || !meta.isGroup || meta.targetId !== groupId) return [];
     anchorSequence = meta.sequence;
   }
 
-  const events = messageStore.listSessionEvents(true, groupId, limit, anchorSequence, reverseOrder);
+  const events = await messageStore.listSessionEvents(true, groupId, limit, anchorSequence, reverseOrder);
   return events
     .filter((event) => {
       if (event.message_type !== 'group') return false;
@@ -141,7 +142,7 @@ export async function getGroupMsgHistory(
 }
 
 export async function getFriendMsgHistory(
-  messageStore: MessageStore,
+  messageStore: StoreAccess<MessageStore>,
   userId: number,
   messageId?: number,
   count?: number,
@@ -153,12 +154,12 @@ export async function getFriendMsgHistory(
 
   let anchorSequence: number | undefined;
   if (hasAnchor) {
-    const meta = messageStore.findMeta(messageId as number);
+    const meta = await messageStore.findMeta(messageId as number);
     if (!hasAuthoritativeSequence(meta) || meta.isGroup || meta.targetId !== userId) return [];
     anchorSequence = meta.sequence;
   }
 
-  const events = messageStore.listSessionEvents(false, userId, limit, anchorSequence, reverseOrder);
+  const events = await messageStore.listSessionEvents(false, userId, limit, anchorSequence, reverseOrder);
   return events
     // `session_id` is the conversation peer. Self-sent messages legitimately
     // carry the bot's own `user_id`, so filtering by sender would drop them.
@@ -169,7 +170,7 @@ export async function getFriendMsgHistory(
 // Deps the server-backed history fetch needs from the instance context.
 interface HistoryRef {
   bridge: BridgeInterface;
-  messageStore: MessageStore;
+  messageStore: StoreAccess<MessageStore>;
   converterCtx: ConverterContext;
   selfId: number;
 }
@@ -197,14 +198,14 @@ export async function getGroupHistory(
 
   let anchorSeq = 0;
   if (hasAnchor) {
-    const meta = ref.messageStore.findMeta(messageId as number);
+    const meta = await ref.messageStore.findMeta(messageId as number);
     if (!hasAuthoritativeSequence(meta) || !meta.isGroup || meta.targetId !== groupId) {
       // Anchor we don't know — best effort from the local store.
       return getGroupMsgHistory(ref.messageStore, groupId, messageId, count, reverseOrder);
     }
     anchorSeq = meta.sequence;
   } else {
-    anchorSeq = ref.messageStore.findLatestAuthoritativeSequence(true, groupId) ?? 0;
+    anchorSeq = (await ref.messageStore.findLatestAuthoritativeSequence(true, groupId)) ?? 0;
   }
   log.debug(
     'group history anchor selected: group=%d source=%s anchorSeq=%d',
@@ -226,7 +227,7 @@ export async function getGroupHistory(
       for (const ev of events) {
         const json = await convertEvent(ref.converterCtx, ev);
         if (!json || json.message_type !== 'group') continue;
-        persistHistoryEvent(ref.messageStore, json); // full event → reply/get_msg + future listing
+        await persistHistoryEvent(ref.messageStore, json); // full event → reply/get_msg + future listing
         out.push(sanitizeMessageEventForApi(json));   // sanitized for the API (matches the local path)
       }
       if (out.length > 0) return out;
@@ -274,13 +275,13 @@ export async function getFriendHistory(
 
   let anchorSeq = 0;
   if (hasAnchor) {
-    const meta = ref.messageStore.findMeta(messageId as number);
+    const meta = await ref.messageStore.findMeta(messageId as number);
     // Older self-sent rows may be keyed by selfId. Only accept one of those
     // when its stored target_id proves that it belongs to this peer; otherwise
     // a message_id from another private conversation could select the wrong
     // server sequence.
     const storedEvent = meta?.targetId === ref.selfId
-      ? ref.messageStore.findEvent(messageId as number)
+      ? (await ref.messageStore.findEvent(messageId as number))
       : null;
     const belongsToPeer = meta?.targetId === userId
       || (meta?.targetId === ref.selfId && toHistoryInt(storedEvent?.target_id) === userId);
@@ -318,15 +319,14 @@ export async function getFriendHistory(
     const sentBySelf = ev.senderUin === ref.selfId;
     const json = await convertEvent(ref.converterCtx, ev);
     if (!json || json.message_type !== 'private') continue;
-    // Conversion can await media resolution, so consult the tombstone only
-    // after it settles. From this check through persistence/return there is no
-    // async gap in which a recall could race past us.
-    if (ref.messageStore.isPrivateMessageRecalled(
+    // Conversion can await media resolution. The worker also checks tombstones
+    // atomically while persisting, since a recall can arrive during this read.
+    if ((await ref.messageStore.isPrivateMessageRecalled(
       userId,
       clientSequence,
       sentBySelf,
       ev.time,
-    )) {
+    ))) {
       log.debug(
         'friend history omitted recalled message: user=%d clientSeq=%d self=%s',
         userId,
@@ -340,7 +340,7 @@ export async function getFriendHistory(
     if (json.post_type === 'message_sent' && toHistoryInt(json.target_id) === 0) {
       json.target_id = userId;
     }
-    persistHistoryEvent(ref.messageStore, json, userId, ev);
+    if (!await persistHistoryEvent(ref.messageStore, json, userId, ev)) continue;
     out.push(sanitizeMessageEventForApi(json));
   }
   log.debug(
@@ -390,7 +390,7 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
   const eventName = isGroup
     ? GROUP_MESSAGE_EVENT
     : privateMessageEventName(quotedSender === ref.selfId, false);
-  const resolvedId = ref.converterCtx.messageIdResolver?.(
+  const resolvedId = await ref.converterCtx.messageIdResolver?.(
     isGroup,
     session,
     replySeq,
@@ -402,7 +402,7 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
   const targetId = Number.isInteger(resolvedId) && resolvedId !== 0
     ? resolvedId as number
     : hashMessageIdInt32(replySeq, session, eventName);
-  if (ref.messageStore.findEvent(targetId)) return; // Tier 0: already have the full event
+  if ((await ref.messageStore.findEvent(targetId))) return; // Tier 0: already have the full event
 
   // Tier 1: fetch the quoted message from the server, keyed under the exact id
   // the reply resolves to. Groups can query `replySeq` directly. C2C replies
@@ -439,12 +439,12 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
       if (json) {
         json.message_id = targetId;
         if (fetched.kind === 'group_message') {
-          ref.messageStore.storeEvent(targetId, true, session, replySeq, eventName, json);
+          await ref.messageStore.storeEvent(targetId, true, session, replySeq, eventName, json);
         } else {
           const serverSequence = fetched.ntMsgSeq ?? 0;
           const sequenceAuthoritative = fetched.sequenceAuthoritative !== false
             && serverSequence > 0;
-          ref.messageStore.storeMeta(targetId, {
+          await ref.messageStore.storeMeta(targetId, {
             isGroup: false,
             targetId: session,
             sequence: serverSequence,
@@ -457,7 +457,7 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
             random: fetched.msgId,
             timestamp: fetched.time,
           });
-          ref.messageStore.storeEvent(
+          await ref.messageStore.storeEvent(
             targetId,
             false,
             session,
@@ -487,7 +487,7 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
       // Inline quote metadata proves what was displayed, but not that replySeq
       // still names a server-backed roam message. Keep it queryable via
       // get_msg without letting it become a history/recall/reply anchor.
-      ref.messageStore.storeEvent(
+      await ref.messageStore.storeEvent(
         targetId,
         isGroup,
         session,
@@ -508,7 +508,7 @@ export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant
   const placeholder = buildBackfillEvent(targetId, replySeq, quotedSender,
     reply?.replyTime ?? 0, [{ type: 'text', data: { text: '[引用消息]' } }],
     ref.selfId, isGroup, session);
-  ref.messageStore.storeEvent(
+  await ref.messageStore.storeEvent(
     targetId,
     isGroup,
     session,
@@ -582,11 +582,11 @@ export async function deleteMessage(bridge: BridgeInterface, meta: MessageMeta):
 
 export async function setEssenceMessage(
   bridge: BridgeInterface,
-  messageStore: MessageStore,
+  messageStore: StoreAccess<MessageStore>,
   messageId: number,
   enable: boolean,
 ): Promise<void> {
-  const meta = messageStore.findMeta(messageId);
+  const meta = await messageStore.findMeta(messageId);
   if (!meta || !meta.isGroup) throw new Error('message not found or not a group message');
   if (!hasAuthoritativeSequence(meta)) {
     throw new Error('message has no authoritative QQ sequence and cannot be marked as essence');
@@ -652,7 +652,7 @@ async function finalizeSend(
         targetId,
         eventName,
       );
-  ref.cacheMessageMeta(messageId, {
+  await ref.cacheMessageMeta(messageId, {
     isGroup,
     targetId,
     sequence: receipt.sequence,
@@ -773,12 +773,12 @@ async function cacheSelfSentMessage(
     // QQ can win the race between the send receipt and local event
     // construction. Keep its richer canonical event and let the already-run
     // bridge dispatch remain the single downstream notification.
-    const existing = ref.messageStore.findEvent(messageId);
+    const existing = await ref.messageStore.findEvent(messageId);
     if (existing && sameSelfSentMessage(existing, event)) return null;
 
     // Persist before dispatch so `/get_msg` is immediately consistent for a
     // client reacting to the synthetic message_sent notification.
-    storeEvent.call(
+    await storeEvent.call(
       ref.messageStore,
       messageId,
       isGroup,
@@ -814,7 +814,7 @@ export async function sendPrivateMessage(
   /** When set, reply into this group's temp session instead of friend c2c. */
   tempGroupId?: number,
   /** Reports each actual friend message as soon as its authoritative receipt arrives. */
-  onSelfSent?: (event: JsonObject) => void,
+  onSelfSent?: (event: JsonObject) => void | Promise<void>,
 ): Promise<MessageSendResult> {
   // A temp-session reply is only allowed into a session the peer opened.
   const isTempReply = tempGroupId !== undefined && ref.tempSessions.has(userId, tempGroupId);
@@ -838,10 +838,10 @@ export async function sendPrivateMessage(
     return sendPrivateForwardMessage(ref, userId, privateForwardNodes, undefined, onSelfSent);
   }
   const elements = await parseMessage(message, autoEscape, {
-    resolveReplySequence: (replyMessageId) => {
-      return ref.messageStore.resolveReplySequence(false, userId, replyMessageId);
+    resolveReplySequence: async (replyMessageId) => {
+      return await ref.messageStore.resolveReplySequence(false, userId, replyMessageId);
     },
-    resolveReplyMeta: (replyMessageId) => {
+    resolveReplyMeta: async (replyMessageId) => {
       // Prefer the cached event (it carries the REAL sender). When only
       // meta exists — typically because the message we're replying to was
       // sent by the bot itself and never round-tripped through dispatch
@@ -849,7 +849,7 @@ export async function sendPrivateMessage(
       // selfId. The previous code used `meta.targetId` here, which is the
       // conversation PEER and shows the wrong "回复 @某人" in QQ for any
       // self-reply.
-      const event = ref.messageStore.findEvent(replyMessageId);
+      const event = await ref.messageStore.findEvent(replyMessageId);
       if (event) {
         const senderUin = typeof event.user_id === 'number'
           ? event.user_id
@@ -857,7 +857,7 @@ export async function sendPrivateMessage(
         const time = typeof event.time === 'number'
           ? event.time
           : parseInt(String(event.time || '0'), 10);
-        const meta = ref.messageStore.findMeta(replyMessageId);
+        const meta = await ref.messageStore.findMeta(replyMessageId);
         return {
           senderUin,
           time,
@@ -866,7 +866,7 @@ export async function sendPrivateMessage(
           sequenceAuthoritative: meta?.sequenceAuthoritative,
         };
       }
-      const meta = ref.messageStore.findMeta(replyMessageId);
+      const meta = await ref.messageStore.findMeta(replyMessageId);
       if (meta) {
         return {
           senderUin: ref.selfId,
@@ -989,7 +989,7 @@ export async function sendPrivateMessage(
       tempGroupId === undefined && onSelfSent !== undefined,
     );
     lastResult = result;
-    if (result.echoEvent) onSelfSent?.(result.echoEvent);
+    if (result.echoEvent) await onSelfSent?.(result.echoEvent);
   };
 
   if (nonFileElements.length > 0) {
@@ -1088,13 +1088,13 @@ export async function sendGroupMessage(
     return { messageId: result.messageId };
   }
   const elements = await parseMessage(message, autoEscape, {
-    resolveReplySequence: (replyMessageId) => {
-      return ref.messageStore.resolveReplySequence(true, groupId, replyMessageId);
+    resolveReplySequence: async (replyMessageId) => {
+      return await ref.messageStore.resolveReplySequence(true, groupId, replyMessageId);
     },
-    resolveReplyMeta: (replyMessageId) => {
-      const meta = ref.messageStore.findMeta(replyMessageId);
+    resolveReplyMeta: async (replyMessageId) => {
+      const meta = await ref.messageStore.findMeta(replyMessageId);
       if (!meta || !meta.isGroup || meta.targetId !== groupId) return null;
-      const event = ref.messageStore.findEvent(replyMessageId);
+      const event = await ref.messageStore.findEvent(replyMessageId);
       if (event) {
         return {
           senderUin: typeof event.user_id === 'number'
@@ -1227,7 +1227,7 @@ export async function sendPrivateForwardMessage(
   userId: number,
   messages: JsonValue,
   meta?: ForwardPreviewMeta,
-  onSelfSent?: (event: JsonObject) => void,
+  onSelfSent?: (event: JsonObject) => void | Promise<void>,
 ): Promise<{ messageId: number; forwardId: string }> {
   const nodes = await parseForwardNodes(ref, messages, { userId });
   // userId is plumbed through so inner image/record/video can be uploaded
@@ -1244,7 +1244,7 @@ export async function sendPrivateForwardMessage(
     [previewElement],
     onSelfSent !== undefined,
   );
-  if (result.echoEvent) onSelfSent?.(result.echoEvent);
+  if (result.echoEvent) await onSelfSent?.(result.echoEvent);
 
   return { messageId: result.messageId, forwardId };
 }
@@ -1274,13 +1274,13 @@ export async function forwardSingleMessage(
   ref: OneBotInstanceContext,
   messageId: number,
   target: { groupId?: number; userId?: number },
-  onSelfSent?: (event: JsonObject) => void,
+  onSelfSent?: (event: JsonObject) => void | Promise<void>,
 ): Promise<{ messageId: number }> {
   if (!target.groupId && !target.userId) {
     throw new Error('forward target group_id or user_id is required');
   }
 
-  const event = ref.messageStore.findEvent(messageId);
+  const event = await ref.messageStore.findEvent(messageId);
   if (!event) throw new Error(`message not found: ${messageId}`);
 
   const content = (event.message ?? event.raw_message ?? '') as JsonValue;
@@ -1288,7 +1288,7 @@ export async function forwardSingleMessage(
   const parsed = await parseMessage(content, false);
   if (parsed.length === 0) throw new Error('message has no content');
 
-  const elements = await prepareSingleForwardElements(ref, restoreHistoricalMedia(ref, parsed, messageId), target);
+  const elements = await prepareSingleForwardElements(ref, (await restoreHistoricalMedia(ref, parsed, messageId)), target);
 
   let receipt;
   let messageIdOut: number;
@@ -1306,7 +1306,7 @@ export async function forwardSingleMessage(
       onSelfSent !== undefined,
     );
     messageIdOut = result.messageId;
-    if (result.echoEvent) onSelfSent?.(result.echoEvent);
+    if (result.echoEvent) await onSelfSent?.(result.echoEvent);
   }
 
   return { messageId: messageIdOut };
@@ -1320,7 +1320,7 @@ async function prepareSingleForwardElements(
   const out: MessageElement[] = [];
   for (const element of elements) {
     if (element.type !== 'forward') {
-      out.push(isMessageMedia(element) ? element : enrichForForward(ref, element));
+      out.push(isMessageMedia(element) ? element : (await enrichForForward(ref, element)));
       continue;
     }
     const resId = element.resId.trim();
@@ -1396,29 +1396,29 @@ async function expandForwardNodeForTarget(
   return { ...node, elements };
 }
 
-function restoreHistoricalMedia(
+async function restoreHistoricalMedia(
   ref: OneBotInstanceContext,
   elements: MessageElement[],
   messageId: number,
-): MessageElement[] {
+): Promise<MessageElement[]> {
   if (!elements.some(isMessageMedia)) return elements;
-  const snapshots = ref.messageStore.findMedia(messageId);
+  const snapshots = await ref.messageStore.findMedia(messageId);
   let index = 0;
-  const restored = elements.map(element => {
+  const restored = await Promise.all(elements.map(async element => {
     if (!isMessageMedia(element)) return element;
     const snapshot = snapshots?.[index++];
     if (snapshots && (!snapshot || snapshot.type !== element.type)) {
       throw new Error(`historical media metadata does not match message ${messageId}`);
     }
-    return enrichForForward(ref, element, snapshot);
-  });
+    return await enrichForForward(ref, element, snapshot);
+  }));
   if (snapshots && index !== snapshots.length) {
     throw new Error(`historical media metadata does not match message ${messageId}`);
   }
   return restored;
 }
 
-function enrichForForward(ref: OneBotInstanceContext, element: MessageElement, snapshot?: MessageMedia): MessageElement {
+async function enrichForForward(ref: OneBotInstanceContext, element: MessageElement, snapshot?: MessageMedia): Promise<MessageElement> {
   if (element.type === 'forward') {
     throw new Error('merged forward must be regenerated for the target chat');
   }
@@ -1444,7 +1444,7 @@ function enrichForForward(ref: OneBotInstanceContext, element: MessageElement, s
   }
 
   if (element.type === 'image') {
-    const cached = snapshot?.type === 'image' ? snapshot : ref.mediaStore.findImage(lookupKey, 'legacy');
+    const cached = snapshot?.type === 'image' ? snapshot : (await ref.mediaStore.findImage(lookupKey, 'legacy'));
     if (!cached || !cached.md5Hex || !cached.sha1Hex || !cached.width || !cached.height || !cached.picFormat) {
       throw new Error('historical image metadata is incomplete; fetch the original message again');
     }
@@ -1465,7 +1465,7 @@ function enrichForForward(ref: OneBotInstanceContext, element: MessageElement, s
   }
 
   if (element.type === 'record') {
-    const cached = snapshot?.type === 'record' ? snapshot : ref.mediaStore.findRecord(lookupKey, 'legacy');
+    const cached = snapshot?.type === 'record' ? snapshot : (await ref.mediaStore.findRecord(lookupKey, 'legacy'));
     if (!cached || !cached.md5Hex || !cached.sha1Hex) {
       throw new Error('historical voice metadata is incomplete; fetch the original message again');
     }
@@ -1484,7 +1484,7 @@ function enrichForForward(ref: OneBotInstanceContext, element: MessageElement, s
   }
 
   if (element.type === 'video') {
-    const cached = snapshot?.type === 'video' ? snapshot : ref.mediaStore.findVideo(lookupKey, 'legacy');
+    const cached = snapshot?.type === 'video' ? snapshot : (await ref.mediaStore.findVideo(lookupKey, 'legacy'));
     if (!cached || !cached.md5Hex || !cached.sha1Hex) {
       throw new Error('historical video metadata is incomplete; fetch the original message again');
     }
@@ -1720,11 +1720,11 @@ function isForwardNewsArray(value: JsonValue): value is Array<{ text: string }> 
   return true;
 }
 
-function assertForwardMessageInputPolicies(
+async function assertForwardMessageInputPolicies(
   ref: OneBotInstanceContext,
   messages: JsonValue,
   depth = 0,
-): void {
+): Promise<void> {
   if (!Array.isArray(messages) || depth >= MAX_FORWARD_DEPTH) return;
   for (const [index, item] of messages.entries()) {
     const segment = asJsonObject(item);
@@ -1735,7 +1735,7 @@ function assertForwardMessageInputPolicies(
 
     const messageId = parseForwardMessageId(nodeData.id ?? nodeData.message_id);
     if (messageId !== 0) {
-      const event = ref.messageStore.findEvent(messageId);
+      const event = await ref.messageStore.findEvent(messageId);
       if (event) {
         assertOutboundMessageInput(
           (event.message ?? event.raw_message ?? '') as JsonValue,
@@ -1748,7 +1748,7 @@ function assertForwardMessageInputPolicies(
 
     const content = (nodeData.content ?? nodeData.message ?? '') as JsonValue;
     if (isNestedNodeArray(content)) {
-      assertForwardMessageInputPolicies(ref, content, depth + 1);
+      await assertForwardMessageInputPolicies(ref, content, depth + 1);
     } else {
       assertOutboundMessageInput(content, false, 'forward');
     }
@@ -1851,14 +1851,14 @@ async function parseForwardNodes(
   // codecs perform identity lookups or HTTP signing, so discovering an
   // unsupported message combination during the normal loop would already be
   // too late.
-  assertForwardMessageInputPolicies(ref, messages, depth);
+  await assertForwardMessageInputPolicies(ref, messages, depth);
 
   const nodes: ForwardNodePayload[] = [];
   for (const { nodeData } of prepared) {
 
     const messageId = parseForwardMessageId(nodeData.id ?? nodeData.message_id);
     if (messageId !== 0) {
-      const event = ref.messageStore.findEvent(messageId);
+      const event = await ref.messageStore.findEvent(messageId);
       if (!event) {
         throw new MessageElementValidationError(
           'INVALID_FIELD',
@@ -1881,7 +1881,7 @@ async function parseForwardNodes(
         );
       }
       const content = (event.message ?? event.raw_message ?? '') as JsonValue;
-      const elements = restoreHistoricalMedia(ref, await parseMessage(content, false), messageId);
+      const elements = await restoreHistoricalMedia(ref, await parseMessage(content, false), messageId);
       if (elements.length > 0) {
         const messageType = event.message_type === 'group' ? 'group' : 'private';
         const groupIdValue = toPositiveInt(event.group_id);
