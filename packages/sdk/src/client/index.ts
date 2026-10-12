@@ -4,9 +4,9 @@ export { SnowLumaWebSocketClient, createWebSocketClient } from './websocket-clie
 
 export type { SnowLumaHttpClientOptions } from './http-client';
 export type {
-  ReconnectOptions,
-  SnowLumaWebSocketClientOptions,
-  SnowLumaWebSocketEvents,
-  WebSocketCloseInfo,
-  WebSocketConstructor,
+    ReconnectOptions,
+    SnowLumaWebSocketClientOptions,
+    SnowLumaWebSocketEvents,
+    WebSocketCloseInfo,
+    WebSocketConstructor,
 } from './websocket-client';

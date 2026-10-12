@@ -14,107 +14,142 @@ import { cn } from '@/lib/utils';
 import type { QQInfo } from '@/types';
 
 function qqAvatarUrl(uin: string) {
-  return `/avatar/${encodeURIComponent(uin)}`;
+    return `/avatar/${encodeURIComponent(uin)}`;
 }
 
 interface AccountSidebarProps {
-  accounts: QQInfo[];
-  selectedUin: string | null;
-  onSelect: (uin: string) => void;
-  collapsed: boolean;
-  onToggleCollapsed: () => void;
+    accounts: QQInfo[];
+    selectedUin: string | null;
+    onSelect: (uin: string) => void;
+    collapsed: boolean;
+    onToggleCollapsed: () => void;
 }
 
 export function AccountSidebar({
-  accounts,
-  selectedUin,
-  onSelect,
-  collapsed,
-  onToggleCollapsed,
+    accounts,
+    selectedUin,
+    onSelect,
+    collapsed,
+    onToggleCollapsed,
 }: AccountSidebarProps) {
-  const { appearance } = useTheme();
-  const reduceMotion = appearance.reduceMotion || appearance.disableMotion;
+    const { appearance } = useTheme();
+    const reduceMotion = appearance.reduceMotion || appearance.disableMotion;
 
-  return (
-    <motion.aside
-      animate={{ width: collapsed ? 56 : 248 }}
-      transition={{ type: 'spring', stiffness: 300, damping: 32 }}
-      className="shrink-0 rounded-xl border bg-card/40"
-    >
-      <div className={cn('flex items-center', collapsed ? 'justify-center px-1.5 py-2' : 'justify-between px-3 py-2')}>
-        {!collapsed && <span className="text-xs font-medium text-muted-foreground">在线连接</span>}
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onToggleCollapsed}
-          aria-label={collapsed ? '展开账号列表' : '收起账号列表'}
-          className="text-muted-foreground"
+    return (
+        <motion.aside
+            animate={{ width: collapsed ? 56 : 248 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 32 }}
+            className="shrink-0 rounded-xl border bg-card/40"
         >
-          {collapsed
-            ? <ChevronRight className="optical-forward size-4" />
-            : <ChevronLeft className="optical-back size-4" />}
-        </Button>
-      </div>
-
-      {accounts.length === 0 ? (
-        <p className={cn('py-6 text-center text-xs text-muted-foreground', collapsed && 'px-1')}>
-          {collapsed ? '—' : '暂无在线会话'}
-        </p>
-      ) : (
-        <ScrollArea className="max-h-[70vh]" viewportClassName="[&>div]:!block">
-          <TooltipProvider delayDuration={300}>
-            <div className={cn('flex flex-col gap-1', collapsed ? 'px-1.5 pb-2' : 'px-2 pb-2')}>
-              {accounts.map((q) => {
-                const isActive = selectedUin === q.uin;
-                const button = (
-                  <motion.button
-                    key={q.uin}
-                    type="button"
-                    whileHover={reduceMotion ? undefined : { scale: 1.01 }}
-                    whileTap={reduceMotion ? undefined : { scale: 0.96 }}
-                    onClick={() => onSelect(q.uin)}
-                    className={cn(
-                      'flex items-center gap-2.5 rounded-lg border text-left transition-colors cursor-pointer',
-                      collapsed ? 'justify-center p-1.5' : 'px-2.5 py-2',
-                      isActive ? 'border-primary/30 bg-primary/10' : 'border-transparent hover:bg-accent/40',
+            <div
+                className={cn(
+                    'flex items-center',
+                    collapsed ? 'justify-center px-1.5 py-2' : 'justify-between px-3 py-2',
+                )}
+            >
+                {!collapsed && (
+                    <span className="text-xs font-medium text-muted-foreground">在线连接</span>
+                )}
+                <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={onToggleCollapsed}
+                    aria-label={collapsed ? '展开账号列表' : '收起账号列表'}
+                    className="text-muted-foreground"
+                >
+                    {collapsed ? (
+                        <ChevronRight className="optical-forward size-4" />
+                    ) : (
+                        <ChevronLeft className="optical-back size-4" />
                     )}
-                  >
-                    <Avatar size={collapsed ? 32 : 28}>
-                      <AvatarImage src={qqAvatarUrl(q.uin)} alt={q.nickname || q.uin} />
-                      <AvatarFallback>{(q.nickname || q.uin).slice(0, 2)}</AvatarFallback>
-                    </Avatar>
-                    {!collapsed && (
-                      <div className="min-w-0 flex-1">
-                        <div
-                          className={cn('truncate text-sm font-medium', isActive ? 'text-primary' : 'text-foreground')}
-                        >
-                          {q.nickname || q.uin}
-                        </div>
-                        <div className="truncate font-mono text-micro text-muted-foreground tabular-nums">
-                          {q.uin}
-                        </div>
-                      </div>
-                    )}
-                  </motion.button>
-                );
-                return collapsed ? (
-                  <Tooltip key={q.uin}>
-                    <TooltipTrigger asChild>{button}</TooltipTrigger>
-                    <TooltipContent side="right" sideOffset={8}>
-                      <div className="flex flex-col leading-tight">
-                        <span className="font-medium">{q.nickname || q.uin}</span>
-                        <span className="font-mono text-micro text-muted-foreground tabular-nums">{q.uin}</span>
-                      </div>
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
-                  button
-                );
-              })}
+                </Button>
             </div>
-          </TooltipProvider>
-        </ScrollArea>
-      )}
-    </motion.aside>
-  );
+
+            {accounts.length === 0 ? (
+                <p
+                    className={cn(
+                        'py-6 text-center text-xs text-muted-foreground',
+                        collapsed && 'px-1',
+                    )}
+                >
+                    {collapsed ? '—' : '暂无在线会话'}
+                </p>
+            ) : (
+                <ScrollArea className="max-h-[70vh]" viewportClassName="[&>div]:!block">
+                    <TooltipProvider delayDuration={300}>
+                        <div
+                            className={cn(
+                                'flex flex-col gap-1',
+                                collapsed ? 'px-1.5 pb-2' : 'px-2 pb-2',
+                            )}
+                        >
+                            {accounts.map((q) => {
+                                const isActive = selectedUin === q.uin;
+                                const button = (
+                                    <motion.button
+                                        key={q.uin}
+                                        type="button"
+                                        whileHover={reduceMotion ? undefined : { scale: 1.01 }}
+                                        whileTap={reduceMotion ? undefined : { scale: 0.96 }}
+                                        onClick={() => onSelect(q.uin)}
+                                        className={cn(
+                                            'flex items-center gap-2.5 rounded-lg border text-left transition-colors cursor-pointer',
+                                            collapsed ? 'justify-center p-1.5' : 'px-2.5 py-2',
+                                            isActive
+                                                ? 'border-primary/30 bg-primary/10'
+                                                : 'border-transparent hover:bg-accent/40',
+                                        )}
+                                    >
+                                        <Avatar size={collapsed ? 32 : 28}>
+                                            <AvatarImage
+                                                src={qqAvatarUrl(q.uin)}
+                                                alt={q.nickname || q.uin}
+                                            />
+                                            <AvatarFallback>
+                                                {(q.nickname || q.uin).slice(0, 2)}
+                                            </AvatarFallback>
+                                        </Avatar>
+                                        {!collapsed && (
+                                            <div className="min-w-0 flex-1">
+                                                <div
+                                                    className={cn(
+                                                        'truncate text-sm font-medium',
+                                                        isActive
+                                                            ? 'text-primary'
+                                                            : 'text-foreground',
+                                                    )}
+                                                >
+                                                    {q.nickname || q.uin}
+                                                </div>
+                                                <div className="truncate font-mono text-micro text-muted-foreground tabular-nums">
+                                                    {q.uin}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </motion.button>
+                                );
+                                return collapsed ? (
+                                    <Tooltip key={q.uin}>
+                                        <TooltipTrigger asChild>{button}</TooltipTrigger>
+                                        <TooltipContent side="right" sideOffset={8}>
+                                            <div className="flex flex-col leading-tight">
+                                                <span className="font-medium">
+                                                    {q.nickname || q.uin}
+                                                </span>
+                                                <span className="font-mono text-micro text-muted-foreground tabular-nums">
+                                                    {q.uin}
+                                                </span>
+                                            </div>
+                                        </TooltipContent>
+                                    </Tooltip>
+                                ) : (
+                                    button
+                                );
+                            })}
+                        </div>
+                    </TooltipProvider>
+                </ScrollArea>
+            )}
+        </motion.aside>
+    );
 }

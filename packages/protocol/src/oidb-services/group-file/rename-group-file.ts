@@ -6,44 +6,51 @@
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
-  OidbGroupFileReq, OidbGroupFileResp,
+    OidbGroupFileReq,
+    OidbGroupFileResp,
 } from '@snowluma/proto-defs/oidb-actions/group-file';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 import { ensureRetCodeZero } from '../shared';
 
 export namespace RenameGroupFile {
-  export const command = 0x6D6;
-  export const subCommand = 4;
-  export const uinForm = true;
+    export const command = 0x6d6;
+    export const subCommand = 4;
+    export const uinForm = true;
 
-  export interface Params {
-    groupId: number; fileId: string;
-    parentDirectory: string; newFileName: string;
-  }
-  export type Deps = OidbSender;
+    export interface Params {
+        groupId: number;
+        fileId: string;
+        parentDirectory: string;
+        newFileName: string;
+    }
+    export type Deps = OidbSender;
 
-  export const serialize = (_ctx: Deps, p: Params): OidbGroupFileReq => ({
-    rename: {
-      groupUin: p.groupId,
-      busId: 102,
-      fileId: p.fileId,
-      parentFolder: p.parentDirectory,
-      newFileName: p.newFileName,
-    },
-  });
+    export const serialize = (_ctx: Deps, p: Params): OidbGroupFileReq => ({
+        rename: {
+            groupUin: p.groupId,
+            busId: 102,
+            fileId: p.fileId,
+            parentFolder: p.parentDirectory,
+            newFileName: p.newFileName,
+        },
+    });
 
-  export const deserialize = (_ctx: Deps, body: OidbGroupFileResp): void => {
-    const result = body.rename;
-    if (!result) throw new Error('group file rename response missing');
-    ensureRetCodeZero('group file rename', result.retCode, result.retMsg, result.clientWording);
-  };
+    export const deserialize = (_ctx: Deps, body: OidbGroupFileResp): void => {
+        const result = body.rename;
 
-  export const encode = (env: OidbBase<OidbGroupFileReq>): Uint8Array =>
-    protobuf_encode<OidbBase<OidbGroupFileReq>>(env);
+        if (!result) {
+            throw new Error('group file rename response missing');
+        }
 
-  export const decode = (bytes: Uint8Array): OidbBase<OidbGroupFileResp> =>
-    protobuf_decode<OidbBase<OidbGroupFileResp>>(bytes);
+        ensureRetCodeZero('group file rename', result.retCode, result.retMsg, result.clientWording);
+    };
 
-  export const invoke = (deps: Deps, params: Params): Promise<void> =>
-    invokeOidb(deps, RenameGroupFile, params);
+    export const encode = (env: OidbBase<OidbGroupFileReq>): Uint8Array =>
+        protobuf_encode<OidbBase<OidbGroupFileReq>>(env);
+
+    export const decode = (bytes: Uint8Array): OidbBase<OidbGroupFileResp> =>
+        protobuf_decode<OidbBase<OidbGroupFileResp>>(bytes);
+
+    export const invoke = (deps: Deps, params: Params): Promise<void> =>
+        invokeOidb(deps, RenameGroupFile, params);
 }

@@ -1,14 +1,14 @@
 import type { pb, pb_repeated, int_32, uint_32, uint_64, bytes } from '@snowluma/proton';
 import type { Elem } from './element';
 
-// Routing 
+// Routing
 export interface RoutingC2C {
-  uin?: pb<1, uint_32>;
-  uid?: pb<2, string>;
+    uin?: pb<1, uint_32>;
+    uid?: pb<2, string>;
 }
 
 export interface RoutingGroup {
-  groupCode?: pb<1, uint_64>;
+    groupCode?: pb<1, uint_64>;
 }
 
 // 服务器限制 C2C 文件消息必须使用 Trans0x211 路由头（RoutingHead 字段 15）
@@ -16,81 +16,81 @@ export interface RoutingGroup {
 // 仅在包含 FileEntity 时触发，且 CcCmd 固定为 4。
 
 export interface RoutingTrans0x211 {
-  toUin?: pb<1, uint_64>;
-  ccCmd?: pb<2, uint_32>;
-  uid?:   pb<8, string>;
+    toUin?: pb<1, uint_64>;
+    ccCmd?: pb<2, uint_32>;
+    uid?: pb<8, string>;
 }
 
 // Group temp-session routing head — RoutingHead field 3. Inner shape
 // { 群号 (source group), 对端 uid }.
 export interface RoutingGrpTmp {
-  groupUin?: pb<3, uint_64>;
-  toUid?:    pb<4, string>;
+    groupUin?: pb<3, uint_64>;
+    toUid?: pb<4, string>;
 }
 
 export interface RoutingHead {
-  c2c?:        pb<1, RoutingC2C>;
-  grp?:        pb<2, RoutingGroup>;
-  grpTmp?:     pb<3, RoutingGrpTmp>;
-  trans0x211?: pb<15, RoutingTrans0x211>;
+    c2c?: pb<1, RoutingC2C>;
+    grp?: pb<2, RoutingGroup>;
+    grpTmp?: pb<3, RoutingGrpTmp>;
+    trans0x211?: pb<15, RoutingTrans0x211>;
 }
 
 // Content Head for send
 export interface SendContentHead {
-  type?:    pb<1, uint_32>;
-  subType?: pb<2, uint_32>;
-  c2cCmd?:  pb<3, uint_32>;
+    type?: pb<1, uint_32>;
+    subType?: pb<2, uint_32>;
+    c2cCmd?: pb<3, uint_32>;
 }
 
 // Message Control
 export interface MessageControl {
-  msgFlag?: pb<1, int_32>;
+    msgFlag?: pb<1, int_32>;
 }
 
-// RichText (for send — only elems) 
+// RichText (for send — only elems)
 export interface SendRichText {
-  elems?: pb_repeated<2, Elem>;
+    elems?: pb_repeated<2, Elem>;
 }
 
-// MessageBody (for send) 
+// MessageBody (for send)
 export interface SendMessageBody {
-  richText?:   pb<1, SendRichText>;
-  // C2C 离线文件元数据（NotOnlineFile）必须序列化后塞入此字段
-  // 服务器不会读取 richText.notOnlineFile。
-  msgContent?: pb<2, bytes>;
+    richText?: pb<1, SendRichText>;
+    // C2C 离线文件元数据（NotOnlineFile）必须序列化后塞入此字段
+    // 服务器不会读取 richText.notOnlineFile。
+    msgContent?: pb<2, bytes>;
 }
 
 // SendMessageRequest
 export interface SendMessageRequest {
-  routingHead?:    pb<1, RoutingHead>;
-  contentHead?:    pb<2, SendContentHead>;
-  messageBody?:    pb<3, SendMessageBody>;
-  clientSequence?: pb<4, uint_32>;
-  random?:         pb<5, uint_32>;
-  syncCookie?:     pb<6, bytes>;
-  via?:            pb<8, uint_32>;
-  dataStatist?:    pb<9, uint_32>;
-  ctrl?:           pb<12, MessageControl>;
-  multiSendSeq?:   pb<14, uint_32>;
+    routingHead?: pb<1, RoutingHead>;
+    contentHead?: pb<2, SendContentHead>;
+    messageBody?: pb<3, SendMessageBody>;
+    clientSequence?: pb<4, uint_32>;
+    random?: pb<5, uint_32>;
+    syncCookie?: pb<6, bytes>;
+    via?: pb<8, uint_32>;
+    dataStatist?: pb<9, uint_32>;
+    ctrl?: pb<12, MessageControl>;
+    multiSendSeq?: pb<14, uint_32>;
 }
 
 // SendMessageResponse
 export interface SendMessageResponse {
-  result?:          pb<1, int_32>;
-  errMsg?:          pb<2, string>;
-  timestamp1?:      pb<3, uint_32>;
-  field10?:         pb<10, uint_32>;
-  groupSequence?:   pb<11, uint_32>;
-  timestamp2?:      pb<12, uint_32>;
-  privateSequence?: pb<14, uint_32>;
+    result?: pb<1, int_32>;
+    errMsg?: pb<2, string>;
+    timestamp1?: pb<3, uint_32>;
+    field10?: pb<10, uint_32>;
+    groupSequence?: pb<11, uint_32>;
+    timestamp2?: pb<12, uint_32>;
+    privateSequence?: pb<14, uint_32>;
 }
 
 // MentionExtra (for building @mention text element)
 export interface MentionExtraSend {
-  type?:   pb<3, int_32>;
-  uin?:    pb<4, uint_32>;
-  field5?: pb<5, int_32>;
-  uid?:    pb<9, string>;
+    type?: pb<3, int_32>;
+    uin?: pb<4, uint_32>;
+    field5?: pb<5, int_32>;
+    uid?: pb<9, string>;
 }
 
 // Markdown commonElem (svc=45). Official DecodeMarkdownElement reads
@@ -98,31 +98,31 @@ export interface MentionExtraSend {
 // extType=1 dispatches to DecodeMdExtInfoFileTransfer.
 /** extInfo.thumbnail — cover download info, not raw image bytes. */
 export interface MarkdownFlashTransferThumbUrl {
-  field1?:      pb<1, uint_32>;
-  downloadUrl?: pb<2, string>;
+    field1?: pb<1, uint_32>;
+    downloadUrl?: pb<2, string>;
 }
 
 export interface MarkdownFlashTransferThumb {
-  fileId?:   pb<1, string>;
-  download?: pb<2, MarkdownFlashTransferThumbUrl>;
-  sha1?:     pb<3, string>;
-  field4?:   pb<4, uint_32>;
+    fileId?: pb<1, string>;
+    download?: pb<2, MarkdownFlashTransferThumbUrl>;
+    sha1?: pb<3, string>;
+    field4?: pb<4, uint_32>;
 }
 
 export interface MarkdownFlashTransferExt {
-  filesetId?:  pb<1, string>;
-  name?:       pb<2, string>;
-  fileSize?:   pb<3, uint_32>;
-  thumbnail?:  pb<4, MarkdownFlashTransferThumb>;
-  expireTime?: pb<6, uint_32>;
+    filesetId?: pb<1, string>;
+    name?: pb<2, string>;
+    fileSize?: pb<3, uint_32>;
+    thumbnail?: pb<4, MarkdownFlashTransferThumb>;
+    expireTime?: pb<6, uint_32>;
 }
 
 export interface MarkdownData {
-  content?:    pb<1, string>;
-  field2?:     pb<2, string>;
-  field3?:     pb<3, bytes>;
-  processMsg?: pb<4, string>;
-  summary?:    pb<5, string>;
-  extType?:    pb<6, uint_32>;
-  extInfo?:    pb<7, MarkdownFlashTransferExt>;
+    content?: pb<1, string>;
+    field2?: pb<2, string>;
+    field3?: pb<3, bytes>;
+    processMsg?: pb<4, string>;
+    summary?: pb<5, string>;
+    extType?: pb<6, uint_32>;
+    extInfo?: pb<7, MarkdownFlashTransferExt>;
 }

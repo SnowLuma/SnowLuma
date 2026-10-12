@@ -11,26 +11,28 @@ import type { OidbDoubtDelReq } from '@snowluma/proto-defs/oidb-actions/doubt-bu
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 export namespace RejectDoubtBuddyReq {
-  export const command = 0xD69;
-  export const subCommand = 0;
-  export const uinForm = true;
+    export const command = 0xd69;
+    export const subCommand = 0;
+    export const uinForm = true;
 
-  export interface Params { uid: string }
-  export type Deps = OidbSender;
+    export interface Params {
+        uid: string;
+    }
+    export type Deps = OidbSender;
 
-  export const serialize = (_ctx: Deps, p: Params): OidbDoubtDelReq => ({
-    field1: 3,
-    inner: { uid: p.uid },
-  });
+    export const serialize = (_ctx: Deps, p: Params): OidbDoubtDelReq => ({
+        field1: 3,
+        inner: { uid: p.uid },
+    });
 
-  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
+    export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
-  export const encode = (env: OidbBase<OidbDoubtDelReq>): Uint8Array =>
-    protobuf_encode<OidbBase<OidbDoubtDelReq>>(env);
+    export const encode = (env: OidbBase<OidbDoubtDelReq>): Uint8Array =>
+        protobuf_encode<OidbBase<OidbDoubtDelReq>>(env);
 
-  export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
-    protobuf_decode<OidbBase<OidbEmpty>>(bytes);
+    export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
+        protobuf_decode<OidbBase<OidbEmpty>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<void> =>
-    invokeOidb(deps, RejectDoubtBuddyReq, params);
+    export const invoke = (deps: Deps, params: Params): Promise<void> =>
+        invokeOidb(deps, RejectDoubtBuddyReq, params);
 }

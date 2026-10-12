@@ -18,91 +18,121 @@ import type { DebugActionDoc, QQInfo } from '@/types';
 type Tab = 'tester' | 'compose' | 'activity' | 'api';
 
 export function DebugPage() {
-  const api = useApi();
-  const [accounts, setAccounts] = useState<QQInfo[]>([]);
-  const [docs, setDocs] = useState<DebugActionDoc[]>([]);
-  const [ready, setReady] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>('tester');
-  const [preset, setPreset] = useState<{ name: string; nonce: number } | undefined>();
+    const api = useApi();
+    const [accounts, setAccounts] = useState<QQInfo[]>([]);
+    const [docs, setDocs] = useState<DebugActionDoc[]>([]);
+    const [ready, setReady] = useState(false);
+    const [loadError, setLoadError] = useState<string | null>(null);
+    const [tab, setTab] = useState<Tab>('tester');
+    const [preset, setPreset] = useState<{ name: string; nonce: number } | undefined>();
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        const [qq, acts] = await Promise.all([api.qqList(), api.debug.actions()]);
-        setAccounts(qq);
-        setDocs(acts.actions);
-      } catch (error) {
-        console.error('load debug tools', error);
-        setLoadError(error instanceof Error ? error.message : '加载开发者工具失败');
-      } finally {
-        setReady(true);
-      }
-    })();
-  }, [api]);
+    useEffect(() => {
+        void (async () => {
+            try {
+                const [qq, acts] = await Promise.all([api.qqList(), api.debug.actions()]);
+                setAccounts(qq);
+                setDocs(acts.actions);
+            } catch (error) {
+                console.error('load debug tools', error);
+                setLoadError(error instanceof Error ? error.message : '加载开发者工具失败');
+            } finally {
+                setReady(true);
+            }
+        })();
+    }, [api]);
 
-  const tryAction = (name: string) => {
-    setPreset((p) => ({ name, nonce: (p?.nonce ?? 0) + 1 }));
-    setTab('tester');
-  };
+    const tryAction = (name: string) => {
+        setPreset((p) => ({ name, nonce: (p?.nonce ?? 0) + 1 }));
+        setTab('tester');
+    };
 
-  return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-6">
-      <motion.header
-        initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}
-        className="sticky top-0 z-20 -mx-1 flex flex-col gap-3 rounded-b-2xl bg-background/60 px-1 py-3 backdrop-blur-xl"
-      >
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-            <Bug className="h-5 w-5" />
-          </div>
-          <div>
-            <h2 className="text-2xl font-semibold tracking-tight">开发者工具</h2>
-            <p className="text-sm text-muted-foreground">接口测试 · 消息构建 · 实时观测 · API 参考</p>
-          </div>
-        </div>
-        <Tabs
-          aria-label="调试工具"
-          value={tab}
-          onChange={setTab}
-          items={[
-            { value: 'tester', label: '测试台', icon: <FlaskConical className="h-4 w-4" /> },
-            { value: 'compose', label: '消息构建', icon: <MessageSquarePlus className="h-4 w-4" /> },
-            { value: 'activity', label: '实时活动', icon: <RadioTower className="h-4 w-4" /> },
-            { value: 'api', label: 'API 浏览器', icon: <BookOpen className="h-4 w-4" />, badge: docs.length || undefined },
-          ]}
-        />
-      </motion.header>
+    return (
+        <div className="mx-auto flex max-w-6xl flex-col gap-6">
+            <motion.header
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3 }}
+                className="sticky top-0 z-20 -mx-1 flex flex-col gap-3 rounded-b-2xl bg-background/60 px-1 py-3 backdrop-blur-xl"
+            >
+                <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                        <Bug className="h-5 w-5" />
+                    </div>
+                    <div>
+                        <h2 className="text-2xl font-semibold tracking-tight">开发者工具</h2>
+                        <p className="text-sm text-muted-foreground">
+                            接口测试 · 消息构建 · 实时观测 · API 参考
+                        </p>
+                    </div>
+                </div>
+                <Tabs
+                    aria-label="调试工具"
+                    value={tab}
+                    onChange={setTab}
+                    items={[
+                        {
+                            value: 'tester',
+                            label: '测试台',
+                            icon: <FlaskConical className="h-4 w-4" />,
+                        },
+                        {
+                            value: 'compose',
+                            label: '消息构建',
+                            icon: <MessageSquarePlus className="h-4 w-4" />,
+                        },
+                        {
+                            value: 'activity',
+                            label: '实时活动',
+                            icon: <RadioTower className="h-4 w-4" />,
+                        },
+                        {
+                            value: 'api',
+                            label: 'API 浏览器',
+                            icon: <BookOpen className="h-4 w-4" />,
+                            badge: docs.length || undefined,
+                        },
+                    ]}
+                />
+            </motion.header>
 
-      {loadError && (
-        <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {loadError}
-        </div>
-      )}
+            {loadError && (
+                <div
+                    role="alert"
+                    className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                >
+                    {loadError}
+                </div>
+            )}
 
-      <SkeletonSwap
-        ready={ready}
-        reserve={224}
-        lines={8}
-        lineHeight={28}
-        barHeight={11}
-        label="开发者工具数据"
-        className={ready ? 'skeleton-swap-fluid' : ''}
-      >
-        {ready ? (
-          <>
-            {/* Tester / compose / activity stay MOUNTED and toggle via CSS so the
+            <SkeletonSwap
+                ready={ready}
+                reserve={224}
+                lines={8}
+                lineHeight={28}
+                barHeight={11}
+                label="开发者工具数据"
+                className={ready ? 'skeleton-swap-fluid' : ''}
+            >
+                {ready ? (
+                    <>
+                        {/* Tester / compose / activity stay MOUNTED and toggle via CSS so the
                 live feed's SSE never drops (it must capture events fired from other
                 tabs) and in-progress params/messages survive a peek at another tab.
                 ApiBrowser has no state worth preserving and is heavy (~520 rows), so
                 it mounts on demand. */}
-            <div className={cn(tab !== 'tester' && 'hidden')}><ActionTester accounts={accounts} docs={docs} presetAction={preset} /></div>
-            <div className={cn(tab !== 'compose' && 'hidden')}><MessageComposer accounts={accounts} /></div>
-            <div className={cn(tab !== 'activity' && 'hidden')}><LiveActivity /></div>
-            {tab === 'api' && <ApiBrowser docs={docs} onTry={tryAction} />}
-          </>
-        ) : null}
-      </SkeletonSwap>
-    </div>
-  );
+                        <div className={cn(tab !== 'tester' && 'hidden')}>
+                            <ActionTester accounts={accounts} docs={docs} presetAction={preset} />
+                        </div>
+                        <div className={cn(tab !== 'compose' && 'hidden')}>
+                            <MessageComposer accounts={accounts} />
+                        </div>
+                        <div className={cn(tab !== 'activity' && 'hidden')}>
+                            <LiveActivity />
+                        </div>
+                        {tab === 'api' && <ApiBrowser docs={docs} onTry={tryAction} />}
+                    </>
+                ) : null}
+            </SkeletonSwap>
+        </div>
+    );
 }

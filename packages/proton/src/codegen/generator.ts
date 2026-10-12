@@ -236,11 +236,16 @@ function __readFixed64(data, offset) {
  * No runtime imports needed — all wire-format logic is inlined.
  */
 export function generateCode(registry: MessageRegistry): string {
-  if (registry.size === 0) return '';
-  const parts: string[] = [CODEGEN_PREAMBLE];
-  for (const msg of registry.values()) {
-    parts.push(generateEncoder(msg, registry));
-    parts.push(generateDecoder(msg, registry));
-  }
-  return parts.join('\n');
+    if (registry.size === 0) {
+        return '';
+    }
+
+    const parts: string[] = [CODEGEN_PREAMBLE];
+
+    for (const msg of registry.values()) {
+        parts.push(generateEncoder(msg, registry));
+        parts.push(generateDecoder(msg, registry));
+    }
+
+    return parts.join('\n');
 }

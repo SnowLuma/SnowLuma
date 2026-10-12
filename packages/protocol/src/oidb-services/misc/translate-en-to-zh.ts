@@ -9,37 +9,41 @@ import type { Oidb0x990Req, Oidb0x990Resp } from '@snowluma/proto-defs/oidb-acti
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 export namespace TranslateEnToZh {
-  export const command = 0x990;
-  export const subCommand = 2;
+    export const command = 0x990;
+    export const subCommand = 2;
 
-  export interface Params {
-    words: string[];
-  }
+    export interface Params {
+        words: string[];
+    }
 
-  export type Deps = OidbSender;
+    export type Deps = OidbSender;
 
-  export const serialize = (_ctx: Deps, p: Params): Oidb0x990Req => ({
-    translateReq: {
-      srcLang: 'en',
-      dstLang: 'zh',
-      words: p.words,
-    },
-    tag10: 1,
-    tag12: 1,
-  });
+    export const serialize = (_ctx: Deps, p: Params): Oidb0x990Req => ({
+        translateReq: {
+            srcLang: 'en',
+            dstLang: 'zh',
+            words: p.words,
+        },
+        tag10: 1,
+        tag12: 1,
+    });
 
-  export const deserialize = (_ctx: Deps, body: Oidb0x990Resp): string[] => {
-    const resp = body.translateResp;
-    if (!resp) throw new Error('translate response empty');
-    return resp.dstWords || [];
-  };
+    export const deserialize = (_ctx: Deps, body: Oidb0x990Resp): string[] => {
+        const resp = body.translateResp;
 
-  export const encode = (env: OidbBase<Oidb0x990Req>): Uint8Array =>
-    protobuf_encode<OidbBase<Oidb0x990Req>>(env);
+        if (!resp) {
+            throw new Error('translate response empty');
+        }
 
-  export const decode = (bytes: Uint8Array): OidbBase<Oidb0x990Resp> =>
-    protobuf_decode<OidbBase<Oidb0x990Resp>>(bytes);
+        return resp.dstWords || [];
+    };
 
-  export const invoke = (deps: Deps, params: Params): Promise<string[]> =>
-    invokeOidb(deps, TranslateEnToZh, params);
+    export const encode = (env: OidbBase<Oidb0x990Req>): Uint8Array =>
+        protobuf_encode<OidbBase<Oidb0x990Req>>(env);
+
+    export const decode = (bytes: Uint8Array): OidbBase<Oidb0x990Resp> =>
+        protobuf_decode<OidbBase<Oidb0x990Resp>>(bytes);
+
+    export const invoke = (deps: Deps, params: Params): Promise<string[]> =>
+        invokeOidb(deps, TranslateEnToZh, params);
 }

@@ -18,7 +18,8 @@ const C2C_CONTROL_TYPES = new Set<number>([141, 166, 167]);
 // phantom (#102) is one of them.
 const C2C_CONTROL_CMDS = new Set<number>([1, 73, 75, 129, 131, 133, 135, 192]);
 
-export type MessageSurvival = 'drop-control' | 'drop-receipt' | 'drop-blank' | 'keep-undecoded' | 'keep';
+export type MessageSurvival =
+    'drop-control' | 'drop-receipt' | 'drop-blank' | 'keep-undecoded' | 'keep';
 
 /**
  * Whether a push is a C2C control/system signal that QQ NT never renders as a
@@ -29,7 +30,7 @@ export type MessageSurvival = 'drop-control' | 'drop-receipt' | 'drop-blank' | '
  * the post-decode filter still returns `drop-control` for the same decision.
  */
 export function isC2cControlPush(head: Pick<MsgPushHead, 'msgType' | 'c2cCmd'>): boolean {
-  return C2C_CONTROL_TYPES.has(head.msgType) && C2C_CONTROL_CMDS.has(head.c2cCmd);
+    return C2C_CONTROL_TYPES.has(head.msgType) && C2C_CONTROL_CMDS.has(head.c2cCmd);
 }
 
 /**
@@ -37,10 +38,10 @@ export function isC2cControlPush(head: Pick<MsgPushHead, 'msgType' | 'c2cCmd'>):
  * decoded to zero elements AND its body carried nothing decodable.
  */
 export function isBlankMessage(
-  elements: readonly unknown[],
-  body: PushMsgBody | undefined,
+    elements: readonly unknown[],
+    body: PushMsgBody | undefined,
 ): boolean {
-  return elements.length === 0 && !hasDecodableContent(body);
+    return elements.length === 0 && !hasDecodableContent(body);
 }
 
 /**
@@ -50,76 +51,103 @@ export function isBlankMessage(
  * elements is keep-undecoded, not blank.
  */
 export function classifyMessageSurvival(
-  head: Pick<MsgPushHead, 'msgType' | 'c2cCmd'>,
-  elements: readonly unknown[],
-  body: PushMsgBody | undefined,
+    head: Pick<MsgPushHead, 'msgType' | 'c2cCmd'>,
+    elements: readonly unknown[],
+    body: PushMsgBody | undefined,
 ): MessageSurvival {
-  if (isC2cControlPush(head)) return 'drop-control';
-  if (isOfflineFileReceipt(body)) return 'drop-receipt';
-  if (elements.length !== 0) return 'keep';
-  if (hasDecodableContent(body)) return 'keep-undecoded';
-  return 'drop-blank';
+    if (isC2cControlPush(head)) {
+        return 'drop-control';
+    }
+
+    if (isOfflineFileReceipt(body)) {
+        return 'drop-receipt';
+    }
+
+    if (elements.length !== 0) {
+        return 'keep';
+    }
+
+    if (hasDecodableContent(body)) {
+        return 'keep-undecoded';
+    }
+
+    return 'drop-blank';
 }
 
 /** Summarise a body that decoded to zero elements despite carrying content. */
 export function describeUndecodedBody(body: PushMsgBody | undefined): string {
-  const elems = (body?.richText?.elems ?? []) as Elem[];
-  const parts = elems.map((e) => {
-    if (e.commonElem) {
-      const ce = e.commonElem;
-      const pb = ce.pbElem && ce.pbElem.length > 0 ? ` pbElem=${hexPreview(ce.pbElem, 256)}` : '';
-      return `commonElem(svc=${ce.serviceType ?? 0},biz=${ce.businessType ?? 0})${pb}`;
+    const elems = (body?.richText?.elems ?? []) as Elem[];
+    const parts = elems.map((e) => {
+        if (e.commonElem) {
+            const ce = e.commonElem;
+            const pb =
+                ce.pbElem && ce.pbElem.length > 0 ? ` pbElem=${hexPreview(ce.pbElem, 256)}` : '';
+            return `commonElem(svc=${ce.serviceType ?? 0},biz=${ce.businessType ?? 0})${pb}`;
+        }
+
+        const keys = Object.keys(e).filter((k) => (e as Record<string, unknown>)[k] != null);
+        return keys.join('+') || '(empty)';
+    });
+    const extras: string[] = [];
+
+    if (body?.richText?.ptt) {
+        extras.push('ptt');
     }
-    const keys = Object.keys(e).filter((k) => (e as Record<string, unknown>)[k] != null);
-    return keys.join('+') || '(empty)';
-  });
-  const extras: string[] = [];
-  if (body?.richText?.ptt) extras.push('ptt');
-  if (body?.richText?.notOnlineFile) extras.push('notOnlineFile');
-  if (body?.msgContent && body.msgContent.length > 0) {
-    extras.push(`msgContent=${hexPreview(body.msgContent, 256)}`);
-  }
-  return `elems=[${parts.join('; ')}]${extras.length ? ` ${extras.join(' ')}` : ''}`;
+
+    if (body?.richText?.notOnlineFile) {
+        extras.push('notOnlineFile');
+    }
+
+    if (body?.msgContent && body.msgContent.length > 0) {
+        extras.push(`msgContent=${hexPreview(body.msgContent, 256)}`);
+    }
+
+    return `elems=[${parts.join('; ')}]${extras.length ? ` ${extras.join(' ')}` : ''}`;
 }
 
 /** Keep when the message should appear as a bubble. Warns on keep-undecoded. */
 export function keepDecodedMessage(
-  head: Pick<MsgPushHead, 'msgType' | 'c2cCmd' | 'sequence' | 'subType'>,
-  elements: readonly unknown[],
-  body: PushMsgBody | undefined,
-  kind: string,
-  fromUin: number,
+    head: Pick<MsgPushHead, 'msgType' | 'c2cCmd' | 'sequence' | 'subType'>,
+    elements: readonly unknown[],
+    body: PushMsgBody | undefined,
+    kind: string,
+    fromUin: number,
 ): boolean {
-  const survival = classifyMessageSurvival(head, elements, body);
-  if (survival === 'drop-control' || survival === 'drop-receipt' || survival === 'drop-blank') return false;
-  if (survival === 'keep-undecoded') {
-    warnUndecodedMessage({
-      kind,
-      sequence: head.sequence,
-      fromUin,
-      msgType: head.msgType,
-      subType: head.subType,
-      body,
-    });
-  }
-  return true;
+    const survival = classifyMessageSurvival(head, elements, body);
+
+    if (survival === 'drop-control' || survival === 'drop-receipt' || survival === 'drop-blank') {
+        return false;
+    }
+
+    if (survival === 'keep-undecoded') {
+        warnUndecodedMessage({
+            kind,
+            sequence: head.sequence,
+            fromUin,
+            msgType: head.msgType,
+            subType: head.subType,
+            body,
+        });
+    }
+
+    return true;
 }
 
 export function warnUndecodedMessage(info: {
-  kind: string;
-  sequence: number;
-  fromUin: number;
-  msgType: number;
-  subType: number;
-  body: PushMsgBody | undefined;
+    kind: string;
+    sequence: number;
+    fromUin: number;
+    msgType: number;
+    subType: number;
+    body: PushMsgBody | undefined;
 }): void {
-  log.warn(
-    'message had content but decoded to 0 elements — missing decoder? (kind=%s seq=%d from=%d msgType=%d/%d): %s',
-    info.kind,
-    info.sequence,
-    info.fromUin,
-    info.msgType,
-    info.subType,
-    describeUndecodedBody(info.body),
-  );
+    log.warn(
+        'message had content but decoded to 0 elements — missing decoder? (kind=%s seq=%d from=%d msgType=%d/%d): %s',
+        info.kind,
+        info.sequence,
+        info.fromUin,
+        info.msgType,
+        info.subType,
+        describeUndecodedBody(info.body),
+    );
 }

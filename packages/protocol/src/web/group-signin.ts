@@ -5,29 +5,29 @@ const log = createLogger('Bridge.Web');
 
 // Raw shapes from qun.qq.com `v2/signin/trpc/GetDaySignedList`.
 export interface DaySignedInfo {
-  uid: string;
-  uidGroupNick: string;
-  signedTimeStamp: string;
-  signInRank: number;
+    uid: string;
+    uidGroupNick: string;
+    signedTimeStamp: string;
+    signInRank: number;
 }
 
 export interface DaySignedListResponse {
-  retCode: number;
-  costTime?: number;
-  funcCode: number;
-  response: {
-    ret?: { code: string; msg: string };
-    page?: Array<{ infos?: DaySignedInfo[]; offset: number; total: number }>;
-  };
+    retCode: number;
+    costTime?: number;
+    funcCode: number;
+    response: {
+        ret?: { code: string; msg: string };
+        page?: Array<{ infos?: DaySignedInfo[]; offset: number; total: number }>;
+    };
 }
 
 /** OneBot-facing signed-in member, matching the napcat surface. */
 export interface SignedListMember {
-  [key: string]: import('@snowluma/common/json').JsonValue;
-  user_id: number;
-  nick: string;
-  time: number;
-  rank: number;
+    [key: string]: import('@snowluma/common/json').JsonValue;
+    user_id: number;
+    nick: string;
+    time: number;
+    rank: number;
 }
 
 /**
@@ -39,25 +39,29 @@ export interface SignedListMember {
  * is an empty result, not an error.
  */
 export function mapDaySignedList(data: DaySignedListResponse): SignedListMember[] {
-  const infos = data.response?.page?.[0]?.infos;
-  if (!infos) return [];
-  return infos.map((info) => ({
-    user_id: Number(info.uid),
-    nick: info.uidGroupNick,
-    time: Number(info.signedTimeStamp),
-    // signInRank arrives on a doubled/offset scale (1,3,5,…); de-skew to a
-    // human 1-based rank. Number() guards against the server sending it as
-    // a string, which trpc endpoints occasionally do.
-    rank: (Number(info.signInRank) - 1) / 2 + 1,
-  }));
+    const infos = data.response?.page?.[0]?.infos;
+
+    if (!infos) {
+        return [];
+    }
+
+    return infos.map((info) => ({
+        user_id: Number(info.uid),
+        nick: info.uidGroupNick,
+        time: Number(info.signedTimeStamp),
+        // signInRank arrives on a doubled/offset scale (1,3,5,…); de-skew to a
+        // human 1-based rank. Number() guards against the server sending it as
+        // a string, which trpc endpoints occasionally do.
+        rank: (Number(info.signInRank) - 1) / 2 + 1,
+    }));
 }
 
 /** YYYYMMDD for the given Date (defaults to today), the form the endpoint wants. */
 function yyyymmdd(d: Date = new Date()): string {
-  // Local date (not UTC) on purpose: "today's 打卡" is a CN-clock concept,
-  // so the local calendar day is the right one near the UTC midnight seam.
-  // (NapCat uses UTC here; this is a deliberate divergence.)
-  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    // Local date (not UTC) on purpose: "today's 打卡" is a CN-clock concept,
+    // so the local calendar day is the right one near the UTC midnight seam.
+    // (NapCat uses UTC here; this is a deliberate divergence.)
+    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 }
 
 /**
@@ -73,34 +77,39 @@ function yyyymmdd(d: Date = new Date()): string {
  * response. Matches NapCat, which throws on a missing page.
  */
 export async function getDaySignedListWebAPI(
-  cookieObject: Record<string, string>,
-  groupCode: string,
-  selfUin: string,
-  day?: Date,
+    cookieObject: Record<string, string>,
+    groupCode: string,
+    selfUin: string,
+    day?: Date,
 ): Promise<SignedListMember[]> {
-  const gtk = getBknFromCookie(cookieObject);
-  const url = `https://qun.qq.com/v2/signin/trpc/GetDaySignedList?g_tk=${gtk}`;
-  const body = {
-    dayYmd: yyyymmdd(day),
-    offset: 0,
-    limit: 100,
-    uid: selfUin,
-    groupId: groupCode,
-  };
-  const data = await RequestUtil.HttpGetJson<DaySignedListResponse>(
-    url,
-    'POST',
-    body,
-    {
-      Cookie: cookieToString(cookieObject),
-      'Content-Type': 'application/json',
-    },
-    true,
-    true,
-  );
-  if (!data.response?.page) {
-    log.warn('getDaySignedList: no page in response (group=%s) — likely auth/cookie failure', groupCode);
-    throw new Error('无法获取该群组打卡列表');
-  }
-  return mapDaySignedList(data);
+    const gtk = getBknFromCookie(cookieObject);
+    const url = `https://qun.qq.com/v2/signin/trpc/GetDaySignedList?g_tk=${gtk}`;
+    const body = {
+        dayYmd: yyyymmdd(day),
+        offset: 0,
+        limit: 100,
+        uid: selfUin,
+        groupId: groupCode,
+    };
+    const data = await RequestUtil.HttpGetJson<DaySignedListResponse>(
+        url,
+        'POST',
+        body,
+        {
+            Cookie: cookieToString(cookieObject),
+            'Content-Type': 'application/json',
+        },
+        true,
+        true,
+    );
+
+    if (!data.response?.page) {
+        log.warn(
+            'getDaySignedList: no page in response (group=%s) — likely auth/cookie failure',
+            groupCode,
+        );
+        throw new Error('无法获取该群组打卡列表');
+    }
+
+    return mapDaySignedList(data);
 }

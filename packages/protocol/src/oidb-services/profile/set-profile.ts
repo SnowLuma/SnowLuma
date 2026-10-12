@@ -13,49 +13,60 @@ import { invokeOidb, type OidbSender } from '../../oidb-service';
 import type { BridgeContext } from '../../bridge-context';
 
 export namespace SetProfile {
-  export const command = 0x112A;
-  export const subCommand = 2;
+    export const command = 0x112a;
+    export const subCommand = 2;
 
-  export interface Params {
-    nickname?: string;
-    personalNote?: string;
-    sex?: number;
-  }
-
-  /** Needs identity to read `uin` for the request body. */
-  export type Deps = OidbSender & Pick<BridgeContext, 'identity'>;
-
-  export const serialize = (ctx: Deps, p: Params): OidbSetProfile => {
-    const stringProfiles: { fieldId: number; value: string }[] = [];
-    const intProfiles: { fieldId: number; value: bigint }[] = [];
-    if (p.nickname !== undefined) stringProfiles.push({ fieldId: 20002, value: p.nickname });
-    if (p.personalNote !== undefined) stringProfiles.push({ fieldId: 102, value: p.personalNote });
-    if (p.sex !== undefined) intProfiles.push({ fieldId: 20009, value: BigInt(p.sex) });
-    return {
-      uin: BigInt(ctx.identity.uin),
-      ...(stringProfiles.length > 0 ? { stringProfiles } : {}),
-      ...(intProfiles.length > 0 ? { intProfiles } : {}),
-    };
-  };
-
-  export const deserialize = (_ctx: Deps, _: Oidb0x112aResp): void => {};
-
-  export const encode = (env: OidbBase<OidbSetProfile>): Uint8Array =>
-    protobuf_encode<OidbBase<OidbSetProfile>>(env);
-
-  export const decode = (bytes: Uint8Array): OidbBase<Oidb0x112aResp> =>
-    protobuf_decode<OidbBase<Oidb0x112aResp>>(bytes);
-
-  export const invoke = (deps: Deps, params: Params): Promise<void> => {
-    // No-op when there's nothing to write — preserves the facade's
-    // historic short-circuit (avoid a wasted SSO round-trip).
-    if (
-      params.nickname === undefined
-      && params.personalNote === undefined
-      && params.sex === undefined
-    ) {
-      return Promise.resolve();
+    export interface Params {
+        nickname?: string;
+        personalNote?: string;
+        sex?: number;
     }
-    return invokeOidb(deps, SetProfile, params);
-  };
+
+    /** Needs identity to read `uin` for the request body. */
+    export type Deps = OidbSender & Pick<BridgeContext, 'identity'>;
+
+    export const serialize = (ctx: Deps, p: Params): OidbSetProfile => {
+        const stringProfiles: { fieldId: number; value: string }[] = [];
+        const intProfiles: { fieldId: number; value: bigint }[] = [];
+
+        if (p.nickname !== undefined) {
+            stringProfiles.push({ fieldId: 20002, value: p.nickname });
+        }
+
+        if (p.personalNote !== undefined) {
+            stringProfiles.push({ fieldId: 102, value: p.personalNote });
+        }
+
+        if (p.sex !== undefined) {
+            intProfiles.push({ fieldId: 20009, value: BigInt(p.sex) });
+        }
+
+        return {
+            uin: BigInt(ctx.identity.uin),
+            ...(stringProfiles.length > 0 ? { stringProfiles } : {}),
+            ...(intProfiles.length > 0 ? { intProfiles } : {}),
+        };
+    };
+
+    export const deserialize = (_ctx: Deps, _: Oidb0x112aResp): void => {};
+
+    export const encode = (env: OidbBase<OidbSetProfile>): Uint8Array =>
+        protobuf_encode<OidbBase<OidbSetProfile>>(env);
+
+    export const decode = (bytes: Uint8Array): OidbBase<Oidb0x112aResp> =>
+        protobuf_decode<OidbBase<Oidb0x112aResp>>(bytes);
+
+    export const invoke = (deps: Deps, params: Params): Promise<void> => {
+        // No-op when there's nothing to write — preserves the facade's
+        // historic short-circuit (avoid a wasted SSO round-trip).
+        if (
+            params.nickname === undefined &&
+            params.personalNote === undefined &&
+            params.sex === undefined
+        ) {
+            return Promise.resolve();
+        }
+
+        return invokeOidb(deps, SetProfile, params);
+    };
 }

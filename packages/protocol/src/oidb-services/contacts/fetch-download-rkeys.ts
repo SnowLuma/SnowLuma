@@ -13,41 +13,42 @@ const GROUP_IMAGE = 20;
 const FALLBACK_IMAGE = 2;
 
 export namespace FetchDownloadRkeys {
-  export const command = 0x9067;
-  export const subCommand = 202;
-  export const uinForm = true;
+    export const command = 0x9067;
+    export const subCommand = 202;
+    export const uinForm = true;
 
-  export interface Params {}
+    export interface Params {}
 
-  export type Deps = OidbSender;
+    export type Deps = OidbSender;
 
-  export const serialize = (_ctx: Deps, _: Params): NTV2RichMediaReq => ({
-    reqHead: {
-      common: { requestId: 1, command: 202 },
-      scene: { requestType: 2, businessType: 1, sceneType: 0 },
-      client: { agentType: 2 },
-    },
-    downloadRkey: {
-      types: [PRIVATE_IMAGE, GROUP_IMAGE, FALLBACK_IMAGE],
-    },
-  });
+    export const serialize = (_ctx: Deps, _: Params): NTV2RichMediaReq => ({
+        reqHead: {
+            common: { requestId: 1, command: 202 },
+            scene: { requestType: 2, businessType: 1, sceneType: 0 },
+            client: { agentType: 2 },
+        },
+        downloadRkey: {
+            types: [PRIVATE_IMAGE, GROUP_IMAGE, FALLBACK_IMAGE],
+        },
+    });
 
-  export const deserialize = (_ctx: Deps, body: NTV2RichMediaResp): NTV2RichMediaResp => {
-    // Propagate server-side OIDB-equivalent error via the embedded
-    // respHead.retCode — bytes-level OIDB errorCode would already
-    // have thrown OidbError before deserialize was called.
-    if (body.respHead?.retCode && body.respHead.retCode !== 0) {
-      throw new Error(body.respHead.message ?? 'fetch download rkey failed');
-    }
-    return body;
-  };
+    export const deserialize = (_ctx: Deps, body: NTV2RichMediaResp): NTV2RichMediaResp => {
+        // Propagate server-side OIDB-equivalent error via the embedded
+        // respHead.retCode — bytes-level OIDB errorCode would already
+        // have thrown OidbError before deserialize was called.
+        if (body.respHead?.retCode && body.respHead.retCode !== 0) {
+            throw new Error(body.respHead.message ?? 'fetch download rkey failed');
+        }
 
-  export const encode = (env: OidbBase<NTV2RichMediaReq>): Uint8Array =>
-    protobuf_encode<OidbBase<NTV2RichMediaReq>>(env);
+        return body;
+    };
 
-  export const decode = (bytes: Uint8Array): OidbBase<NTV2RichMediaResp> =>
-    protobuf_decode<OidbBase<NTV2RichMediaResp>>(bytes);
+    export const encode = (env: OidbBase<NTV2RichMediaReq>): Uint8Array =>
+        protobuf_encode<OidbBase<NTV2RichMediaReq>>(env);
 
-  export const invoke = (deps: Deps): Promise<NTV2RichMediaResp> =>
-    invokeOidb(deps, FetchDownloadRkeys, {});
+    export const decode = (bytes: Uint8Array): OidbBase<NTV2RichMediaResp> =>
+        protobuf_decode<OidbBase<NTV2RichMediaResp>>(bytes);
+
+    export const invoke = (deps: Deps): Promise<NTV2RichMediaResp> =>
+        invokeOidb(deps, FetchDownloadRkeys, {});
 }

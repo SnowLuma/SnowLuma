@@ -6,27 +6,32 @@ import type { JsonObject, JsonValue } from '../types';
  * Only a single text segment (or a bare string) is accepted — mixed-segment
  * messages (e.g. `#sl` + image) never match.
  */
-export function matchesStatusCommand(
-  message: JsonValue | undefined,
-  trigger: string,
-): boolean {
-  if (typeof message === 'string') {
-    return normalize(message) === normalize(trigger);
-  }
-  if (!Array.isArray(message) || message.length !== 1) return false;
-  const seg = message[0];
-  if (!isObject(seg) || seg.type !== 'text') return false;
-  const data = isObject(seg.data) ? seg.data : null;
-  const text = data && typeof data.text === 'string' ? data.text : '';
-  return normalize(text) === normalize(trigger);
+export function matchesStatusCommand(message: JsonValue | undefined, trigger: string): boolean {
+    if (typeof message === 'string') {
+        return normalize(message) === normalize(trigger);
+    }
+
+    if (!Array.isArray(message) || message.length !== 1) {
+        return false;
+    }
+
+    const seg = message[0];
+
+    if (!isObject(seg) || seg.type !== 'text') {
+        return false;
+    }
+
+    const data = isObject(seg.data) ? seg.data : null;
+    const text = data && typeof data.text === 'string' ? data.text : '';
+    return normalize(text) === normalize(trigger);
 }
 
 function normalize(s: string): string {
-  return s.trim().toLowerCase();
+    return s.trim().toLowerCase();
 }
 
 function isObject(value: unknown): value is JsonObject {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -34,41 +39,57 @@ function isObject(value: unknown): value is JsonObject {
  * `cooldownSeconds <= 0` disables the cooldown entirely.
  */
 export function statusCooldownElapsed(
-  lastRepliedAtMs: number | undefined,
-  nowMs: number,
-  cooldownSeconds: number,
+    lastRepliedAtMs: number | undefined,
+    nowMs: number,
+    cooldownSeconds: number,
 ): boolean {
-  if (lastRepliedAtMs === undefined) return true;
-  if (cooldownSeconds <= 0) return true;
-  return nowMs - lastRepliedAtMs >= cooldownSeconds * 1000;
+    if (lastRepliedAtMs === undefined) {
+        return true;
+    }
+
+    if (cooldownSeconds <= 0) {
+        return true;
+    }
+
+    return nowMs - lastRepliedAtMs >= cooldownSeconds * 1000;
 }
 
 export interface StatusInfo {
-  version: string;
-  platform: string;
-  arch: string;
-  uptimeMs: number;
+    version: string;
+    platform: string;
+    arch: string;
+    uptimeMs: number;
 }
 
 /** Render the status reply. */
 export function buildStatusText(info: StatusInfo): string {
-  return [
-    'SnowLuma 状态',
-    `版本: ${info.version}`,
-    `平台: ${info.platform}-${info.arch}`,
-    `运行时长: ${formatUptime(info.uptimeMs)}`,
-  ].join('\n');
+    return [
+        'SnowLuma 状态',
+        `版本: ${info.version}`,
+        `平台: ${info.platform}-${info.arch}`,
+        `运行时长: ${formatUptime(info.uptimeMs)}`,
+    ].join('\n');
 }
 
 /** Human-readable uptime (zh-CN), dropping leading zero units. */
 export function formatUptime(ms: number): string {
-  const totalSec = Math.max(0, Math.floor(ms / 1000));
-  const days = Math.floor(totalSec / 86400);
-  const hours = Math.floor((totalSec % 86400) / 3600);
-  const minutes = Math.floor((totalSec % 3600) / 60);
-  const seconds = totalSec % 60;
-  if (days > 0) return `${days}天 ${hours}小时 ${minutes}分钟`;
-  if (hours > 0) return `${hours}小时 ${minutes}分钟`;
-  if (minutes > 0) return `${minutes}分钟 ${seconds}秒`;
-  return `${seconds}秒`;
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
+    const days = Math.floor(totalSec / 86400);
+    const hours = Math.floor((totalSec % 86400) / 3600);
+    const minutes = Math.floor((totalSec % 3600) / 60);
+    const seconds = totalSec % 60;
+
+    if (days > 0) {
+        return `${days}天 ${hours}小时 ${minutes}分钟`;
+    }
+
+    if (hours > 0) {
+        return `${hours}小时 ${minutes}分钟`;
+    }
+
+    if (minutes > 0) {
+        return `${minutes}分钟 ${seconds}秒`;
+    }
+
+    return `${seconds}秒`;
 }

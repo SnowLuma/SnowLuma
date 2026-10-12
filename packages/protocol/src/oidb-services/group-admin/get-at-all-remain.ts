@@ -15,44 +15,46 @@ import { invokeOidb, type OidbSender } from '../../oidb-service';
 import type { BridgeContext } from '../../bridge-context';
 
 export interface AtAllRemain {
-  can_at_all: boolean;
-  remain_at_all_count_for_group: number;
-  remain_at_all_count_for_uin: number;
+    can_at_all: boolean;
+    remain_at_all_count_for_group: number;
+    remain_at_all_count_for_uin: number;
 }
 
 export namespace GetAtAllRemain {
-  export const command = 0x8A7;
-  export const subCommand = 0;
+    export const command = 0x8a7;
+    export const subCommand = 0;
 
-  export interface Params { groupId: number; }
+    export interface Params {
+        groupId: number;
+    }
 
-  export type Deps = OidbSender & Pick<BridgeContext, 'identity'>;
+    export type Deps = OidbSender & Pick<BridgeContext, 'identity'>;
 
-  export const serialize = (ctx: Deps, p: Params): Oidb0x8a7Req => ({
-    basic1: 1,
-    basic2: 2,
-    basic3: 1,
-    uin: BigInt(ctx.identity.uin),
-    groupId: BigInt(p.groupId),
-    type: 0,
-  });
+    export const serialize = (ctx: Deps, p: Params): Oidb0x8a7Req => ({
+        basic1: 1,
+        basic2: 2,
+        basic3: 1,
+        uin: BigInt(ctx.identity.uin),
+        groupId: BigInt(p.groupId),
+        type: 0,
+    });
 
-  export const deserialize = (_ctx: Deps, body: Oidb0x8a7Resp): AtAllRemain => {
-    // Cast numbers to plain Number: the OIDB layer may surface uint32
-    // as BigInt and the WebUI JSON serializer chokes on those.
-    return {
-      can_at_all: !!body.canAtAll,
-      remain_at_all_count_for_group: Number(body.groupRemain ?? 0),
-      remain_at_all_count_for_uin: Number(body.uinRemain ?? 0),
+    export const deserialize = (_ctx: Deps, body: Oidb0x8a7Resp): AtAllRemain => {
+        // Cast numbers to plain Number: the OIDB layer may surface uint32
+        // as BigInt and the WebUI JSON serializer chokes on those.
+        return {
+            can_at_all: !!body.canAtAll,
+            remain_at_all_count_for_group: Number(body.groupRemain ?? 0),
+            remain_at_all_count_for_uin: Number(body.uinRemain ?? 0),
+        };
     };
-  };
 
-  export const encode = (env: OidbBase<Oidb0x8a7Req>): Uint8Array =>
-    protobuf_encode<OidbBase<Oidb0x8a7Req>>(env);
+    export const encode = (env: OidbBase<Oidb0x8a7Req>): Uint8Array =>
+        protobuf_encode<OidbBase<Oidb0x8a7Req>>(env);
 
-  export const decode = (bytes: Uint8Array): OidbBase<Oidb0x8a7Resp> =>
-    protobuf_decode<OidbBase<Oidb0x8a7Resp>>(bytes);
+    export const decode = (bytes: Uint8Array): OidbBase<Oidb0x8a7Resp> =>
+        protobuf_decode<OidbBase<Oidb0x8a7Resp>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<AtAllRemain> =>
-    invokeOidb(deps, GetAtAllRemain, params);
+    export const invoke = (deps: Deps, params: Params): Promise<AtAllRemain> =>
+        invokeOidb(deps, GetAtAllRemain, params);
 }

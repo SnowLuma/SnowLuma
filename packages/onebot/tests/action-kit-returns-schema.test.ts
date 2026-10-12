@@ -7,42 +7,42 @@ import { defineAction, groupAction, f } from '../src/action-kit';
 import { okResponse } from '../src/types';
 
 describe('returnsSchema', () => {
-  const dataSchema = {
-    type: 'object',
-    properties: { group_id: { type: 'integer' }, group_name: { type: 'string' } },
-    required: ['group_id', 'group_name'],
-  };
+    const dataSchema = {
+        type: 'object',
+        properties: { group_id: { type: 'integer' }, group_name: { type: 'string' } },
+        required: ['group_id', 'group_name'],
+    };
 
-  it('round-trips returnsSchema through describe() on defineAction', () => {
-    const spec = defineAction({
-      name: 'demo_get',
-      summary: 'demo',
-      readOnly: true,
-      returns: '群信息对象',
-      returnsSchema: dataSchema,
-      params: { x: f.uint() },
-      run: () => okResponse({ ok: true }),
+    it('round-trips returnsSchema through describe() on defineAction', () => {
+        const spec = defineAction({
+            name: 'demo_get',
+            summary: 'demo',
+            readOnly: true,
+            returns: '群信息对象',
+            returnsSchema: dataSchema,
+            params: { x: f.uint() },
+            run: () => okResponse({ ok: true }),
+        });
+        expect(spec.describe().returnsSchema).toEqual(dataSchema);
+        expect(spec.describe().returns).toBe('群信息对象');
     });
-    expect(spec.describe().returnsSchema).toEqual(dataSchema);
-    expect(spec.describe().returns).toBe('群信息对象');
-  });
 
-  it('omits returnsSchema when not provided', () => {
-    const spec = defineAction({
-      name: 'demo_noschema',
-      params: {},
-      run: () => okResponse(null),
+    it('omits returnsSchema when not provided', () => {
+        const spec = defineAction({
+            name: 'demo_noschema',
+            params: {},
+            run: () => okResponse(null),
+        });
+        expect(spec.describe().returnsSchema).toBeUndefined();
     });
-    expect(spec.describe().returnsSchema).toBeUndefined();
-  });
 
-  it('carries returnsSchema through groupAction preset', () => {
-    const spec = groupAction({
-      name: 'demo_group_get',
-      readOnly: true,
-      returnsSchema: dataSchema,
-      run: () => okResponse({}),
+    it('carries returnsSchema through groupAction preset', () => {
+        const spec = groupAction({
+            name: 'demo_group_get',
+            readOnly: true,
+            returnsSchema: dataSchema,
+            run: () => okResponse({}),
+        });
+        expect(spec.describe().returnsSchema).toEqual(dataSchema);
     });
-    expect(spec.describe().returnsSchema).toEqual(dataSchema);
-  });
 });

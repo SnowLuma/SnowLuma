@@ -34,80 +34,95 @@ const SENDER_UID = 'u_sender';
 // ─── Synthetic packet builders ───
 
 function makeGroupTextPacket(): PacketInfo {
-  const body = protobuf_encode<PushMsg>({
-    message: {
-      responseHead: { fromUin: SENDER_UIN, fromUid: SENDER_UID },
-      contentHead: {
-        msgType: 82,
-        subType: 1,
-        sequence: 1234,
-        timestamp: 1710000000,
-        msgId: 999999,
-      },
-      body: {
-        richText: {
-          elems: [{ text: { str: 'hello world from bench' } }],
+    const body = protobuf_encode<PushMsg>({
+        message: {
+            responseHead: { fromUin: SENDER_UIN, fromUid: SENDER_UID },
+            contentHead: {
+                msgType: 82,
+                subType: 1,
+                sequence: 1234,
+                timestamp: 1710000000,
+                msgId: 999999,
+            },
+            body: {
+                richText: {
+                    elems: [{ text: { str: 'hello world from bench' } }],
+                },
+            },
         },
-      },
-    },
-    status: 0,
-    grpInfo: { groupUin: GROUP_ID },
-  } as any);
-  return {
-    pid: 1, uin: SELF_UIN, serviceCmd: MSG_PUSH_CMD,
-    seqId: 1, retCode: 0, fromClient: false, body,
-  };
+        status: 0,
+        grpInfo: { groupUin: GROUP_ID },
+    } as any);
+    return {
+        pid: 1,
+        uin: SELF_UIN,
+        serviceCmd: MSG_PUSH_CMD,
+        seqId: 1,
+        retCode: 0,
+        fromClient: false,
+        body,
+    };
 }
 
 function makeGroupMixedPacket(): PacketInfo {
-  const body = protobuf_encode<PushMsg>({
-    message: {
-      responseHead: { fromUin: SENDER_UIN, fromUid: SENDER_UID },
-      contentHead: {
-        msgType: 82,
-        subType: 1,
-        sequence: 1235,
-        timestamp: 1710000000,
-        msgId: 999998,
-      },
-      body: {
-        richText: {
-          elems: [
-            { text: { str: '@some_user ' } },
-            { face: { index: 76 } },
-            { text: { str: 'hello ' } },
-            { srcMsg: { origSeqs: [4242] } },
-            { text: { str: ' world' } },
-          ],
+    const body = protobuf_encode<PushMsg>({
+        message: {
+            responseHead: { fromUin: SENDER_UIN, fromUid: SENDER_UID },
+            contentHead: {
+                msgType: 82,
+                subType: 1,
+                sequence: 1235,
+                timestamp: 1710000000,
+                msgId: 999998,
+            },
+            body: {
+                richText: {
+                    elems: [
+                        { text: { str: '@some_user ' } },
+                        { face: { index: 76 } },
+                        { text: { str: 'hello ' } },
+                        { srcMsg: { origSeqs: [4242] } },
+                        { text: { str: ' world' } },
+                    ],
+                },
+            },
         },
-      },
-    },
-    status: 0,
-    grpInfo: { groupUin: GROUP_ID },
-  } as any);
-  return {
-    pid: 1, uin: SELF_UIN, serviceCmd: MSG_PUSH_CMD,
-    seqId: 2, retCode: 0, fromClient: false, body,
-  };
+        status: 0,
+        grpInfo: { groupUin: GROUP_ID },
+    } as any);
+    return {
+        pid: 1,
+        uin: SELF_UIN,
+        serviceCmd: MSG_PUSH_CMD,
+        seqId: 2,
+        retCode: 0,
+        fromClient: false,
+        body,
+    };
 }
 
 function makeGroupJoinPacket(): PacketInfo {
-  const content = protobuf_encode<GroupChange>({
-    groupUin: GROUP_ID,
-    memberUid: 'u_newcomer',
-  });
-  const body = protobuf_encode<PushMsg>({
-    message: {
-      responseHead: { fromUin: GROUP_ID },
-      contentHead: { msgType: 33, timestamp: 1710000000 },
-      body: { msgContent: content },
-    },
-    status: 0,
-  } as any);
-  return {
-    pid: 1, uin: SELF_UIN, serviceCmd: MSG_PUSH_CMD,
-    seqId: 3, retCode: 0, fromClient: false, body,
-  };
+    const content = protobuf_encode<GroupChange>({
+        groupUin: GROUP_ID,
+        memberUid: 'u_newcomer',
+    });
+    const body = protobuf_encode<PushMsg>({
+        message: {
+            responseHead: { fromUin: GROUP_ID },
+            contentHead: { msgType: 33, timestamp: 1710000000 },
+            body: { msgContent: content },
+        },
+        status: 0,
+    } as any);
+    return {
+        pid: 1,
+        uin: SELF_UIN,
+        serviceCmd: MSG_PUSH_CMD,
+        seqId: 3,
+        retCode: 0,
+        fromClient: false,
+        body,
+    };
 }
 
 // ─── Setup helpers ───
@@ -115,7 +130,7 @@ function makeGroupJoinPacket(): PacketInfo {
 // In-memory identity (no SQLite writes) — used for the "pure decode"
 // bench to isolate proton + decoder cost from DB cost.
 function makeIdentity(): IdentityService {
-  return IdentityService.memory(SELF_UIN);
+    return IdentityService.memory(SELF_UIN);
 }
 
 // SQLite-backed identity in a temp file — used for the full-pipeline
@@ -123,22 +138,26 @@ function makeIdentity(): IdentityService {
 // implicitly on process exit (OS tmp policy); we don't need to unlink
 // because each `bench()` recreates it.
 function makeIdentityWithDb(): IdentityService {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snowluma-bench-recv-'));
-  return new IdentityService(SELF_UIN, path.join(dir, 'identity.db'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snowluma-bench-recv-'));
+    return new IdentityService(SELF_UIN, path.join(dir, 'identity.db'));
 }
 
 function makePipeline(identity: IdentityService): IncomingPacketPipeline {
-  const events = new BridgeEventBus();
-  events.on('group_message', () => { /* drain */ });
-  events.on('group_member_join', () => { /* drain */ });
-  const pipeline = new IncomingPacketPipeline({
-    identity,
-    events,
-    fetchGroupList: async () => {},
-    fetchGroupMemberList: async () => {},
-  });
-  pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
-  return pipeline;
+    const events = new BridgeEventBus();
+    events.on('group_message', () => {
+        /* drain */
+    });
+    events.on('group_member_join', () => {
+        /* drain */
+    });
+    const pipeline = new IncomingPacketPipeline({
+        identity,
+        events,
+        fetchGroupList: async () => {},
+        fetchGroupMemberList: async () => {},
+    });
+    pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
+    return pipeline;
 }
 
 // ─── Benches ───
@@ -148,30 +167,30 @@ const groupMixed = makeGroupMixedPacket();
 const groupJoin = makeGroupJoinPacket();
 
 describe('parseMsgPush — pure decode + dispatch (no SQLite, no emit)', () => {
-  const identityPure = makeIdentity();
-  bench('group_message (text only)', () => {
-    parseMsgPush(groupText, identityPure);
-  });
-  bench('group_message (5 mixed elements)', () => {
-    parseMsgPush(groupMixed, identityPure);
-  });
-  bench('group_member_join', () => {
-    parseMsgPush(groupJoin, identityPure);
-  });
+    const identityPure = makeIdentity();
+    bench('group_message (text only)', () => {
+        parseMsgPush(groupText, identityPure);
+    });
+    bench('group_message (5 mixed elements)', () => {
+        parseMsgPush(groupMixed, identityPure);
+    });
+    bench('group_member_join', () => {
+        parseMsgPush(groupJoin, identityPure);
+    });
 });
 
 describe('IncomingPacketPipeline.process — full pipeline (with SQLite identity writes)', () => {
-  const pipelineText = makePipeline(makeIdentityWithDb());
-  const pipelineMixed = makePipeline(makeIdentityWithDb());
-  const pipelineJoin = makePipeline(makeIdentityWithDb());
+    const pipelineText = makePipeline(makeIdentityWithDb());
+    const pipelineMixed = makePipeline(makeIdentityWithDb());
+    const pipelineJoin = makePipeline(makeIdentityWithDb());
 
-  bench('group_message (text only)', () => {
-    pipelineText.process(groupText);
-  });
-  bench('group_message (5 mixed elements)', () => {
-    pipelineMixed.process(groupMixed);
-  });
-  bench('group_member_join', () => {
-    pipelineJoin.process(groupJoin);
-  });
+    bench('group_message (text only)', () => {
+        pipelineText.process(groupText);
+    });
+    bench('group_message (5 mixed elements)', () => {
+        pipelineMixed.process(groupMixed);
+    });
+    bench('group_member_join', () => {
+        pipelineJoin.process(groupJoin);
+    });
 });

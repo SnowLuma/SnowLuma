@@ -11,8 +11,8 @@
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type {
-  CustomFaceModifyResp,
-  CustomFaceOrderBody,
+    CustomFaceModifyResp,
+    CustomFaceOrderBody,
 } from '@snowluma/proto-defs/oidb-actions/base';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
@@ -22,38 +22,38 @@ import { CLIENT_VERSION } from './shared';
 const BUILD_VERSION_SHORT = '9.9.26';
 
 export namespace OrderCustomFace {
-  export const command = 0x902f;
-  export const subCommand = 1;
-  /** envelope reserved=1（UIN-form），抓包见信封 f12=1。 */
-  export const uinForm = true;
+    export const command = 0x902f;
+    export const subCommand = 1;
+    /** envelope reserved=1（UIN-form），抓包见信封 f12=1。 */
+    export const uinForm = true;
 
-  export interface Params {
-    /** 形如 `<UIN>_0_0_0_<MD5>_0_0`，来自 fetch 响应。 */
-    emojiId: string;
-    /** 目标位置（从 1 开始，1=最前）。 */
-    position: number;
-  }
-
-  export type Deps = OidbSender;
-
-  export const serialize = (_ctx: Deps, p: Params): CustomFaceOrderBody => ({
-    env: { field1: 1024, osVersion: CLIENT_VERSION, buildVersion: BUILD_VERSION_SHORT },
-    emojiId: p.emojiId,
-    position: p.position,
-  });
-
-  export const deserialize = (_ctx: Deps, body: CustomFaceModifyResp): void => {
-    if (body.retCode && body.retCode !== 0) {
-      throw new Error(`order custom face error: ${body.errMsg || body.retCode}`);
+    export interface Params {
+        /** 形如 `<UIN>_0_0_0_<MD5>_0_0`，来自 fetch 响应。 */
+        emojiId: string;
+        /** 目标位置（从 1 开始，1=最前）。 */
+        position: number;
     }
-  };
 
-  export const encode = (env: OidbBase<CustomFaceOrderBody>): Uint8Array =>
-    protobuf_encode<OidbBase<CustomFaceOrderBody>>(env);
+    export type Deps = OidbSender;
 
-  export const decode = (bytes: Uint8Array): OidbBase<CustomFaceModifyResp> =>
-    protobuf_decode<OidbBase<CustomFaceModifyResp>>(bytes);
+    export const serialize = (_ctx: Deps, p: Params): CustomFaceOrderBody => ({
+        env: { field1: 1024, osVersion: CLIENT_VERSION, buildVersion: BUILD_VERSION_SHORT },
+        emojiId: p.emojiId,
+        position: p.position,
+    });
 
-  export const invoke = (deps: Deps, params: Params): Promise<void> =>
-    invokeOidb(deps, OrderCustomFace, params);
+    export const deserialize = (_ctx: Deps, body: CustomFaceModifyResp): void => {
+        if (body.retCode && body.retCode !== 0) {
+            throw new Error(`order custom face error: ${body.errMsg || body.retCode}`);
+        }
+    };
+
+    export const encode = (env: OidbBase<CustomFaceOrderBody>): Uint8Array =>
+        protobuf_encode<OidbBase<CustomFaceOrderBody>>(env);
+
+    export const decode = (bytes: Uint8Array): OidbBase<CustomFaceModifyResp> =>
+        protobuf_decode<OidbBase<CustomFaceModifyResp>>(bytes);
+
+    export const invoke = (deps: Deps, params: Params): Promise<void> =>
+        invokeOidb(deps, OrderCustomFace, params);
 }

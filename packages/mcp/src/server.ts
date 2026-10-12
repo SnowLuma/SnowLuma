@@ -27,85 +27,113 @@ import { readFileSync } from 'node:fs';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
-  CallToolRequestSchema,
-  ListResourcesRequestSchema,
-  ListToolsRequestSchema,
-  ReadResourceRequestSchema,
+    CallToolRequestSchema,
+    ListResourcesRequestSchema,
+    ListToolsRequestSchema,
+    ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { ACTIONS, CATEGORIES } from './generated/catalog.js';
-import { makeHttpClient, parseMaxStreamBytes, parseTimeoutMs, type ActionClient } from './client.js';
+import {
+    makeHttpClient,
+    parseMaxStreamBytes,
+    parseTimeoutMs,
+    type ActionClient,
+} from './client.js';
 import { callTool, computeTools, parseMode, type Mode } from './tools.js';
 
-const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
+const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+    version: string;
+};
 const VERSION = pkg.version;
 
 const RESOURCE_URI = 'snowluma://onebot/actions';
 
 // ── resolve mode + client from the environment ────────────────────────────
 function resolveRuntime(): { mode: Mode; client?: ActionClient } {
-  const endpoint = process.env.SNOWLUMA_MCP_ENDPOINT?.trim();
-  const token = process.env.SNOWLUMA_MCP_TOKEN?.trim() || undefined;
-  const streamDir = process.env.SNOWLUMA_MCP_STREAM_DIR?.trim() || undefined;
-  const uploadRoot = process.env.SNOWLUMA_MCP_UPLOAD_ROOT?.trim() || undefined;
-  const maxStreamBytes = parseMaxStreamBytes(process.env.SNOWLUMA_MCP_MAX_STREAM_BYTES);
-  const timeoutMs = parseTimeoutMs(process.env.SNOWLUMA_MCP_TIMEOUT_MS);
-  const requested = parseMode(process.env.SNOWLUMA_MCP_MODE);
+    const endpoint = process.env.SNOWLUMA_MCP_ENDPOINT?.trim();
+    const token = process.env.SNOWLUMA_MCP_TOKEN?.trim() || undefined;
+    const streamDir = process.env.SNOWLUMA_MCP_STREAM_DIR?.trim() || undefined;
+    const uploadRoot = process.env.SNOWLUMA_MCP_UPLOAD_ROOT?.trim() || undefined;
+    const maxStreamBytes = parseMaxStreamBytes(process.env.SNOWLUMA_MCP_MAX_STREAM_BYTES);
+    const timeoutMs = parseTimeoutMs(process.env.SNOWLUMA_MCP_TIMEOUT_MS);
+    const requested = parseMode(process.env.SNOWLUMA_MCP_MODE);
 
-  if (!endpoint) {
-    if (requested && requested !== 'docs') {
-      console.error(`[snowluma-mcp] SNOWLUMA_MCP_MODE=${requested} ignored: no SNOWLUMA_MCP_ENDPOINT set — docs-only.`);
+    if (!endpoint) {
+        if (requested && requested !== 'docs') {
+            console.error(
+                `[snowluma-mcp] SNOWLUMA_MCP_MODE=${requested} ignored: no SNOWLUMA_MCP_ENDPOINT set — docs-only.`,
+            );
+        }
+
+        return { mode: 'docs' };
     }
-    return { mode: 'docs' };
-  }
 
-  const mode: Mode = requested ?? 'read';
-  if (mode === 'docs') {
-    // Endpoint set but operator explicitly wants docs-only — honor it.
-    return { mode: 'docs' };
-  }
-  const client = makeHttpClient({ endpoint, accessToken: token, timeoutMs, streamDir, uploadRoot, maxStreamBytes });
-  return { mode, client };
+    const mode: Mode = requested ?? 'read';
+
+    if (mode === 'docs') {
+        // Endpoint set but operator explicitly wants docs-only — honor it.
+        return { mode: 'docs' };
+    }
+
+    const client = makeHttpClient({
+        endpoint,
+        accessToken: token,
+        timeoutMs,
+        streamDir,
+        uploadRoot,
+        maxStreamBytes,
+    });
+    return { mode, client };
 }
 
 const { mode, client } = resolveRuntime();
 
 const server = new Server(
-  { name: 'snowluma-mcp', version: VERSION },
-  { capabilities: { tools: {}, resources: {} } },
+    { name: 'snowluma-mcp', version: VERSION },
+    { capabilities: { tools: {}, resources: {} } },
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: computeTools(mode) }));
 
 server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
-  const args = (req.params.arguments ?? {}) as Record<string, unknown>;
-  return callTool(req.params.name, args, { mode, client, signal: extra.signal });
+    const args = (req.params.arguments ?? {}) as Record<string, unknown>;
+    return callTool(req.params.name, args, { mode, client, signal: extra.signal });
 });
 
 server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-  resources: [
-    {
-      uri: RESOURCE_URI,
-      name: 'SnowLuma OneBot action catalog',
-      mimeType: 'application/json',
-      description: `SnowLuma v${VERSION} 的 ${ACTIONS.length} 个 OneBot action 完整目录（文档 + JSON Schema）。`,
-    },
-  ],
+    resources: [
+        {
+            uri: RESOURCE_URI,
+            name: 'SnowLuma OneBot action catalog',
+            mimeType: 'application/json',
+            description: `SnowLuma v${VERSION} 的 ${ACTIONS.length} 个 OneBot action 完整目录（文档 + JSON Schema）。`,
+        },
+    ],
 }));
 
 server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
-  if (req.params.uri !== RESOURCE_URI) throw new Error(`unknown resource: ${req.params.uri}`);
-  return {
-    contents: [
-      {
-        uri: RESOURCE_URI,
-        mimeType: 'application/json',
-        text: JSON.stringify({ version: VERSION, categories: CATEGORIES, actions: ACTIONS }, null, 2),
-      },
-    ],
-  };
+    if (req.params.uri !== RESOURCE_URI) {
+        throw new Error(`unknown resource: ${req.params.uri}`);
+    }
+
+    return {
+        contents: [
+            {
+                uri: RESOURCE_URI,
+                mimeType: 'application/json',
+                text: JSON.stringify(
+                    { version: VERSION, categories: CATEGORIES, actions: ACTIONS },
+                    null,
+                    2,
+                ),
+            },
+        ],
+    };
 });
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
 const where = client ? ` → ${process.env.SNOWLUMA_MCP_ENDPOINT?.trim()}` : '';
-console.error(`[snowluma-mcp] v${VERSION} ready — ${ACTIONS.length} actions, ${CATEGORIES.length} categories, mode=${mode}${where}`);
+console.error(
+    `[snowluma-mcp] v${VERSION} ready — ${ACTIONS.length} actions, ${CATEGORIES.length} categories, mode=${mode}${where}`,
+);

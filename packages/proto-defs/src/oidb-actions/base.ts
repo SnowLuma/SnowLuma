@@ -1,39 +1,48 @@
-import type { pb, pb_optional, pb_repeated, int_32, uint_32, uint_64, bool, bytes } from '@snowluma/proton';
+import type {
+    pb,
+    pb_optional,
+    pb_repeated,
+    int_32,
+    uint_32,
+    uint_64,
+    bool,
+    bytes,
+} from '@snowluma/proton';
 
 // Re-exported from the legacy oidb-action module while large protocol groups
 // are split into focused files.
 
 export interface OidbMuteMemberBody {
-  targetUid?: pb<1, string>;
-  duration?:  pb<2, uint_32>;
+    targetUid?: pb<1, string>;
+    duration?: pb<2, uint_32>;
 }
 export interface OidbMuteMember {
-  groupUin?: pb<1, uint_32>;
-  type?:     pb<2, uint_32>;
-  body?:     pb<3, OidbMuteMemberBody>;
+    groupUin?: pb<1, uint_32>;
+    type?: pb<2, uint_32>;
+    body?: pb<3, OidbMuteMemberBody>;
 }
 export interface OidbMuteAllState {
-  // Explicit presence: the unmute request sends state=0, which proto3 would
-  // otherwise omit — leaving an empty `muteState` the server can't tell apart
-  // from the other commands sharing OIDB (0x89A, 0) (SetSearch / SetAddOption,
-  // disambiguated by body shape). pb_optional forces the 0 onto the wire.
-  state?: pb_optional<17, uint_32>;
+    // Explicit presence: the unmute request sends state=0, which proto3 would
+    // otherwise omit — leaving an empty `muteState` the server can't tell apart
+    // from the other commands sharing OIDB (0x89A, 0) (SetSearch / SetAddOption,
+    // disambiguated by body shape). pb_optional forces the 0 onto the wire.
+    state?: pb_optional<17, uint_32>;
 }
 export interface OidbMuteAll {
-  groupUin?:  pb<1, uint_32>;
-  muteState?: pb<2, OidbMuteAllState>;
+    groupUin?: pb<1, uint_32>;
+    muteState?: pb<2, OidbMuteAllState>;
 }
 export interface Oidb0x89a_0AddOptionSettings {
-  addType?: pb<16, uint_32>;
-  // EncodeModifyGroupDetailInfoParam: question=30/60224, answer=31/60225.
-  // Empty string is a real write (clears the other mode), so these are optional.
-  groupQuestion?: pb_optional<30, string>;
-  groupAnswer?:   pb_optional<31, string>;
+    addType?: pb<16, uint_32>;
+    // EncodeModifyGroupDetailInfoParam: question=30/60224, answer=31/60225.
+    // Empty string is a real write (clears the other mode), so these are optional.
+    groupQuestion?: pb_optional<30, string>;
+    groupAnswer?: pb_optional<31, string>;
 }
 export interface Oidb0x89a_0AddOption {
-  groupUin?: pb<1, uint_64>;
-  settings?: pb<2, Oidb0x89a_0AddOptionSettings>;
-  field12?:  pb<12, uint_32>;
+    groupUin?: pb<1, uint_64>;
+    settings?: pb<2, Oidb0x89a_0AddOptionSettings>;
+    field12?: pb<12, uint_32>;
 }
 // The `settings` payload is the GroupDetailInfo "modify" sub-message carrying
 // only the fields being changed (the NT GroupDetailFilter is client-side — it
@@ -49,131 +58,131 @@ export interface Oidb0x89a_0AddOption {
 // Value 0 = that mode open/enabled, 1 = disabled ("no…Open"); keyword search
 // additionally requires code search on. Matches NapCat modifyGroupDetailInfoV2.
 export interface Oidb0x89a_0SearchSettings {
-  // pb_optional (explicit presence): a value of 0 (mode enabled) MUST be sent,
-  // so these can't use plain pb<> — proto3 would drop the zero and the request
-  // would silently no-op. undefined is still elided (field left unchanged).
-  noFingerOpen?:     pb_optional<35, uint_32>;
-  noCodeFingerOpen?: pb_optional<36, uint_32>;
+    // pb_optional (explicit presence): a value of 0 (mode enabled) MUST be sent,
+    // so these can't use plain pb<> — proto3 would drop the zero and the request
+    // would silently no-op. undefined is still elided (field left unchanged).
+    noFingerOpen?: pb_optional<35, uint_32>;
+    noCodeFingerOpen?: pb_optional<36, uint_32>;
 }
 export interface Oidb0x89a_0Search {
-  groupUin?: pb<1, uint_64>;
-  settings?: pb<2, Oidb0x89a_0SearchSettings>;
-  field12?:  pb<12, uint_32>;
+    groupUin?: pb<1, uint_64>;
+    settings?: pb<2, Oidb0x89a_0SearchSettings>;
+    field12?: pb<12, uint_32>;
 }
 // 0x89A_0 — member invitation policy. The three settings tags are the
 // GroupDetailInfoV2 fields emitted by QQ's EncodeModifyGroupDetailInfoParam:
 // appPrivilegeFlag=23, appPrivilegeMask=24, allowMemberInvite=29.
 export interface Oidb0x89a_0InvitePolicySettings {
-  // All three values can legitimately be zero and still have to be present.
-  appPrivilegeFlag?: pb_optional<23, uint_32>;
-  appPrivilegeMask?: pb_optional<24, uint_32>;
-  allowMemberInvite?: pb_optional<29, uint_32>;
+    // All three values can legitimately be zero and still have to be present.
+    appPrivilegeFlag?: pb_optional<23, uint_32>;
+    appPrivilegeMask?: pb_optional<24, uint_32>;
+    allowMemberInvite?: pb_optional<29, uint_32>;
 }
 export interface Oidb0x89a_0InvitePolicy {
-  groupUin?: pb<1, uint_64>;
-  settings?: pb<2, Oidb0x89a_0InvitePolicySettings>;
-  field12?:  pb<12, uint_32>;
+    groupUin?: pb<1, uint_64>;
+    settings?: pb<2, Oidb0x89a_0InvitePolicySettings>;
+    field12?: pb<12, uint_32>;
 }
 // 0x89A_0 — whether newly joined members may browse group history. Current QQ's
 // GroupDetailInfoV2 encoder emits groupFlagExt4=42 and its mutation mask=43.
 export interface Oidb0x89a_0HistoryVisibilitySettings {
-  // Explicit presence is required when clearing the only selected bit.
-  groupFlagExt4?:     pb_optional<42, uint_32>;
-  groupFlagExt4Mask?: pb_optional<43, uint_32>;
+    // Explicit presence is required when clearing the only selected bit.
+    groupFlagExt4?: pb_optional<42, uint_32>;
+    groupFlagExt4Mask?: pb_optional<43, uint_32>;
 }
 export interface Oidb0x89a_0HistoryVisibility {
-  groupUin?: pb<1, uint_64>;
-  settings?: pb<2, Oidb0x89a_0HistoryVisibilitySettings>;
-  field12?:  pb<12, uint_32>;
+    groupUin?: pb<1, uint_64>;
+    settings?: pb<2, Oidb0x89a_0HistoryVisibilitySettings>;
+    field12?: pb<12, uint_32>;
 }
 // 0x89A_0 — one masked group-member capability update. These are deny bits,
 // so callers clear the selected bit to allow a capability and set it to deny.
 // Same settings tags as invite policy.
 export interface Oidb0x89a_0MemberPermissionSettings {
-  appPrivilegeFlag?: pb_optional<23, uint_32>;
-  appPrivilegeMask?: pb_optional<24, uint_32>;
+    appPrivilegeFlag?: pb_optional<23, uint_32>;
+    appPrivilegeMask?: pb_optional<24, uint_32>;
 }
 export interface Oidb0x89a_0MemberPermission {
-  groupUin?: pb<1, uint_64>;
-  settings?: pb<2, Oidb0x89a_0MemberPermissionSettings>;
-  field12?:  pb<12, uint_32>;
+    groupUin?: pb<1, uint_64>;
+    settings?: pb<2, Oidb0x89a_0MemberPermissionSettings>;
+    field12?: pb<12, uint_32>;
 }
 export interface OidbKickMember {
-  groupUin?:         pb<1, uint_32>;
-  targetUid?:        pb<3, string>;
-  rejectAddRequest?: pb<4, bool>;
-  reason?:           pb<5, string>;
+    groupUin?: pb<1, uint_32>;
+    targetUid?: pb<3, string>;
+    rejectAddRequest?: pb<4, bool>;
+    reason?: pb<5, string>;
 }
 // 0x8A0_1 response body. Envelope errorCode=0 is not enough: each target
 // is listed in `results`. result=0 (or omitted) means that member was
 // removed; any other value is a refusal for that member.
 export interface OidbKickMemberResult {
-  result?: pb<1, uint_32>;
-  uid?:    pb<2, string>;
+    result?: pb<1, uint_32>;
+    uid?: pb<2, string>;
 }
 export interface OidbKickMemberResponse {
-  groupUin?: pb<1, uint_32>;
-  results?:  pb_repeated<2, OidbKickMemberResult>;
+    groupUin?: pb<1, uint_32>;
+    results?: pb_repeated<2, OidbKickMemberResult>;
 }
 export interface OidbLeaveGroup {
-  groupUin?: pb<1, uint_32>;
+    groupUin?: pb<1, uint_32>;
 }
 export interface OidbFriendRequestAction {
-  accept?:    pb<1, uint_32>;
-  targetUid?: pb<2, string>;
+    accept?: pb<1, uint_32>;
+    targetUid?: pb<2, string>;
 }
 /** 0x1255_0 — move one friend into a numbered category. */
 export interface OidbSetFriendCategoryRequest {
-  uid?:        pb<1, string>;
-  categoryId?: pb<2, uint_32>;
+    uid?: pb<1, string>;
+    categoryId?: pb<2, uint_32>;
 }
 export interface OidbDeleteFriendField2Field3 {
-  field1?: pb<1, uint_32>;
-  field2?: pb<2, uint_32>;
-  field3?: pb<3, uint_32>;
+    field1?: pb<1, uint_32>;
+    field2?: pb<2, uint_32>;
+    field3?: pb<3, uint_32>;
 }
 export interface OidbDeleteFriendField2 {
-  field1?: pb<1, uint_32>;
-  field2?: pb<2, uint_32>;
-  field3?: pb<3, OidbDeleteFriendField2Field3>;
+    field1?: pb<1, uint_32>;
+    field2?: pb<2, uint_32>;
+    field3?: pb<3, OidbDeleteFriendField2Field3>;
 }
 export interface OidbDeleteFriendField1 {
-  targetUid?: pb<1, string>;
-  field2?:    pb<2, OidbDeleteFriendField2>;
-  block?:     pb_optional<3, bool>;
-  field4?:    pb<4, bool>;
+    targetUid?: pb<1, string>;
+    field2?: pb<2, OidbDeleteFriendField2>;
+    block?: pb_optional<3, bool>;
+    field4?: pb<4, bool>;
 }
 export interface OidbDeleteFriend {
-  field1?: pb<1, OidbDeleteFriendField1>;
+    field1?: pb<1, OidbDeleteFriendField1>;
 }
 export interface OidbGroupRequestBody {
-  sequence?:         pb<1, uint_64>;
-  eventType?:        pb<2, uint_32>;
-  groupUin?:         pb<3, uint_32>;
-  // Encoder always writes this field. An omitted empty string is not the
-  // same as a present empty/space value; callers must set it.
-  message?:          pb_optional<4, string>;
-  operateTransInfo?: pb<7, bytes>;
+    sequence?: pb<1, uint_64>;
+    eventType?: pb<2, uint_32>;
+    groupUin?: pb<3, uint_32>;
+    // Encoder always writes this field. An omitted empty string is not the
+    // same as a present empty/space value; callers must set it.
+    message?: pb_optional<4, string>;
+    operateTransInfo?: pb<7, bytes>;
 }
 export interface OidbGroupRequestAction {
-  accept?: pb<1, uint_32>;
-  body?:   pb<2, OidbGroupRequestBody>;
+    accept?: pb<1, uint_32>;
+    body?: pb<2, OidbGroupRequestBody>;
 }
 export interface OidbPoke {
-  uin?:       pb<1, uint_32>;
-  groupUin?:  pb<2, uint_32>;
-  friendUin?: pb<5, uint_32>;
-  ext?:       pb<6, uint_32>;
+    uin?: pb<1, uint_32>;
+    groupUin?: pb<2, uint_32>;
+    friendUin?: pb<5, uint_32>;
+    ext?: pb<6, uint_32>;
 }
 export interface OidbEssence {
-  groupUin?: pb<1, uint_32>;
-  sequence?: pb<2, uint_32>;
-  random?:   pb<3, uint_32>;
+    groupUin?: pb<1, uint_32>;
+    sequence?: pb<2, uint_32>;
+    random?: pb<3, uint_32>;
 }
 export interface OidbSetAdmin {
-  groupUin?: pb<1, uint_32>;
-  uid?:      pb<2, string>;
-  isAdmin?:  pb<3, bool>;
+    groupUin?: pb<1, uint_32>;
+    uid?: pb<2, string>;
+    isAdmin?: pb<3, bool>;
 }
 // 0x8FC_3 (set member card) shares its wire shape with 0x8FC_2 (special
 // title): the body wrapper sits at tag 3, and the card name at tag 8 —
@@ -182,36 +191,36 @@ export interface OidbSetAdmin {
 //   dev/Lagrange.Core/…/Request/OidbSvcTrpcTcp0x8FC.cs (Body=3, TargetName=8)
 //   dev/napcatQQInside/…/proto/oidb/Oidb.0x8FC_2.ts    (body=3, targetName=8)
 export interface OidbRenameMemberBody {
-  targetUid?:  pb<1, string>;
-  targetName?: pb<8, string>;
+    targetUid?: pb<1, string>;
+    targetName?: pb<8, string>;
 }
 export interface OidbRenameMember {
-  groupUin?: pb<1, uint_32>;
-  body?:     pb<3, OidbRenameMemberBody>;
+    groupUin?: pb<1, uint_32>;
+    body?: pb<3, OidbRenameMemberBody>;
 }
 export interface OidbRenameGroupBody {
-  // The group name lives at tag 3, NOT tag 1 — tags 1/2 make the server reject
-  // 0x89a_15 with OIDB error 1006 (#173). Confirmed against Lagrange's
-  // OidbSvcTrpcTcp0x89A_15Body (ProtoMember(3) TargetName).
-  targetName?: pb<3, string>;
+    // The group name lives at tag 3, NOT tag 1 — tags 1/2 make the server reject
+    // 0x89a_15 with OIDB error 1006 (#173). Confirmed against Lagrange's
+    // OidbSvcTrpcTcp0x89A_15Body (ProtoMember(3) TargetName).
+    targetName?: pb<3, string>;
 }
 export interface OidbRenameGroup {
-  groupUin?: pb<1, uint_32>;
-  body?:     pb<2, OidbRenameGroupBody>;
+    groupUin?: pb<1, uint_32>;
+    body?: pb<2, OidbRenameGroupBody>;
 }
 export interface OidbSpecialTitleBody {
-  targetUid?:    pb<1, string>;
-  specialTitle?: pb<5, string>;
-  expireTime?:   pb<6, int_32>;
-  // The server requires uinName (tag 7) set to the same title, else it accepts
-  // the request (errorCode 0) but silently never applies it. Both NapCat and
-  // Lagrange send uinName = title (Lagrange 0x8FC body @7, NapCat Oidb.0x8FC_2).
-  uinName?:      pb<7, string>;
+    targetUid?: pb<1, string>;
+    specialTitle?: pb<5, string>;
+    expireTime?: pb<6, int_32>;
+    // The server requires uinName (tag 7) set to the same title, else it accepts
+    // the request (errorCode 0) but silently never applies it. Both NapCat and
+    // Lagrange send uinName = title (Lagrange 0x8FC body @7, NapCat Oidb.0x8FC_2).
+    uinName?: pb<7, string>;
 }
 export interface OidbSpecialTitle {
-  groupUin?: pb<1, uint_32>;
-  // Same family as 0x8FC_3 above — body wrapper is tag 3, not 2.
-  body?:     pb<3, OidbSpecialTitleBody>;
+    groupUin?: pb<1, uint_32>;
+    // Same family as 0x8FC_3 above — body wrapper is tag 3, not 2.
+    body?: pb<3, OidbSpecialTitleBody>;
 }
 // 0x7E5_104 (FriendLike) request body. Field numbers 11/12/13 (NOT
 // 1/2/3) — the server reads `targetUid` from tag 11 and rejects with
@@ -222,20 +231,20 @@ export interface OidbSpecialTitle {
 // and NapCat's UserApi.like (`setBuddyProfileLike` → sourceId 71):
 //   dev/NapCatQQ/packages/napcat-core/apis/user.ts:63-70
 export interface OidbLike {
-  targetUid?: pb<11, string>;
-  sourceId?:  pb<12, uint_32>;
-  count?:     pb<13, uint_32>;
+    targetUid?: pb<11, string>;
+    sourceId?: pb<12, uint_32>;
+    count?: pb<13, uint_32>;
 }
 export interface OidbGroupRequestList {
-  count?:  pb<1, uint_32>;
-  field2?: pb<2, uint_64>;
+    count?: pb<1, uint_32>;
+    field2?: pb<2, uint_64>;
 }
 export interface OidbUserInfoKey {
-  key?: pb<1, uint_32>;
+    key?: pb<1, uint_32>;
 }
 export interface OidbUserInfoRequest {
-  uin?:  pb<1, uint_32>;
-  keys?: pb_repeated<3, OidbUserInfoKey>;
+    uin?: pb<1, uint_32>;
+    keys?: pb_repeated<3, OidbUserInfoKey>;
 }
 // UID-form variant of OIDB 0xFE1_2 — same wire shape but field 1 is
 // the uid string. Used by the stranger lookup path (group join
@@ -243,109 +252,109 @@ export interface OidbUserInfoRequest {
 // Matches Lagrange's `OidbSvcTrpcTcp0xFE1_2Uid`:
 //   dev/Lagrange.Core/.../OidbSvcTrpcTcp0xFE1_2.cs:9-16
 export interface OidbUserInfoByUidRequest {
-  uid?:  pb<1, string>;
-  keys?: pb_repeated<3, OidbUserInfoKey>;
+    uid?: pb<1, string>;
+    keys?: pb_repeated<3, OidbUserInfoKey>;
 }
 export interface OidbTwoNumber {
-  number1?: pb<1, uint_32>;
-  number2?: pb<2, uint_32>;
+    number1?: pb<1, uint_32>;
+    number2?: pb<2, uint_32>;
 }
 export interface OidbByteProperty {
-  code?:  pb<1, uint_32>;
-  value?: pb<2, bytes>;
+    code?: pb<1, uint_32>;
+    value?: pb<2, bytes>;
 }
 export interface OidbUserInfoProperty {
-  numberProperties?: pb_repeated<1, OidbTwoNumber>;
-  bytesProperties?:  pb_repeated<2, OidbByteProperty>;
+    numberProperties?: pb_repeated<1, OidbTwoNumber>;
+    bytesProperties?: pb_repeated<2, OidbByteProperty>;
 }
 export interface OidbUserInfoResponseBody {
-  uid?:        pb<1, string>;
-  properties?: pb<2, OidbUserInfoProperty>;
-  uin?:        pb<3, uint_32>;
+    uid?: pb<1, string>;
+    properties?: pb<2, OidbUserInfoProperty>;
+    uin?: pb<3, uint_32>;
 }
 export interface OidbUserInfoResponse {
-  body?: pb<1, OidbUserInfoResponseBody>;
+    body?: pb<1, OidbUserInfoResponseBody>;
 }
 export interface AvatarInfo {
-  url?: pb<5, string>;
+    url?: pb<5, string>;
 }
 export interface OidbCustomStatus {
-  faceId?: pb<1, uint_32>;
-  msg?:    pb<2, string>;
+    faceId?: pb<1, uint_32>;
+    msg?: pb<2, string>;
 }
 export interface OidbFriendListNumber {
-  numbers?: pb_repeated<1, uint_32>;
+    numbers?: pb_repeated<1, uint_32>;
 }
 export interface OidbFriendListBodyItem {
-  type?:   pb<1, uint_32>;
-  number?: pb<2, OidbFriendListNumber>;
+    type?: pb<1, uint_32>;
+    number?: pb<2, OidbFriendListNumber>;
 }
 export interface OidbFriendListRequest {
-  friendCount?: pb<2, uint_32>;
-  field4?:      pb<4, uint_32>;
-  cookie?:      pb<5, bytes>;
-  field6?:      pb<6, uint_32>;
-  field7?:      pb<7, uint_32>;
-  body?:        pb_repeated<10001, OidbFriendListBodyItem>;
-  field10002?:  pb_repeated<10002, uint_32>;
-  field10003?:  pb<10003, uint_32>;
+    friendCount?: pb<2, uint_32>;
+    field4?: pb<4, uint_32>;
+    cookie?: pb<5, bytes>;
+    field6?: pb<6, uint_32>;
+    field7?: pb<7, uint_32>;
+    body?: pb_repeated<10001, OidbFriendListBodyItem>;
+    field10002?: pb_repeated<10002, uint_32>;
+    field10003?: pb<10003, uint_32>;
 }
 export interface OidbGroupListConfig1 {
-  groupOwner?:  pb<1, bool>;
-  field2?:      pb<2, bool>;
-  memberMax?:   pb<3, bool>;
-  memberCount?: pb<4, bool>;
-  groupName?:   pb<5, bool>;
-  field8?:      pb<8, bool>;
-  field9?:      pb<9, bool>;
-  field10?:     pb<10, bool>;
-  field11?:     pb<11, bool>;
-  field12?:     pb<12, bool>;
-  field13?:     pb<13, bool>;
-  field14?:     pb<14, bool>;
-  field15?:     pb<15, bool>;
-  field16?:     pb<16, bool>;
-  field17?:     pb<17, bool>;
-  field18?:     pb<18, bool>;
-  question?:    pb<19, bool>;
-  field20?:     pb<20, bool>;
-  field22?:     pb<22, bool>;
-  field23?:     pb<23, bool>;
-  field24?:     pb<24, bool>;
-  field25?:     pb<25, bool>;
-  field26?:     pb<26, bool>;
-  field27?:     pb<27, bool>;
-  field28?:     pb<28, bool>;
-  field29?:     pb<29, bool>;
-  field30?:     pb<30, bool>;
-  field31?:     pb<31, bool>;
-  field32?:     pb<32, bool>;
-  field5001?:   pb<5001, bool>;
-  field5002?:   pb<5002, bool>;
-  field5003?:   pb<5003, bool>;
+    groupOwner?: pb<1, bool>;
+    field2?: pb<2, bool>;
+    memberMax?: pb<3, bool>;
+    memberCount?: pb<4, bool>;
+    groupName?: pb<5, bool>;
+    field8?: pb<8, bool>;
+    field9?: pb<9, bool>;
+    field10?: pb<10, bool>;
+    field11?: pb<11, bool>;
+    field12?: pb<12, bool>;
+    field13?: pb<13, bool>;
+    field14?: pb<14, bool>;
+    field15?: pb<15, bool>;
+    field16?: pb<16, bool>;
+    field17?: pb<17, bool>;
+    field18?: pb<18, bool>;
+    question?: pb<19, bool>;
+    field20?: pb<20, bool>;
+    field22?: pb<22, bool>;
+    field23?: pb<23, bool>;
+    field24?: pb<24, bool>;
+    field25?: pb<25, bool>;
+    field26?: pb<26, bool>;
+    field27?: pb<27, bool>;
+    field28?: pb<28, bool>;
+    field29?: pb<29, bool>;
+    field30?: pb<30, bool>;
+    field31?: pb<31, bool>;
+    field32?: pb<32, bool>;
+    field5001?: pb<5001, bool>;
+    field5002?: pb<5002, bool>;
+    field5003?: pb<5003, bool>;
 }
 export interface OidbGroupListConfig2 {
-  field1?: pb<1, bool>;
-  field2?: pb<2, bool>;
-  /** Request the bot-local label returned as group.customInfo.remark. */
-  remark?: pb<3, bool>;
-  field4?: pb<4, bool>;
-  field5?: pb<5, bool>;
-  field6?: pb<6, bool>;
-  field7?: pb<7, bool>;
-  field8?: pb<8, bool>;
+    field1?: pb<1, bool>;
+    field2?: pb<2, bool>;
+    /** Request the bot-local label returned as group.customInfo.remark. */
+    remark?: pb<3, bool>;
+    field4?: pb<4, bool>;
+    field5?: pb<5, bool>;
+    field6?: pb<6, bool>;
+    field7?: pb<7, bool>;
+    field8?: pb<8, bool>;
 }
 export interface OidbGroupListConfig3 {
-  field5?: pb<5, bool>;
-  field6?: pb<6, bool>;
+    field5?: pb<5, bool>;
+    field6?: pb<6, bool>;
 }
 export interface OidbGroupListConfig {
-  config1?: pb<1, OidbGroupListConfig1>;
-  config2?: pb<2, OidbGroupListConfig2>;
-  config3?: pb<3, OidbGroupListConfig3>;
+    config1?: pb<1, OidbGroupListConfig1>;
+    config2?: pb<2, OidbGroupListConfig2>;
+    config3?: pb<3, OidbGroupListConfig3>;
 }
 export interface OidbGroupListRequest {
-  config?: pb<1, OidbGroupListConfig>;
+    config?: pb<1, OidbGroupListConfig>;
 }
 
 // 0x88D_0 — fetch a single group's detail by group uin (works for groups the
@@ -354,110 +363,110 @@ export interface OidbGroupListRequest {
 // field; the tags mirror the response `Results`. Cross-checked against
 // dev/Lagrange.Core/.../Request/OidbSvcTrpcTcp0x88D_0.cs.
 export interface OidbGroupDetailFlags {
-  ownerUid?:        pb<1, bool>;
-  createTime?:      pb<2, bool>;
-  maxMemberCount?:  pb<5, bool>;
-  memberCount?:     pb<6, bool>;
-  addType?:         pb<7, bool>;
-  level?:           pb<10, bool>;
-  name?:            pb<15, string>;
-  noticePreview?:   pb<16, string>;
-  uin?:             pb<21, bool>;
-  lastSequence?:    pb<22, bool>;
-  lastMessageTime?: pb<23, bool>;
-  // EncodeSingleGroupInfoParamByBaseFilter writes these as empty strings
-  // (length-delimited). A bool true is a different wire type and the
-  // server ignores it; a plain pb<> empty string is omitted.
-  question?:        pb_optional<24, string>;
-  answer?:          pb_optional<25, string>;
-  maxAdminCount?:   pb<29, string>;
-  // Official request mask for group shutup expire (proto tag 45 → 60027).
-  // Lagrange's tag 59 requests 60259, which is a different field.
-  shutUpAllTimestamp?: pb<45, bool>;
-  /** Request the complete app privilege bitfield. */
-  privilegeFlag?:   pb<56, bool>;
-  /** Request the new-member history-visible switch. */
-  groupFlagExt4?:   pb<101, bool>;
-  noFingerOpen?:     pb<82, bool>;
-  noCodeFingerOpen?: pb<83, bool>;
+    ownerUid?: pb<1, bool>;
+    createTime?: pb<2, bool>;
+    maxMemberCount?: pb<5, bool>;
+    memberCount?: pb<6, bool>;
+    addType?: pb<7, bool>;
+    level?: pb<10, bool>;
+    name?: pb<15, string>;
+    noticePreview?: pb<16, string>;
+    uin?: pb<21, bool>;
+    lastSequence?: pb<22, bool>;
+    lastMessageTime?: pb<23, bool>;
+    // EncodeSingleGroupInfoParamByBaseFilter writes these as empty strings
+    // (length-delimited). A bool true is a different wire type and the
+    // server ignores it; a plain pb<> empty string is omitted.
+    question?: pb_optional<24, string>;
+    answer?: pb_optional<25, string>;
+    maxAdminCount?: pb<29, string>;
+    // Official request mask for group shutup expire (proto tag 45 → 60027).
+    // Lagrange's tag 59 requests 60259, which is a different field.
+    shutUpAllTimestamp?: pb<45, bool>;
+    /** Request the complete app privilege bitfield. */
+    privilegeFlag?: pb<56, bool>;
+    /** Request the new-member history-visible switch. */
+    groupFlagExt4?: pb<101, bool>;
+    noFingerOpen?: pb<82, bool>;
+    noCodeFingerOpen?: pb<83, bool>;
 }
 export interface OidbGroupDetailConfig {
-  uin?:   pb<1, uint_64>;
-  flags?: pb<2, OidbGroupDetailFlags>;
+    uin?: pb<1, uint_64>;
+    flags?: pb<2, OidbGroupDetailFlags>;
 }
 export interface OidbGroupDetailRequest {
-  field1?: pb<1, uint_32>;
-  config?: pb<2, OidbGroupDetailConfig>;
+    field1?: pb<1, uint_32>;
+    config?: pb<2, OidbGroupDetailConfig>;
 }
 export interface OidbGroupMemberListBody {
-  memberName?:       pb<10, bool>;
-  memberCard?:       pb<11, bool>;
-  level?:            pb<12, bool>;
-  field13?:          pb<13, bool>;
-  field16?:          pb<16, bool>;
-  specialTitle?:     pb<17, bool>;
-  field18?:          pb<18, bool>;
-  field20?:          pb<20, bool>;
-  field21?:          pb<21, bool>;
-  joinTimestamp?:    pb<100, bool>;
-  lastMsgTimestamp?: pb<101, bool>;
-  shutUpTimestamp?:  pb<102, bool>;
-  field103?:         pb<103, bool>;
-  field104?:         pb<104, bool>;
-  field105?:         pb<105, bool>;
-  field106?:         pb<106, bool>;
-  permission?:       pb<107, bool>;
-  field200?:         pb<200, bool>;
-  field201?:         pb<201, bool>;
+    memberName?: pb<10, bool>;
+    memberCard?: pb<11, bool>;
+    level?: pb<12, bool>;
+    field13?: pb<13, bool>;
+    field16?: pb<16, bool>;
+    specialTitle?: pb<17, bool>;
+    field18?: pb<18, bool>;
+    field20?: pb<20, bool>;
+    field21?: pb<21, bool>;
+    joinTimestamp?: pb<100, bool>;
+    lastMsgTimestamp?: pb<101, bool>;
+    shutUpTimestamp?: pb<102, bool>;
+    field103?: pb<103, bool>;
+    field104?: pb<104, bool>;
+    field105?: pb<105, bool>;
+    field106?: pb<106, bool>;
+    permission?: pb<107, bool>;
+    field200?: pb<200, bool>;
+    field201?: pb<201, bool>;
 }
 export interface OidbGroupMemberListRequest {
-  groupUin?: pb<1, uint_32>;
-  field2?:   pb<2, uint_32>;
-  field3?:   pb<3, uint_32>;
-  body?:     pb<4, OidbGroupMemberListBody>;
-  token?:    pb<15, string>;
+    groupUin?: pb<1, uint_32>;
+    field2?: pb<2, uint_32>;
+    field3?: pb<3, uint_32>;
+    body?: pb<4, OidbGroupMemberListBody>;
+    token?: pb<15, string>;
 }
 // 0x496_0 — fetch QQ's versioned robot-UIN classification ranges.
 // Field names follow NodeIKernelRobotService.getRobotUinRange. QQ sends the
 // four scalar values directly (there is no nested `req` message on the wire).
 export interface OidbRobotUinRangeRequest {
-  justFetchMsgConfig?: pb<5, uint_32>;
-  type?:               pb<6, uint_32>;
-  version?:            pb_optional<7, uint_32>;
-  aioKeywordVersion?:  pb_optional<8, uint_32>;
+    justFetchMsgConfig?: pb<5, uint_32>;
+    type?: pb<6, uint_32>;
+    version?: pb_optional<7, uint_32>;
+    aioKeywordVersion?: pb_optional<8, uint_32>;
 }
 export interface GroupRecallInfo {
-  sequence?: pb<1, uint_32>;
-  random?:   pb<2, uint_32>;
-  field3?:   pb<3, uint_32>;
+    sequence?: pb<1, uint_32>;
+    random?: pb<2, uint_32>;
+    field3?: pb<3, uint_32>;
 }
 export interface GroupRecallSettings {
-  field1?: pb<1, uint_32>;
+    field1?: pb<1, uint_32>;
 }
 export interface GroupRecallRequest {
-  type?:     pb<1, uint_32>;
-  groupUin?: pb<2, uint_32>;
-  info?:     pb<3, GroupRecallInfo>;
-  settings?: pb<4, GroupRecallSettings>;
+    type?: pb<1, uint_32>;
+    groupUin?: pb<2, uint_32>;
+    info?: pb<3, GroupRecallInfo>;
+    settings?: pb<4, GroupRecallSettings>;
 }
 export interface C2CRecallInfo {
-  clientSequence?:  pb<1, uint_32>;
-  random?:          pb<2, uint_32>;
-  messageId?:       pb<3, uint_64>;
-  timestamp?:       pb<4, uint_32>;
-  field5?:          pb<5, uint_32>;
-  messageSequence?: pb<6, uint_32>;
+    clientSequence?: pb<1, uint_32>;
+    random?: pb<2, uint_32>;
+    messageId?: pb<3, uint_64>;
+    timestamp?: pb<4, uint_32>;
+    field5?: pb<5, uint_32>;
+    messageSequence?: pb<6, uint_32>;
 }
 export interface C2CRecallSettings {
-  field1?: pb<1, bool>;
-  field2?: pb<2, bool>;
+    field1?: pb<1, bool>;
+    field2?: pb<2, bool>;
 }
 export interface C2CRecallRequest {
-  type?:      pb<1, uint_32>;
-  targetUid?: pb<3, string>;
-  info?:      pb<4, C2CRecallInfo>;
-  settings?:  pb<5, C2CRecallSettings>;
-  field6?:    pb<6, bool>;
+    type?: pb<1, uint_32>;
+    targetUid?: pb<3, string>;
+    info?: pb<4, C2CRecallInfo>;
+    settings?: pb<5, C2CRecallSettings>;
+    field6?: pb<6, bool>;
 }
 // Field numbers are 2..7 — NOT 1..4. The 0x9082 request body is nested
 // inside the OIDB envelope's `body` (which itself uses fields 1-5,11,12),
@@ -470,25 +479,25 @@ export interface C2CRecallRequest {
 // the server tolerates them missing, but we emit them to stay byte-
 // identical with Lagrange in case the validator gets stricter.
 export interface OidbGroupReaction {
-  groupUin?: pb<2, uint_32>;
-  sequence?: pb<3, uint_32>;
-  code?:     pb<4, string>;
-  type?:     pb<5, uint_32>;
-  field6?:   pb<6, bool>;
-  field7?:   pb<7, bool>;
+    groupUin?: pb<2, uint_32>;
+    sequence?: pb<3, uint_32>;
+    code?: pb<4, string>;
+    type?: pb<5, uint_32>;
+    field6?: pb<6, bool>;
+    field7?: pb<7, bool>;
 }
 export interface GroupReadedReportItem {
-  groupUin?:    pb<1, uint_64>;
-  lastReadSeq?: pb<2, uint_64>;
+    groupUin?: pb<1, uint_64>;
+    lastReadSeq?: pb<2, uint_64>;
 }
 export interface C2CReadedReportItem {
-  uid?:          pb<2, string>;
-  lastReadTime?: pb<3, uint_64>;
-  lastReadSeq?:  pb<4, uint_64>;
+    uid?: pb<2, string>;
+    lastReadTime?: pb<3, uint_64>;
+    lastReadSeq?: pb<4, uint_64>;
 }
 export interface SsoReadedReportReq {
-  groupList?: pb_repeated<1, GroupReadedReportItem>;
-  c2cList?:   pb_repeated<2, C2CReadedReportItem>;
+    groupList?: pb_repeated<1, GroupReadedReportItem>;
+    c2cList?: pb_repeated<2, C2CReadedReportItem>;
 }
 // SsoReadedReport deliberately uses different tags in its response. In
 // particular, field 3 is the repeated GROUP RESPONSE, not a request field.
@@ -496,238 +505,238 @@ export interface SsoReadedReportReq {
 // latest message sequence. A read report is complete only after readSeq catches
 // up with latestSeq; a top-level success alone does not prove that happened.
 export interface GroupReadedReportResponseItem {
-  resultCode?:   pb<1, uint_32>;
-  errorMessage?: pb<2, string>;
-  groupUin?:     pb<3, uint_64>;
-  readSeq?:      pb<4, uint_64>;
-  latestSeq?:    pb<5, uint_64>;
+    resultCode?: pb<1, uint_32>;
+    errorMessage?: pb<2, string>;
+    groupUin?: pb<3, uint_64>;
+    readSeq?: pb<4, uint_64>;
+    latestSeq?: pb<5, uint_64>;
 }
 export interface C2CReadedReportResponseItem {
-  resultCode?:   pb<1, uint_32>;
-  errorMessage?: pb<2, string>;
-  targetUin?:    pb<3, uint_64>;
-  uid?:          pb<4, string>;
-  readSeq?:      pb<5, uint_64>;
-  latestSeq?:    pb<6, uint_64>;
-  lastMsgTime?:  pb<7, uint_64>;
+    resultCode?: pb<1, uint_32>;
+    errorMessage?: pb<2, string>;
+    targetUin?: pb<3, uint_64>;
+    uid?: pb<4, string>;
+    readSeq?: pb<5, uint_64>;
+    latestSeq?: pb<6, uint_64>;
+    lastMsgTime?: pb<7, uint_64>;
 }
 export interface SsoReadedReportResp {
-  resultCode?:   pb<1, uint_32>;
-  errorMessage?: pb<2, string>;
-  groupList?:    pb_repeated<3, GroupReadedReportResponseItem>;
-  c2cList?:      pb_repeated<4, C2CReadedReportResponseItem>;
+    resultCode?: pb<1, uint_32>;
+    errorMessage?: pb<2, string>;
+    groupList?: pb_repeated<3, GroupReadedReportResponseItem>;
+    c2cList?: pb_repeated<4, C2CReadedReportResponseItem>;
 }
 export interface OidbClientKeyReq {}
 export interface OidbClientKeyResp {
-  keyIndex?:   pb<2, uint_32>;
-  clientKey?:  pb<3, string>;
-  expireTime?: pb<4, uint_32>;
+    keyIndex?: pb<2, uint_32>;
+    clientKey?: pb<3, string>;
+    expireTime?: pb<4, uint_32>;
 }
 export interface OidbGetPskeyReq {
-  domainList?: pb_repeated<1, string>;
+    domainList?: pb_repeated<1, string>;
 }
 export interface OidbPskeyItem {
-  domain?:     pb<1, string>;
-  pskey?:      pb<2, string>;
-  expireTime?: pb<3, uint_64>;
+    domain?: pb<1, string>;
+    pskey?: pb<2, string>;
+    expireTime?: pb<3, uint_64>;
 }
 export interface OidbGetPskeyResp {
-  pskeyItems?: pb_repeated<1, OidbPskeyItem>;
+    pskeyItems?: pb_repeated<1, OidbPskeyItem>;
 }
 export interface SetStatusCustomExt {
-  faceId?:   pb<1, uint_32>;
-  text?:     pb<2, string>;
-  faceType?: pb<3, uint_32>;
+    faceId?: pb<1, uint_32>;
+    text?: pb<2, string>;
+    faceType?: pb<3, uint_32>;
 }
 export interface SetStatusReq {
-  status?:        pb<1, int_32>;
-  extStatus?:     pb<2, int_32>;
-  batteryStatus?: pb<3, int_32>;
-  customExt?:     pb<4, SetStatusCustomExt>;
+    status?: pb<1, int_32>;
+    extStatus?: pb<2, int_32>;
+    batteryStatus?: pb<3, int_32>;
+    customExt?: pb<4, SetStatusCustomExt>;
 }
 export interface SetStatusResp {
-  errCode?: pb<1, int_32>;
-  errMsg?:  pb<2, string>;
+    errCode?: pb<1, int_32>;
+    errMsg?: pb<2, string>;
 }
 export interface OidbProfileStringItem {
-  fieldId?: pb<1, uint_32>;
-  value?:   pb<2, string>;
+    fieldId?: pb<1, uint_32>;
+    value?: pb<2, string>;
 }
 export interface OidbProfileIntItem {
-  fieldId?: pb<1, uint_32>;
-  value?:   pb<2, uint_64>;
+    fieldId?: pb<1, uint_32>;
+    value?: pb<2, uint_64>;
 }
 export interface OidbSetProfile {
-  uin?:            pb<1, uint_64>;
-  stringProfiles?: pb_repeated<2, OidbProfileStringItem>;
-  intProfiles?:    pb_repeated<3, OidbProfileIntItem>;
+    uin?: pb<1, uint_64>;
+    stringProfiles?: pb_repeated<2, OidbProfileStringItem>;
+    intProfiles?: pb_repeated<3, OidbProfileIntItem>;
 }
 export interface Oidb0x7edUserInfo {
-  uid?:                pb<1, string>;
-  src?:                pb<2, uint_32>;
-  latestTime?:         pb<3, uint_32>;
-  count?:              pb<4, uint_32>;
-  giftCount?:          pb<5, uint_32>;
-  customId?:           pb<6, uint_32>;
-  lastCharged?:        pb<8, uint_32>;
-  availableCount?:     pb<21, uint_32>;
-  todayVotedCount?:    pb<22, uint_32>;
-  nick?:               pb<101, string>;
-  gender?:             pb<102, uint_32>;
-  age?:                pb<103, uint_32>;
-  isFriend?:           pb<104, bool>;
-  isVip?:              pb<105, bool>;
-  isSvip?:             pb<106, bool>;
+    uid?: pb<1, string>;
+    src?: pb<2, uint_32>;
+    latestTime?: pb<3, uint_32>;
+    count?: pb<4, uint_32>;
+    giftCount?: pb<5, uint_32>;
+    customId?: pb<6, uint_32>;
+    lastCharged?: pb<8, uint_32>;
+    availableCount?: pb<21, uint_32>;
+    todayVotedCount?: pb<22, uint_32>;
+    nick?: pb<101, string>;
+    gender?: pb<102, uint_32>;
+    age?: pb<103, uint_32>;
+    isFriend?: pb<104, bool>;
+    isVip?: pb<105, bool>;
+    isSvip?: pb<106, bool>;
 }
 export interface Oidb0x7edFavoriteInfo {
-  totalCount?: pb<1, uint_32>;
-  lastTime?:   pb<2, uint_32>;
-  todayCount?: pb<3, uint_32>;
-  userInfos?:  pb_repeated<4, Oidb0x7edUserInfo>;
+    totalCount?: pb<1, uint_32>;
+    lastTime?: pb<2, uint_32>;
+    todayCount?: pb<3, uint_32>;
+    userInfos?: pb_repeated<4, Oidb0x7edUserInfo>;
 }
 export interface Oidb0x7edVoteInfo {
-  totalCount?:      pb<1, uint_32>;
-  newCount?:        pb<2, uint_32>;
-  newNearbyCount?:  pb<3, uint_32>;
-  lastVisitTime?:   pb<4, uint_32>;
-  userInfos?:       pb_repeated<5, Oidb0x7edUserInfo>;
+    totalCount?: pb<1, uint_32>;
+    newCount?: pb<2, uint_32>;
+    newNearbyCount?: pb<3, uint_32>;
+    lastVisitTime?: pb<4, uint_32>;
+    userInfos?: pb_repeated<5, Oidb0x7edUserInfo>;
 }
 export interface Oidb0x7edUserLikeInfo {
-  uid?:          pb<1, string>;
-  time?:         pb<2, uint_32>;
-  favoriteInfo?: pb<3, Oidb0x7edFavoriteInfo>;
-  voteInfo?:     pb<4, Oidb0x7edVoteInfo>;
+    uid?: pb<1, string>;
+    time?: pb<2, uint_32>;
+    favoriteInfo?: pb<3, Oidb0x7edFavoriteInfo>;
+    voteInfo?: pb<4, Oidb0x7edVoteInfo>;
 }
 export interface Oidb0x7edReq {
-  targetUids?: pb_repeated<1, string>;
-  basic?:      pb<2, uint_32>;
-  vote?:       pb<3, uint_32>;
-  favorite?:   pb<4, uint_32>;
-  userProfile?: pb<101, uint_32>;
-  start?:      pb<102, uint_32>;
-  limit?:      pb<103, uint_32>;
+    targetUids?: pb_repeated<1, string>;
+    basic?: pb<2, uint_32>;
+    vote?: pb<3, uint_32>;
+    favorite?: pb<4, uint_32>;
+    userProfile?: pb<101, uint_32>;
+    start?: pb<102, uint_32>;
+    limit?: pb<103, uint_32>;
 }
 export interface Oidb0x7edResp {
-  userLikeInfos?: pb_repeated<1, Oidb0x7edUserLikeInfo>;
-  friendMaxVotes?: pb<2, uint_32>;
-  start?:          pb<101, int_32>;
+    userLikeInfos?: pb_repeated<1, Oidb0x7edUserLikeInfo>;
+    friendMaxVotes?: pb<2, uint_32>;
+    start?: pb<101, int_32>;
 }
 export interface Oidb0x8a7Req {
-  basic1?:  pb<1, uint_32>;
-  basic2?:  pb<2, uint_32>;
-  basic3?:  pb<3, uint_32>;
-  uin?:     pb<4, uint_64>;
-  groupId?: pb<5, uint_64>;
-  type?:    pb<12, uint_32>;
+    basic1?: pb<1, uint_32>;
+    basic2?: pb<2, uint_32>;
+    basic3?: pb<3, uint_32>;
+    uin?: pb<4, uint_64>;
+    groupId?: pb<5, uint_64>;
+    type?: pb<12, uint_32>;
 }
 export interface Oidb0x8a7Resp {
-  uinRemain?:   pb<2, uint_32>;
-  groupRemain?: pb<3, uint_32>;
-  msg?:         pb<4, string>;
-  canAtAll?:    pb<6, bool>;
+    uinRemain?: pb<2, uint_32>;
+    groupRemain?: pb<3, uint_32>;
+    msg?: pb<4, string>;
+    canAtAll?: pb<6, bool>;
 }
 export interface Oidb0xe17Req {
-  jsonBody?: pb<3, string>;
+    jsonBody?: pb<3, string>;
 }
 export interface Oidb0xe17Resp {
-  jsonBody?: pb<4, string>;
+    jsonBody?: pb<4, string>;
 }
 export interface Oidb0x112aProfileInfo {
-  tag?:   pb<1, uint_32>;
-  value?: pb<2, string>;
+    tag?: pb<1, uint_32>;
+    value?: pb<2, string>;
 }
 export interface Oidb0x112aReq {
-  uin?:     pb<1, uint_64>;
-  profile?: pb<2, Oidb0x112aProfileInfo>;
+    uin?: pb<1, uint_64>;
+    profile?: pb<2, Oidb0x112aProfileInfo>;
 }
 export interface Oidb0x112aResp {}
 export interface Oidb0xcd4ReqBody {
-  uid?:       pb<1, string>;
-  chatType?:  pb<2, uint_32>;
-  eventType?: pb<3, uint_32>;
+    uid?: pb<1, string>;
+    chatType?: pb<2, uint_32>;
+    eventType?: pb<3, uint_32>;
 }
 export interface Oidb0xcd4Req {
-  reqBody?: pb<1, Oidb0xcd4ReqBody>;
+    reqBody?: pb<1, Oidb0xcd4ReqBody>;
 }
 export interface Oidb0xcd4Resp {}
 export interface Oidb0x990TranslateReq {
-  srcLang?: pb<1, string>;
-  dstLang?: pb<2, string>;
-  words?:   pb_repeated<3, string>;
+    srcLang?: pb<1, string>;
+    dstLang?: pb<2, string>;
+    words?: pb_repeated<3, string>;
 }
 export interface Oidb0x990Req {
-  translateReq?: pb<2, Oidb0x990TranslateReq>;
-  tag10?:        pb<10, uint_32>;
-  tag12?:        pb<12, uint_32>;
+    translateReq?: pb<2, Oidb0x990TranslateReq>;
+    tag10?: pb<10, uint_32>;
+    tag12?: pb<12, uint_32>;
 }
 export interface Oidb0x990TranslateResp {
-  errorCode?: pb<1, uint_32>;
-  errorMsg?:  pb<2, string>;
-  srcLang?:   pb<3, string>;
-  dstLang?:   pb<4, string>;
-  srcWords?:  pb_repeated<5, string>;
-  dstWords?:  pb_repeated<6, string>;
+    errorCode?: pb<1, uint_32>;
+    errorMsg?: pb<2, string>;
+    srcLang?: pb<3, string>;
+    dstLang?: pb<4, string>;
+    srcWords?: pb_repeated<5, string>;
+    dstWords?: pb_repeated<6, string>;
 }
 export interface Oidb0x990Resp {
-  translateResp?: pb<2, Oidb0x990TranslateResp>;
+    translateResp?: pb<2, Oidb0x990TranslateResp>;
 }
 export interface MiniAppShareReqBody {
-  appid?:   pb<2, string>;
-  title?:   pb<3, string>;
-  desc?:    pb<4, string>;
-  picUrl?:  pb<9, string>;
-  jumpUrl?: pb<11, string>;
-  iconUrl?: pb<12, string>;
+    appid?: pb<2, string>;
+    title?: pb<3, string>;
+    desc?: pb<4, string>;
+    picUrl?: pb<9, string>;
+    jumpUrl?: pb<11, string>;
+    iconUrl?: pb<12, string>;
 }
 export interface MiniAppShareReq {
-  sdkVersion?: pb<2, string>;
-  body?:       pb<4, MiniAppShareReqBody>;
+    sdkVersion?: pb<2, string>;
+    body?: pb<4, MiniAppShareReqBody>;
 }
 export interface MiniAppShareRespBody {
-  jsonStr?: pb<2, string>;
+    jsonStr?: pb<2, string>;
 }
 export interface MiniAppShareResp {
-  status?: pb<2, uint_32>;
-  msg?:    pb<3, string>;
-  body?:   pb<4, MiniAppShareRespBody>;
+    status?: pb<2, uint_32>;
+    msg?: pb<3, string>;
+    body?: pb<4, MiniAppShareRespBody>;
 }
 export interface Oidb0x112eReq {
-  botAppid?:     pb<3, uint_64>;
-  msgSeq?:       pb<4, uint_64>;
-  buttonId?:     pb<5, string>;
-  callbackData?: pb<6, string>;
-  unknown7?:     pb<7, uint_32>;
-  groupId?:      pb<8, uint_64>;
-  unknown9?:     pb<9, uint_32>;
+    botAppid?: pb<3, uint_64>;
+    msgSeq?: pb<4, uint_64>;
+    buttonId?: pb<5, string>;
+    callbackData?: pb<6, string>;
+    unknown7?: pb<7, uint_32>;
+    groupId?: pb<8, uint_64>;
+    unknown9?: pb<9, uint_32>;
 }
 export interface Oidb0x112eResp {
-  result?:     pb<3, uint_32>;
-  promptText?: pb<4, string>;
-  errMsg?:     pb<5, string>;
+    result?: pb<3, uint_32>;
+    promptText?: pb<4, string>;
+    errMsg?: pb<5, string>;
 }
 export interface Oidb0xeb7SignInInfo {
-  uin?:     pb<1, string>;
-  groupId?: pb<2, string>;
-  version?: pb<3, string>;
+    uin?: pb<1, string>;
+    groupId?: pb<2, string>;
+    version?: pb<3, string>;
 }
 export interface Oidb0xeb7Req {
-  signInInfo?: pb<2, Oidb0xeb7SignInInfo>;
+    signInInfo?: pb<2, Oidb0xeb7SignInInfo>;
 }
 export interface Oidb0xeb7Resp {}
 export interface FaceroamOpReqInner {
-  field1?:    pb<1, uint_32>;
-  osVersion?: pb<2, string>;
-  qqVersion?: pb<3, string>;
+    field1?: pb<1, uint_32>;
+    osVersion?: pb<2, string>;
+    qqVersion?: pb<3, string>;
 }
 export interface FaceroamOpReq {
-  inner?:  pb<1, FaceroamOpReqInner>;
-  uin?:    pb<2, uint_64>;
-  field3?: pb<3, uint_32>;
-  body?:   pb<5, FaceroamOpBody>;
-  field6?: pb<6, uint_32>;
+    inner?: pb<1, FaceroamOpReqInner>;
+    uin?: pb<2, uint_64>;
+    field3?: pb<3, uint_32>;
+    body?: pb<5, FaceroamOpBody>;
+    field6?: pb<6, uint_32>;
 }
 export interface FaceroamOpBody {
-  emojiId?: pb<1, string>;
+    emojiId?: pb<1, string>;
 }
 
 // OIDB 0x902e_1 opType=3 — 修改收藏表情（custom face）备注。
@@ -740,33 +749,33 @@ export interface FaceroamOpBody {
 // f5.entry.emoji 是 {emojiId, md5}，desc 是新备注。f12=1 是修改标志。
 // 字段编号严格对齐 QQ 9.9.26-44343 抓包。
 export interface CustomFaceOpEmojiEntry {
-  emojiId?: pb<1, string>;
-  md5?:     pb<2, string>;
+    emojiId?: pb<1, string>;
+    md5?: pb<2, string>;
 }
 export interface CustomFaceModifyEntry {
-  emoji?: pb<1, CustomFaceOpEmojiEntry>;
-  desc?:  pb<2, string>;
+    emoji?: pb<1, CustomFaceOpEmojiEntry>;
+    desc?: pb<2, string>;
 }
 export interface CustomFaceModifyBody {
-  field1?:    pb<1, uint_32>;
-  osVersion?: pb<2, string>;
-  opType?:    pb<3, uint_32>;
-  entry?:     pb<5, CustomFaceModifyEntry>;
-  field12?:   pb<12, uint_32>;
+    field1?: pb<1, uint_32>;
+    osVersion?: pb<2, string>;
+    opType?: pb<3, uint_32>;
+    entry?: pb<5, CustomFaceModifyEntry>;
+    field12?: pb<12, uint_32>;
 }
 // 0x902e modify 响应：f1=retcode, f2=errmsg, f3=opType, f4 repeated 受影响条目
 // {f1:{emojiId,md5}, f3:desc}（含改后 desc）。
 export interface CustomFaceModifyRespEntry {
-  emoji?:      pb<1, CustomFaceOpEmojiEntry>;
-  /** Older QQ builds return the description in tag 2. */
-  legacyDesc?: pb<2, string>;
-  desc?:       pb<3, string>;
+    emoji?: pb<1, CustomFaceOpEmojiEntry>;
+    /** Older QQ builds return the description in tag 2. */
+    legacyDesc?: pb<2, string>;
+    desc?: pb<3, string>;
 }
 export interface CustomFaceModifyResp {
-  retCode?: pb<1, uint_32>;
-  errMsg?:  pb<2, string>;
-  opType?:  pb<3, uint_32>;
-  entries?: pb_repeated<4, CustomFaceModifyRespEntry>;
+    retCode?: pb<1, uint_32>;
+    errMsg?: pb<2, string>;
+    opType?: pb<3, uint_32>;
+    entries?: pb_repeated<4, CustomFaceModifyRespEntry>;
 }
 
 // OIDB 0x902f_1 — 收藏表情（custom face）移动指令（move 第1步）。
@@ -777,15 +786,15 @@ export interface CustomFaceModifyResp {
 // f1 是客户端环境（1024 是 client type 标志），f2 要移动的 emoji_id，
 // f3 目标位置（1=最前）。
 export interface CustomFaceOrderEnv {
-  field1?:       pb<1, uint_32>;
-  osVersion?:    pb<2, string>;
-  buildVersion?: pb<3, string>;
+    field1?: pb<1, uint_32>;
+    osVersion?: pb<2, string>;
+    buildVersion?: pb<3, string>;
 }
 export interface CustomFaceOrderBody {
-  env?:      pb<1, CustomFaceOrderEnv>;
-  emojiId?:  pb<2, string>;
-  /** 目标位置（从 1 开始，1=最前）。 */
-  position?: pb<3, uint_32>;
+    env?: pb<1, CustomFaceOrderEnv>;
+    emojiId?: pb<2, string>;
+    /** 目标位置（从 1 开始，1=最前）。 */
+    position?: pb<3, uint_32>;
 }
 // 0x902f 响应复用 CustomFaceModifyResp（f1=retcode, f2=errmsg）。
 
@@ -797,14 +806,14 @@ export interface CustomFaceOrderBody {
 //   { f1:1, f2:osVersion, f3:2, f4:[repeated {emojiId, md5}] }
 // f4 是完整排序后的列表，用 fetch 顺序把目标挪到第一即可（不需要 DB 显示顺序）。
 export interface CustomFaceMoveEntry {
-  emojiId?: pb<1, string>;
-  md5?:     pb<2, string>;
+    emojiId?: pb<1, string>;
+    md5?: pb<2, string>;
 }
 export interface CustomFaceMoveBody {
-  field1?:    pb<1, uint_32>;
-  osVersion?: pb<2, string>;
-  opType?:    pb<3, uint_32>;
-  emojis?:    pb_repeated<4, CustomFaceMoveEntry>;
+    field1?: pb<1, uint_32>;
+    osVersion?: pb<2, string>;
+    opType?: pb<3, uint_32>;
+    emojis?: pb_repeated<4, CustomFaceMoveEntry>;
 }
 // 0x902e move 响应复用 CustomFaceModifyResp（f1=retcode, f2=errmsg）。move 成功
 // 返回 "操作成功"，f3 是 opType 回显，只看 retCode。
@@ -812,53 +821,53 @@ export interface CustomFaceMoveBody {
 // ImgStore.BDHExpressionRoam — 收藏表情上传申请（add 第1步）
 // 请求 body 结构来自 9.9.26-44343 frida 抓包。
 export interface BDHExpressionRoamInner {
-  field1?:   pb<1, uint_32>;
-  uin?:      pb<2, uint_64>;
-  field3?:   pb<3, uint_32>;
-  /** 图片 MD5（16B 二进制，非 hex 字符串）。 */
-  md5?:      pb<4, bytes>;
-  /** 图片字节数。 */
-  filesize?: pb<5, uint_32>;
-  field7?:   pb<7, uint_32>;
-  field8?:   pb<8, uint_32>;
-  field9?:   pb<9, uint_32>;
-  ver?:      pb<13, string>;
-  field16?:  pb<16, uint_32>;
+    field1?: pb<1, uint_32>;
+    uin?: pb<2, uint_64>;
+    field3?: pb<3, uint_32>;
+    /** 图片 MD5（16B 二进制，非 hex 字符串）。 */
+    md5?: pb<4, bytes>;
+    /** 图片字节数。 */
+    filesize?: pb<5, uint_32>;
+    field7?: pb<7, uint_32>;
+    field8?: pb<8, uint_32>;
+    field9?: pb<9, uint_32>;
+    ver?: pb<13, string>;
+    field16?: pb<16, uint_32>;
 }
 export interface BDHExpressionRoamTailInner {
-  field1?: pb<1, uint_32>;
-  field2?: pb<2, uint_32>;
-  field3?: pb<3, string>;
+    field1?: pb<1, uint_32>;
+    field2?: pb<2, uint_32>;
+    field3?: pb<3, string>;
 }
 export interface BDHExpressionRoamTail {
-  inner?: pb<1, BDHExpressionRoamTailInner>;
-  field2?: pb<2, uint_32>;
+    inner?: pb<1, BDHExpressionRoamTailInner>;
+    field2?: pb<2, uint_32>;
 }
 export interface BDHExpressionRoamReq {
-  field1?:   pb<1, uint_32>;
-  field2?:   pb<2, uint_32>;
-  inner?:    pb<3, BDHExpressionRoamInner>;
-  field7?:   pb<7, uint_32>;
-  tail?:     pb<1001, BDHExpressionRoamTail>;
+    field1?: pb<1, uint_32>;
+    field2?: pb<2, uint_32>;
+    inner?: pb<3, BDHExpressionRoamInner>;
+    field7?: pb<7, uint_32>;
+    tail?: pb<1001, BDHExpressionRoamTail>;
 }
 
 // BDHExpressionRoam 响应：含上传节点 + token（add 第2步 highway 上传用）
 export interface BDHExpressionRoamRespInner {
-  field1?:  pb<1, uint_32>;
-  field2?:  pb<2, uint_32>;
-  field4?:  pb<4, uint_32>;
-  /** repeated varint，抓包见 6 个；上传节点走 fetchHighwaySession，不用这个。 */
-  field6?:  pb_repeated<6, uint_32>;
-  field7?:  pb_repeated<7, uint_32>;
-  /** 128B 上传 token，highway head 的 serviceTicket 用它。 */
-  token?:   pb<8, bytes>;
-  field12?: pb<12, uint_32>;
-  field3?:  pb<3, bytes>;
+    field1?: pb<1, uint_32>;
+    field2?: pb<2, uint_32>;
+    field4?: pb<4, uint_32>;
+    /** repeated varint，抓包见 6 个；上传节点走 fetchHighwaySession，不用这个。 */
+    field6?: pb_repeated<6, uint_32>;
+    field7?: pb_repeated<7, uint_32>;
+    /** 128B 上传 token，highway head 的 serviceTicket 用它。 */
+    token?: pb<8, bytes>;
+    field12?: pb<12, uint_32>;
+    field3?: pb<3, bytes>;
 }
 export interface BDHExpressionRoamResp {
-  field1?: pb<1, uint_32>;
-  field2?: pb<2, uint_32>;
-  inner?:  pb<3, BDHExpressionRoamRespInner>;
+    field1?: pb<1, uint_32>;
+    field2?: pb<2, uint_32>;
+    inner?: pb<3, BDHExpressionRoamRespInner>;
 }
 
 // highway head（add 第2步，PicUp.DataUp commandId=9）
@@ -866,70 +875,70 @@ export interface BDHExpressionRoamResp {
 // 但 commandId=9（表情）、segHead.serviceTicket = BDHExpressionRoam token（非 sigSession）、
 // 顶层 f3 = emoji_id、f5 = 82B（含义未知，先不填）。
 export interface FavEmojiHighwayBaseHead {
-  version?:    pb<1, uint_32>;
-  uin?:        pb<2, string>;
-  command?:    pb<3, string>;
-  seq?:        pb<4, uint_32>;
-  retryTimes?: pb<5, uint_32>;
-  filesize?:   pb<6, uint_64>;
-  dataFlag?:   pb<7, uint_32>;
-  commandId?:  pb<8, uint_32>;
+    version?: pb<1, uint_32>;
+    uin?: pb<2, string>;
+    command?: pb<3, string>;
+    seq?: pb<4, uint_32>;
+    retryTimes?: pb<5, uint_32>;
+    filesize?: pb<6, uint_64>;
+    dataFlag?: pb<7, uint_32>;
+    commandId?: pb<8, uint_32>;
 }
 export interface FavEmojiHighwaySegHead {
-  serviceId?:     pb<1, uint_32>;
-  filesize?:      pb<2, uint_64>;
-  dataOffset?:    pb<3, uint_64>;
-  dataLength?:    pb<4, uint_64>;
-  /** 上传凭证 = BDHExpressionRoam token。 */
-  serviceTicket?: pb<6, bytes>;
-  md5?:           pb<8, bytes>;
-  fileMd5?:       pb<9, bytes>;
+    serviceId?: pb<1, uint_32>;
+    filesize?: pb<2, uint_64>;
+    dataOffset?: pb<3, uint_64>;
+    dataLength?: pb<4, uint_64>;
+    /** 上传凭证 = BDHExpressionRoam token。 */
+    serviceTicket?: pb<6, bytes>;
+    md5?: pb<8, bytes>;
+    fileMd5?: pb<9, bytes>;
 }
 export interface FavEmojiIdWrap {
-  emojiId?: pb<1, string>;
+    emojiId?: pb<1, string>;
 }
 export interface FavEmojiHighwayHead {
-  baseHead?:    pb<1, FavEmojiHighwayBaseHead>;
-  segHead?:     pb<2, FavEmojiHighwaySegHead>;
-  emojiIdWrap?: pb<3, FavEmojiIdWrap>;
-  field4?:      pb<4, uint_32>;
-  /** 82B，抓包见过但非必需。 */
-  field5?:      pb<5, bytes>;
-  field8?:      pb<8, uint_32>;
+    baseHead?: pb<1, FavEmojiHighwayBaseHead>;
+    segHead?: pb<2, FavEmojiHighwaySegHead>;
+    emojiIdWrap?: pb<3, FavEmojiIdWrap>;
+    field4?: pb<4, uint_32>;
+    /** 82B，抓包见过但非必需。 */
+    field5?: pb<5, bytes>;
+    field8?: pb<8, uint_32>;
 }
 export interface FaceroamOpRespItem {
-  faceIds?:    pb_repeated<1, string>;
-  category?:   pb<3, string>;
-  totalCount?: pb<4, uint_32>;
+    faceIds?: pb_repeated<1, string>;
+    category?: pb<3, string>;
+    totalCount?: pb<4, uint_32>;
 }
 export interface FaceroamOpResp {
-  retCode?: pb<1, uint_32>;
-  message?: pb<2, string>;
-  field3?:  pb<3, uint_32>;
-  item?:    pb<4, FaceroamOpRespItem>;
+    retCode?: pb<1, uint_32>;
+    message?: pb<2, string>;
+    field3?: pb<3, uint_32>;
+    item?: pb<4, FaceroamOpRespItem>;
 }
 // 0x9083_1: fetch emoji-like user list for one emoji on a group message.
 // Request/response tags follow Windows QQ EncodeGetMsgEmojiLikesListReq /
 // DecodeGetMsgEmojiLikesListRsp. This is not the 0x9082 set-reaction body.
 export interface Oidb0x9083Req {
-  groupId?:   pb<2, uint_64>;
-  sequence?:  pb<3, uint_64>;
-  emojiType?: pb<4, uint_32>;
-  emojiId?:   pb<5, string>;
-  cookie?:    pb<6, string>;
-  field7?:    pb<7, uint_32>;
-  count?:     pb<8, uint_32>;
+    groupId?: pb<2, uint_64>;
+    sequence?: pb<3, uint_64>;
+    emojiType?: pb<4, uint_32>;
+    emojiId?: pb<5, string>;
+    cookie?: pb<6, string>;
+    field7?: pb<7, uint_32>;
+    count?: pb<8, uint_32>;
 }
 export interface Oidb0x9083RespUser {
-  uin?:     pb<1, uint_64>;
-  nick?:    pb<2, string>;
-  headUrl?: pb<3, string>;
+    uin?: pb<1, uint_64>;
+    nick?: pb<2, string>;
+    headUrl?: pb<3, string>;
 }
 export interface Oidb0x9083Resp {
-  users?:   pb_repeated<1, Oidb0x9083RespUser>;
-  cookie?:  pb<2, string>;
-  isLast?:  pb<3, bool>;
-  isFirst?: pb<4, bool>;
+    users?: pb_repeated<1, Oidb0x9083RespUser>;
+    cookie?: pb<2, string>;
+    isLast?: pb<3, bool>;
+    isFirst?: pb<4, bool>;
 }
 
 // 0x9084_1: recent-used emoji catalog (GetRecentUseEmojiListForC2CAndGroup).
@@ -944,183 +953,183 @@ export interface Oidb0x9083Resp {
 // Used entries always carry field 1 (timestamp) and field 2 (count);
 // catalog entries omit both.
 export interface Oidb0x9084Req {
-  groupId?:   pb<2, uint_64>;
-  sequence?:  pb<3, uint_64>;
-  // Server returns the full per-emoji summary regardless of these,
-  // but we send them to mirror the working 0x9083_1 request shape.
-  emojiId?:   pb<4, string>;
-  emojiType?: pb<5, uint_32>;
-  cookie?:    pb<6, bytes>;
-  count?:     pb<8, uint_32>;
-  field12?:   pb<12, uint_32>;
+    groupId?: pb<2, uint_64>;
+    sequence?: pb<3, uint_64>;
+    // Server returns the full per-emoji summary regardless of these,
+    // but we send them to mirror the working 0x9083_1 request shape.
+    emojiId?: pb<4, string>;
+    emojiType?: pb<5, uint_32>;
+    cookie?: pb<6, bytes>;
+    count?: pb<8, uint_32>;
+    field12?: pb<12, uint_32>;
 }
 
 export interface Oidb0x9084RespEntry {
-  /** Unix epoch (seconds) of the last reaction. Omitted for catalog
-   *  entries that have never been reacted with on this message. */
-  lastReactionTime?: pb<1, uint_64>;
-  /** Number of reactors. Omitted for catalog entries. */
-  count?:            pb<2, uint_32>;
-  /** Emoji type. 1 for QQ-face / short id, 2 for unicode codepoint. */
-  emojiType?:        pb<3, uint_32>;
-  emojiId?:          pb<4, string>;
+    /** Unix epoch (seconds) of the last reaction. Omitted for catalog
+     *  entries that have never been reacted with on this message. */
+    lastReactionTime?: pb<1, uint_64>;
+    /** Number of reactors. Omitted for catalog entries. */
+    count?: pb<2, uint_32>;
+    /** Emoji type. 1 for QQ-face / short id, 2 for unicode codepoint. */
+    emojiType?: pb<3, uint_32>;
+    emojiId?: pb<4, string>;
 }
 
 export interface Oidb0x9084Resp {
-  /** Top-level varint, observed value `10` constant; semantics unknown. */
-  field1?:  pb<1, uint_32>;
-  entries?: pb_repeated<2, Oidb0x9084RespEntry>;
+    /** Top-level varint, observed value `10` constant; semantics unknown. */
+    field1?: pb<1, uint_32>;
+    entries?: pb_repeated<2, Oidb0x9084RespEntry>;
 }
 export interface Oidb0x8a0Req {
-  groupId?:          pb<1, uint_64>;
-  targetUids?:       pb_repeated<3, string>;
-  rejectAddRequest?: pb<4, uint_32>;
-  kickReason?:       pb<5, bytes>;
-  field12?:          pb<12, uint_32>;
+    groupId?: pb<1, uint_64>;
+    targetUids?: pb_repeated<3, string>;
+    rejectAddRequest?: pb<4, uint_32>;
+    kickReason?: pb<5, bytes>;
+    field12?: pb<12, uint_32>;
 }
 export interface Oidb0x8a0Resp {}
 export interface Oidb0xf16Inner {
-  groupId?: pb<1, uint_64>;
-  remark?:  pb<3, string>;
+    groupId?: pb<1, uint_64>;
+    remark?: pb<3, string>;
 }
 export interface Oidb0xf16Req {
-  inner?:   pb<1, Oidb0xf16Inner>;
-  field12?: pb<12, uint_32>;
+    inner?: pb<1, Oidb0xf16Inner>;
+    field12?: pb<12, uint_32>;
 }
 export interface Oidb0xf16Resp {}
 export interface OidbGroupTodo {
-  groupUin?: pb<1, uint_32>;
-  msgSeq?:   pb<2, uint_64>;
+    groupUin?: pb<1, uint_32>;
+    msgSeq?: pb<2, uint_64>;
 }
 // 0x9474_0 — query group top banners. A request flag of 1 selects group
 // todos; current QQ represents them with commonBanner while older responses
 // may still use the legacy todoBanner shape.
 export interface OidbQueryGroupTopBannersReq {
-  groupId?:    pb<1, uint_64>;
-  bannerFlag?: pb<2, uint_32>;
+    groupId?: pb<1, uint_64>;
+    bannerFlag?: pb<2, uint_32>;
 }
 export interface OidbGroupTopBannerUi {
-  iconUrl?:         pb<1, string>;
-  preText?:         pb<2, string>;
-  text?:            pb<3, string>;
-  highText?:        pb<4, string>;
-  accessoryType?:   pb<5, uint_32>;
-  iconColor?:       pb<6, uint_32>;
-  needTranslation?: pb<7, bool>;
+    iconUrl?: pb<1, string>;
+    preText?: pb<2, string>;
+    text?: pb<3, string>;
+    highText?: pb<4, string>;
+    accessoryType?: pb<5, uint_32>;
+    iconColor?: pb<6, uint_32>;
+    needTranslation?: pb<7, bool>;
 }
 export interface OidbGroupTopBannerJumpInfo {
-  jumpType?:  pb<1, uint_32>;
-  jumpUrl?:   pb<2, string>;
-  jumpParam?: pb<3, bytes>;
+    jumpType?: pb<1, uint_32>;
+    jumpUrl?: pb<2, string>;
+    jumpParam?: pb<3, bytes>;
 }
 export interface OidbGroupTopBannerCommon {
-  ui?:         pb<1, OidbGroupTopBannerUi>;
-  jumpInfo?:   pb<2, OidbGroupTopBannerJumpInfo>;
-  createTime?: pb<3, uint_64>;
-  updateTime?: pb<4, uint_64>;
+    ui?: pb<1, OidbGroupTopBannerUi>;
+    jumpInfo?: pb<2, OidbGroupTopBannerJumpInfo>;
+    createTime?: pb<3, uint_64>;
+    updateTime?: pb<4, uint_64>;
 }
 export interface OidbGroupTodoLegacyBanner {
-  redText?:     pb<1, string>;
-  text?:        pb<2, string>;
-  url?:         pb<3, string>;
-  isExposure?:  pb<4, bool>;
-  isComplete?:  pb<5, bool>;
+    redText?: pb<1, string>;
+    text?: pb<2, string>;
+    url?: pb<3, string>;
+    isExposure?: pb<4, bool>;
+    isComplete?: pb<5, bool>;
 }
 export interface OidbGroupTopBannerPriority {
-  categoryType?: pb<1, uint_32>;
-  priority?:     pb<2, int_32>;
+    categoryType?: pb<1, uint_32>;
+    priority?: pb<2, int_32>;
 }
 export interface OidbOnlineBanner {
-  bizType?:             pb<1, uint_32>;
-  bannerType?:          pb<2, uint_32>;
-  msgId?:               pb<3, bytes>;
-  isDisappear?:         pb<4, bool>;
-  expireTime?:          pb<8, uint_64>;
-  todoBanner?:          pb<12, OidbGroupTodoLegacyBanner>;
-  commonBanner?:        pb<20, OidbGroupTopBannerCommon>;
-  bannerPriority?:      pb<40, OidbGroupTopBannerPriority>;
-  bizId?:               pb<41, int_32>;
-  priority?:            pb<42, int_32>;
-  leftShowTimes?:       pb<43, int_32>;
-  supportMultiBanners?: pb<44, bool>;
-  supportLongPress?:    pb<45, bool>;
-  noNeedReportShow?:    pb<46, bool>;
+    bizType?: pb<1, uint_32>;
+    bannerType?: pb<2, uint_32>;
+    msgId?: pb<3, bytes>;
+    isDisappear?: pb<4, bool>;
+    expireTime?: pb<8, uint_64>;
+    todoBanner?: pb<12, OidbGroupTodoLegacyBanner>;
+    commonBanner?: pb<20, OidbGroupTopBannerCommon>;
+    bannerPriority?: pb<40, OidbGroupTopBannerPriority>;
+    bizId?: pb<41, int_32>;
+    priority?: pb<42, int_32>;
+    leftShowTimes?: pb<43, int_32>;
+    supportMultiBanners?: pb<44, bool>;
+    supportLongPress?: pb<45, bool>;
+    noNeedReportShow?: pb<46, bool>;
 }
 export interface OidbQueryGroupTopBannersResp {
-  banners?: pb_repeated<1, OidbOnlineBanner>;
-  newSeq?:  pb<3, uint_64>;
+    banners?: pb_repeated<1, OidbOnlineBanner>;
+    newSeq?: pb<3, uint_64>;
 }
 export interface OidbStrangerStatusKey {
-  key?: pb<1, uint_32>;
+    key?: pb<1, uint_32>;
 }
 export interface OidbStrangerStatusReq {
-  uin?: pb<1, uint_32>;
-  key?: pb_repeated<3, OidbStrangerStatusKey>;
+    uin?: pb<1, uint_32>;
+    key?: pb_repeated<3, OidbStrangerStatusKey>;
 }
 export interface OidbFriendRemarkTarget {
-  targetUin?: pb<3, uint_64>;
-  targetUid?: pb<7, string>;
+    targetUin?: pb<3, uint_64>;
+    targetUid?: pb<7, string>;
 }
 export interface OidbSetFriendRemarkChange {
-  target?: pb<1, OidbFriendRemarkTarget>;
-  remark?: pb<2, string>;
+    target?: pb<1, OidbFriendRemarkTarget>;
+    remark?: pb<2, string>;
 }
 export interface OidbSetFriendRemark {
-  change?: pb<1, OidbSetFriendRemarkChange>;
-  // Current QQ explicitly emits scene=0 for an ordinary friend. Omitting
-  // the default changes the request shape used by StrangerRemarkSetWorker.
-  scene?:  pb_optional<2, uint_32>;
+    change?: pb<1, OidbSetFriendRemarkChange>;
+    // Current QQ explicitly emits scene=0 for an ordinary friend. Omitting
+    // the default changes the request shape used by StrangerRemarkSetWorker.
+    scene?: pb_optional<2, uint_32>;
 }
 export interface OidbSetFriendRemarkError {
-  code?:    pb<2, int_32>;
-  message?: pb<3, string>;
+    code?: pb<2, int_32>;
+    message?: pb<3, string>;
 }
 export interface OidbSetFriendRemarkResponse {
-  result?: pb<1, OidbSetFriendRemarkChange>;
-  error?:  pb<3, OidbSetFriendRemarkError>;
+    result?: pb<1, OidbSetFriendRemarkChange>;
+    error?: pb<3, OidbSetFriendRemarkError>;
 }
 export interface OidbClearFriendRemark {
-  target?: pb<1, OidbFriendRemarkTarget>;
+    target?: pb<1, OidbFriendRemarkTarget>;
 }
 export interface OidbStrangerStatusRespProperty {
-  key?:   pb<1, uint_32>;
-  value?: pb<2, uint_64>;
+    key?: pb<1, uint_32>;
+    value?: pb<2, uint_64>;
 }
 export interface OidbStrangerStatusRespProperties {
-  entries?: pb_repeated<1, OidbStrangerStatusRespProperty>;
+    entries?: pb_repeated<1, OidbStrangerStatusRespProperty>;
 }
 export interface OidbStrangerStatusRespData {
-  targetUin?:  pb<1, uint_32>;
-  properties?: pb<2, OidbStrangerStatusRespProperties>;
-  uin?:        pb<3, uint_32>;
+    targetUin?: pb<1, uint_32>;
+    properties?: pb<2, OidbStrangerStatusRespProperties>;
+    uin?: pb<3, uint_32>;
 }
 export interface OidbStrangerStatusResp {
-  data?: pb<1, OidbStrangerStatusRespData>;
+    data?: pb<1, OidbStrangerStatusRespData>;
 }
 export interface GroupAvatarExtraField3 {
-  field1?: pb<1, uint_32>;
+    field1?: pb<1, uint_32>;
 }
 export interface GroupAvatarExtra {
-  type?:     pb<1, uint_32>;
-  groupUin?: pb<2, uint_32>;
-  field3?:   pb<3, GroupAvatarExtraField3>;
-  field5?:   pb<5, uint_32>;
-  field6?:   pb<6, uint_32>;
+    type?: pb<1, uint_32>;
+    groupUin?: pb<2, uint_32>;
+    field3?: pb<3, GroupAvatarExtraField3>;
+    field5?: pb<5, uint_32>;
+    field6?: pb<6, uint_32>;
 }
 
 export interface Oidb0xcdeReqBodyInfo {
-  db_salt?: pb<1, string>;
+    db_salt?: pb<1, string>;
 }
 
 export interface Oidb0xcdeReq {
-  info?: pb<2, Oidb0xcdeReqBodyInfo>;
-  sessionData?: pb<10, bytes>;
+    info?: pb<2, Oidb0xcdeReqBodyInfo>;
+    sessionData?: pb<10, bytes>;
 }
 
 export interface Oidb0xcdeRespBodyInfo {
-  dbKey?: pb<1, string>;
+    dbKey?: pb<1, string>;
 }
 
 export interface Oidb0xcdeResp {
-  info?: pb<2, Oidb0xcdeRespBodyInfo>;
+    info?: pb<2, Oidb0xcdeRespBodyInfo>;
 }

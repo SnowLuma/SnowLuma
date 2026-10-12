@@ -3,133 +3,136 @@ import { BridgeEventBus } from '@snowluma/protocol/event-bus';
 import type { FriendMessage, GroupMessage } from '@snowluma/protocol/events';
 
 function makeFriendMessage(): FriendMessage {
-  return {
-    kind: 'friend_message',
-    time: 1700000000,
-    selfUin: 10001,
-    senderUin: 22222,
-    senderNick: 'peer',
-    msgSeq: 1,
-    msgId: 1,
-    elements: [{ type: 'text', text: 'hi' }],
-  };
+    return {
+        kind: 'friend_message',
+        time: 1700000000,
+        selfUin: 10001,
+        senderUin: 22222,
+        senderNick: 'peer',
+        msgSeq: 1,
+        msgId: 1,
+        elements: [{ type: 'text', text: 'hi' }],
+    };
 }
 
 function makeGroupMessage(): GroupMessage {
-  return {
-    kind: 'group_message', groupName: '',
-    time: 1700000000,
-    selfUin: 10001,
-    groupId: 99999,
-    senderUin: 22222,
-    senderNick: 'peer',
-    senderCard: '',
-    senderRole: 'member',
-    msgSeq: 2,
-    msgId: 2,
-    elements: [{ type: 'text', text: 'hi' }],
-  };
+    return {
+        kind: 'group_message',
+        groupName: '',
+        time: 1700000000,
+        selfUin: 10001,
+        groupId: 99999,
+        senderUin: 22222,
+        senderNick: 'peer',
+        senderCard: '',
+        senderRole: 'member',
+        msgSeq: 2,
+        msgId: 2,
+        elements: [{ type: 'text', text: 'hi' }],
+    };
 }
 
 describe('BridgeEventBus', () => {
-  it('routes events only to subscribers of the matching kind', async () => {
-    const bus = new BridgeEventBus();
-    const friend = vi.fn();
-    const group = vi.fn();
-    bus.on('friend_message', friend);
-    bus.on('group_message', group);
+    it('routes events only to subscribers of the matching kind', async () => {
+        const bus = new BridgeEventBus();
+        const friend = vi.fn();
+        const group = vi.fn();
+        bus.on('friend_message', friend);
+        bus.on('group_message', group);
 
-    await bus.emit(makeFriendMessage());
-    await bus.emit(makeGroupMessage());
+        await bus.emit(makeFriendMessage());
+        await bus.emit(makeGroupMessage());
 
-    expect(friend).toHaveBeenCalledTimes(1);
-    expect(group).toHaveBeenCalledTimes(1);
-  });
-
-  it('runs every subscriber in parallel for one kind', async () => {
-    const bus = new BridgeEventBus();
-    const order: string[] = [];
-    bus.on('friend_message', async () => {
-      await new Promise((r) => setTimeout(r, 20));
-      order.push('slow');
-    });
-    bus.on('friend_message', () => {
-      order.push('fast');
+        expect(friend).toHaveBeenCalledTimes(1);
+        expect(group).toHaveBeenCalledTimes(1);
     });
 
-    await bus.emit(makeFriendMessage());
-    // The synchronous handler must finish before the async one — proves we
-    // don't serialize handlers across the kind.
-    expect(order).toEqual(['fast', 'slow']);
-  });
+    it('runs every subscriber in parallel for one kind', async () => {
+        const bus = new BridgeEventBus();
+        const order: string[] = [];
+        bus.on('friend_message', async () => {
+            await new Promise((r) => setTimeout(r, 20));
+            order.push('slow');
+        });
+        bus.on('friend_message', () => {
+            order.push('fast');
+        });
 
-  it('isolates handler errors and reports them via onError', async () => {
-    const seen: Array<{ kind: string; err: unknown }> = [];
-    const bus = new BridgeEventBus({ onError: (kind, err) => seen.push({ kind, err }) });
-    const ok = vi.fn();
-    bus.on('friend_message', () => {
-      throw new Error('boom');
+        await bus.emit(makeFriendMessage());
+        // The synchronous handler must finish before the async one — proves we
+        // don't serialize handlers across the kind.
+        expect(order).toEqual(['fast', 'slow']);
     });
-    bus.on('friend_message', ok);
 
-    await bus.emit(makeFriendMessage());
+    it('isolates handler errors and reports them via onError', async () => {
+        const seen: Array<{ kind: string; err: unknown }> = [];
+        const bus = new BridgeEventBus({ onError: (kind, err) => seen.push({ kind, err }) });
+        const ok = vi.fn();
+        bus.on('friend_message', () => {
+            throw new Error('boom');
+        });
+        bus.on('friend_message', ok);
 
-    expect(ok).toHaveBeenCalledTimes(1);
-    expect(seen).toHaveLength(1);
-    expect(seen[0].kind).toBe('friend_message');
-    expect((seen[0].err as Error).message).toBe('boom');
-  });
+        await bus.emit(makeFriendMessage());
 
-  it('supports unsubscribe via the returned disposer', async () => {
-    const bus = new BridgeEventBus();
-    const handler = vi.fn();
-    const off = bus.on('friend_message', handler);
+        expect(ok).toHaveBeenCalledTimes(1);
+        expect(seen).toHaveLength(1);
+        expect(seen[0].kind).toBe('friend_message');
+        expect((seen[0].err as Error).message).toBe('boom');
+    });
 
-    await bus.emit(makeFriendMessage());
-    expect(handler).toHaveBeenCalledTimes(1);
+    it('supports unsubscribe via the returned disposer', async () => {
+        const bus = new BridgeEventBus();
+        const handler = vi.fn();
+        const off = bus.on('friend_message', handler);
 
-    off();
-    await bus.emit(makeFriendMessage());
-    expect(handler).toHaveBeenCalledTimes(1);
-  });
+        await bus.emit(makeFriendMessage());
+        expect(handler).toHaveBeenCalledTimes(1);
 
-  it('supports onAny and isolates its errors separately', async () => {
-    const seen: Array<{ kind: string; err: unknown }> = [];
-    const bus = new BridgeEventBus({ onError: (kind, err) => seen.push({ kind, err }) });
-    const tap = vi.fn();
-    bus.onAny(tap);
-    bus.onAny(() => { throw new Error('any-fail'); });
+        off();
+        await bus.emit(makeFriendMessage());
+        expect(handler).toHaveBeenCalledTimes(1);
+    });
 
-    await bus.emit(makeFriendMessage());
-    await bus.emit(makeGroupMessage());
+    it('supports onAny and isolates its errors separately', async () => {
+        const seen: Array<{ kind: string; err: unknown }> = [];
+        const bus = new BridgeEventBus({ onError: (kind, err) => seen.push({ kind, err }) });
+        const tap = vi.fn();
+        bus.onAny(tap);
+        bus.onAny(() => {
+            throw new Error('any-fail');
+        });
 
-    expect(tap).toHaveBeenCalledTimes(2);
-    expect(seen).toHaveLength(2);
-    expect(seen.every((s) => s.kind === '*')).toBe(true);
-  });
+        await bus.emit(makeFriendMessage());
+        await bus.emit(makeGroupMessage());
 
-  it('reports has() based on per-kind + onAny subscriptions', () => {
-    const bus = new BridgeEventBus();
-    expect(bus.has('friend_message')).toBe(false);
+        expect(tap).toHaveBeenCalledTimes(2);
+        expect(seen).toHaveLength(2);
+        expect(seen.every((s) => s.kind === '*')).toBe(true);
+    });
 
-    const off = bus.on('friend_message', () => {});
-    expect(bus.has('friend_message')).toBe(true);
-    off();
-    expect(bus.has('friend_message')).toBe(false);
+    it('reports has() based on per-kind + onAny subscriptions', () => {
+        const bus = new BridgeEventBus();
+        expect(bus.has('friend_message')).toBe(false);
 
-    bus.onAny(() => {});
-    expect(bus.has('friend_message')).toBe(true);
-  });
+        const off = bus.on('friend_message', () => {});
+        expect(bus.has('friend_message')).toBe(true);
+        off();
+        expect(bus.has('friend_message')).toBe(false);
 
-  it('clear() drops every subscriber', async () => {
-    const bus = new BridgeEventBus();
-    const handler = vi.fn();
-    bus.on('friend_message', handler);
-    bus.onAny(handler);
+        bus.onAny(() => {});
+        expect(bus.has('friend_message')).toBe(true);
+    });
 
-    bus.clear();
-    await bus.emit(makeFriendMessage());
+    it('clear() drops every subscriber', async () => {
+        const bus = new BridgeEventBus();
+        const handler = vi.fn();
+        bus.on('friend_message', handler);
+        bus.onAny(handler);
 
-    expect(handler).not.toHaveBeenCalled();
-  });
+        bus.clear();
+        await bus.emit(makeFriendMessage());
+
+        expect(handler).not.toHaveBeenCalled();
+    });
 });

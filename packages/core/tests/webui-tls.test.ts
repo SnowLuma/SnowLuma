@@ -57,63 +57,67 @@ OUsvSYNSnfvl87tyLIxYLA==
 `;
 
 describe('validateTlsPair', () => {
-  it('accepts a matching cert/key pair', () => {
-    expect(validateTlsPair(CERT, KEY)).toEqual({ ok: true });
-  });
+    it('accepts a matching cert/key pair', () => {
+        expect(validateTlsPair(CERT, KEY)).toEqual({ ok: true });
+    });
 
-  it('rejects garbage PEM with a reason', () => {
-    const r = validateTlsPair('not a cert', 'not a key');
-    expect(r.ok).toBe(false);
-    expect(r.reason).toBeTruthy();
-  });
+    it('rejects garbage PEM with a reason', () => {
+        const r = validateTlsPair('not a cert', 'not a key');
+        expect(r.ok).toBe(false);
+        expect(r.reason).toBeTruthy();
+    });
 
-  it('rejects an empty cert', () => {
-    expect(validateTlsPair('', KEY).ok).toBe(false);
-  });
+    it('rejects an empty cert', () => {
+        expect(validateTlsPair('', KEY).ok).toBe(false);
+    });
 });
 
 describe('resolveTlsContext', () => {
-  let dir: string;
-  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sl-tls-')); });
-  afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+    let dir: string;
+    beforeEach(() => {
+        dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sl-tls-'));
+    });
+    afterEach(() => {
+        fs.rmSync(dir, { recursive: true, force: true });
+    });
 
-  it('loads cert.pem + key.pem when both present and valid', () => {
-    fs.writeFileSync(path.join(dir, 'cert.pem'), CERT);
-    fs.writeFileSync(path.join(dir, 'key.pem'), KEY);
-    const r = resolveTlsContext(dir);
-    expect(r.ok).toBe(true);
-    expect(r.cert?.toString()).toContain('BEGIN CERTIFICATE');
-    expect(r.key?.toString()).toContain('PRIVATE KEY');
-  });
+    it('loads cert.pem + key.pem when both present and valid', () => {
+        fs.writeFileSync(path.join(dir, 'cert.pem'), CERT);
+        fs.writeFileSync(path.join(dir, 'key.pem'), KEY);
+        const r = resolveTlsContext(dir);
+        expect(r.ok).toBe(true);
+        expect(r.cert?.toString()).toContain('BEGIN CERTIFICATE');
+        expect(r.key?.toString()).toContain('PRIVATE KEY');
+    });
 
-  it('fails (with reason) when files are missing', () => {
-    const r = resolveTlsContext(dir);
-    expect(r.ok).toBe(false);
-    expect(r.reason).toMatch(/missing/i);
-  });
+    it('fails (with reason) when files are missing', () => {
+        const r = resolveTlsContext(dir);
+        expect(r.ok).toBe(false);
+        expect(r.reason).toMatch(/missing/i);
+    });
 
-  it('fails when the on-disk PEM is invalid', () => {
-    fs.writeFileSync(path.join(dir, 'cert.pem'), 'garbage');
-    fs.writeFileSync(path.join(dir, 'key.pem'), 'garbage');
-    const r = resolveTlsContext(dir);
-    expect(r.ok).toBe(false);
-    expect(r.reason).toBeTruthy();
-  });
+    it('fails when the on-disk PEM is invalid', () => {
+        fs.writeFileSync(path.join(dir, 'cert.pem'), 'garbage');
+        fs.writeFileSync(path.join(dir, 'key.pem'), 'garbage');
+        const r = resolveTlsContext(dir);
+        expect(r.ok).toBe(false);
+        expect(r.reason).toBeTruthy();
+    });
 
-  it('refuses to start an enabled TLS listener with an unusable certificate pair', () => {
-    expect(() => requireTlsContext(dir)).toThrow(/TLS.*missing/i);
+    it('refuses to start an enabled TLS listener with an unusable certificate pair', () => {
+        expect(() => requireTlsContext(dir)).toThrow(/TLS.*missing/i);
 
-    fs.writeFileSync(path.join(dir, 'cert.pem'), 'garbage');
-    fs.writeFileSync(path.join(dir, 'key.pem'), 'garbage');
-    expect(() => requireTlsContext(dir)).toThrow(/TLS.*invalid/i);
-  });
+        fs.writeFileSync(path.join(dir, 'cert.pem'), 'garbage');
+        fs.writeFileSync(path.join(dir, 'key.pem'), 'garbage');
+        expect(() => requireTlsContext(dir)).toThrow(/TLS.*invalid/i);
+    });
 
-  it('returns a validated certificate pair for an enabled TLS listener', () => {
-    fs.writeFileSync(path.join(dir, 'cert.pem'), CERT);
-    fs.writeFileSync(path.join(dir, 'key.pem'), KEY);
+    it('returns a validated certificate pair for an enabled TLS listener', () => {
+        fs.writeFileSync(path.join(dir, 'cert.pem'), CERT);
+        fs.writeFileSync(path.join(dir, 'key.pem'), KEY);
 
-    const tls = requireTlsContext(dir);
-    expect(tls.cert.toString()).toContain('BEGIN CERTIFICATE');
-    expect(tls.key.toString()).toContain('PRIVATE KEY');
-  });
+        const tls = requireTlsContext(dir);
+        expect(tls.cert.toString()).toContain('BEGIN CERTIFICATE');
+        expect(tls.key.toString()).toContain('PRIVATE KEY');
+    });
 });

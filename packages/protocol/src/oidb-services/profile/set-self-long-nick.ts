@@ -12,28 +12,28 @@ import { invokeOidb, type OidbSender } from '../../oidb-service';
 import type { BridgeContext } from '../../bridge-context';
 
 export namespace SetSelfLongNick {
-  export const command = 0x112A;
-  export const subCommand = 2;
+    export const command = 0x112a;
+    export const subCommand = 2;
 
-  export interface Params {
-    longNick: string;
-  }
+    export interface Params {
+        longNick: string;
+    }
 
-  export type Deps = OidbSender & Pick<BridgeContext, 'identity'>;
+    export type Deps = OidbSender & Pick<BridgeContext, 'identity'>;
 
-  export const serialize = (ctx: Deps, p: Params): Oidb0x112aReq => ({
-    uin: BigInt(ctx.identity.uin),
-    profile: { tag: 102, value: String(p.longNick) },
-  });
+    export const serialize = (ctx: Deps, p: Params): Oidb0x112aReq => ({
+        uin: BigInt(ctx.identity.uin),
+        profile: { tag: 102, value: String(p.longNick) },
+    });
 
-  export const deserialize = (_ctx: Deps, _: Oidb0x112aResp): void => {};
+    export const deserialize = (_ctx: Deps, _: Oidb0x112aResp): void => {};
 
-  export const encode = (env: OidbBase<Oidb0x112aReq>): Uint8Array =>
-    protobuf_encode<OidbBase<Oidb0x112aReq>>(env);
+    export const encode = (env: OidbBase<Oidb0x112aReq>): Uint8Array =>
+        protobuf_encode<OidbBase<Oidb0x112aReq>>(env);
 
-  export const decode = (bytes: Uint8Array): OidbBase<Oidb0x112aResp> =>
-    protobuf_decode<OidbBase<Oidb0x112aResp>>(bytes);
+    export const decode = (bytes: Uint8Array): OidbBase<Oidb0x112aResp> =>
+        protobuf_decode<OidbBase<Oidb0x112aResp>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<void> =>
-    invokeOidb(deps, SetSelfLongNick, params);
+    export const invoke = (deps: Deps, params: Params): Promise<void> =>
+        invokeOidb(deps, SetSelfLongNick, params);
 }

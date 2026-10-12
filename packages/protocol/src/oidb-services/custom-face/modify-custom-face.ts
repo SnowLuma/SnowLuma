@@ -14,51 +14,51 @@
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type {
-  CustomFaceModifyBody,
-  CustomFaceModifyResp,
+    CustomFaceModifyBody,
+    CustomFaceModifyResp,
 } from '@snowluma/proto-defs/oidb-actions/base';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 import { CLIENT_VERSION } from './shared';
 
 export namespace ModifyCustomFace {
-  export const command = 0x902e;
-  export const subCommand = 1;
+    export const command = 0x902e;
+    export const subCommand = 1;
 
-  export interface Params {
-    /** 形如 `<UIN>_0_0_0_<MD5>_0_0`，来自 fetch 响应。 */
-    emojiId: string;
-    /** 32 位大写 hex MD5，emoji_id 中段。 */
-    md5: string;
-    /** 新备注（可为空字符串清空备注）。 */
-    desc: string;
-  }
-
-  export type Deps = OidbSender;
-
-  export const serialize = (_ctx: Deps, p: Params): CustomFaceModifyBody => ({
-    field1: 1,
-    osVersion: CLIENT_VERSION,
-    opType: 3,
-    entry: {
-      emoji: { emojiId: p.emojiId, md5: p.md5 },
-      desc: p.desc,
-    },
-    field12: 1,
-  });
-
-  export const deserialize = (_ctx: Deps, body: CustomFaceModifyResp): void => {
-    if (body.retCode && body.retCode !== 0) {
-      throw new Error(`modify custom face error: ${body.errMsg || body.retCode}`);
+    export interface Params {
+        /** 形如 `<UIN>_0_0_0_<MD5>_0_0`，来自 fetch 响应。 */
+        emojiId: string;
+        /** 32 位大写 hex MD5，emoji_id 中段。 */
+        md5: string;
+        /** 新备注（可为空字符串清空备注）。 */
+        desc: string;
     }
-  };
 
-  export const encode = (env: OidbBase<CustomFaceModifyBody>): Uint8Array =>
-    protobuf_encode<OidbBase<CustomFaceModifyBody>>(env);
+    export type Deps = OidbSender;
 
-  export const decode = (bytes: Uint8Array): OidbBase<CustomFaceModifyResp> =>
-    protobuf_decode<OidbBase<CustomFaceModifyResp>>(bytes);
+    export const serialize = (_ctx: Deps, p: Params): CustomFaceModifyBody => ({
+        field1: 1,
+        osVersion: CLIENT_VERSION,
+        opType: 3,
+        entry: {
+            emoji: { emojiId: p.emojiId, md5: p.md5 },
+            desc: p.desc,
+        },
+        field12: 1,
+    });
 
-  export const invoke = (deps: Deps, params: Params): Promise<void> =>
-    invokeOidb(deps, ModifyCustomFace, params);
+    export const deserialize = (_ctx: Deps, body: CustomFaceModifyResp): void => {
+        if (body.retCode && body.retCode !== 0) {
+            throw new Error(`modify custom face error: ${body.errMsg || body.retCode}`);
+        }
+    };
+
+    export const encode = (env: OidbBase<CustomFaceModifyBody>): Uint8Array =>
+        protobuf_encode<OidbBase<CustomFaceModifyBody>>(env);
+
+    export const decode = (bytes: Uint8Array): OidbBase<CustomFaceModifyResp> =>
+        protobuf_decode<OidbBase<CustomFaceModifyResp>>(bytes);
+
+    export const invoke = (deps: Deps, params: Params): Promise<void> =>
+        invokeOidb(deps, ModifyCustomFace, params);
 }

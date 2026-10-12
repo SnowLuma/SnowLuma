@@ -9,10 +9,10 @@ import type { HookProcessStatus } from './types';
  * `loggedIn` *before* tearing the client down, since teardown clears it.
  */
 export interface HookFlags {
-  injected: boolean;
-  connected: boolean;
-  loggedIn: boolean;
-  wasLoggedIn: boolean;
+    injected: boolean;
+    connected: boolean;
+    loggedIn: boolean;
+    wasLoggedIn: boolean;
 }
 
 /**
@@ -25,7 +25,13 @@ export interface HookFlags {
  * here.
  */
 export function statusFor(flags: HookFlags): HookProcessStatus {
-  if (!flags.injected) return 'available';
-  if (flags.connected) return flags.loggedIn ? 'online' : 'loaded';
-  return flags.wasLoggedIn ? 'disconnected' : 'connecting';
+    if (!flags.injected) {
+        return 'available';
+    }
+
+    if (flags.connected) {
+        return flags.loggedIn ? 'online' : 'loaded';
+    }
+
+    return flags.wasLoggedIn ? 'disconnected' : 'connecting';
 }

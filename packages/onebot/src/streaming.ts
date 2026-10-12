@@ -20,14 +20,14 @@ export const STREAM_MARK = 'stream-action';
 
 /** Frame `type` discriminator carried inside each frame's `data`. */
 export enum StreamStatus {
-  /** An intermediate chunk frame (transfer in progress). */
-  Stream = 'stream',
-  /** The terminal frame — the stream finished successfully. */
-  Response = 'response',
-  /** A stream was reset / aborted by the caller. */
-  Reset = 'reset',
-  /** The terminal frame — the stream failed. */
-  Error = 'error',
+    /** An intermediate chunk frame (transfer in progress). */
+    Stream = 'stream',
+    /** The terminal frame — the stream finished successfully. */
+    Response = 'response',
+    /** A stream was reset / aborted by the caller. */
+    Reset = 'reset',
+    /** The terminal frame — the stream failed. */
+    Error = 'error',
 }
 
 /** A sink an action uses to push intermediate stream frames. Each `send`
@@ -36,29 +36,44 @@ export enum StreamStatus {
  *  flushes it on the wire. The action's eventual return value is the terminal
  *  frame, so do NOT `send` the final result through the sink. */
 export interface StreamSink {
-  send(frame: JsonValue): Promise<void>;
+    send(frame: JsonValue): Promise<void>;
 }
 
 export class StreamTransportClosedError extends Error {
-  constructor(message = 'stream transport closed') {
-    super(message);
-    this.name = 'StreamTransportClosedError';
-  }
+    constructor(message = 'stream transport closed') {
+        super(message);
+        this.name = 'StreamTransportClosedError';
+    }
 }
 
 /** Fallback sink for when a stream action is invoked over a transport that
  *  can't stream (or by a plain client): intermediate frames are dropped, the
  *  terminal response is still returned normally. */
-export const NOOP_SINK: StreamSink = { send: async () => { /* dropped */ } };
+export const NOOP_SINK: StreamSink = {
+    send: async () => {
+        /* dropped */
+    },
+};
 
 /** Wrap a raw stream-frame `data` payload into an OB11 envelope carrying the
  *  stream marker (mirrors NapCat's `OB11Response.ok(data, echo, true)`). The
  *  empty `message`/`wording` pair matches NapCat — clients reading either key
  *  on an intermediate frame get `''`, never `undefined`. */
 export function wrapStreamFrame(data: JsonValue, echo: JsonValue | undefined): ApiResponse {
-  const frame: ApiResponse = { status: 'ok', retcode: 0, data, message: '', wording: '', stream: STREAM_MARK };
-  if (echo !== undefined) frame.echo = echo;
-  return frame;
+    const frame: ApiResponse = {
+        status: 'ok',
+        retcode: 0,
+        data,
+        message: '',
+        wording: '',
+        stream: STREAM_MARK,
+    };
+
+    if (echo !== undefined) {
+        frame.echo = echo;
+    }
+
+    return frame;
 }
 
 /** Turn an action's terminal `ApiResponse` into the final streaming frame:
@@ -70,13 +85,25 @@ export function wrapStreamFrame(data: JsonValue, echo: JsonValue | undefined): A
  *  Contract: on success the action's `data` MUST carry `type:'response'` (the
  *  client treats that frame as the stream terminator). Stream actions are
  *  responsible for that, mirroring NapCat's `BaseDownloadStream`. */
-export function wrapStreamTerminal(response: ApiResponse, echo: JsonValue | undefined): ApiResponse {
-  const frame: ApiResponse = { ...response, stream: STREAM_MARK };
-  if (echo !== undefined) frame.echo = echo;
-  if (response.status === 'failed') {
-    frame.data = { type: StreamStatus.Error, data_type: 'error' };
-  }
-  frame.message = frame.wording ?? '';
-  if (frame.wording === undefined) frame.wording = '';
-  return frame;
+export function wrapStreamTerminal(
+    response: ApiResponse,
+    echo: JsonValue | undefined,
+): ApiResponse {
+    const frame: ApiResponse = { ...response, stream: STREAM_MARK };
+
+    if (echo !== undefined) {
+        frame.echo = echo;
+    }
+
+    if (response.status === 'failed') {
+        frame.data = { type: StreamStatus.Error, data_type: 'error' };
+    }
+
+    frame.message = frame.wording ?? '';
+
+    if (frame.wording === undefined) {
+        frame.wording = '';
+    }
+
+    return frame;
 }

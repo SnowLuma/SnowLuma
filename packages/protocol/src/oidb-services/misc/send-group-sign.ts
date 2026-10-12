@@ -14,35 +14,35 @@ import { invokeOidb, type OidbSender } from '../../oidb-service';
 import type { BridgeContext } from '../../bridge-context';
 
 export namespace SendGroupSign {
-  export const command = 0xEB7;
-  export const subCommand = 1;
+    export const command = 0xeb7;
+    export const subCommand = 1;
 
-  /** Override the default lowercase wire-name to preserve the
-   *  historic `OidbSvcTrpcTcp.0xEB7_1` byte-for-byte. */
-  export const wireName = (): string => 'OidbSvcTrpcTcp.0xEB7_1';
+    /** Override the default lowercase wire-name to preserve the
+     *  historic `OidbSvcTrpcTcp.0xEB7_1` byte-for-byte. */
+    export const wireName = (): string => 'OidbSvcTrpcTcp.0xEB7_1';
 
-  export interface Params {
-    groupId: number;
-  }
+    export interface Params {
+        groupId: number;
+    }
 
-  export type Deps = OidbSender & Pick<BridgeContext, 'identity'>;
+    export type Deps = OidbSender & Pick<BridgeContext, 'identity'>;
 
-  export const serialize = (ctx: Deps, p: Params): Oidb0xeb7Req => ({
-    signInInfo: {
-      uin: String(ctx.identity.uin),
-      groupId: String(p.groupId),
-      version: '9.0.90',
-    },
-  });
+    export const serialize = (ctx: Deps, p: Params): Oidb0xeb7Req => ({
+        signInInfo: {
+            uin: String(ctx.identity.uin),
+            groupId: String(p.groupId),
+            version: '9.0.90',
+        },
+    });
 
-  export const deserialize = (_ctx: Deps, _: Oidb0xeb7Resp): void => {};
+    export const deserialize = (_ctx: Deps, _: Oidb0xeb7Resp): void => {};
 
-  export const encode = (env: OidbBase<Oidb0xeb7Req>): Uint8Array =>
-    protobuf_encode<OidbBase<Oidb0xeb7Req>>(env);
+    export const encode = (env: OidbBase<Oidb0xeb7Req>): Uint8Array =>
+        protobuf_encode<OidbBase<Oidb0xeb7Req>>(env);
 
-  export const decode = (bytes: Uint8Array): OidbBase<Oidb0xeb7Resp> =>
-    protobuf_decode<OidbBase<Oidb0xeb7Resp>>(bytes);
+    export const decode = (bytes: Uint8Array): OidbBase<Oidb0xeb7Resp> =>
+        protobuf_decode<OidbBase<Oidb0xeb7Resp>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<void> =>
-    invokeOidb(deps, SendGroupSign, params);
+    export const invoke = (deps: Deps, params: Params): Promise<void> =>
+        invokeOidb(deps, SendGroupSign, params);
 }

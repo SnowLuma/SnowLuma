@@ -25,60 +25,65 @@ const EMOJI_B_MD5 = 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
 //   60 01       f12 = 1   ← envelope reserved (uinForm=true); without it the
 //                            server accepts the request but does NOT reorder.
 const MOVE_WIRE_HEX =
-  '08aea002100122c6010801120a31302e302e3236323030180222590a35323535303431393036385f305f305f305f41414141414141414141414141414141414141414141414141414141414141415f305f301220414141414141414141414141414141414141414141414141414141414141414122590a35323535303431393036385f305f305f305f42424242424242424242424242424242424242424242424242424242424242425f305f30122042424242424242424242424242424242424242424242424242424242424242426001';
+    '08aea002100122c6010801120a31302e302e3236323030180222590a35323535303431393036385f305f305f305f41414141414141414141414141414141414141414141414141414141414141415f305f301220414141414141414141414141414141414141414141414141414141414141414122590a35323535303431393036385f305f305f305f42424242424242424242424242424242424242424242424242424242424242425f305f30122042424242424242424242424242424242424242424242424242424242424242426001';
 
 function makeSender() {
-  const r: SendPacketResult = {
-    success: true, gotResponse: true, errorCode: 0, errorMessage: '',
-    responseData: Buffer.alloc(0),
-  };
-  return { sendRawPacket: vi.fn(async () => r) };
+    const r: SendPacketResult = {
+        success: true,
+        gotResponse: true,
+        errorCode: 0,
+        errorMessage: '',
+        responseData: Buffer.alloc(0),
+    };
+    return { sendRawPacket: vi.fn(async () => r) };
 }
 
 describe('MoveCustomFace namespace', () => {
-  it('declares command 0x902e sub 1 with uinForm (envelope reserved=1)', () => {
-    expect(MoveCustomFace.command).toBe(0x902e);
-    expect(MoveCustomFace.subCommand).toBe(1);
-    expect(MoveCustomFace.uinForm).toBe(true);
-  });
-
-  it('serializes opType=2 with the emoji list in f4 (repeated, in order)', () => {
-    const out = MoveCustomFace.serialize({} as any, {
-      emojis: [
-        { emojiId: EMOJI_A_ID, md5: EMOJI_A_MD5 },
-        { emojiId: EMOJI_B_ID, md5: EMOJI_B_MD5 },
-      ],
+    it('declares command 0x902e sub 1 with uinForm (envelope reserved=1)', () => {
+        expect(MoveCustomFace.command).toBe(0x902e);
+        expect(MoveCustomFace.subCommand).toBe(1);
+        expect(MoveCustomFace.uinForm).toBe(true);
     });
-    expect(out.opType).toBe(2);
-    expect(out.emojis?.map((e) => e.emojiId)).toEqual([EMOJI_A_ID, EMOJI_B_ID]);
-  });
 
-  it('routes to OidbSvcTrpcTcp.0x902e_1 and encodes the exact wire bytes (incl. envelope f12)', async () => {
-    const sender = makeSender();
-    await MoveCustomFace.invoke(sender, {
-      emojis: [
-        { emojiId: EMOJI_A_ID, md5: EMOJI_A_MD5 },
-        { emojiId: EMOJI_B_ID, md5: EMOJI_B_MD5 },
-      ],
+    it('serializes opType=2 with the emoji list in f4 (repeated, in order)', () => {
+        const out = MoveCustomFace.serialize({} as any, {
+            emojis: [
+                { emojiId: EMOJI_A_ID, md5: EMOJI_A_MD5 },
+                { emojiId: EMOJI_B_ID, md5: EMOJI_B_MD5 },
+            ],
+        });
+        expect(out.opType).toBe(2);
+        expect(out.emojis?.map((e) => e.emojiId)).toEqual([EMOJI_A_ID, EMOJI_B_ID]);
     });
-    const [cmd, bytes] = sender.sendRawPacket.mock.calls[0]!;
-    expect(cmd).toBe('OidbSvcTrpcTcp.0x902e_1');
-    expect(Buffer.from(bytes as Uint8Array).toString('hex')).toBe(MOVE_WIRE_HEX);
-    const env = protobuf_decode<OidbBase<CustomFaceMoveBody>>(bytes as Uint8Array);
-    expect(env.command).toBe(0x902e);
-    expect(env.reserved).toBe(1);
-    expect(env.body?.opType).toBe(2);
-    expect(env.body?.emojis?.map((e) => e.emojiId)).toEqual([EMOJI_A_ID, EMOJI_B_ID]);
-  });
 
-  it('resolves on success (retCode 0 / empty body)', async () => {
-    const sender = makeSender();
-    await expect(MoveCustomFace.invoke(sender, { emojis: [{ emojiId: EMOJI_A_ID, md5: EMOJI_A_MD5 }] }))
-      .resolves.toBeUndefined();
-  });
+    it('routes to OidbSvcTrpcTcp.0x902e_1 and encodes the exact wire bytes (incl. envelope f12)', async () => {
+        const sender = makeSender();
+        await MoveCustomFace.invoke(sender, {
+            emojis: [
+                { emojiId: EMOJI_A_ID, md5: EMOJI_A_MD5 },
+                { emojiId: EMOJI_B_ID, md5: EMOJI_B_MD5 },
+            ],
+        });
+        const [cmd, bytes] = sender.sendRawPacket.mock.calls[0]!;
+        expect(cmd).toBe('OidbSvcTrpcTcp.0x902e_1');
+        expect(Buffer.from(bytes as Uint8Array).toString('hex')).toBe(MOVE_WIRE_HEX);
+        const env = protobuf_decode<OidbBase<CustomFaceMoveBody>>(bytes as Uint8Array);
+        expect(env.command).toBe(0x902e);
+        expect(env.reserved).toBe(1);
+        expect(env.body?.opType).toBe(2);
+        expect(env.body?.emojis?.map((e) => e.emojiId)).toEqual([EMOJI_A_ID, EMOJI_B_ID]);
+    });
 
-  it('throws when the business body carries a non-zero retCode', () => {
-    expect(() => MoveCustomFace.deserialize({} as any, { retCode: 5, errMsg: 'bad' }))
-      .toThrow();
-  });
+    it('resolves on success (retCode 0 / empty body)', async () => {
+        const sender = makeSender();
+        await expect(
+            MoveCustomFace.invoke(sender, { emojis: [{ emojiId: EMOJI_A_ID, md5: EMOJI_A_MD5 }] }),
+        ).resolves.toBeUndefined();
+    });
+
+    it('throws when the business body carries a non-zero retCode', () => {
+        expect(() =>
+            MoveCustomFace.deserialize({} as any, { retCode: 5, errMsg: 'bad' }),
+        ).toThrow();
+    });
 });

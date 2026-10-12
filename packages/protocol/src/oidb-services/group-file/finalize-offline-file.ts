@@ -13,48 +13,50 @@
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
-  OidbOfflineFileFinalizeReq,
-  OidbOfflineFileFinalizeResp,
-  OidbOfflineFileMetadata,
+    OidbOfflineFileFinalizeReq,
+    OidbOfflineFileFinalizeResp,
+    OidbOfflineFileMetadata,
 } from '@snowluma/proto-defs/oidb-actions/media';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 export namespace FinalizeOfflineFile {
-  export const command = 0xE37;
-  export const subCommand = 800;
+    export const command = 0xe37;
+    export const subCommand = 800;
 
-  export interface Params {
-    senderUid: string;
-    receiverUid: string;
-    fileUuid: string;
-    fileHash: string;
-  }
+    export interface Params {
+        senderUid: string;
+        receiverUid: string;
+        fileUuid: string;
+        fileHash: string;
+    }
 
-  export type Deps = OidbSender;
+    export type Deps = OidbSender;
 
-  export const serialize = (_ctx: Deps, p: Params): OidbOfflineFileFinalizeReq => ({
-    subCommand: 800,
-    field2: 0,
-    body: {
-      senderUid: p.senderUid,
-      receiverUid: p.receiverUid,
-      fileUuid: p.fileUuid,
-      fileHash: p.fileHash,
-    },
-    field101: 3,
-    field102: 1,
-    field200: 1,
-  });
+    export const serialize = (_ctx: Deps, p: Params): OidbOfflineFileFinalizeReq => ({
+        subCommand: 800,
+        field2: 0,
+        body: {
+            senderUid: p.senderUid,
+            receiverUid: p.receiverUid,
+            fileUuid: p.fileUuid,
+            fileHash: p.fileHash,
+        },
+        field101: 3,
+        field102: 1,
+        field200: 1,
+    });
 
-  export const deserialize = (_ctx: Deps, body: OidbOfflineFileFinalizeResp): OidbOfflineFileMetadata =>
-    body.body?.metadata ?? {};
+    export const deserialize = (
+        _ctx: Deps,
+        body: OidbOfflineFileFinalizeResp,
+    ): OidbOfflineFileMetadata => body.body?.metadata ?? {};
 
-  export const encode = (env: OidbBase<OidbOfflineFileFinalizeReq>): Uint8Array =>
-    protobuf_encode<OidbBase<OidbOfflineFileFinalizeReq>>(env);
+    export const encode = (env: OidbBase<OidbOfflineFileFinalizeReq>): Uint8Array =>
+        protobuf_encode<OidbBase<OidbOfflineFileFinalizeReq>>(env);
 
-  export const decode = (bytes: Uint8Array): OidbBase<OidbOfflineFileFinalizeResp> =>
-    protobuf_decode<OidbBase<OidbOfflineFileFinalizeResp>>(bytes);
+    export const decode = (bytes: Uint8Array): OidbBase<OidbOfflineFileFinalizeResp> =>
+        protobuf_decode<OidbBase<OidbOfflineFileFinalizeResp>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<OidbOfflineFileMetadata> =>
-    invokeOidb(deps, FinalizeOfflineFile, params);
+    export const invoke = (deps: Deps, params: Params): Promise<OidbOfflineFileMetadata> =>
+        invokeOidb(deps, FinalizeOfflineFile, params);
 }
